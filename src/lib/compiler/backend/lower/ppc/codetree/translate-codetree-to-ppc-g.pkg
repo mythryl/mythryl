@@ -1,0 +1,1259 @@
+## translate-codetree-to-ppc-g.pkg
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial front-end code representation.
+#     2)  Deep Syntax is the second and final front-end code representation.
+#     3)  Polylambda is the first backend code representation, used only transitionally.
+#     4)  A-Normal  is the second backend code representation, and the first used for optimization.
+#     5)  Fate-Passing-Style is the third and chief backend upper-half code representation.
+#     6)  Codetree is the chief backend lower-half code representation.
+#     7)  X86 instruction format (or equivalent for other target machines) -- an abstract tree format.
+#     8)  X86 machine language   (or equivalent for other target machines) -- absolute binary code.
+#
+# For general context, see
+#
+#     src/lib/compiler/README
+#
+# This module implements conversion from Codetree to
+# abstract PPC machine instructions.  This is essentially
+# an instruction selection task.
+#
+# Our runtime invocation is from
+#
+#     src/lib/compiler/codegen/main/translate-fate-passing-style-to-binary-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ppc.make6
+
+
+
+# I've substantially modified this code generator to support the new Codetree.
+#
+# -- Allen Leung
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/ppc/ppc-codegen.pkg
+
+generic package translate_codetree_to_ppc_g (
+
+    package instruction_set
+	:
+	Instruction_Set_Ppc;				# Instruction_Set_Ppc	is from   src/lib/compiler/backend/lower/ppc/instruction/instruction-set-ppc.api
+
+    package pseudo_instrs
+	:
+	Ppc_Pseudo_Instr				# Ppc_Pseudo_Instr	is from   src/lib/compiler/backend/lower/ppc/codetree/ppc-pseudo-instruction.api
+	where instruction_set == instruction_set;
+
+    package extension_comp
+	:
+	Codetree_Extension_Default			# Codetree_Extension_Default	is from   src/lib/compiler/backend/lower/codetree/codetree-extension-default.api
+	where instruction_set == instruction_set
+	 also codetree == instruction_set::codetree;
+
+    # 
+    # Support 64 bit mode? 
+    # This should be set to FALSE for Lib7
+
+     bit64mode:  Bool; 
+
+    #
+    # Cost of multiplication in cycles
+
+     mult_cost:  Ref( Int );
+)
+
+{
+    package control_flow_graph =  extension_comp::control_flow_graph;
+    package instruction_set    =  instruction_set;
+    package cells              =  instruction_set::cells;
+    package codetree           =  instruction_set::codetree;
+    package codetree_stream    =  extension_comp::codetree_stream;
+
+    package i   = instruction_set;
+    package t   = codetree;
+    package ts  = codetree_stream;
+    package c   = cells;
+    package cb  = cells_basis;				# cells_basis		is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+    package w32 = unt32;				# unt32			is from   src/lib/std/unt32.pkg
+    package a   = lowcode_notes;			# lowcode_notes		is from   src/lib/compiler/backend/lower/instruction/lowcode-notes.pkg
+
+
+    fun error msg
+        =
+        lowcode_error_message::error("translate_codetree_to_ppc_g", msg);
+
+    Instruction_Stream  = ts::Stream( i::Instruction, cb::cell_set::Cellset, control_flow_graph::Control_Flow_Graph );
+    Codetree_Stream     = ts::Stream( t::Statement,  List( t::Expression ), control_flow_graph::Control_Flow_Graph); 
+
+
+    my (int_type, natural_widths)
+       =
+       if bit64mode  (64,[32, 64]); else (32,[32]);fi;
+
+    package codetree_stuff
+        =
+        codetree_stuff_g (					# codetree_stuff_g		is from   src/lib/compiler/backend/lower/codetree/codetree-stuff-g.pkg
+	    package codetree = codetree;
+	    package cells = c;
+	    int_type = int_type;
+	    natural_widths = natural_widths;
+	    Rep = SE | ZE | NEITHER;
+	    rep = NEITHER;
+	);
+
+    #########################
+    # Special instructions
+
+    fun mtlr r = i::MTSPR { rs=>r, spr=>c::lr };
+    fun mflr r = i::MFSPR { rt=>r, spr=>c::lr };
+
+    cr0 = c::reg cb::CONDITION_CODES 0;
+
+    ret = i::BCLR { bo=>i::ALWAYS, bf=>cr0, bit=>i::LT, lk=>FALSE, labels => [] };
+
+    fun slli32 { r, i, d }
+        = 
+	i::ROTATEI { oper=>i::RLWINM, ra=>d, rs=>r, sh=>i::IMMED_OP i, mb=>0, me=>THE (31-i) };
+
+    fun srli32 { r, i, d }
+        =
+	i::ROTATEI { oper=>i::RLWINM, ra=>d, rs=>r, sh=>i::IMMED_OP (int::(%) (32-i, 32)), mb=>i, me=>THE (31) };
+
+    fun copy' { dst, src, tmp }
+        =
+	i::COPY { kind => cb::REGISTER, size_in_bits => 32, dst, src, tmp };
+
+    fun fcopy' { dst, src, tmp }
+        =
+	i::COPY { kind => cb::FLOAT_REGISTER, size_in_bits => 64, dst, src, tmp };
+
+
+    #########################
+    # Integer multiplication 
+    #
+    generic package multiply32_g
+        =
+        codetree_mult_g (
+	   package instruction_set = instruction_set;
+	   package codetree = t;
+	   package cb= cells_basis;	# cells_basis	is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+	   int_type = 32;
+	    Arg  = { r1: cb::Cell, r2: cb::Cell, d: cb::Cell };
+	    Argi = { r: cb::Cell, i: Int, d: cb::Cell };
+
+	   fun mov { r, d } = copy' { dst => [d], src => [r], tmp=>NULL };
+	   fun add { r1, r2, d } = i::arith { oper=>i::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE };
+	   fun slli { r, i, d } = [i::BASE_INSTRUCTION (slli32 { r, i, d } )];
+	   fun srli { r, i, d } = [i::BASE_INSTRUCTION (srli32 { r, i, d } )];
+	   fun srai { r, i, d } = [i::arithi { oper=>i::SRAWI, rt=>d, ra=>r, im=>i::IMMED_OP i } ];
+	  );
+
+    package mulu32 = multiply32_g
+      (trapping = FALSE;
+       mult_cost = mult_cost;
+       fun addv { r1, r2, d } =[i::arith { oper=>i::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE } ];
+       fun subv { r1, r2, d } =[i::arith { oper=>i::SUBF, ra=>r2, rb=>r1, rt=>d, rc=>FALSE, oe=>FALSE } ];
+       sh1addv = NULL;
+       sh2addv = NULL;
+       sh3addv = NULL;
+      )
+      (signed = FALSE;);
+
+    package muls32 = multiply32_g
+      (trapping = FALSE;
+       mult_cost = mult_cost;
+       fun addv { r1, r2, d } =[i::arith { oper=>i::ADD, ra=>r1, rb=>r2, rt=>d, rc=>FALSE, oe=>FALSE } ];
+       fun subv { r1, r2, d } =[i::arith { oper=>i::SUBF, ra=>r2, rb=>r1, rt=>d, rc=>FALSE, oe=>FALSE } ];
+       sh1addv = NULL;
+       sh2addv = NULL;
+       sh3addv = NULL;
+      )
+      (signed = TRUE;);
+
+    package mult32 = multiply32_g
+      (trapping = TRUE;
+       mult_cost = mult_cost;
+       fun addv { r1, r2, d } = error "Mult32::addv";
+       fun subv { r1, r2, d } = error "Mult32::subv";
+       sh1addv = NULL;
+       sh2addv = NULL;
+       sh3addv = NULL;
+      )
+      (signed = TRUE;);
+
+    fun select_instructions
+	( instruction_stream
+              as 
+	      ts::instruction_stream::STREAM { emit=>emit_instruction, emit_comment, get_notes,
+		  define_local_label, define_global_label, emit_pseudo_op, add_note,
+		  begin_cluster, end_cluster, end_procedure, ...
+              }
+        )
+        = 
+	{ 
+	    emit = emit_instruction o i::BASE_INSTRUCTION;
+
+	    # Annotate an instruction:
+	    #
+	    fun annotate (instruction,[]) => instruction;
+	        annotate (instruction, note ! notes) => annotate (i::NOTE { instruction, note }, notes);
+            end;
+
+	    fun mark'(instruction, notes) = emit_instruction (annotate (instruction, notes));
+	    fun mark (instruction, notes) = emit_instruction (annotate (i::BASE_INSTRUCTION instruction, notes));
+
+	    # Label where trap is generated.   
+	    # For overflow trapping instructions, we generate a branch 
+	    # to this label.
+
+	    my trap_label:  Ref( Null_Or( label::Label ) ) = REF NULL; 
+	    zero_r = c::r0; 
+
+	    new_reg = c::new_reg;
+	    new_freg = c::new_freg;
+	    new_ccreg = c::new_cell cb::CONDITION_CODES;
+
+
+	    fun lt (x, y) =    t::machine_int::lt (32, x, y);
+	    fun le (x, y) =    t::machine_int::le (32, x, y);
+
+	    fun to_int mi =   t::machine_int::to_int (32, mi);
+
+	    fun li i =   t::machine_int::from_int (32, i);
+
+	    fun signed16 mi   = le(-0x8000, mi) and lt (mi, 0x8000);
+	    fun signed12 mi   = le(-0x800,  mi) and lt (mi, 0x800);
+	    fun unsigned16 mi = le (0,      mi) and lt (mi, 0x10000);
+	    fun unsigned5 mi  = le (0,      mi) and lt (mi, 32);
+	    fun unsigned6 mi  = le (0,      mi) and lt (mi, 64);
+
+	    fun move (rs, rd, notes)
+		=
+		if (cb::same_color (rs, rd) ) (); 
+		else mark'(copy' { dst => [rd], src => [rs], tmp=>NULL }, notes);
+                fi;
+
+	    fun fmove (fs, fd, notes)
+		=
+		if   (not (cb::same_color (fs, fd)))
+
+		     mark' (fcopy' { dst => [fd], src => [fs], tmp => NULL }, notes);
+		fi;
+
+	    fun ccmove (ccs, ccd, notes)
+		  =
+		  if   (not (cb::same_color (ccd, ccs)))
+
+		       mark (i::MCRF { bf=>ccd, bfa=>ccs }, notes);
+		  fi;
+
+	    fun copy (dst, src, notes)
+		=
+		mark'(copy' { dst, src,
+			   tmp => case dst    [_] => NULL; 
+					   _ => THE (i::DIRECT (new_reg()));
+                                  esac }, notes);
+
+	    fun fcopy (dst, src, notes)
+		=
+		mark'(fcopy' { dst, src, 
+			    tmp=>case dst    [_] => NULL; 
+					   _ => THE (i::FDIRECT (new_freg())); esac }, notes);
+
+	    fun emit_branch { bo, bf, bit, address, lk }
+		= 
+		{   fall_thr_lab = label::make_anonymous_label();
+		    fall_thr_operand = i::LABEL_OP (t::LABEL fall_thr_lab);
+
+		    emit (i::BC { bo, bf, bit, address, lk, fall=>fall_thr_operand } );
+		    define_local_label fall_thr_lab;
+		};
+
+	    fun split n
+		=
+		{   wtoi = unt32::to_int_x;
+		    w = t::machine_int::to_word32 (32, n);
+		    hi = w32::(>>>) (w, 0u16);
+		    lo = w32::bitwise_and (w, 0u65535);
+
+		    my (high, low)
+			= 
+			if (w32::(<) (lo, 0u32768))  (hi, lo);
+			else                         (hi+0u1, lo - 0u65536);
+                        fi;
+
+		    (wtoi high, wtoi low); 
+	      };
+
+	    fun load_immed_hi_lo (0, lo, rt, notes)
+		    =>
+		    mark (i::ARITHI { oper=>i::ADDI, rt, ra=>zero_r, im=>i::IMMED_OP lo }, notes);
+
+		load_immed_hi_lo (hi, lo, rt, notes)
+		    => 
+		    {   mark (i::ARITHI { oper=>i::ADDIS, rt, ra=>zero_r, im=>i::IMMED_OP hi }, notes);
+
+			if   (lo != 0)
+
+			     emit (i::ARITHI { oper=>i::ADDI, rt, ra=>rt, im=>i::IMMED_OP lo } );
+			fi;
+		    };
+	    end;
+
+	    fun load_immed (n, rt, notes)
+		= 
+		if   (signed16 n)
+
+		     mark (i::ARITHI { oper=>i::ADDI, rt, ra=>zero_r, im=>i::IMMED_OP (to_int (n)) }, notes);
+		else
+		     my (hi, lo) = split n;
+		     load_immed_hi_lo (hi, lo, rt, notes); 
+		fi;
+
+	    fun load_labexp (lambda_expression, rt, notes)
+		= 
+		mark (i::ARITHI { oper=>i::ADDI, rt, ra=>zero_r, im=>i::LABEL_OP lambda_expression }, notes);
+
+	    fun immed_operand range (e1, e2 as t::LITERAL i)
+		    =>
+		    (expr e1, if (range i ) i::IMMED_OP (to_int i); else i::REG_OP (expr e2);fi);
+
+		immed_operand _ (e1, x as t::CONST _) => (expr e1, i::LABEL_OP x);
+		immed_operand _ (e1, x as t::LABEL _) => (expr e1, i::LABEL_OP x);
+
+		immed_operand _ (e1, t::LABEXP lambda_expression)
+                    =>
+                    (expr e1, i::LABEL_OP lambda_expression);
+
+		immed_operand _ (e1, e2)
+                    =>
+                    (expr e1, i::REG_OP (expr e2));
+	    end 
+
+	    also
+	    fun comm_immed_operand range (e1 as t::LITERAL _, e2)
+                    => 
+		    immed_operand range (e2, e1);
+
+	        comm_immed_operand range (e1 as t::CONST _, e2)
+                    => 
+		    immed_operand range (e2, e1);
+
+	        comm_immed_operand range (e1 as t::LABEL _, e2)
+                    =>
+		    immed_operand range (e2, e1);
+
+	        comm_immed_operand range (e1 as t::LABEXP _, e2)
+                    =>
+		    immed_operand range (e2, e1);
+
+	        comm_immed_operand range arg
+                    =>
+                    immed_operand range arg;
+            end 
+
+	    also
+	    fun e_comm_imm range (oper, operi, e1, e2, rt, notes)
+		= 
+		case (comm_immed_operand range (e1, e2))
+
+		    (ra, i::REG_OP rb)
+                        =>
+		        mark (i::ARITH { oper, ra, rb, rt, rc=>FALSE, oe=>FALSE }, notes);
+
+		    (ra, operand)
+                        => 
+		        mark (i::ARITHI { oper=>operi, ra, im=>operand, rt }, notes);
+		esac
+
+
+	    # Compute a base/displacement effective address
+	    #
+	    also
+	    fun address (size, t::ADD(_, e, t::LITERAL i))
+		    =>
+		    {   ra = expr e;
+
+		        if (size i)
+
+                            (ra, i::IMMED_OP (to_int i));
+                        else 
+			    my (hi, lo) = split i; 
+
+			    tmp_r = new_reg();
+
+			    emit (i::ARITHI { oper=>i::ADDIS, rt=>tmp_r, ra, im=>i::IMMED_OP hi } );
+
+			    (tmp_r, i::IMMED_OP lo);
+			fi;
+		    };
+
+	       address (size, t::ADD (type, t::LITERAL i, e))
+		   =>
+		   address (size, t::ADD (type, e, t::LITERAL i));
+
+	       address (size, expression as t::SUB (type, e, t::LITERAL i))
+		   => 
+		   (address (size, t::ADD (type, e, t::LITERAL (t::machine_int::negt (32, i)))) 
+		   except
+		       OVERFLOW =  (expr expression, i::IMMED_OP 0));
+
+	       address (size, t::ADD(_, e1, e2))
+		   =>
+		   (expr e1, i::REG_OP (expr e2));
+
+	       address (size, e)
+		   =>
+		   (expr e, i::IMMED_OP 0);
+	    end 
+
+	     # Convert lowcode to cellset: 
+	     also
+	     fun cellset lowcode
+		 =
+		 g (lowcode, c::empty)
+                 where
+		     add_ccreg = cb::cell_set::add; 
+
+		     fun g ([], acc) => acc;
+			 g (t::INT_EXPRESSION (t::REG(_, r)) ! regs, acc)  => g (regs, c::add_reg (r, acc));
+			 g (t::FLOAT_EXPRESSION (t::FREG(_, f)) ! regs, acc) => g (regs, c::add_freg (f, acc));
+			 g (t::BOOL_EXPRESSION (t::CC(_, cc)) ! regs, acc)  => g (regs, add_ccreg (cc, acc));
+			 g (t::BOOL_EXPRESSION (t::FCC(_, cc)) ! regs, acc) => g (regs, add_ccreg (cc, acc));
+			 g(_ ! regs, acc) => g (regs, acc);
+		     end;
+		 end
+
+
+	    # Translate a statement, and annotate it   
+	    #
+	    also
+	    fun statement (t::MOVE_INT(_, rd, e), notes) => do_expr (e, rd, notes);
+		statement (t::MOVE_FLOAT(_, fd, e), notes) => do_float_expression (e, fd, notes);
+		statement (t::MOVE_BOOL (ccd, bool_expression), notes) => do_bool_expression (bool_expression, ccd, notes);
+		statement (t::COPY_INTS(_, dst, src), notes) => copy (dst, src, notes);
+		statement (t::COPY_FLOATS(_, dst, src), notes) => fcopy (dst, src, notes);
+
+		statement (t::JUMP (t::LABEXP lambda_expression, labs), notes)
+		    =>
+		    mark (i::BB { address=>i::LABEL_OP lambda_expression, lk=>FALSE }, notes);
+
+		statement (t::JUMP (x as (t::LABEL _ | t::CONST _), labs), notes)
+		    =>
+		    mark (i::BB { address=>i::LABEL_OP x, lk=>FALSE }, notes);
+
+		statement (t::JUMP (int_expression, labs), notes)
+		    =>
+		    {   rs = expr (int_expression);
+		        emit (mtlr (rs));
+			mark (i::BCLR { bo=>i::ALWAYS, bf=>cr0, bit=>i::LT, lk=>FALSE, labels=>labs }, notes);
+		    };
+
+		statement (t::CALL { funct, targets, defs, uses, region, pops, ... }, notes)
+		    => 
+		    call (funct, targets, defs, uses, region, [], notes, pops); 
+
+		statement (t::FLOW_TO (t::CALL { funct, targets, defs, uses, region, pops, ... }, 
+				cut_to), notes) => 
+		   call (funct, targets, defs, uses, region, cut_to, notes, pops); 
+
+		statement (t::RET flow, notes) => mark (ret, notes);
+		statement (t::STORE (type, ea, data, mem), notes) => store (type, ea, data, mem, notes);
+		statement (t::FSTORE (type, ea, data, mem), notes) => fstore (type, ea, data, mem, notes);
+		statement (t::BCC (cc, lab), notes) => branch (cc, lab, notes);
+		statement (t::DEFINE l, _) => define_local_label l;
+		statement (t::LIVE s, notes) => mark'(i::LIVE { regs=>cellset s, spilled=>c::empty }, notes);
+		statement (t::DEAD s, notes) => mark'(i::DEAD { regs=>cellset s, spilled=>c::empty }, notes);
+		statement (t::NOTE (s, a), notes) => statement (s, a ! notes);
+		statement (t::EXT s, notes) => extension_comp::compile_sext (reducer()) { statement=>s, notes };
+		statement (s, _) => do_stmts (codetree_stuff::compile_statement s);
+	    end 
+
+	    also
+	    fun call (funct, targets, defs, uses, region, cuts_to, notes, 0)
+		    => 
+		    {   defs =  cellset (defs);
+			uses =  cellset (uses);
+
+			emit (mtlr (expr funct));
+
+			mark (i::CALL { def=>defs, uses, cuts_to, mem=>region }, notes);
+		    };
+
+		call _
+		    =>
+		    error "pops!=0 not implemented";
+	    end 
+
+	    also
+	    fun branch (t::CMP(_, _, t::LITERAL _, t::LITERAL _), _, _) => error "branch (LITERAL, LITERAL)";
+
+		branch (t::CMP (type, cc, e1 as t::LITERAL _, e2), lab, notes)
+                    => 
+		    {   cc' = t::basis::swap_cond cc;
+		        branch (t::CMP (type, cc', e2, e1), lab, notes);
+		    };
+
+		branch (cmp as t::CMP (type, cond, e1, e2), lab, notes)
+                    =>
+                    {   my (bo, cf)
+                            = 
+			    case cond  
+			       t::LT  => (i::TRUE,  i::LT);
+			       t::LE  => (i::FALSE, i::GT);
+			       t::EQ  => (i::TRUE,  i::EQ);
+			       t::NE  => (i::FALSE, i::EQ);
+			       t::GT  => (i::TRUE,  i::GT);
+			       t::GE  => (i::FALSE, i::LT);
+			       t::LTU => (i::TRUE,  i::LT);
+			       t::LEU => (i::FALSE, i::GT);
+			       t::GTU => (i::TRUE,  i::GT);
+			       t::GEU => (i::FALSE, i::LT);
+			       (t::SETCC | t::MISC_COND _) => error "branch (CMP)";
+			   esac;
+
+			ccreg = if TRUE  cr0; else new_ccreg();fi; #  XXX 
+			address = i::LABEL_OP (t::LABEL lab);
+
+			fun default ()
+                            = 
+			    {   do_bool_expression (cmp, ccreg, []);
+			        emit_branch { bo, bf=>ccreg, bit=>cf, address, lk=>FALSE };
+                            };
+
+			case (e1, e2)
+
+			    (t::BITWISEAND(_, a1, a2), t::LITERAL z)
+				=>
+				if (z == 0 ) 
+
+				    case (comm_immed_operand unsigned16 (a1, a2))
+
+				        (ra, i::REG_OP rb)
+                                            =>
+					    emit (i::ARITH { oper=>i::AND, ra, rb, rt=>new_reg(), rc=>TRUE, oe=>FALSE } );
+
+				        (ra, operand)
+                                            =>
+					    emit (i::ARITHI { oper=>i::ANDI_RC, ra, im=>operand, rt=>new_reg() } );
+				    esac;
+
+				    branch (t::CC (cond, cr0), lab, notes);
+				else 
+				    default();
+                                fi;
+
+			    _ => default();
+                        esac;
+		    };
+
+		branch (t::CC (cc, cr), lab, notes)
+                    => 
+		    {   address=i::LABEL_OP (t::LABEL lab);
+
+			fun branch (bo, bit)
+                            = 
+			    emit_branch { bo, bf=>cr, bit, address, lk=>FALSE };
+
+			case cc    
+			    t::EQ => branch (i::TRUE, i::EQ);
+			    t::NE => branch (i::FALSE, i::EQ);
+
+			   (t::LT | t::LTU) => branch (i::TRUE, i::LT);
+			   (t::LE | t::LEU) => branch (i::FALSE, i::GT);
+			   (t::GE | t::GEU) => branch (i::FALSE, i::LT);
+			   (t::GT | t::GTU) => branch (i::TRUE, i::GT);
+
+			   (t::SETCC | t::MISC_COND _) => error "branch (CC)";
+                        esac;
+		    };  
+
+		branch (cmp as t::FCMP (fty, cond, _, _), lab, notes)
+                    => 
+		    {   ccreg = if TRUE  cr0; else new_ccreg();fi; #  XXX 
+			lab_op = i::LABEL_OP (t::LABEL lab);
+
+			fun branch (bo, bf, bit)
+                            = 
+			    emit_branch { bo, bf, bit, address=>lab_op, lk=>FALSE };
+
+			fun test2bits (bit1, bit2)
+			    = 
+			    {   ba=(ccreg, bit1);
+				bb=(ccreg, bit2);
+				bt=(ccreg, i::FL);
+			        emit (i::CCARITH { oper=>i::CROR, bt, ba, bb } );
+				branch (i::TRUE, ccreg, i::FL);
+			    };
+
+		        do_bool_expression (cmp, ccreg, []);
+
+		        case cond
+			    t::FEQ  => branch (i::TRUE,  ccreg, i::FE);
+			    t::FNEU => branch (i::FALSE,  ccreg, i::FE);
+			    t::FUO  => branch (i::TRUE,  ccreg, i::FU);
+			    t::FGLE => branch (i::FALSE,  ccreg, i::FU);
+			    t::FGT  => branch (i::TRUE,  ccreg, i::FG);
+			    t::FGE  => test2bits (i::FG, i::FE);
+			    t::FGTU => test2bits (i::FU, i::FG);
+			    t::FGEU => branch (i::FALSE,  ccreg, i::FL);
+			    t::FLT  => branch (i::TRUE,  ccreg, i::FL);
+			    t::FLE  => test2bits (i::FL, i::FE);
+			    t::FLTU => test2bits (i::FU, i::FL);
+			    t::FLEU => branch (i::FALSE,  ccreg, i::FG);
+			    t::FNE  => test2bits (i::FL, i::FG);
+			    t::FEQU => test2bits (i::FU, i::FE);
+			    (t::SETFCC | t::MISC_FCOND _) => error "branch (FCMP)";
+			esac;
+		    };
+
+		branch _ => error "branch";
+	    end 
+
+	    also
+	    fun do_statement s
+                    =
+                    statement (s,[]) 
+
+	    also
+	    fun do_stmts ss
+                =
+                apply do_statement ss
+
+	    # Emit an integer store:
+            #
+	    also
+	    fun store (type, ea, data, mem, notes)
+                = 
+		{   my (st, size)
+                        =
+                        case (type, codetree_stuff::size::size ea)   
+			    (8, 32)  => (i::STB, signed16);
+			    (8, 64)  => (i::STBE, signed12);
+			    (16, 32) => (i::STH, signed16);
+			    (16, 64) => (i::STHE, signed12);
+			    (32, 32) => (i::STW, signed16);
+			    (32, 64) => (i::STWE, signed12);
+			    (64, 64) => (i::STDE, signed12);
+			    _  => error "store";
+                        esac;
+
+		    my (r, disp) = address (size, ea);
+
+		    mark (i::ST { st, rs=>expr data, ra=>r, d=>disp, mem }, notes); }
+
+	    # Emit a floating point store:
+	    #
+	    also
+	    fun fstore (type, ea, data, mem, notes)
+                =
+		{   my (st, size)
+                        =
+                        case (type, codetree_stuff::size::size ea)   
+			    (32, 32) => (i::STFS, signed16);
+			    (32, 64) => (i::STFSE, signed12);
+			    (64, 32) => (i::STFD, signed16);
+			    (64, 64) => (i::STFDE, signed12);
+			    _  => error "fstore";
+                        esac;
+
+		    my (r, disp) = address (size, ea);
+
+		    mark (i::STF { st, fs=>float_expression data, ra=>r, d=>disp, mem }, notes); }
+
+	    also
+	    fun subf_immed (i, ra, rt, notes)
+                = 
+		if (signed16 i )
+		   mark (i::ARITHI { oper=>i::SUBFIC, rt, ra, im=>i::IMMED_OP (to_int i) }, notes);
+		else
+		   mark (i::ARITH { oper=>i::SUBF, rt, ra, rb=>expr (t::LITERAL i), 
+				rc=>FALSE, oe=>FALSE }, notes);
+                fi
+
+	    # Generate an arithmetic instruction 
+	    #
+	    also
+	    fun arith (oper, e1, e2, rt, notes)
+                = 
+		mark (i::ARITH { oper, ra=>expr e1, rb=>expr e2, rt, oe=>FALSE, rc=>FALSE },
+		     notes)
+
+	    # Generate a trapping instruction 
+	    also
+	    fun arith_trapping (oper, e1, e2, rt, notes)
+                = 
+		{   ra = expr e1; rb = expr e2;
+		    mark (i::ARITH { oper, ra, rb, rt, oe=>TRUE, rc=>TRUE }, notes);
+		    overflow_trap();
+		}
+
+	    # Generate an overflow trap:
+	    #
+	    also
+	    fun overflow_trap ()
+                =
+		{   label = case *trap_label   
+
+				NULL => {   l = label::make_anonymous_label();
+					    trap_label := THE l;
+                                            l;
+                                        };
+				THE l => l;
+                            esac;
+
+		    emit_branch { bo=>i::TRUE, bf=>cr0, bit=>i::SO, lk=>FALSE,
+			       address=>i::LABEL_OP (t::LABEL label) };
+		}
+
+	    # Generate a load and annotate the instruction 
+	    #
+	    also
+	    fun load (ld32, ld64, ea, mem, rt, notes)
+		= 
+		{   my (ld, size)
+			= 
+			if (bit64mode and codetree_stuff::size::size ea == 64 )
+			     (ld64, signed12); 
+			else (ld32, signed16);
+                        fi;
+
+		    my (r, disp) = address (size, ea);
+
+		    mark (i::LL { ld, rt, ra=>r, d=>disp, mem }, notes);
+		}
+
+	    # Generate a RIGHTSHIFT shift operation
+            # and annotate the instruction:
+            #
+	    also
+	    fun sra (oper, operi, e1, e2, rt, notes)
+		= 
+		case (immed_operand unsigned5 (e1, e2))
+
+		    (ra, i::REG_OP rb)
+                        => 
+		        mark (i::ARITH { oper, rt, ra, rb, rc=>FALSE, oe=>FALSE }, notes);
+
+		    (ra, rb)
+                        => 
+			mark (i::ARITHI { oper=>operi, rt, ra, im=>rb }, notes);
+		esac
+
+	    # Generate a RIGHTSHIFTU shift operation
+            # and annotate the instruction:
+            #
+	    also
+	    fun srl32 (e1, e2, rt, notes)
+		= 
+		case (immed_operand unsigned5 (e1, e2))
+
+		    (ra, i::IMMED_OP n)
+                        =>
+		        mark (srli32 { r=>ra, i=>n, d=>rt }, notes);
+
+		    (ra, rb)
+                        =>
+			mark (i::ARITH { oper=>i::SRW, rt, ra, rb=>reduce_opn rb,
+				     rc=>FALSE, oe=>FALSE }, notes);
+		esac
+
+	    also
+	    fun sll32 (e1, e2, rt, notes)
+		= 
+		case (immed_operand unsigned5 (e1, e2))   
+
+		    (ra, rb as i::IMMED_OP n)
+                        =>
+		        mark (slli32 { r=>ra, i=>n, d=>rt }, notes);
+
+		    (ra, rb)
+                        =>
+		        mark (i::ARITH { oper=>i::SLW, rt, ra, rb=>reduce_opn rb,
+				 rc=>FALSE, oe=>FALSE }, notes);
+		esac
+
+	    # Generate a subtract operation:
+	    #
+	    also
+	    fun subtract (type, e1, e2 as t::LITERAL i, rt, notes)
+                    =>
+		    do_expr (t::ADD (type, e1, t::LITERAL (t::machine_int::negt (32, i))), rt, notes)
+		    except
+                        OVERFLOW
+			    =
+			    mark (i::ARITH { oper=>i::SUBF, rt, ra=>expr e2, 
+				     rb=>expr e1, oe=>FALSE, rc=>FALSE }, notes);
+
+		subtract (type, t::LITERAL i, e2, rt, notes)
+                    =>
+                    subf_immed (i, expr e2, rt, notes);
+
+		subtract (type, x as (t::CONST _ | t::LABEL _), e2, rt, notes)
+                    =>
+		    mark (i::ARITHI { oper=>i::SUBFIC, rt, ra=>expr e2,
+				  im=>i::LABEL_OP x }, notes);
+
+		subtract (type, e1, e2, rt, notes)
+		    =>
+		    {   rb = expr e1; ra = expr e2;
+		        mark (i::ARITH { oper=>i::SUBF, rt, ra, rb, rc=>FALSE, oe=>FALSE }, notes);
+		    };
+            end 
+
+	    # Generate optimized multiplication code:
+	    #
+	    also
+	    fun multiply (type, oper, operi, gen_mult, e1, e2, rt, notes)
+                =
+		{   fun nonconst (e1, e2)
+                        = 
+			[annotate( 
+			   case (comm_immed_operand signed16 (e1, e2))   
+			     (ra, i::REG_OP rb) => 
+			       i::arith { oper, ra, rb, rt, oe=>FALSE, rc=>FALSE };
+			    (ra, im) => i::arithi { oper=>operi, ra, im, rt }; esac,
+			   notes)];
+
+		    fun const (e, i)
+                        =
+			{   r = expr e;
+			    gen_mult { r, i=>to_int (i), d=>rt }
+			    except
+                                _ = nonconst (t::REG (type, r), t::LITERAL i);
+			};
+
+		    instrs
+                        =
+		        case (e1, e2)   
+			    (_, t::LITERAL i) => const (e1, i);
+			    (t::LITERAL i, _) => const (e2, i);
+			    _            => nonconst (e1, e2);
+                        esac;
+
+		    apply emit_instruction instrs;
+                }
+
+	    also
+	    fun divu32 x = mulu32::divide { mode=>t::TO_ZERO, statement=>do_statement } x 
+
+	    also
+	    fun divs32 x = muls32::divide { mode=>t::TO_ZERO, statement=>do_statement } x
+
+	    also
+	    fun divt32 x = mult32::divide { mode=>t::TO_ZERO, statement=>do_statement } x 
+
+	    # Generate optimized division code:
+	    #
+	    also
+	    fun divide (type, oper, gen_div, e1, e2, rt, overflow, notes)
+		=
+		{   fun nonconst (e1, e2)
+			= 
+			{   mark (i::ARITH { oper, ra=>expr e1, rb=>expr e2, rt,
+				     oe=>overflow, rc=>overflow }, notes);
+			    if overflow  overflow_trap(); fi;
+			};
+
+		    fun const (e, i)
+			=
+			{ r = expr e;
+			  apply emit_instruction (gen_div { r, i=>to_int (i), d=>rt } )
+			    except _ => nonconst (t::REG (type, r), t::LITERAL i); end ;
+			};
+
+		  case (e1, e2)
+
+		      (_, t::LITERAL i) =>    const (e1,  i);
+		      _            => nonconst (e1, e2);
+		  esac;
+		}
+
+	    # Reduce an operand into a register:
+	    #
+	    also
+	    fun reduce_opn (i::REG_OP r)
+                    =>
+                    r;
+
+	        reduce_opn opn
+		    =>
+		    {   rt = new_reg();
+		        emit (i::ARITHI { oper=>i::ADDI, rt, ra=>zero_r, im=>opn } );
+			rt;
+		    };
+            end 
+
+	    # Reduce an expression, and return
+            # the register holding the value.
+	    #
+	    also
+	    fun expr (int_expression as t::REG(_, r))
+                    =>
+		    if (cb::same_color (c::lr, r) )
+		        rt = new_reg ();
+		        do_expr (int_expression, rt, []);
+                        rt;
+		    else
+                        r;
+                    fi;
+
+	        expr (int_expression)
+                    => 
+		    {   rt = new_reg();
+		        do_expr (int_expression, rt, []);
+                        rt;
+                    };
+            end  
+
+	    # do_expr (e, rt, notes) -- 
+	    #    Reduce the expression e, assign it to rd,
+	    #    and annotate the expression with notes
+	    #
+	    also
+	    fun do_expr (e, rt, notes)
+                 =
+		 if (cb::same_color (rt, c::lr) ) 
+		     rt = new_reg();
+                     do_expr (e, rt,[]);
+                     mark (mtlr rt, notes);
+		 else
+		     case e   
+		         t::REG(_, rs)  => if (cb::same_color (rs, c::lr))  mark (mflr rt, notes);
+				           else                             move (rs, rt, notes);
+                                           fi;
+
+			 t::LITERAL i        => load_immed (i, rt, notes);
+			 t::LABEXP lambda_expression => load_labexp (lambda_expression, rt, notes);
+			 t::CONST _     => load_labexp (e, rt, notes);
+			 t::LABEL _     => load_labexp (e, rt, notes);
+
+			  #  All data widths 
+			 t::ADD(_, e1, e2) => e_comm_imm signed16 (i::ADD, i::ADDI, e1, e2, rt, notes);
+			 t::SUB (type, e1, e2) => subtract (type, e1, e2, rt, notes);
+
+			  #  Special PPC bit operations 
+			 t::BITWISEAND(_, e1, t::BITWISENOT(_, e2)) => arith (i::ANDC, e1, e2, rt, notes);
+			 t::BITWISEOR(_, e1, t::BITWISENOT(_, e2))  => arith (i::ORC, e1, e2, rt, notes);
+			 t::BITWISEXOR(_, e1, t::BITWISENOT(_, e2)) => arith (i::EQV, e1, e2, rt, notes);
+			 t::BITWISEEQV(_, e1, e2)           => arith (i::EQV, e1, e2, rt, notes);
+			 t::BITWISEAND(_, t::BITWISENOT(_, e1), e2) => arith (i::ANDC, e2, e1, rt, notes);
+			 t::BITWISEOR(_, t::BITWISENOT(_, e1), e2)  => arith (i::ORC, e2, e1, rt, notes);
+			 t::BITWISEXOR(_, t::BITWISENOT(_, e1), e2) => arith (i::EQV, e2, e1, rt, notes);
+			 t::BITWISENOT(_, t::BITWISEAND(_, e1, e2)) => arith (i::NAND, e1, e2, rt, notes);
+			 t::BITWISENOT(_, t::BITWISEOR(_, e1, e2))  => arith (i::NOR, e1, e2, rt, notes);
+			 t::BITWISENOT(_, t::BITWISEXOR(_, e1, e2)) => arith (i::EQV, e1, e2, rt, notes);
+
+			 t::BITWISEAND(_, e1, e2)
+                             => 
+			     e_comm_imm unsigned16 (i::AND, i::ANDI_RC, e1, e2, rt, notes);
+
+			 t::BITWISEOR (_, e1, e2) => e_comm_imm unsigned16 (i::OR,  i::ORI,  e1, e2, rt, notes);
+			 t::BITWISEXOR(_, e1, e2) => e_comm_imm unsigned16 (i::XOR, i::XORI, e1, e2, rt, notes);
+
+			 #  32 bit support 
+			 t::MULU (32, e1, e2) => multiply (32, i::MULLW, i::MULLI,
+							 mulu32::multiply, e1, e2, rt, notes);
+			 t::DIVU (32, e1, e2) => divide (32, i::DIVWU, divu32, e1, e2, rt, FALSE, notes);
+
+			 t::MULS (32, e1, e2) => multiply (32, i::MULLW, i::MULLI,
+							 muls32::multiply, e1, e2, rt, notes);
+
+			 t::DIVS (t::DIV_TO_ZERO, 32, e1, e2)
+                             =>
+			     # On the PPC we turn overflow checking on despite this
+			     # being DIVS.  That's because divide-by-zero is also
+			     # indicated through "overflow" instead of causing a trap.
+			     #
+			     divide (32, i::DIVW, divs32, e1, e2, rt,
+				    TRUE /* !! */,
+				    notes);
+
+			 t::ADDT (32, e1, e2) => arith_trapping (i::ADD, e1, e2, rt, notes);
+			 t::SUBT (32, e1, e2) => arith_trapping (i::SUBF, e2, e1, rt, notes);
+			 t::MULT (32, e1, e2) => arith_trapping (i::MULLW, e1, e2, rt, notes);
+
+			 t::DIVT (t::DIV_TO_ZERO, 32, e1, e2)
+                             =>
+			     divide (32, i::DIVW, divt32, e1, e2, rt, TRUE, notes);
+
+			 t::RIGHTSHIFT  (32, e1, e2)  => sra (i::SRAW, i::SRAWI, e1, e2, rt, notes);
+			 t::RIGHTSHIFTU (32, e1, e2)  => srl32 (e1, e2, rt, notes);
+			 t::LEFTSHIFT   (32, e1, e2)  => sll32 (e1, e2, rt, notes);
+
+			 # 64 bit support
+
+			 t::RIGHTSHIFT (64, e1, e2) => sra (i::SRAD, i::SRADI, e1, e2, rt, notes);
+#			 t::RIGHTSHIFTU (64, e1, e2) => srl (32, i::SRD, i::RLDINM, e1, e2, rt, notes)
+#			 t::LEFTSHIFT (64, e1, e2) => sll (32, i::SLD, i::RLDINM, e1, e2, rt, notes)
+
+			 # loads
+			 t::LOAD (8, ea, mem)   => load (i::LBZ, i::LBZE, ea, mem, rt, notes);
+			 t::LOAD (16, ea, mem) => load (i::LHZ, i::LHZE, ea, mem, rt, notes);
+			 t::LOAD (32, ea, mem) => load (i::LWZ, i::LWZE, ea, mem, rt, notes);
+			 t::LOAD (64, ea, mem) => load (i::LDE, i::LDE, ea, mem, rt, notes);
+
+			 # Conditional expression 
+			 t::COND expression
+                             =>
+			     do_stmts (codetree_stuff::compile_cond { expression, notes, rd=>rt } );
+
+			 #  Misc 
+			 t::LET (s, e) => { do_statement s; do_expr (e, rt, notes);};
+			 t::MARK (e, a::MARKREG f) => { f rt; do_expr (e, rt, notes);};
+			 t::MARK (e, a) => do_expr (e, rt, a ! notes);
+			 t::REXT e => extension_comp::compile_rext (reducer()) { e, rd=>rt, notes };
+			 e => do_expr (codetree_stuff::compile_int_expression e, rt, notes);
+		     esac;
+                fi
+
+	    # Generate a floating point load:
+	    #
+	    also
+	    fun fload (ld32, ld64, ea, mem, ft, notes)
+                =
+		{   my (ld, size)
+                        = 
+		        if (bit64mode and codetree_stuff::size::size ea == 64)  (ld64, signed12); 
+		        else                                                    (ld32, signed16);
+                        fi;
+
+		    my (r, disp) = address (size, ea);
+
+		    mark (i::LF { ld, ft, ra=>r, d=>disp, mem }, notes);
+                }
+
+	    # Generate a floating-point binary operation:
+	    #
+	    also
+	    fun fbinary (oper, e1, e2, ft, notes)
+                = 
+		mark (i::FARITH { oper, fa=>float_expression e1, fb=>float_expression e2, ft, rc=>FALSE }, notes)
+
+	    # Generate a floating-point 3-operand operation
+	    # These are of the form
+	    #     +/- e1 * e3 +/- e2
+	    #
+	    also
+	    fun f3 (oper, e1, e2, e3, ft, notes)
+                =
+		mark (i::FARITH3 { oper, fa=>float_expression e1, fb=>float_expression e2, fc=>float_expression e3,
+			       ft, rc=>FALSE }, notes)
+
+	    # Generate a floating-point unary operation 
+	    also
+	    fun funary (oper, e, ft, notes)
+                = 
+		mark (i::FUNARY { oper, ft, fb=>float_expression e, rc=>FALSE }, notes)
+
+	    # Reduce the expression float_expression,
+            # return the register that holds
+	    # the value. 
+	    #
+	    also
+	    fun float_expression (t::FREG(_, f))
+                    =>
+                    f;
+
+	        float_expression e
+                    => 
+		    {   ft = new_freg();
+		        do_float_expression (e, ft, []);
+                        ft;
+                    };
+            end 
+
+	    # do_expr (float_expression, ft, notes) -- 
+	    #   Reduce the expression float_expression,
+	    #  and assign it to ft. Also annotate float_expression. 
+	    #
+	    also
+	    fun do_float_expression (e, ft, notes)
+                =
+		case e   
+		    t::FREG(_, fs) => fmove (fs, ft, notes);
+
+		    #  Single precision support 
+		    t::FLOAD (32, ea, mem) => fload (i::LFS, i::LFSE, ea, mem, ft, notes);
+
+		    #  special 3 operand floating point arithmetic 
+		    t::FADD (32, t::FMUL (32, a, c), b) => f3 (i::FMADDS, a, b, c, ft, notes);
+		    t::FADD (32, b, t::FMUL (32, a, c)) => f3 (i::FMADDS, a, b, c, ft, notes);
+		    t::FSUB (32, t::FMUL (32, a, c), b) => f3 (i::FMSUBS, a, b, c, ft, notes);
+		    t::FSUB (32, b, t::FMUL (32, a, c)) => f3 (i::FNMSUBS, a, b, c, ft, notes);
+		    t::FNEG (32, t::FADD (32, t::FMUL (32, a, c), b)) => f3 (i::FNMADDS, a, b, c, ft, notes);
+		    t::FNEG (32, t::FADD (32, b, t::FMUL (32, a, c))) => f3 (i::FNMADDS, a, b, c, ft, notes);
+		    t::FSUB (32, t::FNEG (32, t::FMUL (32, a, c)), b) => f3 (i::FNMADDS, a, b, c, ft, notes);
+
+		    t::FADD (32, e1, e2) => fbinary (i::FADDS, e1, e2, ft, notes);
+		    t::FSUB (32, e1, e2) => fbinary (i::FSUBS, e1, e2, ft, notes);
+		    t::FMUL (32, e1, e2) => fbinary (i::FMULS, e1, e2, ft, notes);
+		    t::FDIV (32, e1, e2) => fbinary (i::FDIVS, e1, e2, ft, notes);
+
+		    # Double precision support 
+		    t::FLOAD (64, ea, mem) => fload (i::LFD, i::LFDE, ea, mem, ft, notes);
+
+		    # special 3 operand floating point arithmetic 
+		    t::FADD (64, t::FMUL (64, a, c), b) => f3 (i::FMADD, a, b, c, ft, notes);
+		    t::FADD (64, b, t::FMUL (64, a, c)) => f3 (i::FMADD, a, b, c, ft, notes);
+		    t::FSUB (64, t::FMUL (64, a, c), b) => f3 (i::FMSUB, a, b, c, ft, notes);
+		    t::FSUB (64, b, t::FMUL (64, a, c)) => f3 (i::FNMSUB, a, b, c, ft, notes);
+		    t::FNEG (64, t::FADD (64, t::FMUL (64, a, c), b)) => f3 (i::FNMADD, a, b, c, ft, notes);
+		    t::FNEG (64, t::FADD (64, b, t::FMUL (64, a, c))) => f3 (i::FNMADD, a, b, c, ft, notes);
+		    t::FSUB (64, t::FNEG (64, t::FMUL (64, a, c)), b) => f3 (i::FNMADD, a, b, c, ft, notes);
+
+		    t::FADD (64, e1, e2) => fbinary (i::FADD, e1, e2, ft, notes);
+		    t::FSUB (64, e1, e2) => fbinary (i::FSUB, e1, e2, ft, notes);
+		    t::FMUL (64, e1, e2) => fbinary (i::FMUL, e1, e2, ft, notes);
+		    t::FDIV (64, e1, e2) => fbinary (i::FDIV, e1, e2, ft, notes);
+		    t::CVTI2F (64, _, e) => 
+			apply emit_instruction (pseudo_instrs::cvti2d { reg=>expr e, fd=>ft } );
+
+		    # Single/double precision support 
+		    t::FABS((32|64), e) => funary (i::FABS, e, ft, notes);
+		    t::FNEG((32|64), e) => funary (i::FNEG, e, ft, notes);
+		    t::FSQRT (32, e)     => funary (i::FSQRTS, e, ft, notes);
+		    t::FSQRT (64, e)     => funary (i::FSQRT, e, ft, notes);
+
+		    t::CVTF2F (64, 32, e)  => do_float_expression (e, ft, notes); #  32->64 is a no-op 
+		    t::CVTF2F (32, 32, e)  => do_float_expression (e, ft, notes);
+		    t::CVTF2F (64, 64, e)  => do_float_expression (e, ft, notes);
+		    t::CVTF2F (32, 64, e)  => funary (i::FRSP, e, ft, notes);
+
+		    #  Misc 
+		    t::FMARK (e, a::MARKREG f) => { f ft; do_float_expression (e, ft, notes);};
+		    t::FMARK (e, a) => do_float_expression (e, ft, a ! notes);
+		    t::FEXT e => extension_comp::compile_fext (reducer()) { e, fd=>ft, notes };
+		    _ => error "doFexpr"; esac
+
+	     also
+	     fun cc_expr (t::CC(_, cc)) => cc;
+		 cc_expr (t::FCC(_, cc)) => cc;
+
+		 cc_expr (bool_expression)
+                     =>
+		     {   cc = new_ccreg();
+		         do_bool_expression (bool_expression, cc,[]);
+                         cc;
+                     };
+             end 
+
+	     # Reduce a condition expression
+             # and assign the result to ccd
+             # 
+	     also
+	     fun do_bool_expression (bool_expression, ccd, notes)
+                 = 
+		 case bool_expression    
+
+		     t::CMP (type, cc, e1, e2)
+                         => 
+		         {   my (opnds, cmp)
+                                 =
+			         case cc    
+
+			             (t::LT | t::LE | t::EQ | t::NE | t::GT | t::GE)
+                                         =>
+			                 (immed_operand signed16, i::CMP);
+
+			             _   =>
+                                         (immed_operand unsigned16, i::CMPL);
+                                 esac;
+
+			     my (operand_a, operand_b)
+                                 =
+                                 opnds (e1, e2);
+
+			     l   = case type   
+				       32 => FALSE; 
+				       64 => TRUE; 
+				       _  => error "do_bool_expression";
+                                   esac; 
+
+		             mark (i::COMPARE { cmp, l, bf=>ccd, ra=>operand_a, rb=>operand_b }, notes); 
+		         };
+
+		     t::FCMP (fty, fcc, e1, e2)
+                         => 
+		         mark (i::FCOMPARE { cmp=>i::FCMPU, bf=>ccd, fa=>float_expression e1, fb=>float_expression e2 }, notes); 
+
+		     t::CC(_, cc)                 => ccmove (cc, ccd, notes);
+		     t::CCMARK (cc, a::MARKREG f) => {  f ccd;  do_bool_expression (cc, ccd, notes); };
+		     t::CCMARK (cc, a)            => do_bool_expression (cc, ccd, a ! notes);
+
+		     t::CCEXT e
+                         =>
+		         extension_comp::compile_ccext (reducer()) { e, ccd, notes };
+
+		     _   => error "do_bool_expression: Not implemented";
+		esac
+
+	    also
+	    fun emit_trap ()
+                =
+                emit (i::TW { to=>31, ra=>zero_r, si=>i::IMMED_OP 0 } ) 
+
+	    also
+	    fun begin_cluster' _
+                =
+		{   trap_label := NULL;
+                    begin_cluster 0;
+                }
+
+	    also
+	    fun end_cluster' a
+                =
+		{   case *trap_label    
+		        THE label => { define_local_label label; emit_trap(); trap_label := NULL;}; 
+		        NULL => ();
+                    esac;
+
+		    end_cluster a;
+                }
+
+	    also
+	    fun reducer ()
+                =
+		ts::REDUCER
+                  { reduce_int_expression    => expr,
+		    reduce_float_expression    => float_expression,
+		    reduce_bool_expression   => cc_expr,
+		    reduce_statement     => statement,
+		    operand       => (fn _ => error "operand"; end ),
+		    reduce_operand => reduce_opn,
+		    address_of     => (fn _ => error "addressOf"; end ),
+		    emit          => emit_instruction o annotate,
+		    instruction_stream,
+		    codetree_stream  => self()
+		  }
+
+	     also
+	     fun self ()
+		 = 
+		 ts::instruction_stream::STREAM
+		   { begin_cluster => begin_cluster',
+		     end_cluster   => end_cluster',
+		     emit          => do_statement,
+		     emit_pseudo_op,
+		     define_local_label,
+		     define_global_label,
+		     emit_comment,
+		     add_note,
+		     get_notes,
+		     end_procedure     => fn lowcode = end_procedure (cellset lowcode)
+		   };
+
+	     self();
+	 };
+};
+
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

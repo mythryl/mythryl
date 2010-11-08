@@ -1,0 +1,760 @@
+## ppc-macosx.pkg
+## All rights reserved.
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ppc.make6
+
+
+
+# C function calls for the PowerPC using the MacOS X ABI.
+#
+# Register conventions:
+#
+#    Register	Callee-save	Purpose
+#    --------	-----------	-------
+#	GPR0	   no		Zero
+#	 1	   no		Stack pointer
+#	 2	   no		scratch (TOC on AIX)
+#	 3	   no		arg0 and return result
+#	4-10	   no		arg1-arg7
+#	 11	   no		scratch
+#	 12	   no		holds taget of indirect call
+#	13-31	   yes		callee-save registers
+#
+#	FPR0	   no		scratch
+#	1-13	   no		floating-point arguments
+#	14-31	   yes		floating-point callee-save registers
+#
+#	V0-V1	   no		scratch vector registers
+#	 2-13	   no		vector argument registers
+#	14-19	   no		scratch vector registers
+#	20-31	   yes		callee-save vector registers
+#
+#	 LR	   no		link register holds return address
+#
+#	CR0-CR1	   no		scratch condition registers
+#	 2-4	   yes		callee-save condition registers
+#	 5-7	   no		scratch condition registers
+#
+# Calling convention:
+#
+#    Return result:
+#	+ Integer and pointer results are returned in GPR3
+#	+ 64-bit integers (long long) returned in GPR3/GPR4
+#	+ float/double results are returned in FPR1
+#	+ Struct results are returned in space provided by the caller.
+#	  The address of this space is passed to the callee as an
+#	  implicit first argument in GPR3 and the first real argument is
+#	  passed in GPR4.
+#
+#    Function arguments:
+#	* arguments (except for floating-point values) are passed in
+#	  registers GPR3-GPR10
+#
+# Note also that stack frames are supposed to be 16-byte aligned.
+
+
+# we extend the interface to support generating the stubs needed for
+# dynamic linking (see "Inside MacOS X: Mach-O Runtime Architecture"
+# for details.
+
+
+
+###                     "It is impossible to be a mathematician
+###                      without being a poet in soul."
+###
+###                                    -- Sofia Kovalevskaya
+
+
+
+api Ppc_Mac_Osx_Ccalls {
+
+    include Ansi_C_Calls;		# Ansi_C_Calls	is from   src/lib/compiler/backend/lower/c-calls/c-calls.api
+
+/*
+    my genStub:  {
+	    name:   t::int_expression,
+            fn_prototype:  CTypes::c_proto,
+	    paramAlloc:  { szb:  Int, align:  Int } -> Bool,
+            structRet:  { szb:  Int, align:  Int } -> t::int_expression,
+	    saveRestoreDedicated :
+	       List( t::lowcode )-> { save: List( t::statement ), restore: List( t::statement ) },
+	    callComment:  Null_Or( String ),
+            args:  List( c_arg )
+	  } -> {
+	    callseq:  List( t::statement ),
+	    result: List( t::lowcode )
+	  }
+*/
+
+  };
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/ppc/ppc-codegen.pkg
+
+generic package ppc_mac_osx_ccalls (
+
+    package codetree:  Codetree;		# Codetree	is from   src/lib/compiler/backend/lower/codetree/codetree.api
+
+)
+
+: (weak)  Ansi_C_Calls				# Ansi_C_Calls	is from   src/lib/compiler/backend/lower/c-calls/c-calls.api
+
+{
+    package codetree  = codetree;
+    package t         = codetree;
+
+    package cty= ctypes;			# ctypes	is from   src/lib/compiler/backend/lower/c-calls/c-types.pkg
+    package c= ppccells;			# ppccells	is from   src/lib/compiler/backend/lower/ppc/instruction/ppc-cells.pkg
+
+    fun error msg = lowcode_error_message::error ("PPCCompCCalls", msg);
+
+    # The location of arguments/parameters.
+    # Offsets are given with respect to the
+    # low end of the parameter area:
+    #
+    Arg_Location
+      = REG   (t::Some_Type, t::Reg, Null_Or( t::machine_int::Machine_Int ))	#  integer/pointer argument in register 
+      | FREG  (t::Fty, t::Reg, Null_Or( t::machine_int::Machine_Int ))		#  floating-point argument in register 
+      | STK   (t::Some_Type, t::machine_int::Machine_Int)			#  integer/pointer argument in parameter area 
+      | FSTK  (t::Fty, t::machine_int::Machine_Int)				#  floating-point argument in parameter area 
+      | ARG_LOCS  List( Arg_Location );
+
+    word_type = 32;
+    flt_type = 32;	#  lowcode type of float 
+    dbl_type = 64;	#  lowcode type of double 
+
+    #  shorts and chars are promoted to 32-bits 
+    natural_int_size = word_type;
+
+    # Stack pointer 
+    sp_reg = t::REG (word_type, c::gpreg 1);
+
+    # Registers used for parameter passing 
+    arg_gprs = list::map c::gpreg [3, 4, 5, 6, 7, 8, 9, 10];
+    arg_fprs = list::map c::fpreg [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+    result_gpr = c::gpreg 3;
+    result_gpr2 = c::gpreg 4;
+    result_reg_loc = REG (word_type, result_gpr, NULL);
+    result_reg_loc2 = REG (word_type, result_gpr2, NULL);
+    result_reg_loc_pair = ARG_LOCS [result_reg_loc, result_reg_loc2];
+    result_fpr = c::fpreg 1;
+
+    # C callee-save registers 
+    callee_save_regs = list::map c::gpreg [
+	    13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+	    23, 24, 25, 26, 27, 28, 29, 30, 31
+	  ];
+    callee_save_fregs = list::map c::fpreg [
+	    14, 15, 16, 17, 18, 19, 20, 21, 22,
+	    23, 24, 25, 26, 27, 28, 29, 30, 31
+	  ];
+
+    # C caller-save registers (including argument registers) 
+    #
+    caller_save_regs
+        =
+	t::FLOAT_EXPRESSION
+            (t::FREG (dbl_type, c::fpreg 0))
+        !
+	(list::map
+             (fn r =  t::INT_EXPRESSION (t::REG (word_type, c::gpreg r)))
+             [2, 11, 12]
+        );
+
+    link_reg = t::INT_EXPRESSION (t::REG (word_type, c::lr));
+
+    # The parameter area lies just above
+    # the linkage area in the caller's frame.
+    # The linkage area is 24 bytes, so the
+    # first parameter is at 24 (sp).
+
+    param_area_offset = 24;
+
+    # Size, padding, and natural alignment for integer types.
+    # Note that the padding is based on the parameter-passing
+    # description on p. 35 of the documentation and the alignment
+    # is from p. 31.
+
+    fun size_of_int cty::I_CHAR => { size => 1, pad => 3, align => 1 };
+	size_of_int cty::I_SHORT => { size => 2, pad => 2, align => 2 };
+	size_of_int cty::I_INT => { size => 4, pad => 0, align => 4 };
+	size_of_int cty::I_LONG => { size => 4, pad => 0, align => 4 };
+	size_of_int cty::I_LONG_LONG => { size => 8, pad => 0, align => 8 };
+    end;
+
+    # Sizes of other C types 
+    size_of_ptr = { size => 4, pad => 0, align => 4 };
+
+    # Align the address to the
+    # given alignment, which must
+    # be a power of 2:
+    #
+    fun align_addr (address, align)
+        =
+        {   mask = unt::from_int (align - 1);
+	  
+	    unt::to_int_x (unt::bitwise_and (unt::from_int address + mask, unt::bitwise_not mask));
+	};
+
+    # Compute the size and alignment information
+    # for a struct; tys is the list of member types.
+    # The alignment is what Apple calls the "embedding" alignment.
+    # The total size is padded to agree with the struct's alignment.
+
+    fun size_of_struct tys
+        =
+	ssz tys
+        where
+            fun ssz []
+                    =>
+                    { size => 0, align => 1 };
+
+	        ssz (first ! rest)
+                    =>
+		    f (rest, align, size)
+                    where
+                        fun f ([], max_align, offset)
+                                =>
+		                { size => align_addr (offset, max_align), align => max_align };
+
+		            f (type ! tys, max_align, offset)
+                                =>
+                                {   my { size, align } = size_of_type type;
+			            align = int::min (align, 4);
+			            offset = align_addr (offset, align);
+			
+			            f (tys, int::max (max_align, align), offset+size);
+			        };
+                        end;
+
+		        my { size, align }
+                            =
+                           size_of_type first;
+		    end;
+            end;
+	end
+
+    # The size alignment of a union type is the
+    # maximum of the sizes and alignments of the
+    # members.  The final size is padded to agree
+    # with the alignment.
+    #
+    also
+    fun size_of_union tys
+        =
+	usz tys
+        where
+	    fun usz []
+                    =>
+                    { size => 0, align => 1 };
+
+	        usz (first ! rest)
+                    =>
+		    f (rest, align, size)
+                    where
+			fun f ([], max_align, max_size)
+                               =>
+			       { size => align_addr (max_size, max_align), align => max_align };
+
+			    f (type ! tys, max_align, max_size) => {
+				my { size, align } = size_of_type type;
+
+				  f (tys, int::max (max_align, align), int::max (align, max_align));
+				};
+                        end;
+
+			my { size, align }
+                            =
+                            size_of_type first;
+		    end;
+            end;
+	end
+
+    also
+    fun size_of_type cty::C_VOID => error "unexpected void argument type";
+	size_of_type cty::C_FLOAT => { size => 4, align => 4 };
+	size_of_type cty::C_DOUBLE => { size => 8, align => 8 };
+	size_of_type cty::C_LONG_DOUBLE => { size => 8, align => 8 };
+
+	size_of_type (cty::C_UNSIGNED isz)
+            =>
+            {   my { size, align, ... } = size_of_int isz;
+
+	        { size, align };
+	    };
+
+	size_of_type (cty::C_SIGNED isz)
+            =>
+            {   my { size, align, ... } = size_of_int isz;
+
+	        { size, align };
+	    };
+
+	size_of_type cty::C_PTR => { size => 4, align => 4 };
+
+	size_of_type (cty::C_ARRAY (type, n))
+            =>
+            {   my { size, align } = size_of_type type;
+
+	        { size => n*size, align };
+	    };
+
+	size_of_type (cty::C_STRUCT tys) => size_of_struct tys;
+	size_of_type (cty::C_UNION  tys) => size_of_union  tys;
+    end;
+
+    #  Compute the layout of a C call's arguments 
+    #
+    fun layout { calling_convention, return_type, parameter_types }
+        =
+        {
+	    fun gpr_res isz
+                =
+                case (.size (size_of_int isz))
+		  
+                     8 => THE result_reg_loc_pair;
+		     _ => THE result_reg_loc;
+                esac;
+
+
+	    my (result_loc, arg_gprs, struct_ret)
+                =
+                case return_type
+
+		    cty::C_VOID         => (NULL, arg_gprs, NULL);
+
+		    cty::C_FLOAT        => (THE (FREG (flt_type, result_fpr, NULL)), arg_gprs, NULL);
+		    cty::C_DOUBLE       => (THE (FREG (dbl_type, result_fpr, NULL)), arg_gprs, NULL);
+		    cty::C_LONG_DOUBLE  => (THE (FREG (dbl_type, result_fpr, NULL)), arg_gprs, NULL);
+
+		    cty::C_UNSIGNED isz => (gpr_res isz, arg_gprs, NULL);
+		    cty::C_SIGNED isz   => (gpr_res isz, arg_gprs, NULL);
+
+		    cty::C_PTR     => (THE result_reg_loc, arg_gprs, NULL);
+		    cty::C_ARRAY _ => error "array return type";
+
+		    cty::C_STRUCT s
+                        =>
+                        {   size = .size (size_of_struct s);
+
+		            # Note that this is a place where the MacOS X and Linux ABIs differ.
+			    # In Linux, GPR3/GPR4 are used to return composite values of 8 bytes.
+
+			    (THE result_reg_loc, list::tail arg_gprs, THE { szb=>size, align=>4 } );
+		        };
+
+		    cty::C_UNION u
+                        =>
+                        {   size = .size (size_of_union u);
+
+			    (THE result_reg_loc, list::tail arg_gprs, THE { szb=>size, align=>4 } );
+		       };
+                esac;
+
+
+	    fun assign ([], offset, _, _, layout)
+                    =>
+                    (offset, list::reverse layout);
+
+	        assign (type ! tys, offset, avail_gprs, avail_fprs, layout)
+		    =>
+		    case type
+
+		       cty::C_VOID => error "unexpected void argument type";
+
+		       cty::C_FLOAT
+                           =>
+                           case (avail_gprs, avail_fprs)
+
+			       (_ ! gprs, fpr ! fprs)
+                                   =>
+				   assign (tys, offset+4, gprs, fprs, FREG (flt_type, fpr, THE offset) ! layout);
+
+			       ([], fpr ! fprs)
+                                   =>
+				   assign (tys, offset+4, [], fprs, FREG (flt_type, fpr, THE offset) ! layout);
+
+			       ([], [])
+                                   =>
+				   assign (tys, offset+4, [], [], FSTK (flt_type, offset) ! layout);
+
+			       _   =>
+                                   error "FPRs exhausted before GPRs";
+                           esac;
+
+		       cty::C_DOUBLE      => assign_fpr (tys, offset, avail_gprs, avail_fprs, layout);
+		       cty::C_LONG_DOUBLE => assign_fpr (tys, offset, avail_gprs, avail_fprs, layout);
+
+		       (cty::C_UNSIGNED isz | cty::C_SIGNED isz)
+                           =>
+			   assign_gpr([size_of_int isz], tys, offset, avail_gprs, avail_fprs, layout);
+
+		       cty::C_PTR
+                           =>
+			   assign_gpr([size_of_ptr], tys, offset, avail_gprs, avail_fprs, layout);
+
+		       cty::C_ARRAY _
+                           =>
+			   assign_gpr([size_of_ptr], tys, offset, avail_gprs, avail_fprs, layout);
+
+		       cty::C_STRUCT tys'
+                           =>
+			   assign_mem (size_of_struct tys', tys, offset, avail_gprs, avail_fprs, layout);
+
+		       cty::C_UNION tys'
+                           => 
+			   assign_mem (size_of_union tys', tys, offset, avail_gprs, avail_fprs, layout);
+		    esac;
+
+            end
+
+	    # Assign a GP register and memory
+            # for an integer/pointer argument. 
+	    also
+            fun assign_gpr ([], args, offset, avail_gprs, avail_fprs, layout)
+                    =>
+		    assign (args, offset, avail_gprs, avail_fprs, layout);
+
+	        assign_gpr ( { size => 8, ... } ! szs,
+			   args, offset, avail_gprs, avail_fprs, layout)
+                    =>
+		    # The C compiler seems to treat "long long" arguments
+		    # as two individual 4-byte arguments.  There seems to be
+		    # no 8-byte alignment requirement, as far as I can tell.
+		    #    - Matthias
+                    #
+		    assign_gpr ( { size => 4, pad => 0, align => 4 } !
+			         { size => 4, pad => 0, align => 4 } ! szs,
+			         args, offset, avail_gprs, avail_fprs, layout);
+
+	        assign_gpr ( { size, pad, ... } ! szs,
+			   args, offset, avail_gprs, avail_fprs, layout)
+                    =>
+		    {   my (loc, avail_gprs)
+                            =
+			    case avail_gprs
+			        [] => (STK (word_type, offset), []);
+			        r1 ! rs => (REG (word_type, r1, THE offset), rs);
+                            esac;
+
+		        offset = offset + integer::from_int (size + pad);
+		        assign_gpr (szs, args, offset, avail_gprs, avail_fprs, loc ! layout);
+		    };
+            end 
+
+	    # Assign a FP register and memory/GPRs
+            # for double-precision argument:
+	    #
+	    also 
+            fun assign_fpr (args, offset, avail_gprs, avail_fprs, layout)
+                =
+                {
+		    fun continue (avail_gprs, avail_fprs, loc)
+                        =
+			assign (args, offset+8, avail_gprs, avail_fprs, loc ! layout);
+
+		    fun freg fpr
+                        =
+                        FREG (dbl_type, fpr, THE offset);
+
+		    case (avail_gprs, avail_fprs)
+
+		        (_ ! _ ! gprs, fpr ! fprs) => continue (gprs, fprs, freg fpr);
+		        (           _, fpr ! fprs) => continue ([],   fprs, freg fpr);
+
+		        ([], [])
+                            =>
+                            continue ([], [], FSTK (dbl_type, offset));
+
+		       _ => error "FPRs exhausted before GPRs";
+                    esac;
+		}
+
+	    also
+            fun assign_mem ( { size, ... }, args, offset, avail_gprs, avail_fprs, layout)
+		=
+		# Assign a argument locations to pass a composite argument (struct or union) 
+		{
+		    size = integer::from_int size;
+
+		    fun assign_mem (rel_offset, avail_gprs, fields)
+			=
+			if (rel_offset < size)
+
+			      my (loc, avail_gprs)
+				  =
+				  case avail_gprs
+
+				      []      =>   (STK (word_type, offset+rel_offset), []);
+				      r1 ! rs =>   (REG (word_type, r1, THE (offset+rel_offset)), rs);
+				  esac;
+
+			      assign_mem (rel_offset+4, avail_gprs, loc ! fields);
+
+			else
+			    assign (args, offset+rel_offset, avail_gprs, avail_fprs,
+				ARG_LOCS (list::reverse fields) ! layout);
+			fi;
+
+		    assign_mem (0, avail_gprs, []);
+		};
+
+	    my (size, arg_locs)
+		=
+		assign (parameter_types, 0, arg_gprs, arg_fprs, []);
+
+	    { arg_locs,
+	      arg_mem  =>   { szb => integer::to_int size, align => 4 },
+
+	      result_loc,
+	      struct_ret_loc =>   struct_ret
+	    };
+      };
+
+    Ckit_Arg
+      = ARG   t::Int_Expression	    
+      | FARG  t::Float_Expression
+      | ARGS  List( Ckit_Arg )
+      ;
+
+    mem_rg = t::region::memory;
+    stk_rg = t::region::memory;
+
+    # SP-based address of parameter at given offset 
+    #
+    fun param_addr off
+        =
+	t::ADD (word_type, sp_reg, t::LITERAL (off + integer::from_int param_area_offset));
+
+    fun gen_call { name, fn_prototype, param_alloc, struct_ret, save_restore_dedicated, call_comment, args }
+        =
+        {   fn_prototype -> { calling_convention, return_type, parameter_types };
+
+	    (layout fn_prototype) -> { arg_locs, arg_mem, result_loc, struct_ret_loc };
+
+	    # Inform the client of the size
+            # of the parameter area:
+	    # 
+	    if (not (param_alloc arg_mem))
+	        
+                 raise exception FAIL "parameter memory allocation not implemented yet";
+	    fi;
+
+	    # Generate code to assign the
+            # arguments to their locations:
+	    #
+	    fun assign_args ([], [], statements)
+		    =>
+		    statements;
+
+		assign_args (REG (type, r, _) ! locs, ARG expression ! args, statements)
+		    =>
+		    assign_args (locs, args, t::MOVE_INT (type, r, expression) ! statements);
+
+		assign_args (STK (type, off) ! locs, ARG expression ! args, statements)
+		    =>
+		    assign_args (locs, args, t::STORE (type, param_addr off, expression, stk_rg) ! statements);
+
+		assign_args (FREG (type, r, _) ! locs, FARG float_expression ! args, statements)
+		    =>
+		    assign_args (locs, args, t::MOVE_FLOAT (type, r, float_expression) ! statements);
+
+		assign_args (FSTK (type, off) ! locs, FARG float_expression ! args, statements)
+		    =>
+		    assign_args (locs, args, t::FSTORE (type, param_addr off, float_expression, stk_rg) ! statements);
+
+		assign_args ((ARG_LOCS locs') ! locs, (ARGS args') ! args, statements)
+		    =>
+		    raise exception FAIL "ARG_LOCS constructor is obsolete";
+
+		assign_args ((ARG_LOCS locs') ! locs, ARG expression ! args, statements)
+		    =>
+	            #  Copy data from memory specified by expression to locs' 
+		    copy (locs', 0, statements)
+		    where 
+
+                        # lowcode expression for address
+                        # inside the source struct 
+			#
+			fun address 0
+			    =>
+			    t::LOAD (word_type, expression, mem_rg);
+
+			    address offset
+				=>
+				t::LOAD (word_type, t::ADD (word_type, expression, t::LITERAL offset), mem_rg);
+			end;
+
+			fun copy ([], _, statements)
+				=>
+				assign_args (locs, args, statements);
+
+			    copy (REG (type, r, _) ! locs, offset, statements)
+				=>
+				copy (locs, offset+4, t::MOVE_INT (type, r, address offset) ! statements);
+
+			    copy (STK (type, off) ! locs, offset, statements)
+				=>
+				{   r = c::new_reg();
+
+				    copy (
+                                        locs,
+                                        offset+4,
+
+				        t::STORE (type, param_addr off, t::REG (word_type, r), stk_rg)
+				        !
+                                        t::MOVE_INT (type, r, address offset) ! statements
+                                    );
+				};
+
+			    copy _
+				=>
+				raise exception FAIL "unexpected FREG/FSTK/ARGS in location list";
+	                end;
+
+		    end;
+
+	       assign_args _ => error "argument/formal mismatch";
+           end;
+
+	   arg_setup_code
+               =
+               list::reverse (assign_args (arg_locs, args, []));
+
+	    # Convert the result location to an lowcode expression list 
+	    #
+	    result
+                =
+                case result_loc
+		  
+		    THE (REG  (type, r, _)) =>   [t::INT_EXPRESSION (t::REG  (type, r))];
+		    THE (FREG (type, r, _)) =>   [t::FLOAT_EXPRESSION (t::FREG (type, r))];
+
+		    THE (ARG_LOCS [REG (type1, r1, _), REG (type2, r2, _)])
+                        =>
+			[t::INT_EXPRESSION (t::REG (type1, r1)), t::INT_EXPRESSION (t::REG (type2, r2))];
+
+		    THE _ => raise exception FAIL "bogus result location";
+
+		    NULL => [];
+                esac;
+
+
+	    # Make struct return-area setup (if necessary) 
+	    #
+	    setup_struct_ret
+                =
+                case struct_ret_loc
+		  
+		    THE loc
+                        =>
+                        {   struct_addr = struct_ret loc;
+
+			    [t::MOVE_INT (word_type, result_gpr, struct_addr)];
+			};
+
+		    NULL => [];
+                esac;
+
+
+	    # Determine the registers used and defined by this call 
+	    #
+	    my (uses, defs)
+		=
+		{   locs = case result_loc
+			       THE loc => loc ! arg_locs;
+			       NULL    =>       arg_locs;
+			   esac;
+
+
+		    # Get the list of registers used
+                    # to pass arguments and results:
+		    #
+		    fun add_arg_reg (REG (type, r, _) ! locs, arg_regs)
+			    =>
+			    add_arg_reg (locs, t::INT_EXPRESSION (t::REG (type, r)) ! arg_regs);
+
+			add_arg_reg (FREG (type, r, _) ! locs, arg_regs)
+			    =>
+			    add_arg_reg (locs, t::FLOAT_EXPRESSION (t::FREG (type, r)) ! arg_regs);
+
+			add_arg_reg ((ARG_LOCS locs') ! locs, arg_regs)
+			    =>
+			    add_arg_reg (locs, add_arg_reg (locs', arg_regs));
+
+			add_arg_reg (_ ! locs, arg_regs)
+			    =>
+			    add_arg_reg (locs, arg_regs);
+
+			add_arg_reg ([], arg_regs)
+			    =>
+			    arg_regs;
+		    end;
+
+		    arg_regs = add_arg_reg (locs, []);
+
+		    (arg_regs, link_reg ! caller_save_regs);
+		};
+
+
+	    # The actual call instruction 
+	    #
+	    call_statement
+                =
+                t::CALL {
+		    funct => name, targets => [],
+		    defs, uses,
+		    region => mem_rg, pops => 0
+		  };
+
+	    # Annotate, if necessary 
+	    #
+	    call_statement
+                =
+                case call_comment
+		     THE c =>   t::NOTE (call_statement, lowcode_notes::comment.create c);
+                     NULL  =>   call_statement;
+                esac;
+
+
+	    # Take care of dedicated client registers 
+	    #
+	    my { save, restore }
+                =
+                save_restore_dedicated  defs;
+
+	    callseq
+                =
+                list::cat
+                  [
+		    setup_struct_ret,
+		    arg_setup_code,
+		    save,
+		    [call_statement],
+		    restore
+		  ];
+
+	    # Check calling convention:
+	    #
+	    case calling_convention
+	      
+		("" | "unix_convention")
+                    =>
+                    ();
+
+		 _ => error (cat [
+		      "unknown calling convention \"",
+		      string::to_string calling_convention, "\""
+		    ]);
+	    esac;
+
+	    { callseq, result };
+	};
+};
+
+
+## COPYRIGHT (c) 2003 John Reppy (http://www.cs.uchicago.edu/~jhr)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

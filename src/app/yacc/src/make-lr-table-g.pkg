@@ -1,0 +1,670 @@
+#  Mythryl-Yacc Parser Generator (c) 1989 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/Mythryl-Yacc.make6
+
+###             "Gardens are not made
+###              by singing "Oh, how beautiful, "
+###              and sitting in the shade."
+###
+###                            -- Rudyard Kipling
+
+
+
+generic package make_lr_table_g (
+
+    package internal_grammar:  Internal_Grammar;	# Internal_Grammar	is from   src/app/yacc/src/internal-grammar.api
+    package lr_table:          Lr_Table;		# Lr_Table		is from   src/app/yacc/lib/base.api
+
+    sharing lr_table::Terminal == internal_grammar::grammar::Terminal;
+    sharing lr_table::Nonterminal == internal_grammar::grammar::Nonterminal;
+)
+: (weak) Make_Lr_Table					# Make_Lr_Table	is from   src/app/yacc/src/make-lr-table.api
+{
+    include rw_vector;
+    include list;
+
+    infix val 9 sub;
+
+    package core
+        =
+        make_core (package internal_grammar = internal_grammar;);
+
+    package core_utils
+        =
+        make_core_utils (
+            package internal_grammar = internal_grammar;
+	    package core = core;
+        );
+
+    package graph
+        =
+        make_graph_g (
+            package internal_grammar = internal_grammar;
+	    package core = core;
+	    package core_utils = core_utils;
+    );
+
+    package look
+        =
+        make_look_g (package internal_grammar = internal_grammar;);
+
+    package lalr
+        =
+        make_lalr_g (
+            package internal_grammar = internal_grammar;
+	    package core = core;
+	    package graph = graph;
+	    package look = look;
+        );
+
+    package lr_table    =   lr_table;
+    package internal_grammar =   internal_grammar;
+    package grammar     =   internal_grammar::grammar;
+
+    package goto_list
+        =
+        list_ord_set_g (
+	    package {
+	         Element = (grammar::Nonterminal, lr_table::State);
+
+	        eq = fn ((grammar::NONTERM a, _), (grammar::NONTERM b, _)) => a==b; end ;
+	        gt = fn ((grammar::NONTERM a, _), (grammar::NONTERM b, _)) => a>b; end ;
+	    }
+        );
+
+    package errs: (weak)  Lr_Errs		# Lr_Errs	is from   src/app/yacc/src/lr-errors.api
+        =
+	package {
+	    package lr_table = lr_table;
+
+	     Err = RR  (lr_table::Terminal, lr_table::State, Int, Int)
+		     | SR  (lr_table::Terminal, lr_table::State, Int)
+		     | NOT_REDUCED  Int
+		     | NS  (lr_table::Terminal, Int)
+		     | START  Int;
+
+	    fun summary l
+                =
+	        loop l
+                where 
+
+	            num_rr          = REF 0;
+		    num_sr          = REF 0;
+		    num_start       = REF 0;
+		    num_not_reduced = REF 0;
+		    num_ns          = REF 0;
+
+		    fun loop (h ! t)
+			    => 
+			    loop t
+			    where 
+
+				case h
+				  
+				     RR _          =>   num_rr          := *num_rr+1;
+				     SR _          =>   num_sr          := *num_sr+1;
+				     START _       =>   num_start       := *num_start+1;
+				     NOT_REDUCED _ =>   num_not_reduced := *num_not_reduced+1;
+				     NS _          =>   num_ns          := *num_ns+1;
+				esac;
+			    end;
+
+		        loop NIL
+                            =>
+                            {   rr          => *num_rr,
+                                sr          => *num_sr,
+			        start       => *num_start,
+			        not_reduced => *num_not_reduced,
+			        nonshift    => *num_ns
+                            };
+                    end;
+	        end;
+
+	    fun print_summary say l
+		=
+		{   my { rr, sr, start, not_reduced, nonshift }
+                        =
+                        summary l;
+
+		    fun say_plural (i, s)
+                        =
+		        {   say (int::to_string i);
+                            say " ";
+
+			    case i
+			      
+			         1 =>  say s;
+			         _ => {   say s;
+                                          say "s";
+                                      };
+                            esac;
+                        };
+
+		    fun say_error (args as (i, s))
+                        =
+		        case i
+		          
+		             0 =>   ();
+			     i =>   {   say_plural args;
+                                        say "\n";
+                                    };
+                        esac;
+
+		    say_error (rr, "reduce/reduce conflict");
+		    say_error (sr, "shift/reduce conflict");
+
+		    if   (nonshift != 0) 
+                        
+			 say "non-shiftable terminal used on the rhs of ";
+			 say_plural (start, "rule"); say "\n";
+		    fi;
+
+		    if   (start != 0)
+                        
+                         say "start symbol used on the rhs of ";
+			 say_plural (start, "rule"); say "\n";
+		    fi;
+
+		    if   (not_reduced != 0)
+                        
+                         say_plural (not_reduced, "rule");
+			 say " not reduced\n";
+		    fi;
+	        };
+	};
+
+
+    include internal_grammar;
+    include grammar;
+    include errs;
+    include lr_table;
+    include core; 
+
+    # rules for resolving conflicts:
+    # shift/reduce:
+    #
+    #		  If either the terminal or the rule has no
+    #		  precedence, a shift/reduce conflict is reported.
+    #		  A shift is chosen for the table.
+    #
+    #		  If both have precedences, the action with the
+    #		  higher precedence is chosen.
+    #
+    #		  If the precedences are equal, neither the
+    #		  shift nor the reduce is chosen.
+    #
+    #      reduce/reduce:
+    #
+    #		  A reduce/reduce conflict is reported.  The lowest
+    #		  numbered rule is chosen for reduction.
+
+
+
+    # method for filling tables - first compute the reductions called for in a
+    #   state, then add the shifts for the state to this information.
+    # 
+    # How to compute the reductions:
+    # 
+    #    A reduction initially is given as an item and a lookahead set calling
+    # for reduction by that item.  The first reduction is mapped to a list of
+    # terminal * rule pairs.  Each additional reduction is then merged into this
+    # list and reduce/reduce conflicts are resolved according to the rule
+    # given.
+    # 
+    # Missed Errors:
+    # 
+    #    This method misses some reduce/reduce conflicts that exist because
+    # some reductions are removed from the list before conflicting reductions
+    # can be compared against them.  All reduce/reduce conflicts, however,
+    # can be generated given a list of the reduce/reduce conflicts generated
+    # by this method.
+    # 	
+    #    This can be done by taking the transitive closure of the relation given
+    # by the list.  If reduce/reduce (a, b) and reduce/reduce (b, c)  are TRUE,
+    # then reduce/reduce (a, c) is TRUE.   The relation is symmetric and transitive.
+    # 		  
+    # Adding shifts:
+    # 
+    #     Finally scan the list merging in shifts and resolving conflicts
+    # according to the rule given.
+    # 
+    # Missed Shift/Reduce Errors:
+    # 
+    #     Some errors may be missed by this method because some reductions were
+    # removed as the result of reduce/reduce conflicts.  For a shift/reduce
+    # conflict of term a, reduction by rule n, shift/reduce conficts exist
+    # for all rules y such that reduce/reduce (x, y) or reduce/reduce (y, x)
+    # is TRUE.
+
+
+    fun un_reduce (REDUCE num) =>   num;
+        un_reduce _            =>   raise exception FAIL "bug: unexpected action (expected REDUCE)";
+    end;
+
+    stipulate
+        fun merge state
+	    =
+	    f
+	    where  
+
+		fun f ( j as (pair1 as (TERM t1, action1)) ! r1,
+			k as (pair2 as (TERM t2, action2)) ! r2,
+			result,
+			errs
+		      )
+		      =>
+		      if   (t1 < t2)
+
+		           f (r1, k, pair1 ! result, errs);
+
+		      elif (t1 > t2)
+
+		           f (j, r2, pair2 ! result, errs);
+		      else
+			   num1 =  un_reduce action1;
+			   num2 =  un_reduce action2;
+
+			   errs =  RR (TERM t1, state, num1, num2) ! errs;
+
+			   action = if   (num1 < num2   )   pair1;
+						       else   pair2;   fi;
+
+			   f (r1, r2, action ! result, errs);
+		      fi;
+
+		    f (      NIL,         NIL, result, errs) => (reverse result, errs);
+		    f (pair1 ! r,         NIL, result, errs) => f (r, NIL, pair1 ! result, errs);
+		    f (      NIL, pair2 ! r, result, errs) => f (NIL, r, pair2 ! result, errs);
+		end;
+	    end;
+    herein
+        fun merge_reduces state (   (ITEM { rule=>RULE { rulenum, ... }, ... }, lookahead),
+                                   (reduces, errs)
+                               )
+            =
+	    {   action  =   REDUCE rulenum;
+		actions =   map  (fn a=>(a, action); end )  lookahead;
+
+		case reduces
+		  
+		     NIL =>   (actions, errs);
+		     _   =>    merge   state   (reduces, actions, NIL, errs);
+                esac;
+	    };
+    end;
+
+    fun compute_actions (rules, precedence, graph, default_reductions)
+	=
+	{   stipulate
+
+	        prec_data =   make_rw_vector (length rules, NULL:  Null_Or( Int ));
+
+		my _ = apply
+			   (fn RULE { rulenum=>r, precedence=>p, ... } =  rw_vector::set (prec_data, r, p))
+			   rules;
+            herein
+	        fun rule_prec i
+		    =
+                    prec_data[ i ];
+            end;
+
+	    fun merge_shifts (state, shifts,  NIL) =>   (shifts, NIL);
+		merge_shifts (state, NIL, reduces) =>   (reduces, NIL);
+
+		merge_shifts (state, shifts, reduces)
+		    =>
+		    f (shifts, reduces, NIL, NIL)
+                    where 
+
+		        fun f (   shifts  as (pair1 as (TERM t1, _     )) ! r1,
+				  reduces as (pair2 as (TERM t2, action)) ! r2,
+				  result,
+                                  errs
+                              )
+                               =>
+			       if   (t1 < t2)
+
+                                    f (r1, reduces, pair1 ! result, errs);
+
+			       elif (t1 > t2)
+
+                                    f (shifts, r2, pair2 ! result, errs);
+			       else
+                                    rulenum =   un_reduce action;
+
+				    my (term1, _) =   pair1;
+
+				    case (precedence term1, rule_prec rulenum)
+				      
+				         (THE i, THE j)
+                                             =>
+					     if   (i > j) f (r1, r2,            pair1 ! result, errs);
+					     elif (j > i) f (r1, r2,            pair2 ! result, errs);
+					     else         f (r1, r2, (TERM t1, ERROR) ! result, errs);
+                                             fi;
+
+				         (_, _)
+                                             =>
+					     f (r1, r2, pair1 ! result, SR (term1, state, rulenum) ! errs);
+                                    esac;
+                               fi;
+
+			    f (NIL,   NIL, result, errs) =>   (reverse result, errs);
+			    f (NIL, h ! t, result, errs) =>   f (NIL, t, h ! result, errs);
+			    f (h ! t, NIL, result, errs) =>   f (t, NIL, h ! result, errs);
+                        end;
+		    end;
+                end;
+
+	    fun map_core ( { edge=>symbol, to=>CORE (_, state) } ! r, shifts, gotos)
+                    =>
+		    case symbol
+		      
+		          TERMINAL  t =>   map_core (r, (t, SHIFT (STATE state)) ! shifts, gotos);
+		       NONTERMINAL nt =>   map_core (r, shifts, (nt, STATE state) ! gotos);
+                    esac;
+
+	        map_core (NIL, shifts, gotos)
+                    =>
+                    (reverse shifts, reverse gotos);
+            end;
+
+	    fun prune_error ((_, ERROR) ! rest) => prune_error rest;
+	        prune_error (a ! rest)          => a ! prune_error rest;
+	        prune_error NIL                 => NIL;
+            end;
+
+	    fn (lalr::LCORE (reduce_items, state), c as CORE (shift_items, state'))
+                =>
+		if   (debug and (state != state'))
+                    
+		     exception MAKE_TABLE;
+                     raise exception MAKE_TABLE;
+		else
+		     my (shifts, gotos) =   map_core (graph::edges (c, graph), NIL, NIL);
+
+		     table_state = STATE state;
+
+		     case reduce_items
+		       
+			  NIL =>   ((shifts, ERROR), gotos, NIL);
+
+			  h ! NIL
+                              =>
+			      ((actions, default), gotos, errs)
+                              where 
+
+			          my (ITEM { rule=>RULE { rulenum, ... }, ... }, l)
+                                      =
+                                      h;
+
+				  my (reduces, _   ) =   merge_reduces table_state (h, (NIL, NIL));
+				  my (actions, errs) =   merge_shifts (table_state, shifts, reduces);
+
+				  actions' =   prune_error actions;
+
+				  my (actions, default)
+				      =
+				      {   fun has_reduce (NIL, actions)                       =>   (reverse actions, REDUCE rulenum);
+					      has_reduce ((a as (_, SHIFT _)) ! r, actions) =>   has_reduce (r, a ! actions);
+					      has_reduce (_ ! r, actions)                   =>   has_reduce (r, actions);
+                                          end;
+
+					  fun loop (NIL, actions)                        =>   (reverse actions, ERROR);
+					      loop ((a as (_, SHIFT _)) ! r, actions)  =>   loop (r, a ! actions);
+					      loop ((a as (_, REDUCE _)) ! r, actions) =>   has_reduce (r, actions);
+					      loop (_ ! r, actions)                    =>   loop (r, actions);
+                                          end;
+
+					  if  (default_reductions 
+					       and
+                                               length actions == length actions'
+					  )
+                                               loop (actions, NIL);
+					  else
+                                               (actions', ERROR);
+                                          fi;
+				     };
+			      end;
+
+			  l=> {   my (reduces, errs1)
+                                      =
+				      list::fold_right  (merge_reduces table_state)  (NIL, NIL)  l;
+
+			          my (actions, errs2)
+                                      =
+				      merge_shifts (table_state, shifts, reduces);
+
+			          ((prune_error actions, ERROR), gotos, errs1@errs2);
+			      };
+                    esac;
+
+            fi; end ;
+	};			# fun computeActions
+
+	fun make_table (   grammar as GRAMMAR { rules, terms, nonterms, start, precedence, term_to_string, noshift, nonterm_to_string, eop },
+                           default_reductions
+                       )
+            =
+	    {   fun symbol_to_string  (  TERMINAL  t) =>   term_to_string t;
+		    symbol_to_string (NONTERMINAL nt) =>   nonterm_to_string nt;
+                end;
+
+		my { rules, graph, produces, eps_prods, ... }
+		    =
+		    graph::make_graph_fn grammar;
+
+		my { nullable, first }
+		    =
+		   look::mk_funcs { rules, produces, nonterms };
+
+		lcores
+		    =
+		    lalr::add_lookahead {
+			graph,
+			nullable,
+			produces,
+			eop,
+			nonterms,
+			first,
+			rules,
+			eps_prods,
+			print => (fn s=>file::write (file::stdout, s); end ),
+			term_to_string,
+			nonterm_to_string
+		    };
+
+		 fun zip (h ! t, h' ! t') =>   (h, h') ! zip (t, t');
+		     zip (NIL,   NIL    ) =>   NIL;
+		     zip _                =>   { exception MAKE_TABLE;  raise exception MAKE_TABLE; };
+		 end;
+
+		 fun unzip l
+		     =
+		     f (l, NIL, NIL, NIL)
+		     where 
+
+			 fun f ((a, b, c) ! r, j, k, l) =>   f (r, a ! j, b ! k, c ! l);
+			     f (NIL,           j, k, l) =>   (reverse j, reverse k, reverse l);
+			 end;
+		     end;
+
+		   my (actions, gotos, errs)
+                       =
+		       unzip (map do_state (zip (lcores, graph::nodes graph)))
+                       where  
+
+		           do_state
+                               =
+                               compute_actions (
+                                   rules, precedence, graph, default_reductions
+                               );
+			end;
+
+		   # Add goto from state 0 to a new state.  The new state
+		   # has accept actions for all of the end-of-parse symbols
+		   #
+		   my (actions, gotos, errs)
+		       =
+		       case gotos
+		         
+		            NIL => (actions, gotos, errs);
+
+			    h ! t
+                                =>
+				{   new_state_actions
+                                        = 
+				        (map (fn t => (t, ACCEPT); end ) (look::make_set eop), ERROR);
+
+				    state0goto
+                                        = 
+				        goto_list::set((start, STATE (length actions)), h);
+
+				    (   actions @ [new_state_actions],
+				        state0goto ! (t @ [NIL]),
+				        errs @ [NIL]
+                                    );
+				};
+                       esac; 
+
+		start_errs
+                    =
+	 	    list::fold_right
+                        (   fn (RULE { rhs, rulenum, ... }, r)
+                                =>
+			        if  (exists (   fn NONTERMINAL a =>   a == start;
+				                  _         =>   FALSE; end 
+                                            )
+                                            rhs
+			        )
+                                     START rulenum ! r;
+			        else
+                                     r;
+                                fi; end 
+                        )
+                        []
+                        rules;
+
+		nonshift_errs
+                    =
+	 	    list::fold_right
+                        (   fn (RULE { rhs, rulenum, ... }, r)
+                                =>
+		                (list::fold_right
+                                    (fn (nonshift, r)
+                                         =>
+			                 if ((exists (fn TERMINAL a  =>   a == nonshift;
+				                       _           =>   FALSE; end 
+                                                    )
+                                                    rhs)
+			                 )
+                                              NS (nonshift, rulenum) ! r;
+			                 else
+                                              r;
+                                         fi; end 
+                                    )
+                                    r
+                                    noshift
+                                ); end 
+		       )
+                       []
+                       rules;
+
+		not_reduced
+                    =
+		    {   rule_reduced =   make_rw_vector (length rules, FALSE);
+
+			fun test (REDUCE i) =>   rw_vector::set (rule_reduced, i, TRUE);
+			    test  _         =>   ();
+                        end;
+
+			apply (fn (actions, default)
+                                   =>
+				   {   apply (fn (_, r) => test r; end ) actions;
+				       test default;
+                                   }; end 
+			      )
+                              actions;
+
+			fun scan (i, r)
+                            =
+			    if   (i >= 0)
+                                
+				 scan (
+                                     i - 1,
+
+                                     if (rule_reduced[ i ])   r;
+				     else                     NOT_REDUCED i ! r;
+                                     fi
+                                 );
+			    else
+                                 r;
+                            fi;
+
+		        scan (rw_vector::length rule_reduced - 1, NIL);
+		    }
+                    except
+                        (SUBSCRIPT|INDEX_OUT_OF_BOUNDS)
+                            =
+			    {   if  debug   
+				    print "rules not numbered correctly!";
+			        fi;
+
+                                NIL;
+                            };
+
+		numstates =   length actions;
+
+	        all_errs =   start_errs
+                          @ not_reduced
+                          @ nonshift_errs
+                          @ (list::cat errs);
+
+                fun convert_to_pairlist (NIL:  List ((X, Y))): Pairlist( X, Y )
+                        =>
+                        EMPTY;
+
+                    convert_to_pairlist ((a, b) ! r)
+                        =>
+                        PAIR (a, b, convert_to_pairlist r);
+                end;
+
+	        (   make_lr_table { actions => rw_vector::from_list (
+                                               map (fn (a, b) => (convert_to_pairlist a, b); end )
+                                                   actions
+                                           ),
+
+			        gotos   => rw_vector::from_list (
+                                               map convert_to_pairlist gotos
+                                           ),
+			        rule_count   => length rules,
+                                state_count  => length actions,
+			        initial_state => STATE 0
+                              },
+
+		    {    err_array = rw_vector::from_list errs;
+
+		         fn (STATE state) =   err_array[ state ];
+		    },
+
+		    fn print
+			=>
+			{   print_core =   pr_core (symbol_to_string, nonterm_to_string, print);
+			    core      =   graph::core graph;
+
+			    fn STATE state
+                                =>
+			        print_core ( if   (state == (numstates - 1))
+                                                
+					         core::CORE (NIL, state);
+					    else
+                                                 core state;
+                                            fi
+                                          ); end ;
+			}; end ,
+
+		    all_errs
+                );
+            };			# fun make_table
+};

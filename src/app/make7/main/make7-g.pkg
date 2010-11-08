@@ -1,0 +1,2835 @@
+## make7-g.pkg
+## Author: Matthias Blume (blume@cs.princeton.edu)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+# This module constitutes our standard
+# 
+#     make7 application + compiler + interactive system
+#
+# which is to say, what winds up as the
+#
+#     bin/mythryld
+#
+# "executable" (heap image).
+#
+# We use this application to make+compile everything
+# -except- itself.  (Compiling mythryd7 itself involves
+# special cases which are handled by the special
+#
+#        src/app/make7/make-compiler/make-compiler-g.pkg
+#
+# facility.)
+#
+# This is the module that actually puts together
+# the contents of the
+#     package make7
+# people find in $ROOT/src/lib/core/make7/full.make6, which is to
+# say, the set of make7::* types, functions and values
+# visible from the mythryld prompt at runtime.
+#
+# For example, if you run
+#     bin/mythryld
+# and then enter
+#     make7::make7_state::show_all (); 
+# at the interactive prompt, you'll invoke the
+# show_all fun defined in this file, which
+# lists all toplevel symbols.
+#
+# The code in this file is almost all lightweight
+# stuff -- commandline switch parsing and top-level
+# glue logic hooking together functionality implemented
+# elsewhere.
+#
+# The major functionality imvoked here is doing the treewalks
+# of the sourcefile dependency graph so as to compile no sourcefile
+# until all files it depends upon have been compiled, making the
+# type information &tc in those files available.  This process is
+# somewhat obscured by the "server" facility to allow compiling
+# multiple sourcefiles in parallel using multiple Unix subprocesses
+# (optionally on separate machines).  This facility appears broken.
+#
+# The actual treewalk functionality is largely implemented in
+#
+#     src/app/make7/compile/compile-treewalk-g.pkg
+#     src/app/make7/compile/linking-treewalk-g.pkg
+#
+#
+# generic invocation context:
+#
+#     The generic we define is invoked (only) in
+#
+#         src/lib/core/internal/make7-0.pkg
+#
+#     which consists of the single statement
+#
+#        package make7_0 = make7_g (package compiler_client_interface = compiler_client_interface)
+#
+#     make7_0 is used in four places (lumping all the make-compiler/platform files together):
+#
+#         src/lib/core/make-compiler/x86-unix.pkg:    load_plugin = make7_0::load_plugin
+#         src/lib/core/internal/boot-dictionary.pkg:  package boot_dictionary = boot_dictionary_g
+#         src/lib/core/make7/make7.pkg:               package make7 :> Make7 = make7_0::make7
+#         src/lib/core/make7/tools.pkg:               package tools :> Tools = make7_0::tools
+#
+# generic argument:
+#
+#     "compiler_client_interface" is defined by
+#
+#             package compiler_client_interface = x86_unix_compiler_client_interface;
+#         in
+#             src/lib/core/compiler/x86-with-unix-call-conventions.pkg
+#
+#         which gets conditionally included by
+#
+#             src/lib/core/compiler/current.make6
+#
+#         (The above is for "x86-linux";
+#          other platforms are similar.)
+#
+#
+#
+# Runtime invocation context:
+#
+#     The two most important runtime
+#     entrypoints in this file are our
+#	    make
+#	    compile
+#     functions, which are respectively invoked by typing
+#          make    "foobar.make6"
+#          compile "foobar.make6"
+#     at the interactive prompt.
+#
+#
+#
+#     We also export a 'set_up_make7' function which becomes
+#     make7_0::init courtesy of our generic invocation in
+#
+#         src/lib/core/internal/make7-0.pkg
+#
+#     and which is then passed as 'cminit'
+#
+#         by  src/lib/core/internal/boot-dictionary.pkg
+#         to  src/lib/core/internal/boot-dictionary-g.pkg
+#
+#     to become part of -its- 'init' function,
+#     which is invoked by 
+#
+#         src/lib/core/internal/main.pkg
+#
+#     shortly before dumping the heap image which
+#     generates the compiler "executable" heap image.
+
+
+
+###            "The most crucial difference is not that
+###             the good programmers are better at getting
+###             out of trouble, but that the poor ones are
+###             better at getting into it."
+
+
+
+stipulate
+    package e  = compiler_table_set;					# compiler_table_set			is from   src/lib/compiler/toplevel/compiler-state/compiler-table-set.pkg
+    package de = linking_table;						# linking_table				is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+
+    package cs = compiler_state;					# compiler_state			is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
+    package s  = symbol;						# symbol				is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+    package em = error_message;						# error_message				is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+
+    package p  = winix::path;						# winix					is from   src/lib/std/winix.pkg
+    package f  = winix::file;
+    package dg = intra_library_dependency_graph;			# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg = inter_library_dependency_graph;			# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+    package im = int_map;						# int_map				is from   src/app/make7/util/int-map.pkg
+    package ad = anchor_dictionary;					# anchor_dictionary			is from   src/app/make7/paths/anchor-dictionary.pkg
+
+herein
+    generic package   make7_g (
+
+	package compiler_client_interface				# x86_unix_compiler_client_interface	is from   src/lib/compiler/toplevel/backend/x86-unix-compiler-client-interface.pkg
+	    :
+	    Compiler_Client_Interface;					# Compiler_Client_Interface		is from   src/lib/compiler/toplevel/backend/compiler-client-interface.api
+    )
+    {
+	stipulate
+									# lib7					is from   src/lib/std/lib7.pkg
+									# host_info				is from   src/lib/std/src/nj/host-info.pkg
+	    package cci = compiler_client_interface;
+
+	    os_kind  = host_info::get_os_kind ();			# UNIX | WIN32 | OS2;
+
+	    # Set platform to "x86-linux" or such:			# filename_policy			is from   src/app/make7/main/filename-policy.pkg
+	    #
+	    platform
+		=
+		cat [
+		    cci::architecture_name,				# "ppc", "sparc" or "x86".
+		    "-",
+		    filename_policy::os_kind_to_string  os_kind
+		];
+
+	    # Set up a little dictionary defining
+	    # half a dozen platform properties
+	    # like architecture ("x86" or such):
+	    #
+	    package host_properties
+		=
+		host_properties_g (					# host_properties_g			is from   src/app/make7/main/host-properties-g.pkg
+
+		    architecture_name =  cci::architecture_name;	# "ppc", "sparc" or "x86".
+		    os_kind           =  os_kind;
+		    abi_variant       =  cci::abi_variant;
+		);
+
+
+	    # 'seed_libraries_index' gets set by read_picklehash_map (below) from
+	    #
+	    #     build7.seed-libraries/LIBRARY_CONTENTS
+	    #
+	    # and constitutes our master index to the complete
+	    # contents of the build7.seed-libraries/* directory
+	    # tree.
+	    #
+	    seed_libraries_index
+		=
+		REF (source_path_map::empty: source_path_map::Map(  int_map::Map(    e::Linking_Table ) ));
+		#  XXX BUGGO FIXME more mutable global state :( 
+
+							    		# source_path_map			is from   src/app/make7/paths/source-path-map.pkg
+									# int_map				is from   src/app/make7/util/int-map.pkg
+	    package freezefile_map
+		=
+		freezefile_map_g ();					# freezefile_map_g			is from   src/app/make7/freezefile/freezefile-map-g.pkg
+
+
+	    #  XXX BUGGO FIXME more mutable global state :( 
+
+	    read_eval_print_from_stream_hook
+		=
+		REF   (fn _ =  raise exception FAIL "read_eval_print_from_stream_hook not initialized")   :   Ref( file::Input_Stream -> Void );
+
+
+	    # 2008-02-24 CrT:  This is a quick hack to get the eval definition
+	    #                  from where I can get it to where I want it.  A
+	    #                  cleaner mechanism would be cool. XXX BUGGO FIXME.
+	    #
+	    #                  (I don't intend ever changing this pointer
+	    #                  once set, so this is not really an example
+	    #                  of problematic global state.)
+	    #
+	    my eval_hook : Ref(String -> Void)
+			 = REF (fn _ = ());
+
+
+	    package   compile_treewalk
+		=
+		compile_treewalk_g (					# compile_treewalk_g			is from   src/app/make7/compile/compile-treewalk-g.pkg
+
+		    package   compiler_client_interface =  cci;
+		    package   freezefile_map            =  freezefile_map;
+
+		    fun read_eval_print_from_stream   stream
+			=
+			*read_eval_print_from_stream_hook   stream;
+
+		    compile_in_subprocess
+			=
+			compile_client::compile   o   ad::encode;
+
+									# compile_client			is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+									# anchor_dictionary			is from   src/app/make7/paths/anchor-dictionary.pkg
+		);
+
+	    package   oh7_file_cache
+		=
+		oh7_file_cache_g (					# oh7_file_cache_g			is from   src/app/make7/compile/oh7-file-cache-g.pkg
+
+		    architecture_name = cci::architecture_name;
+		);
+
+
+	    package   linking_treewalk
+		=
+		make_link_treewalk_g (				# linking_treewalk_g			def in    src/app/make7/compile/linking-treewalk-g.pkg
+
+		    package   oh7_file_cache = oh7_file_cache;
+
+		    seed_libraries_index = seed_libraries_index;
+		);
+
+	    stipulate
+		find_set_of_o7_files_for_executable
+		    =	
+		    find_set_of_o7_files_for_executable::find_set_of_o7_files_for_executable;
+	    herein
+
+		make_bootlist
+		    =
+		    .l   o   find_set_of_o7_files_for_executable   (fn p =  p);
+	    end;
+
+								# find_set_of_o7_files_for_executable	is from   src/app/make7/make-compiler/find-set-of-o7-files-for-executable.pkg
+								# compile_client			is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+								# anchor_dictionary			is from   src/app/make7/paths/anchor-dictionary.pkg
+
+	    fun set_up_servers (lg::LIBRARY { library_path, ... } )
+		    =>
+		    compile_client::make {
+			platform,
+			project  => ad::encode library_path
+		    };
+
+	       set_up_servers lg::ERROR_LIBRARY
+		    =>
+		    ();
+	    end;
+
+								# make7_state				is from   src/app/make7/main/make7-state.pkg
+								# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+	    # This is the 'runner' function
+	    # for the 'compile' function implementing
+	    #
+	    #     make7::compile "foo.make6"
+	    #
+	    fun runner_for_compile
+		    (make7_state:	make7_state::Make7_State)
+		    (library:     	inter_library_dependency_graph::Library) 			#  Freshly read in by make7file::build_interlibrary_dependency_graph_from_make7file_tree 
+		=
+		{
+		    set_up_servers  library;
+
+		    fun store _
+			=
+			();
+
+		    my { symbol_and_inlining_tables => my_library, ... }
+			=
+			compile_treewalk::walk_inter_library_dependency_graph
+                          (
+			    linking_treewalk::evict,
+			    store,
+			    library
+			  );
+
+		    not_null  (compile_client::with_servers  (fn () =   my_library  make7_state))
+		    before
+			linking_treewalk::cleanup make7_state;
+		};
+
+									# linking_treewalk_g				def in    src/app/make7/compile/linking-treewalk-g.pkg
+									# walk_inter_library_dependency_graph		def in    src/app/make7/compile/compile-treewalk-g.pkg
+									# evict						def in    src/app/make7/compile/linking-treewalk-g.pkg
+
+	    # This is the 'runner' function for the 'load' function implementing
+	    #     make7::make "foo.make6"
+	    # It combines the actions of "compile" and "exec".
+	    # When successful, it combines the results
+	    # (thus forming a full dictionary) and adds
+	    # it to the toplevel dictionary.
+	    #
+	    fun runner_for_make
+    # MUSTDIE add_namings is probably part of the problem:
+		    add_namings						#  Bool: 'TRUE' for regular commandline make, 'FALSE' when called from load_plugin' 
+		    make7_state
+		    (parsed_makefile as lg::LIBRARY library_record)	#  The result of make7file::build_interlibrary_dependency_graph_from_make7file_tree (foo.make6) 
+		=>
+		{   library_record
+			->
+			{ required_privileges, ... };
+
+
+		    my { cache_oh7_file, get }
+			=
+			oh7_file_cache::make ();			# oh7_file_cache is defined at top of file.
+									# new	def in    src/app/make7/compile/oh7-file-cache-g.pkg
+
+		    set_up_servers  parsed_makefile;
+
+
+		    # Both of the next two calls return
+		    # fates, which must be called
+		    # with a make7_state argument in order
+		    # to actually yield a useful result:
+		    #
+		    my { symbol_and_inlining_tables    => compile_fate, ... }
+			=
+			compile_treewalk::walk_inter_library_dependency_graph (
+			    linking_treewalk::evict,
+			    cache_oh7_file,
+			    parsed_makefile
+			);
+
+		    my { linking_table => linking_fate, ... }
+			=
+			linking_treewalk::make_treewalk (
+			    parsed_makefile,
+			    .contents o get
+			);
+							    # linking_treewalk_g	def in    src/app/make7/compile/linking-treewalk-g.pkg
+
+
+		    case (compile_client::with_servers
+			     .{   compile_fate  make7_state;   })
+
+			NULL => FALSE;
+
+			THE { symbol_table, inlining_table }
+			    =>
+			    {
+				# Before executing the code, we announce the privileges
+				# that are being invoked.  For the time being, we assume
+				# that everybody has every conceivable privilege, but at
+				# the very least we announce which ones are being used:
+				#
+				linking_treewalk::cleanup  make7_state;
+
+							   # linking_treewalk_g	def in    src/app/make7/compile/linking-treewalk-g.pkg
+							   # string_set		is from   src/lib/src/string-set.pkg
+
+				# 2009-03-29 CrT: Commented out because
+				# currently this is just useless noise:
+
+#				if   (not (string_set::is_empty  required_privileges))
+#			          
+#                                   file::vsay ("          src/app/make7/main/make7-g.pkg:   $Execute: Required privileges are:\n" .
+#				        map
+#                                          (fn s =  ("                                            " + s + "\n"))
+#                                          (string_set::vals_list required_privileges));
+#				fi;
+
+
+				case (linking_fate  make7_state)
+				    #
+				    NULL => FALSE;
+				    #
+				    THE linking_table
+					=>
+					{   if add_namings
+						#
+						compiler_table_set_differences
+						    =
+						    e::make_compiler_table_set { 
+							symbol_table,
+							linking_table,
+							inlining_table
+						    };
+
+
+						top_level               =  cs::top_level ();
+						base_compiler_table_set =  top_level.get ();
+
+						new_compiler_table_set
+						    =
+						    e::concatenate_compiler_table_sets (
+							compiler_table_set_differences,
+							base_compiler_table_set
+						    );
+
+						top_level.set  new_compiler_table_set;
+						file::vsay ["          src/app/make7/main/make7-g.pkg:   New names added.\n"];
+					    fi;
+
+					    TRUE;
+					};
+				esac;
+			    };
+		    esac;
+		};
+
+		runner_for_make _ _ lg::ERROR_LIBRARY
+		    =>
+		    FALSE;
+	    end;
+
+
+	    package freezefile
+		=							# make_linking_treewalk_g		is from   src/app/make7/compile/linking-treewalk-g.pkg
+		freezefile_g (						# freezefile_g				is from   src/app/make7/freezefile/freezefile-g.pkg
+
+		    architecture_name
+			=
+			cci::architecture_name;
+
+		    package freezefile_map
+			=
+			freezefile_map;
+
+
+									# make7_state				is from   src/app/make7/main/make7-state.pkg
+									# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+									# oh7_file_cache_g			def in    src/app/make7/compile/oh7-file-cache-g.pkg
+									# compile_treewalk_g 			is from   src/app/make7/compile/compile-treewalk-g.pkg
+									# linking_treewalk_g			def in    src/app/make7/compile/linking-treewalk-g.pkg
+		    # A function which allows
+		    #
+		    #     freezefile::write_freezefile
+		    #
+		    # to recompile any thawed real library
+		    # handed to it:
+		    #
+		    fun recompile
+			    (make7_state:   make7_state::Make7_State)
+			    (my_library:    inter_library_dependency_graph::Library)
+			=
+			{   my { cache_oh7_file, get }
+				=
+				oh7_file_cache::make ();
+
+			    my { symbol_and_inlining_tables, ... }
+				=
+				compile_treewalk::walk_inter_library_dependency_graph (
+
+				    linking_treewalk::evict,
+				    cache_oh7_file,
+				    my_library
+				);
+
+			    case (symbol_and_inlining_tables  make7_state)
+
+				 NULL  =>  NULL;
+				 THE _ =>  THE get;
+			    esac;
+			};
+
+		    get_o7_exports
+			=
+			compile_treewalk::get_o7_exports;
+		);
+
+
+	    # Access to the library-building mechanism
+	    # is integrated into the .make6 file parser.
+	    #
+	    # I'm not sure if this is the cleanest way,
+	    # but it works well enough.		-- Matthias Blume
+	    #
+	    package make7file
+		=
+		make7file_g (				        # make7file_g	def in    src/app/make7/parse/make7file-g.pkg
+
+		    package freezefile     =  freezefile;
+		    package freezefile_map =  freezefile_map;
+
+		    fun evict_stale ()
+			=
+			{   compile_treewalk::evict_stale ();
+			    linking_treewalk::evict_stale ();
+			};
+		);
+
+	    include freeze_policy;
+
+
+	    stipulate
+
+		Primordial_Library_Dependency_Graph
+		    =
+		    { primordial_make7file: lg::Library };
+
+
+		filename_policy			
+		    =
+		    filename_policy::policy;
+								    # filename_policy	is from   src/app/make7/main/filename-policy.pkg
+								    # anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+
+		primordial_make7file_hook
+		    =
+		    REF (NULL: Null_Or( Primordial_Library_Dependency_Graph ));
+
+	    herein
+		anchor_dictionary
+		    =
+		    ad::dictionary;
+
+
+
+		fun make_standard_source_path  path_string
+		    =
+		    ad::file (
+
+			ad::from_standard
+
+			    { plaint_sink   =>   fn string =  raise exception FAIL string,
+			      anchor_dictionary
+			    }
+
+			    { path_root =>   ad::cwd (),
+			      spec      =>   path_string
+			    }
+			);
+
+		fun show_api  (api_name: String)
+		    =
+		    {
+			symbol_table
+			    =
+			    compiler_table_set::symbol_table_part
+				(compiler_state::combined ());
+
+			symbol
+			    =
+			    symbol::make_api_symbol  api_name;
+
+			case (symbol_table::get  (symbol_table, symbol))
+			    #
+			    symbol_table_entry::NAMED_API a
+				=>
+				{
+				    prettyprint_device
+					=
+					{   consumer  =>  (fn string =  file::write  (file::stdout,  string)),
+					    linewidth =>  2000,							# Arbitrary large number.
+					    flush     =>  .{ file::flush  file::stdout; }
+					};
+
+				    prettyprint_stream
+					=
+					prettyprint::open_stream  prettyprint_device;
+
+												   # unparse_package_language	is from   src/lib/compiler/frontend/typechecker/print/unparse-package-language.pkg
+				    unparse_package_language::unparse_api
+					prettyprint_stream
+					(a, symbol_table, /* max prettyprint recursion depth: */ 200);
+
+				    prettyprint::flush_stream  prettyprint_stream;
+
+				};
+
+			    _   =>
+				print "    src/app/make7/main/make7-g.pkg:show_api: Improbable failure.\n";
+			esac
+			except
+			    unbound
+				=
+				print ("No api " + api_name + " defined at top level.\n");
+
+		    };
+
+		fun show_pkg  (pkg_name: String)
+		    =
+		    {
+			symbol_table
+			    =
+			    compiler_table_set::symbol_table_part
+				(compiler_state::combined ());
+
+			symbol
+			    =
+			    symbol::make_package_symbol  pkg_name;
+
+			case (symbol_table::get  (symbol_table, symbol))
+
+			     symbol_table_entry::NAMED_PACKAGE a
+				 =>
+				 {
+				     prettyprint_device
+					 =
+					 {   consumer  =>  (fn string =  file::write  (file::stdout,  string)),
+					     linewidth =>  2000,        # Arbitrary large number.
+					     flush     =>  .{ file::flush  file::stdout; }
+					 };
+
+				     prettyprint_stream
+					 =
+					 prettyprint::open_stream  prettyprint_device;
+
+
+				     unparse_package_language::unparse_package
+					 prettyprint_stream
+					 (a, symbol_table, /* max prettyprint recursion depth: */ 200);
+
+				     prettyprint::flush_stream  prettyprint_stream;
+
+				 };
+
+			     _   =>
+				 print "    src/app/make7/main/make7-g.pkg:show_pkg: Improbable failure.\n";
+			esac
+			except
+			    unbound
+				=
+				print ("No package " + pkg_name + " defined at top level.\n");
+
+		    };
+										    # symbol_table_entry	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+										    # symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+										    #	
+										    # compiler_table_set	is from   src/lib/compiler/toplevel/compiler-state/compiler-table-set.pkg
+										    # symbol			is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+										    # symbol_map		is from   src/app/make7/util/symbol-map.pkg
+										    #	
+										    # compiler_state		is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
+										    # make7_defaults		is from   src/app/make7/util/make7-defaults.pkg
+		fun show_all ()
+		    =
+		    {   symbols =  compiler_state::list_bound_symbols ();
+
+			descriptions
+			    =
+			    map
+				symbol::describe
+				symbols;
+
+			fun pr s
+			    =
+			    file::say [s, "\n"];
+
+			file::say ["\nTop-level definitions:\n"];
+			apply pr descriptions;
+		    };
+
+
+		fun show  title_string  filter_fn
+		    =
+		    {   symbols  =  compiler_state::list_bound_symbols ();
+			symbols  =  list::filter  filter_fn  symbols;
+
+			names    =   map
+					 symbol::name
+					 symbols;
+
+			sorted_names
+			    = 
+			    list_mergesort::sort
+				string::(>)
+				names;
+
+			fun pr s
+			    =
+			    file::say [s, " "];
+
+			file::say ["\nTop-level ", title_string, " definitions:\n"];
+			apply pr sorted_names;
+			file::say ["\n"];
+		    };
+
+
+		fun show_vals     () =  show  "val"        (fn symbol =  (symbol::name_space symbol  ==  symbol::VALUE_NAMESPACE  ));
+		fun show_apis     () =  show  "api"        (fn symbol =  (symbol::name_space symbol  ==  symbol::API_NAMESPACE    ));
+		fun show_pkgs     () =  show  "pkg"        (fn symbol =  (symbol::name_space symbol  ==  symbol::PACKAGE_NAMESPACE));
+		fun show_types    () =  show  "type"       (fn symbol =  (symbol::name_space symbol  ==  symbol::TYPE_NAMESPACE   ));
+		fun show_generics () =  show  "generic"    (fn symbol =  (symbol::name_space symbol  ==  symbol::GENERIC_NAMESPACE));
+
+
+										    # unparse_compiler_state	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/unparse-compiler-state.pkg
+										    # latex_print_compiler_state	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/latex-print-compiler-state.pkg
+
+		fun dump_api_reference  filename
+		    =
+		    unparse_compiler_state::unparse_compiler_state_to_file
+			filename;
+
+		fun latex_dump_api_reference
+			{ directory,
+			  filename_prefix,
+			  filename_suffix
+			}
+		    =
+		    latex_print_compiler_state::latex_print_compiler_state_to_file
+			{ directory,
+			  filename_prefix,
+			  filename_suffix
+			};
+
+		fun get_primordial_make7file_hook_value ()
+		    =
+		    the *primordial_make7file_hook
+		    except
+			NULL_OR
+			=
+			raise exception FAIL "src/app/make7/main/make7-g.pkg: primordial_make7file_hook not initialized";
+
+		fun make7_session  server_mode
+		    =
+		    { filename_policy,
+		      anchor_dictionary,
+
+		      host_property     => host_properties::symbol_value,
+		      platform,
+
+		      keep_going        => make7_defaults::keep_going.get (),
+		      server_mode
+		    };
+
+		primordial_make7file
+		    =
+		    .primordial_make7file  o  get_primordial_make7file_hook_value;
+
+		# Maybe delete picklestrings
+		# from memory to save ram:
+		#
+		fun maybe_clear_pickle_cache ()
+		    =
+		    if  (make7_defaults::conserve_memory.get ())         #  'FALSE' by default, but user-settable. 
+
+			 make7file::clear_pickle_cache ();
+		    fi;
+									    # make7_defaults	is from   src/app/make7/util/make7-defaults.pkg
+									    # make7file_g		def in    src/app/make7/parse/make7file-g.pkg
+
+		# Construct a build_interlibrary_dependency_graph_from_make7file_tree argument record:
+		#
+		fun parse_arg_0  server_mode  (library_source_index, freeze_policy, make7_file_to_read)
+		    =
+		    { make7_file_to_read,                   #  Primary input to build_interlibrary_dependency_graph_from_make7file_tree fn. 
+
+		      load_plugin,
+		      library_source_index,
+
+		      make7_session      =>  make7_session  server_mode,
+		      freeze_policy,					# See explanation in   src/app/make7/parse/freeze-policy.api
+
+		      primordial_make7file    =>  primordial_make7file (),
+		      paranoid           =>  FALSE
+		    }
+
+		also
+		fun parse_arg       x =   parse_arg_0 FALSE x
+
+		also
+		fun server_parse_arg x =   parse_arg_0 TRUE  x
+
+		also
+		fun run   make_src_path   freeze_policy   runner_fn   makefile_path_string
+		    =
+		    # Read in a .make6 makefile and then
+		    # apply given 'runner_fn' to the result:
+		    #
+		    {
+			makefile_path
+			    =
+			    make_src_path   makefile_path_string;
+
+
+			library_source_index
+			    =
+			    library_source_index::make ();
+
+							    # library_source_index	is from   src/app/make7/semant/library-source-index.pkg
+							    # make7file_g	def in    src/app/make7/parse/make7file-g.pkg
+
+			{   file::vsay [
+				"          src/app/make7/main/make7-g.pkg:   Running   .make6file    ",
+				makefile_path_string,
+				"\n"
+			    ];
+
+    #                        show_all ();
+
+			    case (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				     (parse_arg
+					 ( library_source_index,
+					   freeze_policy,
+					   makefile_path
+					 )
+				     ))
+
+				 THE (library, make7_state)
+				     =>
+				     {
+					 runner_fn   make7_state   library;
+				     };
+
+				 NULL
+				     =>
+				     {
+					 FALSE;
+				     };
+			    esac;
+			}
+			before
+			    maybe_clear_pickle_cache ();
+		    }
+
+
+		also
+		fun load_plugin'  plugin_path
+		    =
+		    {   plugin_description
+			    =
+			    ad::describe  plugin_path;
+
+			file::vsay [
+			    "          src/app/make7/main/make7-g.pkg:  Attempting to load plugin ",
+			    plugin_description,
+			    "\n"
+			];
+
+			library_source_index
+			    =
+			    library_source_index::make ();
+
+			succeeded
+			    =
+			    {   case (make7file::build_interlibrary_dependency_graph_from_make7file_tree (
+					 parse_arg (
+					     library_source_index,
+					     FREEZE_NONE,
+					     plugin_path
+					 )
+				     ))
+
+				    THE (group, make7_state)
+					=>
+					runner_for_make   FALSE   make7_state   group;
+
+				    NULL
+					=>
+					FALSE;
+				esac
+				before
+				    maybe_clear_pickle_cache ();
+			    }
+			    except
+				_ = FALSE;
+
+			if succeeded   file::vsay ["          src/app/make7/main/make7-g.pkg:  plugin ", plugin_description, " loaded successfully]\n"];
+			else           file::vsay ["          src/app/make7/main/make7-g.pkg:  Unable to load plugin ", plugin_description, "\n"];      fi;
+
+			succeeded;
+		    }
+
+
+		also
+		fun load_plugin  path_root  spec
+		    = 
+		    {   fun badname string
+			    =
+			    file::say ["    src/app/make7/main/make7-g.pkg:  Bad plugin name: '", string, "'\n"];
+
+								    # say			is from   src/lib/std/src/io/say.pkg
+								    # anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+			prefile
+			    =
+			    ad::from_standard
+				{ anchor_dictionary,
+				  plaint_sink => badname
+				}
+				{ path_root,
+				  spec
+				};
+
+			load_plugin' (ad::file  prefile);
+		    };
+
+
+		fun cwd_load_plugin  x
+		    =
+		    load_plugin (ad::cwd ()) x;
+
+
+
+		# This function may be interactively invoked
+		# from the commandline as make7::freeze'.
+		# (Or as make7::freeze
+		# or     make7::freeze1
+		# in which the 'recursively' boolean arg is implicit.)
+		#
+		fun freeze'   recursively   root
+		    =
+		    {   fun freeze_library_compile_runner  make7_state  g
+			    =
+			    {   set_up_servers  g;
+
+				my { all_libraries, ... }
+				    =
+				    compile_treewalk::walk_inter_library_dependency_graph (
+					linking_treewalk::evict,
+					fn _ = (),
+					g
+				    );
+
+								    # compile_treewalk		def is    above.
+								    # compile_treewalk_g	def in    src/app/make7/compile/compile-treewalk-g.pkg
+								    # linking_treewalk		def is    above.
+								    # linking_treewalk_g	def in    src/app/make7/compile/linking-treewalk-g.pkg
+								    # compile_client		is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+
+				compile_client::with_servers
+				    .{   all_libraries  make7_state;   };
+			    };
+
+
+			fun freeze_library_dummy_runner  make7_state  group
+			    =
+			    TRUE;
+
+
+
+			fun phase1 ()
+			    =
+			    run
+				make_standard_source_path
+				FREEZE_NONE
+				freeze_library_compile_runner
+				root;
+
+
+			fun phase2 ()
+			    =
+			    {   compile_treewalk::reset ();                     #  A bit too draconian? 
+
+				run
+				    make_standard_source_path
+				    (recursively ?? FREEZE_ALL :: FREEZE_ONE)
+				    freeze_library_dummy_runner
+				    root;
+			    };
+
+
+			# Don't bother with the 2-phase thing
+			# if there are no compile servers attached.
+			#
+			# We still need the "with_servers" call to
+			# clean up our queues in case of an
+			# interrupt or error.)
+
+			if   (compile_client::no_servers ())
+			    #
+			    compile_client::with_servers phase2;
+			else
+			    # We do this in two phases:
+			    #
+			    #    1. Recompile everything without building any libraries
+			    #       but potentially using other compile-server processes.
+			    #
+			    #    2. Do a local library-building run (which should have
+			    #       no need to compile anything).
+
+			    phase1 () and phase2 ();
+			fi;
+		    };
+
+
+
+		##########################################################
+		#  These are the entry points that will execute when we   
+		#  respectively do    'make7::make    "foobar.make6"; or 
+		#                     'make7::compile "foobar.make6";'   
+		#  at the interactive prompt:                             
+		##########################################################
+
+		my make     =   run   make_standard_source_path   FREEZE_NONE   (runner_for_make TRUE);
+		my compile  =   run   make_standard_source_path   FREEZE_NONE    runner_for_compile;
+
+
+
+		fun to_portable s
+		    =
+		    {   gp =   make_standard_source_path   s;
+
+			fun nativesrc s
+			    =
+			    {   p = ad::from_standard
+					{ plaint_sink  =>   fn s =  raise exception FAIL s,
+					  anchor_dictionary
+					}
+					{ path_root =>   ad::dir   gp,
+					  spec    =>   s
+					};
+
+				ad::os_string'   (ad::file   p);
+			    };
+
+			fun mkres (g, pl)
+			    =
+			    {   graph     => g,
+				imports   => pl,
+				nativesrc
+			    };
+
+			null_or::map
+			    (mkres o to_portable::export)
+			    (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				(parse_arg
+				    (   library_source_index::make (),
+					FREEZE_NONE,
+					make_standard_source_path s
+				    )
+				)
+			    );
+		    };
+								    # null_or		is from   src/lib/std/src/null-or.pkg
+								    # to_portable		is from   src/app/make7/depend/to-portable.pkg
+								    # library_source_index	is from   src/app/make7/semant/library-source-index.pkg
+
+
+		# This function is exported to the user interface as
+		# make7::sources.  It provides dependency generation
+		# support used by 'makedepend7'.
+		#
+		# According to the manual:
+		#
+		#    The 'make7::sources' function can be used to find the
+		#    names of all source files that a given library depends on.
+		#
+		#    It returns the names of all files involved with
+		#    the exception of module_dependencies_summary files and .o7 files.
+		# 
+		#    Frozen libraries are represented by their freezefile;
+		#    their description file or constituent members are
+		#    NOT listed.
+		#
+		#    Normally, the function reports actual file
+		#    names as used for accessing the file system.
+		#
+		#    For freezefiles this behavior can be
+		#    inconvenient because these names depend on
+		#    architecture and operating system.
+		#
+		#    For this reason, make7::sources accepts an
+		#    optional pair of strings that then will be used
+		#    in place of the architecture- and OS-specific
+		#    part of these names.
+		#
+		#    If there was some error analyzing the specified
+		#    library or sublibrary, make7::sources returns NULL.
+		#       Otherwise the result is a list of records, each
+		#    carrying a file name, the corresponding ilk, and
+		#    information about whether or not the source was
+		#    created by some tool:
+		#
+		#	       my sources:  { arch: String,   os: String } Null_Or
+		#                   -> String
+		#                   ->  Null_Or( List { file: String,   ilk: String,   derived: Bool } )
+		#
+		fun sources platform group
+		    =
+		    {   policy
+			    =
+			    case platform
+
+				 NULL                    =>  filename_policy;
+				 THE architecture_and_os =>  filename_policy::policy;
+			    esac;
+
+								    # filename_policy	is from   src/app/make7/main/filename-policy.pkg
+								    # source_path_set	is from   src/app/make7/paths/srcpathset.pkg
+
+			fun sources_of ((p, library_thunk
+							 , _	# MUSTDIE
+							 ), (v, a))
+			    =
+			    {   v' = source_path_set::add (v, p);
+
+				case (library_thunk ())
+
+				    lg::ERROR_LIBRARY
+					=>
+					(v', a);
+
+				    lg::LIBRARY { real_or_virtual, sources, ... }
+					=>
+					{   fun add (p, x, a)
+						=
+						string_map::set (a, ad::os_string p, x);
+
+					    fun sg l
+						=
+						if   (source_path_set::member (v, p))
+
+						     (v, a);
+						else
+						     fold_left
+							 sources_of
+							 (    v',
+							      source_path_map::keyed_fold_left add a sources
+							 )
+							 l;
+						fi;
+
+					    case real_or_virtual
+
+						 lg::VIRTUAL n
+						     =>
+						     sg n.sublibraries;
+
+						 lg::REAL { frozen_or_thawed, version }
+						     =>
+						     case frozen_or_thawed
+
+							  lg::THAWED d => sg d.sublibraries;
+
+							  lg::FROZEN _
+							       =>
+							       {   f =   ad::os_string   p;
+
+								   my (a, x)
+								       =
+								       string_map::drop (a, f);
+
+								   freezefile_name
+								      =
+								      filename_policy::make_freezefile_name
+									 policy
+									 p;
+
+								   (  v',
+								      string_map::set (a, freezefile_name, x)
+								   );
+							       }; 
+						     esac;
+					    esac;
+					};
+				esac;
+			    };
+
+			p =  make_standard_source_path group;
+
+
+			library_source_index
+			    =
+			    library_source_index::make ();
+
+
+			case (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				 (parse_arg
+				     (   library_source_index,
+					 FREEZE_NONE,
+					 p
+			       ) )   )
+
+			     THE (g, _)
+				 =>
+				 {   my (_, sm)
+					 =
+					 sources_of ( ( p,
+						       fn () = g
+						       , []	# MUSTDIE
+						     ),
+						     ( source_path_set::empty,
+						       string_map::singleton ( ad::os_string p,
+									     { ilk     =>  "cm",
+									       derived =>  FALSE
+									     }
+									   )
+						     )
+						   );
+
+				     fun add (s, { ilk, derived }, l)
+					 =
+					 { file => s, ilk, derived } ! l;
+
+				     THE (string_map::keyed_fold_left add [] sm);
+				 };
+
+			    _ => NULL;
+			esac
+			before
+			    maybe_clear_pickle_cache ();
+		    };
+
+		fun build_executable_heap_image
+			freeze_policy		# FREEZE_NONE/FREEZE_ONE/FREEZE_ALL
+			{ setup,			# Always NULL in practice.
+			  make7file_to_run,		# Say, "nowhere.make6"
+			  wrapper_make7file,	# One-line scratch .make6 file created by bin/build-an-executable-mythryl-heap-image script.
+			  heap_filename		# Heapfile to create (i.e., executable), say "nowhere"
+			}
+		    =
+		    {   spopt             =   null_or::map make_standard_source_path  setup;
+			make7file_to_run  =   make_standard_source_path  make7file_to_run;
+			wrapper_make7file =   make_standard_source_path  wrapper_make7file;
+			timestamp         =   time_stamp::last_file_modification_time  heap_filename;
+
+									    # time_stamp	is from   src/app/make7/paths/timestamp.pkg
+
+			library_source_index
+			    =
+			    library_source_index::make ();
+
+			fun do_make7file p
+			    =
+			    case (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				     (parse_arg
+					 ( library_source_index,
+					   FREEZE_NONE,
+					   p
+					 )
+				   ) )
+
+				 THE (g, gp)
+				     =>
+				     if   (runner_for_compile gp g)
+					  THE (make_bootlist g);
+				     else NULL;                  fi;
+
+				 NULL
+				     =>
+				     NULL;
+
+			   esac;
+
+			set_up_list
+			    =
+			    case spopt
+
+				 THE sp =>  the_else (do_make7file sp, []);
+				 NULL   =>  [];
+			    esac;
+
+			fun in_setup (i, _)
+			    =
+			    list::exists
+				(find_set_of_o7_files_for_executable::same_info i  o  #1)
+				set_up_list;
+
+								    # list	is from   src/lib/std/src/list.pkg
+
+			fun do_wrapper ()
+			    =
+			    case (do_make7file wrapper_make7file)
+
+				 NULL  =>  NULL;
+				 THE l =>  THE (  map #2 ( set_up_list @ list::filter (not o in_setup) l) );
+			    esac;
+
+			case (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				 (parse_arg
+				     ( library_source_index,
+				       freeze_policy,
+				       make7file_to_run
+				     )
+			       ) )
+
+			     NULL => NULL;
+
+			     THE (group, make7_state)
+				 =>
+				 if  (freeze_policy != FREEZE_NONE
+				 or	  runner_for_compile  make7_state  group
+				 )
+				      # If none of the sourcefiles have been
+				      # modified since the target was created,
+				      # we don't need to rebuild:
+				      #
+				      case (timestamp, *make7_state.youngest)
+
+					   ( time_stamp::TIMESTAMP target_timestamp,
+					     time_stamp::TIMESTAMP source_timestamp
+					   )
+					       =>
+					       if   (time::(<) (target_timestamp, source_timestamp))
+						    do_wrapper ();
+					       else THE [];   fi;
+
+					   _   =>
+					       do_wrapper ();
+				      esac;
+				 else
+				      NULL;
+				 fi;
+			esac
+			before
+			    maybe_clear_pickle_cache ();
+		    };
+
+
+		fun redump_heap s:  Void
+		    =
+		    fate::resume_fate   *cci::interact::redump_heap_fate   s;
+
+
+		fun enter_compile_server_loop ()
+		    =
+		    {
+			library_source_index
+			    =
+			    library_source_index::make ();
+
+			fun build_interlibrary_dependency_graph_from_make7file_tree  make7_file_to_read
+			    =
+			    make7file::build_interlibrary_dependency_graph_from_make7file_tree
+				(server_parse_arg
+				    ( library_source_index,
+				      FREEZE_NONE,
+				      make7_file_to_read
+				    )
+				);
+
+			.set (host_properties::symbol_value "MAKE7_SERVER_MODE")	# Nothing ever tests for this (unlike CMB_SERVER_MODE and CMB_REBUILD).
+			     (THE 1);
+
+											# host_properties_g		def in    src/app/make7/main/host-properties-g.pkg
+											# compile_server		is from   src/app/make7/main/compile-server.pkg
+
+			compile_server::enter_server_loop				# This never returns: it runs the compile-server loop indefinitely, then exit()s.
+			    {
+			      anchor_dictionary,
+			      build_interlibrary_dependency_graph_from_make7file_tree,
+
+			      platform,							# 'platform' string gives architecture+OS: "x86-linux" or such. 
+			      make,
+			      make_compile_treewalker
+				  =>
+				  compile_treewalk::make_intra_library_dependency_graph_walker
+			    };
+		    };
+										    	# compile_treewalk_g		def in    src/app/make7/compile/compile-treewalk-g.pkg
+
+		# The following function is essentially the second half
+		# of the 'bin/build-an-executable-mythryl-heap-image'
+		# (aka sh/_build-an-executable-mythryl-heap-image) script
+		# to build an executable heap image file from a .make6 file.
+		#
+		# The script invokes this function using a
+		# ' --build-an-executable-mythryl-heap-image' commandline switch
+		# kludged into bin/mythryld.  It probably should be executed
+		# via a "'bin/mythryld -e 'your code here()', sort of mechanism,
+		# but we haven't implemented that yet.   XXX BUGGO FIXME
+		#
+		fun build_an_executable_mythryl_heap_image  buildargs
+		    =
+		    winix::process::exit
+			case buildargs
+
+			     [       make7file_to_run, make7file, heap, o7_files_file, linkargs_file] =>  do_it (NULL,      make7file_to_run, make7file, heap, o7_files_file, linkargs_file);
+			     [setup, make7file_to_run, make7file, heap, o7_files_file, linkargs_file] =>  do_it (THE setup, make7file_to_run, make7file, heap, o7_files_file, linkargs_file);
+
+			     _ => { file::say ["bad arguments to --build-an-executable-mythryl-heap-image\n"];
+				    winix::process::failure;
+				  };
+			esac
+
+		    where
+
+			fun do_it (setup, make7file_to_run, wrapper_make7file, heap_filename, o7_files_file, linkargs_file)
+			    =
+			    case (build_executable_heap_image
+				     FREEZE_NONE
+				     { setup,
+				       make7file_to_run,		# Master .make6 to build the app, e.g. "nowhere.make6"
+				       heap_filename,		# "Executable" file to create, e.g. "nowhere"
+				       wrapper_make7file		# Scratch one-line .make6 file created by bin/build-an-executable-mythryl-heap-image script.
+				     }
+				   )
+
+				 NULL   => {  file::say ["Compilation failed.\n"];          winix::process::failure; };
+				 THE [] => {  file::say ["Heap was already up-to-date.\n"]; winix::process::success; };
+
+				 THE l
+				     =>
+				     {   fun wrf (f, l)
+					     =
+					     {   s =  file::open_for_write  f;
+
+						 fun wr string
+						     =
+						     file::write (s, string + "\n");
+
+						 file::say ["\n",
+							  "          src/app/make7/main/make7-g.pkg:   Creating file '", f, "'\n"
+							 ];
+						 apply wr l;
+						 file::close_output  s;
+						 file::say ["\n"];
+					     };
+
+					s =   file::open_for_write  o7_files_file;
+
+					fun wr str
+					    =
+					    file::write (s, str + "\n");
+
+					n =   length l;
+
+					fun maxsz (s, n)
+					    =
+					    int::max (size s, n);
+
+					m =  fold_left maxsz 0 l;
+
+					wrf (o7_files_file,
+					     "# This file built by src/app/make7/main/make7-g.pkg: build_an_executable_mythryl_heap_image"
+					     ! "# for consumption by src/runtime/main/load-o7-files.c: BuildOh7_FileList."
+					     ! "#"
+					     ! "# It gives a list of .o7 files to be linked together to form a Lib7 executable (heap image)."
+					     ! "#"
+					     ! "# Each line after the header specifies one .o7 file to load."
+					     ! "#"
+					     ! "# The lines are topogically sorted so that no .o7 file depends upon a later one."
+					     ! "#"
+					     ! "# An .o7 file is specified as either a simple filename, or else as a"
+					     ! "# FREEZEFILENAME@OFFSET: LIBRARY_DESCRIPTION triple giving the offset of the"
+					     ! "# oh7_file image within some library file, where LIBRARY_DESCRIPTION in turn"
+					     ! "# is a MAKE7FILE@OFFSET (SOURCEFILE) triple giving the makefile which created"
+					     ! "# the library and the name of the source file which was compiled to produce"
+					     ! "# the .o7 file.  (The second OFFSET is redundant with the first.)"
+					     ! cat ["FILES=",           int::to_string n ]
+					     ! cat ["MAX_LINE_LENGTH=", int::to_string m ]
+					     ! ""
+					     ! l);
+
+					wrf (linkargs_file,
+					     [cat [" --runtime-o7-files-to-load=", o7_files_file]]);
+
+					winix::process::success;
+				    }
+				    except
+					_ =  winix::process::failure;
+			    esac;
+
+		    end;
+
+		fun reset ()
+		    =
+		    { compile_treewalk::reset  ();			# compile_treewalk_g	def in    src/app/make7/compile/compile-treewalk-g.pkg
+		      linking_treewalk::reset  ();			# linking_treewalk_g	def in    src/app/make7/compile/linking-treewalk-g.pkg
+
+		      make7file::reset         ();			# build_interlibrary_dependency_graph_from_make7file_tree           is defined above.
+		      bare_o7::reset           ();			# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+		      freezefile_map::reset    ();			# freezefile_map           is defined above.
+		    };
+
+		# Calling this function is the last
+		# thing done by 'set_up_make7'.
+		#
+		# This means that we, like it, are
+		# essentially executed at compiletime
+		# rather than runtime:
+		#
+		#     src/lib/core/internal/main.pkg
+		#
+		# calls us -before- dumping to disk
+		# the heap image which becomes the
+		# mythryld "executable":
+		#
+		fun set_up_primordial_make7file_hook (
+			root_directory,		# Contains src/ bin/ sh/ &tc.
+			linking_table,
+			process_commandline
+		    )  
+		    =
+		    {
+    # print ("src/app/make7/main/make7-g.pkg/set_up_primordial_make7file_hook/AAA: root_directory = " + root_directory + " cwd= " + (posix::current_directory()) + "\n");
+
+
+			##########################################################
+			# Saving an in-memory datastructure to disk is
+			# called "pickling", and the result is called
+			# a "pickle".
+			#
+			# In particular, the .o7 object-code files
+			# produced by the compiler consist of pickles
+			# plus a little relish.
+			#
+			# We identify pickles by 16-byte hashes of their
+			# contents, which we call "picklehashes".
+			#
+			# A library freezefile is essentially a collection
+			# of pickles, and to use it we mainly need to know
+			# which pickles are where, which we express by an
+			# index mapping picklehashes (pickle names) to
+			# byte offsets (pickle locations within the freezefile).
+			#
+			# The file
+			#
+			#     LIBRARY_CONTENTS
+			#
+			# contains one such an index for every freezefile
+			# in the src/* directory tree which is slated for
+			# inclusion in the mythryld executable, in a simple
+			# one-index-per-line text format. For more details,
+			# see its top-of-file comments or the code that creates
+			# it: write_picklehash_map() in
+			#
+			#     src/app/make7/make-compiler/make-compiler-g.pkg: 
+			#
+			# Our next task is to load LIBRARY_CONTENTS into memory.
+			##########################################################
+
+
+			# Construct full pathname for
+			# the LIBRARY_CONTENTS file:
+			#
+    # print ("src/app/make7/util/make7-g.pkg at picklehash_map_file point: cwd = " + (posix::current_directory()) + "\n");
+			picklehash_map_file
+			    =
+			    p::cat (
+				root_directory,					# Contains sh/ bin/ src/ ...
+				make_compiler_defaults::picklehash_map		# "LIBRARY_CONTENTS"
+			    );
+
+										    # make_compiler_defaults	is from   src/app/make7/make-compiler/make-compiler-defaults.pkg
+										    # picklehash			is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+										    # string			is from   src/lib/std/string.pkg
+										    # source_path_map		is from   src/app/make7/paths/source-path-map.pkg
+										    # anchor_dictionary		is from   src/app/make7/paths/anchor-dictionary.pkg
+
+			fun read_picklehash_map s
+			    =
+			    {   seed_libraries_index
+				    :=
+				    loop  source_path_map::empty;
+			    }
+			    where
+
+				fun loop m
+				    =
+				    {   fun enter (d, pids)
+					    =
+					    source_path_map::set (
+
+						m,
+
+						ad::decode
+						    anchor_dictionary
+						    d,
+
+						fold_left
+						    enter1
+						    im::empty
+						    pids
+					    )
+					    where
+
+						fun enter1 (spec, pm)
+						    =
+						    {   from_hex = picklehash::from_hex;
+
+							case (string::tokens  (fn c =  c == ':')  spec)
+
+							     [pos, hexp]
+								 =>
+								 case (from_hex hexp, int::from_string pos)
+
+								      (THE p, THE i)
+									  =>
+									  case (de::get linking_table p)
+
+									       NULL      =>  pm;
+									       THE chunk =>  im::set (pm, i, de::singleton (p, chunk));
+									  esac;
+
+
+								      _   =>
+									  pm;
+								 esac;
+
+
+							     _ => pm;
+
+							esac;
+						    };
+					    end;
+
+					case (file::read_line s)
+
+					     NULL
+						 =>
+						 m;
+
+					     THE line
+						 =>
+						 if (string::get (line, 0) == '#')		# Is it a comment line?
+						      loop m;				# Yes, ignore it.
+						 else
+						      case (string::tokens  char::is_space  line)
+
+							   d ! pids =>   loop (enter (d, pids));
+							   _        =>   loop m;
+						      esac;
+						 fi;
+					esac;
+				    };					# fun loop
+									    # string	is from   src/lib/std/string.pkg
+
+			    end;
+
+    # print ("src/app/make7/util/make7-g.pkg about to open picklehash_map_file " + picklehash_map_file + ": cwd = " + (posix::current_directory()) + "\n");
+			safely::do
+			    {
+			      open_it  =>  .{ file::open_for_read picklehash_map_file; },
+			      close_it =>  file::close_input,
+			      cleanup  =>  fn _ =  ()
+			    }
+			    read_picklehash_map;
+
+			primordial_makefile                                #  "$ROOT/src/lib/core/init/init.cmi" 
+			    =
+			    make_standard_source_path
+				make_compiler_defaults::primordial_makefile;
+
+									    # make_compiler_defaults	is from   src/app/make7/make-compiler/make-compiler-defaults.pkg
+									    # library_source_index		is from   src/app/make7/semant/library-source-index.pkg
+									    # time_stamp			is from   src/app/make7/paths/timestamp.pkg
+
+			make7_state
+			    =
+			    { library_source_index =>  library_source_index::make (),
+			      plaint_sink   =>  em::default_plaint_sink (),
+
+			      youngest      => REF time_stamp::ancient,	# Set up to track most recent (known) edit of any sourcefile in the library.
+			      make7_session => { filename_policy,
+						 anchor_dictionary,
+						 host_property     => host_properties::symbol_value,
+
+						 platform,
+						 keep_going  => FALSE,
+						 server_mode => FALSE
+					       }
+			    };
+									    # freezefile is defined above, via freezefile_g().
+									    # load_freezefile	def in    src/app/make7/freezefile/freezefile-g.pkg
+			fun load_primordial_make7file ()
+			    =
+			    freezefile::load_freezefile
+
+				{ get_library =>   fn _ =  raise exception FAIL "src/app/make7/main/make7-g.pkg: load_primordial_make7file",
+				  any_errors  =>   REF FALSE
+				}
+
+				(   make7_state, 
+				    primordial_makefile,
+				    NULL			# 'version' info XXX BUGGO DELETME
+				    , []	# MUSTDIE
+				);
+
+									    # compile_treewalk_g		def in    src/app/make7/compile/compile-treewalk-g.pkg
+									    # linking_treewalk_g		def in    src/app/make7/compile/linking-treewalk-g.pkg
+
+			case (load_primordial_make7file ())
+
+			     NULL
+				 =>
+				 raise exception FAIL "    src/app/make7/main/make7-g.pkg:   Unable to load primordial make7file";
+
+			     THE primordial_make7file
+				 =>
+				 {   compile_treewalk::reset ();
+				     linking_treewalk::reset ();
+
+
+				     my { exports => compile_treewalk_map, ... }
+					 =
+					 compile_treewalk::walk_inter_library_dependency_graph (
+					     fn _ = fn _ = (),
+					     fn _ = (),
+					     primordial_make7file
+					 );
+
+				     my { exports => linking_treewalk_map, ... }
+					 =
+					 linking_treewalk::make_treewalk (
+
+					     primordial_make7file,
+					     fn _ =  raise exception FAIL "init: get bfc?"
+					 );
+
+				     fun get_symbol_treewalk (treewalk_map, symbol)
+					 =
+					 case ( symbol_map::get (treewalk_map, symbol))
+
+					     NULL         =>  raise exception FAIL "init: bogus init library (1)";
+					     THE treewalk =>  treewalk;
+					 esac;
+
+
+										    # symbol_map		is from   src/app/make7/util/symbol-map.pkg
+										    # pervasive_symbol	is from   src/app/make7/main/pervasive-symbol.pkg
+
+
+				     # Get symbol for "<Pervasive>":
+				     #
+				     stipulate
+					 pervasive_symbol = pervasive_symbol::pervasive_package_symbol;
+				     herein
+					 pervasive_compile_treewalk = get_symbol_treewalk ( compile_treewalk_map, pervasive_symbol );
+					 pervasive_linking_treewalk = get_symbol_treewalk ( linking_treewalk_map, pervasive_symbol );
+				     end;
+
+
+				     fun do_treewalk treewalk
+					 =
+					 case (treewalk  make7_state)
+
+					      THE r =>  r;
+					      NULL  =>  raise exception FAIL "init: bogus init library (2)";
+					 esac;
+
+				     (do_treewalk  pervasive_compile_treewalk)
+					 ->
+					 { symbol_table        =>  pervasive_symbol_table,
+					   inlining_table =>  pervasive_inlining_table
+					 };
+
+				     pervasive_linking_table
+					 =
+					 do_treewalk  pervasive_linking_treewalk;
+
+				     pervasive
+					 =
+					 e::make_compiler_table_set {
+					     symbol_table   =>  pervasive_symbol_table,
+					     linking_table  =>  pervasive_linking_table,
+					     inlining_table =>  pervasive_inlining_table
+					 };
+
+				     fun bare_autoload x
+					 =
+					 {   file::say ["!* ", x, ": \"autoload\" not available, using \"make\"\n"];
+					     make x;
+					 };
+
+
+				     cs::pervasive.set  pervasive;
+
+				     .set (cs::top_level ()) e::null_compiler_table_set;                       #  redundant? XXX BUGGO FIXME 
+
+				     primordial_make7file_hook
+					 :=
+					 THE { primordial_make7file };
+
+
+    # print ("src/app/make7/main/make7-g.pkg invoking 'load_preloads': cwd = '" + (posix::current_directory()) + "\n");
+				     # 'load' all the libraries which are
+				     # to be preloaded into the final
+				     # mythryld executable image:
+				     #
+				     preload::load
+					 make
+					 make_compiler_defaults::libraries_to_preload;
+
+								    # preload			is from   src/app/make7/main/preload.pkg
+								    # make_compiler_defaults	is from   src/app/make7/make-compiler/make-compiler-defaults.pkg
+
+				     THE process_commandline;
+				};
+			esac;
+		    };		#  fun set_up_primordial_make7file_hook       
+	    end;			#  stipulate ... in ...
+
+
+	    fun show_controls (getarg, getval, padval) level
+		=
+		{   fun walk indent (control_index::INDEX_TREE rt)
+			=
+			{   include printf_combinator;
+
+			    rt -> { help, control_set, subregs, path };
+
+			    fun one ci
+				=
+				{   arg = cat
+					      (fold_right
+						  (fn (s, r) =  s ! "::" ! r)
+						  [getarg ci]
+						  path
+					      );
+
+				    value = getval ci;
+				    size' = size value;
+
+				    lw    = *control_print::linewidth;
+				    padsz = lw - 6 - size arg - indent;
+
+				    if   (padsz < size')
+
+					 padsz' = int::max (lw, size' + 8 + indent);
+
+					 format' file::say (sp (indent + 6) o
+							  text arg o nl o
+							  padval padsz' (text value) o
+							  nl);
+
+				    else
+					 format' file::say (  sp (indent + 6)
+							 o  text arg
+							 o  padval padsz (text value)
+							 o  nl
+							 );
+				    fi;
+				};
+
+			    case (control_set, subregs)
+
+				 ([], []) => ();
+				 _        => { format' file::say (sp indent o text help o text ":" o nl);
+					       apply one control_set;
+					       apply (walk (indent + 1)) subregs;
+					     };
+			    esac;
+			};
+
+		    fun inc n
+			=
+			n + 1;
+
+						    # control_index		is from   src/lib/controls/control-index.pkg
+						    # basic_control		is from   src/lib/compiler/frontend/basics/main/basiccontrol.pkg
+
+
+		    walk 2 (control_index::controls
+				(basic_control::top_index, null_or::map inc level));
+
+		};
+
+	    fun show_control_setting  level
+		=
+		show_controls
+		    (
+		      fn ci =  (control::name ci.control + " = "),
+		      fn ci =   control::get  ci.control,
+		      fn _  =  fn ff = ff
+		    )
+		    level;
+
+	    fun show_controls' ()
+		=
+		{   show_control_setting NULL;
+		    file::say [ "\nTo get a control value interactively:  show_control \"mythryl_parser::show_interactive_result_types\";\n" ];
+		    file::say [   "To set a control value interactively:  set_control  \"mythryl_parser::show_interactive_result_types\" \"TRUE\";\n" ];
+		    file::say [   "To do same thing at commandline:       my -Cmythryl_parser::show_interactive_result_types=TRUE\n" ];
+		};
+
+	    stipulate
+						# control_index	is from   src/lib/controls/control-index.pkg
+						# basic_control	is from   src/lib/compiler/frontend/basics/main/basiccontrol.pkg
+						# control		is from   src/lib/controls/control.pkg
+
+		find_control
+		    =
+		    control_index::find_control
+			basic_control::top_index;
+
+		fun split_control_path  path
+		    =
+		    string::tokens   (fn c =  c == ':')   path;
+
+	    herein
+
+		fun show_control name
+		    =
+		    if (name == "")
+			#
+			print "Control name must be non-empty\n";
+		    else
+			case (find_control (split_control_path name))
+			    #
+			    NULL
+				=>
+				file::say   ["!* no such control: ", name, "\n"];
+
+			    THE control
+				=>
+				print (control::get control + "\n");
+			esac;
+		    fi; 
+
+		fun set_control''' name value
+		    =
+		    case (find_control (split_control_path name))
+			#
+			NULL
+			    =>
+			    file::say   ["!* no such control: ", name, "\n"];
+
+			THE control
+			    =>
+			    control::set (control, value)
+			    except
+				control::BAD_VALUE_SYNTAX vse
+				    =
+				    file::say [ "!* unable to parse value `",
+						   vse.value,        "' for ",
+						   vse.control_name, " : ",
+						   vse.type_name,    "\n"
+						 ];
+		    esac;
+
+		fun set_control'' name value
+		    =
+		    if (name == "")   print "Control name must be non-null\n";
+		    else              set_control''' name value;
+		    fi;
+
+		fun set_control'
+			bad		# 
+			is_config	# FALSE
+			spec		# "name=value"
+		    =
+		    {
+			my (name, value)
+			    =
+			    substring::split_off_prefix   .{ #c != '='; }   spec;
+
+			name    =   substring::to_string name;
+
+			value   =   substring::to_string
+
+					if  (substring::size value > 0)
+					     substring::make_slice (value, 1, NULL);
+					else value;
+					fi;
+
+			if (name == "")
+			    #
+			    bad ();
+			    #
+			elif   is_config
+			    #
+			    set_control''' name value;
+			    #
+			elif   (value == "")
+			    #	
+			    .set  (host_properties::symbol_value name)  (THE 1);			# host_properties is defined at top of file.
+			else
+			    case (int::from_string  value)
+				#
+				THE i =>  .set  (host_properties::symbol_value name)  (THE i);
+				NULL  =>  bad ();
+			    esac;
+			fi;
+		    };
+	    end;			# stipulate
+
+	    fun set_control  spec
+		=
+		set_control'
+		    .{ print "Bad option\n"; }
+		    TRUE					# is_config
+		    (substring::from_string spec);		# "name=value"
+
+	herein				#  outermost 'stipulate' 
+
+	    # We get called ultimately by
+	    #     src/lib/core/internal/main.pkg
+	    # via
+	    #     src/lib/core/internal/boot-dictionary-g.pkg
+	    # shortly before it dumps the heap image
+	    # which becomes our standard mythryld
+	    # make/compiler executable (see top of file
+	    # comments for details). 
+	    #
+	    # Thus, we essentially do this initialization
+	    # at the compiler's compiletime rather than
+	    # at its runtime.
+	    #
+	    # Runtime arguments:
+	    #
+	    #     read_eval_print_from_stream,
+	    #	   #
+	    #          # Ultimately defined in
+	    #          #     src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+	    #          # We pass this to
+	    #          #     src/app/make7/compile/compile-treewalk-g.pkg
+	    #          # which uses it to execute pre/post 'setup' sourcecode fragments
+	    #          # extracted originally from .make6 files.
+	    #
+	    #     read_eval_print_from_file
+	    #	    #
+	    #	    # Defined in
+	    #           #   src/lib/compiler/toplevel/interact/interact-g.pkg
+	    #           # as a wrapper of above.
+	    #
+	    #     read_eval_print_from_user
+	    #	    #
+	    #	    # Likewise defined in
+	    #           #   src/lib/compiler/toplevel/interact/interact-g.pkg
+	    #	    # but as a wrapper for  read_eval_print_from_user  in
+	    #           #   src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+	    #
+	    fun set_up_make7
+		(   root_directory,					# Contains sh/ bin/ src/ ... 
+		    linking_table,
+		    read_eval_print_from_user,
+		    read_eval_print_from_stream,			# We pass this to compile-treewalk, to evaluate sourcecode fragments.
+		    read_eval_print_from_file,			# We use this to compile vanilla commandline source files like foo.pkg
+		    errorwrap
+		)
+		=
+		{
+		    fun eval_string  code_string
+			=
+			safely::do {	# This should be a supported, exported 'eval' function.
+
+			  open_it  =>   .{ file::open_string (code_string + " ;;"); },
+			  close_it =>   file::close_input,
+			  cleanup  =>   fn _  =  ()
+			}
+			read_eval_print_from_stream;
+
+		     eval_hook :=  eval_string;
+
+
+		    # Function to process Unix command-line switches
+		    # and filename arguments given to mythryld.
+		    #
+		    # NB:  Any options starting with --runtime 
+		    #      will already have been eaten by
+		    #
+		    #          src/runtime/main/runtime-options.c
+		    #
+    # print ("src/app/make7/main/make7-g.pkg/set_up_make7/AAA: root_directory = " + root_directory + " cwd= " + (posix::current_directory()) + "\n");
+		    fun process_commandline ()
+			=
+			{   make     = errorwrap (ignore o make    );
+
+			    fun process_filename (filename, mk, ("api"
+							      | "pkg") ) => read_eval_print_from_file filename;
+				process_filename (filename, mk, "cm"   ) => mk filename;
+				process_filename (filename, mk, "make7") => mk filename;
+				process_filename (filename, mk, "make6") => mk filename;
+				process_filename (filename, mk, extension)       => file::say ["!* unable to process `", filename,
+										     "' (unknown extension `", extension, "')\n"];
+			    end;
+
+			    fun help level
+				=
+				{    file::say
+					["mythryld [rtsargs] [options] [files]\n\
+					 \\n\
+					 \  run time system args:\n\
+					 \    --runtime-heap-image-to-run=<h>     (start specified heap image)\n\
+					 \    --runtime-gc-gen0-bufsize=<s>    (gc generation-zero buffer size)\n\
+					 \    --runtime-cmdname=<n>  (set command name)\n\
+					 \    --runtime-verbosity=<n> (set level of runtime verbosity)\n\
+					 \    --runtime-show-code-chunk-comments (list code heapchunks)\n\
+					 \    --runtime-debug=<f>    (write debugging info to file)\n\
+					 \\n\
+					 \  files:\n\
+					 \    <file>.make6     (make7::make)\n\
+					 \    <file>.api       (run)\n\
+					 \    <file>.pkg       (run)\n\
+					 \\n\
+					 \  options:\n\
+					 \    -e 'expression'  (Evaluate and print 'expression', then quit.)\n\
+					 \    -x 'expression'  (Like -e, but also prints a newline.)\n\
+					 \    -E 'expression'  (Like -E, but does not quit.)\n\
+					 \    -D<name>=<v>    (set make7 variable to given value)\n\
+					 \    -D<name>        (set make7 variable to 1)\n\
+					 \    -Uname          (unset make7 variable)\n\
+					 \    -C<control>=<v> (set named control)\n\
+					 \    -H               (produce complete help listing)\n\
+					 \    -h               (produce minimal help listing)\n\
+					 \    -h<level>        (help with obscurity limit)\n\
+					 \    -S               (list all current settings)\n\
+					 \    -s<level>        (limited list of settings)\n\
+					 \    -P               (list all preprocessor variables)\n\
+					 \    -p<level>        (limited list of preprocessor variables)\n\
+					 \    --no-prompt       (Disable interactive mode prompts)\n\
+					 \n\
+					 \Do   bin/mythryld   to start an interactive session.\n\
+					 \n"];
+
+				    show_controls (control::name o .control,
+						   fn ci =
+						      cat ["(", .help (control::info ci.control),
+							      ")"],
+						   printf_combinator::pad printf_combinator::left)
+						  level;
+
+								    # control		is from   src/lib/controls/control.pkg
+								    # printf_combinator	is from   src/lib/src/printf-combinator.pkg
+			       };
+
+			    fun show_env_vars level
+				=
+				show_controls
+				    ( fn ci =  (control::name ci.control + ":"),
+				      fn ci =  null_or::the_else (ci.info.dictionary_name, "(none)"),
+				      printf_combinator::pad printf_combinator::left
+				    )
+				    level;
+
+			    fun badopt opt f ()
+				=
+				file::say ["!* bad ", opt, " option: `", f, "'\n",
+					  "!* try `-h' or `-h<level>' for help\n"];
+
+			    fun quit ()
+				=
+				winix::process::exit
+				    winix::process::success;
+
+
+			    fun quit_if TRUE  =>  quit ();
+				quit_if FALSE =>  ();
+			    end;
+
+
+
+			    # This function mainly handles Unix commandline arguments of the form -Xyyy
+			    # where X is a switch char and yyy is some argument string for it.  (Ick. XXX BUGGO FIXME. Change to usual GNU conventions.)
+			    #
+			    # We also arrive here for anything else
+			    # not previously recognized as a switch,
+			    # in particular for filename arguments.
+			    #
+			    # First argument is the two-char "-X" argument prefix.
+			    # Second argument is the full argument.
+			    # Third argument is either 'automake' or 'make' function, per last -a or -m switch.
+			    # Fourth argument is TRUE iff there is more stuff remaining on commandline.
+			    #
+			    # What 'carg' is supposed to mean, I haven't a clue.  continued_arg maybe.  ("commandline_arg"? "control_arg"? "config_arg"? "compound arg"?) XXX BUGGO FIXME pick a decent name.
+			    #
+			    fun carg (    opt as ("-C" | "-D"), f, _, _)
+				=>
+				{   bad        =   badopt opt f;
+				    spec       =   substring::extract (f, 2, NULL);		# substring	is from   src/lib/std/substring.pkg
+				    is_config  =   opt == "-C";
+
+				    set_control' bad is_config spec;
+				};
+
+			       carg ("-U", f, _, _)   =>    case (string::extract (f, 2, NULL))
+								#
+								""  =>  badopt "-U" f ();
+								var =>  .set (host_properties::symbol_value var) NULL;
+							    esac;
+
+
+			       carg ("-h", f, _, last) => {   case (string::extract (f, 2, NULL))
+								  #
+								  ""    =>  help (THE 0);
+								  level =>  help (int::from_string level);
+							      esac;
+
+							      quit_if last;
+							  };
+
+			       carg ("-s", f, _, last) => {   case (string::extract (f, 2, NULL))
+								  #
+								  ""    =>  show_control_setting  (THE 0);
+								  level =>  show_control_setting  (int::from_string  level);
+							      esac;
+
+							      quit_if  last;
+							  };
+
+			       carg ("-p", f, _, last) => {   case (string::extract (f, 2, NULL))
+								  #
+								  ""    =>  show_env_vars (THE 0);
+								  level =>  show_env_vars (int::from_string level);
+							      esac;
+
+							      quit_if  last;
+							  };
+
+			       carg (_, filename, mk, _)   =>   process_filename (
+								    filename,
+								    mk,
+								    string::map char::to_lower (the_else (winix::path::ext filename, "<none>"))
+								);
+									    # string		is from   src/lib/std/string.pkg
+									    # char			is from   src/lib/std/char.pkg
+									    # winix			is from   src/lib/std/winix.pkg
+									    # compile_client	is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+			    end;
+
+			    fun start_compile_servers ()
+				=
+				{
+				    root = the (ad::get_anchor(ad::dictionary, "ROOT"));
+				    compile_client::start { name => "Compile Server A", preference => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
+				    compile_client::cd (posix::current_directory());
+    #                               compile_client::start { name => "Compile Server B", preference => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
+				    ad::schedule_notification ();
+				};
+
+
+			    interactive
+				=
+				mythryl_parser::interactive;
+
+
+			    unparse_result
+				=
+				mythryl_parser::unparse_result;
+
+
+    just_return = REF FALSE;
+			    # Process all commandline arguments,
+			    # both switches and filenames:
+			    #
+			    fun args ("-H"          ! rest, mk) =>  { help NULL;                      args_q (rest, mk); };
+				args ("-S"          ! rest, mk) =>  { show_control_setting NULL;      args_q (rest, mk); };
+				args ("-P"          ! rest, mk) =>  { show_env_vars NULL;             args_q (rest, mk); };
+				args ("-j"          ! rest, mk) =>  { start_compile_servers ();       args_q (rest, mk); };
+
+				args ("-z"          ! rest, mk) =>  { just_return := TRUE;            args   (rest, mk); };
+
+				args ("-q"          ! _, _)     =>  quit ();
+
+				args ("--build"     ! rest, _)                                 =>  build_an_executable_mythryl_heap_image  rest;
+				args ("--build-an-executable-mythryl-heap-image"    ! rest, _) =>  build_an_executable_mythryl_heap_image  rest;
+
+				args (["--redump",  heapfile], _)
+				    =>
+				    redump_heap heapfile;
+
+				args ("-e" ! code_string ! rest, mk)
+				    =>
+				    {   interactive    := FALSE;
+					eval_string code_string;
+					quit ();
+				    };
+
+				args ("-x" ! code_string ! rest, mk)
+				    =>
+				    {   interactive    := FALSE;
+					eval_string  code_string;
+					print "\n";
+					quit ();
+				    };
+
+				args ("-E" ! code_string ! rest, mk)
+				    =>
+				    {   interactive    := FALSE;
+					eval_string  code_string;
+					interactive    := TRUE;
+					args( rest, mk );
+				    };
+
+				args (filename ! rest, mk)
+				    =>
+				    {   carg
+					    ( string::substring (filename, 0, 2) except (exceptions::SUBSCRIPT|exceptions::INDEX_OUT_OF_BOUNDS) = "",
+					    filename,
+					    mk,              #  make
+					    list::null rest
+					);
+
+					args (rest, mk);
+				    };
+
+				args ([], _) => ();
+			    end 
+
+			    also
+			    fun args_q ([],   _) =>  quit ();
+				args_q (rest, f) =>  args (rest, f);
+			    end;
+
+
+											    # text_primitive_io	is from   src/lib/std/src/io/text-primitive-io.pkg
+											    # winix			is from   src/lib/std/winix.pkg
+											    # file_g		def in    src/lib/std/src/io/file-g.pkg
+
+			    # This fn is duplicated between here and   src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg   XXX BUGGO FIXME
+			    #
+			    fun input_is_tty  f
+				= 
+				{   my (rd, buf)
+					=
+					file::pure_io::get_reader
+					    (
+					      file::get_instream  f
+					    );
+
+				    is_tty
+					=
+					case rd
+
+					     text_primitive_io::READER { io_descriptor => THE iod, ... }
+						 =>
+						 (winix::io::kind iod == winix::io::kind::tty);
+
+					      _ => FALSE;
+					esac;
+
+				    # Since getting the reader will have terminated
+				    # the stream, we now need to build a new stream:
+				    #
+				    file::set_instream
+					(f, file::pure_io::make_instream (rd, buf) );
+
+				    is_tty;
+				};
+
+			    case (commandline::get_arguments ())
+
+				 ["--compile-server"]
+				     =>
+				     {   #  make7_defaults::verbose.set  FALSE;
+					 file::set_name ("server A");
+					 {  include file;
+					    set_say_policy ( SAY, STDOUT,  TRUE);
+					    set_say_policy (DSAY, STDOUT, FALSE);
+					    set_say_policy (VSAY, STDOUT, FALSE);
+
+					    set_say_policy ( SAY, LOGFILE, TRUE);
+					    set_say_policy (DSAY, LOGFILE, TRUE);
+					    set_say_policy (VSAY, LOGFILE, TRUE);
+					 };
+    #				     pid = posix::get_process_id ();
+    #				     pid = posix::pid_to_word pid;
+    #				     include sfprintf;
+    #				     pid = sprintf "%d" [ INT (unt32::to_int pid) ];
+
+					 enter_compile_server_loop ();		# Never returns.
+				     };
+
+				 l   =>
+				     {
+					  # The next line was part of a failed attempt
+					  # to get multi-core 'make-compiler' compiles
+					  # working:		XXX BUGGO FIXME
+					  #	
+					  file::set_name "MYTHRYLD";
+
+					  args (l, make);				# Process all commandline switches and arguments.
+
+
+					  # Currently we use
+					  #     compiler_client_interface::interact::read_eval_print_from_script
+					  # to execute Mythryl scripts, and
+					  #     compiler_client_interface::interact::read_eval_print_from_user
+					  # to handle interactive input by a user.
+					  # We invoke the former by returning to
+					  #     src/lib/core/internal/main.pkg
+					  # We invoke the latter below, directly.
+					  #  
+					  #  
+					  # XXX BUGGO FIXME 
+					  # This could all use some cleanup.
+					  # If the compiler_client_interface::interact::read_eval_print_from_user
+					  # proves stable, we should probably
+					  # kill the interactive-prompt logic in
+					  #     src/lib/compiler/frontend/parse/main/mythryl-parser-guts.pkg
+					  # With a trifle more work, we can probably also kill off
+					  #     compiler_client_interface::interact::read_eval_print_from_script
+					  # entirely.
+
+    if (not *just_return )
+					  if    (input_is_tty  file::stdin)
+
+						read_eval_print_from_user ();
+						quit ();
+					  fi;
+
+					  interactive    := FALSE;
+					  unparse_result := FALSE;
+    fi;
+
+					  # Issue the interactive blurb.
+					  # We delay doing this until commandline
+					  # switches have been processed, so as
+					  # to be able to disable it with --no-prompt:
+					  #	
+					  if *mythryl_parser::interactive
+
+					       print "\n";
+					       print lib7_version::banner;
+					       print "\nDo   help();   for help  (interact)";
+					  fi;
+				     };
+			    esac;
+										    # make7_defaults	is from   src/app/make7/util/make7-defaults.pkg
+			};
+
+		    read_eval_print_from_stream_hook
+			:=
+			read_eval_print_from_stream;
+
+		    set_up_primordial_make7file_hook (
+			root_directory,
+			linking_table,
+			process_commandline
+		    );
+		};                                                         		#  fun set_up_make7 
+
+	    fun help ()
+		=
+		apply
+		    print
+		    [   "\n\n",
+			"              Mythryl Interactive Help\n",
+			"\n",
+			"You are interacting with an incremental compiler for\n",
+			"Mythryl, an advanced posix-flavored mostly-functional\n",
+			"programming language.\n",
+			"\n",
+			"Enter one expression per line.\n",
+			"\n",
+			"Examples:\n",
+			"    2+2;\n",
+			"    print \"Hello, world!\\n\";\n",
+			"    print `ls -l`;\n",
+			"    printf \"%d %g\\n\" (1 << 3) (sin 0.3);\n",
+			"    for (i=0; i<10; ++i) { printf \"%d\\n\" i; };\n",
+			"    fun hello () = print \"Hello, world!\\n\";\n",
+			"    hello ();\n",
+			"\n",
+			"Some useful commands:\n",
+			"\n",
+			"    # List values, functions, packages and APIs defined at top level:\n",
+			"    show_all ();\n",
+			"    show_apis();     # As above, showing only API     defs\n",
+			"    show_pkgs();     # As above, showing only package defs\n",
+			"    show_vals();     #                        value   defs\n",
+			"    show_types();    #                        type    defs\n",
+			"    show_generics(); #                        generic defs\n",
+			"\n",
+			"    show_api \"Integer\"; # Show definition of Integer API\n",
+			"    show_pkg \"control\"; # Mainly useful for packages with anonymous APIs.\n",
+			"\n",
+			"    # Display all compiler configuration variables:\n",
+			"    show_controls();\n",
+			"\n",
+			"    # Load hello lib into ram, first re/compiling as needed:\n",
+			"    make \"src/app/tut/hello/hello.make6\";\n",
+			"\n",
+			"    # Make hello.make6 library freezefile 'hello.make6.frozen':\n",
+			"    freeze \"src/app/tut/hello/hello.make6\";\n",
+			"\n",
+			"Type <Ctrl>-D to exit.  (<Ctrl>-Q <Ctrl>-D in emacs.)\n"
+		    ];
+
+
+	    # The following api is defined in
+	    #
+	    #     src/lib/core/internal/make7.api
+	    #
+	    package make7 {
+
+		Controller( X ) = {   get:  Void -> X,
+				      set:  X -> Void
+				  };
+
+		package control {
+
+		    keep_going              =  make7_defaults::keep_going;
+		    verbose                 =  make7_defaults::verbose;
+		    parse_caching           =  make7_defaults::parse_caching;
+
+		    warn_on_obsolete_syntax =  make7_defaults::warn_on_obsolete_syntax;
+		    debug                   =  make7_defaults::debug;
+		    conserve_memory         =  make7_defaults::conserve_memory;
+
+		    generate_index          =  make7_defaults::generate_index;
+		};
+
+									    # make7_defaults		is from   src/app/make7/util/make7-defaults.pkg
+									    # anchor_dictionary		is from   src/app/make7/paths/anchor-dictionary.pkg
+									    # make7file_g		def in    src/app/make7/parse/make7file-g.pkg
+									    # linking_treewalk_g	def in    src/app/make7/compile/linking-treewalk-g.pkg
+									    # compile_client		is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+		package freezefile_db {
+
+		    Freezefile = ad::File;
+
+		    known     =  make7file::list_freezefiles;
+		    describe  =  ad::describe;
+
+		    os_string =  ad::os_string;
+		    dismiss   =  make7file::dismiss_freezefile;
+
+		    fun unshare library
+			=
+			{    linking_treewalk::unshare library;
+
+			     dismiss library;
+			};
+		};
+
+		package make7_state {
+
+		    reset      = reset;
+		    dump       =       dump_api_reference;
+		    dump_latex = latex_dump_api_reference;
+		};
+
+		package compile_client {
+
+
+		    Compile_Server_Handle
+			=
+			compile_client::Server_Handle;
+
+		    fun start_a_compile_server x
+			=
+			compile_client::start x
+			before
+			    ad::schedule_notification ();
+
+		    stop_a_compile_server =  compile_client::stop;
+		    kill_a_compile_server =  compile_client::kill;
+		    compile_server_name   =  compile_client::name;
+		};
+
+		help          =  help;
+		make          =  make;			# Defined above by    my make     = ...
+		compile       =  compile;			# Defined above by    my compile  = ...
+		freeze        =  freeze' TRUE;
+		freeze1       =  freeze' FALSE;
+		freeze'       =  freeze';
+
+		show_all      =  show_all;
+		show_apis     =  show_apis;
+		show_pkgs     =  show_pkgs;
+		show_vals     =  show_vals;
+		show_types    =  show_types;
+		show_generics =  show_generics;
+		show_controls =  show_controls';
+		show_control  =  show_control;
+		set_control   =  set_control'';
+
+		show_api      =  show_api;
+		show_pkg      =  show_pkg;
+
+		sources       =  sources;
+
+		host_property =  host_properties::symbol_value;
+
+		load_plugin   =  cwd_load_plugin; 
+
+		build_executable_heap_image
+		    =
+		    build_executable_heap_image;
+
+		package graph =   package {
+				      graph = to_portable;
+				  };
+
+		redump_heap =   redump_heap;
+
+		# Random stuff we want to be defined globally at the
+		# interactive prompt.  This gets 'included' by
+		#     src/lib/core/internal/main.pkg
+		# There's probably a cleaner way to do this:
+		#
+		package scripting_globals {
+
+		    (_!)    = integer::(_!);		# Factorial.
+
+		    # Note:  The (_[])   enables   'vec[index]'           notation;
+		    #        The (_[]:=) enables   'vec[index] := value'  notation;
+		    #
+		    (_[])   = vector::get;
+		    (_[]:=) = vector::set;
+
+		    in     = list::in;
+
+		    exit   = winix::process::exit;
+
+		    bash        = spawn::bash;
+		    back__ticks = spawn::bash;
+
+		    system      = winix::process::system;
+
+		    fun round f     =  float::to_int  ieee_float::TO_NEAREST  f;
+		    fun atoi string =  the (int::from_string   string);
+		    fun atod string =  the (float::from_string string);
+
+		    # Convert    src/runtime/gtk/mythryl-gtk-slave.c
+		    # to                         mythryl-gtk-slave.c
+		    # and such:
+		    #
+		    fun basename filename
+			=
+			(regex::find_first_group 1 .|/([^/]+)$| filename)
+			except
+			    NOT_FOUND = filename;
+
+		    # Convert    src/runtime/gtk/mythryl-gtk-slave.c
+		    # to         src/runtime/gtk
+		    # and such:
+		    #
+		    fun dirname filename
+			=
+			(regex::find_first_group 1 .|^(.*)/[^/]+$| filename)
+			except
+			    NOT_FOUND = filename;
+
+		    # Drop leading and trailing
+		    # whitespace from a string:
+		    #
+		    fun trim string
+			=
+			{   =~ = regex::(=~);
+
+			    if (string =~ ./^\s*$/)
+
+				"";
+
+			    else
+				# Drop trailing whitespace:
+				#
+				string
+				    =
+				    (regex::find_first_group 1 ./^(.*\S)\s*$/ string)
+				    except
+					NOT_FOUND = string;
+
+				# Drop leading whitespace:
+				#
+				string
+				    =
+				    (regex::find_first_group 1 ./^\s*(\S.*)$/ string)
+				    except
+					NOT_FOUND = string;
+
+				string;
+			    fi;
+			};
+
+		    #
+		    fun die message
+			=
+			{   print message;
+			    exit(1);
+			};
+
+
+		    =~          =  regex::(=~);
+		    chomp       =  string::chomp; 
+		    chdir       =  winix::file::change_directory;
+		    environ     =  posix::environ;
+		    explode     =  string::explode;
+		    factors     =  int::factors;
+		    fields      =  string::fields;
+		    filter      =  list::filter;
+		    fscanf      =  scanf::fscanf;
+		    getcwd      =  winix::file::current_directory;
+		    getenv      =  winix::process::get_env;
+		    getpid      =  winix::process::get_process_id;
+		    getppid     =  posix::get_parent_process_id;
+		    getuid      =  posix::get_user_id;
+		    geteuid     =  posix::get_effective_user_id;
+		    getgid      =  posix::get_group_id;
+		    getegid     =  posix::get_effective_group_id;
+		    getgroups   =  posix::get_group_ids;
+		    getlogin    =  posix::get_login;
+		    getpgrp     =  posix::get_process_group;
+		    setgid      =  posix::set_group_id;
+		    setpgid     =  posix::set_process_group_id;
+		    setsid      =  posix::set_session_id;
+		    setuid      =  posix::set_user_id;
+		    implode     =  string::implode;
+		    iseven      =  fn i = i & 1 == 0;
+		    isodd       =  fn i = i & 1 == 1;
+		    isprime     =  int::is_prime;
+		    join        =  string::join;
+		    join'       =  string::join';
+		    lstat       =  posix::lstat;
+		    mkdir	    =  posix::mkdir;	
+		    now         =  time::to_float o time::get_current_time_utc;
+		    product     =  int::product;
+		    rename      =  posix::rename;
+		    rmdir       =  posix::rmdir;
+		    shuffle     =  list_shuffle::shuffle;
+		    shuffle'    =  list_shuffle::shuffle';
+		    sleep       =  winix::process::sleep;
+		    sort        =  list_mergesort::sort;
+		    sorted      =  list_mergesort::sorted;
+		    scanf       =  scanf::scanf;
+		    sscanf      =  scanf::sscanf;
+		    stat        =  posix::stat;
+		    strcat      =  string::cat;
+		    strlen      =  string::length;
+		    strsort     =  (list_mergesort::sort string::(>));
+		    struniqsort =  (list_mergesort::unique_sort string::compare);
+		    sum         =  int::sum;
+		    symlink     =  posix::symlink;
+		    time        =  posix::time;		# NB: 'now' has much more precision.
+		    tolower     =  string::to_lower;
+		    toupper     =  string::to_upper;
+		    tokens      =  string::tokens;
+		    uniquesort  =  list_mergesort::unique_sort;
+		    unlink      =  posix::unlink;
+		    words       =  string::tokens char::is_space;
+
+		    dot__qquotes =  words;			# So that ."a b c d e f" == ["a", "b", "c", "d", "e", "f"]
+
+		    arg0     =  commandline::get_program_name;		# XXX BUGGO FIXME For scripts this comes out "bin/my" or "/usr/bin/my" or such, which is not helpful.
+		    argv     =  commandline::get_arguments;
+
+		    # NB: The following have the perl-inspired
+		    #     lexer-implemented synonyms
+		    #     -F -D -P -L -S -C -B
+		    #
+		    fun isfile     filename =  posix::stat::is_file      (posix::stat  filename)  except _ = FALSE;
+		    fun isdir      filename =  posix::stat::is_directory (posix::stat  filename)  except _ = FALSE;
+		    fun ispipe     filename =  posix::stat::is_pipe      (posix::stat  filename)  except _ = FALSE;
+		    fun issymlink  filename =  posix::stat::is_symlink   (posix::lstat filename)  except _ = FALSE;
+		    fun issocket   filename =  posix::stat::is_socket    (posix::stat  filename)  except _ = FALSE;
+		    fun ischardev  filename =  posix::stat::is_char_dev  (posix::stat  filename)  except _ = FALSE;
+		    fun isblockdev filename =  posix::stat::is_block_dev (posix::stat  filename)  except _ = FALSE;
+
+		    # I would like these to return TRUE if
+		    # the effective uid may do the indicated
+		    # operation.  I don't know if this code
+		    # implements exactly that, but it is a
+		    # quick first cut, at least.                  XXX BUGGO FIXME
+		    #
+		    # NB: The following have the perl-inspired
+		    #     lexer-implemented synonyms
+		    #     -R -W -X
+		    #
+		    fun mayread     filename =  winix::file::access (filename, [winix::file::MAY_READ])     except _ = FALSE;
+		    fun maywrite    filename =  winix::file::access (filename, [winix::file::MAY_WRITE])    except _ = FALSE;
+		    fun mayexecute  filename =  winix::file::access (filename, [winix::file::MAY_EXECUTE])  except _ = FALSE;
+
+		    # These are used in
+		    #     src/lib/src/eval-unit-test.pkg
+		    # There must be a cleaner way! *ruefulgrin*   XXX BUGGO FIXME
+		    # 
+		    eval_kludge_ref_int         =  REF 0;
+		    eval_kludge_ref_float       =  REF 0.0;
+		    eval_kludge_ref_string      =  REF "";
+		    #
+		    eval_kludge_ref_list_int    =  REF []:  Ref( List( Int    ) );
+		    eval_kludge_ref_list_float  =  REF []:  Ref( List( Float  ) );
+		    eval_kludge_ref_list_string =  REF []:  Ref( List( String ) );
+
+		    fun eval code_string
+			=
+			*eval_hook code_string;
+
+		    fun evali  user_code = {  eval("make7::scripting_globals::eval_kludge_ref_int         := (" + user_code + ")");  *eval_kludge_ref_int;          };
+		    fun evalf  user_code = {  eval("make7::scripting_globals::eval_kludge_ref_float       := (" + user_code + ")");  *eval_kludge_ref_float;        };
+		    fun evals  user_code = {  eval("make7::scripting_globals::eval_kludge_ref_string      := (" + user_code + ")");  *eval_kludge_ref_string;       };
+		    #
+		    fun evalli user_code = {  eval("make7::scripting_globals::eval_kludge_ref_list_int    := (" + user_code + ")");  *eval_kludge_ref_list_int;     };
+		    fun evallf user_code = {  eval("make7::scripting_globals::eval_kludge_ref_list_float  := (" + user_code + ")");  *eval_kludge_ref_list_float;   };
+		    fun evalls user_code = {  eval("make7::scripting_globals::eval_kludge_ref_list_string := (" + user_code + ")");  *eval_kludge_ref_list_string;  };
+
+		    include threadkit;							# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+		};
+	    };										# package make7
+
+											# tools_g		is from   src/app/make7/tools/main/tools-g.pkg
+	    package tools
+		=
+		tools_g (
+		    load_plugin' = load_plugin';
+		    anchor_dictionary = anchor_dictionary;
+		);
+
+	    load_plugin =  load_plugin;
+
+	    (_!) = integer::(_!);
+	end;										#  stipulate ... herein ...  
+    };											#  generic make7_g    
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright (c) 1999, 2000 by Lucent Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,248 @@
+/*
+ * This module takes a stream of instructions and build a control_flow_graph.
+ * The building can be incremental.
+ *
+ * -- Allen Leung
+ */
+generic package ControlFlowGraphGen
+   (package control_flow_graph:      Control_Flow_Graph
+    package stream:   Instruction_Stream
+    package instruction_properties:  Instruction_Properties
+        sharing control_flow_graph::I = instruction_properties::I
+        sharing control_flow_graph::P = Stream::P
+   ) : CONTROL_FLOW_GRAPH_GEN
+{
+
+   package control_flow_graph     = control_flow_graph
+   package i       = control_flow_graph::I
+   package p       = control_flow_graph::P
+   package g       = graph
+   package w       = control_flow_graph::W
+   package s       = Stream
+
+   fun error msg = lowcode_error_message::error("ControlFlowGraphGen", msg)
+
+   fun builder (CFG) = 
+   let NOBLOCK      = control_flow_graph::newBlock(-1, REF 0)
+       currentablock = REF NOBLOCK 
+       newBlocks    = REF [] : Ref(  List(  control_flow_graph::block ) ) 
+       blockNames   = REF [] : Ref(  Annotations::annotations )
+       entryLabels  = REF [] : Ref( List( label::label ) )
+       fun can'tUse _   = error "unimplemented"
+       exception NOT_FOUND
+       labelMap = int_hash_table::make_table (32, NOT_FOUND)
+       newLabel = int_hash_table::set labelMap
+       lookupLabel = int_hash_table::lookup labelMap
+       CFG    = REF CFG
+
+       #  Initialization 
+       fun init _ =
+       let my g::GRAPH cfg = *CFG
+       in  int_hash_table::clear labelMap;
+           cfg.forall_nodes 
+             (fn (blockId, control_flow_graph::BLOCK { labels, ... } ) =>
+                  apply (fn label::Label { id, ... } => newLabel (id, blockId))
+                      *labels);
+           currentablock := NOBLOCK;
+           newBlocks := [];
+           blockNames := [];
+           entryLabels := []
+       end   
+
+       init()
+
+       fun next cfg
+           =
+           CFG := cfg
+
+       fun newBlock() = 
+       let my g::GRAPH cfg = *CFG
+           id = cfg.new_id ()
+           my b as control_flow_graph::BLOCK { annotations, ... } = control_flow_graph::newBlock (id, REF 0)
+       in  currentablock := b; 
+           annotations := *blockNames;
+           newBlocks := b . *newBlocks;
+           cfg.add_node (id, b);
+           b 
+       end
+
+       fun getablock () = 
+           case *currentablock of
+              control_flow_graph::BLOCK { id= -1, ... } => newBlock()
+           |  b => b
+
+       fun newPseudoOpBlock() =
+            (case *currentablock of
+                control_flow_graph::BLOCK { id= -1, ... } => newBlock()
+             |  b as control_flow_graph::BLOCK { instructions=REF [], ... } => b
+             |  _ => newBlock()
+            )  
+
+       fun insertOp p = 
+       let my control_flow_graph::BLOCK { data, ... } = newPseudoOpBlock()
+       in  data := *data @ [p] end
+
+       #  Add a new label 
+       fun define_local_label (l as label::Label { id=labelId, ... } ) = 
+       let id = lookupLabel labelId
+           my g::GRAPH cfg = *CFG
+           my blk as control_flow_graph::BLOCK { instructions, ... } = cfg.node_info id
+       in  currentablock := blk;
+           newBlocks := blk . *newBlocks;
+           instructions := []; #  Clear instructions 
+           cfg.set_out_edges (id,[]) #  Clear edges 
+       end except _ =>
+       let my control_flow_graph::BLOCK { id, labels, ... } = newPseudoOpBlock()
+       in  labels := l . *labels;
+           newLabel (labelId, id)
+       end
+
+       #  Add a new entry label 
+       fun define_global_label l = (define_local_label l; entryLabels := l . *entryLabels)
+
+       #  Add a new pseudo op 
+       fun pseudoOp p = insertOp (control_flow_graph::PSEUDO p)
+
+       fun nextablock () =
+           case *currentablock of
+              control_flow_graph::BLOCK { id= -1, ... } => ()
+           |  b => currentablock := NOBLOCK
+
+       #  Add a new annotation 
+       fun annotation a = 
+           case a of
+             lowcode_notes::BLOCKNAMES names =>
+                (blockNames := names;
+                 nextablock()
+                )
+           | lowcode_notes::EMPTYBLOCK => nextablock()
+           | a => 
+              let my control_flow_graph::BLOCK { annotations, ... } = getablock()
+              in  annotations := a . *annotations
+              end
+
+       #  Mark current block as exit 
+       fun end_procedure liveOut = 
+       let fun setLiveOut (control_flow_graph::BLOCK { annotations, ... } ) = 
+                 annotations := control_flow_graph::LIVEOUT.create liveOut . *annotations
+       in  case *currentablock of
+              control_flow_graph::BLOCK { id= -1, ... } => 
+                (case *newBlocks of
+                   [] => error "end_procedure"
+                 | b . _ => setLiveOut b
+                )
+            | b => setLiveOut b
+       end
+
+       #  Add a new comment 
+       fun comment msg = annotation (lowcode_notes::COMMENT.create msg)
+
+       #  Emit an instruction 
+       fun emit i =
+       let my control_flow_graph::BLOCK { instructions, ... } = getablock()
+       in  instructions := i . *instructions;
+           case instruction_properties::instrKind i of
+             (instruction_properties::IK_JUMP | instruction_properties::IK_CALL_WITH_CUTS) =>
+                currentablock := NOBLOCK
+           | _ => () 
+       end
+
+       #  End current cluster 
+       fun end_cluster (annotations) =
+       let my g::GRAPH cfg = *CFG
+           control_flow_graph::init *CFG #  Create entry/exit 
+
+           ENTRY = hd (cfg.entries ())
+           EXIT = hd (cfg.exits ())
+
+           fun next (control_flow_graph::BLOCK { id, data=REF [], ... } . _) = id
+             | next _ = error "next"
+
+           lookupLabelMap = int_hash_table::find labelMap
+           lookupLabelMap = 
+                fn l => case lookupLabelMap l of THE b => b | NULL => EXIT 
+           true = control_flow_graph::BRANCH TRUE
+           false = control_flow_graph::BRANCH FALSE
+           addEdge = cfg.add_edge
+
+           fun target (label::Label { id, ... } ) = lookupLabelMap id
+
+           fun addEdges [] = ()
+             | addEdges (control_flow_graph::BLOCK { id, instructions, ... } . blocks) =
+               (case *instructions of
+                  [] => fallsThru (id, blocks)
+                | instruction . _ =>
+                   (case instruction_properties::instrKind instruction of 
+                      (instruction_properties::IK_JUMP | instruction_properties::IK_CALL_WITH_CUTS) =>
+                        jump (id, instruction_properties::branchTargets instruction, blocks)
+                   | _ => fallsThru (id, blocks)
+                   );
+                addEdges blocks
+               )
+           and fallsThru (i, control_flow_graph::BLOCK { id=j, data, ... } . _) =
+                 (case *data of
+                     [] => ()
+                  |  _  => error("falls thru into pseudo ops: " $
+                                 int::to_string i$" -> "$int::to_string j)
+                  ;
+                  addEdge (i, j, control_flow_graph::EDGE { k=control_flow_graph::FALLSTHRU, w=REF 0, a=REF [] } )
+                 )
+             | fallsThru (i,[]) =
+                  #  error("missing return in block "$int::to_string i) 
+                  addEdge (i, EXIT, control_flow_graph::EDGE { k=control_flow_graph::EXIT, w=REF 0, a=REF [] } )
+           and jump (i,[instruction_properties::ESCAPES], _) =
+                  addEdge (i, EXIT, control_flow_graph::EDGE { k=control_flow_graph::EXIT, w=REF 0, a=REF [] } )
+             | jump (i,[instruction_properties::LABELLED L], _) =
+                  addEdge (i, target L, control_flow_graph::EDGE { k=control_flow_graph::JUMP, w=REF 0, a=REF [] } )
+             | jump (i,[instruction_properties::LABELLED L, instruction_properties::FALLTHROUGH], bs) =
+                  (addEdge (i, target L, control_flow_graph::EDGE { k=true, w=REF 0, a=REF[] } );
+                   addEdge (i, next bs, control_flow_graph::EDGE { k=false, w=REF 0, a=REF [] } )
+                  )
+             | jump (i,[instruction_properties::FALLTHROUGH, instruction_properties::LABELLED L], bs) =
+                  (addEdge (i, target L, control_flow_graph::EDGE { k=true, w=REF 0, a=REF [] } );
+                   addEdge (i, next bs, control_flow_graph::EDGE { k=false, w=REF 0, a=REF [] } )
+                  )
+             | jump (i, targets, _) =
+               let fun loop (n,[]) = ()
+                     | loop (n, instruction_properties::LABELLED L . targets) =
+                        (addEdge (i, target L, 
+                           control_flow_graph::EDGE { k=control_flow_graph::SWITCH n, w=REF 0, a=REF [] } );
+                       loop (n+1, targets))
+                     | loop _ = error "jump"
+               in  loop (0, targets) end
+          in  addEdges (reverse *newBlocks);
+              apply (fn l => addEdge (ENTRY, target l,
+                              control_flow_graph::EDGE { k=control_flow_graph::ENTRY, a=REF [], w=REF 0 } )) 
+                     *entryLabels;
+              let an = control_flow_graph::annotations *CFG;
+              in  an := annotations @ *an end;
+              init()
+          end
+
+       #  Start a new cluster 
+
+       fun begin_cluster _
+           =
+           init ()
+  
+       fun get_notes ()
+           =
+           control_flow_graph::annotations *CFG
+
+    in  { stream=s::STREAM
+           {  begin_cluster,
+              end_cluster,
+              define_local_label,
+              define_global_label,
+              pseudoOp,
+              emit,
+              end_procedure,
+              comment,
+              annotation,
+              get_notes
+           },
+         next = next
+        }
+    end  
+
+}

@@ -1,0 +1,2928 @@
+## typecheck-api.pkg
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/frontend/typechecker/typecheck/typecheck-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+# 
+# In this file we handle the subtask of
+# analysing a package or generic api
+# and returning an appropriate symbol table
+# entry.  (Note that symbol-table-entry.pkg
+# has   NAMED_API         of module::Api
+# and   NAMED_GENERIC_API of module::Generic_Api
+# matching our two return values below.)
+# 
+# XXX BUGGO FIXME Should we rename these
+#                 to something like makeSymbolTableEntryFor... ?
+
+
+###                 "Beware of bugs in the above code;
+###                  I have only proven it correct, not tried it."
+###
+###                                      -- Donald Knuth
+
+
+
+api Typecheck_Api {
+
+     typecheck_api
+        :
+        {
+            api_expression:           raw_syntax::Api_Expression,			# This is what we're typechecking.
+
+	    typechecker_dictionary:   module::Typechecker_Dictionary,
+	    module_path_context:      module_path_context::Context,
+
+	    name_or_null:             Null_Or( symbol::Symbol ),
+	    symbol_table:             symbol_table::Symbol_Table,
+
+	    source_code_region:       source_map::Source_Code_Region,
+	    compile_info:             typecheck_stuff::Compile_Info
+	}
+       ->
+        module::Api;
+
+
+
+     typecheck_generic_api
+        :
+        {   generic_api_expression:             raw_syntax::Generic_Api_Expression,
+	    module_path_context:    module_path_context::Context,
+
+	    name_or_null:         Null_Or( symbol::Symbol ),
+	    symbol_table:          symbol_table::Symbol_Table,
+	    typechecker_dictionary:   module::Typechecker_Dictionary,
+
+	    source_code_region:    source_map::Source_Code_Region,
+	    compile_info:          typecheck_stuff::Compile_Info
+	}
+       ->
+        module::Generic_Api;
+
+
+
+     debugging:  Ref(  Bool );
+
+}; #  Api Typecheck_Api 
+
+
+package typecheck_api: (weak)  Typecheck_Api {		# Typecheck_Api			is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-api.pkg
+
+    stipulate
+
+	package ep = module_path;			# module_path			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path.pkg
+	package epc= module_path_context;		# module_path_context		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path-context.pkg
+
+        package s  = symbol;				# symbol			is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+	package em = error_message;			# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package a  = var_home;				# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+
+	package ee = typechecker_dictionary;		# typechecker_dictionary	is from   src/lib/compiler/frontend/typecheck-stuff/modules/typechecker-dictionary.pkg
+	package m  =  module;				# module			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module.pkg
+	package mu = module_stuff;			# module_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-stuff.pkg
+
+	package b  = symbol_table_entry;		# symbol_table_entry		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+	package sp = symbol_path;			# symbol_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip = inverse_path;			# inverse_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+
+	package lu = find_in_symbol_table;		# find_in_symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/find-in-symbol-table.pkg
+	package st = symbol_table;			# symbol_table			is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+	package t  = types;				# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+
+	package bt = type_types;			# type_types			is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package ts = type_stuff;			# type_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package eu = typecheck_stuff;			# typecheck_stuff		is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-stuff.pkg
+
+	package tt = typecheck_type;			# typecheck_type		is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-type.pkg
+	package ex = expand_type_constructor;		# expand_type_constructor	is from   src/lib/compiler/frontend/typechecker/modules/expand-type-constructor.pkg
+	package raw= raw_syntax;			# raw_syntax			is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+
+	include module;
+
+    herein 
+
+	# Debugging boilerplate: 
+        #
+	fun bug msg = error_message::impossible ("typecheck_api: " + msg);
+
+	say = control_print::say;
+
+	debugging = typechecking_control::typecheck_api_debugging; 	# set_control "typechecker::typecheck_api_debugging" "TRUE";
+	#
+	fun if_debugging_say (msg: String)
+            =
+            if *debugging
+                 say msg;
+                 say "\n";
+            fi;
+	#
+	fun debug_print  x
+            =
+            typechecking_debugging::debug_print  debugging  x;
+
+	include typechecking_debugging;
+
+	debug_print   =   (fn x =  debug_print  debugging  x);
+
+        fun unparse_api_expression
+            (
+              msg:          String,
+              declaration:  raw_syntax::Api_Expression,
+              symbol_table: symbol_table::Symbol_Table
+            )
+            =
+            if *debugging
+		print "\n";
+                print msg;
+                pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+                pps = pp.stream;
+
+                unparse_raw_syntax::unparse_api_expression
+                    (symbol_table, NULL)
+                    pps
+                    (declaration, 100);
+
+                pp.flush ();
+                pp.close ();
+		print "\n";
+            fi;
+
+	result_id   =   symbol::make_package_symbol "<result_package>";
+
+	#  utility stuff 
+	#
+	fun strip_mark_sig (raw::SOURCE_CODE_REGION_FOR_API (api_expression, source_code_region'), _)
+		=>
+		strip_mark_sig (api_expression, source_code_region');
+
+	    strip_mark_sig x
+                =>
+                x;
+        end;
+
+	#
+	fun find_package_definition_via_symbol_path (symbol_table, symbol_path, module_path_context, err)
+            = 
+	    {   package_definition
+		    =
+                    lu::find_package_definition_via_symbol_path (symbol_table, symbol_path, err);
+
+                case package_definition
+		  
+		     VARIABLE_PACKAGE_DEFINITION _
+                         =>
+                         package_definition;
+
+		     CONSTANT_PACKAGE_DEFINITION a_package
+                         =>
+		         case a_package
+			   
+			      m::ERRONEOUS_PACKAGE => package_definition;
+
+			      m::A_PACKAGE { an_api, ... }
+                                  =>
+			          case (epc::find_module_path_for_package (module_path_context, mu::package_identifier a_package) )
+				    
+				       NULL => package_definition;
+
+				       THE module_path
+					   =>
+					   VARIABLE_PACKAGE_DEFINITION (an_api, module_path);
+                                  esac;
+
+
+			     m::PACKAGE_API _   =>   bug "find_package_definition_via_symbol_path";
+                         esac;
+
+                esac;
+	    };
+
+	#  Code for processing 'where' definitions 
+	#
+	fun closed_definitions definitions
+            =
+	    not (list::exists
+		    (fn ( (_, EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR { relative => TRUE, ... } )
+		        | (_, EXTERNAL_DEFINITION_OF_PACKAGE (_, VARIABLE_PACKAGE_DEFINITION _))
+			)
+			=> TRUE;
+
+		       _ => FALSE; end 
+		    )
+		    definitions
+                );
+
+	#  Definitions = prepare where_definitions  /* sorted by initial path symbol */ 
+	#
+	fun sort_definitions (definitions)
+            =
+	    {   fun gt ([], _) => FALSE;
+		    gt (_, []) => TRUE;
+
+		    gt (s1 ! _, s2 ! _)
+                        =>
+                        symbol::symbol_gt (s1, s2);
+                end;
+
+                list_mergesort::sort
+
+                   (fn ((p1, d1), (p2, d2))
+                       =
+                       gt (p1, p2)
+                   )
+
+                   definitions;
+	    };
+	#
+	fun prepare_definitions where_definitions
+            =
+	    sort_definitions (
+                map
+                   fn (def as EXTERNAL_DEFINITION_OF_PACKAGE (sp::SYMBOL_PATH path, _))                       =>  (path, def);
+		      (def as EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR { path => sp::SYMBOL_PATH path, ... } ) =>  (path, def);
+                   end 
+
+		   where_definitions
+            );
+	#
+	fun push_definitions (elements, definitions, error, make_stamp)
+	    =
+            loop (elements, definitions, NIL)
+            where
+	        fun find_definitions (symbol, definitions)        #  Returns a pair "(localDefinitions, otherDefinitions)" 
+		    = 
+		    find_loop (definitions, NIL, NIL)
+                    where
+
+		        fun find_loop ((item as (s ! rest, def)) ! definitions, this, others)
+				=> 
+				if   (s::eq (s, symbol))
+
+				     find_loop (definitions, (rest, def) ! this, others);
+				else
+				     if    (s::symbol_gt (s, symbol))
+
+					  (sort_definitions this, (reverse others @ (item ! definitions)));
+				     else
+					  find_loop (definitions, this, item ! others);
+				     fi;
+				fi;
+
+			    find_loop (NIL, this, others)
+				=>
+				(sort_definitions this,   reverse others);
+
+			    find_loop _
+				=>
+				bug "push_definitions: find_definitions: find_loop";
+
+                        end;		# fun find_loop
+		    end;		# where
+
+
+		#
+		fun apply_type_constructor_def (
+
+                        type_spec as TYPE_CONSTRUCTOR_IN_API  { module_stamp, type_constructor=>spec, ... },
+		        EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR { path => symbol_path, type_constructor, ... }
+		    )
+		    =>
+		    case spec
+
+		          t::PRIMITIVE_TYPE_CONSTRUCTOR {
+
+                              kind,
+                              arity,
+                              eq => eqp,
+                              path => tpath,
+                              ...
+                          }
+                          =>
+			  case kind
+
+			      t::FORMAL
+				  =>
+				  if   (ts::type_constructor_arity type_constructor == arity)
+
+				       TYPE_CONSTRUCTOR_IN_API {   module_stamp,
+									 type_constructor,
+									 is_a_replica       => FALSE,
+									 scope            => sp::length symbol_path
+								      };
+
+				      # David B MacQueen: we should check at this point that the
+				      # definition represented by
+				      #    EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR#type_constructor
+				      # has the appropriate equality property to match
+				      # the spec, but this does not seem to be feasible
+				      # without excessive work.
+				      #
+				      # The problem is computing whether type_constructor is
+				      # an equality type_constructor, when it contains
+				      # PATHtycs, as in bug1433.2.sml. XXX BUGGO FIXME 
+
+				  else
+                                      error ("where type definition has wrong arity: " + sp::to_string symbol_path);
+
+				      type_spec;
+                                  fi;
+
+				 t::DATATYPE _
+				  =>
+				  # We allow a 'where' type definition to constrain
+				  # a enum spec, if right-hand-side enum is
+				  # "compatible" with spec.
+				  # 
+				  # We use an extremely weak notion of compatibility -- same arity.
+				  # 
+				  # The definition should be a compatible enum 
+				  # (not checked here!), making this an indirect
+				  # enum replication spec.      XXX BUGGO FIXME
+
+				  # type_constructor is DEFINED_TYPE_CONSTRUCTOR!
+				  # This will have to be unwrapped when the
+				  # api is macro expanded (bugs 1364, 1432).
+
+				  if   (arity == ts::type_constructor_arity type_constructor)
+
+				       TYPE_CONSTRUCTOR_IN_API {   module_stamp,
+									 type_constructor,
+									 is_a_replica       => TRUE,
+									 scope            => sp::length symbol_path #  ??? 
+								     };
+				  else
+				       error ( "where type definition has wrong arity: "
+					       + sp::to_string symbol_path
+					     );
+				       type_spec;
+				  fi;
+
+			       _ => bug "elabsig: PRIMITIVE_TYPE_CONSTRUCTOR is neither FORMAL nor DATA";
+                          esac;
+
+		        t::DEFINED_TYPE_CONSTRUCTOR _
+			    =>
+			    {   error
+				    (   "'where' type definition applied to definitional specification: "
+				    +   sp::to_string symbol_path
+				    );
+
+				type_spec;
+			    };
+
+		        _ => bug "applyTypeConstructorDef (1)";
+
+                   esac;
+
+
+		   apply_type_constructor_def _ => bug "applyTypeConstructorDef (2)";
+
+                end;				# fun apply_type_constructor_def
+
+		#
+		fun apply_package_definitions (
+
+                        spec as PACKAGE_IN_API { module_stamp, an_api, definition, slot },
+                        definitions
+                    )
+		    =>
+		    # In the case where the 'where' def has a different api,
+		    # could propagate definitions in to the components,
+		    # as is done currently during typechecked_package.
+                    #
+                    # If a VARIABLE_PACKAGE_DEFINITION applies to a spec
+		    # with a different api, this propagation of
+		    # VAR definitions into the components means that
+		    # the spec api is open -- i.e. that the
+                    # "closed" field should become FALSE. 
+                    #
+		    # This is currently being handled within macro_expand.
+                    #
+		    case definition
+		       
+		        THE _
+			    =>
+			    {   error "where defn applied to definitional spec";
+				spec;
+			    };
+
+			 NULL
+                             =>
+			      case definitions
+			         	
+				   (NIL, EXTERNAL_DEFINITION_OF_PACKAGE (symbol_path, package_definition)) ! rest
+				   =>  
+				   #  Applies directly 
+				   (case rest
+
+				         NIL
+					 =>
+					 PACKAGE_IN_API {
+
+                                             module_stamp,
+					     an_api,
+					     definition        => THE (package_definition, sp::length symbol_path),
+					     slot
+					 };
+
+				        _ => {   error "redundant where definitions";
+
+						  spec
+					      ;}; esac
+				   );
+
+				  _ => PACKAGE_IN_API {
+
+                                            module_stamp,
+					    definition        => NULL,
+					    slot,
+					    an_api        => add_where_definitions ( an_api, definitions, NULL, error, make_stamp )
+					};
+                               esac;
+
+                    esac;
+
+		    apply_package_definitions _
+			=>
+			bug "apply_package_definitions";
+                end;						# fun apply_package_definitions
+
+		#
+		fun loop (NIL, definitions, elements)		#  All elements processed. 
+			=>
+			case definitions
+
+			     NIL =>
+				 reverse elements;		#  All definitions consumed.      
+
+			     _   =>				#  Left-over definitions.         
+				 {   apply
+					 (   fn (_, EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR { path, ... } )
+						=>
+						(error (cat   [   "unbound left hand side in 'where' type: ",
+								   sp::to_string path
+							       ]
+						       )
+						);
+
+					       (_, EXTERNAL_DEFINITION_OF_PACKAGE (p, _))
+						=>
+						(error
+						    (cat [   "unbound left hand side in 'where' (package): ",
+								sp::to_string p
+							    ]
+						    )
+					     ); end 
+					 )
+
+					 definitions;
+
+				     reverse elements;
+				 };
+			esac;
+
+
+		    loop (elements, NIL, elements')               #  All definitions processed. 
+			=> 
+			reverse elements' @ elements;             
+
+		    loop ((element as (symbol, type_spec as TYPE_CONSTRUCTOR_IN_API _)) ! elements, definitions, elements')
+			=>
+			{   my (localdefinitions, otherdefinitions)
+				=
+				find_definitions (symbol, definitions);
+
+			    case localdefinitions
+
+			        [ (NIL, type_constructor_definition) ]
+				    => 
+				    loop (
+					elements,
+					otherdefinitions,
+
+					(   symbol,
+					    apply_type_constructor_def (type_spec, type_constructor_definition)
+					)
+					!
+					elements'
+				    );
+
+				NIL   =>   loop (elements, definitions, element ! elements');
+
+				_   =>   {   error ("multiple where definitions for " + s::name symbol);
+
+					      loop (elements, otherdefinitions, element ! elements');
+					 };
+                            esac;
+			};
+
+		    loop ((element as (symbol, sspec as PACKAGE_IN_API _)) ! elements, definitions, elements')
+			=>
+			{   my (localdefinitions, otherdefinitions) = find_definitions (symbol, definitions);
+
+			    case localdefinitions
+
+			         NIL /* no definitions apply to this element */ 
+				 =>
+				 loop (elements, otherdefinitions, element ! elements');
+
+				_
+				 =>
+				 loop (
+				     elements,
+				     otherdefinitions,
+				     (   symbol,
+					 apply_package_definitions (sspec, localdefinitions)
+				     )
+				     !
+				     elements'
+				 );
+                            esac;
+			};
+
+		    loop (element ! elements, definitions, elements')
+			=>
+			loop (elements, definitions, element ! elements');
+
+                end;					# fun loop
+
+	    end						# where  (== fun push_definitions)
+
+	# Does this belong in module_stuff or typecheck_stuff? David B MacQueen   XXX BUGGO FIXME
+	#
+	also
+	fun add_where_definitions (an_api, NIL, name_or_null, error, make_stamp)
+		=>
+		bug "addWhereDefinitions";
+
+	    add_where_definitions(
+
+                an_api as API {
+
+                    stamp,
+		    name,
+		    closed,
+		    contains_generic,
+		    stub,
+		    symbols,
+		    elements,
+		    property_list,
+		    type_sharing,
+		    package_sharing
+		},
+
+		where_definitions,
+		name_or_null,
+		error,
+		make_stamp
+            )
+		=>
+		API {   stamp  => make_stamp(),		#  Give modified api a new stamp -- could stack stamps 
+
+			name   => case name_or_null
+				      THE _ => name_or_null; #  New name provided. 
+				      NULL  => name;          #  Retain old name (?) 
+				  esac,
+
+			closed        =>  closed and closed_definitions where_definitions,
+			elements      =>  push_definitions (elements, where_definitions, error, make_stamp),
+
+			property_list =>  property_list::make_property_list (),
+			stub          => NULL,
+
+			contains_generic,
+			type_sharing,
+			symbols,
+			package_sharing
+		    };
+
+	   add_where_definitions _   =>   bug "addWhereDefinitions";
+
+        end;							# fun add_where_definitions
+
+	#
+	fun local_path (symbol_path, elements)
+            =
+	    {   mu::get_api_element (elements, sp::first symbol_path);
+                TRUE;
+            }
+            except
+                mu::UNBOUND _
+                    =
+                    FALSE;
+
+	parameter_id =   s::make_package_symbol "<parameter>";
+
+	generic_id   =   s::make_generic_symbol "<generic>";
+
+	# Elements are added in reverse order, so at the end, the elements 
+	# lists must be reversed. In the long run, this could be changed
+	# if we move to a dictionary-based representation of the elements.
+	#
+	fun add_element (x, elements)
+            =
+            x ! elements;
+
+	#
+	fun add (symbol, spec, elements, err)
+            =
+	    #  Check to see whether symbol is already bound in the given dictionary 
+	    #
+	    {   if_debugging_say (">>typecheck_api::add: " + s::name symbol);
+
+		if ( list::exists
+                         (fn (n, _) =  s::eq (symbol, n))
+                         elements
+		)
+                     #  If so, this indicates a duplicate specification error 
+		     err
+			 em::ERROR 
+			 (   "duplicate definitions for "
+			 +   s::name_space_to_string (s::name_space symbol)
+			 +   " "
+			 +   s::name symbol
+			 +   " in api"
+			 )
+			 em::null_error_body;
+
+		     elements;
+
+		
+		else
+                     #  Otherwise, add the symbol: 
+                     add_element ((symbol, spec), elements);
+                fi;
+            };
+
+
+
+	#  Typechecking 'where' type clauses around apis: 
+	#
+	fun typecheck_where
+            ( api_expression,
+              symbol_table,
+              module_path_context,
+              make_stamp,
+              error,
+              source_code_region
+            )
+            =
+	    {
+                loop (api_expression, NIL, source_code_region)
+                where
+
+		    # Arg1 holds the input raw syntax tree that we are consuming;
+		    # Arg2 holds the result list we are generating (initially NIL)
+		    # Arg3 is just diagnostic support.
+		    #
+		    fun loop (raw::API_WITH_WHERE_SPECS (api_expression, whspecs), definitions, source_code_region)
+			    =>
+			    loop1 (whspecs, definitions)
+			    where
+
+				# Arg1 is the input list of 'where' api constraints which we are consuming;
+				# Arg2 is the result list which we are accumulating:
+				#
+				fun loop1 (NIL, definitions)                                   #  No more input, so done with loop1. 
+					=>
+					loop (api_expression, definitions, source_code_region);
+
+				    loop1 (raw::WHERE_TYPE (path, type_variables, type) ! rest, definitions)
+					=>
+					{   symbol_path = sp::SYMBOL_PATH path;
+
+					    if_debugging_say ("typecheckWhere: WHERE_TYPE: " + sp::to_string symbol_path);
+
+					    type_variables  = tt::typecheck_type_variable_list (type_variables, error, source_code_region);
+					    arity           = length type_variables;
+
+					    my (type, type_variables')
+						=
+						tt::typecheck_type (type, symbol_table, error, source_code_region);
+
+					    eu::check_bound_type_variables (type_variables', type_variables, error source_code_region);
+					    ts::resolve_type_variables_to_typescheme_slots type_variables;
+					    ts::drop_macro_expanded_indirections_from_type type;
+
+					    stamp   =   make_stamp ();
+					    path    =   ip::INVERSE_PATH [list::last path];
+
+					    strict   =   eu::calculate_strictness (arity, type);
+
+					    my (nty, relative)
+						=
+						mu::relativize_type module_path_context type;
+
+					    type_constructor
+						= 
+						t::DEFINED_TYPE_CONSTRUCTOR {
+
+						    type_scheme
+                                                        =>
+                                                        t::TYPE_SCHEME { arity,  body  => nty },
+
+						    stamp,
+						    path,
+						    strict
+						};
+
+					    loop1 (
+
+						rest,
+
+						EXTERNAL_DEFINITION_OF_TYPE_CONSTRUCTOR
+						    {
+						      path => symbol_path,
+
+						      type_constructor,
+						      relative
+						    }
+						!
+						definitions
+					    );
+					};
+
+				    loop1 (raw::WHERE_PACKAGE (left_hand_side, right_hand_side) ! rest, definitions)
+					=>
+					(   {   left_hand_side_path = sp::SYMBOL_PATH left_hand_side;
+
+						package_definition
+						    =
+						    find_package_definition_via_symbol_path (
+
+							symbol_table,
+							sp::SYMBOL_PATH right_hand_side,
+							module_path_context,
+							error source_code_region
+						    );
+
+						package_definition
+						    = 
+						    # Remove var_home & inline info (bug 1201):
+						    #
+						    case package_definition
+
+							 CONSTANT_PACKAGE_DEFINITION (A_PACKAGE { an_api, typechecked_package, ... } )
+							     =>
+							     CONSTANT_PACKAGE_DEFINITION (A_PACKAGE { an_api,
+												      typechecked_package,
+												      var_home      =>  var_home::null_var_home,
+												      inlining_info =>  inlining_information::NULL
+												    }
+											   );
+
+							_ => package_definition;
+						    esac;
+
+						loop1 (
+						    rest,
+						    EXTERNAL_DEFINITION_OF_PACKAGE (left_hand_side_path, package_definition)   !   definitions
+						);
+					    }
+					    except
+						st::UNBOUND
+						=
+						{   error
+							source_code_region
+							em::ERROR
+							"unbound right-hand side in where clause"
+							em::null_error_body;
+
+						    loop1 (rest, definitions);
+						}
+					);
+				end;		# fun loop1
+			    end;		# where
+
+
+			loop (raw::SOURCE_CODE_REGION_FOR_API (api_expression, source_code_region), definitions, _)
+			    =>
+			    loop (api_expression, definitions, source_code_region);
+
+			loop (api_expression, definitions, source_code_region)
+			    =>
+			    (api_expression, definitions, source_code_region);
+
+		    end;					# fun loop
+                end;						# where
+	    };
+
+
+
+	# typecheck_body is the  main function for elaborating api bodies.
+	# 
+	# Its return type is 
+	#
+	#      ( elements,                       List of (name_symbol, type) pairs, one per declaration.
+        #        symbols,                        List of symbols, each naming one element.
+        #        List( TypeSharingSpec ),
+        #        List( StructureSharingSpec ),
+        #        Bool                           'contains_generic'
+	#      )
+	#
+	# It does not need to return an updated symbol table.
+	#
+	fun typecheck_body (
+
+                api_elements,
+                symbol_table,
+                typechecker_dictionary,
+                api_context,
+                module_path_context,
+                source_code_region,
+		compile_info as { make_stamp, error_fn, ... } : eu::Compile_Info
+            )
+            =
+	    {   #  Typecheck type specification --- return
+                #      (symbol_table, elements, symbols)
+		#
+		fun typecheck_type_definition_in_api (tspecs, symbol_table, elements, symbols, eqspec, source_code_region)
+		    =
+		    {   if_debugging_say ">typecheck_type_definition_in_api";
+
+			err = error_fn  source_code_region;
+
+			equality_property
+			    =
+			    if   eqspec      t::YES;
+			    else             t::INDETERMINATE;
+                            fi;
+			#
+
+			loop (tspecs, symbol_table, elements, symbols)
+                        where 
+			    fun loop ([], symbol_table, elements, symbols)
+				    =>
+				    (symbol_table, elements, symbols);
+
+				loop ( (name, type_variables, abbrev) ! rest, symbol_table, elements, symbols)
+				    => 
+				    {   type_variables
+					    =
+					    tt::typecheck_type_variable_list (
+						type_variables,
+						error_fn,
+						source_code_region
+					    );
+
+					arity = length type_variables;
+
+					type_constructor
+					    =
+					    case abbrev
+
+						 THE definition
+						     =>
+						     if eqspec
+
+							  error_fn
+							      source_code_region
+							      em::ERROR
+							      (   "eqtype spec with a definition: "
+							      +   s::name name
+							      )
+							      em::null_error_body;
+
+							  t::ERRONEOUS_TYPE_CONSTRUCTOR;
+
+						     else
+							  my (type, type_variables')
+							     =
+							     tt::typecheck_type (definition, symbol_table, error_fn, source_code_region);
+
+							  eu::check_bound_type_variables (type_variables', type_variables, err);
+							  ts::resolve_type_variables_to_typescheme_slots type_variables;
+							  ts::drop_macro_expanded_indirections_from_type type;
+
+							  my (nty, _) = mu::relativize_type module_path_context type;
+
+
+							  t::DEFINED_TYPE_CONSTRUCTOR {
+
+							      stamp  => make_stamp (),
+							      path   => ip::INVERSE_PATH [name],
+							      strict => eu::calculate_strictness (arity, type),
+
+							      type_scheme => t::TYPE_SCHEME { arity, body=>nty }
+							  };
+						     fi;
+
+						 NULL
+						     =>
+						     t::PRIMITIVE_TYPE_CONSTRUCTOR {
+
+							 stamp => make_stamp(),
+							 path  => ip::INVERSE_PATH [name],
+							 eq    => REF equality_property, 
+							 kind  => t::FORMAL,
+							 stub  => NULL,
+							 arity
+						     };
+					    esac;
+
+					module_stamp = make_stamp();
+
+					etyc = t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+						       module_path => [ module_stamp ],
+						       path        => ip::INVERSE_PATH [name],
+
+						       arity
+						   };
+
+					symbol_table' = st::bind (name, b::NAMED_TYPE etyc, symbol_table);
+
+					ts = TYPE_CONSTRUCTOR_IN_API { is_a_replica => FALSE,
+								       scope        => 0,
+
+								       module_stamp,
+                                                                       type_constructor
+								     };
+
+					elements' = add (name, ts, elements, err);
+
+					loop (rest, symbol_table', elements', name ! symbols);
+				    };
+			    end;				# fun loop
+                        end;					# where
+		    };
+
+		#
+		fun all_but_last  list
+		    =
+		    list::take (list, list::length list - 1);
+
+		# Typecheck enum replication specifications. 
+                #
+		# Uses DEFINED_TYPE_CONSTRUCTOR wrappings of
+                # the right-hand side enum in the resulting specs.
+                #
+		# Need to check that this will
+                # do the "right thing" in macro_expand. XXX BUGGO FIXME
+		#
+		fun typecheck_datatype_replication (name, symbols, symbol_table, elements, symbolsx, source_code_region)
+		    =
+		    {   type_constructor
+			    =
+			    find_in_symbol_table::find_type_constructor_via_symbol_path (
+				symbol_table,
+				sp::SYMBOL_PATH symbols,
+				error_fn  source_code_region
+			    );
+
+			#  right-hand side is not local to current (outermost) api 
+			#
+			fun no_datatype ()
+			    =
+			    {   error_fn
+				    source_code_region
+				    em::ERROR 
+				    "right-hand side of enum replication spec not a enum"
+				    em::null_error_body;
+
+				(symbol_table, elements, symbolsx);
+			    };
+
+
+			case type_constructor
+
+			     t::TYPE_CONSTRUCTOR_BY_MODULE_PATH { module_path, arity, ... }
+				 =>
+				 {
+				     #  Local to current outermost api 
+
+				     # Get the spec, using expandTypeConstructor.
+				     # Check that it is a enum:
+
+				     api_context   =   elements ! api_context;
+
+				     type_constructor'
+					 =
+					 ex::expand_type_constructor (
+					     type_constructor,
+					     api_context,
+					     typechecker_dictionary
+					 );
+
+				     case type_constructor'
+
+					  t::PRIMITIVE_TYPE_CONSTRUCTOR { kind, ... }
+					  =>
+					  case kind
+
+					       t::DATATYPE {   index,
+							      family as { members, ... },
+							      stamps,
+							      free_type_constructors,
+							      ...
+							  }
+					       =>
+					       {   stamp = vector::get (stamps, index);
+
+						   my { type_constructor_name, arity, constructor_list, an_api, is_lazy, ... }
+						       =
+						       vector::get (members, index);
+
+						   #  Add the type: 
+						   module_stamp = make_stamp ();
+
+						   #  Spec uses wrapped version of the TYPE_CONSTRUCTOR_BY_MODULE_PATH!! 
+						   tspec
+						       =
+						       TYPE_CONSTRUCTOR_IN_API {
+
+							   is_a_replica => TRUE,
+							   scope        => 0,
+
+							   type_constructor
+							       =>
+							       ts::wrap_definition (
+								   type_constructor,
+								   make_stamp()
+							       ),
+
+							   module_stamp
+						       };
+
+						   elements'
+						       =
+						       add (name, tspec, elements,   error_fn  source_code_region);
+
+						   etyc
+						       =
+						       t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+							   arity,
+							   module_path => [ module_stamp ],
+							   path            => ip::INVERSE_PATH [name]
+						       };
+
+						   symbol_table'
+						       =
+						       st::bind (name, b::NAMED_TYPE etyc, symbol_table);
+
+						   symbols'   =   name ! symbolsx;
+
+						   # Unlike normal case (right-hand side=ENUM_CONSTRUCTORS),
+						   # won't bother to re-register the type_constructor
+						   # in module_path_context:
+						   #
+						   prefix   =   all_but_last  module_path;
+						   #
+						   fun expand_type_constructor (
+							   type_constructor as t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+							       module_path,
+							       arity,
+							       path
+							   }
+						       )
+							   =>
+							   # See if the path module_path is defined externally
+							   # in the typechecker_dictionary:
+							   #
+							   (   {   ee::find_entry_by_module_stamp
+								       (
+									 typechecker_dictionary,
+									 head module_path
+								       );
+
+								   type_constructor;                     #  external type_constructor 
+							       }
+							       except
+								   ee::UNBOUND
+								   =
+								   #  type_constructor is local to sig 
+
+								   t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+								       module_path => prefix @ module_path,
+								       arity,
+								       path
+								   }
+							   );
+
+						       expand_type_constructor (t::FREE_TYPE n)
+							   => 
+							   (   (list::nth (free_type_constructors, n))
+							       except
+								   _
+								   =
+								   bug "unexpected free_type_constructors in expandTypeConstructor");
+
+						       expand_type_constructor (t::RECURSIVE_TYPE n)
+							   =>
+							   if   (n == index)
+								etyc;            #  Could equivalently be type_constructor? 
+							   else
+								stamp = vector::get (stamps, n);
+
+								my { type_constructor_name, arity, ... }
+								    =
+								    vector::get (members, n);
+
+								t::TYPE_CONSTRUCTOR_BY_MODULE_PATH { 
+
+								    arity,
+								    module_path => prefix @ [stamp],
+								    path       => ip::INVERSE_PATH [type_constructor_name]
+								};
+							   fi;
+
+						       # Reconstructing the module_path for sibling
+						       # datatypes using the fact that the Module_Stamp
+						       # for a enum spec is the same as the
+						       # stamp of the enum.
+						       # See typecheck_datatype_in_api'
+						       #	
+						       expand_type_constructor type_constructor
+							   =>
+							   type_constructor;
+						   end;
+
+						   expand				# Construct type transform function.
+                                                       =
+                                                       ts::map_constructor_type_dot_type_constructor
+                                                           expand_type_constructor;
+						   #
+						   fun add_datatype_constructors ([], elements, symbols)
+							   =>
+							   (elements, symbols);
+
+						       add_datatype_constructors (
+							   (d as { name, representation, domain } ) ! dds,
+							   elements,
+							   symbols
+						       )
+							   => 
+							   {   constructor_type
+								   =
+								   ts::datatype_constructor_to_type (
+								       type_constructor,
+								       null_or::map expand domain
+								    );
+
+							       const   = case domain
+
+									      NULL => TRUE;
+									      _    => FALSE;
+									 esac;
+
+							       nd = t::ENUM_CONSTRUCTOR {
+
+									signature => an_api,
+									representation,
+
+									symbol => name,
+									const,
+									is_lazy,
+									constructor_type
+								    };
+
+							       dspec
+								   =
+								   ENUM_CONSTRUCTOR_IN_API {
+								       a_datatype => nd,
+								       slot      => NULL
+								   };
+
+							       elements'
+								   =
+								   add (
+								       name,
+								       dspec,
+								       elements, 
+								       error_fn  source_code_region
+								   );
+
+							       add_datatype_constructors (dds, elements',  name ! symbols);
+							   };
+						   end;
+
+						   my (elements'', symbols'')
+						       =
+						       add_datatype_constructors (constructor_list, elements', symbols');
+
+						   (   symbol_table',
+						       elements'',
+						       symbols''
+						   );
+					       };
+
+					    _ => no_datatype ();
+					  esac;
+
+					_ => no_datatype ();
+				    esac;
+
+				 };
+
+			     t::PRIMITIVE_TYPE_CONSTRUCTOR { arity, kind, ... }
+			         =>
+			         case kind
+				   
+				      t::DATATYPE _
+					  =>
+					  {
+					      #  right-hand side is not local to current outermost api 
+
+					      my (type_constructor', _)
+						  =
+						  mu::relativize_type_constructor module_path_context type_constructor;
+
+					      case type_constructor'
+
+						   t::TYPE_CONSTRUCTOR_BY_MODULE_PATH { module_path, arity, ... }
+						       => 
+						       {
+						           #  outside current sig but local to enclosing generic 
+
+                                                           #  Add the type: 
+
+							   module_stamp = make_stamp();
+
+							   #  spec uses wrapped version of the TYPE_CONSTRUCTOR_BY_MODULE_PATH!! 
+
+							   tspec
+							       =
+							       TYPE_CONSTRUCTOR_IN_API {
+
+								   module_stamp,
+								   is_a_replica => TRUE,
+								   scope        => 0,
+
+								   type_constructor  => ts::wrap_definition (
+											  type_constructor',
+											  make_stamp()
+										      )
+							       };
+
+							   elements'
+							       =
+							       add (name, tspec, elements,   error_fn  source_code_region);
+
+							   etyc
+							       =
+							       t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+								   arity,
+								   module_path => [ module_stamp ],
+								   path        => ip::INVERSE_PATH [name]
+							       };
+
+							   symbol_table'
+							       =
+							       st::bind (
+
+								   name,
+								   b::NAMED_TYPE etyc,
+								   symbol_table
+							       );
+
+							   symbols'   =   name ! symbolsx;
+
+							   #  Get the dcons -- quick and dirty (buggy?) hack  XXX BUGGO FIXME 
+
+							   dcons = ts::extract_datatype_constructor type_constructor;
+							   #
+							   fun add_datatype_constructors ([], elements, symbols)
+								   =>
+								   (elements, symbols);
+
+							       add_datatype_constructors (
+								   (   d as t::ENUM_CONSTRUCTOR {      symbol,
+												       representation,
+												       const,
+												       is_lazy,
+												       signature,
+												       constructor_type
+												   }
+								     ) ! ds,
+
+								     elements,
+								     symbols
+							           )
+								   => 
+								   {   nd = t::ENUM_CONSTRUCTOR {
+
+										signature,
+										representation,
+
+										symbol,
+										is_lazy,
+										const,
+										constructor_type  => #1 (mu::relativize_type module_path_context  constructor_type)
+									    };
+
+								       dspec
+									   =
+									   ENUM_CONSTRUCTOR_IN_API {
+
+									       a_datatype => nd,
+									       slot      => NULL
+									   };
+
+								       elements'
+									   =
+									   add (symbol, dspec, elements,   error_fn  source_code_region);
+
+								       add_datatype_constructors (ds, elements', symbol ! symbols);
+								   };
+							   end;
+
+							   my (elements'', symbols'')
+							       =
+							       add_datatype_constructors (dcons, elements', symbols');
+
+
+							   (symbol_table', elements'', symbols'');
+						       };
+
+
+						   _   =>
+						       {   #  Fixed global 
+
+                                                           #  Add the type: 
+
+							   module_stamp = make_stamp();
+
+							   tspec
+							       =
+							       m::TYPE_CONSTRUCTOR_IN_API {
+
+								   is_a_replica => TRUE,
+								   scope        => 0,
+
+								   type_constructor  => ts::wrap_definition (
+											  type_constructor,
+											  make_stamp ()
+										      ),
+
+								   module_stamp
+							       };
+
+							   # Put in the constant type_constructor
+							   # how to treat this in macroExpand? XXX BUGGO FIXME
+							   #
+							   elements'
+							       =
+							       add (
+								   name,
+								   tspec,
+								   elements,
+								   error_fn  source_code_region
+							       );
+
+							   etyc
+							       =
+							       t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+								   arity,
+								   module_path => [ module_stamp ],
+								   path            => ip::INVERSE_PATH [name]
+							       };
+
+							   symbol_table'     = st::bind (name, b::NAMED_TYPE etyc, symbol_table);
+
+							   symbols'  = name ! symbolsx;
+
+							   dcons      = ts::extract_datatype_constructor type_constructor;
+							   #
+							   fun add_datatype_constructors ([], elements, symbols)
+								   =>
+								   (elements, symbols);
+
+							      add_datatype_constructors (
+								   (dc as t::ENUM_CONSTRUCTOR { symbol, ... } )   !   dcs,
+								   elements,
+								   symbols
+							       )
+								   => 
+								   {   dspec
+									   =
+									   ENUM_CONSTRUCTOR_IN_API {
+
+									       a_datatype => dc,
+									       slot      => NULL
+									   };
+
+								       elements'
+									   =
+									   add (
+									       symbol,
+									       dspec,
+									       elements,
+									       error_fn  source_code_region
+									   );
+
+								       add_datatype_constructors (dcs, elements', symbol ! symbols);
+								   };
+							   end;
+
+							   my (elements'', symbols'')
+							       =
+							       add_datatype_constructors (dcons, elements', symbols');
+
+							   (symbol_table', elements'', symbols'');
+						       };
+					      esac;
+					  };
+
+				     _ => no_datatype ();
+			      esac;
+
+			    _ => no_datatype ();
+                        esac;
+		    };							# fun typecheck_datatype_replication
+
+
+		#  Typechecking enum specification: 
+		#
+		fun typecheck_datatype_in_api' (dtycspec, symbol_table, elements, symbols, source_code_region)
+		    = 
+		    {   if_debugging_say ">>typecheck_datatype_in_api";
+
+			err =   error_fn  source_code_region;
+
+			# Push a local module_path_context dictionary
+			# to be used to relativize the Constructor
+			# types and bodies of withtype defns
+			# within this declaration:
+			#
+			module_path_context
+                            =
+                            epc::enter_closed  module_path_context;
+			#
+			fun is_free (t::TYPE_CONSTRUCTOR_BY_MODULE_PATH _)
+				=>
+				TRUE;
+
+			    is_free tc
+				=>
+				case (epc::find_module_path_for_type_constructor (
+					     module_path_context,
+					     mu::type_identifier tc
+					 ))
+				  
+                                     THE _ =>  TRUE; 
+				     _     =>  FALSE;
+				esac;
+			end;
+
+			my (dtycs, wtycs, dcons, _)
+			    =
+			    tt::typecheck_datatype_declaration (
+				dtycspec,
+				symbol_table,
+				elements ! api_context,
+				typechecker_dictionary,
+				is_free,
+				ip::INVERSE_PATH [],
+				source_code_region,
+				compile_info
+			    );
+
+			if_debugging_say "--typecheck_datatype_in_api: typecheck_datatype_declaration done";
+
+			# The following code readjusts the definitions
+			# of datatypes and with_type_constructors without
+			# changing their stamps; this is ok, because all
+			# references to the datatypes with same tycs
+			# will be relativized, so there won't be two
+			# datatype_constructors with same type stamps.
+			#
+			# The ones returned from typecheck_datatype_declaration,
+			# i.e., dtycs, are destroyed. (ZHONG)
+
+
+			vizty = (fn type =  #1 (mu::relativize_type             module_path_context type));
+			viztc = (fn tc     =  #1 (mu::relativize_type_constructor module_path_context tc    ));
+
+			ndtycs
+			    = 
+			    case dtycs
+
+				 (t::PRIMITIVE_TYPE_CONSTRUCTOR { stamp, kind, ... } ! _)
+				     =>
+				     case kind
+
+					   t::DATATYPE { index=>0, family, free_type_constructors, stamps, root }
+					   =>
+					   {   # MAJOR GROSS HACK: use the stamp of the type as its 
+					       # Module_Stamp. This makes possible to reconstruct the
+					       # module_path associated with a RECty when translating the
+					       # types of domains in typecheckDatatypeReplication.  See >>HACK<< signs.
+					       # XXX BUGGO FIXME
+
+					       rtev        =   stamp;   #  make_stamp() >>HACK<<
+					       nfreetycs   =   map viztc free_type_constructors;
+					       #
+					       map newdt dtycs
+                                               where
+						   fun newdt (dt as t::PRIMITIVE_TYPE_CONSTRUCTOR { kind, arity, eq, path, ... } )
+						       =>
+						       case kind
+
+							    t::DATATYPE { index => i, ... }
+								=>
+								{   s   =   vector::get (stamps, i);
+
+								    my (module_stamp, rt)
+									= 
+									if   (i==0)
+									     (rtev, NULL);
+									else (s,                 # make_stamp() >>HACK<<
+									      THE rtev);
+									fi;
+
+								    nkind
+									= 
+									t::DATATYPE {
+
+									    index    => i,
+									    free_type_constructors => nfreetycs, root=>rt,
+									    stamps,
+									    family
+									};
+
+								    ndt = t::PRIMITIVE_TYPE_CONSTRUCTOR {
+
+									      stamp => s,
+									      kind  => nkind,
+									      stub  => NULL,
+
+									      arity,
+									      eq,
+									      path
+									  };
+
+								    epc::bind_type_constructor_path (
+
+									module_path_context,
+									mu::type_identifier ndt,
+									module_stamp
+								    );
+
+								    (module_stamp, arity, ndt);
+								};
+
+							   _ => bug "unexpected case in newdtyc (1)";
+						       esac;
+
+						      newdt _ => bug "unexpected case in newdtyc (2)";
+
+						   end;			# fun newdt
+                                               end;			# where
+					   };
+
+				     _ => bug "unexpected tycs in bindNewTycs (1)";
+
+                                 esac;
+
+				_ => bug "unexpected tycs in bindNewTycs (2)";
+                            esac;
+
+
+			nwtycs
+			    =  
+			    map newwt wtycs
+                            where
+			        fun newwt (
+					t::DEFINED_TYPE_CONSTRUCTOR {
+
+					    stamp,
+					    strict,
+					    path,
+					    type_scheme => t::TYPE_SCHEME { arity, body }
+					}
+				    )
+				    => 
+				    {   module_stamp = stamp;       #  make_stamp()   >>HACK<< XXX BUGGO FIXME 
+
+					nwt = t::DEFINED_TYPE_CONSTRUCTOR {
+
+						  type_scheme => t::TYPE_SCHEME
+                                                                       {
+								         body  => vizty body,
+								         arity
+								       },
+						  stamp,
+						  strict,
+						  path
+					      };
+
+					epc::bind_type_constructor_path (
+
+					    module_path_context,
+					    mu::type_identifier nwt,
+					    module_stamp
+					);
+
+					(module_stamp, arity, nwt);
+				    };
+
+				   newwt _ => bug "newwt";
+
+                                end;
+			    end;
+			#
+			fun add_tycs ([], symbol_table, elements, symbols)
+                                =>
+                                (symbol_table, elements, symbols);
+
+			    add_tycs((module_stamp, arity, type_constructor) ! tycs, symbol_table, elements, symbols)
+				=>
+				{   tspec
+					=
+					TYPE_CONSTRUCTOR_IN_API {
+
+					    type_constructor,
+					    module_stamp,
+					    is_a_replica       => FALSE,
+					    scope            => 0
+					};
+
+				    name   =   ts::type_constructor_name type_constructor;
+
+				    if_debugging_say ("--typecheck_datatype_in_api - name: "+ s::name name);
+
+				    elements'   =   add (name, tspec, elements, err);
+
+				    etyc = t::TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+					       module_path => [ module_stamp ],
+					       path            => ip::INVERSE_PATH [name],
+
+					       arity
+					   };
+
+				    symbol_table'
+					=
+					st::bind (
+
+					    name,
+					    b::NAMED_TYPE etyc,
+					    symbol_table
+					);
+
+				    add_tycs (
+					tycs,
+					symbol_table',
+					elements',
+					name ! symbols
+				    );
+				};
+                        end;
+
+			my (symbol_table', elements', symbols')
+			    = 
+			    add_tycs (
+
+				ndtycs @ nwtycs,
+				symbol_table,
+				elements,
+				symbols
+			    );
+
+			if_debugging_say "--typecheck_datatype_in_api: tycs added";
+			#
+			fun add_datatype_constructors ([], elements, symbols)
+                                =>
+                                (elements, symbols);
+
+			    add_datatype_constructors (
+				(   t::ENUM_CONSTRUCTOR {
+					symbol,
+					representation,
+					const,
+					signature,
+					constructor_type,
+					is_lazy
+				    }
+
+				) ! ds,
+				elements,
+				symbols
+			    )
+				=> 
+				{   debug_print(
+					"addDatatypeConstructors - constructor_type: ",
+					(   fn pps
+						=
+						fn constructor_type
+						    =
+						    unparse_type::unparse_type  symbol_table  pps  constructor_type
+					),
+					constructor_type
+				    );
+
+				    nd = t::ENUM_CONSTRUCTOR {
+
+					     constructor_type  => vizty  constructor_type,
+
+					     signature,
+					     representation,
+					     symbol,
+					     const,
+					     is_lazy
+					 };
+
+					# NOTICE that the call to vizty will kill all the 
+					# references to old datatype_constructors, dtycs,
+					# because the same stamp has been mapped to
+					# TYPE_CONSTRUCTOR_BY_MODULE_PATH in module_path_context
+					# already. Is it tricky ?! (ZHONG)    XXX BUGGO FIXME
+
+				    dspec   =   ENUM_CONSTRUCTOR_IN_API   { a_datatype => nd,   slot => NULL };
+
+				    elements'   =   add (symbol, dspec, elements, err);
+
+				    add_datatype_constructors (ds, elements',  symbol ! symbols);
+				};
+                        end;
+
+			my (elements'', symbols'')
+			    =
+			    add_datatype_constructors (dcons, elements', symbols');
+
+			if_debugging_say "--typecheck_datatype_in_api: dcons added";
+			if_debugging_say "<<typecheck_datatype_in_api";
+
+			(symbol_table', elements'', symbols'');
+		    };
+		#
+		fun typecheck_datatype_in_api (
+
+			db as {   datatype_constructors,
+				  with_type_constructors
+			      },
+			symbol_table,
+			elements,
+			symbols,
+			source_code_region
+		    )
+		    = 
+		    case datatype_constructors
+
+		         (   [ spec as raw::NAMED_ENUM {   right_hand_side   => raw::REPLICAS right_hand_side_symbols,
+								type_constructor => name,
+								type_variables   => [],
+								is_lazy          => FALSE
+							    }
+			     ]
+			 )
+			     =>
+			     #  LAZY: not allowing enum replication with lazy keyword 
+
+			     typecheck_datatype_replication (
+				 name,
+				 right_hand_side_symbols,
+				 symbol_table,
+				 elements,
+				 symbols,
+				 source_code_region
+			     );
+
+		         (   raw::NAMED_ENUM {   right_hand_side => raw::ENUM_CONSTRUCTORS _, ... } ! _)
+			     => 
+			     typecheck_datatype_in_api' (
+				 db,
+				 symbol_table,
+				 elements,
+				 symbols,
+				 source_code_region
+			     );
+
+		        _ => {   error_fn
+				      source_code_region
+				      em::ERROR
+				      "ill-formed enum spec"
+				      em::null_error_body;
+
+				  (symbol_table, elements, symbols);
+			      };
+                    esac;
+
+
+
+		#  Typechecking package specification: 
+		#
+		fun typecheck_package_element_in_api  (
+			(name, api_expression, def_op),			#  Element to process. 
+			symbol_table,					#  Api so far, including outer nested ones. 
+			elements,					#  Result elements. 
+			symbols,
+			slots,
+			source_code_region
+		    )
+		    =
+		    {   if_debugging_say ("--typecheck_package_element_in_api:  " + s::name name);
+
+			source_code_region0 =   source_code_region;
+
+			err                 =   error_fn  source_code_region;
+
+			module_stamp =   make_stamp ();     #  The Module_Stamp for this package element. 
+
+			my (an_api, definitionpackage_op)
+			    =
+			    {   my (api_expression, where_definitions, source_code_region)
+				    =
+				    typecheck_where (
+					api_expression,
+					symbol_table,
+					module_path_context,
+					make_stamp,
+					error_fn,
+					source_code_region
+				    );
+
+				an_api
+				    = 
+				    case api_expression
+
+				         raw::API_BY_NAME name'
+					     =>
+					     lu::find_api_by_symbol (symbol_table, name', err);
+
+				         raw::API_DEFINITION api_elements
+					     =>
+					     {   my (   elements',
+							 symbols',
+							 type_sharing',
+							 package_sharing',
+							 contains_generic'
+						     )
+						     =
+						     typecheck_body (
+
+							 api_elements,
+							 symbol_table,
+							 typechecker_dictionary,
+							 elements ! api_context,
+							 module_path_context,
+							 source_code_region,
+							 compile_info
+						     );
+
+						 an_api'
+						     = 
+						     API {
+
+							 stamp  => make_stamp(),
+							 name   => NULL,
+							 closed => FALSE,
+							 stub   => NULL,
+
+							 symbols          => symbols', 
+							 elements         => elements',
+							 property_list    => property_list::make_property_list (),
+							 type_sharing     => type_sharing', 
+
+							 contains_generic => contains_generic',
+							 package_sharing  => package_sharing'
+						     };
+
+						 an_api';
+					     };
+
+				        _ => bug "typecheck_package_element_in_api. strspecs";
+                                    esac;
+
+				an_api
+				    =
+				    case an_api
+
+				        ERRONEOUS_API
+                                            =>
+                                            ERRONEOUS_API;
+
+				        _    =>
+					     case where_definitions
+
+					          NIL => an_api;    #  No where definitions 
+
+						 _ => add_where_definitions (
+							   an_api,
+							   prepare_definitions where_definitions,
+							   NULL,
+							   (   fn msg
+                                                                   =
+                                                                   error_fn
+								       source_code_region
+								       em::ERROR msg
+								       em::null_error_body
+							   ),
+							   make_stamp
+						       );
+                                             esac;
+
+                                    esac;
+
+				definitionpackage_op
+				    = 
+				    case def_op
+				      
+				         NULL => NULL;
+
+				        THE path
+					=>
+					(   THE (
+						find_package_definition_via_symbol_path (
+						    symbol_table,
+						    sp::SYMBOL_PATH path,
+						    module_path_context,
+						    error_fn  source_code_region
+						),
+						length path
+					    )
+					    except
+						st::UNBOUND
+						=
+						{   error_fn
+							source_code_region
+							em::ERROR
+							"unbound right-hand side in package definition spec"
+							em::null_error_body;
+
+						    NULL;
+						}
+
+					);
+                                     esac;
+
+
+				(an_api, definitionpackage_op);
+			    };
+
+			if_debugging_say "--typecheck_package_element_in_api:  api elaborated";
+
+			symbol_table'
+			    =
+			    st::bind (
+				name,
+				b::NAMED_PACKAGE (
+
+				    PACKAGE_API {
+
+					an_api,
+					module_path => [ module_stamp ]
+				    }
+				),
+				symbol_table
+			    );
+
+			package_spec
+			    =
+			    PACKAGE_IN_API {
+
+				an_api,
+				module_stamp,
+				definition        => definitionpackage_op,
+				slot              => slots
+			    };
+
+			elements'
+			    =
+			    add (name, package_spec, elements, err);
+
+			if_debugging_say "<<typecheck_package_element_in_api";
+
+			contains_generic
+			    =
+			    case an_api
+
+			         API { contains_generic, ... } =>   contains_generic;
+			        _                              =>   FALSE;
+                            esac;
+
+			(symbol_table', elements', name ! symbols, contains_generic);
+
+		    };		#  fun typecheck_package_element_in_api  
+
+
+
+		#  Typechecking package specifications: 
+		#
+		fun typecheck_package_elements_in_api ([], symbol_table, elements, symbols, slots, source_code_region, contains_generic)
+			=>
+			(symbol_table, elements, symbols, [], [], slots, contains_generic);
+
+		    typecheck_package_elements_in_api (
+                        element ! rest, symbol_table, elements, symbols, slots, source_code_region, contains_generic
+                    )
+			=>
+			{   my (symbol_table', elements', symbols', contains_generic')
+				=
+				typecheck_package_element_in_api  (element, symbol_table, elements, symbols, slots, source_code_region);
+
+			    typecheck_package_elements_in_api (
+				rest, symbol_table', elements', symbols', slots+1, source_code_region, contains_generic or contains_generic'
+			    );
+
+			};
+                end;			#  function typecheck_package_elements_in_api 
+
+
+
+		# Current api's elements are passed in so that add can check for 
+		# respecifications of the same name.  The result accumulates new specs 
+		# in the new values of elements that are returned in the result, along 
+		# with the new value of slots.
+		#
+		# The symbol_table argument includes all previous api elements
+		# (i.e. arguments) at this api level, as well as outer api levels.
+		#
+		# The elements are in surface-syntax order.
+		#
+		# The return type of typecheck_api_element is 
+		#
+		#        st::Symbol_Table
+                #      * elements
+                #      * typeSharingSpec List
+                #      * structureSharingSpec List 
+		#      * Int (slot #)
+		# 
+		# Only the IMPORT_IN_API, TYPE_SHARING_IN_API, and PACKAGE_SHARING_IN_API
+		# cases can produce non-NIL typeSharingSpec and structureSharingSpec result components.
+		#
+		fun typecheck_api_element
+                        (
+                          api_element,
+                          symbol_table,
+                          elements,
+                          symbols,
+                          slots,
+                          source_code_region
+                        )
+		    = 
+		    case api_element
+		      
+		         raw::PACKAGES_IN_API package_elements
+			     => 
+			     typecheck_package_elements_in_api (
+				 package_elements, symbol_table, elements, symbols, slots, source_code_region, FALSE
+			     );
+
+		         raw::GENERICS_IN_API specs
+			     =>
+			     {   if_debugging_say "--typecheck_api_element[GENERICS_IN_API]";
+
+				 err   =   error_fn  source_code_region;
+				 #
+				 fun generic_specs (NIL, elements, symbols, slots)
+					 => 
+					 (symbol_table, elements, symbols, [], [], slots, TRUE);
+
+				     generic_specs ((name, a_generic_api) ! rest, elements, symbols, slots)
+					 =>
+					 {   a_generic_api
+						   = 
+						   typecheck_generic_api' {
+
+						       generic_api_expression => a_generic_api,
+
+						       name_or_null           => NULL,
+						       symbol_table,
+						       curried                => FALSE,
+
+						       compile_info,
+						       typechecker_dictionary,
+						       api_context,
+						       module_path_context,
+						       source_code_region
+						   };
+
+					       module_stamp   =   make_stamp ();
+
+					       api_element
+						   =
+						   GENERIC_IN_API {
+
+						       a_generic_api,
+						       slot   => slots,
+
+						       module_stamp
+						   };
+
+					       elements' = add (name, api_element, elements, err);
+
+					       generic_specs (rest, elements', name ! symbols, slots+1);
+					   };
+				 end;
+
+				 generic_specs (specs, elements, symbols, slots);
+			     };
+
+		         raw::TYPE_CONSTRUCTORS_IN_API (specs, eqspec)
+			     =>
+			     {   if_debugging_say "--typecheck_api_element [TYPE_CONSTRUCTORS_IN_API]";
+
+				 my (symbol_table', elements', symbols')
+				     = 
+				     typecheck_type_definition_in_api (specs, symbol_table, elements, symbols, eqspec, source_code_region);
+
+				 (symbol_table', elements', symbols', [], [], slots, FALSE);
+			     };
+
+		         raw::ENUM_CONSTRUCTORS_IN_API spec
+			     =>
+			     {   if_debugging_say "--typecheck_api_element[ENUM_CONSTRUCTORS_IN_API]";
+
+				 my (symbol_table', elements', symbols')
+				     =
+				     typecheck_datatype_in_api (spec, symbol_table, elements, symbols, source_code_region);
+
+				 (symbol_table', elements', symbols', [], [], slots, FALSE);
+			     };
+
+		         raw::VALUES_IN_API specs
+			     =>
+			     {   err   =   error_fn  source_code_region;
+				 #
+				 valspecs (specs, elements, symbols, slots)
+                                 where
+				     fun valspecs (NIL, elements, symbols, slots)
+					     =>
+					     (symbol_table, elements, symbols, [], [], slots, FALSE);
+
+					 valspecs ((name, type) ! rest, elements, symbols, slots)
+					     =>
+					     {   if_debugging_say ("--typecheck_api_element[VALUES_IN_API]: " + s::name name);
+
+						 my (type, type_variable_set)
+						     =
+						     tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+						 type
+						     =
+						     case (type_variable_set::get_elements  type_variable_set)
+
+							  [] => type;
+
+							  type_variables
+							      =>
+							      {   type_scheme_arg_eq_properties   =   ts::resolve_type_variables_to_typescheme_slots_1 type_variables;
+
+								  t::TYPE_SCHEME_TYPE {
+
+								      type_scheme_arg_eq_properties,
+
+								      type_scheme => t::TYPE_SCHEME {
+
+											 arity => length type_variables,
+											 body  => type
+										     }
+								  };
+							      };
+						     esac;
+
+						 ts::drop_macro_expanded_indirections_from_type type;
+
+						 my   (type, _)   =   mu::relativize_type module_path_context type;
+
+						 vspec
+						     =
+						     VALUE_IN_API {
+
+							 type,
+							 slot  => slots
+						     };
+
+						 elements'   =   add (name, vspec, elements, err);
+
+						 valspecs (rest, elements', name ! symbols, slots+1);
+					     };
+				     end;		# fun valspecs
+                                 end;			# where
+
+			     };
+
+		         raw::EXCEPTIONS_IN_API (specs)
+			     =>
+			     {   err =  error_fn  source_code_region;
+				 #
+				 exception_specs (specs, elements, symbols, slots)
+                                 where
+				     fun exception_specs (NIL, elements, symbols, slots)
+					     =>
+					     (symbol_table, elements, symbols, [], [], slots, FALSE);
+
+					 exception_specs ((name, ty_op) ! rest, elements, symbols, slots)
+					     =>
+					     {   my (constructor_type, const)
+						     =
+						     case ty_op
+
+							  THE type
+							      =>
+							      {   my (body, type_variable_set)
+								      = 
+								      tt::typecheck_type (
+									  type,
+									  symbol_table,
+									  error_fn,
+									  source_code_region
+								      );
+
+								  nty = case (type_variable_set::get_elements type_variable_set)
+
+									     NIL   =>   bt::(-->) (body, bt::exception_type);
+
+									    _ => {   err
+											  em::ERROR
+											  (   "type variable in exception spec: "
+											  +   s::name name
+											  )
+											  em::null_error_body;
+
+										      t::WILDCARD_TYPE;
+										  };
+                                                                        esac;
+
+								  ts::drop_macro_expanded_indirections_from_type nty;
+
+								  (   #1 (mu::relativize_type module_path_context nty),
+								      FALSE
+								  );
+							      };
+
+							  NULL => (bt::exception_type, TRUE);
+                                                     esac;
+
+						 representation   =   a::EXCEPTION (a::null_var_home);
+
+						 datatype_constructor
+						     =
+						     t::ENUM_CONSTRUCTOR {
+
+							 symbol  => name,
+							 is_lazy => FALSE,
+
+							 signature => a::NULLARY_CONSTRUCTOR,
+
+							 constructor_type,
+							 const,
+							 representation
+						     };
+
+						 cspec
+						     =
+						     ENUM_CONSTRUCTOR_IN_API {
+
+							 a_datatype => datatype_constructor,
+							 slot      => THE slots
+						     };
+
+						 elements'   =   add (name, cspec, elements, err);
+
+						 exception_specs (rest, elements', name ! symbols, slots+1);
+					     };
+				     end;		# fun exception_specs
+                                 end;			# where
+
+			     };
+
+		         raw::SOURCE_CODE_REGION_FOR_API_ELEMENT (api_element, source_code_region')
+			     =>
+			     typecheck_api_element (api_element, symbol_table, elements, symbols, slots, source_code_region');
+
+		         raw::PACKAGE_SHARING_IN_API symbol_path_list
+			     =>
+			     {   sharespec   =   loop (symbol_path_list, NIL);
+
+				 (symbol_table, elements, symbols, [], [sharespec], slots, FALSE);
+			     }
+			     where
+				 fun loop (NIL, result_paths)
+					 =>
+					 result_paths;
+
+				      loop (symbol_path ! rest, result_paths)
+					 =>
+					 if   (local_path (sp::SYMBOL_PATH symbol_path, elements))
+
+					      case (find_package_definition_via_symbol_path (
+
+						       symbol_table,
+						       sp::SYMBOL_PATH symbol_path,
+						       module_path_context,
+						       error_fn  source_code_region
+						   ))
+
+
+						   VARIABLE_PACKAGE_DEFINITION z
+						       =>
+						       loop (rest, (sp::SYMBOL_PATH symbol_path) ! result_paths);
+
+						   CONSTANT_PACKAGE_DEFINITION (ERRONEOUS_PACKAGE)
+						       =>
+						       loop (rest, result_paths);     #  find_package_definition_via_symbol_path has already complained 
+
+						    _  =>   bug "typecheck_api_element[PACKAGE_SHARING_IN_API]";
+					      esac;
+
+			/*		      except st::UNBOUND =>
+						(error_fn source_code_region em::ERROR
+						   ("unbound path in package sharing: " +
+						    sp::to_string (sp::SYMBOL_PATH p))
+						   em::null_error_body;
+						 loop (rest, resultPaths))
+			*/
+					 else
+					      error_fn
+						  source_code_region
+						  em::ERROR
+						  (   "nonlocal path in package sharing: "
+						  +   sp::to_string (sp::SYMBOL_PATH symbol_path)
+						  )
+						  em::null_error_body;
+
+					      loop (rest, result_paths);
+					 fi;
+				 end;		# fun loop
+			     end;			# where
+
+
+		         raw::TYPE_SHARING_IN_API symbol_path_list
+			     =>
+			     {   sharespec = loop (symbol_path_list, NIL);
+
+				 (symbol_table, elements, symbols, [sharespec], [], slots, FALSE);
+			     }
+                             where
+			         fun loop (NIL, result_paths)
+                                         =>
+                                         result_paths;
+
+				     loop (symbol_path ! rest, result_paths)
+					 =>
+					 if   (local_path (sp::SYMBOL_PATH symbol_path, elements))
+					     
+					      lu::find_type_constructor_via_symbol_path (
+						  symbol_table,
+						  sp::SYMBOL_PATH symbol_path,
+						  error_fn  source_code_region
+					      );
+
+					      loop (rest, (sp::SYMBOL_PATH symbol_path) ! result_paths);
+
+					 else
+					      error_fn
+						  source_code_region
+						  em::ERROR
+						  (   "nonlocal path in type sharing: "
+						  +   sp::to_string (sp::SYMBOL_PATH symbol_path)
+						  )
+						  em::null_error_body;
+
+					      loop (rest, result_paths);
+					 fi;
+                                 end;			# fun loop
+                             end;			# where
+
+		         raw::IMPORT_IN_API api_expression         #  Parameter was "name" 
+			     =>
+			     {   new_api
+				     =
+				     typecheck_api {
+
+					 name_or_null  => NULL,
+
+					 api_expression,
+					 symbol_table,
+					 typechecker_dictionary,
+					 module_path_context,
+					 source_code_region,
+					 compile_info
+				     };
+
+				 #  lu::find_api_by_symbol (symbol_table, name,   error_fn  source_code_region) 
+
+				 #  XXX BUGGO FIXME: this may not work with open api expressions 
+
+				 my (symbol_table', elements', symbols', type_sharing', package_sharing', slots', contains_generic')
+				     =
+				     include_mumble::typecheck_include (
+					 new_api,
+					 symbol_table,
+					 elements,
+					 symbols, 
+					 slots,
+					 source_code_region,
+					 compile_info
+				     );
+
+				 (symbol_table', elements', symbols', type_sharing', package_sharing', slots', contains_generic');
+			     };
+                    esac
+
+
+		also
+		fun typecheck_api_elements (
+                        [], symbol_table, elements, symbols, type_sharing, package_sharing, slots, source_code_region, contains_generic
+                    )
+			=>
+			(symbol_table, elements, symbols, type_sharing, package_sharing, slots, contains_generic);
+
+		    typecheck_api_elements (
+
+			api_element ! rest,
+			symbol_table,
+			elements,
+			symbols,
+			type_sharing,
+			package_sharing,
+			slots,
+			source_code_region,
+			contains_generic
+		    )
+			=>
+			{   my (symbol_table', elements', symbols', type_sharing', package_sharing', slots', contains_generic')
+				=
+				typecheck_api_element (api_element, symbol_table, elements, symbols, slots, source_code_region);
+
+			    typecheck_api_elements (
+				rest,
+				symbol_table',
+				elements',
+				symbols',
+				type_sharing' @ type_sharing,
+				package_sharing' @ package_sharing,
+				slots',
+				source_code_region,
+				contains_generic' or contains_generic
+			    );
+			};
+                end;
+
+		my (_, elements, symbols, type_sharing, package_sharing, slots, contains_generic)
+		    =
+		    typecheck_api_elements (
+			api_elements,
+			symbol_table,
+			NIL,
+			NIL,
+			NIL,
+			NIL,
+			0,
+			source_code_region,
+			FALSE
+		    );
+
+		(   reverse elements,
+		    reverse symbols,
+		    type_sharing,
+		    package_sharing,
+		    contains_generic
+		);
+
+	    }   #  function typecheck_body 
+
+
+	also
+	fun typecheck_generic_api' {
+
+                generic_api_expression,
+                curried,
+                name_or_null,
+                symbol_table,
+                typechecker_dictionary,
+                api_context,
+                module_path_context,
+		source_code_region,
+                compile_info as { make_stamp, error_fn, ... }: eu::Compile_Info
+            }
+            =
+	    {   sname
+                    =
+                    case name_or_null
+		      
+		         THE name =>  s::name name;
+		         _        =>  "<anonymous generic api>";
+                    esac;
+
+                if_debugging_say (">>typecheck_generic_api: " + sname);
+
+
+		case generic_api_expression
+		  
+		     raw::GENERIC_API_DEFINITION { parameter => [ (optional_parameter_name, parameter_specification) ], result }
+			 =>
+			 {   parameter_api
+				 = 
+				 typecheck_api' {
+
+				     api_expression =>  parameter_specification,
+				     name_or_null  =>  NULL,
+
+				     symbol_table,
+				     typechecker_dictionary,
+
+				     api_context,
+				     module_path_context,
+
+				     source_code_region,
+				     compile_info
+				 };
+
+			     parameter_name
+				 =
+				 case optional_parameter_name
+				   
+				      NULL       =>  parameter_id;
+				      THE symbol =>  symbol;
+                                 esac;
+
+			     parameter_module_stamp
+                                 =
+                                 make_stamp ();
+
+			     parameter_package
+				 =
+				 PACKAGE_API {
+				     an_api               =>    parameter_api,
+				     module_path =>  [ parameter_module_stamp ]
+				 };
+
+			     stipulate
+
+				 parameter_specification
+				     =
+				     PACKAGE_IN_API {
+
+					 module_stamp  => parameter_module_stamp,
+					 an_api        => parameter_api,
+					 definition        => NULL,
+					 slot              => 0
+				     };
+
+				   param_elmt = [ (parameter_name, parameter_specification) ];
+			     herein
+				 new_api_context   =   param_elmt ! api_context;
+
+			     end; #  A temporary work-around for the api_context hack XXX BUGGO FIXME 
+
+			     symbol_table'
+				 = 
+				 case optional_parameter_name
+				   
+				     THE id        #  Expose naming of parameterName 
+					 =>
+					 st::bind (id, b::NAMED_PACKAGE parameter_package, symbol_table);
+
+				     NULL
+					 =>
+					 mu::include_package (symbol_table, parameter_package);
+                                 esac;
+
+			     my (result, source_code_region)
+				 =
+				 strip_mark_sig (result, source_code_region);
+
+			     result
+				 =
+				 if   curried      result;
+						else   raw::API_DEFINITION [ raw::PACKAGES_IN_API [ (result_id, result, NULL) ] ];fi;
+
+			     body_api
+				 = 
+				 typecheck_api' {
+
+				     api_expression  =>  result,
+				     name_or_null   =>  NULL,
+
+				     symbol_table    =>  symbol_table',
+				     api_context     => new_api_context,
+
+				     typechecker_dictionary,
+				     module_path_context,
+
+				     source_code_region,
+				     compile_info
+				 };
+
+			     GENERIC_API {
+
+				 kind               =>  name_or_null,
+				 parameter_variable =>  parameter_module_stamp,
+				 parameter_symbol   =>  optional_parameter_name,
+
+				 parameter_api,
+				 body_api
+			     };
+			 };
+
+
+		   # ** Currying Generic_Api arguments automatically inserts package wrapping **
+
+		     raw::GENERIC_API_DEFINITION { parameter => a ! r,  result }
+			 =>
+			 {   new_generic_api
+				 =
+				 raw::API_DEFINITION [
+				     raw::GENERICS_IN_API [
+					 (   generic_id,
+					     raw::GENERIC_API_DEFINITION {
+						 parameter => r,
+						 result
+					     }
+					 )
+				     ]
+				 ];
+
+			     typecheck_generic_api' {
+
+				 curried      => TRUE,
+
+				 name_or_null,
+				 symbol_table,
+				 compile_info,
+
+				 typechecker_dictionary,
+				 api_context,
+				 module_path_context,
+				 source_code_region,
+
+				 generic_api_expression => raw::GENERIC_API_DEFINITION {
+								  parameter => [a],
+								  result    => new_generic_api
+							      }
+			     };
+			 };
+
+		     raw::GENERIC_API_BY_NAME name' 
+			 =>
+			 lu::find_generic_api_by_symbol (symbol_table, name',   error_fn  source_code_region);
+
+		     raw::GENERIC_API_DEFINITION { parameter => [], result }
+			 =>
+			 bug "typecheck_generic_api";
+
+		     raw::SOURCE_CODE_REGION_FOR_GENERIC_API (generic_api_expression', source_code_region')
+			 =>
+			 typecheck_generic_api' {
+
+			     generic_api_expression =>  generic_api_expression',
+			     source_code_region     =>  source_code_region',
+
+			     name_or_null,
+			     symbol_table,
+
+			     compile_info,
+			     curried,
+
+			     typechecker_dictionary,
+			     module_path_context,
+
+			     api_context
+			 };
+                  esac;
+
+	    }                    #  function typecheck_generic_api' 
+
+
+
+	also
+	fun typecheck_api' {
+
+                api_expression,					# This is the raw syntax we're typechecking.
+                name_or_null,
+                symbol_table,
+                typechecker_dictionary,
+                api_context,
+                module_path_context,
+                source_code_region,
+		compile_info as { make_stamp, error_fn, ... } : eu::Compile_Info
+            }
+            =
+	    {
+                unparse_api_expression ("typecheck-api.pkg: typecheck_api()/TOP", api_expression, symbol_table );
+
+                source_code_region0   =   source_code_region;
+
+		api_name
+                    =
+                    case name_or_null
+
+		         THE name => s::name name;
+		        _         => "<anonymous function api>";
+                    esac;
+
+                if_debugging_say (">>typecheck_api: " + api_name);
+
+		my (api_expression, where_definitions, source_code_region)
+                    =
+		    typecheck_where (
+                        api_expression,
+                        symbol_table,
+                        module_path_context,
+                        make_stamp,
+                        error_fn,
+                        source_code_region
+                    );
+
+		an_api
+                    = 
+		    case api_expression
+
+		         raw::API_BY_NAME name'
+			     =>
+			     lu::find_api_by_symbol (symbol_table, name',   error_fn  source_code_region);
+
+		         raw::API_DEFINITION api_elements
+			     =>
+			     {   if_debugging_say "--typecheck_api >> API_DEFINITION";
+
+				 my (elements, symbols, type_sharing, package_sharing, contains_generic)
+				     =
+				     typecheck_body (
+
+					 api_elements,
+					 symbol_table,
+					 typechecker_dictionary,
+					 api_context,
+					 module_path_context, 
+					 source_code_region,
+					 compile_info
+				     );
+
+				 if_debugging_say "--typecheck_api: after typecheck_body";
+
+				 an_api
+				     =
+				     API {
+
+					 stamp  => make_stamp(),
+					 name   => name_or_null,
+
+					 stub   => NULL,
+
+					 property_list  => property_list::make_property_list (),
+
+
+					 closed => case name_or_null
+						       THE _ => TRUE;
+						       NULL  => FALSE;
+                                                   esac,
+
+					 symbols,
+					 elements,
+					 type_sharing,
+
+					 contains_generic,
+					 package_sharing
+				     };
+
+				 debug_print (
+
+				     "--typecheck_api: returned api:",
+				     (   fn pps =
+					     fn an_api =  unparse_package_language::unparse_api
+								  pps
+								  (an_api, symbol_table, 6)
+				     ),
+				     an_api
+				 );
+
+				 if_debugging_say "--typecheck_api: << API_DEFINITION";
+
+				 an_api;
+			     };
+
+		         raw::SOURCE_CODE_REGION_FOR_API (api_expression', source_code_region')
+			     =>
+			     bug "typecheck_api'";			   #  typecheck_where should have stripped this 
+
+		        _   =>   bug "typecheck_api': api_expression";
+                    esac;
+
+		an_api
+                    =
+		    case an_api
+
+		        ERRONEOUS_API   =>   ERRONEOUS_API;
+
+		        _   =>
+			    case where_definitions
+
+				 NIL => an_api;     #  No 'where' definitions. 
+
+				 _   =>
+				     add_where_definitions (
+
+					 an_api,
+					 prepare_definitions where_definitions,
+					 name_or_null,
+					 (   fn msg =  error_fn
+							   source_code_region0
+							   em::ERROR msg
+							   em::null_error_body
+					 ),
+					 make_stamp
+                                     );
+
+			     esac;
+                    esac;
+
+                an_api;
+	     }                     #  function typecheck_api' 
+
+	also
+	fun typecheck_generic_api {
+
+                generic_api_expression,
+                name_or_null,
+                symbol_table,
+                typechecker_dictionary,
+                module_path_context,
+                source_code_region,
+                compile_info
+            }
+            = 
+	    typecheck_generic_api' {
+
+                curried     =>  FALSE,
+		api_context =>  [],
+
+                generic_api_expression,
+                name_or_null,
+
+                symbol_table,
+                typechecker_dictionary,
+                module_path_context,
+
+                source_code_region,
+		compile_info
+            }
+
+	also
+	fun typecheck_api {
+
+                api_expression,					# This is the raw syntax we're typechecking.
+                name_or_null,
+                symbol_table,
+                typechecker_dictionary,
+                module_path_context,
+                source_code_region,
+                compile_info
+            }
+            =
+	    typecheck_api' {
+
+                api_expression,					# This is the raw syntax we're typechecking.
+
+		api_context       => [],                       #  <-- Only additional/changed argument. 
+                name_or_null,
+                symbol_table,
+
+                typechecker_dictionary,
+                module_path_context,
+
+                source_code_region,
+		compile_info
+            };
+
+	/*
+	typecheck_api_phase = compile_statistics::make_phase "Compiler 032 5-typecheck_api"
+	typecheck_api = fn x => compile_statistics::do_phase typecheck_api_phase typecheck_api x
+	*/
+
+    end;	#  local 
+};		#  package typecheck_api 
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

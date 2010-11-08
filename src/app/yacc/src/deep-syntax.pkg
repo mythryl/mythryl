@@ -1,0 +1,389 @@
+#  Mythryl-Yacc Parser Generator (c) 1991 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/Mythryl-Yacc.make6
+
+###          "An individual relates himself in action
+###           to his society through the use of tools
+###           that he actively masters, or by which
+###           he is passively acted upon.
+###
+###          "To the degree that he masters his tools,
+###           he can invest the world with his meaning;
+###           to the degree that he is mastered by his tools,
+###           the shape of the tool determines his own self-image."
+###
+###                    -- ivan d. illich (Tools for Conviviality)
+
+
+package deep_syntax: (weak)  Deep_Syntax		# Deep_Syntax	is from   src/app/yacc/src/deep-syntax.api
+=
+package {
+
+     Expression
+      = CODE    String
+      | EAPP    (Expression, Expression)
+      | EINT    Int
+      | ETUPLE  List( Expression )
+      | EVAR    String
+      | FN      (Pattern, Expression)
+      | LET     (List( Decl ), Expression)
+      | SEQ     (Expression, Expression)
+      | UNIT
+
+    also Pattern
+      = PVAR    String
+      | PAPP    (String, Pattern)
+      | PINT    Int
+      | PLIST   (List( Pattern ), Null_Or( Pattern ))
+      | PTUPLE  List( Pattern )
+      | WILD
+      | AS  (String, Pattern)
+
+    also Decl = NAMED_VALUE  (Pattern, Expression)
+
+    also Rule = RULE  (Pattern, Expression);
+
+    # Define the ASCII characters legal within an identifier.
+    # This is essentially [A-Za-z0-9_']:
+    fun id_char '\'' =>   TRUE;
+	id_char '_'  =>   TRUE;
+	id_char c    =>   char::is_alpha c or char::is_digit c;
+    end;
+
+    # Given a string, find all the lexically valid
+    # identifiers in it and return them as a list
+    # of strings.  We define an identifier to consist
+    # of an initial alphabetic followed by any mixture
+    # of alphabetics, decimal digits, underlines and
+    # single quotes:
+
+    fun code_to_ids s
+        =
+        scan_list (explode s, NIL)
+        where 
+
+	    fun scan_list (NIL, r)
+                    =>
+                    r;
+
+	        scan_list (h ! t, r)
+                    =>
+                    if   (char::is_alpha h)
+                        
+                         scan_id (t,[h], r);
+                    else
+                         scan_list (t, r);
+                    fi;
+            end 
+
+	    also
+	    fun scan_id (NIL, accum, r)
+                     =>
+                     implode (reverse accum) ! r;
+
+	         scan_id (a as (h ! t), accum, r)
+                     =>
+		     if   (id_char h) 
+                         
+                          scan_id (t, h ! accum, r);
+                     else
+                          scan_list (a, implode (reverse accum) ! r);
+                     fi;
+            end;
+        end;
+
+    my simplify_rule:  Rule -> Rule
+        =
+        fn (RULE (pattern, expression))
+            =>
+	    RULE (   simplify_pattern    pattern,
+                     simplify_expression expression
+                 )
+            where 
+
+                # fun 'used' returns TRUE for any string
+                # naming an variable used in 'expression':
+		stipulate
+		    identifiers
+			=
+			f expression
+			where 
+
+			    fun f (CODE s) => code_to_ids s;
+				f (EAPP (a, b)) => f a @ f b;
+				f (ETUPLE l) => list::cat (map f l);
+				f (EVAR s) => [s];
+				f (FN(_, e)) => f e;
+				f (LET (dl, e)) =>
+				    (list::cat (map (fn NAMED_VALUE(_, e) => f e; end ) dl)) @ f e;
+				f (SEQ (a, b)) => f a @ f b;
+				f _ => NIL;
+			    end;
+
+			end;
+                herein
+		    my used:  (String -> Bool)
+			=
+			(   fn s
+			       =>
+			       list::exists
+				   (fn a   =>   a == s; end )
+				   identifiers; end 
+			);
+		end;
+
+		my simplify_pattern:  Pattern -> Pattern
+		    =
+		    f   where 
+
+		        fun f a
+                            =
+			    case a
+			      
+			         PVAR s
+				     =>
+				     if    (used s)
+				           a;
+				     else  WILD;fi;
+
+				 PAPP (s, pattern)
+				      =>
+				      case (f pattern)
+				        
+                                           WILD => WILD;
+					   pattern' => PAPP (s, pattern');
+                                      esac;
+
+				 PLIST (l, topt)
+				      =>
+				      {   l' = map f l;
+
+					  topt' = null_or::map f topt;
+
+					  fun not_wild WILD => FALSE;
+					     not_wild _    => TRUE; end;
+
+					  case topt'
+                                            
+					       THE WILD => if   (list::exists not_wild l')
+                                                                PLIST (l', topt');
+							   else WILD;                fi;
+
+					       _        => PLIST (l', topt');
+                                          esac;
+				      };
+
+				 PTUPLE l
+				      =>
+				      {  l' = map f l;
+
+					 if (list::exists (fn WILD=>FALSE;  _ => TRUE; end ) l')
+					      PTUPLE l'; 
+					 else WILD;fi;
+				      };
+
+				 AS (a, b)
+				      =>
+				      if (used a )
+					  case (f b)
+                                            
+					      WILD => PVAR a;
+					      b'   => AS (a, b');
+                                          esac;
+				      else f b;fi;
+
+				 _ => a;
+
+                            esac;
+		   end;
+
+	       my simplify_expression:  Expression -> Expression
+		      =
+		      f   where 
+
+			  fun f (EAPP (a, b)) =>   EAPP (f a, f b);
+			     f (ETUPLE l)    =>   ETUPLE (map f l);
+
+			     f (FN (p, e))   =>   FN (simplify_pattern p, f e); 
+			     f (SEQ (a, b))  =>   SEQ (f a, f b);
+
+			     f (LET (dl, e))
+				  => 
+				   LET (
+				       map (fn NAMED_VALUE (p, e)
+						=>
+						NAMED_VALUE (simplify_pattern p, f e); end 
+					    )
+					    dl,
+				       f e
+				   );
+
+			     f a =>   a; end;
+		      end;
+
+	   end; end ;
+
+    fun print_rule (   say:   String -> Void,
+		       sayln: String -> Void
+	           )
+	           r
+	=
+	case (simplify_rule r)
+          
+
+	    RULE (pattern, expression)
+		=>
+		apply
+                    out
+                    (prettyprint (pattern, " =>" ! print_expression (expression, ["\n"])))
+
+		where 
+
+		    fun flatten (a, [])                  =>   reverse a;
+			flatten (a, SEQ (e1, e2) ! el) =>   flatten (a, e1 ! e2 ! el);
+			flatten (a, e ! el)            =>   flatten (e ! a, el);
+                    end;
+
+
+
+		    fun print_list (lb, rb, c, f, [], result_so_far)
+			    =>
+			    " " ! lb ! rb ! result_so_far;
+
+		       print_list (lb, rb, c, f, h ! t, result_so_far)
+			    =>
+			    " " ! lb ! f (h, fold_right (fn (x, result_so_far) => c ! f (x, result_so_far); end )
+						   (rb ! result_so_far)
+						   t);
+                    end;
+
+
+
+		    fun print_expression (CODE c, result_so_far)
+			    =>
+			    " (" ! c ! ")" ! result_so_far;
+
+		       print_expression (EAPP (x, y as (EAPP _)), result_so_far)
+			    =>
+			    print_expression (x, " (" ! print_expression (y, ")" ! result_so_far));
+
+		       print_expression (EAPP (x, y), result_so_far)
+			    =>
+			    print_expression (x, print_expression (y, result_so_far));
+
+		       print_expression (EINT i, result_so_far)
+			    =>
+			    " " ! int::to_string i ! result_so_far;
+
+		       print_expression (ETUPLE l, result_so_far)
+			    =>
+			    print_list ("(", ")", ", ", print_expression, l, result_so_far);
+
+		       print_expression (EVAR v, result_so_far)
+			    =>
+			    " " ! v ! result_so_far;
+
+		       print_expression (FN (p, b), result_so_far)
+			    =>
+			    " (fn " ! prettyprint (p, " = " ! print_expression (b, ")" ! result_so_far));
+
+		       print_expression (LET ([], b), result_so_far)
+			    =>
+			    print_expression (b, result_so_far);
+
+		       print_expression (LET (declarations, expression), result_so_far)
+			    =>
+			    (	" { "
+				 !
+				fold_right
+				    printrule
+				    (print_expression (expression, ";\n } " ! result_so_far))
+				    declarations
+			    )
+			    where 
+
+				fun printrule (NAMED_VALUE (pattern, expression), result_so_far)
+				    =
+				    " my " ! prettyprint (pattern, " =" ! print_expression (expression, ";\n" ! result_so_far));
+
+			    end;
+
+		       print_expression (SEQ (expr1, expr2), result_so_far)
+			    =>
+			    print_list ("(", ")", ";", print_expression, flatten ([], [expr1, expr2]), result_so_far);
+
+		       print_expression (UNIT, result_so_far)
+			    =>
+			    " ()" ! result_so_far;
+                    end 
+
+
+		    also
+		    fun prettyprint (PVAR v, result_so_far)
+			     =>
+			     " " ! v ! result_so_far;
+
+		       prettyprint (PAPP (x, y as PAPP _), result_so_far)
+			    =>
+			    " " ! x ! " (" ! prettyprint (y, ")" ! result_so_far);
+
+		       prettyprint (PAPP (x, y), result_so_far)
+			    =>
+			    " " ! x ! prettyprint (y, result_so_far);
+
+		       prettyprint (PINT i, result_so_far)
+			    =>
+			    " " ! int::to_string i ! result_so_far;
+
+		       prettyprint (PLIST (l, NULL), result_so_far)
+			    =>
+			    print_list ("[", "]", ", ", prettyprint, l, result_so_far);
+
+		       prettyprint (PLIST (l, THE t), result_so_far)
+			    =>
+			    " (" ! fold_right (fn (x, result_so_far) => prettyprint (x, " ! " ! result_so_far); end )
+					(prettyprint (t, ")" ! result_so_far))
+					l;
+		       prettyprint (PTUPLE l, result_so_far)
+			    =>
+			    print_list ("(", ")", ", ", prettyprint, l, result_so_far);
+
+		       prettyprint (WILD, result_so_far)
+			    =>
+			    " _" ! result_so_far;
+
+		       prettyprint (AS (v, PVAR v'), result_so_far)
+			    =>
+			    " (" ! v ! " as " ! v' ! ")" ! result_so_far;
+
+		       prettyprint (AS (v, p), result_so_far)
+			    =>
+			    " (" ! v ! " as (" ! prettyprint (p, "))" ! result_so_far);
+                    end;
+
+		    fun out "\n" =>   sayln "";
+		        out s    =>   say s;
+                    end;
+
+	    end;
+        esac;			# fun print_rule 
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,253 @@
+
+# A table for storing operands for a compilation unit.
+# We give each distinct operand a unique (negative) value number.
+
+generic package OperandTable (Props:  Instruction_Properties):  OPERAND_TABLE {
+
+   package i  = Props::I
+   package c  = i::C
+   package ih = int_hash_table
+   package h  = hash_table
+       
+   type valueNumber = c::cell
+
+   enum const
+       = INT     of Int			#  small integer operands 
+       | INTINF  of integer::Int	#  large integer operands 
+       | OPERAND of i::operand		#  other operand 
+
+   package intinf_map
+       =
+       red_black_map_g (
+
+           type Key = integer::Int
+
+           compare = integer::compare
+       )
+
+   enum operandTable
+       =
+       TABLE of 
+       {  intTable:    ih::Hash_Table( valueNumber ),
+	  miTable:     Ref(  intinf_map::Map(  valueNumber ) ),
+	  opnTable:     h::Hash_Table( i::operand, valueNumber ),
+	  nextValueNumber:  Ref( Int )
+       }
+
+   enum valueNumberMethods
+       =
+       VALUE_NUMBERING of
+       { int:      Int -> valueNumber,
+	 word:     word -> valueNumber,
+	 int32:    int32::Int -> valueNumber,
+	 word32:   unt32::word -> valueNumber,
+	 intinf:   integer::Int -> valueNumber,
+	 operand:  i::operand -> valueNumber
+       }
+
+   exception NoOperand
+   exception NoConst
+   exception NoInt
+   exception NoIntInf
+
+   gp = c::cellkindDesc c::GP
+
+   exception CONST of const
+
+   fun mkConst (vn, const)
+       = 
+       c::CELL { id=vn, an=REF [CONST const], col=REF c::PSEUDO, desc=gp }
+
+   bot      = c::CELL { id= -9999999, an=REF [], col=REF c::PSEUDO, desc=gp }
+   top      = c::CELL { id= -9999998, an=REF [], col=REF c::PSEUDO, desc=gp }
+   volatile = c::CELL { id= -9999997, an=REF [], col=REF c::PSEUDO, desc=gp }
+
+   fun create (nextValueNumber)
+       =
+       {   opnTable =   h::make_table (Props::hashOpn, Props::eqOpn) (32, NoOperand);
+	   intTable =   ih::make_table (32, NoInt);
+	   miTable  =   REF intinf_map::empty;
+
+	   fun newInt i
+	       =
+	       {   vn =   *nextValueNumber;			#  value number 
+		   nextValueNumber := vn - 1;
+		   v  = mkConst (vn, INT i);
+
+	           ih::set intTable (i, v);
+	       };
+
+	   fun init (n, 0) = ()
+	     | init (n, m) = (newInt n; init (n+1, m - 1))
+
+           init (0, 2);
+
+	   TABLE {  intTable,  miTable, opnTable, nextValueNumber  };
+       }
+
+   fun wordToIntInf w   = integer::from_int (unt::toIntX w)
+   fun word32ToIntInf w = unt32::toLargeIntX w
+   fun wordToInt w      = unt::toIntX w
+   fun word32ToInt w    = unt32::toIntX w
+   fun intInfToInt i    = integer::toInt i
+   fun intInfToInt32 i  = int32::fromLarge i
+   fun intToIntInf i    = integer::from_int i
+   fun intToInt32 i     = int32::from_int i
+   fun int32ToIntInf i  = int32::toLarge i
+   fun int32ToInt i     = int32::toInt i
+   
+   #  Look up the value number of a constant 
+
+   fun int (TABLE { intTable, ... } )
+       =
+       ih::lookup intTable  
+
+   fun word (TABLE { intTable, ... } ) w
+       =
+       ih::lookup intTable (wordToInt w)
+
+   fun word32 (TABLE { intTable, miTable, ... } ) w 
+       = 
+       ih::lookup intTable (word32ToInt w)
+       except
+           OVERFLOW =>
+
+	      case intinf_map::find (*miTable, word32ToIntInf w)
+
+		of THE v =>   v
+	         | NULL  =>   raise exception NoIntInf
+
+   fun int32 (TABLE { intTable, miTable, ... } ) w
+       = 
+       ih::lookup intTable (int32ToInt w)
+       except
+           OVERFLOW =>
+
+	       case intinf_map::find (*miTable, int32ToIntInf w)
+
+		 of THE v =>   v
+	          | NULL  =>   raise exception NoIntInf
+
+   fun intinf (TABLE { intTable, miTable, ... } ) i
+       = 
+       ih::lookup intTable (intInfToInt i)
+       except
+           OVERFLOW =>
+
+	       case intinf_map::find(*miTable, i)
+
+		 of THE v => v
+	          | NULL => raise exception NoIntInf
+
+   fun operand (TABLE { opnTable, ... } )
+       =
+       h::lookup opnTable
+
+   fun lookupValueNumbers table
+       =
+       VALUE_NUMBERING
+	   {   int = int table,
+	       word = word table,
+	       word32 = word32 table,
+	       int32 = int32 table,
+	       intinf = intinf table,
+	       operand = operand table
+	   }
+
+   #  Create new value numebers 
+   fun makeNewValueNumbers (TABLE { opnTable,
+                                 nextValueNumber, intTable, miTable, ... } )
+       =
+       {   findOpn   =   h::find   opnTable;
+	   findInt   =  ih::find   intTable;
+	   insertOpn =   h::set opnTable;
+	   insertInt =  ih::set intTable;
+
+	   fun newConst (const)
+	       = 
+	       {   vn =   *nextValueNumber;
+
+	           nextValueNumber := vn - 1;
+
+		   mkConst (vn, const);
+	       };
+
+	   fun mkOpn opn
+               = 
+	       case findOpn opn
+
+		 of THE v => v 
+	          | NULL  => {   v = newConst (OPERAND opn);
+			         insertOpn (opn, v);
+                                 v;
+                             };
+
+	   fun mkInt i
+               =
+	       case findInt i
+
+		 of THE v =>   v
+	          | NULL  =>   {   v =   newConst (INT i);
+			           insertInt (i, v);
+                                   v;
+                               };
+
+	   fun insertIntInf (i, v)
+               =
+	       miTable :=   intinf_map::set(*miTable, i, v);
+
+	   fun mkIntInf' i
+               =
+	       case intinf_map::find(*miTable, i)
+
+		 of THE v => v
+	          | NULL  => {   v =   newConst (INTINF i);
+			         insertIntInf (i, v);
+                                 v;
+                             };
+
+	   fun mkIntInf i
+               =
+               mkInt (intInfToInt i) except _ => mkIntInf' i;
+
+	   fun mkWord w
+               =
+               mkInt (wordToInt w);
+
+	   fun mkInt32 i
+               =
+               mkInt (int32ToInt i)
+  	       except
+                   _ =>
+                       mkIntInf'(int32ToIntInf i);
+
+	   fun mkWord32 w
+               =
+               mkInt (word32ToInt w)
+	       except
+                   _ =>
+                       mkIntInf'(word32ToIntInf w);
+
+           VALUE_NUMBERING {
+
+	       int     = mkInt,
+	       word    = mkWord,
+	       word32  = mkWord32,
+	       int32   = mkInt32,
+	       intinf  = mkIntInf,
+	       operand = mkOpn
+	   };
+       }
+
+   # value number -> const 
+
+   fun const (c::CELL { an, ... } )
+       = 
+       {   fun find (CONST c . _) =   c
+	     | find(_ . an)       =   find an
+	     | find []            =   raise exception NoConst;
+
+           find *an;
+       }
+
+}

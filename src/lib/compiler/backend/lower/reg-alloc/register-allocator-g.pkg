@@ -1,0 +1,597 @@
+## register-allocator-g.pkg
+#
+# This is the new register allocator based on
+# the 'iterated register coalescing' scheme described 
+# in POPL'96, and TOPLAS v18 #3, prettyprint 325-353. 
+#
+# Now with numerous extensions:
+#
+#   0. Dead copy elimination (optional)
+#   1. Priority based coalescing
+#   2. Priority based freezing
+#   3. Priority based spilling
+#   4. Biased selection (optional)
+#   5. Spill Coalescing (optional)
+#   6. Spill Propagation (optional)
+#   7. Spill Coloring (optional)
+#
+# For details, please see the paper from
+#
+#    http://cm.bell-labs.com/cm/cs/what/smlnj/compiler-notes/index.html
+#
+# The basic package of this register allocator is as follows:
+#   1.  register_allocation_graph.  This module enscapsulates the interference graph 
+#       enum (adjacency list + interference graph + node table)
+#       and contains nothing architecture specific.
+#   2.  register_allocation_core.  This module implements the main part of the iterated
+#       coalescing algorithm, with frequency enhancements.
+#   3.  Register_Allocation_Flowgraph.  This register allocator is parameterized
+#       with respect to this api.  This basically abstracts out
+#       the representation of the program flowgraph, and provide
+#       a few services to the main allocator, such as building the 
+#       interference graph, rewriting the flowgraph after spilling,
+#       and rebuilding the interference graph after spilling.  
+#       This module is responsible for caching any information necessary 
+#       to make spilling fast.
+#   4.  This generic.  This generic drives the entire process.
+#
+# -- Allen Leung Leung (leunga@cs.nyu.edu)
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+###         "It wasn't as easy to get programs right as we thought."
+###
+###                                   -- Wilkes, 1949
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/lower/reg-alloc/risc-register-allocation-g.pkg
+#     src/lib/compiler/backend/lower/x86/reg-alloc/x86-register-allocation-g.pkg
+
+generic package register_allocator_g
+
+   (spill_heuristics:  Register_Allocation_Spill_Heuristics) 		# Register_Allocation_Spill_Heuristics	is from   src/lib/compiler/backend/lower/reg-alloc/ra-spill-heuristic.api
+
+   (flowgraph:  Register_Allocation_Flowgraph				# Register_Allocation_Flowgraph		is from   src/lib/compiler/backend/lower/reg-alloc/ra-flowgraph.api
+                where cells == cells_basis)
+
+: (weak) Register_Allocator						# Register_Allocator			is from   src/lib/compiler/backend/lower/reg-alloc/register-allocator.api
+
+{
+    package instruction_set =  flowgraph::instruction_set;
+    package cells           =  instruction_set::cells;
+
+    package i    = instruction_set;
+    package f    = flowgraph;
+    package core = register_allocation_core;				# register_allocation_core		is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-core.pkg
+    package c    = cells;
+    package g    = core::g;
+    package cb   = cells_basis;						# cells_basis				is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    Getreg = { pref:   List( cb::Cell_Id ),
+		    stamp:  Int,
+		    prohibitions:   rw_vector::Rw_Vector( Int )
+		  } -> cb::Cell_Id;
+
+    Mode = Unt;
+
+    Spill_Loc == g::Spill_Loc;
+
+    Register_Allocation_Client
+	=
+	{ cellkind:        cb::Cellkind,              #  kind of register 
+	  spill_prohibitions:      List( cb::Cell ),          #  Don't spill these 
+	  mem_regs:        List( cb::Cell ),          #  memory registers 
+	  k:               Int,                       #  number of colors 
+	  dedicated:       Int -> Bool,               #  Dedicated registers 
+	  getreg:          Getreg,                    #  how to find a color 
+	  copy_instr:      f::spill::Copy_Instr,      #  how to make a copy 
+	  spill:           f::spill::Spill,           #  spill callback 
+	  spill_src:       f::spill::Spill_Src,       #  spill callback 
+	  spill_copy_tmp:  f::spill::Spill_Copy_Tmp,  #  spill callback 
+	  reload:          f::spill::Reload,          #  reload callback 
+	  reload_dst:      f::spill::Reload_Dst,      #  reload callback 
+	  rename_src:      f::spill::Rename_Src,      #  rename callback 
+	  mode:            Mode                       #  mode 
+	}; 
+
+    debug = FALSE;
+
+    no_optimization        = 0ux0;
+    dead_copy_elim         = core::dead_copy_elim;
+    biased_selection       = core::biased_selection;
+    has_parallel_copies    = core::has_parallel_copies;
+    spill_coalescing       = 0ux100;
+    spill_coloring         = 0ux200;
+    spill_propagation      = 0ux400;
+
+    fun is_on (flag, mask)
+	=
+	unt::bitwise_and (flag, mask)  !=  0u0;
+
+    include g;
+
+    package c  = i::cells;
+
+    fun error msg = lowcode_error_message::error("register_allocator", msg);
+
+
+    # Debugging flags + counters
+
+    dump_control_flow_graph_before_register_allocation
+        =
+        low_code_control::make_bool (
+            "dump_control_flow_graph_before_register_allocation",
+	    "whether CFG is shown before RA"
+        );
+
+    dump_control_flow_graph_after_register_allocation
+        =
+        low_code_control::make_bool (
+            "dump_control_flow_graph_after_register_allocation",
+	    "whether CFG is shown after RA"
+        );
+
+    dump_control_flow_graph_after_register_spilling
+        =
+        low_code_control::make_bool (
+            "dump_control_flow_graph_after_register_spilling",
+	    "whether CFG is shown after spill phase"
+        );
+
+    dump_control_flow_graph_before_all_register_allocation
+        =
+        low_code_control::make_bool (
+            "dump_control_flow_graph_before_all_register_allocation",
+	    "whether CFG is shown before all RA"
+        );
+
+    dump_control_flow_graph_after_all_register_allocation
+        =
+        low_code_control::make_bool (
+            "dump_control_flow_graph_after_all_register_allocation",
+	    "whether CFG is shown after all RA"
+        );
+
+    dump_register_interference_graph
+        =
+        low_code_control::make_bool (
+            "dump_register_interference_graph",
+	    "whether interference graph is shown"
+        );
+
+    register_spill_debugging
+        =
+        low_code_control::make_bool (
+            "register_spill_debugging",
+	    "debug mode for spill phase"
+        );
+
+    register_allocation_count
+        =
+        low_code_control::make_counter (
+            "register_allocation_count",
+            "RA counter"
+        );
+
+    register_allocator_rebuild_count
+        =
+        low_code_control::make_counter (
+            "register_allocator_rebuild_count",
+            "RA build counter"
+        );
+
+
+#   count_dead        = LowCodeControl::getFlag "ra-count-dead-code"
+#   dead              = LowCodeControl::getCounter "ra-dead-code"
+
+    debug_stream      = low_code_control::debug_stream;
+
+
+    # Optimization flags
+
+
+#   rematerialization = LowCodeControl::getFlag "ra-rematerialization"
+
+
+    exception NODE_TABLE;
+
+    i2s = int::to_string;
+
+
+    # This rw_vector is used for getreg.
+    # We allocate it once. 
+    #
+    prohibitions = rw_vector::make_rw_vector (c::first_pseudo, -1);
+
+
+    # Register allocator.  
+    #    spill_prohibitions is a list of registers that are not candidates for spills.
+
+    fun ra parameters flowgraph
+	=
+	{   # Flowgraph methods:
+	    #	
+	    my { build=>build_method, spill=>spill_method, ... }
+                =
+                f::services flowgraph; 
+
+	    #  global spill location counter 
+	    #
+	    # Note: spillLoc cannot be zero as negative locations are
+	    # returned to the client to indicate spill locations.
+	    #
+	    spill_loc = REF 1;
+
+	    # How to dump the flowgraph:
+	    #
+	    fun dump_flowgraph (flag, title)
+                =
+		if *flag
+                     f::dump_flowgraph (title, flowgraph,*debug_stream);
+                fi;
+
+	    # Main function:
+	    # 
+	    fun regalloc
+                { getreg, k, dedicated, copy_instr,
+		  spill, spill_src, spill_copy_tmp, rename_src,
+		  reload, reload_dst, spill_prohibitions, cellkind, mode, 
+		  mem_regs
+                }
+		=
+		{   num_cell = c::num_cell cellkind (); 
+
+		    if   (num_cell != 0)
+		         
+
+			 # The nodes table:
+			 #
+			 nodes  = int_hash_table::make_table (num_cell, NODE_TABLE); 
+
+			 mode   = if   (is_on (has_parallel_copies, mode))
+                                      
+				       unt::bitwise_or (core::save_copy_temps, mode); 
+				  else
+                                       mode;
+                                  fi;
+
+			 # Create an empty interference graph:
+			 #
+			 ggg = g::new_graph { nodes, 
+					      k,
+					      dedicated,
+					      num_regs=>num_cell,
+					      max_regs=>c::max_cell,
+					      show_reg=>cells_basis::to_string,
+					      getreg,
+					      getpair=>fn _ = error "getpair",
+					      first_pseudo_r=>c::first_pseudo,
+					      prohibitions,
+					      mode=>unt::bitwise_or (flowgraph::mode,
+						    unt::bitwise_or (mode, spill_heuristics::mode)),
+					      spill_loc,
+					      mem_regs
+					     };
+
+			 ggg ->   g::GRAPH { spilled_regs, pseudo_count, spill_flag, ... };
+
+			 has_been_spilled = int_hash_table::find spilled_regs;
+
+			 has_been_spilled
+                             = 
+			     fn r =  case (has_been_spilled r)
+                                         THE _ => TRUE;
+                                         NULL => FALSE;
+                                     esac;
+
+			 fun log_graph (header, ggg)
+                             = 
+			     if *dump_register_interference_graph
+
+				  file::write(*debug_stream,
+				      "-------------" + header + "-----------\n");
+				  core::dump_register_interference_graph ggg *debug_stream; 
+			     fi;
+
+
+			 # Build the interference graph 
+			 #
+			 fun build_graph (ggg)
+			     = 
+			     {   if debug  print "build..."; fi;
+
+				 moves = build_method (ggg, cellkind);
+
+				 worklists
+                                     = 
+				     (core::init_work_lists ggg) { moves }; 
+
+			         log_graph("build", ggg);
+
+				 if debug
+
+				      my g::GRAPH { bit_matrix=>REF (g::bm::BIT_MATRIX { elems, ... } ), ... }
+                                          =
+                                          ggg;
+
+				      print ("done: nodes=" + i2s (int_hash_table::vals_count nodes) + 
+					       " edges=" + i2s *elems +
+					       " moves=" + i2s (length moves) +
+					       "\n");
+				 fi; 
+				 worklists;
+			     };
+
+
+			 # Potential spill phase
+			 #
+			 fun choose_victim { spill_worklist }
+			     =
+			     {   fun dump_spill_candidates (spill_worklist)
+                                     =
+				     {   print "Spill candidates:\n";
+
+				         apply
+                                             (fn n =  print (core::show ggg n + " "))
+                                             spill_worklist;
+
+				         print "\n";
+				     };
+
+				 # Initialize if it is the first time we spill:
+				 #
+				 if (not *spill_flag)  spill_heuristics::init ();   fi;
+
+				 # Choose a node:
+				 #
+				 my { node, cost, spill_worklist }
+                                     =
+				     spill_heuristics::choose_spill_node
+					{ graph=>ggg, has_been_spilled,
+					  spill_worklist
+                                        }
+				      except
+                                          spill_heuristics::NO_CANDIDATE
+                                              =
+					      {   core::dump_register_interference_graph ggg *debug_stream;
+					          dump_spill_candidates spill_worklist;
+					          error "choose_victim";
+					      };
+
+			         if *register_spill_debugging
+
+				      case node
+                                        
+				           NULL => ();
+
+				           THE (best as NODE { defs, uses, ... } )
+                                               =>
+					       print("Spilling node " + core::show ggg best +
+						" cost=" + float::to_string cost +
+						" defs=" + i2s (length *defs) +
+						" uses=" + i2s (length *uses) + "\n"
+					       );
+                                      esac;
+				 fi;
+
+				 { node, cost, spill_worklist };
+			     }; 
+
+
+			 # Mark spill nodes
+			 #
+			 fun mark_spill_nodes nodes_to_spill
+			     =
+			     loop  nodes_to_spill
+                             where
+			         marker = SPILLED;
+
+				 fun loop [] => ();
+				     loop (NODE { color, ... } ! ns) => { color := marker; loop ns;};
+                                 end;
+                             end;
+
+			 # Mark nodes that are immediately aliased to mem regs;
+			 # These are nodes that need also to be spilled
+			 #
+			 fun mark_mem_regs []
+                                 =>
+                                 ();
+
+			     mark_mem_regs (NODE { number=>r, color as REF (ALIASED
+					(NODE { color=>REF (col as MEMREG _), ... } )), ... } ! ns)
+                                 =>
+			         {   color := col;
+			             mark_mem_regs ns;
+                                 };
+
+			     mark_mem_regs(_ ! ns)
+                                 =>
+                                 mark_mem_regs ns;
+                         end;
+
+
+			 # Actual spill phase.  
+			 #   Insert spill node and incrementally 
+			 #   update the interference graph. 
+			 #
+			 fun actual_spills { spills }
+			     = 
+			     {   if   debug      print "spill...";   fi; 
+
+				 if (is_on ( mode, 
+					     spill_coalescing+
+					     spill_propagation+
+					     spill_coloring
+                                           )
+                                    )
+
+				      mark_spill_nodes spills;
+				 fi;
+
+				 if   (is_on (mode, spill_propagation+spill_coalescing))
+                                        
+				      core::init_mem_moves ggg; 
+				 fi;
+
+				 log_graph("actual spill", ggg);
+
+				 my { simplify_worklist, freeze_worklist, move_worklist, spill_worklist }
+                                     =  
+				     core::init_work_lists ggg
+					 { moves=>spill_method { graph=>ggg, cellkind,
+							    spill, spill_src,
+							    spill_copy_tmp,
+							    rename_src,
+							    reload, reload_dst,
+							    copy_instr, nodes=>spills
+							   }
+					 };
+
+				 dump_flowgraph (dump_control_flow_graph_after_register_spilling, "after spilling");
+			         log_graph("rebuild", ggg);
+				 if debug  print "done\n"; fi;
+				 register_allocator_rebuild_count := *register_allocator_rebuild_count + 1;
+				 (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, []);
+			     };
+
+
+			 # Main loop of the algorithm
+			 #
+			 fun main ggg
+			     =
+			     loop (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, [])
+                             where 
+			         # Main loop:
+				 #
+				 fun loop (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack)
+				     =
+				     {   iterated_coal = core::iterated_coalescing ggg;
+					 potential_spill = core::potential_spill_node ggg;
+
+					 # simplify/coalesce/freeze/potential spill phases 
+					 #    simplifyWkl -- non-move related nodes with low degree 
+					 #    moveWkl     -- moves to be considered for coalescing
+					 #    freezeWkl   -- move related nodes (with low degree)
+					 #    spillWkl    -- potential spill nodes
+					 #    stack       -- simplified nodes
+
+					 fun iterate (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack)
+					     =
+					     {   # Do iterated coalescing 
+
+						 my { stack }
+                                                     =
+                                                     iterated_coal { simplify_worklist,
+									    move_worklist,
+									    freeze_worklist,
+									    stack };
+					         case spill_worklist
+                                                   
+						      []  => stack; #  nothing to spill 
+
+						      _   => 
+							  if (*pseudo_count == 0)	 #  All nodes simplified 
+                                                               stack; 
+							  else
+							       my { node, cost, spill_worklist }
+                                                                   = 
+								   choose_victim { spill_worklist };
+
+							       case node
+                                                                   
+								    THE node  #  spill node and continue 
+									=>
+									{   if  debug    print "-";  fi; 
+
+									    my { move_worklist, freeze_worklist, stack }
+                                                                                = 
+										potential_spill { node,
+											       cost,
+											       stack };
+
+									    iterate([], move_worklist, freeze_worklist, spill_worklist, stack);
+									}; 
+
+								    NULL => stack; #  nothing to spill 
+                                                               esac;
+							  fi;
+                                                 esac;
+					     };
+
+					 my { spills }
+                                             = 
+					     if (k == 0)
+                                                 
+					          { spills => spill_worklist };
+					     else 
+					          #  simplify the nodes 
+						  stack = iterate (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack);
+
+						  #  Color the nodes 
+						 (core::select ggg) { stack }; 
+					     fi;
+
+				         #  Check for actual spills 
+					 case spills
+                                           
+					      [] => ();
+
+					      spills 
+                                                  =>
+                                                  loop (actual_spills { spills } );
+                                         esac;
+				     };
+
+				 my { simplify_worklist, move_worklist, freeze_worklist, spill_worklist }
+                                     =
+                                     build_graph ggg;
+
+			     end;
+
+			 fun init_spill_proh (cells)
+			     = 
+			     {   mark_as_spilled = int_hash_table::set spilled_regs;
+
+				 fun mark r
+                                     =
+                                     mark_as_spilled (cells_basis::register_id r, TRUE);
+
+			         apply mark cells;
+                             };
+
+		         dump_flowgraph (dump_control_flow_graph_before_register_allocation, "before register allocation");
+			 init_spill_proh spill_prohibitions;
+			 main (ggg); #  main loop 
+			 #  update the colors for all cells 
+			 log_graph("done", ggg);
+			 core::update_cell_colors ggg;
+			 core::mark_dead_copies_as_spilled ggg;
+			 register_allocation_count := *register_allocation_count + 1;
+			 dump_flowgraph (dump_control_flow_graph_after_register_allocation, "after register allocation");
+			 #  Clean up spilling 
+			 spill_heuristics::init(); 
+		    fi;
+		};			# fun regalloc
+
+	    fun regallocs []
+                    =>
+                    ();
+
+		regallocs (p ! ps)
+                    =>
+                    {   regalloc p;
+                        regallocs ps;
+                    };
+	    end;
+
+	    dump_flowgraph (dump_control_flow_graph_before_all_register_allocation, "before register allocation");
+	    regallocs parameters;
+	    dump_flowgraph (dump_control_flow_graph_after_all_register_allocation, "after register allocation");
+	    flowgraph;
+	};					# fun ra
+
+};

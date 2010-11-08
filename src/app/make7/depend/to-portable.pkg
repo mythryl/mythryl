@@ -1,0 +1,541 @@
+## to-portable.pkg
+## (C) 2001 Lucent Technologies, Bell Labs
+## author: Matthias Blume (blume@research.bell-labs.com)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+# Generate list-of-edges dependency graph representation from
+# internal make7 data structures.
+
+
+package to_portable: (weak)  api {
+			    export:  ( inter_library_dependency_graph::Library,
+                                       make7_state::Make7_State
+                                     )
+                                     ->
+                                     ( portable_graph::Graph,
+                                       List( anchor_dictionary::File )
+                                     );
+		       }
+{
+    package ss =  symbol_set;				# symbol_set				is from   src/app/make7/util/symbol-set.pkg
+    package lg =  inter_library_dependency_graph;	# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+    package dg =  intra_library_dependency_graph;	# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package p  =  portable_graph;			# portable_graph			is from   src/app/make7/pgraph/pgraph.pkg
+
+    package slm
+        =
+        red_black_map_g(				# red_black_map_g			is from   src/lib/src/red-black-map-g.pkg
+
+            Key = List( String );
+
+	    fun compare ([], []) =>  EQUAL;
+	        compare ([], _)  =>  LESS;
+	        compare (_, [])  =>  GREATER;
+
+	        compare (h ! t, h' ! t')
+		    =>
+		    case (string::compare (h, h'))
+		      
+		         EQUAL   =>  compare (t, t');
+			 unequal =>  unequal;
+                    esac;
+            end;
+        );
+
+    package fm
+        =
+        red_black_map_g(
+
+	  Key = (String, String);
+
+	  fun compare ((v, f), (v', f'))
+              =
+	      case (string::compare (v, v'))
+	        
+	           EQUAL   =>  string::compare (f, f');
+	           unequal =>  unequal;
+              esac;
+    );
+
+    package ssm
+        =
+        red_black_map_g(
+
+	    Key = ss::Set;
+	    compare = ss::compare;
+        );
+
+    package im
+        =
+        red_black_map_g(
+
+	    Key = (anchor_dictionary::File, String);
+
+	    fun compare ((p, s), (p', s'))
+		=
+		case (anchor_dictionary::compare (p, p'))
+		  
+		     EQUAL   =>  string::compare (s, s');
+		     unequal =>  unequal;
+		esac;
+    );
+
+    ignored_syms = ss::add_list (   ss::empty,
+				     [ pervasive_symbol::pervasive_package_symbol, core_symbol::core_symbol ]
+                                 );
+
+    fun export (lg::ERROR_LIBRARY, _)
+            =>
+           raise exception FAIL "to_portable::export ERROR_LIBRARY";
+
+        export (lg::LIBRARY { o7_views_by_name, sublibraries, library_path, ... }, make7_state)
+	    =>
+	    {   cwd = winix::file::current_directory ();
+
+		fun to_absolute p
+		    =
+		    if   (winix::path::is_absolute p)
+		         p;
+		    else winix::path::make_absolute { path => p, relative_to => cwd };fi;
+
+		library_dir
+		    =
+		    winix::path::dir (to_absolute (anchor_dictionary::os_string library_path));
+
+		stipulate
+
+		    fun make_inverse_map []
+			    =>
+			    (bare_o7_map::empty, iced_o7_map::empty);
+
+			make_inverse_map ((p, group_thunk
+							 , _	# MUSTDIE
+							 ) ! ls)
+			    =>
+			    {   my (sm, bm) = make_inverse_map ls;
+
+				fun update (find, insert) (m, i, (p, ex))
+				    =
+				    case (find (m, i))
+				      
+					 NULL
+					     =>
+					     insert (m, i, (p, ex));
+
+					 THE (p', ex')
+					     => 
+					     insert (m, i, (p', ss::union (ex, ex')));
+				    esac;
+
+				su = update (bare_o7_map::get, bare_o7_map::set);
+				bu = update (iced_o7_map::get, iced_o7_map::set);
+
+				fun one_e (symbol, (thunk, _, ex), (sm, bm))
+				    =
+				    case (thunk ())
+				      
+					 (_, dg::O7_IS_ICED (dg::ICED_O7 n, _, _))
+					     =>
+					     (sm, bu (bm, n.iced_o7, (p, ex)));
+
+					 (_, dg::O7_IS_BARE (dg::BARE_O7 n))
+					     =>
+					     (su (sm, n.bare_o7, (p, ex)), bm);
+				    esac;
+
+				case (group_thunk ())
+				  
+				     lg::LIBRARY { o7_views_by_name, ... }
+					 =>
+					 symbol_map::keyed_fold_left one_e (sm, bm) o7_views_by_name;
+
+				     _ => (sm, bm);
+				esac;
+			    };
+		    end;
+
+		    my   (sm, bm)   =   make_inverse_map sublibraries;
+
+		    fun trim (p, ex)
+			=
+			(   p,
+			    ss::difference (ex, ignored_syms)
+			);
+
+		    sm = bare_o7_map::map trim sm;
+		    bm = iced_o7_map::map  trim bm;
+		herein
+		    fun lookup_bin i
+			=
+			case (iced_o7_map::get (bm, i))
+			  
+			     THE pex => pex;
+			     NULL    => raise exception FAIL "lookupBin";
+                        esac;
+
+		    fun lookup_sml i
+			=
+			bare_o7_map::get (sm, i);
+		end;
+
+		stipulate
+		    namings   =   REF [];
+		herein
+		    fun gen_bind (lhs, rhs)
+			=
+			namings := p::DEF { lhs, rhs } ! *namings;
+
+		    fun all_namings ()
+			=
+			reverse *namings;
+		end;
+
+		fun relname i
+		    =
+		    {   p = to_absolute (anchor_dictionary::os_string (bare_o7::sourcepath i));
+
+			s = winix::path::make_relative { path => p, relative_to => library_dir };
+
+			my { arcs, is_absolute, disk_volume }
+			    =
+			    winix::path::from_string s;
+
+			fun badarc a
+			    =
+			    a != winix::path::current_arc and
+			    a != winix::path::parent_arc and
+			    (a == "." or a == ".." or char::contains a '/');
+
+			fun to_unix []
+                                =>
+                                ".";
+
+			    to_unix (h ! t)
+				=>
+				{   fun trans a
+					=
+					if   (a == winix::path::current_arc   )   ".";
+					elif (a == winix::path::parent_arc    )   "..";
+					else                                       a;
+                                        fi;
+
+				    cat (reverse (fold_left (fn (a, l) = trans a ! "/" ! l)
+						       [trans h] t));
+				};
+                        end;
+
+			if (is_absolute or disk_volume != ""    or
+			    list::exists badarc arcs
+			)
+			    (s, TRUE);
+			else
+			    (to_unix arcs, FALSE);
+                        fi;
+		    };
+
+		gensym
+		    =
+		    { next = REF 0;
+
+			fn prefix
+			   =
+			   {   i = *next;
+
+			       prefix + int::to_string i
+                               before
+                                   next := i + 1;
+			   };
+		    };
+
+		smlmap    =   REF bare_o7_map::empty;
+		imports   =   REF source_path_map::empty;
+
+		fun gen_lib p
+		    =
+		    case (source_path_map::get (*imports, p))
+		      
+		         THE v => v;
+
+			 NULL => {  v = gensym "l";
+
+				    imports := source_path_map::set (*imports, p, v);
+				    v;
+				 };
+                    esac;
+
+		stipulate
+		    symbols = REF symbol_map::empty;
+		herein
+		    fun gen_sym s
+			=
+			case (symbol_map::get (*symbols, s))
+			  
+			     THE v => v;
+
+			     NULL
+				 =>
+				 {   my (p, ns)
+					 =
+					 case (symbol::name_space s)
+					    
+					      symbol::API_NAMESPACE         =>  ("sgn", p::SGN);
+					      symbol::PACKAGE_NAMESPACE     =>  ("str", p::PACKAGE);
+					      symbol::GENERIC_NAMESPACE     =>  ("fct", p::GENERIC);
+					      symbol::GENERIC_API_NAMESPACE => raise exception FAIL "funsig not permitted in portable graphs";
+					      _ => raise exception FAIL "unexpected namespace";
+					 esac;
+
+				     v = gensym p;
+
+				     gen_bind (v, p::SYM (ns, symbol::name s));
+				     symbols := symbol_map::set (*symbols, s, v);
+				     v;
+				 };
+			esac;
+		end;
+
+		stipulate
+		    sets = REF ssm::empty;
+		herein
+		    fun gen_syms ss
+			=
+			case (ssm::get (*sets, ss))
+
+			     THE v => v;
+
+			    NULL => { v  = gensym "ss";
+					 sl = ss::vals_list ss;
+
+					gen_bind (v, p::SYMS (map gen_sym sl));
+					sets := ssm::set (*sets, ss, v);
+					v;
+				     }; esac;
+		end;
+
+		stipulate
+		    filters = REF fm::empty;
+		    imps    = REF im::empty;
+		herein
+		    fun prevent_filter (e, f)
+			=
+			filters := fm::set (*filters, (e, f), e);
+
+		    fun gen_filter (v, f)
+			=
+			{   s = gen_syms f;
+
+			    case (fm::get (*filters, (v, s)))
+			      
+			         THE e => e;
+
+				 NULL => { e = gensym "e";
+
+					     gen_bind (e, p::FILTER { env => v, syms => s } );
+					     filters := fm::set (*filters, (v, s), e);
+					     prevent_filter (e, s);
+					     e;
+					 };
+                            esac;
+			};
+
+		    fun gen_filter' (vex as (v, ex), f)
+			=
+			{   f' = ss::intersection (ex, f);
+
+			    if    (ss::equal (ex, f'))
+			          vex;
+			    else  (gen_filter (v, f'), f');fi;
+			};
+
+		    fun unlayer l
+			=
+			loop (l, ss::empty, [])
+                        where
+			    fun loop ([], _, a)
+                                    =>
+                                    reverse a;
+
+			        loop ((h, hss) ! t, ss, a)
+				    =>
+				    {   i = ss::intersection (ss, hss);
+					u = ss::union (ss, hss);
+					f = ss::difference (hss, ss);
+
+					if     (ss::is_empty f)   loop (t, u, a);
+					elif   (ss::is_empty i)   loop (t, u, h ! a);
+					else                      loop (t, u, gen_filter (h, f) ! a);
+                                        fi;
+				    };
+                            end;
+			end;
+
+		    stipulate
+
+			merges = REF slm::empty;
+
+		    herein
+			fun gen_merge [e]
+                                =>
+                                e;
+
+			    gen_merge l
+			        =>
+			        case (slm::get (*merges, l))
+				  
+				     THE e => e;
+
+				     NULL => { e = gensym "e";
+
+						 gen_bind (e, p::MERGE l);
+						 merges := slm::set (*merges, l, e);
+						 e;
+					     };
+                                 esac;
+			end;
+		    end;
+
+		    fun gen_compile (v, s, e, ex)
+			=
+			{   ss = gen_syms ex;
+
+			    prevent_filter (v, ss);
+			    gen_bind (v, p::COMPILE { src => s, env => e, syms => ss } );
+			};
+
+		    fun gen_import (lib, ex)
+			=
+			if   (ss::is_empty ex)
+			    
+			     ("dummy", ex);
+			else
+			     s = gen_syms ex;
+
+			     case (im::get (*imps, (lib, s)))
+			       
+			          THE v => (v, ex);
+
+				  NULL
+				      =>
+				      {   v = gensym "e";
+					  l = gen_lib lib;
+
+					  imps := im::set (*imps, (lib, s), v);
+					  gen_bind (v, p::IMPORT { lib => l, syms => s } );
+					  prevent_filter (v, s);
+					  (v, ex);
+				      };
+                             esac;
+                       fi;
+		end;
+
+		fun sml_import i
+		    =
+		    case (lookup_sml i)
+		      
+		         NULL    =>   NULL;
+			 THE lex =>   THE (gen_import lex);
+                    esac;
+
+		fun bin_import i
+		    =
+		    gen_import (lookup_bin i);
+
+		fun sn (dg::BARE_O7 { bare_o7, near_imports, far_imports } )
+		    =
+		    case (bare_o7_map::get (*smlmap, bare_o7))
+		      
+			 THE vex => vex;
+
+			 NULL
+			     =>
+			     {   v = gensym "e";
+
+				 ex = case (bare_o7::exports make7_state bare_o7)
+				        
+					   THE ex =>  ex;
+					   NULL   =>  raise exception FAIL "cannot parse SML file";
+				      esac;
+
+				 vex = (v, ex);
+										       my _ =
+				 smlmap := bare_o7_map::set (*smlmap, bare_o7, vex);
+
+				 gi = map fsbn far_imports;
+				 li = map sn near_imports;
+
+				 e = gen_merge (unlayer (li @ gi));
+
+				 gen_compile (v, relname bare_o7, e, ex);
+				 vex;
+			     };
+                    esac
+
+		also
+		fun fsbn (NULL,  n) =>   sbn n;
+		    fsbn (THE f, n) =>   gen_filter' (sbn n, f);
+                end 
+
+		also
+		fun sbn (dg::O7_IS_BARE (n as dg::BARE_O7 { bare_o7, ... } ))
+			=>
+			case (sml_import bare_o7)
+			  
+			     NULL    =>  sn n;
+			     THE vex =>  vex;
+			esac;
+
+		    sbn (dg::O7_IS_ICED (dg::ICED_O7 { iced_o7, ... }, _, _))
+			=>
+			bin_import iced_o7;
+		end;
+
+
+		fun import_export (th, _, ss)
+		    =
+		    #1 (gen_filter' (fsbn (th ()), ss));
+
+
+		iel =				# "iel" == "import export list", likely.
+		    symbol_map::fold_right
+			(fn (ie, l)
+			    =
+			    import_export ie ! l
+			)
+			[]
+			o7_views_by_name;
+
+		export  = gen_merge iel;
+
+
+		(   p::GRAPH { imports => source_path_map::vals_list *imports,
+			      defs => all_namings (),
+			      export
+			    },
+
+		    source_path_map::keys_list  *imports
+		);
+	    };
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

@@ -1,0 +1,592 @@
+## bouncing-heads-app.pkg
+#
+# A simple bouncing-icons-in-a-window app which
+# exercises our mailcaster facility.  The icons
+# mostly look like little heads.  The heads are
+# drawn using XOR and erased by redrawing them
+# with XOR; this allows the icons to move through
+# each other.
+#
+# User interaction:
+#
+#   Dragging mouse-button 1 creates a moving head.
+#   Clicking mouse-button 2 deletes the clicked head, if any.
+#   Clicking mouse-button 3 brings up a reset/quit menu.
+#
+# One way to run this app from the base-directory commandline is:
+#
+#     linux% my
+#     eval: make "src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.make6";
+#     eval: bounce_app::do_it ();
+
+# Compiled by:
+#     src/lib/x-kit/tut/bouncing-heads/bouncing-heads-app.make6
+
+stipulate
+    include threadkit;							# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;						# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;		   				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package xtr =  xtracing;						# xtracing		is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+    #
+    package bd  =  bounce_drawmaster;					# bounce_drawmaster	is from   src/lib/x-kit/tut/bouncing-heads/bounce-dm.pkg
+    package bl  =  bouncing_head;					# bouncing_head		is from   src/lib/x-kit/tut/bouncing-heads/bouncing-head.pkg
+    package hd  =  head_pixmaps;					# head_pixmaps		is from   src/lib/x-kit/tut/bouncing-heads/head-pixmaps.pkg
+    #
+    tracefile   =  "bouncing-heads-app.trace.log";
+    tracing     =  tracing::make_trace_tree_leaf { parent => xtracing::xkit_tracing, name => "bouncing_heads_app::tracing" };
+    trace	=  xtr::print_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+	#
+	# and then set   write_tracelog = TRUE;   below.
+herein
+
+    package bouncing_heads_app {
+
+	write_tracelog = FALSE;
+
+	fun set_up_tracing ()
+	    =
+	    {   # Open tracelog file and select tracing level.
+		# We don't need to truncate any existing file
+		# because that is already done by the logic in
+		#     src/lib/std/src/unix/posix-text-primitive-io.pkg
+		#
+		include tracing;				# tracing			is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+		#
+		log_trace_messages  (TO_FILE tracefile);
+		enable all_tracing;				# Gross overkill.
+	    };
+
+	stipulate
+	    selfcheck_tests_passed =  REF 0;
+	    selfcheck_tests_failed =  REF 0;
+	herein
+	    run_selfcheck =  REF FALSE;
+
+	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	    #
+	    fun assert bool    =  if bool   test_passed ();
+				  else      test_failed ();
+				  fi;				
+	    #
+	    fun test_stats  ()
+		=
+                { passed => *selfcheck_tests_passed,
+                  failed => *selfcheck_tests_failed
+                };
+	end;
+
+	stipulate
+
+	    # Create and map the bounce window: 
+	    #
+	    fun init_bounce
+		( xdisplay:         String,					# Typically from DISPLAY environment variable.
+		  xauthentication:  Null_Or( xc::Xauthentication )		# Ultimately from ~/.Xauthority.
+		)
+		=
+		{
+		    xsession =  xc::open_xsession (xdisplay, xauthentication);
+		    screen   =  xc::default_screen_of  xsession;
+
+		    my (topwindow, in_kidplug, delete_slot)				# 2009-12-09 CrT: Added 'mailslot' to make it compile. 
+			=
+			xc::make_simple_top_window  screen
+			  {
+			    border_color     =>  xc::black,
+			    background_color =>  xc::rgb8_color0,					# To get XOR to work.
+
+			    site =>
+				xg::WINDOW_SITE
+				  { upperleft    =>  xg::POINT { col=>0, row=>0 },
+				    size         =>  xg::SIZE { wide=>400, high=>400 },
+				    border_thickness =>  1
+				  }
+			  };
+
+		    my (from_mouse', from_keyboard', from_other')
+			=
+			{   (xc::ignore_keyboard  in_kidplug)
+				->
+                                xc::KIDPLUG { from_mouse', from_keyboard', from_other', ... };
+
+			    ( from_mouse'    ==>  xc::envelope_contents,
+			      from_keyboard' ==>  xc::envelope_contents,
+			      from_other'    ==>  xc::envelope_contents
+			    );
+			};
+
+		    icon =  xc::make_readonly_pixmap_from_clientside_pixmap
+                                screen
+                                hd::att_data;
+
+											# commandline		is from   src/lib/std/commandline.pkg
+		    xc::set_window_manager_properties  topwindow
+		      {
+			window_name =>  THE "Bounce",
+			icon_name   =>  THE "bounce",
+
+			size_hints  => [ xc::HINT_PPOSITION,
+					 xc::HINT_PSIZE,
+					 xc::HINT_PMIN_SIZE (xg::SIZE { wide => 200, high => 200 } )
+				       ],
+
+			nonsize_hints    => [ xc::HINT_ICON_RO_PIXMAP icon ],
+
+			class_hints      => NULL,
+
+			commandline_arguments =>  commandline::get_arguments ()
+		      };
+
+		    xc::show_window  topwindow;
+
+		    # How do we sync on the mapping?  Do we need to?		XXX BUGGO FIXME
+
+		    (xsession, topwindow, from_mouse', from_other');
+
+		};						# fun init_bounce 
+
+
+	    # Thread to exercise the app by simulating user
+	    # mouseclicks and verifying their effects:
+	    #
+	    fun make_selfcheck_thread  { topwindow, xsession }
+		=
+		xtr::make_thread "bounce-app selfcheck" selfcheck
+		where
+		    # Figure midpoint of window and also
+		    # a small box centered on the midpoint:
+		    #
+		    fun midwindow window
+			=
+			{
+			    # Get size of drawing window:
+			    #
+			    (xc::get_window_site  window)
+				->
+				xg::BOX { row, col, high, wide };
+
+			    # Define midpoint of drawing window,
+			    # and a 9x9 box enclosing it:
+			    #
+			    stipulate
+				row =  high / 2;
+				col =  wide / 2;
+			    herein
+				midpoint =  xg::POINT { row, col };
+				midbox   =  xg::BOX { row => row - 4, col => col - 4, high => 9, wide => 9 };
+			    end;
+
+			    (midpoint, midbox);
+			};
+
+		    # Convert coordinate from from
+                    # scale-independent 0.0 -> 1.0 space
+		    # coordinates to X pixel space:
+		    #
+		    fun convert_coordinate_from_abstract_to_pixel_space (window, x, y)
+			=
+			{
+			    # Get size of window:
+			    #
+			    (xc::get_window_site  window)
+				->
+				xg::BOX { row, col, high, wide };
+
+			    xg::POINT
+                              { col =>  float::round (float::from_int wide  *  x),
+                                row =>  float::round (float::from_int high  *  y)
+                              };
+			};
+
+		    # Simulate a mouseclick in window.
+		    # The (x,y) coordinates are in an
+		    # abstract space in which window
+                    # width and height both run 0.0 -> 1.0
+		    #
+		    fun click_in_window_at (window, x, y, dx, dy)
+			=
+			{   button = xc::MOUSEBUTTON 1;
+
+			    point1 = convert_coordinate_from_abstract_to_pixel_space (window, x, y);
+                            point1 -> xg::POINT { row, col };
+			    point2 =  xg::POINT { row => row+dx, col=>col+dy };
+
+			    xc::send_mousebutton_press_xevent   { window, button, point => point1 };
+			    sleep_for (time::from_milliseconds 100);
+			    xc::send_mousebutton_release_xevent { window, button, point => point2 };
+			};	
+
+		    fun selfcheck ()
+			=
+			{   # Wait until the widgettree is realized and running:
+			    # 
+#			    get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);	# This idea doesn't seem to be working at present anyhow.
+
+
+			    # Fetch from X server the center pixels
+			    # over which we are about to draw:
+			    #
+			    (midwindow      topwindow) ->  (_, topwindow_midbox);
+			    #
+			    antedraw_topwindow_image
+				=
+				xc::make_clientside_pixmap_from_window (topwindow_midbox, topwindow);
+
+			    click_in_window_at (topwindow, 0.50, 0.50,  1,  1);
+			    click_in_window_at (topwindow, 0.51, 0.49, -1, -1);
+			    click_in_window_at (topwindow, 0.51, 0.51,  1, -1);
+			    click_in_window_at (topwindow, 0.49, 0.59, -1,  1);
+			    click_in_window_at (topwindow, 0.51, 0.49,  2,  1);		# No, there's no rhyme nor reason here. :-)
+
+			    # Re-fetch center pixels, verify
+			    # that new result differs from original result.
+			    #
+			    # This is dreadfully sloppy, but seems to be
+			    # good enough to verify that there is something
+			    # happening in the window:
+			    #
+			    postdraw_topwindow_image
+				=
+				xc::make_clientside_pixmap_from_window (topwindow_midbox, topwindow);
+			    #
+			    assert (not (xc::same_cs_pixmap (antedraw_topwindow_image, postdraw_topwindow_image)));
+
+			    sleep_for (time::from_milliseconds 3000);		# Just to let the user watch it.
+
+			    # All done -- shut everything down:
+			    #
+			    xc::close_xsession  xsession;
+			    shut_down_thread_scheduler  winix::process::success;
+
+			    ();
+			};
+		end;						# fun make_selfcheck_thread
+
+	    fun run_bounce  display_or_null
+		=
+		{
+		    # We really should be using run_xkit here;
+		    # this is probably very old code.						# XXX BUGGO FIXME.
+
+		    my  ( xdisplay,								# Typically from $DISPLAY environment variable.
+			  xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
+			)
+			=
+			xc::get_xdisplay_string_and_xauthentication  display_or_null;
+
+		    my (xsession, topwindow, from_mouse', from_other')
+			=
+			init_bounce  (xdisplay, xauthentication);
+
+		    window_size = .size (xc::shape_of_window  topwindow);
+
+		    draw_slot = bd::bounce_dm  topwindow;						# "dm" is probably "draw_master"
+
+		    mailcaster = make_mailcaster ();
+
+		    fun redraw (seqn, size)
+			=
+			{   give (draw_slot, bd::REDRAW seqn);
+			    transmit (mailcaster, bl::REDRAW_BALL (seqn, size));
+			};
+
+		    fun kill pt    = transmit (mailcaster, bl::KILL pt);
+		    fun kill_all() = transmit (mailcaster, bl::KILL_ALL);
+
+		    make_ball =  bl::make_ball (topwindow, mailcaster, draw_slot);
+
+		    fun make_cursor c
+			=
+			{   cursor =  xc::get_standard_xcursor  xsession  c;
+
+			    xc::recolor_cursor
+			      {
+				cursor,
+				foreground_rgb =>  xc::rgb_from_unts (0u65535, 0u65535, 0u655350),
+				background_rgb =>  xc::rgb_from_unts (0u0,     0u0,     0u0     )
+			      };
+
+			    cursor;
+			};
+
+
+		    normal_cursor =  make_cursor  xc::cursors::crosshair;
+		    ball_cursor   =  make_cursor  xc::cursors::dot;
+
+		    fun set_cursor c
+			=
+			xc::set_cursor topwindow (THE c);
+
+		    fun quit ()
+			=
+			{   xc::close_xsession  xsession;
+
+			    shut_down_thread_scheduler
+				#
+				winix::process::success;
+			};
+
+		    popup_menu = menu::popup_menu  topwindow;
+
+		    # We have two modes:
+		    #     wait_loop:   Waiting for user to press   mouse-button;
+		    #     down_loop:   Waiting for user to release mouse-button.
+
+		    fun wait_loop (seqn, window_size)
+			=
+			{
+			    fun do_mouse (xc::MOUSE_FIRST_DOWN { mouse_button=>xc::MOUSEBUTTON 1, window_point, timestamp, ... } )
+				    =>
+				    {   set_cursor ball_cursor;
+					down_loop (seqn, window_size, window_point, timestamp);
+				    };
+
+				do_mouse (xc::MOUSE_FIRST_DOWN { mouse_button=>xc::MOUSEBUTTON 2, window_point, timestamp, ... } )
+				    =>
+				    {   kill window_point;
+					wait_loop (seqn, window_size);
+				    };
+
+				do_mouse (xc::MOUSE_FIRST_DOWN { mouse_button as xc::MOUSEBUTTON 3, window_point, timestamp, ... } )
+				    =>
+				    case (do_mailop (popup_menu (mouse_button, window_point, timestamp, from_mouse')))
+					#
+					NULL =>
+					    wait_loop (seqn, window_size);
+
+					THE "Refresh"
+					    =>
+					    {   redraw    (seqn+1, window_size);
+						wait_loop (seqn+1, window_size);
+					    };
+
+					THE "Kill All"
+					    =>
+					    {   kill_all ();
+						wait_loop (seqn, window_size);
+					    };
+
+					THE "Quit"
+					    =>
+					    quit ();
+
+					_   =>
+					    raise exception  lib_base::IMPOSSIBLE "Bounce: menu";
+				     esac;
+
+				do_mouse _
+				    =>
+				    wait_loop (seqn, window_size);
+			    end;
+
+
+			  fun do_other (xc::ETC_REDRAW _)
+				  =>
+				  {   redraw    (seqn+1, window_size);
+				      wait_loop (seqn+1, window_size);
+				  };
+
+			      do_other (xc::ETC_RESIZE (xg::BOX { wide, high, ... } ))
+				  =>
+				  {   window_size = xg::SIZE { wide, high };
+
+				      redraw    (seqn, window_size);
+				      wait_loop (seqn, window_size);
+				  };
+
+			      do_other (xc::ETC_OWN_DEATH)
+				  =>
+				  quit ();
+
+			      do_other _
+				  =>
+				  ();
+			  end;	
+
+			  do_mailop					# doesn't <<do_mailop choose>> == <<select>> ?
+			      (choose
+				[ from_mouse' ==>  do_mouse,
+				  from_other' ==>  do_other
+				]
+			      );
+		      }
+
+		    also
+		    fun down_loop (seqn, window_size, point0, t0)
+			=
+			{   fun do_mouse (xc::MOUSE_LAST_UP { mouse_button=>xc::MOUSEBUTTON 1, window_point, timestamp, ... } )
+				    =>
+				    {
+					sec =  xc::xserver_timestamp::to_float (xc::xserver_timestamp::(-) (timestamp, t0));
+
+					(xg::point::subtract (window_point, point0))
+					    ->
+					    xg::POINT { col=>x, row=>y };
+
+					dt = sec * (real bl::updates_per_sec);
+
+					fun limit a
+					    =
+					    {   r  = (real a) // dt;
+
+						da = float::truncate r;
+
+						my (abs, sign)
+						    =
+						    if (float::(<) (r, 0.0))   (-da, -1);
+						    else                       ( da,  1);
+						    fi;
+
+						if (da == 0)
+						    #
+						    if (float::(!=) (r, 0.0))   sign;
+						    else                           0;
+						    fi;
+						else
+						    if (abs*bl::updates_per_sec > 1000)
+							#
+							int::quot (sign*200, bl::updates_per_sec);
+						    else
+							da;
+						    fi;
+						fi;  
+					    };
+
+					  make_ball (seqn, window_point, xg::POINT { col => limit x,  row => limit y }, window_size);
+					  back_up (seqn, window_size);
+				      };
+
+				do_mouse (xc::MOUSE_LAST_UP _) =>  back_up (seqn, window_size);
+				do_mouse (xc::MOUSE_LEAVE   _) =>  back_up (seqn, window_size);
+
+				do_mouse _
+				    =>
+				    down_loop (seqn, window_size, point0, t0);
+			    end;
+
+
+			    fun do_other (xc::ETC_REDRAW _)
+				    =>
+				    {   redraw  (seqn+1, window_size);
+					back_up (seqn+1, window_size);
+				    };
+
+				do_other (xc::ETC_RESIZE (xg::BOX { wide, high, ... } ))
+				    =>
+				    {   window_size = xg::SIZE { wide, high };
+
+					redraw  (seqn, window_size);
+					back_up (seqn, window_size);
+				    };
+
+				do_other (xc::ETC_OWN_DEATH)
+				    =>
+				    quit ();
+
+				do_other _
+				    =>
+				    ();
+			    end;
+
+
+			    do_mailop
+				(choose
+				  [ from_mouse' ==>  do_mouse,
+				    from_other' ==>  do_other
+				  ]
+				);
+			}
+
+		    also
+		    fun back_up (seqn, window_size)
+			=
+			{   set_cursor  normal_cursor;
+
+			    wait_loop  (seqn, window_size);
+			};
+
+		    set_cursor  normal_cursor;
+
+		    if *run_selfcheck
+			#
+			make_selfcheck_thread  { topwindow, xsession };
+			();
+		    fi;
+
+		    wait_loop (0, window_size);		# Enter main loop for thread.
+		};					# fun run_bounce 
+
+	herein
+
+	    fun do_it' (flgs, display_name)
+		=
+		{
+		    xtracing::init flgs;
+
+		    if write_tracelog
+			#
+                        set_up_tracing ();
+                    fi;
+
+		    start_up_thread_scheduler'
+			#
+			(time::from_milliseconds 10)
+			#
+		       .{
+			    xtracing::make_thread  "bounce"   .{  run_bounce  (display_name == "" ?? NULL :: THE display_name);  };
+			    ();
+			};
+
+		    winix::process::success;
+		}; 
+
+	    fun do_it ()
+		=
+		do_it' ([], "");
+
+	    fun selfcheck ()
+		=
+		{
+		    run_selfcheck :=  TRUE;
+		    do_it' ([], "");
+		    test_stats ();
+		};	
+
+
+	    fun main (program, server ! _) =>  do_it' ([], server);
+		main _                     =>  do_it' ([], "");
+	    end;
+
+	end;			# stipulate
+    };				# package bouncing_heads_app
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,554 @@
+## color-mixer-app.pkg
+#
+# One way to run this app from the base-directory commandline is:
+#
+#     linux% my
+#     eval: make "src/lib/x-kit/tut/color-mixer/color-mixer-app.make6";
+#     eval: color_mixer_app::do_it ();
+
+# Compiled by:
+#     src/lib/x-kit/tut/color-mixer/color-mixer-app.make6
+
+stipulate
+    include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package bdr =  border;				# border			is from   src/lib/x-kit/widget/wrapper/border.pkg
+    package sld =  slider;				# slider			is from   src/lib/x-kit/widget/leaf/slider.pkg
+    package lbl =  label;				# label				is from   src/lib/x-kit/widget/leaf/label.pkg
+    package top =  topwindow;				# topwindow			is from   src/lib/x-kit/widget/basic/topwindow.pkg
+    package rw  =  root_window;				# root_window			is from   src/lib/x-kit/widget/basic/root-window.pkg
+    package rx  =  run_xkit;				# run_xkit			is from   src/lib/x-kit/widget/lib/run-xkit.pkg
+    package wg  =  widget;				# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wa  =  widget_attribute;			# widget_attribute		is from   src/lib/x-kit/widget/lib/widget-attribute.pkg
+    package wy  =  widget_style;			# widget_style			is from   src/lib/x-kit/widget/lib/widget-style.pkg
+    #
+    package cs  =  color_state;
+    package low =  line_of_widgets;			# line_of_widgets		is from   src/lib/x-kit/widget/layout/line-of-widgets.pkg
+    package sz  =  size_preference_wrapper;		# size_preference_wrapper	is from   src/lib/x-kit/widget/wrapper/size-preference-wrapper.pkg
+    package ts  =  toggleswitches;			# toggleswitches		is from   src/lib/x-kit/widget/leaf/toggleswitches.pkg
+    #
+    package xtr =  xtracing;				# xtracing			is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+    #
+    tracefile   =  "color-mixer-app.trace.log";
+    tracing     =  tracing::make_trace_tree_leaf { parent => xtracing::xkit_tracing, name => "mixer_app::tracing" };
+    trace	=  xtr::print_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+	#
+	# and then set   write_tracelog = TRUE;   below.
+herein
+
+    package color_mixer_app: api {
+
+	do_it':  (List( String ), String) -> Void;
+	do_it:   Void -> Void;
+	main:    (List(String), X) -> Void;
+
+	selfcheck:  Void -> { passed: Int,
+			      failed: Int
+			    };
+    }{
+	write_tracelog = FALSE;
+
+	run_selfcheck =  REF FALSE;
+
+	stipulate
+	    selfcheck_tests_passed =  REF 0;
+	    selfcheck_tests_failed =  REF 0;
+	herein
+	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	    #
+	    fun assert bool    =  if bool   test_passed ();
+				  else      test_failed ();
+				  fi;				
+	    #
+	    fun test_stats  ()
+		=
+                { passed => *selfcheck_tests_passed,
+                  failed => *selfcheck_tests_failed
+                };
+	end;
+
+	resources = ["*background: gray"];
+
+	maxcolor =  0u65535;
+	midcolor =  maxcolor / 0u2;
+	mincolor =  0u0;
+
+	border_thickness =    4;
+
+	slider_width     =   20;
+	hue_box_dim      =   25;
+
+	big_spot_height  =  400;
+	big_spot_width   =  150;
+
+	horizontal_spacer =  low::SPACER { min_size=>5,  ideal_size=>5, max_size=>THE 5 };
+	vertical_spacer   =  low::SPACER { min_size=>1,  ideal_size=>5, max_size=>NULL  };
+
+	pause = time::from_milliseconds 500;
+
+	redc   = xc::rgb_from_unts (midcolor, 0u0,      0u0      );
+	greenc = xc::rgb_from_unts (0u0,      midcolor, 0u0      );
+	bluec  = xc::rgb_from_unts (0u0,      0u0,      midcolor );
+	blackc = xc::rgb_from_unts (0u0,      0u0,      0u0      );
+
+	fun make_red   n =  xc::rgb_from_unts (n,        mincolor, mincolor );
+	fun make_green n =  xc::rgb_from_unts (mincolor, n,        mincolor );
+	fun make_blue  n =  xc::rgb_from_unts (mincolor, mincolor, n        );
+
+	fun make_mixer (root_window, view)
+	    =
+	    {   white =  xc::white;
+
+		my selfcheck_colorchange_watcher:   Ref (Null_Or( Mailqueue( xc::Rgb ) )  )
+                    =
+                    REF NULL;
+
+		fun quit ()
+		    =
+		    {   fun q ()
+			    =
+			    do_mailop (timeout_in' pause); 
+
+			rw::delete_root_window  root_window; 
+
+			shut_down_thread_scheduler  winix::process::success;
+
+			make_thread "mixer" q;
+
+			();
+		    };
+
+		switch = ts::make_rocker_toggleswitch'
+			     (root_window, view,[])
+			     (fn _ = quit ());
+
+		switch_line
+		    =
+		    low::HZ_CENTER
+		      [
+			vertical_spacer,
+			low::WIDGET (ts::as_widget switch),
+			horizontal_spacer
+		      ];
+
+		fun make_display_box  color  w
+		    =
+		    {   args = [ (wa::background,       wa::COLOR_VAL  color),
+				 (wa::border_thickness, wa::INT_VAL  border_thickness)
+			       ];
+
+			display
+			    =
+			    bdr::border
+				(root_window, view, args)
+				(sz::make_tight_size_preference_wrapper w);
+
+			low::HZ_CENTER
+			  [ vertical_spacer,
+			    low::WIDGET (bdr::as_widget display),
+			    vertical_spacer
+			  ];
+		    };
+
+		fun paint_spot spot color
+		    = 
+		    spot::set_spot spot color
+		    except
+			_ = {   file::print "out of color cells\n";
+				quit();
+			    };
+
+		spot = spot::spot
+			 (root_window, view) 
+			 { color => blackc,
+			   high  => big_spot_height,
+			   wide  => big_spot_width
+			 };
+
+		paint =  paint_spot  spot;
+
+		color_screen
+		    =
+		    make_display_box  white  (spot::as_widget spot);
+
+		colorstate   =  cs::make_color_state blackc;
+		change_color =  cs::change_color     colorstate;
+		colorchange' =  cs::colorchange'_of  colorstate;
+
+
+		fun paint_loop ()
+		    =
+		    for (;;) {
+			#
+			new_color =  do_mailop  colorchange';
+		        paint new_color;
+			#
+			case *selfcheck_colorchange_watcher
+			    #
+			    THE mailqueue
+				=>
+				push (mailqueue, new_color);
+
+			    NULL => ();
+			esac;
+		    };
+
+
+		# Construct a control row consisting of
+		#
+		#  o A color patch.
+		#  o A slider.
+		#  o A numeric readout.
+		#
+		# The color-mixer app uses one such
+		# control row each for red, green and blue:
+		#
+		fun make_color_control_row
+                        rgb						# One of:  redc, greenc, bluec.
+                        make_color					# One of:  make_red, make_green, make_blue.
+                        mkmsg						# One of:  cs::CHANGE_R, cs::CHANGE_G, cs::CHANGE_B.
+		    =
+		    (line, printer_loop, slider)			# Slider is returned only for selfcheck support.
+		    where
+			(xc::rgb_to_unts rgb)
+			    ->
+			    (red, green, blue);
+
+			rgb_color = xc::get_color (xc::CMS_RGB { red, green, blue });
+
+			l_args = [ (wa::label,      wa::STRING_VAL "          0"),
+				   (wa::background, wa::COLOR_VAL  rgb_color)
+				 ];
+
+			label = lbl::make_label' (root_window, view, l_args);
+
+			display = make_display_box rgb_color (lbl::as_widget label);
+
+			s_args = [ (wa::is_vertical, wa::BOOL_VAL FALSE),
+				   (wa::background,  wa::STRING_VAL "gray"),
+				   (wa::width,       wa::INT_VAL slider_width),
+				   (wa::from_value,  wa::INT_VAL 0),
+				   (wa::to_value,    wa::INT_VAL (unt::to_int_x maxcolor))
+				 ];
+
+			slider = sld::make_slider (root_window, view, s_args);
+
+			spot = spot::spot
+				 (root_window, view) 
+				 { color => blackc,
+				   high  => hue_box_dim,
+				   wide  => hue_box_dim
+				 };
+
+			hue_box = make_display_box white (spot::as_widget spot);
+
+			line = low::HZ_CENTER
+				 [
+				   horizontal_spacer, 
+				   hue_box, 
+				   horizontal_spacer, 
+				   low::WIDGET (sld::as_widget slider), 
+				   horizontal_spacer,
+				   display, 
+				   horizontal_spacer
+				 ];
+
+			set = lbl::set_label label;
+
+			slider_motion'
+			    =
+			    sld::slider_motion'_of  slider
+				==>
+				unt::from_int;
+
+			paint = paint_spot spot;
+
+			fun printer_loop ()
+			    =
+			    loop 0u0
+			    where
+				# The first loop is just to
+				# initialize the display;
+				# subsequent loops respond to
+				# user mouse motions:
+				# 
+				fun loop n
+				    =	
+				    {   set (lbl::TEXT (unt::format number_string::DECIMAL n));
+
+					paint (make_color n);
+
+					change_color (mkmsg n);
+
+					loop (do_mailop  slider_motion'); 
+				    };
+			    end;	
+		    end;
+
+		my (red_line,   red_printer_loop,     red_slider) =  make_color_control_row  redc    make_red    cs::CHANGE_R;
+		my (green_line, green_printer_loop, green_slider) =  make_color_control_row  greenc  make_green  cs::CHANGE_G;
+		my (blue_line,  blue_printer_loop,   blue_slider) =  make_color_control_row  bluec   make_blue   cs::CHANGE_B;
+
+
+		make_thread "mixer red"      red_printer_loop; 
+		make_thread "mixer green"    green_printer_loop;
+		make_thread "mixer blue"     blue_printer_loop ;
+		make_thread "mixer painter"  paint_loop;
+
+		( low::as_widget
+		      (low::make_line_of_widgets  root_window
+			  (low::VT_CENTER
+			    [			vertical_spacer,
+			      color_screen,	vertical_spacer,        
+			      switch_line,	vertical_spacer,
+			      red_line,		vertical_spacer,
+			      green_line,	vertical_spacer,
+			      blue_line,	vertical_spacer
+			    ]
+		      )   ),
+		  { red_slider, green_slider, blue_slider, selfcheck_colorchange_watcher }
+                );
+	    };				# fun make_mixer 
+
+
+	# Thread to exercise the app by simulating user
+	# mouse-drags of the colormixer sliders and
+	# verifying their effects:
+	#
+	fun make_selfcheck_thread  { topwindow, widgettree, selfcheck_api => { red_slider, green_slider, blue_slider, selfcheck_colorchange_watcher } }
+	    =
+	    xtr::make_thread "mixer-app selfcheck" selfcheck
+	    where
+
+		# Convert a pair of 0.0 -> 1.0 window X coordinates into
+		# a corresponding series of pixel-coordinate points:
+		#
+		fun window_x_points (window, start, stop)
+		    =
+		    {
+			# Get size of slider window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row, col, high, wide };
+
+			start_col = float::round ((float::from_int wide) * start);
+			stop_col  = float::round ((float::from_int wide) *  stop);
+
+			cols = (start_col + 1)..(stop_col - 1);
+			row  = row + high/2;
+
+			fun col_to_point col
+			    =
+			    xg::POINT { col, row };
+
+			( col_to_point     start_col,
+			  map col_to_point cols,
+			  col_to_point     stop_col
+			);
+		    };
+
+		fun slider_window slider
+		    =
+		    {   widget = slider::as_widget  slider;
+
+			window = widget::window_of  widget;
+
+			window;
+		    };	
+
+		fun slider_site  slider
+		    =
+		    xc::get_window_site  (slider_window slider);		# -> xg::BOX { row, col, high, wide };
+
+		# Simulate a mousedrag of slider
+		#
+		fun drag_slider  (slider, start, stop)		# Start, stop are floats in range 0.0 -> 1.0
+		    =
+		    {   button = xc::MOUSEBUTTON 1;
+
+			window = slider_window slider;
+
+			(window_x_points (window, start, stop))
+			    ->
+			    (start_point, midpoints, stop_point);
+
+			xc::send_mousebutton_press_xevent   { window, button, point => start_point };
+
+			apply
+			    (fn drag_point = xc::send_mouse_motion_xevent { window, buttons => [ button ], point => drag_point })
+			    midpoints;
+
+			xc::send_mousebutton_release_xevent { window, button, point =>  stop_point };
+
+			(list::length midpoints) + 2;		# Number of color changes.
+		    };	
+
+	        fun selfcheck ()
+		    =
+		    {   # Wait until the widgettree is realized and running:
+			# 
+			get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);
+
+			sleep_for (time::from_milliseconds 250);	# Shouldn't be needed, but preceding doesn't eliminate race conditions as intended... :-(
+
+			my mailqueue: Mailqueue( xc::Rgb )
+			    =
+			    make_mailqueue ();
+
+			selfcheck_colorchange_watcher :=   THE mailqueue;
+
+			(slider_site   red_slider) -> xg::BOX { row =>   red_row, col =>   red_col, high =>   red_high, wide =>   red_wide };
+			(slider_site green_slider) -> xg::BOX { row => green_row, col => green_col, high => green_high, wide => green_wide };
+			(slider_site  blue_slider) -> xg::BOX { row =>  blue_row, col =>  blue_col, high =>  blue_high, wide =>  blue_wide };
+
+			changes  = 0;
+			changes += drag_slider (  red_slider, 0.4, 0.6);
+			changes += drag_slider (green_slider, 0.4, 0.6);
+			changes += drag_slider ( blue_slider, 0.4, 0.6);
+
+			for (i = 0, last_red = 0, last_green = 0, last_blue = 0;  i < changes; ++i) {
+			    #
+			    new_color = pull mailqueue;
+			    #
+			    (xc::rgb_to_unts new_color) -> (red, green, blue);
+			    #
+			    red   =  unt::to_int   red;
+			    green =  unt::to_int green;
+			    blue  =  unt::to_int  blue;
+			    #
+			    assert (  red >= last_red  );
+			    assert (green >= last_green);
+			    assert ( blue >= last_blue );
+			    #
+			    last_red   =   red;
+			    last_green = green;
+			    last_blue  =  blue;
+			};
+
+			selfcheck_colorchange_watcher :=   NULL;
+
+			sleep_for (time::from_milliseconds  250);
+
+
+
+			# All done -- shut everything down:
+			#
+			(xc::xsession_of_window  (wg::window_of widgettree)) ->  xsession;
+			xc::close_xsession  xsession;
+			shut_down_thread_scheduler  winix::process::success;
+		    };
+	    end;						# fun make_selfcheck_thread
+
+	fun init root_window
+	    =
+	    {   style = wg::style_from_strings (root_window, resources);
+
+		name = wy::make_view
+			 { name    =>   wy::style_name [],
+			   aliases => [ wy::style_name [] ]
+			 };
+		view = (name, style);
+
+		my (widgettree, selfcheck_api) = make_mixer (root_window, view);
+
+		args =  [ (wa::title,     wa::STRING_VAL "RGB Mixer"),
+			  (wa::icon_name, wa::STRING_VAL "MIX")
+			];
+
+		topwindow = top::topwindow (root_window, view, args) widgettree;
+
+		top::start  topwindow;
+
+		if *run_selfcheck
+		    #
+		    make_selfcheck_thread  { topwindow, widgettree, selfcheck_api };
+		    ();
+		fi;
+
+		();
+	    };
+
+	fun set_up_tracing ()
+	    =
+	    {   # Open tracelog file and select tracing level.
+		# We don't need to truncate any existing file
+		# because that is already done by the logic in
+		#     src/lib/std/src/unix/posix-text-primitive-io.pkg
+		#
+		include tracing;				# tracing			is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+		#
+		log_trace_messages  (TO_FILE tracefile);
+		enable all_tracing;				# Gross overkill.
+	    };
+
+	fun do_it' (debug_flags, server)
+	    =
+	    {   xtracing::init debug_flags;
+
+		if write_tracelog   set_up_tracing ();   fi;
+
+		rx::run_xkit'  init
+		  { display => THE server,
+		    time_quantum_in_milliseconds => NULL
+		  };
+	    };
+
+
+	fun do_it ()
+	    =
+	    {   if write_tracelog   set_up_tracing ();   fi;
+		#
+		rx::run_xkit  init;
+	    };
+
+
+	fun selfcheck ()
+	    =
+	    {   run_selfcheck :=  TRUE;
+		do_it ();
+		test_stats ();
+	    };	
+
+
+	fun main (program ! server ! _, _)
+		=>
+		do_it' ([], server);
+
+	    main _
+		=>
+		do_it ();
+	end;
+    };				# package color_mixer_app
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991, 1995 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,259 @@
+## versiontool.pkg
+## Author: Matthias Blume (blume@tti-c.org)
+
+
+#   A CM tool for automatically generating file version.pkg
+#   from a template, incorporating current version and release.
+
+
+
+
+###      "The good Christian should beware of mathematicians
+###       and all those who make empty prophecies.  The danger
+###       already exists that mathematicians have made a covenant
+###       with the devil to darken the spirit and confine man in
+###       the bonds of Hell."
+###
+###                             -- St. Augustine (354-430)
+
+
+
+package version_tool {
+  with
+    bump_release
+        =
+	REF (null_or::not_null (winix::process::get_env "VERSIONTOOL_BUMP_RELEASE"));
+
+    fun get_version file
+        =
+	{   s = file::open_for_read file;
+
+	    case (file::read_line s)
+
+	         THE l
+                     =>
+	             {   file::close_input s;
+
+		         fl = string::tokens
+			          (fn c =  char::is_space c   or   c == '.')
+                                  l;
+
+			 map
+			     (fn f =  the_else (int::from_string f, 0))
+			     fl;
+	             };
+
+	         NULL => [0, 0];
+            esac;
+	}
+        except
+            _ = [0, 0];
+
+    fun get_release file
+        =
+	{   s = file::open_for_read file;
+
+	    case (file::read_line s)
+		 THE l => { file::close_input s; int::from_string l; };
+		 NULL  => { file::close_input s; NULL; };
+	    esac;
+	}
+        except
+            _ = NULL;
+
+    fun put_release (file, r)
+        =
+	{   s = file::open file;
+
+	    file::write (s, int::to_string r + "\n");
+
+	    file::close s;
+	};
+
+    fun bump_release_fn (file, r)
+        =
+	if   *bump_release
+        then
+             put_release (file, r + 1);
+        fi;
+
+    fun gen { template, target, vfile, release }
+        =
+	{   version  =  get_version vfile;
+
+	    version' =  case release
+			      NULL  =>  version;
+			      THE r =>  version @ [r];
+                        esac;
+
+	    vstring =  string::join ", " (map int::to_string version');
+
+	    ss =  file::open_for_read template;
+	    ts =  file::open target;
+
+	    fun loop ()
+                =
+		case (file::read_one ss )
+
+		     THE '%'
+			 =>
+			 case (file::read_one ss)
+
+			      THE 'V' =>  {   file::write (ts, vstring);
+                                              loop ();
+                                          };
+
+			      THE 'F' =>  {   file::write (ts, winix::path::file target);
+					      file::write (ts, " generated from");
+					      loop ();
+                                          };
+
+			      THE c =>    {   file::write_one (ts, c);
+                                              loop ();
+                                          };
+			      NULL  =>        file::write_one (ts, '%');
+
+                         esac;
+
+		     THE c => {   file::write_one (ts, c);
+                                  loop ();
+                              };
+
+		     NULL => ();
+
+                esac;
+
+	   loop ();
+	   file::close_input ss;
+	   file::close ts;
+	};
+
+    tool = "versiontool";
+    ilk  = "version";
+
+    kw_target      = "target";
+    kw_versionfile = "versionfile";
+    kw_releasefile = "releasefile";
+
+    keywords = [kw_target, kw_versionfile, kw_releasefile];
+
+    fun versiontoolrule
+            { spec: tools::Spec,
+	      native2pathmaker,
+	      context: tools::Rulecontext,
+	      default_ilk_of,
+	      sysinfo
+	    }
+        :
+        tools::Partial_Expansion
+        =
+	{   fun dogen (targetpp, versionfilepp, releasefilepp) ()
+                =
+		{   templatep = tools::srcpath (spec.make_path ());
+		    targetp   = tools::srcpath targetpp;
+		    target    = tools::native_spec targetp;
+		    template  = tools::native_spec templatep;
+		    vfile     = tools::native_pre_spec versionfilepp;
+		    rfile     = tools::native_pre_spec releasefilepp;
+		    release   = get_release rfile;
+
+		    fun newer_than_target f
+                        =
+                        tools::outdated tool ([target], f);
+
+                    if   list::exists newer_than_target [template, vfile, rfile]
+                    then
+		         gen { template, target, vfile, release };
+		    fi;
+
+		   bump_release_fn (rfile, the_else (release, -1));
+
+		   ( { source_files =>  [ (targetp, { share       => sharing_mode::DONT_CARE,
+					          setup       =>  (NULL, NULL),
+					          split       =>  NULL,
+					          noguid      =>  FALSE,
+					          local       =>  FALSE,
+					          controllers =>  []
+                                                }
+                                      )
+                                    ],
+		       make7_files  => [],
+		       sources  => [ (templatep, { ilk,
+					           derived => spec.derived }
+                                     )
+                                   ]
+                     },
+		     []
+                   );
+		};
+
+	    fun complain l
+                =
+		raise exception tools::TOOL_ERROR { tool, msg => cat l };
+
+
+            case spec.opts
+
+		 NULL
+                     =>
+                     complain ["missing parameters"];
+
+		 THE to
+		     =>
+		     {   my { matches, restoptions }
+			     =
+			     tools::parse_options { tool, keywords, options  => to };
+
+			 fun match kw
+			     =
+			     case (matches kw)
+
+			          NULL
+                                      =>
+                                      complain ["missing parameter \"", kw, "\""];
+
+				  THE [tools::STRING { make_path, ... } ]
+                                      =>
+                                      make_path ();
+
+				  _   =>
+                                      complain ["invalid parameter \"", kw, "\""];
+                             esac;
+
+			 context (dogen (   match kw_target,
+					    match kw_versionfile,
+					    match kw_releasefile
+					)
+				 );
+		     };
+            esac;
+	};
+  do
+	bump_release = bump_release;
+	                                                   my _ = 
+        tools::note_ilk (ilk, versiontoolrule);
+  end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 2004 by The Fellowship of SML/NJ
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

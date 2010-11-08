@@ -1,0 +1,776 @@
+## regular-expression.pkg
+## John Reppy (http://www.cs.uchicago.edu/~jhr)
+## Aaron Turon (adrassi@gmail.com)
+## All rights reserved.
+
+# Compiled by:
+#     src/app/future-lex/src/Lexgen.make6
+
+# Regular expression representation and manipulation.
+#
+# The main points here are to:
+#   (1) Make it easy for an RE parser to construct 
+#       RE expressions
+#   (2) Canonicalize REs for effective comparison
+#   (3) Implement the RE derivatives algorithm
+#
+# See the implementation notes for details on the derivatives
+# algorithm and the canonicalization strategy.
+
+
+
+###                 "Ludwig Boltzmann, who spent much of
+###                  his life studying statistical mechanics,
+###                  died in 1906, by his own hand.
+###
+###                 "Paul Ehrenfest, carrying on the work,
+###                  died similarly in 1933.
+###
+###                 "Now it is our turn to study statistical mechanics."
+###
+###                             --David L. Goodstein, States of Matter
+
+
+
+package regular_expression: (weak)  Regular_Expression {		# Regular_Expression	is from   src/app/future-lex/src/regular-expression.api
+
+    # Symbols (i.e., words) 
+
+    package sym
+	= 
+	package {
+
+	  package w32= unt32;	# unt32	is from   src/lib/std/unt32.pkg
+	   Point = w32::Unt;
+
+	  compare = w32::compare;
+	  my min_pt:  w32::Unt = 0u0; 
+	  max_pt = w32::bitwise_not 0u0;
+
+	  fun next (w:  w32::Unt) = 
+		if (w == w32::bitwise_not 0u0 ) w;
+		else w + 0u1;fi;
+	  fun prior (w:  w32::Unt) = 
+		if (w == 0u0 ) w;
+		else w - 0u1;fi;
+
+	  fun is_succ (w1, w2)
+	      =
+	      (next w1 == w2);
+
+	};
+
+    package symbol_set
+        =
+        interval_set_g( sym );
+    
+     Symbol = sym::Point;
+     Symbol_Set = symbol_set::Set;
+
+    package sis = symbol_set;
+
+    #  REs 
+     Re
+      = EPSILON                 #  matches the empty string 
+      | ANY			#  matches any single symbol 
+      | NONE			#  matches nothing (i.e. the empty language) 
+      | SYM_SET  Symbol_Set
+      | CONCAT  List( Re )
+      | CLOSURE  Re
+      | OP  ((Rator, List( Re )) )	#  list length != 1 and in sorted order 
+      | NOT  Re
+
+    also Rator = OR | AND | XOR;
+
+    #  we give a total order to REs; this is useful for canonicalization 
+
+    fun compare (re1, re2)
+        =
+        {   fun compare_op (OR,  OR ) => EQUAL;
+		compare_op (OR,  _  ) => LESS;
+		compare_op (_,   OR ) => GREATER;
+		compare_op (AND, AND) => EQUAL;
+		compare_op (AND, _  ) => LESS;
+		compare_op (_,   AND) => GREATER;
+		compare_op (XOR, XOR) => EQUAL;
+	    end;
+
+	    fun compare_list (result1, result2)
+		= 
+		list::collate compare (result1, result2);
+
+	      case (re1, re2)
+	        
+		  (EPSILON, EPSILON)     => EQUAL;
+		  (EPSILON, _)           => LESS;
+		  (_, EPSILON)           => GREATER;
+
+		  (ANY, ANY)             => EQUAL;
+		  (ANY, _)               => LESS;
+		  (_, ANY)               => GREATER;
+
+		  (NONE, NONE)           => EQUAL;
+		  (NONE, _)              => LESS;
+		  (_, NONE)              => GREATER;
+
+		  (SYM_SET a, SYM_SET b) => sis::compare (a, b);
+		  (SYM_SET a, _)         => LESS;
+		  (_, SYM_SET b)         => GREATER;
+
+		  (CONCAT a, CONCAT b)   => compare_list (a, b);
+		  (CONCAT a, _)          => LESS;
+		  (_, CONCAT b)          => GREATER;
+
+		  (CLOSURE a, CLOSURE b) => compare (a, b);
+		  (CLOSURE a, _)         => LESS;
+		  (_, CLOSURE b)         => GREATER;
+
+		  (OP (op1, result1), OP (op2, result2))
+		      =>
+		      case (compare_op (op1, op2))
+		        
+			  EQUAL => compare_list (result1, result2);
+			  order => order;
+		      esac;
+
+		  (OP _, _)      =>   LESS;
+		  (_, OP _)      =>   GREATER;
+
+		  (NOT a, NOT b) =>   compare (a, b);
+	      esac;
+
+	  };
+
+  #   sort = list_mergesort::sort (fn (re1, re2) => compare (re1, re2) = LESS) 
+
+    #  primitive REs 
+
+    any = ANY;
+    none = NONE;
+    epsilon = EPSILON;
+
+    #  Canonical constructors 
+
+    fun make_symbol_set c
+        = 
+	if   (sis::is_empty    c) NONE;
+	elif (sis::is_universe c) ANY;
+	else                      SYM_SET c;
+        fi;
+
+    fun make_symbol symbol
+        =
+        make_symbol_set (sis::singleton symbol);
+
+    fun make_meld (re1, re2)
+        =
+        case (re1, re2)
+	  
+	     (EPSILON, re2) => re2;
+	     (re1, EPSILON) => re1;
+
+	     (NONE, _) => NONE;
+	     (_, NONE) => NONE;
+
+	     (CONCAT result1, CONCAT result2) => CONCAT (result1@result2);
+
+	     (re1, CONCAT result2) => CONCAT (re1 ! result2);
+	     (CONCAT result1, re2) => CONCAT (result1 @ [re2]);
+	     _ => CONCAT [re1, re2];
+
+        esac;
+
+
+    fun make_meld_list [] => EPSILON;
+        make_meld_list (re ! result) => make_meld (re, make_meld_list result);
+    end;
+
+    fun make_closure (EPSILON) => EPSILON;
+	make_closure (NONE) => EPSILON;
+	make_closure (re as CLOSURE _) => re;
+	make_closure re => CLOSURE re;
+    end;
+
+    fun merge_sis (in_res, mop)
+        =
+        {   fun is_sis (SYM_SET _) =>   TRUE;
+	        is_sis _           =>   FALSE;
+            end;
+
+	    my (siss, result)
+                =
+                list::partition is_sis in_res;
+
+	    case siss
+	      
+		[]   => in_res;
+		[re] => in_res;
+
+		sis ! siss'
+                    =>
+		    reinsert (merged, result)
+                    where 
+
+                        fun wrapmop (SYM_SET s1, SYM_SET s2)
+				=> 
+				SYM_SET (mop (s1, s2));
+
+			    wrapmop _
+                                =>
+                                raise exception FAIL "BUG: wrapmop: SymSet expected";
+                        end;
+
+		        merged =   list::fold_left wrapmop sis siss';
+
+		        fun reinsert (re1, [])
+				=>
+				[re1];
+
+			    reinsert (re1, re ! result)
+				=>
+				case (compare (re1, re))
+				  
+				    LESS    =>   re1 ! re ! result;
+				    EQUAL   =>   raise exception FAIL "BUG: mergeSIS: only one SymSet expected";
+				    GREATER =>   re ! (reinsert (re1, result));
+				esac;
+                        end;
+		    end;
+            esac;
+	};
+
+    fun make_or (re1, re2)
+        =
+        {   fun merge ([], result2) => result2;
+
+		merge (result1, []) => result1;
+
+		merge (re1 ! r1, re2 ! r2)
+                    =>
+                    case (  compare (re1, re2))
+		      
+		        LESS    =>   re1 ! merge (r1, re2 ! r2);
+		        GREATER =>   re2 ! merge (re1 ! r1, r2);
+		        EQUAL   =>   merge (re1 ! r1, r2);
+                    esac;
+            end;
+
+	    fun mk (a, b)
+                =
+                case (merge_sis (merge (a, b), sis::union))
+	          
+		     []     =>   NONE;
+		     [re]   =>   re;
+		     result =>   OP (OR, result);
+                esac;
+
+	    case (re1, re2)
+	      
+	       (NONE, _) => re2;
+	       (_, NONE) => re1;
+
+	       (SYM_SET s1, SYM_SET s2)
+                   =>
+                   make_symbol_set (sis::union (s1, s2));
+
+	       (OP (OR, result1), OP (OR, result2)) => mk (result1, result2);
+	       (OP (OR, result1), _) => mk (result1, [re2]);
+	       (_, OP (OR, result2)) => mk([re1], result2);
+
+	       (re1, re2)
+                   =>
+                   case (compare (re1, re2))
+		     
+		       LESS    =>   OP (OR, [re1, re2]);
+		       GREATER =>   OP (OR, [re2, re1]);
+		       EQUAL   =>   re1;
+                   esac;
+            esac;
+
+	};
+
+    fun make_and (re1, re2)
+        =
+        {   fun merge ([], result2) => result2;
+		merge (result1, []) => result1;
+		merge (re1 ! r1, re2 ! r2)
+		    =>
+		    case (compare  (re1, re2))
+		      
+			LESS    => re1 ! merge (r1, re2 ! r2);
+			GREATER => re2 ! merge (re1 ! r1, r2);
+			EQUAL   => merge (re1 ! r1, r2);
+		    esac;
+            end;
+
+	    fun mk (a, b)
+		=
+		case (merge_sis (merge (a, b), sis::intersect))
+		  
+		    []     => NONE;
+		    [re]   => re;
+		    result => OP (AND, result);
+		esac;
+
+	    case (re1, re2)
+	      
+		(NONE, _) => NONE;
+		(_, NONE) => NONE;
+
+		(SYM_SET s1, SYM_SET s2)
+                    =>
+                    make_symbol_set (sis::intersect (s1, s2));
+
+		(OP (AND, result1), OP (AND, result2))
+                    =>
+                    mk (result1, result2);
+
+		(OP (AND, result1), _) =>   mk (result1, [re2]);
+		(_, OP (AND, result2)) =>   mk([re1], result2);
+
+		(re1, re2)
+		    =>
+		    case (compare (re1, re2))
+		      
+			LESS    =>   OP (AND, [re1, re2]);
+			GREATER =>   OP (AND, [re2, re1]);
+			EQUAL   =>   re1;
+		    esac;
+	    esac;
+
+	};
+
+    fun make_xor (re1, re2)
+        =
+        {   fun merge ([], result2) =>   result2;
+		merge (result1, []) =>   result1;
+		merge (re1 ! r1, re2 ! r2)
+                    =>
+                    case (compare (re1, re2))
+		      
+		        LESS    =>   re1 ! merge (r1, re2 ! r2);
+		        EQUAL   =>   merge (r1, r2);
+		        GREATER =>   re2 ! merge (re1 ! r1, r2);
+                    esac;
+            end;
+
+	    fun mk (a, b)
+                =
+                case (merge (a, b))
+		  
+		    [] => NONE;
+		    [re] => re;
+		    result => OP (XOR, result);
+                esac;
+
+	    case (re1, re2)
+	      
+	       (NONE, _) => re2;
+	       (_, NONE) => re1;
+
+	       (SYM_SET s1, SYM_SET s2)
+                   => 
+		   make_symbol_set (
+                       sis::intersect (
+		       sis::union (s1, s2),
+		       sis::complement (sis::intersect (s1, s2))
+		   )
+               );
+
+	       (OP (XOR, result1), OP (XOR, result2)) =>   mk (result1, result2);
+	       (OP (XOR, result1), _)                 =>   mk (result1, [re2]);
+	       (_, OP (XOR, result2))                 =>   mk([re1], result2);
+
+	       (re1, re2)
+                   =>
+                   case (  compare (re1, re2))
+		     
+		       LESS    => OP (XOR, [re1, re2]);
+		       GREATER => OP (XOR, [re2, re1]);
+		       EQUAL   => NONE; 			#  XXX BUGGO FIXME is this right? 
+                   esac;
+            esac;
+	};
+
+    fun mk_op (OR, re1, re2) => make_or (re1, re2);
+        mk_op (AND, re1, re2) => make_and (re1, re2);
+        mk_op (XOR, re1, re2) => make_xor (re1, re2);
+    end;
+
+    fun make_not (NOT re) => re;
+	make_not (NONE)   => make_closure (ANY);
+	make_not re       => NOT re;
+    end;
+
+    fun make_option re
+        =
+        make_or (EPSILON, re);
+
+    fun make_repetition (re, low, high)
+        =
+        {   fun low_reps 0 => EPSILON;
+		low_reps 1 => re;
+		low_reps n => make_meld (re, low_reps (n - 1));
+	    end;
+
+	    fun high_reps 0 => EPSILON;
+		high_reps 1 => make_option re;
+		high_reps n => make_meld (make_option re, high_reps (n - 1));
+	    end;
+
+	    if   (high < low )
+		 raise exception SUBSCRIPT;
+	    else
+		 make_meld (low_reps low, high_reps (high - low));
+	    fi;
+        };
+
+    fun make_at_least (re, 0) =>   make_closure re;
+        make_at_least (re, n) =>   make_meld (re, make_at_least (re, n - 1));
+    end;
+
+    fun is_none NONE => TRUE;
+        is_none _    => FALSE;
+    end;
+
+    fun symbol_to_string w
+        =
+        "#\"" + (char::to_string (char::from_int (unt32::to_int w))) + "\"" 
+	except
+            OVERFLOW = raise exception FAIL "(BUG) regular_expression: symbol_to_string on a nonascii character";
+
+    fun sisto_string s
+        =
+        {   fun c2s c
+                = 
+		if   (c < 0u128)
+                    
+		     char::to_string (char::from_int (unt32::to_int c));
+		else
+		     string::cat ["\\u", unt32::to_string c];
+                fi;
+
+	    fun f (a, b)
+                  = 
+		  if (a == b)
+		       #	                      
+                       c2s a;
+		  else
+                       cat [c2s a, "-", c2s b];
+                  fi;
+
+	    # We want to describe the interval set as concisely as possible, 
+	    # so we compare the number of intervals in the set to the number
+	    # of intervals in its complement, and use the smaller of the two.
+
+	    intervals = sis::intervals s;
+	    intervals' = sis::intervals (sis::complement s);
+
+	    my (neg, rngs)
+                = 
+		if (list::length intervals < list::length intervals')
+		     ("", intervals);
+		else ("^", intervals');
+                fi;
+
+	    str = neg + (string::cat (list::map f (rngs)));
+
+	    if   (string::length str <= 1)
+	        
+                 str;
+	    else
+                 "[" + str + "]";
+            fi;
+        };
+    
+    fun to_string re
+        =
+	string::cat (to_s (re, []))
+        where 
+
+            fun op_to_string OR  =>   "|";
+		op_to_string AND =>   "&";
+		op_to_string XOR =>   "^";
+	    end;
+
+	    fun op_prec OR  =>   0;
+		op_prec AND =>   2;
+		op_prec XOR =>   1;
+	    end;
+
+	    fun prec ANY             => 6;
+		prec NONE            => 6;
+		prec EPSILON         => 6;
+		prec (SYM_SET _)     => 6;
+		prec (CONCAT [])     => 6;
+
+		prec (CONCAT _)      => 3;
+		prec (CLOSURE _)     => 5;
+		prec (OP(_, []))     => 6;
+
+		prec (OP(_, [re]))   => prec re;
+		prec (OP (operator, _)) => op_prec operator;
+		prec (NOT _)         => 4;
+	    end;
+
+	    fun to_s (ANY, l)           => "{ any }" ! l;
+		to_s (NONE, l)          => "{ none }" ! l;
+		to_s (EPSILON, l)       => "{ epsilon }" ! l;
+		to_s (SYM_SET s, l)     => sisto_string s ! l;
+		to_s (CONCAT [], l)     => "" ! l;
+		to_s (CONCAT [re], l)   => to_s (re, l);
+		to_s (CONCAT result, l) => to_s'(result, 3, "", l);
+		to_s (CLOSURE re, l)    => paren (5, re, "*" ! l);
+		to_s (OP (_, []), l)    => "{}" ! l;
+
+		to_s (OP (operator, [re]), l)   => to_s (re, l);
+		to_s (OP (operator, result), l) => to_s'(result, op_prec operator, op_to_string operator, l);
+		to_s (NOT re, l)             => "!" ! paren (4, re, l);
+	    end 
+
+	    also
+	    fun to_s' ([], p, operator, l) => raise exception FAIL "empty";
+
+		 to_s' (re ! r, p, operator, l)
+		     =>
+		     paren (p, re, list::fold_right
+		     (fn (re, l) => operator ! paren (p, re, l); end )
+		      l r);
+	    end 
+	    also
+	    fun paren (p, re, l)
+		 =
+		 if   (p <= prec re)
+		     
+		      to_s (re, l);
+		 else
+		      "(" ! to_s (re, ")" ! l);
+		 fi;
+
+	end;
+
+    #  TRUE iff epsilon is in the language recognized by the RE 
+    fun nullable ANY         =>   FALSE;
+	nullable NONE        =>   FALSE;
+	nullable EPSILON     =>   TRUE;
+	nullable (SYM_SET _) =>   FALSE;
+	nullable (CLOSURE _) =>   TRUE;
+
+	nullable (CONCAT   result)  =>   list::all nullable result;
+	nullable (OP (OR,  result)) =>   list::exists nullable result;
+	nullable (OP (AND, result)) =>   list::all nullable result;
+
+	nullable (OP (XOR, re ! r))
+            =>
+	    (nullable re and not (list::exists nullable r))
+	     or nullable (OP (XOR, r));
+
+	nullable (OP (XOR, []))
+            =>
+            raise exception FAIL "(BUG) RegExpression: RE operator has no operands";
+
+	nullable (NOT re)
+            =>
+            not (nullable re);
+    end;
+
+    fun delta re
+        =
+        if   (nullable re)
+            
+             EPSILON;
+        else
+             NONE;
+        fi;
+
+    #  Compute derivative w.r.t. a symbol 
+    fun derivative a
+        =
+	da
+        where
+            fun da ANY     =>   EPSILON;
+		da NONE    =>   NONE;
+		da EPSILON =>   NONE;
+
+		da (SYM_SET s)
+                    =>
+                    if (sis::member (s, a))
+                        
+                         EPSILON;
+                    else
+                         NONE;
+                    fi;
+
+		da (re as CLOSURE re')
+                    =>
+                    make_meld (da re', re);
+
+		da (CONCAT [])   => NONE;
+		da (CONCAT [re]) => da re;
+		da (CONCAT (re ! result))
+		    =>
+		    make_or(
+		        make_meld_list((da re) ! result),
+		        make_meld (delta re, da (CONCAT result))
+                    );
+
+		da (OP(_, []))               =>   raise exception FAIL "(BUG) RegExpression: RE operator has no operands";
+		da (OP (operator, [re]))        =>   da re;
+		da (OP (operator, re ! result)) =>   mk_op (operator, da re, da (OP (operator, result)));
+
+		da (NOT re) =>   make_not (da re);
+            end;
+	end;
+
+    package map = red_black_map_g (						# red_black_map_g		is from   src/lib/src/red-black-map-g.pkg
+      package {
+	 Key = vector::Vector( Re );
+	compare = vector::collate compare;
+      });
+
+    # Find the smallest partitioning of the alphabet that
+    # "respects" the given sets.  If S is one of the sets
+    # returned by compress, then it must be either disjoint
+    # with or a subset of each of the sets in the sets 
+    # parameter.  see the implementation notes for more detail.
+    #
+    fun compress sets
+        = 
+        list::fold_left part1 [] (sis::universe ! sets)
+        where
+
+	    # Do partition of a set againt a list of sets,
+	    # assuming the list of sets is pairwise disjoint:
+	    #
+	    fun part1 (set, [])
+		    => 
+		    if (sis::is_empty set ) [];
+		    else [set];
+		    fi;
+
+		part1 (set1, set2 ! ss)
+		    => 
+		    if (sis::is_empty set1 )
+		        set2 ! ss;
+		    else
+			 i = sis::intersect (set1, set2);
+			 if (sis::is_empty i )
+			     (set2 ! (part1 (set1, ss)));
+			 else
+			     s1 = sis::difference (set1, i);
+			     s2 = sis::difference (set2, i);
+
+			     ss' = if (sis::is_empty s1)  ss;
+				   else                   part1 (s1, ss);
+                                   fi;
+
+			      if (sis::is_empty s2 )
+				  (i ! ss');
+			      else
+				  (i ! s2 ! ss');
+                              fi;
+			 fi;
+		    fi;
+	    end;
+          
+        end;
+
+    fun derivatives (result:  vector::Vector( Re ))
+        =
+        ilks (sets', map::empty)
+        where 
+
+	    # Ds is the "factoring function" 
+
+	    fun ds ANY           => [sis::universe];
+		ds NONE          => [];
+		ds EPSILON       => [];
+		ds (SYM_SET s)   => [s];
+		ds (CLOSURE re)  => ds re;
+		ds (CONCAT [])   => [];
+		ds (CONCAT [re]) => ds re;
+
+		ds (CONCAT (re ! result))
+		   => 
+		   if   (nullable re)
+                       
+		        (ds re) @ (ds (CONCAT result));
+		   else
+		        ds re;
+		   fi;
+
+		ds (OP (operator, result))
+                    =>
+                    list::cat (map ds result);
+
+		ds (NOT re)
+                    =>
+                    ds re;
+	    end;
+
+	    sets = vector::fold_left 
+			 (fn (re, sets) => (ds re) @ sets; end ) 
+			 [] result;
+
+	    sets' = compress sets;
+
+	    fun ilks ([], ilk_map)
+                    =>
+                    map::keyvals_list ilk_map;
+
+		ilks (set ! sets, ilk_map)
+		    =>
+		    {   #  use first element as representative of the equiv ilk 
+
+			my (rep, _)
+                            =
+                            list::head (sis::intervals set); 
+
+			derivs
+                            =
+                            vector::map (derivative rep) result;
+
+			case (map::get (ilk_map, derivs))
+			  
+			    NULL => 
+				ilks (sets, map::set (ilk_map, derivs, set));
+
+			    THE set'
+                                =>
+                                {   map' = map::set (ilk_map, 
+						      derivs,
+						      sis::union (set, set'));
+
+				    ilks (sets, map');
+				};
+                        esac;
+		   };
+            end;
+           
+          end;
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 2005 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

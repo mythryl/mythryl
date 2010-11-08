@@ -1,0 +1,191 @@
+# parser.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/tools/parser.make6
+
+
+
+
+###               "I was so obsessed by this problem that
+###                I was thinking about it all the time --
+###                when I woke up in the morning,
+###                when I went to sleep at night --
+###                and that went on for eight years."
+###
+###                                -- Andrew Wiles
+
+
+
+api Mdl_Parser_Driver {
+
+    package raw_syntax:  Mdl_Ast;				# Mdl_Ast	is from   src/lib/compiler/backend/lower/tools/fake-sml-ast/ast.api
+
+    exception PARSE_ERROR;
+
+    parse:         (String, file::Input_Stream) -> List( raw_syntax::Decl );
+    parse'       : Bool -> (String, file::Input_Stream) -> List( raw_syntax::Decl );
+    parse_string:   String -> List( raw_syntax::Decl );
+    parse_string' : Bool -> String -> List ( raw_syntax::Decl );
+    load:          String -> List( raw_syntax::Decl );
+    load'        : Bool -> String -> List( raw_syntax::Decl );
+
+};
+
+
+
+generic package mdl_parser_driver_g (
+
+    package raw_syntax_tree_pp:  Mdl_Ast_Prettyprinter;		# Mdl_Ast_Prettyprinter	is from   src/lib/compiler/backend/lower/tools/fake-sml-ast/ast-pp.api
+    mdl_mode:      Bool;
+    extra_cells:   List( raw_syntax_tree_pp::raw_syntax::Storagedecl );
+)
+: (weak)
+Mdl_Parser_Driver						# Mdl_Parser_Driver	is from   src/lib/compiler/backend/lower/tools/parser/parser.pkg
+=
+package {
+
+    max_error = 30;
+
+    package raw_syntax = raw_syntax_tree_pp::raw_syntax;
+    package error= mdlerror;	# mdlerror	is from   src/lib/compiler/backend/lower/tools/source-map/error.pkg
+
+    package lr_vals = mdl_parser (package token = lr_parser::token;
+				 package raw_syntax_tree_pp = raw_syntax_tree_pp;
+				);
+    package lex = mdl_lex_g (lr_vals::tokens);
+
+    package parser = join_with_arg_g ( package parser_data = lr_vals::parser_data;
+				   package lex = lex;
+				   package lr_parser = lr_parser;
+				  );
+    include precedence_parser;
+
+
+    default_prec
+        = 
+	fold_right
+
+            (fn ((id, fixity), sss) =  declare (sss, id, fixity))
+
+            empty
+
+	    [ ("+",   INFIX 60),
+	      ("-",   INFIX 60),
+	      ("*",   INFIX 70),
+	      ("div", INFIX 70),
+	      ("mod", INFIX 70),
+	      ("=",   INFIX 40),
+	      ("==",  INFIX 40),
+	      (">",   INFIX 40),
+	      ("<",   INFIX 40),
+	      ("<=",  INFIX 40),
+	      (">=",  INFIX 40),
+	      ("<>",  INFIX 40),
+	      ("<<",  INFIX 50),
+	      (">>",  INFIX 50),
+	      (">>>", INFIX 50),
+	      ("&&",  INFIX 60),
+	      ("^^",  INFIX 60),
+	      ("^",   INFIX 60),
+	      ("||",  INFIX 50),
+	      (":=",  INFIX 30),
+	      ("and", INFIX 20),
+	      ("or",  INFIX 10),
+	      ("::",  INFIXR 60),
+	      ("@",   INFIXR 60)
+	    ];
+
+    exception PARSE_ERROR;
+
+    fun parse_it silent (filename, stream)
+	=
+	{   lex::user_declarations::init ();
+
+	    source_map =  source_mapping::newmap { src_file=>filename };
+	    err_count  =  REF 0;
+
+	    fun err (a, b, msg)
+		= 
+		if silent
+		     raise exception PARSE_ERROR; 
+		else
+		     loc =  source_mapping::location  source_map  (a, b);
+
+		     error::set_loc loc; 
+		     error::error (msg);
+
+		     err_count := *err_count + 1;
+
+		     if   (*err_count > max_error)
+		         
+			  raise exception PARSE_ERROR;
+		     fi;
+		fi;
+
+	    fun input n
+		=
+		file::read_n (stream, n);
+
+	    lex_arg =  { source_map, err, mdl_mode };
+	    lexer   =  parser::stream::streamify (lex::make_lexer input lex_arg);
+
+
+	    fun parse_error (msg, a, b)
+                =
+                err (a, b, msg);
+
+
+	    fun err_pos msg
+                =
+                if  silent    raise exception PARSE_ERROR;
+                            else  error::error_pos  msg;  fi;
+
+
+	    fun an_import (loc, filename)
+                =
+                {   error::set_loc loc;
+                    load_it silent filename;
+                };
+
+	    my (result, lexer)
+		= 
+		parser::parse (15, lexer, parse_error,
+		    (source_map, err_pos, an_import, REF default_prec, extra_cells));
+
+	    if   (*error::error_count > 0)
+                
+		 raise exception PARSE_ERROR;
+	    else
+		 result;
+	    fi;
+	 }
+
+    also
+    fun load_it silent filename
+	=
+	{   stream = file::open_for_read filename;
+	    parse_it silent (filename, stream) before file::close_input stream 
+	    except
+		e => {   file::close_input stream;
+			 raise exception e;
+		     }; end ;
+	}
+	except
+	    io_exceptions::IO { function, name, cause, ... }
+		=> 
+		{    error::error (function + " failed in \"" + name + "\" (" + exception_name cause + ")");
+		     raise exception PARSE_ERROR;
+		}; end ;
+
+
+    fun parse' silent x =  { error::init();   parse_it silent x; };
+    fun load'  silent x =  { error::init();   load_it  silent x; };
+
+    fun parse_string' silent s
+        =
+        parse' silent ("???", file::open_string s);
+
+    parse        =   parse' FALSE;
+    load         =   load' FALSE;
+    parse_string =   parse_string' FALSE;
+};

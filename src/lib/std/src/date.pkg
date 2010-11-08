@@ -1,0 +1,685 @@
+## date.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+###                "July 4. Statistics show that we lose more fools on this
+###                 day than in all the other days of the year put together.
+###                 This proves, by the number left in stock, that one
+###                 fourth of July per year is now inadequate, the country
+###                 has grown so."
+###
+###                                                         -- Mark Twain
+
+
+
+stipulate
+
+    package int   =  int_guts;		# int_guts	is from   src/lib/std/src/bind-int-32.pkg
+    package int32 =  int32_guts;	# int32_guts	is from   src/lib/std/src/int32.pkg
+    package time  =  time_guts;		# time_guts	is from   src/lib/std/src/time-guts.pkg
+
+herein
+
+    package date: (weak)  Date		# Date	is from   src/lib/std/src/date.api
+    {
+	base_year = 1900;			#  The run-time system indexes the year off this. 
+
+	exception BAD_DATE;
+
+	Weekday = MON | TUE | WED | THU | FRI | SAT | SUN;
+
+	Month
+	  = JAN | FEB | MAR | APR | MAY | JUN
+	  | JUL | AUG | SEP | OCT | NOV | DEC
+          ;
+
+	Date
+	    =
+	    DATE { year:    Int,
+		   month:   Month,
+		   day:     Int,
+		   hour:    Int,
+		   minute:  Int,
+		   second:  Int,
+		   offset:  Null_Or( time::Time ),
+		   wday:    Weekday,
+		   yday:    Int,
+		   is_daylight_savings_time:  Null_Or( Bool )
+		 };
+
+	# Tables for mapping integers to days/months:
+	#
+	day_table   = #[SUN, MON, TUE, WED, THU, FRI, SAT];
+	month_table = #[JAN, FEB, MAR, APR, MAY, JUN, JUL, 
+			 AUG, SEP, OCT, NOV, DEC];
+
+	fun day_to_int SUN => 0;
+	    day_to_int MON => 1;
+	    day_to_int TUE => 2;
+	    day_to_int WED => 3;
+	    day_to_int THU => 4;
+	    day_to_int FRI => 5;
+	    day_to_int SAT => 6;
+	end;
+
+	# Careful about this:
+        # the month numbers are 0-11 
+	#
+	fun month_to_int JAN => 0;
+	    month_to_int FEB => 1;
+	    month_to_int MAR => 2;
+	    month_to_int APR => 3;
+	    month_to_int MAY => 4;
+	    month_to_int JUN => 5;
+	    month_to_int JUL => 6;
+	    month_to_int AUG => 7;
+	    month_to_int SEP => 8;
+	    month_to_int OCT => 9;
+	    month_to_int NOV => 10;
+	    month_to_int DEC => 11;
+	end;
+
+	# The tuple type used to communicate with C;
+	# this 9-tuple has the fields:
+	#   tm_sec, tm_min, tm_hour, tm_mday, tm_mon, tm_year,
+	#   tm_wday, tm_yday,
+	#   tm_isdst.
+	#
+	Tm = ((Int, Int, Int, Int, Int, Int, Int, Int, Int));
+
+	# Wrap a C function call with a handler
+        # that maps the SYSTEM_ERROR exception
+        # into BAD_DATE exceptions.
+	#
+	fun wrap f x
+	    =
+	    f x
+	    except
+		_ =  raise exception BAD_DATE;
+
+
+	# NB: make_time assumes the
+        # tm package passed to it reflects
+	# the local time zone.
+
+	my asc_time:  Tm -> String
+	    =
+            wrap (c_interface::c_function "Lib7-Date" "ascTime");
+
+	my local_time' : int32::Int -> Tm
+	    =
+            wrap (c_interface::c_function "Lib7-Date" "localTime");
+
+	my gm_time' : int32::Int -> Tm
+	    =
+            wrap (c_interface::c_function "Lib7-Date" "gmTime");
+
+	my make_time' : Tm -> int32::Int
+	    =
+            wrap (c_interface::c_function "Lib7-Date" "mkTime");
+
+	my strf_time:  ((String, Tm)) -> String
+	    =
+            wrap (c_interface::c_function "Lib7-Date" "strfTime");
+
+	local_time = local_time' o int32::from_large o time::to_seconds;
+	gm_time = gm_time' o int32::from_large o time::to_seconds;
+	make_time = time::from_seconds o int32::to_large o make_time';
+
+	fun year     (DATE { year,   ... } ) =  year;
+	fun month    (DATE { month,  ... } ) =  month;
+	fun day      (DATE { day,    ... } ) =  day;
+	fun hour     (DATE { hour,   ... } ) =  hour;
+	fun minute   (DATE { minute, ... } ) =  minute;
+	fun second   (DATE { second, ... } ) =  second;
+	fun week_day (DATE { wday,   ... } ) =  wday;
+	fun year_day (DATE { yday,   ... } ) =  yday;
+	fun offset   (DATE { offset, ... } ) =  offset;
+
+	fun is_daylight_savings_time (DATE { is_daylight_savings_time, ... } )
+            =
+            is_daylight_savings_time;
+
+
+	# takes two tm's and returns the second tm with 
+	# its dst flag set to the first one's.
+	# Used to compute local offsets 
+	#
+	fun with_dst dst (tm2:  Tm) : Tm
+            =
+	    ( #1 tm2,
+              #2 tm2,
+              #3 tm2,
+              #4 tm2,
+              #5 tm2,
+              #6 tm2,
+              #7 tm2,
+              #8 tm2,
+	      dst
+            );
+
+	fun dst_of (tm:  Tm)
+            =
+            #9 tm;
+
+	fun local_offset' ()
+            =
+            {  t = int32::from_large (time::to_seconds (time::get_current_time_utc ()));
+
+	       t_as_utc_tm =  gm_time'     t;
+	       t_as_loc_tm =  local_time'  t;
+
+	       loc_dst
+                   =
+                   dst_of  t_as_loc_tm;
+
+	       t_as_utc_tm'
+                   =
+                   with_dst
+                       loc_dst
+                       t_as_utc_tm;
+
+	       t' =  make_time'  t_as_utc_tm';
+
+	       time = time::from_seconds o int32::to_large;
+
+	       ( time::(-) (time t', time t),
+                 loc_dst
+               );
+	    };
+
+	local_offset
+             =
+             #1 o local_offset';
+
+
+	# This code is taken from Reingold's paper
+
+	stipulate 
+
+	    quot = int::quot;
+	    not = bool::not;
+
+	    fun sum (f, k, p)
+		= 
+		loop (f, k, p, 0)
+		where
+		    fun loop (f, i, p, acc)
+			=
+			if (not (p i) )   acc;
+			else              loop (f, i+1, p, acc + f i);
+                        fi;
+		end;
+
+	    fun last_day_of_gregorian_month (month, year)
+		=
+		if (month == 1                        
+		and     (int::(%) (year,   4) ==   0)         
+	        and not (int::(%) (year, 400) == 100)
+	        and not (int::(%) (year, 400) == 200)
+		and not (int::(%) (year, 400) == 300)
+		)
+		     29;
+		else
+		     list::nth ([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31], month);
+		fi;
+
+	herein
+
+	    fun to_absolute (month, day, year)
+		=
+		day  
+		+ sum (fn (m) => last_day_of_gregorian_month (m, year); end , 0,
+		       fn (m) => (m<month); end ) 
+		+ 365 * (year - 1)
+		+ quot  (year - 1, 4)
+		- quot  (year - 1, 100)
+		+ quot  (year - 1, 400);
+
+	    fun from_absolute (abs)
+		=
+		{   approx = quot (abs, 366);
+
+		    year  = ( approx
+			      +
+			      sum ( fn _ = 1,
+				    approx, 
+				    fn y =  abs >= to_absolute (0, 1, y+1)
+				  )
+			    );
+
+		    month =   sum ( fn _= 1,
+                                    0,
+				    fn  m =  abs > to_absolute (m, last_day_of_gregorian_month (m, year), year)
+                                  );
+
+		    day = (abs - to_absolute (month, 1, year) + 1);
+
+		    (month, day, year);
+		};
+
+						# inline_t		is from   src/lib/core/init/built-in.pkg	
+
+	    fun wday (month, day, year)
+		=
+		{   abs = to_absolute (month, day, year);
+
+		    inline_t::poly_vector::get (day_table, int::(%) (abs, 7));
+		};
+
+	    fun yday (month, day, year)
+		= 
+		{   abs = to_absolute (month, day, year);
+
+		    days_prior
+			= 
+			365 *  (year - 1)
+			+ quot (year - 1, 4)
+			- quot (year - 1, 100)
+			+ quot (year - 1, 400);
+
+		    abs - days_prior - 1;    #  to conform to ISO standard 
+		};
+	end;
+
+
+	# This function should also canonicalize
+	# the time (hours, etc...)
+	#
+	fun canonicalize_date (DATE d)
+	    = 
+	    {   args = (month_to_int d.month, d.day, d.year);
+
+		my (month_c, day_c, year_c)
+		    =
+		    from_absolute (to_absolute (args));
+
+		yday = yday args;
+		wday = wday args;
+
+		DATE {
+		  year => year_c,
+		  month => inline_t::poly_vector::get (month_table, month_c),
+		  day => day_c,
+		  hour => d.hour,
+		  minute => d.minute,
+		  second => d.second,
+		  offset => d.offset,
+		  is_daylight_savings_time => NULL,
+		  yday,
+		  wday
+		};
+	    };
+
+	fun to_tm (DATE d)
+            =
+            (
+	      d.second,					#  tm_sec 
+	      d.minute,					#  tm_min 
+
+	      d.hour,					#  tm_hour 
+	      d.day,					#  tm_mday 
+
+	      month_to_int d.month,			#  tm_mon 
+	      d.year - base_year,			#  tm_year 
+
+	      day_to_int d.wday,			#  tm_wday 
+	      0,					#  tm_yday 
+
+	      case d.is_daylight_savings_time		#  tm_isdst 
+		  NULL      => -1;
+		  THE FALSE => 0;
+		  THE TRUE  => 1;
+              esac
+	    );
+
+	fun from_tm (tm_sec, tm_min, tm_hour, tm_mday, tm_mon,
+		    tm_year, tm_wday, tm_yday, tm_isdst) offset
+	    =
+	    DATE
+	      {
+		year   => base_year + tm_year,
+		month  => inline_t::poly_vector::get (month_table, tm_mon),
+
+		day    => tm_mday,
+		hour   => tm_hour,
+
+		minute => tm_min,
+		second => tm_sec,
+
+		wday   => inline_t::poly_vector::get (day_table, tm_wday),
+		yday   => tm_yday,
+
+		is_daylight_savings_time
+		    =>
+		    tm_isdst < 0  ??  NULL
+				  ::  THE (tm_isdst != 0),
+
+		offset
+	      };
+
+
+	fun from_time_local t =  from_tm  (local_time t)   NULL;
+	fun from_time_univ  t =  from_tm  (gm_time    t)  (THE time::zero_time);
+
+	fun from_time_offset (t, offset)
+	    =
+	    from_tm (gm_time (time::(-) (t, offset))) (THE offset);
+
+	day_seconds  =  integer_guts::from_int  (24 * 60 * 60);
+	hday_seconds =  integer_guts::from_int  (12 * 60 * 60);
+
+	fun canonical_offset off
+	    =
+	    {
+		offs   = time::to_seconds off;
+		offs'  = offs % day_seconds;
+
+		offs'' = if (offs' > hday_seconds)  offs' - day_seconds;
+			 else                       offs';
+                         fi;
+
+		time::from_seconds offs'';
+	    };
+
+	fun to_time d
+	    =
+	    {   tm = to_tm d;
+
+		case (offset d)
+
+		    NULL
+			=>
+			make_time tm;
+
+		    THE tm_utc_off
+			=>
+			{   tm_utc_off
+				=
+				canonical_offset  tm_utc_off;
+
+			    my (loc_utc_off, loc_dst)
+				=
+				local_offset' ();
+
+			    # Time west of here
+			    # 
+			    tm_loc_off
+				=
+				time::(-) (tm_utc_off, loc_utc_off);
+
+			    # Pretend tm refers to local time,
+			    # then subtract difference between
+			    # dest. and local time:
+			    #
+			    time::(-) (make_time (with_dst loc_dst tm), tm_loc_off);
+			};
+		esac;
+	    };
+
+	fun date { year, month, day, hour, minute, second, offset }
+	    =
+	    {   d = DATE { second,
+			   minute,
+			   hour,
+			   year,
+			   month, 
+			   day,
+			   offset,
+			   is_daylight_savings_time => NULL,
+			   yday => 0,
+			   wday => MON
+                         };
+
+		canonical_date = canonicalize_date d;
+
+		fun internal_date ()
+		    =
+		    case offset
+			NULL    =>  from_time_local  (to_time canonical_date);
+			THE off =>  from_time_offset (to_time canonical_date, off);
+		    esac;
+
+		internal_date ()
+                except
+                    BAD_DATE = d;
+	    };
+
+
+	fun to_string d
+	    =
+	    asc_time (to_tm d);
+
+
+	fun strftime fmt_string d
+	    =
+	    strf_time (fmt_string, to_tm d);
+
+
+	fun scan getc s
+	    =
+	    {   fun getword s
+		    =
+		    number_string::split_off_prefix  char::is_alpha  getc  s;
+
+		fun expect c s f
+		    =
+		    case (getc s)
+
+		       THE (c', s')
+			   =>
+			   if (c == c')   f s';
+			   else           NULL;
+			   fi;
+
+		       NULL => NULL;
+		    esac;
+
+		fun getdig s
+		    =
+		    case (getc s)
+
+			THE (c, s')
+			    =>
+			    if (char::is_digit c)
+				THE (char::to_int c - char::to_int '0', s');
+			    else
+				NULL;
+			    fi;
+
+			NULL => NULL;
+		    esac;
+
+		fun get2dig s
+		    =
+		    case (getdig s)
+
+			THE (c1, s')
+			    =>
+			    case (getdig s')
+
+				THE (c2, s'')
+				    =>
+				    THE (10 * c1 + c2, s'');
+
+				NULL => NULL;
+			    esac;
+
+			NULL => NULL;
+		    esac;
+
+		fun year0 (wday, mon, d, hr, mn, sc) s
+		    =
+		    case (int_guts::scan
+			     number_string::DECIMAL
+			     getc
+			     s)
+
+			THE (yr, s')
+			    =>
+			    THE (date { year => yr,
+					 month => mon,
+					 day => d, hour => hr,
+					 minute => mn, second => sc,
+					 offset => NULL },
+				  s')
+			    except _ = NULL;
+
+			NULL => NULL;
+		    esac;
+
+
+		fun year args s
+		    =
+		    expect ' ' s (year0 args);
+
+
+		fun second0 (wday, mon, d, hr, mn) s
+		    =
+		    case (get2dig s)
+
+			THE (sc, s')
+			    =>
+			    year (wday, mon, d, hr, mn, sc) s';
+
+			NULL => NULL;
+		    esac;
+
+		fun second args s
+		    =
+		    expect ':' s (second0 args);
+
+
+		fun minute0 (wday, mon, d, hr) s
+		    =
+		    case (get2dig s)
+
+			THE (mn, s')
+			    =>
+			    second (wday, mon, d, hr, mn) s';
+
+			NULL => NULL;
+		    esac;
+
+		fun minute args s
+		    =
+		    expect ':' s (minute0 args);
+
+
+		fun time0 (wday, mon, d) s
+		    =
+		    case (get2dig s)
+
+			THE (hr, s')
+			    =>
+			    minute (wday, mon, d, hr) s';
+
+			NULL => NULL;
+		    esac;
+
+
+		fun time args s
+		    =
+		    expect ' ' s (time0 args);
+
+
+		fun mday0 (wday, mon) s
+		    =
+		    case (get2dig s)
+
+			THE (d, s')
+			    =>
+			    time (wday, mon, d) s';
+
+			NULL => NULL;
+		    esac;
+
+
+		fun mday args s
+		    =
+		    expect ' ' s (mday0 args);
+
+
+		fun month0 wday s
+		    =
+		    case (getword s)
+			("Jan", s') =>  mday (wday, JAN) s';
+			("Feb", s') =>  mday (wday, FEB) s';
+			("Mar", s') =>  mday (wday, MAR) s';
+			("Apr", s') =>  mday (wday, APR) s';
+			("May", s') =>  mday (wday, MAY) s';
+			("Jun", s') =>  mday (wday, JUN) s';
+			("Jul", s') =>  mday (wday, JUL) s';
+			("Aug", s') =>  mday (wday, AUG) s';
+			("Sep", s') =>  mday (wday, SEP) s';
+			("Oct", s') =>  mday (wday, OCT) s';
+			("Nov", s') =>  mday (wday, NOV) s';
+			("Dec", s') =>  mday (wday, DEC) s';
+			_ => NULL;
+		    esac;
+
+
+		fun month wday s
+		    =
+		    expect ' ' s (month0 wday);
+
+
+		fun wday s
+		    =
+		    case (getword s)
+			("Sun", s') =>  month SUN s';
+			("Mon", s') =>  month MON s';
+			("Tue", s') =>  month TUE s';
+			("Wed", s') =>  month WED s';
+			("Thu", s') =>  month THU s';
+			("Fri", s') =>  month FRI s';
+			("Sat", s') =>  month SAT s';
+			_ => NULL;
+		    esac;
+
+		wday s;
+	    };
+
+
+	fun from_string s
+	    =
+	    number_string::scan_string scan s;
+
+
+	# Comparison does not take into account the offset.
+	# Thus, it does not compare dates in different time zones:
+	#
+	fun compare (d1, d2)
+	    =
+	    list::collate int::compare (list d1, list d2)
+            where
+	        fun list (DATE { year, month, day, hour, minute, second, ... } )
+		    =
+		    [year, month_to_int month, day, hour, minute, second];
+	    end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

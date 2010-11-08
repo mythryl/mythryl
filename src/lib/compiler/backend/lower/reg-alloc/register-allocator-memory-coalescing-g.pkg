@@ -1,0 +1,681 @@
+## register-allocator-memory-coalescing-g.pkg
+#
+# This module implements the memory coalescing capability of the 
+# register allocator.
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+###       "To the man who only has a hammer in the toolkit,
+###        every problem looks like a nail."
+###
+###                            -- Abraham Maslow
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/lower/x86/codetree/x86-register-allocation-g.pkg
+#     src/lib/compiler/backend/lower/x86/reg-alloc/x86-register-allocation-g.pkg
+
+generic package register_allocator_memory_coalescing_g (
+    flowgraph:  Register_Allocation_Flowgraph		# Register_Allocation_Flowgraph	is from   src/lib/compiler/backend/lower/reg-alloc/ra-flowgraph.api
+)
+
+: (weak) Register_Allocation_Flowgraph			# Register_Allocation_Flowgraph	is from   src/lib/compiler/backend/lower/reg-alloc/ra-flowgraph.api
+
+{
+    package g= register_allocation_graph;		# register_allocation_graph	is from   src/lib/compiler/backend/lower/reg-alloc/ra-graph.pkg
+    package a= rw_vector;				# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+    package w= unt;					# unt				is from   src/lib/std/unt.pkg
+
+    debug = FALSE;
+
+    include g;
+    include register_allocation_core;
+
+    ra_spill_coalescing
+        =
+        low_code_control::make_counter
+            ("ra_spill_coalescing", "RA spill coalesce count");
+    ra_spill_propagation
+        =
+        low_code_control::make_counter
+            ("ra_spill_propagation", "RA spill propagation count");
+
+    stipulate
+
+	fun error msg
+            =
+            lowcode_error_message::error("register_allocation_core", msg);
+
+	fun cat ([], b) => b;
+	    cat (x ! a, b) => cat (a, x ! b);
+        end;
+
+	fun chase (NODE { color=>REF (ALIASED n), ... } ) => chase n;
+	    chase n => n;
+        end;
+
+    herein
+
+	fun is_on (flag, mask)
+            =
+            unt::bitwise_and (flag, mask) != 0u0;
+
+
+	fun is_mem_loc (SPILLED) => TRUE;
+	    is_mem_loc (SPILL_LOC _) => TRUE;
+	    is_mem_loc (MEMREG _) => TRUE;
+	    is_mem_loc _ => FALSE;
+        end;
+
+
+	# Spill coalescing.
+	# Coalesce non-interfering moves between spilled nodes, 
+	# in non-increasing order of move cost.
+	#
+	fun spill_coalesce (GRAPH { bit_matrix, ... } )
+	    =
+	    {   member   =  bm::member *bit_matrix;
+		add_edge =  bm::add    *bit_matrix;
+
+		fn nodes_to_spill
+		    =
+		    coalesce_moves (collect_moves (nodes_to_spill, mv::EMPTY))
+                    where
+
+		        # Find moves between two spilled nodes:
+			# 
+			fun collect_moves ([], mv')
+                                =>
+                                mv';
+
+			    collect_moves (NODE { movelist, color, ... } ! ns, mv')
+                                =>
+                                {   fun ins ([], mv')
+                                            =>
+                                            collect_moves (ns, mv');
+
+				        ins (MOVE_INT { status=>REF (COALESCED | CONSTRAINED), ... } ! mvs, mv')
+                                            => 
+					    ins (mvs, mv');
+
+				        ins((mv as MOVE_INT { dst, src, ... } ) ! mvs, mv')
+                                            =>
+					    {
+						my NODE { color=>REF cd, number=>nd, ... } = chase dst;
+						my NODE { color=>REF cs, number=>ns, ... } = chase src;
+
+						if   (nd==ns)
+                                                    
+                                                     ins (mvs, mv');
+						else 
+						     case (cd, cs)
+						        (MEMREG _, MEMREG _) => ins (mvs, mv');
+							_ => 
+							 if (is_mem_loc cd and is_mem_loc cs )
+							   ins (mvs, mv::add (mv, mv'));
+							 else
+							   ins (mvs, mv');fi;
+                                                      esac;
+						 fi;
+					    };
+                                    end;
+
+			      if   (is_mem_loc  *color)
+                                   ins (*movelist, mv');
+			      else collect_moves (ns, mv'); fi;
+			    };
+                        end;
+
+			# Coalesce moves between two spilled nodes:
+			#
+			fun coalesce_moves (mv::EMPTY)
+                                =>
+                                ();
+
+			    coalesce_moves (mv::TREE (MOVE_INT { dst, src, cost, ... }, _, l, r))
+				=>
+				{   (chase dst) ->  dst as NODE { color=>color_dst, ... };
+
+				    src = chase src;
+
+				    # Make sure that dst has not
+                                    # been assigned a spill location:
+				    # 
+				    my (dst, src)
+                                        =
+				        case *color_dst    SPILLED => (dst, src);
+                                                           _       => (src, dst);
+                                        esac;
+
+				    dst ->  dst as NODE { number=>d, color=>color_dst, adj=>adj_dst, defs=>defs_dst, uses=>uses_dst, ... };
+				    src ->  src as NODE { number=>s, color=>color_src, adj=>adj_src, defs=>defs_src, uses=>uses_src, ... };
+
+				    # Combine adjacency lists:
+				    #
+				    fun union ([], adj_src)
+                                            =>
+                                            adj_src;
+
+				        union((n as NODE { color, adj=>adj_t, number=>t, ... } ) ! adj_dst, adj_src)
+                                            => 
+					    case *color   
+
+					        (SPILLED | MEMREG _ | SPILL_LOC _ | PSEUDO)
+                                                    =>
+						    if (add_edge (s, t) ) 
+						         adj_t := src ! *adj_t;
+                                                         union (adj_dst, n ! adj_src);
+						    else union (adj_dst, adj_src);
+                                                    fi;
+
+					        COLORED _
+                                                    =>
+						    if (add_edge (s, t))  union (adj_dst, n ! adj_src); 
+						    else                  union (adj_dst,     adj_src);
+                                                    fi;
+
+					        _   => union (adj_dst, adj_src);
+                                            esac;
+				    end;
+
+				    mvs = mv::merge (l, r);
+
+				    fun f ()
+                                        = 
+				        {   #  print (int::to_string d + "<->" + int::to_string s + "\n");
+					    ra_spill_coalescing := *ra_spill_coalescing + 1;
+					     #  unify 
+					    color_dst := ALIASED src; 
+					    adj_src := union(*adj_dst, *adj_src);
+					    defs_src := cat(*defs_dst, *defs_src);
+					    uses_src := cat(*uses_dst, *uses_src);
+					    coalesce_moves mvs;
+                                        };
+
+				    if (d == s)
+                                        coalesce_moves mvs;
+				    else 
+					case *color_dst 
+
+					    MEMREG _      => coalesce_moves mvs;
+					    SPILLED       => if (member (d, s))  coalesce_moves mvs; else f();  fi;
+					    SPILL_LOC loc => if (member (d, s))  coalesce_moves mvs; else f();  fi;
+					    _             => error "coalesce_moves";
+					esac;
+				    fi;		      
+				};
+                        end;			# fun coalesce_moves
+                    end;			# where (fn fn nodes_to_spill)
+	    };					# fun spill_coalesce
+
+
+	# Spill propagation.
+	# This one uses a simple local lookahead algorithm.
+	#
+	fun spill_propagation' (ggg as GRAPH { bit_matrix, mem_regs, ... } ) nodes_to_spill
+	    =
+	    {   spill_coalesce = spill_coalesce ggg;
+
+		exception SPILL_PROPAGATION;
+
+		visited
+                    =
+                    int_hash_table::make_table (32, SPILL_PROPAGATION) 
+			       : int_hash_table::Hash_Table(  Bool );
+
+		has_been_visited
+                    =
+                    int_hash_table::find visited;
+
+		has_been_visited
+                    =
+                    fn r =  case (has_been_visited r)
+                              
+                                 NULL  => FALSE;
+				 THE _ => TRUE;
+                            esac;
+
+		mark_as_visited
+                    =
+                   int_hash_table::set  visited;
+
+		member
+                    =
+                    bm::member  *bit_matrix;  
+
+		# compute savings due to spill coalescing.
+		# The move list must be associated with a colorable node.
+		# The pinned flag is to prevent the spill node from coalescing
+		# two different fixed memory registers.
+		#
+		fun coalescing_savings
+		     (node as NODE { number=>me, movelist, pri=>REF spillcost, ... } )
+		    =
+		    {   fun interferes (x,[])
+                                =>
+                                FALSE;
+
+			    interferes (x, NODE { number=>y, ... } ! ns)
+				=> 
+				x == y             or
+				member (x, y)      or
+				interferes (x, ns);
+                        end;
+
+			fun move_savings ([], pinned, total)
+                                =>
+                                (pinned, total+total);
+
+			    move_savings (MOVE_INT { status=>REF (CONSTRAINED | COALESCED), ... } ! mvs, pinned, total)
+                                => 
+			        move_savings (mvs, pinned, total);
+
+			    move_savings (MOVE_INT { dst, src, cost, ... } ! mvs, pinned, total)
+                                =>
+			        {   (chase dst) ->  NODE { number=>d, color=>dst_col, ... };
+				    (chase src) ->  NODE { number=>s, color=>src_col, ... };
+
+				    # How much can be saved by coalescing
+				    # with the memory  location x.
+				    #
+				    fun savings x
+                                        =
+					if (member (d, s)) 
+					    if debug  print "interfere\n"; fi; 
+					    move_savings (mvs, pinned, total);
+					elif (x == -1 ) 
+					    if debug  print (float::to_string cost + "\n"); fi;
+					    move_savings (mvs, pinned, total+cost);
+					elif (pinned >= 0 and pinned != x ) 
+					   # Already coalesced with another mem reg 
+					   if debug  print "pinned\n"; fi;
+					   move_savings (mvs, pinned, total);
+				       else
+					   if debug  print (float::to_string cost + "\n"); fi;
+					   move_savings (mvs, x, total+cost);
+				       fi;
+
+				   if debug  print("Savings " + int::to_string d + " <-> "  + int::to_string s  +  "=");  fi;
+
+				   if (d == s)
+				       if debug  print "0 (trivial)\n"; fi;
+				       move_savings (mvs, pinned, total);
+				   else
+				       case (*dst_col, *src_col)   
+					   (SPILLED, PSEUDO)       => savings (-1);
+					   (MEMREG (m, _), PSEUDO) => savings  (m);
+					   (SPILL_LOC s, PSEUDO)   => savings (-s);
+					   (PSEUDO, SPILLED)       => savings (-1);
+					   (PSEUDO, MEMREG (m, _)) => savings  (m);
+					   (PSEUDO, SPILL_LOC s)   => savings (-s);
+					   _ => { if debug  print "0 (other)\n"; fi;
+						  move_savings (mvs, pinned, total);
+                                                };
+                                       esac;
+                                   fi;
+				};
+                        end;
+
+			# Find initial budget:
+		 	#
+			if debug print("Trying to propagate " + int::to_string me  + " spill cost=" + float::to_string spillcost + "\n"); fi;
+
+			my (pinned, savings)
+                            =
+                            move_savings(*movelist, -1, 0.0);
+
+			budget = spillcost - savings;
+			sss    = [node];
+
+			# Find lookahead nodes:
+		 	# 
+			fun lookaheads ([], l)
+                                =>
+                                l;
+
+			    lookaheads (MOVE_INT { cost, dst, src, ... } ! mvs, l)
+				=>
+				{   (chase dst) ->  dst as NODE { number=>d, ... };
+				    (chase src) ->  src as NODE { number=>s, ... };
+
+				    fun check (n, node as NODE { color=>REF PSEUDO, ... } )
+					    => 
+					    if (n == me or member (n, me))   lookaheads (mvs, l);       
+					    else 				 add (n, node, l, []);
+					    fi; 
+				        check _
+                                            =>
+                                            lookaheads (mvs, l);
+                                    end 
+
+				    also
+                                    fun add (x, x', (lll as (c, n' as NODE { number=>y, ... } )) ! l, l')
+                                            =>
+					    if (x == y)   lookaheads (mvs, (cost+c, n') ! list::reverse_and_prepend (l', l));
+					    else          add (x, x', l, lll ! l');
+                                            fi;
+
+				        add (x, x', [], l')
+                                            => 
+					    lookaheads (mvs, (cost, x') ! l');
+                                    end;
+
+				    if (d == me)   check (s, src);
+                                    else           check (d, dst);
+                                    fi;
+				};
+                        end;
+
+			# Now try to improve it by also
+                        # propagating the lookahead nodes:
+			# 
+			fun improve ([], pinned, budget, sss)
+                                =>
+                                (budget, sss);
+
+			    improve((cost, node as NODE { number=>n, movelist, pri, ... } ) ! l, pinned, budget, sss)
+				=> 
+				if (interferes (n, sss) )
+				    if debug  
+					print ("Excluding " + int::to_string n + " (interferes)\n");
+				    fi;
+				    improve (l, pinned, budget, sss);
+				else
+				    my (pinned', savings) = move_savings(*movelist, pinned, 0.0);
+				    def_use_savings = cost+cost;
+				    spillcost     = *pri;
+				    budget' = budget - savings - def_use_savings + spillcost;
+
+				    if (budget' <= budget)
+				        if debug  print ("Including " + int::to_string n + "\n"); fi;
+					improve (l, pinned', budget', node ! sss);
+				    else
+				        if debug  print ("Excluding " + int::to_string n + "\n"); fi;
+					improve (l, pinned, budget, sss);
+                                    fi;
+				fi;
+                        end;
+
+		        if (budget <= 0.0)   (budget, sss);
+			else                 improve (lookaheads(*movelist, []), pinned, budget, sss);
+                        fi;
+		    };
+
+		#  Insert all spillable neighbors onto the worklist 
+		#
+		fun insert ([], worklist)
+                        =>
+                        worklist;
+
+		    insert((node as NODE { color=>REF PSEUDO, number, ... } ) ! adj, worklist)
+			=>
+			if (has_been_visited number) 
+			     insert (adj, worklist);
+			else mark_as_visited (number, TRUE);
+			     insert (adj, node ! worklist);
+			fi;
+
+		    insert(_ ! adj, worklist)
+                        =>
+                        insert (adj, worklist);
+                end;
+
+		fun insert_all ([], worklist)
+                        =>
+                        worklist;
+
+		    insert_all (NODE { adj, ... } ! nodes, worklist)
+                        => 
+		        insert_all (nodes, insert(*adj, worklist));
+                end;
+
+		marker = SPILLED;
+
+		#  Process all nodes from the worklist 
+		#
+		fun propagate ([], spilled)
+                        =>
+                        spilled;
+
+		    propagate((node as NODE { color=>REF PSEUDO, ... } ) ! worklist, 
+			      spilled)
+			=>
+			{   my (budget, sss) = coalescing_savings (node);
+
+			    fun spill_nodes ([])
+				    =>
+				    ();
+
+				spill_nodes (NODE { color, ... } ! nodes)
+				    => 
+				    { ra_spill_propagation := *ra_spill_propagation + 1;
+				     color := marker; #  spill the node 
+				     spill_nodes nodes;
+				    };
+			    end;
+
+			    if (budget <= 0.0)
+
+			        #  propagate spill 
+				if debug 
+				   print("Propagating ");
+				   apply (fn NODE { number=>x, ... } =  print (int::to_string x + " "))
+				       sss;
+				   print "\n";
+				fi;
+
+				spill_nodes sss;
+
+				#  run spill coalescing 
+				spill_coalesce sss;
+				propagate (insert_all (sss, worklist), list::reverse_and_prepend (sss, spilled));
+			    else
+			        propagate (worklist, spilled);
+                            fi;
+			};
+
+		   propagate (_ ! worklist, spilled)
+                       => 
+		       propagate (worklist, spilled);
+                end;
+
+		# Initialize worklist:
+		#
+		fun init ([], worklist)
+                        =>
+                        worklist;
+
+		    init (NODE { adj, color=>REF (c), ... } ! rest, worklist)
+                        =>
+			if (is_mem_loc (c))   init (rest, insert(*adj, worklist));
+			else                  init (rest,              worklist);
+                        fi;
+                end;
+
+
+		# Iterate between spill coalescing and propagation 
+		#
+		fun iterate (spill_work_list, spilled)
+		    = 
+		    {
+			spill_coalesce spill_work_list;					# Run one round of coalescing first.
+
+			propagation_work_list = init (spill_work_list, []); 
+
+			spilled = propagate (propagation_work_list, spilled);		# Iterate on our own spill nodes.
+			spilled = propagate(*mem_regs, spilled);			# Try the memory registers too. 
+
+		        spilled;
+		    };
+
+	        iterate (nodes_to_spill, nodes_to_spill);
+	    };
+
+
+
+	# Spill coloring.
+	# Assign logical spill locations to all the spill nodes.
+	#
+	# IMPORTANT BUG FIX:
+	#    Spilled copy temporaries are assigned its own set of colors and
+	# cannot share with another other nodes.   They can share colors with 
+	# themselves however.
+	#
+	# spill_loc is the first available (logical) spill location.
+	#
+	fun color_spills (GRAPH { spill_loc, copy_tmps, mode, ... } ) nodes_to_spill
+	    =
+	    {   prohibitions = a::make_rw_vector (length nodes_to_spill, -1);
+
+		first_color  = *spill_loc;
+
+		fun color_copy_tmps (tmps)
+		    =
+		    {   fun spill_tmp (NODE { color as REF (SPILLED), ... }, found)
+                                => 
+			        {   color := SPILL_LOC (first_color);
+                                    TRUE;
+                                };
+
+			    spill_tmp(_, found)
+                                =>
+                                found;
+                        end;
+
+			if   (list::fold_left spill_tmp FALSE tmps)
+			    
+			     spill_loc := *spill_loc + 1;
+			     first_color + 1;
+			else
+			     first_color;
+			fi;
+		    };
+
+		# Color the copy temporaries first:
+		#
+		first_color
+		    = 
+		    if   (is_on (mode, register_allocation_core::has_parallel_copies))
+		        
+			 color_copy_tmps *copy_tmps; 
+		    else
+			 first_color;
+		    fi;
+
+		fun select_color ([], _, last_loc)
+			=>
+			spill_loc := last_loc;
+
+		    select_color (NODE { color as REF (SPILLED), number, adj, ... } ! nodes, 
+				curr_loc, last_loc)
+			=> 
+			{   fun neighbors (NODE { color=>REF (SPILL_LOC s), ... } )
+                                    => 
+				    a::set (prohibitions, s - first_color, number);
+
+				neighbors (NODE { color=>REF (ALIASED n), ... } ) => neighbors n;
+				neighbors _ => ();
+                            end;
+
+			    apply neighbors *adj;
+
+			    fun find_color (loc, starting_pt)
+				=
+				if   (loc == last_loc )                                  find_color (first_color, starting_pt);
+				elif (a::get (prohibitions, loc-first_color) != number)  (loc, last_loc);
+				elif (loc  == starting_pt )                              (last_loc, last_loc+1);
+				else                                                     find_color (loc+1, starting_pt);
+                                fi;
+
+			    my (loc, last_loc)
+                                =
+                                find_color (curr_loc + 1, curr_loc);
+
+
+			    color := SPILL_LOC (loc); #  mark with color 
+			    select_color (nodes, loc, last_loc);
+			};
+
+		    select_color(_ ! nodes, curr_loc, last_loc)
+		        => 
+		        select_color (nodes, curr_loc, last_loc);
+		end;
+
+		# Color the rest of the spilled nodes:
+		# 
+		select_color (nodes_to_spill, first_color, *spill_loc + 1);     
+
+	    };			# fun color_spills
+
+	end;			# stipulate
+
+	package f = flowgraph;
+
+	include f;
+
+	spill_coalescing     = 0ux100;
+	spill_coloring       = 0ux200;
+	spill_propagation    = 0ux400;
+
+
+	# New services that also perform memory allocation 
+	#
+	fun services f
+	    =
+	    {   (f::services f)
+                    ->
+                    { build, spill=>spill_method, block_num, instr_num, program_point };
+
+		# Mark nodes that are immediately aliased to mem regs;
+		# These are nodes that need also to be spilled
+		#
+		fun mark_mem_regs []
+                        =>
+                        ();
+
+		    mark_mem_regs (NODE { number=>r, 
+				     color as REF (ALIASED
+						  (NODE { color=>REF (col), ... } )), ... } ! ns)
+			=>
+			{   case col
+				MEMREG _ =>   color := col;
+				_        =>   ();
+			    esac;
+
+			    mark_mem_regs (ns);
+			};
+
+		    mark_mem_regs(_ ! ns)
+			=>
+			mark_mem_regs ns;
+		end;
+
+
+		# Actual spill phase.  
+		#   Perform the memory coalescing phases first, before doing an 
+		#   actual spill.
+
+		fun spill { graph => graph as GRAPH { mode, ... }, nodes,
+			    copy_instr, spill, spill_src, spill_copy_tmp,
+			    reload, reload_dst, rename_src, cellkind }
+		    =
+		    {   nodes = if (is_on (mode, spill_propagation) )   
+					spill_propagation' graph nodes; else nodes;fi;
+
+			if (is_on (mode, spill_coalescing))   spill_coalesce graph nodes;   fi;
+			if (is_on (mode, spill_coloring  ))   color_spills   graph nodes;   fi;
+			if (is_on (mode, spill_coalescing
+                                      + spill_propagation))   mark_mem_regs        nodes;   fi;
+
+			spill_method
+			  { graph, nodes, copy_instr, spill, spill_src, spill_copy_tmp,
+			    reload, reload_dst, rename_src, cellkind
+                          }; 
+		    };
+
+	       { build, spill, program_point, block_num, instr_num };
+	  };
+}; 									# generic package register_allocator_memory_coalescing_g

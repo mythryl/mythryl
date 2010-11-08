@@ -1,0 +1,222 @@
+## module-path-context.pkg 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typecheck-stuff/typecheckdata.make6
+
+
+
+api Module_Path_Context {
+
+    Context;
+
+    init_context:  Context;
+
+    is_empty:  Context -> Bool;
+
+    enter_open:        (Context, Null_Or( module_path::Module_Stamp )) -> Context;
+    enter_closed:      Context -> Context;
+
+    find_module_path_for_type_constructor:  (Context, module_map::Type_Identifier   ) -> Null_Or( module_path::Module_Path );
+    find_module_path_for_package:           (Context, module_map::Package_Identifier) -> Null_Or( module_path::Module_Path );
+    find_module_path_for_g:           (Context, module_map::Generic_Identifier) -> Null_Or( module_path::Module_Path );
+
+    bind_type_constructor_path:      (Context, module_map::Type_Identifier,    module_path::Module_Stamp) -> Void;
+    bind_module_path:               (Context, module_map::Package_Identifier, module_path::Module_Stamp) -> Void;
+    bind_generic_path:               (Context, module_map::Generic_Identifier, module_path::Module_Stamp) -> Void;
+
+    bind_type_constructor_long_path: (Context, module_map::Type_Identifier,    module_path::Module_Path) -> Void;
+    bind_package_long_path:          (Context, module_map::Package_Identifier, module_path::Module_Path) -> Void;
+    bind_generic_long_path:          (Context, module_map::Generic_Identifier, module_path::Module_Path) -> Void;
+
+};  #  Api GENERIC_EVALUATION_PATH_CONTEXT 
+
+
+package module_path_context:  Module_Path_Context {	# Module_Path_Context	is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path-context.pkg
+
+    stipulate
+
+        package st = stamp;				# stamp			is from   src/lib/compiler/frontend/typecheck-stuff/basics/stamp.pkg
+	package mp = module_path;			# module_path		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path.pkg
+	package mm = module_map;			# module_map		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-map.pkg
+
+    herein
+
+	Path_Map = mm::Uniformly_Typed_Module_Map( mp::Reverse_Module_Path );
+
+	# A package body (pkg decls end) is "closed"
+	# if it is a generic body package.
+        #
+	# The idea is that the elements of a closed package are not
+	# directly referenced from outside the package, so the path dictionary
+	# local to the closed package can be discarded after the package
+	# body is typechecked.
+
+
+	# path_map maps stamps to full module_paths
+        # relative to current generic context.
+        #
+	# Each "closed" package body pushes a new layer:
+        #
+	Context
+	  = EMPTY
+	  | LAYER  {   locals:        Ref( Path_Map ), 
+		         get_context: mp::Module_Path,
+		         bind_context:   mp::Reverse_Module_Path,
+		         outer:         Context
+		     };
+
+	my init_context:  Context = EMPTY;
+
+	fun is_empty (EMPTY:  Context) =>  TRUE;
+	    is_empty _                 =>  FALSE;
+        end;
+
+
+	# Called on entering a closed package scope,
+        # whose elements will not be accessed from
+        # outside (hence the null bindContext):
+        #
+	fun enter_closed  module_path_context
+	    = 
+	    LAYER {   locals       =>  REF (mm::empty_uniformly_typed_module_map),
+		      get_context  =>  mp::null_module_path,
+		      bind_context =>  mp::null_reverse_module_path,
+		      outer        =>  module_path_context
+		  };
+
+
+	# Called on entering an open package scope.
+        # (Claim:  This is always an unconstrained
+        # package decl body.) Our 'module_stamp' is the
+        # Module_Stamp of the package being typechecked:
+        #
+	fun enter_open (EMPTY, _)
+                =>
+                EMPTY;
+
+	    enter_open (module_path_context, NULL)
+                =>
+                module_path_context;
+
+	    enter_open (LAYER { locals, get_context, bind_context, outer }, THE module_stamp)
+		=> 
+		LAYER {   locals,
+			  get_context  => get_context @ [module_stamp],
+			  bind_context => mp::prepend_to_reverse_module_path2 (module_stamp, bind_context),
+			  outer
+		      };
+        end;
+
+
+
+	# Relative (path, ctx) - subtract common prefix of path and ctx from path 
+        #
+	fun relative( [], _ )
+                =>
+                [];
+
+	    relative( module_path, [])
+                =>
+                module_path;
+
+	    relative( p as (x ! rest),  y ! rest')
+		=> 
+		if (mp::module_stamps_are_equal (x, y))   relative (rest, rest');
+		else                                      p;
+                fi;
+        end;
+
+	fun find_module_path_for_id find (   EMPTY,    _   )
+                =>
+                NULL;
+
+	    find_module_path_for_id find (   LAYER { locals, get_context, bind_context, outer },   id   )
+	        =>
+	        case (find (*locals, id))
+		     NULL   => find_module_path_for_id find (outer, id);
+	             THE rp => THE (relative (mp::reverse_module_path_to_module_path rp, get_context));
+                esac;
+        end;
+
+	find_module_path_for_type_constructor =   find_module_path_for_id mm::ufind_type_constructor;
+	find_module_path_for_package          =   find_module_path_for_id mm::ufind_package;
+	find_module_path_for_g          =   find_module_path_for_id mm::ufind_g;
+
+	# Probe (context, stamp) checks whether a stamp has already been bound: 
+	#
+	fun probe find (EMPTY, stamp)
+                =>
+                FALSE;
+
+	    probe find (LAYER { locals, outer, ... }, stamp)
+	        => 
+	        case (find (*locals, stamp))
+		     NULL => probe find (outer, stamp);
+		     _    => TRUE;
+                esac;
+        end;
+
+	fun bind_path (find, insert) (EMPTY, _, _)
+                =>
+                ();
+
+	    bind_path (find, insert) (xx as LAYER { locals, bind_context, ... }, s, ev)
+		=>
+		if (not (probe find (xx, s)))
+
+                     locals := insert ( *locals,
+					 s,
+					 mp::prepend_to_reverse_module_path2 (ev, bind_context)
+				       );
+		fi;
+        end;
+
+	bind_type_constructor_path =   bind_path (mm::ufind_type_constructor, mm::u_insert_type_constructor);
+	bind_module_path           =   bind_path (mm::ufind_package,          mm::u_insert_package);
+	bind_generic_path          =   bind_path (mm::ufind_g,          mm::u_insert_g);
+
+	fun bind_long_path (find, insert) (EMPTY, _, _)
+                =>
+                ();
+
+	    bind_long_path (find, insert)
+			 (xx as LAYER { locals, bind_context, ... }, s, ep)
+		=>
+		if (not (probe find (xx, s)))
+
+                     locals := insert ( *locals,
+					 s,
+					 mp::reverse_and_prepend_to_reverse_module_path (ep, bind_context)
+				       );
+                fi;
+        end;
+
+	bind_type_constructor_long_path =   bind_long_path (mm::ufind_type_constructor, mm::u_insert_type_constructor);
+	bind_package_long_path          =   bind_long_path (mm::ufind_package,          mm::u_insert_package);
+	bind_generic_long_path          =   bind_long_path (mm::ufind_g,          mm::u_insert_g);
+
+    end;		 # Stipulate.
+};			#  package module_path_context 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

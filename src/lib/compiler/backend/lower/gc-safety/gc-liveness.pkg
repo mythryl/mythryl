@@ -1,0 +1,93 @@
+/*
+ * Compute typed liveness information for garbage collection safety
+ */
+generic package GCLiveness
+  (package ir:  LOWCODE_IR
+   package gc:  Garbage_Collector_Type
+   package instruction_properties:  Instruction_Properties
+      sharing instruction_properties::I = ir::I
+  ) : GC_LIVENESS
+{
+
+  package ir  = IR
+  package c   = ir::i::C
+  package control_flow_graph = ir::control_flow_graph
+  package gc  = GC
+  package g   = graph
+  package gc_type_map = GCTypeMap (GC)
+  package r = GCTypeMap
+  package a = rw_vector
+
+  package liveness =
+      Dataflow
+         (package control_flow_graph = control_flow_graph
+          type domain  = r::typemap
+          forward = FALSE
+          bot     = r::empty
+          my  ====     = R::(====)
+          join     = r::joins
+
+          type dataflow_info
+              = 
+              (c::cell -> gc::gctype) * 
+               a::Rw_Vector { liveIn:  r::typemap, liveOut:  r::typemap } 
+
+          fun mk (gcmap, regs)
+              =
+              r::from_list (map (fn r => (r, gcmap r)) regs)
+
+          fun liveOut (gcmap, b as control_flow_graph::BLOCK { id, ... } ) = 
+          let cellset = control_flow_graph::liveOut (b)
+              regs    = c::CellSet::toCellList cellset
+          in  mk (gcmap, regs)
+          end
+
+          defUseR = instruction_properties::defUse c::GP
+          defUseF = instruction_properties::defUse c::FP
+
+          fun scan (gcmap, control_flow_graph::BLOCK { instructions, ... } ) = 
+          let fun loop ([], def, use) = (def, use)
+                | loop (i . is, def, use) =
+                  let my (d1, u1) = defUseR i 
+                      my (d2, u2) = defUseF i 
+                      d = mk (gcmap, d1 @ d2)
+                      u = mk (gcmap, u1 @ u2)
+                      /* print("d="$r::to_string d$" ")
+                      print("u="$r::to_string u$"\n")
+                      print("use-d="$r::to_string (r::kill (use, d))$"\n")*/
+                      use = r::gen (r::kill (use, d), u)
+                      def = r::kill (r::gen (def, d), u)
+                      /*print("def="$r::to_string def$" ")
+                      print("use="$r::to_string use$"\n") */
+                  in  loop (is, def, use) 
+                  end
+          in  loop(*instructions, r::empty, r::empty) end
+
+          fun prologue (_, (gcmap, _)) (b, b') =
+          let my (def, use) = scan (gcmap, b')
+              liveOut   = liveOut (gcmap, b')
+          in  /* print("Liveout("$int::to_string b$")="$r::to_string liveOut$"\n");
+              print("def("$int::to_string b$")="$r::to_string def$"\n");
+              print("use("$int::to_string b$")="$r::to_string use$"\n"); */
+              { input    = liveOut,
+                output   = r::gen (r::kill (liveOut, def), use),
+                transfer = fn liveOut => r::gen (r::kill (liveOut, def), use)
+              }
+          end
+          fun epilogue (_, (_, table)) 
+              { node=(b, _), input=liveOut, output=liveIn } = 
+               (/* print("Livein("$int::to_string b$")="$r::to_string liveIn$"\n");
+                print("Liveout("$int::to_string b$")="$r::to_string liveOut$"\n");*/
+                a::update (table, b,{ liveIn=liveIn, liveOut=liveOut } )
+               ) 
+         )
+
+  fun liveness (IR as g::GRAPH cfg) = 
+  let an = *(control_flow_graph::annotations IR)
+      table = a::rw_vector (cfg.capacity (),{ liveIn=r::empty, liveOut=r::empty } )
+      fun gclookup (c::CELL { an, ... } ) = gc::Garbage_Collector_Type.lookup *an
+      liveness::analyze (IR, (gclookup, table))
+  in  table
+  end
+
+}

@@ -1,0 +1,177 @@
+# Genericized regression testing for valid C code.
+#
+# trans   - function which takes the output of buildRawSyntaxTree (parsed/typechecked c code)
+#           and performs a transformation on it returning an raw_syntax.
+#
+# testDir - the directory where the valid C code lives.
+#
+# outDir  - directory where to place the prettyprinted transformed code.
+#
+# For each C file in the testDir, the following actions are performed
+#
+# - the file is parsed and typechecked
+#
+# - the transformation, trans, is applied to the resulting raw_syntax_tree representation
+#
+# - the transformed raw_syntax_tree is pretty-printed to outDir using the same name as
+#   the file from which it was read.
+#
+# - the original C file and the generated C file are compiled and run with the
+#   results saved in their respective directories.  These output files are then
+#   compared using diff.
+
+
+generic package TestFn (my testDir:  String;
+                my outDir:  String;
+                my trans:  BuildRawSyntaxTree::Raw_Syntax_Tree_Bundle -> raw_syntax::Raw_Syntax_Tree
+	       )
+{
+
+
+    fun isCFile s = 
+	case reverse (explode s) 
+	  of ('c') . ('.') . _ => TRUE
+	   | ('i') . ('.') . _ => TRUE
+	   | _ => FALSE
+
+    fun dirList dir
+	= 
+	{   ds =   winix::file::open_directory_stream dir;
+
+	    fun loop ()
+		=
+		case winix::file::read_directory_entry ds 
+		  of "" => []
+		   | s => if isCFile s   then s . (loop ())
+					 else loop ();
+	    loop ()
+	    before
+		winix::file::close_directory_stream ds;
+	}
+
+    fun spaces n
+	= 
+	{   fun loop 0 a = string::cat a
+	      | loop n a = loop (n - 1) (" " . a);
+
+	    loop n [];
+	}
+
+
+    fun normalize file
+	= 
+	case 15 - (string::size file)
+	  of 0 => file
+	   | n => if n < 0 then string::substring (file, 0, 15)
+		  else file$(spaces n)
+
+    fun prettyprintTrans os file
+	=
+	{   my pinfo as { raw_syntax_tree, tidtab, errorCount, warningCount, ... }
+		=
+		parse_to_raw_syntax_tree::fileToRawSyntaxTree (testDir$"/"$file);
+
+	    raw_syntax_tree =   trans pinfo;
+
+	    fileOs =   file::open (outDir$"/"$file);
+
+	    {   prettyprint_lib::prettyprintToStrm (unparse_raw_syntax::unparse_raw_syntax () tidtab) fileOs raw_syntax_tree;
+
+		(case (errorCount, warningCount) of
+		   (0, 0) => file::write (os, "\t[success]")
+		 | (i, 0) => 
+		     file::write (os, "\t[" + (int::to_string i) + " errors]")
+		 | (0, j) => 
+		     file::write (os, "\t[" + (int::to_string j) + " warnings]")
+		 | (i, j) => 
+		     file::write (os, "\t[" + (int::to_string i) +
+				       " errors (" + (int::to_string j) + "w)]"));
+		file::close fileOs;
+		TRUE;
+	     }
+	     except
+		 _ => {   file::write (os, "\t[failed]");
+			  file::close fileOs;
+			  FALSE;
+		      };
+	}
+
+    fun compileCommand dir file
+	=
+	"cc " + dir + "/" + file + " -o " + dir + "/" + file + ".exe"
+
+    fun compile os file
+	=
+	case winix::process::system (compileCommand testDir file)
+
+	  of 0 => (case winix::process::system (compileCommand outDir file)
+		     of 0 => { file::write (os, "\t[cc succeeded]");    TRUE; }
+		      | _ => { file::write (os, "\t[trans cc failed]"); FALSE;})
+
+	   | _ => {   file::write (os, "\t[orig cc failed]");
+		      FALSE;
+		  }
+
+    fun executeCommand dir file
+	=
+	dir + "/" + file + ".exe > " + dir + "/" + file + ".out"
+
+    fun execute os file
+	=
+	case winix::process::system (executeCommand testDir file)
+	  of 0 => (case winix::process::system (executeCommand outDir file)
+		     of 0 => (file::write (os, "\t[execution succeeded]"); TRUE)
+		      | _ => (file::write (os, "\t[trans execution failed]"); FALSE))
+
+	   | _ => (file::write (os, "\t[orig execution failed]"); FALSE)
+
+    fun compare os file
+	=
+	{   diffCommaind =   "diff " + testDir + "/" + file + ".out " + outDir + "/" + file + ".out";
+
+	    case winix::process::system (executeCommand testDir file)
+	     of 0 =>   { file::write (os, "\t[output the same]");  TRUE;  }
+	      | _ =>   { file::write (os, "\t[output different]"); FALSE; }
+	}
+
+    fun test os file
+	= 
+	{   file::write (os, normalize file);
+	    print ( (normalize file) + "\n" );
+	    file::flush os;
+
+	    if not (prettyprintTrans os file)
+	    then ()
+	    else if not (compile os file)
+		 then ()
+		 else if not (execute os file)
+		      then ()
+		      else if not (compare os file)
+			   then ()
+			   
+
+	   file::write (os, "\n");
+	}
+
+    fun testOne file
+	=
+	test file::stdout file;
+
+    fun testAll ()
+	= 
+	{   os =   file::open (outDir + "/summary");
+
+	    fun loop [] = file::close os
+	      | loop (file . files)
+		    =
+		    {   test os file 
+			except
+			    _ => file::write (os, "FAILED WITH EXTREME PREJUDICE\n");
+
+			loop files;
+		    }
+
+	    loop (dirList (testDir + "/"));
+	}
+}
+

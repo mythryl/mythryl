@@ -1,0 +1,1143 @@
+# x86-register-allocation-g.pkg
+#
+# X86 specific register allocator.
+# This module abstracts out all the nasty RA business on the x86.  
+# So you should only have to write the callbacks.
+#
+#   Here's more some info on the x86 generic.
+# Basically the new generic encapsulates all the features in the
+# x86 register allocator, including things like memory pseudo registers,
+# and the new floating point allocator that maps things onto the %st registers.
+# For floating point, we can also switch between the sethi-ullman mode and 
+# the %st register mode.
+#
+#   Notes on the parameters of the generic: 
+#
+# >   package spill_heuristic:  Register_Allocation_Spill_Heuristics
+#
+#   This should be one of the spill heuristic module like chaitin_spill_heuristic or
+# Command ('i' to return to index):  you can also roll your own.
+#
+# >   package spill:  register_allocation_spill 
+#
+#   This should be either register_allocation_spilling or register_allocator_spilling_with_renaming_g.
+#
+# >   my fast_floating_point:  REF( Bool )
+#
+#    This flag is used to turn on the new x86 fp mode.  The same flag
+#    is also passed to the x86 instruction selection module.
+#
+# >   enum raPhase = SPILL_PROPAGATION | SPILL_COLORING
+#
+#    This enum specifies which additional phases we should run.
+#
+# >   my beforeRA:  flowgraph -> spill_info
+#
+#    This callback is invoked before each call to RA.  The RA may have
+#    to perform both integer and floating point RA.  This is called before
+#    integer RA.   
+#
+#    The callbacks for integer and floating point are separated into
+#    the subpackages 'int' and 'float':
+#
+# >   package int :
+# >   api
+# >      my avail:      List( i::C.cell )
+# >      my dedicated:  List( i::C.cell )
+# >      my memRegs:    List( i::C.cell )
+# >      my phases:     List( raPhase )
+# >      my spillLoc:   spill_info * Ref( Annotations::annotations ) *
+# >                      register_allocation_graph::logical_spill_id -> i::operand
+# >      my spillInit:   register_allocation_graph::interferenceGraph -> Void
+# >   end                 
+#
+#    avail is the list of registers available for allocation
+#    memRegs is the list of memory registers that may appear in the program
+#    phases is a list of additional RA phases.  I recommend turning on 
+#    everything:
+#
+#         [SPILL_PROPAGATION, SPILL_COLORING]
+#
+#    spillInit is called once before spilling occurs.
+#
+#    spillLoc is a callback that maps logical_spill_ids into an x86
+#    effective address.  The list of allocations is from the block in which
+#    the spilled instruction occurs.  The client should keep track of 
+#    existing ids, and allocate a new effective address when a new id occurs.
+#    In general, the client should keep track of a single table of free
+#    spill space for both integer and floating point registers.
+#
+#    Previously, the spill/reload routines have to do special things in the
+#    presence of memory registers, but that stuff is taken care of in the
+#    new module, so all spillLoc has to do is map logical_spill_ids into
+#    effective address.
+#
+# >   package float :
+# >   api
+# >      my avail:      List( i::C.cell )
+# >      my dedicated:  List( i::C.cell )
+# >      my memRegs:    List( i::C.cell )
+# >      my phases:     List( raPhase )
+# >      my spillLoc:   spill_info * Ref( Annotations::annotations ) *
+# >                      register_allocation_graph::logical_spill_id -> i::operand
+# >      my spillInit:  register_allocation_graph::interferenceGraph -> Void
+# >   end   
+#
+#    For floating point, it is similar.
+#
+# >   
+# >      my fastMemRegs:  List( i::C.cell )
+# >      my fastPhases:   List( raPhase )
+#
+#    When fast_floating_point is turned on, we use different parameters:  
+#
+#    avail is set to [%st (0), ..., %st (6)]  
+#    dedicated is set to []
+#    memRegs is set to fastMemRegs
+#
+#    In general, the flow of the module is like this:
+#
+#    ra:
+#         call beforeRA()
+#         integer RA --- call int::spillInit() once if spilling is needed
+#         floating fp RA --- call float::spillInit() once if spilling is needed
+#         if *fast_floating_point then
+#            invoke the module x86_floating_point_code to convert fake %fp registers 
+#            into real %st registers
+#         endif
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ia32.make6
+
+
+
+###                            "An expert is a man who has made
+###                             all the mistakes which can be made
+###                             in a very narrow field."
+###
+###                                             -- Niels Bohr 
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/x86/x86-codegen-g.pkg
+
+generic package  x86_register_allocation_g  (
+
+    package instruction_set:           Instruction_Set_X86;			# Instruction_Set_X86		is from   src/lib/compiler/backend/lower/x86/instruction/instruction-set-x86.api
+
+    package instruction_properties
+        :
+        Instruction_Properties							# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+        where instruction_set == instruction_set;
+
+    package control_flow_graph
+	:
+	Control_Flow_Graph							# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where instruction_set == instruction_set;
+
+    package asm
+        :
+        Instruction_Emitter							# Instruction_Emitter		is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+	where
+              instruction_set == instruction_set
+	also 
+              instruction_stream::pseudo_op
+              ==
+              control_flow_graph::pseudo_op;
+
+    # Spilling heuristics determines which node should be spilled 
+    # You can use Chaitin, ChowHenessey, or one of your own.
+    #
+    package spill_heuristic:  Register_Allocation_Spill_Heuristics; 		# Register_Allocation_Spill_Heuristics	is from   src/lib/compiler/backend/lower/reg-alloc/ra-spill-heuristic.api
+
+
+    # The Spill module figures out the strategies for inserting 
+    # spill code.  You can use register_allocation_spilling_g, or
+    # register_allocator_spilling_with_renaming_g, or write your
+    # own if you are feeling adventurous.
+    #
+    package spill
+	:
+	Register_Allocation_Spilling						# Register_Allocation_Spilling	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-spilling.api
+        where instruction_set == instruction_set; 
+
+
+    Spill_Info;		#  user-defined abstract type 
+
+
+    # Should we use allocate register on the floating point stack? 
+    # Note that this flag must match the one passed to the code generator 
+    # module.
+    #
+    fast_floating_point: Ref( Bool );
+
+    Ra_Phase = SPILL_PROPAGATION 
+             | SPILL_COLORING;
+
+    Spill_Operand_Kind = SPILL_LOC | CONST_VAL;
+
+    # Called before register allocation;
+    # perform your initialization here.
+    #
+    before_ra:  control_flow_graph::Control_Flow_Graph -> Spill_Info;
+
+
+
+    # Integer register allocation parameters 
+    #
+    package int
+    :
+    api {
+        avail:      List(  cells_basis::Cell );
+        dedicated:  List(  cells_basis::Cell );
+        mem_regs:    List(  cells_basis::Cell );
+        phases:     List(  Ra_Phase );
+
+        spill_loc:   { info:  Spill_Info,
+                       ref_notes:    Ref( note::Notes ),
+                       cell:  cells_basis::Cell,				# spilled cell 
+                       id:    register_allocation_graph::Logical_Spill_Id
+                     }
+                     -> 
+                     { operand: instruction_set::Ea,
+                       kind: Spill_Operand_Kind
+                     };
+
+        # This function is called once
+	# before spilling begins:
+	# 
+        spill_init:   register_allocation_graph::Interference_Graph -> Void;
+
+    };   
+
+
+    # Floating point register allocation parameters 
+    #
+    package float
+    :
+    api {
+
+        # Sethi-Ullman mode 
+	#
+        avail:      List(  cells_basis::Cell );
+        dedicated:  List(  cells_basis::Cell );
+        mem_regs:   List(  cells_basis::Cell );
+        phases:     List(  Ra_Phase );
+
+        spill_loc:   (Spill_Info, Ref( note::Notes ), register_allocation_graph::Logical_Spill_Id) 
+		           -> instruction_set::Ea;
+
+        # This function is called once before spilling begins 
+	#
+        spill_init:  register_allocation_graph::Interference_Graph -> Void;
+
+        # When fast_floating_point is on, use these instead: 
+	#
+        fast_mem_regs:  List(  cells_basis::Cell );
+        fast_phases:    List(  Ra_Phase );
+    };
+)
+
+: (weak) Control_Flow_Graph_Optimization		# Control_Flow_Graph_Optimization	is from   src/lib/compiler/backend/lower/flowgraph/cfg-optimization.api
+
+{
+    package control_flow_graph = control_flow_graph;
+    package cells              = instruction_set::cells;
+
+    package i = instruction_set;
+    package c = cells;
+    package cb= cells_basis;	# cells_basis	is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    name = "x86_register_allocation_g";
+
+    Flowgraph = control_flow_graph::Control_Flow_Graph;
+
+    register_allocator_int_spill_count    = low_code_control::make_counter ("register_allocator_int_spill_count",    "RA int spill count");
+    register_allocator_int_reload_count   = low_code_control::make_counter ("register_allocator_int_reload_count",   "RA int reload count");
+    register_allocator_int_rename_count   = low_code_control::make_counter ("register_allocator_int_rename_count",   "RA int rename count");
+
+    register_allocator_float_spill_count  = low_code_control::make_counter ("register_allocator_float_spill_count",  "RA float spill count");
+    register_allocator_float_reload_count = low_code_control::make_counter ("register_allocator_float_reload_count", "RA float reload count");
+    register_allocator_float_rename_count = low_code_control::make_counter ("register_allocator_float_rename_count", "RA float rename count");
+
+    fun inc c
+        =
+        c := *c + 1;
+
+    x86_control_flow_graph_debug_mode
+        =
+        low_code_control::make_bool (
+            "x86_control_flow_graph_debug_mode",
+            "x86 control_flow_graph debug mode"
+        );
+
+    fun error msg
+        =
+        lowcode_error_message::error (
+            "x86_register_allocation_g",
+            msg
+	);
+
+/*
+    deadcode = LowCodeControl::getCounter "x86-dead-code"
+    deadblocks = LowCodeControl::getCounter "x86-dead-blocks"
+ */
+
+    package print_control_flow_graph
+	=
+	print_control_flow_graph_g (
+
+	    package  control_flow_graph
+                =
+                control_flow_graph;
+
+	    package asm =  asm;
+	);
+
+
+    package x86fp
+	= 
+	x86_floating_point_code_g (							# x86_float_point_code_g		is from   src/lib/compiler/backend/lower/x86/codetree/x86-floating-point-code-g.pkg
+
+            package instruction_set  =  i;
+
+	    package x86_instruction_semantic_properties
+                =
+                instruction_properties;
+
+	    package flowgraph =  control_flow_graph;
+	    package liveness  =  liveness_g( control_flow_graph );			# liveness_g				is from   src/lib/compiler/backend/lower/reg-alloc/liveness-g.pkg
+
+	    package asm =  asm;
+	);
+
+    package x86spill_instr
+	=
+	x86_spill_instruction_generation_g (						# x86_spill_instruction_generation_g	is from   src/lib/compiler/backend/lower/x86/reg-alloc/x86-spill-instruction-generation-g.pkg
+	    package instruction_set = i;
+	    package instruction_properties = instruction_properties;
+	);
+
+    spill_finstr  = x86spill_instr::spill cb::FLOAT_REGISTER;
+    reload_finstr = x86spill_instr::reload cb::FLOAT_REGISTER;
+    spill_instr   = x86spill_instr::spill cb::REGISTER;
+    reload_instr  = x86spill_instr::reload cb::REGISTER;
+
+    fun annotate ([], instruction) => instruction;
+	annotate (note ! notes, instruction) => annotate (notes, i::NOTE { note, instruction } );
+    end;
+
+
+
+    # Dead code elimination 
+
+    exception X86_DEAD_CODE;
+
+
+    affected_blocks
+        =
+	int_hash_table::make_table (32, X86_DEAD_CODE) : int_hash_table::Hash_Table(  Bool );
+
+
+    dead_regs
+        =
+	int_hash_table::make_table (32, X86_DEAD_CODE) : int_hash_table::Hash_Table( Bool );
+
+
+    fun remove_dead_code (cfg as graph::GRAPH graph)
+        =
+        {   blocks = graph.nodes ();
+
+	    find = int_hash_table::find  dead_regs;
+
+	    fun is_dead r
+                = 
+		case (find (cb::cell_id r))
+                  
+		   THE _  => TRUE;
+		   NULL   => FALSE;
+                esac;
+
+	    fun is_affected i
+                =
+                the_else (int_hash_table::find affected_blocks i, FALSE);
+
+
+	    fun is_dead_instr (i::NOTE { instruction, ... } ) => is_dead_instr instruction; 
+		is_dead_instr (i::BASE_INSTRUCTION (i::MOVE { dst=>i::DIRECT rd,  ... } )) => is_dead rd;
+		is_dead_instr (i::BASE_INSTRUCTION (i::MOVE { dst=>i::MEM_REG rd, ... } )) => is_dead rd;
+		is_dead_instr (i::COPY { kind => cb::REGISTER, dst => [rd],  ... } )  => is_dead rd;
+		is_dead_instr _ => FALSE;
+            end;
+
+	    fun scan []
+                    =>
+                    ();
+
+		scan  ((blknum,  control_flow_graph::BLOCK { instructions, ... } )  !  rest)
+                    =>
+		    {   if   (is_affected  blknum)
+                             
+			     #  Deadblocks := *deadblocks + 1; 
+
+			     instructions :=   elim (*instructions, []);
+                        fi;
+
+		        scan rest;
+                    };
+            end 
+
+	    also
+            fun elim ([], code) => reverse code;
+
+	        elim (i ! instrs, code)
+                    => 
+	            if   (is_dead_instr i)
+                         
+		         # deadcode := *deadcode + 1;
+
+                         elim (instrs,      code);
+	            else elim (instrs,  i ! code);
+                    fi;
+           end;
+
+	   if   (int_hash_table::vals_count affected_blocks > 0)
+                
+	        scan blocks;
+
+		int_hash_table::clear  dead_regs;
+		int_hash_table::clear  affected_blocks;
+	   fi;
+	};
+
+    # Find out which pseudo memory registers are unused.
+    # Those that are unused are made available for spilling.
+    # The register allocator calls this function right before
+    # spilling  a set of nodes.
+    #
+    first_spill   = REF TRUE;
+    first_fpspill = REF TRUE;
+    #
+    fun spill_init (graph, cb::REGISTER)
+	    => 
+	    if *first_spill
+
+		 first_spill := FALSE;
+
+		 int::spill_init graph;             			# Only do this once! 
+	    fi;
+
+        spill_init (graph, cb::FLOAT_REGISTER)
+	    => 
+	    if *first_fpspill
+
+		 first_fpspill := FALSE;
+
+		 float::spill_init graph;
+	    fi;
+
+       spill_init _
+           =>
+           error "spill_init";
+    end;
+ 
+    # The generic register allocator:
+    #
+    package ra
+        = 
+        register_allocator_g						# register_allocator_g				is from   src/lib/compiler/backend/lower/reg-alloc/register-allocator-g.pkg
+       ( spill_heuristic )
+       (register_allocator_memory_coalescing_g (			# register_allocator_memory_coalescing_g	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocator-memory-coalescing-g.pkg
+          register_allocation_dead_code_elimination_g (     		# register_allocation_dead_code_elimination_g	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-dead-code-elimination-g.pkg
+             cluster_register_allocation_g (				# cluster_register_allocation_g			is from   src/lib/compiler/backend/lower/reg-alloc/cluster-register-allocation-g.pkg
+                package flowgraph = control_flow_graph;
+                package asm = asm;
+                package instruction_properties = instruction_properties;
+                package spill = spill;
+               )
+            )
+            (   fun cellkind cb::REGISTER => TRUE;
+                    cellkind _      => FALSE;
+                end;
+
+		dead_regs = dead_regs;
+		affected_blocks = affected_blocks;
+		spill_init = spill_init;
+            )
+         )
+      );
+
+
+    /* -------------------------------------------------------------------
+     * Floating point stuff 
+     * -------------------------------------------------------------------*/
+    kf32 = length float::avail;
+    package fr32
+        =
+        get_reg_g (							# get_reg_g					is from   src/lib/compiler/backend/lower/reg-alloc/getreg-g.pkg
+            n_regs=kf32; 
+            available=map cb::register_id float::avail;
+            first=cb::register_id (i::cells::st 8);
+        );
+
+    avail_f8 = c::regs cb::FLOAT_REGISTER { from=>0, to=>6, step=>1 };
+    kf8  = length avail_f8;
+
+    package fr8
+        =
+        get_reg_g (							# get_reg_g					is from   src/lib/compiler/backend/lower/reg-alloc/getreg-g.pkg
+            n_regs=kf8;
+            available=map cb::register_id avail_f8;
+            first=cb::register_id (i::cells::st 0);
+        );
+ 
+    /* -------------------------------------------------------------------
+     * Callbacks for floating point K=32 
+     * -------------------------------------------------------------------*/
+    fun fcopy { dst, src, tmp }
+        = 
+	i::COPY { kind => cb::FLOAT_REGISTER, size_in_bits=>64, dst, src, tmp };
+
+    fun copy_instr_f ((rds as [_], rss as [_]), _)
+            =>
+            fcopy { dst=>rds, src=>rss, tmp=>NULL };
+
+	copy_instr_f((rds, rss), i::COPY { kind => cb::FLOAT_REGISTER, tmp, ... } )
+            => 
+	    fcopy { dst=>rds, src=>rss, tmp };
+
+	copy_instr_f (x, i::NOTE { instruction, note } )
+            => 
+	    i::NOTE { instruction=>copy_instr_f (x, instruction), note };
+
+	copy_instr_f _
+            =>
+            error "copy_instr_f";
+    end;
+
+    copy_instr_f
+        =
+        fn x =  [copy_instr_f x];
+ 
+    fun get_freg_loc (s, an, ra::FRAME loc) =>   float::spill_loc (s, an, loc);
+        get_freg_loc (s, an, ra::MEM_REG r) =>   i::FDIRECT r;
+    end;
+
+
+    # Spill floating point 
+    #
+    fun spill_f s { notes=>an, kill, reg, spill_loc, instruction }
+	=
+	spill ([], instruction)
+        where
+
+	    # Preserve annotation on instruction:
+
+	    fun spill (instr_an, i::NOTE { note, instruction } )
+                    =>
+                    spill (note ! instr_an, instruction);
+
+	        spill (instr_an, i::DEAD { regs, spilled } )
+		    => 
+		    { code=>
+		       [annotate
+			 (instr_an, 
+			  i::DEAD { regs=>c::rmv_freg (reg, regs), 
+				  spilled=>c::add_freg (reg, spilled) } )],
+		      prohibitions => [], 
+		      new_reg=>NULL };
+
+	        spill (instr_an, i::LIVE _)
+                    =>
+                    error "spillF: LIVE";
+
+	        spill(_, i::COPY _)
+                    =>
+                    error "spillF: COPY";
+
+	        spill (instr_an, i::BASE_INSTRUCTION _)
+		    => 
+		    {   inc  register_allocator_float_spill_count;
+
+		        spill_finstr  (instruction, reg, get_freg_loc (s, an, spill_loc));
+                    };
+            end;
+	end;
+
+
+    fun spill_freg s { src, reg, spill_loc, notes=>an }
+        = 
+        {   inc  register_allocator_float_spill_count;
+
+	    fstp = [i::fstpl (get_freg_loc (s, an, spill_loc))];
+
+	    if (cb::same_color (src, c::st0))
+	         fstp;
+	    else i::fldl (i::FDIRECT (src)) ! fstp;fi;
+       };
+
+
+    fun spill_fcopy_tmp s { copy=>i::COPY { kind => cb::FLOAT_REGISTER, dst, src, ... }, spill_loc, reg,
+                        notes=>an }
+	    =>
+	    {   inc  register_allocator_float_spill_count;
+
+	        fcopy  { dst, src, tmp=>THE (get_freg_loc (s, an, spill_loc)) };
+	    };
+
+       spill_fcopy_tmp s { copy=>i::NOTE { instruction, note }, spill_loc, reg, notes }
+	   =>
+	   {   instruction = spill_fcopy_tmp s { copy=>instruction, spill_loc, reg,
+					notes };
+
+	       i::NOTE { instruction, note };
+           };
+
+       spill_fcopy_tmp _ _
+           =>
+           error "spillFcopyTmp";
+    end;
+
+
+    fun rename_f { instruction, from_src, to_src }		#  rename floating point 
+        =
+        {   inc  register_allocator_float_rename_count;
+
+            reload_finstr  (instruction, from_src, i::FDIRECT to_src);
+        };
+
+
+
+    # Rload floating point:
+    #
+    fun reload_f s { notes=>an, reg, spill_loc, instruction }
+	=
+	reload([], instruction)
+        where
+	    fun reload (instr_an, i::NOTE { note, instruction } )
+                    =>
+                    reload (note ! instr_an, instruction);
+
+	        reload (instr_an, i::LIVE { regs, spilled } )
+                    => 
+		    {   code => [i::LIVE { regs=>c::rmv_freg (reg, regs), spilled=>c::add_freg (reg, spilled) } ],
+		        prohibitions => [],
+		        new_reg=>NULL
+                    };
+
+	        reload (_, i::DEAD _) => error "reloadF: DEAD";
+	        reload (_, i::COPY _) => error "reloadF: COPY";
+
+	        reload (instr_an, instruction as i::BASE_INSTRUCTION _)
+                    => 
+		    {   inc register_allocator_float_reload_count;
+		        reload_finstr (instruction, reg, get_freg_loc (s, an, spill_loc));
+                    };
+            end;
+	end;
+
+
+    fun reload_freg s { dst, reg, spill_loc, notes=>an }
+        = 
+        {   inc register_allocator_float_reload_count;
+
+            if (cb::same_color (dst, c::st0))
+                 
+                 [i::fldl (get_freg_loc (s, an, spill_loc))];
+            else  
+                 [i::fldl (get_freg_loc (s, an, spill_loc)), i::fstpl (i::FDIRECT dst)];
+            fi;
+        };
+
+
+
+    /* -------------------------------------------------------------------
+     * Callbacks for floating point K=7 
+     * -------------------------------------------------------------------*/
+
+    fun fmem_reg f
+        =
+        {   fx = cb::register_num f;
+
+            if (fx >= 8 and fx < 32)
+                
+                 i::FDIRECT f;
+            else i::FPR     f;  fi;
+        };
+
+
+    fun copy_instr_f'((rds as [d], rss as [s]), _)
+	    =>
+	    i::fmove { fsize=>i::FP64, src=>fmem_reg s, dst=>fmem_reg d };
+
+        copy_instr_f'((rds, rss), i::COPY { kind => cb::FLOAT_REGISTER, tmp, ... } )
+	    => 
+	    fcopy { dst=>rds, src=>rss, tmp };
+
+        copy_instr_f'(x, i::NOTE { instruction, note } )
+	    =>
+	    i::NOTE { instruction=>copy_instr_f'(x, instruction), note };
+
+        copy_instr_f' _
+            =>
+            error "copyInstrF'";
+    end;
+
+
+    copy_instr_f'
+        =
+        fn x =  [copy_instr_f' x];
+
+
+    fun spill_freg' s { src, reg, spill_loc, notes=>an }
+        = 
+        {   inc register_allocator_float_spill_count;
+
+            [i::fmove { fsize=>i::FP64, src=>fmem_reg src, 
+                  dst=>get_freg_loc (s, an, spill_loc) } ];
+        };
+
+
+    fun rename_f'{ instruction, from_src, to_src }
+        =
+        {   inc register_allocator_float_rename_count;
+            reload_finstr (instruction, from_src, i::FPR to_src);
+        };
+
+
+    fun reload_freg' s { dst, reg, spill_loc, notes=>an }
+        = 
+        {   inc register_allocator_float_reload_count;
+
+            [i::fmove { fsize=>i::FP64, dst=>fmem_reg dst, 
+                  src=>get_freg_loc (s, an, spill_loc) } ];
+        };
+ 
+
+    /* -------------------------------------------------------------------
+     * Integer 8 stuff 
+     * -------------------------------------------------------------------*/
+
+    fun copy { dst, src, tmp }
+        =
+        i::COPY { kind => cb::REGISTER, size_in_bits=>32, dst, src, tmp };
+
+    fun mem_to_mem_move { dst, src }
+        =
+        {   tmp = i::cells::new_reg(); 
+
+            [   i::move { mv_op=>i::MOVL, src, dst=>i::DIRECT tmp },
+                i::move { mv_op=>i::MOVL, src=>i::DIRECT tmp, dst }
+            ];
+        };
+
+    fun copy_instr_r ((rds as [d], rss as [s]), _)
+	    =>
+	    if   (cb::same_color (d, s))
+	        
+                 [];
+	    else 
+		 dx =  cb::register_num  d;
+		 sx =  cb::register_num  s;
+
+		 case ( dx >= 8  and  dx < 32,
+                        sx >= 8  and  sx < 32
+                      )
+                   
+		      (FALSE, FALSE) => [copy { dst=>rds, src=>rss, tmp=>NULL } ];
+
+		      (TRUE, FALSE) => [i::move { mv_op=>i::MOVL, src=>i::DIRECT s,
+					     dst=>i::MEM_REG d } ];
+
+		      (FALSE, TRUE) => [i::move { mv_op=>i::MOVL, src=>i::MEM_REG s,
+					     dst=>i::DIRECT d } ];
+
+		      (TRUE, TRUE) => mem_to_mem_move { src=>i::MEM_REG s, dst=>i::MEM_REG d };
+                esac;
+
+            fi;
+
+        copy_instr_r((rds, rss), i::COPY { kind => cb::REGISTER, tmp, ... } )
+	    => 
+	    [copy { dst=>rds, src=>rss, tmp } ];
+
+        copy_instr_r (x, i::NOTE { instruction, note } )
+            => 
+            copy_instr_r (x, instruction); #  XXX 
+
+        copy_instr_r _ => error "copy_instr_r";
+    end;
+      
+
+    fun get_reg_loc (s, ref_notes, cell, ra::FRAME loc)
+            => 
+            int::spill_loc { info=>s, ref_notes, cell, id=>loc };
+
+        get_reg_loc (s, an, cell, ra::MEM_REG r)
+            =>
+            { operand=>i::MEM_REG r, kind=>SPILL_LOC };
+    end;
+
+        #  No, logical spill locations... 
+
+
+    package gr8
+        =
+        get_reg_g (				# get_reg_g		is from   src/lib/compiler/backend/lower/reg-alloc/getreg2-g.pkg
+            n_regs=8; 
+            available=map cb::register_id int::avail;
+            first=0;
+        );
+ 
+    k8 = length int::avail;
+
+
+    #  register allocation for general purpose registers 
+
+    fun spill_r8 s { notes=>an, kill, reg, spill_loc, instruction }
+	=
+	spill([], instruction)
+        where
+	    fun annotate ([], instruction) => instruction;
+	        annotate (note ! notes, instruction) => annotate (notes, i::NOTE { note, instruction } );
+            end;
+
+	    # Preserve annotation on instruction 
+	    #
+	    fun spill (instr_an, i::NOTE { note, instruction } )
+                    =>
+                    spill (note ! instr_an, instruction);
+
+	        spill (instr_an, i::DEAD { regs, spilled } )
+		    => 
+		    { code=>
+			[annotate
+			  (instr_an, 
+			   i::DEAD { regs=>c::rmv_reg (reg, regs), 
+				   spilled=>c::add_reg (reg, spilled) } )],
+		      prohibitions => [], 
+		      new_reg=>NULL
+                    };
+
+	        spill (instr_an, i::LIVE _) => error "spill: LIVE";
+	        spill(_, i::COPY _) => error "spill: COPY";
+
+	        spill (instr_an, i::BASE_INSTRUCTION _)
+		    => 
+		    case (get_reg_loc (s, an, reg, spill_loc) )
+		      
+		         { operand=>spill_loc, kind=>SPILL_LOC }
+                             => 
+			     { inc register_allocator_int_spill_count;
+			       spill_instr (annotate (instr_an, instruction), reg, spill_loc);
+			     }; 
+
+			 _   => #  Don't have to spill a constant 
+			     { code => [], new_reg => NULL, prohibitions => [] };
+                    esac; 
+	    end;
+	end;
+
+
+    fun is_mem_reg  r
+        =
+        {   x = cb::register_num r;
+
+            x >= 8 and x < 32;
+        };
+ 
+
+    fun spill_reg s { src, reg, spill_loc, notes=>an }
+        = 
+        {   inc register_allocator_int_spill_count;
+
+            my { operand=>dst_loc, kind }
+                =
+                get_reg_loc (s, an, reg, spill_loc);
+
+            is_mem_reg = is_mem_reg src;
+
+            src_loc
+                =
+                if is_mem_reg  i::MEM_REG src; else i::DIRECT src;fi;
+
+            if (kind==CONST_VAL or instruction_properties::eq_opn (src_loc, dst_loc) )
+                             [];
+            elif is_mem_reg  mem_to_mem_move { dst=>dst_loc, src=>src_loc };
+            else             [i::move { mv_op=>i::MOVL, src=>src_loc, dst=>dst_loc } ];
+            fi;
+        };
+
+
+    fun spill_copy_tmp s { copy=>i::COPY { kind => cb::REGISTER, src, dst, ... }, 
+                        reg, spill_loc, notes=>an }
+            => 
+            case (get_reg_loc (s, an, reg, spill_loc))   
+
+                { operand=>tmp, kind=>SPILL_LOC }
+                    =>
+                    {   inc register_allocator_int_spill_count;
+                        copy { dst, src, tmp=>THE tmp };
+                    };
+
+                _ => error "spillCopyTmp";
+            esac;
+
+        spill_copy_tmp s { copy=>i::NOTE { instruction, note }, reg, spill_loc, notes }
+            =>
+            i::NOTE { instruction=>spill_copy_tmp s { copy=>instruction, reg, spill_loc,
+                                       notes }, note };
+
+        spill_copy_tmp _ _
+            =>
+            error "spillCopyTmp (2)";
+    end;
+   
+
+    fun rename_r8 { instruction, from_src, to_src }
+        = 
+        {   inc register_allocator_int_rename_count;
+            reload_instr (instruction, from_src, i::DIRECT to_src);
+        };
+
+
+    fun reload_r8 s { notes=>an, reg, spill_loc, instruction }
+        =
+        reload ([], instruction)
+        where
+            fun reload (instr_an, i::NOTE { note, instruction } )
+                    =>
+                    reload (note ! instr_an, instruction);
+
+		reload (instr_an, i::LIVE { regs, spilled } )
+		    => 
+		    { code => [i::LIVE { regs=>c::rmv_reg (reg, regs), spilled=>c::add_reg (reg, spilled) } ],
+		      prohibitions => [],
+		      new_reg => NULL
+                    };
+
+		reload (_, i::DEAD _) =>  error "reload: DEAD";
+		reload (_, i::COPY _) =>  error "reload: COPY";
+
+		reload (instr_an, instruction as i::BASE_INSTRUCTION _)
+		    => 
+		    { inc register_allocator_int_reload_count;
+		      reload_instr (annotate (instr_an, instruction), reg, .operand (get_reg_loc (s, an, reg, spill_loc)));
+		    };
+            end; 
+        end; 
+
+
+    fun reload_reg s { dst, reg, spill_loc, notes=>an }
+        = 
+        {   inc  register_allocator_int_reload_count;
+
+            src_loc =  .operand (get_reg_loc (s, an, reg, spill_loc));
+
+            is_mem_reg =  is_mem_reg dst;
+            dst_loc    =  if is_mem_reg  i::MEM_REG dst; else i::DIRECT dst;fi;
+
+            if (instruction_properties::eq_opn (src_loc, dst_loc) )
+                             [];
+            elif is_mem_reg  mem_to_mem_move { dst=>dst_loc, src=>src_loc };
+            else             [i::move { mv_op=>i::MOVL, src=>src_loc, dst=>dst_loc } ];
+            fi;
+        };
+
+    fun reset_ra ()
+	= 
+	{   first_spill := TRUE;
+	    first_fpspill := TRUE;
+	    int_hash_table::clear affected_blocks; 
+	    int_hash_table::clear dead_regs;
+	    if *fast_floating_point  fr8::reset(); else fr32::reset();fi; 
+	    gr8::reset();
+	};
+
+    # Dedicated + available registers 
+    #
+    stipulate 
+
+	fun mark (arr, _, [], others) => others;
+
+	    mark (arr, len, r ! rs, others)
+		=>
+		{   r = cb::register_id r;
+
+		    if (r >= len)
+                        mark (arr, len, rs, r ! others);
+		    else
+                        rw_vector::set (arr, r, TRUE);
+                        mark (arr, len, rs, others);
+                    fi;
+		};
+        end;
+
+	dedicated_r   =  rw_vector::make_rw_vector (32, FALSE);
+	dedicated_f32 =  rw_vector::make_rw_vector (64, FALSE);
+
+	other_r   =  mark (dedicated_r, 32, int::dedicated, []);
+	other_f32 =  mark (dedicated_f32, 64, float::dedicated, []);
+
+	fun is_dedicated (len, arr, other) r
+	    = 
+	    (r < len and rw_vector::get (arr, r))
+	    or
+	    list::exists 
+		(fn d =   r == d)
+		other;
+    herein
+
+	my is_dedicated_r:    Int -> Bool =   is_dedicated (32, dedicated_r, other_r);
+	my is_dedicated_f32:  Int -> Bool =   is_dedicated (64, dedicated_f32, other_f32);
+	my is_dedicated_f8:   Int -> Bool =   fn _ =  FALSE;
+
+    end;
+
+
+    fun phases ps
+	=
+	f (ps, ra::no_optimization)
+        where
+	    fun f ([],                     m) =>   m;
+	        f (SPILL_PROPAGATION ! ps, m) =>   f (ps, ra::spill_propagation+m);
+	        f (   SPILL_COLORING ! ps, m) =>   f (ps, ra::spill_coloring+m);
+	    end;
+	end;
+
+    #  RA parameters 
+
+
+    # How to allocate integer registers:    
+    # Perform register alocation + memory allocation
+    #
+    fun ra_int sss
+        = 
+	{ spill              =>  spill_r8 sss,
+	  spill_src          =>  spill_reg sss,
+	  spill_copy_tmp     =>  spill_copy_tmp sss,
+
+	  reload             =>  reload_r8 sss,
+	  reload_dst         =>  reload_reg sss,
+	  rename_src         =>  rename_r8,
+
+	  copy_instr         =>  copy_instr_r,
+	  k                  =>  k8,
+	  getreg             =>  gr8::getreg,
+
+	  cellkind           =>  cb::REGISTER,   
+	  dedicated          =>  is_dedicated_r,
+
+	  spill_prohibitions =>  [],
+	  mem_regs           =>  int::mem_regs,
+	  mode               =>  phases (int::phases)
+	}
+        :
+        ra::Register_Allocation_Client;
+
+
+    # How to allocate floating point registers:    
+    # Allocate all fp registers on the stack.  This is the easy way.
+    #
+    fun ra_fp32 sss
+        =
+	{ spill              =>  spill_f sss,
+	  spill_src          =>  spill_freg sss,
+	  spill_copy_tmp     =>  spill_fcopy_tmp sss,
+
+	  reload             =>  reload_f sss,
+	  reload_dst         =>  reload_freg sss,
+	  rename_src         =>  rename_f,
+
+	  copy_instr         =>  copy_instr_f,
+	  k                  =>  kf32,
+	  getreg             =>  fr32::getreg,
+
+	  cellkind           =>  cb::FLOAT_REGISTER,   
+	  dedicated          =>  is_dedicated_f32,
+
+	  spill_prohibitions =>  [],
+	  mem_regs           =>  float::mem_regs,
+	  mode               =>  phases (float::phases)
+	}
+        :
+        ra::Register_Allocation_Client;
+
+    # How to allocate floating point registers:    
+    # Allocate fp registers on the %st stack.
+    # Also perform memory allcoation.
+    #
+    fun ra_fp8 sss
+        =
+	{ spill              =>  spill_f sss,
+	  spill_src          =>  spill_freg' sss,
+	  spill_copy_tmp     =>  spill_fcopy_tmp sss,
+
+	  reload             =>  reload_f sss,
+	  reload_dst         =>  reload_freg' sss,
+	  rename_src         =>  rename_f',
+
+	  copy_instr         =>  copy_instr_f',
+	  k                  =>  kf8,
+	  getreg             =>  fr8::getreg,
+ 
+	  cellkind           =>  cb::FLOAT_REGISTER,   
+	  dedicated          =>  is_dedicated_f8,
+
+	  spill_prohibitions =>  [],
+	  mem_regs           =>  float::fast_mem_regs,
+	  mode               =>  phases (float::fast_phases) 
+	}
+        :
+        ra::Register_Allocation_Client;
+
+    # Two register allocation modes, fast and normal:
+    #
+    fun fast_fp   sss =  [ra_int sss, ra_fp8  sss];
+    fun normal_fp sss =  [ra_int sss, ra_fp32 sss];
+ 
+    # The main register allocation routine:
+    #
+    fun run cluster
+	=
+	{   print_graph
+                = 
+		if   (*x86_control_flow_graph_debug_mode)
+                     
+		     print_control_flow_graph::print_control_flow_graph  *low_code_control::debug_stream;
+		else
+                     fn msg =  fn _ =  ();
+                fi; 
+
+	    sss = before_ra cluster; 
+
+	    reset_ra();
+
+	    # Generic register allocator:
+	    #
+	    cluster = ra::ra
+			  (*fast_floating_point  ??   fast_fp sss   ::   normal_fp sss)
+			  cluster;
+
+	    remove_dead_code cluster;
+
+	    print_graph "\t---After register allocation k=8---\n" cluster;
+
+	    # Run the FP translation phase when fast floating point has
+	    # been enabled
+	    #
+	    cluster
+                = 
+		if   (*fast_floating_point and i::cells::num_cell cb::FLOAT_REGISTER () > 0)
+                     
+		     cluster = x86fp::run cluster;
+		     print_graph "\t---After X86 FP translation ---\n" cluster;
+		     cluster;
+		else
+                     cluster;
+                fi;
+
+	    cluster;
+	};
+};

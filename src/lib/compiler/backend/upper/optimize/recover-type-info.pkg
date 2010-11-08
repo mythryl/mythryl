@@ -1,0 +1,279 @@
+## recover-type-info.pkg 
+## Recover the type information of a closed highcode program 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+
+###               "Honesty is for the most part
+###                less profitable than dishonesty."
+###
+###                                -- Plato
+
+
+
+api Recover_Type_Info {
+
+   recover_type_info:  ((anormal::Program, Bool)) -> 
+                  { get_lty: anormal::Value -> anormal::Highcode_Type,
+                   clean_up: Void -> Void,
+		   add_lty: ((anormal::Highcode_Variable, anormal::Highcode_Type)) -> Void };
+};
+
+package recover_type_info: (weak)  Recover_Type_Info {
+
+    stipulate
+
+	package lt = highcode;		# highcode		is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package di = debruijn_index;	# debruijn_index	is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+
+	include anormal;
+
+    herein
+
+	fun bug s
+	    =
+	    error_message::impossible ("Recover_Type_Info: " + s);
+
+
+	fun lt_inst (lt, ts)
+	    =
+	    case (lt::instantiate_polymorphic_lambda_or_higher_order_constructor_type (lt, ts))
+
+		 [x] => x;
+		 _   => bug "unexpected case in ltInst";
+	    esac;
+
+	# These two functions are applicable to the types of primops and data
+	# constructors only (ZHONG)
+
+	fun arglty (lt, ts)
+	    = 
+	    {   my (_, atys, _)
+                    =
+                    lt::ltd_arrow (lt_inst (lt, ts));
+
+		case atys
+
+		     [x] =>  x;
+		     _   =>  bug "unexpected case in arglty";
+		esac;
+	    };
+
+	fun reslty (lt, ts)
+	    =
+	    {   my (_, _, rtys)
+		    =
+		    lt::ltd_arrow (lt_inst (lt, ts));
+
+		case rtys
+
+		     [x] => x;
+		     _   => bug "unexpected case in reslty";
+		esac;
+	    };
+
+	exception RECOVER_LTY;
+
+	fun recover_type_info (fdec, post_rep)
+	    =
+	    {   my zz:  int_hash_table::Hash_Table( Highcode_Type )
+		    =
+		    int_hash_table::make_table (32, RECOVER_LTY);
+
+	      get  = int_hash_table::get  zz;
+	      addv = int_hash_table::set   zz;
+
+	      fun addvs vts
+                  =
+                  apply addv vts;
+
+	      fun getlty (VAR v             ) =>  get v;
+		  getlty (INT _   | WORD   _) =>  lt::ltc_int;
+		  getlty (INT32 _ | WORD32 _) =>  lt::ltc_int32;
+		  getlty (REAL             _) =>  lt::ltc_real;
+		  getlty (STRING           _) =>  lt::ltc_string;
+              end;
+
+	      lt_nvar_cvt = lt::lt_nvar_cvt_fn();
+
+	      #  loop:  depth -> Lambda_Expression -> List( Highcode_Type )
+	      #	
+	      fun loop e
+		  = 
+		  lpe e
+                  where
+
+		      fun lpv u = getlty u;
+
+		      fun lpvs vs = map lpv vs;
+
+		      fun lpd (fk, f, vts, e)
+			  = 
+			  {    addvs vts;
+			       addv (f, lt::ltc_fkfun (fk, map #2 vts, lpe e));
+			  }
+
+		      also
+		      fun lpds (fds as ((fk as { is_recursive=>THE _, ... }, _, _, _) ! _))
+			      =>
+			      {   fun h ((fk as { is_recursive=>THE (rts, _), ... }, 
+					 f, vts, _) : Function_Declaration)
+					  => 
+					  addv (f, lt::ltc_fkfun (fk, map #2 vts, rts)); 
+
+				      h _ => bug "unexpected case in lpds";
+				  end; 
+
+				  apply h fds;
+
+				  apply lpd fds;
+			      };
+
+			 lpds [fd] => lpd fd;
+			 lpds _ => bug "unexpected case 2 in lpds";
+                      end 
+
+		      also
+		      fun lpc (DATACON((_, _, lt), ts, v), e)
+                              => 
+			      {   addv (v, arglty (lt, ts));
+                                  lpe e;
+                              };
+
+			  lpc (_, e)
+                              =>
+                              lpe e;
+                      end 
+
+		      also
+		      fun lpe (RET vs)
+                              =>
+                              lpvs vs;
+
+			  lpe (LET (vs, e1, e2))
+                              => 
+			      {   addvs (paired_lists::zip (vs, lpe e1));
+                                  lpe e2;
+                              };
+
+			  lpe (MUTUALLY_RECURSIVE_FNS (fdecs, e))
+                              =>
+                              {   lpds fdecs;
+                                  lpe e;
+                              };
+
+			  lpe (APPLY (u, vs))
+                              =>
+                              #2 (lt::ltd_fkfun (lpv u));
+
+			  lpe (TYPE_FN((tfk, v, tvks, e1), e2))
+                              => 
+			      {   addv (v, lt::lt_nvpoly (tvks, loop e1));
+			          lpe e2;
+                              };
+
+			  lpe (TYPE_APPLY (v, ts))
+                              =>
+                              lt::instantiate_polymorphic_lambda_or_higher_order_constructor_type (lpv v, ts);
+
+			  lpe (RECORD (rk, vs, v, e))
+                              => 
+			      {   addv (v, lt::ltc_rkind (rk, lpvs vs));
+                                  lpe e;
+                              };
+
+			  lpe (SELECT (u, i, v, e))
+                              => 
+			      {   addv (v, lt::ltd_rkind (lpv u, i));
+                                  lpe e;
+                              };
+
+			  lpe (CONSTRUCTOR((_, _, lt), ts, _, v, e))
+                              => 
+			      {   addv (v, reslty (lt, ts));
+                                  lpe e;
+                              };
+
+			  lpe (SWITCH(_, _, ces, e))
+                              =>
+			      {   lts = map lpc ces;
+
+			          case e      NULL  =>  head lts;
+					      THE e =>  lpe e;
+                                  esac;
+			     };
+
+			  lpe (RAISE (_, lts)) => lts;
+			  lpe (EXCEPT (e, _)) => lpe e;
+
+			  lpe (BRANCH (p, _, e1, e2))
+                              => 
+			      {   lpe e1;
+			          lpe e2;
+			      };
+
+			  lpe (PRIMOP((_, highcode_primitive_op::WCAST, lt, []), _, v, e))
+			     => 
+			      if   (post_rep)
+
+				   case (lt::ltd_fct lt)
+
+					([_],[r]) =>  { addv (v, r); lpe e;};
+					_         =>  bug "unexpected case for WCAST";
+				   esac;
+			      else
+				   bug "unexpected primitive_operation WCAST in recover_type_info";
+			      fi;
+
+			  lpe (PRIMOP((_, _, lt, ts), _, v, e))
+			      => 
+			      {   addv (v, reslty (lt, ts));
+                                  lpe e;
+                              };
+		      end;
+
+
+		end; #  while (fun transform)
+
+		my (fkind, f, vts, e) = fdec;
+
+		addvs vts;
+		atys = map #2 vts;
+
+		rtys = loop e;
+		addv (f, lt::ltc_fkfun (fkind, atys, rtys));
+
+		{ get_lty  =>  getlty,
+		  clean_up =>  fn () = int_hash_table::clear zz,
+		  add_lty  =>  addv
+		};
+
+	    };	#  function recover_type_info 
+    end;	#  stipulate
+};		#  package recover_type_info 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

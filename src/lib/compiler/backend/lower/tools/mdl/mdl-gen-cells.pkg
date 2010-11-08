@@ -1,0 +1,262 @@
+
+# Generate the <architecture>_cells package.
+# This package contains various information about the register
+# properties of the architecture.
+
+
+
+###                      "Mathematics is the music of reason."
+###
+###                               -- James Joseph Sylvester 
+
+
+
+generic package MDLGenCells (Comp:  Mdl_Compile) : Mdl_Gen_Module =
+pkg
+
+   package raw_syntax  = Comp::raw_syntax
+   package Comp = Comp
+   package r    = Comp::Rewriter
+
+   use raw_syntax Comp::Util
+
+   NO = r::noRewrite
+
+   SZty          = IDty (IDENT([], "cells_basis::size"))
+   REGISTER_IDty = IDty (IDENT([], "cells_basis::register_id"))
+   showFunType  = FUNty (REGISTER_IDty, STRINGty)
+   showWithSizeFunType = FUNty (TUPLEty[REGISTER_IDty, SZty], STRINGty)
+
+   fun gen md =
+   let #  name of the package 
+       strName = Comp::strname md "_cells"  
+       sigName = Comp::signame md "_Cells"
+
+       #  All cell kinds 
+       cellKinds = Comp::cells md
+
+       /* Process */ 
+       fun process ([], r) = r
+         | process (CELLdecl { id, from, to, count, ... } . ds, r) =
+           let count = case count of NULL => 0 | THE c => c
+           in  from := r;
+               to   := r + count - 1;
+               process (ds, r+count)
+           end
+  
+       firstPseudo = process (cellKinds, 0)
+            
+
+       #  All cell kind names 
+       cellKindNames = map (fn CELLdecl { id, ... } => id) cellKinds
+
+       allCellKindNames = cellKindNames 
+
+       #  Cellkinds that has to be put into the cellset 
+       /* cellSets = Comp::cellSets md
+          cellSets' = Comp::cellSetsAliases md
+
+       cellSetNames = map (fn CELLdecl { id, ... } => id) cellSets
+        */
+
+       clientDefinedCellKinds = 
+           list::filter (fn CELLdecl { id, ... } => 
+              not (lowcode_definitions::isPredefinedCellKind id)) cellKinds
+
+       #  locations 
+       locations = Comp::locations md
+
+
+       #  Functions showXXX 
+       showFunSig = 
+            VALSIGdecl (map (fn k => "show"$k) cellKindNames, showFunType)
+       showWithSizeFunSig = 
+            VALSIGdecl (map (fn k => "show"$k$"WithSize") 
+                       cellKindNames, showWithSizeFunType)
+       showWithSizeFuns =
+           let fun shift (from, to) e = 
+                   if *from == 0 then e
+                   else LET([MY("r",
+                           IF_EXPRESSION (APPLY("<=", TUPLEexp[ID "r", INT_CONSTANT_IN_EXPRESSION *to]),
+                                 APPLY("-", TUPLEexp[ID "r", INT_CONSTANT_IN_EXPRESSION *from]),
+                                 ID "r"))], e)
+           in  FUNdecl(
+                map (fn CELLdecl { id, from, to, print, ... } =>
+                 FUNbind("show"$id$"WithSize",
+                  [CLAUSE([TUPLEpat[IDpat "r", IDpat "type"]],
+                          NULL,    
+                           (APPLY_EXPRESSION (print, TUPLEexp[ID "r", ID "type"])))]))
+                    cellKinds)
+           end
+
+       showFuns = 
+           SEQdecl (map (fn CELLdecl { id, from, to, print, bits, ... } =>
+               FUN("show"$id, IDpat "r",
+                       APPLY("show"$id$"WithSize", TUPLEexp[ID "r", INT_CONSTANT_IN_EXPRESSION bits])))
+                          cellKinds)
+   
+       #  Functions addXXX 
+       addFunType = FUNty (TUPLEty[REGISTERty, CELLSETty], CELLSETty)
+       addFunSig = VALSIGdecl (map (fn s => "add"$s) 
+                                  cellKindNames, addFunType)
+       addFun  = VALdecl
+             (map (fn k => NAMED_VARIABLE (IDpat("add"$k),
+                               IDexp (IDENT(["CellSet"], "add"))))
+                             cellKindNames)
+
+       #  Client defined cellkinds 
+       clientDefinedCellKindsSig = 
+           VALSIGdecl (map (fn CELLdecl { id, ... } => id) clientDefinedCellKinds,
+                      IDty (IDENT([], "cells_basis::cellkind")))
+       fun createCellKind (CELLdecl { id, nickname, ... } ) =
+             NAMED_VARIABLE (IDpat id, 
+                APPLY_EXPRESSION (IDexp (IDENT(["cells_basis"], "newCellKind")),
+                       RECORD_EXPRESSION[("name", STRING_CONSTANT_IN_EXPRESSION id), 
+                                 ("nickname", STRING_CONSTANT_IN_EXPRESSION nickname)]))
+           
+       clientDefinedCellKindsDecl = 
+           VALdecl (map createCellKind clientDefinedCellKinds)
+
+       None = ID "NULL" 
+       newCounter = APPLY("REF", INT_CONSTANT_IN_EXPRESSION 0)
+
+
+       nonAliasedCellKinds = 
+           list::filter (fn CELLdecl { alias=NULL, ... } => TRUE
+                        | CELLdecl _ => FALSE) cellKinds
+
+       fun kindName k = 
+           if lowcode_definitions::isPredefinedCellKind k
+           then IDexp (IDENT(["cells_basis"], k))
+           else ID k
+
+ 
+       #  Generate descriptor for a cellkind 
+       fun mkDesc (CELLdecl { from, to, id, nickname, defaults, ... } ) = 
+       let zeroReg = 
+              list::fold_right (fn ((r, LITexp (INTlit 0)), _) => APPLY("THE", INT_CONSTANT_IN_EXPRESSION r)
+                          | (_, d) => d) None defaults
+           defaultValues = 
+               LISTexp (map (fn (r, v) => TUPLEexp[INT_CONSTANT_IN_EXPRESSION (r + *from), v])
+                           defaults, NULL) 
+
+           count = int::max (*to - *from + 1, 0)
+
+           physicalRegs = APPLY("REF", ID("cells_basis::array0"))
+           expression = 
+             APPLY("cells_basis::DESC",
+               RECORD_EXPRESSION[("low",           INT_CONSTANT_IN_EXPRESSION(*from)),
+                         ("high",          INT_CONSTANT_IN_EXPRESSION(*to)),
+                         ("kind",          kindName id),
+                         ("defaultValues", defaultValues),
+                         ("zeroReg",       zeroReg),     
+                         ("to_string",       ID("show"$id)),
+                         ("toStringWithSize", ID("show"$id$"WithSize")),
+                         ("counter",          newCounter),
+			 ("dedicated",	      newCounter),
+                         ("physicalRegs",     physicalRegs)
+                        ]
+              )
+       in  NAMED_VARIABLE (IDpat("desc_"$id), expression) 
+       end
+
+       fun mkKindDesc (CELLdecl { alias=NULL, id, ... } ) = 
+               TUPLEexp[kindName id, ID("desc_"$id)]
+         | mkKindDesc (CELLdecl { alias=THE x, id, ... } ) = 
+               TUPLEexp[kindName id, ID("desc_"$x)]
+
+       #  Create cells_basis 
+       applyCellsCommon =
+           PACKAGE_DECL("MyCells",[], NULL,
+             APPsexp (IDsexp (IDENT([], "_cells")),
+               DECLsexp
+               [@@@["exception CELLS = "$strName,
+                  "firstPseudo = 256"
+                 ],
+                VALdecl (map mkDesc nonAliasedCellKinds),
+                MY("cellKindDescs", LISTexp (map mkKindDesc cellKinds, NULL))
+               ]))
+
+       #  User defined locations 
+       /*
+       locationsSig = 
+            map (fn LOCbind (id, NULL, _) => VALSIGdecl([id], REGISTERty)
+                  | LOCbind (id, THE _, _) =>
+                     VALSIGdecl([id], FUNty (INTty, REGISTERty)))
+                locations
+       */
+
+       /* stackptrR, asmTmpR, and fasmTmpR are in the common Cells
+	* interface, so we do not include them in the architecture interface
+	* as well -- or we would have a duplicate specification error.
+	*/
+       locationsSig = let
+	 fun locs (LOCbind("stackptrR", _, _) . rest) = locs rest
+	   | locs (LOCbind("asmTmpR", _, _) . rest) = locs rest
+	   | locs (LOCbind("fasmTmp", _, _) . rest) = locs rest
+	   | locs (LOCbind (id, NULL, _) . rest) = VALSIGdecl([id], REGISTERty) . locs rest
+	   | locs (LOCbind (id, THE _, _) . rest) =
+	       VALSIGdecl([id], FUNty (INTty, REGISTERty)) . locs rest
+	   | locs [] = []
+       in
+         locs locations
+       end
+
+       locationsFun0 =
+           VALdecl (map (fn CELLdecl { id, ... } =>
+                        NAMED_VARIABLE (IDpat("Reg"$id), APPLY("Reg", ID id)))
+                          cellKinds)
+
+       locationsFun =
+       let fun mkLoc e =
+           let fun expression _ (LOCexp (id, e, _)) =
+                   let my CELLdecl { id, ... } = Comp::lookupCellKind md id
+                   in  APPLY("Reg"$id, e)
+                   end 
+                 | expression _ e = e
+           in  .expression (r::rewrite { expression=exp, sexp=NO, decl=NO, type=NO, pattern=NO } ) e
+           end
+       in
+            map (fn LOCbind (id, NULL, e) => MY (id, mkLoc e)
+                  | LOCbind (id, THE p, e) => 
+                        MY (id, LAMBDAexp[CLAUSE([p], NULL, mkLoc e)]))
+                locations
+       end
+
+       fun set k = ID("set"$k)
+
+       /* body of api */ 
+       sigBody = 
+          [@@@["include Cells"],
+           clientDefinedCellKindsSig,
+           showFunSig,
+           showWithSizeFunSig,
+           SEQdecl locationsSig,
+           addFunSig
+          ]
+                        
+       /* body of package */ 
+       strBody = 
+           [@@@["exception "$strName,
+              "fun error msg = lowcode_error_message::error(\""$strName$"\", msg)",
+	      "use cells_basis"
+             ],
+            showWithSizeFuns,
+            showFuns,
+            clientDefinedCellKindsDecl,
+            applyCellsCommon,
+            @@@["use MyCells"],
+            addFun,
+            locationsFun0,
+            SEQdecl locationsFun,
+            Comp::declOf md "_cells"
+           ] 
+  
+   in  
+       Comp::codegen md "instruction/cells" 
+        [Comp::make_api md "_Cells" sigBody,
+         Comp::make_package md "_cells" sigName strBody]
+
+   end
+
+end

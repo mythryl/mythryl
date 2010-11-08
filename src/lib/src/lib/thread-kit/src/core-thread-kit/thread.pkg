@@ -1,0 +1,383 @@
+## thread.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+stipulate
+    package tr =  thread_scheduler_is_running;		# thread_scheduler_is_running	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler-is-running.pkg
+    package ts =  thread_scheduler;			# thread_scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    package tt =  internal_threadkit_types;		# internal_threadkit_types	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+herein
+
+    package thread: (weak)
+    api {
+	include Thread;					# Thread			is from   src/lib/thread-kit/src/core-thread-kit/thread.api
+	default_exception_handler:  Ref (Exception -> Void);
+	reset:  Bool -> Void;
+    }
+
+    {
+	exception THREAD_SCHEDULER_NOT_RUNNING;
+
+	Thread                   ==  tt::Thread;
+	Condition_Variable       ==  tt::Condition_Variable;
+	Condition_Variable_State ==  tt::Condition_Variable_State;
+
+	Mailop(X) = tt::Mailop(X);
+
+	stipulate
+
+	    tid_count = REF 0;
+
+	    fun cvar ()
+		=
+		CONDITION_VARIABLE (REF (CVAR_UNSET []));
+	herein
+
+	    fun reset running
+		=
+		{   tid_count := 0;
+		    ts::reset running;
+		};
+
+	    fun exception_handler (x:  Exception)
+		=
+		();
+
+	    default_exception_handler
+		=
+		REF exception_handler;
+
+	    fun make_thread name
+		=
+		{   n = *tid_count;
+
+		    tid_count := n+1;
+
+		    THREAD
+		      { name,
+			thread_id         =>  n,
+			did_mail          =>  REF FALSE,
+			exception_handler =>  REF *default_exception_handler,
+			properties        =>  REF [],
+			dead              =>  cvar ()
+		      };
+		};
+
+	end;
+
+	fun same_thread ( THREAD { thread_id => id1, ... },
+                          THREAD { thread_id => id2, ... }
+                        )
+	    =
+	    id1 == id2;
+
+	fun compare_thread ( THREAD { thread_id => id1, ... },
+                             THREAD { thread_id => id2, ... }
+                           )
+	    =
+	    int::compare (id1, id2);
+
+	fun hash_thread (THREAD { thread_id, ... } )
+	    =
+	    unt::from_int  thread_id;
+
+	fun thread_to_name (THREAD { name, ... } )
+	    =
+	    name;
+
+	thread_to_string
+	    =
+	    tt::thread_to_string;
+
+	fun notify_and_dispatch (THREAD { dead, ... } )
+	    =
+	    {   ts::disable_thread_switching ();
+		mailop::atomic_cvar_set dead;
+		ts::reenable_thread_switching_and_dispatch_next_thread ();
+	    };
+
+	fun do_handler (THREAD { exception_handler, ... }, exn)
+	    =
+	    *exception_handler exn
+	    except
+		_ = ();
+
+    /** Eventually, this should be:
+
+	fun make_thread' name f x
+	    =
+	    id
+	    where
+	      ts::disable_thread_switching ();
+	      id = make_thread name;
+	      fun thread ()
+		  =
+		  (   (f x)
+		      except
+			  ex =  do_handler (id, ex);
+
+		      notify_and_dispatch id;
+		  );
+
+		fate::callcc
+		  (fn parentK
+		      =
+		      ( ts::enqueue_and_switch_current_thread (parentK, id);
+			ts::reenable_thread_switching ();
+			fate::throw (fate::isolate thread) ();
+		      )
+		  );
+	      end;
+     **/
+
+	fun make_thread' name f x
+	    =
+	    {   ts::disable_thread_switching ();
+
+		id = make_thread  name;
+
+		fate::call_with_current_fate
+		    (fn parent_fate
+			=
+			{   ts::enqueue_and_switch_current_thread (parent_fate, id);
+			    ts::reenable_thread_switching ();
+
+			    f x
+			    except
+				ex =  do_handler (id, ex);
+
+			    notify_and_dispatch id;
+			}
+		    );
+		id;
+	    };
+
+
+	fun make_thread name f
+	    =
+	    make_thread' name f ();
+
+
+	fun thread_death_mailop  (THREAD { dead, ... } )
+	    =
+	    mailop::cvar_get_mailop  dead;
+
+
+	fun get_current_thread ()
+	    =
+	    if *tr::thread_scheduler_is_running    ts::get_current_thread ();
+	    else                                   raise exception THREAD_SCHEDULER_NOT_RUNNING;
+	    fi;
+
+
+	fun get_current_thread's_name ()
+	    =
+	    thread_to_name (get_current_thread ())
+            except
+		THREAD_SCHEDULER_NOT_RUNNING
+		    =
+		    "[no thread]";
+		    #
+		    # When thread_scheduler is not running
+		    # get_thread() returns garbage		XXX BUGGO FIXME
+		    # and using that result will SEGV us.
+		    #
+		    # We return a dummy value here (rather
+		    # than letting the exception propagate)
+		    # for the convenience of tracing.pkg
+		    # logging.
+
+	fun get_current_thread's_id ()
+	    =
+	    {
+		(get_current_thread ())
+		    ->
+		    THREAD { thread_id, ... };
+
+		thread_id;
+	    }
+            except
+		THREAD_SCHEDULER_NOT_RUNNING
+		    =
+		    0;
+		    #
+		    # See comments to get_current_thread's_name (), above.
+
+
+
+	fun thread_done ()
+	    =
+	    {   my (tid as THREAD { properties, ... } )
+		    =
+		    get_current_thread ();
+
+		properties := [];
+
+		notify_and_dispatch  tid;
+	    };
+
+
+	fun yield ()
+	    =
+	    fate::call_with_current_fate
+		(fn fate
+		    =
+		    {   ts::disable_thread_switching  ();
+			ts::reenable_thread_switching_and_yield_to_next_thread  fate;
+		    }
+		);
+
+	# Thread-local data 
+	#
+	stipulate
+
+	    fun make_property ()
+		=
+		{   exception EXCEPTION  X; 
+
+		    fun cons (a, l)
+			=
+			EXCEPTION a ! l; 
+
+		    fun peek []                =>  NULL;
+			peek (EXCEPTION a ! _) =>  THE a;
+			peek (_ ! l)           =>  peek l;
+		    end;
+
+		    fun delete []                =>  [];
+			delete (EXCEPTION a ! r) =>  r;
+			delete (x ! r)           =>  x ! delete r;
+		    end;
+
+		    { cons, peek, delete };
+		};
+
+	    fun make_bool ()
+		=
+		{   exception EXCEPTION;
+
+		    fun peek [] => FALSE;
+			peek (EXCEPTION ! _) => TRUE;
+			peek (_ ! l) => peek l;
+		    end;
+
+		    fun set (l, flag)
+			=
+			set (l, [])
+			where
+			    fun set ([], _)             =>  if flag  EXCEPTION ! l; else l;fi;
+				set (EXCEPTION ! r, xs) =>  if flag  l; else list::reverse_and_prepend (xs, r);fi;
+				set (x ! r, xs)         =>  set (r, x ! xs);
+			    end;
+			end;
+
+		    { set, peek };
+		};
+
+	    fun get_properties ()
+		=
+		{   my THREAD { properties, ... }
+			=
+			get_current_thread ();
+
+		    properties;
+		};
+
+	herein
+
+	    fun make_per_thread_property (init:  Void -> Y)
+		=
+		{   my { peek, cons, delete }
+			=
+			make_property (); 
+
+		    fun peek_fn ()
+			=
+			peek (*(get_properties ()));
+
+		    fun get_f ()
+			=
+			{   h = get_properties ();
+
+			    case (peek *h)
+
+				THE b => b;
+
+				NULL  => {   b = init ();
+					     h := cons (b, *h);
+					     b;
+					 };
+			    esac;
+			};
+
+		    fun clr_f ()
+			=
+			{   h = get_properties ();
+
+			    h := delete *h;
+			};
+
+		    fun set_fn x
+			=
+			{   h =  get_properties ();
+
+			    h :=  cons (x, delete *h);
+			};
+
+		    { peek  => peek_fn,
+		      get   => get_f,
+		      clear => clr_f,
+		      set   => set_fn
+		    };
+		};
+
+	    fun make_boolean_per_thread_property ()
+		=
+		{   my { peek, set }
+			=
+			make_bool ();
+
+		    fun get_f ()
+			=
+			peek(*(get_properties ()));
+
+		    fun set_f flag
+			=
+			{   h = get_properties ();
+
+			    h := set (*h, flag);
+			};
+
+		    { get => get_f,
+		      set => set_f
+		    };
+		};
+
+	end;					# stipulate
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

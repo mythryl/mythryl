@@ -1,0 +1,722 @@
+## thread-scheduler.pkg
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+# This module implements the scheduling queues and preemption
+# mechanisms.
+
+
+###                   "Fill the unforgiving minute with
+###                    sixty seconds worth of distance run"
+###
+###                                  -- Rudyard Kipling
+
+
+stipulate
+    package q   =  threadkit_queue;				# threadkit_queue		is from   src/lib/thread-kit/src/core-thread-kit/threadkit-queue.pkg 
+    package r   =  internal_threadkit_types;			# internal_threadkit_types	is from   src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package sig =  signals;					# signals			is from   src/lib/std/src/nj/signals.pkg
+    package it  =  interval_timer;				# interval_timer		is from   src/lib/std/src/nj/interval-timer.pkg
+herein
+
+    package thread_scheduler: (weak) Thread_Scheduler {		# Thread_Scheduler		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.api
+
+	Fate(X)
+	    =
+	    fate::Fate(X);
+
+	call_with_current_fate =  fate::call_with_current_fate;
+	resume_fate            =  fate::resume_fate;
+
+	# Conditionally write strings to tracing.log or whatever.
+	# Normally we'd write here
+	#
+	#     trace =  tr::print_if  tr::make_trace_tree_leaf { parent => tr::all_tracing, name => "thread_scheduler_tracing" };
+	#
+	# but that produces a package cycle, so instead we set up a
+	# refcell with a dummy initial value that we backpatch in
+	#
+	#     src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+	#
+	my trace_backpatchfn:   Ref( (Void -> String) -> Void )    =   REF (fn _ = ());
+	#
+	fun trace printfn =  *trace_backpatchfn  printfn;
+	    #
+	    # To debug via tracelogging, annotate the code with lines like
+	    #
+	    #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+
+
+	# Some utility functions that should be inlined 
+	#
+	fun reverse ([], rl) => rl;
+	    reverse (x ! rest, rl) => reverse (rest, x ! rl);
+	end;
+
+	Thread = r::Thread;
+
+	# The current thread is represented using a dedicated register.
+	# This is a real register on RISC architectures but a memory location
+	# on the register-starved x86 architecture -- see current_thread_ptr in src/lib/compiler/codegen/x86/x86-fps-registers.pkg
+	#
+	my get_current_thread:  Void -> Thread =  unsafe::get_current_thread_register;	# CALLING THIS (AND USING RETURN VALUE) WHEN THREAD SCHEDULER IS NOT RUNNING CAN SEGV!! XXX BUGGO FIXME
+	my set_current_thread:  Thread -> Void =  unsafe::set_current_thread_register;
+
+	# The scheduler defines three fate "hooks":
+	#
+	#   scheduler_hook	-- This points to a fate that gets dispatched
+	#			   when a thread attempts to exit a critical
+	#			   section and there is a signal pending.
+	#                      It is invoked after re-enabling thread scheduling,
+	#			   which is to say, after leaving the critical section.
+	#
+	#   pause_hook	-- This points to a fate that gets invoked when
+	#			   there is nothing else to do.
+	#
+	#   shutdown_hook	-- This points to a fate that gets invoked when
+	#			   the system is deadlocked, or when
+	#
+	#                          run_threadkit::exit_threadkit
+	#
+	#			   is called.  It takes two arguments: the first is a
+	#			   boolean flag that says whether to do clean-up and
+	#			   the second is the integer exit status ala unix.
+	#
+	fun bogus _
+	    =
+	    raise exception FAIL "should never see this ";
+
+	my bogus_hook:  Fate( Void )
+	    =
+	    fate::make_isolated_fate bogus;
+
+	my bogus_shutdown_hook:  Fate( (Bool, winix::process::Status) )
+	    =
+	    fate::make_isolated_fate bogus;
+
+	scheduler_hook = REF bogus_hook;
+	pause_hook     = REF bogus_hook;
+	shutdown_hook  = REF bogus_shutdown_hook;
+
+
+	# The dummy thread Id.
+	#
+	# This is used when an ID is needed
+	# to get the types right:
+	#
+	dummy_thread
+	    =
+	    r::THREAD
+	      {
+		name      =>  "thread_scheduler dummy",
+		thread_id =>  -1,
+		did_mail  =>  REF FALSE,
+		#
+		exception_handler => REF (fn _ = ()),
+		#
+		properties        => REF [],
+		dead              => r::CONDITION_VARIABLE (REF (r::CVAR_UNSET []))
+	      };
+
+	# The error thread.
+	# This thread is used to trap attempts
+	# to run threadkit without proper initialization 
+	# (i.e., via RunTHREADKIT).  This thread is
+	# enqueued by reset.
+	#
+	error_thread
+	    =
+	    r::THREAD
+	      {
+		name       =>  "thread_scheduler error imp",
+		thread_id  =>  -2,
+
+		did_mail   =>  REF FALSE,
+		properties =>  REF [],
+		dead       =>  r::CONDITION_VARIABLE (REF (r::CVAR_UNSET [])),
+
+		exception_handler => REF (fn _ = ())
+	      };
+
+	my  error_cont:  Fate( Void )
+	    =
+	    fate::make_isolated_fate 
+		(fn _ = {   threadkit_debug::say_debug "**** Must do run_threadkit() before using threadkit concurrency support. ****\n";
+			    raise exception FAIL "threadkit not initialized";
+			}
+		 );
+
+	# Thread mail activity tracking.
+	#
+	# We use this to attempt to distinguish
+	# interactive foreground threads from
+	# CPU-bound background threads, with the
+	# idea of increasing system responsiveness
+	# by giving scheduling priority to foreground
+	# threads:
+	#
+	fun set_mail_flag   (r::THREAD { did_mail, ... } ) =   did_mail := TRUE;
+	fun clear_mail_flag (r::THREAD { did_mail, ... } ) =   did_mail := FALSE;
+	fun thread_did_mail (r::THREAD { did_mail, ... } ) =  *did_mail;
+
+	# The thread ready queues:
+	#
+	#    foreground_ready_queue:
+	#
+	#        This is for interactive foreground jobs
+	#        needing prompt servicing.
+	#
+	#    background_ready_queue:
+	#
+	#        This is for CPU-intensive jobs not needing
+	#        quick response.
+	#
+	# In practice we consider a job to be 'I/O bound' if
+	# we see it do a mail op in a given timeslice, otherwise
+	# we consider it to be CPU bound.  We guarantee the
+	# 'I/O bound' jobs half the available cycles.
+	#
+	#
+	my (foreground_ready_queue as r::THREADKIT_QUEUE { rear=>rear1, ... } )
+	    #
+	    : q::Threadkit_Queue( (r::Thread, Fate( Void )) )
+	    =
+	    q::make_threadkit_queue ();
+
+	my background_ready_queue:   q::Threadkit_Queue( (r::Thread, Fate( Void )) )
+	    =
+	    q::make_threadkit_queue ();
+
+
+	# Enqueue a ready thread 
+	#
+	fun enqueue p
+	    =
+	    rear1 := p ! *rear1;
+	#
+	fun set_mail_flag_and_enqueue (p as (id, _))
+	    =
+	    {   set_mail_flag id;
+		rear1 := p ! *rear1;
+	    };
+
+	enqueue_thread = set_mail_flag_and_enqueue;
+
+	# Enqueue the current thread, and make the
+	# given thread ID be the current one.
+	#
+	fun enqueue_and_switch_current_thread (resume, thread)
+	    =
+	    {   set_mail_flag_and_enqueue (get_current_thread(), resume);
+		set_current_thread thread;
+	    };
+
+	# Dequeue a thread from the queue
+	# for 'I/O bound' threads:
+	#
+	fun dequeue_io_bound_thread ()
+	    =
+	    case foreground_ready_queue
+
+		r::THREADKIT_QUEUE { front => REF [], rear => REF [] }
+		    =>
+		    dequeue_cpu_bound_thread ();
+
+		r::THREADKIT_QUEUE { front as (REF []), rear as (REF l) }
+		    =>
+		    {   my (x ! r) =  reverse (l, []);
+
+			front := r;
+			rear  := [];
+
+			x;
+		    };
+
+		r::THREADKIT_QUEUE { front as (REF (x ! r)), ... }
+		    =>
+		    {   front := r;
+			x;
+		    };
+	    esac
+
+
+	# Remove a thread from the queue
+	# for 'cpu-bound' threads.
+	#
+	# We assume the 'io-bound' thread queue is empty:
+	#
+	also
+	fun dequeue_cpu_bound_thread ()
+	    =
+	    case background_ready_queue
+
+		r::THREADKIT_QUEUE { front => REF [], rear => REF [] }
+		    =>
+		    (dummy_thread, *pause_hook);
+
+		r::THREADKIT_QUEUE { front as REF [], rear as REF l }
+		    =>
+		    {   rear  := [];
+			front := reverse (l, []);
+			dequeue_cpu_bound_thread ();
+		    };
+
+		r::THREADKIT_QUEUE { front as REF (item ! r), ... }
+		    =>
+		    {   front := r;
+			item;
+		    };
+	    esac;
+
+
+	# Promote a thread from the
+	# 'cpu-bound' queue to the
+	# 'io-bound'  queue:
+	#
+	fun promote ()
+	    =
+	    case (q::next background_ready_queue)
+		#
+		THE x =>  enqueue x;
+		NULL  =>  ();
+	    esac;
+
+
+	# Global flag for implementing critical sections,
+	# which is to say, enabling and disabling thread switching.
+	#
+	Scheduler_State = MULTI_THREAD | MONO_THREAD | SIGNAL_PENDING;
+	#
+	scheduler_state = REF MULTI_THREAD;
+
+	# Note, the first thing the scheduler hook
+	# does is an disable_thread_switching,
+	# so we do not need to clear scheduler_state here:
+	#
+	fun dispatch_scheduler_hook ()
+	    =
+	    resume_fate  *scheduler_hook ();
+
+    /*
+	fun enqueueSchedulerHook () =  let
+	      myfate
+		=
+		call_with_current_fate (fn fate  => (
+		call_with_current_fate (fn fate' => resume_fate  fate  fate');
+					dispatchSchedulerHook ()))
+
+	      my r::THREADKIT_QUEUE { front, ... } = rdyQ1
+	      in
+		front := (dummyTid, myfate) ! *front
+	      end
+    */
+
+	fun disable_thread_switching ()
+	    =
+	    scheduler_state := MONO_THREAD;
+
+	# Exit a critical section.
+	#
+	# NOTE: There is a race condition between
+	# the test of the scheduler_state flag and the
+	# setting of it to MULTI_THREAD, but this is
+	# not a problem in practice, because there
+	# are no garbage collector tests between these
+	# and thus no preemption, due to the runtime
+	# system's implementation of preemption:
+	#
+	fun reenable_thread_switching ()
+	    =
+	    case *scheduler_state
+
+		SIGNAL_PENDING
+		    =>
+		    call_with_current_fate
+			(
+			 fn fate
+			    =
+			    {   enqueue (get_current_thread(), fate);
+
+				dispatch_scheduler_hook ();
+			    }
+			);
+
+		_ => scheduler_state := MULTI_THREAD;
+	    esac;
+
+	fun reenable_thread_switching_and_dispatch_next_thread ()
+	    =
+	    case *scheduler_state
+
+		SIGNAL_PENDING
+		    =>
+		    dispatch_scheduler_hook ();
+
+	       _ => {   my (id, fate)
+			    =
+			    dequeue_io_bound_thread ();
+
+			set_current_thread  id;
+
+			scheduler_state :=  MULTI_THREAD;
+
+			resume_fate fate ();
+		    };
+	    esac;
+
+	fun dispatch_next_thread ()
+	    =
+	    {   disable_thread_switching ();
+		reenable_thread_switching_and_dispatch_next_thread ();
+	    };
+
+	fun reenable_thread_switching_and_switch_to_thread (tid, fate, x)
+	    =
+	    call_with_current_fate (
+
+		fn current_fate
+		    =
+		    {   case *scheduler_state
+
+			    SIGNAL_PENDING
+				=> 
+				call_with_current_fate
+				    (
+				     fn fate'
+					=
+					{   enqueue (tid, fate');
+					    enqueue (get_current_thread(), current_fate);
+					    dispatch_scheduler_hook ();
+					}
+				);
+
+			    _   =>      {   enqueue_and_switch_current_thread
+						(current_fate, tid);
+
+					    scheduler_state := MULTI_THREAD;
+					};
+			esac;
+
+			resume_fate  fate  x;
+		    }
+	    );
+
+	fun reenable_thread_switching_and_yield_to_next_thread
+		fate
+	    =
+	    {   set_mail_flag_and_enqueue  (get_current_thread (),  fate);
+
+		reenable_thread_switching_and_dispatch_next_thread ();
+	    };
+
+	# Create a temporary thread (with dummy ID)
+	# to run the given function and then exit.
+	# The thread is placed on the front of the
+	# scheduling queue.
+	#
+	fun enqueue_tmp_thread f
+	    =
+	    {
+		# We should do this, but the overhead
+		# is too high right now:      XXX BUGGO FIXME
+		#
+    #	    myfate = fate::make_isolated_fate f
+		#	
+		# so instead we do this:
+		#
+		myfate
+		    =
+		    call_with_current_fate
+			(fn fate
+			    =
+			    {   call_with_current_fate
+				    (fn fate' = resume_fate  fate  fate');
+
+				f ()
+				except
+				    _ = ();
+
+				dispatch_next_thread ();
+			    }
+			);
+
+		foreground_ready_queue
+		    ->
+		    r::THREADKIT_QUEUE { front, ... };
+
+		front
+		    :=
+		    (dummy_thread, myfate) ! *front;
+	    };
+
+	my default_hook:  Fate( Void )
+	    =
+	    fate::make_isolated_fate
+		#
+		dispatch_next_thread;
+
+
+
+
+	cached_approximate_time
+	    =
+	    REF (NULL:   Null_Or( time::Time ));
+	    #
+	    # The point of this variable is
+	    # to make the current system time
+	    # available to threads without
+	    # having them all constantly making
+	    # expensive system calls to find out
+	    # the time.
+	    #
+	    # The idea is to cache the current time
+	    # (when known) and just re-use it through
+	    # the end of the current timeslice. 
+	    #
+	    # It is cleared to NULL at the end
+	    # of each timeslice.
+	    #
+	    # When get_approximate_time is called,
+	    # it just returns the value of this
+	    # variable if set, otherwise it makes
+	    # the required system call and caches
+	    # the result in this variable before
+	    # returning it.
+
+							# Time		is from   src/lib/std/src/time.api
+							# time		is from   src/lib/std/time.pkg
+							# time_guts	is from   src/lib/std/src/time-guts.pkg
+	# Return an approximation of the
+	# current time of day. This is at
+	# least as accurate as the time quantum:
+	#
+	fun get_approximate_time ()
+	    =
+	    case *cached_approximate_time
+
+		THE time
+		    =>
+		    time;
+
+		NULL =>
+		    {   time =  time::get_current_time_utc ();
+
+			cached_approximate_time
+			    :=
+			    THE time;
+
+			time;
+		    };
+	    esac;
+
+	fun preempt  current_fate		#  preempt the current thread (i.e. 'with fate k). 
+	    =
+	    {   current_thread = get_current_thread();
+		current_p   = (current_thread, current_fate);
+
+		if (thread_did_mail  current_thread)
+
+		    clear_mail_flag  current_thread;
+		    promote ();
+		    enqueue current_p;
+		else
+		    q::enqueue (background_ready_queue, current_p);
+		fi;
+	    };
+
+
+	# This is the function which
+	# drives timeslicing.  It is
+	# invoked at (typically) 50Hz
+	# by the posix ALRM signal.
+	#
+	# (Note: The runtime does
+	# not call us when the signal
+	# is actually received, but
+	# rather at the next garbage
+	# collection check point, when
+	# the state of the heap is
+	# well defined.)
+	#
+	# RETURN VALUE:
+	# We return the fate ("continuation")
+	# to be run on completion of handling
+	# this signal.
+	#     Our 'fate' argument is the code
+	# that was running when the alarm_handler
+	# interrupted it, so we can resume the
+	# interrupted thread simply by returning
+	# this fate.
+	#     Alternatively we may switch threads
+	# by returning the fate corresponding to
+	# some other ready-to-run thread.
+	#
+	fun alarm_handler
+            ( _,			# Int -- signal number, in this case for SIGALRM.
+              _,			# Int -- count of times SIGALRM has happened since our last call, from   CSigHandler   in   src/runtime/machine-dependent/unix-signal.c
+             current_fate		# Fate ("continuation") which was interrupted to run us.
+            )
+	    =
+	    {
+		# We keep cached_approximate_time
+		# accurate to one time quantum.
+		#
+		# Since we just started
+		# a new timeslice we
+		# clear it -- we no longer
+		# know what time it is:
+		#	
+		cached_approximate_time
+		    :=
+		    NULL;
+
+		case   *scheduler_state
+		    #	      
+		    MULTI_THREAD
+			=>
+			{   # Put current thread to sleep
+			    # and give someone else a chance
+			    # to run:
+			    #
+			    preempt current_fate;
+			    *scheduler_hook;		# Invoke scheduler thread, which will then select next user thread to run.
+			};
+
+		    MONO_THREAD
+			=>
+			{
+			    # We're in a critical section
+			    # (in plain English: thread switching
+			    # is disabled), so we cannot preempt
+			    # the currently running thread.
+			    #
+			    # So instead we make a note to
+			    # preempt the current thread
+			    # as soon as it exits the
+			    # critical section (which is to
+			    # say, re-enables thread switching)
+			    # and then continue running the
+			    # current thread:
+			    #
+			    scheduler_state := SIGNAL_PENDING;
+			    current_fate;
+			};
+
+		    _   =>   current_fate;
+		esac;
+	    };
+
+
+	# By default we time-slice at 20ms (50Hz),
+	# but the user can change this via the
+	# run_threadkit time quantum argument:
+	#
+	default_time_quantum
+	    =
+	    time::from_milliseconds 20;
+
+
+	time_quantum
+	    =
+	    REF default_time_quantum;
+
+
+
+
+	fun start_timer  new_time_quantum
+	    =
+	    {   new_time_quantum
+		    =
+		    time::(<) (time::zero_time, new_time_quantum)
+			##
+			??      new_time_quantum
+			::  default_time_quantum;
+
+		time_quantum
+		    :=
+		    new_time_quantum;
+
+		sig::set_signal_handler
+		    (
+		      sig::alarm_signal,
+		      sig::HANDLER alarm_handler
+		    );
+
+		it::set_interval_timer (THE new_time_quantum);
+
+		();
+	    };
+
+
+	fun stop_timer ()
+	    =
+	    {
+		it::set_interval_timer  NULL;
+
+		sig::set_signal_handler
+		    (sig::alarm_signal, sig::IGNORE);
+
+		();
+	    };
+
+
+	fun restart_timer ()
+	    =
+	    start_timer *time_quantum;
+
+
+	# Reset various pieces of state 
+	#
+	fun reset running
+	    =
+	    {   set_current_thread  dummy_thread;
+
+		pause_hook     := bogus_hook;
+		shutdown_hook  := bogus_shutdown_hook;
+
+		scheduler_hook := default_hook;
+
+		cached_approximate_time
+		    :=
+		    NULL;
+
+		q::reset  foreground_ready_queue;
+		q::reset  background_ready_queue;
+
+		if (not running)
+		    #
+		    enqueue_thread (error_thread, error_cont);
+		fi;
+	   };
+
+						      my _ =
+	reset FALSE;
+
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

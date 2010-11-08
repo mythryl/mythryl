@@ -1,0 +1,668 @@
+# ast-pp.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/tools/sml-ast.make6
+
+# Pretty printer for the Raw_Syntax
+# 
+# Allen Leung (leunga@cs.nyu.edu)
+
+
+
+###                      "We build too many walls and not enough bridges."
+###
+###                                              -- Isaac Newton 
+
+
+
+generic package  mdl_raw_syntax_prettyprinter_g (
+
+    raw_syntax_stuff:  Mdl_Ast_Util			# Mdl_Ast_Util			is from   src/lib/compiler/backend/lower/tools/fake-sml-ast/ast-util.api
+)
+
+: (weak) Mdl_Ast_Prettyprinter				# Mdl_Ast_Prettyprinter		is from   src/lib/compiler/backend/lower/tools/fake-sml-ast/ast-pp.api
+
+{
+    package raw_syntax
+	=
+	raw_syntax_stuff::raw_syntax;
+
+							# lowcode_prettyprinter		is from   src/lib/compiler/backend/lower/tools/prettyprint/lowcode-prettyprinter.pkg
+
+    include lowcode_prettyprinter;
+    include raw_syntax;
+    include mdlerror;
+
+
+    infix val +++ ;
+
+    fun error msg = mdlerror::error("error while processing " + msg);
+
+    good_break = nl'(5, 3); #  if over column 75, tab and indent by 3 
+    good_fun_break = nl'(5, 3); #  if over column 75, tab and indent by 3 
+
+    comma = !! ", ";
+    semi = !! "; ";
+    cons = !! "::";
+    dot  = !! ".";
+    list = seq(!! "[", comma+++good_break,!! "]");
+    tuple = seq(!! "(", comma+++good_break,!! ")");
+    vector = seq(!! "#[", comma+++good_break,!! "]");
+    record = seq(!! "{ ", comma+++good_break,!! " }");
+    bars = seq (settab, nl'(5, 0) +++ tab' -2 +++ !"|" +++ tab, unindent);
+    ands = seq (settab, tab' -4 +++ !"and" +++ tab, unindent);
+
+    fun is_alpha "" => TRUE;
+        is_alpha s  => char::is_alpha (string::get (s, 0));
+    end;
+
+    fun is_mlsym '\'' => FALSE;
+	is_mlsym '_'  => FALSE;
+	is_mlsym '.'  => FALSE;
+	is_mlsym c    => char::is_punct c;
+    end;
+
+    fun is_complex s
+	= 
+        loop (string::length s - 1, FALSE, FALSE)
+        where
+	    fun loop (-1, alpha, symbol)
+                    =>
+                    alpha and symbol;
+
+	        loop (i, alpha, symbol)
+		    =>
+		    {   c = string::get (s, i);
+		        loop (i - 1, alpha or char::is_alphanumeric c,
+			symbol   or is_mlsym c);
+		    };
+            end;
+        end;
+
+    fun encode_char c
+        =
+        if   (is_mlsym c)      "_" + int::to_string (char::to_int c);
+	else                   char::to_string c;
+        fi;
+
+    fun encode_name s
+        =
+        string::translate encode_char s;
+
+    fun name id
+        =
+        if (is_complex id)   encode_name id;
+        else                 id;
+        fi;
+
+    fun ident (IDENT([], id))
+            =>
+            if   (is_sym   id)   !"op" +++ !id; 
+	    elif (is_alpha id)   !(name id);
+	    else                 sp +++ !id;
+            fi;
+
+        ident (IDENT (p, id))
+            =>
+            seq (nop, dot, nop) (map (!_) (p @ [name id]));
+    end 
+
+    also
+    fun literal (UNT_LIT w) => unt w;
+	 literal (UNT32_LIT w) => unt32 w;
+	 literal (INTEGER_LIT i) => 
+	    select
+	       fn "code" =>
+		( !"(integer::from_int" +++ int (integer::to_int i)  +++ !!")"
+		 except OVERFLOW =
+		    !"(null_or::the (IntInt::from_string"+++string (integer::to_string i)+++ !!"))"
+		);
+	       _ => intinf i;
+              end ;
+
+	 literal (INT_LIT i) => int i;
+	 literal (INT32_LIT i) => int32 i;
+	 literal (STRING_LIT s) => string s;
+	 literal (CHAR_LIT c) => char c;
+	 literal (BOOL_LIT b) => bool b;
+	 literal (FLOAT_LIT r) => !r;
+     end 
+
+    also
+    fun expression (LITEXP l) => literal l;
+	 expression (IDEXP id) => ident id;
+	 expression (CONSEXP (id, e)) => ident id +++ sp +++ expression' e;
+	 expression (LISTEXP (es, NULL)) => if (length es >= 10 ) longlistexp es; 
+				  else list (map appexp es);fi;
+	 expression (LISTEXP([], THE e)) => expression e;
+	 expression (LISTEXP (es, THE e)) => seq (nop, cons, cons) (map expression es) +++ expression e;
+	 expression (TUPLEEXP [e]) => expression e;
+	 expression (TUPLEEXP es) => tuple (map appexp es);
+	 expression (VECTOR_EXPRESSION es) => vector (map appexp es);
+	 expression (RECORD_EXPRESSION es) => record (map labexp es);
+	 expression (SEQUENTIAL_EXPRESSIONS []) => !"()";
+	 expression (SEQUENTIAL_EXPRESSIONS [e]) => expression e;
+	 expression (SEQUENTIAL_EXPRESSIONS es) => nl +++ tab +++ 
+			   seq(!"(" +++ sp +++ 
+			       settab, semi+++nl+++tab, unindent +++ tab +++ !")")
+			     (map appexp es);
+	 expression (APPLY_EXPRESSION (e as IDEXP (IDENT([], f)), e' as TUPLEEXP [x, y])) => 
+	    if (is_sym f )
+	       paren (expression x +++ sp +++ !f +++ sp +++ expression y);
+	    else
+	       paren (expression e +++ !! " " +++ expression e');fi;
+	 expression (APPLY_EXPRESSION (f, x)) => paren (appexp f +++ !! " " +++ expression x);
+	 expression (IF_EXPRESSION (x, y, z)) => paren (line(!"if" +++ sp +++ expression x) +++ 
+			      block (line(!"then" +++ sp +++ expression y) +++
+				    tab +++ !"else" +++ sp +++ expression z));
+	 expression (RAISE_EXPRESSION e) => !"raise exception" +++ expression e;
+	 expression (EXCEPT_EXPRESSION (e, c)) => paren (expression e +++ sp +++ !"except" +++ sp +++ clauses c);
+	 expression (CASE_EXPRESSION (e, c)) => 
+	      nl +++ line(!"(case" +++ sp +++ appexp e +++ sp +++ !"in") 
+	      +++ tab' 2 +++ settab +++ block (clauses c) +++ unindent +++ tab +++ !!")";
+	 expression (LAMBDAEXP c) => group ("(", ")") (!"fn" +++ sp +++ clauses c);
+	 expression (LET_EXPRESSION ([], e)) => expseq e;
+	 expression (LET_EXPRESSION (d, e)) => nl +++ tab +++ !"stipulate" +++ sp +++ settab +++
+			     decls d +++ unindent +++
+			     line(!"in" +++ sp +++ expseq e) +++ tab +++ !"end";
+	 expression (TYPEDEXP (e, t)) => paren (expression e +++ sp +++ !!":" +++ sp +++ type t);
+	 expression (SOURCE_CODE_REGION_FOR_EXPRESSION(_, e)) => expression e;
+	 expression (LOCEXP (id, e, region)) => locexp (id, e, region);
+	 expression (BITSLICEEXP (e, slices)) => 
+	    select (fn "code" => expression (raw_syntax_stuff::bitslice (e, slices));
+		     "pretty"   => expression e +++ sp +++ !"at"  +++
+			list (map (fn (i, j) => int i +++ !! ".." +++ int j; end ) slices);
+		     mode => { error mode; nop;}; end 
+		  );
+	 expression (TYPEEXP t) => type t;
+	 expression (ASMEXP a) => { error "pp::ASMexp"; nop;};
+	 expression (RTLEXP r) =>
+	    select (fn "pretty" => rtl r;
+		     mode => { error mode; nop;}; end 
+		  );
+	 expression (CONTEXP (e, x)) => expression e;
+     end 
+
+    also
+    fun rtl r = seq( !"[[", sp, !"]]") (map rtlterm r)
+
+    also
+    fun rtlterm (LITRTL s) => string s;
+	rtlterm (IDRTL x)  => !x;
+    end 
+
+    also
+    fun longlistexp es
+        =
+	select (fn "pretty" => list (map appexp es);
+		   "code" => codelonglistexp es; end )
+
+    also
+    fun prettylonglistexp es
+        =
+	nl +++ tab +++ seq(!"[", comma+++nl+++tab,!"]") (map appexp es)
+
+    also
+    fun codelonglistexp es =
+	   nl +++
+	   line( !"stipulate infix @@ fun x @@ y = y ! x") +++
+	   line( !"herein  NIL") +++
+	   block (cat (map (fn e => line( !"@@" +++ appexp e); end ) (reverse es))) +++
+	   line( !"end")
+
+    also
+    fun appexp (APPLY_EXPRESSION (e as IDEXP (IDENT([], f)), e' as TUPLEEXP [x, y])) => 
+	    if (is_sym f ) expression x +++ sp +++ !f +++ sp +++ expression y;
+	    else expression e +++ !! " " +++ expression e';fi;
+	 appexp (APPLY_EXPRESSION (f, x)) => (appexp f +++ !! " " +++ expression x);
+	 appexp (SEQUENTIAL_EXPRESSIONS [e])   => appexp e;
+	 appexp (TUPLEEXP [e]) => appexp e;
+	 appexp e => expression e; end 
+
+    also
+    fun expression' NULL => nop;
+       expression'(THE e) => if (is_parened_expression e ) expression e; else paren (expression e);fi; end 
+
+    also
+    fun is_parened_expression (IDEXP _) => TRUE;
+	 is_parened_expression (TUPLEEXP []) => TRUE;
+	 is_parened_expression (TUPLEEXP [x]) => is_parened_expression x;
+	 is_parened_expression (TUPLEEXP _) => TRUE;
+	 is_parened_expression (RECORD_EXPRESSION _) => TRUE;
+	 is_parened_expression (LISTEXP _) => TRUE;
+	 is_parened_expression (VECTOR_EXPRESSION _) => TRUE;
+	 is_parened_expression _ => FALSE;
+     end 
+
+    also
+    fun is_sym "+" => TRUE;
+	is_sym "-" => TRUE;
+	is_sym "*" => TRUE;
+	is_sym "mod" => TRUE;
+	is_sym "div" => TRUE;
+	is_sym "=" => TRUE;
+	is_sym "<>" => TRUE;
+	is_sym "<" => TRUE;
+	is_sym ">" => TRUE;
+	is_sym ">=" => TRUE;
+	is_sym "<=" => TRUE;
+	is_sym "<<" => TRUE;
+	is_sym ">>" => TRUE;
+	is_sym ">>>" => TRUE;
+	is_sym "||" => TRUE;
+	is_sym "&&" => TRUE;
+	is_sym "^" => TRUE;
+	is_sym ":=" => TRUE;
+	is_sym "::" => TRUE;
+	is_sym "@" => TRUE;
+	is_sym "and" => TRUE;
+	is_sym "or" => TRUE;
+	is_sym "o" => TRUE;
+	is_sym _ => FALSE;
+    end 
+
+    also
+    fun locexp (id, e, region)
+	= 
+	select
+	    fn "pretty"
+		    => 
+		    !!"$" +++ !id +++ !!"[" +++ expression e +++ 
+		      case region
+		        
+			   THE r => !":" +++ !r;
+			   NULL => nop;
+		      esac
+		      +++
+		      !!"]";
+
+		"code" => paren (expression e +++ !"+" +++ !("offset" + id));
+		 mode  => { error mode; nop;};
+	   end 
+
+    also
+    fun decl (DATATYPEDECL (dbs, tbs)) => datatypedecl (dbs, tbs);
+	decl (FUNDECL (fbs)) => fundecl fbs;
+	decl (RTLDECL (p, e, _)) => 
+	     line( !"rtl " +++ pattern p +++ !"=" +++ expression e);
+	decl (VALDECL (vbs)) => valdecl vbs;
+	decl (VALUE_API_DECL (ids, type)) => valsig("my", ids, type);
+	decl (RTLSIGDECL (ids, type)) => valsig("rtl", ids, type);
+	decl (TYPE_API_DECL (id, tvs)) => typesig (id, tvs);
+	decl (LOCALDECL([], d2)) => decls d2;
+	decl (LOCALDECL (d1, d2)) => 
+	     line( !"local") +++ block (decls d1) +++ line( !"in ") +++
+	     block (decls d2) +++ line( !"end");
+	decl (SEQDECL ds) => decls ds;
+	decl (VERBATIM_CODE ds) => cat (map line (map !! ds));
+	decl (PACKAGEDECL (id,[], s, se)) => 
+	     line( !"package" +++ !id +++ sigcon_opt (s) +++ !"=" +++ sexp se);
+	decl (PACKAGEAPIDECL (id, se)) => 
+	     line( !"package" +++ !id +++ !":" +++ api_expression se);
+	decl (PACKAGEDECL (id, ds, s, se)) => 
+	     line( !"generic package" +++ !id +++ settab +++ !! "(" +++ settab +++
+		   decls ds +++ unindent +++
+		   tab +++ !! ")" +++ unindent +++ sigcon_opt (s) +++ 
+		   !"=" +++ nl +++ sexp se);
+	decl (GENERICDECL (id,[], s, se)) => 
+	     line( !"generic package" +++ !id +++ sigcon_opt (s) +++ !"=" +++ nl +++ sexp se);
+	decl (GENERICDECL (id, ds, s, se)) => 
+	     line( !"generic package" +++ !id +++ settab +++ !! "(" +++ settab +++
+		   decls ds +++ unindent +++
+		   tab +++ !! ")" +++ unindent +++ sigcon_opt (s) +++ 
+		   !"=" +++ nl +++ sexp se);
+	decl (API_DECL (id, se)) => 
+	     line( !"api" +++ !id +++ !"=" +++ api_expression se);
+	decl (OPENDECL ids) => 
+	     line( !"use" +++ seq (nop, sp, nop)(map ident ids));
+	decl (INCLUDE_API_DECL s) => line( !"include" +++ api_expression s); 
+	decl (GENERICARGDECL (id, se)) => !id +++ sigcon se;
+	decl (EXCEPTIONDECL ebs) =>
+	     line( !"exception" +++ ands (map exceptionbind ebs));
+	decl (SHARINGDECL s) => line( !"sharing" +++ ands (map share s));
+	decl (MARKDECL (l, d)) => 
+	  nl+++ !(source_mapping::directive l) +++nl +++ decl d; 
+	decl (INFIXDECL (i, ids)) => line( !"infix" +++ int i +++ cat (map (!_) ids));
+	decl (INFIXRDECL (i, ids)) => line( !"infixr" +++ int i +++ cat (map (!_) ids));
+	decl (NONFIXDECL ids) => line( !"nonfix" +++ cat (map (!_) ids));
+	decl (ARCHDECL (id, ds)) => 
+	    line( !"architecture" +++ !id +++ !"=" +++ decls ds);
+	decl (BITSORDERINGDECL _) => line( !"bitsordering...");
+	decl (FORMATDECL _) => line( !"instruction formats ...");
+	decl (ARCHKINDDECL SUPERSCALAR) => line( !"superscalar");
+	decl (ARCHKINDDECL VLIW) => line( !"vliw");
+	decl (ENDIANESSDECL LITTLE) => line( !"little endian");
+	decl (ENDIANESSDECL BIG) => line( !"big endian");
+	decl (STORAGEDECL _) => line( !"storage ...");
+	decl (LOCATIONSDECL _) => line( !"locations ...");
+	decl (NAMEDECL _) => line( !"name ...");
+	decl (VERSIONDECL _) => line( !"version ...");
+	decl (ASSEMBLYCASEDECL _) => line( !"assembly ...");
+	decl (INSTRUCTIONDECL cbs) => line( !"instruction" +++ 
+					tab' -6 +++ consbinds cbs);
+	decl (DEBUGDECL _) => line( !"debug ...");
+	decl (RESOURCEDECL _) => line( !"resource ...");
+	decl (CPUDECL _) => line( !"cpu ...");
+	decl (PIPELINEDECL _) => line( !"pipeline ...");
+	decl (LATENCYDECL _) => line( !"latency ...");
+     end 
+
+    also
+    fun exceptionbind (EXCEPTIONBIND (id, NULL))  => !id;
+	exceptionbind (EXCEPTIONBIND (id, THE t)) => !id +++ !"of" +++ type t;
+	exceptionbind (EXCEPTIONEQBIND (id, id')) => !id +++ !"=" +++ ident id';
+     end 
+
+    also
+    fun share (TYPESHARE   ids) => !"type" +++ seq (nop,!"=", nop) (map ident ids);
+	share (STRUCTSHARE ids) => seq (nop,!"=", nop) (map ident ids);
+    end 
+
+    also
+    fun api_expression (IDSIG id)
+	     =>
+	     ident id;
+
+	 api_expression (WHERESIG (se, x, s))
+	     => 
+	     api_expression se +++ !"where" +++ ident x +++ !! "=" +++ sexp s;
+
+	 api_expression (WHERETYPESIG (se, x, t))
+	     => 
+	     api_expression se +++ !"where type" +++ ident x +++ !! "=" +++ type t;
+
+	 api_expression (DECLSIG ds)
+	     =>
+	     line( !"sig") +++ block (decls ds) +++ line( !"end");
+     end 
+
+    also
+    fun sigcon_opt (NULL) => nop;
+	 sigcon_opt (THE s) => sigcon s;
+     end 
+
+    also
+    fun sigcon { abstract=>FALSE, api_expression=>s } => !":"  +++ api_expression s;
+        sigcon { abstract=>TRUE,  api_expression=>s } => !":>" +++ api_expression s;
+    end 
+
+    also
+    fun sexp (IDSEXP id) => ident id;
+	 sexp (APPSEXP (a, DECLSEXP ds)) => sexp a +++ nl +++ 
+				block (line (group("(", ")") (decls ds)));
+	 sexp (APPSEXP (a, IDSEXP id)) => sexp a +++ paren (ident id);
+	 sexp (APPSEXP (a, b)) => sexp a +++ nl +++ paren (sexp b);
+	 sexp (DECLSEXP ds) => line( !"struct") +++ block (decls ds) +++ line( !"end");
+	 sexp (CONSTRAINEDSEXP (s, si)) => sexp s +++ !":" +++ api_expression si;
+     end 
+
+    also
+    fun decls ds
+	=
+	cat (map decl ds)
+
+    also
+    fun valsig (keyword,[], t)
+	    =>
+	    nop;
+
+	valsig (keyword, id ! ids, t)
+	    => 
+	    line(!keyword +++ !id +++ !":" +++ sp +++ type t) +++ 
+	    valsig (keyword, ids, t);
+    end 
+
+    also
+    fun typesig (id, tvs)
+	=
+	line(!"type" +++ type_variables tvs +++ !id) 
+
+    also
+    fun expseq es
+	=
+	block (seq (nop, semi+++nl+++tab, nop) (map appexp es))
+
+    also
+    fun labexp (id, e)
+	=
+	!id +++ !! "=" +++ appexp e
+
+    also
+    fun type (IDTY id) => ident id;
+	type (TYVARTY tv) => type_variable tv;
+	type (APPTY (id,[t])) => pty t +++ sp +++ ident id;
+	type (APPTY (id, tys)) => tuple (map type tys) +++ sp +++ ident id;
+	type (FUNTY (x, y)) => type x +++ !! " -> " +++ fty y;
+	type (TUPLETY []) => !"unit";
+	type (TUPLETY [t]) => type t;
+	type (TUPLETY tys) => seq (nop,!! " * ", nop) (map pty tys);
+	type (RECORDTY labtys) => record (map labty labtys);
+	type (CELLTY id) => 
+	     select( fn "pretty" => !!"$" +++ !id; 
+		       "code" => !(if (id == "cellset" ) "c::cellset"; 
+				    else "cells_basis::cell";fi);
+		       mode => { error mode; nop;}; end 
+		   );
+	type (TYPE_VARIABLE_TYPE (TYPEKIND, i, _, REF NULL)) => !("'X" + int::to_string i);
+	type (TYPE_VARIABLE_TYPE (INTKIND, i, _, REF NULL)) => 
+	     select fn "pretty" => !("#X" + int::to_string i);
+		       "code"   => !("T" + int::to_string i);
+		     end;
+	type (TYPE_VARIABLE_TYPE(_, _, _, REF (THE t))) => type t;
+	type (TYPE_SCHEME_TYPE (vars, t)) => type t;
+	type (INTVARTY i) => select  fn "pretty" => !!"#" +++ int i;
+				          "code"   => int i;
+                                       end; 
+	type (LAMBDATY (vars, t)) => !!"\\" +++ tuple (map type vars) +++ !!"." +++ type t;
+    end  
+
+    also
+    fun fty (t as FUNTY _) =>  type t;
+	fty t              =>  pty t;
+    end 
+
+    also
+    fun pty (t as FUNTY _) => paren (type t);
+	pty (TUPLETY [t]) => pty t;
+	pty (t as TUPLETY []) => type t;
+	pty (t as TUPLETY _) => paren (type t);
+	pty (t as RECORDTY _) => type t;
+	pty (t as IDTY _) => type t;
+	pty (t as APPTY _) => type t;
+	pty (t as TYPE_VARIABLE_TYPE _) => type t;
+	pty (t as TYVARTY _) => type t;
+	pty t => paren (type t);
+     end 
+
+    also
+    fun labty (id, t)
+	=
+	!id +++ !! ":" +++ type t 
+
+    also
+    fun pattern (IDPAT id)   => if (is_sym id ) !"op" +++ !id; else !(name id);fi;
+	pattern (WILDCARD_PATTERN)    => !"_";
+	pattern (ASPAT (id, p)) => paren(!id +++ !"as" +++ sp +++ pattern p);
+	pattern (LITPAT l)   => literal l;
+	pattern (LISTPAT (ps, NULL)) => list (map pattern ps);
+	pattern (LISTPAT([], THE p)) => pattern p; 
+	pattern (LISTPAT (ps, THE p)) => seq (nop, cons, cons) (map pattern ps) +++ pattern p;
+	pattern (TUPLEPAT [p]) => pattern p;
+	pattern (TUPLEPAT ps) => tuple (map pattern ps);
+	pattern (VECTOR_PATTERN ps) => vector (map pattern ps);
+	pattern (RECORD_PATTERN (lps, flex)) => 
+	     record (map labpat lps @ (if flex  [!"..."]; else [];fi));
+	pattern (TYPEDPAT (p, t)) => paren (pattern p +++ !! ":" +++ type t);
+	pattern (CONSPAT (id, NULL)) => ident id; 
+	pattern (CONSPAT (IDENT([], "::"), THE (TUPLEPAT [x, y]))) => 
+	     paren (pattern x +++ sp +++ !!"::" +++ sp +++ pattern y);
+	pattern (CONSPAT (id, THE p)) => ident id +++ ppat p;
+	pattern (OR_PATTERN [p]) => pattern p;
+	pattern (OR_PATTERN ps) => 
+	    if (length ps > 10 )
+	         nl +++ tab +++ seq(!"(",!"|"+++nl+++tab,!")") (map pattern ps);
+	    else seq(!! "(", !"|"+++sp, !! ")") (map pattern ps);fi;
+	pattern (ANDPAT [p]) => pattern p;
+	pattern (ANDPAT ps) => seq(!! "(", sp +++ !"and" +++ sp, !! ")") (map pattern ps);
+	pattern (NOTPAT p) => !"not" +++ sp +++ pattern p;
+	pattern (WHEREPAT (p, e)) => pattern p +++ sp +++ !"where" +++ sp +++ expression e;
+	pattern (NESTEDPAT (p, e, p')) => pattern p +++ sp +++ !"where" +++ sp +++ expression e +++
+				   sp +++ !"in" +++ sp +++ pattern p';
+     end     
+
+    also
+    fun ppat (p as (CONSPAT _ | ASPAT _))
+            =>
+            paren (pattern p);
+
+	ppat p =>   pattern p;
+    end 
+
+    also
+    fun pats ps
+	=
+	cat (map pattern ps)
+
+    also
+    fun ppats ps
+	=
+	cat (map  (fn p =  ppat p +++ sp)  ps)
+
+    also
+    fun labpat (id, p as IDPAT id')
+	    => 
+	    if   (id == id')
+                 !id;
+	    else !id +++ !! "=" +++ pattern p;  fi;
+
+        labpat (id, p)
+            =>
+            !id +++ !! "=" +++ pattern p;
+    end 
+
+    also
+    fun funbind (FUNBIND (id, c))
+        =
+        bars (map (funclause id) c)
+
+    also
+    fun funbinds fbs
+        =
+        ands (map funbind fbs) 
+
+    also
+    fun funclause id (CLAUSE (ps, g, e))
+         = 
+	 line( !(name id) +++ sp +++ ppats ps +++ sp +++ guard g +++ !"=" +++ 
+	     sp +++ good_fun_break +++ appexp e)
+
+    also
+    fun guard NULL    =>  nop;
+        guard (THE e) =>  !"where" +++ sp +++ appexp e +++ sp;
+    end 
+
+    also
+    fun clause (CLAUSE([p], g, e))
+	    => 
+	    line (settab +++ pattern p +++ sp +++ guard g +++ 
+		 !"=>" +++ sp +++ good_fun_break +++ appexp e +++ unindent);
+
+        clause (CLAUSE (ps, g, e))
+	    => 
+	    line (settab +++ ppats ps +++ sp +++ guard g +++ 
+		 !"=>" +++ sp +++ appexp e +++ unindent);
+    end 
+
+    also
+    fun clauses c
+        =
+        block (bars (map clause c))
+
+    also
+    fun fundecl []  =>  nop;
+        fundecl fbs =>  /* nl +++ */ tab +++ !"fun" +++ sp +++ settab +++ 
+		        funbinds fbs +++ unindent;
+    end 
+
+    also
+    fun valbind (NAMED_VARIABLE (p, e))
+        = 
+	line (settab +++ pattern p +++ sp +++ !"=" +++ sp +++ appexp e +++ unindent)
+
+    also
+    fun valbinds vbs
+        =
+        block (ands (map valbind vbs))
+
+    also
+    fun valdecl []  =>  nop;
+        valdecl vbs =>  tab +++ !"my" +++ sp +++ valbinds vbs;
+    end  
+
+    also
+    fun datatypebind (DATATYPEBIND { id, type_variables=>ts, cbs, ... } )
+	    =>
+	    line (type_variables ts +++ !id +++ !"=") +++ 
+	    tab' -6 +++ consbinds cbs;
+
+        datatypebind (DATATYPEEQBIND { id, type_variables=>ts, type=>t, ... } )
+	    =>
+	    line (type_variables ts +++ !id +++ !"=" +++ !"enum" +++ type t);
+    end 
+
+    also
+    fun datatypebinds ds
+        =
+        block (ands (map datatypebind ds))
+
+    also
+    fun consbinds cbs
+        =
+        bars (map consbind cbs)
+
+    also
+    fun consbind (CONSBIND { id, type=>NULL,  ... } ) =>  line( !id);
+	consbind (CONSBIND { id, type=>THE t, ... } ) =>  line( !id +++ !"of" +++ sp +++ type t);
+    end 
+
+    also
+    fun typebind (TYPEBIND (id, ts, t))
+	 =
+	 line (type_variables ts +++ !id +++ !"=" +++ sp +++ type t)
+
+    also
+    fun typebinds tbs = block (ands (map typebind tbs))
+
+    also
+    fun type_variables []  => nop;
+	 type_variables [t] => type_variable t;
+	 type_variables tvs => tuple (map type_variable tvs);
+     end 
+
+    also
+    fun type_variable (VARTV tv) =>   !tv;
+	type_variable (INTTV tv) =>   sp +++ !! "#" +++ !tv;
+    end 
+
+    also
+    fun range (x, y)
+        =
+        paren (int x +++ comma +++ int y)
+
+    also
+    fun datatypedecl ([], t)
+            =>
+            tab +++ !"type" +++ block (ands (map typebind t));
+
+	datatypedecl (d, t)
+	    =>
+	    tab +++ !"enum" +++
+	    datatypebinds d +++
+
+	    case t
+              
+		[] =>  nop;
+	        _  =>  tab +++ !"withtype" +++ typebinds t;
+            esac;
+     end;
+};

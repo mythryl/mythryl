@@ -1,0 +1,679 @@
+# tracing.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+# See the overview comments in
+#
+#     src/lib/src/lib/thread-kit/src/lib/tracing.api
+#
+# This version of this package is adapted from
+# Cliff Krumvieda's utility for tracing
+# threadkit programs.
+#
+# This package is heavily used by:
+#     src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+#
+# See also:
+#     src/lib/src/lib/thread-kit/src/lib/thread-deathwatch.pkg
+#     src/lib/src/lib/thread-kit/src/lib/threadkit-uncaught-exception-reporting.pkg
+
+
+###            "Einstein argued that there must be
+###             simplified explanations of nature,
+###             because God is not capricious or arbitrary.
+###
+###            "No such faith comforts the software engineer."
+###
+###                         -- Fred Brooks, Jr.
+
+
+
+stipulate
+    include threadkit;				# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package tc = thread_scheduler_control;	# thread_scheduler_control	is from   src/lib/src/lib/thread-kit/src/unix/thread-scheduler-control.pkg
+herein
+
+    package tracing: (weak)  Tracing {		# Tracing			is from   src/lib/thread-kit/threadkit-lib/tracing.api
+
+	# Where trace output goes:
+	#
+	Trace_To
+	  #
+	  = TO_STDOUT
+	  | TO_STDERR
+	  | TO_NULL
+	  | TO_FILE    String
+	  | TO_STREAM  file::Output_Stream
+	  ;
+
+	exception NO_SUCH_NODE;
+
+	# Default to printing trace messages to stdout:
+	#
+	trace_to      =  REF TO_STDOUT;
+	trace_cleanup =  REF (fn () = ());
+
+	# Set output for trace messsages:
+	#
+	fun log_trace_messages'  t
+	    =
+	    trace_to := t;
+
+	fun currently_tracing_to ()
+	    =
+	    *trace_to;
+
+	# Trace Tree:
+	#
+	Trace_Tree_Node
+	    =
+	    TRACE_TREE_NODE
+	      {
+		parent:     Null_Or (Trace_Tree_Node),		# NULL only on root node of tree.
+		name:       String,
+		#
+		tracing:    Ref( Bool ),
+		children:   Ref(  List(  Trace_Tree_Node ) )
+	      };
+
+	all_tracing
+	    =
+	    TRACE_TREE_NODE
+	      {
+		parent    => NULL,
+		name      => "tracing::all_tracing",
+		#
+		tracing   => REF FALSE,
+		children  => REF []
+	      };
+
+	fun for_all f
+	    =
+	    for'
+	    where
+		fun for' (tm as TRACE_TREE_NODE { children, ... } )
+		    =
+		    {   f tm;
+
+			for_children *children;
+		    }
+
+		also
+		fun for_children []
+			=>
+			();
+
+		    for_children (tm ! r)
+			=>
+			{   for' tm;
+			    for_children r;
+			};
+		end;
+	    end;
+
+
+	fun node_by_name search_name
+	    =
+	    case (find [ all_tracing ])
+		#
+		THE node =>  node;
+		NULL     =>  raise exception NO_SUCH_NODE;
+	    esac 
+	    where
+		fun find []
+			=>
+			NULL;
+
+		    find ((node as TRACE_TREE_NODE { name, children, ... }) ! rest)
+			=>
+			if (name == search_name)
+			    #
+			    THE node;
+			else
+			    case (find *children)
+				#
+				THE node => THE node;
+				NULL     => find rest;
+			    esac;
+			fi;
+		end;
+	    end;
+
+	fun make_trace_tree_leaf'
+	    { parent => parent_node as TRACE_TREE_NODE parent,
+	      name
+	    }
+	    =
+	    {   avoid_duplicate_children *parent.children;
+
+		new_node
+		    =
+		    TRACE_TREE_NODE
+		      {
+			name,
+			parent    => THE parent_node,
+			tracing   =>  REF *parent.tracing,
+			children  =>  REF []
+		      };
+
+		parent.children
+		    :=
+		    new_node ! *parent.children;
+
+		new_node;
+	    }
+	    where
+
+		fun avoid_duplicate_children []
+			=>
+			();
+
+		   avoid_duplicate_children ((child_node as TRACE_TREE_NODE { name => name', ... } ) ! rest)
+		       =>
+		       if (name == name')
+			   #
+			   raise exception FAIL (sprintf "tracing::make_trace_tree_leaf: Already have a child '%s' of node '%s'!" name parent.name);
+		       else
+			   avoid_duplicate_children  rest;
+		       fi;
+		end;
+	    end;
+
+	# Return the name of the node
+	#
+	fun name (TRACE_TREE_NODE { name => node_name, ... } )
+	    =
+	    node_name;
+
+	# Return the parent of the node
+	#
+	fun parent (TRACE_TREE_NODE { parent => node_parent, ... } )
+	    =
+	    node_parent;
+
+	# Return all ancestors of node.
+	# First element of list (if nonempty)
+	# will always be the root node, all_tracing:
+	#
+	fun ancestors node
+	    =
+	    ancestors' (node, [])
+	    where
+		fun ancestors' (TRACE_TREE_NODE { parent => NULL, ... }, resultlist)
+			=>
+			resultlist;
+
+		    ancestors' (TRACE_TREE_NODE { parent => THE parent, name, ... }, resultlist)
+			=>
+			ancestors' (parent, name ! resultlist);
+		end;
+	    end;
+
+
+	# Turn tracing on for a trace tree node and its descendents:
+	#
+	enable'
+	    =
+	    for_all
+		(fn (TRACE_TREE_NODE { tracing, ... } )
+		    =
+		    tracing := TRUE);
+
+
+	# Turn tracing off for a trace tree node and its descendents:
+	#
+	disable'
+	    =
+	    for_all
+		(fn (TRACE_TREE_NODE { tracing, ... } )
+		    =
+		    tracing := FALSE);
+
+
+	# Turn tracing on for a node (but not for its descendents):
+	#
+	fun enable_node' (TRACE_TREE_NODE { tracing, ... } )
+	    =
+	    tracing := TRUE;
+
+
+	# Return TRUE if this node is being traced 
+	#
+	fun am_tracing (TRACE_TREE_NODE { tracing, ... } )
+	    =
+	    *tracing;
+
+
+	# Return a list of the registered
+	# nodes dominated by the given
+	# module, and their status.
+	#
+	fun subtree_nodes_and_trace_flags' root
+	    =
+	    reverse (list (root, []))
+	    where
+		fun list (tm as TRACE_TREE_NODE { tracing, children, ... }, l)
+		    =
+		    list_children (*children, (tm, *tracing) ! l)
+
+		also
+		fun list_children ([], l) => l;
+		    list_children (c ! r, l) => list_children (r, list (c, l));
+		end;
+	    end;
+
+	# As an interactive convenience,
+	# print complete tracetree indented:
+	#
+	fun print_tracetree ()
+	    =
+	    print_tracetree' ([all_tracing], 0)
+	    where
+		fun print_indent 0 => ();
+		    print_indent i => { print "    "; print_indent (i - 1); };
+		end;
+
+		fun print_tracetree' ((TRACE_TREE_NODE { name, tracing, children, ... }) ! rest, indent)
+			=>
+			{   print_indent indent;
+
+			    print (*tracing ?? "TRUE   " :: "FALSE  ");
+			    print name;
+			    print "\n";
+
+			    print_tracetree' (*children, indent+1);
+
+			    print_tracetree' (rest, indent);
+			};
+
+		    print_tracetree' ([], _)
+			=>
+			();
+		end;
+	    end;
+
+
+
+	# NOTE: There are bookkeeping bugs when
+	# changing the trace destination from
+	# TO_STREAM to something else
+	# (where the original destination 
+	# was TO_FILE).        XXX BUGGO FIXME
+	#
+	stipulate
+
+	    lines_printed = REF 0;
+
+	    # Extract the unix Int file descriptor
+	    # from a file::Output_Stream -- this is
+	    # a bit like pulling teeth:
+	    #
+	    fun outstream_to_fd  stream						# file			is from   src/lib/std/src/unix/file.pkg
+		=								# text_primitive_io	is from   src/lib/std/src/io/text-primitive-io.pkg
+		{   purestream =  file::get_outstream  stream;
+
+		    my (writer, _)
+			=
+			file::pure_io::get_writer  purestream;
+
+		    my fd: Int
+			=
+			case writer
+			    #
+			    text_primitive_io::WRITER { io_descriptor => THE iod, ... } =>  iod;
+			    _ => raise exception FAIL "tracing.pkg: No iod in stream?!";
+			esac;	
+
+		    fd;
+		};		
+
+	herein
+
+	    fun trace_print  message
+		=
+		{   fun write stream
+			=
+			{    # Leave every fourth line blank for readability:
+			     #
+			     if (*lines_printed & 3 == 0)
+				 #
+				 file::write (stream, "\n");
+			     fi;
+			     lines_printed := 1 + *lines_printed;
+
+			     file::write (stream, message);
+
+			     file::flush stream;
+			};
+
+										    # date		is from   src/lib/std/src/date.pkg
+										    # time		is from   src/lib/std/time.pkg
+		    case *trace_to
+			#
+			TO_NULL    =>   ();
+			#
+			TO_STDOUT        =>  write  file::stdout;
+			TO_STDERR        =>  write  file::stderr;
+			TO_STREAM stream =>  write  stream;
+			#
+			TO_FILE filename
+			    =>
+			    {   to  = {   stream = file::open_for_write filename;
+
+					  fd =  outstream_to_fd  stream;
+
+					  internet_socket::set_printif_fd  fd;	# Enable C-level print_if()s to this tracelog.
+
+					  file::write (stream, sprintf "# (fd==%d) This is a trace log created by %s by:\n" fd (date::strftime "%Y-%m-%d:%H:%M:%S" (date::from_time_local (time::get_current_time_utc()))));
+					  file::write (stream, "# \n");
+					  file::write (stream, "#     src/lib/src/lib/thread-kit/src/lib/tracing.pkg\n");
+					  file::write (stream, "# \n");
+					  file::write (stream, "# print_if line fields are:\n");
+					  file::write (stream, "# \n");
+					  file::write (stream, "#     timestamp in seconds:   thread id:   thread name:   message   (foo::tracing)\n");
+					  file::write (stream, "# \n");
+					  file::write (stream, "# You can suppress such a message via:   tracing::disable foo::tracing\n");
+					  file::write (stream, "# You can reenable such a message via:   tracing::enable foo::tracing\n");
+					  file::write (stream, "# You can enable all the messages via:   tracing::enable tracing::all_tracing\n");
+					  file::write (stream, "# See also:  Comments in src/lib/src/lib/thread-kit/src/lib/tracing.api\n");
+
+					  # Closing the trace logfile at shutdown seems
+					  # at first blush like the tidy and proper thing
+					  # to do, but in practice it seems a dubious idea:
+					  #	
+					  #   o The exact order of events such as cleanup calls
+					  #     during shutdown is not well-defined, so we may
+					  #     easily wind up trying to log trace stuff after
+					  #     the tracelog has already been closed.
+					  #	
+					  #   o Unix will close all open files at program exit()
+					  #     anyhow, and since we're doing unbuffered I/O on
+					  #     the tracelog fd, there is not even any buffer
+					  #     flushing needing to be done.
+					  #	
+					  # In short, there seems to be a significant downside to
+					  # closing the stream at SHUTDOWN but no upside to speak
+					  # of, so	I've commented it out.  Note that caller can
+					  # always close the tracelog manually if desired by calling
+					  # 
+					  #     log_trace_messages TO_STDERR
+					  #
+					  # or such, thus implicitly closing the file.	
+					  #
+					  #                              -- 2010-02-26 CrT
+					  #	
+					  # trace_cleanup
+					  #	  :=
+					  #	  (fn () = file::close_output  stream);
+
+					  TO_STREAM stream;
+				      }
+				      except					# threakit_debug	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
+					 _ =  {   threadkit_debug::say_debug (
+						      cat [
+							  "tracing: Unable to open \"", filename,
+							  "\", redirecting to stdout"
+						      ]
+						  );
+
+						  TO_STDOUT;
+					      };
+
+				log_trace_messages' to;
+
+				trace_print  message;
+			    };
+		     esac;
+
+		};
+	end;			# stipulate
+
+
+	#############################################################################################3
+	# Trace server
+
+	# All trace printing (i.e., calls to print_if)
+	# ultimately goes through this mailslot:
+	#
+	my print_if_slot:  Mailslot( String )
+	    =
+	    make_mailslot ();
+
+
+	my plea_slot:  Mailslot (Void -> Void)
+	    =
+	    make_mailslot ();
+
+
+												    # Threadkit_Cleanup		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-cleanup.api
+												    # Thread_Scheduler_Control	is from   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control.api
+												    # thread_scheduler_control	is from   src/lib/src/lib/thread-kit/src/unix/thread-scheduler-control.pkg
+												    # thread_scheduler_control_g	is from   src/lib/src/lib/thread-kit/src/glue/thread-scheduler-control-g.pkg
+
+	my _ =  {   tc::note_mailslot    ("tracing: print_if", print_if_slot);
+		    tc::note_mailslot    ("tracing: request",  plea_slot);
+
+		    tc::note_imp
+		      {
+			name => "tracing: trace-imp",
+			#
+			at_startup  =>  start_trace_imp,
+			at_shutdown =>  trace_imp_shutdown
+		      };
+		}
+		where
+		    # 
+		    fun trace_imp ()
+			=
+			for (;;) {	
+			    #
+			    select [
+
+				take'  print_if_slot
+				    ==>
+				    (fn message = trace_print message),
+
+				take'  plea_slot
+				    ==>
+				    (fn f = f())
+			    ];
+			};
+
+
+		    fun start_trace_imp ()
+			=
+			{   make_thread  "tracing imp"  trace_imp;
+			    ();
+			};
+
+
+		    fun trace_imp_shutdown  ()
+			=
+			{   *trace_cleanup ();
+
+			    trace_cleanup
+				:=
+				(fn () = ());
+			};
+		end;
+
+	stipulate
+
+	    fun carefully f
+		=
+		if (tc::thread_scheduler_is_running ())
+		    #
+		    give (plea_slot, f);
+		else
+		    f ();
+		fi;
+
+	    fun carefully' f
+		=
+		if (tc::thread_scheduler_is_running ())
+
+		    reply_drop = make_oneshot_maildrop ();
+
+		    give (plea_slot, .{  set (reply_drop, f());  });
+
+		    get reply_drop;
+
+		else
+		    f ();
+		fi;
+	herein
+
+	    fun make_trace_tree_leaf arg           = carefully' (fn () =  make_trace_tree_leaf' arg);
+	    fun enable tm                          = carefully  (fn () =  enable' tm);			# Enable tracing per trace subtree.
+	    fun disable tm                         = carefully  (fn () =  disable' tm);			# Disable tracing per trace subtree.
+	    fun enable_node tm                     = carefully  (fn () =  enable_node' tm);		# Enable tracing per trace node.
+	    fun log_trace_messages f               = carefully  (fn () =  log_trace_messages' f);	# Select destination file/whatever.
+	    fun subtree_nodes_and_trace_flags root = carefully' (fn () =  subtree_nodes_and_trace_flags' root);
+
+	end;
+
+	fun make_trace_string (TRACE_TREE_NODE { name, ... },  make_message_string_fn)
+	    =	
+	    {
+		# Construct the 'print_if' string to print,
+		# and then pass it to the trace imp.
+		#
+		# The point of constructing the string here,
+		# rather than in the  print_if  call, is that
+		# this way we avoid the work of creating it
+		# if we're not going to print it (i.e., if
+		# tracing is disabled for that call).
+
+#               time_string  =  date::strftime "%Y-%m-%d:%H:%M:%S" (date::from_time_local (time::get_current_time_utc()));	# "2010-01-05:14:17:23" or such.
+		time_string  =  time::format 6 (time::get_current_time_utc());							# "1262722876.273621"   or such.
+		    #
+		    # NB: If you change the time_string content/format you
+		    #     should probably make corresponding changes in
+		    #
+		    #          src/runtime/c-libs/lib7-socket/print-if.c
+
+		trace_string =  time_string + ":  "
+			     +  (sprintf "%8d:  %-26s " (thread::get_current_thread's_id())  (thread::get_current_thread's_name() + ": "))
+			     + make_message_string_fn()
+			     + "    \t(" + name
+			     + ")\n";
+
+		trace_string;
+	    };
+
+	fun print_if (trace_node as TRACE_TREE_NODE { tracing, name, ... })  make_message_string_fn
+	    =
+	    if (*tracing)
+		if (not (tc::thread_scheduler_is_running ()))
+		    #
+		    trace_string = make_trace_string  (trace_node, make_message_string_fn);
+		    trace_print  trace_string;
+		    ();
+		else
+		    #
+		    # Originally here we always did
+		    #
+		    #     trace_print (make_trace_string  (trace_node, make_message_string_fn));
+		    #
+		    # thus doing the print via our thread for mutual exclusion
+		    # in standard concurrent-programming style.  Unfortunately,
+		    # this produces problems when trying to trace through oddball
+		    # code like the thread_scheduler itself, where thread-scheduling
+		    # is off or SIGARLM is disabled or such.
+		    #
+		    # Since we're mostly just doing a single unbuffered write to a
+		    # unix file descriptor on these calls, which unix semantics
+		    # guarantees to be atomic anyhow, there is actually vanishingly
+		    # little need for mutual exclusion except when we're actually
+		    # opening the file (TO_FILE case).
+		    #	
+		    # Consequently, we currently avoid going through print_if_slot
+		    # and the print_if thread in all cases except TO_FILE:
+		    #
+		    #
+		    trace_string = make_trace_string  (trace_node, make_message_string_fn);
+		    #
+ 		    case *trace_to
+ 			#
+ 			TO_NULL   =>  ();
+ 			TO_FILE _ =>  give (print_if_slot, trace_string);
+ 			_         =>  trace_print          trace_string;
+ 		    esac;
+		fi;
+	    fi;
+
+#    	    if (*tracing)
+#    
+#    
+#    		if (tc::thread_scheduler_is_running ())
+#    		    #
+#    		    trace_string =  make_trace_string  (trace_node, make_message_string_fn);
+#    		    give (print_if_slot, trace_string);
+#    		fi;
+#    
+#    # 		if (not (tc::thread_scheduler_is_running ()))
+#    # 		    #
+#    # #		    trace_print  trace_string;
+#    # 		    ();
+#    # 		else
+#    # 		    case *trace_to
+#    # 			#
+#    # 			TO_NULL   =>  ();
+#    # 			TO_FILE _ =>  give (print_if_slot, trace_string);
+#    # 			_         =>  trace_print          trace_string;
+#    # 		    esac;
+#    # 		fi;
+#    	    fi;
+
+	# This is an ugly little hack to solve a package cycle problem in
+	#     src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+	#
+	stipulate
+	    # This is going to be called at weird places
+	    # within the thread scheduler, so we COMPLETELY
+	    # skip going through the print_if_slot and our
+	    # print_if thread:
+	    #
+	    fun print_if (trace_node as TRACE_TREE_NODE { tracing, name, ... })  make_message_string_fn
+		=
+		if *tracing
+		    #
+		    trace_string = make_trace_string  (trace_node, make_message_string_fn);
+		    #
+		    trace_print  trace_string;
+		fi;
+
+	    thread_scheduler_tracing =   make_trace_tree_leaf { parent => all_tracing, name => "thread_scheduler_tracing" };
+	    trace                    =   print_if  thread_scheduler_tracing;
+	herein
+	    my _ =   (thread_scheduler::trace_backpatchfn  :=  trace);
+	end;
+    };							# package tracing
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# COPYRIGHT (c) 1992 AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

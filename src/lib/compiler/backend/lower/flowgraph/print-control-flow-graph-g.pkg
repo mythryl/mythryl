@@ -1,0 +1,300 @@
+## print-flowgraph.pkg -- print flowgraph of target machine instructions. 
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+
+api Print_Flowgraph {
+
+   package asm
+       :
+       Instruction_Emitter;				# Instruction_Emitter	is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+
+
+   package control_flow_graph
+       :
+       Control_Flow_Graph				# Control_Flow_Graph	is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+       where instruction_set == asm::instruction_set
+       also  pseudo_op      == asm::instruction_stream::pseudo_op;
+
+
+    print_control_flow_graph
+        :
+        file::Output_Stream
+        ->
+        String
+        ->
+        control_flow_graph::Control_Flow_Graph
+        ->
+        Void;
+
+
+    prettyprint_control_flow_graph
+        :
+        prettyprinter::Prettyprinter 
+        ->
+        String
+        ->
+        control_flow_graph::Control_Flow_Graph
+        ->
+        Void;
+};
+
+
+generic package  print_control_flow_graph_g (
+
+    package asm
+        :
+        Instruction_Emitter;				# Instruction_Emitter	is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+
+    package control_flow_graph
+        :
+        Control_Flow_Graph				# Control_Flow_Graph	is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where instruction_set == asm::instruction_set
+	also  pseudo_op      == asm::instruction_stream::pseudo_op;
+)
+: (weak)
+Print_Flowgraph						# Print_Flowgraph	is from   src/lib/compiler/backend/lower/flowgraph/print-control-flow-graph-g.pkg
+{
+    package asm = asm;
+    package control_flow_graph = control_flow_graph;
+    package cells  = control_flow_graph::instruction_set::cells;
+    package ptf = sfprintf;				# sfprintf		is from   src/lib/src/sfprintf.pkg
+
+    i2s = int::to_string;
+
+
+    fun print_list stream list
+	=
+	iter list
+        where
+	    fun pr str
+		=
+		file::write (stream, str);
+
+	    fun iter []      => ();
+		iter [i]     => pr i;
+		iter (h ! t) => { pr (h + ", "); iter t;};
+	    end;
+	end;
+
+
+    fun print_control_flow_graph stream title (cfg' as graph::GRAPH cfg)
+	= 
+	{   fun pr str
+		=
+		file::write (stream, str);
+
+	    pr_list = print_list stream;
+	    notes   = *(control_flow_graph::notes cfg');
+
+	    my asm::instruction_stream::STREAM { emit, emit_pseudo_op, define_local_label, add_note, ... }
+                = 
+		asm_stream::with_stream
+                    stream
+                    asm::make_stream
+                    notes;
+
+	    fun show_freq (REF w)
+                =
+                ptf::sprintf' "[%f]" [ptf::FLOAT w]; 
+
+	    fun show_edge (blknum, e)
+                = 
+		ptf::sprintf' "%d:%s" [ptf::INT blknum, ptf::STRING (control_flow_graph::show_edge e)];
+
+	    fun show_succ (_, x, e) =  show_edge (x, e);
+	    fun show_pred (x, _, e) =  show_edge (x, e); 
+
+	    fun show_succs b
+                =
+		{   pr "\tsucc:     "; 
+		    pr_list (map show_succ (cfg.out_edges b)); 
+		    pr "\n";
+                };
+
+	    fun show_preds b
+                =
+		{   pr "\tpred:     "; 
+		    pr_list (map show_pred (cfg.in_edges b)); 
+		    pr "\n";
+                };
+
+	    fun print_block (_, control_flow_graph::BLOCK { kind => control_flow_graph::START, id, freq, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "ENTRY %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+			show_succs id;
+		    };
+
+	        print_block(_, control_flow_graph::BLOCK { kind=>control_flow_graph::STOP, id, freq, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "EXIT %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+			show_preds id;
+		    };
+
+	        print_block(_, control_flow_graph::BLOCK { id, align, freq, instructions, notes, labels, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "BLOCK %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+
+		        case *align
+                          
+                             NULL  => ();
+                             THE p => (pr (control_flow_graph::pseudo_op::to_string p + "\n"));
+                        esac;
+
+		        apply add_note *notes;
+		        apply define_local_label *labels;
+
+		        # pr ("\tlive in:  " + cells_basis::CellSet::to_string *liveIn  + "\n");
+		        # pr ("\tlive out: " + cells_basis::CellSet::to_string *liveOut + "\n");
+
+		        show_succs id;
+		        show_preds id;
+		        apply emit (reverse *instructions);
+		    };
+            end;
+
+	    fun print_data ()
+		=
+		{   my control_flow_graph::INFO { data, ... }
+                        =
+                        cfg.graph_info;
+
+		    list::apply
+                        (pr o control_flow_graph::pseudo_op::to_string)
+                        (reverse *data);
+		};
+
+	    pr (ptf::sprintf' "[ %s ]\n" [ptf::STRING title]);
+	    apply  add_note  notes;
+	    #  print_block entry; 
+	    asm_stream::with_stream stream cfg.forall_nodes print_block;
+	    #  print_block exit; 
+	    asm_stream::with_stream stream print_data ();
+	    file::flush stream;
+	};					# fun print_control_flow_graph
+
+
+    fun prettyprint_control_flow_graph  (pp: prettyprinter::Prettyprinter)  title  (cfg' as graph::GRAPH cfg)
+	= 
+	{
+            fun pr str
+		=
+		pp.put str;
+
+	    fun pr_list list
+		=
+		iter list
+                where
+		    fun iter []      => ();
+			iter [i]     => pr i;
+			iter (h ! t) => { pr (h + ", "); iter t;};
+		    end;
+		end;
+
+
+	    notes = *(control_flow_graph::notes cfg');
+
+            pp ->  { text_stream, ... };
+
+            stream
+                =
+                case text_stream
+                  
+                     NULL =>        file::stdout; 
+                     THE stream =>  stream;
+                esac;
+
+            pp.flush (); 
+
+	    (asm_stream::with_stream  stream  asm::make_stream  notes)
+                ->
+	        asm::instruction_stream::STREAM { emit, emit_pseudo_op, define_local_label, add_note, ... };
+
+            file::flush stream;
+
+	    fun show_freq (REF w)
+                =
+                ptf::sprintf' "[%f]" [ptf::FLOAT w]; 
+
+	    fun show_edge (blknum, e)
+                = 
+		ptf::sprintf' "%d:%s" [ptf::INT blknum, ptf::STRING (control_flow_graph::show_edge e)];
+
+	    fun show_succ (_, x, e) =  show_edge (x, e);
+	    fun show_pred (x, _, e) =  show_edge (x, e); 
+
+	    fun show_succs b
+                =
+		{   pr "\tsucc:     "; 
+		    pr_list (map show_succ (cfg.out_edges b)); 
+		    pr "\n";
+                };
+
+	    fun show_preds b
+                =
+		{   pr "\tpred:     "; 
+		    pr_list (map show_pred (cfg.in_edges b)); 
+		    pr "\n";
+                };
+
+	    fun print_block (_, control_flow_graph::BLOCK { kind=>control_flow_graph::START, id, freq, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "ENTRY %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+			show_succs id;
+		    };
+	        print_block(_, control_flow_graph::BLOCK { kind=>control_flow_graph::STOP, id, freq, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "EXIT %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+			show_preds id;
+		    };
+
+	        print_block(_, control_flow_graph::BLOCK { id, align, freq, instructions, notes, labels, ... } )
+		    => 
+		    {   pr (ptf::sprintf' "BLOCK %d %s\n" [ptf::INT id, ptf::STRING (show_freq freq)]);
+
+		        case *align
+                          
+                             NULL  => ();
+                             THE p => (pr (control_flow_graph::pseudo_op::to_string p + "\n"));
+                        esac;
+
+		        apply  add_note          *notes;
+		        apply define_local_label *labels;
+
+		        # pr ("\tlive in:  " + cells_basis::CellSet::to_string *live_in  + "\n");
+		        # pr ("\tlive out: " + cells_basis::CellSet::to_string *live_out + "\n");
+
+		        show_succs id;
+		        show_preds id;
+		        apply emit (reverse *instructions);
+		    };
+            end;
+
+	    fun print_data ()
+		=
+		{   my control_flow_graph::INFO { data, ... }
+                        =
+                        cfg.graph_info;
+
+		    list::apply
+                        (pr o control_flow_graph::pseudo_op::to_string)
+                        (reverse *data);
+		};
+
+	    pr (ptf::sprintf' "[ %s ]\n" [ptf::STRING title]);
+	    apply  add_note  notes;
+	    #  print_block entry; 
+	    asm_stream::with_stream stream cfg.forall_nodes print_block;
+	    #  print_block exit; 
+	    asm_stream::with_stream stream print_data ();
+	    file::flush stream;
+	};					# fun print_control_flow_graph
+};
+
+
+
+## Copyright (c) 1997 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

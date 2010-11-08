@@ -1,0 +1,846 @@
+## include.pkg 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+api Include {
+
+    #  Invoked once, from within typecheck-api: 
+
+     typecheck_include:  (module::Api,
+			  symbol_table::Symbol_Table,
+			  module::Elements,
+			  List( symbol::Symbol ),
+			  Int,
+			  source_map::Source_Code_Region,
+			  typecheck_stuff::Compile_Info)
+			-> (symbol_table::Symbol_Table,
+			   module::Elements,
+			   List( symbol::Symbol ),
+			   List( module::Share_Spec ),  #  type sharing 
+			   List( module::Share_Spec ),  #  package sharing 
+			   Int,                         #  slots 
+			   Bool);                        #  Contains_generic 
+
+     debugging:  Ref(  Bool );
+
+}; #  Api INCLUDE 
+
+
+package include_mumble: (weak) Include {	# Include	is from   src/lib/compiler/frontend/typechecker/typecheck/include.pkg
+
+    stipulate
+
+        package em = error_message;		# error_message	is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package ip = inverse_path;		# inverse_path		is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package a  = var_home;			# var_home		is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+
+	package tu = type_stuff;		# type_stuff		is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package m  = module;			# module		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module.pkg
+	package mu = module_stuff;		# module_stuff		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-stuff.pkg
+
+	package b  = symbol_table_entry;	# symbol_table_entry	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+	package eu = typecheck_stuff;		# typecheck_stuff	is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-stuff.pkg
+	package ep = module_path;		# module_path		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path.pkg
+
+	package s  = symbol;			# symbol		is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+	package se = symbol_table;		# symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+
+	include module;
+	include types;
+	include variables_and_constructors;
+
+    herein
+
+	fun bug msg
+	    =
+	    em::impossible ("Include: " + msg);
+
+	debugging = REF FALSE;
+	say       = control_print::say;
+
+	fun if_debugging_say (msg: String)
+	    =
+	    if *debugging
+                 say msg;
+                 say "\n";
+	    fi;
+
+	fun add_element (element, elements)
+	    =
+	    element ! elements;
+
+	fun subst_elem (   new as (name, spec),
+			 (old as (name',   _)) ! rest
+		      )
+		=>
+		if   (s::eq (name, name'))
+		    
+		     new ! rest;
+		else
+		     old ! subst_elem (new, rest);
+		fi;
+
+	    subst_elem (_, NIL)
+                =>
+                bug "substElem";
+        end;
+
+	Tyc_Compat = KEEP_OLD
+		   | REPLACE
+		   | INCOMPATIBLE;
+
+	fun compatible (newtyc, oldtyc)
+	    =
+	    if (  tu::type_constructor_arity newtyc
+	       != tu::type_constructor_arity oldtyc
+               )
+
+		 INCOMPATIBLE;
+	    else
+		 case (newtyc, oldtyc)
+
+		      (   PRIMITIVE_TYPE_CONSTRUCTOR { kind,  ... },
+			  PRIMITIVE_TYPE_CONSTRUCTOR { kind => kind', ... }
+		      )
+		          =>
+		          case (kind, kind')
+
+			      (FORMAL, FORMAL)   => KEEP_OLD;
+			      (     _, FORMAL)   => REPLACE;
+			      _                  => INCOMPATIBLE;
+                          esac;
+
+		     _ => INCOMPATIBLE;
+
+                 esac;
+            fi;
+
+	fun specified (symbol, elements)
+	    =
+	    list::exists   (fn (n, _) = s::eq (symbol, n))   elements;
+
+	#  Typechecking IMPORT_IN_API in apis: 
+
+	#  XXX BUGGO FIXME Currently doesn't deal with general api_expression case (e.g. sigid where ...) 
+
+	fun typecheck_include (
+
+		API {
+
+		    stamp,
+		    elements=>new_elements,
+		    symbols=>new_symbols, 
+		    property_list,
+		    type_sharing,
+		    package_sharing, 
+		    name,
+		    closed,
+		    contains_generic,
+		    stub
+		},
+		old_dictionary,
+		old_elements,
+		old_symbols,
+		old_slots,
+		source_code_region,
+		compile_info as { make_stamp, error_fn, ... } : eu::Compile_Info
+	    )
+		=>
+		{   err =   error_fn  source_code_region;
+
+		    # When including a list of specs into the current api;
+		    # some type_constructor's macroExpansionVars might be adjusted,
+		    # this would force all the types in the specs to be adjusted also.
+		    # This adjustment is implemented using this tycmap table.
+		    #
+		    exception TYPE_CONSTRUCTOR_MAP;
+
+		    tyc_map =  REF ([]: List( (ep::Module_Stamp, Type_Constructor) ));
+
+		    fun add_map z   =    tyc_map := (z ! *tyc_map);
+		    fun get_map z   =   *tyc_map;
+
+		    fun get_type_constructor_map (ev, [])
+			    =>
+			    raise exception TYPE_CONSTRUCTOR_MAP;
+
+			get_type_constructor_map (
+
+			    ev,
+			   (ev', type_constructor)  !  rest
+			)
+			    =>
+			    if   (ep::module_stamps_are_equal (ev, ev'))
+
+				 type_constructor;
+			    else
+				 get_type_constructor_map (ev, rest);
+			    fi;
+		    end;
+
+		    # adjust_type does not get inside each
+		    # DEFINED_TYPE_CONSTRUCTOR's body
+		    # because we assume that the body
+		    # has been adjusted already:
+		    #
+		    fun adjust_type (type, []    )
+			    =>
+			    type;
+
+			adjust_type (type, tycmap)
+			    =>
+			    tu::map_constructor_type_dot_type_constructor
+				newtyc
+				type
+			    where
+				fun newtyc (type_constructor as TYPE_CONSTRUCTOR_BY_MODULE_PATH { module_path => [ev], ... } )
+					=> 
+					get_type_constructor_map (ev, tycmap)
+					except
+					    TYPE_CONSTRUCTOR_MAP
+					    =
+					    type_constructor;
+
+
+				    newtyc  type_constructor
+					=>
+					type_constructor;
+				end;
+			    end;
+		    end;
+
+		    # adjust_type_constructor() is only
+		    # called at each type specification site.
+		    #
+		    # The stamp for DEFINED_TYPE_CONSTRUCTOR
+		    # is changed; fortunately, this is OK
+		    # because all other references to this
+		    # DEFINED_TYPE_CONSTRUCTOR are via
+		    # TYPE_CONSTRUCTOR_BY_MODULE_PATH.
+		    #
+		    fun adjust_type_constructor (type_constructor, []    )
+			    =>
+			    type_constructor;
+
+			adjust_type_constructor (type_constructor, tycmap)
+			    =>
+			    case type_constructor
+
+				 DEFINED_TYPE_CONSTRUCTOR {
+
+				     strict,
+				     path,
+				     stamp => s,
+				     type_scheme => TYPE_SCHEME { arity, body }
+				 }
+				     =>
+				     DEFINED_TYPE_CONSTRUCTOR {
+					 strict,
+					 path,
+					 stamp  => make_stamp(),
+
+					 type_scheme => TYPE_SCHEME {
+
+							    arity,
+							    body  => adjust_type (body, tycmap)
+							}
+				     };
+
+				 PRIMITIVE_TYPE_CONSTRUCTOR _
+				     =>
+				     type_constructor;
+
+				 TYPE_CONSTRUCTOR_BY_MODULE_PATH { module_path => [ev], ... }
+				     => 
+				     (   get_type_constructor_map (ev, tycmap)
+					 except
+					     TYPE_CONSTRUCTOR_MAP
+					     =
+					     type_constructor
+				     );
+
+				_ => bug "adjust_type_constructor";
+			    esac;
+		    end 
+
+		    # Changing the stamp of an ANONYMOUS
+		    # api may cause unnecessary
+		    # api matching operations:
+		    #
+		    also
+		    fun adjust_sig (an_api, [])
+			    =>
+			    an_api;
+
+			adjust_sig
+			    (
+
+				an_api as
+
+				    API {
+
+					stamp,
+					name,
+					closed,
+					contains_generic, 
+					elements,
+					symbols,
+					property_list,
+					type_sharing,
+					package_sharing,
+					stub
+				    },
+
+				tycmap
+			    )
+			    =>
+			    if closed
+				an_api;
+			    else
+				API {
+
+				    stamp  => make_stamp(),
+				    name,
+				    closed => FALSE,
+				    stub   => NULL,
+
+				    property_list    => property_list::make_property_list (),
+				    elements         => adjust_elems (elements, tycmap), 
+				    symbols,
+				    type_sharing, 
+
+				    contains_generic,
+				    package_sharing
+				};
+			   fi;
+
+		       adjust_sig _
+			   =>
+			   bug "adjust_sig";
+		    end 
+
+		    also
+		    fun adjust_generic_api (
+
+			    an_api as
+
+				GENERIC_API {
+
+				    kind,
+				    parameter_api,
+				    body_api,
+				    parameter_variable,
+				    parameter_symbol
+				},
+
+			    tycmap
+			)
+			    =>
+			    {   parameter_api' = adjust_sig (parameter_api, tycmap);
+				body_api' = adjust_sig (body_api, tycmap);
+
+				GENERIC_API {
+
+				    kind,
+				    parameter_api => parameter_api',
+				    body_api      => body_api',
+				    parameter_variable,
+				    parameter_symbol
+				};
+			    };
+
+			adjust_generic_api _
+			    =>
+			    bug "adjust_generic_api";
+		    end 
+
+		    also
+		    fun adjust_elems (elements, tycmap)
+			=
+			map   (adjust_elem tycmap)   elements
+
+		    also
+		    fun adjust_elem tycmap (symbol, spec)
+			=
+			{   nspec
+				= 
+				case spec
+
+				     TYPE_CONSTRUCTOR_IN_API {
+
+					 type_constructor,
+					 module_stamp => ev,
+					 is_a_replica       => r,
+					 scope            => s
+				     }
+					 =>
+					 TYPE_CONSTRUCTOR_IN_API {
+
+					     type_constructor  => adjust_type_constructor (type_constructor, tycmap),
+					     module_stamp => ev,
+					     is_a_replica       => r,
+					     scope            => s
+					 };
+
+				    PACKAGE_IN_API {
+
+					 an_api,
+					 module_stamp => ev,
+					 definition       => d,
+					 slot             => s
+				     }
+					 =>
+					 PACKAGE_IN_API {
+
+					     an_api        => adjust_sig (an_api, tycmap),
+					     module_stamp  => ev,
+					     definition        => d,
+					     slot              => s
+					 };
+				       #  BUG: def component may need adjustment? XXX FIXME BUGGO 
+
+				     GENERIC_IN_API { a_generic_api,                                               module_stamp=>ev, slot=>s }
+					 =>
+					 GENERIC_IN_API { a_generic_api => adjust_generic_api (a_generic_api, tycmap), module_stamp=>ev, slot=>s };
+
+				     VALUE_IN_API { type,                            slot }
+					 =>
+					 VALUE_IN_API { type=>adjust_type (type, tycmap), slot };
+
+				     ENUM_CONSTRUCTOR_IN_API {
+
+					 slot => s,
+
+					 a_datatype => ENUM_CONSTRUCTOR {
+							 representation, 
+							 symbol,
+							 constructor_type,
+							 const,
+							 signature,
+							 is_lazy
+						     }
+				     }
+				     =>
+				     ENUM_CONSTRUCTOR_IN_API {
+
+					 slot => s,
+
+					 a_datatype => ENUM_CONSTRUCTOR {
+
+							 symbol,
+							 const,
+							 is_lazy,
+
+							 representation,
+							 signature,
+
+							 constructor_type => adjust_type (constructor_type, tycmap)
+						     }
+				     }; esac;
+
+			    (symbol, nspec);
+			};
+
+		    fun add_elem ((name, nspec: m::Api_Element), dictionary, elems, syms, slot)
+			=
+			case nspec
+
+			     TYPE_CONSTRUCTOR_IN_API {
+
+				 type_constructor  => tc,
+				 module_stamp => ev,
+				 is_a_replica       => r,
+				 scope            => s
+			     }
+			     =>
+			     (   {   my { type_constructor => otc,   module_stamp => oev,   is_a_replica => or_op,   scope => os }  #  'o' for 'old'? 
+					 =
+					 case (mu::get_api_element (elems, name))
+
+					     TYPE_CONSTRUCTOR_IN_API x =>   x;
+					     _                         =>   bug "addElem: TYPE_CONSTRUCTOR_IN_API";
+					 esac;
+
+				     case (compatible (tc, otc))
+
+					 KEEP_OLD
+					     => 
+					     {   ntc =
+						     TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+							 arity      => tu::type_constructor_arity otc,
+							 module_path => [oev],
+							 path       => ip::INVERSE_PATH [name]
+						     };
+
+						 add_map (ev, ntc);
+
+						 (dictionary, elems, syms, slot);
+					     };
+
+					REPLACE
+					    =>
+					    {   ntc   =   adjust_type_constructor (tc, get_map());
+
+						nspec'
+						    =
+						    TYPE_CONSTRUCTOR_IN_API {
+
+							type_constructor => ntc,
+							module_stamp     => oev,
+							is_a_replica     => or_op,
+							scope            => s
+						      };                              # ? XXX BUGGO FIXME
+
+						elems' = subst_elem ( (name, nspec'), elems);
+
+						ntc = TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+							  arity      => tu::type_constructor_arity ntc,
+							  module_path => [oev],
+							  path       => ip::INVERSE_PATH [name]
+						      };
+
+						add_map (ev, ntc);
+
+						(dictionary, elems', syms, slot);
+					    };
+
+					INCOMPATIBLE
+					    =>
+					    {   err
+						    em::ERROR
+						    (   "duplicate specifications for type "
+						    +   s::name name
+						    +   " caused by include"
+						    )
+						    em::null_error_body; 
+
+						(dictionary, elems, syms, slot);
+					    };
+				     esac;
+
+				 }   except
+					 mu::UNBOUND _
+					 =>
+					 #  New type_constructor 
+
+					 {   ntyc
+						 =
+						 TYPE_CONSTRUCTOR_BY_MODULE_PATH {
+
+						     arity      => tu::type_constructor_arity tc,
+						     module_path => [ev],
+						     path       => ip::INVERSE_PATH [name]
+						 };
+
+					     dictionary'
+						 =
+						 se::bind (
+						     name,
+						     b::NAMED_TYPE ntyc,
+						     dictionary
+						 );
+
+					     spec'
+						 =
+						 TYPE_CONSTRUCTOR_IN_API {
+
+						     type_constructor  => adjust_type_constructor (tc, get_map()),
+						     module_stamp => ev,
+						     is_a_replica       => r,
+						     scope            => s
+						 };
+
+					     elems'
+						 =
+						 add_element( (name, spec'), elems);
+
+					     syms'
+						 =
+						 name ! syms;
+
+					     (dictionary', elems', syms', slot);
+					 }; end 
+
+			     );
+
+			  PACKAGE_IN_API { an_api, module_stamp, definition, ... }
+			     =>
+			     if   (specified (name, elems))
+
+				 err
+				      em::ERROR
+				      (   "duplicate specifications for package "
+				      +   s::name name
+				      +   " caused by include"
+				      )
+				      em::null_error_body;
+
+				  (dictionary, elems, syms, slot);
+
+			     else 
+				  #  New specification is ok: 
+
+				  newsign
+				      =
+				      adjust_sig (an_api, get_map());
+
+				  newspec
+				      =
+				      PACKAGE_IN_API {
+
+					  an_api => newsign,
+					  slot,
+					  module_stamp,
+					  definition
+				      };
+
+				  nstr
+				      =
+				      PACKAGE_API {
+					  an_api => newsign,
+					  module_path   => [module_stamp]
+				      };
+
+				  dictionary'
+				      =
+				      se::bind (
+					  name,
+					  b::NAMED_PACKAGE nstr,
+					  dictionary
+				      );
+
+				  elems'
+				      =
+				      add_element ((name, newspec), elems);
+
+				  syms'
+				      =
+				      name ! syms;
+
+				  (dictionary', elems', syms', slot+1);
+			     fi;
+
+
+			   GENERIC_IN_API { a_generic_api, module_stamp, ... }
+			      =>
+			      if   (specified (name, elems))
+
+				   err
+				       em::ERROR
+				       (   "duplicate specifications for generic package "
+				       +   s::name name
+				       +   " caused by include"
+				       )
+				       em::null_error_body;
+
+				   (dictionary, elems, syms, slot);
+
+
+			      else
+				  #  New specification is ok: 
+
+				  newsign
+				      =
+				      adjust_generic_api (a_generic_api, get_map());
+
+				  newspec
+				      =
+				      GENERIC_IN_API {
+
+					  a_generic_api             => newsign,
+					  slot,
+					  module_stamp
+				      };
+
+				  elems'
+				      =
+				      add_element ((name, newspec), elems);
+
+				  syms'
+				      =
+				      name ! syms;
+
+				  (dictionary, elems', syms', slot+1);
+
+			      fi;
+
+
+			   VALUE_IN_API { type, ... }
+			       => 
+			       if   (specified (name, elems))
+
+				    err
+					em::ERROR
+					(   "duplicate value specifications for "
+					+   s::name name
+					+   " caused by include"
+					)
+					em::null_error_body;
+
+				    (dictionary, elems, syms, slot);
+
+
+			       else #  New specification is ok: 
+
+				    newtyp
+					=
+					adjust_type (type, get_map());
+
+				    newspec
+					=
+					VALUE_IN_API { type => newtyp,   slot };
+
+				    elems'
+					=
+					add_element ((name, newspec), elems);
+
+				    syms'
+					=
+					name ! syms;
+
+				    (dictionary, elems', syms', slot+1);
+				fi;
+
+			  ENUM_CONSTRUCTOR_IN_API {
+
+			       a_datatype => ENUM_CONSTRUCTOR {
+
+					       representation,
+					       symbol,
+					       constructor_type,
+					       const,
+					       signature,
+					       is_lazy
+					   },
+					   ...
+			   }
+			       =>
+			       if   (specified (symbol, elems)
+    )
+				       err
+					    em::ERROR
+					    (   "duplicate constructor specifications for "
+					    +   s::name symbol
+					    +   " caused by include"
+					    )
+					    em::null_error_body;
+
+					(dictionary, elems, syms, slot);
+
+
+			       else #  New specification is ok: 
+
+				    constructor_type
+					=
+					adjust_type (constructor_type, get_map());
+
+				    ndcon
+					=
+					ENUM_CONSTRUCTOR {
+
+					    constructor_type,
+
+					    signature,
+					    representation,
+
+					    symbol,
+					    const,
+					    is_lazy
+					};
+
+				    my (slot_op, slot')
+					=
+					case representation 
+					    a::EXCEPTION _ => (THE slot, slot+1);
+					    _              => (NULL,      slot  );
+					esac;
+
+				    newspec
+					=
+					ENUM_CONSTRUCTOR_IN_API {
+
+					    a_datatype => ndcon,
+					    slot      => slot_op
+					};
+
+				    elems' = add_element( (name, newspec), elems);
+
+				    syms'  = name ! syms;
+
+				    (dictionary, elems', syms', slot');
+				 fi;
+		       esac;
+
+				 #  end of fn addElem 
+
+		    fun add_elems (nelems, [], dictionary, elems, syms, slot)
+			    =>
+			    (dictionary, elems, syms, slot);
+
+			add_elems (e ! nelems, s ! rest, dictionary, elems, syms, slot)
+			    => 
+			    {   # Should use s to search for e in nelems if
+				# elements is represented as a real dictionary. XXX BUGGO FIXME
+
+				my (dictionary', elems', syms', slot')
+				    =
+				    add_elem (e, dictionary, elems, syms, slot);
+
+				add_elems (nelems, rest, dictionary', elems', syms', slot');
+			    };
+
+			add_elems _
+			    =>
+			    bug "add_elems";
+		    end;
+
+		    my (dictionary', elems', syms', slots')
+			= 
+			add_elems (
+
+			    new_elements,
+			    new_symbols,
+			    old_dictionary,
+			    old_elements,
+			    old_symbols,
+			    old_slots
+			);
+
+
+		    (dictionary', elems', syms', type_sharing, package_sharing, slots', contains_generic);
+
+		};  #  end of case #1 for function typecheck_include 
+
+	    typecheck_include (ERRONEOUS_API, dictionary, elems, syms, slots, source_code_region, comp_info)
+		=>
+		(dictionary, elems, syms, [], [], slots, FALSE);
+        end;								# fun typecheck_include
+
+    end; 	# stipulate
+};		# package include 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,251 @@
+# source-map.pkg
+# XXX BUGGO FIXME This seems severely redundant with     src/lib/compiler/frontend/basics/source/source-map.pkg
+#                                     not to mention     src/lib/compiler/backend/lower/tools/source-map/source-mapping.pkg
+#
+# XXX BUGGO FIXME "location" should be changed to "region".
+
+# Compiled by:
+#     src/lib/c-kit/src/parser/group.make6
+
+
+
+###                    "It is not knowledge, but the act of learning,
+###                     not possession but the act of getting there,
+###                     which grants the greatest enjoyment."
+###
+###                                     -- Carl Friedrich Gauss
+
+
+
+package source_map: (weak)  Source_Map {		# Source_Map	is from   src/lib/c-kit/src/parser/util/source-map.api
+
+    package f= sfprintf;				# sfprintf	is from   src/lib/src/sfprintf.pkg
+
+    Charpos = Int;
+
+    Source_Code_Region = (Charpos, Charpos);
+
+    Location
+        = UNKNOWN
+        | LOC {
+	    src_file:    String,
+	    begin_line:  Int,
+	    begin_col:   Int,
+	    end_line:    Int,
+	    end_col:     Int
+	  };
+
+    Sourcemap
+        =
+        SOURCEMAP {
+	  line_pos:   Ref(  List(  Charpos ) ),
+	  line_num:   Ref( Int ),
+	  file_pos:   Ref( List { line_pos:  List( Charpos ), 
+		      line:     Int,
+		      src_file:  String } )
+        };
+
+
+    # David B MacQueen: the filePos is a stack of records, but it doesn't get popped,
+    # so it looks like filePos could just be a REF of the record.     XXX BUGGO FIXME
+
+    fun newmap { src_file }
+        =
+        SOURCEMAP {
+	  line_pos =>  REF [1], #  this compensates for lex bug:  yypos off by 2 
+	  file_pos =>  REF [{ line_pos => [], line => 1, src_file } ],
+	  line_num =>  REF 1
+	};
+
+    fun newline
+            (SOURCEMAP { line_pos, line_num, ... } )
+            pos
+        =
+	{   line_pos :=  pos ! *line_pos;
+            line_num :=  1 + *line_num;
+        };
+
+    fun resynch (SOURCEMAP { line_pos, file_pos, line_num, ... } ) { pos, src_file, line }
+        =
+	{   line_pos :=  [pos];
+	    line_num :=  line;
+
+            file_pos := { line_pos => *line_pos,
+		          line     => *line_num,
+
+		          src_file
+                              =>
+		              case src_file
+                                 
+			           THE src_file =>  src_file;
+
+				   NULL
+                                       => 
+				       {   fpl = *file_pos;
+
+				           case fpl
+                                             
+					        NIL   =>  "";
+				                x ! _ =>  x.src_file;
+                                           esac;
+				       };
+                              esac
+		        }
+                        !
+                        *file_pos;
+
+	};
+
+    fun parse_directive source_map (pos, directive)
+        =
+	{   fun sep ' '  =>  TRUE;
+	        sep '"'  =>  TRUE;
+	        sep '#'  =>  TRUE;
+	        sep '\n' =>  TRUE;
+
+	        sep _    =>  FALSE;
+            end;
+
+	    fun proc { line, src_opt }
+                = 
+		case (int::from_string line)
+		  
+		     THE line
+                         => 
+		         resynch source_map { line, pos,  src_file => src_opt };
+
+		     _   =>
+                         newline  source_map  pos;
+                esac;
+
+	    if config::parse_control::parse_directive
+
+	         case (string::tokens  sep  directive)
+		   
+		      ("line" ! line ! src_file ! _)
+                          =>
+		          proc { line,  src_opt => THE src_file };
+
+		      line ! src_file ! _
+                          =>
+                          proc { line,  src_opt => THE src_file };
+
+		      line ! _
+                          =>
+                          proc { line,  src_opt => NULL };
+
+		      _   =>
+                          newline  source_map  pos;
+                 esac;
+	    else
+                 newline  source_map  pos;
+            fi;
+	};
+
+    fun curr_pos (SOURCEMAP { line_pos, ... } )
+        =
+        head *line_pos;
+
+
+    fun location (SOURCEMAP { line_pos, file_pos, line_num, ... } ) (x, y)
+	=
+	{   fun find_pos (p, curr_pos, curr_file, pos ! rest, file_pos, line)
+                    =>
+		    if   (p > pos)
+                        
+		         { src_file=>curr_file, line, column=>p - pos };
+		    else
+                         find_pos (p, pos, curr_file, rest, file_pos, line - 1);
+                    fi;
+
+	        find_pos (p, curr_pos, curr_file,[],{ line_pos, line, src_file } ! file_pos, _)
+		    =>
+		    find_pos (p, curr_pos, .src_file (head file_pos), line_pos, file_pos, line);
+
+			# NOTE: very confusing...
+			#  filePos stack contains previous line info and srcFile of current file
+
+	        find_pos (p, curr_pos, curr_file,[],[], line)
+                    => 
+		    { src_file=>curr_file, line, column=>0 };
+            end;
+
+	    my { src_file=>curr_file, ... }
+                =
+                head *file_pos;
+
+	    my { src_file, line=>l1, column=>c1 }
+                 = 
+		 find_pos (x, x, curr_file,*line_pos,*file_pos,*line_num);
+
+	    my { src_file, line=>l2, column=>c2 }
+                 = 
+		 find_pos (y, y, curr_file,*line_pos,*file_pos,*line_num);
+
+	    LOC {
+              src_file,
+	      begin_line => l1,
+	      begin_col  => c1,
+	      end_line   => l2,
+	      end_col    => c2
+	    };
+	};
+
+
+
+    # Return a string "foo.pkg:4596.16-23" representing a location:
+
+    fun loc_to_string  UNKNOWN
+            =>
+            "\"???\"";
+
+        loc_to_string  (LOC { src_file, begin_line, begin_col, end_line, end_col } )
+            =>
+            {   src_file =  src_file;
+		p1line   =  begin_line;
+		p1pos    =  begin_col;
+		p2line   =  end_line;
+		p2pos    =  end_col;
+
+		if   (begin_line == end_line)
+		    
+                     if   (p1pos < p2pos)
+		         
+                          f::sprintf' "\"%s\":%d.%d-%d" [
+			      f::STRING src_file, f::INT p1line, f::INT p1pos, f::INT p2pos
+		          ];
+		     else
+                          f::sprintf' "\"%s\":%d.%d" [
+			      f::STRING src_file, f::INT p1line, f::INT p1pos
+		          ];
+                     fi;
+		else
+                     f::sprintf' "\"%s\":%d.%d-%d.%d" [
+		         f::STRING src_file, f::INT p1line, f::INT p1pos,
+		         f::INT p2line, f::INT p2pos
+		     ];
+                fi;
+	    };
+
+    end; #  loc_to_string 
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

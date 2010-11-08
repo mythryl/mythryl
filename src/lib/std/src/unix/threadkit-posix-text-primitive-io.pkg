@@ -1,0 +1,209 @@
+## threadkit-posix-test-primitive-io.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+
+# This implements the UNIX version of the OS specific text primitive
+# IO package.  It is implemented by a trivial translation of the
+# binary operations (see posix-binary-primitive-io.pkg).
+
+
+package threadkit_posix_text_primitive_io: (weak)
+api {
+
+    include Threadkit_Winix_Primitive_Io;					# Threadkit_Winix_Primitive_Io		is from   src/lib/std/src/io/threadkit-winix-primitive-io.api
+
+    stdin:   Void -> primitive_io::Reader;
+    stdout:  Void -> primitive_io::Writer;
+    stderr:  Void -> primitive_io::Writer;
+
+    string_reader:  String -> primitive_io::Reader;
+
+}
+{
+
+    package md = maildrop;							# maildrop				is from   src/lib/thread-kit/src/core-thread-kit/maildrop.pkg
+    package pf = posix;								# posix					is from   src/lib/std/src/posix/posix.pkg
+
+    package binary_primitive_io = threadkit_posix_binary_primitive_io;		# threadkit_posix_binary_primitive_io	is from   src/lib/std/src/unix/threadkit-posix-binary-primitive-io.pkg
+    package primitive_io        = threadkit_text_primitive_io;			# threadkit_text_primitive_io		is from   src/lib/std/src/io/threadkit-text-primitive-io.pkg
+
+    File_Descriptor = pf::File_Descriptor;
+
+    buffer_size_b = 4096;
+
+    # If char::char is really unt8::word
+    # then very efficient versions of
+    # translate_in and translate_out are possible:
+    #
+    my translate_in:  binary_primitive_io::primitive_io::Reader -> primitive_io::Reader = unsafe::cast;
+    my translate_out: binary_primitive_io::primitive_io::Writer -> primitive_io::Writer = unsafe::cast;
+
+    fun open_for_read   fname =  translate_in  (binary_primitive_io::open_for_read fname);
+    fun open_for_write  fname =  translate_out (binary_primitive_io::open_for_write fname);
+    fun open_for_append fname =  translate_out (binary_primitive_io::open_for_append fname);
+
+    fun make_reader args = translate_in  (binary_primitive_io::make_reader args);
+    fun make_writer args = translate_out (binary_primitive_io::make_writer args);
+
+    fun stdin ()
+        =
+        make_reader {
+	    fd		=> pf::stdin,
+	    name	=> "<stdin>"
+	};
+
+    fun stdout ()
+        =
+        make_writer {
+	    fd		=> pf::stdout,
+	    name	=> "<stdout>",
+	    append_mode	=> FALSE, #  Bug!  Should check! 
+	    chunk_size	=> buffer_size_b
+	  };
+
+    fun stderr ()
+        =
+        make_writer {
+	    fd		=> pf::stderr,
+	    name	=> "<stderr>",
+	    append_mode	=> FALSE, #  Bug!  Should check! 
+	    chunk_size	=> buffer_size_b
+	};
+
+    fun string_reader src
+        =
+        {
+	    lock_mv = md::make_full_maildrop ();
+
+	    fun with_lock f x
+		=
+                {   md::empty lock_mv;
+
+		    f x
+                    before
+                    md::fill (lock_mv, ());
+                }
+		except
+		    x = {   md::fill (lock_mv, ());
+
+			    raise exception x;
+			};
+
+	    pos    = REF 0;
+	    closed = REF FALSE;
+
+	    fun check_closed ()
+		=
+		if *closed
+                    raise exception io_exceptions::CLOSED_IO_STREAM;
+                fi;
+
+	    len  = string::length src;
+	    plen = file_position::from_int len;
+
+	    fun avail ()
+		=
+		len - *pos;
+
+	    fun read_v n
+		=
+                {   p = *pos;
+		    m = int::min (n, len-p);
+
+		    check_closed ();
+		    pos := p+m;
+
+		    # NOTE: Could use unchecked operations here.
+
+		    string::substring (src, p, m);
+		  };
+
+	    fun read_a asl
+                =
+                {   p = *pos;
+
+		    my (buf, i, n)
+			=
+			rw_char_vector_slice::base asl;
+
+		    m = int::min (n, len - p);
+
+		    check_closed ();
+		    pos := p+m;
+		    rw_char_vector_slice::copy_vec
+			{ from => char_vector_slice::make_slice (src, p, THE m),
+			  to   => buf,
+                          di   => i
+                        };
+		    m;
+		  };
+
+	    fun get_position ()
+		=
+		{   check_closed();
+		    file_position::from_int  *pos;
+		};
+
+	    fun set_position p
+		=
+		{   check_closed ();
+
+		    if (p >= 0 and p <= plen)
+			#
+                        pos := file_position::to_int p;
+		    else
+		        raise exception SUBSCRIPT;
+                    fi;
+		};
+
+	    primitive_io::READER
+              {
+		name            =>  "<string>", 
+		chunk_size      =>  len,
+
+		read_vector     =>  with_lock read_v,
+		read_rw_vector  =>  with_lock read_a,
+
+		read_vec_mailop =>  with_lock (threadkit::always_mailop o read_v),
+		read_arr_mailop =>  with_lock (threadkit::always_mailop o read_a),
+
+		avail           =>  THE o avail,
+
+		get_position    =>  THE (with_lock get_position),
+		set_position    =>  THE (with_lock set_position),
+		end_position    =>  THE (with_lock (fn () = { check_closed();  plen; })),
+
+		verify_position =>  THE (with_lock get_position),
+		close           =>  with_lock (fn () = closed := TRUE),
+		io_descriptor   =>  NULL
+	      };
+	  };
+
+  }; #  posix_text_primitive_io 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

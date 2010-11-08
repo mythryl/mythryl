@@ -1,0 +1,239 @@
+#
+# This module is used to generate state tables with the following
+# encoding scheme:
+#    delta (s, c) = 
+#      let offset = base[s] + c
+#      in  if check[offset] == s then next[offset] else error
+#      end
+# where base, check, and next are three 1-D arrays.
+#
+# This encoding scheme is suitable for "sparse tables", i.e., tables with
+# only a few non-error transitions out of each state.   LALR (1) tables
+# are usually sparse.
+#
+# The compression heuristic is very simple:
+#   1. If the new state has only one non-error transition symbol 
+#         (singleton states), save it later.
+#   2. Pack the normal states with first fit.
+#   3. When all non-singleton states are dealt with, pack the singleton states
+#      into the "holes" found in the table.
+
+
+
+local
+
+   DEBUG = FALSE
+
+in
+
+package SparseAutomataTable :> AUTOMATA_TABLE {
+
+
+   error = 0
+  
+   i2s = int::to_string
+
+   exception AutomataTable of String
+   package a = rw_vector
+   package DynArray {
+
+      enum Rw_Vector X = ARR of Ref( a::Rw_Vector( X ) ) * Ref( Int ) * X
+ 
+      fun sub (ARR (REF a, _, d), i) = if i < a::length a then a::sub (a, i) else d
+
+      fun setBound (ARR (arr' as REF a, b, d), n) =
+          if n >= a::length a then
+          let a' = a::rw_vector (n+1, d)
+          in  a::copy { src=a, dst=a', si=0, di=0, len=THE (*b+1) };
+              arr' := a';
+              b    := n
+          end
+          else b := int::max (n,*b)
+
+      fun update (arr as ARR (REF a, b, d), i, x) = 
+          let n = a::length a 
+          in  if i >= n then 
+                  (setBound (arr, int::max (8, int::max (n+n, i+1)));
+                   update (arr, i, x)
+                  )
+              else (a::update (a, i, x);
+                    if *b < i then b := i else ()
+                   )
+          end 
+      fun length (ARR(_, REF b, _)) = b+1
+      fun rw_vector (n, x) = ARR (REF (a::rw_vector (n, x)), REF -1, x)
+      fun toList (ARR (REF a, REF b, _)) = 
+          a::keyed_fold_right (fn (_, x, l) => x . l) [] (a, 0, THE (b+1))
+      fun toArray (ARR (REF a, _, _)) = a
+      fun toPacked (ARR (REF a, REF b, _), w) =
+      let fun pack (x, 0, s) = s
+            | pack (x, i, s) =
+              let b = unt::toIntX (unt::bitwise_and (x, 0wxff))
+              in  pack (unt.>>(x, 0wx8), i - 1, char::from_int b . s)
+              end
+          l = a::keyed_fold_right (fn (_, x, s) => pack (unt::from_int x, w, s)) [] 
+                     (a, 0, THE (b+1))
+      in  string::implode l
+      end
+   }
+   package da = DynArray
+
+   type state = Int
+   type Symbol = Int
+   enum table = 
+      TABLE of 
+      { base:        da::Rw_Vector( Int ),
+       check:       da::Rw_Vector( state ),
+       next:        da::Rw_Vector( state ),
+       singletons:   Ref( List( state * Symbol * state ) ),
+       minOffset:   Ref( Int ),
+       maxOffset:   Ref( Int ),
+       min_char:     Symbol,
+       max_char:     Symbol,
+       maxState:    Ref( state )
+      }
+
+   fun min (TABLE { min_char, ... } ) = min_char
+   fun max (TABLE { max_char, ... } ) = max_char
+
+   fun stateCount (TABLE { maxState, ... } ) = *maxState + 1
+
+   fun expand (TABLE { min_char, max_char, check, next, ... }, offset) = 
+   let offset = offset + max_char - min_char 
+   in  da::setBound (check, offset);
+       da::setBound (next, offset)
+   end 
+ 
+   fun addState (table as TABLE { singletons, base, check, next, maxState, 
+                                minOffset, maxOffset, min_char, max_char, ... } ) 
+                (state, delta) =
+       (maxState := int::max(*maxState, state);
+        da::update (base, state, 0);
+        case delta of
+          [] => () #  Done 
+        | [(c, s)] => singletons := (state, c, s) . *singletons
+        |  _ =>
+          /* Fit into the table using a first fit strategy */       
+          let fun scan i =
+                  if da::sub (check, i) == error then i else scan (i+1)
+              n = scan(*minOffset)
+              minOffset := n
+              fun fits (i, []) = TRUE
+                | fits (i, (c, s) . delta) =
+                  da::sub (check, i + c) = error and fits (i, delta) 
+              fun find (i) = if fits (i, delta) then i else find (i+1)
+              offset = find (n - min_char) #  Base offset 
+              if DEBUG then print("Offset="$i2s offset$"\n") else ()
+          in  
+              apply (fn (c, s) =>
+                       (da::update (check, offset + c, state);
+                        da::update (next, offset + c, s))) delta;
+              da::update (base, state, offset);
+              if *maxOffset < offset then maxOffset := offset 
+              expand (table,*maxOffset)
+          end
+       )
+
+   fun new { min, max } = 
+   let minSize = max-min+1
+       table = TABLE { base=da::rw_vector (1, 0),
+                         check=da::rw_vector (minSize, error),
+                         next=da::rw_vector (minSize, error),
+                         singletons=REF [],
+                         min_char=min,
+                         max_char=max,
+                         maxState=REF error,
+                         minOffset=REF 1,
+                         maxOffset=REF 0
+                        }
+   in  table
+   end
+
+   fun charRange (TABLE { min_char, max_char, ... } ) = { min=min_char, max=max_char }
+
+       #  Insert singleton transitions into the table 
+   fun compress (table as TABLE { singletons, base, check, next, 
+                              min_char, minOffset, maxOffset, max_char, ... } ) = 
+       let fun insert (i, []) = i
+             | insert (i, trans as (s, c, s') . rest) =
+               if da::sub (check, i) == error then #  hole found 
+                  let offset = i-c
+                  in  if offset < 0 then insert (c, trans)
+                      else
+                      (da::update (check, i, s);
+                       da::update (next, i, s');
+                       da::update (base, s, offset);
+                       if *maxOffset < offset then maxOffset := offset 
+                       insert (i+1, rest)
+                      )
+                  end
+               else 
+                  insert (i+1, trans)
+
+             #  lowest character first 
+            toDo = list_mergesort::sort (fn ((_, c, _), (_, c', _)) =>c>c')
+                                (*singletons)
+            insert(*minOffset, *singletons) 
+        in  singletons := [];
+            expand (table,*maxOffset)
+        end
+
+   fun go (TABLE { singletons=REF [], base, check, next, ... } ) =
+       let base = da::toArray base
+           check =da::toArray check
+           next = da::toArray next
+           fun delta (state, c) =
+           let offset = a::sub (base, state) + c
+           in  if a::sub (check, offset) == state 
+               then a::sub (next, offset) else error
+           end
+       in  delta
+       end
+     | go table = (compress table; go table)  #  Compile it first 
+
+   fun getrep (TABLE { base, check, next, ... } ) rep = 
+       (case rep of
+         "base"  => base
+       | "check" => check
+       | "next"  => next
+       | rep     => raise exception AutomataTable("unknown table "$rep)
+       )
+
+   fun widthOf n = if n < 256 then 1 else if n < 65536 then 2 else 4
+
+   fun getwidth (TABLE { maxState, maxOffset, ... } ) rep = 
+       (case rep of
+         "base"  => widthOf(*maxOffset)
+       | "check" => widthOf(*maxState)
+       | "next"  => widthOf(*maxState)
+       | rep     => raise exception AutomataTable("unknown table "$rep)
+       )
+
+   fun getarr table rep = da::toArray (getrep table rep)
+
+   fun getpacked table rep = 
+   let w = getwidth table rep
+   in  (da::toPacked (getrep table rep, w), w)
+   end
+
+}
+
+end
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

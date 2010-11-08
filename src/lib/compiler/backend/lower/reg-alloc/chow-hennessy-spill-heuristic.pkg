@@ -1,0 +1,185 @@
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+# This module implements a Chow-Hennessy-style spill heuristic 
+
+package chow_hennessy_spill_heuristic: (weak)  Register_Allocation_Spill_Heuristics {		# Register_Allocation_Spill_Heuristics	is from   src/lib/compiler/backend/lower/reg-alloc/ra-spill-heuristic.api
+
+    package g    = register_allocation_graph;	# register_allocation_graph	is from   src/lib/compiler/backend/lower/reg-alloc/ra-graph.pkg
+    package heap = heap_priority_queue;		# heap_priority_queue		is from   src/lib/src/heap-priority-queue.pkg
+
+    include g;
+
+    exception NO_CANDIDATE;
+
+    mode = register_allocation_core::compute_span;
+
+    cache = REF NULL:  Ref( Null_Or( heap::Priority_Queue( (g::Node, Float) ) ) );
+
+    fun init ()
+        =
+        cache := NULL;
+
+    /*
+     * Potential spill phase.
+     * Find a cheap node to spill according to Chow Hennessy's heuristic.
+     */
+    fun choose_spill_node
+        { graph as g::GRAPH { span, ... },
+	  has_been_spilled,
+          spill_worklist
+        }
+	=
+	{   fun chase (NODE { color=>REF (ALIASED n), ... } ) => chase n;
+		chase n => n;
+            end;
+
+	    # The spill worklist is maintained only lazily.  So we have
+	    # to prune away those nodes that are already removed from the
+	    # interference graph.  After pruning the spillWkl, 
+	    # it may be the case that there aren't anything to be 
+	    # spilled after all.
+	    #
+	    fun chow_hennessy spills
+		=
+		loop (spills, [], TRUE)
+                where
+		    # Compute savings due to moves 
+		    spill_savings = register_allocation_core::move_savings graph;
+
+		    lookup_span
+			=
+			int_hash_table::find (null_or::the *span);
+
+		    lookup_span
+			= 
+			fn r =  case (lookup_span r)
+
+				     THE s =>  s;
+				     NULL  =>  0.0;
+				esac;
+
+		    span := NULL;
+
+		    fun loop ([], l, pruned)
+                            =>
+                            (l, pruned);
+
+			loop (node ! rest, l, pruned)
+			    => 
+			    case (chase node)   
+
+				 node as NODE { number, pri, defs, uses,
+					      degree=>REF deg, color=>REF PSEUDO, ... }
+				     => 
+				     if (has_been_spilled number) 
+					  loop (rest, l, FALSE);
+				     else
+					  fun newnode ()
+					      =
+					      {   span = lookup_span number;
+						  savings =  spill_savings number;
+						  spill_cost = *pri;
+						  total_cost = spill_cost - savings;
+						  # rank = ((real totalCost)+0.01) / real (span)
+						  rank = (total_cost + 0.5) // (span + real deg);
+						  loop (rest, (node, rank) ! l, FALSE);
+					      };
+
+					  case (*defs, *uses)
+
+					      (_, [])   #  one def no use 
+						  =>
+						  loop (rest, (node, -1.0 - real (deg)) ! l, FALSE);
+
+					      ([d], [u])  /* defs after use; don't use */ 
+						  =>
+						  {   fun plus ( { block, instruction }, n)
+							  =
+							  { block, instruction=>instruction+n };
+
+						       if (d == plus (u, 1) or d == plus (u, 2) ) 
+							   loop (rest, l, FALSE);
+						       else 
+							   newnode();
+						       fi;
+						  };
+
+					     _ => newnode();
+					  esac; 
+				     fi; 
+
+				_ => loop (rest, l, pruned);  #  Discard node 
+			   esac;
+		    end;			# fun loop
+		end;				# fun chow_hennessy
+
+	    fun choose_node heap
+		=
+		{   fun loop ()
+			= 
+			{   my (node, cost) = heap::delete_min heap;
+
+			    case (chase node)
+
+			       node as NODE { color=>REF PSEUDO, ... }
+				   =>
+				   { node=>THE (node), cost, spill_worklist };
+
+			       _ => loop();
+			    esac;    
+			};
+
+		    loop();
+		}
+		except
+		    _ = { node=>NULL, cost=>0.0, spill_worklist => [] };
+
+	    case *cache
+             
+	        THE heap => choose_node heap;
+
+	        NULL => 
+	            {   my (l, pruned) = chow_hennessy (spill_worklist);
+
+		        if pruned  /* done */ 
+
+		             { node=>NULL, cost=>0.0, spill_worklist => [] };
+		        else
+			     case l
+
+				  [] => raise exception NO_CANDIDATE;
+
+				  _  => {   fun rank ((_, x), (_, y))
+                                                =
+                                                float::(<) (x, y);
+
+					    heap = heap::from_list rank l;
+					    cache := THE heap; 
+					    choose_node heap;
+					};
+			      esac;
+		        fi;
+	            };
+           esac;
+	};
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

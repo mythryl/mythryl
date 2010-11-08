@@ -1,0 +1,2696 @@
+## compile-pattern.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+# Compile surface-syntax pattern-match expressions from
+# deep syntax down to polylambda form.
+#
+# See also:    src/lib/compiler/backend/lower/tools/match-compiler/match-compiler-g.pkg
+#              src/lib/compiler/backend/lower/tools/match-compiler/match-gen-g.pkg
+
+# Mythryl uses pattern matching in a number of contexts:
+#
+#     pattern = expression;            # Example:  RECORD { foo=x, bar=y } = f(z);
+#     except pattern => expression     # Example  ... except RECORD { foo=x, bar=y } => (x,y);
+#     case x of pattern => expression  # Example:  case x of RECORD { foo=x, bar=y } => (x,y);
+#     fun pattern = expression         # Example   fun  myfn RECORD { foo=x, bar=y } =  (x,y);
+#
+# (The last two cases are essentially identical,
+# 'fun' being syntactic sugar for a naming of
+# a 'fn' containing a case statement.)
+#
+# At the raw syntax and deep syntax levels,
+# we just represent such patterns as syntax
+# trees reflecting surface syntax.
+#
+# Our polylambda intermediate language, however,
+# which is based closely on a typed polymorphic
+# lambda calculus, has no such special syntax
+# for pattern-matching, so when we translate
+# from deep syntax into polylambda, we must compile
+# pattern-matching down into regular function applications.
+#
+# That is our job in this file.
+#
+# Deep syntax is defined in
+#
+#     src/lib/compiler/frontend/typecheck-stuff/deep-syntax/deep-syntax.api
+#
+# The "polylambda" intermediate language is defined in
+#
+#     src/lib/compiler/backend/upper/polylambda/polylambda.api
+#
+# Translation between the two is done by
+#
+#     src/lib/compiler/backend/upper/translate/translate-deep-syntax-to-polylambda.pkg
+#
+# which invokes us to handle compiling pattern syntax
+# into polylambda code.
+#
+# We have three entry points, corresponding to the three
+# basic contexts in which pattern-matching is done:
+#     namings           # First example above
+#     'except' handling  # Second example above
+#     'case' and 'fun'   # Third and fourth examples above.
+#
+# See also:
+#
+#     SML/NJ Match Compiler Notes
+#     William Aitken
+#     1992, 15p
+#     http://www.smlnj.org//compiler-notes/matchcomp.ps
+
+
+
+###        "It is not because things are
+###         difficult that we do not dare,
+###         it is because we do not dare
+###         that they are difficult."
+###
+###                      -- Seneca
+
+
+
+###        "A heart in love with beauty never grows old."
+###
+###                                  -- Turkish proverb
+
+
+
+###        "I don't want it good.   I want it Tuesday."
+###
+###                              -- Jack Warner
+
+
+
+###        "You need the willingness to fail all the time.
+###         You have to generate many ideas and then you have
+###         to work very hard only to discover that they don't work.
+###         And you keep doing that over and over until you
+###         find one that does work."
+###
+###                                    -- John W Backus
+
+
+
+api Compile_Pattern {
+
+
+    To_Tc_Lt
+	=
+	((types::Type -> polylambda_type::Highcode_Type_Constructor), (types::Type -> polylambda_type::Highcode_Type));
+
+    Make_Integer_Switch
+	=
+	(polylambda::Polylambda_Expression, List ((integer::Int, polylambda::Polylambda_Expression)), polylambda::Polylambda_Expression)
+	->
+	polylambda::Polylambda_Expression;
+
+    compile_naming_pattern
+	:
+	( symbol_table::Symbol_Table,
+	  List( (deep_syntax::Case_Pattern, polylambda::Polylambda_Expression) ),
+	  (polylambda::Polylambda_Expression -> polylambda::Polylambda_Expression),
+	  highcode_var::Highcode_Variable,
+	  To_Tc_Lt,
+	  error_message::Plaint_Sink,
+	  Make_Integer_Switch
+	)
+	->
+	polylambda::Polylambda_Expression;
+
+    compile_case_pattern
+	:
+	( symbol_table::Symbol_Table,
+	  List( (deep_syntax::Case_Pattern, polylambda::Polylambda_Expression) ),
+	  (polylambda::Polylambda_Expression -> polylambda::Polylambda_Expression),
+	  highcode_var::Highcode_Variable,
+	  To_Tc_Lt,
+	  error_message::Plaint_Sink,
+	  Make_Integer_Switch
+	)
+	->
+	polylambda::Polylambda_Expression;
+
+    compile_exception_pattern
+	:
+	( symbol_table::Symbol_Table,
+	  List( (deep_syntax::Case_Pattern, polylambda::Polylambda_Expression) ),
+	  (polylambda::Polylambda_Expression -> polylambda::Polylambda_Expression),
+	  highcode_var::Highcode_Variable,
+	  To_Tc_Lt,
+	  error_message::Plaint_Sink,
+	  Make_Integer_Switch
+	)
+	->
+	polylambda::Polylambda_Expression;
+
+};
+
+
+package compile_pattern: (weak)  Compile_Pattern {
+
+    stipulate
+
+        package da = var_home;				# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+	package bt = type_types;			# type_types			is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package lt = polylambda_type;			# polylambda_type		is from   src/lib/compiler/backend/upper/polylambda/polylambda-type.pkg
+	package tu = type_stuff;			# type_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package po = highcode_primitive_op;		# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package em = error_message;			# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package tp = types;				# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package ln = literal_to_num;			# literal_to_num		is from   src/lib/compiler/src/util/literal-to-num.pkg
+	package pp = prettyprint;			# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+	package t  = types;				# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+
+	package mp = prettyprint_polylambda_expression;	# prettyprint_polylambda_expression	is from   src/lib/compiler/backend/upper/polylambda/prettyprint-polylambda-expression.pkg
+
+	include  variables_and_constructors;
+#        include  types;
+        include  deep_syntax;
+        include  polylambda;
+        include  prettyprint;
+        include  template_expansion;
+        include  compile_pattern_stuff;
+
+    herein 
+
+	intersect      =   sorted_list::intersect;
+	union          =   sorted_list::merge;
+	set_difference =   sorted_list::difference;
+
+	fun is_there (i, set)
+            =
+            sorted_list::member set i;
+
+	fun bug s
+            =
+            em::impossible ("compile_pattern: " + s);
+
+	say =   controls::print::say;
+
+	To_Tc_Lt
+            =
+            ( t::Type -> lt::Highcode_Type_Constructor,
+              t::Type -> lt::Highcode_Type
+            );
+
+	Make_Integer_Switch
+            =
+	    ( polylambda::Polylambda_Expression,
+              List ((integer::Int, polylambda::Polylambda_Expression)),
+              polylambda::Polylambda_Expression
+            )
+	    ->
+            polylambda::Polylambda_Expression;
+
+
+	# MAJOR CLEANUP REQUIRED ! The function make_var is currently directly taken 
+	# from the highcode_var module; I think it should be taken from the 
+	# "comp_info". Similarly, should we replace all make_highcode_variable in the backend
+	# with the make_var in "compInfo" ? (ZHONG)                    XXX BUGGO FIXME
+	#
+	make_var
+            =
+            highcode_var::make_highcode_variable;
+
+	fun abstest0 _ =   bug "abstest0 unimplemented";
+	fun abstest1 _ =   bug "abstest1 unimplemented";
+
+	# Translating the type field in ENUM_CONSTRUCTOR
+        # into Highcode_Type; constant datacons 
+	# will take ltc_unit as the argument
+	#
+	fun to_dcon_lty  to_lambda_type  type
+            =
+	    case type 
+	      
+	         tp::TYPE_SCHEME_TYPE
+		    { type_scheme_arg_eq_properties => an_api,
+		      type_scheme => t::TYPE_SCHEME { arity, body }
+		    }
+		    =>
+		    if (bt::is_arrow_type body)
+			 to_lambda_type type;
+		    else to_lambda_type (   tp::TYPE_SCHEME_TYPE {
+				       type_scheme_arg_eq_properties => an_api, 
+				       type_scheme                         => t::TYPE_SCHEME {
+										  arity,
+										  body  => bt::(-->) (bt::void_type, body)
+									      }
+				   }
+			       );
+		    fi;
+
+	         _   => if (bt::is_arrow_type type)
+                             to_lambda_type type;
+		        else to_lambda_type (bt::(-->) (bt::void_type, type));
+                        fi;
+            esac;
+
+
+	#########################################################################
+
+	And_Or
+
+	  = AND  { namings:  List( (Int, Variable) ),
+		   subtrees:  List( And_Or ),
+		   constraints:  List( (Dconinfo, List( Int ),  Null_Or( And_Or )) )
+                 }
+
+	  | CASE { namings:  List( (Int, Variable) ),
+		   an_api:  da::Constructor_Signature,
+		   cases:   List( (Path_Constant, List( Int ), List( And_Or )) ),
+		   constraints:  List( (Dconinfo, List( Int ),  Null_Or( And_Or )) )
+                 }
+
+	  | LEAF { namings:  List( (Int, Variable) ),
+		   constraints:  List( (Dconinfo, List( Int ),  Null_Or( And_Or )) )
+                 }
+          ;
+
+
+	Decision
+	  = CASE_DECISION    (Path, da::Constructor_Signature, List ((Path_Constant, List( Int ), List( Decision )) ), List( Int ))
+	  | ABSCON_DECISION  (Path, Dconinfo, List( Int ), List( Decision ), List( Int ))
+	  | BIND_DECISION    (Path, List( Int ))
+          ;
+
+
+	fun all_conses (hds, tls)
+            = 
+	    list::cat
+                (   map (fn hd =   (map   (fn tl = hd ! tl)   tls))
+                        hds
+                );
+
+
+	fun or_expand (OR_PATTERN (pattern1, pattern2))
+		=> 
+		(or_expand pattern1)
+                @
+                (or_expand pattern2); 
+
+	    or_expand (pattern as RECORD_PATTERN { fields, ... } )
+		=>
+		map (make_recordpat pattern)
+                    (fold_right all_conses [NIL] (map (or_expand o #2) fields));
+
+	    or_expand (VECTOR_PATTERN (pats, t))
+		=>
+		map (fn p = VECTOR_PATTERN (p, t))
+                    (fold_right all_conses [NIL] (map or_expand pats));
+
+	    or_expand (APPLY_PATTERN (k, t, pattern))
+		=>
+		map (fn pattern = APPLY_PATTERN (k, t, pattern))
+                    (or_expand pattern);
+
+	    or_expand (TYPE_CONSTRAINT_PATTERN (pattern, _))
+		=>
+		or_expand pattern;
+
+	    or_expand (AS_PATTERN (TYPE_CONSTRAINT_PATTERN (lpat, _), bpat))
+		=>
+		or_expand (AS_PATTERN (lpat, bpat));
+
+	    or_expand (AS_PATTERN (lpat, bpat))
+		=>
+		map (fn pattern = AS_PATTERN (lpat, pattern))
+                    (or_expand bpat);
+
+	    or_expand pattern
+		=> 
+		[pattern];
+        end;
+
+
+	fun get_variable (v as ORDINARY_VARIABLE { path=>p1, ... },
+		              (ORDINARY_VARIABLE { path=>p2, ... }, value) ! rest)
+		=>
+		symbol_path::equal (p1, p2)
+                    ??  value
+                    ::  get_variable (v, rest);
+
+	    get_variable (ORDINARY_VARIABLE _, [])
+		=>
+		bug "unbound 18";
+
+	    get_variable _
+		=>
+		bug "[mc::get_variable]";
+        end;
+
+
+	fun path_instantiate_simple_expression variable_dictionary (VARSIMP v)
+                =>
+                get_variable (v, variable_dictionary);
+
+	    path_instantiate_simple_expression variable_dictionary (RECORDSIMP labsimps)
+		=> 
+		RECORD_PATH (map (path_instantiate_simple_expression variable_dictionary o #2) labsimps);
+        end;
+
+
+	fun expand_namings (variable_dictionary, path_dictionary, NIL)
+                =>
+                NIL;
+
+	    expand_namings (variable_dictionary, path_dictionary, v ! rest)
+                =>
+	        (path_instantiate_simple_expression path_dictionary (fully_expand_naming variable_dictionary (VARSIMP v)))
+		 !
+                (expand_namings (variable_dictionary, path_dictionary, rest));
+        end;
+
+
+	fun named_variables (VARIABLE_IN_PATTERN v)                => [v];
+	    named_variables (TYPE_CONSTRAINT_PATTERN (pattern, _)) => named_variables pattern;
+	    named_variables (AS_PATTERN (pattern1, pattern2))      => (named_variables (pattern1))@(named_variables (pattern2));
+
+	    named_variables (APPLY_PATTERN (k, t, pattern))        => named_variables pattern;
+	    named_variables (RECORD_PATTERN { fields, ... } )      => list::cat (map (named_variables o #2) fields);
+
+	    named_variables (VECTOR_PATTERN (pats, _))             => list::cat (map named_variables pats);
+	    named_variables (OR_PATTERN (pattern1, _))             => named_variables pattern1;
+
+	    named_variables _ => NIL;
+        end;
+
+	fun pattern_namings (VARIABLE_IN_PATTERN v, path)
+                =>
+                [(v, path)];
+
+	    pattern_namings (TYPE_CONSTRAINT_PATTERN (pattern, _), path)
+                =>
+                pattern_namings (pattern, path);
+
+	    pattern_namings (AS_PATTERN (pattern1, pattern2), path)
+                => 
+	        (pattern_namings (pattern1, path))
+                @
+                (pattern_namings (pattern2, path));
+
+	    pattern_namings (APPLY_PATTERN (k, t, pattern), path)
+                => 
+	        pattern_namings (pattern, DELTA_PATH (DATAPCON (k, t), path));
+
+	    pattern_namings (RECORD_PATTERN { fields, ... }, path)
+                => 
+	        make (0, fields)
+                where
+	            fun make (n, NIL)
+                            =>
+                            NIL;
+
+		       make (n, (lab, pattern) ! rest)
+                            => 
+			    (pattern_namings (pattern, PI_PATH (n, path))) @ (make (n+1, rest));
+                    end;
+	        end;
+
+	    pattern_namings (VECTOR_PATTERN (pats, t), path)
+                => 
+		make (0, pats)
+                where
+		    fun make (n, NIL)
+                            =>
+                            NIL;
+
+		       make (n, pattern ! rest)
+                            => 
+			    (pattern_namings (pattern, VPI_PATH (n, t, path)))
+                            @
+                            (make (n+1, rest));
+                    end;
+		end;
+
+	    pattern_namings (OR_PATTERN _, _)
+                =>
+                bug "Unexpected or pattern";
+
+	    pattern_namings _
+                =>
+                NIL;
+        end;
+
+	fun pattern_paths (pattern, constrs)
+	    =
+	    constr_paths (constrs, pattern_dictionary, NIL)
+            where
+	        pattern_dictionary =   pattern_namings (pattern, ROOT_PATH);
+
+		fun constr_paths (NIL, dictionary, acc)
+                        => 
+		        (   (ROOT_PATH, pattern) ! (reverse acc),
+                            dictionary
+                        );
+
+		    constr_paths ((simpexp, cpat) ! rest, dictionary, acc)
+                        => 
+			{   guard_path =   path_instantiate_simple_expression dictionary simpexp;
+
+			    new_dictionary =   pattern_namings (cpat, guard_path);
+
+			    constr_paths (rest, dictionary@new_dictionary, (guard_path, cpat) ! acc);
+			};
+                end;
+	    end;
+
+
+	fun var_to_lambda_var (ORDINARY_VARIABLE { var_home=>da::HIGHCODE_VARIABLE v, var_type, ... }, to_lambda_type)
+		=>
+		( v,
+                  to_lambda_type  *var_type
+                );
+
+	    var_to_lambda_var _
+                =>
+                bug "bug variable in mc::sml";
+        end;
+
+
+	fun preprocess_pattern   to_lambda_type   (pattern, rhs)		# "rhs" == "right hand side"
+	    =
+	    {   namings =   named_variables pattern;
+
+		fname =   make_var ();
+
+		fun make_rhs_fun ([], rhs)
+                        =>
+                        FN (make_var(), lt::ltc_unit, rhs);
+
+		    make_rhs_fun ([v], rhs)
+                        => 
+		        {   my  (arg_var, argt)
+                                =
+                                var_to_lambda_var (v, to_lambda_type);
+
+		            FN (arg_var, argt, rhs);
+		        };
+
+		    make_rhs_fun (vl, rhs)
+                        =>
+			{   arg_var = make_var ();
+
+			    fun foo (NIL, n)
+                                    =>
+                                    (rhs, NIL);
+
+			       foo (v ! vl, n)
+                                    => 
+				    {   my  (lv, lt)
+                                            =
+                                            var_to_lambda_var (v, to_lambda_type);
+
+					my  (le, tt)
+                                            =
+                                            foo (vl, n+1);
+
+				        (LET (lv, SELECT (n, VAR arg_var), le), lt ! tt);
+				    };
+                            end;
+
+			    my  (body, tt)
+                                =
+                                foo (vl, 0);
+
+			    FN (arg_var, lt::ltc_tuple tt, body);
+			};
+                end;
+
+		rhs_fun =   make_rhs_fun (namings, rhs);
+
+		pats =   or_expand pattern;
+
+
+		fun expand NIL
+                        =>
+                        NIL;
+
+		    expand (pattern ! rest)
+                        =>
+			{   my  (new_pattern, constrs, variable_dictionary)
+                                =
+                                template_expand_pattern pattern;
+
+			    my  (new_list, path_dictionary)
+                                =
+                                pattern_paths (new_pattern, constrs);
+
+			    naming_paths
+                                =
+                                expand_namings (variable_dictionary, path_dictionary, namings);
+
+			    (new_list, naming_paths, fname) ! (expand rest);
+			}
+                        except
+                            CANNOT_MATCH
+                                =
+			        ( [ (ROOT_PATH, NO_PATTERN) ], NIL, fname) ! (expand rest);
+                end;
+
+	        ( expand pats,
+                  (fname, rhs_fun)
+                );
+	    };
+
+	fun make_and_or (match_rep, err)
+	    =
+	    {   fun add_naming (v, rule, AND { namings, subtrees, constraints } )
+                        =>
+			AND { namings=>(rule, v) ! namings, subtrees, 
+			    constraints };
+
+		    add_naming (v, rule, CASE { namings, an_api, cases, constraints } )
+                        =>
+		        CASE { namings=>(rule, v) ! namings, cases, an_api, constraints };
+
+		    add_naming (v, rule, LEAF { namings, constraints } )
+                        =>
+		        LEAF { namings=>(rule, v) ! namings, constraints };
+		end;
+
+
+		fun word_con (s, t, msg)
+		    = 
+		    {   fun conv (wrap_g, conv_g)
+			    =
+			    wrap_g (
+                                conv_g s
+                                except
+				    OVERFLOW
+					=
+					{   err em::ERROR
+					       ( "out-of-range word literal in pattern: 0w"
+						 +
+						 integer::to_string s
+					       )
+					       em::null_error_body;
+
+					    conv_g (integer::from_int 0);
+					}
+                            );
+
+
+			if   (tu::types_are_equal (t, bt::word_type))
+			    
+			    conv (WORDPCON, ln::word);			#  WORDPCON (ln::word s) 
+			else
+			    if   (tu::types_are_equal (t, bt::word8type))
+
+				conv (WORDPCON, ln::word8);		#  WORDPCON (ln::word8 s) 
+
+			    elif (tu::types_are_equal (t, bt::word32type))
+
+				conv (WORD32PCON, ln::word32);		#  WORD32PCON (ln::word32 s) 
+			    else
+				bug msg;
+			    fi;
+                        fi;
+		    };
+
+		fun num_con (s, t, msg)
+		    = 
+		    if   (tu::types_are_equal (t, bt::int_type))
+		        
+			 INTPCON (ln::int s); 
+
+		    elif (tu::types_are_equal (t, bt::int32type))
+			     
+			  INT32PCON (ln::int32 s);
+
+		    elif (tu::types_are_equal (t, bt::big_int_type) )
+
+			  INTINFPCON s;
+		    else
+                          word_con (s, t, msg);
+                    fi;
+
+
+		fun add_a_constraint (k, NULL, rule, NIL)
+			=>
+			[ (k, [rule], NULL) ];
+
+		    add_a_constraint (k, THE pattern, rule, NIL)
+			=>
+			[(k, [rule], THE (make_and_or (pattern, rule)))];
+
+		    add_a_constraint (k, patopt as THE pattern, rule, 
+				   (constr as (k', rules, THE subtree)) ! rest)
+			=>
+			if   (con_eq'(k, k'))
+			    
+			     (k, rule ! rules, THE (merge_and_or (pattern, subtree, rule))) ! rest;
+			else 
+			     constr ! (add_a_constraint (k, patopt, rule, rest));
+                        fi;
+
+		    add_a_constraint (k, NULL, rule, (constr as (k', rules, NULL)) ! rest)
+			=>
+			if   (con_eq'(k, k'))
+			     (k, rule ! rules, NULL) ! rest;
+			else
+                             constr ! (add_a_constraint (k, NULL, rule, rest));
+                        fi;
+
+		    add_a_constraint (k, patopt, rule, (constr as (k', rules, _)) ! rest)
+			=>
+			if   (con_eq'(k, k'))
+			     bug "arity conflict";
+			else
+                             constr ! (add_a_constraint (k, patopt, rule, rest));
+                        fi;
+                end 
+
+	        also
+	        fun add_constraint (k, patopt, rule, AND { namings, subtrees, constraints } )
+			=>
+			AND { namings, subtrees, 
+			      constraints=>add_a_constraint (k, patopt, rule, constraints) };
+
+		    add_constraint (k, patopt, rule, CASE { namings, an_api, cases, 
+							constraints } )
+			=>
+			CASE { namings, cases, an_api,
+			     constraints=>add_a_constraint (k, patopt, rule, constraints) };
+
+		    add_constraint (k, patopt, rule, LEAF { namings, constraints } )
+			=>
+			LEAF { namings, 
+			     constraints=>add_a_constraint (k, patopt, rule, constraints) };
+                end 
+
+	        also
+	        fun make_and_or (VARIABLE_IN_PATTERN v, rule)
+			=>
+			LEAF { namings => [(rule, v)], constraints => NIL };
+
+		    make_and_or (WILDCARD_PATTERN, rule)
+			=>
+			LEAF { namings => NIL, constraints => NIL };
+
+		    make_and_or (TYPE_CONSTRAINT_PATTERN (pattern, _), rule)
+			=>
+			make_and_or (pattern, rule);
+
+		    make_and_or (AS_PATTERN (TYPE_CONSTRAINT_PATTERN (lpat, _), bpat), rule)
+			=>
+			make_and_or (AS_PATTERN (lpat, bpat), rule);
+
+		    make_and_or (AS_PATTERN (VARIABLE_IN_PATTERN v, bpat), rule)
+			  =>
+			  add_naming (v, rule, make_and_or (bpat, rule));
+
+		    make_and_or (AS_PATTERN (CONSTRUCTOR_PATTERN (k, t), bpat), rule)
+			  =>
+			  add_constraint ((k, t), NULL, rule, make_and_or (bpat, rule));
+
+		    make_and_or (AS_PATTERN (APPLY_PATTERN (k, t, lpat), bpat), rule)
+			  =>
+			  add_constraint ((k, t), THE lpat, rule, make_and_or (bpat, rule));
+
+		    make_and_or (INT_CONSTANT_IN_PATTERN (s, t), rule)
+			=> 
+			if   (tu::types_are_equal (t, bt::int64type))
+			    
+                             make_and_or_64 (ln::int64 s, rule);
+			else
+			     con =   num_con (s, t, "make_and_or INT_CONSTANT_IN_PATTERN");
+
+			     CASE {
+				 namings    =>   NIL,
+				 constraints =>   NIL,
+				 an_api =>   da::NULLARY_CONSTRUCTOR,
+				 cases       =>   [ (con, [rule], NIL) ]
+			     };
+			fi;
+
+		    make_and_or (UNT_CONSTANT_IN_PATTERN (s, t), rule)
+			=> 
+			if   (tu::types_are_equal (t, bt::word64type))
+			    
+                             make_and_or_64 (ln::word64 s, rule);
+			else
+			     con =   word_con (s, t, "make_and_or UNT_CONSTANT_IN_PATTERN");
+
+			     CASE {
+				 namings    => NIL,
+				 constraints => NIL,
+				 an_api => da::NULLARY_CONSTRUCTOR,
+				 cases       => [(con, [rule], NIL)]
+			     };
+			fi;
+
+		    make_and_or (FLOAT_CONSTANT_IN_PATTERN r, rule)
+			=>
+			CASE { namings     =>  NIL,
+                               constraints =>  NIL,
+                               an_api      =>  da::NULLARY_CONSTRUCTOR,
+			       cases       =>  [(REALPCON r, [rule], NIL)]
+                             };
+
+		    make_and_or (STRING_CONSTANT_IN_PATTERN s, rule)
+			=>
+			CASE { namings     =>  NIL,
+                               constraints =>  NIL,
+                               an_api      =>  da::NULLARY_CONSTRUCTOR,
+			       cases       =>  [(STRINGPCON s, [rule], NIL)]
+                             };
+
+
+		    # NOTE: the following won't work for cross compiling 
+		    #      to multi-byte characters. XXX BUGGO FIXME
+
+
+		    make_and_or (CHAR_CONSTANT_IN_PATTERN s, rule)
+			=>
+			CASE { namings     =>  NIL,
+                               constraints =>  NIL,
+                               an_api      =>  da::NULLARY_CONSTRUCTOR,
+			       cases       =>  [(INTPCON (char::to_int (string::get (s, 0))), [rule], NIL)]
+                             };
+
+		    make_and_or (RECORD_PATTERN { fields, ... }, rule)
+			=>
+			AND { namings     => NIL,
+                              constraints => NIL, 
+			      subtrees    => multi_fn (map #2 fields, rule)
+                            };
+
+		    make_and_or (VECTOR_PATTERN (pats, t), rule)
+			=>
+			CASE { namings     => NIL,
+                               constraints => NIL,
+                               an_api      => da::NULLARY_CONSTRUCTOR,
+			       cases       => [(VLENPCON (length pats, t), [rule], 
+					        multi_fn (pats, rule))]
+                             };
+
+		    make_and_or (CONSTRUCTOR_PATTERN (k, t), rule)
+		      =>
+		      if   (abstract k)
+		          
+			   LEAF { namings => NIL, constraints => [((k, t), [rule], NULL)] };
+		      else
+			   CASE { namings => NIL, constraints => NIL, an_api => signature_of_constructor k,
+				 cases => [(DATAPCON (k, t), [rule], NIL)] };
+                      fi;
+
+		    make_and_or (APPLY_PATTERN (k, t, pattern), rule)
+			=>
+			if (abstract k)
+
+			    LEAF { namings => NIL, 
+				   constraints => [((k, t), [rule], THE (make_and_or (pattern, rule)))]
+                                 };
+			else
+			    CASE { namings => NIL, constraints => NIL, an_api => signature_of_constructor k,
+				   cases => [(DATAPCON (k, t), [rule], [make_and_or (pattern, rule)])]
+                                 };
+                        fi;
+
+		    make_and_or _
+			=>
+			bug "genandor applied to inapplicable pattern";
+                end 
+
+
+		# Simulate 64-bit words and ints as pairs of 32-bit words 
+
+	        also
+	        fun make_and_or_64 ((hi, lo), rule)
+		    =
+		    {   fun p32 w
+			    =
+			    UNT_CONSTANT_IN_PATTERN (unt32::to_large_int w, bt::word32type);
+
+			 make_and_or (deep_syntax_stuff::tuplepat [p32 hi, p32 lo], rule);
+		    }
+
+	        also
+	        fun multi_fn (NIL, rule)
+			=>
+			NIL;
+
+		    multi_fn (pattern ! rest, rule)
+			=>
+			(make_and_or (pattern, rule)) ! multi_fn((rest, rule));
+                end 
+
+	        also
+	        fun merge_and_or (VARIABLE_IN_PATTERN v, and_or, rule)
+			=>
+			add_naming (v, rule, and_or);
+
+		    merge_and_or (WILDCARD_PATTERN, and_or, rule)
+                        =>
+                        and_or;
+
+		    merge_and_or (TYPE_CONSTRAINT_PATTERN (pattern, _), and_or, rule)
+			=> 
+			merge_and_or (pattern, and_or, rule);
+
+		    merge_and_or (AS_PATTERN (TYPE_CONSTRAINT_PATTERN (lpat, _), bpat), and_or, rule)
+			=>
+			merge_and_or (AS_PATTERN (lpat, bpat), and_or, rule);
+
+		    merge_and_or (AS_PATTERN (VARIABLE_IN_PATTERN v, bpat), and_or, rule)
+			=>
+			add_naming (v, rule, merge_and_or (bpat, and_or, rule));
+
+		    merge_and_or (AS_PATTERN (CONSTRUCTOR_PATTERN (k, t), bpat), and_or, rule)
+			=>
+			add_constraint ((k, t), NULL, rule, merge_and_or (bpat, and_or, rule));
+
+		    merge_and_or (AS_PATTERN (APPLY_PATTERN (k, t, lpat), bpat), and_or, rule)
+			=>
+			add_constraint ((k, t), THE lpat, rule, merge_and_or (bpat, and_or, rule));
+
+		    merge_and_or (CONSTRUCTOR_PATTERN (k, t), LEAF { namings, constraints }, rule)
+			=>
+			if (abstract k)
+			    
+			    LEAF { namings => NIL, 
+				   constraints => add_a_constraint((k, t), NULL, rule, constraints)
+				 };
+			else
+			    CASE { namings => NIL, constraints => NIL, an_api => signature_of_constructor k,
+				   cases => [(DATAPCON (k, t), [rule], NIL)]
+                                 };
+                        fi;
+
+		    merge_and_or (APPLY_PATTERN (k, t, pattern), LEAF { namings, constraints }, rule)
+			=>
+			if (abstract k)
+			    
+			    LEAF { namings, constraints => add_a_constraint((k, t), THE pattern, rule, constraints) };
+			else
+			    CASE { namings, constraints, 
+				   an_api => signature_of_constructor k,
+				   cases => [(DATAPCON (k, t), [rule], [make_and_or (pattern, rule)])]
+				 };
+                        fi;
+
+		    merge_and_or (pattern, LEAF { namings, constraints }, rule)
+			=>
+			case (make_and_or (pattern, rule))
+			  
+			    CASE { namings=>NIL, constraints=>NIL, an_api, cases }
+				=>
+				CASE { namings, an_api, constraints, cases };
+
+			    AND { namings=>NIL, constraints=>NIL, subtrees }
+				=>
+				AND { namings, constraints, subtrees };
+
+			     _   => bug "make_and_or returned bogusly";
+                        esac;
+
+		    merge_and_or (INT_CONSTANT_IN_PATTERN (s, t), c as CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			if (tu::types_are_equal (t, bt::int64type))
+			    
+                            merge_and_or_64 (ln::int64 s, c, rule);
+			else
+			    pcon =   num_con (s, t, "merge_and_or INT_CONSTANT_IN_PATTERN");
+
+			    CASE { namings, constraints, an_api, cases => add_a_case (pcon, NIL, rule, cases) };
+                        fi;
+
+		    merge_and_or (UNT_CONSTANT_IN_PATTERN (s, t), c as CASE { namings, cases, 
+							constraints, an_api }, rule)
+			=>
+			if (tu::types_are_equal (t, bt::word64type))
+			    
+			    merge_and_or_64 (ln::word64 s, c, rule);
+			else
+			    pcon =   word_con (s, t, "merge_and_or UNT_CONSTANT_IN_PATTERN");
+
+			    CASE { namings, constraints, an_api, cases => add_a_case (pcon, NIL, rule, cases) };
+			fi;
+
+		    merge_and_or (FLOAT_CONSTANT_IN_PATTERN r, CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			CASE { namings, constraints, an_api, cases => add_a_case (REALPCON r, NIL, rule, cases) };
+
+		    merge_and_or (STRING_CONSTANT_IN_PATTERN s, CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			CASE { namings, constraints, an_api, cases => add_a_case (STRINGPCON s, NIL, rule, cases) };
+
+
+		    # NOTE: the following won't work for cross compiling 
+		    # to multi-byte characters          XXX BUGGO FIXME
+
+		    merge_and_or (CHAR_CONSTANT_IN_PATTERN s, CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			CASE { namings, constraints, an_api,
+                               cases => add_a_case (INTPCON (char::to_int (string::get (s, 0))), 
+			       NIL, rule, cases)
+                             };
+
+		    merge_and_or (RECORD_PATTERN { fields, ... }, AND { namings, constraints, subtrees }, rule)
+			=>
+			AND { namings, constraints,   subtrees => multi_merge (map #2 fields, subtrees, rule) };
+
+		    merge_and_or (VECTOR_PATTERN (pats, t), CASE { namings, cases, an_api, constraints }, rule)
+			=>
+			CASE { namings, constraints, an_api, cases => add_a_case (VLENPCON (length pats, t), pats, rule, cases) };
+
+		    merge_and_or (CONSTRUCTOR_PATTERN (k, t), CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			if (abstract k)
+			    CASE { namings, cases, an_api,   constraints => add_a_constraint((k, t), NULL, rule, constraints) };
+			else
+			    CASE { namings, constraints, an_api,   cases => add_a_case (DATAPCON (k, t), NIL, rule, cases) };
+                        fi;
+
+		    merge_and_or (APPLY_PATTERN (k, t, pattern), CASE { namings, cases, constraints, an_api }, rule)
+			=>
+			if (abstract k)
+			    CASE { namings, cases,  an_api,   constraints => add_a_constraint((k, t), THE pattern, rule, constraints) };
+			else
+			    CASE { namings, constraints, an_api,   cases => add_a_case (DATAPCON (k, t), [pattern], rule, cases) };
+                        fi;
+
+		    merge_and_or (CONSTRUCTOR_PATTERN (k, t), AND { namings, constraints, subtrees }, rule)
+			=>
+			if (abstract k)
+			    AND { namings, subtrees,   constraints => add_a_constraint((k, t), NULL, rule, constraints) };
+			else
+			    bug "concrete constructor can't match record";
+                        fi;
+
+		    merge_and_or (APPLY_PATTERN (k, t, pattern), AND { namings, subtrees, constraints }, rule)
+			=>
+			if (abstract k)
+			    AND { namings, subtrees,   constraints => add_a_constraint((k, t), THE pattern, rule, constraints) };
+			else
+			    bug "concrete constructor application can't match record";
+                        fi;
+
+		    merge_and_or _
+			=>
+			bug "bad pattern merge";
+                end 
+
+		# Simulate 64-bit words and ints as pairs of 32-bit words 
+
+	        also
+	        fun merge_and_or_64 ((hi, lo), c, rule)
+		    =
+		    {   fun p32 w
+			    =
+			    UNT_CONSTANT_IN_PATTERN (unt32::to_large_int w, bt::word32type);
+
+			 merge_and_or (deep_syntax_stuff::tuplepat [p32 hi, p32 lo], c, rule);
+		    }
+
+	        also
+	        fun add_a_case (pcon, pats, rule, NIL)
+			=>
+			[ (pcon, [ rule ], multi_fn (pats, rule)) ];
+
+		    add_a_case (pcon, pats, rule, 
+			     (a_case as (pcon', rules, subtrees)) ! rest)
+			=>
+			if (constant_eq (pcon, pcon'))
+			    
+			    (pcon, rule ! rules, multi_merge (pats, subtrees, rule)) ! rest;
+			else 
+			    a_case ! (add_a_case (pcon, pats, rule, rest));
+                        fi;
+                end 
+
+	        also
+	        fun multi_merge (NIL, NIL, rule)
+			=>
+			NIL;
+
+		    multi_merge (pattern ! pats, subtree ! subtrees, rule)
+			=>
+			(merge_and_or (pattern, subtree, rule)) ! (multi_merge (pats, subtrees, rule));
+
+		    multi_merge _
+			=>
+			bug "list length mismatch in multi_merge";
+                end;
+
+
+		fun merge_pattern_with_and_or_list (path, pattern, NIL, n)
+			=>
+			[ (path, make_and_or (pattern, n)) ];
+
+		    merge_pattern_with_and_or_list (path, pattern, (path', and_or) ! rest, n)
+			=>
+			if (path_eq (path, path'))
+			    
+			    (path, merge_and_or (pattern, and_or, n)) ! rest;
+			else
+			    (path', and_or) ! (merge_pattern_with_and_or_list (path, pattern, rest, n));
+                        fi;
+                end;
+
+
+		fun make_and_or_list (NIL, n)
+			=>
+			bug "no patterns (gen)";
+
+		    make_and_or_list ( [ (path, pattern) ], n)
+			=>
+			[ (path, make_and_or (pattern, n)) ];
+
+		    make_and_or_list ((path, pattern) ! rest, n)
+			=> 
+			merge_pattern_with_and_or_list
+			    (path, pattern, make_and_or_list (rest, n), n);
+                end;
+
+		fun merge_and_or_list (NIL, aol, n)
+			=>
+			bug "no patterns (merge)";
+
+		    merge_and_or_list ([(path, pattern)], aol, n)
+			=> 
+			merge_pattern_with_and_or_list (path, pattern, aol, n);
+
+		    merge_and_or_list ((path, pattern) ! rest, aol, n)
+			=> 
+			merge_pattern_with_and_or_list (path, pattern, merge_and_or_list (rest, aol, n), n);
+                end;
+
+		fun make_and_or' (NIL, n)
+			=>
+			bug "no rules (make_and_or')";
+
+		    make_and_or' ([(pats, _, _)], n)
+			=> 
+			make_and_or_list (pats, n);
+
+		    make_and_or' (([(_, NO_PATTERN)], dictionary, namings) ! rest, n)
+			=>
+			make_and_or'(rest, n+1);
+
+		    make_and_or' ((pats, dictionary, namings) ! rest, n)
+			=>
+			merge_and_or_list (pats, make_and_or'(rest, n+1), n);
+                end;
+
+	        make_and_or' (match_rep, 0);		#  except Foo => raise exception (Internal 99)
+
+	    };   #  fun make_and_or 
+
+
+	fun add_a_naming (path, rule, NIL)
+                =>
+                [ BIND_DECISION (path, [ rule ] ) ];
+
+	    add_a_naming (path, rule, (bind as BIND_DECISION (path', rules)) ! rest)
+                =>
+	        if (path_eq (path, path'))
+                    
+                    BIND_DECISION (path, rule ! rules)  !  rest;
+	        else
+                    bind  !  (add_a_naming (path, rule, rest));
+                fi; 
+
+	    add_a_naming _
+                =>
+                bug "non BIND_DECISION in naming list";
+        end;
+
+
+
+	fun flatten_namings (NIL, path, active)
+                =>
+                NIL;
+
+	   flatten_namings (((rule, v) ! rest), path, active)
+                =>
+	        if (is_there (rule, active))
+                     
+		    add_a_naming (path, rule, flatten_namings (rest, path, active));
+	        else 
+		    flatten_namings (rest, path, active);
+                fi;
+        end;
+
+
+
+	fun flatten_constraints (NIL, path, active)
+                =>
+                NIL;
+
+	    flatten_constraints ((di, rules, NULL) ! rest, path, active)
+                => 
+		{   yes_active =   intersect     (active, rules);
+		    no_active  =   set_difference (active, rules);
+
+		    rest' =   flatten_constraints (rest, path, active);
+
+		    (ABSCON_DECISION (path, di, yes_active, NIL, no_active))
+                    !
+                    rest';
+		};
+
+	    flatten_constraints ((di, rules, THE and_or) ! rest, path, active)
+		=> 
+		{   yes_active =   intersect     (active, rules);
+		    no_active  =   set_difference (active, rules);
+
+		    rest' =   flatten_constraints (rest, path, active);
+
+		    and_or'
+                        = 
+		        flatten_and_or (and_or, DELTA_PATH (DATAPCON di, path), active);
+
+		    (ABSCON_DECISION (path, di, yes_active, and_or', no_active))
+                    !
+                    rest';
+		};
+        end 
+
+
+
+        also
+        fun flatten_and_or (AND { namings, subtrees, constraints }, path, active)
+		=>
+		{   btests = flatten_namings (namings, path, active);
+
+		    fun do_tree (n, NIL)
+			    =>
+			    flatten_constraints (constraints, path, active);
+
+		       do_tree (n, subtree ! rest)
+			    =>
+			    {   othertests = do_tree (n + 1, rest);
+
+				(flatten_and_or (subtree, PI_PATH (n, path), active))
+				@
+				othertests;
+			    };
+                    end;
+
+		    btests
+		    @
+		    (do_tree (0, subtrees));
+		};
+
+	    flatten_and_or (CASE { namings, cases, constraints, an_api }, path, active)
+		=>
+		{   btests =   flatten_namings    (namings,    path, active);
+		    ctests =   flatten_constraints (constraints, path, active);
+
+		    btests
+                    @
+                    ((flatten_cases (cases, path, active, an_api)) ! ctests);
+		};
+
+	    flatten_and_or (LEAF { namings, constraints }, path, active)
+		=>
+		{   btests = flatten_namings (namings, path, active);
+
+		    btests
+                    @
+                    (flatten_constraints (constraints, path, active));
+		};
+        end 
+
+        also
+        fun flatten_a_case ((VLENPCON (n, t), rules, subtrees), path, active, defaults)
+		=>
+		{   still_active =   intersect (union (rules, defaults), active);
+		    rule_active  =   intersect (rules, active);
+
+		    fun flatten_vsubs (n, NIL)
+                            =>
+                            NIL;
+
+		       flatten_vsubs (n, subtree ! rest)
+                            => 
+			    (flatten_and_or (subtree, VPI_PATH (n, t, path), still_active)) 
+			    @
+                            (flatten_vsubs (n + 1, rest));
+                    end;
+
+		    (INTPCON n, rule_active, flatten_vsubs (0, subtrees));
+		};
+
+	    flatten_a_case ((k as DATAPCON (_, t), rules,[subtree]), path, active, defaults)
+                =>
+		{   still_active =   intersect (union (rules, defaults), active);
+		    rule_active  =   intersect (rules, active);
+
+		    new_patternh =   DELTA_PATH (k, path);
+
+		    (k, rule_active, flatten_and_or (subtree, new_patternh, still_active));
+		};
+
+	    flatten_a_case ((constant, rules, NIL), path, active, defaults)
+                =>
+	        (constant, intersect (rules, active), NIL);
+
+	    flatten_a_case _
+                =>
+	        bug "illegal subpattern in a case";
+        end 
+
+
+
+        also
+        fun flatten_cases (cases, path, active, an_api)
+	    =
+	    {   fun calculate_defaults (NIL, active)
+			=>
+			active;
+
+		   calculate_defaults ((_, rules, _) ! rest, active)
+			=>
+			calculate_defaults (rest, set_difference (active, rules));
+                end;
+
+		defaults =   calculate_defaults (cases, active);
+
+		fun do_it NIL
+			=>
+			NIL;
+
+		   do_it (a_case ! rest)
+			=> 
+		      ((flatten_a_case (a_case, path, active, defaults)) 
+		       ! (do_it (rest)));
+                end;
+
+		case cases
+
+		    (VLENPCON (_, t), _, _) ! _
+			=> 
+			CASE_DECISION (VLEN_PATH (path, t), an_api, do_it cases, defaults);
+
+		    cases
+			=>
+			CASE_DECISION (path, an_api, do_it cases, defaults);
+                esac;
+	    };
+
+	fun namings (n, l)
+            =
+            case (list::nth (l, n))
+              
+                 (_, _, x) =>   x;
+            esac;
+
+	fun path_constraints (RECORD_PATH paths)
+                => 
+	        list::cat (map path_constraints paths);
+
+	    path_constraints path
+                =>
+                [ path ];
+        end;
+
+
+	fun flatten_and_ors (NIL, allrules)
+                =>
+                NIL;
+
+	    flatten_and_ors((path, and_or) ! rest, allrules)
+                =>
+	        (path_constraints path, flatten_and_or (and_or, path, allrules))
+		 !
+                (flatten_and_ors (rest, allrules));
+        end;
+
+
+	fun remove_path (path, path1 ! rest)
+                =>
+	        path_eq (path, path1)
+                    ??  rest
+	            ::  path1 ! (remove_path (path, rest));
+
+	    remove_path (path, NIL)
+                =>
+                NIL;
+        end;
+
+
+	fun fire_constraint (path, (need_paths, decisions) ! rest, ready, delayed)
+                =>
+		case (remove_path (path, need_paths) )
+
+		      NIL => fire_constraint (path, rest, decisions@ready, delayed);
+		      x   => fire_constraint (path, rest, ready, (x, decisions) ! delayed);
+		esac;
+
+
+	    fire_constraint (path, NIL, ready, delayed)
+                =>
+	        (ready, delayed);
+        end;
+
+
+	fun make_all_rules (NIL, _)
+                =>
+                NIL; 
+
+	    make_all_rules(([(ROOT_PATH, NO_PATTERN)], _, _) ! b, n)
+                =>
+                (make_all_rules (b, n + 1));
+
+	    make_all_rules(_ ! b, n)
+                =>
+                n ! (make_all_rules (b, n + 1));
+        end;
+
+
+	exception PICK_BEST;
+
+
+	fun relevent (CASE_DECISION(_, _, _, defaults), rulenum)
+                => 
+	        not (is_there (rulenum, defaults));
+
+	    relevent (ABSCON_DECISION (_, _, _, _, defaults), rulenum)
+                =>
+	        not (is_there (rulenum, defaults));
+
+	    relevent (BIND_DECISION _, _)
+                => 
+	        bug "BIND_DECISION not fired";
+        end;
+
+
+	fun metric (CASE_DECISION(_, _, cases,   defaults)) =>   (length defaults, length cases);
+	    metric (ABSCON_DECISION (_, _, _, _, defaults)) =>   (length defaults, 2);
+
+	    metric (BIND_DECISION _)
+                =>
+                bug "BIND_DECISION not fired (metric)";
+        end;
+
+
+	fun metric_better ((a: Int, b: Int), (c, d))
+            =
+            a < c   or   (a == c and b < d);
+
+
+	fun do_pick_best (NIL, _, _, _, NULL ) =>   raise exception PICK_BEST;
+	    do_pick_best (NIL, _, _, _, THE n) =>   n;
+
+	    do_pick_best((BIND_DECISION _) ! rest, _, n,                         _, _) =>   n;
+	    do_pick_best((CASE_DECISION(_, da::CONSTRUCTOR_SIGNATURE (1, 0), _, _)) ! rest, _, n, _, _) =>   n;
+	    do_pick_best((CASE_DECISION(_, da::CONSTRUCTOR_SIGNATURE (0, 1), _, _)) ! rest, _, n, _, _) =>   n;
+
+	    do_pick_best (a_case ! rest, active as act1 ! _, n, NULL, NULL)
+                =>
+		if (relevent (a_case, act1))
+                    
+		    do_pick_best (rest, active, n + 1, THE (metric a_case), THE n);
+		else 
+		    do_pick_best (rest, active, n + 1, NULL, NULL);
+                fi;
+
+	    do_pick_best (a_case ! rest, active as act1 ! _, n, THE m, THE i)
+                =>
+		if (relevent (a_case, act1))
+                    
+		    my_metric =   metric a_case;
+
+		    if (metric_better (my_metric, m))
+
+			do_pick_best (rest, active, n + 1, THE (my_metric), THE n);
+		    else 
+			do_pick_best (rest, active, n + 1, THE m,          THE i);
+		    fi;
+
+		else 
+		    do_pick_best (rest, active, n + 1, THE m, THE i);
+                fi;
+
+	    do_pick_best _
+                =>
+                bug "bug situation in do_pick_best";
+        end;
+
+	fun pick_best (l, active)
+            =
+            do_pick_best (l, active, 0, NULL, NULL);
+
+
+	fun extract_nth (0, a ! b)
+               =>
+               (a, b);
+
+	    extract_nth (n, a ! b)
+                => 
+	        {   my  (c, d)
+                        =
+                        extract_nth (n - 1, b);
+
+                    (c, a ! d);
+                };
+
+	    extract_nth _
+                =>
+                bug "extract_nth called with too big n";
+        end;
+
+
+	fun filter (f, NIL)
+                =>
+                NIL;
+
+	    filter (f, a ! b)
+                =>
+                if (f a)  a ! (filter (f, b));
+                else           filter (f, b) ;
+                fi;
+        end;
+
+	fun make_decision_tree ((decisions, delayed), active as active1 ! _)
+                =>
+		case (extract_nth (pick_best (decisions, active), decisions))
+		  
+		     (BIND_DECISION (path, _), rest)
+		         =>
+		         make_decision_tree (fire_constraint (path, delayed, rest, NIL), active);
+
+#		     (CASE_DECISION (path, da::CONSTRUCTOR_SIGNATURE (1, 0), 
+#		       [(_, _, guarded)], defaults), rest)
+#			 => 
+#			 make_decision_tree((rest@guarded, delayed), active)
+#
+#		     (CASE_DECISION (path, da::CONSTRUCTOR_SIGNATURE (0, 1), 
+#		       [(_, _, guarded)], defaults), rest)
+#			 => 
+#			 make_decision_tree((rest@guarded, delayed), active)
+
+		     (CASE_DECISION (path, an_api, cases, defaults), rest)
+			 =>
+			 {   fun is_active (_, rules, _)
+				 =
+				 intersect (rules, active)   !=   [];
+
+			     active_cases = filter (is_active, cases);
+
+			     case_trees
+				 = 
+				 make_cases (active_cases, rest, delayed, defaults, active);
+
+			     def_active
+				 =
+				 intersect (active, defaults);
+
+			     fun len (da::CONSTRUCTOR_SIGNATURE (i, j)) =>   i+j;
+				 len (da::NULLARY_CONSTRUCTOR         ) =>   0;
+                             end;
+
+			     def_tree
+				 = 
+				 if   (length active_cases == len an_api)
+				      NULL; 
+				 else THE (make_decision_tree((rest, delayed), def_active));fi;
+
+			     CASETEST (path, an_api, case_trees, def_tree);
+			 };
+
+		     (ABSCON_DECISION (path, con, yes, guarded, defaults), rest)
+			 =>
+			 {   yes_active =   intersect (active, union (yes, defaults));
+			     no_active  =   intersect (active, defaults);
+
+			     yes_tree =   make_decision_tree((rest@guarded, delayed), yes_active);
+			     def_tree =   make_decision_tree((rest, delayed), no_active);
+
+			     if   (unary con)
+			          ABSTEST1 (path, con, yes_tree, def_tree);
+			     else ABSTEST0 (path, con, yes_tree, def_tree);
+                             fi;
+			 };
+
+		     esac
+		     except
+			 PICK_BEST =  RHS active1;
+
+	    make_decision_tree (_, active)
+                =>
+                bug "nothing active";
+        end 
+
+
+
+        also
+        fun make_cases (NIL, decs, delayed, defaults, active)
+                =>
+                NIL;
+
+	    make_cases ((pcon, rules, guarded) ! rest, decs, delayed, defaults, active)
+		=> 
+		{   r_active = intersect (union (defaults, rules), active);
+
+		    (pcon, make_decision_tree((decs@guarded, delayed), r_active))
+		    !
+                    (make_cases (rest, decs, delayed, defaults, active));
+		};
+        end;
+
+
+
+	stipulate include print_utilities;
+
+	      print_depth
+                  =
+                  controls::print::print_depth;
+	herein
+
+	    fun match_print (dictionary, rules, unused) stream
+		=
+		{   fun match_print' ([], _, _)
+                            =>
+                            ();
+
+		        match_print' ([(pattern, _)], _, _)
+                            =>
+                            ();   #  never print last rule 
+
+		        match_print' ((pattern, _) ! more,[], _)
+			    =>
+			    {   pp::string stream "        "; 
+				unparse_deep_syntax::unparse_pattern dictionary stream (pattern,*print_depth);
+				pp::string stream " => ...";
+				pp::newline stream;
+				match_print' (more,[], 0);
+                            };
+
+		        match_print' ((pattern, _) ! more, (taglist as (tag ! tags)), i)
+			    =>
+			    if   (i == tag) 
+                                
+				 pp::string stream "  -->   ";
+				 unparse_deep_syntax::unparse_pattern dictionary stream (pattern,*print_depth);
+				 pp::string stream " => ..."; 
+				 pp::newline stream;
+				 match_print'(more, tags, i+1);
+			    else 
+				 pp::string stream "        ";
+				 unparse_deep_syntax::unparse_pattern dictionary stream (pattern,*print_depth);
+				 pp::string stream " => ...";
+				 pp::newline stream;
+				 match_print'(more, taglist, i+1);
+                            fi;
+                    end;
+
+		    pp::newline stream;
+		    pp::begin_horizontal_else_vertical_box stream;
+		    match_print'(rules, unused, 0);
+		    pp::end_box stream;
+		};
+
+	    fun bind_print (dictionary, (pattern, _) ! _) stream
+		    =>
+		    {   pp::newline stream; pp::string stream "        "; 
+			unparse_deep_syntax::unparse_pattern dictionary stream (pattern,*print_depth);
+			pp::string stream " = ...";
+		    };
+
+	        bind_print _ _
+		    =>
+		    bug "bind_print in mc";
+            end;
+
+	end;				# stipulate printutil 
+
+
+
+	fun rules_used (RHS n)
+                =>
+                [n];
+
+	    rules_used (BIND(_, dt))
+                =>
+                rules_used dt;
+
+	    rules_used (CASETEST(_, _, cases, NULL))
+                =>
+	        fold_right
+                    (fn((_, a), b) = union (rules_used a, b))
+                    NIL
+                    cases;
+
+	    rules_used (CASETEST(_, _, cases, THE dt))
+                =>
+	        fold_right
+                    (fn((_, a), b) = union (rules_used a, b))
+                    (rules_used dt)
+                    cases;
+
+	    rules_used (ABSTEST0(_, _, yes, no))
+                => 
+	        union (rules_used yes, rules_used no);
+
+	    rules_used (ABSTEST1(_, _, yes, no))
+                => 
+	        union (rules_used yes, rules_used no);
+        end;
+
+
+
+	fun fix_up_unused (NIL, _, _, _, out)
+                =>
+                out;
+
+	    fix_up_unused (unused, (NIL, _) ! rest, n, m, out)
+                => 
+	        fix_up_unused (unused, rest, n, m + 1, out);
+
+	    fix_up_unused (unused ! urest, (rule ! rules, x) ! mrest, n, m, NIL)
+                =>
+		if   (unused == n)
+                     
+		     fix_up_unused (urest, (rules, x) ! mrest, n + 1, m, [m]);
+		else 
+		     fix_up_unused (unused ! urest, (rules, x) ! mrest, n + 1, m, NIL);
+                fi;
+
+	    fix_up_unused (unused ! urest, (rule ! rules, z) ! mrest, n, m, x ! y)
+                 =>
+		 if (unused == n)
+                     
+		     if (m != x)
+			  fix_up_unused (urest, (rules, z) ! mrest, n + 1, m, m ! x ! y);
+		     else fix_up_unused (urest, (rules, z) ! mrest, n + 1, m, x ! y    );
+		     fi;
+		 else
+                     fix_up_unused (unused ! urest, (rules, z) ! mrest, n + 1, m, x ! y);
+                 fi;
+
+	    fix_up_unused _
+                =>
+                bug "bad fixup";
+        end;
+
+
+	fun redundant (NIL, n: Int)
+                =>
+                FALSE;
+
+	    redundant (a ! b, n)
+                =>
+                a != n
+                or
+                redundant (b, n);
+        end;
+
+
+	fun complement (n, m, a ! b)
+                =>
+	        n < a   ??   n ! (complement (n + 1, m, a ! b))
+	                ::        complement (n + 1, m,     b );
+
+	    complement (n, m, NIL)
+                => 
+	        n < m   ??   n ! (complement (n + 1, m, NIL))
+                        ::                              NIL  ;
+        end;
+
+
+	fun divide_path_list (prior, NIL, accyes, accno) 
+                =>
+                (accyes, accno);
+
+	    divide_path_list (prior, path ! rest, accyes, accno)
+                => 
+	        prior path  ??   divide_path_list (prior, rest, path ! accyes, accno)
+	                    ::   divide_path_list (prior, rest, accyes, path ! accno);
+        end;
+
+
+	fun add_path_to_path_list (path, path1 ! rest)
+                => 
+	        path_eq (path, path1)
+                    ??   path1 ! rest
+	            ::   path1 ! (add_path_to_path_list (path, rest));
+
+	    add_path_to_path_list (path, NIL)
+                =>
+                [ path ];
+        end;
+
+
+	fun unite_path_lists (paths1, NIL) =>   paths1;
+	    unite_path_lists (NIL, paths2) =>   paths2;
+
+	    unite_path_lists (path1 ! rest1, paths2)
+                => 
+	        add_path_to_path_list (path1, unite_path_lists (rest1, paths2));
+        end;
+
+
+	fun on_path_list (path1, NIL)
+                =>
+                FALSE;
+
+	    on_path_list (path1, path2 ! rest)
+                => 
+	        path_eq (path1, path2) or on_path_list (path1, rest);
+        end;
+
+
+	fun intersect_path_lists (paths1, NIL) =>   NIL;
+	    intersect_path_lists (NIL, paths2) =>   NIL;
+
+	    intersect_path_lists (path1 ! rest1, paths2)
+		=> 
+		on_path_list (path1, paths2)
+		    ??  path1 ! (intersect_path_lists (rest1, paths2))
+		    ::  intersect_path_lists (rest1, paths2);
+        end;
+
+
+	fun difference_path_lists (paths1, NIL) =>   paths1;
+	    difference_path_lists (NIL, paths2) =>   NIL;
+
+	    difference_path_lists (path1 ! rest1, paths2)
+		=> 
+		on_path_list (path1, paths2)
+		    ??         (difference_path_lists (rest1, paths2))
+		    :: path1 ! (difference_path_lists (rest1, paths2));
+        end;
+
+	fun intersect_pathsets (pathset1, NIL) =>   NIL;
+	    intersect_pathsets (NIL, pathset2) =>   NIL;
+
+	    intersect_pathsets (pathset1 as (n1: Int, paths1) ! rest1, 
+			        pathset2 as (n2,      paths2) ! rest2
+                               )
+		=>
+		if   (n1 == n2)
+
+		     case (intersect_path_lists (paths1, paths2))
+
+			  NIL =>  intersect_pathsets (rest1, rest2);
+			  pl  =>  (n1, pl) ! (intersect_pathsets (rest1, rest2));
+		     esac;
+
+		elif (n1 < n2) 
+		     intersect_pathsets (rest1, pathset2);
+		else intersect_pathsets (pathset1, rest2);
+		fi;
+        end;
+
+	fun unite_pathsets (pathset1, NIL) =>   pathset1;
+	    unite_pathsets (NIL, pathset2) =>   pathset2;
+
+	    unite_pathsets (pathset1 as (n1: Int, paths1) ! rest1, 
+			    pathset2 as (n2,      paths2) ! rest2
+                           )
+		=>
+		if (n1 == n2)
+		     
+		     (n1, unite_path_lists (paths1, paths2))
+		     !  (unite_pathsets (rest1, rest2));
+		else
+		     if (n1 < n2)
+
+			 (n1, paths1) ! (unite_pathsets (rest1, pathset2));
+		     else
+			 (n2, paths2) ! (unite_pathsets (pathset1, rest2));
+		     fi;
+		fi;
+        end;
+
+	fun difference_pathsets (pathset1, NIL) =>   pathset1;
+	    difference_pathsets (NIL, pathset2) =>   NIL;
+
+	    difference_pathsets (pathset1 as (n1: Int, paths1) ! rest1, 
+			       pathset2 as (n2, paths2) ! rest2)
+                =>
+	        if (n1 == n2)
+                     
+		    case (difference_path_lists (paths1, paths2))
+			NIL => difference_pathsets (rest1, rest2);
+			pl  => (n1, pl) ! (difference_pathsets (rest1, rest2));
+		    esac;
+		else
+		    if   (n1 < n2)
+			 (n1, paths1) ! (difference_pathsets (rest1, pathset2));
+		    else difference_pathsets (pathset1, rest2);
+		    fi;
+                fi;
+        end;
+
+	fun do_pathset_member (path, metric, (n: Int, paths) ! rest)
+                =>
+	        (n < metric and do_pathset_member (path, metric, rest))
+		or
+                (n == metric and on_path_list (path, paths));
+
+	    do_pathset_member (path, metric, NIL) => FALSE;
+        end;
+
+
+	fun do_add_element_to_pathset (path, metric, NIL)
+                =>
+                [ (metric, [ path ] ) ];
+
+	    do_add_element_to_pathset (path, metric, (n: Int, paths) ! rest)
+                =>
+	        if   (n == metric)
+
+                    (n, add_path_to_path_list (path, paths)) ! rest;
+
+	        elif (n < metric)
+
+                    (n, paths) ! (do_add_element_to_pathset (path, metric, rest));
+	        else
+                    (metric, [path]) ! (n, paths) ! rest;
+                fi;
+        end;
+
+	fun divide_path_set (prior, NIL)
+                =>
+                (NIL, NIL);
+
+	    divide_path_set (prior, (n, pathlist) ! rest)
+                =>
+		{   my  (yes_set, no_set)
+                        =
+                        divide_path_set (prior, rest);
+
+		    case (divide_path_list (prior, pathlist, NIL, NIL) )
+		        (NIL, NIL) => bug "paths dissappeared during divide";
+		        (NIL, no ) => (yes_set, (n, no) ! no_set);
+		        (yes, NIL) => ((n, yes) ! yes_set, no_set);
+		        (yes, no ) => ((n, yes) ! yes_set, (n, no) ! no_set);
+                    esac;
+		};
+        end;
+
+	fun path_depends path1 ROOT_PATH
+                =>
+                path_eq (path1, ROOT_PATH);
+
+	    path_depends path1 (path2 as RECORD_PATH paths)
+                => 
+	        fold_left
+                    (fn (a, b) = (path_depends path1 a) or b) 
+		    (path_eq (path1, path2))
+                    paths; 
+
+	    path_depends path1 (path2 as PI_PATH(_, subpath))
+                =>
+	        path_eq (path1, path2) or path_depends path1 subpath;      
+
+	    path_depends path1 (path2 as VPI_PATH(_, _, subpath))
+                =>
+	        path_eq (path1, path2) or path_depends path1 subpath;      
+
+	    path_depends path1 (path2 as DELTA_PATH(_, subpath))
+                =>
+	        path_eq (path1, path2) or path_depends path1 subpath;
+
+	    path_depends path1 (path2 as (VLEN_PATH (subpath, _)))
+                =>
+	        path_eq (path1, path2) or path_depends path1 subpath;
+        end;
+
+
+	fun path_metric (ROOT_PATH)
+                =>
+                0;
+
+	    path_metric (RECORD_PATH paths)
+                =>
+	        fold_right
+                    (fn (a, b) = path_metric a + b)
+                    1
+                    paths;
+
+	    path_metric (PI_PATH(_, subpath))
+                =>
+	        1 + path_metric subpath;
+
+	    path_metric (VPI_PATH(_, _, subpath))
+                =>
+	        1 + path_metric subpath;
+
+	    path_metric (DELTA_PATH(_, subpath))
+                =>
+	        1 + path_metric subpath;
+
+	    path_metric (VLEN_PATH (subpath, _))
+                =>
+	        1 + path_metric subpath;
+        end;
+
+
+	fun pathset_member path pathset
+            = 
+	    do_pathset_member (path, path_metric path, pathset);
+
+
+	fun add_path_to_pathset (path, pathset)
+            =
+	    do_add_element_to_pathset (path, path_metric path, pathset); 
+
+
+	fun do_do_namings (NIL, rhs)
+                =>
+                rhs;
+
+	    do_do_namings (path ! rest, rhs)
+                =>
+                BIND (path, do_do_namings (rest, rhs));
+        end;
+
+
+	fun do_namings (NIL, rhs)
+                =>
+                rhs;
+
+	    do_namings ((n, paths) ! morepaths, rhs)
+                => 
+		do_do_namings (paths, do_namings (morepaths, rhs));
+        end;
+
+
+	fun sub_paths (ROOT_PATH)
+                =>
+                [ (0, [ ROOT_PATH ] ) ];
+
+	    sub_paths (path as RECORD_PATH paths)
+                =>
+		fold_right unite_pathsets [(path_metric path, [path])] (map sub_paths paths);
+
+	    sub_paths (path as (VLEN_PATH (subpath, _)))
+                =>
+		(sub_paths subpath) @ [(path_metric path, [path])];
+
+	    sub_paths (path as VPI_PATH (n, _, subpath))
+                =>
+		(sub_paths subpath) @ [(path_metric path, [path])];
+
+	    sub_paths (path as PI_PATH (n, subpath))
+                =>
+		(sub_paths subpath) @ [(path_metric path, [path])];
+
+	    sub_paths (path as DELTA_PATH (_, subpath))
+                =>
+		(sub_paths subpath) @ [(path_metric path, [path])];
+        end;
+
+
+	fun rhs_namings (n, rule_desc)
+            = 
+	    {   my (_, paths, _)
+                   =
+                   list::nth (rule_desc, n);
+
+	        fold_right unite_pathsets [] (map sub_paths paths);
+	    };
+
+	fun pass1_cases ((pcon, subtree) ! rest, envin, THE envout, rhs, path)
+                =>
+		{   my  (subtree', my_env_out)
+                        =
+                        pass1 (subtree, envin, rhs);
+
+		    my  (must_bind_here, other_namings)
+                        =
+			divide_path_set (path_depends (DELTA_PATH (pcon, path)), my_env_out);
+
+		    env_out_so_far
+                        =
+                        intersect_pathsets (envout, other_namings);
+
+		    my  (rest', envout')
+                        = 
+			pass1_cases (rest, envin, THE env_out_so_far, rhs, path);
+
+		    i_bind2
+                        =
+                        difference_pathsets (other_namings, envout');
+
+		    subtree''
+                        = 
+			do_namings (unite_pathsets (must_bind_here, i_bind2), subtree');
+
+		    ((pcon, subtree'') ! rest', envout');
+		};
+
+	    pass1_cases((pcon, subtree) ! rest, envin, NULL, rhs, path)
+                =>
+		{   my (subtree', my_env_out)
+                       =
+                       pass1 (subtree, envin, rhs);
+
+		    my (must_bind_here, other_namings)
+                       =
+		       divide_path_set (path_depends (DELTA_PATH (pcon, path)), my_env_out);
+
+		    my (rest', envout')
+                       = 
+		       pass1_cases (rest, envin, THE other_namings, rhs, path);
+
+		    i_bind2
+                        =
+                        difference_pathsets (other_namings, envout');
+
+		    subtree''
+                        = 
+			do_namings (unite_pathsets (must_bind_here, i_bind2), subtree');
+
+		    ((pcon, subtree'') ! rest', envout');
+		};
+
+	    pass1_cases (NIL, envin, THE envout, rhs, path)
+                =>
+		(NIL, unite_pathsets (envin, envout));
+
+	    pass1_cases (NIL, envin, NULL, rhs, path)
+                =>
+                bug "pass1_cases bad";
+        end 
+
+        also
+        fun pass1 (RHS n, envin, rhs)
+                =>
+                (RHS n, rhs_namings (n, rhs));
+
+	    pass1 (CASETEST (path, an_api, cases, NULL), envin, rhs)
+                =>
+		{   my  (cases', envout')
+                        =
+		        pass1_cases (cases, unite_pathsets (envin, sub_paths path), 
+				 NULL, rhs, path);
+
+		    (CASETEST (path, an_api, cases', NULL), envout');
+		};
+
+	    pass1 (CASETEST (path, an_api, cases, THE subtree), envin, rhs)
+                =>
+		{   new_dictionary =   unite_pathsets (envin, sub_paths path);
+
+		    my  (subtree', sub_envout)
+                        =
+                        pass1 (subtree, new_dictionary, rhs);
+
+		    my  (cases', envout')
+                        =
+		        pass1_cases (cases, new_dictionary, THE sub_envout, rhs, path);
+
+		    subnamings =   difference_pathsets (sub_envout, envout');
+		    subtree''   =   do_namings (subnamings, subtree');
+
+		    (CASETEST (path, an_api, cases', THE subtree''), envout');
+		};
+
+	    pass1 (ABSTEST0 (path, con, subtree1, subtree2), envin, rhs)
+                =>
+		{   new_dictionary = unite_pathsets (envin, sub_paths path);
+
+		    my (subtree1', sub_envout1) = pass1 (subtree1, new_dictionary, rhs);
+		    my (subtree2', sub_envout2) = pass1 (subtree2, new_dictionary, rhs);
+
+		    envout =   unite_pathsets (new_dictionary, intersect_pathsets (sub_envout1, sub_envout2));
+
+		    bind1 = difference_pathsets (sub_envout1, envout);
+		    bind2 = difference_pathsets (sub_envout2, envout);
+
+		    subtree1'' = do_namings (bind1, subtree1');
+		    subtree2'' = do_namings (bind2, subtree2');
+
+		    (ABSTEST0 (path, con, subtree1'', subtree2''), envout);
+		};
+
+	    pass1 (ABSTEST1 (path, con, subtree1, subtree2), envin, rhs)
+                =>
+		{   new_dictionary =   unite_pathsets (envin, sub_paths path);
+
+		    yesenv
+                        =
+			if   (is_an_exception con)
+                             new_dictionary;
+			else add_path_to_pathset (DELTA_PATH (DATAPCON con, path), envin);fi;
+
+		    my (subtree1', sub_envout1) =   pass1 (subtree1, yesenv,         rhs);
+		    my (subtree2', sub_envout2) =   pass1 (subtree2, new_dictionary, rhs);
+
+		    envout
+                        = 
+			unite_pathsets (new_dictionary,
+					intersect_pathsets (sub_envout1, sub_envout2));
+
+		    bind1 =   difference_pathsets (sub_envout1, envout);
+		    bind2 =   difference_pathsets (sub_envout2, envout);
+
+		    subtree1'' =   do_namings (bind1, subtree1');
+		    subtree2'' =   do_namings (bind2, subtree2');
+
+		    (ABSTEST1 (path, con, subtree1'', subtree2''), envout);
+		};
+
+	    pass1 _
+                =>
+                bug "pass1 bad";
+        end;
+
+
+
+	# Given a decision tree for a match,
+        # a list of ?? and the name of the 
+	# variable bound to the value to be
+        # matched, produce code for the match. 
+	#
+	fun make_match_code (dt, match_rep, root_variable, (to_type_constructor, to_lambda_type), giis)
+	    = 
+	    {   my  (subtree, envout)
+                    =
+                    pass1 (dt, [(0, [ROOT_PATH])], match_rep);
+
+		fun make_datatype_constructor (t::ENUM_CONSTRUCTOR { symbol, representation, constructor_type, ... } )
+		    = 
+		    ( symbol,
+                      representation,
+                      to_dcon_lty  to_lambda_type  constructor_type
+                    );
+
+
+		fun make_path (RECORD_PATH paths, dictionary)
+			=>
+			RECORD (map (fn path => VAR (get_path (path, dictionary)); end ) paths);
+
+		    make_path (PI_PATH (n, path), dictionary)
+			  => 
+			  SELECT (n, VAR (get_path (path, dictionary)));
+
+		    make_path (p as DELTA_PATH (pcon, path), dictionary)
+			=> 
+			VAR (get_path (p, dictionary));
+
+		    make_path (VPI_PATH (n, t, path), dictionary)
+			=>
+			{   tc = to_type_constructor t;
+
+			    lt_sub
+				= 
+				{   x =   lt::ltc_vector (lt::ltc_tv 0);
+
+				    lt::ltc_poly (
+
+					[ lt::tkc_mono ], 
+					[ lt::ltc_parrow (lt::ltc_tuple [x, lt::ltc_int], lt::ltc_tv 0) ]
+				    );
+				};
+
+			    APPLY (PRIMITIVE_OP (po::SUBSCRIPTV, lt_sub, [tc]),
+				RECORD [VAR (get_path (path, dictionary)), INT n]);
+			};
+
+		    make_path (VLEN_PATH (path, t), dictionary)
+			=> 
+			{   tc = to_type_constructor t;
+			    lt_len = lt::ltc_poly([lt::tkc_mono], 
+					     [lt::ltc_parrow (lt::ltc_tv 0, lt::ltc_int)]);
+			    argtc = lt::tcc_vector tc;
+
+			    APPLY (PRIMITIVE_OP (po::LENGTH, lt_len, [argtc]), 
+				VAR (get_path (path, dictionary)));
+			};
+
+		    make_path (ROOT_PATH, dictionary)
+			=>
+			VAR (get_path (ROOT_PATH, dictionary));
+                end;
+
+
+		fun make_switch (sv, an_api, [(DATACON((_, da::REF_REP, lt), ts, x), e)], NULL)
+			=> 
+			LET (x, APPLY (PRIMITIVE_OP (highcode_primitive_op::DEREF, lt::lt_swap lt, ts), sv), e);
+
+		    make_switch (sv, an_api, [(DATACON((_, da::SUSP (THE(_, da::HIGHCODE_VARIABLE f)), lt),
+						  ts, x), e)], NULL)
+			=> 
+			{   v = make_var();
+
+			    LET (x, LET (v, TYPE_APPLY (VAR f, ts), APPLY (VAR v, sv)), e);
+			};
+
+		    make_switch (sv, an_api, cases as ((INTINFCON _, _) ! _), default)
+			=>
+			{   fun strip (INTINFCON n, e)
+				    =>
+				    (n, e);
+
+			       strip _
+				    =>
+				    bug "make_switch: INTINFCON"; end;
+
+			    case default
+			          NULL => bug "no default in switch on INTINF";
+			        THE d => giis (sv, map strip cases, d); esac;
+			};
+
+		    make_switch x
+                        =>
+                        SWITCH x;
+                end;
+
+		fun pass2rhs (n, dictionary, rule_desc)
+		    = 
+		    case (list::nth (rule_desc, n))
+		      
+			(_, [path], fname)
+			    =>
+			    APPLY (VAR fname, VAR (get_path (path, dictionary)));
+
+			(_, paths, fname)
+			    =>
+			    APPLY (VAR fname, 
+				RECORD (map (fn path =  VAR (get_path (path, dictionary)))
+					    paths));
+                    esac;
+
+		fun pass2 (BIND (DELTA_PATH _, subtree), dictionary, rhs)
+			=> 
+			pass2 (subtree, dictionary, rhs);
+
+			# We no longer generate explicit DECON, instead,
+			# we add a naming at each switch case.
+
+		    pass2 (BIND (path, subtree), dictionary, rhs)
+			=>
+			{   new_var = make_var();
+			    subcode = pass2 (subtree, (path, new_var) ! dictionary, rhs);
+
+			    LET (new_var, make_path (path, dictionary), subcode);
+			};
+
+		    pass2 (CASETEST (path, an_api, [], NULL), _, _)
+			=> 
+			bug "unexpected empty cases in matchcomp";
+
+		    pass2 (CASETEST (path, an_api, [], THE subtree), dictionary, rhs)
+			=> 
+			pass2 (subtree, dictionary, rhs);
+
+		    pass2 (CASETEST (path, an_api, cases, dft), dictionary, rhs)
+			=> 
+			{   sv = VAR (get_path (path, dictionary));
+
+			    make_switch
+                              ( sv,
+                                an_api,
+                                pass2cases (path, cases, dictionary, rhs), 
+			        case dft 
+				    THE subtree => THE (pass2 (subtree, dictionary, rhs));
+				    NULL => NULL;
+                                esac
+                              );
+			};
+
+		    pass2 (ABSTEST0 (path, con as (dc, _), yes, no), dictionary, rhs)
+			=>
+#	                if (is_an_exception con)
+#
+#			    make_switch (VAR (get_path (path, dictionary)), da::NULLARY_CONSTRUCTOR, 
+#				       [(DATACON (make_datatype_constructor dc),  pass2 (yes, dictionary, rhs))],
+#				       THE (pass2 (no, dictionary, rhs)))
+#			else
+			abstest0 (path, con, pass2 (yes, dictionary, rhs), pass2 (no, dictionary, rhs)); 
+
+		    pass2 (ABSTEST1 (path, con as (dc, _), yes, no), dictionary, rhs)
+			  =>
+#	                  if is_an_exception con 
+#
+#			      make_switch (VAR (get_path (path, dictionary)), da::NULLARY_CONSTRUCTOR,
+#					 [(DATACON (make_datatype_constructor dc),  pass2 (yes, dictionary, rhs))],
+#					 THE (pass2 (no, dictionary, rhs)))
+#			  else
+			  abstest1 (path, con, pass2 (yes, dictionary, rhs), pass2 (no, dictionary, rhs)); 
+
+		    pass2 (RHS n, dictionary, rhs)
+                        =>
+                        pass2rhs (n, dictionary, rhs);
+                end   
+
+	        also
+	        fun pass2cases (path, NIL, dictionary, rhs)
+			=>
+			NIL;
+
+		    pass2cases (path, (pcon, subtree) ! rest, dictionary, rhs)
+			=> 
+			{   # Always implicitly bind a new variable at each branch. 
+
+			    my (ncon, nenv)
+			       =
+			       pcon_to_con (pcon, path, dictionary);
+
+			    result = (ncon, pass2 (subtree, nenv, rhs));
+
+			    result ! (pass2cases (path, rest, dictionary, rhs));
+			};
+                end 
+
+	        also
+	        fun pcon_to_con (pcon, path, dictionary)
+		    =
+		    case pcon
+		      
+		         DATAPCON (dc, ts)
+			     => 
+			     {   new_var = make_var();
+				 nts = map to_type_constructor ts;
+				 nenv = (DELTA_PATH (pcon, path), new_var) ! dictionary;
+
+				 (DATACON (make_datatype_constructor dc, nts, new_var), nenv);
+			     };
+
+			 VLENPCON (i, t) =>   (VLENCON i, dictionary);
+			 INTPCON i       =>   (INTCON i, dictionary);
+			 INT32PCON i     =>   (INT32CON i, dictionary);
+			 INTINFPCON n    =>   (INTINFCON n, dictionary);
+			 WORDPCON w      =>   (WORDCON w, dictionary);
+			 WORD32PCON w    =>   (WORD32CON w, dictionary);
+			 REALPCON r      =>   (REALCON r, dictionary);
+			 STRINGPCON s    =>   (STRINGCON s, dictionary);
+                    esac;
+
+	        case (do_namings (envout, subtree))
+		  
+		     BIND (ROOT_PATH, subtree')
+                         => 
+		         pass2 (subtree', [(ROOT_PATH, root_variable)], match_rep);
+
+		    _ => pass2 (subtree, [], match_rep);
+                esac;
+	    };
+
+	fun compile_pattern_match (rules, finish, rootvar, to_tc_lt as (_, to_lambda_type), err, giis)
+	    =
+	    {   last_rule  =   length rules - 1;
+		match_reps =   map (preprocess_pattern to_lambda_type) rules;
+
+		my  (match_rep, rhs_rep)
+                    = 
+		    fold_right
+                        (fn ((a, b), (c, d)) = (a@c, b ! d))
+                        ([], [])
+                        match_reps;
+
+		all_rules =   make_all_rules (match_rep, 0);
+		flattened =   flatten_and_ors (make_and_or (match_rep, err), all_rules);
+
+		ready =   fire_constraint (ROOT_PATH, flattened, NIL, NIL);
+		dt    =   make_decision_tree (ready, all_rules);
+
+		rule_count       =   length match_rep;
+		raw_unused_rules =   complement (0, rule_count, rules_used dt);
+		unused_rules     =   reverse (fix_up_unused (raw_unused_rules, match_reps, 0, 0, NIL));
+
+		exhaustive =   is_there (last_rule, unused_rules);
+		redundant_flag =   redundant (unused_rules, last_rule);
+
+		fun g ((fname, fbody), body)
+                    =
+                    LET (fname, fbody, body);
+
+		code =   fold_right
+                             g
+                             (make_match_code (dt, match_rep, rootvar, to_tc_lt, giis))
+                             rhs_rep;
+
+	        (finish (code), unused_rules, redundant_flag, exhaustive);
+	    };
+
+
+	# Test pattern, the guard pattern of the first match rule of a match,
+	# for the occurence of variables (including layering variables) 
+	# or wildcards.  Return TRUE if any are present, FALSE otherwise.
+	#
+	fun no_vars_in ((pattern, _) ! _)
+		=>
+		{   fun var WILDCARD_PATTERN => TRUE; #  might want to flag this 
+			var (VARIABLE_IN_PATTERN _) => TRUE;
+			var (AS_PATTERN _) => TRUE;
+			var (TYPE_CONSTRAINT_PATTERN (p, _)) => var p;
+			var (APPLY_PATTERN(_, _, p)) => var p;
+			var (RECORD_PATTERN { fields, ... } ) => list::exists (var o #2) fields;
+			var (VECTOR_PATTERN (pats, _)) => list::exists var pats;
+			var (OR_PATTERN (pattern1, pattern2)) => var pattern1 or var pattern2;
+			var _ => FALSE;
+                    end;
+
+		    not (var pattern);
+		};
+
+	    no_vars_in _
+                =>
+                bug "no_vars_in in mc";
+        end;
+
+
+
+	# The three entry points for the match compiler.
+	#
+	# They take as arguments a dictionary (dictionary); a match represented
+	# as a list of pattern--lambda expression pairs (weak); and a 
+	# function to use in printing warning messages (warn).
+	#
+	# dictionary and warn are only used in the printing of diagnostic information.
+	#
+	# If the control flag controls::mc::print_args is set, they print match.  
+	#  
+	# They call compile_pattern_match to actually compile match.
+	# This returns a 4-tuple (code, unused, redundant, exhaustive):
+	#    'code' is lambda code that implements match.
+	#    'unused' is a list of the indices of the unused rules.
+	#    'redundant'  and 'exhaustive' are boolean flags which are
+	#         set if  match is redundant or exhaustive respectively.
+	#
+	# They print warning messages as appropriate, as described below.
+	# If the control flag controls::mc::print_ret is set, they print code.
+	#
+	# They return code.
+	#
+	# They assume that match has one element for each rule of the match 
+	# to be compiled, in order, plus a single, additional, final element.
+	# This element must have a pattern that is always matched 
+	# (in practice, it is either a variable or wildcard), and a
+	# lambda expression that implements the appropriate behavior 
+	# for argument values that satisfy none of the guard patterns.
+	# A pattern is exhaustive if this dummy rule is never used,
+	# and is irredundant if all of the other rules are used.
+
+
+	stipulate
+            include controls::mc;       # Make various control flags visible 
+	herein      
+
+	# Entry point for compiling matches induced by my declarations
+	# (e.g., my listHead ! listTail = list).  match is a two 
+	# element list.  If the control flag controls::mc::warn_on_nonexhaustive_bind
+	# is set, and match is nonexhaustive a warning is printed.  If the control
+	# flag controls::mc::bind_no_variable_warn is set, and the first pattern
+	# (i.e., the only non-dummy pattern) of match contains no variables or 
+	# wildcards, a warning is printed.    Arguably, a pattern containing no 
+	# variables, but one or more wildcards, should also trigger a warning, 
+	# but this would cause warnings on constructions like
+	# my _ = <expression>  and  my _:<type> = <expression>.
+	#
+	fun compile_naming_pattern (dictionary, rules, finish, rootv, to_tc_lt, err, giis)
+	    =
+	    code
+            where
+	        if *print_args
+                     say "MC called with:";
+                     mp::print_match dictionary rules;
+		fi;
+
+		my  (code, _, _, exhaustive)
+                    = 
+		    compile_pattern_match (rules, finish, rootv, to_tc_lt, err, giis);
+
+		nonexhaustive
+                    =
+		    not exhaustive and
+		    (*warn_on_nonexhaustive_bind or *error_on_nonexhaustive_bind);
+
+		no_vars
+                    =
+                    *bind_no_variable_warn and no_vars_in rules;
+
+	        if nonexhaustive
+		    
+		    err if *error_on_nonexhaustive_bind  em::ERROR;
+			else                             em::WARNING;
+			fi
+
+			("cases not exhaustive"
+			+ (no_vars ?? " and contains no variables" :: "")
+			)
+			(bind_print (dictionary, rules));
+		else
+		    if no_vars
+			 err em::WARNING "naming contains no variables" 
+			     (bind_print (dictionary, rules));
+		    fi;
+                fi;
+
+		if *print_ret
+		     say "MC:  returns with\n";
+                     mp::print_lexp code;
+		fi;
+	    end;
+
+
+	# Entry point for compiling matches induced by exception handlers.
+	# (e.g., except BIND => Foo).  If the control flag 
+	#  controls::mc::warn_on_redundant_match is set, and match is redundant, 
+	#  a warning is printed.  If controls::mc::error_on_redundant_match is also
+	#  set, the warning is promoted to an error message.
+	#
+	fun compile_exception_pattern (dictionary, rules, finish, rootv, to_tc_lt, err, giis)
+	    =
+	    {   if *print_args
+                     say "MC called with: ";
+                     mp::print_match dictionary rules;
+		fi;
+
+		my  (code, unused, redundant, _)
+                    = 
+		    compile_pattern_match (rules, finish, rootv, to_tc_lt, err, giis);
+
+		redundant
+                    =
+                    *warn_on_redundant_match and redundant;
+
+	        if redundant
+                     err 
+		       if *error_on_redundant_match  em::ERROR;
+                       else                          em::WARNING;
+                       fi
+		       "redundant patterns in match"
+		       (match_print (dictionary, rules, unused));
+		fi;
+
+		if *print_ret 
+                     say "MC:  returns with\n";
+                     mp::print_lexp code;
+		fi;
+
+		code;
+	    };
+
+
+	# Entry point for compiling matches induced
+        # by function expressions, and thus case expressions,
+        # if-then-else expressions, while expressions
+	# and fun declarations, (e.g., fn (x ! y) => ([x], y)).
+        #
+        # If the control flag  controls::mc::warn_on_redundant_match is set,
+	# and match is redundant, a warning  is printed.
+        # If controls::mc::error_on_redundant_match is also set,
+	# the warning is promoted to an error.
+        #
+        # If the control flag controls::mc::matchExhaustive is set
+	# and match is nonexhaustive, a warning is printed.   
+	#
+	fun compile_case_pattern (dictionary, rules, finish, rootv, to_tc_lt, err, giis)
+	    =
+	    code
+            where
+	        if *print_args
+                     say "MC called with: ";
+                     mp::print_match dictionary rules;
+		fi;
+
+		my  (code, unused, redundant, exhaustive)
+                    = 
+		    compile_pattern_match (rules, finish, rootv, to_tc_lt, err, giis);
+
+		nonexhaustive
+                    = 
+		    not exhaustive
+                    and
+		    (*error_on_nonexhaustive_match or *warn_on_nonexhaustive_match);
+
+		redundant
+                    = 
+		    redundant and (*error_on_redundant_match or *warn_on_redundant_match);
+
+	        case (nonexhaustive, redundant)
+		  
+		     (TRUE, TRUE)
+			 =>
+			 err if (*error_on_redundant_match or *error_on_nonexhaustive_match) em::ERROR;
+                             else                                                            em::WARNING;
+                             fi
+			     "match redundant and nonexhaustive"
+			     (match_print (dictionary, rules, unused));
+
+		     (TRUE, FALSE)
+			 =>
+			  err if *error_on_nonexhaustive_match  em::ERROR;
+                              else                              em::WARNING;
+                              fi
+			      "match nonexhaustive"
+			      (match_print (dictionary, rules, unused));
+
+		     (FALSE, TRUE)
+			 =>
+			 err if *error_on_redundant_match   em::ERROR;
+                             else                           em::WARNING;
+                             fi
+			     "match redundant" (match_print (dictionary, rules, unused));
+
+		     _   => ();
+                esac;
+
+		if *print_ret
+                     say "compile_case_pattern:  returns with\n";
+                     mp::print_lexp code;
+                fi;
+	    end;
+
+
+	compile_case_pattern
+            = 
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 045  matchcomp") compile_case_pattern;
+
+	end;		# local controls::mc 
+    end;		# toplevel stipulate 
+};			# package compile_pattern 
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

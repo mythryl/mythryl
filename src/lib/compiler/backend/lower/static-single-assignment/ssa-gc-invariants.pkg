@@ -1,0 +1,193 @@
+#
+# Annotate GC safety-invariants before performing SSA optimizations
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+
+###          "It's not that I'm so smart, it's
+###           just that I stay with problems longer."
+###
+###                             -- Albert Einstein
+
+
+
+generic package SSAGCInvariants
+   (package ssa:      SSA
+    package TypeSys:  GC_TYPE_SYSTEM
+      sharing SSA::RTL = TypeSys::RTL 
+   ) : SSA_OPTIMIZATION =
+pkg
+   package ssa   = SSA
+   package control_flow_graph   = SSA::control_flow_graph
+   package i     = SSA::I
+   package c     = i::C
+   package rtl   = SSA::RTL
+   package t     = RTL::T
+   package gc_map = TypeSys::GCMap
+   package gc    = GCMap::GC
+   package g     = graph
+   package a     = rw_vector
+
+   type flowgraph = SSA::ssa
+
+   name = "GC Safety-Invariants"
+
+   debug = LowCodeControl::getFlag "ssa-debug-gc"
+
+   fun error msg = lowcode_error_message::error("SSAGCInvariants", msg)
+
+   fun run SSA =
+   let CFG = SSA::cfg SSA
+   in  case GCMap::GCMAP.get (*(control_flow_graph::annotations CFG)) of
+         NULL => SSA
+       | THE gcmap => doTheWork (SSA, CFG, gcmap)
+   end
+
+   and doTheWork (SSA, CFG, gcmap) =
+   let my g::GRAPH ssa = SSA
+       V           = SSA::maxVariable SSA   #  maximum encoding of variables 
+       N           = ssa.capacity ()
+       const       = SSA::const SSA    #  Constants map 
+       defSiteTable  = SSA::defSiteTable SSA  #  Definition site 
+       cellKindMap = SSA::cellKindTable SSA #  CellKind map 
+       defsTable     = SSA::defsTable SSA
+       usesTable     = SSA::usesTable SSA
+       rtlTable      = SSA::rtlTable SSA
+       cellKind    = int_hash_table::find cellKindMap
+       cellKind    = fn r => case cellKind r of THE k => k | NULL => c::GP
+       updateType    = int_hash_table::set gcmap
+       zeroR       = case c::zeroReg c::GP of 
+                           THE z => z
+                         | NULL => -1
+
+       gcTypes     = a::rw_vector (V, gc::BOT)
+       onQueue     = bit_set::create N
+       has_type     = bit_set::create V
+
+       fun joins []      = gc::BOT
+         | joins [x]     = x
+         | joins (x . xs) = gc::join (x, joins xs)
+
+       fun initializeTypes() =
+           (int_hash_table::keyed_apply (fn (r, t) => 
+               (bit_set::set (has_type, r); a::update (gcTypes, r, t))) gcmap;
+            if zeroR >= 0 then a::update (gcTypes, zeroR, gc::CONST 0) else ()
+           )
+
+       fun enqueueInstruction (j, WL) = 
+           if bit_set::markAndTest (onQueue, j) then WL 
+           else j . WL
+ 
+       fun enqueue (r, WL) = 
+       let i = a::sub (defSiteTable, r)
+           fun ins ([], WL) = WL
+             | ins((_, j, _) . es, WL) = ins (es, enqueueInstruction (j, WL))
+       in  ins (ssa.out_edges i, WL) end
+
+       fun update (r, t, WL) = 
+           if r == zeroR or bit_set::contains (has_type, r) 
+           then WL
+           else let t' = a::sub (gcTypes, r)
+                in  if GC::(====) (t, t') then WL 
+                    else 
+                     (#  print("r"$int::to_string r$":"$gc::to_string t$"\n");
+                      a::update (gcTypes, r, t); 
+                      enqueue (r, WL))
+                end
+
+       fun lookup r = a::sub (gcTypes, r)
+
+       effectOf = TypeSys::effectOf { lookup=lookup, update=update }
+
+       fun iterate ([]) = ()
+         | iterate (i . WL) = 
+           let bit_set::reset (onQueue, i)
+           in  iterate (process (i, WL)) end
+
+       and process (i, WL) = 
+           let rtl  = a::sub (rtlTable, i) 
+               defs = a::sub (defsTable, i)
+               uses = a::sub (usesTable, i)
+           in  case (rtl, defs, uses) of
+                 (t::PHI _,[t], s) => phi (t, s, WL)
+               | (t::SOURCE _, t, _) =>
+                   let fun init ([], WL) = WL
+                         | init (t . ts, WL) = init (ts, setTop (t, WL))
+                       and setTop (t, WL) = 
+                           if bit_set::contains (has_type, t) then WL
+                           else (update (t, gc::TOP, WL))
+                   in  init (t, WL) end  
+               | (t::SINK _, _, _) => WL
+               | (e, t, s) =>
+                 let fun lookupN n = 
+                     let r = list::nth (s, n) 
+                     in  if r < 0 then gc::INT else a::sub (gcTypes, r) end
+                     fun updateN (n, type, WL) = update (list::nth (t, n), type, WL)
+                 in  TypeSys::effectOf { lookup=lookupN, update=updateN } 
+                                     { action=e, src=s, dst=t, effect=WL }
+                     except e => (print("["$int::to_string i$"] " $
+                                        SSA::showOp SSA i$"\n"); raise exception e)
+                 end
+           end
+
+       and phi (t, s, WL) =
+           if bit_set::contains (has_type, t) then WL
+           else let tys = map lookup s
+                    type  = joins tys
+                in  update (t, type, WL) end
+
+       fun updateTypes()
+           =
+           a::keyed_apply (fn (r, t) => if GC::(====) (t, gc::TOP) then () 
+                               else if GC::(====) (t, gc::BOT) then ()
+                               else updateType (r, t)) (gcTypes, 0, NULL)
+
+       fun typeInference() =
+       let WL = map #1 (ssa.nodes ())
+       in  apply (fn i => bit_set::set (onQueue, i)) WL;
+           iterate WL
+       end
+
+       fun markConstraints() =
+       let my g::GRAPH dom = SSA::dom SSA
+           my { ops, ... } = SSA::nodes SSA
+           showOp = SSA::showOp SSA
+           fun walk b =
+           let fun markAsNonMovable i =
+                 (if *debug then
+                    print("Block "$int::to_string b$" can't move: " $
+                          showOp i$"\n")
+                  
+                  a::update (rtlTable, i, RTL::pin (a::sub (rtlTable, i)))
+                 )
+               fun mark (i) = 
+                   let fun isRecoverable [] = TRUE
+                         | isRecoverable (t . ts) = 
+                           (cellKind t = c::MEM or
+                            cellKind t = c::CTRL or
+                           TypeSys::isRecoverable (a::sub (gcTypes, t))) and
+                           isRecoverable ts
+                   in  case a::sub (rtlTable, i) of
+                          (t::PHI _ | t::SOURCE _ | t::SINK _) => ()
+                       | _ =>
+                         if isRecoverable (a::sub (defsTable, i)) then () #  okay 
+                         else markAsNonMovable i
+                   end
+           in  apply mark (a::sub (ops, b));
+               apply walk (dom.next b)
+           end
+     
+       in  walk (hd (dom.entries ()))
+       end
+
+   in  print "GC type inference\n";
+       initializeTypes();
+       typeInference();
+       updateTypes();
+       print "GC type inference done\n";
+       markConstraints();
+       SSA
+   end
+
+end

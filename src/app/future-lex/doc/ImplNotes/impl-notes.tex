@@ -1,0 +1,562 @@
+\documentilk[11pt]{article}
+
+\usepackage[top=1.25in, bottom=1.25in, left=1.33in, right=1.33in]{geometry}
+\usepackage{amsmath}
+\usepackage[all]{xy}
+\usepackage{graphicx}
+
+\newcommand{\flex}{\texttt{lexgen}}
+
+\title{\flex{} Implementation Notes}
+\author{Aaron Turon\\
+\texttt{adrassi@uchicago.edu}}
+
+\newcommand{\Carat}{\^{ }}
+\newcommand{\RE}{r}
+\newcommand{\OR}{\ | \ }
+\newcommand{\AND}{\ \& \ }
+\newcommand{\CL}{\mathcal{L}}
+\newcommand{\CS}{\mathcal{S}}
+\newcommand{\CR}{\mathcal{R}}
+\newcommand{\CP}{\mathcal{P}}
+\newcommand{\Sem}[1]{[ \! [ #1 ] \! ]}
+\newcommand{\Ls}[1]{\CL\Sem{#1}}
+
+\newcommand{\eg}{{\em e.g.}}
+\newcommand{\cf}{{\em cf.}}
+\newcommand{\ie}{{\em i.e.}}
+
+\newcommand{\nm}[1]{\texttt{#1}}
+
+\newcommand{\New}[1]{\emph{\textbf{#1}}}
+
+% Grammar
+\newcommand{\Grammar}[1]{\[ \begin{array}{rcll} #1 \end{array} \]}
+\newcommand{\GFirst}[3]{#1 & ::= & #2 & \textrm{#3} \\ }
+\newcommand{\GNext}[2]{ & | & #1 & \textrm{#2} \\ }
+
+\usepackage{amsthm}
+
+\newtheorem*{theorem}{Theorem}
+\newtheorem*{definition}{Definition}
+\newtheorem*{remark}{Remark}
+
+\usepackage{ifpdf}
+
+\usepackage{palatino}
+%\renewcommand{\ttdefault}{cmtt}
+\renewcommand{\ttdefault}{cmtt}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\newpage
+\section{Organization}
+
+\flex{} is a scanner generator written in Standard ML.  It replaces the older
+Mythryl-Lex tool.  For information about features and usage, see the \flex{} 
+Release Notes.  This document describes the algorithms and code that make up
+\flex{}.
+
+\flex{} is organized much like a compiler: there is a replacable front end for
+parsing the Mythryl-Lex specification format, several back ends to support various
+output formats, and a middle component responsible for DFA generation.  The
+\nm{main} module drives the tool, while the \nm{RegExp} and \nm{LexGen} modules
+together provide DFA generation (see figure~\REF{fig:ml-flex}).  The DFA
+generation algorithm used in \flex{} is somewhat nonstandard; it is based on
+Brzozowski's notion of regular expression derivatives~\cite{derivatives}. 
+Section~\REF{sec:theory} describes the algorithm, as well as modifications
+necessary to support unicode.  Section~\REF{sec:code} gives more concrete
+details about the code, broken down by module.
+
+\begin{figure}\label{fig:ml-flex}
+\begin{center}
+\ifpdf
+  \includegraphics[scale=0.8]{impl-pic.pdf}
+\fi
+\end{center}
+\caption{\flex{} organization}
+\end{figure}
+
+\newpage
+\section{Theory}\label{sec:theory}
+
+\subsection{Regular expressions}
+
+Throughout this section, we assume an \emph{alphabet} $\Sigma$; any X \in \Sigma$ is a \emph{symbol}.  Since we support unicode, $\Sigma$ can be quite large.  Our abstract regular expression (RE) language is as follows:
+
+\Grammar{
+\GFirst{\rm RE}{\epsilon}{empty string}
+\GNext{\CS}{symbol set, $\CS \subseteq \Sigma$}
+\GNext{\rm RE\cdot RE}{concatenation}
+\GNext{\rm RE^*}{Kleene-closure}
+\GNext{\rm RE \OR RE}{alternation (union)}
+\GNext{\rm RE \AND RE}{intersection}
+\GNext{\neg \rm RE}{negation}
+}
+
+Note that we treat symbol sets (\ie{}, character ilks) as primitive; this matches the implementation strategy and simplifies the description of DFA generation.  With this representation, the empty set $\emptyset$ and the alphabet $\Sigma$ are both treated as symbol sets.  The former will yield an RE that matches no input (\ie{}, $\CL\Sem{\emptyset} = \emptyset$), and the latter will match any single symbol.  Notice also that our language of REs allows for intersection and negation in addition to the standard operations.
+
+The semantics of our RE language are given in the form of a function $\Ls{-} \ : \ \mathrm{RE} \rightarrow \Sigma^*$ from REs to their corresponding language over $\Sigma$:
+
+\begin{eqnarray*}
+\Ls{\epsilon} 	&=& 	\epsilon \\
+\Ls{\CS}		&=& 	\CS \\
+\Ls{r\cdot s}	&=& 	\Ls{r} \cdot \Ls{s} \\
+\Ls{r^*}		&=& 	\epsilon \cup \Ls{r}\cdot\Ls{r^*} \\
+\Ls{r \OR s}	&=&		\Ls{r} \cup \Ls{s} \\
+\Ls{r \AND s}	&=& 	\Ls{r} \cap \Ls{s} \\
+\Ls{\neg r}		&=& 	\Sigma \setminus \Ls{r}
+\end{eqnarray*}
+
+\subsection{Derivatives}\label{sec:derivatives}
+
+Brzozowski introduced \emph{derivatives} of regular expressions as an alternative means of DFA construction \cite{derivatives}.  His approach is attrative because it easily allows the language of REs to be extended with arbitrary boolean operations.  Further, it is intuitive, relatively easy to implement, goes directly from an RE to a DFA, and with some care in implementation can be made competitive with other DFA construction approaches.  We begin by introducing the notion of a derivative of some language $\CL$.
+
+\begin{definition}  The \New{derivative} of a set of symbol sequences $\CL \subset \Sigma^*$ with respect to a finite symbol sequence $u$ is defined to be $D_u(\CL) = \{ v \ | \ u\cdot v \in \CL \}$.
+\end{definition} 
+
+Derivatives give a very natural algorithm for DFA construction.  Before giving that algorithm, however, we need a means of computing derivatives for regular expressions.
+
+\begin{definition} A regular expression $\RE$ is \New{nullable} if the language it defines contains the empty string, that is, if $\epsilon \in \Ls{\RE}$.
+\end{definition}
+
+We also need the following function:
+\[ \delta(\RE) =
+    \begin{cases}
+        \epsilon & \textrm{if} \ \epsilon \in \CL\Sem{\RE} \\
+        \emptyset & \textrm{if} \ \epsilon \notin \CL\Sem{\RE}
+    \end{cases}
+\]
+The $\delta$ function takes REs to REs (recall that the empty set is a symbol set, which is an RE).  Intuitively, $\delta$ collapses an RE to the ``smallest'' RE with the same nullability.
+
+The following function, due to Brzozowski, gives the derivative of a regular expression with respect to a symbol $a$.  
+\begin{eqnarray*}
+D_a (\epsilon)  &=& \emptyset \\
+D_a (\CS)         &=& 
+    \begin{cases}
+        \epsilon & \textrm{if} \ a \in \CS \\
+        \emptyset & \textrm{if} \ a \notin \CS \\
+    \end{cases} \\
+D_a (r \cdot s) &=& D_a(r)\cdot s \OR \delta(r) \cdot D_a(s) \\
+D_a (r^*)       &=& D_a(r) \cdot r^* \\
+D_a (r \OR s)   &=& D_a(r) \OR D_a(s) \\
+D_a (r \AND s)  &=& D_a(r) \AND D_a(s) \\
+D_a (\neg r)    &=& \neg D_a(r)
+\end{eqnarray*}
+
+We can take the derivative of an RE with respect to a sequence of symbols in a straightforward way:
+\begin{eqnarray*}
+D_\epsilon (r) &=& r \\
+D_{ua} (r) &=& D_a(D_u(r))
+\end{eqnarray*}
+
+Intuitively, the derivative of an RE with respect to a symbol $a$ yields a new RE after matching $a$.  The following two theorems, again due to Brzozowski, make this precise.
+
+\begin{theorem} The derivative $D_s(\RE)$ of any regular expression $\RE$ with respect to any sequence $u$ is a regular expression.
+\end{theorem}
+
+\begin{theorem} A sequence $u$ is contained in $\Ls{\RE}$ if and only if $\Ls{D_u(\RE)}$ is nullable.
+\end{theorem}
+
+Derivatives provide an easy method of DFA construction.  Suppose we want to build a DFA that recognizes $\RE$.  We can think of each state of the DFA as a regular expression.  We start with a state $Q_0$ that represents $\RE$.  We then take the derivative of $\RE$ with respect to each symbol of the alphabet and create a new state each time a new derivative is found, adding each new state to the work list.  We pop a state from the work list and repeat, until the work list is empty.  There will be a transition from $Q_j$ to $Q_k$ if and only if (identifying states and their REs) $D_a (Q_j) = Q_k$ for some symbol $a$; the transition will be labeled with the set of all such $a$.  Finally, any state that represents a nullable RE is an accepting state.  The correctness of the recognizer is a direct consequence of the above theorems.
+
+The sketch glosses over several important details.  First, what notion of equality do we intend for the equation $D_a (Q_j) = Q_k$?  Ideally, we would identify as a single state all those REs which admit the same language, so that $D_a (Q_j) = Q_k$ if and only if $\Ls{D_a (Q_j)} = \Ls{Q_k}$.  This is expensive to compute, so Brzozowski introduced the notion of RE similarity, an equivalence on REs which is easy to compute but still guarantees that the DFA is finite.
+
+Let $\approx$ denote the least equivalence relation on REs such that
+\begin{eqnarray*}
+r \OR r &\approx& r \\
+r \OR s &\approx& s \OR r \\
+(r \OR s) \OR t &\approx& r \OR (s \OR t)
+\end{eqnarray*}
+
+\begin{definition} Two regular expressions $r$ and $s$ are \New{similar} if $r \approx s$ and are \New{dissimilar} otherwise.
+\end{definition}
+
+\begin{theorem} Every regular expression has only a finite number of dissimilar derivatives.
+\end{theorem}
+
+Hence, DFA construction is guaranteed to succeed if new states are only created when no existing state is similar to a given derivative.  In fact, we want to do much better then this to avoid blowup in DFA size.
+
+\begin{remark}
+In a practical implementation of DFA construction using derivatives, it is crucial to aggresively identify when a derivative admits the same language as an existing state (RE) in the DFA.  The cost of this identification must be balanced against the number of duplicate states avoided.
+\end{remark}
+
+In \flex{}, we accomplish this by canonicalizing all input and derived REs.  The canonicalization is described in detail in section~\REF{sec:reg-exp}.
+
+\subsection{Factorings}\label{sec:factorings}
+
+Another problem with DFA construction is the size of the unicode alphabet: taking the derivative with respect to each unicode symbol is not feasible.  But to construct the DFA, we have to examine every possible derivative of a given RE.  We must try to conservatively estimate what sets of symbols will yield the same derivative for an RE.  Here we break from Brzozowski's work and introduce new terminology and an algorithm to make derivatives more amenable to large alphabets.
+
+Let $\sim_\RE$ be the relation defined as follows.  For a regular expression $\RE$ and symbols X, b$, X \sim_\RE b$ if and only if $D_a (\RE) = D_b (\RE)$.
+
+\begin{definition}
+The \New{derivative ilks} of $\RE$ are the the equivalence ilks $\Sigma/{\sim_\RE}$.
+\end{definition}
+
+Ultimately, the outedges for a DFA state and the derivative ilks of the RE for that state are in one-to-one correspondence.\footnote{This is not quite true: we usually drop error transitions, that is, transitions going to the RE $\emptyset$.}   Hence, we must eventually determine all the derivative ilks for an RE in order to construct the DFA.  To avoid testing the entire alphabet a symbol at a time, we introduce an algorithm which (over)partitions $\Sigma$, so that each partition is a subset of a derivative ilk.   We can then take the derivative with respect to a representative from each partition, and determine which partitions actually belong to the same derivative ilk.
+
+\begin{definition}
+Let $r$ be an RE.  A \New{factoring} of $\Sigma$ under $r$ is a partitioning of $\Sigma$ such that each partition is a subset of a derivative ilk for $\RE$.
+\end{definition}
+
+To be clear: we are factoring the \emph{alphabet} into partitions, but the factoring is guided by (\emph{under}) a regular expression.  A factoring under a given RE is not unique.  The derivative ilks for an RE are one possible factoring (with a minimal number of partitions) while the set of all singleton sets of symbols is another factoring (with a maximal number of partitions).  We will present a simple recursive factoring algorithm and prove its correctness, but first, an example.
+
+Suppose we have two regular expressions $r$ and $s$ yielding factorings $\{ \CR_1, \CR_2 \}$ and $\{ \CS_1, \CS_2 \}$ respectively.  Let $t = r \OR s$.  The derivative of $t$ with respect to some symbol $a$ is $D_a(t) = D_a(r) \OR D_a(s)$.  Hence, if $D_a(r) = D_b(r)$ and $D_a(s) = D_b(s)$ for some symbols X, b$, then $D_a(t) = D_b(t)$ and so X \sim_t b$.  We can use this to give a factoring under $t$.  The relationship between the factorings under $r$, $s$ and $t$ can be visualized as follows:
+
+\[
+  \xymatrix{
+    \bullet \ar@{-}[rrr]|{\Sigma} &&& \bullet \\
+    \bullet \ar@{-}[rr]|{\CR_1} && \bullet \ar@{-}[r]|{\CR_2} & \bullet \\
+    \bullet \ar@{-}[r]|{\CS_1} & \bullet \ar@{-}[rr]|{\CS_2} &&  \bullet \\
+    \bullet \ar@{-}[r]|{\CR_1 \cap \CS_1} & 
+    \bullet \ar@{-}[r]|{\CR_1 \cap \CS_2} & 
+    \bullet \ar@{-}[r]|{\CR_2 \cap \CS_2} &
+    \bullet
+  }
+\]
+
+This small example captures the essential idea of the algorithm.  To give a factoring under an RE, we recursively find factorings under its components and ``compress'' those factorings into a single new factoring that respects them.  The factorings are being compressed (flattened) in the sense that the boundaries of one factoring are forced onto another, causing some partitions to split.  The algorithm we present is in two stages: first, a factoring function recurively collects factorings under an RE; then, a compress function compresses them all onto $\Sigma$ to produce a single factoring for an RE.  We now make this precise.
+
+The \emph{factoring} function $F$ takes a regular expression and gives a factoring of $\Sigma$ under that RE.  It is defined recursively as follows:
+\begin{eqnarray*}
+F(\epsilon)     &=& \emptyset \\
+F(\CS)          &=& \{ \CS \} \\
+F(r \cdot s)    &=&
+    \begin{cases}
+        F(r) & \epsilon \notin \Ls{r} \\
+        F(r) \cup F(s) & \textrm{otherwise}
+    \end{cases} \\
+F(r \OR s)      &=& F(r) \cup F(s) \\
+F(r \AND s)     &=& F(r) \cup F(s) \\
+F(r^*)          &=& F(r) \\
+F(\neg r)       &=& F(r)
+\end{eqnarray*}
+
+The \emph{compress} function $C : \CP(\Sigma) \longrightarrow \CP(\Sigma)$ takes a set of subsets of the alphabet and produces the smallest partitioning of $\Sigma$ that respects them.  In particular, if
+\[ C(\{\CS_1, \CS_2, \dots, \CS_m \}) = \{ \CS'_1, \CS'_2, \dots, \CS'_n \} \]
+then we have that $\{ \CS'_1, \CS'_2, \dots, \CS'_n \}$ is a partitioning of $\Sigma$ such that for each $\CS'_i$ and $\CS_k$ either $\CS'_i \subseteq \CS_k$ or $\CS'_i \cap \CS_k = \emptyset$.
+
+\begin{theorem}  Let $\RE$ be an RE.  Then $C(F(r))$ is a factoring of $\Sigma$ under $\RE$.
+\end{theorem}
+
+\emph{Proof:} by induction on the package of $\RE$.  We use $a$ to denote an arbitrary symbol.
+
+\vskip 5pt
+\emph{Case} $\epsilon$: we have $D_a(\epsilon) = \emptyset$ for all X \in \Sigma$, so $\Sigma/{\sim_\epsilon} = \{ \Sigma \}$.  We have $C(F(\epsilon)) = C(\{ \emptyset \})= \{ \Sigma \}$.
+
+\vskip 5pt
+\emph{Case} $\CS$: we have $D_a(\CS) = \epsilon$ if X \in \CS$ and $D_a(\CS) = \emptyset$ otherwise. Thus the derivative ilks are $\CS$ and $\Sigma \setminus \CS$, which are exactly the sets produced by $C(F(\CS)) = C(\{ \CS \})$.
+
+\vskip 5pt
+\emph{Case} $s \cdot t$ and $\epsilon \notin \Ls{s}$:  here $D_a(s \cdot t) = D_a(s) \cdot t$. Because $t$ is fixed as $a$ varies, the derivative ilks are just the derivative ilks of $s$.  Since $F(s \cdot t) = F(s)$ the result holds by the induction hypothesis on $s$.
+
+\vskip 5pt
+\emph{Case} $s \cdot t$ and $\epsilon \in \Ls{s}$: here $D_a(s \cdot t) = D_a(s) \cdot t \OR \epsilon \cdot D_a(t)$.  Let Y, c \in \Sigma$ such that Y \sim_s c$ and Y \sim_t c$.  Then Y \sim_{s \cdot t} c$.  The result follows from this fact and the inductive hypothesis applied to $s$ and $t$.
+
+\vskip 5pt
+The other cases are similar.
+
+\newpage
+\section{Code}\label{sec:code}
+
+\subsection{\nm{RegExp}}\label{sec:reg-exp}
+
+In \flex{}, REs are captured by the abstract type \nm{RegExp.re}.  Introduction
+is provided by various ``smart constructors'' (\nm{mkSym}, \nm{mkClosure},
+$\dots$), and elimination is provided by the derivatives algorithm.  The
+api for the \rm{RegExp} module is shown below:
+
+\begin{verbatim}
+api REG_EXP =
+  sig
+
+    package Sym : INTERVAL_DOMAIN
+    package SymSet : INTERVAL_SET
+
+    type symbol
+    type symbol_set
+    type re
+
+    my any       : re  #  wildcard 
+    my none      : re  #  EMPTY language 
+    my epsilon   : re  #  the NIL character (of length 0) 
+
+    my mkSym     : symbol -> re
+    my mkSymSet  : symbol_set -> re
+
+    my mkOr      : re * re -> re
+    my mkAnd     : re * re -> re
+    my mkXor     : re * re -> re
+    my mkNot     : re -> re
+    my mkConcat  : re * re -> re
+    my mkClosure : re -> re
+    my mkOpt     : re -> re
+    my mkRep     : re * int * int -> re
+    my mkAtLeast : re * int -> re
+
+    my isNone    : re -> Bool
+    my nullable  : re -> Bool
+    my derivative : symbol -> re -> re
+    my derivatives : re vector.Vector ->
+                      ((re vector.Vector) * symbol_set) list
+
+    my symToString : symbol -> String
+    my to_string  : re -> String
+    my compare   : re * re -> order
+
+  end
+\end{verbatim}
+
+The included package \nm{SymSet} provides symbol interval sets, which are
+ideal when working with dense sets such as unicode character ilks.  Interval
+set operations (\nm{union}, \nm{complement}, $\dots$) are used extensively;
+documentation for the interval set library is available with the
+distribution.
+
+Recall that, in using RE derivatives for DFA construction, it is
+important to aggresively identify when two REs generate the same
+language so that they may be merged to a single state in the automaton.
+\nm{RegExp} canonicalizes REs, which is why its \nm{re} type is abstract.
+Canonicalization is performed using a lexicographic ordering on REs given by the
+\nm{compare} function.  The comparison is lexicographic in the sense that it
+first examines the top-level operation of the two REs, and only does more
+comparisons if that operation is the same.  We represent REs as follows:
+\begin{verbatim}
+    enum re
+      = Epsilon
+      | Any
+      | None
+      | SymSet of symbol_set
+      | Concat of list re
+      | Closure of re
+      | Op of (operator * list re)
+      | Not of re
+    and operator = OR | AND | XOR
+\end{verbatim}
+For the \nm{Op} constructor, which is used for three different commutative
+operations, the sub-REs are to be listed in canonical order. The \nm{compare}
+function itself will expect that this is the case, and since only smart
+constructors can be used to construct REs, the invariant will always hold.
+
+Smart constructors do additional canonicalization beyond ordering.  For
+example, \nm{mkNot (mkNot (none))} will be canonicalized
+to the same representation as \nm{none}.  Several similar RE equalities
+are detected and used.  Also, the smart constructors attempt to push the RE
+reprsentation as much toward symbol sets as possible, replacing boolean
+operations at the RE level with a single resulting symbol set when possible.
+For example, suppose that \nm{AM} held the symbol set for $[A-M]$, \nm{HZ} the
+set for $[H-Z]$, and \nm{AZ} the set for $[A-Z]$. Then we would have
+\[
+\texttt{compare (mkSymSet AZ, mkOr (mkSymSet AM, mkSymSet HZ)) = EQUAL}
+\]
+The hope is that the cumulative effect of such canonicalization will keep the
+generated DFA close to minimal size.
+
+The \nm{derivatve} function constructs a canonicalized derivative for a given
+RE with respect to a given symbol; it is a transcription of the algorithm
+described in section~\REF{sec:derivatives}.
+
+In general, we will be interested in the derivatives of a vector of REs
+(representing the rules in a lexer specification) with respect to \emph{every}
+symbol in the alphabet.  As section~\REF{sec:factorings} explains, the unicode
+alphabet is too large for us to literally test the derivative at each symbol. 
+The \nm{derivatives} function will take a vector of REs and return a list of
+\nm{re~vector.Vector~*~sym\_set} \emph{pairs}.  In fact, \nm{derivatives}
+is just an implementation of the factor and compress algorithm given
+in~\REF{sec:factorings}.  Each pair in the result list represents an arrow
+transitioning out of the current state (which corresponds to the input RE
+vector) to a new state (the output RE vector) on a given set of symbols (the
+output symbol set).  Thus the labor of DFA construction is split between the
+\nm{RegExp} module, which computes derivatives (and hence transitions) and
+\nm{LexGen}, which actually constructs the DFA graph.
+
+\subsection{\nm{LexSpec} and \nm{LexOutputSpec}}
+
+Before describing DFA generation, we briefly discuss the relevant input and
+output data structures.  The \nm{LexSpec} module has data constructors and
+functions relevant to \eg the Mythryl-Lex input specification format, as shown in
+Figure~\REF{fig:lex-spec}
+
+\begin{figure}
+\begin{verbatim}
+    type action = String
+    type rule_spec = AtomSet.set option * RegExp.re
+    type rule = rule_spec * action
+
+    enum spec = Spec of {
+        decls : String,
+        conf : config,
+        rules : rule list
+      }
+\end{verbatim}
+\caption{A fragment of \nm{LexSpec}}\label{fig:lex-spec}
+\end{figure}
+
+Actions, at least in the present implementation, are just raw strings.  A
+\nm{rule} consists of a rule specification and an associated action.  The
+optional atom set included with a rule spec represents the start states
+to which that rule applies (with \nm{NULL} meaning, strangely enough, all start
+states).  With these definitions, a lexer specification is just a list of
+rules, some declarations (a raw string containing code) and some miscellaneous
+configuration data.
+
+\begin{figure}
+\begin{verbatim}
+    enum dfa_state
+      = State of {
+          id : int,
+          label : RegExp.re vector.Vector,
+          final : int list,
+          next :  (RegExp.symbol_set * dfa_state) list REF
+        }
+
+    enum machine = Machine of {
+        label : String,
+        rules : (RegExp.re * int) Vector,
+        states : dfa_state list
+      }
+
+    type action = String
+
+    enum spec = Spec of {
+        actions : action Vector,
+        machines : machine list,
+        ...  #  Configuration data 
+      }
+\end{verbatim}
+\caption{A fragment of \nm{LexOutputSpec}}\label{fig:lex-output-spec}
+\end{figure}
+
+As Figure~\REF{fig:lex-output-spec} illustrates, the output of DFA generation is
+\emph{not} a DFA, but a collection of DFAs along with a vector of actions. 
+Each \nm{machine} represents a start state for the lexer; that is, each start
+state has its own automaton.  However, since start states may use the same
+actions, we separate out the actions into a vector so that they are only
+emitted once.
+
+A \nm{machine} includes a label, which is just the name of the start state, as
+well as the rules relevant to that machine, which are paired with an index to
+the associated action in the action vector.  The DFA itself is a list of
+states, with the head of the list being $q_0$.  A state, in turn, is labeled by
+a vector of REs (with the same length as the \nm{rules} vector in the machine).
+ Since a given DFA state may be an accepting state for more than one rule, we
+store a \emph{list} of rule indices for the \nm{final} flag.  On a match, the
+action for the lowest-index rule is executed first, but that action may use
+\nm{REJECT()}, in which case it may be necessary to jump to the action for the
+next rule index given in the \nm{final} list.
+
+\subsection{\nm{LexGen}}\label{sec:lex-gen}
+
+\nm{LexGen} is a very simple module with a single accessible function:
+\begin{center}
+\nm{gen : LexSpec.spec -> LexOutputSpec.spec}
+\end{center}
+
+The first task of the \nm{gen} function is to collate the actions and start
+states.  The actions from the input spec are separated from their rules into a
+vector.  Afterwards, \nm{gen} iterates over the specified start states,
+collecting the rules for each start state and using the \nm{mkDFA} function to
+generate a machine for each.
+
+\nm{mkDFA} performs a straightforward imperative DFA construction, using
+the \nm{derivatives} function from \nm{RegExp} to compute the transitions out of
+each node. A map of RE vectors to DFA nodes is maintained (using
+\nm{vector.collate RegExp.compare} for ordering); this map is used to recognize
+when a new out-edge is going to an existing DFA node.  Finally, any transition
+to a vector of REs which all generate the empty language is an error transition
+(that is, the derivatives for the given transition symbol set all indicate a
+non-match).
+
+\subsection{Front ends}
+
+At the moment, only one front end is available: the Mythryl-Lex specification
+format.  Eventually \flex{} will have its own format.
+
+The Mythryl-Lex front end is fairly straightforward: it uses Mythryl-Yacc to do the
+parsing, and can use either Mythryl-Lex or \flex{} to do the lexing.  The
+distribution includes a lexer that was generated from \flex{} to serve as a
+bootstrap.
+
+\subsection{Back ends}
+
+One exciting aspect of \flex{} is the ability to easily add back ends.  The
+following back ends are currently included in the distribution.
+
+\paragraph{SML control-flow lexer generation}
+
+The most important back end is code generation for SML.  At present, there is a
+single code generation strategy: build a lexer using control-flow (\ie
+if statements and tail-calls) to match the input.  If the control-flow strategy
+turns out to be inadequate, it would be fairly easy to add a code
+generator for table-based lexing.
+
+Code generation is performed by expanding stubs in a template SML file.  The
+template contains code for dealing with streams and setting up the lexer in the
+appropriate way.  Input is read from functional strings, which allow for
+the arbitrary lookahead needed for maximal-munch.  These streams also track
+the current file position and line number.
+
+A helper module, \nm{ML}, contains a representation for a good portion of the
+Standard ML expression langauge, and support for pretty-printing such
+expressions.
+
+The generated code includes user actions and the DFA for each start state.
+ Within each start state there is one \emph{state function} per DFA node.  Each
+state function will examine the next character of input and perform a series of
+if-tests to determine the correct transition.  The if-tests perform a
+hard-coded binary search over the symbol set intervals for the transitions.
+
+The lexer stores a reference cell for the current functional stream.  Each time
+the lexer accepts a token, the cell is updated.  \nm{yytext} is generated (only
+when needed) by ``subtracting'' the new stream from the one stored in the
+reference cell before updating it.  Subtraction simply rescans the appropriate
+number of characters from the stored stream, which should still have the string
+in its buffer.
+
+One subtlety is handling calls to \nm{REJECT()}.  Since such calls are fairly
+rare, we want to avoid tracking the information \nm{REJECT} needs if it won't
+be used.  \nm{REJECT} information consists of (in essence) a list of all the
+previous matches.  A previous match could occur on the same DFA state if
+multiple REs matched the input at that state; otherwise, the previous match is
+a prefix of the \nm{REJECT}ed match.  Whenever a transition is made, the
+appropriate previous match information is passed up to the next state. 
+However, if the current state is an accepting state that does not use
+\nm{REJECT}, then the history is \emph{truncated} at the \nm{REJECT}-free
+point, since it could never be used.  This determination is made statically and
+is hard-coded into the generated SML lexer.
+
+\paragraph{Graphviz}
+
+The Graphviz toolkit provides easy graph visualization using a very simple
+graph description format.  We utilize the DOT format.  The Graphviz backend
+will write one DOT file for each start state, showing all nodes for that start
+state's DFA, along with labeled transitions.  See \texttt{www.graphviz.org} for
+details on the DOT format.
+
+\paragraph{Text dump}
+
+If Graphviz is not available or a more detailed summary is desired, the
+\nm{DumpOutput} module can be used to print to standard out every DFA state,
+labeled by its RE vector, along with out-edges, for every start state in the
+lexer.
+
+\paragraph{Interactive matching}
+
+Finally, a simple interactive back end is available.  Interactive matching
+allows a user to enter arbitrary strings and find out (1) if they matched and
+(2) what RE matched them.  The code for interactive matching is quite simple.
+
+\subsection{\nm{main}}
+
+The \nm{main} module is the driver for \flex{}: it is responsible for processing
+command-line arguments and hooking up the appropriate front and back ends. 
+Since it is very simple, it gives a nice overview of the system and is a good
+place to look first in trying to undertand the code.
+
+\bibliographystyle{../moby-small-alpha}
+\bibliography{../deriv.bib}
+
+\end{document}

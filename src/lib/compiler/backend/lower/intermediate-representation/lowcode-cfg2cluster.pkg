@@ -1,0 +1,275 @@
+/*
+ *  Convert the new control flow graph format back into the old cluster format
+ *
+ *  -- Allen Leung
+ */
+
+api CFG2CLUSTER =
+api
+   package control_flow_graph:  Control_Flow_Graph
+   package f:    FLOWGRAPH
+      sharing control_flow_graph::I = f::I
+      sharing control_flow_graph::P = f::P
+
+   /* 
+    * If relayout is TRUE, then always use the layout algorithm.
+    * Otherwise, try to preserve the original layout if possible.
+    */
+   my cfg2cluster:  { cfg:       control_flow_graph::cfg,
+                       relayout:  Bool   
+                     } -> f::cluster
+
+end 
+
+generic package CFG2Cluster
+   (package control_flow_graph:        Control_Flow_Graph
+    package flowgraph:  FLOWGRAPH
+       sharing control_flow_graph::I = flowgraph::I
+       sharing control_flow_graph::P = flowgraph::P
+   )
+
+: CFG2CLUSTER
+
+{
+
+    package control_flow_graph      = control_flow_graph
+    package w        = control_flow_graph::W
+    package f        = flowgraph
+    package g        = graph
+    package q        = priority_queue
+    package set      = bit_set
+    package a        = rw_vector
+
+    fun error msg = lowcode_error_message::error("CFG2Cluster", msg)
+
+    dummyNode = f::LABEL (label::Label { id= -1, address=REF -1, name=""} )
+
+    fun pseudo_op (control_flow_graph::LABEL l) = f::LABEL l
+      | pseudo_op (control_flow_graph::PSEUDO p) = f::PSEUDO p
+
+        #  Create a new BBLOCK with id i 
+    fun bblock M (i, b as 
+                 control_flow_graph::BLOCK { kind, freq, annotations, instructions, labels, data, ... } ) =
+    let labels = map f::LABEL *labels
+    in  case kind of
+           control_flow_graph::STOP => map pseudo_op *data
+        |  _ =>
+        let block = f::BBLOCK { blknum      = i,
+                                 freq        = freq,
+                                 annotations = REF (control_flow_graph::LIVEOUT.rmv 
+                                                    *annotations),
+                                 instructions       = instructions,
+                                 liveIn      = REF f::C.empty,
+                                 liveOut     = REF (control_flow_graph::liveOut b),
+                                 prior        = REF [],
+                                 next        = REF []
+                                }
+       in  a::update (M, i, block); 
+           map pseudo_op *data @ labels @ [block]
+       end
+    end
+
+    fun bblock' (M, M', M'') =
+    let bblock = bblock M
+    in  fn (i, b as control_flow_graph::BLOCK { id, ... } ) =>
+           let block = bblock (i, b) 
+           in  a::update (M', i, id); a::update (M'', id, i); block end
+    end
+
+        #  Create a new ENTRY with id i 
+    fun entry (M, i, freq) =
+    let entry = f::ENTRY { next=REF [], blknum=i, freq=freq }
+    in  a::update (M, i, entry); 
+        entry
+    end
+
+    fun entry'(M, M', M'', i, id, freq) =
+    let entry = entry (M, i, freq)
+    in  a::update (M', i, id); a::update (M'', id, i); entry
+    end
+
+        #  Create a new EXIT with id i 
+    fun exit (M, i, freq) = 
+    let exit = f::EXIT { prior=REF [], blknum=i, freq=freq }
+    in  a::update (M, i, exit); 
+        exit
+    end
+
+    fun exit'(M, M', M'', i, id, freq) =
+    let exit = exit (M, i, freq)
+    in  a::update (M', i, id); a::update (M'', id, i); exit
+    end
+
+    fun id_of (f::BBLOCK { blknum, ... } ) = blknum
+      | id_of (f::ENTRY { blknum, ... } )  = blknum
+      | id_of (f::EXIT { blknum, ... } )   = blknum
+
+    fun remove_entry_to_exit (ENTRY, EXIT, CFG) =
+        graph::remove_edge CFG (ENTRY, EXIT)
+
+    fun freqOf (g::GRAPH cfg) id =
+        let my control_flow_graph::BLOCK { freq, ... } = cfg.node_info id in freq end
+
+       /*
+        * Convert cfg -> cluster, assuming the layout is unchanged
+        */
+    fun computeOldLayout (CFG as g::GRAPH cfg) =
+    let M       = cfg.capacity ()
+        ENTRY   = case cfg.entries () of
+                        [ENTRY] => ENTRY
+                      | _ => raise exception graph::NOT_SINGLE_ENTRY
+        EXIT    = case cfg.exits () of
+                        [EXIT] => EXIT
+                      | _ => raise exception graph::NOT_SINGLE_EXIT
+        my control_flow_graph::INFO { annotations, ... } = cfg.graph_info
+        remove_entry_to_exit (ENTRY, EXIT, CFG)
+        A       = a::rw_vector (M, dummyNode)
+        nodes   = list::filter (fn (i, control_flow_graph::BLOCK { kind, ... } ) => 
+                           i != ENTRY and i != EXIT) 
+                                 (cfg.nodes ())
+        blocks  = list::cat(
+                        map (bblock A) (nodes @ [(EXIT, cfg.node_info EXIT)]))
+        entry   = entry (A, ENTRY, freqOf CFG ENTRY)
+        exit    = exit (A, EXIT, freqOf CFG EXIT)
+        fun succs i = map (fn (_, i, control_flow_graph::EDGE { w, ... } ) => (a::sub (A, i), w)) 
+                            (cfg.out_edges i)
+        fun preds i = map (fn (i, _, control_flow_graph::EDGE { w, ... } ) => (a::sub (A, i), w)) 
+                            (cfg.in_edges i)
+        fun set_links (f::BBLOCK { blknum, prior, next, instructions, ... } ) = 
+                  (prior := preds blknum; next := succs blknum)
+          | set_links (f::ENTRY { blknum, next, ... } ) = next := succs blknum
+          | set_links (f::EXIT { blknum, prior, ... } )  = prior := preds blknum
+          | set_links _ = ()
+        a::apply set_links A
+    in  f::CLUSTER { blkCounter  = REF M,
+                   blocks      = blocks,
+                   entry       = entry,
+                   exit        = exit,
+                   annotations = annotations
+                 }
+    end
+
+       /*
+        * Convert cfg -> cluster, while computing a new code layout.
+        */
+    fun computeNewLayout (CFG as g::GRAPH cfg) =
+    let M        = cfg.capacity ()
+        ENTRY   = case cfg.entries () of
+                        [ENTRY] => ENTRY
+                      | _ => raise exception graph::NOT_SINGLE_ENTRY
+        EXIT    = case cfg.exits () of
+                        [EXIT] => EXIT
+                      | _ => raise exception graph::NOT_SINGLE_EXIT
+        my control_flow_graph::INFO { first_block, annotations, ... } = 
+               cfg.graph_info
+        A        = a::rw_vector (M, dummyNode)    #  new id -> f::block 
+        A'       = a::rw_vector (M,-1)           #  new id -> old id 
+        A''      = a::rw_vector (M,-1)           #  old id -> new id 
+        min_pred = a::rw_vector (M, 10000000)
+        in_degs  = a::tabulate (M, fn i => length (cfg.in_edges i))
+        nodes    = graph_topological_sort::topologicalSort CFG (ENTRY . map #1 (cfg.nodes ()))
+
+        fun higher_freq (i, j) =
+            let my control_flow_graph::BLOCK { freq=w1, ... } = cfg.node_info i
+                my control_flow_graph::BLOCK { freq=w2, ... } = cfg.node_info j
+            in  *w1 > *w2
+            end
+
+        fun older (i, j) = a::sub (min_pred, i) < a::sub (min_pred, j)
+
+        marked  = set::create M
+        node_queue = q::create /* older */ higher_freq
+        insert_node = q::set node_queue
+
+        fun node b = (b, cfg.node_info b)
+        
+        make_a_block = bblock' (A, A', A'')
+        fun make_block (id, B as control_flow_graph::BLOCK { id=i,
+                               instructions=REF [], data, labels, ... } ) = 
+              (case cfg.in_edges i of
+                  [] => map pseudo_op *data @ map f::LABEL *labels
+               |  _  => make_a_block (id, B) 
+              )
+          | make_block (id, B) = make_a_block (id, B)
+
+        fun update_succs (id,[])      = ()
+          | update_succs (id, ((i, j, _) . es)) = 
+            let count = a::sub (in_degs, j) - 1
+            in  a::update (min_pred, j, int::min (id, a::sub (min_pred, j)));
+                a::update (in_degs, j, count);
+                if count == 0 and
+                   j != EXIT and
+                   (case control_flow_graph::fallsThruFrom (CFG, j) of THE _ => FALSE 
+                                                   | NULL => TRUE) then
+                   insert_node j
+                
+                update_succs (id, es)
+            end
+         
+        fun layout (id, (i, B), waiting, blocks) =
+            if set::markAndTest (marked, i) then
+                 layout_all (id, waiting, blocks)
+            else let blocks = make_block (id, B) . blocks
+                 in  update_succs (id, cfg.out_edges i);
+                     case control_flow_graph::fallsThruTo (CFG, i) of
+                        THE j => layout (id+1, node j, waiting, blocks)
+                     |  NULL   => layout_all (id+1, waiting, blocks)
+                 end
+
+        and layout_all (id, waiting, blocks) =
+          if q::is_empty node_queue then
+             layout_waiting (id, waiting, blocks) 
+          else
+             let b = q::deleteMin node_queue
+             in  layout (id, node b, waiting, blocks)
+             end
+
+        and layout_waiting (id,[], blocks) = 
+               (id, list::cat (reverse blocks))
+          | layout_waiting (id, n . waiting, blocks) =  
+              case control_flow_graph::fallsThruFrom (CFG, n) of
+                 THE _ => layout_waiting (id, waiting, blocks)
+              |  NULL   => layout (id, node n, waiting, blocks)
+
+        set::set (marked, ENTRY)
+        set::set (marked, EXIT)
+        my (id, blocks) = layout_all (0, *first_block . nodes,[])
+        # print("M="$int::to_string M$ " id="$int::to_string id$"\n")
+
+        exit    = exit'(A, A', A'', id, EXIT, freqOf CFG EXIT)
+        entry   = entry'(A, A', A'', id+1, ENTRY, freqOf CFG ENTRY)
+        blocks  = blocks @ bblock A (EXIT, cfg.node_info EXIT)
+        fun succs i = map (fn (_, i, control_flow_graph::EDGE { w, ... } ) => 
+                               (a::sub (A, a::sub (A'', i)), w))
+                                 (cfg.out_edges (a::sub (A', i)))
+        fun preds i = map (fn (i, _, control_flow_graph::EDGE { w, ... } ) => 
+                               (a::sub (A, a::sub (A'', i)), w)) 
+                                 (cfg.in_edges (a::sub (A', i)))
+        fun set_links (f::BBLOCK { blknum, prior, next, instructions, ... } ) = 
+            let fun isBackwardBranch((f::BBLOCK { blknum=next, ... }, _) . bs) =
+                      next <= blknum or isBackwardBranch bs
+                  | isBackwardBranch(_ . bs) = isBackwardBranch bs
+                  | isBackwardBranch []     = FALSE
+            in  prior := preds blknum; 
+                next := succs blknum
+            end
+          | set_links (f::ENTRY { blknum, next, ... } ) = next := succs blknum
+          | set_links (f::EXIT { blknum, prior, ... } )  = prior := preds blknum
+          | set_links _ = ()
+        a::apply set_links A
+    in  f::CLUSTER { blkCounter  = REF (id+2),
+                   blocks      = blocks,
+                   entry       = entry,
+                   exit        = exit,
+                   annotations = annotations
+                 }
+    end
+
+    fun cfg2cluster { cfg=CFG as g::GRAPH cfg, relayout } =
+    let my control_flow_graph::INFO { reorder, ... } = cfg.graph_info
+    in  if *reorder or relayout then computeNewLayout CFG
+        else computeOldLayout CFG
+    end
+
+};
+

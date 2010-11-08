@@ -1,0 +1,377 @@
+# ***************************************************************************
+# A regular expression matcher. 
+# Original Author: Ryan Stansifer <ryan@ponder.csci.unt.edu> 
+# ************************************************************************** *
+
+# Compiled by:
+#     src/lib/tk/src/toolkit/regExp/sources.make6
+
+# ***************************************************************************
+# This is the njsml109 version with pattern matching on characters. 
+# ***************************************************************************
+
+#   rex.pkg -- Regular expression matcher  
+#   Ryan Stansifer (ryan@cs.unt.edu) at Sat Sep 18 11:14:39 1993  
+
+#   The function rex takes a regular expression and 
+#    matches it against a string.    A regular expression has meta-symbols 
+#    ".", "*", "+", "?", "(", ")", "\\", "|", "[", "]", "-"
+# 
+#   Examples:
+# 
+#    Rex::rex "(0|1)+" "10100101"  -->  TRUE
+#    Rex::rex "(0|1)+" "01010101201010"  -->  FALSE
+#    Rex::rex "(0|" "(0|"  -->  exception bad_rex
+#    Rex::rex ".*\\.tex" "file.tex"  -->  TRUE
+#    Rex::rex "[a-z]*" "abc" -->  TRUE
+#    Rex::rex "[a-z]*" "abc0" -->  FALSE
+#    Rex::rex "[a-z0-9]*" "asd0fgh56"; -->  TRUE
+
+ 
+
+package rex: (weak) Match {		# Match	is from   src/lib/tk/src/toolkit/regExp/match.api
+
+    exists      = list::exists;
+
+    fun fold f l s
+	=
+	list::fold_right f s l;
+
+
+    # Parsetree for regular expressions 
+    #
+    Leaf = CHAR  Char | ANY | EOE;
+    #
+    Rex  = CAT  (Rex, Rex)	#  Concatenation of two regular expressions 
+	 | EPSILON		#  Denotes set containing empty string      
+	 | ALT  (Rex, Rex)
+	 | STAR  Rex
+	 | LEAF  Leaf;
+
+    stipulate
+	#   Parser builders from Reade, page 216.  
+
+	infixr val 50   & ;
+	infixr val 40   | ;
+	infix  val 10  @@ ;
+
+	exception REJECT;
+
+	fun (p  @@  f) s =  { my (x, y) = p s;  (f x, y); };
+	fun (p1 &  p2) s =  { my (x, s') = p1 s;  (p2 @@ (fn y => (x, y); end )) s'; };
+	fun (p1 |  p2) s =  (p1 s) except REJECT = (p2 s);
+
+	fun optional pr
+            =
+            ((pr @@ (fn x => THE x; end )) | (fn s = (NULL, s)));
+
+#	 [ These are not used in the grammar for regular expressions, but
+#	    are useful in other grammars. ]
+#	#  The argument s to sequence is critical to avoid infinite loop.  
+#	fun sequence pr s = (((pr & sequence pr)@@(op . )) | (fn s => ([], s))) s;
+#	fun one_or_more pr = (pr & sequence pr) @@(op . )
+
+
+	/*
+	   The following grammar is used to parse strings into regular expressions.
+
+	   st ::= rx
+
+	   rx ::= sx [ "|" rx ]
+
+	   sx ::= tx [ sx ]
+
+	   tx ::= ax [ "*" | "+" | "?" ]
+
+	   ra ::= char_meta "-" char_meta
+	   mx ::= ra [mx]
+
+	   ax ::= char
+	   ax ::= "."
+	   ax ::= "(" rx ")"
+	   ax ::= "[" mx "]"
+	   ax ::= "\" meta
+	*/
+
+    #  lexical base functions 
+	  fun
+	    literal c (c1 . s) => if (c==c1 ) (c, s); else raise exception REJECT;fi; 
+	    literal c _       => raise exception REJECT; end;
+
+	  fun is_meta c
+	      =
+	      exists (fn x => x==c; end ) ['.', '*', '+', '?', '(', ')', 
+				     '[', ']', '-', '\\', '|'];
+
+	  fun
+	    character (c . s) => if (is_meta (c) ) raise exception REJECT; else (c, s);fi; 
+	    character (_)     => raise exception REJECT; end;
+
+	  fun
+	    meta (c . s) => if (is_meta (c) ) (c, s); else raise exception REJECT;fi; 
+	    meta (_)    => raise exception REJECT; end;
+
+	  char_meta  =  character | ((literal '\\') & meta  @@ (fn (_, m) => m; end ));
+
+	  suffix = ((literal '*')|(literal '+')|(literal '?'));
+
+    #  Attribute functions 
+	  fun
+	    f (r, NULL)       => r;           
+	    f (r, THE (_, s)) => alt (r, s); end    ;
+
+	  fun
+	    h (r, NULL)     => r;                    
+	    h (r, (THE s)) => cat (r, s); end            ;
+
+	  exception INTERNAL_ERROR;
+	  fun
+	    g (r, NULL)        => r;                  
+	    g (r, (THE '*')) => star (r);           
+	    g (r, (THE '+')) => cat (r, star (r));  
+	    g (r, (THE '?')) => alt (r, epsilon);   
+	    g (_)              => raise exception INTERNAL_ERROR; end;
+
+	  fun k a b
+	      =
+	      if   (a >  b)  raise exception REJECT;
+	      elif (a == b)  (leaf (char (chr a)));
+	      else           alt( leaf (char (chr a)), k (a+1) b);
+	      fi;
+
+	  fun
+	      l (r, NULL)    =>  r;                    
+	      l (r, (THE s)) =>  alt (r, s);
+	  end;
+
+
+    #  Cf grammar parsing functions 
+
+	  fun      st s = (rx                                        @@ (fn x = cat (x, leaf eoe))) s
+	  also fun ra s = ((char_meta & (literal '-') & char_meta) @@ (fn (a, (_, b)) => k (ord a) (ord b); end ))s
+	  also fun mx s = (ra & (optional mx)                       @@ l) s
+	  also fun rx s = (sx & (optional (literal '|' & rx))      @@ f) s
+	  also fun sx s = (tx & (optional sx)                       @@ h) s
+	  also fun tx s = (ax & (optional suffix)                   @@ g) s
+	  also fun ax s
+	      =
+	      (
+	      (character                                 @@ (fn c = leaf (char c)))
+	      |
+	      ((literal '.')                             @@ (fn c = leaf (any)))
+	      |
+	      ((literal '(') & rx & (literal ')')      @@ (fn (_, (r, _)) = r))
+	      |
+	      ((literal '[') & mx & (literal ']')      @@ (fn (_, (r, _)) = r))
+	      |
+	      ((literal '\\') & meta                    @@ (fn (_, c) = leaf (char c)))
+	    ) s;
+
+    herein
+
+	#   parse -- parse a string, character by character into a regular expression 
+	#
+	stipulate
+
+	    fun f (x, NIL) =>  x;
+		f _        =>  raise exception REJECT;
+	    end;
+
+	herein
+
+	    exception BAD_EXPRESSION;
+
+	    fun parse rex
+		=
+		f (st (explode rex))
+		except
+		    REJECT =  raise exception BAD_EXPRESSION;
+	    end;
+    end;
+
+
+
+    #  Compute the following positions 
+
+    fun e_fn n
+	=
+	int_binary_set::empty;
+
+    fun update s (i, f) n
+	=
+	if (i == n)   int_binary_set::union (s, f (i));
+	else          f (n);
+	fi;
+
+    fun comp (f, g) n
+	=
+	int_binary_set::union (f n, g n);
+
+    #  lookup -- find value associated with key in a list of pairs.  
+    exception NOT_FOUND;
+    fun
+	lookup (x, NIL)              => raise exception NOT_FOUND; 
+	lookup (x, (key, value) . rest)=> if (x==key ) value; else lookup (x, rest);fi;
+    end;
+
+    # dfs -- Compute:
+    #     nullable
+    #     first posion
+    #     last postion
+    #     mapping from dfs number to leaf element
+    #     mapping from position to set of following positions
+    #
+    #   See:  Aho, Sethi, Ullman, section 3.9
+    #
+    fun
+	dfs n (leaf x)
+	    =>
+	    (FALSE, n+1, int_binary_set::singleton n, int_binary_set::singleton n, [(n, x)], e_fn); 
+
+	dfs n (epsilon)
+	    =>
+	    (TRUE, n, int_binary_set::empty, int_binary_set::empty, NIL, e_fn);    
+
+	dfs n (star r)
+	    => 
+	    {
+		my (_, d1, f1, l1, t, w) = dfs n r;
+		follow = fold (update f1) (int_binary_set::vals_list l1) w;
+
+		(TRUE, d1, f1, l1, t, follow);
+	    }; 
+
+	dfs n (cat (r, s))
+	    =>
+	    {
+		my (n1, d1, f1, l1, t1, w1) = dfs n r;
+		my (n2, d2, f2, l2, t2, w2) = dfs d1 s;
+
+		first = if n1  int_binary_set::union (f1, f2); else f1;fi;
+		last  = if n2  int_binary_set::union (l1, l2); else l2;fi;
+		follow= fold (update f2) (int_binary_set::vals_list l1) (comp (w1, w2));
+
+		(n1 and n2, d2, first, last, t1@t2, follow);
+	    };  
+
+	dfs n (alt (r, s))
+	    =>
+	    {
+		my (n1, d1, f1, l1, t1, w1) = dfs n r;
+		my (n2, d2, f2, l2, t2, w2) = dfs d1 s;
+
+		nullable = n1 or n2;
+		follow = comp (w1, w2);
+
+		(nullable, d2, int_binary_set::union (f1, f2), int_binary_set::union (l1, l2), t1@t2, follow);
+	    };
+    end;
+
+    Nfa_Type
+	=
+	{ start:  int_binary_set::Set,
+	  edges:  vector::Vector( Leaf ),
+	  trans:  vector::Vector( int_binary_set::Set ),
+	  final:  Int
+	};
+
+    fun construct (_, b, c, _, e, f) : Nfa_Type
+	=
+	{ start => c,
+	  edges => vector::tabulate (b, (fn x=>lookup (x, e); end )),
+	  trans => vector::tabulate (b, f),
+	  final => (b - 1)
+	};
+
+
+    fun next (s, a, NFA: Nfa_Type)
+	=
+	{   mmm = NFA.edges;
+	    nnn = NFA.trans;
+
+	    fun p (any, x) => TRUE; 
+		p (y,   x) => (x==y);
+	    end;
+
+
+	    fun f (x, y)
+		=
+		if   (p (vector::get (mmm, x), a))
+
+		     x . y;
+		else
+		     y;
+		fi;
+
+	    pos =   fold f (int_binary_set::vals_list s) [];
+
+	    fun g (x, y)
+		=
+		int_binary_set::union (y, vector::get (nnn, x));
+
+	    fold g pos int_binary_set::empty;
+	};
+
+
+    stipulate
+
+	fun loop ( { final=>f, ... }, state, NIL)
+		=>
+		int_binary_set::member (state, f); 
+
+	    loop (NFA,            state, h . t)
+		=>
+		(not (int_binary_set::equal (state, int_binary_set::empty))) and 
+		loop (NFA, (next (state, char h, NFA)), t);
+	end;
+
+    herein
+
+	fun interpret (NFA as { start=>s, ... }, x)
+	    = 
+	    loop (NFA, s, (string::explode x));
+    end;
+
+
+    #  A tip from La Monte H Yarroll <piggy@hilbert.maths.utas.edu.au> on
+    #  Mon Apr 18 08:04:02 CDT 1994.
+    #
+    #         fun match pat obj
+    #             =
+    #             interpret (construct (dfs 0 (parse pat)), obj);
+    #
+    #    is much less efficient than:
+    #
+    fun match pat
+	=
+	{   nfa = construct (dfs 0 (parse pat));
+
+	    fn obj =  interpret (nfa, obj);
+	};
+
+
+
+};  #  package Rex 
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

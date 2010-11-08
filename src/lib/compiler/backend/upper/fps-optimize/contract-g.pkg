@@ -1,0 +1,2420 @@
+## contract-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This file implements one of the continaution-passing-style transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/backend/upper/highcode/highcode.api
+
+
+
+# 'contract is called after almost every other
+# optimization pass, to tidy up.  It implements
+# a variety of clean-up stuff including dead code
+# elimination, constant propagation, constant folding,
+# and inlining of functions only called from a single spot.
+#
+# For background on the latter optimization, see:
+#
+#     Shrinking Lambda Expressions in Linear Time
+#     Andrew W Appel, Trevor Jim
+#     1993, 26p, J. Functional Programming
+#     http://akpublic.research.att.com/~trevor/papers/shrinking.ps.gz
+  
+
+
+# Transformations performed by the contracter:
+# 
+# TRANSFORMATION:                       Click:   compiler::control::CG flag:
+# ------------------------------------------------------------------------
+# Inlining functions that are used once   e      beta_contract
+# Cascaded inlining of functions          q
+# The IF-idiom                            E      if_idiom
+# Unify BRANCHs                           z      branchfold
+# Constant folding:
+#  SELECTs from known RECORDs             d
+#  Handler operations                    ijk     handlerfold
+#  SWITCH expressions                     h      switchopt
+#  ARITH expressions              FGHIJKLMNOPQX  arithopt
+#  PURE expressions          RSTUVWYZ0123456789  arithopt
+#  BRANCH expressions                   nopvw    comparefold
+# 
+# Dead variable elimination:         [down, up]           [down, up]
+#  RECORDs                              [b, B]        [deadvars, deadup]
+#  SELECTs                              [c, s]        [deadvars, deadup]
+#  Functions                            [g, f]
+#  LOOKERs                              [m,*]        [deadvars, deadup]
+#  PUREs                                [m,*]        [deadvars, deadup]
+#  Arguments                            [D, ]        [dropargs, ]
+# 
+# Conversion Primops:
+#  testu					U (n)	
+#  test					T (n)
+#  copy					C (n)
+#  extend					X (n)
+#  trunc					R (n)
+
+
+
+###       "Bringing computers into the
+###        home won't change either one,
+###        but may revitalize the corner
+###        saloon."
+###
+###                  -- Alan Perlis
+
+
+
+api Contract {
+
+	 contract:  { function: fate_passing_style::Function,
+			table: int_hash_table::Hash_Table( highcode_type::Highcode_Type ),
+			click: String -> Void,
+			last: Bool,
+			size: Ref( Int ) }
+			-> fate_passing_style::Function;
+    }; #  Api CONTRACT 
+
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/upper/fps-optimize/fps-optional-optimizations-g.pkg
+										# Machine_Properties	is from   src/lib/compiler/codegen/main/machine-properties.api
+generic package contract_g (
+
+    machine_properties:  Machine_Properties				# Typically 			  src/lib/compiler/codegen/x86/x86-machine-properties.pkg
+
+)
+: (weak) Contract								# Contract		is from   src/lib/compiler/backend/upper/fps-optimize/contract-g.pkg
+
+{
+    stipulate
+
+	include fate_passing_style;
+
+	package lt= highcode;							# highcode		is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package lv= highcode_var;						# highcode_var		is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+
+	fun inc (ri as REF i) = (ri := i + 1);
+	fun dec (ri as REF i) = (ri := i - 1);
+
+	wtoi = unt::to_int_x;
+	itow = unt::from_int;
+
+	package cg= controls::cg;			# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+
+    herein
+
+	say = controls::print::say;
+
+	fun bug s
+            =
+            error_message::impossible ("Contract: " + s);
+
+	exception CONSTANT_FOLD;
+
+	fun sublist prior NIL => NIL;
+	    sublist prior (hd ! tl) => if (prior hd)  hd ! (sublist prior tl);
+				      else sublist prior tl;fi;
+	end;
+
+	fun map1 f (a, b)
+            =
+            (f a, b);
+
+	fun app2 (f, NIL, NIL)       =>  ();
+	    app2 (f, a ! al, b ! bl) =>  { f (a, b);   app2 (f, al, bl); };
+	    app2 (f, _, _)           =>  bug "NContract app2 783";
+	end;
+
+	fun share_name (x, VAR   y) =>  lv::share_name (x, y); 
+	    share_name (x, LABEL y) =>  lv::share_name (x, y); 
+	    share_name _            =>  ();
+	end;
+
+	fun complain (t1, t2, s)
+	    = 
+	    {   say (s + "  ____ Type conflicting while contractions =====> \n    ");
+	        say (lt::lt_print t1); say "\n and   \n    "; say (lt::lt_print t2);
+	        say "\n \n";
+	        say "_____________________________________________________ \n";
+            };
+
+	fun checklty s (t1, t2)
+            =
+            ();
+
+	#  let fun g (lt::INT, lt::INT) = ()
+	#        | g (lt::INT32, lt::INT32) = ()
+	#        | g (lt::BOOL, lt::BOOL) = ()
+	#        | g (lt::INT, lt::BOOL) = ()
+	#        | g (lt::BOOL, lt::INT) = ()
+	#        | g (lt::REAL, lt::REAL) = ()
+	#        | g (lt::SRCONT, lt::SRCONT) = ()
+	#        | g (lt::BOXED, lt::BOXED) = ()
+	#        | g (lt::RBOXED, lt::RBOXED) = ()
+	#        | g (lt::INT, lt::RECORD NIL) = ()
+	#        | g (lt::RECORD NIL, lt::INT) = ()
+	#        | g (lt::BOXED, lt::RBOXED) = ()         #  this is temporary 
+	#        | g (lt::RBOXED, lt::BOXED) = ()         #  this is temporary 
+	#        | g (lt::ARROW (t1, t2), lt::ARROW (t1', t2')) =
+	#             (g (lt::out t1, lt::out t1'); g (lt::out t2, lt::out t2'))
+	#        | g (lt::RECORD l1, lt::RECORD l2) = 
+	#             app2 (g, map lt::out l1, map lt::out l2)
+	#        | g (lt::CONT t1, lt::CONT t2) = g (lt::out t1, lt::out t2) 
+	#        | g (t1, t2) = complain (lt::inj t1, lt::inj t2, "CTR *** " + s)
+	#  in  g (lt::out t1, lt::out t2) 
+	#  end
+
+	is_cont
+            =
+            lt::lt_iscont; 
+
+	fun equal_upto_alpha (ce1, ce2)
+	    =
+	    equ NIL (ce1, ce2)
+            where
+	        fun equ pairs
+		    =
+		    sameexp
+		    where
+			fun same (VAR a, VAR b)
+				=> 
+				{   fun get ((x, y) ! rest)
+					    =>
+					    a == x  and  b == y  or get rest;
+
+					get NIL
+					    =>
+					    FALSE;
+				    end;
+
+				    a == b   or   get pairs;
+				};
+
+			    same (LABEL a, LABEL b)   =>  same (VAR a, VAR b);
+			    same (INT i, INT j)       =>  i == j;
+			    same (REAL a, REAL b)     =>  a == b;
+			    same (STRING a, STRING b) =>  a == b;
+			    same (a, b)               =>  FALSE;
+			end;
+
+			fun samefields ((a, ap) ! ar, (b, bp) ! br)
+				=>
+				ap==bp and same (a, b) and samefields (ar, br);
+
+			    samefields (NIL, NIL) =>  TRUE;
+			    samefields _          =>  FALSE;
+			end;
+
+			fun samewith p
+			    =
+			    equ (p ! pairs);
+
+			fun samewith' args
+			    =
+			    equ (paired_lists::fold_right (fn ((w, _), (w', _), l) = (w, w') ! l)
+						pairs args);
+
+			fun all2 f (e ! r, e' ! r') =>  f (e, e') and all2 f (r, r');
+			    all2 f (NIL, NIL)       =>  TRUE;
+			    all2 f _                =>  FALSE;
+			end;
+
+			recursive val sameexp
+			    = 
+			    fn (SELECT (i, v, w, _, e), SELECT (i', v', w', _, e'))
+				   =>
+				   i==i' and same (v, v') and samewith (w, w') (e, e');
+
+			      (RECORD (k, vl, w, e), RECORD (k', vl', w', e'))
+				  =>
+				  (k == k') and samefields (vl, vl') 
+				  and samewith (w, w') (e, e');
+
+			      (OFFSET (i, v, w, e), OFFSET (i', v', w', e'))
+				  =>
+				  i==i' and same (v, v') and samewith (w, w') (e, e');
+
+			      (SWITCH (v, c, el), SWITCH (v', c', el'))
+				  =>
+				  same (v, v') and all2 (samewith (c, c')) (el, el');
+
+			      (APPLY (f, vl), APPLY (f', vl'))
+				  => 
+				  same (f, f') and all2 same (vl, vl');
+
+			      (MUTUALLY_RECURSIVE_FNS (l, e), MUTUALLY_RECURSIVE_FNS (l', e'))
+				  =>
+				  FALSE;		# Punt!
+
+			      (BRANCH (i, vl, c, e1, e2), BRANCH (i', vl', c', e1', e2'))
+				  =>
+				  i==i' and all2 same (vl, vl') 
+				  and samewith (c, c') (e1, e1')
+				  and samewith (c, c') (e2, e2');
+
+			      (LOOKER (i, vl, w, _, e), LOOKER (i', vl', w', _, e'))
+				  =>
+				  i==i' and all2 same (vl, vl') and samewith (w, w')(e, e');
+
+			      (SETTER (i, vl, e), SETTER (i', vl', e'))
+				  =>
+				  i==i' and all2 same (vl, vl') and sameexp (e, e');
+
+			      (ARITH (i, vl, w, _, e), ARITH (i', vl', w', _, e'))
+				  =>
+				  i==i' and all2 same (vl, vl') and samewith (w, w')(e, e');
+
+			      (PURE (i, vl, w, _, e), PURE (i', vl', w', _, e'))
+				  =>
+				  i==i' and all2 same (vl, vl') and samewith (w, w')(e, e');
+
+			      (RAW_C_CALL (k, l, p, vl, wtl, e), RAW_C_CALL (k', l', p', vl', wtl', e'))
+				  =>
+				  # We don't need to compare protocol info:  The protocols are
+				  # the same iff the functions and arguments are the same.
+				  k == k' and l == l' and
+				  all2 same (vl, vl') and samewith'(wtl, wtl')(e, e');
+
+			      _   => FALSE;
+			  end;
+		    end;
+	    end;
+
+	Info = RECINFO  List ((Value, Accesspath))
+	     | SELINFO  (Int, Value, Fps_Type)
+	     | OFFINFO  (Int, Value)
+	     | WRPINFO  (p::Pure, Value)
+	     | IF_IDIOM_INFO  { body:   Ref( Null_Or( (Highcode_Variable, Fps_Expression, Fps_Expression) ) ) }
+	     | MISCINFO  Fps_Type
+	     | FNINFO  { args:         List( Highcode_Variable ),
+			 body:         Ref( Null_Or(  Fps_Expression ) ),
+			 special_use:  Ref( Null_Or( Ref( Int ) ) ),
+			 live_args:    Ref( Null_Or( List( Bool ) ) )
+		       };
+
+	fun contract { function => (fkind, fvar, fargs, ctyl, cexp), 
+		       table,
+                       click,
+                       last,			#  NOTE: the "last" argument is currently ignored. 
+                       size => cpssize
+                     }
+	    =
+	    (fkind, fvar, fargs, ctyl, cexp')
+            where
+
+	        deadup          =  *controls::cg::deadup;
+		cgbeta_contract =  *controls::cg::beta_contract;
+		debug           =  *controls::cg::debugcps;		#  FALSE 
+
+		fun debugprint s =  if debug  controls::print::say (s); fi;
+		fun debugflush () =  if debug  controls::print::flush(); fi;
+
+		rep_flag  =  machine_properties::representations;
+		type_flag =  *cg::checkcps1  and  *cg::checkcps2  and  rep_flag;
+
+
+		# It would be nice to get rid
+                # of this type stuff one day. 
+		#
+		stipulate
+
+		    exception NCONTRACT; 
+
+		    fun value_name (VAR v) => lv::name_of_highcode_variable v;
+			value_name (INT i) => "Int" + int::to_string (i);
+			value_name (REAL r) => "Float" + r;
+			value_name (STRING s) => "<" + s + ">";
+			value_name _ => "<others>";
+                    end;
+
+		    fun arg_lty []
+                            =>
+                            lt::ltc_int;
+
+		        arg_lty [t]
+			    => 
+			    lt::ltw_tuple (
+                              t, 
+			      fn xs as (_ ! _) =>  length (xs) < machine_properties::max_rep_regs
+					               ??  lt::ltc_tuple [t]
+                                                       ::  t;
+				  _            =>  t;
+                              end,
+
+			      fn t =  lt::ltw_str (
+                                        t, 
+					( fn xs as (_ ! _)
+                                                =>
+                                                if   (length xs  <  machine_properties::max_rep_regs)
+						    
+                                                     lt::ltc_tuple [t];
+                                                else
+                                                     t;
+                                                fi;
+
+					     _  => t;
+                                          end
+                                        ),
+
+					fn t =  t
+                                      )
+                            );
+
+		        arg_lty r
+                            =>
+                            lt::ltc_str r;	# This is INCORRECT !!!!!!!   XXX BUGGO FIXME
+                    end;
+
+		    addty
+                        =
+                        if type_flag
+
+                             int_hash_table::set table;
+                        else
+                             fn _ = ();
+                        fi;
+
+		herein
+
+		    # Only used when dropping args in
+                    # reduce (MUTUALLY_RECURSIVE_FNS) case.
+                    #
+		    fun getty v
+			= 
+			if type_flag
+
+			     (int_hash_table::get  table  v)
+                             except
+                                 _ =  {   controls::print::say ("NCONTRACT: Can't find the variable "  + 
+					  (int::to_string v) + " in the table ***** \n");
+				          raise exception NCONTRACT;
+                                      };
+			else
+                             lt::ltc_void;
+                        fi;
+
+		    fun grabty u
+			=
+			{   fun g (VAR v)    =>  getty v;
+				g (LABEL v)  =>  getty v;
+				g (INT _)    =>  lt::ltc_int;
+				g (REAL _)   =>  lt::ltc_real;
+				g (STRING _) =>  lt::ltc_void;
+				g _          =>  lt::ltc_void;
+                            end;
+
+			    type_flag   ??   g u
+			                ::   lt::ltc_void;
+			};
+
+		    fun newty (f, t)
+                        =
+                        if type_flag
+
+			     ignore (int_hash_table::remove table f)
+                             except
+                                 _ = ();
+
+			     addty (f, t);
+			fi;
+
+		    fun make_var (t)
+                        =
+			v
+                        where
+                            v =  lv::make_highcode_variable();
+			    addty (v, t);
+			end;
+
+		    fun ltc_fun (x, y)
+			= 
+			(lt::ltp_tyc x   and   lt::ltp_tyc y)
+                            ??   lt::ltc_parrow (x, y)
+			    ::   lt::ltc_pfct   (x, y);
+
+
+		    fun make_fn_lty (_, _, NIL)
+                            =>
+                            bug "make_fn_lty in nflatten";
+
+		        make_fn_lty (k, cntt ! _, x ! r)
+                            => 
+			    lt::ltw_iscont
+                              (
+                                x,
+
+                                fn [t2] => (k, ltc_fun (arg_lty r, t2));
+				    _   => bug "unexpected make_fn_lty";
+                                end, 
+
+				fn [t2] => (k, ltc_fun (arg_lty r, lt::ltc_tyc t2));
+				    _   => bug "unexpected make_fn_lty";
+                                end, 
+
+				fn x =  (k, ltc_fun (arg_lty r, x))
+                              );
+
+		        make_fn_lty (k, _, r)
+                            =>
+                            (k, lt::ltc_cont([arg_lty r]));
+                    end;
+
+		    # Only used in newname:
+		    #
+		    fun same_lty (x, u)
+			= 
+			{   s =  (lv::name_of_highcode_variable (x)) + (" *and* " + value_name (u));
+
+			    if type_flag
+                                 checklty s (getty x, grabty u);
+			    fi;
+			};  
+
+		end;			# stipulate
+
+
+
+
+		stipulate
+
+                    exception USAGE_MAP;
+
+		herein
+
+                    my m:  int_hash_table::Hash_Table { info: Info, used:  Ref( Int ), called:  Ref( Int ) }
+			=  int_hash_table::make_table (128, USAGE_MAP);
+
+		    get =  fn i =  int_hash_table::get  m  i 
+				   except
+                                       USAGE_MAP =  bug ("USAGE_MAP on " + int::to_string i);
+
+		    enter =  int_hash_table::set m;
+
+		    fun rmv i
+                        =
+                        ignore (int_hash_table::remove m i)
+                        except
+                            _ = ();
+		end;
+
+		fun use (VAR   v) =>  inc (.used (get v));
+		    use(LABEL v) =>  inc (.used (get v));
+		    use _        =>  ();
+                end;
+
+		fun use_less (VAR   v) =>  if  deadup     dec (.used (get v));  fi;
+		    use_less (LABEL v) =>  if  deadup     dec (.used (get v));  fi;
+		    use_less _         =>  ();
+                end;
+
+		fun used_once v
+		    =
+		    *(.used (get v)) == 1;
+
+		fun used v
+		    =
+		    *(.used (get v)) > 0;
+
+		fun call (VAR v)
+			=> 
+			{   (get v) ->  { called, used, ... };
+
+			    inc called;
+                            inc used;
+			};
+
+		    call (LABEL v) =>  call (VAR v);
+		    call _         =>  ();
+                end;
+
+		fun call_less (VAR v)
+			=>
+			if deadup
+
+			     (get v) ->  { called, used, ... };
+
+			     dec called;
+			     dec used;
+			fi;
+
+		    call_less (LABEL v) =>  call_less (VAR v);
+		    call_less _         =>  ();
+                end;
+
+		fun call_and_clobber (VAR v)
+			=> 
+			{   (get v) ->  { called, used, info };
+
+			    inc called;
+                            inc used;
+
+			    case info
+                              
+			         FNINFO { body, ... } =>  body := NULL;
+			         _                  =>  ();
+			    esac;
+			};
+
+		    call_and_clobber (LABEL v) =>  call (VAR v);
+		    call_and_clobber _         =>  ();
+		end;
+
+		fun enter_rec  (w, vl) =  enter (w,{ info=>RECINFO  vl, called=>REF 0, used=>REF 0 } );
+		fun enter_misc (w, ct) =  enter (w,{ info=>MISCINFO ct, called=>REF 0, used=>REF 0 } );
+
+		misc_bog = MISCINFO bogt;
+
+		fun enter_misc0 w
+                    =
+                    enter (w,{ info=>misc_bog, called=>REF 0, used=>REF 0 } );
+
+		fun enter_wrp (w, p, u)
+                    = 
+		    enter (w,{ info=>WRPINFO (p, u), called=>REF 0, used=>REF 0 } );
+
+		fun enter_fn (_, f, vl, cl, cexp)
+                    =
+		    {   enter
+                          (
+                              f,
+                              { called => REF 0,
+                                used   => REF 0,
+				info   => FNINFO { args        => vl, 
+					           body        => REF (cgbeta_contract ?? THE cexp :: NULL),
+
+					           special_use => REF NULL,
+					           live_args   => REF NULL
+                                                 }
+                              }
+                          );
+
+		        app2 (enter_misc, vl, cl);
+                    };
+
+		# *********************************************************************
+		#  checkFunction: used by pass1 (MUTUALLY_RECURSIVE_FNS ...) to decide
+		#  (1) whether a function will be inlined for the if idiom;
+		#  (2) whether a function will drop some arguments.
+		#  ********************************************************************
+
+		fun check_function (_, f, vl, _, _)
+		    = 
+		    case (get f)
+		      
+		         { called=>REF 2, used=>REF 2,
+			   info=>FNINFO { special_use=>REF (THE (REF 1)),
+
+			                   body as REF (THE (BRANCH(_, _, c, a, b))), ...
+                                        },
+                           ...
+                          } 
+                             =>
+			     if (not *cg::if_idiom)
+
+                                  body := NULL;
+                             else
+                                  # NOTE: remapping f 
+				  #
+				  enter
+                                    ( f,
+                                      { info   => IF_IDIOM_INFO { body => REF (THE (c, a, b)) },
+					called => REF 2,
+                                        used   => REF 2
+                                      }
+                                    );
+                             fi;
+
+			 { called=>REF c, used=>REF u, info=>FNINFO { live_args, ... }}
+                             =>
+			     if ( u == c			#  escaping function 
+				  and *cg::dropargs
+                             )
+                                  live_args := THE (map used vl);
+                             fi;
+
+			 _  => ();
+                    esac;
+
+
+		# ************************************************************************
+		#  pass1: gather usage information on the variables in a fps expression,  
+		#  And make a few decisions about whether to inline functions:            
+		#         (1) If Idiom                                                    
+		#         (2) NO_INLINE_INTO                                              
+		# ************************************************************************
+		recursive val pass1
+                    =
+                    fn cexp =  p1 FALSE cexp
+
+		also
+                p1  =
+                    fn no_inline
+                        =
+			g1
+                        where
+			    recursive val g1
+                                =
+			        fn RECORD (_, vl, w, e)
+                                       =>
+                                       {   enter_rec (w, vl);
+                                           apply (use o #1) vl;
+                                           g1 e;
+                                       };
+
+				   SELECT (i, v, w, ct, e)
+                                       => 
+				       {   enter (w,{ info=>SELINFO (i, v, ct), called=>REF 0, used=>REF 0 } );
+				           use v;
+                                           g1 e;
+                                       };
+
+				   OFFSET (i, v, w, e)
+                                       => 
+				       {   enter (w,{ info=>OFFINFO (i, v), called=>REF 0, used=>REF 0 } );
+				           use v;
+                                           g1 e;
+                                       };
+
+				   APPLY (f, vl)
+                                       =>
+                                       {   if   no_inline      call_and_clobber f;
+					   else                call             f;
+                                           fi;
+
+					   apply use vl;
+                                       };
+
+				   MUTUALLY_RECURSIVE_FNS (l, e)
+                                       =>
+                                       {   apply enter_fn l;
+
+					   apply
+                                               (fn (NO_INLINE_INTO, _, _, _, body) =>  p1 (not last) body;
+						   (_,              _, _, _, body) =>  g1 body;
+                                                end
+                                               )
+                                               l;
+
+					   g1 e;
+
+					   apply check_function l;
+                                       };
+
+				   SWITCH (v, c, el)
+                                       =>
+                                       {   use v;
+                                           enter_misc0 c;
+                                           apply g1 el;
+                                       };
+
+				   BRANCH (i, vl, c, e1 as APPLY (VAR f1, [INT 1]),
+						      e2 as APPLY (VAR f2, [INT 0]))
+					=>
+					{    case (get f1)
+                                               
+						 { info=>FNINFO { body=>REF (THE (BRANCH (p::CMP { oper=>p::NEQ, ... },[INT 0, VAR w2], _, _, _))),
+							 args => [w1], special_use, ... }, ... }
+						     => 
+						     #  Handle IF IDIOM 
+						     if (f1==f2 and w1==w2) 
+						            my { used, ... } = get w1;
+							    special_use := THE used;
+						     fi;
+						 _ => ();
+					     esac;
+
+					     apply use vl;
+					     enter_misc (c, bogt);
+					     g1 e1;
+					     g1 e2;
+					};
+
+				   BRANCH (i, vl, c, e1, e2)             => { apply use vl; enter_misc0 c; g1 e1; g1 e2;};
+				   SETTER (i, vl, e)                     => { apply use vl; g1 e;};
+				   LOOKER (i, vl, w, _, e)               => { apply use vl; enter_misc0 w; g1 e;};
+				   ARITH (i, vl, w, _, e)                => { apply use vl; enter_misc0 w; g1 e;};
+
+				   PURE (p as p::IWRAP,[u], w, _, e)     => { use u; enter_wrp (w, p, u); g1 e;};
+				   PURE (p as p::IUNWRAP,[u], w, _, e)   => { use u; enter_wrp (w, p, u); g1 e;};
+				   PURE (p as p::I32WRAP,[u], w, _, e)   => { use u; enter_wrp (w, p, u); g1 e;};
+				   PURE (p as p::I32UNWRAP,[u], w, _, e) => { use u; enter_wrp (w, p, u); g1 e;};
+				   PURE (p as p::FWRAP,[u], w, _, e)     => { use u; enter_wrp (w, p, u); g1 e;};
+				   PURE (p as p::FUNWRAP,[u], w, _, e)   => { use u; enter_wrp (w, p, u); g1 e;};
+
+				   PURE (i, vl, w, _, e)                 => { apply use vl; enter_misc0 w; g1 e;};
+				   RAW_C_CALL (k, l, p, vl, wtl, e)      => { apply use vl; apply (enter_misc0 o #1) wtl; g1 e;};
+
+                                end;	# fn
+			end;		# p1
+
+
+		stipulate
+
+		    exception BETA;
+
+		    my m2:  int_hash_table::Hash_Table( Value ) = int_hash_table::make_table (32, BETA);
+		    mapm2 = int_hash_table::get  m2;
+
+		herein
+
+		    fun ren (v0 as VAR v) => (ren (mapm2 v) except BETA => v0; end );
+			ren (v0 as LABEL v) => (ren (mapm2 v) except BETA => v0; end );
+			ren x => x;
+		    end;
+
+		    fun newname (vw as (v, w))
+			= 
+			{   (get v) -> { used => REF u, called => REF c, ... };
+
+			    fun f (VAR w')
+                                    =>
+                                    {   (get w') -> { used, called, ... };
+
+					used   := *used   + u;
+                                        called := *called + c;
+				    };
+
+			        f (LABEL w') => f (VAR w');
+			        f _ => ();
+			    end;
+
+			    if deadup    f (ren w);   fi;
+
+			    rmv v;
+			    same_lty vw;
+			    share_name vw;
+			    int_hash_table::set m2 vw;
+			};
+
+		end;
+
+		fun newnames (v ! vl, w ! wl) =>   { newname (v, w);   newnames (vl, wl); };
+		    newnames _                =>   ();
+		end;
+
+
+		# *******************************************************************
+		#  Drop_body: used when dropping a function to adjust the usage      
+		#  Counts of the free variables of the function.                     
+		#  This should match up closely with pass1 above.                    
+		# *******************************************************************
+		stipulate
+
+                    use_less  =   use_less o ren;
+		    call_less =  call_less o ren;
+
+		herein
+
+		    fun drop_body (APPLY (f, vl))                 =>  { call_less f; apply use_less vl;};
+
+			drop_body (SELECT(_, v, _, _, e))         =>  { use_less v;       drop_body e;  };
+			drop_body (OFFSET(_, v, _, e))            =>  { use_less v;       drop_body e;  };
+			drop_body (SWITCH (v, _, el))             =>  { use_less v; apply drop_body el; };
+
+			drop_body (MUTUALLY_RECURSIVE_FNS (l, e)) =>  { apply (drop_body o #5) l;         drop_body e;  };
+			drop_body (RECORD(_, vl, _, e))           =>  { apply (use_less o #1) vl;         drop_body e;  };
+			drop_body (BRANCH(_, vl, _, e1, e2))      =>  { apply use_less vl; drop_body e1;  drop_body e2; };
+
+			drop_body (SETTER(_, vl, e))              =>  { apply use_less vl; drop_body e;};
+			drop_body (LOOKER(_, vl, _, _, e))        =>  { apply use_less vl; drop_body e;};
+			drop_body (ARITH( _, vl, _, _, e))        =>  { apply use_less vl; drop_body e;};
+			drop_body (PURE(  _, vl, _, _, e))        =>  { apply use_less vl; drop_body e;};
+			drop_body (RAW_C_CALL(_, _, _, vl, _, e)) =>  { apply use_less vl; drop_body e;};
+		    end;
+		end;
+
+
+		fun setter (p::UPDATE, [_, _, INT    _]) =>   p::UNBOXED_SET;
+		    setter (p::UPDATE, [_, _, REAL   _]) =>   p::BOXED_SET;
+		    setter (p::UPDATE, [_, _, STRING _]) =>   p::BOXED_SET;
+
+		    setter (p::UPDATE, [_, _, VAR v])
+			=> 
+			case (.info (get v))
+                          
+			     (FNINFO  _) => p::BOXED_SET;
+			     (RECINFO _) => p::BOXED_SET;
+			     (OFFINFO _) => p::BOXED_SET;
+			     _ => p::UPDATE;
+			esac;
+
+		    setter (p::ASSIGN, [_, INT _]) => p::UNBOXEDASSIGN;
+		    setter (i, _) => i;
+		end;
+
+		fun same_lvar (highcode_variable, VAR lv)   =>   lv == highcode_variable;
+		    same_lvar _ => FALSE;
+		end;
+
+		fun cvt_pre_condition (n: Int, n2, x, v2)
+		    =
+		    n == n2 and used_once (x) and same_lvar (x, ren v2); 
+
+		fun cvt_pre_condition_inf (x, v2)
+		    =
+		    used_once (x) and same_lvar (x, ren v2); 
+
+		recursive val reduce
+                    =
+                    fn cexp =  g NULL cexp
+
+		also
+                g   =
+                    fn handler
+                        =
+			g'
+                        where
+			    recursive val g'
+                                =
+				fn RECORD (k, vl, w, e)
+				      =>
+				      {   my { used, ... }
+					       =
+					       get w;
+
+					  vl' = map (map1 ren) vl;
+
+					  if   (*used==0 and *cg::deadvars)
+					      
+					       click "b";
+					       apply (use_less o #1) vl';
+					       g' e;
+					  else
+
+					       fun chunklen (VAR z)
+						       =>
+						       case (.info (get z))
+						         
+							    SELINFO(_, _, PTRT (RPT k)) => k;
+							    SELINFO(_, _, PTRT (FPT k)) => k;
+
+							    MISCINFO (PTRT (RPT k)) => k;
+							    MISCINFO (PTRT (FPT k)) => k;
+
+							    RECINFO l => length l;
+							    _ => -1;
+						       esac;
+
+						   chunklen _ => -1;
+					       end;
+
+					       fun samevar (VAR x, VAR y)   =>   x == y;
+						   samevar _ => FALSE;
+					       end;
+
+					       fun check1 ((VAR z) ! r, k, a)
+						       => 
+						       case (get z)
+						         
+						            { info=>SELINFO (i, b, _), ... }
+                                                                => 
+							        if   (i==k   and   samevar (ren b, a))
+							             check1 (r, k+1, a);
+                                                                else NULL;	fi;
+
+							    _ => NULL;
+                                                       esac;
+
+						   check1(_ ! r, k, _)
+                                                       =>
+                                                       NULL; 
+
+						   check1([], k, a)
+                                                       => 
+						       chunklen a  ==  k
+                                                           ??   THE a
+                                                           ::   NULL;
+					       end;
+
+					       fun check ((VAR z) ! r)
+                                                       => 
+						       case (get z)
+						         
+                                                            { info=>SELINFO (0, a, _), ... }
+                                                                => 
+							        check1 (r, 1, ren a);
+
+							    _   => NULL;
+                                                       esac;
+
+						   check _ => NULL;
+					       end;
+
+					       vl'' = map #1 vl';
+
+					       case (check (vl''))
+					         
+						    NULL => 
+							 {   e' = g' e;
+
+							     if   (*used==0 and deadup)
+							         
+                                                                  click "B";
+                                                                  apply use_less vl'';
+                                                                  e';
+							     else
+                                                                  RECORD (k, vl', w, e');
+                                                             fi;
+							 };
+
+						    THE z => 
+						         {   newname (w, z);
+                                                             click "B";		 # ** ? **   XXX BUGGO FIXME
+						             apply use_less vl'';
+                                                             g' e;
+                                                         };
+					       esac;
+
+					    fi;
+				      };
+
+				  SELECT (i, v, w, t, e)
+				      =>
+				      {   my { used, ... } = get w;
+
+					  v' = ren v;
+
+					  if   (*used==0 and *cg::deadvars)
+					      
+                                               click "c"; #  Could rmv w here 
+					       use_less v';
+					       g' e;
+					  else
+                                                 z = case v'
+						       
+						          VAR v''
+                                                              =>
+							      case (get v'')
+							        
+							           { info=>RECINFO vl, ... }
+								       =>
+								       ( {   z  =  #1 (list::nth (vl, i));
+									     z' =  ren z;
+
+									     case z'
+									       
+										  REAL _ => NULL; 
+										  _      => THE z';
+									     esac;
+									 }
+									 except
+									     (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = NULL
+								       );
+
+							           _ => NULL;
+                                                              esac;
+
+						          _ => NULL;
+                                                     esac;
+
+						 z = if *cg::selectopt  z; else NULL;fi;
+
+						 case z
+						   
+						     NULL   => {   e' = g' e;
+
+								   if   (*used==0 and deadup)
+								       
+                                                                        click "s";
+									use_less v';
+									e';
+								   else
+                                                                        SELECT (i, v', w, t, e');
+                                                                   fi;
+							       };
+
+						     THE z' => {   newname (w, z');
+								   click "d"; #  Could rmv w here 
+								   use_less v';
+								   g' e;
+                                                               };
+                                               esac;
+					  fi;
+				      };
+
+				  OFFSET (i, v, w, e)
+				       =>
+				       OFFSET (i, ren v, w, g' e);
+
+				  APPLY (f, vl)
+				       =>
+				       {   vl' =  map ren vl;
+					   f'  =  ren f;
+
+					   fun newvl NULL
+                                                   =>
+                                                   vl';
+
+					       newvl (THE live)
+						   =>
+						   {   fun z (a ! al, FALSE ! bl) =>  z (al, bl);
+							   z (a ! al, TRUE  ! bl) =>  a ! z (al, bl);
+							   z _                    =>  NIL;
+                                                       end;
+
+						       # This code may be obsolete.
+						       # See the comment in the
+                                                       # MUTUALLY_RECURSIVE_FNS
+                                                       # case below.
+
+						       case (z (vl', live))
+						         
+							    NIL  => [INT 0];
+
+							    [u]  => lt::ltw_iscont (
+								       grabty u, 
+								       fn _ = [u, INT 0],
+								       fn _ = [u, INT 0],
+								       fn _ = [u]
+								    );
+							    vl'' => vl'';
+						       esac;
+						   };
+					   end;
+
+					   fun trybeta fv
+					       =
+					       {   my { used=>REF u, called=>REF c, info }
+						       =
+						       get fv;
+
+						   case info
+					             
+						        FNINFO { args, body, live_args, ... }
+                                                            =>
+							    if   (c!=1 or u!=1)
+                                                                
+                                                                 APPLY (f', newvl *live_args);
+							    else
+                                                                 case body
+								   
+								      REF (THE b)
+                                                                          =>
+								          {   newnames (args, vl');
+									      call_less f';
+									      apply use_less vl';
+									      body:=NULL;
+									      g' b;
+                                                                          };
+
+								      _   =>
+                                                                          APPLY (f', newvl *live_args);
+                                                                 esac;
+                                                            fi;
+
+							_   =>
+                                                            APPLY (f', vl');
+						   esac;
+					       };
+
+					   case f'
+                                             
+					        VAR   fv =>  trybeta fv;
+					        LABEL fv =>  trybeta fv;
+					        _        =>  APPLY (f', vl');
+					   esac;
+				      };
+
+				  MUTUALLY_RECURSIVE_FNS (l, e)
+				      =>
+				      {   fun getinfo (x as (fk, f, vl, cl, b))
+					      =
+					      {   my { used, called, info, ... }
+                                                      =
+                                                      get f;
+
+						  case info
+                                                    
+						       FNINFO { live_args=>REF (THE live), ... }
+							   =>
+							   {   fun z (a ! al, FALSE ! bl) => z (al, bl);
+								   z (a ! al, TRUE ! bl) => a ! z (al, bl);
+								   z _ => NIL;
+                                                               end;
+
+							       vl' = z (vl, live);
+							       cl' = z (cl, live);
+
+							       drop =  fold_right  (fn (a, b) =  a ?? b :: b+1)
+                                                                                   0
+                                                                                   live;
+
+							       fun dropclicks (n)
+                                                                   =
+								   if   (n > 0)
+                                                                       
+                                                                        click "D";
+                                                                        dropclicks (n - 1);
+								   fi;
+
+
+							       # The code below may be obsolete.  I think that
+							       # we used to distinguish between user functions
+							       # and fates in the closure phase by
+							       # the number of arguments, and also we might
+							       # not have been able to handle functions with
+							       # no arguments.  Possibly we can now remove
+							       # these special cases.     XXX BUGGO FIXME
+
+							       tt' = map getty vl';
+
+							       my (vl'', cl'', tt'')
+                                                                   =
+								   case tt'
+								      
+								        NIL =>
+									    {   x = make_var (lt::ltc_int);
+									        dropclicks (drop - 1);
+										enter_misc0 x;
+										([x],[INTT],[lt::ltc_int]);
+									    };
+
+								        [x] =>
+									    if   (is_cont x)
+									        
+                                                                                 x = make_var (lt::ltc_int);
+										 dropclicks (drop - 1);
+										 enter_misc0 x;
+										 (vl' @ [x], cl' @ [INTT], 
+										 tt' @ [lt::ltc_int]);
+
+									    else 
+                                                                                 dropclicks (drop);
+										 (vl', cl', tt');
+                                                                            fi;
+
+								        _   =>
+                                                                            {   dropclicks (drop);
+									        (vl', cl', tt');
+                                                                            };
+                                                                   esac;
+
+							       my (fk', lt)
+                                                                   =
+                                                                   make_fn_lty (fk, cl'', tt'');
+
+							       newty (f, lt);
+
+							       ((fk', f, vl'', cl'', b), used, called, info);
+							   };
+
+						      _ => (x, used, called, info);
+                                                  esac;
+					      };
+
+					  fun keep (_, used, called, info)
+                                              =
+					      case (*called, *used, info)
+					        
+					           (_, 0, FNINFO { body as REF (THE b), ... } )
+                                                       =>
+						       {   click "g";
+							   body:=NULL;
+							   drop_body b;
+							   FALSE;
+                                                       };
+
+						   (_, 0, FNINFO { body=>REF NULL, ... } )
+                                                       =>
+						       {   click "g";
+                                                           FALSE;
+                                                       };
+
+						   (1, 1, FNINFO { body=>REF (THE _), ... } )
+                                                       =>
+						       # NOTE: This is an optimistic click.
+						       # The call could disappear before we
+						       # get there; then the body would
+						       # not be cleared out, dangerous.	XXX BUGGO FIXME
+						       {   click "e";
+                                                           FALSE;
+                                                       };
+
+						   (_, _, IF_IDIOM_INFO { body=>REF b, ... } )
+                                                       =>
+						       {   click "E";
+                                                           FALSE;
+                                                       };
+
+						   _   => TRUE;
+                                              esac;
+
+					  fun keep2 (_, used, _, info)
+                                              =
+					      case (*used, info)
+					        
+                                                   (0, FNINFO { body as REF (THE b), ... } )
+                                                       =>
+						       # All occurrences were lost:
+						       #	
+						       {   click "f";
+							   body:=NULL;
+							   drop_body b;
+							   FALSE;
+                                                       };
+
+						   (0, FNINFO { body=>REF NULL, ... } )
+                                                       =>
+						       # We performed a cascaded inlining:
+						       #
+						       {   click "q";
+                                                           FALSE;
+                                                       };
+
+						   (_, FNINFO { body, ... } )
+                                                       =>
+                                                       {   body := NULL;
+                                                           TRUE;
+                                                       };
+
+						   _   => TRUE;
+
+                                              esac;
+
+					  fun keep3 ((_, _, _, _, b), used, _, info)
+                                              =
+					      case (*used, info)
+					        
+						   (0, FNINFO _)
+                                                       =>
+						       # All occurrences were lost:
+						       #
+						       {   click "f";
+							   drop_body b;
+							   FALSE;
+                                                       };
+
+						   _   => TRUE;
+                                              esac;
+
+					  fun reduce_body ((fk, f, vl, cl, body), used, called, info)
+                                              =
+					      ((fk, f, vl, cl, reduce body), used, called, info);
+
+					  l1 =  map getinfo l;
+					  l2 =  sublist keep l1;
+					  e' =  g' e;
+					  l3 =  sublist keep2 l2;
+					  l4 =  map reduce_body l3;
+
+					  case (sublist keep3 l4)
+					    
+					       NIL =>  e';
+					       l5  =>  MUTUALLY_RECURSIVE_FNS (map #1 l5, e');
+                                          esac;
+				      };
+
+				  SWITCH (v, c, el)
+				      => 
+				      case (ren v)
+				        
+				           v' as INT i
+                                               => 
+					       if *cg::switchopt 
+
+                                                    fun f (e ! el, j)
+                                                            =>
+                                                            {   if   (i != j   )   drop_body e;   fi;
+
+								f (el, j+1);
+                                                            };
+
+							f (NIL, _) =>  ();
+                                                    end;
+
+						    click "h";
+						    f (el, 0);
+						    newname (c, INT 0); 
+						    g' (list::nth (el, i));
+						  
+					       else
+                                                    SWITCH (v', c, map g' el);
+                                               fi;
+
+					   v'  =>  SWITCH (v', c, map g' el);
+                                      esac;
+
+				  LOOKER (p::GETHANDLER, _, w, t, e)
+                                      =>
+				      if  *cg::handlerfold
+
+					   case handler
+					     
+						NULL
+                                                    =>
+                                                    if   (used w) 
+						        
+                                                         LOOKER (p::GETHANDLER,[], w, t, g (THE (VAR w)) e);
+						    else
+                                                         click "i";
+                                                         g' e;
+                                                    fi;
+
+						THE w'
+                                                    =>
+                                                    {   click "j";
+                                                        newname (w, w');
+                                                        g' e;
+                                                    };
+                                           esac;
+				      else
+					   LOOKER (p::GETHANDLER,[], w, t, g (THE (VAR w)) e);
+				      fi;
+
+				  SETTER (p::SETHANDLER,[v], e)
+				      =>
+				      {   v' = ren v;
+					  e' = g (THE v') e;
+
+					  fun same_variable (VAR x, VAR y)
+                                                  =>
+                                                  x == y;
+
+					      same_variable _
+                                                  =>
+                                                  FALSE;
+                                          end;
+
+					  if *cg::handlerfold
+
+                                               case handler 
+					         
+                                                    THE v''
+                                                        => 
+						        if   (same_variable (v', v''))
+                                                            
+                                                             click "k";
+                                                             use_less v'';
+                                                             e';
+						        else
+                                                             SETTER (p::SETHANDLER,[v'], e');
+                                                        fi;
+
+						    _ => SETTER (p::SETHANDLER,[v'], e');
+                                               esac;
+					  else
+                                               SETTER (p::SETHANDLER,[v'], e');
+                                          fi;
+				      };
+
+			      #   SETTER (i, vl, e) => SETTER (i, map ren vl, g' e) 
+
+				  SETTER (i, vl, e)
+                                      => 
+				      {   vl' = map ren vl;
+				          SETTER (setter (i, vl'), vl', g' e);
+				      };
+
+				  LOOKER (i, vl, w, t, e)
+				      => 
+				      {   vl' = map ren vl;
+					  my { used, ... } = get w;
+
+					  if   (*used==0 and *cg::deadvars)
+					      
+                                               click "m";
+                                               apply use_less vl';
+                                               g' e;
+					  else
+                                               e' = g' e;
+
+					       if   (*used==0 and deadup)
+					           
+                                                    click "*";
+                                                    apply use_less vl';
+                                                    e';
+					       else
+                                                    LOOKER (i, vl', w, t, e');
+                                               fi;
+					  fi;
+				      };
+
+				  ARITH (p::TEST (p, n),[v], x, t, e as PURE (p::COPY (n2, m),[v2], x2, t2, e2))
+				      =>
+				      if   (cvt_pre_condition (n, n2, x, v2) and n == m)
+                                          
+					   click "T (1)";
+                                           ARITH (p::TEST (p, m), [ren v], x2, t2, g' e2);
+				      else ARITH (p::TEST (p, n), [ren v], x,  t,  g' e );
+                                      fi;
+
+				  ARITH (p::TEST_INF n,[v, f], x, t, e as PURE (p::COPY (n2, m),[v2], x2, t2, e2))
+				      =>
+				      if   (cvt_pre_condition (n, n2, x, v2) and n == m)
+                                          
+					   click "T (1)"; ARITH (p::TEST_INF m, [ren v, ren f], x2, t2, g' e2);
+				      else                ARITH (p::TEST_INF n, [ren v, ren f], x,  t,  g' e );
+				      fi;
+
+				  ARITH (p::TEST (p, n),[v], x, t, e as ARITH (p::TEST (n2, m),[v2], x2, t2, e2))
+				      => 
+				      if   (cvt_pre_condition (n, n2, x, v2))
+                                          
+					   click "T (2)"; ARITH (p::TEST (p, m), [ren v], x2, t2, g' e2);
+				      else                ARITH (p::TEST (p, n), [ren v], x,  t,  g' e );
+				      fi;
+
+				  ARITH (p::TEST_INF n,[v, f], x, t, e as ARITH (p::TEST (n2, m),[v2], x2, t2, e2))
+				      => 
+				      if (cvt_pre_condition (n, n2, x, v2) )
+					  click "T (2)";
+                                          ARITH (p::TEST_INF m, [ren v, ren f], x2, t2, g' e2);
+				      else
+                                          ARITH (p::TEST_INF n, [ren v, ren f], x, t, g' e);
+                                      fi;
+
+				  ARITH (p::TESTU (p, n),[v], x, t, e as PURE (p::COPY (n2, m),[v2], x2, t2, e2))
+				      =>
+				      if (cvt_pre_condition (n, n2, x, v2) and n == m )
+					  click "U (1)";
+                                          ARITH (p::TESTU (p, m), [ren v], x2, t2, g' e2);
+				      else
+                                          ARITH (p::TESTU (p, n), [ren v], x, t, g' e);
+                                      fi;
+
+				  ARITH (p::TESTU (p, n),[v], x, t, e as ARITH (p::TESTU (n2, m),[v2], x2, t2, e2))
+                                      => 
+				      if   (cvt_pre_condition (n, n2, x, v2))
+                                          
+				           click "U (2)";
+                                           ARITH (p::TESTU (p, m), [ren v], x2, t2, g' e2);
+				      else ARITH (p::TESTU (p, n), [ren v], x,  t,  g' e );
+				      fi;
+
+				  ARITH (i, vl, w, t, e)
+				      =>
+				      {   vl' = map ren vl;
+
+					  if *cg::arithopt
+
+					       newname (w, arith (i, vl'));
+					       apply use_less vl';
+					       g' e;
+					  else
+					       raise exception CONSTANT_FOLD;
+					  fi
+					  except
+                                              CONSTANT_FOLD =>  ARITH (i, vl', w, t, g' e);
+					      OVERFLOW      =>  ARITH (i, vl', w, t, g' e);
+                                          end;
+				      };
+
+				  PURE (p::TRUNC (p, n), [v], x, t, e as PURE (pure, [v2], x2, t2, e2))
+				      =>
+				      {   fun skip ()
+                                              =
+                                              PURE (p::TRUNC (p, n), [ren v], x, t, g' e);
+
+
+					  fun check_clicked (tok, n2, m, pure_op)
+					      = 
+					      if   (cvt_pre_condition (n, n2, x, v2))
+                                                   
+						   click tok; 
+						   PURE (pure_op (p, m), [ren v], x2, t2, g' e2);
+					      else
+                                                   skip ();
+                                              fi;
+
+
+					  case pure
+					    
+					       p::TRUNC (n2, m)
+                                                   =>
+                                                   check_clicked("R (1)", n2, m, p::TRUNC);
+
+					       p::COPY (n2, m)
+                                                   => 
+						   if   (n2 == m)
+                                                       
+                                                        check_clicked("R (2)", n2, m, p::TRUNC);
+                                                   else
+                                                        skip ();
+                                                   fi;
+
+					       _  => skip();
+                                          esac;
+				      };
+
+				  PURE (p::TRUNC_INF n, [v, f], x, t,
+					e as PURE (pure, [v2], x2, t2, e2))
+				      =>
+				      {   fun skip ()
+                                              =
+                                              PURE (p::TRUNC_INF n, [ren v, ren f], x, t, g' e);
+
+					  fun check_clicked (tok, n2, m)
+					      = 
+					      if   (cvt_pre_condition (n, n2, x, v2))
+					           
+						   click tok; 
+						   PURE (p::TRUNC_INF m, [ren v, ren f], x2, t2, g' e2);
+					      else
+						   skip();
+					      fi;
+
+					  case pure
+					    
+					       p::TRUNC (n2, m)
+                                                   =>
+                                                   check_clicked("R (1)", n2, m);
+
+					       p::COPY (n2, m)
+                                                   => 
+						   if   (n2 == m)
+                                                       
+                                                        check_clicked("R (2)", n2, m);
+                                                   else
+                                                        skip();
+                                                   fi;
+
+					       _   => skip ();
+                                          esac;
+				      };
+
+				  PURE (p::EXTEND (p, n), [v], x, t,
+					e as PURE (p::EXTEND_INF n2, [v2, f], x2, t2, e2))
+                                       =>
+				       if   (cvt_pre_condition (n, n2, x, v2))
+                                           
+					    click "X (1')";
+					    PURE (p::EXTEND_INF p, [ren v, ren f], x2, t2, g' e2);
+				       else
+					    PURE (p::EXTEND (p, n), [ren v], x, t, g' e);
+                                       fi;
+
+				  PURE (p::EXTEND (p, n), [v], x, t, e as PURE (pure, [v2], x2, t2, e2))
+				      =>
+				      {   fun skip ()
+                                              =
+                                              PURE (p::EXTEND (p, n), [ren v], x, t, g' e);
+
+					  fun check_clicked (tok, n2, pure_op)
+                                              = 
+					      if   (cvt_pre_condition (n, n2, x, v2))
+                                                  
+					           click tok;
+					           PURE (pure_op, [ren v], x2, t2, g' e2);
+					      else
+                                                   skip ();
+                                              fi;
+
+					  case pure
+					    
+					       p::EXTEND (n2, m)
+                                                   =>
+                                                   check_clicked("X (1)", n2, p::EXTEND (p, m));
+
+					       p::COPY (n2, m)
+                                                   => 
+					           if   (n2 == m)
+                                                       
+                                                        check_clicked("X (2)", n2, p::EXTEND (p, m));
+					           else
+                                                        skip();
+                                                   fi;
+
+					       p::TRUNC (n2, m)
+						   => 
+						   m >= p   ??   check_clicked("X (3)", n2, p::EXTEND (p, m))
+						            ::   check_clicked("X (4)", n2, p::TRUNC  (p, m));
+
+					       _ => skip();
+                                          esac;
+				      };
+
+				  PURE (p::EXTEND_INF p, [v, f], x, t,
+					e as PURE (p::TRUNC_INF m, [v2, f2], x2, t2, e2))
+				      =>
+				      {   fun check_clicked (tok, pure_op)
+                                              =
+					      if   (cvt_pre_condition_inf (x, v2))
+                                                  
+						   click tok;
+						   use_less f; use_less f2;
+						   PURE (pure_op, [ren v], x2, t2, g' e2);
+					      else
+                                                   PURE (p::EXTEND_INF p, [ren v, ren f], x, t, g' e);
+                                              fi;
+
+					  m >= p   ??   check_clicked("X (3')", p::EXTEND (p, m))
+					           ::   check_clicked("X (4')", p::TRUNC  (p, m));
+				      };
+
+				  PURE (p::EXTEND (p, n), [v], x, t, e as ARITH (a, [v2], x2, t2, e2))
+				      =>
+				      {   v' = [ren v];
+
+					  fun skip ()
+                                              =
+                                              PURE (p::EXTEND (p, n), v', x, t, g' e);
+
+					  fun check_clicked (tok, n2, m, arith_op)
+					      =
+					      if   (cvt_pre_condition (n, n2, x, v2))
+                                                  
+						   if   (m >= p)
+                                                       
+						        click tok;
+                                                        PURE (p::EXTEND (p, m), v', x2, t2, g' e2);
+						   else
+                                                        ARITH (arith_op (p, m), v', x2, t2, g' e2);
+                                                   fi;
+					      else
+                                                   skip();
+                                              fi;
+
+					  case a
+					    
+                                               p::TEST (n2, m)  =>  check_clicked("X (5)", n2, m, p::TEST);
+					       p::TESTU (n2, m) =>  check_clicked("X (6)", n2, m, p::TESTU);
+					       _                =>  skip();
+                                          esac;
+				      };
+
+				  PURE (p::EXTEND_INF p, [v, f], x, t,
+					e as ARITH (p::TEST_INF m, [v2, f2], x2, t2, e2))
+                                      =>
+				      if   (cvt_pre_condition_inf (x, v2))
+                                          
+					   if   (m >= p)
+                                               
+					        click "X9";
+                                                use_less f;
+                                                use_less f2;
+					        PURE (p::EXTEND (p, m), [ren v], x2, t2, g' e2);
+					   else
+                                                ARITH (p::TEST (p, m), [ren v], x2, t2, g' e2);
+                                           fi;
+				     else
+                                           PURE (p::EXTEND_INF p, [ren v, ren f], x, t, g' e);
+                                     fi;
+
+				  PURE (p::COPY (p, n), [v], x, t,
+					 e as PURE (p::COPY_INF n2, [v2, f2], x2, t2, e2))
+                                      =>
+				      if   (cvt_pre_condition (n, n2, x, v2))
+                                          
+					   click "C (2)";
+					   PURE (p::COPY_INF p, [ren v, ren f2], x2, t2, g' e2);
+				     else
+					   PURE (p::COPY (p, n), [ren v], x, t, g' e);
+                                     fi;
+
+				  PURE (p::COPY (p, n), [v], x, t,
+					 e as PURE (p::EXTEND_INF n2, [v2, f2], x2, t2, e2))
+				      =>
+				      {   fun skip ()
+                                              =
+                                              PURE (p::COPY (p, n), [ren v], x, t, g' e);
+
+					  fun check_clicked (tok, pure_op)
+                                              =
+					      if   (cvt_pre_condition (n, n2, x, v2))
+                                                  
+						   click tok;
+                                                   PURE (pure_op, [ren v, ren f2], x2, t2, g' e2);
+					      else
+                                                   skip ();
+                                              fi;
+
+					  if   (n > p)
+                                              
+                                               check_clicked("C (2')", p::COPY_INF p);
+					  else
+                                               if   (n == p)
+                                                   
+                                                    check_clicked("C (2')", p::EXTEND_INF p);
+					       else
+                                                    skip ();
+                                               fi;
+                                          fi;
+				      };
+
+				  PURE (p::COPY (p, n), [v], x, t, e as PURE (pure, [v2], x2, t2, e2))
+				      =>
+				      {   v' = [ren v];
+
+					  fun skip ()
+                                              =
+                                              PURE (p::COPY (p, n), v', x, t, g' e);
+
+					  fun check_clicked (tok, n2, pure_op)
+					      = 
+					      if   (cvt_pre_condition (n, n2, x, v2))
+                                                  
+						   click tok;
+                                                   PURE (pure_op, v', x2, t2, g' e2);
+					      else
+                                                   skip();
+                                              fi;
+
+					  case pure
+					    
+					       p::COPY (n2, m)
+                                                   =>
+                                                   check_clicked("C (1)", n2, p::COPY (p, m));
+
+					       p::EXTEND (n2, m)
+						   => 
+						   if   (n >  p)   check_clicked("C (2)", n2, p::COPY (p, m));
+						   elif (n == p)   check_clicked("C (2)", n2, p::EXTEND (p, m));
+						   else            skip();
+                                                   fi;
+
+					       p::TRUNC (n2, m)
+						   => 
+						   if   (m >= p)   check_clicked("C (3)", n2, p::COPY (p, m));
+						   elif (m <  p)   check_clicked("C (4)", n2, p::TRUNC (p, m));
+						   else            skip();
+                                                   fi;
+
+					       _ => skip();
+                                          esac;
+				      };
+
+				  PURE (p::COPY_INF p, [v, f], x, t,
+					 e as PURE (p::TRUNC_INF m, [v2, f2], x2, t2, e2))
+				      =>
+				      {   fun skip ()
+                                              =
+                                              PURE (p::COPY_INF p, [ren v, ren f], x, t, g' e);
+
+					  fun check_clicked (tok, pure_op)
+                                              =
+					      if (cvt_pre_condition_inf (x, v2) )
+						  click tok;
+						  use_less f; use_less f2;
+						  PURE (pure_op, [ren v], x2, t2, g' e2);
+					      else
+                                                  skip ();
+                                              fi;
+
+					  if   (m >= p)   check_clicked ("C (3)", p::COPY (p, m));
+					  elif (m <  p)   check_clicked ("C (4)", p::TRUNC (p, m));
+					  else            skip ();
+                                          fi;
+				      };
+
+				  PURE (p::COPY (p, n), [v], x, t, e as ARITH (a, [v2], x2, t2, e2))
+				      =>
+				      {
+					  v' = [ren v];
+
+					  fun skip ()
+					      =
+					      PURE (p::COPY (p, n), v', x, t, g' e);
+
+					  fun check_clicked (tok, n2, ilk, arith_op)
+					      = 
+					      if (cvt_pre_condition (n, n2, x, v2) )
+						  click tok; ilk (arith_op, v', x2, t2, g' e2);
+					      else
+						  skip();
+					      fi;
+
+					  case a
+					      p::TEST (n2, m)
+						  =>
+						  m >= p   ??   check_clicked("C5", n2, PURE,  p::COPY (p, m))
+							   ::   check_clicked("C6", n2, ARITH, p::TEST (p, m));
+
+					      p::TESTU (n2, m)
+						  => 
+						  m > p   ??   check_clicked("C7", n2, PURE,  p::COPY  (p, m))
+							  ::   check_clicked("C8", n2, ARITH, p::TESTU (p, m));
+
+					     _ => skip();
+					  esac;
+				      };
+
+				  PURE (p::COPY_INF p, [v, f], x, t,
+					 e as ARITH (p::TEST_INF m, [v2, f2], x2, t2, e2))
+				      =>
+				      {
+					  fun check_clicked (tok, ilk, oper)
+                                              =
+					      if (cvt_pre_condition_inf (x, v2) )
+
+						  click tok; use_less f; use_less f2;
+						  ilk (oper, [ren v], x2, t2, g' e2);
+					      else
+                                                  PURE (p::COPY_INF p, [ren v, ren f], x, t, g' e);
+                                              fi;
+
+					  m >= p   ??   check_clicked ("C5", PURE,  p::COPY (p, m))
+					           ::   check_clicked ("C6", ARITH, p::TEST (p, m));
+				      };
+
+				  PURE (i, vl, w, t, e)
+				      =>
+				      {   vl' = map ren vl;
+
+					  my { used, ... } = get w;
+
+					  if (*used==0 and *cg::deadvars)
+					        click "m";
+                                                apply use_less vl';
+                                                g' e;
+					  else 
+                                                if (*cg::arithopt)
+						       newname (w, pure (i, vl')); g' e;
+						else raise exception CONSTANT_FOLD;
+                                                fi
+						except
+                                                    CONSTANT_FOLD
+							=
+							{   e' = g' e;
+
+							    if (*used==0 and deadup)
+
+							         apply use_less vl';
+                                                                 click "*";
+                                                                 e';
+							    else
+                                                                 PURE (i, vl', w, t, e');
+                                                            fi;
+							};
+                                           fi;
+				      };
+
+				  RAW_C_CALL (k, l, p, vl, wtl, e)
+				      =>
+				      RAW_C_CALL (k, l, p, map ren vl, wtl, g' e);		# Leave raw C calls alone.
+
+				  BRANCH (i, vl, c, e1, e2)
+				      =>
+				      {   vl' = map ren vl;
+
+					  # Maximum number of speculatively
+                                          # executed conditional moves:
+					  #
+					  max_condmove_hoist = 3;
+
+					  # This function creates conditional move from 
+					  # branches of the form:
+					  #    BRANCH (i, vl, c, APPLY (f,[x1]), APPLY (f,[x2]))
+					  #
+					  fun conditional_move ()
+					      = 
+					      {   # Hoist conditional moves up from branches 
+						  # This will make them run speculatively.
+						  # We limit this number to max_condmove_hoist so
+						  # that we don't speculatively execute everything.
+						  #
+						  fun hoist (e, 0)
+                                                          =>
+                                                          (fn k = k, e);
+
+						      hoist (PURE (p as p::CONDMOVE _, vl, x, t, e), n)
+							  => 
+							  {   my (k, e) = hoist (e, n - 1);
+
+							      fun new_k e = PURE (p, vl, x, t, k e);
+
+							      (new_k, e);
+							  }; 
+
+						      hoist (e, _)
+                                                          =>
+                                                          (fn k = k, e);
+						  end;
+
+						  my (k1, e1) = hoist (g' e1, max_condmove_hoist);
+						  my (k2, e2) = hoist (g' e2, max_condmove_hoist);
+
+						  fun default ()                      #  The default does nothing 
+						      =
+						      BRANCH (i, vl', c, k1 e1, k2 e2);
+
+						  # Determine the type of
+                                                  # conditional move:
+                                                  # 
+						  fun find_type (f, x, y)
+						      = 
+						      {   fun get_type (x, again)
+							      =
+							      case x   
+								  STRING _ => THE bogt;
+								  LABEL  _ => THE bogt;
+								  REAL   _ => THE FLTT;
+								  INT32  _ => THE INT32T;
+								  INT    _ => THE bogt;
+								  _ => again();
+							      esac;
+
+							  fun find_type ()
+							      =
+							      get_type (x, fn _ = get_type (y, fn _ = NULL));
+
+							  case (.info (get f))
+                                                            
+							      FNINFO { args => [f_arg], ... }
+								  =>
+								  case (.info (get f_arg))   
+								      MISCINFO t => THE t;	# Found type.
+								      _ => find_type();
+								  esac; 
+
+							       _ => find_type();
+							  esac; 
+						      }; 
+
+						case (i, e1, e2)
+                                                  
+
+						    ((p::STREQ | p::STRNEQ), _, _)
+							=>
+							default();                    #  String compares are complex, so we punt on them 
+
+						    (_, APPLY (VAR f, [x]), APPLY (VAR f', [y]))
+							=>
+							if (f == f')
+
+							    case (find_type (f, x, y))   
+								THE t
+								    =>
+								    {   r = lv::make_highcode_variable ();
+									say "COND MOVE\n";
+									k1 (k2( PURE (p::CONDMOVE i, vl' @ [x, y], r, t, APPLY (VAR f,[VAR r]))));
+								    };
+								_ =>
+								    {   say "COND MOVE failed\n";
+									default();
+								    };
+							    esac;
+
+							else
+
+							    default();
+							fi;
+
+						    _ => default();
+						esac; 
+					      };
+
+					  fun no_conditional_move ()
+					      =
+					      BRANCH (i, vl', c, g' e1, g' e2);
+
+					  fun h ()
+					      =
+					      (   if (*cg::branchfold and equal_upto_alpha (e1, e2))
+						           click "z";
+							   apply use_less vl';
+							   newname (c, INT 0);
+							   drop_body e2;
+							   g' e1;
+
+						     elif (*cg::comparefold)
+
+						          if (branch (i, vl')) 
+
+							       newname (c, INT 0); 
+							       apply use_less vl';
+							       drop_body e2; 
+							       g' e1;
+							  else
+                                                               newname (c, INT 0); 
+							       apply use_less vl';
+							       drop_body e1; 
+							       g' e2;
+                                                          fi;
+						     else
+                                                          raise exception CONSTANT_FOLD;
+                                                     fi
+					      )
+					      except
+						  CONSTANT_FOLD =  no_conditional_move ();
+
+					  fun get_if_idiom f
+					      =
+					      {   f' = ren f;
+
+						  case f'
+							 VAR v =>
+							     case (get v)
+								{ info=>IF_IDIOM_INFO { body }, ... } =>  THE body;
+								_                                   =>  NULL;
+							      esac;
+							_ => NULL;
+						  esac;
+					      };
+
+					  case (e1, e2)
+					    
+					      (APPLY (VAR f, [INT 1]), APPLY (VAR f', [INT 0]))
+						  =>
+						  case (f==f', get_if_idiom (VAR f))
+						    
+						       (TRUE, THE (body as REF (THE (c', a, b))))
+							   =>
+							   #  Handle IF IDIOM 
+							   {   newname (c', VAR c);
+							       body:=NULL;
+							       #  NOTE: could use vl' here instead of vl. 
+							       g'(BRANCH (i, vl, c, a, b));
+							   };
+
+						       _ => h();
+						  esac;
+
+					       _ => h();
+					  esac;
+				      };
+			end;					# fun handler
+                end 
+
+		also
+                branch
+		    =
+		    fn (p::UNBOXED, vl) => not (branch (p::BOXED, vl));
+		       (p::BOXED, [INT _]) => { click "n"; FALSE;};
+		       (p::BOXED, [STRING s]) => { click "o"; TRUE;};
+
+		       (p::BOXED, [VAR v])
+			   => 
+			   case (get v)
+                             
+			        { info=>RECINFO _, ... } =>  { click "p";  TRUE; };
+			         _                      =>  raise exception CONSTANT_FOLD;
+			   esac;
+
+		       (p::CMP { oper=>p::LT, kind }, [VAR v, VAR w])
+			   => 
+			   if   (v == w)
+                               
+			        click "v";
+			        FALSE;
+			   else
+			        raise exception CONSTANT_FOLD;
+			   fi;
+
+		       (p::CMP { oper=>p::LT, kind=>p::INT 31 }, [INT i, INT j])
+			   =>
+			   {   click "w";
+			       i < j;
+			   };
+
+		       (p::CMP { oper=>p::GT, kind }, [w, v])
+			   =>
+			   branch (p::CMP { oper=>p::LT, kind },[v, w]);
+
+		       (p::CMP { oper=>p::LE, kind }, [w, v])
+			   =>
+			   branch (p::CMP { oper=>p::GE, kind },[v, w]);
+
+		       (p::CMP { oper=>p::GE, kind }, vl)
+			   =>
+			   not (branch (p::CMP { oper=>p::LT, kind }, vl));
+
+		       (p::CMP { oper=>p::LT, kind=>p::UINT 31 }, [INT i, INT j])
+			   => 
+			   {   click "w";
+
+			       if (j < 0 )
+				   i >= 0 or  i < j;
+			       else
+				   i >= 0 and i < j;
+			       fi;
+			   }; 
+
+		       (p::CMP { oper=>p::EQL, kind }, [VAR v, VAR w])
+			   => 
+			   case kind   
+				p::FLOAT _ => raise exception CONSTANT_FOLD; #  incase of NaN's 
+			       _ => if (v==w )  { click "v"; TRUE;}; else raise exception CONSTANT_FOLD;fi;
+			   esac;
+
+		       (p::CMP { oper=>p::EQL, ... }, [INT i, INT j])
+                           =>
+                           {   click "w";
+                               i == j;
+                           };
+
+		       (p::CMP { oper=>p::NEQ, kind }, vl)
+                           => 
+			   not (branch (p::CMP { oper=>p::EQL, kind }, vl));
+
+		       (p::PEQL, [INT i, INT j])
+                           =>
+                           {   click "w";
+                               i == j;
+                           };
+
+		       (p::PNEQ, [v, w])
+                           =>
+                           not (branch (p::PEQL,[w, v]));
+
+		       _   =>
+                           raise exception CONSTANT_FOLD;
+                  end 
+
+		  also
+                  arith
+                      =
+		      fn (p::ARITH { oper=>p::MULTIPLY, ... }, [INT 1, v]) =>  { click "F"; v;};
+			 (p::ARITH { oper=>p::MULTIPLY, ... }, [v, INT 1]) =>  { click "G"; v;};
+			 (p::ARITH { oper=>p::MULTIPLY, ... }, [INT 0, _]) =>  { click "H"; INT 0;};
+			 (p::ARITH { oper=>p::MULTIPLY, ... }, [_, INT 0]) =>  { click "I"; INT 0;};
+
+			 (p::ARITH { oper=>p::MULTIPLY, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     {   x = i*j;
+                                 x+x+2;		# XXX BUGGO FIXME What is this supposed to do?  Should it be 'x = x+2;' ? Is this an overflow test? Notice these are pervasive in this section so typo is not likely.
+                                 click "J";
+                                 INT x;
+                             };
+
+			 (p::ARITH { oper=>p::DIVIDE, ... }, [v, INT 1]) => { click "K"; v;};
+			 (p::ARITH { oper=>p::DIVIDE, ... }, [INT i, INT 0]) => raise exception CONSTANT_FOLD;
+
+			 (p::ARITH { oper=>p::DIVIDE, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+				   { x = int::quot (i, j);  x+x; click "L"; INT x; };
+
+			 (p::ARITH { oper=>p::DIV, ... }, [v, INT 1]) => { click "K"; v;};
+			 (p::ARITH { oper=>p::DIV, ... }, [INT i, INT 0]) => raise exception CONSTANT_FOLD;
+
+			 (p::ARITH { oper=>p::DIV, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+				   { x = int::(/) (i, j);  x+x; click "L"; INT x; };
+
+			 # XXX BUGGO FIXME: should we do anything for mod or rem here? 
+
+			 (p::ARITH { oper=>p::ADD, ... }, [INT 0, v]) => { click "M"; v;};
+			 (p::ARITH { oper=>p::ADD, ... }, [v, INT 0]) => { click "N"; v;};
+
+			 (p::ARITH { oper=>p::ADD, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+				  { x = i+j;  x+x+2; click "O"; INT x; };
+
+			 (p::ARITH { oper=>p::SUBTRACT, ... }, [v, INT 0]) => { click "P"; v;};
+
+			 (p::ARITH { oper=>p::SUBTRACT, kind=>p::INT 31 }, [INT i, INT j]) =>
+				  { x = i-j;  x+x+2; click "Q"; INT x; };
+
+			 (p::ARITH { oper=>p::NEGATE, kind=>p::INT 31, ... }, [INT i]) =>
+				     { x = -i;  x+x+2; click "X"; INT x; };
+			 _ => raise exception CONSTANT_FOLD;
+                      end 
+
+		  also
+                  pure
+                      =
+		      fn (p::PURE_ARITH { oper=>p::RSHIFT, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     {   click "R";
+                                 INT (wtoi (unt::(>>>)(itow i, itow j)));
+                             };
+
+		         (p::PURE_ARITH { oper=>p::RSHIFT, kind=>p::INT 31 }, [INT 0, _])
+                             =>
+			     { click "S"; INT 0;};
+
+			 (p::PURE_ARITH { oper=>p::RSHIFT, kind=>p::INT 31 }, [v, INT 0])
+                             =>
+			     { click "T"; v;};
+
+			 (p::LENGTH, [STRING s])
+                             =>
+                             { click "V"; INT (size s);};
+
+		   #     (p::ORDOF, [STRING s, INT i])
+                   #         =>
+                   #	     { click "W"; INT (ordof (s, i))};
+
+			 (p::PURE_ARITH { oper=>p::LSHIFT, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     ( { x = wtoi (unt::(<<) (itow i, itow j));
+			         x+x;
+                                 click "Y";
+                                 INT x;
+			       }
+                               except
+                                   OVERFLOW = raise exception CONSTANT_FOLD
+                             );
+
+			 (p::PURE_ARITH { oper=>p::LSHIFT, kind=>p::INT 31 }, [INT 0, _])
+                             =>
+			     { click "Z"; INT 0;};
+
+			 (p::PURE_ARITH { oper=>p::LSHIFT, kind=>p::INT 31 }, [v, INT 0])
+                             =>
+			     { click "1"; v;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEOR, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     { click "2"; INT (wtoi (unt::bitwise_or (itow i, itow j)));};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEOR, kind=>p::INT 31 }, [INT 0, v])
+                             =>
+                             { click "3"; v;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEOR, kind=>p::INT 31 }, [v, INT 0])
+                             =>
+                             { click "4"; v;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEXOR, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     { click "5"; INT (wtoi (unt::bitwise_xor (itow i, itow j)));};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEXOR, kind=>p::INT 31 }, [INT 0, v])
+                             =>
+			     { click "6"; v;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEXOR, kind=>p::INT 31 }, [v, INT 0])
+                             =>
+                             { click "7"; v;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISENOT, kind=>p::INT 31 }, [INT i])
+                             =>
+			     { click "8"; INT (wtoi (unt::bitwise_not (itow i)));};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEAND, kind=>p::INT 31 }, [INT i, INT j])
+                             =>
+			     { click "9"; INT (wtoi (unt::bitwise_and (itow i, itow j)));};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEAND, kind=>p::INT 31 }, [INT 0, _])
+                             =>
+			     { click "0"; INT 0;};
+
+			 (p::PURE_ARITH { oper=>p::BITWISEAND, kind=>p::INT 31 }, [_, INT 0])
+                             =>
+			     { click "T"; INT 0;};
+
+			 (p::REAL { fromkind=>p::INT 31, tokind=>p::FLOAT 64 }, [INT i])
+                             =>
+			     (REAL (int::to_string i + ".0"));  #  isn't this cool? 
+
+			 (p::FUNWRAP,[x as VAR v])
+                             => 
+			     case (get v)
+                               
+                                  { info=>WRPINFO (p::FWRAP, u), ... }
+                                      =>
+				      { click "U"; use_less x; u;};
+
+				  _   =>
+                                      raise exception CONSTANT_FOLD;
+                             esac;
+
+			 (p::FWRAP,[x as VAR v])
+                             =>
+			     case (get v)
+                               
+                                  { info=>WRPINFO (p::FUNWRAP, u), ... }
+                                      =>
+				      { click "U"; use_less x; u;};
+
+				  _   =>
+                                      raise exception CONSTANT_FOLD;
+                             esac;
+
+			 (p::IUNWRAP,[x as VAR v])
+                             =>
+			     case (get v)
+                               
+                                  { info=>WRPINFO (p::IWRAP, u), ... }
+                                      =>
+				      { click "U"; use_less x; u;};
+
+				  _   =>
+                                      raise exception CONSTANT_FOLD;
+                             esac;
+
+			 (p::IWRAP,[x as VAR v])
+                             =>
+			     case (get (v))
+                               
+                                  { info=>WRPINFO (p::IUNWRAP, u), ... }
+                                      =>
+				      { click "U"; use_less x; u;};
+
+				  _   =>
+                                      raise exception CONSTANT_FOLD;
+                             esac;
+
+			 (p::I32UNWRAP,[x as VAR v])
+                             =>
+			     case (get v)
+                               
+                                  { info=>WRPINFO (p::I32WRAP, u), ... }
+                                      =>
+				      { click "U"; use_less x; u;};
+
+				  _   =>
+                                      raise exception CONSTANT_FOLD;
+                             esac;
+
+			 (p::I32WRAP, [x as VAR v])
+			      =>
+			      case (get v)
+                                
+				   { info => WRPINFO (p::I32UNWRAP, u), ... }
+				      =>
+				      { click "U"; use_less x; u;};
+
+				  _ => raise exception CONSTANT_FOLD;
+			      esac;
+
+			 _    =>
+                              raise exception CONSTANT_FOLD;
+                  end;
+
+		  debugprint "Contract: ";
+		  debugflush ();
+		  enter_misc0 fvar;
+		  apply enter_misc0 fargs;
+		  pass1 cexp;
+		  cpssize := int_hash_table::vals_count m;
+
+		  cexp' = reduce cexp;
+		  debugprint "\n";
+
+		  if   (debug)
+		      
+		       debugprint "After contract: \n"; 
+		       prettyprint_fps::print_fps_expression cexp';
+		  fi;
+	    end;
+    end;	#  toplevel with
+};		#  generic package contract_g 
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

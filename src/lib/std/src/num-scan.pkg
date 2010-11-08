@@ -1,0 +1,759 @@
+## num-scan.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+# The string conversion for the largest int and word types.
+# All of the other scan functions can be implemented in terms of them.
+
+package num_scan
+
+: (weak)
+api {
+
+    scan_word
+        :
+        number_string::Radix					# number_string		is from   src/lib/std/src/number-string.pkg
+	->
+	number_string::Reader( Char, X )
+	->
+	number_string::Reader( unt32::Unt, X );
+
+
+    scan_int
+        :
+        number_string::Radix
+	->
+	number_string::Reader( Char, X )
+	->
+	 number_string::Reader( int32::Int, X );
+
+
+    scan_real
+        :
+        number_string::Reader( Char, X)
+	->
+	number_string::Reader( Float, X );
+
+	# * should be to large_float::real *
+
+}
+{
+    package u32 =  inline_t::unt32;				# inline_t		is from   src/lib/core/init/built-in.pkg
+    package i   =  inline_t::int31;
+    package i32 =  inline_t::int32;
+    package r   =  inline_t::float64;
+
+    Unt = unt32::Unt;
+
+    my (<)  = u32::(<);
+    my (>=) = u32::(>=);
+    my (+)  = u32::(+);
+    my (-)  = u32::(-);
+    my (*)  = u32::(*);
+
+    my largest_word_div10:  Unt = 0u429496729;	#  2^32-1 divided by 10 
+    my largest_word_mod10:  Unt = 0u5;		#  remainder 
+
+    my largest_neg_int32:  Unt = 0ux80000000;
+    my largest_pos_int32:  Unt = 0ux7fffffff;
+    my min_int32:  int32::Int = -2147483648;
+
+    # A table for mapping digits to values.  Whitespace characters map to
+    # 128, "+" maps to 129, "-", "~" map to 130, "." maps to 131, and the
+    # characters 0-9, A-Z, a-z map to their * base-36 value.  All other
+    # characters map to 255.
+
+    stipulate
+
+        cvt_table = "\
+	    \\255\255\255\255\255\255\255\255\255\128\128\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\128\255\255\255\255\255\255\255\255\255\255\129\255\130\131\255\
+	    \\000\001\002\003\004\005\006\007\008\009\255\255\255\255\255\255\
+	    \\255\010\011\012\013\014\015\016\017\018\019\020\021\022\023\024\
+	    \\025\026\027\028\029\030\031\255\033\034\035\255\255\255\255\255\
+	    \\255\010\011\012\013\014\015\016\017\018\019\020\021\022\023\024\
+	    \\025\026\027\028\029\030\031\032\033\034\035\255\255\255\130\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	    \\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
+	  \";
+
+        to_int = inline_t::char::ord;
+
+    herein
+
+	fun code (c:  Char)
+	    =
+	    u32::from_int (to_int (inline_t::char_vector::get (cvt_table, to_int c)));
+
+	my ws_code:     Unt = 0u128;		#  Code for whitespace 
+	my plus_code:   Unt = 0u129;		#  Code for '+' 
+	my minus_code:  Unt = 0u130;		#  Code for '-' and '~' 
+	my pt_code:     Unt = 0u131;		#  Code for '.' 
+	my e_code:      Unt = 0u14;		#  Code for 'e' and 'E' 
+	my w_code:      Unt = 0u32;		#  Code for 'w' 
+	my x_code:      Unt = 0u33;		#  Code for 'X' and 'X' 
+
+    end;
+
+    Prefix_Pat
+	=
+        { w_okay:  Bool,		# TRUE if 0[wW] prefix is okay; if this is
+					# TRUE, then signs (+, -, ~) are not okay.
+
+	  x_okay:  Bool,		#  TRUE if 0[xX] prefix is okay 
+	  pt_okay: Bool,        	#  TRUE if can start with point 
+	  is_digit:  Unt -> Bool	#  returns TRUE for allowed digits 
+	};
+
+#     scanPrefix:  prefix_pat
+#                  ->
+#                  Reader( char, X )
+#                  ->
+#                  X
+#                  ->
+#                  Null_Or { neg: Bool, next: word /* code */, rest: X }
+#
+#       scans prefix for a number:
+#       binPattern (TRUE)  { wOkay=TRUE, xOkay=FALSE, ptOkay=FALSE, isBinDigit } =>
+#	   (0[wW])?b (b binary digit)
+#       binPattern (FALSE) { wOkay=TRUE, xOkay=FALSE, ptOkay=FALSE, isBinDigit } =>
+#	   [-~+]?b
+#       octPattern (TRUE)  { wOkay=TRUE, xOkay=FALSE, ptOkay=FALSE, isOctDigit } =>
+#	   (0[wW])?o (o octal digit)
+#       octPattern (FALSE) { wOkay=FALSE, xOkay=FALSE, ptOkay=FALSE, isOctDigit } =>
+#	   [-~+]?o
+#       hexPattern (TRUE)  { wOkay=TRUE, xOkay=TRUE, ptOkay=FALSE, is_hex_digit } =>
+#           (0[wW][xX])?h (h hex digit)
+#       hexPattern (FALSE) { wOkay=FALSE, xOkay=TRUE, ptOkay=FALSE, is_hex_digit } =>
+#	   [-~+]?(0[xX])?h
+#       decPattern (TRUE, FALSE) { wOkay=TRUE, xOkay=FALSE, ptOkay=FALSE, isDecDigit } =>
+#           (0[wW][xX])?d (d decimal digit)
+#       decPattern (FALSE, false) { wOkay=FALSE, xOkay=FALSE, ptOkay=FALSE, isDecDigit } =>
+#	   [-~+]?d
+#       decPattern (FALSE, TRUE) { wOkay=FALSE, xOkay=FALSE, ptOkay=TRUE, isDecDigit } =>
+#	   [-~+]?[.d]
+#
+#       Sign characters, initial 0x, 0u, etc are consumed.  The initial
+#       digit or point code is returned as the value of next.
+
+    fun scan_prefix (p:  Prefix_Pat) getc cs
+        =
+	get_opt_sign (skip_ws cs)
+        where
+            fun get_next cs
+                =
+                case (getc cs)
+
+		    THE (c, cs)
+                        =>
+                        THE (code c, cs);
+
+		    NULL => NULL;
+                esac;
+
+	    fun skip_ws cs
+                =
+                case (get_next cs)
+
+		    THE (c, cs')
+                        =>
+			if (c == ws_code)   skip_ws cs';
+                        else                THE (c, cs');
+                        fi;
+
+		    NULL => NULL;
+                esac;
+
+	    fun get_opt_sign (next as THE (c, cs))
+		    =>
+		    if   (p.w_okay)	     get_opt0 (FALSE, THE (c, cs));
+		    elif (c == plus_code)    get_opt0 (FALSE, get_next cs);
+		    elif (c == minus_code)   get_opt0 (TRUE,  get_next cs);
+		    else                     get_opt0 (FALSE, next);
+		    fi;
+
+		get_opt_sign NULL
+                    =>
+                    NULL;
+            end 
+
+	    also
+	    fun get_opt0 (neg, THE (c, cs))
+                    =>
+		    if (c == 0u0
+                    and (p.w_okay or p.x_okay)
+                    )
+		        get_opt_w (neg, (c, cs), get_next cs);
+		    else
+                        finish (neg, (c, cs));
+                    fi;
+
+                get_opt0 (neg, NULL)
+                    =>
+                    NULL;
+            end 
+
+	    also
+	    fun get_opt_w (neg, saved_cs, arg as THE (c, cs))
+                    =>
+		    if (c == w_code and p.w_okay)
+		         get_opt_x (neg, saved_cs, get_next cs);
+		    else get_opt_x (neg, saved_cs, arg);
+                    fi;
+
+                get_opt_w (neg, saved_cs, NULL)
+                    =>
+                    finish (neg, saved_cs);
+            end 
+
+	    also
+	    fun get_opt_x (neg, saved_cs, NULL)
+                    =>
+                    finish (neg, saved_cs);
+
+	        get_opt_x (neg, saved_cs, arg as THE (c, cs))
+		    =>
+		    if (c == x_code  and  p.x_okay)
+			 check_digit (neg, saved_cs, get_next cs);
+		    else check_digit (neg, saved_cs, arg);
+		    fi;
+            end 
+
+	    also
+	    fun check_digit (neg, saved_cs, THE (c, cs))
+                  =>
+		  if (p.is_digit c)  THE { neg, next => c, rest => cs };
+		  else               finish (neg, saved_cs);
+                  fi;
+
+                check_digit (neg, saved_cs, NULL)
+                    =>
+                    finish (neg, saved_cs);
+            end 
+
+	    also
+	    fun finish (neg, (c, cs))
+                =
+		if ((p.is_digit c) or ((c == pt_code) and p.pt_okay))
+		    THE { neg, next => c, rest => cs };
+		else
+                    NULL;
+                fi;
+
+	end;				# fun scan_prefix
+
+    # For power of 2 bases (2, 8 & 16),
+    # we can check for overflow by looking
+    # at the hi (1, 3 or 4) bits.
+    #
+    fun check_overflow mask w
+        =
+	if (u32::bitwise_and (mask, w) != 0u0)   raise exception OVERFLOW;   fi;
+
+    fun is_bin_digit d = (d < 0u2);
+    fun is_oct_digit d = (d < 0u8);
+    fun is_dec_digit d = (d < 0u10);
+    fun is_hex_digit d = (d < 0u16);
+
+    fun bin_pattern w_okay = { w_okay, x_okay=>FALSE, pt_okay=>FALSE, is_digit=>is_bin_digit };
+    fun oct_pattern w_okay = { w_okay, x_okay=>FALSE, pt_okay=>FALSE, is_digit=>is_oct_digit };
+    fun hex_pattern w_okay = { w_okay, x_okay=>TRUE,  pt_okay=>FALSE, is_digit=>is_hex_digit };
+
+    fun dec_pattern (w_okay, pt_okay)
+        =
+        { w_okay, x_okay=>FALSE, pt_okay,
+				 is_digit=>is_dec_digit };
+
+    fun scan_bin is_word getc cs
+        =
+        case (scan_prefix (bin_pattern is_word) getc cs)
+
+	    THE { neg, next, rest }
+		=>
+		convert (next, rest)
+                where
+		    check_overflow
+			=
+			check_overflow 0ux80000000;
+
+		    fun convert (w, rest)
+			=
+			case (getc rest)
+
+			    THE (c, rest')
+				=>
+				{   d = code c;
+
+				    if (is_bin_digit d)
+
+					check_overflow w;
+					convert (u32::(+) (u32::lshift (w, 0u1), d), rest');
+				    else
+					THE { neg, word=>w, rest };
+				    fi;
+			       };
+
+			    NULL => THE { neg, word=>w, rest };
+			esac;
+		end;
+
+	    NULL => NULL;
+        esac;
+
+
+    fun scan_oct is_word getc cs
+        =
+        case (scan_prefix (oct_pattern is_word) getc cs)
+
+	    THE { neg, next, rest }
+		=>
+		convert (next, rest)
+                where
+		    check_overflow
+			=
+			check_overflow 0uxE0000000;
+
+		    fun convert (w, rest)
+			=
+			case (getc rest)
+
+			    THE (c, rest')
+				=>
+				{   d = code c;
+
+				    if (is_oct_digit d)
+
+					check_overflow w;
+					convert (u32::(+) (u32::lshift (w, 0u3), d), rest');
+				    else
+					THE { neg, word=>w, rest };
+				    fi;
+				};
+
+			    NULL => THE { neg, word=>w, rest };
+			esac;
+	        end;
+	  
+	    NULL => NULL;
+        esac;
+
+
+    fun scan_dec is_word getc cs
+        =
+        case (scan_prefix (dec_pattern (is_word, FALSE)) getc cs)
+
+	    THE { neg, next, rest }
+		=>
+		convert (next, rest)
+                where
+		    fun convert (w, rest)
+			=
+			case (getc rest)
+
+			    THE (c, rest')
+				=>
+				{   d = code c;
+
+				    if (is_dec_digit d)
+
+					if ((w >= largest_word_div10)
+					     and ((largest_word_div10 < w)
+					       or (largest_word_mod10 < d))
+					)
+					    raise exception OVERFLOW;
+					fi;
+
+					convert (0u10*w+d, rest');
+				    else
+					THE { neg, word=>w, rest };
+				    fi;
+				};
+
+			    NULL => THE { neg, word=>w, rest };
+			esac;
+	        end;
+
+	    NULL => NULL;
+        esac;
+
+
+    fun scan_hex is_word getc cs
+        =
+        case (scan_prefix  (hex_pattern is_word)  getc  cs)
+
+	    THE { neg, next, rest }
+		=>
+		convert (next, rest)
+                where
+		    check_overflow
+			=
+			check_overflow  0uxF0000000;
+
+		    fun convert (w, rest)
+			=
+			case (getc rest)
+
+			    THE (c, rest')
+				=>
+				{   d = code c;
+
+				    if (is_hex_digit d)
+
+					check_overflow w;
+					convert (u32::(+) (u32::lshift (w, 0u4), d), rest');
+				    else
+					THE { neg, word=>w, rest };
+				    fi;
+			       };
+
+			    NULL => THE { neg, word=>w, rest };
+			esac;
+	        end;
+
+	    NULL => NULL;
+        esac;
+
+
+    fun final_word scan_g getc cs
+        =
+        case (scan_g TRUE getc cs)
+
+	    THE { neg, word, rest }
+		=>
+		THE (word, rest);
+
+	    NULL => NULL;
+        esac;
+
+    fun scan_word number_string::BINARY  =>  final_word scan_bin;
+        scan_word number_string::OCTAL   =>  final_word scan_oct;
+        scan_word number_string::DECIMAL =>  final_word scan_dec;
+        scan_word number_string::HEX     =>  final_word scan_hex;
+    end;
+
+    stipulate
+
+        fromword32 = i32::from_large o u32::to_large_int_x; 
+
+    herein
+
+	fun final_int scan_g getc cs
+	    =
+	    case (scan_g FALSE getc cs)
+
+		THE { neg=>TRUE, word, rest }
+		    =>
+		    if (word < largest_neg_int32)
+
+			THE (inline_t::int32::neg(fromword32 word), rest);
+		    else 
+			if (largest_neg_int32 < word)
+
+			    raise exception OVERFLOW;
+			else 
+			    THE (min_int32, rest);
+			fi;
+		    fi;
+
+		THE { word, rest, ... }
+		    =>
+		    if (largest_pos_int32 < word)
+
+			raise exception OVERFLOW;
+		    else 
+			THE (fromword32 word, rest);
+		    fi;
+
+		NULL => NULL;
+	    esac;
+    end;
+
+    fun scan_int number_string::BINARY  =>  final_int  scan_bin;
+        scan_int number_string::OCTAL   =>  final_int  scan_oct;
+        scan_int number_string::DECIMAL =>  final_int  scan_dec;
+        scan_int number_string::HEX     =>  final_int  scan_hex;
+    end;
+  
+    # Scan a string of decimal digits (starting with d), and return their
+    # value as a real number.  Also return the number of digits, and the
+    # rest of the stream.
+    #
+    fun fscan10 getc (d, cs)
+        =
+	{   fun word_to_real w
+                =
+                inline_t::float64::from_int31 (u32::to_int_x w);
+
+	    fun scan (accum, n, cs)
+                =
+                case (getc cs)
+		  
+		    THE (c, cs')
+			=>
+			{   d = code c;
+
+			    if (is_dec_digit d)
+
+				scan (r::(+) (r::(*) (10.0, accum), word_to_real d), i::(+) (n, 1), cs');
+			    else
+                                THE (accum, n, cs);
+                            fi;
+			};
+
+		    NULL
+			=>
+			THE (accum, n, cs);
+                esac;
+
+
+	    if (is_dec_digit d)
+                
+                scan (word_to_real d, 1, cs);
+            else
+                NULL;
+            fi;
+	};
+
+    stipulate
+
+	neg_table = #[
+		1.0E-0, 1.0E-1, 1.0E-2, 1.0E-3, 1.0E-4,
+		1.0E-5, 1.0E-6, 1.0E-7, 1.0E-8, 1.0E-9
+	      ];
+
+	pos_table = #[
+		1.0E0, 1.0E1, 1.0E2, 1.0E3, 1.0E4,
+		1.0E5, 1.0E6, 1.0E7, 1.0E8, 1.0E9
+	      ];
+
+	fun scale (table, step10:  Float)
+            =
+	    f
+            where
+	        fun f (r, 0)
+                        =>
+                        r;
+
+		    f (r, exp)
+                        =>
+                        if (i::(<) (exp, 10))
+
+		            (r::(*) (r, inline_t::poly_vector::get (table, exp)));
+		        else
+                            f (r::(*) (step10, r), i::(-) (exp, 10));
+                        fi;
+                end;
+	    end;
+
+    herein
+
+	scale_up   =  scale (pos_table, 1.0E10);
+	scale_down =  scale (neg_table, 1.0E-10);
+
+    end;
+
+
+    fun scan_real getc cs
+        =
+        {   fun scan10 cs
+                =
+                case (getc cs)
+		    THE (c, cs) =>  fscan10 getc (code c, cs);
+		    NULL        =>  NULL;
+                esac;
+
+	    fun get_frac rest
+                =
+                case (scan10 rest)
+		  
+		     THE (frac, n, rest)
+                         =>
+                         THE (scale_down (frac, n), rest);
+
+		     NULL => NULL;
+                esac;
+
+
+	    fun negate (TRUE,  num) =>  r::neg num;
+	        negate (FALSE, num) =>  num;
+            end;
+
+	    fun scan_expression cs
+                =
+                case (getc cs)
+		  
+		    THE (c, cs)
+			=>
+			{   d = code c;
+
+			    fun scan (accum, cs)
+				=
+				case (getc cs)
+
+				    THE (c, cs')
+					=>
+					{   d = code c;
+
+					    if (is_dec_digit d)
+
+						scan (i::(+) (i::(*) (accum, 10), u32::to_int_x d), cs');
+					    else
+						(accum, cs);
+					    fi;
+				       };
+
+				    NULL =>
+					(accum, cs);
+				esac;
+
+
+			    if (is_dec_digit  d)
+
+				THE (scan (u32::to_int_x d, cs));
+			    else
+                                NULL;
+                            fi;
+			};
+
+		    NULL => NULL;
+                esac;
+
+
+	    fun get_expression (num, cs)
+                =
+		case (getc cs)
+		  
+		    THE (c, cs1)
+			=>
+			if (code c == e_code)
+
+			    case (getc cs1)
+
+				THE (c, cs2)
+				    =>
+				    {   code_c = code c;
+
+					my (is_neg, cs3)
+					    =
+					    if (code_c == minus_code)
+
+						(TRUE, cs2);
+					    else
+						code_c == plus_code
+						  ?? (FALSE, cs2)
+						  :: (FALSE, cs1);
+					    fi;				#  no sign 
+
+					case (scan_expression cs3)
+
+					    THE (exp, cs4)
+						=>
+						THE ( is_neg ?? scale_down (num, exp)
+						             :: scale_up   (num, exp),
+						      cs4
+                                                    );
+
+					    NULL => THE (num, cs);
+					esac;
+				    };
+
+				NULL => THE (num, cs);
+			    esac;
+
+			else
+			    THE (num, cs);
+			fi;
+
+		    NULL => THE (num, cs);
+                esac;
+
+
+	    case (scan_prefix (dec_pattern (FALSE, TRUE)) getc cs)
+
+		THE { neg, next, rest }
+		    =>
+		    if (next == pt_code)	#  initial point after prefix 
+
+			case (get_frac rest)
+
+			     THE (frac, rest)
+				 => 
+				 get_expression (negate (neg, frac), rest);
+
+			     NULL => NULL;
+			esac;			#  initial point not followed by digit 
+
+		    else
+			#  ASSERT: next must be a digit 
+			#  get whole number part 
+
+			case (fscan10 getc (next, rest))
+
+			    THE (whole, _, rest)
+				=>
+				case (getc rest)
+
+				    THE ('.', rest')
+					=>
+					# Whole part followed by point,
+                                        # get fraction:
+					# 
+					case (get_frac rest')
+
+					    THE (frac, rest'')
+						=>
+                                                # Fraction exists:
+						# 
+						get_expression (negate (neg, r::(+) (whole, frac)), rest'');
+
+					    NULL =>
+						# No fraction -- point terminates num:
+						#
+						THE (negate (neg, whole), rest);
+					esac;
+
+				     _  => get_expression (negate (neg, whole), rest);
+				esac;
+
+
+			    NULL => NULL; #  ASSERT: this case can't happen 
+			esac;
+		    fi;
+
+		NULL => NULL;
+            esac;
+	};			# fun scan_real
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

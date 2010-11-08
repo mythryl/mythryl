@@ -1,0 +1,690 @@
+## polyequal.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+###            "Those whose work and pleasures are one
+###              are fortune's favorite children."
+###
+###                         -- Sir Winston Churchill
+
+
+api Polyequal {
+
+     To_Tc_Lt = ((types::Type -> polylambda_type::Highcode_Type_Constructor), (types::Type -> polylambda_type::Highcode_Type));
+
+    # Constructing generic equality functions; the current version will
+    # use runtime polyequal function to deal with abstract types. (ZHONG)
+
+     equal:  ({ get_string_eq:  Void -> polylambda::Polylambda_Expression, 
+		 get_integer_eq:  Void -> polylambda::Polylambda_Expression,
+		 get_poly_eq:  Void -> polylambda::Polylambda_Expression }, symbol_table::Symbol_Table) 
+		 -> ((types::Type, types::Type, To_Tc_Lt)) -> polylambda::Polylambda_Expression;
+
+     debugging:  Ref(  Bool );     
+
+};
+
+
+package polyequal: (weak)  Polyequal {		# Polyequal		is from   src/lib/compiler/backend/upper/translate/polyequal.pkg
+
+    stipulate
+
+        package da= var_home;			# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+	package em= error_message;		# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package t= types;			# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package bt= type_types;			# type_types			is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package lt= polylambda_type;		# polylambda_type		is from   src/lib/compiler/backend/upper/polylambda/polylambda-type.pkg
+	package tu= type_stuff;			# type_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package se= symbol_table;		# symbol_table			is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+	package po= highcode_primitive_op;	# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package pp= prettyprint;		# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+	package t = types;			# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+
+	include polylambda; 
+
+    herein
+
+	debugging = REF FALSE;
+	fun bug msg = error_message::impossible("Equal: " + msg);
+	say = controls::print::say;
+
+	To_Tc_Lt = ((t::Type -> lt::Highcode_Type_Constructor), (t::Type -> lt::Highcode_Type));
+
+	my --> = bt::(-->);
+
+	infix val  --> ;
+
+
+	# MAJOR CLEANUP REQUIRED ! The function make_var is currently directly taken 
+	# from the highcode_var module; I think it should be taken from the 
+	# "comp_info". Similarly, should we replace all make_lambda_variable in the backend
+	# with the make_var in "comp_info" ? (ZHONG)   XXX BUGGO FIXME
+	#
+	make_var
+            =
+            highcode_var::make_highcode_variable;
+
+	# Translating the type field in ENUM_CONSTRUCTOR
+	# into Highcode_Type; constant datacons 
+	# will take ltc_unit as the argument
+	#
+	fun to_dcon_lty (to_type_constructor, to_lambda_type) type
+	    =
+	    case type 
+
+	       t::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties=>an_api, type_scheme=>t::TYPE_SCHEME { arity, body }}
+	         =>
+		 if   (bt::is_arrow_type body)
+		      to_lambda_type type;
+		 else to_lambda_type (t::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties => an_api, 
+						type_scheme                         => t::TYPE_SCHEME { arity,
+												       body  => bt::(-->) (bt::void_type, body) }
+					      }
+			    );
+                 fi;
+
+	      _ => if (bt::is_arrow_type type)  to_lambda_type type;
+		   else                           to_lambda_type (bt::(-->)(bt::void_type, type));
+                   fi; 
+            esac;
+
+
+	# Is tu::datatype_constructor_to_type necessary, or could a variant of transTyLty that 
+	# just takes Type and domain be used in transDcon??? 
+	#
+	fun trans_dcon (type_constructor, { name, representation, domain }, to_tc_lt)
+                =
+	        (name, representation, to_dcon_lty to_tc_lt (tu::datatype_constructor_to_type (type_constructor, domain)));
+
+	my (true_dcon', false_dcon')
+	    = 
+	    {   lt =   lt::ltc_parrow (lt::ltc_unit, lt::ltc_bool);
+		#
+		fun h (t::ENUM_CONSTRUCTOR { symbol, representation, ... } )
+		    =
+		    (symbol, representation, lt);
+
+		( h bt::true_dcon,
+                  h bt::false_dcon
+                );
+	    };
+	#
+	fun cond (a, b, c)
+            =
+	    SWITCH
+              (
+                a,
+                bt::bool_signature,
+                [ (DATACON (true_dcon',  [], make_var()), b),
+		  (DATACON (false_dcon', [], make_var()), c)
+                ],
+                NULL
+              );
+
+	my  (true_lexp, false_lexp)
+            =
+	    {   unit_lexp = RECORD [];
+
+	       ( CONSTRUCTOR (true_dcon',  [], unit_lexp),
+                 CONSTRUCTOR (false_dcon', [], unit_lexp)
+               );
+	    };
+	#
+	fun arg_type (domain, [])
+                =>
+                domain;
+
+	   arg_type (domain, args)
+                =>
+	        tu::apply_type_scheme (t::TYPE_SCHEME { arity=>length args, body=>domain }, args);
+        end;
+
+	#
+	fun reduce_type type
+            =
+	    case (tu::head_reduce_type type)
+	          t::TYPE_SCHEME_TYPE { type_scheme => t::TYPE_SCHEME { body, ... }, ... }   =>   reduce_type body;
+	          other => other;
+            esac;
+
+	# Given a list of data constructors; return its api and a list
+	# of value-carrying data constructors
+	#
+	fun get_csig dcons
+	    = 
+	    {   fun is_const (da::CONSTANT _) =>  TRUE;
+		    is_const (da::LISTNIL)    =>  TRUE;
+		    is_const _                =>  FALSE;
+                end;
+
+	        h (dcons, 0, 0, [])
+		where
+		    fun h ([], c, v, rds)
+			    =>
+			    (da::CONSTRUCTOR_SIGNATURE (v, c), reverse rds);
+
+			h ((dc as { representation=>a, domain, name } ) ! r, c, v, rds)
+			     => 
+			     if (is_const a)  h (r, c+1, v, rds);
+			     else             h (r, c, v+1, dc ! rds);
+			     fi;
+                    end;
+                end;
+
+	    };
+	#
+	fun expand_rec (family as { members: Vector( t::Datatype_Member ), ... }, stamps, free_type_constructors)
+	    =
+	    f
+            where
+	        fun g (t::RECURSIVE_TYPE i)
+		        => 
+			{   my  { type_constructor_name, constructor_list, arity, eq, is_lazy, an_api }
+				=
+				vector::get (members, i);
+
+			    s =   vector::get (stamps, i);
+
+			    t::PRIMITIVE_TYPE_CONSTRUCTOR {
+
+                                stamp=> s,
+                                arity,
+                                eq   => REF( t::YES ), 
+			        path => inverse_path::INVERSE_PATH [ type_constructor_name ],
+				stub => NULL,
+				kind => t::DATATYPE {
+
+                                           index => i,
+                                           family,
+                                           root  => NULL,
+					   stamps,
+                                           free_type_constructors
+                                       }
+                            };
+			};
+
+		    g (t::FREE_TYPE i)
+                        =>
+                        list::nth (free_type_constructors, i);
+
+		    g x => x;
+                end;
+
+		#
+		fun f (t::CONSTRUCTOR_TYPE (type_constructor, tyl))
+                        =>
+                        t::CONSTRUCTOR_TYPE (g type_constructor, map f tyl);
+
+		    f (x as t::TYPE_SCHEME_ARG_I _)
+                        =>
+                        x;
+
+		    f _ => bug "unexpected type in expandREC";
+                end;
+	    end;
+
+	exception POLY;
+	#
+	fun equiv_type (type, type')
+	    =
+	    eq (tu::prune type, tu::prune type')
+            where
+	        fun eq (type as t::CONSTRUCTOR_TYPE (type_constructor, args), type' as t::CONSTRUCTOR_TYPE (type_constructor', args'))
+                        =>
+			(   if   (tu::type_constructors_are_equal (type_constructor, type_constructor'))
+			        
+                                 paired_lists::all equiv_type (args, args'); 
+			    else
+				 equiv_type (tu::reduce_type type, type')
+				 except
+				     bad_type_reduction
+					 =
+					 (   equiv_type (type, tu::reduce_type type')
+					     except
+						 bad_type_reduction = FALSE
+					 );
+                            fi
+                       );
+
+		   eq(t::TYPE_VARIABLE_REF _, _) =>   raise exception POLY;
+		   eq(_, t::TYPE_VARIABLE_REF _) =>   raise exception POLY;
+		   eq(t::TYPE_SCHEME_TYPE _,  _) =>   raise exception POLY;
+		   eq(_,  t::TYPE_SCHEME_TYPE _) =>   raise exception POLY;
+		   eq _ => FALSE;
+                end;
+	    end;
+
+	/****************************************************************************
+	 *                   Commonly-used Lambda Types                             *
+	 ****************************************************************************/
+
+	boolty = lt::ltc_bool;
+	fun eq_lty lt = lt::ltc_parrow (lt::ltc_tuple [lt, lt], boolty);
+	inteqty = eq_lty (lt::ltc_int);
+	int32eqty = eq_lty (lt::ltc_int32);
+	booleqty = eq_lty (lt::ltc_bool);
+	realeqty = eq_lty (lt::ltc_real);
+
+	exception NOT_FOUND;
+
+	/****************************************************************************
+	 *              equal --- the equality function generator                   *
+	 ****************************************************************************/
+	fun equal ( { get_string_eq, get_integer_eq, get_poly_eq }, symbol_table) 
+		  (poly_eq_type:  t::Type, concrete_type:  t::Type, to_tc_lc as (to_type_constructor, to_lambda_type))
+	    =
+	    {   my cache:   Ref( List ((t::Type, Polylambda_Expression, Ref( Polylambda_Expression )) ) )
+			=   REF NIL;
+		#
+		fun enter type
+		    =
+		    {   v =   VAR (make_var());
+			r =   REF v;
+
+			if *debugging 
+
+                             pp::with_prettyprint_device (em::default_plaint_sink())
+
+			     (fn stream
+				 =
+				 {   pp::string stream "enter: ";
+				     unparse_type::reset_unparse_type();
+				     unparse_type::unparse_type  symbol_table  stream  type;
+				 }
+			     );
+			fi;
+
+			cache :=  (type, v, r) ! *cache;
+
+                        (v, r);
+		    };
+		#
+		fun find type
+		    =
+		    {   fun f ((t, v, e) ! r)
+				=>
+				if (equiv_type (type, t)  )  v;
+							   else  f r;   fi;
+
+			    f [] => {   if *debugging
+					    say "equal.pkg-find-notfound\n";
+                                        fi;
+
+					raise exception NOT_FOUND;
+				    };
+			end;
+
+			if *debugging 
+
+			     pp::with_prettyprint_device
+				 (em::default_plaint_sink())
+				 (fn stream
+				     =
+				     {   pp::string stream "find: ";
+					 unparse_type::reset_unparse_type ();
+					 unparse_type::unparse_type  symbol_table  stream  type;
+				     }
+				 );
+			fi;
+
+			f *cache;
+		    };
+		#
+		fun eq_type type     =   eq_lty (to_lambda_type type);
+		fun ptr_eq (p, type) =   PRIMITIVE_OP (p, eq_type type, []);
+		fun prim (p, lt)      =   PRIMITIVE_OP (p, lt, []);
+		#
+		fun atomeq (type_constructor, type)
+		    =
+		    if   (tu::type_constructor_equality (type_constructor, bt::int_tycon) ) prim (po::ieql, inteqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::int32tycon) ) prim (po::ieql, int32eqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::word_tycon) ) prim (po::ieql, inteqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::word8tycon) ) prim (po::ieql, inteqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::char_tycon) ) prim (po::ieql, inteqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::word32tycon) ) prim (po::ieql, int32eqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::bool_tycon) ) prim (po::ieql, booleqty); 
+		    elif (tu::type_constructor_equality (type_constructor, bt::real_tycon) ) prim (po::feqld, realeqty);
+		    elif (tu::type_constructor_equality (type_constructor, bt::string_tycon) ) get_string_eq();
+		    elif (tu::type_constructor_equality (type_constructor, bt::intinf_tycon) ) get_integer_eq();
+		    elif (tu::type_constructor_equality (type_constructor, bt::ref_tycon) ) ptr_eq (po::PTREQL, type); 
+		  /**********************
+		   * For arrays under the new rw_vector representation, we need to compare
+		   * the data pointers for equality.  polyequal does this comparison
+		   * correctly, so use it as the fallback. (John H Reppy)
+		   *
+		    else if tu::type_constructor_equality (type_constructor, bt::arrayTycon) then ptrEq (po::PTREQL, type)
+		    else if tu::type_constructor_equality (type_constructor, bt::word8arrayTycon) then ptrEq (po::PTREQL, type)
+		    else if tu::type_constructor_equality (type_constructor, bt::real64arrayTycon) then ptrEq (po::PTREQL, type)
+		  **********************/
+		    else raise exception POLY;
+                    fi;
+		#
+		fun test (type, 0)
+			=>
+			raise exception POLY;
+
+		    test (type, depth)
+			=>
+			{   if *debugging
+
+				 pp::with_prettyprint_device (em::default_plaint_sink ())
+				 (fn stream
+				     =
+				     {   pp::string stream "test: ";
+					 unparse_type::reset_unparse_type ();
+					 unparse_type::unparse_type  symbol_table  stream  type;
+				     }
+				 );
+			    fi;
+
+			    case type
+			      
+			       t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE t) }
+                                   =>
+                                   test (t, depth);
+
+			       t::CONSTRUCTOR_TYPE (t::DEFINED_TYPE_CONSTRUCTOR _, _)
+                                   =>
+                                   test (tu::reduce_type type, depth);
+
+			       t::CONSTRUCTOR_TYPE (t::RECORD_TYPE_CONSTRUCTOR _, tyl)
+                                   =>
+				   find type
+                                   except
+				       notfound
+					   =
+					   {   v = make_var();
+					       x = make_var();
+					       y = make_var();
+
+					       my (eqv, patch) = enter type;
+					       #
+					       fun loop (n, [type])
+                                                       => 
+						       APPLY (test (type, depth), RECORD [SELECT (n, VAR x),
+										SELECT (n, VAR y)]);
+						   loop (n, type ! r)
+                                                       => 
+						       cond (loop (n,[type]), loop (n+1, r), false_lexp);
+
+						   loop(_, NIL)
+                                                       =>
+                                                       true_lexp;
+                                               end;
+
+					       lt = to_lambda_type type;
+
+					       patch := FN (v, lt::ltc_tuple [lt, lt],
+							 LET (x, SELECT (0, VAR v),
+							   LET (y, SELECT (1, VAR v), 
+								loop (0, tyl))));
+					       eqv;
+					   };
+
+			        t::CONSTRUCTOR_TYPE (type_constructor as t::PRIMITIVE_TYPE_CONSTRUCTOR { kind, eq, stamp, arity, path, ... }, tyl)
+				    =>
+				    case (*eq, kind)   
+
+					 (t::YES, t::PRIMITIVE _)
+                                             =>
+                                             atomeq (type_constructor, type);
+
+					 (t::YES, t::ABSTRACT type_constructor')
+                                             =>
+                                             test (t::CONSTRUCTOR_TYPE (type_constructor', tyl), depth);
+
+					 (t::EQ_ABSTRACT, _)
+					     =>
+					     test
+                                               ( tu::make_constructor_type
+                                                   ( t::PRIMITIVE_TYPE_CONSTRUCTOR
+                                                       { eq => REF t::YES,
+                                                         stamp,
+                                                         arity,
+							 kind,
+                                                         path,
+                                                         stub => NULL
+                                                       },
+
+                                                     tyl
+                                                   ),
+						 depth
+                                               );
+
+				         # Assume that an equality enum has been converted
+				         # to an abstract type in an abstype declaration:
+					 #
+					 ( _,
+
+                                          t::DATATYPE { index,
+							family as { members, ... },
+							free_type_constructors,
+							stamps,
+							...
+						      }
+                                         )
+					     =>
+					     {   my  { constructor_list => dcons0, ... }
+						     =
+						     vector::get (members, index);
+						 #
+						 fun expand_recdcon { domain=>THE x, representation, name }
+							 => 
+							 {   domain => THE (expand_rec (family, stamps, free_type_constructors) x),
+							     representation,
+							     name
+							 };
+
+						     expand_recdcon z
+                                                         =>
+                                                         z;
+                                                 end;
+
+
+						 case (map expand_recdcon dcons0)
+
+						      [ { representation => ref_rep, ... } ]
+                                                          =>
+                                                          atomeq (type_constructor, type);
+
+						      dcons
+							  =>                          
+							  find type
+							  except
+							      notfound
+								  =>
+								  {   v =   make_var ();
+								      x =   make_var ();
+								      y =   make_var ();
+
+								      my  (eqv, patch)
+									  =
+									  enter type;
+								      #
+								      fun inside ( { name, representation, domain }, ww, uu)
+									  = 
+									  case domain
+
+									      NULL => true_lexp;
+
+									      THE dom
+										   => 
+										   case (reduce_type dom)
+
+											t::CONSTRUCTOR_TYPE (t::RECORD_TYPE_CONSTRUCTOR [], _)
+											    =>
+											    true_lexp;
+
+										        _   =>
+                                                                                            {   argt =  arg_type (dom, tyl);
+
+												APPLY (test (argt, depth - 1),
+													   RECORD [ VAR ww, VAR uu ]
+												      );
+											    };
+										   esac;
+									  esac;
+
+								      lt    =   to_lambda_type type;
+
+								      argty =   lt::ltc_tuple [lt, lt];
+
+								      pty   =   lt::ltc_parrow (argty, boolty);
+
+								      body = 
+									  case dcons
+
+									       [] => bug "empty data types";
+
+			                                                  #    [dcon] => inside dcon;
+
+									       _   =>
+                                                                                   {   my (an_api, ndcons)
+											   =
+											   get_csig dcons;
+											#
+											fun concase dcon
+											    = 
+											    {   tcs =   map to_type_constructor tyl;
+
+												ww  =   make_var ();
+												uu  =   make_var ();
+
+												dc  =   trans_dcon (type_constructor, dcon, to_tc_lc);
+
+												dconx =   DATACON (dc, tcs, ww);
+												dcony =   DATACON (dc, tcs, uu);
+
+												( dconx,
+												  SWITCH (   VAR y,
+													     an_api, 
+													     [   (   dcony,
+														     inside (dcon, ww, uu)
+														 )
+													     ],
+													     THE (false_lexp)
+													 )
+												);
+											    };
+
+
+											case an_api 
+
+											     da::CONSTRUCTOR_SIGNATURE (0, _)
+												 =>
+												 false_lexp;
+
+											     da::CONSTRUCTOR_SIGNATURE (_, 0)
+												 => 
+												 SWITCH ( VAR x,
+													  an_api, 
+													  map concase ndcons,
+													  NULL
+													);
+											     _   => 
+												 SWITCH ( VAR x,
+													  an_api, 
+													  map concase ndcons, 
+													  THE false_lexp
+													);
+											esac;
+										    };
+									  esac;
+
+								      root = APPLY (PRIMITIVE_OP (po::PTREQL, pty, []), 
+										       RECORD [VAR x, VAR y]
+										 );
+
+								      nbody = cond (root, true_lexp, body);
+
+								      patch := FN (v, argty,
+										  LET (x, SELECT (0, VAR v),
+										      LET (y, SELECT (1, VAR v), nbody)));
+
+								      eqv;
+								  };
+							    end; 
+
+						    esac;
+					     };
+					 _ => raise exception POLY;
+				     esac;
+
+			       _ => raise exception POLY;
+                           esac;
+		       };
+		end;					# fun test
+
+		body =   test (concrete_type, 10);
+
+		fl   =   *cache;
+
+		case fl 
+
+		     [] => body;
+
+		     _  =>
+                        {   fun g ((type, VAR v, e), (vs, ts, es))
+				    => 
+				    ( v                ! vs,
+				      (eq_type type) ! ts,
+				      *e               ! es
+				    );
+
+				g _ => bug "unexpected equality cache value";
+                            end;
+
+			    my  (vs, ts, es)
+				=
+				fold_right g ([], [], []) fl;
+
+			    MUTUALLY_RECURSIVE_FNS (vs, ts, es, body);
+			};
+		esac;
+	    }					# fun equal
+	    except
+		POLY
+		    =
+		    GENOP
+                      ( { default => get_poly_eq (),
+
+			  table => [ ( [ lt::tcc_string ],	# Might want to include intinf in this table,
+				       get_string_eq ()		# although we need a tcc_intinf for that... 
+				     )
+				   ]
+			}, 
+			po::POLYEQL,
+			to_lambda_type poly_eq_type, 
+			[ to_type_constructor concrete_type ]
+		    );
+
+
+
+    end;		# toplevel stipulate
+};			#  package equal 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

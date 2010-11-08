@@ -1,0 +1,184 @@
+# cluster.pkg
+#  uses a union-find data package to compute clusters 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+# First function in the function list must be the first function 
+# in the first cluster. This is achieved by ensuring that the first  
+# function is mapped to the smallest id in a dense enumeration. 
+# This function id will map to the smallest cluster id. 
+# The function ids are then iterated in descending order.
+
+package cluster
+
+: (weak) api {
+
+    find_clusters_in_fps_functions
+        :
+        List( fate_passing_style::Function )
+        ->
+        List( List( fate_passing_style::Function ) );
+}
+{
+    package fps =  fate_passing_style;			# fate_passing_style	is from   src/lib/compiler/backend/upper/fps/fate-passing-style.pkg
+
+    fun error msg
+        =
+        error_message::impossible ("Cluster." + msg);		# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+
+
+    fun find_clusters_in_fps_functions  funcs
+        =
+	{   num_of_funcs =   length funcs;
+
+	    #  Mapping of function names to a dense integer range 
+	    exception FUNCTION_IDENTIFIER;
+
+	    my func_to_id_table:   int_hash_table::Hash_Table( Int )
+                               =   int_hash_table::make_table (num_of_funcs, FUNCTION_IDENTIFIER);
+
+	    lookup =   int_hash_table::get  func_to_id_table;
+
+	    #  Mapping of ids to functions:
+
+	    id_to_func_table =   rw_vector::make_rw_vector (num_of_funcs, head funcs);
+
+	    stipulate
+		add =   int_hash_table::set func_to_id_table;
+
+		fun make_func_id_table ([], _)
+                        =>
+                        ();
+
+		   make_func_id_table ((func as (_, f, _, _, _)) ! rest, id)
+                        => 
+		        {   add (f, id);  
+		            rw_vector::set (id_to_func_table, id, func);
+		            make_func_id_table (rest, id+1);
+                        }; end;
+	    herein
+	        my _ = make_func_id_table (funcs, 0);
+	    end;
+
+	    #  union-find package -- initially each function in its own cluster 
+
+	    trees = rw_vector::tabulate (num_of_funcs, fn i = i);
+
+	    fun ascend u
+                =
+		{   v =   rw_vector::get (trees, u);
+
+		    if (v == u   ) u;
+                                else ascend (v);fi;
+		};
+
+      fun union (t1, t2)
+	  =
+	  {   r1 =   ascend t1;
+	      r2 =   ascend t2;
+
+	      if (r1 != r2)
+	           if (r1 < r2)   rw_vector::set (trees, r2, r1);
+		   else           rw_vector::set (trees, r1, r2);  fi;
+              fi;
+	  };
+
+      # Build union-find package:
+      #
+      fun build []
+              =>
+              ();
+
+	  build ((_, f, _, _, body) ! rest)
+	      =>
+	      {   f_id =   lookup f;
+
+		  fun forall []       => ();
+		      forall (e ! es) => { calls e; forall es;};
+		  end 
+
+		  also
+		  fun calls (fps::APPLY (fps::LABEL l, _))  => union (f_id, lookup l);
+		      calls (fps::APPLY _)	 	    => ();
+		      calls (fps::RECORD(_, _, _, e))       => calls e;
+		      calls (fps::SELECT(_, _, _, _, e))    => calls e;
+		      calls (fps::OFFSET(_, _, _, e))       => calls e;
+		      calls (fps::SWITCH(_, _, es))         => forall (es);
+		      calls (fps::BRANCH(_, _, _, e1, e2))  => { calls e1; calls e2;};
+		      calls (fps::SETTER(_, _, e))          => calls e;
+		      calls (fps::LOOKER(_, _, _, _, e))    => calls e;
+		      calls (fps::ARITH(_, _, _, _, e))     => calls e;
+		      calls (fps::PURE(_, _, _, _, e))      => calls e;
+		      calls (fps::MUTUALLY_RECURSIVE_FNS _) => error "calls::f: MUTUALLY_RECURSIVE_FNS";
+		      calls (fps::RAW_C_CALL(_, _, _, _, _, e)) => calls e;
+		  end;
+
+		  calls body;
+
+		  build rest;
+	      };
+      end;			 # fun build 
+
+      # Extract the clusters. 
+      # The first func in the funcs list
+      # must be the first function
+      # in the first cluster.
+      #
+      fun extract ()
+          =
+	  {   clusters =   rw_vector::make_rw_vector (num_of_funcs, []);
+
+	      fun collect n
+		  =
+		  {     root    = ascend (n);
+			func    = rw_vector::get (id_to_func_table, n);
+			cluster = rw_vector::get (clusters, root);
+
+			rw_vector::set (clusters, root, func ! cluster); 
+			collect (n - 1);
+		  };
+
+	      fun finish (-1, acc) => acc;
+
+		  finish (n, acc)
+		      => 
+		      case (rw_vector::get (clusters, n))
+                        
+			  []      =>   finish (n - 1, acc);
+			  cluster =>   finish (n - 1, cluster ! acc);
+                     esac;
+	      end;
+
+	      collect (num_of_funcs - 1)
+	      except
+		  _ = ();
+
+	      finish (num_of_funcs - 1, []);
+	  };
+
+    
+        build funcs;
+
+        extract ();
+    };			#  Cluster 
+};
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

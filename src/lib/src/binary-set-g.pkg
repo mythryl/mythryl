@@ -1,0 +1,620 @@
+## binary-set-g.pkg
+
+# Compiled by:
+#     src/lib/src/lib7.make6
+
+# This code was adapted from Stephen Adams' binary tree implementation
+# of applicative integer sets.
+#
+#    Copyright 1992 Stephen Adams.
+#
+#    This software may be used freely provided that:
+#      1. This copyright notice is attached to any copy, derived work,
+#         or work including all or part of this software.
+#      2. Any derived work must contain a prominent notice stating that
+#         it has been altered from the original.
+#
+#   Name (s): Stephen Adams.
+#   Department, Institution: Electronics & Computer Science,
+#      University of Southampton
+#   Address:  Electronics & Computer Science
+#             University of Southampton
+#         Southampton  SO9 5NH
+#         Great Britian
+#   E-mail:   sra@ecs.soton.ac.uk
+#
+#   Comments:
+#
+#     1.  The implementation is based on Binary search trees of Bounded
+#         Balance, similar to Nievergelt & Reingold, SIAM J. Computing
+#         2 (1), March 1973.  The main advantage of these trees is that
+#         they keep the size of the tree in the node, giving a constant
+#         time size operation.
+#
+#     2.  The bounded balance criterion is simpler than N&R's alpha.
+#         Simply, one subtree must not have more than `weight' times as
+#         many elements as the opposite subtree.  Rebalancing is
+#         guaranteed to reinstate the criterion for weight>2.23, but
+#         the occasional incorrect behaviour for weight=2 is not
+#         detrimental to performance.
+#
+#     3.  There are two implementations of union.  The default,
+#         hedge_union, is much more complex and usually 20% faster.  I
+#         am not sure that the performance increase warrants the
+#         complexity (and time it took to write), but I am leaving it
+#         in for the competition.  It is derived from the original
+#         union by replacing the split_lt (gt) operations with a lazy
+#         version. The `obvious' version is called old_union.
+#
+#     4.  Most time is spent in 'rebalance', the rebalancing constructor.  If my
+#         understanding of the output of *<file> in the sml batch
+#         compiler is correct then the code produced by NJSML 0.75
+#         (sparc) for the final case is very disappointing.  Most
+#         invocations fall through to this case and most of these cases
+#         fall to the else part, i.e. the plain contructor,
+#         TREE_NODE (v, ln+rn+1, l, r).  The poor code allocates a 16 word vector
+#         and saves lots of registers into it.  In the common case it
+#         then retrieves a few of the registers and allocates the 5
+#         word TREE_NODE node.  The values that it retrieves were live in
+#         registers before the massive save.
+#
+
+
+##      THIS DERIVED WORK HAS BEEN ALTERED FROM THE ORIGINAL
+
+
+generic package binary_set_g (k:  Key) 			# Key	is from   src/lib/src/key.api
+: (weak)
+Set							# Set	is from   src/lib/src/set.api
+{
+    package key = k;
+
+    Item = k::Key;
+
+    Set = EMPTY 
+	| TREE_NODE  {
+	    elt:  Item, 
+	    count:  Int, 
+	    left:  Set,
+	    right:  Set
+	  };
+
+    fun all_invariants_hold set = TRUE;		# Placeholder.
+
+    fun vals_count EMPTY => 0;
+        vals_count (TREE_NODE { count, ... } ) => count;
+    end;
+        
+    fun is_empty EMPTY => TRUE;
+        is_empty _     => FALSE;
+    end;
+
+    fun make_tree (v, n, l, r)
+        =
+        TREE_NODE { elt=>v, count=>n, left=>l, right=>r };
+
+    #  nodes (v, l, r) = TREE_NODE (v, 1+vals_count (l)+vals_count (r), l, r) 
+    #
+    fun nodes (v, EMPTY, EMPTY) => make_tree (v, 1, EMPTY, EMPTY);
+        nodes (v, EMPTY, r as TREE_NODE { count=>n, ... } ) => make_tree (v, n+1, EMPTY, r);
+	nodes (v, l as TREE_NODE { count=>n, ... }, EMPTY) => make_tree (v, n+1, l, EMPTY);
+	nodes (v, l as TREE_NODE { count=>n, ... }, r as TREE_NODE { count=>m, ... } ) => make_tree (v, n+m+1, l, r);
+    end;
+
+    fun single_l (a, x, TREE_NODE { elt=>b, left=>y, right=>z, ... } ) => nodes (b, nodes (a, x, y), z);
+        single_l _ => raise exception MATCH;
+    end;
+
+    fun single_r (b, TREE_NODE { elt=>a, left=>x, right=>y, ... }, z) => nodes (a, x, nodes (b, y, z));
+        single_r _ => raise exception MATCH;
+    end;
+
+    fun double_l (a, w, TREE_NODE { elt=>c, left=>TREE_NODE { elt=>b, left=>x, right=>y, ... }, right=>z, ... } )
+            =>
+            nodes (b, nodes (a, w, x), nodes (c, y, z));
+
+        double_l _ => raise exception MATCH;
+    end;
+
+    fun double_r (c, TREE_NODE { elt=>a, left=>w, right=>TREE_NODE { elt=>b, left=>x, right=>y, ... }, ... }, z)
+            =>
+            nodes (b, nodes (a, w, x), nodes (c, y, z));
+
+        double_r _ => raise exception MATCH;
+    end;
+
+    /*
+    **  weight = 3
+    **  fun wt i = weight * i
+    */
+    fun wt (i:  Int) = i + i + i;
+
+    fun rebalance (v, EMPTY, EMPTY) => make_tree (v, 1, EMPTY, EMPTY);
+	rebalance (v, EMPTY, r as TREE_NODE { left=>EMPTY, right=>EMPTY, ... } ) => make_tree (v, 2, EMPTY, r);
+	rebalance (v, l as TREE_NODE { left=>EMPTY, right=>EMPTY, ... }, EMPTY) => make_tree (v, 2, l, EMPTY);
+
+	rebalance (p as (_, EMPTY, TREE_NODE { left=>TREE_NODE _, right=>EMPTY, ... } )) => double_l p;
+	rebalance (p as (_, TREE_NODE { left=>EMPTY, right=>TREE_NODE _, ... }, EMPTY)) => double_r p;
+
+	# These cases almost never happen
+        # with small weight:
+        #
+	rebalance (p as (_, EMPTY, TREE_NODE { left=>TREE_NODE { count=>ln, ... }, right=>TREE_NODE { count=>rn, ... }, ... } ))
+            =>
+	     if (ln<rn)  single_l p;
+             else        double_l p;
+             fi;
+
+	rebalance (p as (_, TREE_NODE { left=>TREE_NODE { count=>ln, ... }, right=>TREE_NODE { count=>rn, ... }, ... }, EMPTY))
+            =>
+	    if (ln>rn)   single_r p;
+            else         double_r p;
+            fi;
+
+	rebalance (p as (_, EMPTY, TREE_NODE { left=>EMPTY, ... } )) => single_l p;
+	rebalance (p as (_, TREE_NODE { right=>EMPTY, ... }, EMPTY)) => single_r p;
+
+	rebalance (p as (v, l as TREE_NODE { elt=>lv, count=>ln, left=>ll, right=>lr },
+	       r as TREE_NODE { elt=>rv, count=>rn, left=>rl, right=>rr } ))
+           =>
+	   if (rn >= wt ln) # right is too big
+
+		rln = vals_count rl;
+		   rrn = vals_count rr;
+
+		 if (rln < rrn ) single_l p; else double_l p;fi;
+
+	   elif (ln >= wt rn)	 # left is too big
+
+		 lln = vals_count ll;
+		 lrn = vals_count lr;
+
+		 if (lrn < lln ) single_r p; else double_r p;fi;
+
+	   else
+                make_tree (v, ln+rn+1, l, r);
+           fi;
+    end;
+
+    fun add (EMPTY, x) => make_tree (x, 1, EMPTY, EMPTY);
+
+        add (set as TREE_NODE { elt=>v, left=>l, right=>r, count }, x)
+            =>
+           case (k::compare (x, v))   
+		  LESS => rebalance(v, add (l, x), r);
+	       GREATER => rebalance(v, l, add (r, x));
+		 EQUAL => make_tree (x, count, l, r);
+           esac;
+    end;
+
+    fun add' (s, x) = add (x, s);
+
+    fun meld3 (EMPTY, v, r) => add (r, v);
+	meld3 (l, v, EMPTY) => add (l, v);
+
+	meld3 (l as TREE_NODE { elt=>v1, count=>n1, left=>l1, right=>r1 }, v, 
+		   r as TREE_NODE { elt=>v2, count=>n2, left=>l2, right=>r2 } )
+            =>
+	    if   (wt n1 < n2 ) rebalance(v2, meld3 (l, v, l2), r2);
+	    elif (wt n2 < n1 ) rebalance(v1, l1, meld3 (r1, v, r));
+	    else               nodes (v, l, r);
+            fi;
+    end;
+
+    fun split_lt (EMPTY, x) => EMPTY;
+
+	split_lt (TREE_NODE { elt=>v, left=>l, right=>r, ... }, x)
+            =>
+	    case (k::compare (v, x))   
+		 GREATER => split_lt (l, x);
+		LESS => meld3 (l, v, split_lt (r, x));
+		_ => l;
+            esac;
+    end;
+
+    fun split_gt (EMPTY, x) => EMPTY;
+
+	split_gt (TREE_NODE { elt=>v, left=>l, right=>r, ... }, x)
+	    =>
+	    case (k::compare (v, x))
+              
+	         LESS    =>   split_gt (r, x);
+	         GREATER =>   meld3 (split_gt (l, x), v, r);
+	         _       =>   r;
+            esac;
+    end;
+
+    fun min (TREE_NODE { elt=>v, left=>EMPTY, ... } ) => v;
+	min (TREE_NODE { left=>l, ... } ) => min l;
+	min _ => raise exception MATCH;
+    end;
+        
+    fun delmin (TREE_NODE { left=>EMPTY, right=>r, ... } ) => r;
+	delmin (TREE_NODE { elt=>v, left=>l, right=>r, ... } ) => rebalance(v, delmin l, r);
+	delmin _ => raise exception MATCH;
+    end;
+
+    fun delete' (EMPTY, r) => r;
+	delete' (l, EMPTY) => l;
+	delete' (l, r) => rebalance(min r, l, delmin r);
+    end;
+
+    fun cat (EMPTY, s) => s;
+	cat (s, EMPTY) => s;
+
+	cat (t1 as TREE_NODE { elt=>v1, count=>n1, left=>l1, right=>r1 }, 
+		   t2 as TREE_NODE { elt=>v2, count=>n2, left=>l2, right=>r2 }
+             )
+            =>
+	    if   (wt n1 < n2 ) rebalance(v2, cat (t1, l2), r2);
+	    elif (wt n2 < n1 ) rebalance(v1, l1, cat (r1, t2));
+	    else               rebalance(min t2, t1, delmin t2);
+	    fi;
+    end;
+
+
+    stipulate
+      fun trim (lo, hi, EMPTY)
+              =>
+              EMPTY;
+
+	  trim (lo, hi, s as TREE_NODE { elt=>v, left=>l, right=>r, ... } )
+	      =>
+	      if (k::compare (v, lo) == GREATER)
+		   if (k::compare (v, hi) == LESS ) s; else trim (lo, hi, l);fi;
+	      else
+		   trim (lo, hi, r);
+	      fi;
+      end;
+                
+      fun uni_bd (s, EMPTY, _, _) => s;
+
+	  uni_bd (EMPTY, TREE_NODE { elt=>v, left=>l, right=>r, ... }, lo, hi)
+              => 
+	      meld3 (split_gt (l, lo), v, split_lt (r, hi));
+
+	  uni_bd (TREE_NODE { elt=>v, left=>l1, right=>r1, ... }, 
+		    s2 as TREE_NODE { elt=>v2, left=>l2, right=>r2, ... }, lo, hi)
+              =>
+	      meld3 (uni_bd (l1, trim (lo, v, s2), lo, v),
+		 v, 
+		 uni_bd (r1, trim (v, hi, s2), v, hi));
+      end;
+              #  inv:  lo < v < hi 
+
+        # all the other versions of uni and trim are
+        # specializations of the above two functions with
+        #     lo=-infinity and/or hi=+infinity 
+
+
+      fun trim_lo (_, EMPTY) => EMPTY;
+
+	  trim_lo (lo, s as TREE_NODE { elt=>v, right=>r, ... } )
+              =>
+	      case (k::compare (v, lo))   
+	          GREATER => s;
+	          _ => trim_lo (lo, r);
+              esac;
+      end;
+
+      fun trim_hi (_, EMPTY) => EMPTY;
+
+	  trim_hi (hi, s as TREE_NODE { elt=>v, left=>l, ... } )
+              =>
+	      case (k::compare (v, hi))   
+		  LESS => s;
+		  _ => trim_hi (hi, l);
+	      esac;
+      end;
+                
+      fun uni_hi (s, EMPTY, _) => s;
+
+	  uni_hi (EMPTY, TREE_NODE { elt=>v, left=>l, right=>r, ... }, hi)
+              => 
+	      meld3 (l, v, split_lt (r, hi));
+
+	  uni_hi (TREE_NODE { elt=>v, left=>l1, right=>r1, ... }, 
+		    s2 as TREE_NODE { elt=>v2, left=>l2, right=>r2, ... }, hi)
+              =>
+	      meld3 (uni_hi (l1, trim_hi (v, s2), v), v, uni_bd (r1, trim (v, hi, s2), v, hi));
+      end;
+
+      fun uni_lo (s, EMPTY, _) => s;
+
+	  uni_lo (EMPTY, TREE_NODE { elt=>v, left=>l, right=>r, ... }, lo)
+              => 
+	      meld3 (split_gt (l, lo), v, r);
+
+	  uni_lo (TREE_NODE { elt=>v, left=>l1, right=>r1, ... }, 
+		    s2 as TREE_NODE { elt=>v2, left=>l2, right=>r2, ... }, lo)
+              =>
+	      meld3 (uni_bd (l1, trim (lo, v, s2), lo, v), v, uni_lo (r1, trim_lo (v, s2), v));
+      end;
+
+      fun uni (s, EMPTY) => s;
+	  uni (EMPTY, s) => s;
+
+	  uni (TREE_NODE { elt=>v, left=>l1, right=>r1, ... }, 
+		 s2 as TREE_NODE { elt=>v2, left=>l2, right=>r2, ... } )
+              =>
+	      meld3 (uni_hi (l1, trim_hi (v, s2), v), v, uni_lo (r1, trim_lo (v, s2), v));
+      end;
+
+    herein
+      hedge_union = uni;
+    end;
+
+    # The old_union version is about 20% slower than
+    #  hedge_union in most cases 
+    #
+    fun old_union (EMPTY, s2)  => s2;
+	old_union (s1, EMPTY)  => s1;
+
+	old_union (TREE_NODE { elt=>v, left=>l, right=>r, ... }, s2)
+            => 
+	    {   l2 = split_lt (s2, v);
+	        r2 = split_gt (s2, v);
+
+	        meld3 (old_union (l, l2), v, old_union (r, r2));
+	    };
+    end;
+
+    empty = EMPTY;
+
+    fun singleton x
+        =
+        TREE_NODE { elt=>x, count=>1, left=>EMPTY, right=>EMPTY };
+
+    fun add_list (s, l)
+        =
+        list::fold_left
+            (fn (i, s) = add (s, i))
+            s
+            l;
+
+    add = add;
+
+    fun member (set, x)
+        =
+	pk set
+        where
+	    fun pk EMPTY => FALSE;
+
+		pk (TREE_NODE { elt=>v, left=>l, right=>r, ... } )
+		    =>
+		    case (k::compare (x, v))
+			LESS => pk l;
+		       EQUAL => TRUE;
+		       GREATER => pk r;
+		    esac;
+	    end;
+	end;
+
+    stipulate
+
+	#  TRUE if every item in t is in t' 
+	#	
+	fun tree_in (t, t')
+	    =
+	    is_in t
+	    where
+
+		fun is_in EMPTY => TRUE;
+
+		    is_in (TREE_NODE { elt, left=>EMPTY, right=>EMPTY, ... } )
+			=>
+			member (t', elt);
+
+		    is_in (TREE_NODE { elt, left, right=>EMPTY, ... } )
+			=> 
+			member (t', elt) and is_in left;
+
+		    is_in (TREE_NODE { elt, left=>EMPTY, right, ... } )
+			=> 
+			member (t', elt) and is_in right;
+
+		    is_in (TREE_NODE { elt, left, right, ... } )
+			=> 
+			member (t', elt) and is_in left and is_in right;
+		end;
+	    end;
+
+    herein
+
+	fun is_subset (EMPTY, _) => TRUE;
+	    is_subset (_, EMPTY) => FALSE;
+
+	    is_subset (t as TREE_NODE { count=>n, ... }, t' as TREE_NODE { count=>n', ... } )
+		=>
+		(n<=n') and tree_in (t, t');
+	end;
+
+	fun equal (EMPTY, EMPTY) => TRUE;
+	    equal (t as TREE_NODE { count=>n, ... }, t' as TREE_NODE { count=>n', ... } )   =>   (n==n') and tree_in (t, t');
+	    equal _ => FALSE;
+	end;
+    end;
+
+    stipulate
+
+      fun next ((t as TREE_NODE { right, ... } ) ! rest) => (t, left (right, rest));
+	  next _ => (EMPTY, []);
+      end 
+
+      also
+      fun left (EMPTY, rest) => rest;
+	  left (t as TREE_NODE { left=>l, ... }, rest) => left (l, t ! rest);
+      end;
+
+    herein
+    fun compare (s1, s2)
+        =
+	compare (left (s1, []), left (s2, []))
+        where
+
+	  fun compare (t1, t2)
+              =
+              case (next t1, next t2)
+
+		   ((EMPTY, _), (EMPTY, _)) => EQUAL;
+
+		   ((EMPTY, _), _) => LESS;
+
+		   (_, (EMPTY, _)) => GREATER;
+
+		   ((TREE_NODE { elt=>e1, ... }, r1), (TREE_NODE { elt=>e2, ... }, r2))
+                       =>
+		       case (key::compare (e1, e2))
+			   EQUAL => compare (r1, r2);
+			  order => order;
+		       esac;
+              esac;
+	  end;
+    end;
+
+    fun delete (EMPTY, x) => raise exception lib_base::NOT_FOUND;
+
+	delete (set as TREE_NODE { elt=>v, left=>l, right=>r, ... }, x)
+            =>
+	    case (k::compare (x, v))   
+		LESS => rebalance(v, delete (l, x), r);
+	        GREATER => rebalance(v, l, delete (r, x));
+	        _ => delete'(l, r);
+            esac;
+    end;
+
+    union = hedge_union;
+
+    fun intersection (EMPTY, _) => EMPTY;
+	intersection (_, EMPTY) => EMPTY;
+
+	intersection (s, TREE_NODE { elt=>v, left=>l, right=>r, ... } )
+            =>
+            {
+		l2 = split_lt (s, v);
+		r2 = split_gt (s, v);
+
+		if (member (s, v))   meld3 (intersection (l2, l), v, intersection (r2, r));
+		else                 cat   (intersection (l2, l), intersection (r2, r));
+                fi;
+	    };
+    end;
+
+    fun difference (EMPTY, s) => EMPTY;
+	difference (s, EMPTY)  => s;
+
+	difference (s, TREE_NODE { elt=>v, left=>l, right=>r, ... } )
+            =>
+	    {   l2 = split_lt (s, v);
+		r2 = split_gt (s, v);
+
+	        cat (difference (l2, l), difference (r2, r));
+	    };
+    end;
+
+    fun map f set
+        =
+	map' (EMPTY, set)
+        where
+            fun map'(acc, EMPTY) => acc;
+
+		map'(acc, TREE_NODE { elt, left, right, ... } )
+		    =>
+		    map' (add (map' (acc, left), f elt), right);
+	    end;
+	end;
+
+    fun apply apf
+        =
+        apply
+        where    
+            fun apply EMPTY => ();
+
+                apply (TREE_NODE { elt, left, right, ... } )
+                    => 
+                    {   apply left;apf elt;
+                        apply right;
+                    };
+            end;
+         
+        end;
+
+    fun fold_left f b set
+        =
+        foldf (set, b)
+        where
+            fun foldf (EMPTY, b) => b;
+
+	        foldf (TREE_NODE { elt, left, right, ... }, b)
+		    => 
+		    foldf (right, f (elt, foldf (left, b)));
+            end;
+        end;
+
+    fun fold_right f b set
+        =
+        foldf (set, b)
+        where
+            fun foldf (EMPTY, b) => b;
+	        foldf (TREE_NODE { elt, left, right, ... }, b)
+                     => 
+		     foldf (left, f (elt, foldf (right, b)));
+            end;
+        end;
+
+
+    fun vals_list set
+        =
+        fold_right (!) [] set;
+
+
+    fun filter predicate set
+        =
+	fold_left
+            (fn (item, s) =  if (predicate item)  add (s, item); else s;fi)
+	    empty
+            set;
+
+    fun partition predicate set
+        =
+	fold_left
+	    (fn (item, (s1, s2))
+                =
+		if   (predicate item)   (add (s1, item), s2);
+                else                    (s1, add (s2, item));
+                fi
+	    )
+	    (empty, empty)
+            set;
+
+    fun find p EMPTY => NULL;
+
+        find p (TREE_NODE { elt, left, right, ... } )
+            =>
+            case (find p left)
+	      
+	        NULL => if  (p elt)   THE elt;
+			else          find p right;
+                        fi;
+
+	        a => a;
+           esac;
+	end;
+
+    fun exists p EMPTY
+            =>
+            FALSE;
+
+        exists p (TREE_NODE { elt, left, right, ... } )
+            =>
+	    exists p left    or
+            exists p right   or
+            p elt;
+    end;
+
+};	#  binary_set_g 
+
+
+## COPYRIGHT (c) 1993 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,432 @@
+#
+# Basic RTLs and query functions on these RTLs
+#
+# -- Allen Leung
+
+
+# 2007-03-25 CrT This file appears not to be compiled in at present.
+
+
+generic package codetree_rtl (
+
+    package util:     Codetree_Utilities 
+    package rewrite:  Codetree_Rwrite
+    package fold:     Codetree_Fold
+       sharing util::T = rewrite::T = Fold::T
+
+): Codetree_Rtl
+{
+    package t       = util::T
+    package util    = util
+    package rewrite = Rewrite
+    package fold    = Fold
+    package w       = Unt
+    package c       = cells_basis
+
+    fun error msg
+        =
+        lowcode_error_message::error("codetree_rtl", msg)
+
+    enum pos = IN of Int | OUT of Int | IO of Int * Int
+    enum arity = ZERO | ONE | MANY
+
+    itow =   unt::from_int
+
+    infix ||
+
+    my op || = w::bitwise_or 
+
+    type aType    = t::aType
+    type rtl      = t::statement
+    type expression      = t::int_expression
+    type cond     = t::bool_expression
+    type var      = t::var
+    type hasher   = t::hasher
+    type equality = t::equality
+    type printer  = t::printer
+    type div_rounding_mode = t::div_rounding_mode
+
+    hashRTL     = util::hashStm
+    eqRTL       = util::eqStm
+    showRTL     = util::show
+    rtlToString = util::stmToString
+    expToString = util::rexpToString
+
+    /*-----------------------------------------------------------------------
+     * Attributes
+     *-----------------------------------------------------------------------*/
+    A_TRAPPING   = W.<<(0w1, 0w1)  #  may cause traps 
+    A_PINNED     = W.<<(0w1, 0w2)  #  Cannot be moved 
+    A_SIDEEFFECT = W.<<(0w1, 0w3)  #  has side effect 
+    A_MUTATOR    = W.<<(0w1, 0w4)
+    A_LOOKER     = W.<<(0w1, 0w5)
+    A_BRANCH     = W.<<(0w1, 0w6)  #  Conditional branch 
+    A_JUMP       = W.<<(0w1, 0w7)  #  has control flow 
+    A_PURE       = 0wx0
+    fun isOn (a, flag) = unt::bitwise_and (a, flag) <> 0w0
+
+    /*-----------------------------------------------------------------------
+     * Create new RTL operators 
+     *-----------------------------------------------------------------------*/
+
+    hashCnt   = REF 0w0
+
+    fun newHash ()
+        =
+        {   h =   *hashCnt in hashCnt := h + 0w124127;
+            h;
+        }
+
+    fun newOp { name, attributes }
+        =
+        {   name,
+            attributes = REF attributes,
+            hash = newHash ()
+        }
+
+    /*-----------------------------------------------------------------------
+     *  Reduce a RTL to compiled internal form
+     *-----------------------------------------------------------------------*/
+
+    fun reduce rtl
+        =
+        rtl
+
+
+    /*-----------------------------------------------------------------------
+     * Collect attributes
+     *-----------------------------------------------------------------------*/
+
+    fun attribsOf rtl
+	= 
+	{   fun statement (t::STORE _, a)     = a || (A_SIDEEFFECT || A_MUTATOR)
+	      | statement (t::JUMP _, a)      = a || (A_JUMP || A_SIDEEFFECT)
+	      | statement (t::IF _, a)       = a || (A_BRANCH || A_JUMP || A_SIDEEFFECT)
+	      | statement (t::RET _, a)      = a || (A_JUMP || A_SIDEEFFECT)
+	      | statement (t::CALL _, a)     = a || A_SIDEEFFECT
+	      | statement (t::ASSIGN(_, T.@@@(_, c::MEM, address), value), a) =
+		    a || (A_SIDEEFFECT || A_MUTATOR)
+	      | statement(_, a) = a;
+
+	    fun int_expression (t::ADDT _, a) = a || A_TRAPPING
+	      | int_expression (t::SUBT _, a) = a || A_TRAPPING
+	      | int_expression (t::MULT _, a) = a || A_TRAPPING
+	      | int_expression (t::DIVT _, a) = a || A_TRAPPING
+	      | int_expression (t::LOAD _, a) = a || A_LOOKER
+	      | int_expression (T.@@@(_, c::MEM, _), a) = a || A_LOOKER
+	      | int_expression(_, a) = a;
+
+	    fun float_expression (_, a)
+                =
+                a;
+
+	    fun bool_expression (_, a)
+                =
+                a;
+
+	    .statement (Fold::fold { statement, int_expression, float_expression, bool_expression } ) rtl;
+	}
+
+
+    /*-----------------------------------------------------------------------
+     * Create a uniq RTL 
+     *-----------------------------------------------------------------------*/
+
+    fun new (rtl)
+	= 
+	{   rtl =   reduce rtl;
+
+	    attributes =   attribsOf (rtl, A_PURE);
+
+	    rtl =  case rtl
+	             of	t::COPY_INTS _ => rtl
+	              | _ => t::RTL { e=rtl, hash=newHash(), attributes=REF attributes };
+	    rtl;
+	}
+
+    COPY =   t::COPY_INTS (0,[],[]);
+    JMP  =   new (t::JUMP (t::PARAM 0,[]));
+
+
+    fun pin (x as t::RTL { attributes, ... } )
+	     = 
+	     {   attributes := (*attributes || A_PINNED);
+                 x;
+             }
+
+      | pin _
+	    =
+	    error "pin"
+
+    /*-----------------------------------------------------------------------
+     * Type queries
+     *-----------------------------------------------------------------------*/
+
+    fun hasSideEffect (t::RTL { attributes, ... } )
+            =
+            isOn (*attributes, A_SIDEEFFECT)
+
+      | hasSideEffect _
+            =
+            FALSE
+
+    fun isConditionalBranch (t::RTL { attributes, ... } )
+            =
+            isOn(*attributes, A_BRANCH)
+
+      | isConditionalBranch _
+            =
+            FALSE
+
+    fun isJump (t::RTL { attributes, ... } ) = isOn (*attributes, A_JUMP)
+      | isJump (t::JUMP _) = TRUE
+      | isJump _ = FALSE
+
+    fun isLooker (t::RTL { attributes, ... } ) = isOn (*attributes, A_LOOKER)
+      | isLooker _ = FALSE
+
+    /*-----------------------------------------------------------------------
+     * Def/use queries
+     *-----------------------------------------------------------------------*/
+
+    fun defUse rtl
+    = 
+    let fun contains x
+            =
+            list::exists (fn y => util::eqRexp (x, y))
+
+	fun diff (A, B)
+            =
+            list::filter (fn z => not (contains z B)) A
+
+	fun uniq ([], l) = reverse l
+	  | uniq (x . xs, l) = if contains x l then uniq (xs, l) else uniq (xs, x . l)
+
+	fun statement (t::ASSIGN(_, x, y), d, u)
+		= 
+		{   my (d, u) =   lhs (x, d, u);
+
+		    rhs (y, d, u);
+                }
+
+	  | statement (t::COPY_INTS _, d, u) = (d, u) #  XXX 
+	  | statement (t::RET _, d, u) = (d, u)
+	  | statement (t::RTL { e, ... }, d, u) = statement (e, d, u) 
+	  | statement (t::JUMP (e, _), d, u) = rhs (e, d, u)
+	  | statement (t::IF (x, y, z), d, u)
+		= 
+		{   my (d, u)  = cond (x, d, u);
+		    my (d1, u) = statement (y, [], u);
+		    my (d2, u) = statement (z, [], u);
+
+		    u1      = diff (d1, d2);
+		    u2      = diff (d2, d1);
+
+		    (d @ d1 @ d2, u @ u1 @ u2);
+		}
+	  | statement (t::SEQ rtls, d, u) = statements (rtls, d, u)
+	  | statement (t::CALL { funct, ... }, d, u) = rhs (funct, d, u)
+	  | statement (rtl, d, u) = error("defUse::statement: "$rtlToString rtl)
+
+	also statements([], d, u) = (d, u)
+	  | statements (s . ss, d, u) = let my (d, u) = statement (s, d, u)
+				in  statements (ss, d, u) end
+
+	also rhs (t::LITERAL _, d, u) = (d, u)
+	  | rhs (x as t::ARG _, d, u) = (d, x . u)
+	  | rhs (x as t::PARAM _, d, u) = (d, x . u)
+	  | rhs (t::ADD(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::SUB(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::MULS(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::MULU(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::DIVS(_, _, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::DIVU(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::REMS(_, _, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::REMU(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::ADDT(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::SUBT(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::MULT(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::DIVT(_, _, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::LEFTSHIFT(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::RIGHTSHIFTU(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::RIGHTSHIFT(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::BITWISEAND(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::BITWISEOR(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::BITWISEXOR(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::BITWISEEQV(_, x, y), d, u) = binOp (x, y, d, u)
+	  | rhs (t::NEG(_, x), d, u) = rhs (x, d, u)
+	  | rhs (t::NEGT(_, x), d, u) = rhs (x, d, u)
+	  | rhs (t::BITWISENOT(_, x), d, u) = rhs (x, d, u)
+	  | rhs (t::SIGNEXTEND(_, _, x), d, u) = rhs (x, d, u)
+	  | rhs (t::ZEROEXTEND(_, _, x), d, u) = rhs (x, d, u)
+	  | rhs (x as T.@@@(_, _, t::ARG _), d, u) = (d, x . u)
+	  | rhs (x as T.@@@(_, _, t::PARAM _), d, u) = (d, x . u)
+	  | rhs (x as T.@@@(_, _, e), d, u) = rhs (e, d, x . u)
+	  | rhs (t::CONVERTFLOATTOINT(_, _, _, x), d, u) = float_expression (x, d, u)
+	  | rhs (t::OP(_, _, es), d, u) = rexps (es, d, u)
+	  | rhs (t::COND(_, x, y, z), d, u)
+		= 
+		{   my (d, u) =   cond (x, d, u);
+
+		    binOp (y, z, d, u);
+                }
+	  | rhs (t::BITSLICE(_, _, e), d, u) = rhs (e, d, u)
+	  | rhs (T.???, d, u) = (d, u)
+	  | rhs (e, d, u) = error("defUse::rhs: "$util::rexpToString e)
+
+	also binOp (x, y, d, u) =
+	    let my (d, u) = rhs (x, d, u)
+	    in  rhs (y, d, u) end
+
+	also rexps([], d, u) = (d, u)
+	  | rexps (e . es, d, u) =
+	    let my (d, u) = rhs (e, d, u)
+	    in  rexps (es, d, u) end
+
+	also lhs (x as T.@@@(_, _, t::ARG _), d, u) = (x . d, u)
+	  | lhs (x as T.@@@(_, _, t::PARAM _), d, u) = (x . d, u)
+	  | lhs (x as T.@@@(_, _, address), d, u) = rhs (address, x . d, u)
+	  | lhs (x as t::ARG _, d, u) = (x . d, u)
+	  | lhs (x as t::PARAM _, d, u) = (x . d, u)
+	  | lhs (T.???, d, u) = (d, u)
+	  | lhs (e, d, u) = error("defUse::lhs: "$util::rexpToString e)
+
+	also float_expression (t::FADD(_, x, y), d, u) = fbinOp (x, y, d, u)
+	  | float_expression (t::FSUB(_, x, y), d, u) = fbinOp (x, y, d, u)
+	  | float_expression (t::FMUL(_, x, y), d, u) = fbinOp (x, y, d, u)
+	  | float_expression (t::FDIV(_, x, y), d, u) = fbinOp (x, y, d, u)
+	  | float_expression (t::COPY_FLOAT_SIGN(_, x, y), d, u) = fbinOp (x, y, d, u)
+	  | float_expression (t::FCOND(_, x, y, z), d, u) = 
+	    let my (d, u) = cond (x, d, u)
+	    in  fbinOp (y, z, d, u) end
+	  | float_expression (t::FSQRT(_, x), d, u) = float_expression (x, d, u)
+	  | float_expression (t::FABS(_, x), d, u) = float_expression (x, d, u)
+	  | float_expression (t::FNEG(_, x), d, u) = float_expression (x, d, u)
+	  | float_expression (t::CVTI2F(_, _, x), d, u) = rhs (x, d, u)
+	  | float_expression (e, d, u) = error("defUse::float_expression: "$util::fexpToString e)
+
+	also fbinOp (x, y, d, u) =
+	    let my (d, u) = float_expression (x, d, u)
+	    in  float_expression (y, d, u) end
+
+	also cond (t::CMP(_, _, x, y), d, u) = binOp (x, y, d, u)
+	  | cond (t::FCMP(_, _, x, y), d, u) = fbinOp (x, y, d, u)
+	  | cond (t::TRUE, d, u) = (d, u)
+	  | cond (t::FALSE, d, u) = (d, u)
+	  | cond (t::NOT x, d, u) = cond (x, d, u)
+	  | cond (t::AND (x, y), d, u) = cond2 (x, y, d, u)
+	  | cond (t::OR (x, y), d, u) = cond2 (x, y, d, u)
+	  | cond (t::XOR (x, y), d, u) = cond2 (x, y, d, u)
+	  | cond (t::EQV (x, y), d, u) = cond2 (x, y, d, u)
+	  | cond (e, d, u) = error("defUse::cond: "$util::ccexpToString e)
+
+	also cond2 (x, y, d, u) =
+	    let my (d, u) = cond (x, d, u)
+	    in  cond (y, d, u) end
+
+	my (d, u) = statement (rtl, [], [])
+
+    in  (uniq (d, []), uniq (u, []))
+    end
+
+    /*-----------------------------------------------------------------------
+     * Giving definitions and uses.  Find out the naming constraints. 
+     *-----------------------------------------------------------------------*/
+    fun namingConstraints (defs, uses)
+	=
+	let fun collectFixed((x as T.@@@(_, _, t::LITERAL r)) . xs, fixed, rest) =
+		   collectFixed (xs, (x, integer::toInt r) . fixed, rest)
+	      | collectFixed (x . xs, fixed, rest) = 
+		   collectFixed (xs, fixed, x . rest)
+	      | collectFixed([], fixed, rest) = (fixed, rest)
+	    my (fixedUses, otherUses) = collectFixed (uses, [], [])
+	    my (fixedDefs, otherDefs) = collectFixed (defs, [], [])
+	    fixed = 
+	       list::filter 
+		  (fn x => list::exists (fn y => util::eqRexp (x, y)) otherUses)
+			   otherDefs
+	in  { fixedUses=fixedUses,
+	     fixedDefs=fixedDefs,
+	     twoAddress=fixed
+	    }
+	end
+
+    /*-----------------------------------------------------------------------
+     * Assign positions to each argument
+     *-----------------------------------------------------------------------*/
+    fun argPos rtl
+	=
+	let my (defs, uses) = defUse rtl
+	    fun pos ([], i, ds) = ds
+	      | pos (d . defs, i, ds) = pos (defs, i+1, (d, i) . ds)
+	    ds = pos (defs, 0, [])
+	    us = pos (uses, 0, [])
+	in  (ds, us)
+	end
+
+    exception NotAnArgument
+
+    fun argOf rtl
+	=
+	let my (defs, uses) = argPos rtl
+	    fun find (this, (x as (T.@@@(_, _, t::ARG(_, _, name)), _)) . xs) =
+		 if this == name then THE x else find (this, xs)
+	      | find (this, (x as (t::ARG(_, _, name), _)) . xs) =
+		 if this == name then THE x else find (this, xs)
+	      | find (this, _ . xs) = find (this, xs)
+	      | find (this,[]) = NULL
+	    fun lookup name = 
+	      case (find (name, defs), find (name, uses)) of
+		(THE (x, i), THE(_, j)) => (x, IO (i, j))
+	      | (THE (x, i), NULL) => (x, OUT i)
+	      | (NULL, THE (x, i)) => (x, IN i)
+	      | (NULL, NULL) => raise exception NotAnArgument
+	in  lookup 
+	end
+
+    /*-----------------------------------------------------------------------
+     * Return the arity of an argument
+     *-----------------------------------------------------------------------*/
+    fun arity (t::ARG _) = MANY
+      | arity (T.@@@(_, c::MEM, _)) = MANY
+      | arity (T.@@@(_, _, _)) = ONE
+      | arity _ = raise exception NotAnArgument
+
+    fun nonConstArity (t::ARG _) = MANY
+      | nonConstArity (T.@@@(_, c::MEM, _)) = MANY
+      | nonConstArity (T.@@@(_, _, _)) = ONE
+      | nonConstArity _        = raise exception NotAnArgument
+
+    /*-----------------------------------------------------------------------
+     * Code motion queries
+     *-----------------------------------------------------------------------*/
+    fun can'tMoveUp (t::RTL { attributes, ... } ) = 
+	   isOn (*attributes, A_SIDEEFFECT || A_TRAPPING || A_PINNED)
+      | can'tMoveUp (t::PHI _) = TRUE
+      | can'tMoveUp (t::SOURCE) = TRUE
+      | can'tMoveUp (t::SINK) = TRUE
+      | can'tMoveUp _ = FALSE
+
+    fun can'tMoveDown (t::PHI _) = TRUE
+      | can'tMoveDown (t::SOURCE) = TRUE
+      | can'tMoveDown (t::SINK) = TRUE
+      | can'tMoveDown (t::RTL { attributes, ... } ) = 
+	   isOn (*attributes, A_SIDEEFFECT || A_BRANCH || A_JUMP || A_TRAPPING ||
+			 A_PINNED ||
+			 A_LOOKER /* can be avoided with pure loads! XXX */)
+      | can'tMoveDown rtl = error("can'tMoveDown: "$rtlToString rtl)
+
+    fun pinned (t::RTL { attributes, ... } ) = 
+	  isOn (*attributes, A_SIDEEFFECT || A_TRAPPING || A_PINNED)
+      | pinned (t::PHI _) = TRUE
+      | pinned (t::SOURCE) = TRUE
+      | pinned (t::SINK) = TRUE
+      | pinned _ = FALSE
+
+    fun can'tBeRemoved (t::RTL { attributes, ... } ) = 
+	  isOn(*attributes, A_SIDEEFFECT || A_BRANCH || A_JUMP)
+      | can'tBeRemoved (t::SOURCE) = TRUE
+      | can'tBeRemoved (t::SINK) = TRUE
+      | can'tBeRemoved _ = FALSE
+};
+

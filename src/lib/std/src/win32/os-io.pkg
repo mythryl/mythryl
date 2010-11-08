@@ -1,0 +1,127 @@
+## os-io.pkg
+## COPYRIGHT (c) 1996 Bell Laboratories.
+
+
+
+# Replacement winix::IO package for Win32.
+# It implements a simple type of polling for file chunks.
+# This file requires a runtime system supporting polling in Win32-io.
+
+
+local
+    package unt = unt_guts
+    package int = int_guts
+    package int32 = int32_guts
+    package time = TimeImp
+in
+    package winix_io: Winix_Io {
+
+	package W32G = win32_general
+	package W32FS = Win32_FileSys
+
+	type word32 = unt32::word
+
+	exception SYSTEM_ERROR = assembly::SYSTEM_ERROR
+
+	type Io_Descriptor = winix::io::Io_Descriptor /* IODESC of W32G::hndl REF */ 
+
+	# hash: can't assume 32 bits
+
+	fun hash (winix::io::IODESC (REF (0wxffffffff:  W32G::hndl)))
+            = 
+	    0wx7fffffff:  word 
+
+	  | hash (winix::io::IODESC (REF h))
+            =
+            (unt::from_int o W32G::unt::toInt) h
+
+	fun compare (winix::io::IODESC (REF wa), winix::io::IODESC (REF wb))
+            = 
+	    W32G::unt::compare (wa, wb)
+
+        enum Io_Descriptor_Kind = K of String
+
+	package Kind {
+
+		file = K "FILE"
+		dir = K "DIR"
+		symlink = K "LINK"
+		tty = K "TTY"
+		pipe = K "PIPE"
+		socket = K "SOCKET"
+		device = K "DEV"
+	};
+
+	fun kind (winix::io::IODESC (REF h)) = 
+	    case W32FS::getFileAttributes' h of
+		NULL => 
+		    K "UNKNOWN"
+	      | THE w =>
+		    if W32FS::isRegularFile h then Kind::file
+		    else Kind::dir
+
+        #  no win32 polling devices for now 
+	noPolling = "polling not implemented for win32 for this device/type"
+
+	type poll_flags = { rd:  Bool, wr: Bool, pri: Bool }
+	enum Poll_Request = POLL_DESC of (Io_Descriptor * poll_flags)
+	enum Poll_Result = POLL_RESULT of Poll_Request
+	
+	fun pollDesc id = THE (POLL_DESC (id,{ rd=FALSE, wr=FALSE, pri=FALSE } ))
+	fun pollToIODesc (POLL_DESC (pd, _)) = pd 
+
+	exception BAD_POLL
+
+	fun pollIn (POLL_DESC (iod,{ rd, wr, pri } )) = POLL_DESC (iod,{ rd=TRUE, wr=wr, pri=pri } )
+	fun pollOut (POLL_DESC (iod,{ rd, wr, pri } )) = POLL_DESC (iod,{ rd=rd, wr=TRUE, pri=pri } )
+	fun pollPri (POLL_DESC (iod,{ rd, wr, pri } )) = POLL_DESC (iod,{ rd=rd, wr=wr, pri=TRUE } )
+
+	local 
+	    my poll' : (List( word32 ) *  List( Int * word ) *  Null_Or( Int32::Int * Int ) -> (List( word32 ) *  List( Int * word )))
+               =
+	       c_interface::c_function "WIN32-IO" "poll"
+
+	    fun join (FALSE, _, w) = w
+	      | join (TRUE, b, w) = unt::bitwise_or (w, b)
+	    fun test (w, b) = (unt::bitwise_and (w, b) != 0w0)
+	    rdBit = 0w1 and wrBit = 0w2 and priBit = 0w4
+
+	    fun toPollInfoIO (fd) = POLL_RESULT (POLL_DESC (winix::io::IODESC (REF fd),{ rd=FALSE, wr=FALSE, pri=FALSE } ))
+	    fun toPollInfoSock (i, w) = POLL_RESULT (POLL_DESC (winix::io::SockDesc (i),{ rd = test (w, rdBit),
+									       wr = test (w, wrBit),
+									       pri = test (w, priBit) } ))
+	    fun fromPollDescIO (POLL_DESC (winix::io::IODESC (REF w), _)) =THE (w)
+	      | fromPollDescIO _ = NULL
+	    fun fromPollDescSock (POLL_DESC (winix::io::SockDesc (i),{ rd, wr, pri } )) = THE (i, join (rd, rdBit, join (wr, wrBit, join (pri, priBit, 0w0))))
+	      | fromPollDescSock _ = NULL
+	in
+	    fun poll (pdl, t) = 
+		let timeout =
+			case t of
+			    THE (t) =>
+			    THE (Int32::fromLarge (time::to_seconds (t)),
+				  int::fromLarge (time::to_microseconds t))
+			  | NULL => NULL
+		    my (infoIO, infoSock) =
+			poll' (list::map_maybe_null_fn fromPollDescIO pdl,
+			       list::map_maybe_null_fn fromPollDescSock pdl,
+			       timeout)
+		in
+		    list.@ (list::map toPollInfoIO infoIO,
+			    list::map toPollInfoSock infoSock)
+		end
+	end
+		    
+	fun isIn pd = raise exception FAIL("isIn: "$noPolling)
+	fun isOut pd = raise exception FAIL("isOut: "$noPolling)
+	fun isPri pd = raise exception FAIL("isPri: "$noPolling)
+
+	fun infoToPollDesc (POLL_RESULT pd) = pd #  raise exception FAIL("infoToPollDesc: "$noPolling) 
+    };
+end
+
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

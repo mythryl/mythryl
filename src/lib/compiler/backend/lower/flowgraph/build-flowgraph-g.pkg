@@ -1,0 +1,653 @@
+## build-flowgraph-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+api Control_Flow_Graph_Gen {
+
+    package instruction_stream:	Instruction_Stream;	# Instruction_Stream	is from   src/lib/compiler/backend/lower/instruction/instruction-stream.api
+    package instruction_set:	Instruction_Set;	# Instruction_Set	is from   src/lib/compiler/backend/lower/instruction/instruction-set.api
+    package pseudo_op:		Pseudo_Ops;		# Pseudo_Ops		is from   src/lib/compiler/backend/lower/flowgraph/pseudo-op.api
+
+    package control_flow_graph
+	 :
+	 Control_Flow_Graph				# Control_Flow_Graph	is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	 where instruction_set == instruction_set
+	 also pseudo_op == pseudo_op;
+
+    # This creates an emitter which
+    # can be used to build a
+    # control_flow_graph incrementally:
+    #
+    Instruction_Stream
+       = 
+       instruction_stream::Stream
+         (
+           instruction_set::Instruction,
+           note::Notes,
+           instruction_set::cells::Cellset,
+           control_flow_graph::Control_Flow_Graph
+         );
+
+    build:  Void -> Instruction_Stream;
+};
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+
+generic package build_flowgraph_g ( 
+
+    package instruction_properties
+        :
+        Instruction_Properties;				# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+
+    package instruction_stream:  Instruction_Stream;	# Instruction_Stream		is from   src/lib/compiler/backend/lower/instruction/instruction-stream.api
+
+    package control_flow_graph
+	:
+	Control_Flow_Graph				# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where
+            instruction_set
+            ==
+            instruction_properties::instruction_set
+	also
+            pseudo_op == instruction_stream::pseudo_op;
+)
+
+: (weak) Control_Flow_Graph_Gen				# Control_Flow_Graph_Gen	is from   src/lib/compiler/backend/lower/flowgraph/build-flowgraph-g.pkg
+
+{
+    package control_flow_graph =  control_flow_graph;
+    package pseudo_op          =  control_flow_graph::pseudo_op;
+    package instruction_set    =  instruction_properties::instruction_set;
+    package instruction_stream =  instruction_stream;
+
+    package p = pseudo_op;
+    package i = instruction_set;
+    package g = graph;					# graph				is from   src/lib/graph/graph.pkg
+    package s = instruction_stream;
+    package pb = pseudo_op_basis_type;			# pseudo_op_basis_type		is from   src/lib/compiler/backend/lower/flowgraph/pseudo-op-basis-type.pkg
+    package ptf = sfprintf;				# sfprintf			is from   src/lib/src/sfprintf.pkg
+
+    exception LABEL_NOT_FOUND;
+
+    Instruction_Stream
+	= 
+	s::Stream
+          (
+            i::Instruction,
+            note::Notes,
+            control_flow_graph::instruction_set::cells::Cellset,
+            control_flow_graph::Control_Flow_Graph
+          );
+
+    dump_initial_control_flow_graph
+        = 
+	low_code_control::make_bool 
+	  ("dump_initial_control_flow_graph",
+	   "Dump control_flow_graph after instruction selection");
+
+
+    fun error msg
+	=
+	lowcode_error_message::error ("BuildFlowGraph", msg);
+
+    hash_label
+	=
+	unt::to_int o label::hash;
+
+    fun build ()
+	=
+	{
+	    my cfg as REF (g::GRAPH graph)
+		=
+		REF (control_flow_graph::new());
+
+
+	    # List of blocks generated so far:
+	    #
+	    block_list   = REF ([] : List( control_flow_graph::Block ));
+
+
+	    # List of entry labels to patch successors of ENTRY:
+	    #
+	    entry_labels = REF ([] : List( label::Label ));
+
+
+	    # Block id associated with a label:
+	    #
+	    label_map    = int_hash_table::make_table (32, LABEL_NOT_FOUND);
+	    find_label   = int_hash_table::find label_map;
+	    add_label    = int_hash_table::set label_map;
+
+	    # Data in text segment is read-only:
+	    #
+	    Segment_T = TEXT | DATA | RO_DATA | BSS | DECLS;
+	    segment_f    = REF DECLS;
+
+	    # The block names:
+	    #
+	    block_names   = REF [] : Ref( note::Notes );
+
+	    # Can instructions be reordered?
+	    #
+	    reorder      = REF [] : Ref( note::Notes );
+
+	    # noblock or invalid block has id of -1
+	    # 
+	    no_block = control_flow_graph::new_block(-1, REF 0.0);
+
+	    # Current block being built up:
+	    #
+	    currentablock = REF no_block;
+
+
+	    # Add a new block; also make it the
+            # current block being built up:
+	    #
+	    fun new_block  freq
+		=
+		{
+		    my g::GRAPH graph = *cfg;
+		    id = graph.new_id ();
+
+		    my blk as control_flow_graph::BLOCK { notes, ... }
+                        =
+                        control_flow_graph::new_block (id, REF freq);
+
+		    currentablock := blk;
+		    notes         := *block_names @ *reorder;
+		    block_list := blk ! *block_list;
+		    graph.add_node (id, blk);
+		    blk;
+		};
+
+
+	    # Get current basic block:
+	    #
+	    fun getablock ()
+                = 
+	        case *currentablock
+                  
+                     control_flow_graph::BLOCK { id=> -1, ... } => new_block (1.0);
+
+                     other => other;
+                esac;
+
+
+	    #  ------------------------cluster---------------------------
+	    # Start a new cluster:
+	    #
+	    fun begin_cluster _
+                = 
+		{   block_list     :=  [];
+		    entry_labels   :=  [];
+		    block_names    :=  [];
+		    currentablock :=  no_block;
+
+		    int_hash_table::clear label_map;
+                };
+
+	    # Emit an instruction:
+	    #	
+	    fun emit i
+            =
+            {   my control_flow_graph::BLOCK { instructions, ... }
+                    =
+                    getablock ();
+
+		fun terminate ()
+                    =
+                    currentablock := no_block;
+
+		instructions := i ! *instructions;
+
+		case (instruction_properties::instruction_kind  i)
+		  
+                     instruction_properties::IK_JUMP           =>  terminate ();
+		     instruction_properties::IK_CALL_WITH_CUTS =>  terminate ();
+		     _                                         =>  ();
+                esac;
+	    };
+
+	    # Make current block an exit block:
+	    #
+	    fun end_procedure liveout
+		=
+		{   fun set_live_out (control_flow_graph::BLOCK { notes, ... } )
+			= 
+			notes
+                            :=
+                            control_flow_graph::liveout.create
+
+                                liveout ! *notes;
+
+		    case *currentablock
+		      
+			 control_flow_graph::BLOCK { id=> -1, ... }
+			     =>
+			     case *block_list
+			       
+                                  []      =>  error "end_procedures";
+				  blk ! _ =>  set_live_out blk;
+			     esac;
+
+			 blk =>  set_live_out blk;
+		    esac;
+		};
+
+
+	    # End cluster --- all done:
+	    #
+	    fun end_cluster  given_notes
+		=
+		cfg
+                where
+		    my cfg as g::GRAPH graph
+			=
+			(*cfg
+                         before
+                             cfg := control_flow_graph::new ()
+                        );
+
+		    control_flow_graph::init  cfg;		#  Create unique ENTRY/EXIT nodes 
+
+		    entry = head (graph.entries ());
+		    exit  = head (graph.exits   ());
+
+		    fun add_edge (from, to, kind)
+			=
+			graph.add_edge
+                          ( from,
+                            to,
+                            control_flow_graph::EDGE
+                              { kind,
+                                weight => REF 0.0,
+                                notes  => REF []
+                              }
+                          );
+
+		    fun add_edge_an (from, to, kind, an)
+			=
+			graph.add_edge
+                          ( from,
+                            to,
+                            control_flow_graph::EDGE
+                              { kind,
+                                weight => REF 0.0,
+                                notes  => REF an
+                              }
+                          );
+
+		    fun target lab
+			=
+			case (int_hash_table::find label_map (hash_label lab))
+			  
+			     THE b_id =>   b_id; 
+			     NULL     =>   exit;
+			esac;
+
+		    my { get=>get_prob, ... }
+			=
+			lowcode_notes::branch_prob;
+
+		    fun jump (from, instruction, blocks)
+			=
+			{   fun branch (target_lab)
+			    =
+			    {   my (_, an)
+                                    =
+                                    instruction_properties::get_notes
+                                        instruction;
+
+				an = list::filter
+					     fn (lowcode_notes::BRANCHPROB _) => TRUE;  _ => FALSE; end
+					     an;
+
+				fun next (control_flow_graph::BLOCK { id, ... } ! _) => id;
+				    next [] => error "jump::next";
+				end;
+
+				add_edge_an (from, target target_lab, control_flow_graph::BRANCH TRUE, an);
+				add_edge (from, next blocks, control_flow_graph::BRANCH FALSE);
+			    };
+
+			     case (instruction_properties::branch_targets instruction)
+			       
+				  [instruction_properties::ESCAPES] => add_edge (from, exit, control_flow_graph::EXIT);
+				  [instruction_properties::LABELLED lab] => add_edge (from, target lab, control_flow_graph::JUMP);
+				  [instruction_properties::LABELLED lab, instruction_properties::FALLTHROUGH] => branch (lab);
+				  [instruction_properties::FALLTHROUGH, instruction_properties::LABELLED lab] =>  branch (lab);
+
+				  targets
+                                      =>
+				      {   list::fold_left  switch  0  targets;
+                                          ();
+                                      }
+                                      where
+                                          fun switch (instruction_properties::LABELLED lab, n)
+                                                  => 
+					          {   add_edge (from, target lab, control_flow_graph::SWITCH (n));
+                                                      n+1;
+                                                  };
+
+					      switch _
+                                                  =>
+                                                  error "jump::switch";
+                                          end;
+				     end;
+			     esac;
+			}
+
+		    also
+                    fun falls_thru (id, blks)
+                        = 
+		        case blks
+
+		            []  =>
+                                add_edge (id, exit, control_flow_graph::EXIT);
+
+			    control_flow_graph::BLOCK { id=>next, ... } ! _
+                                =>
+                                add_edge (id, next, control_flow_graph::FALLSTHRU);
+                         esac
+
+		    also
+                    fun add_edges [] => ();
+			add_edges (control_flow_graph::BLOCK { id, instructions=>REF [], ... } ! blocks) => falls_thru (id, blocks);
+			add_edges (control_flow_graph::BLOCK { id, instructions=>REF (instruction ! _), ... } ! blocks)
+                            =>
+                            {   fun do_jmp ()
+                                    =
+                                   jump (id, instruction, blocks);
+
+				case (instruction_properties::instruction_kind instruction)
+				    instruction_properties::IK_JUMP => do_jmp();
+				    instruction_properties::IK_CALL_WITH_CUTS => do_jmp();
+				    _ => falls_thru (id, blocks);
+				esac;
+
+				add_edges (blocks);
+			    };
+                    end;
+
+		    add_edges (reverse *block_list);
+
+		    apply
+			(fn lab =  add_edge (entry, target lab, control_flow_graph::ENTRY))
+			*entry_labels;
+
+		    notes  =  control_flow_graph::notes cfg;
+		    notes :=  given_notes @ *notes;
+
+		    if *dump_initial_control_flow_graph
+
+			 control_flow_graph::dump
+                           (
+			     *low_code_control::debug_stream,
+			     "after instruction selection",
+                             cfg
+                           );
+		    fi;
+		end;			# where (fun end_cluster)
+
+
+	    #  ------------------------annotations-----------------------
+	    # XXX: Bug: EMPTYBLOCK does not really generate an empty block 
+	    #	but merely terminates the current block. Contradicts the comment
+	    #  in instruction/lowcode-notes.api.
+	    #  It should be (newBlock (1.0); newBlock (1.0); ())
+	    #
+
+	    # Add a new annotation:
+	    #
+	    fun add_note note
+		= 
+		case note
+
+		     lowcode_notes::BLOCKNAMES  names
+			 =>
+			 {   block_names := names;
+			     new_block 1.0;
+			     ();
+			 };
+
+		     lowcode_notes::EMPTYBLOCK
+			 =>
+			 {    new_block 1.0;
+			      ();
+			 };
+
+		     lowcode_notes::EXECUTIONFREQ f
+			 => 
+			 case *currentablock
+
+			      control_flow_graph::BLOCK { id=> -1, ... }
+				  =>
+				  {   new_block (real f);
+				      ();
+				  };
+
+			      control_flow_graph::BLOCK { freq, ... }
+				  =>
+				  freq := real f;
+			 esac;
+
+		     note =>
+			 {   my control_flow_graph::BLOCK { notes, ... }
+				 =
+				 getablock ();
+
+			     notes := note ! *notes;
+			 };
+		esac;
+
+
+	    # Get notes associated with flow graph: 
+	    #	
+	    fun get_notes ()
+		=
+		control_flow_graph::notes  *cfg;
+
+
+	    # Add a comment annotation
+            # to the current block:
+	    #
+	    fun emit_comment msg
+		= 
+		case *segment_f 
+
+		    TEXT => add_note (lowcode_notes::comment.create msg);
+
+		    _ => {   my graph::GRAPH graph = *cfg;
+			     my control_flow_graph::INFO { data, ... } = graph.graph_info;
+			     data :=  pb::COMMENT msg ! *data;
+			 };
+		esac;
+
+
+	    #  -------------------------labels---------------------------
+	    # BUG: Does not respect any ordering between labels and pseudoOps. 
+	    # This could be a problem with jump tables. 		XXX BUGGO FIXME
+	    #	
+	    fun emit_pseudo_op p
+		=
+		{
+		    (*cfg)           ->  graph::GRAPH graph;
+		    graph.graph_info ->  control_flow_graph::INFO { data, decls, ... };
+
+		    fun add_alignment ()
+			= 
+			case *segment_f
+
+			     DECLS => error "addAlignment: DECLS";
+
+			     TEXT =>
+                                 {   my control_flow_graph::BLOCK { align, ... } = new_block 1.0;
+			             align := THE p;
+			         };
+
+			     _  =>
+                                data  :=  p ! *data;
+			esac;
+
+
+		    fun start_segment (seg)
+			=
+			{   data := p ! *data;
+			    segment_f := seg;
+			};
+
+		    fun add_data ()
+			=
+			data :=  p ! *data;
+
+		    fun check_add_data (seg)
+			=
+			{   fun errmsg curr
+				=
+				ptf::sprintf' "addPseudoOp: %s in %s segment" [ptf::STRING seg, ptf::STRING curr];
+
+			    case *segment_f
+
+				 DECLS =>  error (errmsg "DECLS");
+				 TEXT  =>  error (errmsg "TEXT");
+				 _     =>  data := p ! *data;
+			    esac;
+			 };
+
+		    fun add_decl ()
+			=
+			case *segment_f
+
+			     DECLS =>  decls := p ! *decls;
+			     _     =>  data  := p ! *data;
+			esac;
+
+		    case p
+
+			 pb::ALIGN_SIZE _ => add_alignment();
+			 pb::ALIGN_ENTRY  => add_alignment();
+			 pb::ALIGN_LABEL  => add_alignment();
+
+			 pb::DATA_LABEL _
+                             =>
+			     case *segment_f 
+
+				  TEXT =>  error "addPseudoOp: DATA_LABEL in TEXT segment";
+				  _    =>  (data := p ! *data);
+			     esac;
+
+
+			 pb::DATA_READ_ONLY => start_segment  RO_DATA;
+			 pb::DATA           => start_segment  DATA;
+
+			 pb::TEXT => segment_f := TEXT;
+			 pb::BSS  => start_segment (BSS);
+
+			 pb::SECTION _
+                             => 
+			     case *segment_f
+
+				  TEXT =>  error "addPseudoOp: SECTION in TEXT segment";
+				  _    =>  data := p ! *data;
+			     esac;
+
+			 pb::REORDER => { reorder := []; new_block 1.0; ();};
+
+			 pb::NOREORDER
+                             => 
+			     {   reorder := [ lowcode_notes::noreorder.create () ];
+                                 new_block 1.0;
+                                 ();
+                             };
+
+			 pb::INT     _ =>  check_add_data("INT");
+			 pb::FLOAT   _ =>  check_add_data("FLOAT");
+			 pb::ASCII   _ =>  check_add_data("ASCII");
+			 pb::ASCIIZ  _ =>  check_add_data("ASCIIZ");
+			 pb::SPACE   _ =>  check_add_data("SPACE");
+
+			 pb::COMMENT _ =>  add_decl ();
+			 pb::IMPORT  _ =>  add_decl ();
+			 pb::EXPORT  _ =>  add_decl ();
+
+			 pb::EXT _
+                             => 
+			     case *segment_f 
+
+				  TEXT =>  error "EXT in TEXT segment";
+				  _    =>  add_decl ();
+			     esac;
+		   esac;
+		};
+
+	    fun define_local_label lab
+		= 
+		case *segment_f 
+		  
+		    TEXT => 
+			case (find_label (hash_label lab))
+
+			     NULL =>
+                                 {   fun new_blk ()
+					 = 
+					 case *currentablock
+
+					      control_flow_graph::BLOCK { id=> -1, ... } => new_block 1.0;
+					      control_flow_graph::BLOCK { instructions => REF [], ... } => *currentablock; #  probably aligned block 
+					      _ => new_block 1.0;
+					 esac;
+
+				     (new_blk())
+                                         ->
+                                         control_flow_graph::BLOCK { id, labels, ... };
+
+				     labels := lab ! *labels;
+
+				     add_label (hash_label lab, id);
+				 };
+
+			     THE _ => error (cat ["multiple definitions of label \"", label::to_string lab, "\""]);
+			esac;
+
+		    _   =>
+                        {	
+			    # Non-text segment:
+			    # 
+			    (*cfg)           ->   graph::GRAPH graph;
+			    graph.graph_info ->   control_flow_graph::INFO { data, ... };
+
+			    data := pb::DATA_LABEL lab ! *data;
+		        };
+	       esac;
+
+
+	    fun define_global_label lab
+                =
+                {   define_local_label lab;
+                    entry_labels := lab ! *entry_labels;
+                };
+
+	    s::STREAM
+	      { emit_comment,
+                get_notes,
+                add_note,
+		define_local_label,
+		define_global_label,
+		emit_pseudo_op,
+		begin_cluster,
+		emit,
+		end_procedure,
+		end_cluster
+	      };
+        };			# fun build 
+};				# generic package build_flowgraph_g
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

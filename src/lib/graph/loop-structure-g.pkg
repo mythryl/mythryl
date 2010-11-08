@@ -1,0 +1,391 @@
+# loop-structure-g.pkg
+# This module is responsible for locating loop structures (intervals).
+# All loops have only one single entry (via the header) but
+# potentially multiple exits, i.e. the header dominates all nodes.
+# Basically this is Tarjan's algorithm.  
+#
+# The old version is broken as reported by William Chen.
+# This is a rewrite.
+
+# Compiled by:
+#     src/lib/graph/graphs.make6
+
+
+
+###       "Lovers of problem solving, they are apt to play chess at lunch
+###        or doodle in algebra over cocktails, speak an esoteric language
+###        that some suspect is just their way of mystifying outsiders.
+###        Deeply concerned about logic and sensitive to its breakdown
+###        in everyday life, they often annoy friends by asking them to
+###        rephrase their questions more logically."
+###
+###                                 -- Time Magazine, 1965
+
+
+generic package loop_structure_g (
+    package graph_guts:  Graph_Guts;					# Graph_Guts		is from   src/lib/graph/graph-guts.api
+    package dom:         Dominator_Tree;				# Dominator_Tree	is from   src/lib/graph/dominator-tree.api
+)
+
+: (weak)  Loop_Structure						# Loop_Structure	is from   src/lib/graph/loop-structure.api
+
+{
+    package g= graph;							# graph			is from   src/lib/graph/graph.pkg
+    package gi  = graph_guts;
+    package dom = dom;
+    package a= rw_vector;						# rw_vector		is from   src/lib/std/src/rw-vector.pkg
+    package u= union_find;						# union_find		is from   src/lib/src/union-find.pkg
+
+    Loop (N,E,G)
+	= 
+	LOOP { nesting:     Int,
+	       header:      g::Node_Id,
+	       loop_nodes:  List( g::Node_Id ),
+	       backedges:   List(  g::Edge(  E ) ),
+	       exits:       List(  g::Edge(  E ) )
+	     };
+
+    Loop_Info (N, E, G)
+	= 
+	INFO  { dom:  dom::Dominator_Tree( N, E, G )  };
+
+    Loop_Structure (N,E,G)
+	= 
+	graph::Graph (Loop(N,E,G), Void, Loop_Info(N,E,G));
+
+    fun dom (g::GRAPH { graph_info=>INFO { dom, ... }, ... } )
+	=
+	dom;
+
+    fun loop_structure dom'
+	= 
+	ls'
+        where
+	    info                 = INFO { dom => dom' };
+
+	    my g::GRAPH cfg      = dom::cfg dom';
+	    my g::GRAPH dom      = dom';
+
+	    nnn                  = dom.capacity ();
+	    dominates            = dom::dominates dom';
+
+	    my ls' as g::GRAPH ls
+                =
+                gi::graph ("Loop package", info, nnn); 
+
+	    entry                = case (cfg.entries ())
+				     
+					[entry] =>  entry;
+				        _       =>  raise exception graph::NOT_SINGLE_ENTRY;
+				   esac;
+
+
+	    headers		# Mapping from node id -> header 
+                =
+                a::make_rw_vector (nnn, -1);
+
+
+
+
+	    last_headers	# Mapping from header -> previous header in the loop 
+                =
+                a::make_rw_vector (nnn, -1);
+
+
+	    visited		# Mark all visited nodes during construction 
+                =
+                a::make_rw_vector (nnn, -1);
+
+
+	    ppp			# Mapping from nodes id -> collapsed header during construction 
+               =
+               a::tabulate (nnn, u::u_ref);
+
+
+	    fun walk (xxx, loops)	#  Walk the dominator tree and return a list of loops 
+		=
+		{   #  Look for backedges 
+		    backedges
+			=
+			list::filter 
+			    (fn (yyy, xxx, _) => dominates (xxx, yyy); end )
+			    (cfg.in_edges xxx);
+
+		    #  xxx is a header iff it has backedges or xxx is the entry 
+
+		    is_header
+			=
+			case backedges
+			  
+			     []  =>   xxx == entry;
+			     _   =>   TRUE;
+			esac;
+
+
+		    # Walk the dominator tree first:
+		    #
+		    loops =   list::fold_right walk loops (dom.next xxx);
+
+		    # If xxx is a header node then collaspe all the nodes within
+		    # the loop into the header.  The entry node has to be
+		    # treated specially, unfortunately.
+
+		    if is_header 
+
+			 lll =   mark (xxx, xxx, []);
+			 lll =   if (xxx == entry ) find_entry_loop_nodes []; else lll; fi;
+			 collapse (xxx, lll);
+			 exits = find_exits (lll, []);
+
+			 #  Create a new loop node 
+			 (xxx, backedges, lll, exits) ! loops;
+		    else
+			 loops;
+		    fi;
+		}
+
+
+
+	    also
+            fun mark (xxx, header, lll)
+	       =
+
+	       # Mark all the nodes that are within
+	       # the loop identified by the header.
+	       #
+	       # Return a list of loop nodes.
+
+	       if   (a::get (visited, xxx) != header)
+	           
+
+		   #  mark xxx as visited 
+		   a::set (visited, xxx, header); 
+
+		   #  header of xxx 
+		   h_x = a::get (headers, xxx);
+
+		   lll =   if (h_x == -1)		#  xxx has no header yet 
+				xxx ! lll;
+			   else
+				if   (h_x == xxx and a::get (last_headers, xxx) == -1)
+				    
+				     #  Add loop edge 
+				     a::set (last_headers, xxx, header);
+				     ls.add_edge (header, xxx, ());
+				     lll;
+				else
+				     lll;
+				fi;
+			  fi;
+
+		   list::fold_right
+		       (fn ((yyy, _, _), lll)
+			   =
+			   {   yyy = u::(!!) (a::get (ppp, yyy));
+
+			       if   (dominates (header, yyy))
+                                   
+                                    mark (yyy, header, lll);
+                               else
+                                    lll;
+                               fi;
+			   }
+		       )
+		       lll
+		       (cfg.in_edges xxx);
+
+	       else
+		    lll;
+	       fi
+
+	    also
+            fun collapse (hhh, lll)		#  Collapse all nodes in lll to the header hhh.
+		= 
+		{   h =  a::get (ppp, hhh);
+
+		    list::apply
+			(fn xxx
+                            =
+		            {   u::link (a::get (ppp, xxx), h);
+
+			        if   (a::get (headers, xxx) == -1)
+                                    
+			             a::set (headers, xxx, hhh);
+			        fi;
+                            }
+                        )
+                        lll;
+		}
+
+	    also
+            fun find_entry_loop_nodes lll       # Find all nodes that are not part of any loops.
+		=
+		list::fold_right
+		    (fn ((xxx, _), lll)
+			 =
+			 if   (a::get (headers, xxx) == -1)
+			     
+			      xxx ! lll;
+			 else
+			      if  (xxx != entry
+			      and  a::get (headers, xxx) == xxx
+                              and  a::get (last_headers, xxx) == -1
+			      )
+				   ls.add_edge (entry, xxx, ());
+				   a::set (last_headers, xxx, entry);
+				   lll;
+			      else 
+				   lll;
+			      fi;
+			 fi
+		    )
+		    lll
+		    (cfg.nodes ())
+
+
+	    also
+            fun find_exits ([], exits)		# Find all edges that can exit from the loop hhh. 
+                    =>
+                    exits;
+
+	       find_exits (xxx ! xs, exits)
+                   =>
+		   find_exits (xs, f (cfg.out_edges xxx, exits))
+                   where
+		       fun f ((e as (xxx, yyy, _)) ! es, exits)
+			       =>
+			       if   (a::get (headers, yyy) == -1) 
+			            f (es, e ! exits); 
+			       else f (es, exits);
+                               fi;
+
+		           f ([], exits)
+                               =>
+                               exits;
+                       end;
+		   end;
+            end;
+
+
+
+	    # Walk tree and create edges: 
+	    #
+	    loops
+                =
+                walk (entry, []);
+
+
+	    # Create nodes:
+	    #
+	    list::apply
+		(fn (hhh, backedges, loop_nodes, exits)
+                    =
+		    {   last =   a::get (last_headers, hhh);
+
+		        nesting
+                            =
+                            if   (last == -1)
+                                
+                                 0; 
+			    else 
+				 my  LOOP { nesting, ... }
+                                     = 
+				     ls.node_info last;
+
+				 nesting + 1;
+                            fi;
+
+		        ls.add_node (
+
+                            hhh,
+
+                            LOOP {
+                              nesting,
+			      header     => hhh,
+			      backedges,
+			      loop_nodes,
+			      exits
+                            }
+                        );
+		    }
+                )
+		loops;
+
+	end;
+
+    fun nesting_level (g::GRAPH lll)
+	=
+        levels
+        where
+	    my INFO { dom=>g::GRAPH dom, ... }
+                =
+                lll.graph_info;
+
+	    nnn    =  dom.capacity ();
+	    levels =  a::make_rw_vector (nnn, 0);
+
+	    fun tabulate (_, LOOP { nesting, header, loop_nodes, ... } )
+		=
+		{   a::set (levels, header, nesting);
+		    apply (fn i => a::set (levels, i, nesting); end ) loop_nodes;
+		};
+
+	    lll.forall_nodes  tabulate;
+	end;
+
+    fun header (g::GRAPH lll)
+	= 
+        headers
+        where
+
+	    my INFO { dom=>g::GRAPH dom, ... }
+                =
+                lll.graph_info;
+
+	    nnn     =  dom.capacity ();
+	    headers =  a::make_rw_vector (nnn, 0);
+
+	    fun tabulate (_, LOOP { header, loop_nodes, ... } )
+		=
+		{   a::set (headers, header, header);
+
+		    apply
+                        (fn i =  a::set (headers, i, header))
+                        loop_nodes;
+		};
+
+	    lll.forall_nodes tabulate;
+	end;
+
+    fun entry_edges (loop as g::GRAPH lll)
+	=
+	entry_edges
+        where
+	    dom =  dom loop;
+
+	    my g::GRAPH cfg
+                =
+                dom::cfg dom;
+
+	    dominates =  dom::dominates dom;
+
+	    fun entry_edges (header)
+                = 
+	        if   (lll.has_node header)
+                     
+		     list::filter
+                         (fn (i, j, _) =  not (dominates (j, i)))
+			 (cfg.in_edges header);
+	        else
+                     [];
+                fi;
+	end;
+
+    fun is_back_edge (loop as g::GRAPH lll)
+	= 
+	fn (v, w) =  lll.has_node w  and  dom (w, v)
+        where
+	    dom =  dom::dominates (dom loop);
+	end;
+};    
+

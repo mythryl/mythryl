@@ -1,0 +1,1671 @@
+## file-g.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+# Our package macro is invoked by:
+#     src/lib/std/src/unix/file.pkg
+#     src/lib/std/src/win32/win32-file.pkg
+#
+# QUESTION: what operations should raise exceptions when the stream is
+# closed?		XXX BUGGO FIXME
+
+stipulate
+    package int =  int_guts;				# int_guts			is from   src/lib/std/src/bind-int-32.pkg
+    package os  =  winix_guts;				# winix_guts			is from   src/lib/std/src/unix/winix-guts.pkg
+    package a   =  rw_char_vector;			# rw_char_vector		is from   src/lib/std/src/rw-char-vector.pkg
+    package v   =     char_vector;			#    char_vector		is from   src/lib/std/src/char-vector.pkg
+    package rs  =  rw_char_vector_slice;		# rw_char_vector_slice		is from   src/lib/std/src/rw-char-vector-slice.pkg
+    package vs  =     char_vector_slice;		#    char_vector_slice		is from   src/lib/std/src/char-vector-slice.pkg
+herein
+							# Winix_Primitive_Io		is from   src/lib/std/src/io/winix-primitive-io.api
+							# File				is from   src/lib/std/src/io/file.api
+    generic package file_g (
+
+	# On unix  below argument will be		# posix_text_primitive_io	is from   src/lib/std/src/unix/posix-text-primitive-io.pkg
+	# On win32 below argument will be		# win32_text_primitive_io       is from   src/lib/std/src/win32/win32-text-primitive-io.pkg
+
+	package winix_primitive_io
+	    :
+	    api {
+		include   Winix_Primitive_Io;
+		#
+		stdin:    Void -> primitive_io::Reader;
+		stdout:   Void -> primitive_io::Writer;
+		stderr:   Void -> primitive_io::Writer;
+		#
+		string_reader:  String -> primitive_io::Reader;
+	    }
+	    where
+		primitive_io == text_primitive_io;
+
+    )
+    : (weak)  File
+    {
+	package pio					# Unpack part of our generic's argument.
+	    =
+	    winix_primitive_io::primitive_io;
+
+	some_element = '\000';
+	    #
+	    # An element for initializing buffers.
+
+	#    # Fast, but unsafe version (from char_vector):
+	#    vecSub = inline_t::char_vector::get
+	#    arrUpdate = inline_t::rw_char_vector::update
+	#
+	#    # Fast vector extract operation.
+	#    # This should never be called with a length of 0.
+	#
+	#    fun vecExtract (v, base, optLen)
+	#        =
+	#        ( len = v::length v;
+	#
+	#	  fun newVec n = let
+	#		newV = Assembly::a::create_s n
+	#		fun fill i = if (i < n)
+	#		      then (
+	#			inline_t::char_vector::update (newV, i, vecSub (v, base+i));
+	#			fill (i+1))
+	#		      else ()
+	#		in
+	#		  fill 0; newV
+	#		end;
+	#
+	#	    case (base, optLen)
+	#	     of (0, NULL) => v
+	#	      | (_, NULL) => newVec (len - base)
+	#	      | (_, THE n) => newVec n
+	#	    #  end case 
+	#       )
+
+	vec_extract =  vs::to_vector  o  vs::make_slice;
+	vec_get     =  v::get;
+	rw_vec_set  =  a::set;
+
+	substring_base =  substring::base;
+
+	empty = "";
+
+	package pure_io {
+
+	    Vector        =  v::Vector;
+	    Element       =  v::Element;
+	    Reader        =  pio::Reader;
+	    Writer        =  pio::Writer;
+	    File_Position =  pio::File_Position;
+
+	    # *** Functional input streams ***
+	    #
+	    # We represent an Input_Stream by a pointer to a buffer and an offset
+	    # into the buffer.  The buffers are chained by the "more" field from
+	    # the beginning of the stream towards the end.  If the "more" field
+	    # is EOS, then it refers to an empty buffer (consuming the EOF marker
+	    # involves moving the stream from immediately in front of the EOS to
+	    # to the empty buffer).  A "more" field of TERMINATED marks a
+	    # terminated stream.  We also have the invariant that the "tail"
+	    # field of the "info" package points to a more REF that is either
+	    # NO_MORE or TERMINATED.
+
+	    Input_Stream = INPUT_STREAM  (Input_Buffer, Int)
+
+	    also
+	    Input_Buffer
+		=
+		INPUT_BUFFER
+		  {
+		    base_position:  Null_Or( File_Position ),
+		    more:  Ref( More ),
+		    data:  Vector,
+		    info:  Info
+		  }
+
+	    also
+	    More
+	      = MORE  Input_Buffer	# Forward link to additional data.
+	      | EOS   Input_Buffer	# End-of-stream marker.
+	      | NO_MORE			# Placeholder for forward link.
+	      | TERMINATED		# Termination of the stream.
+
+	    also
+	    Info
+		=
+		INFO  {
+		    reader:                    Reader,
+		    read_vector:               Int -> Vector,
+		    read_vector_nonblocking:   Null_Or (Int -> Vector),
+		    get_position:              Void -> Null_Or( File_Position ),
+		    #
+		    clean_tag:     clean_io::Tag,
+		    #
+		    closed:        Ref( Bool      ),
+		    tail:          Ref( Ref(More) )		# Points to the MORE cell of the last buffer.
+		};
+
+
+	    fun info_of_ibuf (INPUT_BUFFER i)
+		=
+		i.info;
+
+
+	    fun chunk_size_of_ibuf  buf
+		=
+		{   my INFO { reader=>pio::READER rd, ... }
+			=
+			info_of_ibuf  buf;
+
+		    rd.chunk_size;
+		};
+
+	    fun read_vector (INPUT_BUFFER { info=>INFO i, ... } )
+		=
+		i.read_vector;
+
+	    fun input_exn (INFO { reader=>pio::READER { name, ... }, ... }, function, cause)
+		=
+											# io_exceptions		is from   src/lib/std/src/io/io-exceptions.api
+		raise exception io_exceptions::IO { function, name, cause };
+
+	    # This exception is raised by read_vec_nonblocking
+	    # in the blocking case 
+	    #
+	    exception WOULD_BLOCK;
+
+	    fun extend_stream (read_g, ml_op, buf as INPUT_BUFFER { more, info, ... } )
+		=
+		{   info ->  INFO { get_position, tail, ... };
+
+		    base_position =  get_position ();
+		    data     =  read_g (chunk_size_of_ibuf buf);
+		    new_more =  REF NO_MORE;
+
+		    buf' = INPUT_BUFFER { base_position, data, info,  more => new_more  };
+
+		    next
+			=
+			if (v::length data == 0)   EOS  buf';
+			else                       MORE buf';
+			fi;
+
+		    more := next;
+		    tail := new_more;
+		    next;
+		}
+		except
+		    ex =  input_exn (info, ml_op, ex);
+
+
+	    fun get_buffer  (read_g, ml_op)  (buf as INPUT_BUFFER { more, info, ... } )
+		=
+		case *more
+		    #
+		    TERMINATED =>  EOS buf;
+		    NO_MORE    =>  extend_stream (read_g, ml_op, buf);
+		    more       =>  more;
+		esac;
+
+
+	    # Read a chunk that is at least
+	    # the specified size:
+	    #
+	    fun read_chunk buf
+		=
+		{   my INFO { read_vector, reader=>pio::READER { chunk_size, ... }, ... }
+			=
+			info_of_ibuf buf;
+
+		    case (chunk_size - 1)
+			#
+			0 => (fn n =  read_vector n);
+			#
+			k => (fn n                     # Round up to next multiple of chunk_size.
+				 =
+				 read_vector (int::quot((n+k), chunk_size) * chunk_size));
+		    esac;
+		};
+
+	    fun generalized_input  get_buf
+		=
+		get
+		where
+		    fun get (INPUT_STREAM (buf as INPUT_BUFFER { data, ... }, pos))
+			=
+			{   len =  v::length data;
+
+			    if (pos < len)
+				#
+				( vec_extract (data, pos, NULL),
+				  INPUT_STREAM (buf, len)
+				);
+			    else
+				case (get_buf buf)
+				    #
+				    EOS buf   =>  (empty, INPUT_STREAM (buf, 0));
+				    MORE rest =>  get (INPUT_STREAM (rest, 0));
+				    _         =>  raise exception FAIL "bogus get_buf";
+				esac;
+			    fi;
+			};
+		end;
+
+
+	    # Terminate an input stream: 
+	    #
+	    fun terminate (INFO { tail, clean_tag, ... } )
+		=
+		case *tail
+		    #
+		    m as REF NO_MORE
+			=>
+			{   clean_io::remove_cleaner clean_tag;
+			    m := TERMINATED;
+			};
+
+		    m as REF TERMINATED
+			=>
+		       ();
+
+		    _   => raise exception MATCH;		# Quiet compiler.
+		esac;
+
+
+	    fun read (stream as INPUT_STREAM (buf, _))
+		=
+		generalized_input
+		    (get_buffer (read_vector buf, "read"))
+		    stream;
+
+
+	    fun read_one (INPUT_STREAM (buf, pos))
+		=
+		{   buf ->  INPUT_BUFFER { data, more, ... };
+
+		    if (pos < v::length data)
+			#
+			THE (vec_get (data, pos), INPUT_STREAM (buf, pos+1));
+		    else
+			case *more
+			    #
+			    MORE buf => read_one (INPUT_STREAM (buf, 0));
+			    EOS _    => NULL;
+			    #
+			    NO_MORE
+				=>
+				case (extend_stream (read_vector buf, "read_one", buf))
+				    #
+				    MORE rest =>  read_one (INPUT_STREAM (rest, 0));
+				    _         =>  NULL;
+				esac;
+
+			    TERMINATED
+				=>
+				NULL;
+		       esac;
+		    fi;
+		};
+
+	    fun read_n (INPUT_STREAM (buf, pos), n)
+		=
+		{   fun join (item, (list, stream))
+			=
+			(item ! list, stream);
+
+		    fun input_list (buf as INPUT_BUFFER { data, ... }, i, n)
+			=
+			{   len    =  v::length data;
+			    remain =  len-i;
+
+			    if (remain >= n)
+				#
+				([vec_extract (data, i, THE n)], INPUT_STREAM (buf, i+n));
+			    else
+				join (
+				    vec_extract (data, i, NULL),
+				    next_buf (buf, n-remain)
+				);
+			    fi;
+			}
+
+		    also
+		    fun next_buf (buf as INPUT_BUFFER { more, data, ... }, n)
+			=
+			case *more
+			    #
+			    MORE buf =>  input_list (buf, 0, n);
+			    EOS  buf =>  ([], INPUT_STREAM (buf, 0));
+			    #
+			    NO_MORE
+				=>
+				case (extend_stream (read_vector buf, "read_n", buf))
+
+				     MORE rest
+					 =>
+					 input_list (rest, 0, n);
+
+				     _   =>
+					 ([], INPUT_STREAM (buf, v::length data));
+				esac;
+
+			    TERMINATED
+				=>
+				([], INPUT_STREAM (buf, v::length data));
+			esac;
+
+		    my (data, stream)
+			=
+			input_list (buf, pos, n);
+
+		    (v::cat data, stream);
+		};
+
+	    fun read_all (stream as INPUT_STREAM (buf, _))
+		=
+		{
+		    my INFO { reader=>pio::READER { avail, ... }, ... }
+			=
+			info_of_ibuf buf;
+
+		    # Read a chunk that is as large as the available input.
+		    # Note that for systems that use CR-LF for '\n', the
+		    # size will be too large, but this should be okay.
+		    #
+		    fun big_chunk _
+			=
+			{   delta
+				=
+				case (avail ())
+
+				     NULL  =>  chunk_size_of_ibuf buf;
+				     THE n =>  n;
+				esac;
+
+			    read_chunk buf delta;
+			};
+
+		    big_input
+			=
+			generalized_input (get_buffer (big_chunk, "read_all"));
+
+		    fun loop (v, stream)
+			=
+			if   (v::length v == 0)
+
+			     ([], stream);
+			else
+			     my (l, stream')
+				 =
+				 loop (big_input stream);
+
+			      (v ! l, stream');
+			fi;
+
+		    my (data, stream')
+			=
+			loop (big_input stream);
+
+		    (v::cat data, stream');
+		};
+
+	    # Return  THE k,  if k <= amount of characters
+	    # that can be read without blocking:
+	    #
+	    fun can_read (stream as INPUT_STREAM (buf, pos), amount)
+		=
+		{   read_vector_nonblocking
+			=
+			case buf
+			    #
+			    (INPUT_BUFFER { info as INFO { read_vector_nonblocking=>NULL, ... }, ... } )
+				=>
+				input_exn (info, "can_read", io_exceptions::NONBLOCKING_IO_NOT_SUPPORTED);
+
+			    (INPUT_BUFFER { info=>INFO { read_vector_nonblocking=>THE f, ... }, ... } )
+				=>
+				f;
+			esac;
+
+
+		    fun try_input (buf as INPUT_BUFFER { data, ... }, i, n)
+			=
+			{   len    =  v::length data;
+			    remain =  len - i;
+
+			    if (remain >= n)   THE n;
+			    else               next_buf (buf, n - remain);
+			    fi;
+			  }
+
+		    also
+		    fun next_buf (INPUT_BUFFER { more, ... }, n)
+			=
+			case *more
+			    #
+			    MORE buf   =>  try_input (buf, 0, n);
+			    EOS _      =>  THE (amount - n);
+			    TERMINATED =>  THE (amount - n);
+			    #
+			    NO_MORE
+				=>
+				case (extend_stream (read_vector_nonblocking, "can_read", buf))
+				    #
+				    MORE b =>  try_input (b, 0, n);
+				    _      =>  THE (amount - n);
+				esac
+				except
+				    io_exceptions::IO { cause=>WOULD_BLOCK, ... }
+					=
+					THE (amount - n);
+			esac;
+
+
+		    if (amount < 0)   raise exception SIZE;
+		    else              try_input (buf, pos, amount);
+		    fi;
+		};
+
+	    fun close_input  (INPUT_STREAM (buf, _))
+		=
+		case (info_of_ibuf  buf)
+		    #	
+		    INFO { closed=>REF TRUE, ... }
+			=>
+			();
+
+		    info as INFO { closed, reader=>pio::READER { close, ... }, ... }
+			=>
+			{   terminate info;
+			    closed := TRUE;
+
+			    close ()
+			    except
+				ex =  input_exn (info, "close_input", ex);
+			};
+		esac;
+
+
+	    fun end_of_stream (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { more=>REF (MORE _), ... }  =>  FALSE;
+		    INPUT_BUFFER { more=>REF (EOS _),  ... }  =>  TRUE;
+		    #
+		    INPUT_BUFFER { more, data, info=>INFO { closed, ... }, ... }
+			=>
+			if   (pos == v::length data)
+
+			     case (*more, *closed)
+
+				  (NO_MORE, FALSE)
+				      =>
+				      case (extend_stream (read_vector buf, "end_of_stream", buf))
+
+					   (EOS _) =>  TRUE;
+					   _       =>  FALSE;
+				      esac;
+
+				  _ => TRUE;
+			     esac;
+
+			else
+			     FALSE;
+			fi;
+		esac;
+
+
+	    fun make_instream (reader, data)
+		=
+		{   reader ->  pio::READER { read_vector, read_vector_nonblocking, get_position, set_position, ... };
+
+		    read_vector'
+			=
+			case read_vector
+			    #
+			    NULL  =>  (fn _ =  raise exception io_exceptions::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  f;
+			esac;
+
+		    read_vector_nonblocking'
+			=
+			case read_vector_nonblocking
+			    #
+			    NULL  =>  NULL;
+			    #
+			    THE f
+				=>
+				THE (fn arg
+					=
+					case (f arg)
+					    #
+					    THE x =>  x;
+					    NULL  =>  raise exception WOULD_BLOCK;
+					esac
+				    );
+			esac;
+
+		    get_position
+			=
+			case (get_position, set_position)
+			    #
+			    (THE f, THE _) =>   fn () =  THE (f());
+			    _              =>   fn () =  NULL;
+			esac;
+
+		    more = REF NO_MORE;
+
+		    closed_flag = REF FALSE;
+
+		    tag =
+			clean_io::add_cleaner
+			  {
+			    init  =>  fn () =  closed_flag := TRUE,
+			    flush =>  fn () =  (),
+			    close =>  fn () =  closed_flag := TRUE
+			  };
+
+		    info =
+			INFO
+			    {
+			      reader,
+			      get_position,
+			      read_vector             =>  read_vector',
+			      read_vector_nonblocking =>  read_vector_nonblocking',
+
+			      closed                  =>  closed_flag,
+			      tail                    =>  REF more,
+			      clean_tag               =>  tag
+			    };
+
+		    # What should we do about the position when there is initial data?
+		    # Suggestion: When building a stream with supplied initial data,
+		    # nothing can be said about the positions inside that initial
+		    # data (who knows where that data even came from!).
+
+		    base_position
+			=
+			if (v::length data == 0)   get_position ();
+			else                       NULL;
+			fi;
+
+		    INPUT_STREAM(
+		      INPUT_BUFFER { base_position, data, info, more },
+		      0
+		    );
+		};
+
+
+	    fun get_reader (INPUT_STREAM (buf, pos))
+		=
+		{   buf ->  INPUT_BUFFER
+				{ data,
+				  info as INFO { reader, ... },
+				  more,
+				  ...
+				};
+
+		    fun get_data (MORE (INPUT_BUFFER { data, more, ... } ))
+			    =>
+			    data ! get_data *more;
+
+			get_data _
+			    =>
+			    [];
+		    end;
+
+		    terminate info;
+
+		    if (pos < v::length data)
+			#
+			( reader,
+			  v::cat (vec_extract (data, pos, NULL) ! get_data *more)
+			);
+		    else
+			( reader,
+			  v::cat (get_data *more)
+			);
+		    fi;
+		};
+
+	    # Get the underlying file position of a stream:
+	    #
+	    fun file_position_in (INPUT_STREAM (buf, pos))
+		=
+		case buf
+		    #
+		    INPUT_BUFFER { base_position=>NULL, info, ... }
+			=>
+			input_exn (info, "filePosIn", io_exceptions::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+
+		    INPUT_BUFFER { base_position=>THE base, info, ... }
+			=>
+			{   info ->  INFO { reader=>pio::READER rd, read_vector, ... };
+
+			    case (rd.get_position, rd.set_position)
+				#
+				( THE get_position,
+				  THE set_position
+				)
+				    =>
+				    {   tmp_pos =  get_position ();
+
+					fun read_n 0
+						=>
+						();
+
+					    read_n n
+						=>
+						case (v::length (read_vector n))
+						    #
+						    0 =>  input_exn (info, "filePosIn", FAIL "bogus position");
+						    k =>  read_n (n-k);
+						esac;
+					end;
+
+					set_position base;
+					read_n pos;
+
+					get_position ()
+					before
+					    set_position tmp_pos;
+				    };
+
+				_   => raise exception FAIL "filePosIn: impossible";
+			    esac;
+			};
+		esac;
+
+
+	    # Text stream specific operations:
+	    #
+	    fun read_line (INPUT_STREAM (buf as INPUT_BUFFER { data, more, ... }, pos))
+		=
+		{   fun join (item, (list, stream))
+			=
+			(item ! list, stream);
+
+		    fun next_buf (buf as INPUT_BUFFER { more, data, ... } )
+			=
+			{   fun last ()
+				=
+				(["\n"], INPUT_STREAM (buf, v::length data));
+
+			    case *more
+				#
+				MORE buf =>  scan_data (buf, 0);
+				EOS  buf =>  last ();
+				#
+				NO_MORE
+				    =>
+				    case (extend_stream (read_vector buf, "read_line", buf))
+					#
+					EOS _     =>  last ();
+					MORE rest =>  scan_data (rest, 0);
+					_         =>  raise exception MATCH;
+				    esac;
+
+				TERMINATED
+				    =>
+				    last ();
+			    esac;
+			}
+
+		    also
+		    fun scan_data (buf as INPUT_BUFFER { data, more, ... }, i)
+			=
+			{   len = v::length data;
+
+			    fun scan j
+				=
+				if (j == len)
+				    #
+				    join (vec_extract (data, i, NULL), next_buf buf);
+				else
+				    if (vec_get (data, j) == '\n')
+					#
+					([vec_extract (data, i, THE (j+1-i))], INPUT_STREAM (buf, j+1));
+				    else
+					scan (j+1);
+				    fi;
+				fi;
+
+			    scan i;
+			  };
+
+		    my (data, stream)
+			=
+			if (v::length data == pos)
+			    #
+			    case (get_buffer (read_vector buf, "read_line") buf)
+				#
+				EOS buf =>  ([""], INPUT_STREAM (buf, 0));
+				_       =>  next_buf buf;
+			    esac;
+			else
+			    scan_data (buf, pos);
+			fi;
+
+		    result_vec = v::cat data;
+
+		    if (v::length result_vec == 0)   NULL;
+		    else                             THE (result_vec, stream);
+		    fi;
+		};
+
+	    # ** Output streams **
+	    Output_Stream
+		=
+		OUTPUT_STREAM
+		    { buf:          a::Rw_Vector,
+		      #
+		      pos:          Ref( Int ),
+		      closed:       Ref( Bool ),
+		      buffering:    Ref( io_exceptions::Buffering ),
+		      #
+		      writer:       Writer,
+		      #
+		      write_rw_vector: rs::Slice -> Void,
+		      write_vector:    vs::Slice -> Void,
+		      clean_tag:       clean_io::Tag
+		    };
+
+	    fun output_exn (OUTPUT_STREAM { writer=>pio::WRITER { name, ... }, ... }, ml_op, exn)
+		=
+		raise exception io_exceptions::IO { function=>ml_op, name, cause=>exn };
+
+
+	    fun is_nl '\n' =>  TRUE;
+		is_nl _    =>  FALSE;
+	    end;
+
+	    fun is_closed_out (stream as OUTPUT_STREAM { closed=>REF TRUE, ... }, ml_op)
+		    =>
+		    output_exn (stream, ml_op, io_exceptions::CLOSED_IO_STREAM);
+
+		is_closed_out _
+		    =>
+		    ();
+	    end;
+
+	    fun flush_buffer (stream as OUTPUT_STREAM { buf, pos, write_rw_vector, ... }, ml_op)
+		=
+		case *pos
+		    #
+		    0 => ();
+		    #
+		    n => {   write_rw_vector (rs::make_slice (buf, 0, THE n));
+			     pos := 0;
+			 }
+			 except
+			     ex = output_exn (stream, ml_op, ex);
+		esac;
+
+
+	    # A version of copy_vec that checks for newlines, while it is copying.
+	    # This is used for LINE_BUFFERING output of strings and substrings.
+	    #
+	    fun line_buf_copy_vec (src, src_i, src_len, dst, dst_i)
+		=
+		{   stop = src_i+src_len;
+
+		    fun cpy (src_i, dst_i, lb)
+			=
+			if (src_i < stop)
+			    #
+			    c = vec_get (src, src_i);
+
+			    rw_vec_set (dst, dst_i, c);
+			    cpy (src_i+1, dst_i+1, lb or is_nl c);
+
+			else
+			    lb;
+			fi;
+
+		    cpy (src_i, dst_i, FALSE);
+		};
+
+	    #  A version of copyVec for BLOCK_BUFFERING output of strings and substrings.
+	    #
+	    fun block_buf_copy_vec (from, from_i, from_len, to, to_i)
+		=
+		{   rs::copy_vec { from => vs::make_slice (from, from_i, THE from_len),
+				   to,
+				   di => to_i
+				 };
+		    FALSE;
+		};
+
+	    fun write (stream as OUTPUT_STREAM os, v)
+		=
+		{   is_closed_out (stream, "write");
+
+		    os ->  { buf, pos, buffering, ... };
+
+		    fun flush ()
+			=
+			flush_buffer (stream, "write");
+
+		    fun write_direct ()
+			=
+			{   case *pos
+				#
+				0 => ();
+				#
+				n => {   os.write_rw_vector (rs::make_slice (buf, 0, THE n));
+					 pos := 0;
+				     };
+			    esac;
+
+			    os.write_vector (vs::make_full_slice v);
+			}
+			except
+			    ex =  output_exn (stream, "write", ex);
+
+		    fun insert copy_vec
+			=
+			{   buf_len  =  a::length buf;
+			    data_len =  v::length v;
+
+			    if (data_len >= buf_len)
+				#
+				write_direct ();
+			    else
+				i     =  *pos;
+				avail =  buf_len - i;
+
+				if (avail < data_len)
+				    #
+				    rs::copy_vec { from => vs::make_slice (v, 0, THE avail),
+						   to   => buf,
+						   di   => i
+						 };
+
+				    os.write_rw_vector (rs::make_full_slice buf)
+				    except
+					ex =  {   pos := buf_len;
+						  output_exn (stream, "write", ex);
+					      };
+
+				    needs_flush
+					=
+					copy_vec (v, avail, data_len-avail, buf, 0);
+
+				    pos := data_len-avail;
+
+				    if needs_flush      flush ();   fi;
+
+				else
+
+				    needs_flush
+					=
+					copy_vec (v, 0, data_len, buf, i);
+
+				    pos :=  i + data_len;
+
+				    if (needs_flush or (avail == data_len))
+					#  
+					flush ();
+				    fi;
+				fi;
+			    fi;
+			};
+
+		    case *buffering
+			#
+			io_exceptions::NO_BUFFERING    =>  write_direct ();
+			io_exceptions::LINE_BUFFERING  =>  insert line_buf_copy_vec;
+			io_exceptions::BLOCK_BUFFERING =>  insert block_buf_copy_vec;
+		    esac;
+
+		};
+
+	    fun write_one (stream as OUTPUT_STREAM { buf, pos, buffering, write_rw_vector, ... }, element)
+		=
+		{   is_closed_out (stream, "write_one");
+
+		    case *buffering
+			#
+			io_exceptions::NO_BUFFERING
+			    =>
+			    {   rw_vec_set (buf, 0, element);
+
+				write_rw_vector (rs::make_slice (buf, 0, THE 1))
+				except
+				    ex =  output_exn (stream, "write_one", ex);
+			    };
+
+			io_exceptions::LINE_BUFFERING
+			    =>
+			    {   i  =  *pos;
+				i' =  i+1;
+
+				rw_vec_set (buf, i, element);
+				pos := i';
+
+				if  (i' == a::length buf
+				or   is_nl element
+				)
+				     flush_buffer (stream, "write_one");
+				fi;
+			    };
+
+			io_exceptions::BLOCK_BUFFERING
+			    =>
+			    {   i  =  *pos;
+				i' =  i+1;
+
+				rw_vec_set (buf, i, element);
+				pos := i';
+
+				if   (i' == a::length buf)
+
+				     flush_buffer (stream, "write_one");
+				fi;
+			    };
+		    esac;
+		};
+
+	    fun flush stream
+		=
+		flush_buffer (stream, "flush");
+
+
+	    fun close_output (stream as OUTPUT_STREAM { writer=>pio::WRITER { close, ... }, closed, clean_tag, ... } )
+		=
+		if (not *closed)
+		    #
+		    flush_buffer (stream, "close");
+		    closed := TRUE;
+		    clean_io::remove_cleaner clean_tag;
+		    close ();
+		fi;
+
+	    fun make_outstream (wr as pio::WRITER { chunk_size, write_rw_vector, write_vector, ... }, mode)
+		=
+		{   fun iterate (f, size, subslice) sl
+			=
+			lp sl
+			where
+			    fun lp sl
+				=
+				if   (size sl != 0)
+
+				     n = f sl;
+
+				     lp (subslice (sl, n, NULL));
+				fi;
+			end;
+
+		    write_rw_vector'
+			=
+			case write_rw_vector
+			    #
+			    NULL  =>  (fn _ =  raise exception io_exceptions::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, rs::length, rs::make_subslice);
+			esac;
+
+
+		    write_vector'
+			=
+			case write_vector
+			    #
+			    NULL  =>  (fn _ =  raise exception io_exceptions::BLOCKING_IO_NOT_SUPPORTED);
+			    THE f =>  iterate (f, vs::length, vs::make_subslice);
+			esac;
+
+
+		    # Install a dummy cleaner:
+		    #
+		    tag = clean_io::add_cleaner
+			      {
+				init  =>  fn () =  (),
+				flush =>  fn () =  (),
+				close =>  fn () =  ()
+			      };
+
+		    stream
+			=
+			OUTPUT_STREAM
+			    { buf          =>  a::make_rw_vector (chunk_size, some_element),
+			      pos          =>  REF 0,
+			      closed       =>  REF FALSE,
+			      buffering    =>  REF mode,
+			      writer       =>  wr,
+			      clean_tag    =>  tag,
+			      write_vector =>  write_vector',
+			      write_rw_vector   =>  write_rw_vector'
+			    };
+
+		    clean_io::rebind_cleaner (
+			#
+			tag,
+			#
+			{ init  =>  fn () = close_output  stream,
+			  flush =>  fn () = flush         stream,
+			  close =>  fn () = close_output  stream
+			}
+		    );
+
+		    stream;
+		};
+
+	    fun get_writer (stream as OUTPUT_STREAM { writer, buffering, ... } )
+		=
+		{   flush_buffer (stream, "getWriter");
+		    (writer, *buffering);
+		};
+
+
+
+	    # Position operations on outstreams:
+
+	    Out_Position
+		=
+		OUT_POSITION
+		    { pos:     pio::File_Position,
+		      stream:  Output_Stream
+		    };
+
+	    fun get_output_position (stream as OUTPUT_STREAM { writer, ... } )
+		=
+		{   flush_buffer (stream, "get_output_position");
+
+		    case writer
+			#
+			pio::WRITER { get_position=>THE f, ... }
+			    =>
+			    OUT_POSITION { pos => f(), stream }
+			    except
+				ex = output_exn (stream, "get_output_position", ex);
+			_   =>
+			    output_exn (stream, "get_output_position", io_exceptions::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+
+	    fun file_pos_out (OUT_POSITION { pos, stream } )
+		=
+		{   is_closed_out (stream, "filePosOut");
+		    pos;
+		};
+
+	    fun set_output_position (OUT_POSITION { pos, stream as OUTPUT_STREAM { writer, ... } } )
+		=
+		{   is_closed_out (stream, "set_output_position");
+
+		    case writer
+			#
+			pio::WRITER { set_position=>THE f, ... }
+			    =>
+			    (f pos)
+			    except
+				ex =  output_exn (stream, "set_output_position", ex);
+
+			_   =>
+			    output_exn (stream, "get_output_position", io_exceptions::RANDOM_ACCESS_IO_NOT_SUPPORTED);
+		    esac;
+		};
+
+
+	    # Text stream specific operations
+	    #
+	    fun write_substring (stream as OUTPUT_STREAM os, ss)
+		=
+		{
+		    is_closed_out (stream, "write_substring");
+
+		    my (v, data_start, data_len)
+			=
+			substring_base ss;
+
+		    os ->   { buf, pos, buffering, ... };
+
+		    buf_len =  a::length  buf;
+
+
+		    fun flush ()
+			=
+			flush_buffer (stream, "write_substring");
+
+
+		    fun write_direct ()
+			=
+			{   case *pos
+				#
+				0 => ();
+				#
+				n => {   os.write_rw_vector (rs::make_slice (buf, 0, THE n));
+					 pos := 0;
+				     };
+			    esac;
+
+			    os.write_vector
+				(vs::make_slice
+				    ( v,
+				      data_start,
+				      THE data_len
+				)   );
+			}
+			except
+			    ex =  output_exn (stream, "write_substring", ex);
+
+		    fun insert copy_vec
+			=
+			{   buf_len =  a::length  buf;
+
+			    if (data_len >= buf_len)
+				#
+				write_direct();
+			    else
+				i = *pos;
+				avail = buf_len - i;
+
+				if (avail < data_len)
+				    #
+				    rs::copy_vec { from => vs::make_slice (v, data_start, THE avail),
+						   to   => buf,
+						   di   => i
+						 };
+
+				    os.write_rw_vector (rs::make_full_slice buf)
+				    except
+					ex  =
+					    {   pos := buf_len;
+						output_exn (stream, "write_substring", ex);
+					    };
+
+				    needs_flush
+					=
+					copy_vec (v, data_start+avail, data_len-avail, buf, 0);
+
+				    pos := data_len-avail;
+
+				    if   needs_flush      flush ();   fi;
+				else
+				    needs_flush
+					=
+					copy_vec (v, data_start, data_len, buf, i);
+
+				    pos := i + data_len;
+
+				    if   (needs_flush  or  avail == data_len)
+
+					 flush ();
+				    fi;
+				fi;
+			    fi;
+			};
+
+		    case *buffering
+			#
+			io_exceptions::NO_BUFFERING    =>  write_direct ();
+			io_exceptions::LINE_BUFFERING  =>  insert  line_buf_copy_vec;
+			io_exceptions::BLOCK_BUFFERING =>  insert  block_buf_copy_vec;
+		    esac;
+		};
+
+	    fun set_buffer_mode (stream as OUTPUT_STREAM { buffering, ... }, io_exceptions::NO_BUFFERING)
+		    =>
+		    {   flush_buffer (stream, "setBufferMode");
+			buffering := io_exceptions::NO_BUFFERING;
+		    };
+
+		set_buffer_mode (stream as OUTPUT_STREAM { buffering, ... }, mode)
+		    =>
+		    {   is_closed_out (stream, "setBufferMode");
+			buffering := mode;
+		    };
+	    end;
+
+	    fun get_buffer_mode (stream as OUTPUT_STREAM { buffering, ... } )
+		=
+		{   is_closed_out (stream, "getBufferMode");
+		    *buffering;
+		};
+
+	}; #  pure_io 
+
+	Vector  =  v::Vector;
+	Element =  v::Element;
+
+	Input_Stream  = Ref( pure_io::Input_Stream  );
+	Output_Stream = Ref( pure_io::Output_Stream );
+
+	# Input operations:
+	#
+	fun read stream
+	    =
+	    {   my (v, stream')
+		    =
+		    pure_io::read *stream;
+
+		stream := stream'; v;
+	    };
+
+	fun read_one stream
+	    =
+	    case (pure_io::read_one *stream)
+		#
+		NULL => NULL;
+		THE (element, stream') => { stream := stream'; THE element;};
+	    esac;
+
+	fun read_n (stream, n)
+	    =
+	    {   my (v, stream')
+		    =
+		    pure_io::read_n (*stream, n);
+
+		stream := stream'; v;
+	    };
+
+	fun read_all (stream:  Input_Stream)
+	    =
+	    {
+		my (v, s) = pure_io::read_all *stream;
+
+		stream := s; v;
+	    };
+
+	fun can_read (stream, n)
+	    =
+	    pure_io::can_read (*stream, n);
+
+	fun lookahead (stream:  Input_Stream)
+	    =
+	    case (pure_io::read_one *stream)
+		#
+		THE (element, _) =>  THE element;
+		NULL             =>  NULL;
+	    esac;
+
+
+	fun close_input stream
+	    =
+	    {   (*stream)
+		    ->
+		    s as pure_io::INPUT_STREAM (buf as pure_io::INPUT_BUFFER { data, ... }, _);
+
+		# Find the end of the stream:
+		#
+		fun find_eos (pure_io::INPUT_BUFFER { more=>REF (pure_io::MORE buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (pure_io::INPUT_BUFFER { more=>REF (pure_io::EOS buf), ... } )
+			=>
+			find_eos buf;
+
+		    find_eos (buf as pure_io::INPUT_BUFFER { data, ... } )
+			=>
+			pure_io::INPUT_STREAM (buf, v::length data);
+		end;
+
+		pure_io::close_input s;
+		stream := find_eos buf;
+	    };
+
+	fun end_of_stream stream
+	    =
+	    pure_io::end_of_stream *stream;
+
+
+	# Output operations:
+	#
+	fun write     (stream, v) =  pure_io::write(*stream, v);
+	fun write_one (stream, c) =  pure_io::write_one(*stream, c);
+
+	fun flush         stream =  pure_io::flush         *stream;
+	fun close_output  stream =  pure_io::close_output  *stream;
+
+	fun get_output_position stream
+	    =
+	    pure_io::get_output_position  *stream;
+
+	fun set_output_position (stream, p as pure_io::OUT_POSITION { stream=>stream', ... } )
+	    =
+	    {   stream := stream';
+		pure_io::set_output_position p;
+	    };
+
+	fun make_instream  (stream:  pure_io::Input_Stream)  =  REF stream;
+	fun get_instream   (stream:  Input_Stream)           =  *stream;
+	fun set_instream   (stream:  Input_Stream, stream')  =  stream := stream';
+
+	fun make_outstream (stream:  pure_io::Output_Stream) =  REF stream;
+	fun get_outstream  (stream:  Output_Stream)          =  *stream;
+	fun set_outstream  (stream:  Output_Stream, stream') =  stream := stream';
+
+	# Figure out the proper buffering mode for a given writer:
+	# 
+	fun buffering (pio::WRITER { io_descriptor=>NULL, ... } )
+		=>
+		io_exceptions::BLOCK_BUFFERING;
+
+	    buffering (pio::WRITER { io_descriptor=>THE iod, ... } )
+		=>
+		if (os::io::kind iod
+		==  os::io::kind::tty)   io_exceptions::LINE_BUFFERING;
+		else                     io_exceptions::BLOCK_BUFFERING;
+                fi;
+	end;
+
+
+    ######### BEGIN INTERPOLATED 'say.pkg' STUFF #######################3
+	Input_Channel  = SAY | DSAY | VSAY;
+	Output_Channel = STDOUT | LOGFILE;
+
+	send_say_to_stdout   =  REF TRUE;    send_say_to_logfile  =  REF TRUE;
+	send_dsay_to_stdout  =  REF TRUE;    send_dsay_to_logfile =  REF TRUE;
+	send_vsay_to_stdout  =  REF TRUE;    send_vsay_to_logfile =  REF TRUE;
+
+	fun get_say_policy ( SAY, STDOUT ) =>  *send_say_to_stdout;
+	    get_say_policy (DSAY, STDOUT ) =>  *send_dsay_to_stdout;
+	    get_say_policy (VSAY, STDOUT ) =>  *send_vsay_to_stdout;
+	    get_say_policy ( SAY, LOGFILE) =>  *send_say_to_logfile;
+	    get_say_policy (DSAY, LOGFILE) =>  *send_dsay_to_logfile;
+	    get_say_policy (VSAY, LOGFILE) =>  *send_vsay_to_logfile;
+	end;
+
+	fun set_say_policy ( SAY, STDOUT,  bool) =>  send_say_to_stdout   := bool;
+	    set_say_policy (DSAY, STDOUT,  bool) =>  send_dsay_to_stdout  := bool;
+	    set_say_policy (VSAY, STDOUT,  bool) =>  send_vsay_to_stdout  := bool;
+	    set_say_policy ( SAY, LOGFILE, bool) =>  send_say_to_logfile  := bool;
+	    set_say_policy (DSAY, LOGFILE, bool) =>  send_dsay_to_logfile := bool;
+	    set_say_policy (VSAY, LOGFILE, bool) =>  send_vsay_to_logfile := bool;
+	end;
+
+
+	server_name =  REF NULL: Ref( Null_Or( String ));
+	log_fd      =  REF NULL: Ref( Null_Or( posix::File_Descriptor ) );
+
+	verbose = TRUE;
+	debug   = TRUE;
+
+	fun log stringlist
+	    =
+	    case (*server_name, *log_fd)
+		#
+		(THE name, THE fd)
+		    =>
+		    {   string =  (name + ":  " + (cat  stringlist));
+			bytes  =  byte::string_to_bytes string;
+			slice  =  unt8_vector_slice::make_slice (bytes, 0, NULL);
+			posix::write_vector( fd, slice );
+			();
+		    };
+
+		_ => ();
+	    esac;
+
+    ######### END   INTERPOLATED 'say.pkg' STUFF #######################3
+
+
+	# * Open files *
+	#   fun open_for_read was originally defined here... 2007-01-19 CrT 
+
+	fun open_for_write  filename
+	    =
+	    {   wr = winix_primitive_io::open_for_write  filename;
+
+		make_outstream (pure_io::make_outstream (wr, buffering wr));
+	    }
+	    except
+		ex =  {    # The following produces too much noise to leave on permamently,
+			   # but the usual error message for a missing source file is hopelessly
+			   # vague without it.  So for now we uncomment it as needed. XXX BUGGO FIXME
+
+    log ["file-g.pkg: open: failed to open for output: <<<", filename, ">>>\n"];
+
+
+			   raise exception io_exceptions::IO { function=>"open", name=>filename, cause=>ex };
+		      };
+
+
+    ######### BEGIN INTERPOLATED 'say.pkg' STUFF #######################3
+	fun set_name name
+	    =
+	    {   server_name := THE name;
+
+		include posix;
+
+		fd=  createf ("mythryl.compile.log", O_WRONLY, o::append, mode_0600 );
+		log_fd := THE fd;
+
+		log ["Started...\n"];
+	    };
+    ######### END   INTERPOLATED 'say.pkg' STUFF #######################3
+
+	fun open_for_append filename
+	    =
+	    make_outstream
+		(pure_io::make_outstream
+		    (winix_primitive_io::open_for_append filename, io_exceptions::NO_BUFFERING)
+		)
+	    except
+		ex =  raise exception io_exceptions::IO { function=>"open_for_append", name=>filename, cause=>ex };
+
+
+
+	# Text stream specific operations
+
+	fun read_line stream
+	    =
+	    null_or::map
+		(fn (v, s) =  { stream := s;   v;})
+		(pure_io::read_line  *stream);
+
+
+	fun read_lines input_stream
+	    =
+	    read_lines' (input_stream, [])
+	    where
+		fun read_lines' (s, lines_so_far)
+		    =
+		    case (read_line s)
+			#
+			NULL     =>  reverse lines_so_far; 
+			THE line =>  read_lines' (s, line ! lines_so_far);
+		    esac;
+	    end;
+
+	fun write_substring (stream, ss)
+	    =
+	    pure_io::write_substring (*stream, ss);
+
+
+	fun open_string src
+	    =
+	    make_instream (pure_io::make_instream (winix_primitive_io::string_reader src, empty))
+	    except
+		ex =  raise exception io_exceptions::IO { function=>"open_for_read", name=>"<string>", cause=>ex };
+
+
+	# The standard streams stdin/stdout/stderr
+	#
+	stipulate
+
+	    package sio = pure_io;
+
+	    fun make_std_in ()
+		=
+		{   my (stream as sio::INPUT_STREAM (sio::INPUT_BUFFER { info=>sio::INFO { clean_tag, ... }, ... }, _))
+			=
+			sio::make_instream (winix_primitive_io::stdin(), empty);
+
+
+		    clean_io::rebind_cleaner
+			(
+			  clean_tag,
+
+			  { init  =>  fn () = (),
+			    flush =>  fn () = (),
+			    close =>  fn () = ()
+			  }
+			);
+
+		    stream;
+		};
+
+	    fun make_std_out ()
+		=
+		{   wr =  winix_primitive_io::stdout ();
+
+		    my (stream as sio::OUTPUT_STREAM { clean_tag, ... } )
+			=
+			sio::make_outstream (wr, buffering wr);
+
+		    clean_io::rebind_cleaner
+			(
+			  clean_tag,
+
+			  { init  =>  fn () =  (),
+			    flush =>  fn () =  sio::flush stream,
+			    close =>  fn () =  sio::flush stream
+			  }
+			);
+
+		    stream;
+		  };
+
+	    fun make_std_err ()
+		=
+		{   my (stream as sio::OUTPUT_STREAM { clean_tag, ... } )
+			=
+			sio::make_outstream (winix_primitive_io::stderr(), io_exceptions::NO_BUFFERING);
+
+		    clean_io::rebind_cleaner
+			(
+			  clean_tag,
+
+			  { init  =>  fn () = (),
+			    flush =>  fn () = sio::flush stream,
+			    close =>  fn () = sio::flush stream
+			  }
+			);
+
+		    stream;
+	      };
+	herein
+	    stdin  =  make_instream  (make_std_in  ());
+	    stdout =  make_outstream (make_std_out ());
+	    stderr =  make_outstream (make_std_err ());
+
+	    #  Establish a hook function to rebuild the I/O stack 
+										 my _ = 
+	    clean_io::std_strm_hook
+		:=
+	       .{   {   set_instream  (stdin,  make_std_in  ());
+			set_outstream (stdout, make_std_out ());
+			set_outstream (stderr, make_std_err ());
+		    };
+		};
+	end;							#  with
+
+
+	fun print s
+	    =
+	    {   write (stdout, s);
+		flush stdout;
+	    };
+
+
+    ######### BEGIN INTERPOLATED 'say.pkg' STUFF #######################3
+	fun xsay
+		write_to_stdout
+		write_to_logfile
+		stringlist
+	    =
+	    {
+		if *write_to_stdout
+		    #
+		    print (cat stringlist);
+		    flush  stdout;
+		fi;
+
+		if *write_to_logfile
+		    #
+		    log stringlist;
+		fi;
+	    };
+
+
+
+							    # make7_defaults	is from   src/app/make7/util/make7-defaults.pkg
+
+
+	 say =   xsay   send_say_to_stdout   send_say_to_logfile;
+	dsay =   xsay  send_dsay_to_stdout  send_dsay_to_logfile;
+	vsay =   xsay  send_vsay_to_stdout  send_vsay_to_logfile;
+
+
+    ######### END   INTERPOLATED 'say.pkg' STUFF #######################3
+
+	fun scan_stream  scan_g
+	    =
+	    {   scan =  scan_g pure_io::read_one;
+
+		fun do_it stream
+		    =
+		    {   instrm =  get_instream  stream;
+
+			case (scan instrm)
+			    #
+			    NULL => NULL;
+			    #
+			    THE (item, instrm')
+				=>
+				{   set_instream (stream, instrm');
+				    THE item;
+				};
+			esac;
+
+		    };
+
+		do_it;
+	    };
+
+
+	fun open_for_read  filename
+	    =
+	    make_instream (pure_io::make_instream (winix_primitive_io::open_for_read filename, empty))
+	    except
+		ex =  {    # The following produces too much noise to leave on permamently,
+			   # but the usual error message for a missing source file is hopelessly
+			   # vague without it.  So for now we uncomment it as needed. XXX BUGGO FIXME
+
+			   # log ["file-g.pkg: open_for_read: failed to open for input: '"];
+			   # log [filename];
+			   # log ["'\n"];
+			   # print ("file-g.pkg: posix::current_directory         = " + (posix::current_directory()) + "\n");
+			   # print "file-g.pkg: open_for_read: failed to open for input: '";
+			   # print filename;
+			   # print "'\n";
+
+			   raise exception io_exceptions::IO { function=>"open_for_read", name=>filename, cause=>ex };
+		      };
+
+
+	fun lines filename
+	    =
+	    {    fd = open_for_read  filename;
+		 result = read_lines fd;
+		 close_input fd;
+		 result;
+	    };
+
+	fun from_lines filename lines
+	    =
+	    {    fd = open_for_write  filename;
+
+		 map  .{ write (fd, #line); }  lines;
+
+		 flush        fd;
+		 close_output fd;
+	    };
+
+    };				# generic package file_g 
+end;
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

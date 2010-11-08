@@ -1,0 +1,240 @@
+## threadkit-spawn.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+# This is a threadkit version of the
+# UNIX interface that is provided by lib7.
+
+
+
+
+###            "If your happiness depends on what somebody else does,
+###             I guess you do have a problem."
+###
+###                                       -- Richard Bach
+
+
+# XXX BUGGO FIXME any concurrent code referencing 'exec' or 'Exec'
+#                 probably needs to be fixed to reference 'threadkit_spawn' or 'Threadkit_Spawn' respectively
+
+package threadkit_spawn: (weak)  Threadkit_Spawn	# Threadkit_Spawn	is from   src/lib/std/src/unix/threadkit-spawn.api
+=
+package {
+
+    package s   = thread_scheduler;			# thread_scheduler	is from   src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+    package pm  = process_manager;			# process_manager	is from   src/lib/thread-kit/src/unix/process-manager.pkg
+
+    package pp  = posix;				# posix			is from   src/lib/std/src/posix/posix.pkg
+    package pe  = posix;
+    package pf  = posix;
+    package pio = posix;
+    package ss  = substring;				# substring		is from   src/lib/std/substring.pkg
+
+    fun protect f x
+        =
+        {   signals::mask_signals signals::MASKALL;
+
+	    y = (f x)
+                except ex
+                    =
+		    {   signals::unmask_signals  signals::MASKALL;
+                        raise exception ex;
+                    };
+          
+            signals::unmask_signals  signals::MASKALL;
+
+            y;
+        };
+
+    fun fd_reader (name:  String, fd:  pio::File_Descriptor)
+        =
+	threadkit_posix_text_primitive_io::make_reader {
+              name,
+              fd
+            };
+
+    fun fd_writer (name, fd)
+        =
+        threadkit_posix_text_primitive_io::make_writer
+            {
+	      append_mode =>  FALSE,
+              name,
+              chunk_size  =>  4096,
+              fd
+            };
+
+    fun open_out_fd (name, fd)
+        =
+	threadkit_file::make_outstream
+          (
+	    threadkit_file::pure_io::make_outstream
+              (
+                fd_writer (name, fd),
+                io_exceptions::BLOCK_BUFFERING
+              )
+          );
+
+    fun open_in_fd (name, fd)
+        =
+	threadkit_file::make_instream
+          (
+	    threadkit_file::pure_io::make_instream
+              (
+	        fd_reader (name, fd),
+                ""
+              )
+          );
+
+    Process
+        =
+        PROCESS  {
+            pid:           pp::Process_Id,
+            from_stream:   threadkit_file::Input_Stream,
+            to_stream:     threadkit_file::Output_Stream
+        };
+
+
+    fun spawn_process_in_environment (cmd, argv, env)
+        =
+        {   p1 = pio::pipe ();
+	    p2 = pio::pipe ();
+
+	    fun closep ()
+                =
+                {   pio::close  p1.outfd; 
+		    pio::close  p1.infd;
+		    pio::close  p2.outfd; 
+		    pio::close  p2.infd;
+		};
+
+	    base = ss::to_string
+                       (ss::get_suffix
+                           .{ #c != '/'; }
+                           (ss::from_string cmd)
+                       );
+
+	    fun start_child ()
+                =
+                case (protect pp::fork ())
+		  
+		    THE pid
+			=>
+			pid;           #  parent 
+
+		    NULL
+			=>
+			{   oldin  = p1.infd;	    newin  = posix::int_to_fd 0;
+			    oldout = p2.outfd;	    newout = posix::int_to_fd 1;
+
+			    pio::close p1.outfd;
+			    pio::close p2.infd;
+
+			    if (oldin != newin)
+				pio::dup2 { old => oldin, new => newin };
+				pio::close oldin;
+			    fi;
+
+			    if (oldout != newout)
+				pio::dup2 { old => oldout, new => newout };
+				pio::close oldout;
+			    fi;
+
+			    pp::exece (cmd, base ! argv, env)
+			    except
+				ex = # The exec failed, so we
+				     # need to shut down the child:
+				     #
+				     pp::exit 0u128;
+			 };
+                esac;
+
+	    threadkit_file::flush
+		threadkit_file::stdout;
+
+	    pid = {
+		    s::stop_timer();
+		    start_child () before
+		    s::restart_timer();
+                  }
+		  except
+                      ex = {   s::restart_timer();
+                               closep();
+                               raise exception ex;
+                           };
+
+	    from_stream =  open_in_fd  (base + "_exec_in",  p2.infd);
+	    to_stream   =  open_out_fd (base + "_exec_out", p1.outfd);
+
+	    # Close the child-side fds 
+	    #
+	    pio::close p2.outfd;
+	    pio::close p1.infd;
+
+	    # Set the fds close on exec:
+	    # 
+	    pio::setfd (p2.infd, pio::fd::flags  [pio::fd::cloexec]);
+	    pio::setfd (p1.outfd, pio::fd::flags [pio::fd::cloexec]);
+
+	    PROCESS { pid, from_stream, to_stream };
+        };
+
+    fun spawn_process (cmd, argv)
+        =
+        spawn_process_in_environment (cmd, argv, pe::environ());
+
+
+
+    fun streams_of (PROCESS { from_stream, to_stream, ... } )
+        =
+        (from_stream, to_stream);
+
+    fun spawn cmd
+        =
+        {   process = spawn_process cmd;
+	    my (from_stream, to_stream) = streams_of  process;
+	    { from_stream, to_stream, process };
+	};
+
+
+    fun kill (PROCESS { pid, ... }, signal)
+        =
+        pp::kill (pp::K_PROC pid, signal);
+
+
+    fun reap_mailop (PROCESS { pid, from_stream, to_stream } )
+        =
+        {   s::disable_thread_switching ();
+
+            pm::add_pid pid
+            before
+                s::reenable_thread_switching ();
+        };
+
+    reap = mailop::do_mailop o reap_mailop;
+
+}; #  package unix 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

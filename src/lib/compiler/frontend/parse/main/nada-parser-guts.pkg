@@ -1,0 +1,222 @@
+## nada-parser-guts.pkg
+## (C) 2001 Lucent Technologies, Bell Labs
+
+# Compiled by:
+#     src/lib/compiler/frontend/parse/parser.make6
+
+
+
+package nada_parser_guts: (weak)  Nada_Parser_Guts {		# Nada_Parser_Guts	is from   src/lib/compiler/frontend/parse/main/nada-parser-guts.api
+
+    package nada_lr_vals
+	      =
+	      nada_lr_vals_fun (
+
+		  package token= lr_parser::token;		# lr_parser		is from   src/app/yacc/lib/parser2.pkg
+	      );
+
+    package lex
+              =
+              nada_lex_g (
+                  package tokens = nada_lr_vals::tokens;
+              );
+
+    package relex
+              =
+              relex_g (
+                  package parser_data = nada_lr_vals::parser_data;
+                  package tokens = nada_lr_vals::tokens;
+                  package lex = lex;
+              );
+
+    package mlp
+              =
+              join_with_arg_g (
+
+                  package parser_data = nada_lr_vals::parser_data;
+		  package lex = relex;
+		  package lr_parser = lr_parser;
+              );
+
+    add_lines
+        =
+        compile_statistics::add_stat (compile_statistics::make_stat "Source Lines");
+
+    package em = error_message;
+
+    Parse_Result = EOF             #  End of file reached 
+		 | ERROR           #  Parsed successfully, but with syntactic or semantic errors 
+		 | ABORT           #  Could not even parse to end of declaration 
+		 | PARSE  raw_syntax::Declaration;
+
+    dummy_eof =   nada_lr_vals::tokens::eof (0, 0);
+    dummy_dot =   nada_lr_vals::tokens::suffix_dot (0, 0);
+
+    fun prompt_read_parse_and_return_one_toplevel_nada_expression (
+
+            source as {
+                source_stream,
+		error_consumer,
+		interactive,
+		source_map,
+		any_errors, ...
+	    }
+	    : source_code_source::Input_Source
+        )
+        =
+	{   err   =   error_message::error source;
+
+	    complain_match
+                =
+                em::match_error_string source;
+
+	    fun parse_error (s, p1, p2)
+                =
+                err (p1, p2) em::ERROR s em::null_error_body;
+
+	    lex_arg = { comment_nesting_depth => REF 0,
+			source_map,
+			charlist            => REF (NIL:  List( String )),
+
+			stringtype          => REF FALSE,
+			stringstart         => REF 0,
+			brack_stack         => REF (NIL: List(  Ref(  Int ) )),
+
+			err
+		      };
+
+	    do_prompt =   REF TRUE;
+	    prompt    =   REF *nada_parser::primary_prompt;
+
+	    fun inputc_source_stream _
+                =
+                file::read (source_stream);
+
+	    exception ABORT_LEX;
+
+            # Read one line of interactive input from user.
+            # (This function is called only when parsing
+            # interactively entered program text.)
+
+	    fun get_line k
+                =
+		{   if *do_prompt
+
+			 if *any_errors  raise exception ABORT_LEX; fi;
+
+			 # XXX BUGGO FIXME Eventually we need a switch and conditionals to turn
+			 # all this verbosity up/down, but for the moment (2007-03-14) I just want
+			 # to get shebang scripts running, so I'm just switching this stuff off.
+			 # That will make interactive mode pretty cryptic, of course...
+
+			 #	     control_print::say
+			 #	         (   if   *lexArg.comment_nesting_depth > 0
+			 #		          or
+			 #                          *lexArg.charlist != NIL
+			 #	             then
+			 #                          *nada_parser::secondary_prompt
+			 #	             else 
+			 #                          *prompt
+			 #                 );
+			 #
+			 #	     control_print::flush();
+
+			 do_prompt := FALSE;
+
+		    fi;
+
+		    {   s = inputc_source_stream k;
+
+                        do_prompt := (   (string::get (s, size s - 1) == '\n')
+				         except
+                                             _ = FALSE
+                                     );
+			s;
+		    };
+                };
+
+	    lexer
+                = 
+	        lex::make_lexer
+                    (if   interactive      get_line; 
+			                else   inputc_source_stream;fi
+                    )
+                    lex_arg;
+
+	    lexer'      =   REF (lr_parser::stream::streamify lexer);
+	    lookahead   =   if interactive  0; else 30;fi;
+
+	    fun prompt_read_parse_and_return_one_toplevel_nada_expression ()
+                =
+		{   prompt := *nada_parser::primary_prompt;
+
+		    my (next_token, rest)
+                        =
+                        lr_parser::stream::get *lexer';
+
+		    start_position   =   source_map::last_change source_map;
+
+		    fun lines_read ()
+                        =
+                        source_map::newline_count
+                            source_map 
+			    (   start_position,
+                                source_map::last_change source_map
+                            );
+
+                    # if interactive
+                    # then source_map::forgetOldPositions source_map 
+		    # 
+
+		    if   (mlp::same_token (next_token, dummy_dot)) 
+		         
+                         lexer' := rest;
+                         prompt_read_parse_and_return_one_toplevel_nada_expression ();
+		    else 
+                         if   (mlp::same_token (next_token, dummy_eof))
+			      EOF;
+			 else
+			      prompt := *nada_parser::secondary_prompt;
+
+			      my (result, lexer'')
+				  =
+				  mlp::parse (lookahead, *lexer', parse_error, err);
+
+			      add_lines (lines_read ());
+			      lexer' := lexer'';
+
+			      if   *any_errors      ERROR;
+						 else   PARSE result;   fi;
+
+                         fi;
+                    fi;
+		}
+                except
+                    lr_parser::PARSE_ERROR => ABORT;
+		    ABORT_LEX              => ABORT;
+                end ;
+
+
+            fn ()    =     {   any_errors := FALSE;
+                               prompt_read_parse_and_return_one_toplevel_nada_expression ();
+                           };
+	};
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

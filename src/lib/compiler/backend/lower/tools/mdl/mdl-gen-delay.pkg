@@ -1,0 +1,127 @@
+
+# Generate the <architecture>DelaySlots generic.
+# This package contains information about delay slot filling 
+
+
+
+###                   "We are not interested in the fact
+###                    that the brain has the consistency
+###                    of cold porridge."
+###
+###                                    -- Alan Turing
+
+
+
+generic package MDGenDelaySlots (Comp:  Mdl_Compile) : Mdl_Gen_Module =
+pkg
+
+   package Comp = Comp
+   package raw_syntax  = Comp::raw_syntax
+   package Dictionary  = Comp::Dictionary
+
+   use raw_syntax Comp::Util
+
+   fun delay DELAY_NONE = ID "D_NONE"
+     | delay DELAY_ERROR = ID "D_ERROR"
+     | delay DELAY_ALWAYS = ID "D_ALWAYS"
+     | delay DELAY_TAKEN = ID "D_TAKEN"
+     | delay DELAY_NONTAKEN = ID "D_FALLTHRU"
+     | delay (DELAY_IF (BRANCHforwards, x, y)) = 
+         IF_EXPRESSION (ID "backward", delay y, delay x)
+     | delay (DELAY_IF (BRANCHbackwards, x, y)) = 
+         IF_EXPRESSION (ID "backward", delay x, delay y)
+   and flag FLAGoff = BOOLexp FALSE
+     | flag FLAGon  = BOOLexp TRUE
+     | flag (FLAGid (id, TRUE, e)) = AND (ID id, e)
+     | flag (FLAGid (id, FALSE, e)) = AND (APPLY("not", ID id), e)
+   fun delaySlotEntry (nop, n, nOn, nOff) =
+       RECORD_EXPRESSION[ ("nop", nop), ("n", n), ("nOn", nOn), ("nOff", nOff) ]
+   defaultDelaySlot =
+        delaySlotEntry (TRUE, FALSE, delay DELAY_ERROR, delay DELAY_NONE)
+
+   fun gen md =
+   let #  Name of the generic and its api 
+       strName = Comp::strname md "DelaySlots" 
+       sigName = "Delay_Slot_Properties"
+
+       #  The instruction set 
+       instructions = Comp::instructions md
+
+       #  The dictionary 
+       dictionary = Dictionary::empty 
+
+       #  Arguments to the generic 
+       args =
+           ["package i:  "$Comp::strname md "INSTR",
+            "package p:  Instruction_Properties", 
+            "   where I = I"
+           ]
+
+       fun mkFun (name, args, x, body, default) = 
+           FUNdecl[FUNbind (name,
+              [CLAUSE([RECORD_PATTERN (map (fn x => (x, IDpat x)) args, NULL, FALSE)],
+               LET_EXPRESSION([FUNdecl
+                         [FUNbind (name,[CLAUSE([IDpat x],
+                                        NULL,
+                                        CASE_EXPRESSION (ID x,
+                                            body @ 
+                                            [CLAUSE([WILDCARD_PATTERN], NULL, default)]
+                          ))])]],
+                      [APPLY_EXPRESSION (ID name, ID x)]))
+              ])]
+
+       #  Function to extract the properties about delay slot 
+       delaySlot = 
+           let fun mkPattern cons = Dictionary::consToPattern { prefix="I", cons=cons }
+               fun g [] = []
+                 | g (CONSbind { delayslot=(_, DELAY_NONE),
+                                  nop=FLAGoff, nullified=FLAGoff, ... } . cbs) = 
+                     g cbs
+                 | g((c as CONSbind { id, delayslot=(d1, d2),
+                                    nop, nullified, ... } ) . cbs) = 
+                     CLAUSE([mkPattern c],
+                            NULL,
+                            delaySlotEntry (flag nop, flag nullified,
+                                                   delay d1, delay d2)) . g cbs
+           in  mkFun("delaySlot",["instruction", "backward"], "instruction", g instructions,
+                     defaultDelaySlot)
+           end
+
+       #  Function to enable/disable a delay slot 
+       enableDelaySlot = DUMMYfun "enableDelaySlot"
+
+       #  Function to check whether two delay slots have conflicts 
+       conflict = DUMMYfun "conflict"
+
+       #  Function to check a instruction is a delay slot candidate 
+       delaySlotCandidate = 
+           let fun g [] = []
+                 | g (CONSbind { delaycand=NULL, ... } . cbs) = g cbs
+                 | g((c as CONSbind { delaycand=THE e, ... } ) . cbs) = 
+                     CLAUSE([Dictionary::consToPattern { prefix="I", cons=c } ], NULL, e) . g cbs
+           in  mkFun("delaySlotCandidate",
+                     ["jmp", "delaySlot"], "delaySlot", g instructions, TRUE)
+           end
+
+       #  Function to set the target of a branch 
+       setTarget = DUMMYfun "setTarget"
+ 
+       #  The generic 
+       strBody = 
+           [@@@ ["package i = I",
+               "enum delay_slot = D_NONE | D_ERROR | D_ALWAYS | D_TAKEN | D_FALLTHRU ",
+               ""
+              ],
+              ERRORfun strName,
+              delaySlot,
+              enableDelaySlot,
+              conflict,
+              delaySlotCandidate,
+              setTarget
+           ]
+
+   in  Comp::codegen md "span/DelaySlots"
+         [Comp::make_generic md "DelaySlots" args sigName strBody
+         ]
+   end 
+end

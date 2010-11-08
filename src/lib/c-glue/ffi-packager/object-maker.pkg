@@ -1,0 +1,256 @@
+package object_maker:  Object_Maker {
+
+   package cb = Namings
+   package ca = Ast
+   package tu = TypeUtil
+   use ffi_packager
+   package a  = Ast
+
+   to_lower = string::map char::to_lower
+
+   enum classHier = CLASSHIER of 
+           { parentMap:    m::Map( Ast::id ),
+            childrenMap:  m::Map(  List(  Ast::id ) ),
+            classes:      s::set,
+            name:         String,
+            tag:          Ast::id -> Ast::id, 
+            downcast:     Ast::id -> Ast::id, 
+            ml:           Ast::id -> Ast::id, 
+            root:         Ast::id,
+            str:          Ast::id
+           }
+
+   /*------------------------------------------------------------------------
+    *
+    * Build an object hierarchy from the C struct definitions.
+    *
+    *------------------------------------------------------------------------*/
+
+   fun makeObjectHier { info, name, filter, tag, downcast, root, ml, str }
+       = 
+       {   tidtab =   c::tidtab info;
+
+	   allTypedefs =   Tidtab::vals_list tidtab;
+
+	   fun buildObjectHier()
+	       =
+	       {   ok =   filter;
+		   parentMap =   fold_right;
+
+		   fun add ( { name=THE name, ntype=THE (cb::Struct(_, (cty, _, _) . _)), ... },
+			   objs)
+			   =
+			   {   self =   name;
+
+			       case (ok self, tu::getCoreType tidtab cty)
+
+				 of (TRUE, ca::StructRef tid)
+				     =>
+				     {   super =   c::tidName info tid;
+
+				         if ok super   then m::set (objs, self, super)
+                                                       else objs;
+				     }
+
+			          | _ => objs;
+			   }
+
+		    | add (_ : cb::tidNaming, objs)
+                          =
+                          objs;
+
+	           fold_right add m::empty allTypedefs;
+	       }
+
+	   parentMap =   buildObjectHier();		# Mapping to super class 
+
+	   fun belong c
+               = 
+	       case m::find (parentMap, c)
+                 of THE c => belong c
+                  | NULL => c = root;
+
+	   parentMap =   m::filter belong parentMap;
+
+	   fun add (m, x, y)
+               =
+               m::set (
+
+                   m,
+                   x,
+                   case m::find (m, x)
+                     of NULL => [y]
+		      | THE l => y . l
+               );
+
+	   childrenMap =   m::keyed_fold_right (fn (x, y, m) => add (m, y, x)) m::empty parentMap;
+
+	   classes =   m::fold_right (fn (x, S) => s::add (S, x)) s::empty parentMap;
+	   classes =   m::fold_right (fn (c, x) => fold_right (fn (x, S) => s::add (S, x)) x c) ;
+				 classes childrenMap
+	   classes =   s::add (classes, root);
+
+           CLASSHIER {
+
+               parentMap,
+               childrenMap, 
+	       classes,
+               name,
+	       tag,
+               downcast, 
+	       root,
+               ml,
+               str
+	   };
+       }
+
+   fun base (CLASSHIER { parentMap, ... } )
+       = 
+       {   fun f c
+               =
+               case m::find (parentMap, c)
+                 of THE c => f c
+                  | NULL => c;
+
+           f;
+       }
+
+   fun parent (CLASSHIER { parentMap, ... } ) c
+       =
+       m::find (parentMap, c);
+
+   fun classes (CLASSHIER { classes, ... } )
+       =
+       s::vals_list classes;
+
+   fun is_member (CLASSHIER { classes, ... } ) c
+       =
+       s::member (classes, c);
+
+   fun ml  (CLASSHIER {  ml, ... } ) =   ml;
+   fun str (CLASSHIER { str, ... } ) =   str;
+
+   fun findClass (CLASSHIER { classes, ml, ... } )
+       =
+       {   tbl =   fold_right (fn (c, m) => m::set (m, ml::typeName c, c)) m::empty
+			(s::vals_list classes);
+
+           fn c => m::find (tbl, c);
+       }
+
+   fun level (CLASSHIER { parentMap, ... } )
+       = 
+       {   fun f c
+               =
+               case m::find (parentMap, c)
+                 of THE c => f c+1
+                  | NULL => 0;
+           f;
+       }
+
+   fun root (hier as CLASSHIER { root, ... } )
+       =
+       root
+
+
+   #  Enumerate the class hierarchy top down 
+
+   fun fold (hier as CLASSHIER { childrenMap, parentMap, root, ... } ) f x
+       = 
+       {   base =   base hier;
+
+	   fun gen (n, c, x)
+	       =
+	       {   x = case m::find (childrenMap, c)
+			 of NULL    => x
+		          | THE ch => fold_left (fn (c, x) => gen (n+1, c, x)) x ch;
+
+	           f (n, c, x);
+               }
+
+           fold_left (fn (r, x) => gen (0, r, x)) x [root];
+       }
+
+   fun tab n
+       =
+       number_string::padLeft ' ' (n*2) "";
+
+
+   #  Generate type definition for a class hierarchy 
+
+   fun genTypeDefs (hier as 
+                   CLASSHIER { name, tag, downcast, root, ml, ... } )
+       = 
+       {   classes =   classes hier;
+	   ptr     =   to_lower name$"ptr'";
+
+	   fun tagDef c
+               =
+	       tag c $
+	       (case parent hier c
+		  of NULL   => ""
+		| THE c => " "$ml c$"_tag"
+	       );
+
+	   tys =  
+	      [comment["The following types are the package tags",
+			"for "$name$" objects"],
+	       A.@@@(fold hier
+		      (fn (n, t, l) =>
+			 tab n + "type " + ml t + "_tag X = " + tagDef t + " X " . l)
+		      []),
+	       comment["The following types are the actual " + name + " object",
+		       "types that you can use in a program.",
+		       ""
+		      ],
+	       A.@@@(map (fn t => "type " + ml t + " X = " + ptr + " " + ml t + "_tag " + " X ") classes)  
+	      ];
+
+	   sign1 = [A.@@@["type base",
+			    "type " + ptr + " X = c::ptr' c::su_obj (X, c::rw)"]];
+
+	   sign2 =
+		 [comment["The following types are the individual struct type",
+			  "tags for each of the of classes in " + name
+			 ],
+		  A.@@@(map (fn t => {   x = "type " + tag t + " X ";
+				         if t == root   then x + " = ST_" + root + ".tag" 
+				                        else x;
+				     }
+                            )
+                            classes
+                       )
+		 ];
+
+	   sign3 = tys;
+
+	   sign4 =
+		 [comment
+		    ["The following functions perform safe upcasting.",
+		     "These operations are always safe and runtime check is",
+		     "unnecessary"
+		    ],
+		  A.@@@(map (fn t => "my " + downcast t + " : " +
+				   ml t + " X ->  " + ml t + " base ") classes)
+		 ];
+
+	   str1 = [A.@@@["use C",
+			  "type base = ST_" + root + ".tag",
+			  "type " + ptr + " X = ptr' su_obj (X, rw)"
+			 ]
+		      ];
+
+	   str2 = [A.@@@(map (fn t => "type " + tag t + " X = base") classes)];
+	   str3 = tys;
+
+	   str4 =
+		 [comment["Upcasting is nop"],
+		  A.@@@("fun iii x = x" . map (fn t => "my " + downcast t + " = iii") classes) # 'iii' was 'I' -- CrT 2007-05-30
+		 ];
+
+	   sign = sign1@sign2@sign3@sign4;
+	   str  = str1@str2@str3@str4;
+           { sign, str };
+       }
+
+}

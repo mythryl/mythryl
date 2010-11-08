@@ -1,0 +1,349 @@
+## mailqueue.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+# Unbounded queues of thread-to-thread mail messages.
+
+
+package mailqueue: (weak)
+api {
+
+    include Mailqueue;				# Mailqueue			is from   src/lib/thread-kit/src/core-thread-kit/mailqueue.api
+
+    reset_mailqueue:  Mailqueue( X ) -> Void;
+
+}
+{   package r =  internal_threadkit_types;	# internal_threadkit_types	is from   src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package s =  thread_scheduler;		# thread_scheduler		is from   src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+
+    Fate(X)
+	=
+	fate::Fate( X );
+
+    call_with_current_fate =  fate::call_with_current_fate;
+    resume_fate            =  fate::resume_fate;
+
+    Queue(X)
+	=
+        { front:  List(X),
+          rear:   List(X)
+        };
+
+    fun enqueue ( { front, rear }, x)
+        =
+        { front,
+          rear => x ! rear
+        };
+
+    fun dequeue ( { front => x ! r, rear } ) =>  ( { front=>r, rear }, x);
+        dequeue ( { front => [],    rear } ) =>  dequeue { front=>list::reverse rear, rear=> [] };
+    end;
+
+    # The state of a mailqueue.
+    # The queue of the NONEMPTY constructor should
+    # never be empty (use EMPTY instead).
+    #
+    State(X)
+      = EMPTY      Queue( (Ref( r::Transaction_Id ), Fate(X)))
+      | NONEMPTY  (Int, Queue(X))
+      ;
+
+    Mailqueue(X) = MAILQUEUE  Ref( State(X) );
+
+    fun reset_mailqueue (MAILQUEUE state)
+	=
+        state :=  EMPTY { front => [], rear => [] };
+
+    fun make_mailqueue ()
+	=
+        MAILQUEUE (REF (EMPTY { front => [], rear => [] } ));
+
+    fun same_mailqueue
+        ( MAILQUEUE s1,
+          MAILQUEUE s2
+        )
+        =
+        s1 == s2;
+
+    #  Create a new transaction ID 
+    #
+    fun make_id ()
+        =
+        REF (r::TRANSACTION_ID (s::get_current_thread()));
+
+    # Given a transaction ID, get its
+    # thread ID and mark it cancelled. 
+    #
+    fun get_id_from_trans (transaction_id as REF (r::TRANSACTION_ID tid))
+        =
+        {   transaction_id := r::CANCELLED_TRANSACTION_ID;
+	    tid;
+        };
+
+    Qy_Item X
+      = NO_ITEM
+      |    ITEM  (Ref(r::Transaction_Id), Fate(X), State(X))
+      ;
+
+    stipulate
+
+	fun clean [] => [];
+	    clean ((REF r::CANCELLED_TRANSACTION_ID, _) ! r) => clean r;
+	    clean l => l;
+	end;
+
+	fun clean_rev ([], l)
+		=>
+                l;
+
+	    clean_rev ((REF r::CANCELLED_TRANSACTION_ID, _) ! r, l)
+		=>
+		clean_rev (r, l);
+
+	    clean_rev (x ! r, l)
+		=>
+		clean_rev (r, x ! l);
+	end;
+
+    herein
+
+	fun clean_and_remove (q as { front, rear } )
+            =
+	    clean_front front
+            where
+
+		fun clean_front []
+			=>
+			clean_rear rear;
+
+		    clean_front f
+                        =>
+                        case (clean f)
+
+			    [] => clean_rear rear;
+
+			    ((id, k) ! rest)
+				=>
+				ITEM (id, k, EMPTY { front=>rest, rear } );
+                        esac;
+                end
+
+		also
+		fun clean_rear []
+                        =>
+                        NO_ITEM;
+
+		    clean_rear r
+                        =>
+                        case (clean_rev (r, []))
+
+			    []             =>  NO_ITEM;
+			    (id, k) ! rest =>  ITEM (id, k, EMPTY { front=>rest, rear => [] } );
+                        esac;
+		end;
+	    end;
+    end;
+
+    fun push (MAILQUEUE state, x)
+        =
+        {   s::disable_thread_switching ();
+
+	    case *state
+	      
+	        EMPTY q
+                    =>
+                    case (clean_and_remove q)
+		      
+		        NO_ITEM =>
+                            {
+				state := NONEMPTY (1, { front => [x], rear => [] } );
+				s::reenable_thread_switching();
+                            };
+
+		        ITEM (transaction_id, get_fate, state')
+                            =>
+                            call_with_current_fate
+				(fn fate
+				    =
+				    {   state := state';
+
+				        s::enqueue_and_switch_current_thread
+					    ( fate,
+                                              get_id_from_trans  transaction_id
+                                            );
+
+				        resume_fate  get_fate  x;
+                                    }
+                                );
+                    esac;
+
+	        NONEMPTY (p, q)
+                    => 
+		    # We force a context switch here
+		    # to prevent a producer from
+		    # outrunning a consumer.
+		    #
+		    call_with_current_fate
+			(fn fate
+			    =
+			    {   state := NONEMPTY (p, enqueue (q, x));
+
+			        s::reenable_thread_switching_and_yield_to_next_thread  fate;
+                            }
+                        );
+             esac;
+	};
+
+    fun get_msg (state, q)
+        =
+        {   my (q', msg)
+		=
+		dequeue q;
+	  
+	    case q'
+	      
+		{ front => [],
+		  rear  => []
+		}
+		    =>
+		    state := EMPTY { front => [], rear => [] };
+
+		_   =>
+		    state := NONEMPTY (1, q');
+
+            esac;
+
+	    s::reenable_thread_switching ();
+
+	    msg;
+	};
+
+    fun pull (MAILQUEUE state)
+        =
+        {
+	    s::disable_thread_switching ();
+
+	    case *state
+	      
+		EMPTY q
+		    =>
+		    {   msg =   call_with_current_fate
+				    (
+				     fn get_fate
+					=
+					{   state := EMPTY (enqueue (q, (make_id(), get_fate)));
+
+					    s::reenable_thread_switching_and_dispatch_next_thread ();
+					}
+				    );
+
+			s::reenable_thread_switching ();
+
+			msg;
+		     };
+
+	      NONEMPTY (priority, q)
+		  =>
+		  get_msg (state, q);
+
+	    esac;
+	};
+
+    fun pull' (MAILQUEUE state)
+        =
+        {
+	    fun wait_for { transaction_id, clean_up, next }
+                =
+                {   my (EMPTY q)
+                        =
+                        *state;
+
+		    msg = call_with_current_fate
+                              (fn get_fate
+                                  =
+                                  {   state := EMPTY (enqueue (q, (transaction_id, get_fate)));
+
+			              next ();
+
+			              raise exception FAIL "Mailqueue: impossible";
+                                  }
+                              );
+
+		    clean_up ();
+
+		    s::reenable_thread_switching ();
+
+		    msg;
+		};
+
+	    fun is_ready ()
+                =
+                case *state
+		    #
+		    EMPTY _
+			=>
+			r::MAILOP_UNREADY wait_for;
+
+		    NONEMPTY (priority, q)
+			=>
+			{   state := NONEMPTY (priority+1, q);
+
+			    r::MAILOP_READY
+                              {
+                                priority,
+                                do_it =>   .{  get_msg (state, q);  }
+                              };
+			};
+                esac;
+
+
+	    r::BASE_MAILOPS [is_ready];
+	};
+
+    fun nonblocking_pull (MAILQUEUE state)
+        =
+        {   s::disable_thread_switching();
+
+	    case *state
+
+		EMPTY q
+		    =>
+		    {   s::reenable_thread_switching ();
+			NULL;
+		    };
+
+		NONEMPTY (priority, q)
+		    =>
+		    THE (get_msg (state, q));
+            esac;
+	};
+};				# package mailqueue
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

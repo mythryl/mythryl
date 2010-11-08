@@ -1,0 +1,214 @@
+## internal-cpu-timer.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+# See also:
+#     src/lib/std/src/internal-wallclock-timer.pkg
+#     src/lib/std/src/nj/interval-timer.pkg
+
+###               "I have never let my schooling interfere with my education."
+###
+###                                               -- Mark Twain
+
+
+stipulate
+    package pb    = pre_basis;			# pre_basis	is from   src/lib/std/src/pre-basis.pkg
+    package int   =   int_guts;			# int_guts	is from   src/lib/std/src/bind-int-32.pkg
+    package int32 = int32_guts;			# int32_guts	is from   src/lib/std/src/int32.pkg
+    package time  =  time_guts;			# time_guts	is from   src/lib/std/src/time-guts.pkg
+herein
+    package internal_cpu_timer: (weak)  api {
+
+	include Cpu_Timer;			# Cpu_Timer	is from   src/lib/std/src/cpu-timer.api
+	reset_timer:  Void -> Void;		# Reset global timer to zero elapsed time.
+
+    }
+    {
+
+	Time = { usr: pb::Time,			# User-mode   CPU time consumption for this process.
+                 sys: pb::Time			# Kernel-mode CPU time consumption for this process.
+               };
+
+	Cpu_Timer
+	    =
+	    CPU_TIMER
+              { nongc:      Time,
+                   gc:      Time,
+		last_nongc: Ref Time,
+		   last_gc: Ref Time
+              };
+
+	stipulate
+
+	    my gettime' : 	    Void -> ( int32::Int, Int,		# User-mode          seconds, microseconds.
+					      int32::Int, Int,		# Kernel-mode        seconds, microseconds.
+					      int32::Int, Int		# Garbage collection seconds, microseconds.
+					    )
+		=
+		c_interface::c_function "Lib7-Time" "gettime";
+
+	    fun make_time (seconds, microseconds)
+		=
+		time::from_microseconds (1000000 * int32::to_large seconds
+                                        +            int::to_large microseconds
+                                        );
+	herein
+
+	    fun get_time ()
+		=
+		{   (gettime' ())
+			->
+			(ts, tu, ss, su, gs, gu);
+
+                    nongc =   { usr =>  make_time (ts, tu),
+		                sys =>  make_time (ss, su)
+                              };
+
+		    gc    =   { usr =>  make_time (gs, gu),
+		                sys =>  time::zero_time
+                              };
+
+		    last_nongc = REF nongc;
+		    last_gc    = REF    gc;
+
+		    { nongc, gc, last_nongc, last_gc };
+		};
+
+	end;
+
+	fun make_cpu_timer ()
+	    =
+	    CPU_TIMER (get_time());
+
+
+	stipulate
+	    init_cputime   =  REF (make_cpu_timer ());
+	herein
+
+	    fun get_cpu_timer ()
+		=
+		*init_cputime;
+
+	    # This call is used (only) in
+	    #     src/lib/core/internal/main.pkg
+	    # to clear timers when resuming a heap image
+	    # created by fork_to_disk():
+	    #
+	    fun reset_timer ()
+		=
+		init_cputime   :=  make_cpu_timer ();
+
+	end;
+
+	stipulate
+
+	    infix val  --- +++ ;
+
+	    fun usop timeop (t: Time, t': Time)			# "usop" may be "microsecond op"
+		=
+		{ usr => timeop (t.usr, t'.usr),
+                  sys => timeop (t.sys, t'.sys)
+                };
+
+	    my (---) = usop time::(-);
+	    my (+++) = usop time::(+);
+
+	herein
+
+	    fun get_elapsed_gc_and_nongc_usr_and_sys_cpu_times (CPU_TIMER t)
+		=
+		{   t' = get_time ();
+
+		    { nongc =>  t'.nongc --- t.nongc,
+		      gc    =>  t'.gc    --- t.gc
+		    };
+		};
+
+	    fun get_elapsed_usr_and_sys_cpu_time timer
+		=
+		{
+		    t = get_elapsed_gc_and_nongc_usr_and_sys_cpu_times timer;
+
+		    t.nongc +++ .gc t;
+		};
+
+	    fun get_elapsed_cpu_time timer
+		=
+		{   (get_elapsed_usr_and_sys_cpu_time timer)
+			->
+			{ usr, sys };
+
+		    my (+++) = time::(+);
+
+		    usr +++ sys;
+		};
+
+
+	    fun get_elapsed_garbage_collector_time  (CPU_TIMER t)
+		=
+		time::(-) (.usr (.gc (get_time ())), t.gc.usr);
+
+
+
+	    fun get_added_gc_and_nongc_usr_and_sys_cpu_times  (CPU_TIMER t)
+		=
+		{   (get_time ())
+			->
+			{ nongc, gc, last_gc, last_nongc };
+
+		    result =    { nongc =>  nongc --- *t.last_nongc,
+				  gc    =>  gc    --- *t.last_gc
+				};
+
+		    t.last_nongc :=  *last_nongc;
+		    t.last_gc    :=  *last_gc;
+
+		    result;
+		};
+
+	    fun get_added_usr_and_sys_cpu_time  timer
+		=
+		{   t = get_added_gc_and_nongc_usr_and_sys_cpu_times timer;
+
+		    t.nongc +++ t.gc;
+		};
+
+	    fun get_added_cpu_time  timer
+		=
+		{   my (+++) = time::(+);
+
+		    (get_added_usr_and_sys_cpu_time  timer)
+			->
+			{ usr, sys };
+
+		    usr +++ sys;
+		};
+
+
+	end;				# stipulate
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

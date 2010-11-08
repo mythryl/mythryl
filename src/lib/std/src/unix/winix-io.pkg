@@ -1,0 +1,219 @@
+## winix-io.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+
+# NOTE: this interface has been proposed, but not yet adopted by the
+# Standard basis committee.
+
+# A subpackage of winix_guts:
+#
+#     src/lib/std/src/unix/winix-guts.pkg
+
+
+stipulate
+    package unt      = unt_guts;			# unt_guts		is from   src/lib/std/src/bind-word-32.pkg
+    package int32    = int32_guts;			# int32_guts		is from   src/lib/std/src/int32.pkg
+    package int      = int_guts;			# int_guts		is from   src/lib/std/src/bind-int-32.pkg
+    package host_unt = host_unt_guts;			# host_unt_guts		is from   src/lib/std/src/bind-sysword-32.pkg
+herein
+package winix_io: (weak)  Winix_Io {			# Winix_Io		is from   src/lib/std/src/winix/winix-io.api
+
+    # An Io_Descriptor is an abstract descriptor
+    # for an OS chunk that supports I/O
+    # (e.g., file, tty device, socket, ...).
+    #
+    Io_Descriptor
+	=
+        winix_types::io::Io_Descriptor;
+
+    Io_Descriptor_Kind
+	=
+        KIND  String;
+
+
+    # Return a hash value for the I/O descriptor:
+    #
+    fun hash fd
+        =
+        unt::from_int (winix_types::io::iod_to_fd fd);
+
+
+    # Compare two I/O descriptors:
+    #
+    fun compare (fd1, fd2)
+        =
+        int::compare
+            ( winix_types::io::iod_to_fd  fd1,
+              winix_types::io::iod_to_fd  fd2
+	    );
+
+
+    package kind {
+
+	file    = KIND "FILE";
+	dir     = KIND "DIR";
+	symlink = KIND "LINK";
+	tty     = KIND "TTY";
+	pipe    = KIND "PIPE";
+	socket  = KIND "SOCKET";
+	device  = KIND "DEV";
+    };
+
+    # Return the kind of I/O descriptor:
+
+    fun kind iod
+        =
+        {   i    = winix_types::io::iod_to_fd iod;
+	    fd   = posix::int_to_fd    i;
+	    stat = posix::fstat        fd;
+	  
+	    if   (posix::stat::is_file       stat)  kind::file;
+	    elif (posix::stat::is_directory  stat)  kind::dir;
+	    elif (posix::stat::is_char_dev   stat)  kind::tty;
+	    elif (posix::stat::is_block_dev  stat)  kind::device; #  ?? 
+	    elif (posix::stat::is_symlink    stat)  kind::symlink;
+	    elif (posix::stat::is_pipe       stat)  kind::pipe;
+	    elif (posix::stat::is_socket     stat)  kind::socket;
+	    else                                    KIND "UNKNOWN";
+            fi;
+	};
+
+    Poll_Request
+	=
+        { iod:       Io_Descriptor,
+          readable:  Bool,
+          writable:  Bool,
+          oobdable:  Bool				# Out-Of-Band-Data available on socket or PTY.
+        };
+	# Public representation of a polling operation on
+	# an I/O descriptor.
+
+    Poll_Result	= Poll_Request;				# A synonym to clarify declarations.
+
+    exception BAD_POLL;
+
+
+
+    # 'poll' tests which fds
+    # (of a given set)
+    # are ready for I/O:
+    #
+    stipulate
+
+	my poll'
+	    :
+            ( (List( (Int, Unt) ),			# (fd, flags) pairs where 'flags' has three bits: readable/writable/oobdable
+              Null_Or( (int32::Int, Int) ))		# NULL or (THE timeout), where 'timeout' is a (seconds, microseconds) pair.
+            )
+            ->
+            List( (Int, Unt) )				# Result list of (fd, flags) pairs, where 'flags' is nonzero (if zero, the pair is dropped from the result list).
+	    =
+	    c_interface::c_function "POSIX-OS" "poll";
+
+							# poll		def in   src/runtime/c-libs/posix-os/poll.c
+
+	fun conditional_bit_or (FALSE,   _, accumulator) =>  accumulator;
+	    conditional_bit_or (TRUE,  bit, accumulator) =>  unt::bitwise_or (accumulator, bit);
+        end;
+
+	fun test (word, bit)
+	    =
+	    (unt::bitwise_and (word, bit) != 0u0);
+
+	readable_bit =  0u1;
+	writable_bit =  0u2;
+	oobdable_bit =  0u4;
+
+	fun from_poll_request { iod, readable, writable, oobdable }
+	    =
+	    ( winix_types::io::iod_to_fd  iod,
+
+	      conditional_bit_or (
+
+		  readable,
+		  readable_bit,
+
+		  conditional_bit_or (
+
+		      writable,
+		      writable_bit,
+
+		      conditional_bit_or (
+
+			  oobdable,
+			  oobdable_bit,
+			  0u0
+		      )
+		  )
+	      )
+	    );
+
+
+	fun to_poll_result (fd, w)
+	    =
+	    { iod      =>  winix_types::io::int_to_iod  fd,
+	      readable =>  test (w, readable_bit),
+	      writable =>  test (w, writable_bit),
+	      oobdable =>  test (w, oobdable_bit)
+	    };
+
+    herein
+
+	fun poll (requests, time_out)
+            =
+            {   time_out
+                    =
+                    case time_out
+		      
+                        THE t
+                            =>
+			    {   usec = time_guts::to_microseconds t;
+
+			        my (sec, usec)
+                                    =
+                                    integer_guts::div_mod (usec, 1000000);
+
+			        THE (int32::from_large sec, int::from_large usec);
+			    };
+
+		        NULL => NULL;
+
+                    esac;
+
+	        raw_results =  poll' (list::map from_poll_request requests, time_out);
+
+		list::map
+                    to_poll_result
+                    raw_results;
+	      };
+    end;		#  stipulate
+
+
+  }; #  winix_io 
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,983 @@
+## make-link-traversal-fn.sml -- Link treewalks.
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+# MOTIVATION
+#
+#     If package A references type/fun/value in a package B.
+#     then we say package A "depends upon" package B.
+#
+#     This is important during compiles, when we must
+#     have access to type information from B in order
+#     to compile A, and also during linking, when we
+#     must remember to link in B whenever we link A
+#     into a program.
+# 
+#     We represent the detailed dependency relationships
+#     between a set of modules using a dependency graph.
+#     See 
+# 
+#         src/app/make7/depend/intra-library-dependency-graph.pkg
+# 
+#     We also have less detailed dependency graphs
+#     accurate only to the granularity of libraries: See
+#
+#         src/app/make7/depend/inter-library-dependency-graph.pkg
+# 
+#     We need to do two kinds of treewalks over these graphs,
+#     compile treewalks and link treewalks.
+# 
+#     To achieve good separation of concerns, we implement
+#     the mechanics of doing these treewalks separately
+#     from the code needing them done, and hide the
+#     implementation details behind an abstract api.
+#
+#     Compile treewalks are implemented in
+#
+#         src/app/make7/compile/compile-treewalk-g.pkg
+#
+#     Link treewalks are implemented here.
+#
+#
+#
+# GENERIC INVOCATION CONTEXT:
+#
+#     Our generic is invoked (only) by
+#
+#         src/app/make7/main/make7-g.pkg
+#
+#
+#
+# RUNTIME INVOCATION CONTEXT:
+#
+#     Our main entrypoint is 'make_treewalk', which is invoked twice in
+#
+#         src/app/make7/main/make7-g.pkg
+
+
+
+###                             "I think you didn't get a reply
+###                              because you used the terms "correct"
+###                              and "proper", neither of which has
+###                              much meaning in Perl culture. :-) "
+###
+###                                           -- Larry Wall
+
+
+
+stipulate
+    package m7 =  make7_state;				# make7_state				is from   src/app/make7/main/make7-state.pkg
+    package dg =  intra_library_dependency_graph;	# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg =  inter_library_dependency_graph;	# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+    package de =  linking_table;			# linking_table				is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+    package em =  error_message;			# error_message				is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+    package pp =  prettyprint;				# prettyprint				is from   src/lib/prettyprint/src/prettyprint.pkg
+
+    Linking_Table
+        =
+        linking_table::Dictionary;		# linking_table		is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+
+    Posmap
+        = 
+        int_map::Map( Linking_Table );	# int_map			is from   src/app/make7/util/int-map.pkg
+
+herein
+
+    api  Make_Linking_Treewalk {
+
+	Oh7_File_Contents;
+
+
+	Oh7_File_Contents_Getter
+            =
+            bare_o7::Bare_O7
+           ->
+           Oh7_File_Contents;
+
+
+	evict					#  Remove value from cache if present. 
+	    :
+            m7::Make7_State
+            ->
+            bare_o7::Bare_O7	# bare_o7			is from   src/app/make7/o7/bare-o7.pkg
+            ->
+            Void;
+
+
+	evict_stale
+	    :
+            Void -> Void;
+
+
+	# Check all values and evict
+        # those that depended on other
+	# meanwhile evicted ones.
+
+	cleanup
+	    :
+            m7::Make7_State -> Void;
+
+
+	make_treewalk
+	    :
+	    ( lg::Library,
+              Oh7_File_Contents_Getter
+            )
+            ->
+            { linking_table
+                  :
+                  m7::Make7_State
+                  ->
+                  Null_Or( Linking_Table ),
+
+	      exports
+                  :
+                  symbol_map::Map(   m7::Make7_State -> Null_Or( Linking_Table )   )
+            };
+
+						# symbol_map			is from   src/app/make7/util/symbol-map.pkg
+
+
+	reset
+	    :
+	    Void -> Void;			#  Discard all persistent state 
+
+
+
+	unshare					#  Discard persistent state for a specific freezefile 
+	    :
+            anchor_dictionary::File
+            ->
+            Void;
+    };
+						# anchor_dictionary		is from   src/app/make7/paths/anchor-dictionary.pkg
+
+
+
+    generic package make_link_treewalk_g (
+
+        package oh7_file_cache
+            :
+            Oh7_File_Cache			# Oh7_File_Cache	is from   src/app/make7/compile/oh7-file-cache-g.pkg
+            where
+                Oh7_File_Contents == oh7_file::Oh7_File_Contents;
+
+						# oh7_file			is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+						# source_path_map		is from   src/app/make7/paths/source-path-map.pkg
+
+	seed_libraries_index
+            :
+            Ref(  source_path_map::Map(  Posmap ) );
+    )
+
+    :
+    Make_Linking_Treewalk					# Make_Linking_Treewalk	is from   src/app/make7/compile/linking-treewalk-g.pkg
+    where
+        Oh7_File_Contents == oh7_file_cache::Oh7_File_Contents
+    =
+    package {
+
+	exception LINK  Exception;
+							# oh7_file_cache		is from   x
+	package bf =  oh7_file;				# oh7_file		is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+	package ex =  execute;				# execute		is from   src/lib/compiler/execution/main/execute.pkg
+
+
+	Oh7_File_Contents
+            =
+            bf::Oh7_File_Contents;
+
+
+	Oh7_File_Contents_Getter
+            =
+            bare_o7::Bare_O7 -> Oh7_File_Contents;
+
+							# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+
+	Bfun
+            =
+            m7::Make7_State -> Linking_Table -> Linking_Table;
+
+
+	Iced_O7
+            =
+            BFUN ( Bfun,
+                   iced_o7::Iced_O7,	# iced_o7	is from   src/app/make7/freezefile/iced-o7.pkg
+                   List( Iced_O7 )
+                 );
+
+
+        #  XXX BUGGO FIXME: More mutable global state :( 
+	freezefile_info_map
+            =
+            REF (iced_o7_map::empty:   iced_o7_map::Map( Iced_O7 ));
+
+
+							# iced_o7_map	is from   src/app/make7/freezefile/iced-o7-map.pkg
+
+	Mythryl_Memo
+            =
+            ( Linking_Table,
+              List( bare_o7::Bare_O7 )
+            );
+
+
+        #  XXX BUGGO FIXME: More mutable global state :( 
+	sourcefile_info_map
+            =
+            REF (bare_o7_map::empty: bare_o7_map::Map( Mythryl_Memo ));
+
+							# bare_o7_map		is from   src/app/make7/o7/bare-o7-map.pkg
+							# symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+							# linking_table	is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+
+
+	empty_static   = symbol_table::empty;
+	empty_linking  = linking_table::empty;
+
+
+	fun evict make7_state info
+            =
+            {   fun check ()
+		    =
+		    case (bare_o7::sharing_mode   info)
+		      
+							# sharing_mode		is from   src/app/make7/semant/sharing.pkg
+		         sharing_mode::SHARE  TRUE
+                             =>
+                             bare_o7::error
+                                 make7_state
+				 info
+				 em::WARNING
+				 (cat ["sharing for ", bare_o7::describe info, " may be lost"])
+				 em::null_error_body;
+
+		         _ =>  ();
+                    esac;
+	    
+		(   sourcefile_info_map
+                        :=
+                        #1 (bare_o7_map::drop (*sourcefile_info_map, info))
+		    before
+                       check ()
+		)
+		except
+                    lib_base::NOT_FOUND = ();
+							# lib_base		is from   src/lib/src/lib-base.pkg
+	    };
+
+
+	fun evict_stale ()
+            =
+            sourcefile_info_map := bare_o7_map::keyed_filter (bare_o7::is_known o #1) *sourcefile_info_map;
+
+
+	fun cleanup make7_state
+            =
+            {   visited =  REF  bare_o7_set::empty;
+							# bare_o7_set	is from   src/app/make7/o7/bare-o7-set.pkg
+		fun visit i
+		    =
+		    if   (bare_o7_set::member (*visited, i))
+		         TRUE;
+		    else
+			 case (bare_o7_map::get (*sourcefile_info_map, i))
+			   
+			      NULL
+                                  =>
+                                  FALSE;
+
+			      THE (_, list)
+				  =>
+				  {   bool_list =  map visit  list;
+
+				      bool_val
+                                          =
+                                          list::all
+                                              (fn x = x)
+                                              bool_list;
+
+				      if bool_val
+                                           visited :=  bare_o7_set::add (*visited, i);
+                                           TRUE;
+				      else
+                                           evict  make7_state  i;
+                                           FALSE;
+                                      fi;
+				  };
+                         esac;
+                    fi;
+	    
+		apply
+                    (ignore o visit o #1)
+                    (bare_o7_map::keyvals_list  *sourcefile_info_map);
+	    };
+
+
+	fun make_treewalk0 (lg::ERROR_LIBRARY, _)
+		=>
+		{  linking_table =>   fn _ = NULL,
+		   exports       =>   symbol_map::empty
+		};
+
+ 	   make_treewalk0 (group as lg::LIBRARY library_record, get_oh7_file_contents)
+	       =>
+	       {    library_record ->  { o7_views_by_name, library_path, ... };
+
+		    fun exception_error (msg, error, descr, my_exception)
+			=
+			{   fun ppb pps
+                                =
+                                { pp::newline pps;
+				  pp::string  pps (exceptions::exception_message my_exception);
+				  pp::newline pps;
+				};
+
+			    error (cat [msg, " ", descr]) ppb;
+			    raise exception LINK my_exception;
+			};
+
+
+		    fun link_stable (freezefile_info, linking_table)
+			=
+			{   freezefile_name =  iced_o7::freezefile_name  freezefile_info;
+			    offset           =  iced_o7::offset            freezefile_info;
+			    description      =  iced_o7::describe          freezefile_info;
+
+			    error
+                                =
+                                iced_o7::plaint_sink
+                                    freezefile_info
+                                    em::ERROR;
+
+
+							# oh7_file_cache		is from   x
+			    oh7_file_contents
+                                =
+                                oh7_file_cache::extract_oh7_file_from_freezefile
+                                    {
+				      freezefile_name,
+				      offset,
+				      description
+				    }
+				    except
+                                        exn =  exception_error ("unable to load library module", error, description, exn);
+
+			    bf::exec (oh7_file_contents, linking_table, LINK)
+			    except
+				LINK exn = exception_error ("link-time exception in library code", error, description, exn);
+			};
+
+
+		    fun link_sml (make7_state, bare_o7, get_oh7_file_contents, get_e, sml_node_list)
+			=
+			{   fun fresh ()
+				=
+				{   oh7_file_contents
+                                        =
+                                        get_oh7_file_contents  bare_o7;
+
+
+				    case (get_e  make7_state)
+                                      
+					 NULL
+                                             =>
+                                             NULL;
+
+					 THE e
+                                             =>
+					    THE (bf::exec (oh7_file_contents, e, LINK))
+					    except
+						LINK exn
+						    =
+						    exception_error (
+							"link-time exception in user program",
+							bare_o7::error make7_state bare_o7 em::ERROR,
+							bare_o7::describe bare_o7,
+							exn
+						    );
+
+				    esac;
+				}
+				except
+                                    exn as LINK _ =>  raise exception exn;
+				    _             =>  NULL;
+                                end;
+
+			    case (bare_o7::sharing_mode bare_o7)
+                              
+
+				 sharing_mode::DO_NOT_SHARE
+                                     =>
+                                     {   evict  make7_state  bare_o7;
+                                         fresh ();
+                                     };
+
+				 sharing_mode::SHARE _
+				     =>
+				     case (bare_o7_map::get (*sourcefile_info_map, bare_o7))
+                                       
+
+					  THE (de, _)
+                                              =>
+                                              THE de;
+
+					  NULL
+					      =>
+					      case (fresh ())
+                                                
+						  NULL
+                                                      =>
+                                                      NULL;
+
+						  THE de
+                                                      =>
+						      THE de
+                                                      where
+                                                          m = (de, sml_node_list);
+
+							  sourcefile_info_map
+                                                              :=
+                                                              bare_o7_map::set
+                                                                  (
+                                                                    *sourcefile_info_map,
+                                                                    bare_o7,
+                                                                    m
+                                                                  );
+										# bare_o7_map	is from   src/app/make7/o7/bare-o7-map.pkg
+						      end;
+					      esac;
+				     esac;
+
+			    esac;
+			};
+
+
+		    visited
+                        =
+                        REF  source_path_set::empty;
+							# source_path_set		is from   src/app/make7/paths/srcpathset.pkg
+
+
+		    fun note_library lg::ERROR_LIBRARY
+                            =>
+                            ();
+
+		        note_library (g as lg::LIBRARY library_record)
+			    =>
+			    {   library_record
+                                    ->
+                                    { library_path, real_or_virtual, sublibraries, ... };
+                                    
+
+				fun note_sublib  NULL
+                                        =>
+                                        ();
+
+				    note_sublib (THE i)
+                                        =>
+                                        note_library (#2 (list::nth (sublibraries, i)) ());
+                                end;
+							# list				is from   src/lib/std/src/list.pkg
+
+
+				fun note_freezefile lg::ERROR_LIBRARY
+                                        =>
+                                        ();
+
+				    note_freezefile (lg::LIBRARY stable_group)
+					=>
+					{   stable_group
+                                                ->
+                                                { o7_views_by_name, library_path => stable_group_path, ... };
+						
+
+							# source_path_map		is from   src/app/make7/paths/source-path-map.pkg
+					    posmap
+                                                =
+                                                {   my (m', pm)
+                                                        =
+                                                        source_path_map::drop
+                                                            (*seed_libraries_index, stable_group_path);
+
+						    seed_libraries_index
+                                                        :=
+                                                        m';
+
+                                                    pm;
+						}
+                                                except
+                                                    lib_base::NOT_FOUND =  int_map::empty;
+
+
+					    localmap
+                                                =
+                                                REF  iced_o7_map::empty;
+
+
+					    fun bin_node (dg::ICED_O7 o7)
+						=
+						{   iced_o7  =  o7.iced_o7;
+						    near_imports  =  o7.near_imports;
+						    far_imports =  o7.far_imports;
+
+						    fun my_sysval ()
+							=
+							int_map::get (posmap, iced_o7::offset iced_o7);
+
+						    fun new ()
+							=
+							case (my_sysval ())
+
+							    # We short-circuit treewalk
+							    # construction (and the resulting
+							    # treewalk) whenever we find a
+							    # node whose linking value was
+							    # created at bootstrap time.
+							    # This assumes that anything in
+							    # sysval can be shared -- which
+							    # is enforced by the way the
+							    # LIBRARY_CONTENTS file is constructed.
+
+							  
+							     THE e =>  (fn make7_state =  fn _ =  e,  NULL);
+
+							     NULL
+								 =>
+								 {   e0 = (fn _ =  empty_linking,  []);
+
+								     fun join ((f, NULL),        (e, l))
+                                                                             =>
+                                                                             (fn make7_state
+                                                                                 =
+                                                                                 de::atop (f make7_state empty_linking, e make7_state),   l);
+
+									 join ((f, THE (i, l')), (e, l))
+                                                                             =>
+                                                                             (e,   BFUN (f, i, l') ! l);
+                                                                     end;
+
+								     ge =  fold_left join e0 (map far_bin_node_of_thunk far_imports);
+								     le =  fold_left join ge (map bin_node               near_imports);
+
+								     case (iced_o7::sharing_mode iced_o7, le)
+								       
+								          (sharing_mode::SHARE _, (e, []))
+									      =>
+									      {   fun thunk make7_state
+										      =
+										      link_stable (iced_o7, e make7_state);
+
+										  memoized_thunk   =   memoize::memoize thunk;
+
+										  (fn make7_state =  fn _ =  memoized_thunk  make7_state,
+										   NULL);
+									      };
+											# sharing_mode	is from   src/app/make7/semant/sharing.pkg
+											# memoize	is from   src/app/make7/util/memoize.pkg
+
+									  (sharing_mode::SHARE _, _)
+									      =>
+									      em::impossible
+										"Link: sharing_mode inconsistent";
+
+									  (sharing_mode::DO_NOT_SHARE, (e, l))
+									      =>
+									      (fn make7_state =  fn e' =
+										link_stable
+										   (iced_o7, de::atop (e', e make7_state)),
+									             THE (iced_o7, l));
+                                                                     esac;
+								 };
+                                                        esac;
+
+
+						    case (iced_o7_map::get (*freezefile_info_map, iced_o7))
+						      
+						         THE (BFUN (f, iced_o7, []))
+							     =>
+							     case (iced_o7::sharing_mode iced_o7)
+						               
+								  sharing_mode::DO_NOT_SHARE
+                                                                      =>
+                                                                      (f, THE (iced_o7, []));
+
+								  _   =>
+                                                                      (f, NULL);
+                                                             esac;
+
+							 THE (BFUN (f, i, l))
+                                                             =>
+                                                             (f, THE (i, l));
+
+							 NULL
+							     =>
+							     case (iced_o7_map::get (*localmap, iced_o7))
+							       
+								  THE x
+                                                                      =>
+                                                                      x;
+
+								  NULL
+								      =>
+								      x
+                                                                      where
+
+								          x = new ();
+
+									  localmap
+                                                                              :=
+                                                                              iced_o7_map::set
+									          (*localmap,  iced_o7,  x);
+								      end;
+                                                             esac;
+						    esac;
+						}		# fun bin_node 
+
+
+					    also
+					    fun far_bin_node (_, n, p)
+                                                =
+                                                {   note_sublib p;
+                                                    bin_node n;
+                                                }
+
+
+					    also
+					    fun far_bin_node_of_thunk thunk
+                                                =
+                                                far_bin_node (thunk ());
+
+
+					    fun sourcefile_or_freezefile_node (dg::O7_IS_BARE n)
+						    =>
+						    em::impossible "Link: BARE_O7 in stable lib";
+
+					        sourcefile_or_freezefile_node (dg::O7_IS_ICED (n as dg::ICED_O7 library_record, _, p))
+						    =>
+						    {   note_sublib  p;
+
+							freezefile_info
+                                                            =
+                                                            library_record.iced_o7;
+
+							my b as BFUN (_, i, _)
+							    =
+							    case (bin_node n)
+							      
+							         (f, NULL)       =>   BFUN (f, freezefile_info, []);
+								 (f, THE (i, l)) =>   BFUN (f, i, l);
+                                                            esac;
+
+							freezefile_info_map
+                                                            :=
+                                                            iced_o7_map::set
+                                                                (*freezefile_info_map,  i,  b);
+						    };
+                                            end;
+
+
+					    fun far_sourcefile_or_freezefile_node (_, n)
+						=
+						sourcefile_or_freezefile_node n;
+
+
+					    fun import_export (node_thunk, _, _)
+						=
+						far_sourcefile_or_freezefile_node (node_thunk ());
+
+					    symbol_map::apply  import_export  o7_views_by_name;
+					};
+                                end;
+
+
+				fun force f
+                                    =
+                                    f ();
+
+
+				if   (not (source_path_set::member (*visited, library_path)))
+				    
+                                     visited
+                                         :=
+                                         source_path_set::add
+                                             (*visited,  library_path);
+
+				     case real_or_virtual
+				       
+					  lg::REAL { frozen_or_thawed => lg::FROZEN _, ... }
+                                              =>
+                                              note_freezefile g;
+
+					  _   =>
+                                              apply
+                                                  (note_library o force o #2)
+                                                  sublibraries;
+                                     esac;
+                                fi;
+			    };
+                    end;	# fun note_library
+
+
+		    note_library  group;
+
+
+		    l_stablemap =  REF  iced_o7_map::empty;
+		    l_smlmap    =  REF   bare_o7_map::empty;
+
+
+		    fun bin_node (BFUN (f, i, l))
+			=
+			case (iced_o7_map::get  (*l_stablemap, i))
+			  
+			     THE th
+                                 =>
+                                 th;
+
+			     NULL
+                                 =>
+				 memoized_thunk
+                                 where
+                                     fl =  map  bin_node  l;
+
+				     fun th make7_state
+                                         =
+					 {   fun add (t, e)
+                                                 =
+                                                 de::atop (t make7_state, e);
+
+					     f make7_state (fold_left add empty_linking fl);
+					 };
+
+				     memoized_thunk
+                                         =
+                                         memoize::memoize  th;
+
+				     l_stablemap
+                                         :=
+                                         iced_o7_map::set (*l_stablemap, i, memoized_thunk);
+				 end;
+                        esac;
+
+
+		    fun sourcefile_or_freezefile_node (dg::O7_IS_ICED (dg::ICED_O7 { iced_o7, ... }, _, _))
+			    =>
+			    {   b =  the (iced_o7_map::get
+					    (*freezefile_info_map,  iced_o7));
+
+				fun th make7_state
+				    =
+				    THE (bin_node b make7_state)
+				    except
+					exn as LINK _ =>  raise exception exn;
+					_             =>  NULL;
+				    end ;
+
+				(th, []);
+			    };
+
+		        sourcefile_or_freezefile_node (dg::O7_IS_BARE n)
+                            =>
+                            sourcefile_node n;
+                    end 
+
+
+		    also
+		    fun sourcefile_node  (dg::BARE_O7  n)
+			=
+			{   n -> { bare_o7,
+				   near_imports,
+				   far_imports
+                                 };
+
+
+			    case (bare_o7_map::get (*l_smlmap, bare_o7))
+			      
+			         THE thunk
+                                     =>
+                                     (thunk, [bare_o7]);
+
+				 NULL
+                                     =>
+                                     {   fun atop (NULL, _      ) =>   NULL;
+					     atop (_    , NULL  ) =>   NULL;
+					     atop (THE e, THE e') =>   THE (de::atop (e, e'));
+                                         end;
+
+
+					 fun add ( (f,  l),
+                                                   (f', l')
+                                                 )
+					     =
+					     ( fn make7_state
+                                                  =
+                                                  atop
+                                                      ( f  make7_state,
+                                                        f' make7_state
+                                                      ),
+                                               l @ l'
+                                             );
+
+
+					 far_imports
+                                             =
+                                             fold_left
+                                                 add
+                                                 (fn _ =  THE empty_linking,  [])
+                                                 (map
+                                                      far_sourcefile_or_freezefile_node
+                                                      far_imports
+                                                 );
+
+
+					 my (get_e, sml_node_list)
+                                             =
+                                             fold_left
+                                                 add
+                                                 far_imports
+                                                 (map  sourcefile_node  near_imports);
+
+
+					 fun thunk make7_state
+                                             =
+                                             link_sml
+                                                 ( make7_state,
+                                                   bare_o7,
+                                                   get_oh7_file_contents,
+                                                   get_e,
+                                                   sml_node_list
+                                                 );
+
+
+					 memoized_thunk
+                                             =
+                                             memoize::memoize thunk;
+									# memoize	is from   src/app/make7/util/memoize.pkg
+
+
+					 l_smlmap
+                                             :=
+                                             bare_o7_map::set
+                                                 (*l_smlmap,  bare_o7,  memoized_thunk);
+
+					 (memoized_thunk, [bare_o7]);
+				     };
+                            esac;
+			}
+
+		    also
+		    fun far_sourcefile_or_freezefile_node (_, n)
+                        =
+                        sourcefile_or_freezefile_node n;
+
+
+		    fun import_export (node_thunk, _, _) make7_state
+			=
+			#1  (far_sourcefile_or_freezefile_node  (node_thunk ()))  make7_state
+			except
+			    LINK exn =  raise exception ex::LINK;
+
+		    o7_views_by_name'
+                        =
+                        symbol_map::map  import_export  o7_views_by_name;
+
+		    fun group' make7_state
+			=
+			{   fun one (_, NULL )   =>   NULL;
+				one (f, THE e)   =>   case (f make7_state)
+                                                        
+							   NULL   =>  NULL;
+							   THE e' =>  THE (de::atop (e', e));
+						      esac;
+			    end;
+
+			    symbol_map::fold_left
+                                one
+                                (THE empty_linking)
+                                o7_views_by_name';
+			};
+
+		    { exports       =>   o7_views_by_name',
+		      linking_table =>   group'
+		    };
+		};
+            end;                                            #  fun make_treewalk0 
+
+
+	fun make_treewalk (x as (lg::ERROR_LIBRARY, _))
+                =>
+                make_treewalk0 x;
+
+	    make_treewalk (x as (lg::LIBRARY { o7_views_by_name, ... }, _))
+		=> 
+		{   treewalk_thunk
+                        =
+                        memoize::memoize
+                            .{   make_treewalk0  x;   };
+
+
+		    { linking_table
+			  =>
+			  fn make7_state
+                              =
+                              .linking_table  (treewalk_thunk ())  make7_state,
+
+		      exports
+			  =>
+			  symbol_map::keyed_map
+			      (fn (symbol, _)
+			          =
+                                  fn make7_state
+				      =
+                                      the (symbol_map::get
+                                              ( .exports (treewalk_thunk ()),
+							     symbol
+							   )
+					      )
+					      make7_state
+				          )
+			      o7_views_by_name
+		    };
+		};
+        end;
+
+
+	fun reset ()
+            =
+            {   freezefile_info_map :=  iced_o7_map::empty;
+		sourcefile_info_map  :=   bare_o7_map::empty;
+            };
+
+
+	fun unshare group
+            =
+	    {   fun other (i, _)
+                    =
+		    anchor_dictionary::compare (iced_o7::group i, group)  !=  EQUAL;
+	    
+									# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+									# source_path_map	is from   src/app/make7/paths/source-path-map.pkg
+									# lib_base		is from   src/lib/src/lib-base.pkg
+
+
+		freezefile_info_map
+                    :=
+                    iced_o7_map::keyed_filter
+                        other
+                        *freezefile_info_map;
+
+
+		(seed_libraries_index
+                    :=
+                    #1  (source_path_map::drop  (*seed_libraries_index, group))
+                )
+		except
+                    lib_base::NOT_FOUND = ();
+	    };
+    };
+end;

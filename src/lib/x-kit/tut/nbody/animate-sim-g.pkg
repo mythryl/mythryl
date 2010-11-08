@@ -1,0 +1,644 @@
+## animate-sim-g.pkg
+
+# Compiled by:
+#     src/lib/x-kit/tut/nbody/nbody-app.make6
+
+
+stipulate
+    include threadkit;						# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;					# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;					# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package rx  =  run_xkit;					# run_xkit			is from   src/lib/x-kit/widget/lib/run-xkit.pkg
+    #
+    package v   =  gravity_simulator::v;			# gravity_simulator		is from   src/lib/x-kit/tut/nbody/gravity-simulator.pkg
+    package wg  =  widget;					# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
+    #
+    package low =  line_of_widgets;				# line_of_widgets		is from   src/lib/x-kit/widget/layout/line-of-widgets.pkg
+    package pb  =  pushbuttons;					# pushbuttons			is from   src/lib/x-kit/widget/leaf/pushbuttons.pkg
+    package rw  =  root_window;					# root_window			is from   src/lib/x-kit/widget/basic/root-window.pkg
+    package ws  =  widget_style;				# widget_style			is from   src/lib/x-kit/widget/lib/widget-style.pkg
+    package sld =  slider;					# slider			is from   src/lib/x-kit/widget/leaf/slider.pkg
+    package sz  =  size_preference_wrapper;			# size_preference_wrapper	is from   src/lib/x-kit/widget/wrapper/size-preference-wrapper.pkg
+    package top =  topwindow;					# topwindow			is from   src/lib/x-kit/widget/basic/topwindow.pkg
+    package wa  =  widget_attribute;				# widget_attribute		is from   src/lib/x-kit/widget/lib/widget-attribute.pkg
+    #
+    package xtr =  xtracing;					# xtracing			is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+herein
+
+    # This generic is invoked once, in:
+    #
+    #     src/lib/x-kit/tut/nbody/nbody-app.pkg
+    #
+    generic package  animate_sim_g
+	(
+          package gravity_simulator:	Gravity_Simulator;	# Gravity_Simulator		is from   src/lib/x-kit/tut/nbody/gravity-simulator.api
+
+          #                   position   velocity   mass   radius  color
+          #                   --------   --------   ----   ------  --------------
+	  planet_data:  List( (v::Vector, v::Vector, Float, Int,    Null_Or(String)) );
+	)
+    {
+
+	contr_size = 12;		# "contr" may be "control" here.
+
+	g = 6.67e-8;			# Gravitational constant G == 6.67428e-8 in CGS units -- http://en.wikipedia.org/wiki/Gravitational_constant 
+	simsecs_per_simstep = 500.0;	# Simulated seconds per gravitational-simulation step.
+	max = 7.80e13 * 2.1;
+
+	simsteps_per_50ms = 1500;
+
+	run_selfcheck =  REF FALSE;
+
+	stipulate
+	    selfcheck_tests_passed =  REF 0;
+	    selfcheck_tests_failed =  REF 0;
+	herein
+	    fun test_passed () =   { selfcheck_tests_passed :=  *selfcheck_tests_passed + 1; };
+	    fun test_failed () =   { selfcheck_tests_failed :=  *selfcheck_tests_failed + 1; };
+	    #
+	    fun assert bool    =  if bool   test_passed ();
+				  else      test_failed ();
+				  fi;				
+	    #
+	    fun test_stats  ()
+		=
+                { passed => *selfcheck_tests_passed,
+                  failed => *selfcheck_tests_failed
+                };
+	end;
+
+	# This maildrop gives the selfcheck code
+	# access to the main drawing window:
+	#
+        my  drawing_window_oneshot:  Oneshot_Maildrop( xc::Window )
+	    =
+	    make_oneshot_maildrop ();
+
+	# Thread to exercise the app by simulating user
+	# mouseclicks and verifying their effects:
+	#
+	fun make_selfcheck_thread   { topwindow, widgettree }
+	    =
+	    xtr::make_thread "nbody-app selfcheck" selfcheck
+	    where
+		# Figure midpoint of window and also
+		# a small box centered on the midpoint:
+		#
+		fun midwindow window
+		    =
+		    {
+			# Get size of drawing window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row, col, high, wide };
+
+			# Define midpoint of drawing window,
+			# and a 19x19 box enclosing it:
+			#
+			stipulate
+			    row =  high / 2;
+			    col =  wide / 2;
+			herein
+			    midpoint =  xg::POINT { row, col };
+			    midbox   =  xg::BOX { row => row - 64, col => col - 64, high => 129, wide => 129 };
+			end;
+
+			(midpoint, midbox);
+		    };
+
+	        fun selfcheck ()
+		    =
+		    {
+			# Wait until the widgettree is realized and running:
+			# 
+			get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);
+
+			drawing_window =  get drawing_window_oneshot;
+
+			# There's a nassty race condition here where we wind up
+			# triggering the 
+			#     GET_WINDOW_SITE: window_id %s not yet registered"
+			# error in
+			#     src/lib/x-kit/xclient/src/window/xsocket-to-topwindow-router.pkg
+			# We need a proper solution to this but for the moment
+			# we just sleep for 250ms to let stuff get underway:
+			#
+			sleep_for (time::from_milliseconds 250);
+
+
+			# Fetch from X server the center pixels
+			# over which we are about to draw:
+			#
+			(midwindow      drawing_window) ->  (_, drawing_window_midbox);
+			#
+			antedraw_midwindow_image
+			    =
+			    xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+
+			# Give the drawing thread time to
+			# draw over the window center:
+			#
+			sleep_for (time::from_milliseconds 250);
+
+			# Re-fetch center pixels, verify
+			# that new result differs from original result.
+			#
+			# Strictly speaking we have a race condition
+			# here, but I think this is good enough for
+			# the purpose -- this isn't flight control:
+			#
+			postdraw_midwindow_image
+			    =
+			    xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+			#
+			assert (not (xc::same_cs_pixmap (antedraw_midwindow_image, postdraw_midwindow_image)));
+
+			# All done -- shut everything down:
+			#
+			(xc::xsession_of_window  (wg::window_of widgettree)) ->  xsession;
+			xc::close_xsession  xsession;
+			shut_down_thread_scheduler  winix::process::success;
+		    };
+	    end;						# fun make_selfcheck_thread
+
+	fun spacer n =  low::SPACER { min_size => n, ideal_size => n, max_size => THE n };
+	fun rubber n =  low::SPACER { min_size => 1, ideal_size => n, max_size => NULL  };
+
+	sp5 = spacer 5;
+
+	fun make_sim_widgettree (root_window, view)
+	    =
+	    {   fun quit ()
+		    =
+		    {   fun q ()
+			    =
+			    {   do_mailop (timeout_in' (time::from_milliseconds 20));
+				rw::delete_root_window root_window;
+				shut_down_thread_scheduler  winix::process::success;
+			    };
+
+			make_thread "sim" q;
+
+			();
+		    };
+
+		screen   = wg::screen_of    root_window;
+		xsession = wg::xsession_of  root_window;
+
+		black = xc::black;
+		white = xc::white;
+
+		color_by_name
+		    =
+		    xc::get_color o xc::CMS_NAME;
+
+		stipulate
+		    reset_slider_slot = make_mailslot ();
+		herein
+		    reset_slider' = take' reset_slider_slot;
+
+		    fun reset_slider ()
+			=
+			give (reset_slider_slot, ());
+		end;
+
+		s_args = [ (wa::is_vertical, wa::BOOL_VAL    FALSE),
+			   (wa::background,  wa::STRING_VAL "gray"),
+			   (wa::width,       wa::INT_VAL     contr_size),
+			   #
+			   (wa::from_value,  wa::INT_VAL    0),
+			   (wa::to_value,    wa::INT_VAL  100)
+			 ];
+
+		quit_args  =  [ (wa::label, wa::STRING_VAL "Q")  ];
+		reset_args =  [ (wa::label, wa::STRING_VAL "R") ];
+
+		slider = sld::make_slider (root_window, view, s_args);
+
+		fun center_slider ()
+		    =
+		    sld::set_slider_value  slider  50;
+
+		my (qbutton_w, rbutton_w)		# "_w" here may be "_widget" or "_wrapper"
+		    =
+		    {   s = 2 * contr_size;
+
+			qb =  pb::make_text_pushbutton_with_click_callback'  (root_window, view, quit_args )  quit;
+			rb =  pb::make_text_pushbutton_with_click_callback'  (root_window, view, reset_args)  reset_slider;
+
+			( sz::make_tight_sized_preference_wrapper (pb::as_widget qb, xg::SIZE { wide => s, high => s } ),
+			  sz::make_tight_sized_preference_wrapper (pb::as_widget rb, xg::SIZE { wide => s, high => s } )
+			);
+		    };
+
+		controls_line
+		    =
+		    low::HZ_CENTER
+		      [ sp5, low::WIDGET rbutton_w,
+			sp5, low::WIDGET (sld::as_widget slider),
+			sp5, low::WIDGET qbutton_w, sp5
+		      ];
+
+		stipulate
+		    slider_motion' = sld::slider_motion'_of  slider;
+		    zoom_slot      = make_mailslot ();
+		herein
+
+		    zoom' = take' zoom_slot;
+
+		    fun slider_thread  base
+			=
+			{   center_slider ();
+			    loop (base, base);
+			}
+			where
+			    fun loop (base, cur)
+				=
+				select [  slider_motion' ==>  .{ do_slider_motion (base, #slider_position); },
+				          reset_slider'  ==>  .{ do_reset_slider cur; }
+				]
+
+			    also
+			    fun do_slider_motion (base, slider_position)
+				=
+				{   factor =  math::pow (2.0, float::from_int (slider_position - 50) // 50.0);	# Factor runs 0.5 -> 2.0
+				    cur    =  base * factor;
+
+				    give (zoom_slot, cur);
+				    loop (base, cur);
+				}
+
+			    also
+			    fun do_reset_slider  cur
+				=
+				{   center_slider ();
+				    loop (cur, cur);
+				};
+			end;
+		end;
+
+		draw_pen  =  xc::make_pen  [xc::p::FOREGROUND  xc::rgb8_white ];
+		erase_pen =  xc::make_pen  [xc::p::FOREGROUND  xc::rgb8_black ];
+
+		timer_20ms' =  timeout_in' (time::from_milliseconds 20);
+
+		fun make_planet (position, velocity, mass, radius, color_spec)
+		    =
+		    {   color = the_else (null_or::map color_by_name color_spec, white);
+
+			pen = xc::make_pen [xc::p::FOREGROUND (xc::rgb8_from_rgb color)];
+
+			{ position, velocity, mass, user_data => { pen, radius } };
+		    };
+
+		planets =  map  make_planet  planet_data;
+
+		plea_slot = make_mailslot ();
+
+		stipulate
+		    sim_thread =  gravity_simulator::start { g, planets, simsecs_per_simstep, plea_slot, simsteps_per_50ms };
+		herein
+		    sim_death' =  thread_death_mailop  sim_thread;
+		end;
+
+		fun realize { window, window_size => xg::SIZE { wide, high }, kidplug }
+		    =
+		    {	#  make_thread "sim gc" gc_thread; 
+
+			make_thread "sim mouse" mouse_thread;
+			make_thread "sim body"  thread_body;
+
+			();
+		    }
+		    where
+			set (drawing_window_oneshot, window);
+
+			depth =  xc::depth_of_window  window;
+
+			drawwin =  xc::drawable_of_window  window;
+
+			drawwin =  xc::make_unbuffered_drawable  drawwin;
+
+			draw_circle = xc::fill_circle drawwin;
+
+			my xc::KIDPLUG { from_other', from_mouse', ... }
+			    =
+			    xc::ignore_keyboard  kidplug;
+
+			Pan_Cmd
+			    =
+			    PAN
+			      { horiz: Int,
+				vert:  Int
+			      };
+
+			pan_slot = make_mailslot ();
+			pan'     = take' pan_slot;
+
+			fun mouse_thread ()
+			    =
+			    idle ()
+			    where
+				fun idle ()
+				    =
+				    case (xc::envelope_contents (do_mailop from_mouse'))
+					#
+					xc::MOUSE_FIRST_DOWN { mouse_button => xc::MOUSEBUTTON 1, window_point, ... }
+					    =>
+					    pan window_point;
+
+					xc::MOUSE_FIRST_DOWN { mouse_button => xc::MOUSEBUTTON 3, ... }
+					    => 
+					    {   quit ();
+						idle ();
+					    };
+
+					_ => idle ();
+				    esac
+
+				also
+				fun pan (pt' as xg::POINT { col => x', row => y' } )
+				    =
+				    case (xc::envelope_contents (do_mailop from_mouse'))
+					#
+					xc::MOUSE_MOTION { window_point => pt as xg::POINT { col=>x, row=>y }, ... }
+					    =>
+					    {   give (pan_slot, PAN { horiz => x - x', vert => y - y' } );
+						pan pt;
+					    };
+
+					xc::MOUSE_UP { mouse_button => xc::MOUSEBUTTON 1, ... }
+					    =>
+					    idle ();
+
+					xc::MOUSE_LAST_UP _
+					    =>
+					    idle ();
+
+					_   => pan pt';
+				    esac;
+			    end;
+
+
+			fun new_translation { ocl, wid, ht, w_zx, w_zy, zoom }
+			    =
+			    loop ocl
+			    where
+
+				fun win_circle { position, velocity, mass, user_data => { pen, radius } }
+				    =
+				    {   my { x, y } = v::proj2d position;
+
+					scrx = float::round ((x - w_zx) * zoom)    except _ = 0;
+					scry = float::round ((y - w_zy) * zoom)    except _ = 0;
+
+					{ center => xg::POINT { col => scrx, row => scry },
+					  rad    => radius
+					};
+				    };
+
+
+				fun draw_planet (new_planet as { user_data => { pen, ... }, ... } )
+				    =
+				    {   new_circle = win_circle new_planet;
+
+					draw_circle pen new_circle;
+
+					new_circle;
+				    };
+
+
+				fun move_planet (old_circle, new_planet)
+				    =
+				    {   draw_circle  erase_pen  old_circle;
+
+					draw_planet new_planet;
+				    };
+
+
+				fun update old_circles
+				    =
+				    {   reply_slot = make_mailslot ();
+
+					give (plea_slot, gravity_simulator::GET_PLANETS reply_slot);
+
+					new_planets =  take reply_slot;
+
+					THE case old_circles
+						#
+						THE old_circles =>   paired_lists::map  move_planet  (old_circles, new_planets);
+						NULL            =>   list::map          draw_planet  new_planets;
+					     esac;
+				    };
+
+
+				fun death cl
+				    =
+				    {   print "Simulation has died!\n";
+					quit ();
+					loop cl;
+				    }
+
+
+				also
+				fun loop circles
+				    =
+				    select [
+					#
+					sim_death'  ==>   .{ death circles; },
+					timer_20ms' ==>   .{ loop (update circles); },
+					#
+					from_other' ==>   .{ do_mom  (circles, xc::envelope_contents #x); },
+					pan'        ==>   .{ do_pan  (circles, #p); },
+					zoom'       ==>   .{ do_zoom (circles, #z); }
+				    ]
+
+
+				also
+				fun do_mom (cl, xc::ETC_RESIZE (xg::BOX r))
+					=>
+					{   r ->  { wide =>  nw,
+						    high =>  nh,
+						    ...
+						  };
+
+					    f = 0.5 // zoom;
+
+					    xc::clear_drawable  drawwin;
+
+					    new_translation
+					      { ocl  => cl,
+						wid  => nw,
+						ht   => nh,
+						w_zx => w_zx - float::from_int (nw - wid) * f,
+						w_zy => w_zy - float::from_int (nh - ht ) * f,
+						zoom
+					      };
+					};
+
+				    do_mom (cl, _)
+					=>
+					loop cl;
+				end
+
+
+				also
+				fun do_pan (cl, PAN { horiz, vert } )
+				    =
+				    new_translation
+				      { ocl =>  cl,
+					wid =>  wid,
+					ht,
+					zoom,
+					w_zx =>  w_zx - float::from_int horiz // zoom,
+					w_zy =>  w_zy - float::from_int vert  // zoom
+				      }
+
+
+				also
+				fun do_zoom (cl, z)
+				    =
+				    {    f = 0.5 * (1.0 // zoom - 1.0 // z);
+
+					new_translation
+					  { ocl => cl,
+					    wid,
+					    ht,
+					    zoom => z,
+					    w_zx => w_zx + float::from_int wid * f,
+					    w_zy => w_zy + float::from_int ht  * f
+					  };
+				    };
+			    end;
+
+			fun thread_body ()
+			    =
+			    {   zoom = float::from_int wide // max;
+
+				f = -0.5 // zoom;
+
+				w_zx = float::from_int wide * f;
+				w_zy = float::from_int high  * f;
+
+				make_thread "sim zoom" .{
+				    #
+				    slider_thread zoom;
+				};
+
+				new_translation
+				  { ocl => NULL,
+				    wid => wide,
+				    ht  => high,
+				    w_zx,
+				    w_zy,
+				    zoom
+				  };
+			    };
+
+			/* garbageCollectionTimeOut = threadkit::timeOutEvt (time::from_seconds 10)
+			   fun garbageCollectionThread ()
+			       =
+			       (   do_mailop garbageCollectionTimeOut; runtime_internals::gc::collectGarbage 5;		# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+				   garbageCollectionThread ()
+			       )
+			*/
+		    end;			# fun realize
+
+		size = wg::make_tight_size_preference (500, 500);
+
+		disp_w
+		    =
+		    sz::make_loose_size_preference_wrapper
+			(wg::make_widget
+			   { size_preference_thunk_of =>   fn () = size,
+			     args      =>   fn () = { background => THE black },
+			     root_window,
+			     realize
+			   }
+			);
+
+		low::as_widget
+		    (low::make_line_of_widgets  root_window
+			(low::VT_CENTER
+			  [ sp5,
+			    controls_line,
+			    sp5,
+			    low::WIDGET  disp_w,
+			    sp5
+			  ]
+			)
+		    );
+	    };					# fun make_sim_widgettree
+
+
+	fun simdisplay root_window
+	    =
+	    {
+		style = wg::style_from_strings (root_window, []);
+
+		name = ws::make_view
+			 { name    =>    ws::style_name [],
+			   aliases =>  [ ws::style_name [] ]
+			 };
+
+		view = (name, style);
+
+		widgettree =  make_sim_widgettree (root_window, view);
+
+		args = [ (wa::title,     wa::STRING_VAL "N-Body"),
+			 (wa::icon_name, wa::STRING_VAL "n-body")
+		       ];
+
+		topwindow = top::topwindow (root_window, view, args)  widgettree;
+
+		top::start  topwindow;
+
+		if *run_selfcheck
+		    #
+		    make_selfcheck_thread  { topwindow, widgettree };
+		    ();
+		fi;
+	    };
+
+
+	fun do_it' (debug_flags, server)
+	    =
+	    {   xtracing::init debug_flags;
+
+		rx::run_xkit'
+		    #
+		    simdisplay
+		    #
+		    { display => THE server,
+		      time_quantum_in_milliseconds =>  THE 20
+		    };
+	    };
+
+
+	fun do_it ()
+	    =
+	    rx::run_xkit  simdisplay;
+
+
+	fun main (_: String, program ! server ! _)
+		=>
+		do_it' ([], server);
+
+	    main _
+		=>
+		do_it ();
+	end;
+
+	main = (fn () = winix::process::success) o main;
+
+	fun selfcheck ()
+	    =
+	    {   run_selfcheck :=  TRUE;
+		do_it ();
+		test_stats ();
+	    };	
+    };						# generic package animate_sim_g
+end;

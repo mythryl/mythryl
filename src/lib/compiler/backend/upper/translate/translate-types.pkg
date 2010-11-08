@@ -1,0 +1,1015 @@
+## translate-types.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+# This is a dedicated support utility for translate_deep_syntax_to_polylambda,
+# the only package which references us:
+# 
+#     src/lib/compiler/backend/upper/translate/translate-deep-syntax-to-polylambda.pkg
+
+
+###        "Every really new idea looks crazy at first."
+###
+###                      -- Alfred North Whitehead
+
+
+
+api Translate_Types {
+
+     generate_type_translation_functions
+         :
+         Void
+	 ->
+	 { tps_knd:  types::Type_Constructor_Path
+		     ->
+                     polylambda_type::Highcode_Kind,
+
+	   tps_type_constructor: debruijn_index::Depth
+			      -> types::Type_Constructor_Path 
+			      -> polylambda_type::Highcode_Type_Constructor,
+
+	   to_type_constructor: debruijn_index::Depth
+			     -> types::Type
+			     -> polylambda_type::Highcode_Type_Constructor,
+
+	   to_lambda_type: debruijn_index::Depth
+		        -> types::Type
+		        -> polylambda_type::Highcode_Type,
+
+	   package_to_lambda_type: ( module::Package,
+		      debruijn_index::Depth,
+		      typecheck_stuff::Compile_Info
+                    )
+		    ->
+                    polylambda_type::Highcode_Type,
+
+	   generic_lty: ( module::Generic,
+			  debruijn_index::Depth,
+			  typecheck_stuff::Compile_Info
+			)
+			->
+			polylambda_type::Highcode_Type,
+
+	   mark_lbound: ( debruijn_index::Depth,
+			  Int
+			)
+			->
+			Int
+	 };
+
+};
+
+package translate_types: (weak)  Translate_Types {		# Translate_Types			is from   src/lib/compiler/backend/upper/translate/translate-types.pkg
+
+    stipulate
+
+        package bt = type_types;				# type_types				is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package da = var_home;   				# var_home				is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+	package di = debruijn_index;				# debruijn_index			is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+	package ee = typechecker_dictionary;			# typechecker_dictionary		is from   src/lib/compiler/frontend/typecheck-stuff/modules/typechecker-dictionary.pkg
+	package em = error_message;				# error_message				is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package epc= module_path_context;			# module_path_context			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path-context.pkg
+	package ev = expand_generic;				# expand_generic			is from   src/lib/compiler/frontend/semantic/modules/expand-generic.pkg
+	package ins= generics_expansion_stuff;			# generics_expansion_stuff		is from   src/lib/compiler/frontend/semantic/modules/generics-expansion-stuff.pkg
+	package ip = inverse_path;				# inverse_path				is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package lt = polylambda_type;				# polylambda_type			is from   src/lib/compiler/backend/upper/polylambda/polylambda-type.pkg
+	package pt = highcode_data_representation;		# highcode_data_representation		is from   src/lib/compiler/backend/upper/highcode/highcode-data-representation.pkg
+	package mu = module_stuff;				# module_stuff				is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-stuff.pkg
+	package se = symbol_table;				# symbol_table				is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+	package tu = type_stuff;				# type_stuff				is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+
+	include types;
+	include module;
+	include typechecking_debugging;
+
+    herein
+
+	fun bug msg
+            =
+            error_message::impossible ("translate_types: " + msg);
+
+	say         =   controls::print::say; 
+	debugging   =   controls::cg::translate_types_debugging;
+
+	fun if_debugging_say (msg: String)
+            =
+	    if *debugging   { say msg; say "\n";};
+            else            ();
+            fi;
+
+	debug_print
+            =
+            (fn x =  debug_print debugging x);
+
+	default_error
+            =
+	    em::error_no_file (em::default_plaint_sink(), REF FALSE) source_map::null_region;
+
+	stipulate
+
+	    package pp= prettyprint;	# prettyprint	is from   src/lib/prettyprint/src/prettyprint.pkg
+
+	herein
+
+	    symbol_table = symbol_table::empty;
+
+	    fun prettyprint_type t
+                = 
+		(pp::with_prettyprint_device (em::default_plaint_sink())
+			 (fn stream = {   pp::string stream "find: ";
+					  unparse_type::reset_unparse_type();
+					  unparse_type::unparse_type  symbol_table  stream  t;
+				      }
+		)        )
+		except _ = say "fail to print anything";
+
+
+	    fun prettyprint_type x
+                = 
+		(pp::with_prettyprint_device (em::default_plaint_sink ())
+			  (fn stream =  {   pp::string stream "find: ";
+					    unparse_type::reset_unparse_type ();
+					    unparse_type::unparse_type_constructor  symbol_table  stream  x;
+                                        }
+                          )
+                )
+		except
+                    _ =  say "fail to print anything";
+	end;
+
+	#############################################################################
+	#               TRANSLATING SOURCE-LANGUAGE TYPES INTO HIGHCODE TYPES       #
+	#############################################################################
+	stipulate
+
+            rec_ty_context   =   REF [-1];
+
+	herein 
+
+	    fun enter_rec_type (a)
+                =
+                (rec_ty_context := (a ! *rec_ty_context));
+
+	    fun exit_rec_type ()
+                =
+                (rec_ty_context := tail *rec_ty_context);
+
+	    fun rec_type_constructor (i)
+                = 
+		{   x = head *rec_ty_context;
+		    base = di::innermost;
+
+		    if   (x == 0)   lt::tcc_var (base, i);
+		    elif (x >  0)   lt::tcc_var (di::di_inner base, i);
+		    else            bug "unexpected RECURSIVE_TYPE";
+                    fi;
+		};
+
+	    fun free_type_constructor (i)
+                = 
+		{   x    = head *rec_ty_context;
+		    base = di::di_inner (di::innermost);
+		
+		    if   (x == 0)
+                        
+                         lt::tcc_var (base, i);
+
+		    elif (x > 0)
+
+			 lt::tcc_var (di::di_inner base, i);
+		    else
+			 bug "unexpected RECURSIVE_TYPE";
+                    fi;
+		};
+	end;               #  end of recTypeConstructor and freeTypeConstructor hack 
+
+							# type_var_info		is from   src/lib/compiler/frontend/semantic/types/type-var-info.pkg
+
+	fun tps_knd (TYPCONPATH_VARIABLE x)
+		=>
+		.kind (type_var_info::from_exception x);
+
+	    tps_knd _
+                =>
+                bug "unexpected Type_Constructor_Path parameters in tps_knd";
+        end;
+
+	fun generate_type_translation_functions ()
+            = 
+	    {   nextmark =   REF 0;
+		markmap  =   REF int_red_black_map::empty;
+
+		# Save a (depth, n) pair and
+		# return a key via which to
+		# later retrieve them:
+		#
+		fun mark_lbound
+                    ( debruijn_depth:  debruijn_index::Depth,
+                      n:               Int
+                    )
+                    :                  Int
+                    =
+		    {   m = *nextmark;
+		    
+			nextmark := m + 1;
+			markmap := int_red_black_map::set (*markmap, m, (debruijn_depth, n));
+			m;
+		    };
+
+		# Retrieve a (depth, n) pair
+		# stored via mark_lbound():
+		#
+		fun find_lbound  mark
+                    =
+		    case (int_red_black_map::get (*markmap, mark))
+		      
+		         THE v =>  v;
+		         NULL  =>  error_message::impossible "transtypes: find_lbound";
+                    esac;
+
+		fun tps_type_constructor d tp
+                    = 
+                    h (tp, d)
+                    where
+		        fun h (TYPCONPATH_VARIABLE x, cur)
+				=>
+				{
+				    my { depth, num, ... }
+					=
+					type_var_info::from_exception  x;
+
+				    lt::tcc_var (di::subtract (cur, depth), num);
+				};
+
+			    h (TYPCONPATH_TYPE_CONSTRUCTOR tc, cur)
+                                =>
+                                tyc_type_constructor (tc, cur);
+
+			    h (TYPCONPATH_SELECT (tp, i), cur)
+                                =>
+                                lt::tcc_proj (h(tp, cur), i);
+
+			    h (TYPCONPATH_APPLY (tp, ps), cur)
+                                => 
+				lt::tcc_app (h(tp, cur), map (fn x => h (x, cur); end ) ps);
+
+			    h (TYPCONPATH_GENERIC (ps, ts), cur) => 
+				{   ks = map tps_knd ps;
+				    cur' = di::next cur;
+
+				    ts' =  map (fn x =  h (x, cur'))
+                                               ts;
+
+				    lt::tcc_g (ks, lt::tcc_seq ts');
+				};
+                        end;
+		    end
+
+		/*
+		also tycTypeConstructor x = 
+		  compile_statistics::do_phase (compile_statistics::make_phase "Compiler 043 1-tycTypeConstructor") tycTypeConstructor0 x
+		*/
+
+		also
+		fun tyc_type_constructor (tc, d)
+                    = 
+                    g tc
+                    where
+		        fun dts_type_constructor nd ( { constructor_list: List( Constructor_Description ), arity=>i, ... } : Datatype_Member)
+                            = 
+			    {   nnd =    i == 0   ??            nd
+                                                  ::   di::next nd;
+
+				fun f ( { domain=>NULL,   representation, name }, r) => (lt::tcc_unit             ) ! r;
+				    f ( { domain=>THE t,  representation, name }, r) => (to_type_constructor nnd t) ! r;
+                                end;
+				                                                                                  
+                                enter_rec_type i;
+				core   =   lt::tcc_sum (fold_right f [] constructor_list);                                     
+                                exit_rec_type();
+
+				result_type_constructor
+                                    =
+                                    if (i == 0)
+                                         core;
+				    else
+                                         ks   =   lt::tkc_arg i;
+					     
+                                         lt::tcc_g (ks, core);
+                                    fi;
+			    
+                                ( lt::tkc_int i,
+                                  result_type_constructor
+                                );
+			    };
+
+			fun dts_fam (free_type_constructors, fam as { members, ... } : Datatype_Family)
+                            =
+			    case (package_property_lists::dtf_ltyc fam)
+
+			        THE (tc, od)
+                                    =>
+				    lt::tc_adj (tc, od, d);    # Invariant: tc contains no free variables 
+						               # so tc_adj should have no effects.
+			        NULL
+				    => 
+				    {   fun ttk (PRIMITIVE_TYPE_CONSTRUCTOR { arity, ... } )
+                                                =>
+                                                lt::tkc_int arity;
+
+					    ttk (DEFINED_TYPE_CONSTRUCTOR { type_scheme=>TYPE_SCHEME { arity=>i, ... }, ... } )
+                                                =>
+					        lt::tkc_int i;
+
+					    ttk _
+                                                =>
+                                                bug "unexpected ttk in dts_fam";
+                                        end;
+
+					ks = map ttk free_type_constructors;
+
+					my (nd, header)
+                                            = 
+					    case ks [] =>  (d,           fn t = t                );
+						 _     =>  (di::next d,  fn t = lt::tcc_g (ks, t));
+                                            esac;
+
+					mbs = vector::fold_right (!) NIL members;
+
+					mtcs = map (dts_type_constructor (di::next nd)) mbs;
+
+					my (fks, fts)
+                                            =
+                                            paired_lists::unzip  mtcs;
+
+					nft = case fts    [x] => x;
+                                                           _  => lt::tcc_seq fts;
+                                              esac;
+
+					tc = header (lt::tcc_g (fks, nft)); 
+
+					package_property_lists::set_dtf_ltyc (fam, THE (tc, d));
+
+					tc;
+				    };
+                            esac;
+
+		  /*
+			fun dtsFam (_, { lambdatyc=REF (THE (tc, od)), ... } : Datatype_Family) =
+			      lt::tc_adj (tc, od, d) /* invariant: tc contains no free variables 
+						      so tc_adj should have no effects */
+			  | dtsFam (free_type_constructors, { members, lambdatyc=x, ... } ) = 
+			      let fun ttk (PRIMITIVE_TYPE_CONSTRUCTOR { arity, ... } ) = lt::tkc_int arity
+				    | ttk (DEFINED_TYPE_CONSTRUCTOR { type_scheme=TYPE_SCHEME { arity=i, ... }, ... } ) = lt::tkc_int i
+				    | ttk _ = bug "unexpected ttk in dtsFam"
+				  ks = map ttk free_type_constructors
+				  my (nd, header) = 
+				    case ks of [] => (d, fn t => t)
+					     | _ => (di::next d, fn t => lt::tcc_g (ks, t))
+				  mbs = vector::fold_right (!) NIL members
+				  mtcs = map (dtsTypeConstructor (di::next nd)) mbs
+				  my (fks, fts) = paired_lists::unzip mtcs
+				  nft = case fts of [x] => x | _ => lt::tcc_seq fts
+				  tc = header (lt::tcc_g (fks, nft)) 
+				  (x := THE (tc, d))
+			       in tc
+			      end
+		  */
+
+			fun g (type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR { arity, kind, ... } )
+				=>
+				case kind   
+
+				     k as DATATYPE _
+                                         =>
+					 tu::type_constructors_are_equal (type_constructor, bt::ref_tycon)
+                                             ?? lt::tcc_prim (pt::prim_type_con_ref)
+					     :: h (k, arity);
+
+				     k   => h (k, arity);
+				esac;
+
+			    g (DEFINED_TYPE_CONSTRUCTOR { type_scheme, ... } )
+                                =>
+                                tf_type_constructor (type_scheme, d);
+
+			    g (RECURSIVE_TYPE i) => rec_type_constructor  i;
+			    g (FREE_TYPE      i) => free_type_constructor i;
+
+			    g (RECORD_TYPE_CONSTRUCTOR _)
+                                =>
+                                bug "unexpected RECORD_TYPE_CONSTRUCTOR in tycTypeConstructor-g";
+
+			    g (TYPE_CONSTRUCTOR_BY_MODULE_PATH { arity, path=>inverse_path::INVERSE_PATH ss, module_path } )
+                                => 
+				{   # say "*** Warning for compiler writers: TYPE_CONSTRUCTOR_BY_MODULE_PATH ";
+				    # apply (fn x => (say (symbol::name x); say ".")) ss;
+				    # say " in translate: ";
+				    # say (module_path::macroExpansionPathToString module_path);
+				    # say "\n";
+
+				    if (arity > 0)  lt::tcc_g (lt::tkc_arg arity, lt::tcc_void);
+				    else            lt::tcc_void;
+				    fi;
+                                };
+
+			    g (ERRONEOUS_TYPE_CONSTRUCTOR)
+                                =>
+                                bug "unexpected type_constructor in tycTypeConstructor-g";
+                        end
+
+                        also
+			fun h (PRIMITIVE pt, _)
+				=>
+				lt::tcc_prim (highcode_data_representation::prim_type_con_from_int pt);
+
+			    h (DATATYPE { index, family, free_type_constructors, stamps, root }, _)
+				=> 
+				{   tc = dts_fam (free_type_constructors, family);
+				    n = vector::length stamps; 
+				    #  invariant: n should be the length of family members 
+
+				    lt::tcc_fix((n, tc, (map g free_type_constructors)), index);
+				};
+
+			    h (ABSTRACT tc, 0)
+                                =>
+                                (g tc); 
+				/* >>> lt::tcc_abs (g tc) <<< */ 
+
+			    h (ABSTRACT tc, n)
+                                =>
+                                (g tc); 
+				# >>> We tempoarily turned off the use of abstract tycons in
+				#     the intermediate language; proper support of ML-like
+				#     abstract types in the IL may require changes to the
+				#     ML language. (ZHONG)
+				# let ks = lt::tkc_arg n
+				#    fun fromto (i, j) = if i < j then (i ! fromto (i+1, j)) else []
+				#    fs = fromto (0, n)
+				#    ts = map (fn i => lt::tcc_var (di::innermost, i)) fs
+				#    b = lt::tcc_app (tycTypeConstructor (tc, di::next d), ts)
+				# in lt::tcc_g (ks, lt::tcc_abs b)
+				# end
+				# <<<
+
+			    h (FLEXIBLE_TYPE_CONSTRUCTOR tp, _)
+				=>
+				tps_type_constructor d tp;
+
+			    h (FORMAL, _)
+				=>
+				bug "unexpected FORMAL kind in tycTypeConstructor-h";
+
+			    h (TEMP, _)
+				=>
+				bug "unexpected TEMP kind in tycTypeConstructor-h";
+                        end;
+		    end
+
+		also
+		fun tf_type_constructor (TYPE_SCHEME { arity=>0, body }, d)
+                        =>
+                        to_type_constructor d body;
+
+		    tf_type_constructor (TYPE_SCHEME { arity, body }, d)
+                        => 
+		        {
+                            ks = lt::tkc_arg arity;
+		            lt::tcc_g (ks, to_type_constructor (di::next d) body);
+		        };
+                end 
+
+		also
+		fun to_type_constructor
+                    (debruijn_depth: debruijn_index::Depth)
+                    (t:              types::Type)
+                    :                polylambda_type::Highcode_Type_Constructor
+                    = 
+		    {
+if_debugging_say "\nto_type_constructor/TOP    in translate-types.pkg";
+		        result =  g t;
+if_debugging_say "to_type_constructor/BOTTOM in translate-types.pkg";
+                        result;
+                    }
+                    where
+
+			# A pair-list mapping variables to types.
+                        # This is a length-64 (max) cache with most
+                        # recently used items sorted to front:
+			#
+		        var_to_type_cache
+                            =
+                            REF ([]:  List( (Ref( Type_Variable ), lt::Highcode_Type_Constructor)) ); 
+
+			fun get_ref_typevar_type  (tv as { id => _, ref_typevar => type_ref })				# "tv" == "type variable"
+			    = 
+			    search_cache (*var_to_type_cache, [], 0)
+			    where
+				# Get var type from cache if present,
+				# otherwise compute it via 'h':
+				#
+				fun search_cache
+                                       ( (vt as (type_ref', type)) ! rest,					# Remaining cache to check.  "vt" == "(type_var, type)"
+                                         checked,								# Cache cells already checked.
+                                         checked_len								# Length of previous.
+                                       )
+				       => 
+				       if (type_ref' == type_ref)
+					    var_to_type_cache := vt ! ((reverse checked) @ rest);		# Move 'vt' to front of cache list.
+					    type;								# Return cached type for tv.
+				       else
+					    search_cache (rest, vt ! checked, checked_len+1);
+				       fi;
+
+				    search_cache ([], checked, checked_len)
+					=>
+					{   tv_type = h *type_ref;						# 'tv' is not in our cache so compute its type honestly.
+					    checked = checked_len > 64  ??  tail checked  ::  checked;		# Idea seems to be to keep a 64-size cache, recently used stuff sorted to front.
+					    var_to_type_cache :=  (type_ref, tv_type) ! (reverse checked);
+					    tv_type;				#
+					};
+				end;
+			    end
+
+														# translate_deep_syntax_to_polylambda	is from   src/lib/compiler/backend/upper/translate/translate-deep-syntax-to-polylambda.pkg
+			also
+			fun h (RESOLVED_TYPE_VARIABLE          t) =>  g t;
+			    h (META_TYPE_VARIABLE              _) =>  lt::tcc_void;
+			    h (INCOMPLETE_RECORD_TYPE_VARIABLE _) =>  lt::tcc_void;
+
+			    h (TYPE_VARIABLE_MARK m)								# These TYPE_VARIABLE_MARK values get set in translate_deep_syntax_to_polylambda::translate_pattern_expression().
+				=>
+				{   my (depth, num) = find_lbound m;
+				    lt::tcc_var (di::subtract (debruijn_depth, depth), num);
+				};
+
+			    h _ => lt::tcc_void;   #  ZHONG? 	XXX BUGGO FIXME
+			end
+
+			also
+			fun g (TYPE_VARIABLE_REF ref_typevar) => /* h *tv */ get_ref_typevar_type  ref_typevar;
+			    g (CONSTRUCTOR_TYPE (RECORD_TYPE_CONSTRUCTOR _, [])) => lt::tcc_unit;
+			    g (CONSTRUCTOR_TYPE (RECORD_TYPE_CONSTRUCTOR _, ts)) => lt::tcc_tuple (map g ts);
+			    g (CONSTRUCTOR_TYPE (type_constructor, [])) => tyc_type_constructor (type_constructor, debruijn_depth);
+			    g (CONSTRUCTOR_TYPE (DEFINED_TYPE_CONSTRUCTOR { type_scheme, ... }, args)) => g (tu::apply_type_scheme (type_scheme, args));
+
+			    g (CONSTRUCTOR_TYPE (tc as PRIMITIVE_TYPE_CONSTRUCTOR { kind, ... }, ts))
+				=>
+				case (kind, ts)   
+
+				    (ABSTRACT _, ts)
+					 =>
+					 lt::tcc_app (tyc_type_constructor (tc, debruijn_depth), map g ts);
+
+				    (_, [t1, t2])
+					=>
+					if (tu::type_constructors_are_equal (tc, bt::arrow_tycon) ) lt::tcc_parrow (g t1, g t2);
+					else lt::tcc_app (tyc_type_constructor (tc, debruijn_depth), [g t1, g t2]);
+					fi;
+
+				    _   => lt::tcc_app (tyc_type_constructor (tc, debruijn_depth), map g ts);
+				 esac;
+
+			    g (CONSTRUCTOR_TYPE (type_constructor, ts))
+                                =>
+                                lt::tcc_app
+                                  (
+                                    tyc_type_constructor (type_constructor, debruijn_depth),
+                                    map g ts
+                                  );
+
+			    g (TYPE_SCHEME_ARG_I i)
+                                =>
+                                lt::tcc_var (di::innermost, i);
+
+			    g (TYPE_SCHEME_TYPE _)  => bug "unexpected poly-type in toTypeConstructor";
+			    g (UNDEFINED_TYPE)      => bug "unexpected undef-type in toTypeConstructor";
+			    g (WILDCARD_TYPE)       => bug "unexpected wildcard-type in toTypeConstructor";
+			end;
+		    end
+
+		also
+		fun to_lambda_type d (TYPE_SCHEME_TYPE { type_scheme=>TYPE_SCHEME { arity=>0, body }, ... } )
+                        =>
+                        to_lambda_type d body;
+
+		    to_lambda_type d (TYPE_SCHEME_TYPE { type_scheme=>TYPE_SCHEME { arity,    body }, ... } )
+                        => 
+		        {   ks = lt::tkc_arg arity;
+		            lt::ltc_poly (ks, [to_lambda_type (di::next d) body]);
+		        };
+
+		    to_lambda_type d x
+                        =>
+                        lt::ltc_tyc (to_type_constructor d x);
+                end;
+
+		#############################################################################
+		#         TRANSLATING SOURCE-LANGUAGE MODULES INTO HIGHCODE TYPES           #
+		#############################################################################
+
+		fun spec_lty (elements, typechecker_dictionary, depth, compile_info)
+                    = 
+		    g (elements, typechecker_dictionary, [])
+                    where
+		        fun g ([], typechecker_dictionary, ltys)
+                                =>
+                                reverse ltys;
+
+			    g ((symbol, TYPE_CONSTRUCTOR_IN_API _) ! rest, typechecker_dictionary, ltys)
+                                =>
+                                g (rest, typechecker_dictionary, ltys);
+
+			    g ((symbol, PACKAGE_IN_API { an_api, module_stamp, ... } ) ! rest, typechecker_dictionary, ltys)
+				=>
+				{   typechecked_package
+                                        =
+                                        ee::find_package_by_module_stamp
+                                            ( typechecker_dictionary,
+                                              module_stamp
+                                            );
+
+				    lt = generics_expansion_lambdatype (an_api, typechecked_package, depth, compile_info);
+
+				    g (rest, typechecker_dictionary, lt ! ltys);
+				};
+
+			    g ((symbol, GENERIC_IN_API { a_generic_api, module_stamp, ... } ) ! rest, typechecker_dictionary, ltys)
+				=> 
+				{   typechecked_package
+                                        =
+                                        ee::find_generic_by_module_stamp
+                                            ( typechecker_dictionary,
+                                              module_stamp
+                                            );
+
+				    lt = typechecked_generic_lty (a_generic_api, typechecked_package, depth, compile_info); 
+
+				    g (rest, typechecker_dictionary, lt ! ltys);
+				};
+
+			    g ((symbol, spec) ! rest, typechecker_dictionary, ltys)
+				=>
+				{   if_debugging_say ">>spec_lty/g/TOP";
+
+				    fun transty type
+					= 
+					(mu::translate_type  typechecker_dictionary type)
+					except
+					    ee::UNBOUND
+						=
+						{   if_debugging_say " + spec_lty";
+
+						    with_internals
+							(fn () =
+							    debug_print( "typechecker_dictionary: ",
+									(fn pps =
+									 fn ee = 
+									    unparse_package_language::unparse_typechecker_dictionary pps (ee, se::empty, 12)
+									),
+									typechecker_dictionary
+								       )
+							);
+
+						    if_debugging_say (" + spec_lty: should have printed typechecker_dictionary");
+
+						    raise exception ee::UNBOUND;
+						};
+
+
+				    fun mapty t
+                                        =
+                                        to_lambda_type depth (transty t);
+
+
+				    case spec
+				      
+				         VALUE_IN_API { type, ... }
+					     => 
+					     g (rest, typechecker_dictionary, (mapty type) ! ltys);
+
+					 ENUM_CONSTRUCTOR_IN_API
+                                             {
+					       a_datatype => ENUM_CONSTRUCTOR
+                                                               {
+								 representation => da::EXCEPTION _, 
+								 constructor_type,
+								 ...
+							       },
+					       ...
+					     }
+					     => 
+					     {   argt =  bt::is_arrow_type  constructor_type
+							     ??  #1 (lt::ltd_parrow (mapty  constructor_type))
+							     ::  lt::ltc_unit;
+
+						 g (rest, typechecker_dictionary, (lt::ltc_etag argt) ! ltys);
+					     };
+
+				        ENUM_CONSTRUCTOR_IN_API { a_datatype => ENUM_CONSTRUCTOR _, ... }
+					    =>
+					    g (rest, typechecker_dictionary, ltys);
+
+				        _ => bug "unexpected spec in spec_lty";
+                                    esac;
+				};
+                        end;
+		    end
+
+#		also
+#                signLty (an_api, depth, compile_info)
+#                    = 
+#		  let fun h (BEGIN_API { kind=THE _, lambdaty=REF (THE (lt, od)), ... } ) = lt
+#			     #  lt::lt_adj (lt, od, depth) 
+#			| h (an_api as BEGIN_API { kind=THE _, lambdaty as REF NULL, ... } ) = 
+#			    # Invariant: we assum that all named APIs (kind=THE _) are
+#			    # defined at top-level, outside any generic package definitions. (ZHONG)
+#
+#			     let my { typechecked_package = typechecked_package, typeConstructorPaths=typeConstructorPaths } = 
+#				   INS::doPkgFunParameterApi { an_api=sign, typechecker_dictionary=ee::empty, depth=depth,
+#						  inverse_path = inverse_path::INVERSE_PATH[], compile_info=compile_info,
+#						  source_code_region=source_map::nullRegion }
+#				 nd = di::next depth
+#				 nlty = strMetaLty (an_api, typechecked_package, nd, compile_info)
+#
+#				 ks = map tpsKnd typeConstructorPaths
+#				 lt = lt::ltc_poly (ks, nlty)
+#			      in lambdaty := THE (lt, depth); lt
+#			     end
+#			| h _ = bug "unexpected an_api in signLty"
+#		   in h an_api
+#		  end
+
+
+		also
+		fun package_meta_lty (an_api, typechecked_package as { typechecker_dictionary, ... }: Typechecked_Package, depth, compile_info)
+                    =
+		    case (an_api, package_property_lists::generics_expansion_lambdatype typechecked_package)
+		      
+		         (_, THE (lt, od))
+			     =>
+			     lt::lt_adj (lt, od, depth);
+
+		        (API { elements, ... }, NULL)
+			    => 
+			    {   ltys = spec_lty (elements, typechecker_dictionary, depth, compile_info);
+
+				lt = /* case ltys of [] => lt::ltc_int
+						       | _ => */ lt::ltc_str (ltys);
+
+				package_property_lists::set_generics_expansion_lty (typechecked_package, THE (lt, depth));
+				lt;
+			    };
+
+		       _ => bug "unexpected an_api and typechecked_package in strMetaLty";
+                    esac
+
+		also
+		fun generics_expansion_lambdatype (an_api, typechecked_package:  Typechecked_Package, depth, compile_info)
+                    =
+		    case (an_api, package_property_lists::generics_expansion_lambdatype typechecked_package)
+		      
+		         (an_api, THE (lt, od))
+			     =>
+			     lt::lt_adj (lt, od, depth);
+
+			 # Note: the code here is designed to improve the "to_lambda_type" translation;
+			 # by translating the api instead of the package, this can 
+			 # potentially save time on str_lty. But it can increase the cost of
+			 # other procedures. Thus we turn it off temporarily. (ZHONG)   XXX BUGGO FIXME
+			 #
+			 #	| (API { kind=THE _, ... }, { lambdaty, ... } ) =>
+			 #	       let sgt = signLty (an_api, depth, compile_info)
+			 #		   # Invariant: we assum that all named APIs 
+			 #		   # (kind=THE _) are defined at top-level, outside any 
+			 #		   # generic package definitions. (ZHONG)
+			 #		   #
+			 #		   parameterTypes = INS::get_packages_type_constructor_paths { an_api=sign, typechecked_package = typechecked_package,
+			 #			   typechecker_dictionary=ee::empty, compile_info=compile_info }
+			 #		   lt = lt::macroExpandPolymorphicLambdaTypeOrHOC (sgt, map (tpsTypeConstructor depth) parameterTypes)
+			 #		in lambdaty := THE (lt, depth); lt
+			 #	       end
+
+		         _   => package_meta_lty (an_api, typechecked_package, depth, compile_info);
+                    esac
+
+		also
+		fun typechecked_generic_lty (an_api, typechecked_package, depth, compile_info)
+		    = 
+		    case (an_api, package_property_lists::typechecked_generic_lty typechecked_package, typechecked_package)
+		      
+		         (an_api, THE (lt, od), _)
+			     =>
+			     lt::lt_adj (lt, od, depth);
+
+			 (  GENERIC_API {   parameter_api, body_api, ... },
+			     _,
+			     {   generic_closure as GENERIC_CLOSURE { typechecker_dictionary=>symbol_table, ... }, ... }
+			 )
+			     =>
+			     {   my  { typechecked_package => argument_typechecked_package,
+				       type_constructor_paths
+				     }
+				     = 
+				     ins::do_generic_parameter_api {
+					 an_api => parameter_api,
+					 typechecker_dictionary => symbol_table,
+					 depth, 
+					 inverse_path => inverse_path::INVERSE_PATH [],
+					 compile_info,
+					 source_code_region => source_map::null_region
+				     };
+
+				 nd = di::next depth;
+
+				 param_lty
+                                     =
+                                     package_meta_lty
+                                       ( parameter_api,
+                                         argument_typechecked_package,
+                                         nd,
+                                         compile_info
+                                       );
+
+				 ks = map tps_knd type_constructor_paths;
+
+				 body_typechecked_package
+                                     = 
+				     ev::expand_generic
+                                       ( typechecked_package,
+                                         argument_typechecked_package,
+                                         nd,
+                                         epc::init_context,
+					 ip::empty,
+                                         compile_info
+                                       );
+
+				 body_lty
+                                     =
+                                     generics_expansion_lambdatype
+                                       ( body_api,
+                                         body_typechecked_package,
+                                         nd,
+                                         compile_info
+                                       );
+
+				 lt = lt::ltc_poly (ks, [lt::ltc_fct([param_lty],[body_lty])]);
+
+				 package_property_lists::set_typechecked_generic_lty (typechecked_package, THE (lt, depth));
+				 lt;
+			     };
+
+			_ => bug "genericMacroExpansionLty";
+                    esac
+
+		also
+		fun package_to_lambda_type (pkg as A_PACKAGE { an_api, typechecked_package, ... }, depth, compile_info)
+			=>
+			case (package_property_lists::generics_expansion_lambdatype  typechecked_package)
+			  
+			     THE (lt, od)
+				 =>
+				 lt::lt_adj (lt, od, depth);
+
+			     NULL
+				 =>
+				 {   lt = generics_expansion_lambdatype (an_api, typechecked_package, depth, compile_info);
+
+				     package_property_lists::set_generics_expansion_lty (typechecked_package, THE (lt, depth));
+				     lt;
+				 };
+			esac;
+
+		    package_to_lambda_type _
+                        =>
+                        bug "unexpected package in strLty";
+                end 
+
+		also
+		fun generic_lty (GENERIC { a_generic_api,  typechecked_generic, ... }, depth, compile_info)
+			=>
+			case (package_property_lists::typechecked_generic_lty  typechecked_generic)
+			  
+			     THE (lt, od)
+				 =>
+				 lt::lt_adj (lt, od, depth);
+
+			     NULL
+				 =>
+				 {   lt = typechecked_generic_lty (a_generic_api,  typechecked_generic, depth, compile_info);
+
+				     package_property_lists::set_typechecked_generic_lty (typechecked_generic, THE (lt, depth));
+				     lt;
+				 };
+			esac;
+
+		    generic_lty _ => bug "unexpected generic package in genericLty";
+                end;
+
+		/****************************************************************************
+		 *           A HASH-CONSING VERSION OF THE ABOVE TRANSLATIONS               *
+		 ****************************************************************************/
+
+		/*
+		package mi_dictionary
+                    =
+                    red_black_map_g (pkg type Key = module_map::modId
+						     compare = module_map::cmp
+					      end)
+		*/
+
+		/*
+		      m1 = REF (MIDict::mkDict())   #  modid (Type) -> lt::Highcode_Type_Constructor 
+		      m2 = REF (MIDict::mkDict())   #  modid (str/fct) -> lt::Highcode_Type 
+
+		      fun tycTypeConstructorLook (t as (PRIMITIVE_TYPE_CONSTRUCTOR _ | DEFINED_TYPE_CONSTRUCTOR _), d) = 
+			    let tid = mu::type_identifier t
+			     in (case MIDict::peek (*m1, tid)
+				  of THE (t', od) => lt::tc_adj (t', od, d)
+				   | NULL => 
+				       let x = tycTypeConstructor (t, d)
+					   (m1 := TcDict::set (*m1, tid, (x, d)))
+					in x
+				       end)
+			    end
+			| tycTypeConstructorLook x = tycTypeConstructor tycTypeConstructorLook x
+
+		/*
+		      toTypeConstructor = toTypeConstructor tycTypeConstructorLook
+		      to_lambda_type = toTypeConstructor tycTypeConstructorLook
+		*/
+		      coreDict = (toTypeConstructor, to_lambda_type)
+
+		      fun strLtyLook (s as A_PACKAGE _, d) = 
+			    let sid = mu::package_identifier s
+			     in (case MIDict::peek (*m2, sid)
+				  of THE (t', od) => lt::lt_adj (t', od, d)
+				   | NULL => 
+				       let x = strLty (coreDict, strLtyLook, 
+							   genericLtyLook) (s, d)
+					   (m2 := TcDict::set (*m2, sid, (x, d)))
+					in x
+				       end)
+			    end
+			| strLtyLook x = strLty (coreDict, strLtyLook, genericLtyLook)
+
+		      also
+		      genericLtyLook (f as GENERIC _, d)
+                          = 
+			  let fid = generic_identifier f
+			  in
+                              (   case MIDict::peek (*m2, fid)
+
+				    of THE (t', od)
+                                       =>
+                                       lt::lt_adj (t', od, d)
+
+				     | NULL
+				       => 
+				       let x = genericLty (tycTypeConstructorLook, strLtyLook, 
+							   genericLtyLook) (s, d)
+					   (m2 := TcDict::set (*m2, fid, (x, d)))
+				       in x
+				       end
+                              )
+			  end
+			| genericLtyLook x = genericLty (coreDict, strLtyLook, genericLtyLook)
+		*/
+
+	      
+                  { tps_knd,
+                    tps_type_constructor,
+		    to_type_constructor,
+                    to_lambda_type,
+                    package_to_lambda_type,
+                    generic_lty,
+		    mark_lbound
+                  };
+	      };	#  function genTT 
+    end;		#  toplevel stipulate 
+};			#  package translate_types 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

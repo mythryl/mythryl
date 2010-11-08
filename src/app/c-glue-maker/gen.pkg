@@ -1,0 +1,2793 @@
+# gen.pkg - Generating and pretty-printing
+#           Mythryl code implementing a
+#           typed interface to a C program.
+#
+#  (C) 2004  The Fellowship of SML/NJ
+#
+# author: Matthias Blume (blume@tti-c.org)
+
+# Compiled by:
+#     src/app/c-glue-maker/c-glue-maker.make6
+
+# See ../README for an overview, and
+# ../c-glue-lib/doc/* for additional info.
+#
+# This file is the heart of the c-glue-maker application:
+# main::main (from ./main.pkg) calls our
+# entrypoint gen::gen with the digested commandline
+# switch info plus the list of C source files
+# to be processed.
+#
+# fun 'gen' constitutes >90% of this file.
+#
+# The basic sequence of events in this file
+# is pretty simple:
+#
+#  o We call the c-kit parser to parse the given
+#    C .h header file(s).
+#
+#  o We call 'build' in ast-to-spec.pkg to convert
+#    the C parse trees into our (simpler) 'spec'
+#    working format, defined in spec.pkg
+#
+#  o We do various good magic to convert these
+#    C declarations into abstract Mythryl equivalents.
+#    This logic occupies roughly the first half
+#    of this file.
+#
+#  o We prettyprint the abstract Mythryl declarations
+#    out as actual text Mythryl source files.
+#    This logic occupies roughly the last half
+#    of this file.
+#
+#  o Finally, we spit out a .make6 makefile to
+#    compile the generated Mythryl sourcefiles.
+#
+# Calltree backbone:
+#
+#    gen
+#        get_spec cfile
+#            cfile' =   preprocess_c_sourcefile                              cfile ;
+#            ast    =   parse_to_raw_syntax_tree::file_to_raw_syntax_tree'   cfile';
+#	     specs  =   raw_syntax_tree_to_spec::build                       ast   ;
+
+
+###                  "The first condition of understanding
+###                   a foreign country is to smell it."
+###
+###                                    -- Rudyard Kipling
+
+
+
+stipulate
+
+    program = "c-glue-maker";
+    version = "0.9.1";
+    author  = "Matthias Blume";
+    email   = "blume@tti-c.org";
+
+    package s= spec;			# spec	is from   src/app/c-glue-maker/spec.pkg
+
+herein
+
+    package gen : api {
+			 version:  String;
+
+			 gen:  { cfiles:         List( String ),	# List of C .h files from the commandline.
+				 match:          String -> Bool,	# Regex from commandline -match switch -- see ./README
+				 dirname:        String,
+				 make7_file:     String,
+				 prefix:         String,
+				 gensym_stem:    String,
+				 extra_members:  List( String ),
+				 library_handle: String,
+
+				 all_su:         Bool,
+				 mythryl_options: List( String ),
+				 noguid:         Bool,
+				 wid:            Int,
+				 weightreq:      Null_Or( Bool ),	#  THE TRUE -> heavy, THE FALSE -> light, NULL -> both
+				 namedargs:      Bool,
+				 collect_enums:  Bool,
+				 enumcons:       Bool,
+
+				 preprocess_c_sourcefile:   String -> String,
+
+				 target:  { name:   String,
+					    sizes:  sizes::Sizes,	# sizes	is from   src/lib/c-kit/src/ast/sizes.pkg
+					    shift:  (Int, Int, Unt) -> Unt
+                                          }
+                               }
+                               ->
+                               Void;
+		    }
+    {
+	version = version;
+
+	package p= prettyprint;			# prettyprint		is from   src/app/c-glue-maker/prettyprint.pkg
+	package pp = p::pp;
+	package ss= string_set;			# string_set		is from   src/lib/src/string-set.pkg
+	package sm= string_map;			# string_map		is from   src/lib/src/string-map.pkg
+	package im= int_red_black_map;		# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+
+	# "lis" == "Large-Integer Set":
+	#
+	package lis
+	    =
+	    red_black_set_g (
+		Key = large_int::Int;		# large_int		is from   src/lib/std/large-int.pkg
+		compare = large_int::compare;
+	    );
+
+	tuple = p::TUPLE;
+
+	fun record [] => p::void;
+	    record l  => p::RECORD l;
+	end;
+
+	type_constructor =  p::TYPE_CONSTRUCTOR;
+	arrow            =  p::ARROW;
+	tycon            =  p::tycon;		# "tycon" == "type constructor". Convenience fn for type constructors with no args.
+	void             =  p::void;
+	etuple           =  p::ETUPLE;
+	eunit            =  etuple [];
+
+	fun erecord [] =>  p::ETUPLE [];
+	    erecord l  =>  p::ERECORD l;
+	end;
+
+	evar    = p::EVAR;
+	eapp    = p::EAPP;
+	econstr = p::ECONSTR;
+	eseq    = p::ESEQ;
+										# unt		is from   src/lib/std/unt.pkg
+										# int		is from   src/lib/std/int.pkg
+										# string	is from   src/lib/std/string.pkg
+										# file		is from   src/lib/std/src/unix/file.pkg
+	fun eword w =   evar ("0wx" + unt::to_string w);
+	fun eint  i =   evar (int::to_string i);
+
+	fun elint   i =   evar (large_int::to_string i);
+	fun estring s =   evar (cat ["\"", string::to_string s, "\""]);
+
+	fun warn m =   file::write (file::stderr, "warning: " + m);
+	fun err  m =   raise exception FAIL (cat ("gen: " ! m));
+
+	fun unimp     what =   raise exception FAIL ("unimplemented type: " + what);
+	fun unimp_arg what =   raise exception FAIL ("unimplemented argument type: " + what);
+	fun unimp_res what =   raise exception FAIL ("unimplemented result type: " + what);
+
+	writeto = "write'to";
+
+	do_not_edit =  "# Generated file -- do not edit.";
+
+	fun make_credits platform                                    #  platform == "x86-linux" or such.  
+	    =
+	    cat ["# [by ", author, "'s ",
+		    program, " (version ", version, ") for ",
+		    platform, "]"];
+
+	comments_to
+            =
+            cat [ "# Send comments and suggestions to ",
+		   email,
+                   ". Thanks!"
+                 ];
+
+
+
+        # Fns to construct "fptr_rtti_13",
+        #                  "fptr_rtti_13::type",
+        #              and "fptr_rtti_13::makecall":
+
+	fun fptr_rtti_struct_id             i =  "fptr_rtti_"           + int::to_string i;
+	fun fptr_rtti_struct_id_cc_typ      i =   fptr_rtti_struct_id i + "::type";
+	fun fptr_rtti_struct_id_cc_makecall i =   fptr_rtti_struct_id i + "::makecall";
+
+
+
+	# Here we make various package names:
+        #   "struct_type_foo" for "struct foo {... } bar;", to go in file "incomplete-structure-foo.pkg"
+        #  "sstruct_type_foo" for "struct foo {... } bar;", to go in file "global-var-bar.pkg"
+	#
+        #    "union_type_foo"  for "union  foo {... } bar;", to go in file "incomplete-union-foo.pkg"
+        #   "uunion_type_foo"  for "union  foo {... } bar;", to go in file "global-var-bar.pkg"
+	#
+        #     "enum_type_foo"  for "enum   foo {... } bar;", to go in file "incomplete-enum-foo.pkg"
+        #    "eenum_type_foo"  for "enum   foo {... } bar;", to go in file "global-var-bar.pkg"
+
+	fun incomplete_sue_package_name  kind  c_name				# 'sue' == "struct, union or enum"
+	    =									# 'kind' in  "struct"/"union"/"enum" or "sstruct"/"uunion"/"eenum"/...
+	    cat [kind, "_type_", c_name];
+
+
+	ststruct =   incomplete_sue_package_name  "sstruct";
+	utstruct =   incomplete_sue_package_name  "uunion";
+
+	fun sue_tag kind c_name							# 'sue' == "struct, union or enum"
+	    =									# 'kind' in "sstruct"/"uunion"/"eenum"
+	    tycon (incomplete_sue_package_name  kind  c_name  +  "::Tag");	# 'c_name' is from .h file, or "'" for anonymous structs &tc.
+
+
+
+
+
+        # Fns to construct "field_type_13"
+        #                  "field_rtti_13":					# rtti == "run time type information"
+
+	fun fieldtype_id n =   "field_type_" + n;
+	fun fieldrtti_id n =   "field_rtti_" + n;
+
+
+
+	# Construct "field_id_foo" where "foo"
+	# was a field name in the .h file -- something like
+	#
+        #     struct mine { int foo; };
+	#
+	# This will be used to name the function(s) for
+	# getting/setting this field's value.
+	#
+	fun field_id ( c_name,		# "foo"
+                       optional_prime	# "'" or ""
+                     )
+	    =
+	    cat ["field_id_", c_name, optional_prime];
+
+
+
+#	fun arg_id  s =   "arg_id_"  + s;
+#	fun enum_id n =   "enum_id_" + n;
+
+	fun arg_id  s
+            =
+            {   result = "arg_id_"  + s;
+# print ("arg_id: s='"$s$"' result='"$result$"'\n");
+                result;
+            };
+
+	fun enum_id n
+            =
+            { result = "enum_id_" + n;
+# print ("enum_id: n='"$n$"' result='"$result$"'\n");
+              result;
+            };
+
+	my @? = sm::get;						# "sm" == "string map"
+	my %? = im::get;						# "im" == "integer map"
+
+#	fun thetag (t: s::Tag) t'
+#	    =
+#	    t == t';
+
+
+
+	fun gen arg_record						# Our main entrypoint.
+	    =
+	    {   arg_record
+                    ->
+		    { cfiles,
+		      match,
+		      preprocess_c_sourcefile,
+		      gensym_stem,					# Per "-gensym" commandline switch. Default "".
+		      dirname,
+		      make7_file,
+		      prefix,						# Per "-prefix" commandline switch. Default "".
+		      extra_members,
+		      library_handle,
+		      all_su,						# "su" == "structs and unions".
+		      mythryl_options,
+		      noguid,
+		      wid,
+		      weightreq,
+		      collect_enums,
+		      enumcons,
+		      namedargs => do_arg_names,
+
+		      target => { name => platform,			# "x86-linux" or such. 
+				  sizes,
+				  shift
+				}
+		    };
+
+
+
+                # The next three are used to construct
+                # witness types -- see witness_type_p & kith:
+		st =   sue_tag "sstruct";				# "sue" == "struct, union or enum".
+		un =   sue_tag "uunion";
+		fun en (c_name, anon)					# "en" == "enum", likely.
+		    =
+		    if  (collect_enums  and  anon)
+		         sue_tag "eenum" "'";
+		    else sue_tag "eenum" c_name;
+		    fi;
+
+
+									# hash	is from   src/app/c-glue-maker/hash.pkg
+		hash_cft      =   hash::make_fhasher ();		# Hash C types to integers.       ("cft" == "C function type".)
+		hash_lib7type =   hash::make_thasher ();		# Hash Mythryl types to integers.
+
+		gensym_suffix						# Implemement the "-gensym" commandline switch -- see ./README.
+		    =
+		    if (gensym_stem == "")   "";
+		    else                     "_" + gensym_stem;
+		    fi;
+
+
+
+                # Construct package names:
+                #  "struct_foo" for a "struct foo {... };" .h-file declaration, to go in struct-foo.pkg and/or incomplete-struct-foo.pkg,
+                #   "union_foo" for a "union  foo {... };" .h-file declaration, to go in  union-foo.pkg and/or  incomplete-union-foo.pkg,
+                #    "enum_foo" for a "enum   foo {... };" .h-file declaration, to go in   enum-foo.pkg and/or   incomplete-enum-foo.pkg.
+                #
+                # We can also get called with 'kind' of "sstruct"/"uunion"/"eenum", I don't yet know when/why.
+		#
+		fun sue_package_name
+                        kind		# One of "struct"/"union"/"enum"; else "sstruct"/"uunion"/"eenum";
+                        c_name		# foo
+		    =
+		    cat [prefix, kind, "_", c_name];
+
+
+
+#		sstruct =   sue_package_name "sstruct";		# Appears to be never used.
+#		ustruct =   sue_package_name "uunion";		# Appears to be never used.
+		estruct =   sue_package_name "eenum";		# Called only from fun estruct', I think, in turned called only from pprint_e_pkg.
+
+
+
+                # Construct package name "ttype_foo" where "foo"
+                # was the typedef'd (or such) type name in the .h file.
+                #
+                # "prefix", if any, is from the "-prefix" commandline
+                # switch -- see ./README:
+		#
+		fun package_name_for_c_type  c_name
+                    =
+                    cat [prefix, "ttype_", c_name];
+
+
+
+                # Construct package name "global_var_foo" where "foo"
+                # was the variable name in the .h file.
+                #
+                # "prefix", if any, is from the "-prefix" commandline
+                # switch -- see ./README:
+                #
+                # This package will be defined in a file "global-var-i.pkg"
+		#
+		fun package_name_for_c_global_var  c_name
+                    =
+                    cat [prefix, "global_var_", c_name];
+
+
+
+                # Construct package name "ffunc_foo" where "foo"
+                # was the function name in the .h file.
+                #
+                # "prefix", if any, is from the "-prefix" commandline
+                # switch -- see ./README:
+                #
+                # This package will be defined in a file "f-foo.pkg"
+		#
+		fun package_name_for_c_function c_name
+                    =
+                    cat [prefix, "ffunc_", c_name];
+
+
+
+		fun estruct' (n, anon)
+		    =
+		    estruct (  (anon and collect_enums) ??  "'"
+				                        ::   n
+			    );
+
+
+                # Construct "sstructttype_foo::type" from "struct foo {... } bar;", to go in file "global-var-bar.pkg" (rtti = ... )
+		#
+		fun styp c_name
+		    =
+		    ststruct c_name  +  "::type";
+
+                # Construct "uunionttype_foo::type" from "union  foo {... } bar;", to go in file "global-var-bar.pkg" (rtti = ... )
+		#
+		fun utyp c_name
+		    =
+		    utstruct c_name  +  "::type";
+
+		my (do_heavy, do_light)
+		    =
+		    case weightreq
+			NULL      => (TRUE,  TRUE);
+			THE TRUE  => (TRUE,  FALSE);
+			THE FALSE => (FALSE, TRUE);
+		    esac;
+
+		credits =   make_credits  platform;
+
+
+
+                # Read specs from C source file 'cfile',
+                # combine them with previously known 'specs',
+                # and return the result:
+		#
+		fun get_spec (cfile, specs)
+		    =
+		    {   preprocessed_c_source_code_file
+                            =
+                            preprocess_c_sourcefile  cfile;
+
+			(    {   astbundle					# parse_to_raw_syntax_tree	is from   src/lib/c-kit/src/ast/parse-to-ast.pkg
+                                     =
+                                     parse_to_raw_syntax_tree::file_to_raw_syntax_tree'
+
+					 file::stderr				# file		is from   src/lib/std/src/unix/file.pkg
+					 (sizes, state::INITIAL)		# state		is from   src/lib/c-kit/src/ast/state.pkg
+					 preprocessed_c_source_code_file;
+
+				 new_specs					# raw_syntax_tree_to_spec	is from   src/app/c-glue-maker/ast-to-spec.pkg
+                                     =
+				     raw_syntax_tree_to_spec::build
+                                       {
+                                         bundle => astbundle,
+					 sizes,
+					 collect_enums,
+					 cfiles,
+					 match,
+					 all_su,
+					 eshift => shift,
+					 gensym_suffix
+                                       };
+
+				 s::join (new_specs, specs);
+			     }
+			     except						# winix		is from   src/lib/std/winix.pkg
+				 e =  {   winix::file::remove_file   preprocessed_c_source_code_file
+                                          except
+                                              _ = ();
+
+					  raise exception e;
+				      }
+			)
+			before (
+			    winix::file::remove_file   preprocessed_c_source_code_file
+			    except
+				_ = ()
+			);
+		    };
+
+
+
+                # Read and combine specs from
+                # all given C source files:
+		#
+		(fold_left  get_spec  s::empty  cfiles)
+                    ->
+		    { structs, unions, enums,  global_variables, global_functions, global_types };
+
+
+
+		# A thunk to make directory 'dirname'
+		# if we haven't already done so:
+		#
+		do_dir
+		    =
+		    do_it
+		    where
+			done =   REF FALSE;
+
+			fun do_it ()
+			    =
+			    if (not *done)
+
+				done := TRUE;
+
+				if (not (winix::file::is_directory     dirname
+					 except
+					    _ = FALSE
+				   )   )
+
+				    winix::file::make_directory   dirname;
+				fi;
+			    fi;
+		    end;
+
+		make7_files =   REF extra_members;	# All .pkg files that should go
+							# into the .make6 file
+		exported_packages =   REF [];
+
+
+		# We don't want apostrophes in file names.
+                # This fn turns them into minuses: 
+		#
+		fun quotes_to_minuses  some_string
+		    =
+		    string::translate
+                        (fn '\'' =>  "-";
+                            c    =>  string::from_char c;
+                         end
+                        )
+                        some_string;
+
+
+                # This unpleasantly impure function:
+                #  o creates 'dirname' directory if it doesn't exist.
+                #  o makes 'nqx', a quote-free version of filename 'x',
+                #  o adds "<nqx>.pkg <mythryl_options>" to string list 'make7_files' (to go in synthesized .make6 file)
+                #  o returns "<dirname>/<nqx>.pkg" as its result.
+		#
+		fun validate_pkg_filename x
+		    =
+		    {   nqx =  quotes_to_minuses x;	# "nqx" == "no quotes x"
+
+			file   =  winix::path::join_base_ext  { base => nqx,  ext => THE "pkg" };
+			result =  winix::path::from_dir_file  { dir => dirname, file };
+
+			opts   =  if noguid      "noguid" ! mythryl_options;
+				  else           mythryl_options;
+				  fi;
+
+
+                        # Collapse 'opts' from a list of strings
+                        # to a single string of blank-separated components.
+			#
+			opt =  string::join'   "("   " "   ")"   opts;
+
+			make7_files := file + opt ! *make7_files;
+			do_dir ();
+			result;
+		    };
+
+
+                # Construct and return path "<dirname>.<file>".
+                # As a side effect, make sure directory 'dirname' exists.
+		#
+		fun descrfile file
+		    =
+		    {   result =   winix::path::from_dir_file { dir => dirname, file };
+			do_dir ();
+			result;
+		    };
+
+
+
+                # Build the obvious maps from struct/union/enum tags to structs/unions/enums:
+
+		structs
+		    =
+		    fold_left
+                        (fn (s, m) =  sm::set (m, s.c_name, s))
+                        sm::empty
+                        structs;
+
+		unions
+		    =
+		    fold_left
+                        (fn (u, m) =  sm::set (m, u.c_name, u))
+                        sm::empty
+                        unions;
+
+		enums
+		    =
+		    fold_left
+                        (fn (e, m) =  sm::set (m, e.c_name, e))
+                        sm::empty
+                        enums;
+
+
+
+                # Here we find all structs/unions/enums
+                # recursively reachable from the toplevel
+                # types exported by the given C source files:
+		#
+		my (structs, unions, enums)
+		    =
+		    {   # These three track which
+                        # struct/union/enum tags have
+                        # already been scheduled for
+                        # processing: 
+			#
+                        sdone = REF ss::empty;		# "sdone" == "structs done"
+			udone = REF ss::empty;		# "udone" == "unions  done"
+			edone = REF ss::empty;		# "edone" == "enums   done"
+
+
+                        # These three map
+                        # struct/union/enum tags
+                        # to their corresponding 
+                        # struct/union/enum:
+			#
+			smap  = REF sm::empty;		# "smap"  == "structs map"
+			umap  = REF sm::empty;		# "umap"  == "unions  map"
+			emap  = REF sm::empty;		# "emap"  == "enums   map"
+
+			tq =  REF [];			# "tq" == "type queue" or "tag queue", I think.
+							# Anyhow, holds list of work remaining to do.
+
+			fun ty_sched t			# Schedule a type for processing by adding it to type queue "tq"
+			    =
+			    tq := t ! *tq;
+
+
+
+                        # Schedule an ordinary field for processing.
+                        # silently ignore bitfields:
+			#
+			fun fs_sched (s::OFIELD { spec => (_, t), ... } ) =>   ty_sched t;
+			    fs_sched _                                    =>   ();
+			end;
+			#
+			fun f_sched { name, spec }
+			    =
+			    fs_sched spec;
+
+
+
+                        # Add something to appropriate 'done' list:
+                        #   'xdone'   will be one of 'sdone', 'udone', 'edone'
+                        #   'xmap'    will be one of 'smap',  'umap',  'emap'
+                        #   'c_name'  is the relevant struct/union/enum name
+                        #   'x'       is the struct/union/enum named by 'c_name'.
+                        #   'xfields' is a fn extracting from 'x' the fields
+                        #             which need processing: .fields for structs
+                        #                                    .all    for unions
+                        #             (Enums have no fields needing processing.)  
+			#
+			fun xenter (xdone, xall, xmap, xfields) c_name
+			    =
+			    if (not (ss::member (*xdone, c_name)))
+
+				xdone :=  ss::add (*xdone, c_name);
+
+				case (@? (xall, c_name))
+
+				    THE x => {   xmap := sm::set (*xmap, c_name, x);
+						 apply f_sched (xfields x);
+					     };
+				    NULL => ();
+				esac;
+			    fi;
+
+			senter =   xenter (sdone, structs, smap, .fields);
+			uenter =   xenter (udone, unions,  umap, .all);
+			eenter =   xenter (edone, enums,   emap, fn _ = []);
+
+			fun sinclude (s: s::Type_Struct) =   if   (not s.exclude   )   senter s.c_name;   fi;
+			fun uinclude (u: s::Type_Union)  =   if   (not u.exclude   )   uenter u.c_name;   fi;
+			fun einclude (e: s::Type_Enum)   =   if   (not e.exclude   )   eenter e.c_name;   fi;
+
+
+                        # Schedule global types, variables
+                        # and functions for processing.
+                        #
+                        # Here 'src' is a source code region like "foo.h:4596.16-23",
+                        # and 'c_name' is the type/var/fun name from the .h file.
+			#
+			fun global_type     { src, c_name, spec            } =   ty_sched spec;
+			fun global_variable { src, c_name, spec => (_, t)  } =   ty_sched t;
+			fun global_function { src, c_name, spec, arg_names } =   ty_sched (s::FPTR spec);
+
+
+                        # Here we appear to be essentially calling
+                        # senter/uenter/eenter on every struct/union/enum
+                        # recursively reachable from work list 'tq'.
+                        #
+                        # We copy 'tq' to 'tl' before beginning, but
+                        # our senter/uenter/eenter ops may add new stuff
+                        # to 'tq', so in general we wind up doing multiple
+                        # 'rounds' until nothing new is found:
+			#
+			fun loop []
+                                =>
+                                ();
+
+			    loop tl
+				=>
+				{   # 'type' ("analyse_type"?) does the
+				    # recursive decomposition of a type looking
+				    # for all types referenced by it.
+				    #
+				    # Ultimately, we're only interested in
+				    # in struct/union/enum types, but we may
+				    # have to look inside pointer and function
+				    # types &tc to find them:
+				    #
+				    fun type (s::STRUCT t) =>  senter t;
+					type (s::UNION  t) =>  uenter t;
+
+					type (s::ENUM (t, anon))
+					     =>
+					     if  (collect_enums and anon)   eenter "'";
+					     else                           eenter  t;
+                                             fi;
+
+					type (s::PTR (_, s::STRUCT t)) =>   ();	# Why do we ignore 't' here?
+					type (s::PTR (_, s::UNION  t)) =>   ();	# "                        "
+					type (s::PTR (_, t          )) =>   type t;
+
+					type (s::FPTR { args, result } )
+					     =>
+					     {   apply type args;
+						 null_or::apply type result;
+					     };
+
+					type (s::ARR { t, ... } ) => type t;
+					type (s::UNIMPLEMENTED _) => ();
+
+					type ( s::SCHAR     | s::UCHAR
+					       | s::SINT      | s::UINT
+					       | s::SSHORT    | s::USHORT
+					       | s::SLONG     | s::ULONG
+					       | s::SLONGLONG | s::ULONGLONG
+					       | s::FLOAT     | s::DOUBLE
+					       | s::VOIDPTR)
+					    => ();					# C base types require no processing.
+				    end;
+
+				    fun tloop []       =>  nextround ();
+					tloop (t ! ts) =>  {   type t;
+							       tloop ts;
+							   };
+				    end;
+
+				    tq := [];
+
+				    tloop tl;
+				};
+			end 
+
+			also
+			fun nextround ()
+				=
+				loop *tq;
+
+			sm::apply sinclude structs;
+			sm::apply uinclude unions;
+			sm::apply einclude enums;
+
+			apply  global_type      global_types;
+			apply  global_variable  global_variables;
+			apply  global_function  global_functions;
+
+			nextround ();
+
+			(*smap, *umap, *emap);
+		    };
+
+		fun stem s::SCHAR     => "Schar";
+		    stem s::UCHAR     => "Uchar";
+		    stem s::SINT      => "Sint";
+		    stem s::UINT      => "Uint";
+		    stem s::SSHORT    => "Sshort";
+		    stem s::USHORT    => "Ushort";
+		    stem s::SLONG     => "Slong";
+		    stem s::ULONG     => "Ulong";
+		    stem s::SLONGLONG => "Slonglong";
+		    stem s::ULONGLONG => "Ulonglong";
+		    stem s::FLOAT     => "Float";
+		    stem s::DOUBLE    => "Double";
+		    stem s::VOIDPTR   => "Voidptr";
+		    stem _            => raise exception FAIL "bad stem";
+		end;
+
+		fun insert_name (c_name, string_set)
+		    =
+		    if (ss::member (string_set, c_name))   string_set;
+		    else   ss::add (string_set, c_name);
+                    fi;
+
+
+
+		#  Search 'structs', 'unions', 'global_types',
+                #  'global_variables' and 'global_functions'
+                #  for incomplete and function pointer types.
+		#
+		# "We don't expect many different function pointer types or
+		#  incomplete types in any given C interface, so using linear
+		#  lists here is probably ok." -- Matthias
+		#
+		my  (  fptr_types,
+		       incomplete_structs,
+		       incomplete_unions,
+		       incomplete_enums
+		    )
+		    =
+		    {   # "type" == "analyse_type"?  "add_type"?
+
+                        fun type ( ( s::SCHAR     | s::UCHAR
+				   | s::SINT      | s::UINT
+				   | s::SSHORT    | s::USHORT
+				   | s::SLONG     | s::ULONG
+				   | s::SLONGLONG | s::ULONGLONG
+				   | s::FLOAT     | s::DOUBLE
+				   | s::VOIDPTR
+				   ),
+
+                                     a
+                                   )
+				=>
+				a;
+
+			    type (s::STRUCT c_name, a as (f, struct_names, u, e))
+				 =>
+				 case (@? (structs, c_name))
+				     THE _ =>  a;
+				     NULL  =>  (f, insert_name (c_name, struct_names), u, e);
+				 esac;
+
+			    type (s::UNION c_name, a as (f, s, union_names, e))
+				 =>
+				 case (@? (unions, c_name))
+				     THE _ =>  a;
+				     NULL  =>  (f, s, insert_name (c_name, union_names), e);
+				 esac;
+
+			    type (s::ENUM (c_name, anon), a as (f, s, u, enum_names))
+				 =>
+				 if (collect_enums and anon)
+				     a;
+				 else
+				     case (@? (enums, c_name))
+					 THE _ =>  a;
+					 NULL  =>  (f, s, u, insert_name (c_name, enum_names));
+				     esac;
+				 fi;
+
+			    type ((s::PTR (_, t) | s::ARR { t, ... } ), a)
+				 =>
+				 type (t, a);
+
+			    type (s::FPTR (cft as { args, result } ), a)
+				 =>
+				 {   a' = fold_left type a args;
+
+				     a'' =  case result
+						NULL  =>   a';
+						THE t =>   type (t, a');
+                                            esac;
+
+				     my (fn_ptrs, s, u, e) = a'';
+
+				     cfth = hash_cft cft;
+
+				     i = im::vals_count fn_ptrs;
+
+				     if  (im::contains_key (fn_ptrs, cfth))   (fn_ptrs, s, u, e);
+				     else                                     (im::set (fn_ptrs, cfth, (cft, i)), s, u, e);
+                                     fi;
+				 };
+
+			    type (s::UNIMPLEMENTED _, a)
+				 =>
+				 a;
+			end;
+
+			fun fs (s::OFIELD { spec => (_, t), ... }, a) =>   type (t, a);	# Recurse on type of ordinary field.
+			    fs (_,                                 a) =>   a;			# Bitfields are ignorable.
+			end;
+
+			fun do_field ( { name, spec }, a)
+			    = 
+			    fs (spec, a);
+
+			fun do_struct ( { src, c_name, size, anon, fields, exclude }, a)
+			    =
+			    fold_left do_field a fields;
+
+			fun do_union ( { src, c_name, size, anon, all, exclude }, a)
+			    =
+			    fold_left do_field a all;
+
+			fun do_global_type     ( { src, c_name, spec            }, a) =   type (spec, a);
+			fun do_global_variable ( { src, c_name, spec => (_, t)  }, a) =   type (t, a);
+			fun do_global_function ( { src, c_name, spec, arg_names }, a) =   type (s::FPTR spec, a);
+
+                        # Initialize result state to empty:
+			#
+                        result = ( im::empty,		# fptr_types
+				   ss::empty,		# incomplete_structs
+				   ss::empty,		# incomplete_unions
+				   ss::empty		# incomplete_enums
+				 );
+
+
+                        # Process 'structs' list into result:
+			#
+                        result = sm::fold_left
+					do_struct		# Fn to apply to list elements.
+					result			# Where to save results.
+					structs;		# List to process.
+
+
+                        # Process 'unions' list into result:
+			#
+                        result = sm::fold_left
+					do_union		# Fn to apply to list elements.
+					result			# Where to save results.
+					unions;			# List to process.
+
+
+                        # Process 'global_types' list into result:
+			#
+                        result = fold_left
+					do_global_type		# Fn to apply to list elements.
+					result			# Where to save results.
+					global_types;		# List to process.
+
+
+                        # Process 'global_variables' list into result:
+			#
+                        result = fold_left
+					do_global_variable	# Fn to apply to list elements.
+					result			# Where to save results.
+					global_variables;	# List to process.
+
+
+                        # Process 'global_functions' list into result:
+			#
+                        result = fold_left
+				        do_global_function	# Fn to apply to list elements.
+				        result			# Where to save results.
+				        global_functions;	# List to process.
+
+                        result;
+		    };
+
+		fun is_incomplete_struct t =   ss::member (incomplete_structs, t);
+		fun is_incomplete_union  t =   ss::member (incomplete_unions,  t);
+
+		fun rw_ro  s::RW =>   tycon "Rw";
+		    rw_ro  s::RO =>   tycon "Ro";
+		end;
+
+
+                # Construct a type corresponding to a dimension
+                # of an array -- this is an integer val encoded
+                # as a phantom type expression, a decimal digit
+                # at a time:  
+		#
+		fun dim_ty  0  =>  tycon "Dec";
+		    dim_ty  n  =>  type_constructor ("Dg" + int::to_string (n % 10),
+				       [dim_ty (n / 10)]);
+		end;
+
+
+                # Above, with negative-array-size checking added:
+		#
+		dim_ty
+		    =
+		    fn n
+                        =
+		        if (n >= 0)   dim_ty n;
+		        else          raise exception FAIL "negative dimension";
+                        fi;
+
+		fun suchunk'rw p sut =   type_constructor ("Su_Chunk" + p, [sut, tycon "Rw"]);
+		fun suchunk'ro   sut =   type_constructor ("Su_Chunk'",    [sut, tycon "Ro"]);
+
+
+
+                # "fptr" is "function pointer".
+                # The 'p' (prime) arg will be either "" or "'".
+                # "args" and "result" are the function i/o types.
+		#
+		fun witness_fptr_p p { args, result }			# Called only from witness_type_p
+		    =
+		    {   # Convert 'spec' type to prettyprint form.
+                        # "p_type" may mean "prettyprint type":
+
+                        fun to_p_type (s::STRUCT t) =>   suchunk'ro (st t);
+			    to_p_type (s::UNION  t) =>   suchunk'ro (un t);
+			    to_p_type t             =>   witness_type' t;
+			end;
+
+
+                        # Returning struct and union values in C is
+			# always an ugly hack.  We handle these cases
+			# by prepending to the argument list an additional
+			# argument pointing to where the result should be
+			# stored.  That's what the 'extra_arg_typ' kludge
+			# here is about:
+			#
+			my (result_type, extra_arg_type)
+			    =
+			    case result
+			      
+			       NULL => (void, []);
+
+			       THE (s::STRUCT t)
+				    =>
+				    {   ot =   suchunk'rw "'" (st t);
+
+					(ot, [ot]);
+				    };
+
+			       THE (s::UNION t)
+				    =>
+				    {   ot =   suchunk'rw "'" (un t);
+
+					(ot, [ot]);
+				    };
+
+			       THE t => (to_p_type t, []);
+			esac;
+
+			arg_type_list =   extra_arg_type   @   map  to_p_type  args;
+			domain_type   =   tuple arg_type_list;
+			function_type =   arrow (domain_type, result_type);
+
+			type_constructor ("Fptr" + p, [function_type]);
+		    }
+
+		also
+		fun witness_type_p p (t as ( s::SCHAR     | s::UCHAR
+					   | s::SINT      | s::UINT
+					   | s::SSHORT    | s::USHORT
+					   | s::SLONG     | s::ULONG
+					   | s::SLONGLONG | s::ULONGLONG
+					   | s::FLOAT     | s::DOUBLE
+					   | s::VOIDPTR))
+			=>
+			tycon (stem t);
+
+		    witness_type_p p (s::STRUCT t)           =>  type_constructor ("Su",      [st t]);
+		    witness_type_p p (s::UNION t)            =>  type_constructor ("Su",      [un t]);
+		    witness_type_p p (s::ENUM ta)            =>  type_constructor ("Enum",    [en ta]);
+		    witness_type_p p (s::PTR (c, t))         =>  type_constructor ("Ptr" + p, [type_constructor ("Chunk", [witness_type t, rw_ro c])]);
+		    witness_type_p p (s::ARR { t, d, ... } ) =>  type_constructor ("Arr",     [witness_type t, dim_ty d]);
+
+		    witness_type_p p (s::FPTR spec)          =>  witness_fptr_p p spec;
+		    witness_type_p _ (s::UNIMPLEMENTED what) =>  unimp what;
+	        end 
+
+		also
+		fun witness_type t
+		     =
+		     witness_type_p "" t
+
+		also
+		fun witness_type' t
+		     =
+		     witness_type_p "'" t;
+
+		fun topfunc_ty p ( { args, result }, arg_names)		# Called only from make_do_f's do_fsig in pprint_global_fun_pkg
+		    =
+		    {   # Convert type from 'spec' to prettyprint format.
+			# "p_type" may mean "unparse_type":
+			#
+			fun to_p_type (s::SCHAR | s::SINT | s::SSHORT | s::SLONG)
+				=>
+				tycon "mlrep::signed::Int";		# mlrep	is from   x
+
+			    to_p_type s::SLONGLONG
+				 => 
+				 tycon "mlrep::long_long_signed::Int";
+
+			    to_p_type (s::UCHAR | s::UINT | s::USHORT | s::ULONG)
+				 =>
+				 tycon "mlrep::unsigned::Unt";
+
+			    to_p_type s::ULONGLONG
+				 =>
+				 tycon "mlrep::long_long_unsigned::Unt";
+
+			    to_p_type (s::FLOAT | s::DOUBLE)
+				 =>
+				 tycon "mlrep::float::Float";
+
+			    to_p_type (s::STRUCT t) =>  type_constructor ("Su_Chunk" + p, [st t, tycon "X"]);
+			    to_p_type (s::UNION  t) =>  type_constructor ("Su_Chunk" + p, [un t, tycon "X"]);
+			    to_p_type (s::ENUM   _) =>  tycon "mlrep::signed::Int";
+
+			    to_p_type t =>   witness_type_p p t;
+			end;
+
+			my (result_type, extra_arg_type, extra_arg_name)
+			    =
+			    case result
+			      
+				NULL => (void, [], []);
+
+				THE (s::STRUCT t)
+				     =>
+				     {   ot =   suchunk'rw p (st t);
+
+					 (ot, [ot], [writeto]);
+				     };
+
+				THE (s::UNION t)
+				     =>
+				     {   ot =   suchunk'rw p (un t);
+
+					 (ot, [ot], [writeto]);
+				     };
+
+				THE t => (to_p_type t, [], []);
+			    esac;
+
+			arg_type_list =   map  to_p_type  args;
+
+			aggreg_argty
+			    =
+			    case (do_arg_names, arg_names)
+			      
+				(TRUE, THE arg_name_list)
+				    =>
+				    record (
+					paired_lists::zip			# paired_lists	is from   src/lib/std/src/paired-lists.pkg
+					    ( map
+						 arg_id
+						 (extra_arg_name @ arg_name_list),
+
+					      extra_arg_type @ arg_type_list
+					    )
+				    );
+
+				_   =>
+				    tuple (extra_arg_type @ arg_type_list);
+			    esac;
+
+			arrow (aggreg_argty, result_type);
+		    };
+
+		fun rtti_ty t
+		    =
+		    type_constructor ("t::Typ", [witness_type t]);
+
+		fun chunk_ty p (type, constness)
+		    =
+		    type_constructor ("Chunk" + p, [witness_type type, constness]);
+
+		fun c_ro s::RW => tycon "X";	# Type variable -- match anything.
+		    c_ro s::RO => tycon "Ro";
+		end;
+
+		fun dim_val n
+		    =
+		    eapp  (build n,  evar "dim")
+                    where
+		        fun build 0 =>  evar "dec";
+			    build n =>  eapp (build (n / 10),
+					      evar ("dg" + int::to_string (n % 10)));
+			end;
+		    end;
+
+		exception INCOMPLETE;
+
+		stipulate
+		    fun simple v
+                        =
+                        evar ("t::" + v);
+		herein
+		    fun rtti_val (t as ( s::SCHAR     | s::UCHAR
+                                       | s::SINT      | s::UINT
+				       | s::SSHORT    | s::USHORT
+                                       | s::SLONG     | s::ULONG
+				       | s::SLONGLONG | s::ULONGLONG
+				       | s::FLOAT     | s::DOUBLE
+                                       | s::VOIDPTR
+                                 )     )
+			    =>
+			    simple (string::to_lower (stem t));
+
+			rtti_val (s::STRUCT t)
+			     =>
+			     if (is_incomplete_struct t   )   raise exception INCOMPLETE;
+					                 else   evar (styp t);       fi;
+
+			rtti_val (s::UNION t)
+			     =>
+			     if (is_incomplete_union t    )   raise exception INCOMPLETE;
+					                 else   evar (utyp t);       fi;
+
+			rtti_val (s::ENUM ta)
+			     =>
+			     econstr (evar "t::enum",
+				      type_constructor ("t::Typ", [type_constructor ("Enum", [en ta])]));
+
+			rtti_val (s::FPTR cft)
+			     =>
+			     {   cfth = hash_cft cft;
+
+				 case (%? (fptr_types, cfth))
+				     THE (_, i) =>   evar (fptr_rtti_struct_id_cc_typ i);
+				     NULL       =>   raise exception FAIL "fptr type missing";
+				 esac;
+			     };
+
+			rtti_val (s::PTR (s::RW, t))
+			     =>
+			     eapp (evar "t::pointer", rtti_val t);
+
+			rtti_val (s::PTR (s::RO, t))
+			     =>
+			     eapp (evar "t::ro", eapp (evar "t::pointer", rtti_val t));
+
+			rtti_val (s::ARR { t, d, ... } )
+			     =>
+			     eapp (evar "t::arr", etuple [rtti_val t, dim_val d]);
+
+			rtti_val (s::UNIMPLEMENTED what)
+			     =>
+			     raise exception INCOMPLETE;
+		    end;
+		end;
+
+		fun fptr_makecall spec
+		    =
+		    {   h =   hash_cft spec;
+
+			case (%? (fptr_types, h))
+			    THE (_, i) =>  fptr_rtti_struct_id_cc_makecall  i;
+			    NULL       =>  raise exception FAIL "missing fptr_type (makecall)";
+			esac;
+		    };
+
+
+
+                # Open an output prettyprint stream.
+                # Return the stream plus a passel of
+                # functions specialized to print on it:
+		#
+		fun open_pp (f, src)
+		    =
+		    { stream,
+		      nl, str, sp, nsp, box, hvbox,
+		      hbox, wrapbox, vbox, end_box,
+		      ppty, unparse_expression, unparse_fun, line,
+		      pprint_vdef, pprint_function_def, pprint_type_def,
+		      pprint_vdecl,
+		      close_pp
+		    }
+                    where
+		        device =  cpifdev::open (f, wid);		# cpifdev	is from   src/app/c-glue-maker/cpif-dev.pkg
+			stream =  pp::open_stream  device;
+
+			fun nl ()      =  pp::newline stream;
+			fun str s      =  pp::string stream s;
+
+			fun sp ()      =  pp::space stream 1;
+			fun nsp ()     =  pp::nonbreakable_spaces stream 1;
+
+			fun box a      =  pp::begin_indented_wrap'_box stream  (pp::BOX_RELATIVE a);
+			fun hbox ()    =  pp::begin_horizontal_box             stream;
+			fun hvbox x    =  pp::begin_indented_horizontal_else_vertical_box   stream  x;
+			fun wrapbox a  =  pp::begin_indented_wrap_box  stream  (pp::BOX_RELATIVE a);
+			fun vbox a     =  pp::begin_indented_vertical_box    stream  (pp::BOX_RELATIVE a);
+			fun end_box () =  pp::end_box              stream;
+
+			fun ppty t               =  p::unparse_type        stream  t;
+			fun unparse_expression e =  p::unparse_expression  stream  e;
+			fun unparse_fun x        =  p::unparse_fun         stream  x;
+
+			fun line s
+                            =
+                            {   nl ();
+                                str s;
+                            };
+
+			fun pprint_vdef (variable, expression)				# "pprint_vdef" == "print value definition"
+			    =
+			    {   nl ();
+				wrapbox 4;
+				str "/* my   */  ";
+				nsp ();
+				str variable;
+				nsp ();
+				str "=";
+				sp ();
+				unparse_expression expression;
+				str ";";
+				end_box ();
+			    };
+
+			fun pprint_function_def (f, args, result)
+			    =
+			    {   nl ();
+				unparse_fun (f, args, result);
+				str ";";
+			    };
+
+			fun pprint_decl					# "pprint_decl" == "print_declaration", I expect.
+                                ( keyword,				# Either "type" or "my".
+                                  connector				# "=" for "type, ":" for my".
+                                )
+                                ( v,					# variable name, as a string.
+                                  t					# variable's type, as a p::Mltype.
+                                )
+			    =
+			    {   nl ();
+				wrapbox 4;
+				str keyword;
+				nsp ();
+				str v;
+				nsp ();
+				str connector;
+				sp ();
+				ppty t;
+				str ";";
+				end_box ();
+			    };
+
+			pprint_type_def  =   pprint_decl ("/* type */  ", "=");
+			pprint_vdecl =   pprint_decl ("/* my   */", ":");		# "pprint_vdecl" == "print_value_declaration", I expect.
+
+			fun close_pp ()
+			    =
+			    {   pp::close_stream       stream;
+				cpifdev::close  device;
+			    };
+
+			str do_not_edit;
+
+			case src
+			  
+			    NULL => ();
+
+			    THE s => {   nl ();
+					 str (cat ["# [from code at ", s, "]"]);
+				     };
+			esac;
+
+			line credits;
+			line comments_to;
+
+			nl ();
+			nl ();
+		    end;
+
+
+
+                # A function to generate files named "callop-6.pkg" &tc
+                # with contents like
+                # 
+                #     package callop_6 {
+                #         
+                #             callop = p::ECONSTR (
+                #                          p::EVAR "raw_mem_inline_t::rawccall",
+                #                          <...>
+                #                      );
+                #         };
+                # 
+                # for calling C functions of a given type <...>.
+                # 
+                # Return value is "callop_6::callop" or such.
+                # 
+                # We avoid generating duplicates by remembering
+                # which packages we have already generated, and
+                # simply returning a pre-existing one if possible:
+		#
+		get_callop
+		    =
+		    get
+                    where
+		        ncallops =   REF 0;					# How many have we generated so far?
+			callops  =   REF im::empty;				# Cache of already-generated packages.
+
+			fun callop_sid i =   "callop_" + int::to_string i;	# 
+			fun callop_qid i =   callop_sid i + "::callop";		# 
+
+			fun get (lib7_args_t, e_proto, ml_result_type)
+			    =
+			    callop_qid i
+                            where 
+			        e_proto_hash =   hash_lib7type e_proto;		# Hash the function prototype.
+
+				i =  case (%? (*callops, e_proto_hash))	# Have we already generated an appropriate package?
+				       
+					 THE i => i;				# Yes, just use it.
+
+					 NULL					# No, we have work to do.
+					     =>
+					     {   i    =   *ncallops;		# Package number.
+						 sn   =   callop_sid i;				# "sn" == "serial_number", most likely.
+						 file =   validate_pkg_filename ("callop-" + int::to_string i);
+
+						 (open_pp (file, NULL))
+						     ->
+						     { pprint_vdef, close_pp, str, nl, box, end_box, ... };
+
+						 ncallops :=  i + 1;
+						 callops  :=  im::set (*callops, e_proto_hash, i);
+
+						 str (cat ["package ", sn]); nl ();
+						 str "    {";      nl ();
+						 box 8;
+						 pprint_vdef ("callop",
+							  econstr (evar "raw_mem_inline_t::rawccall",
+								   arrow (tuple [tycon "unt32::Unt",		# unt32	is from   src/lib/std/unt32.pkg
+										 lib7_args_t,
+										 e_proto],
+									  ml_result_type)));
+						 end_box ();
+						 nl ();
+						 str "};";
+						 nl ();
+						 close_pp ();
+
+						 i;
+					     };
+				     esac;
+			    end;
+		    end;
+
+
+                # "pprint_fptr_rtti" == "prettyprint function pointer runtime type information", I think.
+                #
+                # Here we generate a file "fptr-rtti-6.pkg"
+                # or such containing something like
+                #
+                #     package fptr_rtti_6 {
+                #             stipulate
+                #                 include c::dim;
+                #                 include c_internals;
+                #             herein
+                #                 fun makecall <...>;
+                #                 my type = <...>;
+                #             end;
+                #         };
+		#
+		fun pprint_fptr_rtti ( { args, result }, i)
+		    =
+		    {   package_name =   fptr_rtti_struct_id i;				# "fptr_rtti_6" or such.
+
+			file =   validate_pkg_filename ("fptr-rtti-" + int::to_string i);		# OS path for "fptr-rtti-6.pkg" or such.
+
+			(open_pp (file, NULL))
+                            ->
+			    { close_pp, str, box, end_box, pprint_function_def, pprint_vdef, nl, ... };
+
+			#  Cproto encoding 
+
+			fun list t
+			    =
+			    type_constructor ("List", [t]);
+
+			real   = tycon "Float";
+			char   = tycon "Char";
+			unt8   = tycon "unt8::Unt";					# unt8	is from   src/lib/std/unt8.pkg
+			int31  = tycon "int31::Int";					# unt31	is from   src/lib/std/unt31.pkg
+			unt31  = tycon "unt31::Unt";
+			int32  = tycon "int32::Int";					# unt32	is from   src/lib/std/unt32.pkg
+			unt32  = tycon "unt32::Unt";
+			string = tycon "String";
+			exn    = tycon "Exception";
+
+
+
+			# See src/lib/compiler/frontend/semantic/types/cproto.pkg for these:
+			#
+			e_double = real;			# The "e_" prefix is likely short for "encode_" or "encoded_"
+			e_float  = list real;
+			e_schar  = char;
+			e_uchar  = unt8;
+			e_sint   = int31;
+			e_uint   = unt31;
+			e_slong  = int32;
+			e_ulong  = unt32;
+			e_sshort = list char;
+			e_ushort = list unt8;
+			e_sllong = list int32;
+			e_ullong = list unt32;
+			e_ptr    = string;
+
+			e_nullstruct = exn;
+
+			fun encode s::DOUBLE    => e_double;
+			    encode s::FLOAT     => e_float;
+
+			    encode s::SCHAR     => e_schar;
+			    encode s::UCHAR     => e_uchar;
+
+			    encode s::SINT      => e_sint;
+			    encode s::UINT      => e_uint;
+
+			    encode s::SSHORT    => e_sshort;
+			    encode s::USHORT    => e_ushort;
+
+			    encode s::SLONG     => e_slong;
+			    encode s::ULONG     => e_ulong;
+
+			    encode s::SLONGLONG => e_sllong;
+			    encode s::ULONGLONG => e_ullong;
+
+			    encode (s::PTR _ | s::VOIDPTR | s::FPTR _)
+                                =>
+                                e_ptr;
+
+			    encode (s::UNIMPLEMENTED what)
+                                =>
+                                unimp what;
+
+			    encode (s::ARR _)
+                                =>
+                                raise exception FAIL "unexpected rw_vector";
+
+			    encode (s::ENUM _)
+                                =>
+                                e_sint;
+
+			    encode (s::STRUCT t)
+				=>
+				case (@? (structs, t))
+				  
+				     THE s =>  encode_fields void s.fields;
+				     NULL  =>  err ["incomplete struct argument: struct ", t];
+				esac;
+
+			    encode (s::UNION t)
+				=>
+				case (@? (unions, t))
+				    THE u =>  encode_fields e_sint u.all;
+				    NULL  =>  err ["incomplete union argument: union", t];
+				esac;
+			end 
+
+		      also
+		      fun encode_fields  dummy  fields
+			   =
+			   {   fun f0 (s::ARR { t, d => 0, ... }, a) =>  a;
+				   f0 (s::ARR { t, d => 1, ... }, a) =>  f0 (t, a);
+
+				   f0 (s::ARR { t, d, esz }, a)
+                                       =>
+				       f0 (t, f0 (s::ARR { t, d => d - 1, esz }, a));
+
+				   f0 (t, a)
+                                       =>
+                                       encode t ! a;
+			       end;
+
+			       fun f ( { spec => s::OFIELD { spec, ... }, name }, a)
+				       =>
+				       f0 (#2 spec, a);
+
+				   f (_, a)
+					=>
+					a;
+			       end;
+
+			       fel =   fold_right f [] fields;
+
+			       case fel
+				   []  =>   e_nullstruct;
+				   fel =>   tuple (dummy ! fel);
+			       esac;
+			   };
+
+			e_arg =   tuple (void ! map encode args);
+
+			e_result =   case result      NULL  =>  void;
+                                                      THE t =>  encode t;   esac;
+
+			e_proto =   type_constructor ("List", [arrow (e_arg, e_result)]);
+
+			# Generating the call operation 
+
+			# A low-level type used to communicate a value
+			# to the low-level call operation
+			#
+			fun mlty (t as ( s::SCHAR     | s::UCHAR
+                                       | s::SINT      | s::UINT
+                                       | s::SSHORT    | s::USHORT
+                                       | s::SLONG     | s::ULONG
+				       | s::SLONGLONG | s::ULONGLONG
+				       | s::FLOAT     | s::DOUBLE
+                                 )     )
+				=>
+				tycon ("c_memory::cc_" + stem t);
+
+			    mlty (s::VOIDPTR | s::PTR _ | s::FPTR _ | s::STRUCT _ | s::UNION _)
+				 =>
+				 tycon "c_memory::cc_addr";			# c_memory	is from   x
+
+			    mlty (s::ENUM _)             => tycon "c_memory::cc_sint";
+			    mlty (s::UNIMPLEMENTED what) => unimp what;
+			    mlty (s::ARR _)              => raise exception FAIL "unexpected type";
+			end;
+
+			fun wrap (e, n)
+			    =
+			    eapp (evar ("c_memory::wrap_" + n),
+				  eapp (evar ("convert::ml_" + n), e));		# convert	is from   x
+
+			fun vwrap e =   eapp (evar "c_memory::wrap_addr", eapp (evar "reveal",  e));
+			fun fwrap e =   eapp (evar "c_memory::wrap_addr", eapp (evar "freveal", e));
+			fun pwrap e =   eapp (evar "c_memory::wrap_addr", eapp (evar "reveal", eapp (evar "ptr::inject'", e)));
+
+			fun suwrap e
+			    =
+			    pwrap (eapp (evar "ptr::enref'", e));				# ptr	is from   x
+
+			fun ewrap e
+			    =
+			    eapp (evar "c_memory::wrap_sint",
+					    eapp (evar "convert::c2i_enum", e));
+
+
+			# This code is for passing structures in pieces
+			# (member-by-member). We don't use this; rather we
+			# provide a pointer to the beginning of the struct.
+			#
+			fun arglist ([], _)
+				=>
+				([], []);
+
+			    arglist (h ! tl, i)
+				 =>
+				 {   p =   evar ("x" + int::to_string i);
+
+				     my  (ta, ea)
+					 =
+					 arglist (tl, i + 1);
+
+				     fun sel e
+					 =
+					 (   mlty h ! ta,
+					     e ! ea
+					 );
+
+				     case h
+                                       
+					 (s::STRUCT _ | s::UNION _) =>  sel (suwrap p);
+					 (s::ENUM _)                =>  sel (ewrap p);
+
+					 ( s::SCHAR     | s::UCHAR
+                                         | s::SINT      | s::UINT
+					 | s::SSHORT    | s::USHORT
+                                         | s::SLONG     | s::ULONG
+					 | s::SLONGLONG | s::ULONGLONG
+					 | s::FLOAT     | s::DOUBLE
+                                         )   =>
+                                             sel (wrap (p, stem h));
+
+					 s::VOIDPTR =>  sel (vwrap p);
+					 s::PTR _   =>  sel (pwrap p);
+					 s::FPTR _  =>  sel (fwrap p);
+
+					 s::UNIMPLEMENTED what =>  unimp_arg what;
+					 s::ARR _              =>  raise exception FAIL "unexpected rw_vector argument";
+                                     esac;
+				 };
+			end;
+
+			my  ( ml_result_type,
+			      extra_arg_v,
+			      extra_arg_e,
+			      extra_lib7_arg_t,
+			      res_wrap
+			    )
+			    =
+			    case result
+
+				NULL
+				    =>
+				    (void, [], [], [], fn r =  r);
+
+				THE (s::STRUCT _ | s::UNION _)
+				    =>
+				    ( void,
+				      [evar "x0"],
+				      [suwrap (evar "x0")],
+				      [tycon "c_memory::cc_addr"],
+				      fn r =  eseq (r, evar "x0")
+				    );
+
+				THE t
+				    =>
+				    {   fun unwrap n r
+					    =
+					    eapp (evar ("convert::c_" + n),
+						  eapp (evar ("c_memory::unwrap_" + n), r));
+
+					fun punwrap cast r
+					    =
+					    eapp (evar cast,
+						  eapp (evar "c_memory::unwrap_addr", r));
+
+					fun eunwrap r
+					    =
+					    eapp (evar "convert::i2c_enum",
+						  eapp (evar "c_memory::unwrap_sint", r));
+
+					res_wrap
+					    =
+					    case t
+
+						( s::SCHAR     | s::UCHAR
+						| s::SINT      | s::UINT
+						| s::SSHORT    | s::USHORT
+						| s::SLONG     | s::ULONG
+						| s::SLONGLONG | s::ULONGLONG
+						| s::FLOAT     | s::DOUBLE
+						)   =>
+						    unwrap (stem t);
+
+						s::VOIDPTR =>  punwrap "vcast";
+						s::FPTR _  =>  punwrap "fcast";
+						s::PTR _   =>  punwrap "pcast";
+						s::ENUM _  =>  eunwrap;
+
+						s::UNIMPLEMENTED what
+						    =>
+						    unimp_res what;
+
+						(s::STRUCT _ | s::UNION _ | s::ARR _)
+						     =>
+						     raise exception FAIL "unexpected result type";
+					    esac;
+
+					(mlty t, [], [], [], res_wrap);
+				    };
+			    esac;
+
+			my  (lib7_args_tl, args_el)
+			    =
+			    arglist (args, 1);
+
+			lib7_args_t
+			    =
+			    tuple  (extra_lib7_arg_t @ lib7_args_tl);
+
+			arg_vl							# "arg_vl" == "arg_variable_list" ?
+			    =
+			    reverse (
+                                #1 (fold_left
+                                        (fn (_, (a, i))
+                                             =
+					     (  evar ("x"  +  int::to_string i)   !   a,
+						i + 1
+                                             )
+                                        )
+                                        ([], 1)
+				        args
+                                   )
+                            );
+
+			arg_e =   etuple  (extra_arg_e @ args_el);
+
+			callop_n =   get_callop (lib7_args_t, e_proto, ml_result_type);
+
+			str "stipulate"; nl ();
+                        str "    include c::dim;"; nl ();
+                        str "    include c_internals;"; nl ();
+                        str "herein";  nl ();
+
+                        str (cat ["package ", package_name, " {"]);
+			box 4;
+			pprint_function_def ("makecall",
+				 [evar "a", etuple (extra_arg_v @ arg_vl)],
+				 res_wrap (eapp (evar callop_n,
+						 etuple [evar "a", arg_e,
+							 evar "NIL"])));
+			pprint_vdef ("rtti",
+				 econstr (eapp (evar "make_fptr_typ",
+						evar "makecall"),
+					  rtti_ty (s::FPTR { args,
+							    result } )));
+			end_box ();
+			nl ();
+			str "};";
+			nl ();
+			str "end;";
+			nl ();
+			close_pp ();
+		    };					# fun pprint_fptr_rtti
+
+
+
+		# "pprint_sue_pkg" == "prettyprint struct/union/enum package"
+                #
+                # Here we generate a file like
+                #     incomplete-struct-foo.pkg
+                #      incomplete-union-foo.pkg
+                #       incomplete-enum-foo.pkg
+                # or such containing something like
+		#
+                # stipulate
+		#     package [SUE]foo {
+		#             with
+                #                 include tag;
+                #             do
+		#                 Tag = <...>;
+                #             end;
+                #             size = <...>;		# Optional.
+                #             type  = <...>;		# Optional.
+                #         };
+                # herein
+                #     package [SUE]T_foo
+                #         =
+                #         [SUE]foo;
+                # end;
+
+		Sue_Szinfo
+		  = RTTI_INCOMPLETE			#  Generate no RTTI 
+		  | RTTI_STRUCT_OR_UNION  Unt		#  Generate struct/union RTTI 
+		  | RTTI_ENUM				#  Generate enum RTTI 
+		  ;
+
+		fun pprint_sue_pkg (
+		      src,
+		      c_name,
+		      anon,
+		      tinfo,
+		      kind,		# "struct"/"union"/"enum"
+		      kkkind		# "Struct"/"Union"/"Enum"
+                    )
+		    =
+		    {   file =   validate_pkg_filename (cat ["incomplete-", kind, c_name]);
+
+			(open_pp (file, src))
+                            ->
+			    { str, close_pp, nl, box, end_box, vbox, pprint_type_def, pprint_vdef, ... };
+
+
+                        # C uses name equivalence:  Two types are the same if
+                        # they are declared with the same name.  To model this
+                        # in Mythryl, which uses structural equivalence, we
+                        # defined types which are struct/union names spelled
+                        # out.  For example, C struct name "foo" becomes
+                        # the  src/lib/c-glue-lib/internals/tag.pkg type
+                        #    Tyf Tyo Tyo 
+                        # where the trailing letters of "Tyf Tyo Tyo" spell out "foo".
+			#
+                        fun cname_to_tagtype  cname
+                            =
+			    eat_charlist (string::explode cname)
+                            where
+                                fun eat_charlist []
+					=>
+					tycon ("Type_" + kind);
+
+				    eat_charlist (h ! tl)
+					=>
+                                        # 'f' becomes 'Tyf' but
+                                        # 'F' becomes 'Ty_F' to fit
+                                        # within our capitalization conventions:
+                                        if   (char::is_upper h)   type_constructor ("Ty_" + string::from_char h, [eat_charlist tl]);
+                                        else                      type_constructor ("Ty"  + string::from_char h, [eat_charlist tl]);
+                                        fi;
+				end;
+                            end;
+
+			my  (utildef, tag_t)
+			    =
+			    if anon
+				( "package x   :>   api Type; end   { Type = Void; }",
+				  tycon "x::Type"
+				);
+			    else
+				( "include tag;\t\t# String-to-type encoding utility.",
+				  cname_to_tagtype c_name
+                                );
+			    fi;
+
+			str "local";
+			box 4;
+			nl ();
+                        str (cat ["package ", sue_package_name kind c_name]);  nl ();
+                        str "   {";    nl ();
+			box 4;
+			nl (); str "stipulate";
+			vbox 4;
+			nl (); str utildef;
+			end_box ();
+			nl (); str "herein";
+			vbox 4;
+			pprint_type_def ("Tag", tag_t);
+			end_box ();
+			nl (); str "end;";
+
+			case tinfo
+			  
+			    RTTI_INCOMPLETE => ();
+			    RTTI_ENUM       => ();
+
+			    RTTI_STRUCT_OR_UNION size
+				=>
+				{   pprint_vdef ("size",
+					  econstr (eapp (evar "c_internals::make_su_size", eword size),		# c_internals	is from   x
+						   type_constructor ("c::s::size",
+							[type_constructor ("c::su", [tycon "tag"])])));
+				    pprint_vdef ("rtti",
+					  eapp (evar "c_internals::make_su_typ", evar "size"));
+				};
+			esac;
+
+			end_box (); nl ();
+                        str "};";
+			end_box (); nl ();
+                        str "herein";
+			box 4;      nl ();
+                        str (cat ["package ", incomplete_sue_package_name kind c_name, " = ", sue_package_name kind c_name]);
+			end_box (); nl ();
+                        str "end;"; nl ();
+			close_pp ();
+		    };					# fun pprint_sue_pkg
+
+                stipulate
+
+                    p =   pprint_sue_pkg;
+
+                herein
+
+		    fun pprint_struct_pkg { src, c_name, anon, size,  fields, exclude }
+                        =
+                        p (THE src, c_name, anon, RTTI_STRUCT_OR_UNION size, "struct", "Struct");
+
+		    fun pprint_union_pkg { src, c_name, anon, size,  all,    exclude }
+                        =
+                        p (THE src, c_name, anon, RTTI_STRUCT_OR_UNION size, "union", "Union");
+
+		    fun pprint_enum_pkg { src, c_name, anon, descr, spec,   exclude }
+                        =
+                        p (THE src, c_name, anon, RTTI_ENUM,                 "enum",  "Enum");
+                end;
+
+
+                # Generate sourcefiles for incomplete
+		# struct/union/enum definitions:
+		#
+		fun pprint_incomplete_sue_pkg (c_name, kind, kkkind)
+		    =
+		    {   pprint_sue_pkg (NULL, c_name, FALSE, RTTI_INCOMPLETE, kind, kkkind);
+
+			exported_packages :=   ("package " + incomplete_sue_package_name kind c_name)
+                                               !
+                                               *exported_packages;
+		    };
+
+		fun pprint_incomplete_struct_pkg c_name =  pprint_incomplete_sue_pkg (c_name, "struct", "Struct");
+		fun pprint_incomplete_union_pkg  c_name =  pprint_incomplete_sue_pkg (c_name, "union",  "Union" );
+		fun pprint_incomplete_enum_pkg   c_name =  pprint_incomplete_sue_pkg (c_name, "enum",   "Enum"  );
+
+
+
+                # Write a file struct-foo-accessors.pkg or
+                #               union-foo-accessors.pkg
+                # containing all the Mythryl accessors
+                # for a given C struct/union.
+		# 
+		fun pprint_su_pkg (
+                        src,
+                        c_name,
+                        fields,
+                        kind,		# "struct"/"union"
+                        kkkind		# "Struct"/"Union"
+                    )
+		    =
+		    {   file =   validate_pkg_filename (cat [kind, "-", c_name, "-accessors"]);
+
+			(open_pp (file, THE src))
+                            ->
+			    { close_pp, box, end_box, str, nl, line, pprint_type_def, pprint_vdef, pprint_function_def, ... };
+
+			fun rw_ro s::RW => "rw";
+			    rw_ro s::RO => "ro";
+			end;
+
+			fun pprint_field_typ { name, spec => s::OFIELD { spec => (c, t),
+								   synthetic => FALSE,
+								   offset } }
+				=>
+				pprint_type_def (fieldtype_id name, witness_type t);
+
+			    pprint_field_typ _
+				=>
+				();
+			end;
+
+			fun pprint_field_rtti {
+				    name,
+				    spec => s::OFIELD {
+					       spec => (c, t),
+					       synthetic => FALSE,
+					       offset
+					   }
+				}
+				=>
+				pprint_vdef (fieldrtti_id name,
+					 econstr (rtti_val t,
+						  type_constructor ("t::type", [tycon (fieldtype_id name)])));
+			    pprint_field_rtti _
+				=>
+				();
+			end;
+
+			fun arg_x p			# p (== "prime") is either "'" or "".
+                            =
+                            econstr (
+                                evar "x",
+				type_constructor (
+                                    "Su_Chunk" + p,
+				    [tycon "tag", tycon "X"]
+                                )
+                            );
+
+
+
+			fun pprint_bitfield_accessor (name, p, sign, { offset, constness, bits, shift } )
+			    =
+			    {   maker
+				    =
+				    cat ["make_", rw_ro constness, "_", sign, "bf", p];
+
+				pprint_function_def (
+				    field_id (name, p),
+				    [arg_x p],
+				    eapp ( eapp (evar maker,
+						etuple [eint offset,
+							eword bits,
+							eword shift]),
+					   evar "x"
+                                         )
+                                );
+			    };
+
+			fun pprint_field_acc' { name, spec => s::OFIELD x }
+				=>
+				{   x ->  { synthetic, spec => (c, t), offset, ... };
+
+				    if (not synthetic)
+
+					pprint_function_def
+
+					    (field_id (name, "'"),
+
+					    [arg_x "'"],
+
+					    econstr
+                                              (
+						eapp (evar "make_field'",
+							   etuple [eint offset,
+								   evar "x"]),
+
+						type_constructor ("chunk'",
+						     [tycon (fieldtype_id name),
+						      c_ro c]))
+                                              );
+				    fi;
+				};
+
+			    pprint_field_acc' { name, spec => s::SIGNED_BITFIELD bitfield }
+				=>
+				pprint_bitfield_accessor (name, "'", "s", bitfield);	# "s" for "signed" I'd guess.
+
+			    pprint_field_acc' { name, spec => s::UNSIGNED_BITFIELD bitfield }
+				=>
+				pprint_bitfield_accessor (name, "'", "u", bitfield);	# "u" for "unsigned" I'd guess.
+			end;
+
+
+
+                        # "pprint_field_acc" == "unparse_field_accessor", maybe.
+			#
+			fun pprint_field_acc { name, spec => s::OFIELD { offset,
+								   spec => (c, t),
+								   synthetic }
+					 }
+				=>
+				if (not synthetic)
+
+				    maker =   cat ["make_", rw_ro c, "_field"];
+
+				    rttival =   evar (fieldrtti_id name);
+
+				    pprint_function_def (field_id (name, ""),
+					     [arg_x ""],
+					     eapp (evar maker,
+						   etuple [rttival,
+							   eint offset,
+							   evar "x"]));
+
+				fi;
+
+			    pprint_field_acc { name, spec => s::SIGNED_BITFIELD bitfield }
+				=>
+				pprint_bitfield_accessor (name, "", "s", bitfield);		# "s" for "signed" I'd guess.
+
+			    pprint_field_acc { name, spec => s::UNSIGNED_BITFIELD bitfield }
+				=>
+				pprint_bitfield_accessor (name, "", "u", bitfield);		# "u" for "unsigned" I'd guess.
+			end;
+
+			su_package_name
+                            =
+                            "package " + sue_package_name kkkind c_name;
+
+			fun pprint_one_field f
+			    =
+			    {   pprint_field_typ f;
+
+				inc =  {   pprint_field_rtti f;
+					   FALSE;
+				       }
+				       except
+					   INCOMPLETE =  TRUE;
+
+				if (do_light or      inc)   pprint_field_acc' f;   fi;
+				if (do_heavy and not inc)   pprint_field_acc  f;   fi;
+			    };
+
+			str "stipulate"; nl ();
+                        str "   include c::dim;"; nl ();
+                        str "   include c_internals;"; nl ();
+                        str "herein"; nl ();
+			str (su_package_name + " {");
+			box 4;
+			nl (); str ("include " + incomplete_sue_package_name kind c_name);
+			apply pprint_one_field fields;
+			end_box ();
+			nl (); str "};";
+			nl (); str "end;";
+			nl (); close_pp ();
+
+			exported_packages := su_package_name ! *exported_packages;
+		    };						# fun pprint_su_pkg
+
+		fun pprint_struct_accessors_pkg { src, c_name, anon, size,  fields, exclude } =  pprint_su_pkg (src, c_name, fields, "struct", "Struct");
+		fun pprint_union_accessors_pkg  { src, c_name, anon, size,  all,    exclude } =  pprint_su_pkg (src, c_name, all,    "union",  "Union");
+
+
+
+                # Write a file enum-foo-accessors.pkg containing 
+                # all the Mythryl accessors for a given C enum.
+		#
+		fun pprint_enum_accessors_pkg { src, c_name, anon, descr, spec,   exclude }
+		    =
+		    {   file =   validate_pkg_filename ("enum-" + c_name + "-accessors");
+
+			my  { close_pp, str, box, end_box, nl, line, sp,
+			      pprint_function_def, pprint_vdef, pprint_type_def, ...
+			    }
+			    =
+                            open_pp (file, THE src);
+
+			estruct =   "package " + estruct' (c_name, anon);
+
+			fun no_duplicate_values ()
+			    =
+			    loop (spec, lis::empty)
+			    where
+				fun loop ([], _) => TRUE;
+
+				    loop ( { name, spec } ! l, s)
+					=>
+					if  (lis::member (s, spec))
+
+					    warn (cat ["enum ", descr,
+						       " has duplicate values;\
+						       \ using sint,\
+						       \ not generating constructors\n"]);
+					    FALSE;
+
+					else
+
+					    loop (l, lis::add (s, spec));
+					fi;
+				end;
+			    end;
+
+			dodt =   enumcons and no_duplicate_values ();
+
+			fun dt_lib7rep ()
+			    =
+			    {   fun pcl ()
+				    =
+				    {   fun loop (_, [])
+                                                =>
+                                                ();
+
+					    loop (c, { name, spec } ! l)
+						=>
+						{   str (c + enum_id name);
+						    nextround l;
+						};
+					end 
+
+					also
+					fun nextround [] =>  ();
+					    nextround l  =>  {   sp ();   loop ("| ", l);  };
+					end;
+
+					box 2; nl ();
+					loop ("  ", spec);
+					end_box ();
+				    };
+
+				fun pfl (fname, arg, result, fini)
+				    =
+				    {   fun loop (_, [])
+						=>
+						();
+
+					    loop (pfx, v ! l)
+						=>
+						{   line (cat [pfx, " ", arg v, " => ", result v]);
+						    loop ("  |", l);
+						};
+					end;
+
+					line (cat ["fun ", fname, " x ="]);
+					box 4;
+					line ("case x of");
+					loop ("   ", spec);
+					fini ();
+					end_box ();
+				    };
+
+
+				fun cstr { name, spec }
+				    =
+				    enum_id name;
+
+
+				fun vstr { name, spec }
+				    =
+				    large_int::to_string spec + " : mlrep::signed::Int";
+
+				line "enum mlrep =";
+				pcl ();
+				pfl ("m2i", cstr, vstr, fn () = ());
+
+				pfl (
+				    "i2m",
+				    vstr,
+				    cstr,
+				    fn () =  line "  | _ => raise exception exceptions::DOMAIN"		# exceptions	is from   src/lib/std/exceptions.pkg
+				);
+			    };				# fun dt_lib7rep ()
+
+			fun int_lib7rep ()
+			    =
+			    {   fun v { name, spec }
+				    =
+				    pprint_vdef (enum_id name, econstr (elint spec, tycon "mlrep"));
+
+				mlx =   econstr (evar "x", tycon "mlrep");
+				ix  =   econstr (evar "x", tycon "mlrep::signed::Int");
+
+				pprint_type_def ("Mlrep", tycon "mlrep::signed::Int");
+				apply v spec;
+				pprint_function_def ("m2i", [mlx], ix);
+				pprint_function_def ("i2m", [ix], mlx);
+			    };
+
+			fun getset p
+			    =
+			    {   fun constr c
+				    =
+				    type_constructor ("enum_chunk" + p, [tycon "tag", tycon c]);
+
+				pprint_function_def ("get" + p,
+					 [econstr (evar "x", constr "'c")],
+					 eapp (evar "i2m",
+					       eapp (evar ("get::enum" + p), evar "x")));
+
+				pprint_function_def ("set" + p,
+					 [etuple [econstr (evar "x", constr "rw"), evar "v"]],
+					 eapp (evar ("set::enum" + p),
+					       etuple [evar "x", eapp (evar "m2i", evar "v")]));
+			    };
+
+
+			str "stipulate include c; herein";
+			line (estruct + " {");
+			box 4;
+			line ("include " + incomplete_sue_package_name "enum" c_name);
+
+			if dodt   dt_lib7rep ();
+			else     int_lib7rep ();
+                        fi;
+
+			pprint_function_def ("c", [evar "x"],
+				 econstr (eapp (evar "convert::i2c_enum",
+						eapp (evar "m2i", evar "x")),
+					  type_constructor ("enum", [tycon "tag"])));
+
+			pprint_function_def ("ml", [econstr (evar "x", type_constructor ("enum", [tycon "tag"]))],
+				 eapp (evar "i2m",
+				       eapp (evar "convert::c2i_enum", evar "x")));
+
+			if  do_light    getset "'";   fi;
+			if  do_heavy    getset "";    fi;
+
+			end_box ();
+			line "};";
+                        line "end;   # local";
+			nl ();
+			close_pp ();
+
+			exported_packages :=   estruct ! *exported_packages;
+		    };						# fun pprint_enum_accessors_pkg
+
+
+
+                # Write a file global-type-foo.pkg
+                # for a global C type.
+                #
+		#
+		fun pprint_global_typ_pkg { src, c_name, spec }
+		    =
+		    {   rttiv_opt =   THE (rtti_val spec)
+				      except
+					  INCOMPLETE = NULL;
+
+			file =   validate_pkg_filename ("global-type-" + c_name);
+
+			(open_pp (file, THE src))
+                            ->
+			    { close_pp, box, end_box, str, nl, pprint_type_def, pprint_vdef, ...  };
+
+			package_name_for_c_type
+                            =
+                            "package "   +   package_name_for_c_type  c_name;
+
+			str "stipulate";     nl ();
+                        str "    include c::dim;";  nl ();
+                        str "    include c;";       nl ();
+                        str "herein";		    nl ();
+                        str (package_name_for_c_type + " {");
+			box 4;
+			pprint_type_def ("Type", witness_type spec);
+
+			null_or::apply
+			    (fn rttiv
+				 =
+				 pprint_vdef (
+				     "rtti",
+				     econstr (
+					 rttiv,
+					 type_constructor ("t::type", [tycon "t"])
+				     )
+				 )
+			    )
+			    rttiv_opt;
+
+			end_box ();
+			nl ();  str "};";
+			nl ();  str "end;";
+			nl ();
+			close_pp ();
+			exported_packages :=   package_name_for_c_type ! *exported_packages;
+		    };								# fun pprint_global_typ_pkg
+
+
+
+                # Write a file global-var-foo.pkg containing the
+                # Mythryl interface to a C global variable 'foo'.
+                #
+                # For a global variable "int foo;" this will look like:
+                #
+		#	  package global_var_foo {
+		#		  with
+		#		      include c::dim;
+                #                     include c_internals;
+		#
+		#		      /* my   */   handle = int1_handle::lib_handle "foo";
+		#		  do
+		#		      /* type */   Type = Sint;
+		#
+		#		      /* my   */   rtti = t::Sint : t::Type Type;
+		#
+		#		      fun chunk' () =   make_chunk' (handle ()) : Chunk' (Type,  Rw);
+		#		      fun chunk () =   heavy::chunk rtti (chunk' ());
+		#		  end;
+		#	      };
+		#
+		fun pprint_global_var_pkg {
+                        src,			# "foo.h:4596.16-25" or such -- source file region defining var.
+                        c_name,			# "foo" or such: Variable name from .h file.
+                        spec => (var_constness, var_type)
+                    }
+		    = 
+		    {   file =   validate_pkg_filename ("global-var-" + c_name);
+
+			(open_pp (file, THE src))
+                            ->
+			    { close_pp, str, nl, box, vbox, end_box, pprint_function_def, pprint_vdef, pprint_type_def, ... };
+
+			fun do_it ()
+			    =
+			    {   rwo =   tycon  case var_constness
+                                                  
+                                                    s::RW =>  "Rw";
+                                                    s::RO =>  "Ro";
+                                               esac;
+
+# THIS IS THE CENTER OF THE UNIVERSE :)
+				pprint_type_def ("Type",  witness_type  var_type);
+
+                                nl ();
+
+				incomplete
+                                    =
+                                    {   pprint_vdef (
+                                              "rtti",
+					      econstr (
+                                                  rtti_val  var_type,
+						  type_constructor ("t::Type", [tycon "Type"])
+                                              )
+                                          );
+
+					  FALSE;
+				    }
+				    except
+					INCOMPLETE = TRUE;
+
+                                nl ();
+
+				chunk'
+				    =
+				    econstr (eapp (evar "make_chunk'", eapp (evar "handle", eunit)),
+					     type_constructor ("Chunk'", [tycon "Type", rwo]));
+
+				do_light =   do_light or incomplete;
+
+				if do_light
+
+                                    pprint_function_def ("chunk'", [eunit], chunk');
+                                fi;
+
+
+				if (do_heavy and not incomplete)
+
+				    pprint_function_def (
+					"chunk",
+					[eunit],
+
+					eapp (
+					    eapp  (evar "heavy::chunk",  evar "rtti"),			# heavy	is from   x
+
+					    do_light  ??  eapp (evar "chunk'", eunit)
+						      ::  chunk'
+					)
+				    );
+				fi;
+			    };			# fun do_it
+
+			package_name_for_c_global_var
+                            =
+                            "package "   +   package_name_for_c_global_var  c_name;
+
+			str package_name_for_c_global_var;
+			box 4;      nl ();
+			str "{";    nl ();
+			box 4;      nl ();
+			str "stipulate";
+			vbox 4;     nl ();
+			str "include c::dim;";  nl ();
+			str "include c_internals;";  nl ();
+			pprint_vdef ("handle", eapp (evar library_handle, estring c_name));
+			end_box (); nl (); 
+			str "herein";
+			vbox 4;
+
+			do_it ();
+
+			end_box (); nl (); 
+			str "end;";
+			end_box (); nl (); 
+			str "};"; nl ();
+			end_box (); nl (); 
+			close_pp ();
+
+			exported_packages
+                            :=
+                            package_name_for_c_global_var
+                            !
+                            *exported_packages;
+		    };							# fun pprint_global_var_pkg
+
+
+
+                # Write a file global-function-foo.pkg containing
+                # a global function declaration.
+		#
+		fun pprint_global_fun_pkg x
+		    = 
+		    {   x ->  { src, c_name, spec => spec as { args, result }, arg_names };
+
+			file =   validate_pkg_filename ("global-function-" + c_name);
+
+			(open_pp (file, THE src))
+                            ->
+			    { close_pp,
+			      str,
+			      nl,
+			      pprint_function_def,
+			      box,
+			      end_box,
+			      pprint_vdef,
+			      pprint_vdecl,
+                              ...
+			    };
+
+			fun make_do_f  is_light
+			    =
+			    {   ml_vars
+				    =
+				    reverse (
+					#1 (fold_left
+					       (fn (_, (l, i))
+						   =
+						   (evar 
+						       ("x" + int::to_string i) ! l,
+						       i + 1
+						   )
+					       )
+					       ([], 1)
+					       args
+					   )
+				    );
+
+				fun app0 (what, e)
+				    =
+				    if is_light      e;
+				    else             eapp (evar what, e);
+                                    fi;
+
+				fun light (what, e)
+				    =
+				    app0 ("light::" + what, e);			# light	is from   x
+
+				fun heavy (what, t, e)
+				    =
+				    is_light ??  e
+				             ::  eapp (eapp (evar ("heavy::" + what), rtti_val t), e);
+
+				fun one_arg (e, t as ( s::SCHAR     | s::UCHAR
+                                                     | s::SINT      | s::UINT
+						     | s::SSHORT    | s::USHORT
+                                                     | s::SLONG     | s::ULONG
+						     | s::SLONGLONG | s::ULONGLONG
+						     | s::FLOAT     | s::DOUBLE
+                                            )        )
+					=>
+					eapp (evar ("convert::c_" + stem t), e);
+
+				    one_arg (e, (s::STRUCT _ | s::UNION _))
+					 =>
+					 eapp (evar "ro'", light ("chunk", e));
+
+				    one_arg (e, s::ENUM ta) =>  eapp (evar "convert::i2c_enum", e);
+				    one_arg (e, s::PTR  _)  =>  light ("ptr", e);
+				    one_arg (e, s::FPTR _)  =>  light ("fptr", e);
+				    one_arg (e, s::VOIDPTR) =>  e;
+
+				    one_arg (e, s::UNIMPLEMENTED what) =>  unimp_arg what;
+				    one_arg (e, s::ARR _)              =>  raise exception FAIL "rw_vector argument type";
+				end;
+
+				c_exps =   paired_lists::map  one_arg  (ml_vars, args);
+
+				my  (ml_vars, c_exps, extra_arg_name)
+				    =
+				    case result
+				      
+					THE (s::STRUCT _ | s::UNION _)
+					    =>
+					    (   evar "x0" ! ml_vars,
+						light ("chunk", evar "x0") ! c_exps,
+						[ writeto ]
+					    );
+
+					_ => (ml_vars, c_exps, []);
+				    esac;
+
+				call =   eapp (evar "call",
+						 etuple [eapp (evar "fptr", eunit),
+							 etuple c_exps]);
+
+				ml_res
+				    =
+				    case result
+				      
+					THE (t as (s::SCHAR | s::UCHAR | s::SINT | s::UINT |
+						   s::SSHORT | s::USHORT | s::SLONG | s::ULONG |
+						   s::SLONGLONG | s::ULONGLONG |
+						   s::FLOAT | s::DOUBLE))
+					    =>
+					    eapp (evar ("convert::ml_" + stem t), call);
+
+					THE (t as (s::STRUCT _ | s::UNION _))
+					     =>
+					     heavy ("chunk", t, call);
+
+					THE (s::ENUM ta)     => eapp (evar "convert::c2i_enum", call);
+					THE (t as s::PTR _)  => heavy ("ptr", t, call);
+					THE (t as s::FPTR _) => heavy ("fptr", t, call);
+					THE (s::ARR _)       => raise exception FAIL "rw_vector result type";
+
+					THE (s::UNIMPLEMENTED what) => unimp_res what;
+					(NULL | THE s::VOIDPTR)     => call;
+				    esac;
+
+				argspat
+                                    =
+				    case (do_arg_names, arg_names)
+				      
+					(TRUE, THE arg_name_list)
+					    =>
+					    erecord (paired_lists::zip ( map arg_id (extra_arg_name @ arg_name_list),
+								      ml_vars
+								    )
+						    );
+
+					_   =>
+					    etuple  ml_vars;
+				    esac;
+
+				fn ()
+				    =
+				    pprint_function_def (
+                                      is_light ?? "f'" :: "f",
+                                      [argspat],
+                                      ml_res
+                                    );
+			    };
+
+			fun do_fsig  is_light
+			    =
+			    pprint_vdecl ("f" + p,  topfunc_ty p (spec, arg_names))
+			    where
+				p =   is_light ?? "'" :: "";
+			    end;
+
+			package_name_for_c_function
+                            =
+                            "package "   +   package_name_for_c_function  c_name;
+
+			my (do_f_heavy, incomplete)
+			    =
+			    ( (do_heavy  ?? (make_do_f FALSE)
+					 :: (fn () = ())),
+			      FALSE
+			    )
+			    except
+				INCOMPLETE =  ( fn () = (),
+						TRUE
+					      );
+
+			str "local";
+			box 4;
+			nl (); str "include c::dim;";
+			nl (); str "include c_internals;";
+			pprint_vdef ("handle", eapp (evar library_handle, estring c_name));
+			end_box ();
+			nl (); str "herein";
+			nl (); str (package_name_for_c_function + " : api");
+			box 4;
+			pprint_vdecl ("rtti", rtti_ty (s::FPTR spec));
+			pprint_vdecl ("fptr", arrow (void, witness_type (s::FPTR spec)));
+
+			if  (do_heavy and not incomplete)  do_fsig FALSE;  fi;
+			if  (do_light or      incomplete)  do_fsig TRUE;   fi;
+
+			end_box ();
+
+			nl (); str "end {";
+			box 4;
+
+			pprint_vdef ("rtti", rtti_val (s::FPTR spec));
+
+			pprint_function_def (
+			    "fptr",
+			    [eunit],
+			    eapp (evar "make_fptr",
+				  etuple [evar (fptr_makecall spec),
+					  eapp (evar "handle", eunit)]));
+			do_f_heavy ();
+
+			if (do_light or incomplete)
+
+                            make_do_f TRUE ();
+                        fi;
+
+			end_box ();   nl ();
+                        str "};";     nl ();
+                        str "end;";   nl ();
+			close_pp ();
+
+			exported_packages :=  package_name_for_c_function ! *exported_packages;
+
+		    };						# fun pprint_global_fun_pkg
+
+
+
+                # Synthesize the master .make6 file to compile
+                # all the Mythryl files we've generated:
+		#
+		fun generate_make7_file ()
+		    =
+		    {   file =   descrfile make7_file;
+
+			(open_pp (file, NULL))
+                            ->
+			    { close_pp, line, str, nl, vbox, end_box, ... };
+
+			str "(primitive c-internals)";
+			nl ();
+			nl ();
+			nl ();
+			line "LIBRARY_EXPORTS";
+			nl ();
+			vbox 4;
+			apply line *exported_packages;
+			end_box ();
+			nl ();
+			nl ();
+			nl ();
+                        str "LIBRARY_COMPONENTS";
+			nl ();
+			vbox 4;
+
+			apply
+                            line
+			    [ "$ROOT/src/lib/std/stdlib.make6",
+                              "$ROOT/src/lib/c-glue-lib/internals/c-internals.make6",
+			      "$ROOT/src/lib/core/init/init.cmi:  cm"
+                            ];
+
+			apply
+                            line
+                            *make7_files;
+
+			end_box ();
+			nl ();
+			close_pp ();
+		    };
+
+
+
+                # Generate all the result .pkg files:
+
+		im::apply  pprint_fptr_rtti               fptr_types;
+
+		sm::apply  pprint_struct_pkg              structs;
+		sm::apply  pprint_union_pkg               unions;
+		sm::apply  pprint_enum_pkg                enums;
+
+		ss::apply  pprint_incomplete_struct_pkg   incomplete_structs;
+		ss::apply  pprint_incomplete_union_pkg    incomplete_unions;
+		ss::apply  pprint_incomplete_enum_pkg     incomplete_enums;
+
+		sm::apply  pprint_struct_accessors_pkg    structs;
+		sm::apply  pprint_union_accessors_pkg     unions;
+		sm::apply  pprint_enum_accessors_pkg      enums;
+
+		apply      pprint_global_typ_pkg          global_types;
+		apply      pprint_global_var_pkg          global_variables;
+		apply      pprint_global_fun_pkg          global_functions;
+
+		generate_make7_file ();
+
+	    };	# fun gen
+    };		# package gen
+end;		# stipulate
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

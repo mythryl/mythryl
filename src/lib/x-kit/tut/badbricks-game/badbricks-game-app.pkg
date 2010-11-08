@@ -1,0 +1,423 @@
+## badbricks-game-app.pkg
+#
+# See this directory's README for a description of the game.
+#
+# One way to run this app from the base-directory commandline is:
+#
+#     linux% my
+#     eval: make "src/lib/x-kit/tut/badbricks-game/badbricks-game-app.make6";
+#     eval: badbricks_game_app::do_it "";
+#
+# From this directory it may be run via:
+#
+#     linux% my
+#     eval: make "badbricks-game-app.make6";
+#     eval: badbricks_game_app::do_it "";
+
+# Compiled by:
+#     src/lib/x-kit/tut/badbricks-game/badbricks-game-app.make6
+
+stipulate
+    include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg  =  widget;				# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
+    package dv  =  divider;				# divider			is from   src/lib/x-kit/widget/leaf/divider.pkg
+    package low =  line_of_widgets;			# line_of_widgets		is from   src/lib/x-kit/widget/layout/line-of-widgets.pkg
+    package sz  =  size_preference_wrapper;		# size_preference_wrapper	is from   src/lib/x-kit/widget/wrapper/size-preference-wrapper.pkg
+    package pd  =  pulldown_menu_button;		# pulldown_menu_button		is from   src/lib/x-kit/widget/menu/pulldown-menu-button.pkg
+    package pu  =  popup_menu;				# popup_menu			is from   src/lib/x-kit/widget/menu/popup-menu.pkg
+    package tw  =  topwindow;				# topwindow			is from   src/lib/x-kit/widget/menu/popup-menu.pkg
+    #
+    package bu  =  brick_util;				# brick_util			is from   src/lib/x-kit/tut/badbricks-game/brick-util.pkg
+    package bk  =  brick;				# brick				is from   src/lib/x-kit/tut/badbricks-game/brick.pkg
+    package wl  =  wall;				# wall				is from   src/lib/x-kit/tut/badbricks-game/wall.pkg
+    #
+    package xtr =  xtracing;				# xtracing			is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+    #
+    tracefile   =  "badbricks-game.trace.log";
+    tracing     =  tracing::make_trace_tree_leaf { parent => xtracing::xkit_tracing, name => "badbricks_game_app::tracing" };
+    trace	=  xtr::print_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+	#
+	# and then set   write_tracelog = TRUE;   below.
+herein
+
+    package badbricks_game_app:  Badbricks_Game_App {	# Badbricks_Game_App		is from   src/lib/x-kit/tut/badbricks-game/badbricks-game-app.api
+
+	write_tracelog = FALSE;
+
+	fun set_up_tracing ()
+	    =
+	    {   # Open tracelog file and select tracing level.
+		# We don't need to truncate any existing file
+		# because that is already done by the logic in
+		#     src/lib/std/src/unix/posix-text-primitive-io.pkg
+		#
+		include tracing;				# tracing			is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+		#
+		log_trace_messages  (TO_FILE tracefile);
+		enable all_tracing;				# Gross overkill.
+	    };
+
+	stipulate
+	    selfcheck_tests_passed =  REF 0;
+	    selfcheck_tests_failed =  REF 0;
+	herein
+	    run_selfcheck =  REF FALSE;
+
+	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	    #
+	    fun assert bool    =  if bool   test_passed ();
+				  else      test_failed ();
+				  fi;				
+	    #
+	    fun test_stats  ()
+		=
+                { passed => *selfcheck_tests_passed,
+                  failed => *selfcheck_tests_failed
+                };
+	end;
+
+
+	x_size = 10;
+	y_size = 30;
+
+
+	# Thread to exercise the app by simulating user
+	# mouseclicks and verifying their effects:
+	#
+	fun make_selfcheck_thread
+            {
+              topwindow,
+	      widgettree,
+              xsession,
+	      wall	
+            }
+	    =
+	    xtr::make_thread "badbricks-game-app selfcheck" selfcheck
+	    where
+		# Figure midpoint of window and also
+		# a small box centered on the midpoint:
+		#
+		fun midwindow window
+		    =
+		    {
+			# Get size of drawing window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row, col, high, wide };
+
+			# Define midpoint of drawing window,
+			# and a 9x9 box enclosing it:
+			#
+			stipulate
+			    row =  high / 2;
+			    col =  wide / 2;
+			herein
+			    midpoint =  xg::POINT { row, col };
+			    midbox   =  xg::BOX { row => row - 4, col => col - 4, high => 9, wide => 9 };
+			end;
+
+			(midpoint, midbox);
+		    };
+
+		# Convert coordinate from from
+		# scale-independent 0.0 -> 1.0 space
+		# coordinates to X pixel space:
+		#
+		fun convert_coordinate_from_abstract_to_pixel_space (window, x, y)
+		    =
+		    {
+			# Get size of window:
+			#
+			(xc::get_window_site  window)
+			    ->
+			    xg::BOX { row, col, high, wide };
+
+			xg::POINT
+			  { col =>  float::round (float::from_int wide  *  x),
+			    row =>  float::round (float::from_int high  *  y)
+			  };
+		    };
+
+#		# Simulate a mouseclick in window.
+#		# The (x,y) coordinates are in an
+#		# abstract space in which window
+#		# width and height both run 0.0 -> 1.0
+#		#
+#		fun click_in_window_at (window, x, y, dx, dy)
+#		    =
+#		    {   button = xc::MOUSEBUTTON 1;
+#
+#			point1 = convert_coordinate_from_abstract_to_pixel_space (window, x, y);
+#			point1 -> xg::POINT { row, col };
+#			point2 =  xg::POINT { row => row+dx, col=>col+dy };
+#
+#			xc::send_mousebutton_press_xevent   { window, button, point => point1 };
+#			sleep_for (time::from_milliseconds 100);
+#			xc::send_mousebutton_release_xevent { window, button, point => point2 };
+#		    };	
+
+
+		fun click_random_brick ()
+		    =
+		    {
+			brick = wall::get_random_brick  wall;
+
+			good =  bk::is_good  brick;
+
+#			shown = bk::is_shown brick;
+
+#			state = bk::state_of brick;
+
+			widget = bk::as_widget brick;
+
+			window = wg::window_of widget;
+
+			if (not good)
+			    #
+			    xc::send_mousebutton_press_xevent
+			      { window,
+				button =>  xc::MOUSEBUTTON 1,
+				point  =>  xg::POINT { row => 1, col => 1 }
+			      };
+			    #
+			    xc::send_mousebutton_release_xevent
+			      { window,
+				button =>  xc::MOUSEBUTTON 1,
+				point  =>  xg::POINT { row => 1, col => 1 }
+			      };
+			fi;
+
+			# This locks us up, I dunno why:       XXX BUGGO FIXME
+			# (I also dunno why the red bricks don't draw first time around.
+			# The color-mixer has a similar problem.)
+# 			(xc::get_window_site window)
+# 			    ->
+# 			    xg::BOX { row, col, high, wide };
+		    };
+	
+		fun selfcheck ()
+		    =
+		    {
+	
+			# Wait until the widgettree is realized and running:
+			# 
+			get (wg::get_''gui_startup_complete''_oneshot_of  widgettree);	# This idea doesn't seem to be working at present anyhow.
+
+			sleep_for (time::from_milliseconds 2000);
+
+			window = wg::window_of  widgettree;
+
+			for (i = 0; i < 10; ++i) {
+			    #
+			    click_random_brick();
+			};
+
+			# Fetch from X server the center pixels
+			# over which we are about to draw:
+			#
+			(midwindow   window) ->  (_, window_midbox);
+			#
+#			antedraw_window_image
+#			    =
+#			    xc::make_clientside_pixmap_from_window (window_midbox, window);
+
+			# Re-fetch center pixels, verify
+			# that new result differs from original result.
+			#
+			# This is dreadfully sloppy, but seems to be
+			# good enough to verify that there is something
+			# happening in the window:
+			#
+#			postdraw_window_image
+#			    =
+#			    xc::make_clientside_pixmap_from_window (window_midbox, window);
+			#
+#			assert (not (xc::same_cs_pixmap (antedraw_window_image, postdraw_window_image)));
+
+			sleep_for (time::from_milliseconds 2000);		# Just to let the user watch it.
+
+			# All done -- shut everything down:
+			#
+			xc::close_xsession  xsession;
+			shut_down_thread_scheduler  winix::process::success;
+
+			();
+		    };
+	    end;						# fun make_selfcheck_thread
+
+	fun bad_bricks (xdisplay, xauthentication)
+	    =
+	    for (;;) {
+		#
+		(do_mailop  game_menu_mailop)  ();
+	    }
+	    where
+		root_window =  wg::make_root_window (xdisplay, xauthentication);
+		screen      =  wg::screen_of  root_window;
+		xsession    =  xc::xsession_of_screen  screen;	
+
+		wall = wl::make_wall root_window (x_size, y_size);
+
+		#  fun collect_garbage () = system::unsafe::c_interface::gc 2;
+
+		fun quit_game ()
+		    =
+		    {   wg::delete_root_window  root_window;
+
+			shut_down_thread_scheduler  winix::process::success;
+		    };
+
+		fun do_short_range ()
+		    =
+		    wl::set_range (wall, bu::SHORT);
+
+		fun do_long_range ()
+		    =
+		    if (bu::cmp_difficulty (wl::difficulty_of wall, bu::HARD) > 0) 
+			#
+			wl::set_range (wall, bu::LONG);
+		    fi;
+
+		fun do_game difficulty
+		    =
+		    {   wl::start_game (wall, difficulty);
+			#  if d > Hard then activate sensor_menu 
+			();
+		    };
+
+		fun game_menu ()
+		    =
+		    {   fun make_item difficulty
+			    =
+			    pu::POPUP_MENU_ITEM (bu::difficulty_name difficulty, fn () = do_game difficulty);
+
+			#  pu::POPUP_MENU((map make_item bu::difficulty_list)@[POPUP_MENU_ITEM("GARBAGE_COLLECTION", do_gc), POPUP_MENU_ITEM("Quit", quit_game)]) ;
+
+			pu::POPUP_MENU ( (map  make_item  bu::difficulty_list)
+			       @
+			       [pu::POPUP_MENU_ITEM ("Quit", quit_game)]
+			     );
+		    };
+
+		fun sensor_menu ()
+		    =
+		    {   pu::POPUP_MENU [
+			    pu::POPUP_MENU_ITEM("Short range", do_short_range),
+			    pu::POPUP_MENU_ITEM("Long range",  do_long_range)
+			  ];
+		    };
+
+		my (game_menu_button, game_menu_mailop)
+		    = 
+		    pd::make_pulldown_menu_button
+			#
+			root_window
+			#
+			("Game", game_menu());
+
+		layout
+		    =
+		    low::make_line_of_widgets  root_window
+		      (low::VT_CENTER
+			[
+			  low::HZ_TOP
+			    [
+			      low::WIDGET (sz::make_tight_size_preference_wrapper   game_menu_button), 
+			      low::SPACER { min_size=>0,  ideal_size=>0, max_size=>NULL }
+			    ],
+			  low::WIDGET (dv::make_horizontal_divider  root_window  { color=>NULL, width=>1 } ),
+			  low::WIDGET (wl::as_widget wall)
+			]
+		      );
+
+		topwindow
+		    =
+		    tw::make_topwindow
+		      ( low::as_widget layout,
+			NULL,
+			{ window_name => THE "Bad Bricks",
+			  icon_name   => THE "Bad Bricks"
+			}
+		      );
+
+		tw::start  topwindow;
+
+		wl::start_game (wall, bu::NORMAL);
+
+		if *run_selfcheck
+		    #
+		    make_selfcheck_thread 
+		      {
+			topwindow,
+			widgettree => low::as_widget layout,
+			xsession,
+			wall
+		      };
+
+		    ();
+		fi;
+
+	    end;
+
+	fun do_it' (flgs, display_name, timeslice_quantum)
+	    =
+	    {   xtracing::init flgs;
+
+		if write_tracelog
+		    #
+		    set_up_tracing ();
+		fi;
+
+	        my  ( xdisplay,								# Typically from $DISPLAY environment variable.
+                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
+                    )
+		    =
+		    xc::get_xdisplay_string_and_xauthentication
+			#
+			case display_name
+			    #
+			    "" =>  NULL;
+			    _  =>  THE display_name;
+			esac;
+
+		start_up_thread_scheduler'
+		    #
+		    (time::from_milliseconds  timeslice_quantum)
+		    #
+		   .{  xtracing::make_thread  "bad_bricks"   .{ bad_bricks (xdisplay, xauthentication); };
+		       ();
+		    };
+	    };
+
+	fun do_it s
+	    =
+	    do_it' ([], s, 20);
+
+	fun main (program, "-display" ! server ! _) => do_it  server;
+	    main _                                  => do_it  "";
+	end;
+
+	fun selfcheck ()
+	    =
+	    {
+		run_selfcheck :=  TRUE;
+		do_it "";
+		test_stats ();
+	    };	
+    };						#  package bad_bricks 
+end;
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

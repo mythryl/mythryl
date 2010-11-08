@@ -1,0 +1,289 @@
+
+# This module generates the assembler of an architecture 
+# given a machine description.
+
+
+
+###                      "Why should I be worried about dying?
+###                       It's not going to happen in my lifetime!"
+###
+###                                        -- Raymond Smullyan 
+
+
+
+generic package MDLGenAsm (Comp:  Mdl_Compile) : Mdl_Gen_Module {
+
+   package Comp = Comp
+   package Dictionary  = Comp::Dictionary
+   package raw_syntax  = Comp::raw_syntax
+   package r    = Comp::Rewriter
+   package t    = Comp::Trans
+
+   use raw_syntax Comp::Util Comp::error
+
+   fun gen md
+   =
+   let #  name of the generic and api 
+       strName = Comp::strname md "AsmEmitter"
+       sigName = "Instruction_Emitter"
+
+       #  Arguments of the generic 
+       args = ["package s:  Instruction_Stream",
+		   "package instruction:  "$Comp::signame md "INSTR",
+		   "   where T = s::P.T",
+                   "package shuffle:  "$Comp::signame md "Shuffle",
+                   "   where I = Instr",
+                   "package codetree_eval:  Codetree_Eval",
+		   "   where T = Instr::T"
+                  ]
+       args = SEQdecl[@@@args, Comp::genericArgOf md "Assembly"]
+
+       /* Cellkinds declared by the user */   
+       cellKinds = Comp::cells md
+
+       #  Assembly case 
+       asmCase = Comp::asmCase md
+
+       #  How to make a string expression 
+       fun mkString s =
+           STRING_CONSTANT_IN_EXPRESSION (case asmCase of VERBATIM  => s
+                                   | LOWERCASE => string::map char::to_lower s
+                                   | UPPERCASE => string::map char::to_upper s)
+
+       #  The Instruction package 
+       dictionary = Dictionary::lookupPackage (Comp::dictionary md) (IDENT([], "Instruction"))
+
+       #  All enum definitions in this package 
+       datatypeDefinitions = Dictionary::datatypeDefinitions dictionary
+
+
+       # There are three assembly modes:
+       #   EMIT: directly emit to stream
+       #   ASM:  convert to string
+       #   NOTHING: do nothing
+
+       enum mode = EMIT | ASM | NOTHING
+
+
+       # Find out which assembly mode a enum should use
+
+       fun modeOf (DATATYPEbind { cbs, asm, ... } ) = 
+           let mode = if asm then ASM else NOTHING
+               fun loop ([], m) = m
+                 | loop(_, EMIT) = EMIT
+                 | loop (CONSbind { asm=NULL, ... } . cbs, m) = loop (cbs, m)
+                 | loop (CONSbind { asm=THE (STRINGasm _), ... } . cbs, _)=
+                      loop (cbs, ASM)
+                 | loop (CONSbind { asm=THE (ASMasm a), ... } . cbs, m)=
+                      loop (cbs, loop2 (a, ASM))
+               and loop2([], m) = m
+                 | loop2 (EXPasm _ . _, _) = EMIT
+                 | loop2(_ . a, m) = loop2 (a, m)
+           in  loop (cbs, mode) end 
+
+
+
+       # Names of emit and assembly functions. 
+       # The assembly function converts something into a string.
+       # The emit function prints that to the stream for side effect.
+
+       fun emit id = "emit_"$id
+       fun asm  id = "asm_"$id 
+
+
+       # How to emit special types 
+
+       fun emitType (id, IDty (IDENT (prefix, t)), e) =
+            (case (prefix, t) of
+               ([], "int")    => APPLY (emit t, e)
+             | ([], "string") => APPLY("emit", e)
+             | (["Constant"], "const") => APPLY (emit t, e)
+             | (["Label"], "label") => APPLY (emit t, e)
+             | (["T"], "labexp") => APPLY (emit t, e)
+             | (["Region"], "region") => APPLY (emit t, e)
+             | _ =>
+                if list::exists (fn db as DATATYPEbind { id=id', ... } => 
+                                 t = id' and modeOf db != NOTHING) 
+                   datatypeDefinitions then
+                   APPLY (emit t, e)
+                else
+                   APPLY (emit id, e)
+            )
+         | emitType(_, CELLty "cellset", e) = APPLY("emit_cellset", e)
+         | emitType(_, CELLty k, e) = APPLY("emitCell", e)
+         | emitType (id, _, e) = APPLY (emit id, e)
+
+       /* 
+        * Functions to convert assembly annotations to code 
+        */
+       fun mkAsms([], fbs) = reverse fbs 
+         | mkAsms((db as DATATYPEbind { id, cbs, ... } ) . dbs, fbs) = 
+           (case modeOf db of
+              NOTHING => mkAsms (dbs, fbs)
+            | EMIT    => mkAsms (dbs, FUNbind (emit id, mkAsm (EMIT, cbs)) . fbs)
+            | ASM     => mkAsms (dbs, mkEmit id .
+                                     FUNbind (asm id, mkAsm (ASM, cbs)) . fbs)
+           )
+
+           #  fun emitXXX x = emit (asmXXX x) 
+       and mkEmit id = 
+           FUNbind (emit id,[CLAUSE([IDpat "x"], NULL,
+                              APPLY("emit", APPLY (asm id, ID "x")))]) 
+
+           #  Translate backquoted expression 
+       and mkAsm (mode, cbs) = 
+           let fun emitIt e =
+                    if mode == EMIT then APPLY("emit", e) else e
+               fun asmToExpression E (TEXTasm s) = emitIt (mkString s) 
+                 | asmToExpression E (EXPasm (IDexp (IDENT([], x)))) = 
+                    (let my (e, type) = E x
+                     in  emitType (x, type, e) end
+                     except e => 
+                        fail("unknown assembly field <"$x$">")
+                    )
+                 | asmToExpression E (EXPasm e) = 
+                   let fun expression _ (ASMexp (STRINGasm s)) = emitIt (mkString s)
+                         | expression _ (ASMexp (ASMasm a)) = SEQUENTIAL_EXPRESSIONS (map (asmToExpression E) a)
+                         | expression _ e = e
+                   in .expression (r::rewrite { expression=exp,
+                                     type=r::noRewrite,
+                                     pattern=r::noRewrite,
+                                     sexp=r::noRewrite,
+                                     decl=r::noRewrite
+                                    }
+                          ) e
+                   end
+               fun mkClause (cb as CONSbind { id, asm, ... } ) = 
+               let expression = 
+                     case asm of
+                       NULL => emitIt (mkString id)
+                     | THE (STRINGasm s) => emitIt (mkString s)
+                     | THE (ASMasm a) =>
+                       let consDict = t::consNamings cb
+                       in  SEQUENTIAL_EXPRESSIONS (map (asmToExpression consDict) a) end
+               in  t::mapConsToClause { prefix=["I"], pattern=fn p, expression=exp } cb
+               end
+           in  map mkClause cbs end 
+
+
+       # For each enum defined in the package Instruction that
+       # has pretty printing annotations attached, generate an assembly
+       # function and an emit function.
+
+       asmFuns = FUNdecl (mkAsms (datatypeDefinitions, []))
+
+       #  Main function for emitting an instruction 
+       emitInstrFun = 
+           let instructions = Comp::instructions md
+           in  FUN("emitInstr'", IDpat "instruction", 
+                           CASE_EXPRESSION (ID "instruction", mkAsm (EMIT, instructions))
+                  )
+           end
+
+       body =
+       [@@@["package i  = Instr",
+          "package c  = i::C",
+          "package t  = i::T",
+          "package s  = S",
+          "package p  = s::P",
+          "package constant = i::Constant",
+          "",
+          "use asm_flags",
+          ""
+        ],
+        Comp::errorHandler md "AsmEmitter",
+       @@@[ "",
+          "fun make_stream formatAnnotations =",
+          "stipulate stream = *asm_stream::asmOutStream",
+          "    fun emit' s = file::write (stream, s)",
+          "    newline = REF TRUE",
+          "    tabs = REF 0",
+          "    fun tabbing 0 = ()",
+          "      | tabbing n = (emit' \"\\t\"; tabbing (n - 1))",
+          "    fun emit s = (tabbing *tabs; tabs := 0; newline := FALSE; emit' s)",
+          "    fun nl () = (tabs := 0; if *newline then () else (newline := TRUE; emit' \"\\n\"))",
+          "    fun comma () = emit \",\"",
+          "    fun tab () = tabs := 1",
+          "    fun indent () = tabs := 2",
+          "    fun ms n = let s = int::to_string n",
+          "               in  if n<0 then \"-\"$string::substring (s, 1, size s - 1)",
+          "                   else s",
+          "               end",
+          "    fun emit_label lab = emit (p::Client::AsmPseudoOps::lexpToString (t::LABEL lab))",
+	  "    fun emit_labexp le = emit (p::Client::AsmPseudoOps::lexpToString (t::LABEXP le))",
+          "    fun emit_const c = emit (Constant::to_string c)",
+          "    fun emit_int i = emit (ms i)",
+          "    fun paren f = (emit \"(\"; f(); emit \")\")",
+          "    fun define_local_label lab = emit (p::Client::AsmPseudoOps::define_local_label lab$\"\\n\")",
+          "    fun define_global_label lab = define_local_label lab",
+          "    fun comment msg = (tab(); emit(\"/* \" + msg + \" */\"); nl())",
+          "    fun annotation a = comment (note::to_string a)",
+          "    fun get_notes () = error \"get_notes\"",
+          "    fun doNothing _ = ()",
+	  "    fun fail _ = raise exception FAIL \"AsmEmitter\"",
+          "    fun emit_region mem = comment (i::region::to_string mem)",
+          "    emit_region = ",
+          "       if *show_region then emit_region else doNothing",
+          "    fun pseudoOp pOp = (emit (p::to_string pOp); emit \"\\n\")",
+          "    fun init size = (comment(\"Code Size = \" + ms size); nl())",
+          "    emitCellInfo = asm_formatting_utilities::reginfo",
+          "                             (emit, formatAnnotations)",
+          "    fun emitCell r = (emit (cells_basis::to_string r); emitCellInfo r)",
+          "    fun emit_cellset (title, cellset) =",
+          "      (nl(); comment (title + cells_basis::CellSet::to_string cellset))",
+          "    emit_cellset = ",
+          "      if *show_cellset then emit_cellset else doNothing",
+          "    fun emit_defs cellset = emit_cellset(\"defs: \", cellset)",
+          "    fun emit_uses cellset = emit_cellset(\"uses: \", cellset)",
+          "    emit_cutsTo = ",
+          "      if *show_cutsTo then asm_formatting_utilities::emit_cutsTo emit",
+          "      else doNothing",
+          "    fun emitter instruction =",
+          "    stipulate"
+         ],
+        asmFuns,
+        Comp::declOf md "Assembly",
+        emitInstrFun,
+        @@@["   herein  tab(); emitInstr' instruction; nl()",
+          "   end /* emitter */",
+          "   and emitInstrIndented i = (indent(); emitInstr i; nl())",
+          "   and emitInstrs instrs =",
+          "        apply (if *indent_copies then emitInstrIndented",
+          "             else emitInstr) instrs",
+          "",
+          "   and emitInstr (i::NOTE { instruction, note } ) =",
+	  "        ( comment (note::to_string note);",
+	  "           nl();",
+          "           emitInstr instruction )",
+          "     | emitInstr (i::LIVE { regs, spilled } )  = ",
+	  "         comment(\"live= \" + cells_basis::CellSet::to_string regs +",
+	  "                 \"spilled= \" + cells_basis::CellSet::to_string spilled)",
+          "     | emitInstr (i::DEAD { regs, spilled } )  = ",
+	  "         comment(\"killed . \" + cells_basis::CellSet::to_string regs +",
+	  "                 \"spilled . \" + cells_basis::CellSet::to_string spilled)",
+          "     | emitInstr (i::INSTRUCTION i) = emitter i",  
+          "     | emitInstr (i::COPY { kind=cells_basis::REGISTER, size_in_bits, src, dst, tmp } ) =",
+	  "        emitInstrs (shuffle::shuffle { tmp, src, dst } )",
+          "     | emitInstr (i::COPY { kind=cells_basis::FLOAT_REGISTER, size_in_bits, src, dst, tmp } ) =",
+	  "        emitInstrs (shuffle::shufflefp { tmp src dst} )",
+	  "     | emitInstr _ = error \"emitInstr\"", 
+          "", 
+          "herein  s::STREAM { begin_cluster=init, ",
+          "             pseudoOp, ",
+          "             emit=emitInstr, ",
+          "             end_cluster=fail, ",
+          "             define_local_label, ",
+          "             define_global_label, ",
+          "             comment, ",
+          "             end_procedure=doNothing, ",
+          "             annotation, ",
+          "             get_notes",
+          "            }",
+          "end"
+         ]
+       ]
+
+   in  Comp::codegen md "emit/Asm"
+         [Comp::make_generic' md "AsmEmitter" args sigName body]
+   end
+};

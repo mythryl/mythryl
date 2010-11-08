@@ -1,0 +1,363 @@
+#  memory-disambiguation.pkg --- generate a table of regions 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+api Memory_Disambiguation {
+   build:  List( fps::Function ) -> (Int -> cpsregions::Region);
+};
+
+
+
+generic package memory_disambiguation (package cells: Cells;)		# Cells			is from   src/lib/compiler/backend/lower/instruction/cells.api
+: (weak)
+Memory_Disambiguation							# Memory_Disambiguation	is from   src/lib/compiler/codegen/compile-fps/memory-disambiguation.pkg
+{
+    package c = fps;							# fps			is from   fate-passing-style.pkg
+    package p = fps::p;
+    package r = cpsregions;						# cpsregions		is from   src/lib/compiler/codegen/compile-fps/fps-regions.pkg
+
+    fun error msg
+	=
+	error_message::impossible ("MemDisambiguate." + msg);
+
+    exception MEMORY_DISAMBIGUATION
+	 also FORMALS_TABLE;
+
+    new_region
+	=
+	cells::new_cell cells::MEM;
+
+    fun build (frags)
+	=
+	{   #  Mapping of lvars to a list of regions that define it.
+	    #  Mappings can only be RVAR, COPY, or RECORD.
+
+	    my region_table:  intmap::Int_Map( r::Region )
+			  =  intmap::new (16, MEMORY_DISAMBIGUATION);
+
+	    enter_region  =   intmap::add region_table;
+	    lookup_region =   intmap::map region_table;
+
+	    fun peek_region v
+		=
+		THE (intmap::map region_table v)
+		except
+		    _ = NULL;
+
+	    fun add_region (arg as (x, v))
+		=
+		{   intmap::rmv region_table x;
+
+		    enter_region arg;
+		};
+
+	    # Compute the size of a FPS assuming that the allocation 
+	    # pointer has been appropriately aligned.
+	    #	
+	    fun size_of (cexp, hp)
+		=
+		{   store_list_size =   8;
+
+		    fun frecord len
+			=
+			{   hp =   unt::bitwise_and (unt::from_int hp, 0w4) != 0w0
+				     ?? hp+4
+				     :: hp;
+
+			    hp + 8*len + 4;
+			};
+
+		    fun record len
+			=
+			4 + 4*len;
+
+		    case cexp 
+			c::RECORD (c::RK_FBLOCK, vl, _, e) => size_of (e, frecord (length vl));
+			c::RECORD (c::RK_FCONT, vl, _, e)  => size_of (e, frecord (length vl));
+			c::RECORD (c::RK_VECTOR, vl, _, e) => size_of (e, hp+record (length vl + 3));
+
+			c::RECORD(_, vl, _, e) => size_of (e, hp + record (length vl));
+			c::SELECT(_, _, _, _, e) => size_of (e, hp);
+			c::OFFSET(_, _, _, e) => size_of (e, hp);
+
+			c::SWITCH(_, _, el) => list::fold_left int::max 0 (map (fn e = size_of (e, hp)) el);
+
+			c::SETTER (p::update,      _, e) => size_of (e, hp+store_list_size);
+			c::SETTER (p::boxedupdate, _, e) => size_of (e, hp+store_list_size);
+			c::SETTER(_,               _, e) => size_of (e, hp);
+
+			c::PURE (p::fwrap, _, _, _, e) => size_of (e, hp+frecord (1));
+			c::PURE (p::make_special, _, _, _, e) => size_of (e, hp+8);
+			c::PURE (p::makeref, _, _, _, e) => size_of (e, hp+8);
+
+			c::PURE (p::i32wrap, _, _, _, e) => size_of (e, hp+record (2));
+			c::PURE (p::newarray0, _, _, _, e) => size_of (e, hp+(4*5));
+			c::PURE(_, _, _, _, e) => size_of (e, hp);
+
+			c::ARITH(_, _, _, _, e) => size_of (e, hp);
+			c::LOOKER(_, _, _, _, e) => size_of (e, hp);
+			c::BRANCH(_, _, _, a, b) => int::max (size_of (a, hp), size_of (b, hp));
+
+			c::APPLY _ => hp;
+			c::FIX _ => error "sizeOf: FIX";
+		    esac;
+		};
+
+	    offp0 =   c::offp 0;
+
+	    fun fun_body (_, _, _, _, cexp)
+		=
+		iter (cexp, 0)
+		where
+		    region_id_table
+			= 
+			rw_vector::tabulate (int::quot (size_of (cexp, 0), 4), fn _ => new_region(); end );
+
+		    fun region_id hp
+			=
+			r::RVAR (rw_vector::get (region_id_table, int::quot (hp, 4)));
+
+		    fun trace_root (c::LABEL _) => r::RO_MEM;
+			trace_root (c::VAR v) => (lookup_region v   except   MEMORY_DISAMBIGUATION = r::RO_MEM);
+			trace_root _ => r::RO_MEM;
+		    end;
+
+		    fun iter (cexp, hp)
+			=
+			{   fun desc hp
+				=
+				( region_id (hp),
+				  r::RO_MEM,
+				  offp0
+				);
+
+			    fun record (vl, x, e)
+				=
+				{
+# 2009-10-31 CrT: Commented out because it isn't referenced: (?!)
+#				      fun fields ([], _)
+#					      =>
+#					      [];
+#
+#					  fields ((v, ap) . vl, hp)
+#					      => 
+#					      ( region_id (hp), trace_root v, ap) . fields (vl, hp+4)
+#						enter_region (x, r::RECORD (desc (hp) . fields (vl, hp+4))
+#					      );
+#				      end;
+
+				    iter (e, hp + 4 + 4*length vl);
+				};
+
+			    fun frecord (vl, x, e)
+				=
+				{   fun region_pair hp
+					=
+					r::REGIONS (region_id hp, region_id (hp+4));
+
+				    fun fields ([], _)
+					    =>
+					    [];
+
+					fields((v, ap) . vl, hp)
+					    =>
+					    (region_pair hp, trace_root v, ap) . fields (vl, hp+8);
+				    end;
+
+				    hp =   if (unt::bitwise_and (unt::from_int hp, 0w4) != 0w0)   hp + 4;
+					   else                                                   hp    ;    fi;
+
+				    enter_region (x, r::RECORD (desc (hp) . fields (vl, hp+4)));
+
+				    iter (e, hp + 4 + 8*length vl);
+				};
+
+			    fun record_slots ((d, r::RECORD vl, _) . rest)
+				    => 
+				    r::REGIONS (d, record_slots (vl@rest));
+
+				record_slots((d, r::OFFSET(_, vl), _) . rest)
+				    =>
+				    r::REGIONS (d, record_slots (vl@rest));
+
+				record_slots [(d, _, _)]
+				    =>
+				    d;
+
+				record_slots ((d, _, _) . rest)
+				    =>
+				    r::REGIONS (d, record_slots rest);
+			    end;
+
+			    fun update (c::VAR a, c::VAR v, e)
+				    => 
+				    {   case ( peek_region a,
+					       peek_region v
+					     )
+
+					     (NULL, NULL)
+						 =>
+						 enter_region (a, r::MUTABLE (r::RW_MEM, r::RO_MEM));
+
+					     (NULL, THE (r::RECORD rl))
+						 => 
+						 enter_region (a, r::MUTABLE (r::RW_MEM, record_slots rl));
+
+					     (THE _, NULL)
+						 =>
+						 ();
+
+					     (THE (r::MUTABLE (def, uses)), THE (r::RECORD rl))
+						 => 
+						 add_region (a, r::MUTABLE (def, r::REGIONS (uses, record_slots rl)));
+					esac;
+
+
+					iter (e, hp);
+				    };
+
+				update(_, _, e)
+				    =>
+				    iter (e, hp);
+			    end;
+
+			    fun select (c::VAR v, i, x, e)
+				    =>
+				    {   case (peek_region v)
+
+					    THE (r::RECORD vl)
+						=>
+						{   my  (_, region, ap)
+							=
+							list::nth (vl, i+1);
+
+						    enter_region (x, r::trace (region, ap));
+						};
+
+					    THE (r::OFFSET (j, vl))
+						=> 
+						{   my  (_, region, ap)
+							=
+							list::nth (vl, i+j+1);
+
+						    enter_region (x, r::trace (region, ap));
+						};
+
+					    THE (r::MUTABLE _) => error "select";
+					    _ => ();
+					esac;
+
+					iter (e, hp);
+				    };
+
+				select(_, _, _, e)
+				    =>
+				    iter (e, hp);
+			    end;
+
+			    fun offset (c::VAR v, i, x, e)
+				    =>
+				    {    case (peek_region v)
+					     THE (r::RECORD vl) => enter_region (x, r::OFFSET (i, vl));
+					     THE (r::OFFSET (j, vl)) => enter_region (x, r::OFFSET (i+j, vl));
+					     THE (r::MUTABLE _) => error "offset";
+					     _  => ();
+					 esac;
+
+					 iter (e, hp);
+				   };
+
+				offset(_, _, _, e)
+				    =>
+				    iter (e, hp);
+			    end;
+
+			    case cexp
+				c::RECORD (c::RK_FBLOCK, vl, x, e) => frecord (vl, x, e);
+				c::RECORD (c::RK_FCONT, vl, x, e) => frecord (vl, x, e);
+
+				c::RECORD (c::RK_VECTOR, vl, x, e)
+				    =>
+				    {   y =   highcode_var::make_lambda_variable ();
+
+					record (vl, y,
+					  c::RECORD(
+					    c::RK_RECORD, [(c::VAR y, offp0), (c::INT (length vl), offp0)],
+					    x, e));
+				    };
+
+				c::RECORD (rk, vl, x, e) => record (vl, x, e);
+				c::SELECT (i, v, x, _, e) => select (v, i, x, e);
+				c::OFFSET (i, v, x, e) => offset (v, i, x, e);
+
+				c::APPLY _ => ();
+				c::FIX (fl, e) => error "FIX";
+				c::SWITCH(_, _, el) => list::apply (fn e = iter (e, hp)) el;
+				c::BRANCH(_, _, _, e1, e2) => { iter (e1, hp); iter (e2, hp);};
+
+				c::SETTER (p::update, [a, _, v], e) => update (a, v, e);
+				c::SETTER (p::boxedupdate, [a, _, v], e) => update (a, v, e);
+				c::SETTER (p::numupdate { kind=>p::FLOAT 64 }, [a, i, v], e) => update (a, v, e);
+				c::SETTER(_, _, e) => iter (e, hp);
+
+				c::LOOKER(_, _, _, _, e) => iter (e, hp);
+				c::ARITH(_, _, _, _, e) => iter (e, hp);
+
+				c::PURE (p::make_special, [i, v], x, _, e) => record([(v, offp0)], x, e);
+				c::PURE (p::fwrap,   [u], x, _, e) => frecord([(u, offp0)], x, e);
+				c::PURE (p::i32wrap, [u], x, _, e) => record([(u, offp0), (c::INT 0, offp0)], x, e);
+
+				c::PURE (p::makeref, [v], x, _, e)
+				    =>
+				    {   uses =
+					    case v
+						c::VAR lambda_variable 
+						    => 
+						    case (peek_region lambda_variable)
+							NULL => r::RO_MEM;
+							THE (r::RECORD vl) => record_slots vl;
+							THE (r::OFFSET(_, vl)) => record_slots vl;
+							THE (r::MUTABLE (def, uses)) => def;
+							THE r => r;
+						    esac;
+
+						_ => r::RO_MEM;
+					    esac;
+
+					defs = r::REGIONS (r::RW_MEM, 
+							 r::REGIONS (region_id (hp), region_id (hp+4)));
+
+					enter_region (x, r::MUTABLE (defs, uses));
+
+					iter (e, hp+8);
+				    };
+
+				c::PURE (p::newarray0, _, w, _, e)
+				    =>
+				    {   y =   highcode_var::make_lambda_variable ();
+
+					iter ( c::RECORD (c::RK_RECORD, [(c::INT 0, offp0)], y,
+					       c::RECORD (c::RK_RECORD, [(c::VAR y, offp0), (c::INT 0, offp0)], w, e)),
+					       hp
+					     );
+				    };
+
+				c::PURE(_, _, _, _, e)
+				    =>
+				    iter (e, hp);
+
+			     esac;
+			};
+		end;				# fun fun_body 
+
+	    apply fun_body frags;
+
+	    fn v
+	       =
+	       lookup_region v
+	       except
+		   _ = r::RO_MEM;
+      };					# fun build
+};
+

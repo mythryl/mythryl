@@ -1,0 +1,228 @@
+# ***************************************************************************
+# 
+#  Implementation of system-dependent functions for SMLNJ 109/110.
+#  
+#   $Date: 2001/03/30 13:39:14 $
+#   $Revision: 3.0 $
+#   Author: stefan (Last modification by $Author: 2cxl $)
+#
+#   (C) 1996, Bremen Institute for Safe Systems, Universitaet Bremen
+# 
+#  ************************************************************************** 
+
+# Compiled by:
+#     src/lib/tk/src/tk.make6
+
+package sys_dep: (weak)  Sys_Dep {		# Sys_Dep	is from   src/lib/tk/src/sys_dep.api
+
+
+    /* This function is invoked exactly once, from dump_executable_heap_image() in
+     *
+     *     src/lib/tk/src/export.pkg
+     *
+     * which in turn is invoked directly from
+     *
+     *     src/lib/tk/src/Makefile
+     */
+    fun export_ml {
+            init,             #  Currently always SysInit::initSmlTk from src/lib/tk/src/sys_init.pkg 
+            banner,           #  SMLTK_BANNER from src/lib/tk/Makefile: "tk for Lib7" or such. 
+            imagefile         #  SMLTK_BINARY from src/lib/tk/Makefile: Name of executable heap image to create: "[...]/bin/tk" 
+        }
+        =
+	{   runtime = list::hd (commandline::get_all_args());
+
+	    # This became necessary sometime recently:
+
+	    exec_file = file::open (imagefile + ".wrapper");
+
+            {   file::write (   exec_file,
+			          string::cat [
+			              "#!/bin/sh\n",
+				      runtime,
+#                                     " --runtime-debug=/dev/null",        To send garbage collection &tc messages to /dev/null 
+                                      " --runtime-heap-image-to-run=", imagefile,
+				      " ",
+                                      "$*",
+                                      "\n"
+                                  ]
+                               );
+
+		file::close exec_file;
+
+		winix::process::system ("chmod a+x " + imagefile + ".wrapper");
+
+		if (lib7::fork_to_disk imagefile)
+                    
+                     /* Congratulations!   You've found the equivalent
+                      * of main() for this program.  Isn't this ever
+                      * so much clearer than the C way of doing things?
+                      */   
+		     #  --- This code is executed when the image is loaded -- 
+		     print (banner + "\n");
+		     init();
+                         /* The idea now is to return to the main
+                          * read-eval-print-loop
+                          */   
+                else
+		     winix::process::system ("chmod a+x " + imagefile);
+                     print "njml:   Done, doing exit (0);\n";
+		     winix::process::exit winix::process::success;
+		fi;
+	    };
+	};
+
+    fun set_print_depth n
+        =
+        {   controls::print::print_depth  :=  n div 2;
+	    controls::print::print_length :=  n;
+        };
+
+   # Set the terminal to a state suitable for tk.
+   #
+   # Disable INTR so that we can use it to abort
+   # functions called from namings.
+   #
+   # Set up QUIT (CTRL-\) to terminate tk instead.
+   #
+   # Bits of the following are system-independent,
+   # but unfortunately the basis library merely
+   # allows you to specfiy signals but not install
+   # a handler for them which is bloody useless if
+   # you ask me :-)                  XXX BUGGO FIXME
+
+
+    stipulate
+
+        include signals;
+        include posix::tty;
+    herein
+
+	fun init_tty abort
+            =
+            (   if   (not (posix::isatty (posix::stdin)))
+		    
+                     (); #  stdin is not a tty 
+		else
+		     { /* Configure TTY driver to have ^\ generate sigQUIT:
+			  */
+			 my { iflag, oflag, cflag, lflag, cc, ispeed, ospeed }
+			     = 
+			     fields_of (getattr posix::stdin);
+
+                         newcc = v::update (cc, [(v::quit, char::from_int 28)]);      #  28 == control-\ 
+
+                         nuattr
+			     =
+			     termios {
+				 iflag,
+				 oflag,
+				 cflag, 
+				 lflag,
+				 ispeed,
+				 ospeed,
+				 cc     => newcc
+			     };
+
+		     
+			 setattr (posix::stdin, tc::sanow, nuattr);
+
+			 /* Install the top level fate
+			  * as QUIT signal handler:
+			  */
+			 set_handler (unix_signals::sig_quit, 
+				    HANDLER (fn _ => { abort();
+						      *unsafe::toplevel_fate;}; end ));
+
+			 /* Ignore broken pipes, so SML
+			  * doesn't terminate when wish dies:
+			  */
+			 set_handler (unix_signals::sig_pipe, IGNORE);
+
+			 /* Ignore interrupts-- they are only
+			  * enabled (and handled) while
+			  * calling functions bound to events:
+			  */
+			 set_handler (interrupt_signal, IGNORE);
+
+			 /* Announce these changes:
+			  */
+			 print "\nNote: INTR (Ctrl-C) disabled, use QUIT (Ctrl-\\) \
+			       \ to terminate tk.\n\n";
+		     };fi
+            );
+
+	fun reset_tty ()
+            =
+	    if (posix::isatty posix::stdin)
+
+		 set_handler (interrupt_signal, inq_handler unix_signals::sig_quit);
+
+		 set_handler (unix_signals::sig_quit, IGNORE);
+            fi;
+
+       # Wrap an interrupt handler around a function f:
+       #
+       fun interruptable f i a
+           =
+	   fate::callcc (
+	       fn c
+                  =
+                  {   oldh = set_handler (   interrupt_signal,
+                                              HANDLER (fn _ = (c before (i())))
+                                         );
+		  
+                      (f a)
+                      before
+                          ignore (set_handler (interrupt_signal, oldh));
+		  }
+           );	      
+
+   end;
+
+
+    # This shouldn't be here, but SML/NJ implements
+    # spawn::reap incorrectly -- it returns   posix::status
+    # whereas it should return              winix::process::process::status
+    #
+    # 2006-11-27 CrT: 
+    #     src/lib/std/src/unix/spawn.api
+    # has
+    #         my reap:  proc( X, Y ) -> winix::process::status
+    #
+    # so the above bug has evidently been fixed, and presumably
+    # this function should be ripped out of the interface.
+    # For the nonce, however, I've just fixed it to work with
+    # the actual current return value:
+    # XXX BUGGO FIXME
+    #
+    fun exec (s, sl)
+        = 
+	{   pr = spawn::spawn (s, sl);
+	
+            if (spawn::reap pr == 0)  TRUE;
+            else                      FALSE;
+            fi;
+	};
+    
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

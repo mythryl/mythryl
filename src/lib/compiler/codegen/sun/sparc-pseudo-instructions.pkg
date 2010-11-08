@@ -1,0 +1,161 @@
+
+# Compiled by:
+#     src/lib/compiler/backend-sparc.make6
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/sun/sparc-codetree.pkg
+
+generic package sparc_pseudo_instructions_g (
+
+    instruction_set
+	:
+	Instruction_Set_Sparc								# Instruction_Set_Sparc	is from   src/lib/compiler/backend/lower/sun/instruction/instruction-set-sparc.api
+        where region==cpsregions
+)
+
+: (weak) Sparc_Pseudo_Instr								# Sparc_Pseudo_Instr	is from   src/lib/compiler/backend/lower/sun/codetree/sparc-pseudo-instruction.api
+
+{
+    package instruction_set =  instruction_set;
+    package cells           =  instruction_set::cells;
+
+    package i = instruction_set;
+    package c = cells;
+
+    Format1 =
+	 ({ r: cells_basis::Cell, i: i::Operand, d: cells_basis::Cell } ,
+	 (i::Operand -> cells_basis::Cell)) -> List( i::Instruction );
+
+    Format2 =
+	 ({ i: i::Operand, d: cells_basis::Cell } ,
+	 (i::Operand -> cells_basis::Cell)) -> List( i::Instruction );
+
+    fun error msg
+        =
+        lowcode_error_message::impossible ("sparc_pseudo_instructions_g." + msg);
+
+    delta = sparc_machine_properties::framesize;	#  initial value of %fp - %sp 
+
+    # runtime system dependent; the numbers are relative to %sp but
+    # we need offsets relative to %fp, hence the adjustment by delta
+    float_tmp_offset = i::IMMED (88 - delta);
+    umul_offset = i::IMMED (80 - delta);
+    smul_offset = i::IMMED (72 - delta);
+    udiv_offset = i::IMMED (84 - delta);
+    sdiv_offset = i::IMMED (76 - delta);
+
+    stack = cpsregions::stack;
+
+    native = TRUE;  #  use native versions of the instructions? 
+
+    fun umul_native ( { r, i, d }, reduce_operand) =
+	[i::arith { a=>i::UMUL, r, i, d } ];
+
+    tne = i::ticc { t=>i::BNE, cc=>i::ICC, r=>c::r0, i=>i::IMMED 7 };
+    tvs = i::ticc { t=>i::BVS, cc=>i::ICC, r=>c::r0, i=>i::IMMED 7 };
+
+	#  overflows iff Y != (d >>> 31) 
+    fun smult_native ( { r, i, d }, reduce_operand) =
+	{ t1 = c::new_reg();
+	    t2 = c::new_reg();
+	  [i::arith { a=>i::SMUL, r, i, d },
+	     i::shift { s=>i::RIGHTSHIFT, r=>d, i=>i::IMMED 31, d=>t1 },
+	     i::rdy { d=>t2 },
+	     i::arith { a=>i::SUBCC, r=>t1, i=>i::REG t2, d=>c::r0 },
+	     tne
+	    ]; 
+	};
+
+    fun smul_native ( { r, i, d }, reduce_operand)
+        =
+	[i::arith { a=>i::SMUL, r, i, d } ];
+
+    fun udiv_native ( { r, i, d }, reduce_operand)
+        = 
+	[i::wry { r=>c::r0, i=>i::REG c::r0 },
+	 i::arith { a=>i::UDIV, r, i, d } ];
+
+     #  May overflow if MININT div -1 
+    fun sdivt_native ( { r, i, d }, reduce_operand)
+        = 
+	{   t1 = c::new_reg();
+
+	    [i::shift { s=>i::RIGHTSHIFT, r, i=>i::IMMED 31, d=>t1 },
+	     i::wry { r=>t1, i=>i::REG c::r0 },
+	     i::arith { a=>i::SDIVCC, r, i, d },
+	     tvs
+	    ];
+	};
+
+    fun sdiv_native ( { r, i, d }, reduce_operand)
+        =
+	{   t1 = c::new_reg();
+
+	    [ i::shift { s=>i::RIGHTSHIFT, r, i=>i::IMMED 31, d=>t1 },
+	      i::wry { r=>t1, i=>i::REG c::r0 },
+	      i::arith { a=>i::SDIV, r, i, d }
+	    ];
+	};
+
+    # 
+    # Registers %o2, %o3 are used to pass arguments to ml_mul and ml_div 
+    # Result is returned in %o2.
+
+    r10 = c::gpreg 10;
+    r11 = c::gpreg 11;
+
+    fun call_routine (offset, reduce_operand, r, i, d)
+	=
+	{   address = c::new_reg();
+	    defs = c::add_reg (r10, c::empty); 
+	    uses = c::add_reg (r10, c::add_reg (r11, c::empty));
+
+	    fun copy { dst, src, tmp }
+                = 
+		i::COPY { kind => cells_basis::REGISTER, size_in_bits => 32, dst, src, tmp };
+
+	    [copy { src => [r, reduce_operand i], dst => [r10, r11], tmp=>THE (i::DIRECT (c::new_reg())) },
+	     i::load { l=>i::LD, r=>c::frameptr_r, i=>offset, d=>address, mem=>stack },
+	     i::jmpl { r=>address, i=>i::IMMED 0, d=>c::link_reg, defs, uses,
+		    cuts_to => [], nop=>TRUE, mem=>stack },
+	     copy { src => [r10], dst => [d], tmp=>NULL }
+	    ];
+	};
+
+    fun umul ( { r, i, d }, reduce_operand) = call_routine (umul_offset, reduce_operand, r, i, d);
+    fun smultrap ( { r, i, d }, reduce_operand) = call_routine (smul_offset, reduce_operand, r, i, d);
+    fun udiv ( { r, i, d }, reduce_operand) = call_routine (udiv_offset, reduce_operand, r, i, d);
+    fun sdivtrap ( { r, i, d }, reduce_operand) = call_routine (sdiv_offset, reduce_operand, r, i, d);
+
+    fun cvti2d ( { i, d }, reduce_operand)
+        = 
+	[ i::store { s=>i::ST, r=>c::frameptr_r, i=>float_tmp_offset, d=>reduce_operand i, mem=>stack },
+	  i::fload { l=>i::LDF, r=>c::frameptr_r, i=>float_tmp_offset, d, mem=>stack },
+	  i::fpop1 { a=>i::FI_TOD, r=>d, d }
+	];
+
+    fun cvti2s _ = error "cvti2s";
+    fun cvti2q _ = error "cvti2q";
+
+       #  Generate native versions of the instructions 
+    umul32 = if native  umul_native; else umul;fi;
+
+    my smul32:  Format1
+             =	if native  smul_native; else (fn _ = error "smul32"); fi;
+
+    smul32trap = if native  smult_native; else smultrap;fi;
+    udiv32 = if native  udiv_native; else udiv;fi;
+
+    my sdiv32:  Format1
+        =
+	if native  sdiv_native; else (fn _ = error "sdiv32"); fi;
+
+    sdiv32trap = if native  sdivt_native; else sdivtrap;fi;
+
+    overflowtrap32 = #  tvs 0x7 
+			 [i::ticc { t=>i::BVS, cc=>i::ICC, r=>c::r0, i=>i::IMMED 7 } ];
+    overflowtrap64 = []; #  not needed 
+
+};
+

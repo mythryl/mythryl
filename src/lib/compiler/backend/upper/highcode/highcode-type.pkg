@@ -1,0 +1,966 @@
+## highcode-type.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+###            "One should expect that the expected
+###             can be prevented, but the unexpected
+###             should have been expected."
+###
+###                          -- Norman Augustine
+
+package highcode_type: (weak)  Highcode_Type {		# Highcode_Type			is from   src/lib/compiler/backend/upper/highcode/highcode-type.api
+
+    stipulate
+
+        package pt=  highcode_data_representation;	# highcode_data_representation	is from   src/lib/compiler/backend/upper/highcode/highcode-data-representation.pkg
+	package di=  debruijn_index;			# debruijn_index		is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+	package lk=  highcode_guts;			# highcode_guts			is from   src/lib/compiler/backend/upper/highcode/highcode-guts.pkg
+
+	fun bug msg
+            =
+            error_message::impossible("LtyDef: " + msg);
+
+	say =  controls::print::say;
+
+	# * common utility functions 
+	type_kind_inject          =  lk::type_kind_inject;
+	type_kind_project         =  lk::type_kind_project;
+	type_kinds_are_equivalent =  lk::type_kinds_are_equivalent;
+
+	type_constructor_inject          =  lk::type_constructor_inject;
+	type_constructor_project         =  lk::type_constructor_project; 
+	type_constructors_are_equivalent =  lk::type_constructors_are_equivalent;
+
+	lambda_type_inject          =  lk::lambda_type_inject;
+	lambda_type_project         =  lk::lambda_type_project; 
+	lambda_types_are_equivalent =  lk::lambda_types_are_equivalent;
+
+    herein
+
+	# Basic entities:
+	#
+	Index = di::Index;
+	Depth = di::Depth;
+	#
+	Primitive_Type_Constructor = pt::Primitive_Type_Constructor;
+	Highcode_Variable = lk::Highcode_Variable;
+
+	Fn_Flag     =  lk::Fn_Flag;
+	Record_Flag =  lk::Record_Flag;
+
+	Highcode_Kind   =  lk::Highcode_Kind;
+	Highcode_Type_Constructor        =  lk::Highcode_Type_Constructor;
+	Highcode_Type =  lk::Highcode_Type;
+
+	# highcode Highcode_Kind is roughly equivalent to the following ML enum 
+	#
+	#    enum Highcode_Kind 
+	#      = TYPEKIND_MONOMORPHIC_TYPE_CONSTRUCTOR 
+	#      | TYPEKIND_BOXED_TYPE_CONSTRUCTOR
+	#      | TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE of List( Highcode_Kind )
+	#      | TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION of List( Highcode_Kind ) * Highcode_Kind
+	#
+	# We treat Highcode_Kind as an abstract type so we can no longer use 
+	# pattern matching. 
+
+
+	#  Some Highcode_Kind constructors: 
+	my tkc_mono:    Highcode_Kind = type_kind_inject (lk::TYPEKIND_MONOMORPHIC_TYPE_CONSTRUCTOR);
+	my tkc_box:     Highcode_Kind = type_kind_inject (lk::TYPEKIND_BOXED_TYPE_CONSTRUCTOR);
+	#
+	my tkc_seq:     List( Highcode_Kind )              -> Highcode_Kind =  type_kind_inject o lk::TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE;
+	my tkc_fun:     (List( Highcode_Kind ), Highcode_Kind) -> Highcode_Kind =  type_kind_inject o lk::TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION;
+
+	#  Matching Highcode_Kind deconstructors: 
+	my tkd_mono:    Highcode_Kind -> Void =  fn _ = ();
+	my tkd_box:     Highcode_Kind -> Void =  fn _ = ();
+	#
+	my tkd_seq:     Highcode_Kind -> List( Highcode_Kind )
+	    =
+	    fn tk
+		=> 
+		case (type_kind_project tk)
+
+		    lk::TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE x
+			=>
+			x;
+
+		    _   => bug "unexpected Highcode_Kind in tkd_seq";
+		esac;
+	    end;  
+
+	my tkd_fun:    Highcode_Kind -> (List( Highcode_Kind ), Highcode_Kind)
+	    =
+	    fn tk
+	       =
+	       case (type_kind_project tk)
+
+		   lk::TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION x
+		       =>
+		       x;
+
+		   _   => bug "unexpected Highcode_Kind in tkd_fun";
+	       esac;
+
+
+	# Some Highcode_Kind predicates:
+        #
+	my tkp_mono:    Highcode_Kind -> Bool =  fn tk =  type_kinds_are_equivalent (tk, tkc_mono);
+	my tkp_box:     Highcode_Kind -> Bool =  fn tk =  type_kinds_are_equivalent (tk, tkc_box);
+	#
+	my tkp_seq:     Highcode_Kind -> Bool =  fn tk =  case (type_kind_project  tk)    lk::TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE _ => TRUE;  _ => FALSE;  esac;
+	my tkp_fun:     Highcode_Kind -> Bool =  fn tk =  case (type_kind_project  tk)    lk::TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION _ => TRUE;  _ => FALSE;  esac;
+
+	# Some Highcode_Kind one-arm switches:
+        #
+	fun tkw_mono (tk, f, g) = if (type_kinds_are_equivalent (tk, tkc_mono) ) f (); else g tk;fi;
+	fun tkw_box  (tk, f, g) = if (type_kinds_are_equivalent (tk, tkc_box ) ) f (); else g tk;fi;
+	#
+	fun tkw_seq  (tk, f, g) = case (type_kind_project  tk)    lk::TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE x => f x;  _ => g tk; esac;
+	fun tkw_fun  (tk, f, g) = case (type_kind_project  tk)    lk::TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION x => f x;  _ => g tk; esac;
+
+
+	# highcode fn_flag and record_flag are used to ilkify different kinds of monomorphic 
+	# functions and records. As of now, they are roughly equivalent to:
+	#
+	#    enum fn_flag
+	#      = FNFLAG_VARIABLE of Bool * Bool
+	#      | FNFLAG_FIXED
+	#
+	#    enum record_flag = RECORDFLAG_TMP
+	#
+	# We treat both as abstract types so pattern matching no longer applies.
+	# NOTE: FNFLAG_VARIABLE flags are used by HIGHCODEs before we perform representation
+	# analysis while FNFLAG_FIXED is used by HIGHCODEs after we perform representation
+	# analysis. 
+
+
+	# fn_flag and record_flag constructors:
+	#
+	my ffc_fixed:   Fn_Flag     = lk::FNFLAG_FIXED;
+	my rfc_tmp:     Record_Flag = lk::RECORDFLAG_TMP;
+	my ffc_var:     (Bool, Bool) -> Fn_Flag
+            =
+            fn x =  lk::FNFLAG_VARIABLE x;
+
+
+
+	# fn_flag and record_flag deconstructors 
+	#
+	my ffd_var:     Fn_Flag -> (Bool, Bool)
+            =
+            fn x =  case x    lk::FNFLAG_VARIABLE x =>  x;
+                              _                     =>  bug "unexpected fn_flag in ffd_var";
+                    esac;
+
+
+	my ffd_fixed:   Fn_Flag -> Void
+            =
+            fn x =  case x    lk::FNFLAG_FIXED =>  ();
+                              _                =>  bug "unexpected fn_flag in ffd_fixed";
+                    esac;
+
+
+	my rfd_tmp:     Record_Flag -> Void
+            =
+            fn (lk::RECORDFLAG_TMP) = ();
+
+
+
+	# fn_flag and record_flag predicates 
+	#
+	my ffp_var:     Fn_Flag -> Bool
+            =
+            fn x =  case x    lk::FNFLAG_VARIABLE _ =>  TRUE;
+                              _                     =>  FALSE;
+                    esac;
+
+
+	my ffp_fixed:   Fn_Flag -> Bool
+            =
+            fn x =  case x    lk::FNFLAG_FIXED =>  TRUE;
+                              _                =>  FALSE;
+                    esac;
+
+
+	my rfp_tmp:     Record_Flag -> Bool
+            =
+            fn (lk::RECORDFLAG_TMP) =  TRUE;
+
+
+
+	# fn_flag and record_flag one-arm switch 
+	#
+	fun ffw_var (ff, f, g)
+            = 
+	    case ff    lk::FNFLAG_VARIABLE x =>  f x;
+                       _                     =>  g ff;
+            esac;
+
+
+	fun ffw_fixed (ff, f, g)
+	    = 
+	    case ff    lk::FNFLAG_FIXED =>  f ();
+                       _                =>  g ff;
+            esac;
+
+
+	fun rfw_tmp (rf, f, g) =  f();
+
+
+	# highcode Highcode_Type_Constructor is roughly equivalent to the following ML enum 
+	#
+	#    enum Highcode_Type_Constructor
+	#      = TC_VAR (index, Int)
+	#      | TC_NAMED_VAR tvar
+	#      | TC_PRIM Primitive_Type_Constructor
+	#      | TC_FN   List( Highcode_Kind ) * Highcode_Type_Constructor
+	#      | TC_APPLY (Highcode_Type_Constructor, List( Highcode_Type_Constructor ))
+	#      | TC_SEQ    List( Highcode_Type_Constructor )
+	#      | TC_PROJ  (Highcode_Type_Constructor, Int)
+	#      | TC_SUM    List( Highcode_Type_Constructor )
+	#      | TC_RECURSIVE (Highcode_Type_Constructor, Int)
+	#      | TC_WRAP       Highcode_Type_Constructor                     #  used after rep. analysis only 
+	#      | TC_ABSTRACT   Highcode_Type_Constructor                 #  NOT USED 
+	#      | TC_BOXED      Highcode_Type_Constructor                    #  NOT USED 
+	#      | TC_TUPLE      List( Highcode_Type_Constructor )            #  record_flag hidden 
+	#      | TC_ARROW  (fn_flag, List( Highcode_Type_Constructor ), List( Highcode_Type_Constructor ))
+	#
+	# We treat Highcode_Type_Constructor as an abstract type so we can no longer use 
+	# pattern matching. Highcode_Type_Constructor applications (TC_APPLY) and projections 
+	# (TC_PROJ) are automatically reduced as needed, that is, the
+	# client does not need to worry about whether a Highcode_Type_Constructor is in the
+	# normal form or not, all functions defined here automatically 
+	# take care of this.
+
+
+	# Some Highcode_Type_Constructor constructors 
+	#
+	my tcc_var:     (Index, Int) -> Highcode_Type_Constructor               = type_constructor_inject o lk::TC_VAR;
+	my tcc_nvar:    Highcode_Variable -> Highcode_Type_Constructor                = type_constructor_inject o lk::TC_NAMED_VAR;
+	my tcc_prim:    Primitive_Type_Constructor -> Highcode_Type_Constructor = type_constructor_inject o lk::TC_PRIM;
+	my tcc_g:      (List( Highcode_Kind ), Highcode_Type_Constructor) -> Highcode_Type_Constructor   = type_constructor_inject o lk::TC_FN;
+	#
+	my tcc_app:     (Highcode_Type_Constructor,  List( Highcode_Type_Constructor )) -> Highcode_Type_Constructor      = type_constructor_inject o lk::TC_APPLY;
+	my tcc_seq:      List( Highcode_Type_Constructor ) -> Highcode_Type_Constructor              = type_constructor_inject o lk::TC_SEQ;
+	my tcc_proj:    (Highcode_Type_Constructor, Int) -> Highcode_Type_Constructor                = type_constructor_inject o lk::TC_PROJ;
+	#
+	my tcc_sum:      List( Highcode_Type_Constructor ) -> Highcode_Type_Constructor              = type_constructor_inject o lk::TC_SUM;
+	my tcc_abs:     Highcode_Type_Constructor -> Highcode_Type_Constructor                       = type_constructor_inject o lk::TC_ABSTRACT;
+	my tcc_box:     Highcode_Type_Constructor -> Highcode_Type_Constructor                       = type_constructor_inject o lk::TC_BOXED; 
+	#
+	my tcc_tuple:   List( Highcode_Type_Constructor ) -> Highcode_Type_Constructor               = fn ts => type_constructor_inject (lk::TC_TUPLE (rfc_tmp, ts)); end ;
+	my tcc_wrap:    Highcode_Type_Constructor -> Highcode_Type_Constructor                       = fn tc => type_constructor_inject (lk::TC_EXTENSIBLE_TOKEN (lk::wrap_token, tc)); end ;
+	#
+	my tcc_arrow:   (Fn_Flag, List( Highcode_Type_Constructor ), List( Highcode_Type_Constructor )) -> Highcode_Type_Constructor =  lk::tcc_arrow;
+	my tcc_fix:     (((Int, Highcode_Type_Constructor,  List( Highcode_Type_Constructor )) ), Int) -> Highcode_Type_Constructor  =  type_constructor_inject o lk::TC_RECURSIVE;
+
+
+
+	# Highcode_Type_Constructor deconstructors 
+
+
+	my tcd_var:     Highcode_Type_Constructor -> (Index, Int)
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_VAR x =>  x;
+			                                    _            =>  bug "unexpected type_constructor in tcd_var";
+                     esac;
+
+
+	my tcd_nvar:    Highcode_Type_Constructor -> Highcode_Variable
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_NAMED_VAR x =>  x;
+			                                    _                  =>  bug "unexpected type_constructor in tcd_nvar";
+                     esac;
+
+
+	my tcd_prim:    Highcode_Type_Constructor -> Primitive_Type_Constructor
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_PRIM x =>  x;
+			                                    _             =>  bug "unexpected type_constructor in tcd_prim";
+                     esac;
+
+
+	my tcd_g:      Highcode_Type_Constructor -> (List( Highcode_Kind ), Highcode_Type_Constructor)
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_FN x =>  x;
+			                                    _           =>  bug "unexpected Highcode_Type_Constructor in tcd_g";
+                     esac;
+
+
+	my tcd_app:     Highcode_Type_Constructor -> (Highcode_Type_Constructor, List( Highcode_Type_Constructor ))
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_APPLY x =>  x;
+			                                    _              =>  bug "unexpected Highcode_Type_Constructor in tcd_app";
+                     esac;
+
+
+	my tcd_seq:     Highcode_Type_Constructor -> List( Highcode_Type_Constructor )
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_SEQ x =>  x;
+			                                    _            =>  bug "unexpected Highcode_Type_Constructor in tcd_seq";
+                     esac;
+
+
+	my tcd_proj:    Highcode_Type_Constructor -> (Highcode_Type_Constructor, Int)
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_PROJ x =>  x;
+			                                    _             =>  bug "unexpected Highcode_Type_Constructor in tcd_proj";
+                     esac;
+
+
+	my tcd_sum:     Highcode_Type_Constructor -> List( Highcode_Type_Constructor )
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_SUM x =>  x;
+			                                    _            =>  bug "unexpected Highcode_Type_Constructor in tcd_sum";
+                     esac;
+
+
+	my tcd_fix:     Highcode_Type_Constructor -> (((Int, Highcode_Type_Constructor,  List( Highcode_Type_Constructor)) ), Int)
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_RECURSIVE x =>  x;
+			                                    _                  =>  bug "unexpected Highcode_Type_Constructor in tcd_fix";
+                     esac;
+
+
+	my tcd_wrap:    Highcode_Type_Constructor -> Highcode_Type_Constructor
+            =
+            fn tc =  case (type_constructor_project tc)
+                         lk::TC_EXTENSIBLE_TOKEN (tk, x)
+                             => 
+		             if (lk::tokens_are_equal (tk, lk::wrap_token))  x;
+		             else                                            bug "unexpected token Highcode_Type_Constructor in tcd_wrap";
+                             fi;
+		         _   => bug "unexpected regular Highcode_Type_Constructor in tcd_wrap";
+                     esac;
+
+
+	my tcd_abs:     Highcode_Type_Constructor -> Highcode_Type_Constructor
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_ABSTRACT x =>  x;
+			                                    _                 =>  bug "unexpected Highcode_Type_Constructor in tcd_abs";
+                     esac;
+
+
+	my tcd_box:     Highcode_Type_Constructor -> Highcode_Type_Constructor
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_BOXED x =>  x;
+			                                    _              =>  bug "unexpected Highcode_Type_Constructor in tcd_box";
+                     esac;
+
+
+	my tcd_tuple:   Highcode_Type_Constructor -> List( Highcode_Type_Constructor )
+             =
+             fn tc =  case (type_constructor_project  tc)    lk::TC_TUPLE (_, x) =>  x;
+			                                     _                   =>  bug "unexpected Highcode_Type_Constructor in tcd_tuple";
+                      esac;
+
+
+	my tcd_arrow:   Highcode_Type_Constructor -> (Fn_Flag, List( Highcode_Type_Constructor ), List( Highcode_Type_Constructor ))
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_ARROW x =>  x;
+			                                    _              =>  bug "unexpected Highcode_Type_Constructor in tcd_arrow";
+                     esac;
+
+
+
+	# Some Highcode_Type_Constructor predicates: 
+	#
+	my tcp_var:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_VAR _ =>  TRUE;
+                                                            _            =>  FALSE;
+                     esac;
+
+
+	my tcp_nvar:    Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_NAMED_VAR _ =>  TRUE;
+                                                            _                  =>  FALSE;
+                     esac;
+
+
+	my tcp_prim:    Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_PRIM _ =>  TRUE;
+                                                            _             =>  FALSE;
+                     esac;
+
+
+	my tcp_g:      Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_FN _ =>  TRUE;
+                                                            _           =>  FALSE;
+                     esac;
+
+
+	my tcp_app:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_APPLY _ =>  TRUE;
+                                                            _              =>  FALSE;
+                     esac;
+
+
+	my tcp_seq:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_SEQ _ =>  TRUE;
+                                                            _            =>  FALSE;
+                     esac;
+
+
+	my tcp_proj:    Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_PROJ _ =>  TRUE;
+                                                            _             =>  FALSE;
+                     esac;
+
+
+	my tcp_sum:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_SUM _ =>  TRUE;
+                                                            _            =>  FALSE;
+                     esac;
+
+
+	my tcp_fix:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_RECURSIVE _ =>  TRUE;
+                                                            _                  =>  FALSE;
+                     esac;
+
+
+	my tcp_wrap:    Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_EXTENSIBLE_TOKEN (tk, _) =>  lk::tokens_are_equal (tk, lk::wrap_token);
+			                                    _                               =>  FALSE;
+                     esac;
+
+
+	my tcp_abs:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_ABSTRACT _ =>  TRUE;
+                                                            _                 =>  FALSE;
+                     esac;
+
+
+	my tcp_box:     Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_BOXED _ =>  TRUE;
+                                                            _              =>  FALSE;
+                     esac;
+
+
+	my tcp_tuple:   Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_TUPLE _ =>  TRUE;
+                                                            _              =>  FALSE;
+                     esac;
+
+
+	my tcp_arrow:   Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project  tc)    lk::TC_ARROW _ =>  TRUE;
+                                                            _              =>  FALSE;
+                     esac;
+
+
+
+	# Some Highcode_Type_Constructor one-arm switches: 
+	#
+	fun tcw_var   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_VAR       x => f x;    _ => g tc;  esac;
+	fun tcw_nvar  (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_NAMED_VAR x => f x;    _ => g tc;  esac;
+	fun tcw_prim  (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_PRIM      x => f x;    _ => g tc;  esac;
+
+	fun tcw_fn    (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_FN         x => f x;   _ => g tc;  esac;
+	fun tcw_app   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_APPLY      x => f x;   _ => g tc;  esac;
+	fun tcw_seq   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_SEQ        x => f x;   _ => g tc;  esac;
+
+	fun tcw_proj  (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_PROJ       x => f x;   _ => g tc;  esac; 
+	fun tcw_sum   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_SUM        x => f x;   _ => g tc;  esac;  
+	fun tcw_fix   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_RECURSIVE  x => f x;   _ => g tc;  esac;  
+
+	fun tcw_abs   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_ABSTRACT   x => f x;   _ => g tc;  esac;  
+	fun tcw_box   (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_BOXED      x => f x;   _ => g tc;  esac;  
+
+	fun tcw_tuple (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_TUPLE (_, x) => f x;   _ => g tc;  esac;
+	fun tcw_arrow (tc, f, g)   =   case (type_constructor_project tc)    lk::TC_ARROW x      => f x;   _ => g tc;  esac;
+
+	fun tcw_wrap  (tc, f, g)
+            = 
+	    case (type_constructor_project tc)
+
+		lk::TC_EXTENSIBLE_TOKEN (rk, x)
+                    =>
+                    if (lk::tokens_are_equal (rk, lk::wrap_token))   f x;
+		    else                                             g tc;
+                    fi;
+
+		  _ => g tc;
+            esac;  
+
+
+
+	# highcode Highcode_Type is roughly equivalent to:
+	#
+	#  Highcode_Type
+	#      = FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR  Highcode_Type_Constructor
+	#      | FNTYPE_PACKAGE                       List( Highcode_Type )
+	#      | FNTYPE_GENERIC                      (List( Highcode_Type ), List( Highcode_Type ))
+	#      | FNTYPE_POLYMORPHIC                  (List( Highcode_Kind ), List( Highcode_Type ))
+	#
+	# We treat Highcode_Type as an abstract type so we can no longer use pattern
+	# matching. The client does not need to worry about whether an Highcode_Type
+	# is in normal form or not. 
+
+
+	# Highcode_Type constructors
+        #
+	my ltc_tyc:    Highcode_Type_Constructor                               -> Highcode_Type =  lambda_type_inject o lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR;
+	my ltc_str:    List( Highcode_Type )                         -> Highcode_Type =  lambda_type_inject o lk::FNTYPE_PACKAGE;
+	my ltc_fct:   (List( Highcode_Type ),   List( Highcode_Type )) -> Highcode_Type =  lambda_type_inject o lk::FNTYPE_GENERIC;
+	my ltc_poly:  (List( Highcode_Kind ), List( Highcode_Type )) -> Highcode_Type =  lambda_type_inject o lk::FNTYPE_POLYMORPHIC;
+
+
+
+	# Highcode_Type deconstructors
+	#
+	my ltd_tyc:     Highcode_Type -> Highcode_Type_Constructor
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  x;
+                                                      lk::FNTYPE_PACKAGE                      _ =>  bug "FNTYPE_PACKAGE unsupported in ltd_tyc";
+                                                      lk::FNTYPE_GENERIC                      _ =>  bug "FNTYPE_GENERIC unsupported in ltd_tyc";
+                                                      lk::FNTYPE_POLYMORPHIC                  _ =>  bug "FNTYPE_POLYMORPHIC unsupported in ltd_tyc";
+                                                      _                                         =>  bug "Unexpected Highcode_Type in ltd_tyc";
+                     esac;
+
+
+	my ltd_str:     Highcode_Type ->  List( Highcode_Type )
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_PACKAGE x =>  x;
+			                              _                    =>  bug "unexpected Highcode_Type in ltd_str";
+                     esac;
+
+
+	my ltd_fct:     Highcode_Type ->  (List( Highcode_Type ), List( Highcode_Type ))
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_GENERIC x =>  x;
+			                              _                        =>  bug "unexpected Highcode_Type in ltd_fct";
+                     esac;
+
+
+	my ltd_poly:    Highcode_Type -> (List( Highcode_Kind ), List( Highcode_Type ))
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_POLYMORPHIC x =>  x;
+			                              _                            =>  bug "unexpected Highcode_Type in ltd_poly";
+                     esac;
+
+
+
+	# Highcode_Type predicates 
+	#
+	my ltp_tyc:     Highcode_Type -> Bool
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR _ =>  TRUE;
+                                                      _                                         =>  FALSE;
+                     esac;
+
+
+	my ltp_str:     Highcode_Type -> Bool
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_PACKAGE _ =>  TRUE;
+                                                      _                    =>  FALSE;
+                     esac;
+
+
+	my ltp_fct:     Highcode_Type -> Bool
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_GENERIC _ =>  TRUE;
+                                                      _                    =>  FALSE;
+                     esac;
+
+
+	my ltp_poly:    Highcode_Type -> Bool
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_POLYMORPHIC _ => TRUE;
+                                                      _                        => FALSE;
+                     esac;
+
+
+
+	# Highcode_Type one-arm switches:
+	#
+	fun ltw_tyc  (lt, f, g) =  case (lambda_type_project lt)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x => f x;  _ => g lt; esac;
+	fun ltw_str  (lt, f, g) =  case (lambda_type_project lt)    lk::FNTYPE_PACKAGE     x => f x;                   _ => g lt; esac;
+	fun ltw_fct  (lt, f, g) =  case (lambda_type_project lt)    lk::FNTYPE_GENERIC     x => f x;                   _ => g lt; esac;
+	fun ltw_poly (lt, f, g) =  case (lambda_type_project lt)    lk::FNTYPE_POLYMORPHIC x => f x;                   _ => g lt; esac;
+
+
+	# Because highcode Highcode_Type_Constructor is embedded inside highcode Highcode_Type, we supply the
+	# the following utility functions on building ltys that are based
+	# on simple mono tycs.
+
+
+
+	# Highcode_Type_Constructor-Highcode_Type constructors 
+	#
+	my ltc_var:     (Index, Int) -> Highcode_Type               =  ltc_tyc o tcc_var;
+	my ltc_prim:    Primitive_Type_Constructor -> Highcode_Type =  ltc_tyc o tcc_prim;
+	my ltc_tuple:    List( Highcode_Type ) -> Highcode_Type       =  ltc_tyc o (tcc_tuple o (map ltd_tyc));
+	my ltc_arrow:   (Fn_Flag,  List( Highcode_Type ),  List( Highcode_Type )) -> Highcode_Type
+            =
+            fn (r, t1, t2)
+                =
+	        {   ts1 = map ltd_tyc t1;
+	            ts2 = map ltd_tyc t2;
+	            ltc_tyc (tcc_arrow (r, ts1, ts2));
+	        };
+
+
+
+	# Some Highcode_Type_Constructor-Highcode_Type deconstructors 
+	#
+	my ltd_var:     Highcode_Type -> (Index, Int)               = tcd_var o ltd_tyc;
+	my ltd_prim:    Highcode_Type -> Primitive_Type_Constructor = tcd_prim o ltd_tyc;
+	my ltd_tuple:   Highcode_Type -> List( Highcode_Type )        = (map ltc_tyc) o (tcd_tuple o ltd_tyc);
+	my ltd_arrow:   Highcode_Type -> (Fn_Flag, List( Highcode_Type ),  List( Highcode_Type ))
+            =
+            fn t =  {   my (r, ts1, ts2) = tcd_arrow (ltd_tyc t);
+	                (r, map ltc_tyc ts1, map ltc_tyc ts2);
+	            };
+
+
+
+	# Some Highcode_Type_Constructor-Highcode_Type predicates 
+
+	my ltp_var:     Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  tcp_var x;
+                                                    _                                             =>  FALSE;
+                    esac;
+
+
+	my ltp_prim:    Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  tcp_prim x;
+                                                    _                                             =>  FALSE;
+                    esac;
+
+
+	my ltp_tuple:   Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  tcp_tuple x;
+                                                    _                                             =>  FALSE;
+                    esac;
+
+
+	my ltp_arrow:   Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  tcp_arrow x;
+                                                    _                                             =>  FALSE;
+                    esac;
+
+
+
+	# Some Highcode_Type_Constructor-Highcode_Type one-arm switches:
+ 	#
+	fun ltw_var (lt, f, g)
+            = 
+	    case (lambda_type_project lt)
+	         lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc
+                     => 
+		     case (type_constructor_project tc)    lk::TC_VAR x =>  f x;
+                                                           _            =>  g lt;
+                     esac;
+
+		_ => g lt;
+	    esac;
+
+
+	fun ltw_prim (lt, f, g)
+            = 
+	    case (lambda_type_project lt)
+	        lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc
+                    => 
+		    case (type_constructor_project tc)    lk::TC_PRIM x =>  f x;
+                                                          _             =>  g lt;
+                    esac;
+	      _ => g lt;
+            esac;
+
+
+	fun ltw_tuple (lt, f, g)
+            = 
+	    case (lambda_type_project lt)
+	        lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc
+                    => 
+		    case (type_constructor_project tc)    lk::TC_TUPLE (_, x) =>  f x;
+                                                          _                   =>  g lt;
+                    esac;
+	      _ => g lt;
+            esac;
+
+
+	fun ltw_arrow (lt, f, g)
+            = 
+	    case (lambda_type_project lt)
+
+	        lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc
+                    => 
+		    case (type_constructor_project tc)
+                        lk::TC_ARROW x =>  f x;
+                        _              =>  g lt;
+                    esac;
+
+	       _ => g lt;
+            esac;
+
+
+
+	# The following functions are written for FPS only.
+        # If you are writing writing code for highcode,
+        # you should not use any of these functions. 
+        #
+	# The fate referred here is the internal
+        # fate introduced via FPS conversion;
+        # it is different from the source-level fate 
+	# (Fate(X)) or control fate (Control_Fate(X))
+        # where are represented  pt::primTypeCon_fate and
+        # pt::primTypeCon_control_fate respectively. 
+
+
+	# Our fate-Highcode_Type_Constructor-Highcode_Type constructors
+        #
+	my tcc_cont:    List( Highcode_Type_Constructor ) -> Highcode_Type_Constructor = type_constructor_inject o lk::TC_FATE;
+	my ltc_cont:    List( Highcode_Type ) -> Highcode_Type = lambda_type_inject o lk::FNTYPE_INTERNAL_CLOSURE;
+
+	#  Our fate-Highcode_Type_Constructor-Highcode_Type deconstructors 
+	#
+	my tcd_cont:    Highcode_Type_Constructor -> List( Highcode_Type_Constructor )
+            =
+            fn tc =  case (type_constructor_project tc)    lk::TC_FATE x =>  x;
+			                                   _                     =>  bug "unexpected Highcode_Type_Constructor in tcd_cont";
+                     esac;
+
+
+	my ltd_cont:    Highcode_Type -> List( Highcode_Type )
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_INTERNAL_CLOSURE x =>  x; 
+			                              _                                 =>  bug "unexpected Highcode_Type in ltd_cont";
+                     esac;
+
+
+	# Our fate-Highcode_Type_Constructor-Highcode_Type predicates 
+	#
+	my tcp_cont:    Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project tc)    lk::TC_FATE _ =>  TRUE;
+                                                           _                     =>  FALSE;
+                     esac;
+
+
+	my ltp_cont:    Highcode_Type -> Bool
+            =
+            fn lt =  case (lambda_type_project lt)    lk::FNTYPE_INTERNAL_CLOSURE _ =>  TRUE;
+                                                      _                                 =>  FALSE;
+                     esac;
+
+
+
+	#  Our fate-Highcode_Type_Constructor-Highcode_Type one-arm switches 
+
+	fun tcw_cont (tc, f, g)
+            = 
+	    case (type_constructor_project tc)    lk::TC_FATE x =>  f x;
+                                                  _                     =>  g tc;
+            esac; 
+
+
+	fun ltw_cont (lt, f, g)
+            = 
+	    case (lambda_type_project lt)    lk::FNTYPE_INTERNAL_CLOSURE x =>  f x;
+                                             _                                 =>  g lt;
+            esac;
+
+
+
+	# The following functions are written for polylambda_type only. If you
+	# are writing code for highcode only, don't use any of these functions. 
+	# The idea is that in polylambda, all (value or type) functions have single
+	# argument and single return-result. Ideally, we should define 
+	# another sets of datatypes for tycs and ltys. But we want to avoid
+	# the translation from polylambda_type to highcode types, so we let them
+	# share the same representations as much as possible. 
+	#
+	# Ultimately, highcode_type should be separated into two files: one for 
+	# highcode, another for polylambda, but we will see if this is necessary.
+
+
+	# The implementation here is TEMPORARY; Stefan needs to take a look at     XXX BUGGO FIXME
+	# this. Note parrow could share the representation with arrow if there 
+	# is one-to-one mapping between parrow and arrow.
+
+
+	# plambda Highcode_Type_Constructor-Highcode_Type constructors
+        #
+	my tcc_parrow:  (Highcode_Type_Constructor, Highcode_Type_Constructor) -> Highcode_Type_Constructor
+            =    
+	    fn (x, y) =  tcc_arrow (ffc_var (FALSE, FALSE), [x], [y]);
+
+
+	my ltc_parrow:  (Highcode_Type, Highcode_Type) -> Highcode_Type
+            =
+	    fn (x, y) =  ltc_tyc (tcc_parrow (ltd_tyc x, ltd_tyc y));
+
+
+	my ltc_ppoly:    (List( Highcode_Kind ), Highcode_Type) -> Highcode_Type
+            =
+            fn (ks, t) =  ltc_poly (ks, [t]);
+
+
+	my ltc_pfct:    (Highcode_Type, Highcode_Type) -> Highcode_Type
+            =
+            fn (x, y) =  ltc_fct ([x], [y]);
+
+
+
+	# Our* plambda Highcode_Type_Constructor-Highcode_Type deconstructors:
+        #
+	my tcd_parrow:  Highcode_Type_Constructor -> (Highcode_Type_Constructor, Highcode_Type_Constructor)
+            =
+            fn tc =  case (type_constructor_project tc)
+	                  lk::TC_ARROW (_, xs, ys) => (lk::type_constructor_list_to_type_constructor_tuple xs, lk::type_constructor_list_to_type_constructor_tuple ys);
+	                  _ => bug "unexpected Highcode_Type_Constructor in tcd_parrow";
+                     esac;
+
+
+	my ltd_parrow:  Highcode_Type -> (Highcode_Type, Highcode_Type)
+            =
+            fn t =  {   my (t1, t2)
+                            =
+                            tcd_parrow (ltd_tyc t);
+
+	                ( ltc_tyc t1,
+                          ltc_tyc t2
+                        );
+	            };
+
+
+	my ltd_ppoly:   Highcode_Type ->  (List( Highcode_Kind ), Highcode_Type)
+            =
+            fn t =  {   my (ks, ts)
+                            =
+                            ltd_poly t;
+
+	                case ts    [x] =>  (ks, x);
+		                    _  =>  bug "unexpected case in ltd_ppoly";
+                        esac;
+	             };
+
+
+	my ltd_pfct:    Highcode_Type -> (Highcode_Type, Highcode_Type)
+            =
+            fn t =  {   my (ts1, ts2)
+                            =
+                            ltd_fct t;
+
+	                case (ts1, ts2)    ([x], [y]) =>  (x, y);
+			                   _          =>  bug "unexpected case in ltd_pfct";
+                        esac;
+	            };
+
+
+
+	# Our plambda Highcode_Type_Constructor-Highcode_Type predicates 
+	#
+	my tcp_parrow:  Highcode_Type_Constructor -> Bool
+            =
+            fn tc =  case (type_constructor_project tc)    lk::TC_ARROW (_, [x], [y]) =>  TRUE;
+                                                           _                          =>  FALSE;
+                     esac;
+
+
+	my ltp_parrow:  Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR x =>  tcp_parrow x;
+                                                    _                                             =>  FALSE;
+                    esac;
+
+
+	my ltp_ppoly:   Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_POLYMORPHIC (_, [x]) =>  TRUE;
+                                                    _                               =>  FALSE;
+                    esac;
+
+
+	my ltp_pfct:    Highcode_Type -> Bool
+            =
+            fn t =  case (lambda_type_project t)    lk::FNTYPE_GENERIC ([x], [y]) =>  TRUE;
+                                                    _                             =>  FALSE;
+                    esac;
+
+
+
+	# Our plambda Highcode_Type_Constructor-Highcode_Type one-arm switches 
+	#
+	fun tcw_parrow (tc, f, g)
+	    =
+	    case (type_constructor_project tc)    lk::TC_ARROW (_,[x],[y]) =>  f (x, y);
+                                                  _                        =>  g tc;
+            esac;
+
+
+	fun ltw_parrow (lt, f, g)
+            = 
+	    case (lambda_type_project lt)
+
+	         lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc
+                     => 
+		     case (type_constructor_project tc)    lk::TC_ARROW (_,[x],[y]) =>  f (x, y);
+                                                           _                        =>  g lt;
+                     esac;
+
+	         _ => g lt;
+            esac;
+
+
+	fun ltw_ppoly (lt, f, g)
+            =
+	    case (lambda_type_project lt)    lk::FNTYPE_POLYMORPHIC (ks,[x]) =>  f (ks, x);
+                                             _                               =>  g lt;
+            esac;
+
+
+	fun ltw_pfct (lt, f, g)
+            =
+	    case (lambda_type_project lt)
+		lk::FNTYPE_GENERIC([x],[y]) =>  f (x, y);
+		 _                          =>  g lt;
+            esac;
+
+    end;		#  top-level stipulate
+};			#  package highcode_type 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

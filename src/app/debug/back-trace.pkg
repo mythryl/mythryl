@@ -1,0 +1,387 @@
+## back-trace.pkg
+
+# Compiled by:
+#     src/app/debug/plugins.make6
+
+#   A plug-in module for back-tracing.  This module hooks itself into
+#   the core dictionary so that tdp-instrumented code will invoke the
+#   provided functions "enter", "push", "save", and "report".
+#
+#   This module keeps track of the dynamic call-chain of instrumented modules.
+#   Non-tail calls are maintained in a stack-like fashion, and in addition
+#   to this the module will also track tail-calls so that a sequence of
+#   GOTO-like jumps from loop-cluster to loop-cluster can be shown.
+#
+#   This strategy, while certainly costly, has no more than constant-factor
+#   overhead in space and time and will keep tail-recursive code
+#   tail-recursive.
+#
+
+
+
+###                  "If history were taught in the form of
+###                   stories, it would never be forgotten."
+###
+###                                  -- Rudyard Kipling 
+
+
+
+package back_trace: (weak)  api {
+     trigger:  Void -> X;
+     monitor:  (Void -> X) -> X;
+     install:  Void -> Void;
+}
+{
+    package m=  int_red_black_map;	# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+
+    # Home-cooked set representation:
+    #  This relies on two things:
+    #   - we don't need a lookup operation
+    #   - we only join sets that are known to be disjoint
+    Set = EMPTY
+	| SINGLETON  Int
+	| UNION  (Set, Set);
+
+    fun fold f i EMPTY => i;
+	fold f i (SINGLETON x) => f (x, i);
+	fold f i (UNION (x, y)) => fold f (fold f i y) x;
+    end;
+
+    Descr = STEP  Int
+          | LOOP  Set;
+
+    Stage = { num: Int, from: Int, descr: Descr };
+
+    Frame = { depth: Int, map: m::Map( Int ), stages: List( Stage ) };
+
+    History = (Frame, List( Frame ));
+
+    State = NORMAL  History
+          | PENDING  (Int, History);
+
+    my cur:  Ref( State )
+          =  REF (NORMAL ( { depth => 0, map => m::empty, stages => [] }, []));
+
+    names = REF (m::empty: m::Map( String ));
+
+    fun register (module, _: Int, id, s)
+        =
+	names := m::set (*names, module + id, s);
+
+    fun enter (module, fct)
+        =
+        {   i = module + fct;
+
+	    my (from, front, back)
+                =
+		case *cur
+                  
+		     PENDING (from, (front, back)) => (from, front, back);
+		     NORMAL (front, back) => (-1, front, back);
+                esac;
+
+	    my { depth, map, stages }
+                =
+                front;
+
+	    case (m::get (map, i))
+              
+		 THE num
+                     =>
+                     {   fun to_set (STEP i) =>  SINGLETON i;
+			     to_set (LOOP s) =>  s;
+                          end;
+
+			 fun join (set, d)
+                             =
+                             UNION (set, to_set d);
+
+			 fun finish (stages, from, c, EMPTY)
+				 =>
+				 { stage = { num, from,
+						   descr => LOOP (to_set c) };
+				     front' = { depth,
+						    map,
+						    stages => stage ! stages };
+
+				     cur := NORMAL (front', back);
+				 };
+
+			     finish (stages, from, c, set)
+				 =>
+				 {   stage = { num, from,
+						   descr => LOOP (join (set, c)) };
+
+				     fun ins (i, m)
+                                         =
+                                         m::set (m, i, num);
+
+				     front' = { depth,
+						map    =>  fold ins map set,
+						stages =>  stage ! stages
+                                              };
+
+				     cur := NORMAL (front', back);
+				 };
+                         end;
+
+			 fun loop ([], set) => (); #  Cannot happen! 
+
+			     loop ( { num => n', from, descr => d' } ! t, set)
+                                 =>
+			         if  (num == n')   finish (t, from, d', set);
+			         else              loop (t, join (set, d'));   fi;
+                         end;
+
+			 loop (stages, EMPTY);
+		     };
+
+	         NULL
+                     =>
+                     {   num = case stages
+                                 
+				    []     =>  0;
+				    s0 ! _ =>  s0.num + 1;
+                               esac;
+
+			 stage = { num, from, descr => STEP i };
+
+			 front' = { depth,
+				    map    =>  m::set (map, i, num),
+				    stages =>  stage ! stages
+                                  };
+
+			 cur := NORMAL (front', back);
+		     };
+            esac;
+	};
+
+    fun push (module, loc)
+	=
+	{   id = module + loc;
+
+	    my (NORMAL old | PENDING (_, old)) = *cur;
+
+	    my (front, _) = old;
+
+	    front' = { depth => front.depth + 1, map => m::empty, stages => [] };
+
+	    cur := PENDING (id, (front', (!) old));
+
+	    fn () =   cur := NORMAL old;
+	};
+
+    fun nopush (module, loc)
+	=
+	{   id = module + loc;
+	    my (NORMAL old | PENDING (_, old)) = *cur;
+
+	    cur := PENDING (id, old);
+	};
+
+    fun save ()
+	=
+	{
+	    old = *cur;
+
+	    fn () =  cur := old;
+	};
+
+    fun report ()
+	=
+	do_report
+        where
+
+	    my (NORMAL top | PENDING (_, top)) = *cur;
+	    my (front, back) = top;
+
+	    fun do_report ()
+		=
+		reverse (calls (front, back, []))
+		where
+
+		    my (NORMAL bot | PENDING (_, bot)) = *cur;
+		    my (front', _) = bot;
+		    bot_depth = front'.depth;
+
+		    fun is_bot (f: Frame)
+			=
+			f.depth == bot_depth;
+
+		    fun name (w, pad, from, i)
+			=
+			{   fun find x
+                                =
+                                the_else (m::get (*names, x), "???");
+
+			    n = find i;
+
+			    tail = case from
+                                     
+					NULL  => ["\n"];
+					THE j => ["\n          (from: ", find j, ")\n"];
+                                   esac;
+
+			    cat (w ! pad ! " " ! n ! tail);
+			};
+
+		    fun stage (w, { num, from, descr => STEP i }, a)
+			    =>
+			    name (w, "  ", THE from, i) ! a;
+
+		        stage (w, { num, from, descr => LOOP s }, a)
+			    =>
+			    {
+				fun loop ([], a)
+                                        =>
+                                        a;
+
+				    loop ([i], a)
+                                        =>
+                                        name (w, "-\\", THE from, i) ! a;
+
+				    loop (h ! t, a)
+					=>
+					loop (t, name ("    ", " |", NULL, h) ! a);
+                                end;
+
+				fun start ([], a)
+                                        =>
+                                        a;
+
+				    start ([i], a)
+                                        =>
+                                        name (w, "-(", THE from, i) ! a;
+
+				    start (h ! t, a)
+					=>
+					loop (t, name ("    ", " /", NULL, h) ! a);
+                                end;
+
+				start (fold (!) [] s, a);
+			    };
+                    end;
+
+		    fun jumps ([],    a) =>  a;
+			jumps ([n],   a) =>  stage ("CALL", n, a);
+			jumps (h ! t, a) =>  jumps (t, stage ("GOTO", h, a));
+                    end;
+
+		    fun calls (h, [], a)
+                            =>
+                            jumps (h.stages, a);
+
+			calls (h, h' ! t, a)
+                            =>
+			    {    a = jumps (h.stages, a);
+
+				 if   (is_bot h   )   a;
+                                                 else   calls (h', t, a);   fi;
+			    };
+                    end;
+		end;
+	end;
+
+    exception BTRACE_TRIGGERED  Void -> List( String );
+
+    fun monitor0 (report_final_exn, work)
+        =
+	{   restore = save ();
+
+	    fun last (x, []) => x;
+	        last (_, x ! xs) => last (x, xs);
+            end;
+
+	    fun emsg e
+                =
+		case (lib7::exception_history e)
+                  
+		      []      =>                            exceptions::exception_message e;
+		      (h ! t) =>  cat [last (h, t), ": ",   exceptions::exception_message e];
+                esac;
+
+	    fun hdl (e, [])
+		    =>
+		    {  if   report_final_exn
+			    controls::print::say (emsg e + "\n\n");
+		       fi;
+		       raise exception e;
+		    };
+
+	        hdl (e, hist)
+                    =>
+		    {   controls::print::say
+		           (cat ("\n*** BACK-TRACE ***\n" ! hist));
+
+		        if  report_final_exn
+		            controls::print::say (cat ["\n", emsg e, "\n\n"]);
+		        fi;
+
+		        raise exception e;
+                    };
+            end;
+	
+	    work ()
+	    except
+                e as BTRACE_TRIGGERED do_report
+                    =>
+		    {   restore ();
+		        hdl (e, do_report ());
+                    };
+		e =>
+		   {   do_report = report ();
+		   
+		       restore ();
+		       hdl (e, do_report ());
+		   };
+            end;
+	};
+
+    fun monitor work
+        =
+        monitor0 (TRUE, work);
+
+    name = "btrace";
+
+    fun install ()
+        =
+	{   plugin = { name, save,
+			   push, nopush,
+			   enter, register };
+	    monitor = { name, monitor => monitor0 };
+
+	    fun addto r x
+                =
+                r :=  x ! *r;
+	
+	    addto  runtime_internals::tdp::active_plugins   plugin;
+	    addto  runtime_internals::tdp::active_monitors  monitor;
+	};
+
+    fun trigger ()
+        =
+        raise exception BTRACE_TRIGGERED (report ());
+};
+
+
+## Copyright (c) 2004 by The Fellowship of SML/NJ
+## Author: Matthias Blume (blume@tti-c.org)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

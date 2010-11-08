@@ -1,0 +1,302 @@
+## tracing.api
+#
+# (Overview comments are at bottom of file.)
+#
+# This version of this module is adapted from
+# Cliff Krumvieda's utility for tracing threadkit
+# programs.
+#
+# See also:
+#     src/lib/src/lib/thread-kit/src/lib/thread-deathwatch.api
+#     src/lib/src/lib/thread-kit/src/lib/threadkit-uncaught-exception-reporting.api
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+api Tracing {
+
+    Trace_Tree_Node;
+
+    # Where trace output goes:
+    #
+    Trace_To
+      #
+      = TO_STDOUT
+      | TO_STDERR
+      | TO_NULL
+      | TO_FILE    String
+      | TO_STREAM  file::Output_Stream
+      ;
+
+    log_trace_messages:  Trace_To -> Void;
+	#
+	# Set trace output destination.
+	#
+	# TO_STREAM can only be specified
+	# as a destination if threadkit is running.
+	#
+	# NOTE: This call does NOT close the previous
+	#       output stream, if any, since the caller
+	#       may not want that.  If you want the
+	#       previous tracelog stream closed, do it
+	#       yourself (see next).
+
+    currently_tracing_to:    Void -> Trace_To;
+	#
+	# Mainly so caller can do
+	#
+	#     tracing_to =  currently_tracing_to ();
+	#
+	#     log_trace_messages TO_STDERR;
+	#
+	#     case tracing_to  TO_STREAM stream => file::close_output stream;  _ => ();   esac;
+	#
+	# to close the logstream cleanly.
+	#
+	# NOTE: It is a poor idea to close the current
+        #       logstream before switching trace logging to
+        #       another stream, since there may be threads
+        #       tracelogging at unexpected moments!
+
+    all_tracing:  Trace_Tree_Node;
+	#
+	# Root node of the trace tree.  Doing
+	#     enable all_tracing;
+	# will enable all registered print_if calls.
+
+    exception NO_SUCH_NODE;
+
+    make_trace_tree_leaf
+        :
+        { parent: Trace_Tree_Node,
+          name:   String
+        }
+        ->
+        Trace_Tree_Node;
+
+    name:  Trace_Tree_Node -> String;
+	#
+	# Return node name.
+
+    parent:  Trace_Tree_Node -> Null_Or( Trace_Tree_Node );	# NULL only for root node.
+	#
+	# Return node parent.
+
+    print_if:  Trace_Tree_Node -> (Void -> String) -> Void;
+	#
+	# Conditionally generate tracing output.
+
+    enable:  Trace_Tree_Node -> Void;
+	#
+	# Turn on all tracing controlled by given subtree
+	# of all_tracing.
+
+    disable:  Trace_Tree_Node -> Void;
+	#
+	# Turn off all tracing controlled by given subtree
+	# of all_tracing.
+
+    enable_node:  Trace_Tree_Node -> Void;
+	#
+	# Turn on tracing controlled by given trace tree node
+	# (i.e., ignoring any children of that node).
+
+    am_tracing:  Trace_Tree_Node -> Bool;
+	#
+	# Return TRUE if this node is being traced.
+
+    subtree_nodes_and_trace_flags:  Trace_Tree_Node ->  List( (Trace_Tree_Node, Bool) );
+	#
+	# Return a list of the registered trace tree nodes
+        # in subtree rooted at given node, along with trace
+	# status (TRUE/FALSE) of each node.
+
+    ancestors: Trace_Tree_Node -> List(String);
+	#
+	# Return names of all ancestors of node.
+	#
+	# First element of list (if nonempty)
+	# will always be the root node, all_tracing.
+	#
+	# This is the list of tracetree nodes which
+	# may be used to 'disable' a given tracelog
+	# message:
+
+    node_by_name: String -> Trace_Tree_Node;
+	#
+	# Search tracetree for a node with given name.
+	# Raise exception NO_SUCH_NODE if not found: 
+
+    print_tracetree:  Void -> Void;
+	#
+	# As an interactive convenience,
+	# print complete tracetree indented:
+	#
+	#    linux% my
+	#    eval: make "src/lib/x-kit/x-kit.make6";
+	#    eval: tracing::print_tracetree tracing::all_tracing;
+	#    FALSE  tracing::all_tracing
+	#	 FALSE  xtracing::xkit_tracing
+	#	     FALSE  xtracing::widgets_tracing
+	#	     FALSE  xtracing::lib_tracing
+	#		 FALSE  xtracing::selection_tracing
+	#		 FALSE  xtracing::graphics_context_tracing
+	#		 FALSE  xtracing::toplevel_tracing
+	#		 FALSE  xtracing::winreg_tracing
+	#		 FALSE  xtracing::dm_tracing
+	#		 FALSE  xtracing::draw_tracing
+	#		 FALSE  xtracing::color_tracing
+	#		 FALSE  xtracing::font_tracing
+	#		 FALSE  xtracing::io_tracing
+	#	     FALSE  xtracing::make_thread_tracing
+	#	     TRUE   xtracing::error_tracing
+	#	 TRUE   thread_deathwatch::tracing
+
+};
+
+
+# OVERVIEW.
+#
+# This package supports simple debugging-via-printf
+# style logging of concurrent programs.  Trace
+# messages are conditionally generated via calls
+# to 'print_if', which may then at runtime be
+# enabled or disabled and their output redirected
+# to stdout, stderr, a file, or a stream.
+#
+# A major problem with debugging-via-printf
+# is controlling which printf()s are active
+# during a given run.  Too few means not
+# enough information to find the bug; too
+# many means being swamped with irrelevant
+# output.
+#
+# Our idea here is to generate trace messages
+# via calls to 'print_if', each of which is
+# controlled by a (probably shared) boolean
+# trace flag variable.
+#
+# We expect that typically there will be one
+# such trace flag variable .pkg file, used
+# to switch on/off all 'print_if' calls in
+# that file.
+#
+# Frequently we want to trace what is happening
+# in quite a few .pkg files.  It can be quite
+# tedious and time-wasting to individually
+# enable and disable all required trace flags.
+#
+# To address this problem, we organize the trace
+# flags into a tree, and provide calls to turn
+# on or off all trace flags in any subtree of
+# that tree.
+#
+# The protocol for using this facility is:
+#
+#   o  Generate trace tree nodes, typically one
+#      per foo.pkg file.  Each must be the child
+#      of some existing node, the root of the
+#      tree being tracing::all_tracing, so your
+#      first trace node will necessarily be a
+#      child of all_tracing;  subsequent nodes
+#      may be children of any pre-existing node.
+#
+#      Normally you will set up a tree structure
+#      reflecting your application's library hierarchy.
+#
+#          package foo {
+#
+#              include tracing;
+#
+#              tracing
+#                  =
+#                  make_trace_tree_leaf
+#                      { parent => all_tracing,
+#                        name   => "foo::tracing"
+#                      }; 
+#                  
+#      Note that by convention we name the trace
+#      node in foo.pkg
+#
+#          foo_tracing
+#
+#      so that later we can interactively do
+#
+#          enable foo_tracing;
+#
+#      or
+#          disable foo_tracing;
+#
+#      and have it be readable.
+#
+#   o  Put print_if calls at strategic spots through
+#      each foo.pkg file:
+#
+#          print_if tracing .{ "Top    of function bar()"; };
+#          ...
+#          print_if tracing .{ sprintf "%d zots processed." zots_done; };
+#          ...
+#          print_if tracing .{ "Bottom of function bar()"; };
+#
+#      As illustrated, the second arg to print_if is a (Void -> String) function.
+#      (You can write them (fn () = "Bottom of function bar()") if you prefer;
+#      we have used the equivalent but more compact thunk syntax above.)
+#      The point of this is to avoid wasting CPU time generating trace
+#      messages which are not going to be logged:  The function is called
+#      only if the corresponding 'foo_tracing' trace flag is set TRUE.
+#
+#      Also as illustrated, you will often find it useful to use 'sprintf'
+#      to generate the trace message.
+#
+#   o  At runtime, select a destination for trace messages
+#      via a call like one of the following:
+#
+#          log_trace_messages  TO_STDOUT;
+#          log_trace_messages  TO_STDERR;
+#          log_trace_messages (TO_FILE "trace.log");
+#
+#   o  At runtime, enable the desired set of print_if statements
+#      by executing one or more statements like:
+#
+#          enable all_tracing;			# Probably gross overkill!
+#          enable xtracing::xkit_tracing;	# Not quite as bad.
+#          enable foo::tracing;			# Much more sensible.
+#
+# One practical approach to using this facility is:
+#
+#   o  Open two Linux commandline windows,
+#      one for interactive commands,
+#      one to display the trace log.
+#
+#      (Personally, I use an xemacs shell buffer for the
+#      interactive command window for convenience, and
+#      a vanilla xterm or such for tracelog display,
+#      because that scrolls much faster than an xemacs
+#      shell buffer.)
+#
+#   o  In the tracelog window do
+#
+#          linux% touch trace.log                 # Create trace.log file if it doesn't exist.
+#          linux% tail -f trace.log               # Set up to display everything written to file.
+#
+#   o  In the command window do something like
+#
+#          linux% my
+#	   eval:  make "src/lib/x-kit/x-kit.make6";			# Load xkit, making xtracing::io_tracing &tc accessable.
+#          eval:  make "src/lib/x-kit/tut/plaid/plaid.make6";		# Or whatever your app is.
+#          eval:  include tracing;					# Avoid need for 'tracing::' prefix on everything.
+#          eval:  log_trace_messages (TO_FILE "trace.log");		# Select logfile watched by tracelog window.
+#          eval:  enable all_tracing;					# Or something  more selective!
+#          eval:  plaid::do_it ();					# Or whatever app you like.
+#
+#   o  At the end of the run, if you need more detailed
+#      analysis of the trace.log contents, you can visit
+#      the file in emacs or grep it for specific regular
+#      expressions or such.
+
+
+
+## COPYRIGHT (c) 1992 AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

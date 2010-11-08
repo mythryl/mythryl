@@ -1,0 +1,284 @@
+## boot-dictionary-fn.sml
+
+# Compiled by:
+#     src/lib/core/internal/interactive-system.make6
+
+
+# Completely redone by Matthias Blume (5/1998)
+#   ... and again in the course of switching over to the new Make7
+#       (M. Blume, 7/1999)
+#
+#
+#
+# generic invocation:
+#
+#     boot_dictionary_g is invoked (only) in
+#
+#         ./boot-dictionary.pkg
+#
+#     in
+#
+#         package boot_dictionary = boot_dictionary_g ( ... )
+# 
+#
+#
+# Runtime invocation:
+#
+#     Runtime invocation of 'set_up', our (sole) external
+#     entrypoint, is from the top of
+#
+#         src/lib/core/internal/main.pkg
+#
+#     before it dumps the heap image which becomes
+#     mythryld, our compiler image.
+
+
+
+###                              "Poor old Methuselah, how did he manage to stand it so long?
+###
+###                                                              -- Mark Twain,
+###                                                                 Letter to W. D. Howells,
+###                                                                 2/9/1879
+
+
+
+api Boot_Dictionary {
+
+    set_up
+	:
+	String                                         #   Boot_directory 
+	->
+	{   heapfile:           String,
+	    process_commandline: Null_Or( Void -> Void )
+	};
+};
+
+							# linking_table		is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+							# file			is from   src/lib/std/src/unix/file.pkg
+							# raw_syntax		is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+							# symbol		is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+							# make_compiler		is from   src/lib/core/make-compiler/select-x86-unix.pkg
+
+generic package boot_dictionary_g (
+
+     architecture_name: String;				# "ppc", "sparc" or "x86".
+
+     set_up_make7					#  == 'set_up_make7' fn from src/app/make7/main/make7-g.pkg 
+	 :
+	 ( String,					#  root_directory
+	   linking_table::Dictionary,
+           (Void -> Void),				#  read_eval_print_from_user
+	   (file::Input_Stream -> Void),		#  read_eval_print_from_stream 
+	   (String -> Void),				#  read_eval_print_from_file   
+	   ((String -> Void) -> (String -> Void))	#  errorwrap 
+         )
+	 ->
+         Null_Or( Void -> Void ); 
+
+     make_compiler: (String, Bool) -> Void;		#  A small wrapper around make_compiler::make' 
+)
+:
+Boot_Dictionary						# Boot_Dictionary	is from   src/lib/core/internal/boot-dictionary-g.pkg
+=
+package {
+
+    exception BOOT_FAILURE;
+
+
+    # To be able to use mythryl-yacc and mythryl-lex
+    # at -rebuild time it is necessary to
+    # force their plugins to be _always_ plugged in.
+    #
+    # We achieve this by simply mentioning
+    # the package names here:
+
+    package yacc_tool =  yacc_tool;
+    package lex_tool  =  lex_tool;
+
+    # The classifier for dir-tool.make6 must
+    # also be registered permanently:
+
+    package dir_tool_classify_filename
+        =
+        dir_tool_classify_filename;
+
+    package print
+	=
+        controls::print;
+								# controls	is from   src/lib/compiler/toplevel/main/controls.pkg
+
+    fun say s =   { print::say s;  print::flush ();              };
+    fun die s =   { say s;         raise exception BOOT_FAILURE; };
+
+
+    # Run make_compiler::make to make a new set of .o7 files:
+    #
+    fun make_compiler' (o7file_directory, light)
+        =
+        {   include  winix::process;
+
+            say (cat ["lib/core/internal/boot-dictionary-fn.sml:   Invoking make_compiler::make to make object files in  ", o7file_directory, "\n"]);
+            make_compiler (o7file_directory, light);
+            exit success;
+        };
+						# make_compiler		is from   src/lib/core/make-compiler/select-x86-unix.pkg
+						# winix			is from   src/lib/std/winix.pkg
+						# unsafe		is from   src/lib/std/src/unsafe/unsafe.pkg
+						# picklehash		is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+						# linking_table		is from   src/lib/compiler/execution/linking-table/linking-table.pkg
+    stipulate
+	package u= unsafe;
+    herein
+	fun set_up'     root_directory		# Containing sh/ bin/ src/ ... 
+            =
+            {   fun make_linking_table (u::NILRDE, linking_table)
+                        =>
+                        linking_table;
+
+		    make_linking_table (u::CONSRDE (raw_dynamic_picklehash, chunk, rest), linking_table)
+                        =>
+                        {   dynamic_picklehash
+                                =
+                                picklehash::from_bytes raw_dynamic_picklehash;
+			
+			    make_linking_table (rest, linking_table::bind (dynamic_picklehash, chunk, linking_table));
+			};
+                end;
+
+		linking_table
+                    =
+                    make_linking_table (*u::p_struct, linking_table::empty);
+
+		fun errorwrap u f x
+                    =
+		    compiler_client_interface::interact::with_error_handling
+                        u
+		        { thunk        =>  fn () =  f x,
+			  flush        =>  fn () =  (),
+			  fate =>  fn e  =  raise exception e
+                        };
+	    
+		u::p_struct := u::NILRDE;
+
+						# compiler_client_interface	is from   src/lib/core/compiler/x86-with-unix-call-conventions.pkg
+						# string			is from   src/lib/std/string.pkg
+
+		# set_up_make7 is ultimately from src/app/make7/main/make7-g.pkg
+                # 
+		set_up_make7 (
+                    root_directory,
+                    linking_table,
+		    compiler_client_interface::interact::read_eval_print_from_user,
+		    compiler_client_interface::interact::read_eval_print_from_stream,
+		    errorwrap FALSE compiler_client_interface::interact::read_eval_print_from_file,
+		    errorwrap TRUE
+                );
+	    };
+    end;
+
+
+    fun set_up  root_directory
+        =
+        {   #  Grab relevant command line arguments: 
+	    #
+	    fun case_arg  arg  cases  dfl
+                =
+		loop cases
+                where
+                    fun loop []
+			    =>
+			    dfl ();
+
+		        loop ( { prefix, action } ! l)
+			    =>
+			    if   (string::is_prefix prefix arg)
+			         action (string::extract (arg, size prefix, NULL));
+			    else loop l;  fi;
+                    end;
+		end;
+
+
+	    # First arg is list of commandline args to process.
+            # Remaining args are defaults for our return values:
+            #
+	    fun boot_args ([], newbindir, heapfile)
+		    =>
+		    (newbindir, heapfile);
+
+	        boot_args ("--runtime-bare" ! rest, newbindir, heapfile)
+		    =>
+		    boot_args (rest, newbindir, heapfile);
+
+	        boot_args (head ! rest, newbindir, heapfile)
+		    =>
+		    case_arg
+
+                        head
+
+			[   {   prefix => "--runtime-heap=",
+				action => fn heapfile
+					      =
+					      boot_args (rest, newbindir, heapfile)
+			    },
+			    {   prefix => "--runtime-rebuild=",
+				action => fn newbindir
+					      =
+					      boot_args (rest, THE (newbindir, FALSE), heapfile)
+			    },
+			    {   prefix => "--runtime-lightrebuild=",
+				action => fn newbindir
+					      =
+					      boot_args (rest, THE (newbindir, TRUE), heapfile)
+			    }
+			]
+
+			(fn () =  boot_args (rest, newbindir, heapfile));
+            end;
+
+	    my (newbindir, heapfile)
+		=
+		boot_args (
+
+                    commandline::get_all_arguments (),
+
+		    NULL,			# Default value for newbindir.
+
+		    "build7."			# Default value for heapfile.
+                    +
+                    architecture_name		# "ppc", "sparc" or "x86".
+                );
+	
+						# lib7			is from   src/lib/std/lib7.pkg
+						# winix			is from   src/lib/std/winix.pkg
+
+	    case newbindir
+	      
+	         NULL
+		     =>
+		     {   process_commandline
+                             =
+                             set_up'
+                                 root_directory;
+
+			 { heapfile, process_commandline };
+		     };
+
+	         THE (new_bin_dir, light)
+		     =>
+		     {   new_bin_dir
+                             =
+                             winix::path::make_canonical
+                                 new_bin_dir;
+
+			 if   (new_bin_dir  ==  root_directory)
+			      die "--runtime-o7-files-to-load= and --runtime-rebuild= name the same directory\n";
+			 else make_compiler' (new_bin_dir, light);  fi;
+		     };
+            esac;
+	};		#  fun set_up
+};			#  generic boot_dictionary_g 
+
+
+## Copyright 1996 by Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,208 @@
+## ra-graph.api
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+# This is the new interference graph used by the new register allocator.
+# 
+# -- Allen Leung
+
+
+
+api   Register_Allocation_Graph {
+
+    package c:  Cells_Basis;				# Cells_Basis	is from   src/lib/compiler/backend/lower/instruction/cells-basis.api
+
+    package bm:  Register_Allocation_Bitmatrix		# Register_Allocation_Bitmatrix	is from   src/lib/compiler/backend/lower/reg-alloc/ra-bitmatrix.api
+	      =  register_allocation_bitmatrix;
+
+    # The following are the data structures used in the register allocator.
+
+
+    exception NODES;
+
+    Priority = Float;
+    Cost = Float;         
+
+
+    # The following represent a program point in the program.
+    #
+    # The last instruction in the block is numbered 1, i.e. the instruction
+    # numbering is in reverse.  The number 0 is reserved for "live-out".
+
+
+    Program_Point = { block: Int, instruction: Int }; 
+
+    #  Hash table indexed by program point 
+    package ppt_hash_table:  Monomorphic_Hash_Table		# Monomorphic_Hash_Table	is from   src/lib/src/monomorphic-hash-table.api
+	where  key::Hash_Key == Program_Point;
+
+    Frame_Offset = Int;
+    Logical_Spill_Id = Int;
+
+    Spill_Loc
+	= FRAME    Logical_Spill_Id  #  spill to a new frame location 
+	| MEM_REG  c::Cell;            #  spill to a memory register 
+
+    #  Hash table indexed by spill location 
+    package spill_loc_hash_table:  Monomorphic_Hash_Table		# Monomorphic_Hash_Table	is from   src/lib/src/monomorphic-hash-table.api
+	where  key::Hash_Key == Spill_Loc;
+
+    Mode = Unt;
+
+    Interference_Graph
+        = 
+        GRAPH  
+	  { bit_matrix:     Ref( bm::Bit_Matrix ),
+	    nodes:         int_hash_table::Hash_Table( Node ),
+	    k:             Int,
+	    first_pseudo_r:  Int,
+	    dedicated:     Int -> Bool,
+	    getreg:        { pref: List( Int ), stamp: Int, prohibitions: rw_vector::Rw_Vector( Int ) } -> Int,
+	    getpair:       { pref: List( Int ), stamp: Int, prohibitions: rw_vector::Rw_Vector( Int ) } -> Int,
+	    prohibitions:          rw_vector::Rw_Vector( Int ),
+	    stamp:         Ref( Int ),
+
+	    #  Info to undo a spill when an optimistic spill has occurred 
+	    spill_flag:     Ref( Bool ),
+
+	    spilled_regs:   int_hash_table::Hash_Table( Bool ), 
+				# registers that have been spilled
+	    trail:         Ref( Trail_Info ),
+
+	    #  how to pretty print a register 
+	    show_reg:       c::Cell -> String,
+
+	    #  how many registers there are? 
+	    num_regs:       Int,
+	    max_regs:       Void -> Int,
+
+	    #  Dead copies 
+	    dead_copies:    Ref(  List(  c::Cell ) ),
+	    copy_tmps:      Ref(  List(  Node ) ),
+	    mem_moves:      Ref(  List(  Move ) ),
+	    mem_regs:       Ref(  List(  Node ) ),
+
+	    #  spill locations 
+	    spill_loc:      Ref( Int ),
+
+	    #  span indexed by node id 
+	    span:           Ref( Null_Or( int_hash_table::Hash_Table( Cost ) ) ),
+
+	    #  mode 
+	    mode:          Mode,
+
+	    pseudo_count:   Ref( Int )
+	  }
+
+    also
+    Move_Status = BRIGGS_MOVE             #  not yet coalesceable 
+		| GEORGE_MOVE             #  not yet coalesceable 
+		| COALESCED               #  Coalesced 
+		| CONSTRAINED             #  src and target intefere 
+		| LOST                    #  frozen moves 
+		| WORKLIST                #  on the move worklist 
+
+    also
+    Move
+        = 
+        MOVE_INT
+         { src:     Node,  		# Source register of move 
+	   dst:     Node,		# Destination register of move 
+#          kind:    moveKind,           # Kind of move
+	   cost:    Cost,               # Cost 
+	   status:  Ref( Move_Status ),	# Coalesced? 
+	   hicount: Ref( Int )          # Neighbors of high degree 
+	  }
+
+    also
+    Move_Kind = REG_TO_REG      #  register to register 
+	      | EVEN_TO_REG     #  even register in pair to register 
+	      | ODD_TO_REG      #  odd register in pair to register 
+	      | PAIR_TO_PAIR    #  register pair to register pair 
+	      | REG_TO_EVEN     #  register to even register in pair 
+	      | REG_TO_ODD      #  register to odd register in pair 
+
+    #   And moveKind = REGmvk	 # register-register move 
+    #               | MEMREGmvk      #  move involving memReg  
+    # 
+
+
+    also
+    Node_Status =
+	  PSEUDO                #  pseudo register 
+	| REMOVED               #  removed from the interference graph 
+	| ALIASED  Node       #  Coalesced 
+	| COLORED  Int        #  Colored 
+	| MEMREG  (Int, c::Cell)#  register implemented in memory 
+	| SPILLED		      #  spilled 
+	| SPILL_LOC  Int      #  spilled at logical location 
+
+	 # Note on SPILLED:
+	 #  SPILLED -1 means that the spill location is still undetermined
+	 #  SPILLED c, c >= 0 means that c is a fixed "memory register"
+	 #  SPILLED c, c < -1 means that c is a logical spill location
+	 #                    assigned by the register allocator
+
+
+    also
+    Node
+        = 
+	  NODE  { number:  Int,			# Node number 
+		  cell:    c::Cell,
+		  movecnt: Ref( Int ),		# this.moves node is involved in 
+		  movelist: Ref(  List(  Move ) ),	# Moves associated with this node 
+		  degree:  Ref( Int ),		# Current degree 
+		  color:  Ref( Node_Status ),	# Status 
+		  adj:  Ref(  List(  Node ) ),	# Adjacency list 
+		  pri:  Ref( Priority ),		# Priority 
+		  movecost:  Ref( Cost ),		# Mmove cost 
+		  #  pair:  Bool,			# Register pair? 
+		  defs:  Ref(  List(  Program_Point ) ), 
+		  uses:  Ref(  List(  Program_Point ) )
+		}
+
+    also
+    Trail_Info = END
+               | UNDO  (Node, Ref( Move_Status ), Trail_Info);
+
+    #  Create a new bitMatrix 
+    #
+    new_bit_matrix
+        :
+        { edges:     Int,
+          max_regs:  Int
+        }
+        ->
+        bm::Bit_Matrix;
+
+    # Create a new interference graph 
+    #
+    new_graph
+        :
+        { nodes:         int_hash_table::Hash_Table( Node ),
+	  num_regs:       Int,
+	  max_regs:       Void -> Int,
+	  k:             Int,
+	  first_pseudo_r:  Int,
+	  dedicated:     Int -> Bool,
+	  show_reg:       c::Cell -> String,
+	  getreg:        
+	    { pref: List( Int ), stamp: Int, prohibitions: rw_vector::Rw_Vector( Int ) } -> Int,
+	  getpair:       
+	    { pref: List( Int ), stamp: Int, prohibitions: rw_vector::Rw_Vector( Int ) } -> Int,
+	  prohibitions:          rw_vector::Rw_Vector( Int ),
+	  mode:          Mode,
+	  spill_loc:      Ref( Int ),
+	  mem_regs:       List( c::Cell )
+	}
+	->
+	Interference_Graph;
+
+};
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

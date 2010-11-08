@@ -1,0 +1,506 @@
+## pushbutton-behavior-g.pkg
+#
+# Protocol for buttons.
+#
+# TODO: Allow disabling of highlighting   XXX BUGGO FIXME
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+
+
+# This generic is compile-invoked in:
+#
+#     src/lib/x-kit/widget/leaf/pushbuttons.pkg
+
+stipulate
+    include threadkit;					# threadkit			is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    include xgeometry;					# xgeometry			is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package xc =  xclient;				# xclient			is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg =  widget;				# widget			is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wb =  widget_base;				# widget_base			is from   src/lib/x-kit/widget/basic/widget-base.pkg
+    package bb =  button_base;				# button_base			is from   src/lib/x-kit/widget/leaf/button-base.pkg
+    package bt =  button_type;				# button_type			is from   src/lib/x-kit/widget/leaf/button-type.pkg
+    package wa =  widget_attribute;			# widget_attribute		is from   src/lib/x-kit/widget/lib/widget-attribute.pkg
+    #
+    pushbutton_tracing =  tracing::make_trace_tree_leaf { parent => xtracing::lib_tracing, name => "xtracing::pushbutton_tracing"    };
+    trace	       =  xtracing::print_if  pushbutton_tracing;	# Conditionally write strings to tracing.log or whatever.
+herein
+
+    # This generic is invoked (only) three times in:
+    #
+    #     src/lib/x-kit/widget/leaf/pushbuttons.pkg
+    #
+    generic package   pushbutton_behavior_g (
+
+	ba:  Button_Look				# Button_Look		is from   src/lib/x-kit/widget/leaf/button-look.api
+							# arrowbutton_look	is from   src/lib/x-kit/widget/leaf/arrowbutton-look.pkg
+							# textbutton_look		is from   src/lib/x-kit/widget/leaf/textbutton-look.pkg
+							# labelbutton_look	is from   src/lib/x-kit/widget/leaf/labelbutton-look.pkg
+
+    ): (weak) Pushbutton_Factory			# Pushbutton_Factory		is from   src/lib/x-kit/widget/leaf/pushbutton-factory.api
+
+    {
+	attributes = [
+	    (wa::repeat_delay,      wa::INT,   wa::NO_VAL  ),
+	    (wa::repeat_interval,   wa::INT,   wa::INT_VAL 100   ),
+	    (wa::is_active,         wa::BOOL,  wa::BOOL_VAL TRUE ),
+	    (wa::is_set,            wa::BOOL,  wa::BOOL_VAL FALSE)
+	];
+
+	# We've just seen a mouse::DOWN on in_slot;  here we wait
+        # for the matching  upclick from in_slot, meanwhile
+        # writing a stream of BUTTON_DOWN events to out_slot.
+	#
+	# We wait 'repeat_delay' before writing the first BUTTON_DOWN
+	# to out_slot, after which we write on every 'repeat_interval'.
+	#
+	# Thus, if the upclick arrives before 'repeat_delay' has passed,
+	# we write no BUTTON_DOWN events at all to out_slot.
+	# 
+	fun autorepeat_timer (button, out_slot, in_slot, repeat_delay, repeat_interval) ()
+	    =
+	    wait (timeout_in'  repeat_delay)
+	    where 
+
+		fun signal ()
+		    =
+		    select [
+			give' (out_slot, bt::BUTTON_DOWN button)  ==>  .{
+trace .{ "pushbutton-behavior-g.pkg: autorepeat_timer: signal: Sent BUTTON_DOWN event."; };
+			                                                   wait (timeout_in' repeat_interval);  },
+			take'  in_slot                            ==>  thread_done
+		    ]
+
+		also
+		fun wait  timeout'
+		    =
+		    select [
+			timeout'        ==>  signal,
+			take'  in_slot  ==>  thread_done
+		    ];
+
+	    end;
+
+	fun realize
+	    { kidplug, window, window_size }
+	    ( state,
+	      ( quanta,
+		plea_slot,
+		event_slot:     Mailslot( bt::Button_Transition ),
+		button_look
+	      )
+	    )
+	    =
+	    {   my xc::KIDPLUG { from_mouse', from_other', ... }
+		    =
+		    xc::ignore_keyboard  kidplug;
+
+		mouse_slot =  make_mailslot ();
+		timer_slot =  make_mailslot ();
+
+		from_mouseslot' =  take'  mouse_slot;
+
+		drawf =  ba::config (button_look, window, window_size);
+
+		q = case quanta
+			#                   
+			THE (repeat_delay, repeat_interval)
+			    =>
+			    THE (repeat_delay, repeat_interval, make_mailslot ());
+
+			NULL =>  NULL;
+		    esac;
+
+
+		fun do_plea (bb::GET_BUTTON_ACTIVE_FLAG reply_1shot, state)
+			=> 
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_plea/GET_BUTTON_ACTIVE_FLAG."; };
+                            set (reply_1shot,  bb::get_button_active_flag  state);
+			    state;
+			};
+
+		    do_plea (bb::SET_BUTTON_ACTIVE_FLAG arg, state)
+			=>
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_plea/SET_BUTTON_ACTIVE_FLAG."; };
+			    bb::set_button_active_flag (arg, state);
+			};
+
+		    do_plea (bb::GET_SIZE_CONSTRAINT reply_1shot, state)
+			=> 
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_plea/GET_SIZE_CONSTRAINT."; };
+			    set (reply_1shot, ba::bounds button_look);
+			    state;
+			};
+
+		    do_plea (bb::GET_ARGS reply_1shot, state)
+			=> 
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_plea/GET_ARGS."; };
+			    set (reply_1shot, ba::window_args button_look);
+			    state;
+			};
+
+		    do_plea (_, state)
+			=>
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_plea/other."; };
+			    state;
+			};
+		end;
+
+
+		fun do_mom (xc::ETC_REDRAW _, me as (state, drawf))
+			=> 
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_mom/ETC_REDRAW."; };
+			    drawf state;
+                            me;
+                        };
+
+		    do_mom (xc::ETC_RESIZE (BOX { wide, high, ... } ), (state, _))
+			=> 
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_mom/ETC_RESIZE."; };
+			    (state, ba::config (button_look, window, SIZE { wide, high } ));
+			};
+
+		    do_mom (_, me)
+			=>
+			{
+trace .{ "pushbutton-behavior-g.pkg: realize: do_mom/other."; };
+			    me;
+			};
+		end;
+
+
+		fun do_mouse (bb::mouse::FOCUS v, me as ({ button_state, has_mouse_focus, mousebutton_is_down => FALSE }, drawf))
+			=> 
+			if (v == has_mouse_focus)
+			    #
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::FOCUS I.a"; };
+			    me;
+			else
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::FOCUS I.b"; };
+			    state' = { button_state, has_mouse_focus => v, mousebutton_is_down => FALSE };
+
+			    drawf state';
+
+			    give (event_slot,   v ?? bt::BUTTON_IS_UNDER_MOUSE :: bt::BUTTON_IS_NOT_UNDER_MOUSE);
+
+			    (state', drawf);
+			 fi;
+
+		    do_mouse (bb::mouse::FOCUS v, ({ button_state, has_mouse_focus, mousebutton_is_down => TRUE }, drawf))
+			=>
+			{   state' = { button_state, has_mouse_focus => v, mousebutton_is_down => TRUE };
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::FOCUS II"; };
+
+			    drawf state';
+			    (state', drawf);
+			};
+
+		    do_mouse (bb::mouse::DOWN button, ({ button_state, has_mouse_focus, mousebutton_is_down }, drawf))
+			=>
+			{   state' = { button_state, has_mouse_focus => TRUE, mousebutton_is_down => TRUE };
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::DOWN"; };
+
+			    drawf state';
+
+			    give  (event_slot,  bt::BUTTON_DOWN button);
+
+			    case q					# 'q' is for 'quantum'
+				#
+				THE (repeat_delay, repeat_interval, tc)		# 'tc' might have been 'time_channel' or 'timer_channel' or 'time_conditionvar' or ...?
+				    => 
+				    {   make_thread  "button_control mse_down"  (autorepeat_timer (button, timer_slot, tc, repeat_delay, repeat_interval));
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::DOWN: started autorepeat_timer"; };
+					();
+				    };
+
+				NULL =>
+				    {
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::DOWN: skipping autorepeat_timer"; };
+					();
+				    };
+			    esac;
+
+			    (state', drawf);
+		       };
+
+		    do_mouse (bb::mouse::UP button, ({ button_state, has_mouse_focus, mousebutton_is_down }, drawf))
+			=>
+			{   state' = { button_state, has_mouse_focus, mousebutton_is_down => FALSE };
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::UP"; };
+
+			    drawf state';
+
+			    give
+			      (
+				event_slot,
+				#
+				has_mouse_focus  ??  bt::BUTTON_UP button
+				                 ::  bt::BUTTON_IS_NOT_UNDER_MOUSE
+			      );
+
+			    case q
+				#                          
+#				NULL => ();
+#				THE (_, _, tc) =>  give (tc, ());
+				NULL =>
+                                    {
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::UP: q case NULL"; };
+                                        ();
+				    };
+				THE (_, _, tc) =>
+				    {
+trace .{ "pushbutton-behavior-g.pkg: do_mouse mouse::UP: q case THE"; };
+				        give (tc, ());
+				    };
+			    esac;
+
+			    (state', drawf);
+		       };
+		end;
+
+		fun active_cmd_p (me as (state, drawf))
+		    =
+		    select [
+			take'  plea_slot
+			    ==>
+			    (fn plea
+				=
+				{   state' = do_plea (plea, state); 
+
+				    if (state' == state)
+					#
+trace .{ "pushbutton-behavior-g.pkg: active_cmd_p/take' plea_slot: state' == state"; };
+					active_cmd_p me;				# State didn't change, so no need to redraw.
+				    else
+trace .{ "pushbutton-behavior-g.pkg: active_cmd_p/take' plea_slot: state' != state"; };
+					drawf state';					# Redraw button to reflect changed state.
+
+					if (state'.has_mouse_focus or state'.mousebutton_is_down)
+					    #
+					    give  (event_slot,  bt::BUTTON_IS_NOT_UNDER_MOUSE);
+					fi;
+
+					inactive_cmd_p (state', drawf);
+				    fi;
+				}),
+
+#			from_mouseslot'   ==>  (fn m      =    active_cmd_p (do_mouse (m, me))),
+#			take'  timer_slot ==>  (fn m      = {  give (event_slot, m);  active_cmd_p me;  }),
+#			from_other'       ==>  (fn mailop =    active_cmd_p (do_mom (envelope_contents mailop, me)))
+
+			from_mouseslot'   ==>  (fn m      = {
+trace .{ "pushbutton-behavior-g.pkg: active_cmd_p/from_mouseslot'"; };
+                                                              active_cmd_p (do_mouse (m, me));
+                                                            }),
+			take'  timer_slot ==>  (fn m      = {
+trace .{ "pushbutton-behavior-g.pkg: active_cmd_p/take' timer_slot"; };
+                                                              give (event_slot, m);  active_cmd_p me;
+                                                            }),
+			from_other'       ==>  (fn mailop = {		# Handle redraw and resize requests.
+trace .{ "pushbutton-behavior-g.pkg: active_cmd_p/other'"; };
+                                                              active_cmd_p (do_mom (xc::envelope_contents mailop, me));
+							    })
+		    ]
+
+		also
+		fun inactive_cmd_p (me as (state, drawf))
+		    =
+		    select [
+			take'  plea_slot
+			    ==>
+			    (fn mailop
+				=
+				{
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/take' plea_slot"; };
+                                    state' = do_plea (mailop, state); 
+
+				    if (state' == state)
+					#
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/take' plea_slot: state' == state"; };
+					inactive_cmd_p me;	# Button state is unchanged, so no need to redraw.
+				    else
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/take' plea_slot: state' != state"; };
+					drawf state';		# Redraw button to reflect changed button state.
+
+					if (state'.has_mouse_focus)
+					    #
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/take' plea_slot: state'.has_mouse_focus so sending BUTTON_IS_UNDER_MOUSE"; };
+					    give  (event_slot,  bt::BUTTON_IS_UNDER_MOUSE);
+					else
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/take' plea_slot: not (state'.has_mouse_focus) so not sending BUTTON_IS_UNDER_MOUSE"; };
+					fi;
+
+					active_cmd_p (state', drawf);
+				    fi;
+				}),
+
+			from_mouseslot'
+			    ==>
+#			    fn (bb::mouse::FOCUS has_mouse_focus) =>  inactive_cmd_p ( { button_state => state.button_state, has_mouse_focus, mousebutton_is_down => state.mousebutton_is_down }, drawf);
+#				_                                 =>  inactive_cmd_p me;
+#			    end,
+			    fn (bb::mouse::FOCUS has_mouse_focus) => {
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/from_mouseslot'/MSE_IN"; };
+                                                  inactive_cmd_p ( { button_state => state.button_state, has_mouse_focus, mousebutton_is_down => state.mousebutton_is_down }, drawf);	# Remember whether mouse is on us.
+                                                 };
+				_             => {
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/from_mouseslot'/other"; };
+                                                  inactive_cmd_p me;					# Otherwise ignore mouse.
+                                                 };
+			    end,
+
+			from_other' ==>
+			    (fn mailop
+				=
+				{
+trace .{ "pushbutton-behavior-g.pkg: inactive_cmd_p/from_other'"; };
+				    inactive_cmd_p (do_mom (xc::envelope_contents mailop, me));
+                                }
+                            )
+		    ];
+
+		    make_thread  "button_control from_mouse"  .{
+			#
+			bb::mse_p (from_mouse', mouse_slot);
+		    };
+
+		    if (bb::get_button_active_flag  state)   active_cmd_p (state, drawf);
+		    else                                   inactive_cmd_p (state, drawf);
+		    fi;
+	      };									# fun realize
+
+	fun pushbutton_imp  (settings as (quanta, plea_slot, event_slot, button_look))  state
+	    =
+	    loop state
+	    where 
+		fun loop state
+		    =
+		    case (take  plea_slot)
+			#
+			bb::GET_SIZE_CONSTRAINT    reply_1shot =>   { set (reply_1shot, ba::bounds      button_look);  loop state; };
+			bb::GET_ARGS               reply_1shot =>   { set (reply_1shot, ba::window_args button_look);  loop state; };
+			bb::GET_BUTTON_ACTIVE_FLAG reply_1shot =>   { set (reply_1shot, bb::get_button_active_flag state);   loop state; };
+			#
+			bb::SET_BUTTON_ACTIVE_FLAG arg         =>   loop (bb::set_button_active_flag (arg, state));
+			bb::DO_REALIZE arg                     =>   realize arg (state, settings);
+			_                                      =>   loop state;
+		    esac;
+	    end;
+
+	fun make_pushbutton (root_window, view, args)
+	    =
+	    {   attributes
+		    =
+		    wg::find_attribute (wg::attributes (view, attributes, args));
+
+		event_slot =  make_mailslot ();
+		plea_slot  =  make_mailslot ();
+
+		quanta =  case (wa::get_int_opt (attributes  wa::repeat_delay))
+			      #
+			      THE repeat_delay
+				  =>
+				  {   repeat_interval  = wa::get_int (attributes wa::repeat_interval);
+				      millisecs        = time::from_milliseconds o int::to_large;
+
+				      THE (millisecs repeat_delay, millisecs repeat_interval);
+				  };
+
+			      NULL => NULL;
+			  esac;
+
+		button_state = bb::make_button_state
+                          ( wa::get_bool (attributes wa::is_active),
+			    wa::get_bool (attributes wa::is_set)
+                          );
+
+		button_look
+		    =
+                    ba::make_button_look (root_window, view, args);
+
+		fun getval msg ()
+		    =
+		    {   reply_1shot = make_oneshot_maildrop ();
+
+			give  (plea_slot,  msg reply_1shot);
+
+			get  reply_1shot;
+		    };
+
+		make_thread  "pushbutton imp"  .{
+		    #
+		    pushbutton_imp
+                        (quanta, plea_slot, event_slot, button_look)
+                        { button_state,
+                          has_mouse_focus     => FALSE,		# Mouse is not currently on pushbutton.
+                          mousebutton_is_down => FALSE		# Mouse button is not currently pressed on us.
+                        };
+		};
+
+		bt::BUTTON {
+		    #
+		    plea_slot,
+		    #
+		    button_transition'
+			=>
+			wb::wrap_queue  (take'  event_slot),
+		    #
+		    widget => wg::make_widget
+				{
+				  root_window,
+				  #
+				  args                     =>  getval  bb::GET_ARGS,
+				  size_preference_thunk_of =>  getval  bb::GET_SIZE_CONSTRAINT,
+				  #
+				  realize   =>  (fn arg =  give  (plea_slot,  bb::DO_REALIZE arg))
+				}
+		  };
+	      };							# fun make_pushbutton
+
+	fun make_pushbutton_with_click_callback  args  callback
+	    =
+	    {   my bt::BUTTON { widget, plea_slot, button_transition' }
+		    =
+		    make_pushbutton  args;
+
+
+		fun listener ()
+		    =
+		    listener
+			case (do_mailop  button_transition')
+			    #
+			    bt::BUTTON_UP button => callback ();
+			    _ => ();
+			esac;
+
+
+		make_thread  "button_control command"  listener;
+
+		bt::BUTTON {
+		    widget,
+		    plea_slot,
+		    #
+		    button_transition'
+			=>
+			get' (make_oneshot_maildrop ())
+		};
+	    };
+
+    };									# generic package pushbutton_behavior_g 
+
+end;
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

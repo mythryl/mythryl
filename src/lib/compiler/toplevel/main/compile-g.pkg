@@ -1,0 +1,627 @@
+## compile-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# Our apis Compile0, Compile, Toplevel_Compile
+# are all defined in
+#
+#     ./compile.api
+#
+# Our generic is invoked from
+#
+#     src/lib/compiler/toplevel/backend/compiler-client-interface-g.pkg
+#
+# generic arguments:
+#
+#     package m
+#         is the machine-dependent coge generator
+#         for our platform.
+#
+#     package cc
+#         is compiler configuration stuff used to
+#         select between interactive compiling into
+#         memory and production compiling to a .o7 file.
+#
+#         It mainly selects whether we pickle, unpickle
+#         and generate a picklehash for everything we
+#         compile (regular batch-mode compilation) or
+#         just skip that stuff and compile direct into
+#         our heap (interactive compilation).
+#
+#
+#
+# Our canonical 'compile' entrypoint is from:
+#
+#     src/app/make7/compile/compile-treewalk-g.pkg
+#     
+
+
+###               "I had a running compiler and nobody would touch it.
+###                They told me computers could only do arithmetic."
+###
+###                                  -- Rear Admiral Grace Hopper
+
+
+
+###               "Every sufficiently good analogy is yearning to become a functor."
+###
+###                                  -- John Baez
+###                                     http://math.ucr.edu/home/baez/quantum/node2.html
+
+
+stipulate
+    package pp =  prettyprint;			# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+#   package pu =  unparse_stuff;		# unparse_stuff			is from   src/lib/compiler/frontend/typechecker/print/unparse-stuff.pkg
+herein
+
+    generic package  compile_g (
+	package m:   Backend;			# Backend			is from   src/lib/compiler/toplevel/main/backend.api
+	package cc:  Compiler_Configuration;	# Compiler_Configuration	is from   src/lib/compiler/toplevel/main/compiler-config.api
+
+	ansi_c_prototype_convention:  String;	#  "unix_convention" "windows_convention" or "unimplemented" 
+    )
+
+    : (weak) Compile0				# Compile0			is from   src/lib/compiler/toplevel/main/compile.api
+
+    {
+						# compile_info			is from   src/lib/compiler/frontend/typecheck-stuff/main/compile-info.pkg
+						# timer				is from   src/lib/std/src/timer.pkg
+						# time				is from   src/lib/std/time.pkg
+
+	fun make_compile_info { source, transform, prettyprinter_or_null }
+	    =
+	    {
+		compile_info::make_compile_info
+		  {
+		    source,
+		    transform,
+		    make_stamp_generator =>  cc::make_stamp_generator,
+		    prettyprinter_or_null
+		  };
+	    };
+
+
+	Pickle  =   cc::Pickle;		#  pickled format 
+	Hash    =   cc::Hash;		#  Dictionary hash id 
+	Pid     =   cc::Pid;
+	Version =   cc::Version;
+
+
+	##########################################################################
+	#                             Debug/visulize/log support                 #
+	##########################################################################
+
+	fun maybe_prettyprint_anormal  (
+		compile_info:   compile_info::Compile_Info( deep_syntax::Declaration ),
+		anormal
+	    )
+	    =
+	    {   compile_info ->   { prettyprinter_or_null, ... };
+
+		case prettyprinter_or_null
+		    #
+		    NULL => ();
+		    #
+		    THE pp
+			=>
+			{   pps = pp.stream;
+
+			    pp::newline  pps;
+			    pp::newline  pps;
+    #			pp::string   pps   "(Following printed by src/lib/compiler/toplevel/main/compile-g.pkg.)";
+			    pp::string   pps   "(Following";
+			    pp::break    pps   { spaces => 1, indent_on_wrap => 1 };
+			    pp::string   pps   "printed";
+			    pp::break    pps   { spaces => 1, indent_on_wrap => 1 };
+			    pp::string   pps   "by";
+			    pp::break    pps   { spaces => 1, indent_on_wrap => 1 };
+			    pp::string   pps   "src/lib/compiler/toplevel/main/compile-g.pkg.)";
+
+			    pp::newline  pps;
+			    pp::newline  pps;
+			    pp::string   pps   "A-Normal form:";
+			    pp::newline  pps;
+
+			    prettyprint_anormal::prettyprint_prog   pp   anormal;
+			};
+		esac;
+	    };
+
+
+	fun maybe_prettyprint_elapsed_time   (compile_info:   compile_info::Compile_Info( deep_syntax::Declaration ))
+	    =
+	    {   compile_info ->   { prettyprinter_or_null, ... };
+
+		case prettyprinter_or_null
+		    #
+		    NULL => ();
+		    #
+		    THE pp
+			=>
+			{   pps = pp.stream;
+
+			    pp::newline  pps;
+			    pp::newline  pps;
+			    pp::string   pps   "Elapsed time not yet implemented";
+			    pp::newline  pps;
+			};
+		esac;
+	    };
+
+
+	##########################################################################
+	#                             Typechecking                               #
+	##########################################################################
+
+	# Several preprocessing phases done
+	# after parsing or after typechecking:
+
+    #    my fixityparse
+    #        =
+    #	# compile_statistics::do_phase (compile_statistics::make_phase "Compiler 005 fixityparse")
+    #	FixityParse::fixityparse
+    #
+    #    my lazycomp
+    #        =
+    #	#  Compile_statistics::do_phase (compile_statistics::make_phase "Compiler 006 lazycomp") 
+    #	    LazyComp::lazycomp
+
+
+	pickle_unpickle
+	    =
+	    compile_statistics::do_phase
+		(compile_statistics::make_phase "Compiler 036  pickle_unpickle")
+		cc::pickle_unpickle;
+
+
+											    # compile_statistics	is from   src/lib/compiler/frontend/basics/stats/compile-statistics.pkg
+
+	# Take raw_syntax_declaration, do semantic checks, and return
+	# the new symbol table, deep_syntax_declaration and pickles:
+	#
+	fun typecheck_raw_syntax_declaration {
+		raw_syntax_declaration,							# Actual raw syntax to compile.
+		symbol_table,								# Symbol table containing info from all .o7 files we depend on.
+		compile_info,
+		version,
+		source:         source_code_source::Input_Source
+	    }
+	    :
+	    { deep_syntax_declaration:      deep_syntax::Declaration,			# Typechecked form of  raw_syntax_declaration.
+	      new_symbol_table:             symbol_table::Symbol_Table,			# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+	      exported_highcode_variables:  List( var_home::Highcode_Variable ),
+	      export_picklehash:            Null_Or( Pid ),
+	      symbol_table_picklehash:      Hash,
+	      pickle:                       Pickle
+	    }
+	    =
+	    {   compile_info ->   { prettyprinter_or_null, ... };
+
+		(typecheck_toplevel_statement::typecheck_toplevel_statement
+		    (
+			raw_syntax_declaration,						# Actual raw syntax to compile.
+			symbol_table,							# Symbol table containing info from all .o7 files we depend on.
+			compile_info
+		    ))
+		    ->
+		    ( deep_syntax_declaration,						# This is the typechecked version of  raw_syntax_declaration.
+		      new_symbol_table							# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+		    );
+
+											    # typecheck_toplevel_statement	is from   src/lib/compiler/frontend/semantic/typecheck/typecheck-toplevel-statement.pkg
+											    # compile_info			is from   src/lib/compiler/frontend/typecheck-stuff/main/compile-info.pkg
+											    # deep_syntax			is from   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/deep-syntax.pkg
+											    # unparse_deep_syntax		is from   src/lib/compiler/frontend/typechecker/print/unparse-deep-syntax.pkg
+
+		my (deep_syntax_declaration, new_symbol_table)
+		    =
+		    if   (compile_info::any_errors  compile_info)
+			 (deep_syntax::SEQUENTIAL_DECLARATIONS NIL, symbol_table::empty);
+		    else (deep_syntax_declaration,                  new_symbol_table);
+		    fi;
+
+
+
+
+		(pickle_unpickle
+		    {
+			context      =>  symbol_table,
+			symbol_table =>  new_symbol_table,
+			version
+		    })
+		    ->
+		    { pid,
+		      pickle,
+		      exported_highcode_variables,
+		      export_picklehash,
+		      new_symbol_table
+		     };
+
+
+		# Prettyprint to logfile if so requested:
+		#
+		case prettyprinter_or_null
+
+		     NULL => ();
+
+		     THE pp
+			 =>
+			 {   pps = pp.stream;
+
+			     if   (compile_info::any_errors  compile_info)
+
+				  pp::newline  pps;
+				  pp::newline  pps;
+				  pp::string   pps   "(Due to syntax errors, no deep syntax tree or new symbol table available.)\n";
+				  pp::newline  pps;
+			     else 
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "(Following printed by src/lib/compiler/toplevel/main/compile-g.pkg.)";
+				 pp::newline  pps;
+
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "ansi_c_prototype_convention:  ";
+				 pp::string   pps   ansi_c_prototype_convention;
+				 pp::newline  pps;
+
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "Original symbol table:";
+				 pp::newline  pps;
+
+										 # prettyprint_symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/prettyprint-symbol-table.pkg
+
+				 prettyprint_symbol_table::prettyprint_symbol_table     pps   symbol_table;
+				 pp::newline  pps;
+
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "New symbol table:";
+				 pp::newline  pps;
+
+				 prettyprint_symbol_table::prettyprint_symbol_table     pps   new_symbol_table;
+				 pp::newline  pps;
+
+				 pp::flush_stream  pps;
+
+
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "exported_highcode_variables:";
+				 pp::newline  pps;
+				 print_lv_list  exported_highcode_variables
+				 where
+				     fun print_lv_list  (lv ! rest)
+					     =>
+					     {   pp::string   pps   "    ";
+						 pp::string   pps   (highcode_var::to_string lv);
+						 if  (highcode_var::highcode_variable_has_a_name lv   )
+						     pp::string   pps   "  (";
+						     pp::string   pps   (highcode_var::name_of_highcode_variable lv);
+						     pp::string   pps   ")";
+						 fi;
+						 pp::newline  pps;
+					     };  
+
+					 print_lv_list  []   =>   ();
+				     end; 
+				 end;
+
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::newline  pps;
+				 pp::string   pps   "Deep syntax tree:";
+				 pp::newline  pps;
+
+									    # unparse_deep_syntax	is from   src/lib/compiler/frontend/typechecker/print/unparse-deep-syntax.pkg
+
+				 unparse_deep_syntax::unparse_declaration
+				     (new_symbol_table, THE source)
+				     pps
+				     (deep_syntax_declaration, 38);		# 1000 is the maximum expression nesting depth to print -- arbitrary large number.
+
+			     fi;
+
+			     pp::flush_stream  pps;
+
+			 };
+		esac;
+
+
+		{ deep_syntax_declaration,					# Typechecked form of  raw_syntax_declaration.
+		  new_symbol_table,						# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+		  export_picklehash,
+
+		  exported_highcode_variables,
+		  symbol_table_picklehash   =>  pid,
+		  pickle
+		};
+
+	    };								# fun typecheck_raw_syntax_declaration
+
+	typecheck_raw_syntax_declaration
+	    =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 030  typecheck") typecheck_raw_syntax_declaration;
+
+
+
+	#########################################################################
+	#                        Deep_Syntax INSTRUMENTATION                    #
+	#########################################################################
+
+						    # special_symbols	is from   src/lib/compiler/frontend/typechecker/typecheck/special-symbols.pkg
+	stipulate
+
+	    is_special
+		=
+		{   l =     [ special_symbols::param_id,
+			      special_symbols::generic_id,
+			      special_symbols::hidden_id,
+			      special_symbols::temp_package_id,
+			      special_symbols::temp_generic_id,
+			      special_symbols::generic_body_id,
+			      special_symbols::anonymous_generic_api_id,
+			      special_symbols::result_id,
+			      special_symbols::return_id,
+			      special_symbols::internal_var_id ];
+
+		    fn s =  list::exists (fn s' =  symbol::eq (s, s')) l;
+		};
+						    # list			is from   src/lib/std/src/list.pkg
+	herein
+
+	    # Instrumenting the abstract syntax to do time- and space-profiling 
+	    #
+	    fun instrument { source, symbol_table, compile_info }
+		= sprof::instrument_declaration                                    (symbol_table, compile_info) source 
+		o tprof::instrument_declaration inlining_info::is_callcc_primitive (symbol_table, compile_info)
+		o tdp_instrument::instrument is_special                            (symbol_table, compile_info);
+	end;
+
+						    # sprof			is from   src/lib/compiler/debugging-and-profiling/profile/sprof.pkg
+						    # tprof			is from   src/lib/compiler/debugging-and-profiling/profile/tprof.pkg
+						    # tdp_instrument	is from   src/lib/compiler/debugging-and-profiling/profile/tdp-instrument.pkg
+
+
+	instrument
+	    =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 039  instrument") instrument;
+
+
+
+	#########################################################################
+	#                       TRANSLATION INTO ANORMAL                        #
+	#########################################################################
+
+	# Accept a typechecked deep syntax declaration
+	# and generate corresponding A-Normal code:
+	#
+	fun translate_deep_syntax_to_anormal {
+		deep_syntax_declaration,
+		exported_highcode_variables,
+		new_symbol_table,
+		old_symbol_table,
+		compile_info
+	    }
+	    =
+
+						    # symbol_table				is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+						    # translate_deep_syntax_to_polylambda	is from   src/lib/compiler/backend/upper/translate/translate-deep-syntax-to-polylambda.pkg
+
+
+	    {   symbol_table			# symbol_table used for printing deep_syntax in messages.
+		    =
+		    symbol_table::atop (new_symbol_table, old_symbol_table);
+
+		my { polylambda_expression, imports }
+		    = 
+		    translate_deep_syntax_to_polylambda::translate_deep_syntax_declaration_to_polylambda
+			{
+			  declaration => deep_syntax_declaration,
+			  exported_highcode_variables,
+			  symbol_table,
+			  ansi_c_prototype_convention,        #  "unix_convention" "windows_convention" or "unimplemented" 
+			  compile_info
+		      };
+
+
+
+		    # Normalize the polylambda expression
+		    # into A-Normal form:
+		    #
+		    anormal
+			=
+			translate_polylambda_to_anormal::translate
+			    polylambda_expression;
+
+		{ anormal, imports };
+	    };
+
+	translate_deep_syntax_to_anormal
+	    =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 040  translate") translate_deep_syntax_to_anormal; 
+
+
+	#########################################################################
+	#                       CODE GENERATION                                 #
+	#########################################################################
+
+	# Compile A-Normal form down to FPS and
+	# thence all the way to native binary:
+
+						    # lambdasplit_inlining			is from   src/lib/compiler/backend/upper/lsplit/lambdasplit-inlining.pkg
+						    # translate_anormal_to_binary	is from   x
+	stipulate
+
+	    inline   =  lambdasplit_inlining::inline;
+	    add_code =  compile_statistics::add_stat (compile_statistics::make_stat "Code Size");
+
+	herein
+
+	    fun translate_anormal_to_binary { anormal, imports, inlining_table, cross_module_inlining, compile_info }
+		=
+		{   #  Do cross-module inlining and specialization: 
+		    #
+		    my (anormal, revised_imports)
+			=
+			inline (anormal, imports, inlining_table);
+
+		    #  from optimized anormal code, generate the machine code.  
+
+		    my (csegs, inline_expression)
+			=
+			m::translate_anormal_to_binary (		# Defined in src/lib/compiler/backend/upper/main/backend-g.pkg
+			    anormal,
+			    compile_info,
+			    cross_module_inlining
+			);
+
+		    #  Obey the nosplit directive used during bootstrapping.  
+
+		    # inline_expression
+		    #     =
+		    #     if  not_null  cross_module_inlining  then  inline_expression
+		    #                                          else   NULL;     #  XXX BUGGO FIXME WTF? 
+
+		    code_size
+			=
+			list::fold_left
+			    (fn (co, n) => n + code_segments::size co; end )
+			    (code_segments::size (csegs.c0) + unt8_vector::length csegs.data)
+			    csegs.cn;
+
+								    # list			is from   src/lib/std/src/list.pkg
+								    # code_segments		is from   src/lib/compiler/execution/code-segments/code-segments.pkg
+								    # unt8_vector		is from   src/lib/std/src/unt8-vector.pkg
+
+		    add_code  code_size;
+
+		    {   code_segments     =>  csegs,
+			inline_expression,
+			imports           =>  revised_imports
+		    };
+		};
+	end; #  local translate_anormal_to_binary 
+
+	/*
+	translate_anormal_to_binary =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 140 translate_anormal_to_binary") translate_anormal_to_binary
+	 */
+
+	###########################################################################
+	#                         COMPILATION                                  
+	#        = TYPECHECKING + TRANSLATION TO HIGHCODE + CODE GENERATION    
+	# used only by interact/read-eval-print-loop-g.pkg                    
+	# and          src/app/make7/compile/compile-treewalk-g.pkg       
+	###########################################################################
+
+
+	# Compiling the raw_syntax_declaration into binary code.
+	#
+	# Our canonical invokation is via "c::compile" in
+	#
+	#     src/app/make7/compile/compile-treewalk-g.pkg
+	#
+	fun compile
+	    { source,
+	      raw_syntax_declaration,				# Actual raw syntax to compile.
+	      symbol_table,						# Symbol table containing info from all .o7 files we depend on.
+	      inlining_table,					# Inlining table matching symbol_table.
+	      compile_info,
+	      check_errors => check,
+	      cross_module_inlining,
+	      version
+	    }
+	    = 
+	    { code_segments,
+	      new_symbol_table,					# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+	      deep_syntax_declaration,				# Typechecked form of  raw_syntax_declaration.
+
+	      export_picklehash,
+	      exported_highcode_variables,
+	      symbol_table_picklehash,
+
+	      pickle,
+	      inline_expression,
+	      imports          => revised_imports
+	    }
+	    where
+
+
+		(typecheck_raw_syntax_declaration
+		    {   raw_syntax_declaration,			# Actual raw syntax to compile.
+			symbol_table,				# Symbol table containing info from all .o7 files we depend on.
+			compile_info,
+			version,
+			source
+		    }
+		 before (check "typecheck")
+		)
+		    ->
+		    { deep_syntax_declaration,			# Typechecked form of  raw_syntax_declaration.
+		      new_symbol_table,				# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+		      exported_highcode_variables,
+		      export_picklehash,
+		      symbol_table_picklehash,
+		      pickle
+		    };
+
+
+
+	       (instrument {   source,
+			       symbol_table,
+			       compile_info
+			   }
+			   deep_syntax_declaration
+		before
+		    (check "instrument")
+	       )
+		    ->
+		    deep_syntax_declaration;
+
+
+
+	       (translate_deep_syntax_to_anormal {
+
+		    deep_syntax_declaration,			# Typechecked form of  raw_syntax_declaration.
+		    exported_highcode_variables, 
+		    new_symbol_table,				# A symbol table delta containing (only) stuff from raw_syntax_declaration.
+		    old_symbol_table => symbol_table, 		# Symbol table containing info from all .o7 files we depend on.
+		    compile_info
+		}
+		before
+		    check "translate_deep_syntax_to_anormal"
+	       )
+		    ->
+		    { anormal, imports };
+
+
+	       maybe_prettyprint_anormal  (compile_info, anormal);
+
+	       (translate_anormal_to_binary {
+		    anormal,
+		    imports,
+		    inlining_table,
+		    cross_module_inlining,
+		    compile_info
+		}
+		before
+		    (check "translate_anormal_to_binary")
+	       )
+		    ->
+		    { code_segments,
+		      inline_expression,
+		      imports => revised_imports
+		    };
+	    end;						#  function compile 
+    };								#  generic package compile_g 
+end;
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

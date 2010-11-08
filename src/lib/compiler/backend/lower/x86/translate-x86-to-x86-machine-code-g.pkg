@@ -1,0 +1,839 @@
+# translate-x86-to-x86-machine-code-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ia32.make6
+
+
+
+# IMPORTANT NOTE: 
+#   Integer registers are numbered from 0 - 31 (0-7 are physical)
+#   Floating point registers are numbered from 32-63 (32-39 are physical)
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/x86/x86-codetree.pkg
+
+generic package translate_x86_to_x86_machine_code_g (
+
+    package instruction_set
+	:
+	Instruction_Set_X86;				# Instruction_Set_X86	is from   src/lib/compiler/backend/lower/x86/instruction/instruction-set-x86.api
+							# x86instr		is from   src/lib/compiler/codegen/x86/x86-codetree.pkg
+
+    package shuffle
+        :
+        Xy86Shuffle					# Xy86Shuffle		is from   src/lib/compiler/backend/lower/x86/instruction/x86-shuffle.api
+        where instruction_set == instruction_set;	# x86shuffle		is from   src/lib/compiler/codegen/x86/x86-codetree.pkg
+
+    package codetree_eval
+	:
+        Codetree_Eval					# Codetree_Eval		is from   src/lib/compiler/backend/lower/codetree/codetree-eval.api
+        where codetree == instruction_set::codetree;	# x86codetree_eval	is from   src/lib/compiler/codegen/x86/x86-codetree.pkg
+
+    package mem_regs
+	:
+	Memory_Registers				# Memory_Registers	is from   src/lib/compiler/backend/lower/x86/instruction/x86-memory-registers.api
+        where instruction_set == instruction_set;	# x86mem_regs		is from   src/lib/compiler/codegen/x86/x86-codetree.pkg
+
+    mem_reg_base:  Null_Or(  cells_basis::Cell );	# calls_basis		is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    package asm_emitter					# x86asm_emitter	is from   src/lib/compiler/codegen/x86/x86-codetree.pkg
+	:
+	Instruction_Emitter				# Instruction_Emitter	is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+        where instruction_set == instruction_set;
+)
+
+: (weak)  Machine_Code_Emitter				# Machine_Code_Emitter	is from   src/lib/compiler/backend/lower/emit/machine-code-emitter.api
+
+{
+    package instruction_set = instruction_set;
+    package cells           = instruction_set::cells;
+
+    package i = instruction_set;
+    package c = cells;
+    package const = i::constant;
+    package w32= unt32;					# unt32			is from   src/lib/std/unt32.pkg
+    package w8= unt8;					# unt8			is from   src/lib/std/unt8.pkg
+    package w= large_unt;				# large_unt		is from   src/lib/std/large-unt.pkg
+    package cb= cells_basis;				# cells_basis		is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+    package le = codetree_eval; 
+
+    itow  = unt::from_int;
+    wtoi  = unt::to_int;
+
+    fun error msg
+        =
+        lowcode_error_message::impossible ("translate_x86_to_x86_machine_code_g." + msg);
+
+
+    # Sanity check!
+
+    eax = 0;   esp = 4;   
+    ecx = 1;   ebp = 5;
+    edx = 2;   esi = 6;   
+    ebx = 3;   edi = 7;
+
+    operand16prefix = 0x66;
+
+    fun const c
+        =
+        int32::from_int (const::value_of c);
+
+    fun lambda_expression le
+        =
+        int32::from_int (le::value_of le);
+
+    to_word8 = unt8::from_large_unt o large_unt::from_large_int o int32::to_large;
+    e_bytes  = unt8_vector::from_list; 
+
+    fun e_byte i
+        =
+        e_bytes [w8::from_int i];
+
+    stipulate 
+
+	to_lword = (w::from_large_int o int32::to_large); 
+
+	fun shift (w, count)
+            =
+            w8::from_large_unt((w::(>>))(w, count));
+
+    herein
+	fun e_short i16
+	    =
+	    {
+		w = to_lword i16;
+		[shift (w, 0u0), shift (w, 0u8)];
+	    };
+
+	fun e_long i32
+	    =
+	    {
+		w = to_lword i32;
+		[shift (w, 0u0), shift (w, 0u8), shift (w, 0u16), shift (w, 0u24)];
+	    };
+    end;
+
+    fun emit_instrs  instrs
+        =
+        unt8_vector::cat (map emit_instruction instrs)
+
+    also
+    fun emit_x86instr (instruction: i::Base_Instruction)
+        =
+        {   error
+                = 
+	        fn msg
+                    =
+		    {   my asm_emitter::instruction_stream::STREAM { emit, ... }
+                            =
+                           asm_emitter::make_stream [];
+
+		        emit (i::BASE_INSTRUCTION instruction);
+                        error msg;
+                    };
+
+	    r_num =  cb::physical_register_num; 
+	    f_num =  cb::physical_register_num; 
+
+	    fun mem_reg r
+                =
+                mem_regs::mem_reg { reg=>r, base=>null_or::the mem_reg_base };
+
+	    Size = ZERO | BITS8 | BITS32;
+
+	    fun size i
+		= 
+		if (i == 0 ) ZERO;
+		else if (int32::(<) (i, 128) and int32::(<=) (-128, i) ) BITS8; 
+		else BITS32; fi; fi;
+
+	    fun immed_operand (i::IMMED (i32)) => i32;
+		immed_operand (i::IMMED_LABEL le) => lambda_expression le;
+		immed_operand (i::LABEL_EA le) => lambda_expression le;
+		immed_operand _ => error "immedOpnd";
+	    end;
+
+	    nonfix val  mod ;
+
+	    fun scale (n, m) = unt::to_int_x (unt::(<<) (unt::from_int n, unt::from_int m));
+	    fun modrm { mod, reg, rm } = w8::from_int (scale (mod, 6) + scale (reg, 3) + rm);
+	    fun sib { ss, index, base } = w8::from_int (scale (ss, 6) + scale (index, 3) + base);
+	    fun reg { opc, reg } = w8::from_int (scale (opc, 3) + reg);
+
+	    fun e_immed_ext (opc, i::DIRECT r)
+                    =>
+                    [modrm { mod=>3, reg=>opc, rm=>r_num r } ];
+
+		e_immed_ext (opc, opn as i::MEM_REG _)
+                    =>
+                    e_immed_ext (opc, mem_reg opn);
+
+		e_immed_ext (opc, i::DISPLACE { base, disp, ... } )
+                    =>
+                    {
+			base = r_num base;                #  XXX rNum may be done twice 
+			immed = immed_operand disp;
+
+			fun displace (mod, e_disp)
+                            = 
+			    if (base==esp ) 
+			        modrm { mod, reg=>opc, rm=>4 } !
+			        sib { ss=>0, index=>4, base=>esp } ! e_disp immed;
+			    else
+			        modrm { mod, reg=>opc, rm=>base } ! e_disp immed;
+                            fi;
+
+			case (size immed)
+
+			    ZERO
+				=> 
+				if   (base == esp)
+
+				     [modrm { mod=>0, reg=>opc, rm=>4 }, sib { ss=>0, index=>4, base=>esp } ];
+
+				elif   (base==ebp)
+
+				     [modrm { mod=>1, reg=>opc, rm=>ebp }, 0u0];
+				else 
+				     [modrm { mod=>0, reg=>opc, rm=>base } ];
+				fi;
+
+			    BITS8  =>   displace (1, fn i => [to_word8 i]; end );
+			    BITS32 =>   displace (2, e_long);
+			esac;
+
+		      };
+
+		e_immed_ext (opc, i::INDEXED { base=>NULL, index, scale, disp, ... } )
+                   => 
+		  (modrm { mod=>0, reg=>opc, rm=>4 } !
+		   sib { base=>5, ss=>scale, index=>r_num index } ! 
+		   e_long (immed_operand disp));
+
+		e_immed_ext (opc, i::INDEXED { base=>THE b, index, scale, disp, ... } )
+		    =>
+		    {
+			index = r_num index;
+			base = r_num b;
+			immed = immed_operand disp;
+
+			fun indexed (mod, e_disp)
+                            = 
+			    modrm { mod, reg=>opc, rm=>4 } !
+			      sib { ss=>scale, index, base } ! e_disp immed;
+
+			case (size immed)
+
+			    ZERO => 
+				if (base==ebp ) 
+				  [modrm { mod=>1, reg=>opc, rm=>4 },
+				     sib { ss=>scale, index, base=>5 }, 0u0];
+				else
+				  [modrm { mod=>0, reg=>opc, rm=>4 }, 
+				     sib { ss=>scale, index, base } ];
+                                fi;
+
+			    BITS8  =>   indexed (1, fn i = [to_word8 i]);
+			    BITS32 =>   indexed (2, e_long);
+			esac;
+
+		    };
+
+		e_immed_ext (opc, operand as i::FDIRECT f) => e_immed_ext (opc, mem_reg operand);
+		e_immed_ext(_, i::IMMED _) => error "eImmedExt: Immed";
+		e_immed_ext(_, i::IMMED_LABEL _) => error "eImmedExt: ImmedLabel";
+		e_immed_ext(_, i::RELATIVE _) => error "eImmedExt: Relative";
+		e_immed_ext(_, i::LABEL_EA _) => error "eImmedExt: LabelEA";
+		e_immed_ext(_, i::FPR _) => error "eImmedExt: FPR";
+		e_immed_ext(_, i::ST _) => error "eImmedExt: ST";
+            end;
+
+	    #  Shorthands for various encodings: 
+
+	    fun encode    (byte1, opc, operand) =   e_bytes (byte1 ! e_immed_ext (opc, operand));
+	    fun encode_st (byte1, opc, stn)  =   e_bytes [byte1, reg { opc, reg=>f_num stn } ];
+
+	    fun encode2 (byte1, byte2, opc, operand)
+		= 
+		e_bytes (byte1 ! byte2 ! e_immed_ext (opc, operand));
+
+	    fun encode_reg (byte1, reg, operand)
+		=
+		encode (byte1, r_num reg, operand);
+
+	    fun encode_long_imm (byte1, opc, operand, i)
+		=
+		e_bytes (byte1 ! (e_immed_ext (opc, operand) @ e_long i));
+
+	    fun encode_short_imm (byte1, opc, operand, w)
+		=
+		e_bytes (byte1 ! (e_immed_ext (opc, operand) @ e_short w));
+
+	    fun encode_byte_imm (byte1, opc, operand, b)
+		=
+		e_bytes (byte1 ! (e_immed_ext (opc, operand) @ [to_word8 b]));
+
+	    fun cond_code cond
+		=
+		case cond
+		    i::EQ => 0u4;       i::NE => 0u5;
+		    i::LT => 0u12;      i::LE => 0u14;
+		    i::GT => 0u15;      i::GE => 0u13;
+		    i::AA => 0u7;       i::AE => 0u3;
+		    i::BB => 0u2;       i::BE => 0u6;
+		    i::CC => 0u2;       i::NC => 0u3;
+		    i::PP => 0uxa;      i::NP => 0uxb;
+		    i::OO => 0u0;       i::NO => 0u1;
+		esac;
+
+
+	    # arith: only 5 cases need be considered:
+	    #  dst,   src
+	    #  -----------
+	    #  EAX,   imm32
+	    #        r/m32, imm32
+	    #  r/m32, imm8
+	    #        r/m32, r32
+	    #  r32,   r/m32
+	    #
+	    fun arith (opc1, opc2)
+		=
+		f
+		where 
+
+		    fun f (i::IMMED_LABEL le, dst) => f (i::IMMED (lambda_expression le), dst);
+			f (i::LABEL_EA le, dst) => f (i::IMMED (lambda_expression le), dst);
+
+			f (i::IMMED (i), dst)
+			    => 
+			    case (size i)
+			      
+				BITS32
+				    => 
+				    case dst
+				      
+					i::DIRECT r
+					    =>
+					    if   (cb::physical_register_num r == eax)
+					         
+						 e_bytes (w8::from_int (8*opc2 + 5) ! e_long (i));
+					    else 
+						 encode_long_imm (0ux81, opc2, dst, i);
+					    fi;
+
+				      _ => encode_long_imm (0ux81, opc2, dst, i);
+				    esac;
+
+				_ => encode_byte_imm (0ux83, opc2, dst, i);  #  83 /digit ib 
+			    esac;
+
+			f (src, i::DIRECT r) => encode_reg (opc1+0u3, r, src);
+			f (i::DIRECT r, dst) => encode_reg (opc1+0u1, r, dst);
+			f _ => error "arith.f";
+		    end;
+		end;
+
+	    # test:  the following cases need be considered:
+	    #  lsrc,  rsrc
+	    #  -----------
+	    #  AL,    imm8  opc1 A8
+	    #  EAX,   imm32 opc1 A9
+	    #  r/m8,  imm8  opc2 F6/0 ib
+	    #        r/m32, imm32 opc2 F7/0 id
+	    #        r/m8,  r8    opc3 84/r
+	    #        r/m32, r32   opc3 85/r
+
+	    fun test (bits, i::IMMED_LABEL le, lsrc) => test (bits, i::IMMED (lambda_expression le), lsrc);
+		test (bits, i::LABEL_EA    le, lsrc) => test (bits, i::IMMED (lambda_expression le), lsrc);
+
+		test (bits, i::IMMED (i), lsrc)
+                   =>
+		   case (lsrc, i >= 0 and i < 255)    
+
+		       (i::DIRECT r, FALSE)
+                           => 
+			   if   (cb::physical_register_num r == eax ) e_bytes (0uxA9 ! e_long i); 
+			   else encode_long_imm (0uxF7, 0, lsrc, i);
+                           fi;
+
+		       (_, FALSE)
+                           =>
+                           encode_long_imm (0uxF7, 0, lsrc, i);
+
+		       (i::DIRECT r, TRUE)   #  8 bit 
+                           =>
+			   {   r = cb::physical_register_num r;
+
+			       if   (r == eax)   e_bytes [0uxA8, to_word8 i];
+			       elif (r < 4)      encode_byte_imm (0uxF6, 0, lsrc, i);				    #  unfortunately, only CL, DL, BL can be encoded 
+			       elif (bits == 8)  error "test.8"; 
+			       else              encode_long_imm (0uxF7, 0, lsrc, i);
+                               fi;
+			   };
+
+		       (_, TRUE)
+                           =>
+                           encode_byte_imm (0uxF6, 0, lsrc, i);
+                   esac;
+
+		test (8, rsrc as i::DIRECT r, lsrc)
+                    =>
+		    if (r_num r < 4 ) encode_reg (0ux84, r, lsrc);
+		    else error "test.8";
+                    fi;
+
+		test (32, i::DIRECT r, lsrc)
+                    =>
+                    encode_reg (0ux85, r, lsrc);
+
+		test _
+                    =>
+                    error "test";
+            end;
+
+
+	    case instruction
+
+		i::NOP => e_byte 0x90;
+
+		i::JMP (i::RELATIVE i, _)
+		    =>
+		    {   fun short_jmp ()
+			    =
+			    e_bytes [0uxeb, unt8::from_int (i - 2)];
+
+			case (size (int32::from_int (i - 2)))
+
+			    BITS32 =>  e_bytes (0uxe9 ! e_long (int32::from_int (i - 5)));
+			    _      =>  short_jmp ();
+			esac;
+
+		    }
+		    except
+			e = { print "JMP\n"; raise exception e;};
+
+		i::JMP (operand, _)
+		    =>
+		    encode (0uxff, 4, operand);
+
+		i::JCC { cond, operand=>i::RELATIVE i }
+		   => 
+		   {   code = cond_code cond;
+
+		       case (size (int32::from_int (i - 2)))
+
+			   BITS32
+			       => 
+			       e_bytes (0ux0f ! unt8::(+) (0ux80, code) ! e_long (int32::from_int (i - 6)));
+
+			  _    => 
+			       e_bytes [unt8::(+) (0ux70, code), unt8::from_int (i - 2)];
+		       esac;
+		   }; 
+
+		i::CALL { operand=>i::RELATIVE i, ... } => e_bytes (0uxe8 ! e_long (int32::from_int (i - 5)));
+		i::CALL { operand, ... } => encode (0uxff, 2, operand);
+		i::RET NULL => e_byte 0xc3;
+
+		# Integer 
+
+		i::MOVE { mv_op=>i::MOVL, src, dst }
+		    => 
+		    mv (src, dst)
+		    where
+			fun mv (i::IMMED (i), i::DIRECT r)
+				=>
+				e_bytes (unt8::(+) (0uxb8, unt8::from_int (r_num r)) ! e_long (i));
+
+			    mv (i::IMMED (i), _) => encode_long_imm (0uxc7, 0, dst, i);
+			    mv (i::IMMED_LABEL le, dst) => mv (i::IMMED (lambda_expression le), dst);
+			    mv (i::LABEL_EA le, dst) => error "MOVL: LabelEA";
+			    mv (src as i::MEM_REG _, dst) => mv (mem_reg src, dst);
+			    mv (src, dst as i::MEM_REG _) => mv (src, mem_reg dst);  
+			    mv (src, dst) => arith (0ux88, 0) (src, dst);
+			end;
+		    end;
+
+		i::MOVE { mv_op=>i::MOVW, src, dst }
+		    =>
+		    {   fun immed16 i = int32::(<) (i, 32768) and int32::(<=) (-32768, i);
+			fun prefix v = unt8_vector::cat [e_byte (operand16prefix), v];
+
+			fun mv (i::IMMED (i), _)
+				=> 
+				case dst
+
+				    i::DIRECT r
+					=> 
+					if (immed16 i) 
+					     prefix (e_bytes (w8::(+) (0uxb8, w8::from_int (r_num r)) ! e_short (i)));
+					else error "MOVW: Immediate too large";
+					fi;
+
+				   _ => prefix (encode_short_imm (0uxc7, 0, dst, i));
+				esac;
+
+			    mv (src as i::MEM_REG _, dst) => mv (mem_reg src, dst);
+			    mv (src, dst as i::MEM_REG _) => mv (src, mem_reg dst);
+
+			    mv (src, dst) => prefix (arith (0ux88, 0) (src, dst));
+			end;
+
+			mv (src, dst);
+		    };
+
+		i::MOVE { mv_op=>i::MOVB, dst, src=>i::IMMED (i) }
+		    =>
+		    case (size i)
+			 BITS32 => error "MOVE: MOVB: imm8";
+			_ => encode_byte_imm (0uxc6, 0, dst, i);
+		    esac;
+
+
+		i::MOVE { mv_op=>i::MOVB, dst, src=>i::DIRECT r } => encode_reg (0ux88, r, dst);
+		i::MOVE { mv_op=>i::MOVB, dst=>i::DIRECT r, src } => encode_reg (0ux8a, r, src);
+		i::MOVE { mv_op, src=>i::IMMED _, ... } => error "MOVE: Immed";
+
+		i::MOVE { mv_op, src, dst=>i::DIRECT r }
+		    =>
+		    {   byte2 = case mv_op   
+				    i::MOVZBL => 0uxb6; 
+				    i::MOVZWL => 0uxb7; 
+				    i::MOVSBL => 0uxbe; 
+				    i::MOVSWL => 0uxbf; 
+				    _ => error "MOV[SIZE]X";
+				 esac;
+
+			e_bytes (0ux0f ! byte2 ! e_immed_ext (r_num r, src));
+		    };
+
+		i::MOVE _
+		    =>
+		    error "MOVE";
+
+		i::CMOV { cond, src, dst }
+		    => 
+		    {   cond = cond_code cond;
+			e_bytes (0ux0f ! unt8::(+) (cond, 0ux40) ! e_immed_ext (r_num dst, src));
+		    };
+
+		i::LEA { r32, address } => encode_reg (0ux8d, r32, address);
+		i::CMPL { lsrc, rsrc } => arith (0ux38, 7) (rsrc, lsrc);
+		(i::CMPW _ | i::CMPB _) => error "CMP";
+		i::TESTL { lsrc, rsrc } => test (32, rsrc, lsrc);
+		i::TESTB { lsrc, rsrc } => test (8, rsrc, lsrc);
+		i::TESTW _ => error "TEST";
+
+		i::BINARY { bin_op, src, dst }
+		    =>
+		    {
+			fun shift (code, src)
+			    = 
+			    case src
+				i::IMMED (1) => encode (0uxd1, code, dst);
+				i::IMMED (n) => encode_byte_imm (0uxc1, code, dst, n);
+				i::DIRECT r => 
+				  if (r_num r != ecx )  error "shift: Direct";
+				  else encode (0uxd3, code, dst);fi;
+				i::MEM_REG _ => shift (code, mem_reg src);
+				_  => error "shift";
+			    esac;
+
+
+			case bin_op
+			    i::ADDL => arith (0u0, 0) (src, dst);
+			    i::SUBL => arith (0ux28, 5) (src, dst);
+			    i::ANDL => arith (0ux20, 4) (src, dst);
+			    i::ORL  => arith (0u8, 1) (src, dst);
+			    i::XORL => arith (0ux30, 6) (src, dst);
+			    i::SHLL => shift (4, src);
+			    i::SARL => shift (7, src);
+			    i::SHRL => shift (5, src);
+
+			    i::IMULL
+				=> 
+				case (src, dst) 
+
+				    (i::IMMED (i), i::DIRECT dst_r)
+					=>
+					case (size i)
+					    BITS32 => encode_long_imm (0ux69, r_num dst_r, dst, i);
+					    _      => encode_byte_imm (0ux6b, r_num dst_r, dst, i);
+					esac;
+
+				    (_, i::DIRECT dst_r)
+					=> 
+					 e_bytes (0ux0f ! 0uxaf ! (e_immed_ext (r_num dst_r, src)));
+
+				   _ => error "imull";
+				esac;
+
+			    _ => error "binary";
+			esac;
+		    };
+
+		i::MULTDIV { mult_div_op, src }
+		    =>
+		    {
+			mul_op
+			    = 
+			    case mult_div_op   
+				i::MULL1 => 4;
+				i::IDIVL1 => 7;
+				i::DIVL1 => 6;
+				i::IMULL1 => error "imull1";
+			    esac;
+
+			encode (0uxf7, mul_op, src);
+		    };
+
+		i::MUL3 { dst, src1, src2=>i }
+		    => 
+		    case src1 
+			i::IMMED _ => error "mul3: Immed";
+			i::IMMED_LABEL _ => error "mul3: ImmedLabel";
+
+			_   => 
+			    case (size i)
+				BITS32 => encode_long_imm (0ux69, r_num dst, src1, i);
+				_      => encode_byte_imm (0ux6b, r_num dst, src1, i);
+			    esac;
+		    esac;
+
+
+		i::UNARY { un_op, operand }
+		    => 
+		    case un_op
+			i::DECL
+			    => 
+			    case operand
+				i::DIRECT d =>  e_byte (0x48 + r_num d);
+				_           =>  encode (0uxff, 1, operand);
+			    esac;
+
+		       i::INCL
+			   =>
+			   case operand
+			       i::DIRECT d => e_byte (0x40 + r_num d);
+			       _           => encode (0uxff, 0, operand);
+			   esac;
+
+		       i::NEGL => encode (0uxf7, 3, operand);
+		       i::NOTL => encode (0uxf7, 2, operand);
+		       _ => error "UNARY is not in DECL/INCL/NEGL, NOTL";
+		    esac;
+
+		i::SET { cond, operand }
+		    => 
+		    e_bytes (0ux0f ! unt8::(+) (0ux90, cond_code cond) ! e_immed_ext (0, operand));
+
+		i::PUSHL (i::IMMED (i))
+		    => 
+		    case (size i )
+			BITS32 => e_bytes (0ux68 ! e_long (i));
+			_      => e_bytes [0ux6a, to_word8 i];
+		    esac;
+
+		i::PUSHL (i::DIRECT r) => e_byte (0x50+r_num r);
+		i::PUSHL operand => encode (0uxff, 6, operand);
+
+		i::POP (i::DIRECT r) => e_byte (0x58+r_num r);
+		i::POP (operand) => encode (0ux8f, 0, operand);
+
+		i::CDQ  => e_byte (0x99);
+		i::INTO => e_byte (0xce);
+
+
+
+		# Floating:
+
+		i::FBINARY { bin_op, src=>i::ST src, dst=>i::ST dst }
+		    =>    
+		    {   src = w8::from_int (f_num src);
+			dst = w8::from_int (f_num dst);
+
+			my (opc1, opc2)
+			   =
+			   case (src, dst)   
+
+			     (_, 0u0)
+				 => 
+				 case bin_op 
+				     i::FADDL  => (0uxd8, 0uxc0 + src);
+				     i::FMULL  => (0uxd8, 0uxc8 + src);
+				     i::FSUBRL => (0uxd8, 0uxe8 + src);
+				     i::FSUBL  => (0uxd8, 0uxe0 + src); #  gas XXX 
+				     i::FDIVRL => (0uxd8, 0uxf8 + src);
+				     i::FDIVL  => (0uxd8, 0uxf0 + src); #  gas XXX 
+				     _        => error "FBINARY: pop: src=%st (n), dst=%st";
+				 esac;
+
+
+			    (0u0, _)
+				=>
+				case bin_op
+				    i::FADDP  => (0uxde, 0uxc0 + dst);
+				    i::FMULP  => (0uxde, 0uxc8 + dst);
+				    i::FSUBRP => (0uxde, 0uxe8 + dst); #  gas XXX 
+				    i::FSUBP  => (0uxde, 0uxe0 + dst);
+				    i::FDIVRP => (0uxde, 0uxf8 + dst); #  gas XXX 
+				    i::FDIVP  => (0uxde, 0uxf0 + dst);
+
+				    i::FADDL  => (0uxdc, 0uxc0 + dst);
+				    i::FMULL  => (0uxdc, 0uxc8 + dst);
+				    i::FSUBRL => (0uxdc, 0uxe8 + dst); #  gas XXX 
+				    i::FSUBL  => (0uxdc, 0uxe0 + dst);
+				    i::FDIVRL => (0uxdc, 0uxf8 + dst); #  gas XXX 
+				    i::FDIVL  => (0uxdc, 0uxf0 + dst);
+
+				    _ => error "FBINARY (0u0, _)";
+				 esac;
+
+			    (_, _) => error "FBINARY (src, dst) non %st (0)";
+			esac;
+
+			e_bytes [opc1, opc2];
+		    };
+
+		i::FBINARY { bin_op, src, dst=>i::ST dst }
+		    => 
+		    if (cb::physical_register_num dst == 0)
+
+			my (opc, code)
+			    = 
+			    case bin_op    
+				i::FADDL  => (0uxdc, 0); 
+				i::FMULL  => (0uxdc, 1); 
+				i::FCOML  => (0uxdc, 2); 
+				i::FCOMPL => (0uxdc, 3); 
+				i::FSUBL  => (0uxdc, 4); 
+				i::FSUBRL => (0uxdc, 5); 
+				i::FDIVL  => (0uxdc, 6);
+				i::FDIVRL => (0uxdc, 7);
+				i::FADDS  => (0uxd8, 0); 
+				i::FMULS  => (0uxd8, 1); 
+				i::FCOMS  => (0uxd8, 2); 
+				i::FCOMPS => (0uxd8, 3); 
+				i::FSUBS  => (0uxd8, 4); 
+				i::FSUBRS => (0uxd8, 5); 
+				i::FDIVS  => (0uxd8, 6);
+				i::FDIVRS => (0uxd8, 7);
+				_ =>  error "FBINARY: pop: dst=%st";
+			    esac;
+
+			encode (opc, code, src);
+
+		    else
+			error "FBINARY";
+		    fi;
+
+		i::FIBINARY { bin_op, src }
+		    => 
+		    {   my (opc, code)
+			    =
+			    case bin_op   
+				i::FIADDL  => (0uxda, 0);
+				i::FIMULL  => (0uxda, 1);
+				i::FICOML  => (0uxda, 2);
+				i::FICOMPL => (0uxda, 3);
+				i::FISUBL  => (0uxda, 4);
+				i::FISUBRL => (0uxda, 5);
+				i::FIDIVL  => (0uxda, 6);
+				i::FIDIVRL => (0uxda, 7);
+				i::FIADDS  => (0uxde, 0);
+				i::FIMULS  => (0uxde, 1);
+				i::FICOMS  => (0uxde, 2);
+				i::FICOMPS => (0uxde, 3);
+				i::FISUBS  => (0uxde, 4);
+				i::FISUBRS => (0uxde, 5);
+				i::FIDIVS  => (0uxde, 6);
+				i::FIDIVRS => (0uxde, 7);
+			    esac;
+
+			encode (opc, code, src);
+		    };
+
+		i::FUNARY un_op
+		    =>
+		    e_bytes
+		      [ 0uxd9, 
+
+			case un_op 
+			    i::FABS => 0uxe1; 
+			    i::FCHS => 0uxe0;
+			    i::FSQRT => 0uxfa;
+			    i::FSIN => 0uxfe;
+			    i::FCOS => 0uxff;
+			    i::FPTAN => 0uxf2;
+			    i::FPATAN => 0uxf3;
+			    i::FDECSTP => 0uxf6;
+			    i::FINCSTP => 0uxf7;
+			    _ => error "FUNARY";
+			esac
+		      ];
+
+		i::FXCH { operand } => encode_st (0uxd9, 25, operand);
+
+		i::FUCOM (i::ST n) => encode_st (0uxdd, 28, n);
+		i::FUCOMP (i::ST n) => encode_st (0uxdd, 29, n);
+		i::FUCOMPP => e_bytes [0uxda, 0uxe9];
+		i::FCOMI (i::ST n) => encode_st (0uxdb, 0x1e, n);
+		i::FCOMIP (i::ST n) => encode_st (0uxdf, 0x1e, n);
+		i::FUCOMI (i::ST n) => encode_st (0uxdb, 0x1d, n);
+		i::FUCOMIP (i::ST n) => encode_st (0uxdf, 0x1d, n);
+
+		i::FSTS operand  => encode (0uxd9, 2, operand);
+		i::FSTL (i::ST n) => encode_st (0uxdd, 26, n);
+		i::FSTL operand  => encode (0uxdd, 2, operand);
+
+		i::FSTPS operand => encode (0uxd9, 3, operand);
+		i::FSTPL (i::ST n) => encode_st (0uxdd, 27, n);
+		i::FSTPL operand => encode (0uxdd, 3, operand);
+		i::FSTPT operand => encode (0uxdb, 7, operand);
+
+		i::FLD1   => e_bytes [0uxd9, 0uxe8];
+		i::FLDL2T => e_bytes [0uxd9, 0uxe9];
+		i::FLDL2E => e_bytes [0uxd9, 0uxea];
+		i::FLDPI  => e_bytes [0uxd9, 0uxeb];
+		i::FLDLG2 => e_bytes [0uxd9, 0uxec];
+		i::FLDLN2 => e_bytes [0uxd9, 0uxed];
+		i::FLDZ   => e_bytes [0uxd9, 0uxee];
+		i::FLDS operand => encode (0uxd9, 0, operand);
+
+		i::FLDL (i::ST n) => encode_st (0uxd9, 24, n);
+		i::FLDL operand => encode (0uxdd, 0, operand);
+
+		i::FILD operand => encode (0uxdf, 0, operand);
+		i::FILDL operand => encode (0uxdb, 0, operand);
+		i::FILDLL operand => encode (0uxdf, 5, operand);
+
+		i::FNSTSW => e_bytes [0uxdf, 0uxe0];
+
+	       #  misc 
+		i::SAHF => e_byte (0x9e);
+		_ => error "emitInstr";
+            esac;
+	} 
+
+    also
+    fun emit_instruction (i::LIVE _) =>  unt8_vector::from_list [];
+        emit_instruction (i::DEAD _) =>  unt8_vector::from_list [];
+
+        emit_instruction (i::COPY { kind, dst, src, tmp, ... } )
+	    => 
+	    case kind
+		cb::REGISTER       => emit_instrs  (shuffle::shuffle   { tmp, dst, src } );
+		cb::FLOAT_REGISTER => emit_instrs  (shuffle::shufflefp { tmp, dst, src } );
+	       _ => error "COPY";
+	    esac;
+
+	emit_instruction (i::BASE_INSTRUCTION instruction) => emit_x86instr instruction;
+	emit_instruction (i::NOTE { instruction, ... } ) => emit_instruction instruction;
+    end;
+};
+
+
+# COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

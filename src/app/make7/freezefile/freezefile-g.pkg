@@ -1,0 +1,2294 @@
+## freezefile-g.pkg -- Rreading, writing and managing freezefiles.
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+
+# MOTIVATION
+#
+#     The "freezefile" is Mythryl's equivalent to a unix
+#     code archive file like /lib/libc.a or /lib/libc.so.
+#     One freezefile contains many .o7 files, each
+#     representing the result of compiling one source file
+#     (i.e., .api or .pkg file).
+#
+# 
+# 
+# FILE FORMAT
+# 
+#     The format of a .frozen library file is as follows:
+# 
+#      - s:  The size s of the pickled dependency graph.
+#            This size is itself written as a four-byte string.
+# 
+#      - t:  The size of the pickled dictionary for the entire
+#            library (using the pickleEnvN interface of the pickler)
+#            in the same format as s.
+# 
+#      - The pickled dependency graph.  This graph contains
+#        integer offsets of the .o7 files for the individual
+#        sourcefile members. These offsets need to be adjusted
+#        by adding s + t + 8. The pickled dependency graph also
+#        contains integer offsets relative to other freezefiles.
+#        These offsets need no further adjustment.
+# 
+#      - Individual .o7 file contents (concatenated) but without
+#        their symbol tables.  The format of .o7 files is described in:
+#
+#            src/lib/compiler/execution/o7-file/oh7-file.pkg
+# 
+# 
+# 
+# GENERIC INVOCATION CONTEXT
+# 
+#     Our freezefile_g generic is invoked once each
+#     by the standard and bootstrap compilers:
+#
+#         src/app/make7/main/make7-g.pkg
+#         src/app/make7/make-compiler/make-compiler-g.pkg
+#
+#
+#
+# RUNTIME INVOCATION CONTEXT
+#
+#
+#     Our most typical call is from the local freeze() in
+#
+#         src/app/make7/parse/make7file-g.pkg
+
+
+
+###                "If you have a garden and a library,
+###                 you have everything you need."
+###
+###                        -- Marcus Tullius Cicero
+
+
+
+stipulate
+
+    package sg =  intra_library_dependency_graph;	# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg =  inter_library_dependency_graph;	# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+    package em =  error_message;			# error_message				is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+    package pp =  prettyprint;				# prettyprint				is from   src/lib/prettyprint/src/prettyprint.pkg
+    package sm =  source_map;				# source_map				is from   src/lib/compiler/frontend/basics/source/source-map.pkg
+    package m7 =  make7_state;				# make7_state				is from   src/app/make7/main/make7-state.pkg
+    package ph =  picklehash;				# picklehash				is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+    package pm =  pickle_module;			# pickle_module				is from   src/lib/compiler/frontend/semantic/pickle/pickle-module.pkg
+    package up =  unpickle_module;			# unpickle_module			is from   src/lib/compiler/frontend/semantic/pickle/unpickle-module.pkg
+    package mm =  module_map;				# module_map				is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-map.pkg
+herein
+
+    api Freezefile {
+
+	Library_Fetcher
+	    =
+	    ( m7::Make7_State,
+	      anchor_dictionary::File,
+	      Null_Or( version::Version )
+	,      anchor_dictionary::Renamings	# MUSTDIE
+	    )
+	    ->
+	    Null_Or( lg::Library );
+
+
+	lib_stamp_is_valid
+            :
+            m7::Make7_State
+	    ->
+            ( anchor_dictionary::File,
+              List( sg::Bare_Or_Iced_O7 ),
+              lg::Sublibrarylist
+            )
+	    ->
+            Bool;
+
+
+	load_freezefile
+            :
+            { get_library:  Library_Fetcher,
+	      any_errors:   Ref( Bool )
+	    }
+	    ->
+            Library_Fetcher;
+
+
+	write_freezefile
+            :
+            m7::Make7_State
+            ->
+            { library:    lg::Library,
+	      any_errors: Ref( Bool )
+	 ,     renamings:  anchor_dictionary::Renamings	# MUSTDIE
+	    }
+	    ->
+            Null_Or( lg::Library );
+    };
+
+
+    # We are invoked from:
+    #
+    #     src/app/make7/main/make7-g.pkg
+    #     src/app/make7/make-compiler/make-compiler-g.pkg
+
+    generic package freezefile_g (
+
+	architecture_name:  String;				# "ppc", "sparc" or "x86".
+
+	package freezefile_map:  Freezefile_Map;		# Freezefile_Map	is from   src/app/make7/freezefile/freezefile-map-g.pkg
+
+	recompile						# fun recompile from either   src/app/make7/main/make7-g.pkg
+            :							#                    or else  src/app/make7/make-compiler/make-compiler-g.pkg
+            m7::Make7_State
+	    ->
+            lg::Library
+	    ->
+            Null_Or (
+                bare_o7::Bare_O7
+	        ->
+                { contents:    oh7_file::Oh7_File_Contents,
+		  byte_sizes:  oh7_file::Byte_Sizes
+		}
+	    );
+
+
+	get_o7_exports
+            :
+            bare_o7::Bare_O7
+            ->
+            o7_exports::Oh7_Exports;
+    )
+    :
+    Freezefile						# Freezefile	is from   src/app/make7/freezefile/freezefile-g.pkg
+    {
+	Library_Fetcher
+            =
+            ( m7::Make7_State,
+	      anchor_dictionary::File,
+	      Null_Or( version::Version )
+	      , anchor_dictionary::Renamings	# MUSTDIE
+            )
+	    ->
+            Null_Or( lg::Library ); 
+
+
+	package ad = anchor_dictionary;				# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+	package ob = oh7_file;					# oh7_file		is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+
+
+	package ssmap
+            =
+            map_g (
+                package {
+		    Key  = symbol_set::Set;
+		    compare  = symbol_set::compare;
+		}
+	    );
+
+
+	package pu
+            =
+            pickle_utilities;				# pickle_utilities	is from   src/lib/compiler/src/library/pickle-utilities.pkg
+
+
+	package uu
+	    =
+	     unpickle_utilities;			# unpickle_utilities	is from   src/lib/compiler/src/library/unpickle-utilities.pkg
+
+
+	lib_stamp_num_bytes
+            =
+            16;
+
+	Map =
+            { symbol_set_map:  ssmap::Map( pu::Id ),
+	      sml_info_map:    bare_o7_map::Map( pu::Id ),
+	      pickle_map:      pm::Map
+	    };
+
+	my empty_map:  Map
+            =
+            { symbol_set_map =>  ssmap::empty,
+	      sml_info_map   =>  bare_o7_map::empty,
+	      pickle_map     =>  pm::empty_map
+	    };
+
+	lifter
+            =
+            { extract   =>   fn (m: Map)             =  m.pickle_map,
+	      patchback =>   fn (m: Map, pickle_map) =  { symbol_set_map =>  m.symbol_set_map,
+							  sml_info_map   =>  m.sml_info_map,
+							  pickle_map
+							}
+	    };
+
+	infix val 40   @@@ ;
+
+	#  Type info 
+	my (type_bn,   type_sn,   type_sbn,  type_ss,   type_si,   type_fsbn, type_impexp, type_shm,  type_g,    type_ap,   type_prim, type_exports, type_priv, type_version, type_sg,   type_rb  )
+	  = (1001, 1002, 1003, 1004, 1005, 1006, 1007,   1008, 1009, 1010, 1011, 1012,    1013, 1014,    1015, 1016);
+
+	symbol_sets
+            =
+            { find   =>  fn (m: Map, k)
+			     =
+			     ssmap::get (m.symbol_set_map, k),
+
+	      insert =>  fn ( { symbol_set_map, sml_info_map, pickle_map }, k, v)
+			     =
+			     { sml_info_map,
+			       symbol_set_map =>  ssmap::set (symbol_set_map, k, v),
+			       pickle_map
+			     }
+	    };
+
+
+	sns =
+            { find   =>  fn (m: Map, sg::BARE_O7 k)
+                             =
+                             bare_o7_map::get (m.sml_info_map, k.bare_o7),
+
+	      insert =>  fn ( { symbol_set_map, sml_info_map, pickle_map }, sg::BARE_O7 k, v)
+			     =
+			     { symbol_set_map,
+			       sml_info_map =>  bare_o7_map::set  (sml_info_map, k.bare_o7, v),
+			       pickle_map
+			     }
+	    };
+
+	#
+	fun fetch_pickle stream
+	    =
+	    {   fun bytes_in  n
+		    =
+		    {   byte_vector
+                            =
+                            binary_io::read_n  (stream, n);
+		    
+			if   (n == unt8_vector::length  byte_vector)
+                            
+                             byte_vector;
+			else
+                             file::vsay ["         .../freezefile/freezefile-g.pkg: fetch_pickle: format error"];
+                             raise exception uu::FORMAT;
+                        fi;
+		    };
+
+		libstamp  =  bytes_in  lib_stamp_num_bytes;	#  ignored 
+		dg_size   =  large_unt::to_int_x  (pack_big_endian_unt32::get_vec  (bytes_in 4, 0));
+		dg_pickle =  byte::bytes_to_string  (bytes_in  dg_size);
+	    
+		{ size   =>  dg_size,
+		  pickle =>  dg_pickle
+		};
+	    };
+	#
+	fun make_pickle_fetcher make_freezefile_name ()
+	    =
+	    safely::do
+                {
+		  open_it  =>  binary_io::open_for_read o make_freezefile_name,
+		  close_it =>  binary_io::close_input,
+		  cleanup  =>  fn _ = ()
+	        }
+		(.pickle o fetch_pickle);
+
+
+	# Build a mapping that maps each Iced_O7 to the
+	# position of its exporting sub-library and a representative
+	# symbol that can be used to find the Iced_O7 within the
+	# exports of that library.
+	#
+	fun make_inverse_map  sublibraries
+	    = 
+	    get
+            where
+	        fun one_bin_node lib_position (symbol, (node_thunk, _, _), freezefile_info_map)
+		    =
+		    case (node_thunk ())
+		      
+		         (_, sg::O7_IS_ICED (sg::ICED_O7 library_node, _, _))
+			     =>
+			     # We blindly override existing info for the same library node;
+			     # this means that the last guy wins...
+			     #
+			     iced_o7_map::set (freezefile_info_map, library_node.iced_o7, (lib_position, symbol));
+
+		         _   =>
+                             freezefile_info_map;
+                    esac;
+
+
+		# ... but we want the first guy to win,
+                # so we do fold_right and count from the top:
+		#
+		fun one_sublib (g as lg::LIBRARY { o7_views_by_name, ... }, (freezefile_info_map, lib_position))
+			=>
+			( symbol_map::keyed_fold_left			# symbol_map	is from   src/app/make7/util/symbol-map.pkg
+                              (one_bin_node  lib_position)
+                              freezefile_info_map  o7_views_by_name,
+                          lib_position - 1
+                        );
+
+		    one_sublib (_, (freezefile_info_map, lib_position))
+			=>
+			( freezefile_info_map,
+                          lib_position - 1
+                        );
+                end;
+
+		#
+		fun one_sublib' ((_, library_thunk
+                                                  , _	# MUSTDIE
+                                                  ), stablemap_and_position)
+                    =
+                    one_sublib (library_thunk (), stablemap_and_position);
+
+
+		my (inverse_map, _)
+                    =
+                    fold_right
+                        one_sublib'
+                        (iced_o7_map::empty, length sublibraries - 1)
+                        sublibraries;
+
+						# iced_o7_map	is from   src/app/make7/freezefile/iced-o7-map.pkg
+		#
+		fun get freezefile_info
+		    =
+		    case (iced_o7_map::get  (inverse_map, freezefile_info))
+		      
+		         THE p =>  p;
+		         NULL  =>  em::impossible "write_freezefile: bad inverse map";
+                    esac;
+	    
+	    end;             #  fun make_inverse_map 
+
+
+
+	# A stamp for a library is created by "pickling" the dependency graph
+	# of the library in a cursory fashion, thereby recording the
+	# interface informat picklehashes of external references.
+	# 
+	# The so-created pickle string is never used for unpickling.
+	# Instead, it is hashed and recorded as part of the regular library file.
+	# 
+	# In paranoia mode make7 checks if the recorded
+	# hash is identical to the one that _would_ be created if one were
+	# to re-build the library now.
+	#
+	fun lib_stamp_of (library_path, export_nodes, sublibraries)
+	    =
+	    {   fun o7compare (   sg::O7_IS_ICED (sg::ICED_O7 n1, _, _),
+				  sg::O7_IS_ICED (sg::ICED_O7 n2, _, _)
+			       )
+			=>
+			iced_o7::compare			# iced_o7	is from   src/app/make7/freezefile/iced-o7.pkg
+                            ( n1.iced_o7,
+                              n2.iced_o7
+                            );
+
+		    o7compare (sg::O7_IS_ICED _, sg::O7_IS_BARE  _) =>  GREATER;
+		    o7compare (sg::O7_IS_BARE  _, sg::O7_IS_ICED _) =>  LESS;
+
+		    o7compare ( sg::O7_IS_BARE (sg::BARE_O7 n1),
+				sg::O7_IS_BARE (sg::BARE_O7 n2)
+			      )
+			=>
+			bare_o7::compare			# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+                            ( n1.bare_o7,
+                              n2.bare_o7
+                            );
+                end;
+
+
+		# To deal with the primordial library (where export nodes come in
+		# in an ad-hoc order not derived from the export map),
+		# we first sort the list of export nodes, thereby getting rid
+		# of duplicates.  This should normally canonicalize the list.
+		# The resulting order is unfortunately not persistent.
+		# Most of the time this should not matter, though.
+		#
+		export_nodes
+                    =
+                    list_mergesort::unique_sort		# list_mergesort	is from   src/lib/src/list-mergesort.pkg
+                        o7compare
+                        export_nodes;
+
+		inverse_map
+                    =
+                    make_inverse_map  sublibraries;
+
+								# pickle_symbol_or_picklehash	is from   src/lib/compiler/frontend/semantic/pickle/pickle-symbol-or-picklehash.pkg
+
+		pid    =  pickle_symbol_or_picklehash::pickle_picklehash;
+		share  =  pu::ad_hoc_share;
+		symbol =  pickle_symbol_or_picklehash::pickle_symbol;
+		string =  pu::pickle_string;
+		list   =  pu::pickle_list;
+		int    =  pu::pickle_int;
+
+		# 2007-11-17 CrT: Commented this out because it is unused. Is there any reason not to delete it?
+#		fun abspath p
+#		    =
+#		    {   my op @@@
+#                            =
+#                            (pu::(@@@)) type_ap;
+#
+#			ll  =
+#                            ad::pickle		# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+#
+#                                { warn       => fn _ = () }
+#
+#			        { file        =>  ad::file_to_basename  p,
+#                                  relative_to =>  library_path
+#                                };
+#		    
+#			"p" @@@ [list (list string) ll];
+#		    };
+
+		#
+		fun do_bare_o7 n
+		    =
+		    {   my (@@@)
+                            =
+                           (pu::(@@@)) type_sn;
+
+			#
+			fun raw_sn (sg::BARE_O7 n)
+			    =
+			    "a" @@@ [ list  do_bare_o7              n.near_imports,
+                                      list  do_far_bare_or_iced_o7  n.far_imports
+                                    ];
+		    
+			share  sns  raw_sn  n;
+		    }
+
+		also
+                fun do_bare_or_iced_o7 x
+		    =
+		    {   my (@@@)
+                            =
+                            (pu::(@@@)) type_sbn;
+		    
+			case x
+		          
+			     sg::O7_IS_ICED (sg::ICED_O7 { iced_o7 => i, ... }, o7_exports, _)
+				 =>
+				 {   my (i, symbol)
+                                         =
+                                         inverse_map i;
+
+				     o7_exports
+                                         ->
+                                         { symbol_table_picklehash,
+                                           inlining_table_picklehash,
+                                           ...
+                                         };
+                                         
+				 
+				     "2"   @@@   [ int  i,
+                                                   pid  symbol_table_picklehash,
+                                                   pid  inlining_table_picklehash
+                                                 ];
+				 };
+
+			     sg::O7_IS_BARE n
+				 =>
+				 "3" @@@ [do_bare_o7 n];
+                        esac;
+		    }
+
+		also
+                fun do_far_bare_or_iced_o7 (_, n)
+		    =
+		    {   my (@@@)
+                            =
+                            (pu::(@@@))  type_fsbn;
+		   
+
+		       "f" @@@ [do_bare_or_iced_o7 n];
+		   };
+		#
+		fun do_lib ()
+		    =
+		    {   my (@@@)
+                            =
+                            (pu::(@@@))  type_g;
+		    
+			"g" @@@ [list  do_bare_or_iced_o7  export_nodes];
+		    };
+	    
+		pm::hash_pickle
+                    (byte::string_to_bytes
+                    (pu::pickle empty_map (do_lib ())));
+
+	    };               #  fun lib_stamp_of 
+
+
+
+	# Comparison of old and new library stamps:
+	#
+	fun lib_stamp_is_valid  (make7_state: m7::Make7_State) (a as (library_path, _, _))
+	    =
+	    {   new_stamp
+                    =
+                    byte::bytes_to_string  (ph::to_bytes  (lib_stamp_of  a));
+
+
+		policy
+                    =
+                    make7_state.make7_session.filename_policy;
+
+
+		sname
+                    =
+                    filename_policy::make_freezefile_name policy library_path;
+
+		safely::do
+		    {
+		      open_it  =>  .{ binary_io::open_for_read sname; },
+		      close_it =>     binary_io::close_input,		# binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+		      cleanup =>  fn _ = ()
+		    }
+		   .{   old_stamp
+                            =
+                            byte::bytes_to_string  (binary_io::read_n  (#stream,  lib_stamp_num_bytes));
+		    
+			old_stamp == new_stamp;
+		    }
+		except _
+                    =
+                    FALSE;
+	    };
+
+		#
+	fun load_freezefile
+                { get_library, any_errors }
+                ( make7_state,
+                  makefile,
+                  version			# XXX BUGGO FIXME 'version' here can die, I think.
+                  , anchor_rebinds	# MUSTDIE
+                )
+	    =
+	    {   plaint_sink
+                    =
+                    .plaint_sink
+                        (make7_state:  make7_state::Make7_State);
+
+		error_info
+                    =
+                    ( plaint_sink,
+                      any_errors
+                    );
+
+		library_description
+                    =
+                    ad::describe  makefile;
+
+									# make7_state		is from   src/app/make7/main/make7-state.pkg
+									# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+
+		#
+		fun error l
+		    =
+		    em::error_no_file
+
+                        (plaint_sink, any_errors)
+			sm::null_region
+			em::ERROR (cat ("(built) " ! library_description ! ": " ! l))
+			em::null_error_body;
+
+
+		exception FORMAT
+                    =
+                    uu::FORMAT;
+
+
+		anchor_dictionary
+                    =
+                    make7_state.make7_session.anchor_dictionary;
+
+		policy
+                    =
+                    make7_state.make7_session.filename_policy;
+
+									# filename_policy	is from   src/app/make7/main/filename-policy.pkg
+									# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+		fun make_freezefile_name ()
+                    =
+                    filename_policy::make_freezefile_name
+                        policy
+                        makefile;
+
+		#
+		fun work s
+		    =
+		    share  group_m  gr
+                    where
+		        fun get_library' (make7_state, p, vo
+                                                            , rb	# MUSTDIE
+                                                            )
+			    =
+			    case (get_library (make7_state, p, vo
+                                                                , rb	# MUSTDIE
+                                                                ))
+                              
+
+				 THE lib
+                                     =>
+                                     lib;
+
+				 NULL
+				     =>
+				     {
+                                         error [
+					     "   .../freezefile/freezefile-g.pkg:   Unable to find ",
+					     ad::describe p,
+					     " (",
+					     ad::abbreviate (ad::os_string p),
+					     ")"
+					 ];
+
+					 raise exception FORMAT;
+				     };
+                            esac;
+
+
+			(fetch_pickle  s)
+			    ->
+			    { size   =>  dg_size,
+                              pickle =>  dg_pickle
+                            };
+                            
+
+
+			offset_adjustment
+                            =
+                            dg_size + 4 + lib_stamp_num_bytes;
+
+
+			my { getter, clear_pickle_cache }
+                            =
+                            uu::string_getter'
+                                ( THE dg_pickle,
+                                  make_pickle_fetcher make_freezefile_name
+                                );
+
+			session
+                            =
+                            uu::make_session getter;
+
+
+			###################################################
+			#
+			#	Allocate Per-Type Backref Maps
+			#
+			# A vanilla recursive treewalk can read and write
+			# simple tree structures, but we must implement special
+			# handling for pickled datastructures with shared
+			# nodes -- nodes with multiple parents.
+			#
+			# If we didn't, shared nodes would be duplicated
+			# by a pickle + unpickle sequence, resulting in some
+			# datastructures coming back exponentially larger
+			# than they started out.  Not good.
+                        #
+                        # To maintain sharing through the pickle + unpickle
+			# sequence we store special backreferences in the
+			# pickles, which upon unpickling (i.e., here) we convert
+			# back into pointers to shared values.  (Pickle backrefs are
+			# a teeny bit like \1 or $1 backrefs in regular expressions,
+			# which serve a vaguely similar purpose.  Hence the name.)
+                        #
+			# To make this work, we need a table of already-unpickled
+			# graph nodes, with which to resolve the backreferences as
+			# we encounter them.
+                        #
+			# In fact, to keep the type checker happy, we need a
+			# separate backref table for each type of shared node.
+			#
+			# Here we define these per-type backref tables,
+			# each initially empty.
+			#
+			# Note that we can't really have shared values for
+			# some types such as immediate integers, so we don't
+			# waste time or space creating backref tables for them.
+			#
+			# The "_m" suffix is for "_map":
+			#
+			sg_list_m              =  uu::make_map ();
+			ss_m                   =  uu::make_map ();
+			sso_m                  =  uu::make_map ();
+			bool_option_m          =  uu::make_map ();
+			si_m                   =  uu::make_map ();
+			sn_m                   =  uu::make_map ();
+			sn_list_m              =  uu::make_map ();
+			sbn_m                  =  uu::make_map ();
+			fsbn_m                 =  uu::make_map ();
+			fsbn_list_m            =  uu::make_map ();
+			impexp_m               =  uu::make_map ();
+			imports_exports_list_m =  uu::make_map ();
+			group_m                =  uu::make_map ();
+			ap_m                   =  uu::make_map ();
+			exports_m              =  uu::make_map ();
+			privileges_m           =  uu::make_map ();
+			po_m                   =  uu::make_map ();
+			string_list_m          =  uu::make_map ();
+			string_list_list_m     =  uu::make_map ();
+			version_m              =  uu::make_map ();
+			version_opt_m          =  uu::make_map ();
+			sg_m                   =  uu::make_map ();
+# MUSTDIE these are probably both about rb=rebindings
+			rb_m                   =  uu::make_map ();
+			rbl_m                  =  uu::make_map ();
+
+			#
+			fun list m r   =  uu::read_list   session m r;
+			string         =  uu::read_string session;
+			fun option m r =  uu::read_option session m r;
+			int            =  uu::read_int    session;
+			bool           =  uu::read_bool   session;
+			fun share m r  =  uu::share       session m r;
+			fun nonshare r =  uu::nonshare    session r;
+			bool           =  uu::read_bool   session;
+
+			pid            =  unpickle_symbol_picklehash::read_picklehash  (session, string);
+
+							# unpickle_symbol_picklehash	is from   src/lib/compiler/frontend/semantic/pickle/unpickle-symbol-picklehash.pkg
+
+			stringlist     =  list  string_list_m       string;
+			stringlistlist =  list  string_list_list_m  stringlist;
+			#
+			fun list2path c sl
+			    =
+			    c (ad::unpickle		# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+                                  anchor_dictionary
+                                  { pickled     =>  sl,
+                                    relative_to =>  makefile
+                                  }
+                              )
+			    except
+                                ad::FORMAT
+                                    =
+				    {   error ["freezefile-g.pkg: list2path: format error"];
+                                        raise exception uu::FORMAT;
+                                    };
+
+			#
+			fun abspath ()
+			    =
+			    share  ap_m  ap
+                            where
+			        fun ap 'p'
+                                        =>
+                                        list2path   ad::file   (stringlistlist ());
+
+				    ap _
+                                        =>
+                                        {   error ["freezefile-g.pkg: abspath: format error"];
+                                            raise exception uu::FORMAT;
+                                        };
+                                end;
+			    end;
+			#
+			fun version ()
+			    =
+			    share  version_m  v
+                            where
+			        fun v 'v'
+                                        =>
+                                        case (version::from_string  (string ()))
+                                          
+					     THE v
+                                                 =>
+                                                 v;
+
+					     NULL
+                                                 =>
+                                                 {   error ["freezefile-g.pkg: version: format error"];
+						     raise exception FORMAT;
+                                                 };
+                                        esac;
+
+				    v _ =>
+                                        {   error ["freezefile-g.pkg: version/2: format error"];
+                                            raise exception uu::FORMAT;
+                                        };
+                                end;
+			    end;
+
+# MUSTDIE (?) -- this is probably all "rb"=="rebinding" shit
+			fun rb ()        #  "rb" == "recursive binding"? 
+			    =
+			    share  rb_m  r
+                            where
+			        fun r 'b'
+                                        =>
+                                        { anchor =>  string (),
+					  value  =>  list2path   (fn x = x)  (stringlistlist ())
+					};
+
+				   r _ =>
+                                       {   error ["freezefile-g.pkg: rb: format error"];
+                                           raise exception uu::FORMAT;
+                                       };
+                                end;
+			    end;
+			#
+			fun sg ()
+			    =
+			    share  sg_m  xsg
+                            where
+# MUSTDIE
+#			        fun do_it ()
+			        fun do_it get_rbl        #  rbl == "recursive binding list"? 
+				    =
+				    {
+                                        p   =  abspath ();
+					vo  =  option version_opt_m version ();
+					rbl =  get_rbl ();	# MUSTDIE
+					#
+					fun lib_thunk ()
+                                            =
+                                            get_library' (make7_state, p, vo
+                                                                            , rbl	# MUSTDIE
+                                                                            );
+				    
+					(p, memoize::memoize lib_thunk
+                                                                , rbl	# MUSTDIE
+                                                                );
+				    };
+
+#				fun xsg 's' =>  do_it  (); # MUSTDIE (fn () = []);		#  Backward-compatible 
+#				    xsg 'S' =>  do_it  (); # MUSTDIE (list  rbl_m  rb);
+				fun xsg 's' =>  do_it  (fn () = []);		#  Backward-compatible 
+				    xsg 'S' =>  do_it  (list  rbl_m  rb);
+				    xsg _   =>  {   error ["freezefile-g.pkg: xsg: format error"];
+                                                    raise exception uu::FORMAT;
+                                                };
+                                end;
+			    end;
+			#
+			fun gr 'g'
+				=>
+				{   version
+					=
+					option  version_opt_m  version  ();
+
+				    sublibraries
+					=
+					list  sg_list_m  sg  ();
+				    #
+				    fun get_sublib  lib_position
+					=
+					case (#2  (list::nth (sublibraries, lib_position))  ())
+					  
+					     lg::LIBRARY x     =>  x;
+					     lg::ERROR_LIBRARY =>  em::impossible "load_freezefile: ERROR_LIBRARY";
+					esac
+					except
+					    (exceptions::SUBSCRIPT|exceptions::INDEX_OUT_OF_BOUNDS)		# exceptions	is from   src/lib/std/exceptions.pkg
+						=
+						{    error ["freezefile-g.pkg: gr: format error"];
+						     raise exception uu::FORMAT;
+						};
+
+				    #
+				    fun context  NULL
+					    =>
+					    {    error ["freezefile-g.pkg: context/NULL: format error"];
+						 raise exception uu::FORMAT;
+					    };
+
+					context  (THE  (lib_position,  symbol))
+					    =>
+					    {   my { o7_views_by_name, ... }
+						    =
+						    get_sublib  lib_position;
+
+										# symbol_map	is from   src/app/make7/util/symbol-map.pkg
+
+						case (symbol_map::get (o7_views_by_name, symbol))
+						  
+						     THE (node_thunk, _, _)
+							 =>
+							 case (node_thunk ())
+							   
+							      (_, sg::O7_IS_ICED (_, x, _))
+								  =>
+								  freezefile_map::add_symbol_table
+								      (x.symbol_table_thunk ());
+
+							      _   =>
+								  {   error ["freezefile-g.pkg: context/THE: format error"];
+								      raise exception uu::FORMAT;
+								  };
+							 esac;
+
+
+						    NULL
+							=>
+							{   error ["freezefile-g.pkg: context/THE/NULL: format error"];
+							    raise exception uu::FORMAT;
+							};
+						esac;
+					    };
+				    end;		# fun context
+
+				    my { inlining_table, symbol_table, symbol, symbollist }
+					=
+					up::make_unpicklers {
+					  session,
+					  stringlist
+					}
+					context;
+
+				    lazy_symbol_dictionary =  uu::read_lazy  session  inlining_table;
+				    lazy_symbol_table      =  uu::read_lazy  session  symbol_table;
+				    #
+				    fun symbol_set ()
+					=
+					share  ss_m  s
+					where
+					    fun s 's' =>   symbol_set::add_list  (symbol_set::empty, symbollist ());
+						s _   =>   {   error ["freezefile-g.pkg: symbol_set: format error"];
+							       raise exception uu::FORMAT;
+							   };
+					    end;
+					end;
+
+				    filter
+					=
+					option  sso_m  symbol_set;
+				    #
+				    fun shm ()
+					=
+					nonshare  s
+					where
+					    fun s 'a' =>   sharing_mode::SHARE  TRUE;	# sharing_mode	is from   src/app/make7/semant/sharing.pkg
+						s 'b' =>   sharing_mode::SHARE  FALSE;
+						s 'c' =>   sharing_mode::DO_NOT_SHARE;
+						s _   =>   {    error ["freezefile-g.pkg: shm: format error"];
+								raise exception uu::FORMAT;
+							   };
+					    end;
+					end;
+
+				    pidoption
+					=
+					option po_m pid;
+				    #
+				    fun si ()
+					=
+					share  si_m  s
+					where
+					    fun s 's'
+						    =>
+						    {   spec =  string ();
+							locs =  string ();
+
+							offset
+							    =
+							    int () + offset_adjustment;
+
+							runtime_system_pid
+							    =
+							    pidoption ();
+
+							sharing_mode
+							    =
+							    shm ();
+
+							plaint_sink
+							    =
+							    em::error_no_source  error_info  locs;
+
+							iced_o7::new {
+
+							  library               => makefile,
+							  make_freezefile_name,
+
+							  plaint_sink,
+							  spec,
+							  offset,
+
+							  runtime_system_pid,
+							  sharing_mode
+							};
+						    };
+
+						s _ =>
+						    {    error ["freezefile-g.pkg: si: format error"];
+							 raise exception uu::FORMAT;
+						    };
+					    end;
+					end;
+
+				    # This is the place where what used to be
+				    # a BARE_O7 changes to a ICED_O7:
+				    #
+				    fun sn ()
+					=
+					share sn_m sn'
+					where
+					    fun sn' 'a'
+						    =>
+						    sg::ICED_O7 {
+
+							iced_o7  =>  si (),
+							near_imports  =>  snlist (),
+							far_imports =>  fsbnlist ()
+						    };
+
+						sn' _
+						    =>
+						    {   error ["freezefile-g.pkg: sn: format error"];
+							raise exception uu::FORMAT;
+						    };
+					    end;
+					end
+
+				    also
+				    fun snlist ()
+					=
+					list  sn_list_m  sn  ()
+
+				    # This one changes from far_o7
+				    # to a far_o7_in_lib:
+
+				    also
+				    fun sbn  ()
+					=
+					{   fun sbn' '2'
+						=>
+						{   lib_position =  int ();
+
+						    symbol = symbol ();
+
+						    my { o7_views_by_name => slexp, ... }
+							=
+							get_sublib lib_position;
+												# symbol_map	is from   src/app/make7/util/symbol-map.pkg
+
+						    case (symbol_map::get (slexp, symbol))
+						      
+							 THE (node_thunk, _, _)
+							     =>
+							     case (node_thunk ())
+							       
+								  (_, sg::O7_IS_ICED (n, _, _))
+								      =>
+								      (n, THE lib_position);
+
+								   _  =>
+								      {   error ["freezefile-g.pkg: sbn/THE: format error"];
+									  raise exception uu::FORMAT;
+								      };
+							     esac;
+
+
+							 NULL
+							     =>
+							     {    error ["freezefile-g.pkg: sbn/I: format error"];
+								  raise exception uu::FORMAT;
+							     };
+						    esac;
+						};
+
+					       sbn' '3' => (sn (), NULL);
+					       sbn' _    => {    error ["freezefile-g.pkg: sbn/III: format error"];
+								 raise exception uu::FORMAT
+							    ;}; end;
+
+					    share  sbn_m  sbn';
+					}
+
+				    also
+				    fun fsbn ()
+					=
+					share fsbn_m f
+					where
+					    fun f 'f'
+						    =>
+						    {   f =  filter ();
+
+							my (n, pos)
+							    =
+							    sbn ();
+
+							(f, n, pos);
+						    };
+
+						f x =>
+						    {   error ["freezefile-g.pkg: fsbn: format error, expected 'f' but got '", (char::to_string x), "' instead"];
+							raise exception uu::FORMAT;
+						    };
+					    end;
+					end
+
+				    also
+				    fun fsbnlist ()
+					=
+					list  fsbn_list_m  lazy_fsbn ()
+
+
+				    also
+				    fun lazy_fsbn ()
+					=
+					uu::read_lazy  session  fsbn ();
+
+				    #
+				    fun import_export ()
+					=
+					share impexp_m ie
+					where
+					    fun ie 'i'
+						    =>
+						    {   symbol = symbol ();
+
+							#  Really reads far_bin_nodes! 
+							node_thunk = lazy_fsbn ();
+
+							ge    =   lazy_symbol_table ();
+							sye   =   lazy_symbol_dictionary ();
+
+							symbol_table_picklehash          =   pid ();
+							inlining_table_picklehash   =   pid ();
+
+							version     =  string ();
+							allsyms  =  symbol_set ();
+							#
+							fun imports_exports_thunk ()
+							    =
+							    {   my (f, n, pos)
+								    =
+								    node_thunk ();
+
+								o7_exports
+								    =
+								    {   symbol_table_thunk => ge,
+									inlining_table_thunk => sye,
+
+									symbol_table_picklehash,
+									inlining_table_picklehash,
+
+									version
+								    };
+
+								(f, sg::O7_IS_ICED (n, o7_exports, pos));
+							    };
+
+							e =  symbol_table_to_exports_dictionary::convert_memo   ge;
+
+							# symbol_table_to_exports_dictionary	is from   src/app/make7/depend/symbol-table-to-exports-dictionary.pkg
+
+							# Put a filter in front to avoid needlessly
+							# querying the FCTENV -- this
+							# avoids spurious module loadings:
+
+							e' = exports_dictionary::FILTER
+								     (symbol_set::singleton symbol, e);
+
+							# exports_dictionary	is from   src/app/make7/depend/exports-dictionary.pkg
+
+							(symbol, (memoize::memoize imports_exports_thunk, e', allsyms));
+						    };
+
+						ie 'j'
+						    =>
+						    {   symbol     =  symbol ();
+							node_thunk =  lazy_fsbn ();
+							allsyms    =  symbol_set ();
+
+							#  This seems (is?) a bit clumsy... 
+							fun xth ()
+							    =
+							    {   my (f, n, pos)
+                                                                    =
+                                                                    node_thunk ();
+
+								my (sbn_thunk, e, _)
+								    =
+								    the (symbol_map::get
+									       (.o7_views_by_name
+										    (get_sublib
+											 (the pos)), symbol))
+								    except
+                                                                        _ =  {   error ["freezefile-g.pkg: xth: format error"];
+										 raise exception uu::FORMAT;
+									     };
+
+								(f, n, pos, sbn_thunk, e);
+							    };
+
+							xth   =   memoize::memoize xth;
+							#
+							fun eth ()
+                                                            =
+                                                            #5 (xth ());
+
+							e'
+                                                            =
+                                                            exports_dictionary::FILTER (
+							      symbol_set::singleton  symbol,
+							      exports_dictionary::SUSPEND  eth
+							    );
+
+														# symbol_set	is from   src/app/make7/util/symbol-set.pkg
+							#
+							fun imports_exports_thunk ()
+							    =
+							    {   (xth ())
+                                                                    ->
+                                                                    (f, n, pos, sbn_thunk, _);
+                                                                    
+
+								o7_exports
+								    =
+								    case (#2 (sbn_thunk ()))
+								      
+								         sg::O7_IS_ICED (_, o7_exports, _)
+									     =>
+									     o7_exports;
+
+									_   =>
+                                                                            {   error ["freezefile-g.pkg: imports_exports_thunk: format error"];
+									        raise exception uu::FORMAT;
+									    };
+                                                                    esac;
+
+								(f, sg::O7_IS_ICED (n, o7_exports, pos));
+							    };
+
+							(symbol, (memoize::memoize imports_exports_thunk, e', allsyms));
+						    };
+
+						ie _
+						    =>
+						    {   error ["freezefile-g.pkg: import_export: format error"];
+							raise exception uu::FORMAT;
+						    };
+					    end;
+
+					end;                                           #  fun import_export 
+
+				    imports_exports_list
+					=
+					list  imports_exports_list_m  import_export;
+							#
+				    fun r_exports ()
+					=
+					share exports_m e
+					where
+					    fun e 'e'
+						    =>
+						    fold_left
+							symbol_map::set'
+							symbol_map::empty
+							(imports_exports_list ());
+
+						e _ =>
+						    {   error ["freezefile-g.pkg: r_exports: format error"];
+							raise exception uu::FORMAT;
+						    };
+					    end;
+					end;
+				    #
+				    fun privileges ()
+					=
+					share  privileges_m  p
+					where
+					    fun p 'p'
+						    =>
+						    string_set::add_list (string_set::empty, stringlist ());
+
+						p _ =>
+						    {   error ["freezefile-g.pkg: privileges: format error"];
+							raise exception uu::FORMAT;
+						    };
+					    end;
+					end;
+
+				    o7_views_by_name
+					=
+					r_exports ();
+
+				    required_privileges
+					=
+					privileges ();
+
+				    lg::LIBRARY
+					{
+					  o7_views_by_name,
+					  required_privileges,
+					  sublibraries,
+
+					  library_path =>  makefile,
+					  sources      =>  source_path_map::empty,
+
+					  real_or_virtual
+					      =>
+					      lg::REAL
+						  {
+						    version,
+						    frozen_or_thawed  => lg::FROZEN clear_pickle_cache
+						  }
+					};
+				};
+
+			    gr _
+                                =>
+                                {   error ["freezefile-g.pkg: work: format error"];
+				    raise exception uu::FORMAT;
+				};
+                        end;			# fun gr
+		    end;                 	# fun work 
+	    
+		THE (safely::do
+                        { open_it  =>  binary_io::open_for_read  o  make_freezefile_name,
+			  close_it =>  binary_io::close_input,
+			  cleanup  =>  fn _ = ()
+			}
+			work
+		     )
+		except
+                    FORMAT
+                        =>
+                        {   error ["file is corrupted (old version?)"];
+			    NULL;
+                        };
+
+		    io_exceptions::IO _
+                        =>
+                        NULL;
+                end;
+	    };                          #  load_freezefile 
+
+
+        # Create the actual on-disk freezefile
+        # for a REAL LIBRARY, then change
+        # its status from THAWED to FROZEN:
+	#
+	fun write_freezefile
+                make7_state
+                {
+                  library =>  library_to_freeze as lg::LIBRARY  library_record,
+                  any_errors
+                , renamings	# MUSTDIE
+                }
+		=>
+		{   policy
+                        =
+                        make7_state.make7_session.filename_policy;
+		    #
+		    fun do_it (wrapped_privileges, get_bfc, vers)       	# XXX BUGGO FIXME there -has- to be a better name for this fn...
+			=
+			{   library_path      =  library_record.library_path;
+			    sublibraries      =  library_record.sublibraries;
+			    o7_views_by_name  =  library_record.o7_views_by_name;
+			    #
+			    fun force f
+				=
+				f ();
+
+			    libstamp
+				=
+				lib_stamp_of ( library_path,
+
+					       map (#2 o force o #1)
+						   (symbol_map::vals_list o7_views_by_name),
+
+					       sublibraries
+                                             );
+			    #
+			    fun write_bfc s (i, { code, data, dictionary, inlinable } )	# "bfc" == "binary file contents"
+				=
+				{   my { contents, byte_sizes }
+                                        =
+                                        get_bfc i;
+
+				    my { code => c,
+					 data => d,
+					 dictionary => e,
+					 inlinable => inlining_info
+					}
+					=
+					byte_sizes;
+
+				    v =  lib7_version::version.version_id;
+
+                                    ignore
+					(ob::write { architecture_name,		# "ppc", "sparc" or "x86".
+						     version         => v,
+						     no_pickle       => TRUE,
+						     stream          => s,
+						     oh7_file_contents => contents
+						  }
+					);
+
+				    { code      =>  code + c,
+				      data      =>  data + d,
+				      dictionary      =>  dictionary + e,
+				      inlinable =>  inlinable + inlining_info
+				    };
+				};     #  fun write_bfc
+			    #
+			    fun size_bfc i
+				=
+				ob::size { contents  =>  .contents (get_bfc i),
+					   no_pickle =>  TRUE
+					};
+			    #
+			    fun pid_bfc i
+				=
+				ob::hash_of_symbol_table_pickle (.contents (get_bfc i));
+
+# XXX BUGGO FIXME
+                            fun abbreviate (full_pathname: String)
+                                =
+                                {   root = winix::file::current_directory ();  # "/pub/home/cynbe/src/mythryl/mythryl7/mythryl7.110.58/mythryl7.110.58";
+
+                                    if   (string::is_prefix  root  full_pathname)
+                                        
+                                         string::extract (full_pathname, string::length root + 1, NULL);
+                                    else
+                                         full_pathname;
+                                    fi;
+                                };
+
+			    final_freezefile_name
+				=
+				make_final_freezefile_name  library_path
+			        where
+				    #
+				    fun make_final_freezefile_name  path			# "foo.make6" -> "foo.make6.frozen"
+					=
+					filename_policy::make_freezefile_name
+					    policy
+					    path;
+				end;
+
+			    temporary_freezefile_name
+				=
+				make_temporary_freezefile_name  final_freezefile_name
+                                where
+				    #
+				    fun make_temporary_freezefile_name  filename		# "foo.make6.frozen" -> "foo.make6.frozen.12345.tmp"
+					=
+					{   pid =  winix::process::get_process_id ();
+					    include sfprintf;
+					    pid =  sprintf' "%d" [ INT pid ];
+
+					    filename + "." + pid + ".tmp";
+					};
+                                end;
+
+			    file::vsay [
+                                "\n         .../freezefile/freezefile-g.pkg:   Creating  library       ",
+                                abbreviate  final_freezefile_name,
+                                "\n\n"
+                            ];
+#    												   my _ =
+#     2006-09-11 CrT: This is just noise for now:
+#			    if   not (string_set::is_empty wrapped_privileges)
+#			    then 
+#				 file::say
+#				    ("freezefile: wrapping the following privileges:\n"
+#				     ! map (fn s => ("  " + s + "\n"))
+#					    (string_set::vals_list wrapped_privileges));
+#                           fi;
+
+			    error_info
+				=
+				(make7_state.plaint_sink, any_errors);		#  Is this ever used? XXX BUGGO FIXME 
+
+			    required_privileges
+				=
+				string_set::difference  (library_record.required_privileges, wrapped_privileges);
+
+			    inverse_map
+				=
+				make_inverse_map  sublibraries;
+
+			    members =  REF [];
+
+			    my (register_offset, get_offset)
+				=
+				{   dictionary =  REF  bare_o7_map::empty;
+				    cur  =  REF  0;
+				    #
+				    fun get0 info_map
+					=
+					bare_o7_map::get (*dictionary, info_map);
+				    #
+				    fun reg (info_map, size)
+					=
+					case (get0 info_map)
+					  
+
+					     # This test is necessary because of a tiny chance
+					     # that a portion of a pickle needs to be re-done
+					     # by the pickler because it underestimated its
+					     # size during lazy pickling. Ideally, the pickler
+					     # should run without side-effects, but in the
+					     # present case all we need is idempotence.
+
+					     THE os
+						 =>
+						 os;
+
+					    NULL
+						=>
+						{   os = *cur;
+
+						    cur     := os + size;
+						    dictionary    := bare_o7_map::set (*dictionary, info_map, os);
+						    members := info_map ! *members;
+						    os;
+						};
+                                       esac;
+
+				    get =   the o get0;
+
+				    (reg, get);
+				};
+			    #
+			    fun prepath2list what p
+				=
+				{   fun warn_relabs (abs, descr)
+					=
+					{   relative_or_absolute
+						=
+						abs  ??  "absolute"
+						     ::  "relative";
+
+					    library_description
+						=
+						ad::describe  library_path;
+					    #
+					    fun ppb pps
+						=
+						{   fun space ()
+							=
+							pp::break pps { spaces=>1, indent_on_wrap=>0 };
+						    #
+						    fun string s
+							=
+							pp::string pps s;
+						    #
+						    fun ss s
+							=
+							{   string s;
+                                                            space ();
+                                                        };
+						    #
+						    fun nl ()
+							=
+							pp::newline pps;
+
+						    nl ();
+						    pp::begin_wrap_box pps;
+						    apply ss ["The", "path", "specifying"];
+						    apply ss [what, descr, "is"];
+						    string relative_or_absolute; string "."; nl ();
+						    apply ss ["(This", "means", "that", "in", "order",
+							    "to", "be", "able", "to", "use", "the",
+							    "built", "library"];
+						    string library_description; ss ", ";
+						    apply ss ["it", "will", "be", "necessary", "to",
+							    "keep", "all", "imported", "libraries",
+							    "with", "names", "derived", "from", "or",
+							    "equal", "to"];
+						    ss descr;
+						    apply ss ["in", "the", "same"];
+						    ss relative_or_absolute;
+						    apply ss ["location", "as", "they", "are"];
+						    string "now.)";
+						    pp::end_box pps;
+						};                  #  ppb 
+
+					    em::error_no_file
+						(make7_state.plaint_sink, any_errors) sm::null_region em::WARNING
+						(library_description + ": uses non-anchored path") ppb;
+					};
+
+				    ad::pickle
+					{ warn        =>  warn_relabs }
+					{ file        =>  p,
+					  relative_to =>  library_path
+					};
+				};
+
+
+			    # Collect all BIN_NODEs that we see and build
+			    # a context suitable for pm::symbol_table_pickler:
+			    #
+			    lib_context
+				=
+				{   fun lst f []      k s =>   k s;
+				        lst f (h ! t) k s =>   f h (lst f t k) s;
+                                    end;
+				    #
+				    fun sbn n k (s as (bnodes, snodes))
+					=
+					case n
+					  
+					     sg::O7_IS_ICED (sg::ICED_O7 { iced_o7 => i, ... },
+							 o7_exports, _)
+						 =>
+						 {   my (pos, symbol)
+                                                         =
+                                                         inverse_map  i;
+
+						     bnodes'
+                                                         =
+							 iced_o7_map::set (bnodes, i,
+									   ((pos, symbol), o7_exports.symbol_table_thunk));
+
+						     k (bnodes', snodes);
+						 };
+
+					     sg::O7_IS_BARE n
+						 =>
+						 sn n k s;
+                                        esac
+
+				    also
+                                    fun sn (sg::BARE_O7 n) k (bnodes, snodes)
+					=
+					{   bare_o7 =  n.bare_o7;
+					    li            =  n.near_imports;
+					    gi            =  n.far_imports;
+
+					    if   (bare_o7_set::member (snodes, bare_o7))
+					        
+						 k (bnodes, snodes);
+					    else
+						 snodes'
+						     =
+						     bare_o7_set::add (snodes, bare_o7);
+
+						 lst sn li (lst fsbn gi k) (bnodes, snodes');
+                                            fi;
+					}
+
+				    also
+                                    fun fsbn (_, n) k s
+					=
+					sbn n k s;
+
+				    #
+				    fun import_export (node_thunk, _, _) k s
+					=
+					fsbn (node_thunk ()) k s;
+
+
+				    bnodes
+					=
+					lst import_export (symbol_map::vals_list o7_views_by_name)
+					    #1
+					    (iced_o7_map::empty, bare_o7_set::empty);
+
+				    bnodel
+					=
+					list_mergesort::sort
+						     (fn (x, y) =  (#1 (#1 x) > #1 (#1 y)))
+						     (iced_o7_map::vals_list bnodes);
+
+				    #
+				    fun lib_arg ([], _)
+                                            =>
+                                            [];
+
+				        lib_arg ((lsm, ge) ! t, m)
+					    =>
+					    {   m'  =
+						    symbol_table_to_module_map::make_map' (ge (), m);
+
+						(THE lsm, m') ! lib_arg (t, m');
+					    };
+                                    end;
+
+				    lib_arg (bnodel, mm::empty_module_map);
+				};
+
+
+			    original_dictionary
+				=
+				pm::symbol_table_pickler  (fn _ = ())  (pm::LIBRARY lib_context);
+
+			    dictionary
+				=
+				pu::lift_pickler lifter original_dictionary;
+
+			    symenv_orig            =  pm::symbol_dictionary_pickler;
+			    inlining_table         =  pu::lift_pickler lifter symenv_orig;
+
+			    lazy_dictionary        =  pu::pickle_lazy dictionary;
+			    lazy_symbol_dictionary =  pu::pickle_lazy inlining_table;
+
+			    bool   =  pu::pickle_bool;
+			    int    =  pu::pickle_int;
+			    symbol =  pickle_symbol_or_picklehash::pickle_symbol;
+
+			    pid    =  pickle_symbol_or_picklehash::pickle_picklehash;
+			    share  =  pu::ad_hoc_share;
+			    option =  pu::pickle_option;
+
+			    list   =  pu::pickle_list;
+			    string =  pu::pickle_string;
+			    bool   =  pu::pickle_bool;
+			    int    =  pu::pickle_int;
+
+			    #	
+			    fun symbol_set symbolset
+				=
+				share  symbol_sets  raw_symbol_set  symbolset
+                                where
+				    my (@@@)
+                                        =
+                                        (pu::(@@@)) type_ss;
+				     #
+				    fun raw_symbol_set symbolset
+					=
+					"s" @@@ [list symbol (symbol_set::vals_list symbolset)];
+				end;
+
+
+			    filter   =   option symbol_set;
+
+			    my (@@@)
+                                =
+                                (pu::(@@@)) type_shm;
+			    #
+			    fun shm (sharing_mode::SHARE TRUE )  =>   "a" @@@ [];
+			        shm (sharing_mode::SHARE FALSE)  =>   "b" @@@ [];
+			        shm (sharing_mode::DO_NOT_SHARE) =>   "c" @@@ [];
+                            end;
+			    #
+			    fun si nake_o7info
+				=
+				{   # FIXME: this is not a technical flaw, but perhaps one
+				    # that deserves fixing anyway:  If we only look at spec,
+				    # then we are losing information about sub-libraries
+				    # within freezefiles.  However, the spec in iced_o7::info
+				    # is only used for diagnostics and has no impact on the
+				    # operation of make7 itself.
+
+
+				    spec   =   ad::os_string_relative  (bare_o7::sourcepath  nake_o7info);
+				    locs   =   bare_o7::error_location  make7_state  nake_o7info;
+				    offset =   register_offset  (nake_o7info,  size_bfc  nake_o7info);
+
+				    my { is_runtime_system, ... }
+                                        =
+                                        bare_o7::attributes nake_o7info;
+
+				    sharing_mode
+                                        =
+                                        bare_o7::sharing_mode  nake_o7info;
+
+				    my (@@@)
+                                        =
+                                        (pu::(@@@))  type_si;
+
+				    runtime_system_pid
+					=
+					if   is_runtime_system   THE (pid_bfc nake_o7info);
+					else                     NULL;                  fi;
+
+				    "s" @@@ [ string  spec,
+					      string  locs,
+					      int  offset,
+					      option  pid  runtime_system_pid,
+					      shm  sharing_mode
+					    ];
+				};
+			    #
+			    fun abspath p
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@))  type_ap;
+
+				    "p" @@@ [list (list string) (prepath2list "library"
+									    (ad::file_to_basename p))];
+				};
+								# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+			    #
+			    fun sourcefile_node  n
+				=
+				share  sns  raw_sn  n
+                                where
+				    my (@@@)
+                                        =
+                                        (pu::(@@@))  type_sn;
+				    #
+				    fun raw_sn (sg::BARE_O7 n)
+					=
+					"a" @@@ [ si  n.bare_o7,
+						  list  sourcefile_node  n.near_imports,
+						  list  lazy_fsbn'       n.far_imports
+					        ];
+
+				end
+
+			    # Here we ignore the interface info
+			    # because we will not need it anymore
+			    # when we unpickle:
+			    #
+			    also
+                            fun sbn x
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_sbn;
+
+				    case x
+				      
+				         sg::O7_IS_ICED (sg::ICED_O7 { iced_o7 => i, ... }, _, _)
+					     =>
+					     {   my (pos, symbol')
+                                                     =
+                                                     inverse_map i;
+
+						 "2" @@@ [int pos, symbol symbol'];
+					     };
+
+				        sg::O7_IS_BARE n
+					    =>
+					    "3" @@@ [sourcefile_node n];
+                                    esac;
+				}
+
+			    also
+                            fun fsbn (f, n)
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_fsbn;
+
+				    "f" @@@ [filter f, sbn n];
+				}
+
+			    also
+                            fun lazy_fsbn arg
+                                =
+                                pu::pickle_lazy  fsbn  arg
+
+			    also
+                            fun lazy_fsbn' arg
+                                =
+                                lazy_fsbn  .{ arg; };
+
+			    # Here is the place where we 
+			    # need to write interface info:
+			    #
+			    fun import_export (s, (node_thunk, _, allsyms))
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_impexp;
+
+				    case (node_thunk ())
+				      
+				         (_, sg::O7_IS_BARE (sg::BARE_O7 { bare_o7, ... } ))
+					     =>
+					     {   # This is the case of an actual internal node:
+						 #
+                                                 my  { symbol_table_thunk,
+						       inlining_table_thunk,
+						       symbol_table_picklehash,
+						       inlining_table_picklehash,
+						       version
+						     }
+						     =
+						     get_o7_exports  bare_o7;
+
+						 "i" @@@ [ symbol s,
+							   lazy_fsbn node_thunk,
+							   lazy_dictionary       symbol_table_thunk,
+							   lazy_symbol_dictionary inlining_table_thunk,
+							   pid symbol_table_picklehash,
+							   pid inlining_table_picklehash,
+							   string version,
+							   symbol_set allsyms
+							 ];
+					     };
+
+				         (f, sg::O7_IS_ICED (sg::ICED_O7 n, _, _))
+					     =>
+					     # This is the case of a simple re-export;
+					     # we avoid pickling any dictionaries here because
+					     # they can be re-fetched from the sublib directly
+					     # when unpickling:
+					     #
+					     "j" @@@ [symbol s, lazy_fsbn node_thunk, symbol_set allsyms];
+                                    esac;
+				};
+			    #
+			    fun w_exports e
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_exports;
+
+				    "e" @@@ [list import_export (symbol_map::keyvals_list e)];
+				};
+			    #
+			    fun privileges p
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_priv;
+
+				    "p" @@@ [list string (string_set::vals_list p)];
+				};
+			    #
+			    fun version v
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_version;
+
+				    "v" @@@ [string (version::to_string v)];
+				};
+
+# MUSTDIE (?) this is probably all rb==rebindings stuff
+			    fun rb { anchor, value }
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_rb;
+
+				    "b" @@@ [ string anchor,
+					      list (list string)
+						 (prepath2list "anchor naming" value)
+					    ];
+				};
+			    #
+			    fun sg (p, lib_thunk
+                                          , rbl	# MUSTDIE
+                                          )
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_sg;
+
+				    vo = case (lib_thunk ())
+					   
+					      lg::LIBRARY { real_or_virtual => lg::REAL x, ... }
+                                                  =>
+                                                  x.version;
+
+					      _   =>
+                                                  NULL;
+                                         esac;
+
+				    "S" @@@ [abspath p, option version vo
+                                                                         , list rb rbl	# MUSTDIE
+                                                                         ];
+				};
+			    #
+			    fun group ()
+				=
+				{   my (@@@)
+                                        =
+                                        (pu::(@@@)) type_g;
+
+				    # Pickle the sublibraries first because
+				    # we need to already have them back
+                                    # when we unpickle iced_o7s:
+				    #
+				    "g" @@@ [ option  version  vers,
+					      list  sg  sublibraries,
+					      w_exports  o7_views_by_name,
+					      privileges  required_privileges
+					    ];
+				};
+
+			    dg_pickle
+				=
+				byte::string_to_bytes  (pu::pickle empty_map (group ()));
+
+			    dg_size
+                                =
+                                unt8_vector::length dg_pickle;
+
+			    offset_adjustment
+                                =
+                                dg_size + 4 + lib_stamp_num_bytes;
+
+			    # We could generate the graph for a freezefile here
+			    # directly by transcribing the original graph.
+			    # 
+			    # However, it is cumbersome and is likely to result
+			    # in a larger memory footprint because we don't get
+			    # the benefit of lazy unpickling of dictionaries.
+			    # 
+			    # It seems easier to simply rely on "load_freezefile"
+			    # to re-fetch the stable graph.
+			    #
+			    fun refetch_stable_group ()
+				=
+				{   fun get_library (_, p, _
+                                                            , _	# MUSTDIE
+                                                            )
+					=
+					{   fun the_sublib (q, _
+                                                                , _	# MUSTDIE
+                                                                )
+						=
+						ad::compare (p, q) == EQUAL;
+					    #
+					    fun force f =   f ();
+
+					    null_or::map  (force o #2)  (list::find the_sublib sublibraries);
+					};
+
+				    load_freezefile
+					{ get_library, any_errors }
+					( make7_state,
+                                          library_path
+                                         , NULL		# version info -- XXX BUGGO DELETEME
+                                        , renamings	# MUSTDIE
+                                        );
+				};
+			    #
+			    fun write_int32 (s, i)
+				=
+				{   a =   rw_unt8_vector::make_rw_vector (4, 0u0);
+
+				    pack_big_endian_unt32::set  (a, 0, large_unt::from_int i);
+
+				    binary_io::write  (s,  rw_unt8_vector::to_vector  a);
+				};
+
+			    memberlist   =   reverse *members;
+
+
+
+			    libstamp_bytes
+                                =
+                                ph::to_bytes  libstamp;
+
+
+			    if   (unt8_vector::length libstamp_bytes != lib_stamp_num_bytes)
+			        
+                                 em::impossible "write_freezefile: libstamp size wrong";
+			    fi;
+
+
+			    #
+			    fun open_it ()
+				=
+				autodir::open_binary_output  temporary_freezefile_name;	# XXX BUGGO FIXME don't really need autodir:: here.
+
+			    #
+			    fun close_it  stream
+				=
+				{    binary_io::close_output  stream;
+
+				     # We make writing the freezefile effectively atomic
+				     # by writing it to a temporary name and then renaming
+				     # it to its final name only when done.
+				     #
+                                     # Time to do the rename:
+				     #
+				     winix::file::rename_file
+					 {
+					   from =>  temporary_freezefile_name,
+					   to   =>  final_freezefile_name
+					 };
+				};
+
+			    #
+			    fun cleanup _
+			        =
+                                {
+				    winix::file::remove_file  temporary_freezefile_name
+				    except
+				        _ = ();
+                                };
+
+			    {   safely::do
+                                    { open_it,
+				      close_it,
+				      cleanup
+				    }
+				   .{   binary_io::write (#output_stream, libstamp_bytes);
+					write_int32      (#output_stream, dg_size       );
+					binary_io::write (#output_stream, dg_pickle     );
+
+					my  { code, data, dictionary, inlinable }
+					    =
+					    fold_left (write_bfc #output_stream)
+						  { code => 0, data => 0, dictionary => 0, inlinable => 0 }
+						  memberlist;
+
+# 2006-09-11 CrT: This is just noise at present:
+#
+#					file::vsay ["[code: ", int::to_string code,
+#						  ", data: ", int::to_string data,
+#						  ", inlinable: ", int::to_string inlinable,
+#						  ", dictionary: ", int::to_string dgSize,
+#						  " bytes]\n"];
+                                        ();
+				    };
+
+				refetch_stable_group ();
+			    }
+			    except
+                                exn
+                                    =
+				    {   em::error_no_file (make7_state.plaint_sink, any_errors) sm::null_region
+					em::ERROR
+					(   cat [ "Exception raised while library building ",
+						     ad::describe library_path
+						   ]
+					)
+					em::null_error_body;
+					NULL;
+				    };
+			};                                #  fun do_it   in   fun write_freezefile 
+
+		    case library_record.real_or_virtual
+		      
+		         lg::REAL { frozen_or_thawed => lg::FROZEN _, ... }
+			     =>
+			     THE library_to_freeze;
+
+
+			 lg::VIRTUAL _
+			     =>
+			     em::impossible "write_freezefile: no library";
+
+
+			 lg::REAL { frozen_or_thawed => lg::THAWED { wrapped_privileges, ... }, version }
+			     =>
+			     case (recompile  make7_state  library_to_freeze)
+			       
+				  NULL
+                                      =>
+                                      {   any_errors := TRUE;
+                                          NULL;
+                                      };
+
+				  THE bfc_acc
+				      =>
+				      {   fun not_built (_, library_thunk
+                                                                         , _	# MUSTDIE
+                                                                         )
+					      =
+					      case (library_thunk ())
+				                
+						   lg::LIBRARY { real_or_virtual => lg::REAL { frozen_or_thawed => lg::FROZEN _, ... }, ... }
+						       =>
+						       FALSE;
+
+						   _   =>
+                                                       TRUE;
+                                              esac;
+
+					  case (list::filter not_built library_record.sublibraries)
+					    
+					       []  =>
+                                                   do_it (wrapped_privileges, bfc_acc, version);
+
+					       l   =>
+                                                   {   be_verb
+                                                           =
+                                                           case l
+							     
+							        [_] =>  " is";
+								_   =>  "s are";
+                                                           esac;
+						       #
+						       fun ppb pps
+							   =
+							   {   fun loop []
+                                                                       =>
+                                                                       ();
+
+								   loop ((p, _
+                                                                              , _	# MUSTDIE
+                                                                              ) ! t)
+									=>
+									{  pp::string pps (ad::describe p);
+									   pp::newline pps;
+									   loop t;
+									};
+                                                               end;
+
+							       pp::newline pps;
+							       pp::string  pps (cat [ "because the following sub-library",
+											   be_verb,
+											   " not built:"]
+										);
+							       pp::newline pps;
+							       loop l;
+							   };
+
+							plaint_sink
+							    =
+							    make7_state.plaint_sink;
+
+							library_description
+							    =
+							    ad::describe library_record.library_path;
+
+							em::error_no_file (plaint_sink, any_errors)
+								sm::null_region
+								em::ERROR
+								(library_description + " cannot be built")
+								ppb;
+							NULL;
+						   };
+                                          esac;
+				       };
+                             esac;
+                    esac;
+		};
+
+	    write_freezefile _  { library => lg::ERROR_LIBRARY, ... }
+		=>
+		NULL;
+        end;
+                                                                           #  end of fun write_freezefile 
+
+    }; 			#  generic package freezefile_g 
+
+end;			# stipulate
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

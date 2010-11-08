@@ -1,0 +1,324 @@
+## highcode-primitive-op.api 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+############################################################################
+# 
+#   	   	   Integer/Unt Conversions Explained
+# 
+# All integer/word conversion operations are expressed using five
+# primitive conversion operators. Algebraic equations over these
+# operators are easy to define and can be used to simplify composition
+# of conversion operations.
+# 
+# The five basic conversion operators are (in all cases, we assume
+# that (n >= m):
+# 
+#   TEST (n, m)	-- map an n-bit, 2's complement signed value to an 
+# 		   m-bit, 2's complement signed value; 
+# 		   raise OVERFLOW if the value is too large.
+# 
+#   TESTU (n, m)    -- map an unsigned n-bit value to an m-bit 2's 
+# 	 	   complement value; raise OVERFLOW if the value 
+# 		   is too large.
+# 
+#   EXTEND (m, n)	-- sign extend an m-bit value to a n-bit value
+# 
+#   TRUNC (n, m)	-- truncate an n-bit value to an m-bit value.
+# 
+#   COPY (m, n)	-- copy an m-bit value to an n-bit value.
+# 
+# TEST, TESTU, and TRUNC are used to go from large values to small
+# ones, and EXTEND and COPY are used to go from small values to
+# large. The operators EXTEND, TRUNC, and COPY are "pure, " while TEST
+# and TESTU may raise OVERFLOW. 
+# 
+# Conversions where the sizes are the same can be simplified to copies:
+# 
+#   TEST (n, n)   == COPY (n, n)
+#   EXTEND (n, n)	== COPY (n, n)	Note: this does not apply to TESTU
+#   TRUNC (n, n)	== COPY (n, n)
+# 
+# The translation of conversion operations in the unt32 and unt8
+# package (for example) is given by:
+# 
+#   Module	function     =>	Implemented by	
+#   ----------------------------------------------------------
+#   unt32	toLargeInt    => TESTU (32, 32)		
+# 		toLargeIntX   => EXTEND (32, 32)		= COPY (32, 32)
+# 		from_large_int  => COPY (32, 32)		
+# 		toInt	      => TESTU (32, 31)		
+# 		toIntX	      => TEST (32, 31)		
+# 		from_int       => EXTEND (31, 32)		
+# 		toLargeWord   => COPY (32, 32)		
+# 		toLargeWordX  => EXTEND (32, 32)		= COPY (32, 32)
+# 		fromLargeWord => TRUNC (32, 32)		= COPY (32, 32)
+# 
+#   unt8 	toLargeInt    => COPY (8, 32)		
+# 		toLargeIntX   => EXTEND (8, 32)		
+# 		from_large_int  => TRUNC (32, 8)		
+# 		toInt	      => COPY (8, 31)		
+# 		toIntX	      => EXTEND (8, 31)		
+# 		from_int       => TRUNC (31, 8)		
+# 		toLargeWord   => COPY (8, 32)		
+# 		toLargeWordX  => EXTEND (8, 32)		
+# 		fromLargeWord => TRUNC (32, 8)		
+# 
+# 
+# Each operator composed with itself is itself, but with different parameters:
+# 
+#   TEST (n, m) o TEST (p, n)	== TEST (p, m)			
+#   TESTU (n, m) o TESTU (p, n)	== TESTU (p, m)			
+#   EXTEND (n, m) o EXTEND (p, n)	== EXTEND (p, m)			
+#   TRUNC (n, m) o TRUNC (p, n)	== TRUNC (p, m)			
+#   COPY (n, m) o COPY (p, n)		== COPY (p, m)			
+# 
+# The composition of these operators can be described by a simple algebra.
+# 
+#   EXTEND (n, m) o COPY (p, n)	== COPY (p, m)   if (n > p)	
+#   				== EXTEND (p, m) if (n = p)	
+#   COPY (n, m) o EXTEND (p, n)	== EXTEND (p, m) if (n = m)	
+# 
+#   TRUNC (n, m) o COPY (p, n)	== COPY (p, m)   if (m >= p)	
+# 				== TRUNC (p, m)  if (m < p)	
+# 
+#   COPY (n, m) o TRUNC (p, n)	== TRUNC (p, m)  if (n = m)	
+# 
+#   TEST (n, m) o COPY (p, n)		== COPY (p, m)   if (m >= p)	
+# 				== TEST (p, m)   if (m < p)	
+# 	 
+#   TESTU (n, m) o COPY (p, n)	== COPY (p, m)   if (m >= p)	
+# 				== TESTU (p, m)  if (m < p)	
+# 
+#   COPY (n, m) o TEST (p, n)		== TEST (p, m)   if (n = m)	
+# 
+#   COPY (n, m) o TESTU (p, n)	== TESTU (p, m)  if (n = m)	
+# 
+#   TRUNC (n, m) o EXTEND (p, n)	== EXTEND (p, m) if (m >= p) 	
+# 				== TRUNC (p, m)  if (m < p)	
+# 
+#   TEST (n, m) o EXTEND (p, n)	== EXTEND (p, m) if (m >= p)	
+# 				== TEST (p, m)   if (m < p)	
+# 
+#   TESTU (n, m) o EXTEND (p, n)	== EXTEND (p, m) if (m >= p)	
+# 				== TESTU (p, m)  if (m < p)	
+# 
+# For example, consider:
+# 	unt::toInt o unt::fromLargeWord o unt8::toLargeWord
+# 
+# This translates to:
+# 	TESTU (31, 31) o TRUNC (32, 31) o COPY (8, 32)
+# 
+# and simplifies to:
+# 	TESTU (31, 31) o COPY (8, 31)
+# 
+# This further simplifies to:
+# 	COPY (8, 31)
+# 
+# Since both 8-bit and 31-bit quantities are tagged the same way, this
+# gets translated to a MOVE. With a smart register allocator that MOVE
+# can be eliminated.
+#
+############################################################################
+
+
+###               "Every minute dies a man, Every minute one is born;"
+###
+###            I need hardly point out to you that this calculation
+###            would tend to keep the sum total of the world's population
+###            in a state of perpetual equipoise, whereas it is a
+###            well-known fact that the said sum total is constantly
+###            on the increase.
+###
+###            I would therefore take the liberty of suggesting that
+###            in the next edition of your excellent poem the erroneous
+###            calculation to which I refer should be corrected as follows:
+###
+###               "Every moment dies a man, And one and a sixteenth is born."
+###
+###            I may add that the exact figures are 1.067, but something must,
+###            of course, be conceded to the laws of metre.
+###
+###                        ~Charles Babbage,
+###                         letter to Alfred, Lord Tennyson,
+###                         about a couplet in his "The Vision of Sin"
+
+
+
+api Highcode_Primitive_Op {
+
+    # numkind includes kind and number of bits 
+    #
+    Numkind 
+     = INT  Int 
+     | UINT  Int 
+     | FLOAT  Int;
+
+    Arithop
+     = ADD | SUBTRACT | MULTIPLY | DIVIDE | NEGATE	#  Int or float 
+     | ABS | FSQRT | FSIN | FCOS | FTAN		#  floating point only 
+     | LSHIFT | RSHIFT | RSHIFTL			#  Int only 
+     | BITWISEAND | BITWISEOR | BITWISEXOR | BITWISENOT			#  Int only 
+     | REM | DIV | MOD;			        #  Int only 
+
+    Cmpop = GT | GE | LT | LE | LEU | LTU | GEU | GTU | EQL | NEQ;
+
+
+    # Various primitive operations.  Those that are designated "inline" are
+    # expanded into lambda code in terms of other operators,
+    # as is the "checked=TRUE" version of NUMSUBSCRIPT or NUMUPDATE.
+    # NUMSUBSCRIPT and NUMUPDATE are for arrays of floats or integers
+    # stored WITHOUT boxing or tags.
+
+    Primitive_Operation
+     = ARITH  { oper: Arithop, overflow: Bool, kind: Numkind }
+     | INLLSHIFT  Numkind
+     | INLRSHIFT  Numkind
+     | INLRSHIFTL  Numkind
+     | CMP  { oper: Cmpop, kind: Numkind }
+
+     | TESTU  (Int, Int)
+     | TEST  (Int, Int)
+     | TRUNC  (Int, Int)
+     | EXTEND  (Int, Int)
+     | COPY  (Int, Int)
+
+     | TEST_INF  Int 			#  inf -> i 
+     | TRUNC_INF  Int			#  inf -> i 
+     | EXTEND_INF  Int			#  i -> inf 
+     | COPY_INF  Int			#  i -> inf 
+
+     | ROUND  { floor: Bool, fromkind: Numkind, tokind: Numkind }
+     | REAL  { fromkind: Numkind, tokind: Numkind }
+
+     | NUMSUBSCRIPT  { kind: Numkind, checked: Bool, immutable: Bool }
+     | NUMUPDATE  { kind: Numkind, checked: Bool }
+
+     | SUBSCRIPT                  	#  polymorphic rw_vector subscript 
+     | SUBSCRIPTV                 	#  poly vector subscript 
+     | INLSUBSCRIPT               	#  inline poly rw_vector subscript 
+     | INLSUBSCRIPTV              	#  inline poly vector subscript 
+     | INLMKARRAY                 	#  inline poly rw_vector creation 
+
+     | PTREQL | PTRNEQ            	#  pointer equality 
+     | POLYEQL | POLYNEQ          	#  polymorphic equality 
+     | BOXED | UNBOXED            	#  Boxity tests 
+     | LENGTH                     	#  vector, string, rw_vector, ... length 
+     | CHUNKLENGTH                	#  length of arbitrary heap chunk 
+     | CAST
+     | WCAST
+     | GETRUNVEC                  	#  get the pointer to the run-vector 
+     | MARKEXN                    	#  mark an exception value with a string 
+     | GETHANDLER | SETHANDLER          #  get/set exn handler pointer 
+     | GET_CURRENT_THREAD_REGISTER
+     | SET_CURRENT_THREAD_REGISTER	#  get/set "current thread" register 
+     | GETPSEUDO | SETPSEUDO      	#  get/set pseudo registers 
+     | SETMARK | DISPOSE          	#  Capture/dispose frames 
+     | MAKEREF                    	#  Allocate a REF cell 
+     | CALLCC | CAPTURE | THROW   	#  Fate operations 
+     | ISOLATE                    	#  isolating a function 
+     | DEREF                      	#  Dereferencing 
+     | ASSIGN                     	#  Assignment 
+     | UNBOXEDASSIGN              	#  Assignment to integer reference 
+     | UPDATE                     	#  rw_vector update (maybe boxed) 
+     | INLUPDATE                  	#  inline rw_vector update (maybe boxed) 
+     | BOXED_SET                  	#  Boxed rw_vector update 
+     | UNBOXED_SET                	#  update rw_vector of integers WITH tags 
+
+     | GETTAG                     	#  extract the tag portion of an 
+				  	#  Chunk's descriptor as an ML int 
+     | MAKE_SPECIAL               	#  make a special chunk 
+     | SETSPECIAL                 	#  set the state of a special chunk 
+     | GETSPECIAL                 	#  get the state of a special chunk 
+     | USELVAR | DEFLVAR
+     | INLMIN  Numkind            	#  inline min 
+     | INLMAX  Numkind            	#  inline max 
+     | INLABS  Numkind            	#  inline abs 
+     | INLNOT                     	#  inline Bool not operator 
+     | INLCOMPOSE                 	#  inline compose "op o"  operator 
+     | INLBEFORE                  	#  inline "before" operator
+     | INLIGNORE		  	#  inline "ignore" function 
+     | INLINE_ARRAY               	#  inline polymorphic rw_vector allocation 
+     | INLINE_VECTOR              	#  inline polymorphic vector allocation 
+     | INLINE_MONOARRAY  Numkind  	#  inline monomorphic rw_vector allocation 
+     | INLINE_MONOVECTOR  Numkind 	#  inline monomorphic vector allocation 
+
+     | MKETAG                     	#  make a new exception tag 
+     | WRAP                       	#  Box a value by wrapping it 
+     | UNWRAP                     	#  unbox a value by unwrapping it 
+
+     #  Primops to support new rw_vector representations 
+     #
+     | NEW_ARRAY0		  	#  Allocate zero-length rw_vector header 
+     | GET_SEQ_DATA		  	#  get data pointer from arr/vec header 
+     | SUBSCRIPT_REC		  	#  record subscript operation 
+     | SUBSCRIPT_RAW64		  	#  raw64 subscript operation 
+
+     # Primops to support new experimental C FFI. 
+     #
+     | RAW_LOAD  Numkind	  	# Load from arbitrary memory location 
+     | RAW_STORE  Numkind	  	# Store to arbitrary memory location 
+
+     # Make a call to a C-function.
+     # The primitive_operation carries C function prototype information and specifies
+     # which of its (ML-) arguments are floating point. C prototype
+     # information is for use by the backend, ML information is for
+     # use by the FPS converter.
+     #
+     | RAW_CCALL   Null_Or { c_prototype:                   ctypes::Ckit_Prototype,
+			       ml_argument_representations:    List( Ccall_Type ),
+			       ml_result_representation:       Null_Or( Ccall_Type ),
+			       is_reentrant:                  Bool
+			     }
+     # Allocate uninitialized storage on the heap.
+     # The record is meant to hold short-lived C chunks, i.e., they
+     # are not ML pointers.  The representation is 
+     # the same as RECORD with tag tag_raw32 (fblock = FALSE),
+     # or tag_fblock (fblock = TRUE).
+     #
+     | RAW_RECORD  { fblock: Bool }
+
+     | INLIDENTITY			#  polymorphic identity 
+
+     | CVT64				# convert between external and
+					# internal representation of
+					# simulated 64-bit scalars
+
+    also
+    Ccall_Type
+     = CCI32				#  passed as int32 
+     | CCI64				#  int64, currently unused 
+     | CCR64				#  passed as float64 
+     | CCML				#  passed as unsafe::unsafe_chunk::chunk 
+     ;
+
+    iadd:  Primitive_Operation;		#  Default integer addition 
+    isub:  Primitive_Operation;		#  Default integer subtraction 
+    imul:  Primitive_Operation;
+    idiv:  Primitive_Operation;
+    ineg:  Primitive_Operation;
+
+    feqld:  Primitive_Operation;
+    ieql:  Primitive_Operation;
+    ineq:  Primitive_Operation;
+    igt:  Primitive_Operation;
+    ilt:  Primitive_Operation;
+    ile:  Primitive_Operation;
+    ige:  Primitive_Operation;
+
+    pr_numkind:  Numkind -> String;
+    pr_primop: Primitive_Operation -> String;
+    may_raise:  Primitive_Operation -> Bool;
+
+    effect:  Primitive_Operation -> Bool;     # This should return more than just a boolean. TRUE means "can not be dead-code eliminated".
+
+};		# api Highcode_Primitive_Op
+
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

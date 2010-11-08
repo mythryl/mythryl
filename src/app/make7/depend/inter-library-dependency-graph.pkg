@@ -1,0 +1,314 @@
+# inter-library-dependency-graph.pkg
+# (C) 1999 Lucent Technologies, Bell Laboratories
+# Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+# OVERVIEW
+#
+#     In this file we define a datastructure
+#     containing all the makefile information
+#     for an application, in the form of a graph
+#     with one node per .make6 file (==library)
+#     and for each such node:
+#
+#        o A map 'o7_views_by_name' giving access
+#          to all the .o7 files "owned" by the
+#          library.  (If the library is "frozen",
+#          these .o7 files will be physically
+#          packed within the library freezefile.
+#          If the library is not frozen, the .o7
+#          files are read directly off disk as
+#          needed, one by one.)
+#
+#        o A list 'sublibraries' of all .make6
+#          files referenced by this library's
+#          .make6file.
+#
+#        o Various other useful bookkeeping info.
+#
+#
+#     make7 also maintains more detailed dependency
+#     graphs at the level of individual source files.
+#     These are implemented in 
+#
+#         ./intra-library-dependency-graph.pkg
+#
+#     See the top-of-file comments in that file for
+#     a general dependency-graph orientation.
+#
+#
+#
+# MOTIVATION
+#
+#     To a first approximation, an application
+#     is specified by some root .make6 makefile
+#     plus all the make6files it mentions, all
+#     the make6files -they- mention &tc.
+#
+#     We may represent this as a graph with one
+#     node per .make6 makefile, and one edge
+#     for mention of one .make6 makefile by another.
+#
+#     At the highest level, we may then think of
+#     compiling an application in terms of doing
+#     a post-order treewalk of this graph, compiling
+#     all the .o7 files specified by a given makefile
+#     after building all of its sub-makefiles.
+#
+#     In practice, we take a linker's eye view of
+#     the world and think in terms of a graph of
+#     libraries rather one of makefiles.
+#
+#     Since each makefile specifies one library,
+#     this isn't really much different.
+# 
+#
+#
+#
+# DATA STRUCTURES
+#
+#
+#     LIBRARY
+#
+#         Our LIBRARY record represents in essence
+#         a complete .make6 makefile, or in linker's-eye
+#         terms, everything compiled by a given .make6
+#         makefile.
+#
+#             'library_path' field -- names the makefile involved.
+#         
+#
+#
+#     VIRTUAL / REAL
+#
+#         A VIRTUAL LIBRARY is one which is never
+#         intended to exist as a single freezefile.
+#         The compiled code for these libraries
+#         is always loaded directly from individual
+#         .o7 diskfiles, or else from other freezefiles.
+#
+#         VIRTUAL libraries may be used to provide
+#	  an internal hierarchical structure to a
+#	  REAL library, by defining a tree of
+#         VIRTUAL sub-libraries referenced by the
+#         main REAL library:  When the parent REAL
+#         library gets frozen, the contents of all
+#         its VIRTUAL descendents are included in
+#         the generated freezefile, making it look
+#         like a single library for all external
+#         purposes.
+#
+#         Any LIBRARY which isn't VIRTUAL is REAL.
+#
+#
+#
+#     FROZEN / THAWED
+#
+#         A REAL library whose freezefile has not yet
+#         been constructed is marked THAWED.
+#
+#         Once the actual freezefile on disk has been
+#         built, the REAL library is marked FROZEN.
+#
+#         Freezing a REAL library is in general not
+#         done automatically, but rather only in response
+#         to an explicit user make7::freeze command.
+#
+#         In the meantime, a THAWED REAL library works 
+#         very much like a VIRTUAL library -- the relevant
+#         .o7 files are read directly off disk as needed.  
+#
+#         Thus, it is not necessary to build an actual
+#         freezefile for a REAL library in order to
+#         link against it.  
+#
+#         During development, leaving a REAL library
+#         as THAWED may yield quicker turnaround times.
+#
+#         Once the code is stable, the library may be FROZEN
+#         in order to reduce start-up and link times.
+#
+#         The FROZEN "clear_pickle_cache" function may be invoked
+#         to remove the associated objectfile "pickles" from
+#         memory, on machines where RAM is tight.			"flush the pickle cache" would seem to be more perspicuous terminology
+#
+#         This is a strictly a space/time system-tuning
+#         tradeoff -- deleted pickles will be automatically
+#         re-read as needed.
+#
+#         Pickle-cache clearing is off by default.
+#
+#
+#
+#     'Oh7_View' type
+#
+#         The exports of an .o7 file are represented by an "Oh7_View".
+#         An Oh7_View is essentially just as set of Far_O7 nodes, but
+#         it also has an exports_dictionary which contains information
+#         about the actual definitions (contents) of exported packages/generics.
+#         This information is necessary to handle the Lib7 "run" construct.
+#
+#
+#
+#     'required_privileges' field
+#
+#         "Privileges" are a nascent capability system to
+#         keep some code modules (or users) from doing
+#         some sorts of things, such as writing to disk
+#         in a networked server process, say.
+#
+#         As yet, this mechanism doesn't actually do
+#         anything but print out compiletime messages.
+#
+#         The "required_privileges" field includes everything:
+#
+#             1. privileges required by sublibraries
+#             2. newly required privileges
+#             3. privileges that would be wrapped once the group library is built
+
+
+
+package inter_library_dependency_graph {
+
+    Privileges
+        =
+        string_set::Set;							# string_set				is from   src/lib/src/string-set.pkg
+
+										# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+										# exports_dictionary			is from   src/app/make7/depend/exports-dictionary.pkg
+										# symbol_set				is from   src/app/make7/util/symbol-set.pkg
+    # An Oh7_View defines everything externally
+    # visible about an o7 in a particular context:
+    #
+    Oh7_View
+        =
+        ( (Void -> intra_library_dependency_graph::Far_O7),		
+          exports_dictionary::Dictionary,					# Actual package/generic definitions.
+          symbol_set::Set							# A filter(?) -- We ignore all exports not listed in this set.
+        );
+
+    # The library specified by a .make6 file can be
+    # "frozen" (via make7::freeze())
+    # to produce a concrete .frozen freezefile physically
+    # containing images of all the .o7 files compiled
+    # from all the .pkg and .api sourcefiles going into
+    # the library.
+    #
+    # This is the production situation, and corresponds
+    # to the usual unix situation with a libfoo.a or
+    # libfoo.so library file.
+    #
+    # However, the Mythryl library specified by a
+    # .make6 file can also be used (linked against)
+    # in the "thawed" state, when no .frozen file exists.
+    #
+    # In this situation, the needed .o7 files are
+    # read directly off disk as needed.  This arrangement
+    # can be useful during active development, since the
+    # rebuild-the-.frozen-file step can be omitted from the
+    # edit-compile-run development cycle, saving some time.
+    #
+    # Also, in a thawed library, all necessary re/compiles
+    # can be done by a simple make7 call, because make7
+    # checks that every individual .o7 file on disk is
+    # up-to-date relative to its sourcefile before using
+    # it (and automatically does a recompile if it is not).  
+    #
+    # In a frozen library, on the other hand, all .o7 files
+    # found in the freezefile are used as-is without further
+    # checking; the .make6 file and the .api and .pkg source
+    # files need not even exist.  This yields stable libraries
+    # and fast start-up times, both suitable for production
+    # use of a developmentally mature library.
+    #
+    Frozen_Or_Thawed
+        = FROZEN    Void -> Void						# clear_pickle_cache ().
+        | THAWED   { wrapped_privileges: Privileges,
+                     sublibraries:       Sublibrarylist
+                   }
+
+										# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+										# version		is from   src/app/make7/semant/version.pkg
+    # A "Real" library can be frozen to produce a .frozen freezefile;
+    # a "Virtual" library cannot, it is just a bookkeeping abstraction.
+    # Virtual sublibraries are useful for imposing a hierarchical
+    # structure upon the mass of .o7 files in a large Real library:
+    #  
+    also
+    Real_Or_Virtual
+        = VIRTUAL  { owner:             Null_Or( anchor_dictionary::File ),
+		     sublibraries:      Sublibrarylist
+                   }
+
+        | REAL     { version:           Null_Or( version::Version ),
+                     frozen_or_thawed:  Frozen_Or_Thawed
+                   }
+
+    # Here we define our primary representation of a library.
+    # The two critical fields are 
+    #
+    #    o7_views_by_name   Gives access to the compiled-code
+    #                       contents of the library.
+    #
+    #    sublibraries       Lists all the immediate sublibraries
+    #                       of this library;  this gives us our
+    #                       library dependency graph.
+    #
+    also
+    Library
+        = ERROR_LIBRARY
+        | LIBRARY  { o7_views_by_name:    symbol_map::Map( Oh7_View ),		# External views of all the o7s in the library.
+		     real_or_virtual:     Real_Or_Virtual,
+		     required_privileges: Privileges,
+
+		     library_path:        anchor_dictionary::File,		# The .make6 file defining the library.            	
+		     sublibraries:        Sublibrarylist,			# All sublibraries mentioned in the .make6 file.	
+
+		     sources:             source_path_map::Map { 		# Maps filenames to following two properties.		
+                                              ilk:      String, 		# Distinguishes .make6 from .pkg files &tc.	
+					      derived:  Bool			# TRUE iff file was autogenerated by yacc or such.
+					  } 
+		   }
+										# symbol_map		is from   src/app/make7/util/symbol-map.pkg
+										# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+										# source_path_map	is from   src/app/make7/paths/source-path-map.pkg
+
+
+    withtype
+    Sublibrarylist
+        =
+        List ( ( anchor_dictionary::File,					#  The .make6 file defining the sublibrary.		
+                 (Void -> Library)						#  Thunk to delay constructing Library record until actually needed.	
+                 ,anchor_dictionary::Renamings	# MUSTDIE
+               )
+             );
+
+    # Note: "sublibraries" consists of items where the anchor_dictionary::File component
+    # is equivalent -- but not necessarily identical -- to the "library_path"
+    # component of (the suspended) group.  The group might have
+    # been known before -- in which case "library_path" would carry the
+    # path that was used back *then* to refer to the library.  But for
+    # the purpose of building the library we must know the abstract path
+    # that was used *this* time.
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

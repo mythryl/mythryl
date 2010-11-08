@@ -1,0 +1,903 @@
+## typecheck-anormal.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+#  highcode Type Checker 
+
+api Typecheck_Anormal {
+
+    #  Which set of typing rules to use while doing the typecheck 
+    Typsys;	#  Currently very crude 
+
+    check_top:		(anormal::Function_Declaration, Typsys) -> Bool;
+    check_expression:	(anormal::Anormal_Expression,    Typsys) -> Bool;
+
+};
+
+
+
+package typecheck_anormal: (weak)  Typecheck_Anormal {		# Typecheck_Anormal		is from   src/lib/compiler/backend/upper/anormal/typecheck-anormal.pkg
+
+    # Which set of the typing rules
+    # to use while doing the typecheck:
+    # 
+    Typsys = Bool;		#  Currently very crude 
+
+    stipulate
+
+        package lt =  highcode;					# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package lv =  highcode_var;				# highcode_var			is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+	package da =  var_home; 
+	package di =  debruijn_index;				# debruijn_index		is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+	package pp =  prettyprint_anormal;			# prettyprint_anormal		is from   src/lib/compiler/backend/upper/anormal/prettyprint-anormal.pkg
+	package po =  highcode_primitive_op;			# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package s  =  int_red_black_set;			# int_red_black_set		is from   src/lib/src/int-red-black-set.pkg
+
+	include anormal;
+
+	fun bug s
+            =
+            error_message::impossible ("typecheck_anormal: " + s);
+
+	say      =  control_print::say;
+	anyerror =  REF FALSE;
+
+	###########################################################################
+	#                        BASIC UTILITY FUNCTIONS                          #
+	###########################################################################
+
+	fun foldl2 (f, a, xs, ys, g)
+	    =
+	    loop (a, xs, ys)
+            where
+	        recursive val loop
+                    =
+	            fn (a, NIL, NIL)       =>  a;
+		       (a, x ! xs, y ! ys) =>  loop (f (x, y, a), xs, ys);
+		       (a, xs', _)         =>  g (a, xs', length xs, length ys);
+                    end;
+	    end;
+
+
+	fun simplify (le, 0)
+                =>
+                RET [STRING "<...>"];
+
+	    simplify (le, n)
+		 => 
+		 {   fun h le
+                         =
+                         simplify (le, n - 1);
+
+		     fun h1 (fk, v, args, le)
+                         =
+                         (fk, v, args, h le);
+
+		     fun h2 (tfk, v, tvs, le)
+                         =
+                         (tfk, v, tvs, h le);
+
+		   case le 
+		     
+		        LET (vs, e1, e2)
+                            =>
+                            LET (vs, h e1, h e2);
+
+			MUTUALLY_RECURSIVE_FNS (fdecs, b)
+                            =>
+                            MUTUALLY_RECURSIVE_FNS (map h1 fdecs, h b);
+
+			TYPE_FN (tdec, e)
+                            =>
+                            TYPE_FN (h2 tdec, h e);
+
+			SWITCH (v, l, dc, opp)
+                           => 
+			   SWITCH (v, l, map g dc, f opp)
+                           where
+			       fun g (c, x)
+                                   =
+                                   (c, h x);
+
+			       f   =
+                                   fn THE y => THE (h y);
+                                      NULL  => NULL;
+                                   end ;
+			   end;
+
+			CONSTRUCTOR (dc, tcs, vs, lv, le) =>  CONSTRUCTOR (dc, tcs, vs, lv, h le);
+			RECORD   (rk, vs, lv, le) =>  RECORD   (rk, vs, lv, h le);
+			SELECT     (v, n, lv, le) =>  SELECT     (v, n, lv, h le);
+			EXCEPT (e, v)             =>  EXCEPT (h e, v);
+			PRIMOP (po, vs, lv, le)   =>  PRIMOP (po, vs, lv, h le);
+			_                         => le;
+                   esac;
+		 };
+        end;			 # fun simplify 
+
+	# Utility functions for printing:
+	#
+	tk_print =  say o lt::tk_print;
+	tc_print =  say o lt::tc_print;
+	lt_print =  say o lt::lt_print;
+
+
+	fun le_print le
+            =
+            pp::print_lexp (simplify (le, 3));
+
+
+	sv_print =  pp::print_sval;
+
+
+	fun error (le, g)
+            =
+            {   anyerror := TRUE;
+		say "\n************************************************************\
+		    \\n**** highcode type checking failed: ";
+		g () before { say "\n** term:\n"; le_print le;};
+            };
+
+
+	fun err_msg (le, s, r)
+            =
+            error (le, .{ say s; r;} );
+
+
+	fun catch_exn f (le, g)
+            =
+	    f ()
+            except
+                ex =  error ( le,
+                              .{ g () before say ("\n** exception " + exception_name ex + " raised"); }
+                            );
+
+
+	# A hack for type checkng:
+	#
+	fun later_phase post_reify
+            =
+            post_reify;
+
+
+	fun check  phase  dicts  lambda_expression
+            =
+            {   # Imperative table -- keeps track of already bound variables,
+		# so we can tell if a variable is re-bound (which should be 
+		# illegal).  Note that lvars and tvars actually share the same
+		# namespace!   --league, 11 April 1998
+
+		defined_lvars
+                    =
+                    REF s::empty;
+
+
+		fun lvar_def le (highcode_variable: Highcode_Variable)
+                    = 
+		    if   (s::member(*defined_lvars, highcode_variable))
+                        
+			 err_msg (le, ("highcode_variable " + (highcode_var::to_string highcode_variable) + " redefined"), ());
+		    else
+			 defined_lvars := s::add(*defined_lvars, highcode_variable);
+                    fi;
+
+
+		lt_equiv
+                    =
+                    lt::lambda_types_are_approximately_equivalent; 	#  should be lt::lambda_types_are_qquivalent 	# XXX BUGGO FIXME
+
+
+		lt_tapp_check
+                    =
+		    if   (*highcode_control::check_kinds)
+                        
+                         lt::ls_inst_check_generic();
+		    else
+                         fn (lt, ts, _) = lt::instantiate_polymorphic_lambda_or_higher_order_constructor_type (lt, ts);
+                    fi;
+
+
+		fun const_void _
+                    =
+                    lt::ltc_void;
+
+
+		my (lt_string, lt_exn, lt_etag, lt_vector, lt_wrap, lt_bool)
+		    =
+		    if   (later_phase phase)
+                        
+		         (lt::ltc_string, lt::ltc_void, const_void, const_void, const_void, 
+		          lt::ltc_void);
+		    else
+		         (lt::ltc_string, lt::ltc_exn, lt::ltc_etag, lt::ltc_tyc o lt::tcc_vector, 
+		          lt::ltc_tyc o lt::tcc_box, lt::ltc_bool);
+                    fi;
+
+
+		fun pr_msg_lt (s, lt)
+                    =
+                    {   say s;
+                        lt_print lt;
+                    };
+
+
+		fun pr_list f s t
+		    =
+		    {   recursive val loop
+			    =
+			    fn []     =>  say "<empty list>\n";
+			       [x]    =>  { f x;  say "\n"; };
+			       x ! xs =>  { f x;  say "\n* and\n";   loop xs; };
+			    end;
+
+			say s;
+			loop t;
+		    };
+
+
+		fun print2lts (s, s', lt, lt')
+                    =
+                    {   pr_list lt_print s  lt;
+                        pr_list lt_print s' lt';
+                    };
+
+
+		fun lt_match (le, s) (t, t')
+		    =
+		    if   (not (lt_equiv (t, t')))
+		         
+			 error (
+			     le,
+			     .{   pr_msg_lt (s + ": Lty conflict\n** types:\n", t);
+				  pr_msg_lt ("\n** and\n", t');
+			      }
+			 );
+		    fi;
+
+
+		fun lts_match (le, s) (ts, ts')
+		    =
+		    foldl2 (
+			fn (t, t', _)
+			    =
+			    lt_match
+				(le, s) (t, t'),
+			(),
+			ts,
+			ts',
+			fn (_, _, n, n')
+			    =
+			    error (
+				le,
+				.{  print2lts (
+					cat [s, ": type list mismatch (", int::to_string n, " vs ",
+					   int::to_string n', ")\n** expected types:\n"
+					],
+					"** actual types:\n",
+					ts,
+					ts'
+				    );
+				}
+			    ) 
+		    );
+
+
+
+		stipulate
+		   fun lt_fn_app_fn opr (le, s, msg) (t, ts)
+		       =
+		       catch_exn
+			 .{ my (xs, ys) = opr (lt::ltd_fkfun t);
+				     lts_match (le, s) (xs, ts); ys;
+			  }
+			 ( le,
+                           .{   pr_msg_lt (s + msg + "\n** type:\n", t);
+                                [];
+                            }
+                         );
+		herein
+		    fun lt_fn_app (le, s)
+			=
+			lt_fn_app_fn (fn x = x) (le, s, ": Applying term of non-arrow type");
+
+
+		    fun lt_fn_app_r (le, s)
+			=
+			lt_fn_app_fn (fn (x, y) = (y, x)) (le, s, ": Rev-apply term of non-arrow type");
+		end;
+
+
+		fun lt_ty_app (le, s) (lt, ts, kenv)
+		    =
+		    catch_exn
+		      .{ lt_tapp_check (lt, ts, kenv); }
+		      ( le,
+			.{ pr_msg_lt (s + ": Kind conflict\n** function Lty:\n", lt);
+			   pr_list tc_print "\n** argument Tycs:\n" ts;
+			   [];
+                         }
+                      );
+
+
+		fun lt_arrow (le, s) (calling_convention, alts, rlts)
+		    = 
+		    case calling_convention 
+		      
+		         CALLING_CONVENTION_GENERIC
+                             =>
+                             lt::ltc_fct (alts, rlts);
+
+			 CALLING_CONVENTION_FUNCTION raw
+                             => 
+			     catch_exn
+				 .{ lt::ltc_arrow (raw, alts, rlts); }
+				 ( le,
+				   .{   print2lts (
+				            s + ": deeply polymorphic non-generic .\n** parameter types:\n",
+				            "** result types:\n",
+				            alts, rlts
+                                        );
+				        lt::ltc_void;
+                                   }
+                                 );
+                    esac;
+
+
+		#  typeInDict:  lt::tkindDict * lt::ltyDict * di::depth -> Anormal_Expression -> List( Highcode_Type )
+
+		fun type_in_dictionary (kenv, venv, d)
+		    =
+		    {   fun ext_dictionary (lv, lt, ve) =  lt::lt_insert (ve, lv, lt, d);
+			fun bogus_bind (lv, ve)   =  ext_dictionary (lv, lt::ltc_void, ve);
+			fun type_in venv'         =  type_in_dictionary (kenv, venv', d);
+			fun type_with (v, t)      =  type_in (lt::lt_insert (venv, v, t, d));
+
+
+			fun mismatch (le, s) (a, r, n, n')
+                            =
+                            err_msg
+			      ( le,
+				cat [s, ": naming/result list mismatch\n** expected ",
+					 int::to_string n, " elements, got ", int::to_string n'],
+				fold_left bogus_bind a r
+                              );
+
+
+			fun typeof le
+			    =
+			    {   fun typeof_variable lv
+                                    =
+                                    lt::lt_lookup (venv, lv, d)
+				    except
+                                        lt_unbound
+                                            =
+					    err_msg (le, "Unbound highcode_variable " + lv::name_of_highcode_variable lv, lt::ltc_void);
+
+				typeof_val
+				    =
+				    fn VAR lv              =>  typeof_variable lv;
+				      (INT _ | WORD _)     =>  lt::ltc_int;
+				      (INT32 _ | WORD32 _) =>  lt::ltc_int32;
+				      REAL _               =>  lt::ltc_real;
+				      STRING _             =>  lt::ltc_string;
+                                end;
+
+
+				fun typeof_fn ve (_, highcode_variable, vts, eb)
+				    =
+				    {   fun split ((lv, t), (ve, ts))
+                                            = 
+					    {   lvar_def le lv;
+					        (lt::lt_insert (ve, lv, t, d), t ! ts);
+                                            };
+
+					my (ve', ts)
+                                            =
+                                            fold_right split (ve,[]) vts;
+
+					lvar_def le highcode_variable;
+
+					(ts, type_in ve' eb);
+				    };
+
+
+				# There are lvars hidden in var_home::Constructor_Form, used by dcon.
+				# These functions just make sure that they are defined in the 
+				# current environemnent; we don't bother to typecheck them properly      XXX BUGGO FIXME
+				# because supposedly Constructor_Form will go away...
+
+
+				fun check_var_home (da::HIGHCODE_VARIABLE v) => ignore (typeof_variable v);
+				    check_var_home (da::PATH (a, _)) => check_var_home a;
+				    check_var_home _ => ();
+                                end;
+
+
+				fun check_conrep (da::EXCEPTION a)
+                                        => 
+					check_var_home a;
+
+				    check_conrep (da::SUSP (THE (a1, a2)))
+					=> 
+					 { check_var_home  a1;
+					   check_var_home  a2;
+                                         };
+
+				    check_conrep _
+                                        =>
+					();
+                                end;
+
+
+				fun check_sngl_inst (fp as (le, s)) (lt, ts)
+				    =
+				    if   (null ts)
+                                        
+                                         lt;
+				    else
+                                         case (lt_ty_app fp (lt, ts, kenv))
+				           
+				              []   =>  lt::ltc_unit;
+					      [lt] =>  lt;
+					      lts  =>  err_msg
+					                  ( le,
+					                    cat [s, ": inst yields ", int::to_string (length lts),
+						                  " results instead of 1"],
+					                           lt::ltc_void);
+                                         esac;
+                                    fi;
+
+
+				fun type_with_naming_to_single_rslt_of_inst_and_app (s, lt, ts, vs, lv) e
+				    =
+				    type_with  (lv, lt)  e
+                                    where
+
+				        fp = (le, s);
+
+					lt = case (lt_fn_app fp (check_sngl_inst fp (lt, ts), map typeof_val vs))
+					       
+                                                  [lt] =>  lt;
+					          _    =>  err_msg ( le, 
+								     cat [s, ": primitive_operation/dcon must return single result type "],
+								     lt::ltc_void
+                                                                   );
+                                             esac;
+
+				#	     [] => lt::ltc_unit;
+				#	     lts => lt::ltc_tuple lts;
+						    # ** until PRIMOPs start returning multiple results... **
+				    end;
+
+
+				fun match_and_type_with (s, v, lt, lt', lv, e)
+				    =
+				    {   lt_match (le, s) (typeof_val v, lt);
+                                        type_with (lv, lt') e;
+                                    };
+
+
+				case le
+				  
+                                     RET vs
+                                         =>
+                                         map typeof_val vs;
+
+				     LET (lvs, e, e')
+                                         =>
+				         {   apply (lvar_def le) lvs;
+				             type_in (foldl2 (ext_dictionary, venv, lvs, 
+						     typeof e, mismatch (le, "STIPULATE"))) e';
+                                         };
+
+				     MUTUALLY_RECURSIVE_FNS ([], e)
+					 =>
+					 {   say "\n**** Warning: empty declaration list in MUTUALLY_RECURSIVE_FNS\n";
+                                             typeof e;
+                                         };
+
+				     MUTUALLY_RECURSIVE_FNS ((fd as (fk as { is_recursive=>NULL, calling_convention, ... }, 
+						 lv, _, _)) ! fds', e)
+                                         =>
+					 {   my (alts, rlts)
+                                                 =
+                                                 typeof_fn venv fd;
+
+					     lt =  lt_arrow (le, "non-rec MUTUALLY_RECURSIVE_FNS") (calling_convention, alts, rlts);
+					     ve =  ext_dictionary (lv, lt, venv);
+
+					     venv'
+						 =
+						 if   (null fds')
+						     
+                                                      ve;
+						 else
+                                                      err_msg
+							 (le,
+							  "multiple namings in MUTUALLY_RECURSIVE_FNS, not all recursive",
+							  fold_left (fn ((_, lv, _, _), ve) => bogus_bind (lv, ve); end ) ve fds');
+						 fi;
+
+					     type_in venv' e;
+					 };
+
+				     MUTUALLY_RECURSIVE_FNS (fds, e)
+					 =>
+					 {   isfct = FALSE;
+
+					     fun ext_dictionary (( { calling_convention=>CALLING_CONVENTION_GENERIC, ... }, _, _, _), _)
+                                                     =>
+						     bug "unexpected case in extDict";
+
+						 ext_dictionary (( { is_recursive, calling_convention, ... }, lv, vts, _) : Function_Declaration, ve)
+                                                     =>
+						     case (is_recursive, isfct)
+						       
+                                                          (THE (lts, _), FALSE)
+                                                              =>
+							      {   lt = lt_arrow (le, "MUTUALLY_RECURSIVE_FNS") (calling_convention, 
+											      map #2 vts, lts);
+								  lt::lt_insert (ve, lv, lt, d);
+							      };
+
+						          _   =>
+                                                              {   msg =
+								      if   (isfct)
+								          
+                                                                           "recursive generic ";
+								      else
+                                                                           "a non-recursive function ";
+                                                                      fi;
+
+							          err_msg (le, "in MUTUALLY_RECURSIVE_FNS: " + msg + lv::name_of_highcode_variable lv, ve);
+							      };
+                                                     esac;
+                                             end;
+
+					     venv' = fold_left ext_dictionary venv fds;
+
+					     fun check_dcl (( { is_recursive => NULL, ... }, _, _, _) : Function_Declaration)
+                                                     =>
+                                                     ();
+
+						 check_dcl (fd as ( { is_recursive => THE (lts, _), ... }, _, _, _))
+						     =>
+						     {
+						         lts_match (le, "MUTUALLY_RECURSIVE_FNS") (lts, #2 (typeof_fn venv' fd));
+						     };
+                                             end;
+
+					     apply check_dcl fds;
+					     type_in venv' e;
+					 };
+
+				   APPLY (v, vs)
+                                       =>
+                                       lt_fn_app (le, "APPLY") (typeof_val v, map typeof_val vs);
+
+				   TYPE_FN ((tfk, lv, tks, e), e')
+				       =>
+				       {   fun getkind (tv, tk)
+                                               =
+                                               {   lvar_def le tv;
+                                                   tk;
+                                               };
+
+					   ks  = map getkind tks;
+					   lts = type_in_dictionary (lt::insert_in_type_kind_dictionary (kenv, ks), venv, di::next d) e;
+
+					   lvar_def le lv;
+					   type_with (lv, lt::ltc_poly (ks, lts)) e';
+				       };
+
+				   TYPE_APPLY (v, ts)
+                                       =>
+                                       lt_ty_app (le, "TYPE_APPLY") (typeof_val v, ts, kenv);
+
+				   SWITCH (_, _,[], _)
+                                       =>
+                                       err_msg (le, "empty SWITCH",[]);
+
+				   SWITCH (v, _, ce ! ces, lo)
+				       =>
+				       {   sel_lty = typeof_val v;
+
+					   fun g lt
+                                               =
+                                               {   lt_match (le, "SWITCH branch 1") (lt, sel_lty);
+                                                   venv;
+                                               };
+
+					   fun br_lts (c, e)
+					       =
+					       {   venv'
+						       =
+						       case c
+                                                         
+							    DATACON ((_, datatype_constructor_representation, lt), ts, v)
+								=>
+								{   check_conrep datatype_constructor_representation;
+								    fp  = (le, "SWITCH DECON");
+								    ct  = check_sngl_inst fp (lt, ts);
+								    nts = lt_fn_app_r fp (ct, [sel_lty]);
+
+									lvar_def le v;
+									foldl2 (ext_dictionary, venv, [v], nts, mismatch fp);
+								};
+
+							    (INTCON _   | WORDCON _)   =>  g lt::ltc_int;
+							    (INT32CON _ | WORD32CON _) =>  g lt::ltc_int32;
+
+							    REALCON   _ =>   g lt::ltc_real;
+							    STRINGCON _ =>   g lt_string;
+							    VLENCON   _ =>   g lt::ltc_int; 	 #  ? 
+						       esac;
+
+						  type_in venv' e;
+					       };
+
+					   ts =  br_lts  ce;
+
+					   fun check_branch (ce, n)
+					       =
+					       {   lts_match (le, "SWITCH branch " + int::to_string n) (ts, br_lts ce);
+						   n+1;
+					       };
+
+					     fold_left check_branch 2 ces;
+
+					     case lo
+                                               
+						  THE e =>  lts_match (le, "SWITCH else") (ts, typeof e);
+						  NULL  =>  ();
+					     esac;
+					     ts;
+				       };
+
+				   CONSTRUCTOR ((_, datatype_constructor_representation, lt), ts, u, lv, e)
+				       =>
+				       {   check_conrep datatype_constructor_representation;
+					   lvar_def le lv;
+					   type_with_naming_to_single_rslt_of_inst_and_app ("CONSTRUCTOR", lt, ts,[u], lv) e;
+				       };
+
+				   RECORD (rk, vs, lv, e)
+				       =>
+				       {   lt = case rk
+                                                  
+						     RK_VECTOR t
+							 =>
+							 {   lt = lt::ltc_tyc t;
+							     match = lt_match (le, "VECTOR");
+
+							     apply  (fn v =  match (lt, typeof_val v))
+                                                                    vs;
+
+							     lt_vector t;
+							 };
+
+						     RK_TUPLE _
+							 => 
+							 if   (null vs)
+                                                             
+							      lt::ltc_unit;
+							 else
+							      fun check_mono v
+								  =
+								  {   t = typeof_val v;
+
+								      if   (lt::ltp_fct t or lt::ltp_poly t)
+								          
+									   error (
+									       le,
+									       .{ pr_msg_lt ("RECORD: poly type in mono record:\n", t); }
+									   );
+								      fi;
+
+								      t;
+								  };
+
+							      lt::ltc_tuple (map check_mono vs);
+							 fi;
+
+						     RK_STRUCT
+							 =>
+							 lt::ltc_str (map typeof_val vs);
+						esac;
+
+					   lvar_def le lv;
+					   type_with (lv, lt) e;
+				       };
+
+				   SELECT (v, n, lv, e)
+				       =>
+				       {   lt = catch_exn
+						  .{ lt::lt_select (typeof_val v, n); }
+						  ( le,
+						    .{   say "SELECT from wrong type or out of range";
+							 lt::ltc_void;
+						     }
+						  );
+
+					   lvar_def le lv;
+					   type_with (lv, lt) e;
+				       };
+
+				   RAISE (v, lts)
+                                       =>
+                                       {   lt_match (le, "RAISE") (typeof_val v, lt_exn);
+                                           lts;
+                                       };
+
+				   EXCEPT (e, v)
+                                       =>
+                                       {   lts = typeof e;
+				           lt_fn_app_r (le, "EXCEPT") (typeof_val v, lts);
+                                           lts;
+				       };
+
+				   BRANCH ((_, _, lt, ts), vs, e1, e2)
+                                       => 
+				       {   fp = (le, "BRANCH");
+
+					   lt = case (lt_fn_app fp (check_sngl_inst fp (lt, ts), map typeof_val vs))
+					          
+                                                     [lt] =>  lt;
+					             _    =>  err_msg ( le, 
+								        "BRANCH:  primitive_operation must return single result ",
+								        lt::ltc_void
+                                                                      );
+                                                esac;
+
+					   lt_match fp (lt, lt_bool);
+
+					   lts1 = typeof e1;
+					   lts2 = typeof e2;
+
+					   lts_match fp (lts1, lts2);
+
+					   lts1;
+				       };
+
+				   PRIMOP ((_, po::WCAST, lt,[]), [u], lv, e)
+				       => 
+				       # A hack: checked only after reifY is done
+				       #
+				       if (later_phase phase)
+				           
+					    lvar_def le lv;
+
+					    case (lt::ltd_fct lt)
+					       
+						 ([argt], [rt])
+						     => 
+						     {   lt_match (le, "WCAST") (typeof_val u, argt); 
+							 type_with (lv, rt) e;
+						     };
+
+						 _ => bug "unexpected WCAST in typecheck";
+					    esac;
+				       else
+					    bug "unexpected WCAST in typecheck";
+				       fi;
+
+				   PRIMOP ((dc, _, lt, ts), vs, lv, e)
+				       =>
+				       {   # There are lvars hidden inside dicts,
+                                           # which we didn't check before.
+                                           # This is a first-order check that 
+					   # they at least are bound to something;
+                                           # for now we don't care about their types.
+					   # (I'm not sure what the rules should look like.)
+					   #   --league, 10 april 1998.
+					   #
+					   fun check_symbol_table (THE { default, table } )
+                                                   => 
+						   {   typeof_variable default;
+						       apply (ignore o typeof_variable o #2) table;
+                                                   };
+
+					       check_symbol_table (NULL:  Null_Or( Dictionary ))
+                                                   =>
+                                                   ();
+                                           end;
+
+					   check_symbol_table dc;
+					   lvar_def le lv;
+					   type_with_naming_to_single_rslt_of_inst_and_app ("PRIMOP", lt, ts, vs, lv) e;
+				       };
+                                esac;
+			  /*
+				  | GENOP (dictionary, (_, lt, ts), vs, lv, e) =>
+				    #  verify dictionary ? 
+				    typeWithNamingToSingleRsltOfInstAndApp ("GENOP", lt, ts, vs, lv) e
+				  | EXCEPTION_TAG (t, v, lv, e) =>
+				    matchAndTypeWith ("EXCEPTION_TAG", v, ltString, ltEtag (lt::ltc_tyc t), lv, e)
+				  | WRAP (t, v, lv, e) =>
+				    matchAndTypeWith ("WRAP", v, lt::ltc_tyc t, ltWrap t, lv, e)
+				  | UNWRAP (t, v, lv, e) =>
+				    matchAndTypeWith ("UNWRAP", v, ltWrap t, lt::ltc_tyc t, lv, e)
+			  */
+			      };
+
+		        typeof;
+                    };
+
+
+		anyerror := FALSE;
+		ignore (type_in_dictionary dicts lambda_expression);
+		*anyerror;
+	    };
+
+    herein #  toplevel 'with'
+
+	/****************************************************************************
+	 *  MAIN FUNCTION --- my checkTop:  anormal::Function_Declaration * typsys -> Bool          *
+	 ****************************************************************************/
+
+	fun check_top ((fkind, v, args, lambda_expression):     Function_Declaration, phase)
+	    =
+	    {   ve  =  fold_left
+                           (fn ((v, t), ve) =  lt::lt_insert (ve, v, t, di::top))
+                           lt::init_lty_dictionary
+                           args;
+
+		err =  check phase
+                           (lt::empty_type_kind_dictionary, ve, di::top)
+                           lambda_expression;
+
+		err = case fkind
+		        
+                           { calling_convention => CALLING_CONVENTION_GENERIC, ... }
+                               =>
+                               err;
+
+		           _   =>
+                               {   say "**** Not a generic package at top level\n";
+                                   TRUE;
+                               };
+                      esac;
+		err;
+	    };
+
+
+	check_top
+            =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 051 HIGHCODECheck") check_top;
+
+
+	###############################################################################
+	#  MAIN FUNCTION
+        #  anormal::Anormal_Expression * typsys -> Bool
+	#  (currently unused?)
+	###############################################################################
+	fun check_expression (le, phase)
+            =
+            check phase (lt::empty_type_kind_dictionary, lt::init_lty_dictionary, di::top) le;
+
+    end;		#  toplevel 'with'
+};			#  package typecheck_anormal 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1997, 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

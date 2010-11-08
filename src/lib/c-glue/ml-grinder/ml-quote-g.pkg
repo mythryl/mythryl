@@ -1,0 +1,148 @@
+local
+   program = "lib7_quote_g"
+   author  = "Allen Leung"
+   email   = "leunga@{ cs.nyu.edu, dorsai.org }"
+   version = "1.0"
+in
+package lib7_quote_g:  Lib7_Quote_Gen {
+
+
+   package r = lib7_reflect_gen_g (ml_grinder)
+   package g = r::G
+   package a = g::Ast
+   
+   use G g::AstUtil
+
+   prefix = "q_"
+
+   enum kind = PAT | EXP
+
+   fun gen { path=consPrefix, infile, outfile, wrapper, kind=k }
+       = 
+       let inputProg = io::read_file infile
+
+	   kind = case k of PAT => "pat" | EXP => "exp"
+
+	   TUPLEer  = "TUPLE"$kind
+	   CONSer   = "CONS"$kind
+	   my (RECORDer, code) = 
+		   case k of
+		     EXP => ("a::RECORDexp", "")
+		   | PAT => ("Private::RECORD",
+			     "   fun record lps = a::RECORDpat (lps, FALSE)")   # "record" was "RECORD" CrT 2007-05-30
+	   header' = A.@@@[
+	       "package g = ml_grinder",
+	       "package a = g::Ast",
+	       "package u = ml_grinder::AstUtil",
+	       "package private {",
+	       "   nil = a::LIST"$kind$"([], NULL)",
+	       "   lit = a::LIT"$kind,
+	       "   consx = a::CONS"$kind,
+	       "   fun cons (h, a::LIST"$kind$"(t, r)) = a::LIST"$kind$"(h . t, r)",
+	       "     | cons (h, t) = a::LIST"$kind$"([h], THE t)",
+	       code,
+	       "}",
+	       "fun q_string s = private::lit (a::STRINGlit s)",
+	       "fun q_int i = private::lit (a::INTlit i)",
+	       "fun q_int32 i = private::lit (a::INT32lit i)",
+	       "fun q_intinf i = private::lit (a::INTINFlit i)",
+	       "fun q_word w = private::lit (a::WORDlit w)",
+	       "fun q_word32 w = private::lit (a::WORD32lit w)",
+	       "fun q_char c = private::lit (a::CHARlit c)",
+	       "fun q_bool b = private::lit (a::BOOLlit b)",
+	       "fun q_list f [] = private::nil",
+	       "  | q_list f (h . t) = private::cons (f h, q_list f t)",
+	       "fun q_option f_'a (NULL) = private::consx (a::IDENT ([], \"NULL\"), NULL)",
+	       "  | q_option f_'a (THE arg) = private::consx (a::IDENT ([], \"THE\"), THE (f_'a arg))",
+	       "fun q_ref f_'a (REF arg) = private::consx (a::IDENT ([], \"REF\"), THE (f_'a arg))" 
+	     ] 
+
+	   my { defineConst, declareConsts } = Constants::constants()
+
+	   fun App (f, x) = a::APPexp (a::IDexp (a::IDENT(["A"], f)), x)
+	   fun path ps = a::LISTexp (map STRINGexp ps, NULL)
+
+	   fun coerce (p, t) = a::IDexp (a::IDENT (p, prefix$t))
+	   fun idty (a::IDENT([], x)) = coerce([], x)
+	     | idty (a::IDENT(["integer"], "int")) = coerce([], "intinf")
+	     | idty (a::IDENT(["int32"], "int")) = coerce([], "int32")
+	     | idty (a::IDENT(["unt32"], "word")) = coerce([], "word32")
+	     | idty (a::IDENT (p, x)) = coerce([], x)
+
+	   fun tuplety tys =  
+	   let fun loop (i, [],      pats, exps) = (reverse pats, reverse exps)
+		 | loop (i, ty . tys, pats, exps) =
+		   let x_i = "x_"$int::to_string i
+		   in  loop (i+1, tys, a::IDpat x_i . pats, a::APPexp (ty, ID x_i) . exps) 
+		   end 
+	       my (pats, exps) =  loop (0, tys, [], [])
+	   in  a::LAMBDAexp[a::CLAUSE([a::TUPLEpat pats], NULL,
+				    App (TUPLEer, a::LISTexp (exps, NULL)))]
+	   end 
+
+	   fun recordty ltys = 
+	   let fun loop ([],           lpats, lexps) = (lpats, lexps)
+		 | loop((x, ty) . ltys, lpats, lexps) =
+		   loop (ltys, (x, a::IDpat x) . lpats, (x, a::APPexp (ty, ID x)) . lexps)
+	       my (lpats, lexps) = loop (ltys, [], [])
+	       exps = map (fn (x, e) => a::TUPLEexp[STRINGexp x, e]) lexps
+	   in  a::LAMBDAexp[a::CLAUSE([a::RECORDpat (lpats, FALSE)], NULL,
+				     APPLY (RECORDer, a::LISTexp (exps, NULL)))]
+	   end
+
+	   fun appty (a::IDENT (p, f), tys) = a::APPexp (coerce (p, f), a::TUPLEexp tys)
+
+	   fun funty (x, y) = raise exception FAIL "funty"
+
+	   consPrefix' = defineConst (a::LISTexp (map STRINGexp consPrefix, NULL))
+
+	   fun makeCons (f, x) = 
+		 App (CONSer,
+		    a::TUPLEexp[
+		     defineConst (App("IDENT", a::TUPLEexp[consPrefix', STRINGexp f])),
+		       case x of
+			 NULL => ID "NULL"
+		       | THE x => APPLY("THE", x)])
+
+	   fun makeArg p = [p]
+	   fun makeConsPat (id, x) = a::CONSpat (a::IDENT (consPrefix, id), x)
+
+	   prog = 
+	       r::reflect 
+	       { prefix, makeCons, makeConsPat, makeArg }
+	       { idty, tuplety, recordty,
+		appty, funty } 
+	       inputProg
+
+	   prog = declareConsts prog
+
+	   prog = wrapper (a::SEQdecl[header', prog])
+
+       in  io::writeFile([io::OUTFILE outfile,
+			 io::INFILE infile,
+			 io::PROGRAM program,
+			 io::AUTHOR author,
+			 io::EMAIL email,
+			 io::VERSION version 
+			], prog)
+       end
+}; #  lib7_quote_g 
+end; #  local 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

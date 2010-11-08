@@ -1,0 +1,253 @@
+## com.pkg
+## Author: bu/stefan (Last modification $Author: 2cxl $)
+## (C) 1996-99, Bremen Institute for Safe Systems, Universitaet Bremen
+
+# Compiled by:
+#     src/lib/tk/src/tk.make6
+
+
+
+
+# ***************************************************************************
+# Basic communication layer: sending & receiving,
+# sending commands and receiving events, main loop and control. 
+#
+# This module implements the tk event handling mechanism -- i.e. 
+# the bit which listens to something coming from Tcl, figures out which
+# naming this corresponds to, and calls the corresponding Mythryl function.
+#
+# In event-loop.pkg we have two main functions, interpret_event: String-> Void
+# which takes a string returned by the wish and figures out what to
+# do with it, and appLoop: Void-> Void which is the main event loop,
+# which listens to the pipes to all currently running applications,
+# reads their answer, dispatches their handling, and most importantly
+# loops (hence the name).
+#
+# (Probably, these two functions should not be in the same module).
+#  
+# $Date: 2001/03/30 13:39:05 $
+# $Revision: 3.0 $
+# 
+# **************************************************************************
+
+
+
+package com: (weak)  Com {		# Com	is from   src/lib/tk/src/com.api
+
+
+    include basic_tk_types;
+    include basic_utilities;
+    include com_state;
+    include gui_state;
+
+# **********************************************************************
+#
+# WRITING AND READING
+#
+
+
+#  get_line() strings can only be used for texts that are certain not 
+#  to contain \n. Otherwise, get_line_m() (M for multiple) has to be used.
+#  On the other side, an appropriate writeM is provided. 
+
+
+fun do_prot_in t
+    =
+    case (get_wish_prot())
+      
+         THE prot
+             =>
+             {   file::write (prot, "<== " + t + "\n");
+		 file::flush prot;
+	         t;
+             };
+
+         NULL => t;
+    esac;
+
+fun get_line ()
+    = 
+    {
+	t = com_state::get_event ();
+
+	# Strip off concluding "\n":
+
+	t = substring (t, 0, (size t) -1);
+     	
+	do_prot_in t;
+    };
+  
+fun get_line_m ()
+    =
+    {   fun getls ()
+            = 
+	    {   t = com_state::get_event();
+	        		
+		if   (t == "EOM\n"   )   "";
+                                    else   t + getls ();   fi; 
+	    };
+    
+	do_prot_in (getls());
+    };
+
+
+fun put_line ps
+    = 
+    {   case (get_wish_prot())
+	  
+             THE prot
+		 =>
+		 {   file::write (prot, "===> " + ps + "\n");
+		     file::flush prot;
+		 };
+
+            NULL => ();
+
+        esac;
+
+        com_state::eval  ps;
+    };
+
+
+# **********************************************************************;
+#
+# SENDING COMMANDS
+#
+
+
+
+fun put_tcl_cmd cmd
+    =
+    {   emsg =  fn s =  (string::join " " s);
+
+	fun get_answer aws
+            =
+	    {   a    = get_line(); 
+		ss   = string_util::words a;
+		debug::print 1 ("com::putTclCmd: got \"" + a + "\"");
+		kind = hd ss;
+	    
+		if   (kind == "CMDOK"
+                or    kind == "ERROR"
+                )
+		     (a, aws);
+		else
+		     get_answer (aws @ [a]);
+                fi;
+	    }; 
+
+	put_line ("WriteCmd \"CMDOK\" {" + cmd + "}");
+	my (a, binds) = get_answer [];
+
+	gaws      = com_state::get_tcl_answers_gui();
+	com_state::upd_tcl_answers_gui (gaws@binds);
+
+	if (not (length binds == 0))
+            debug::print 1 "Missed Naming";
+        fi;
+    
+	case (hd (string_util::words a))
+	  
+	     "CMDOK" => ();
+	     "ERROR" => debug::warning ("com::putCmd: got Tcl Error: \"" + a + "\"");
+	     s       => debug::warning ("com::putCmd: got unexpected answer: \"" + s + "\"");
+        esac;
+    }
+    except
+        EMPTY => debug::warning ("com::putCmd: no answer"); end ;
+
+
+fun read_tcl_val req
+    =
+    {   join_sp = string::join " ";
+
+	fun get_answer aws
+            =
+	    {   a    = get_line ();
+		ss   = string_util::words a;
+		kind = hd ss;
+		debug::print 1 ("com::readTclVal: got \"" + a + "\"");
+	    
+		if (kind == "VValue")   (join_sp (tl (ss)), aws);
+		else		        get_answer (aws @ [a]);                fi; 
+	    };
+
+	put_line ("WriteSec \"VValue\" {" + req + "}"); 
+	my (a, binds) = get_answer [];
+
+	gaws = com_state::get_tcl_answers_gui();
+	com_state::upd_tcl_answers_gui (gaws@binds);
+    
+	a;
+    };
+
+fun read_answer_from_tcl interpret_answer
+    =
+    case (com_state::get_tcl_answers_gui ())
+      
+	[]        => ();
+	(ta . tal) => { com_state::upd_tcl_answers_gui (tal);
+		   interpret_answer ta;
+		   read_answer_from_tcl interpret_answer;};
+    esac;
+
+#  forceTcl2doOneEvent = com_state::do_one_event_without_waiting 
+
+
+#  "communicate" 
+
+comm_to_tcl   = "Write";
+comm_to_tcl'  = "SWrite";
+write_to_tcl  = "Write";
+write_mto_tcl = "WriteM";
+
+
+
+# **********************************************************************
+#
+# MAIN CONTROL
+#
+# Setting up the communication.
+
+
+
+fun reset_tcl ()
+    =
+    {   gui_state::init_gui_state();
+        com_state::init_com_state();
+    };
+
+fun init_tcl ()
+    = 
+    {   com_state::init_wish();
+
+        put_line ((get_tcl_init()) + prelude_tcl);
+    };
+
+fun exit_tcl ()
+    = 
+    {   put_line "destroy .";
+        close_wish ();
+        init_gui_state ();
+        init_com_state ();
+    };
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

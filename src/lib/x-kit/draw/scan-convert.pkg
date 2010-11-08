@@ -1,0 +1,437 @@
+## scan-convert.pkg
+
+# Compiled by:
+#     src/lib/x-kit/draw/xkit-draw.make6
+
+# Code for scan converting a polygon specified as a list of
+# points and a fill rule into even length list of points
+# corresponding to scan line segments.
+#
+# The resulting list of points is ordered from bottom to top and
+# from left to right.
+#
+# The algorithms are roughly based on those found in the sample X library.
+
+
+
+###                "All war must be just the killing of strangers
+###                 against whom you feel no personal animosity;
+###                 strangers whom, in other circumstances,
+###                 you would help if you found them in trouble,
+###                 and who would help you if you needed it."
+###
+###                                          -- Mark Twain
+
+
+
+package scan_convert : (weak)
+api {
+    package xg:  Xgeometry;		# Xgeometry	is from   src/lib/std/2d/xgeometry.api
+
+    Fill_Rule = EVEN_ODD
+              | WINDING;
+
+    scan_convert:  (List( xg::Point ), Fill_Rule) -> List( xg::Point );
+}
+{
+    include xgeometry;			# xgeometry	is from   src/lib/std/2d/xgeometry.pkg
+				
+    package xg = xgeometry;		# xgeometry	is from   src/lib/std/2d/xgeometry.pkg
+
+
+    Fill_Rule = EVEN_ODD | WINDING;
+
+    package bres {			# "bres" is short for "Bresenham"
+
+         Bres_Info = {
+          x:  Int,                #  minor axis        
+          d:  Int                 #  Decision variable 
+        };
+
+	#
+	#  In scan converting polygons, we want to choose those pixels
+	#  which are inside the polygon.  Thus, we add .5 to the starting
+	#  x coordinate for both left and right edges.  Now we choose the
+	#  first pixel which is inside the pgon for the left edge and the
+	#  first pixel which is outside the pgon for the right edge.
+	#  Draw the left pixel, but not the right.
+	#
+	#  How to add .5 to the starting x coordinate:
+	#      If the edge is moving to the right, then subtract dy from the
+	#  error term from the general form of the algorithm.
+	#      If the edge is moving to the left, then add dy to the error term.
+	#
+	#  The reason for the difference between edges moving to the left
+	#  and edges moving to the right is simple:  If an edge is moving
+	#  to the right, then we want the algorithm to flip immediately.
+	#  If it is moving to the left, then we don't want it to flip until
+	#  we traverse an entire pixel.
+
+           
+        fun incr (m, m1, incr1, incr2)
+            =
+            if     (m1 > 0) 
+                   fn { x, d } => if (d >  0   ) { x=>x+m1, d=>d+incr1 };   else { x=>x+m, d=>d+incr2 };fi; end ;
+            else   fn { x, d } => if (d >= 0   ) { x=>x+m1, d=>d+incr1 };   else { x=>x+m, d=>d+incr2 };fi; end ;fi;
+
+        fun make_bresenham_info (dy, x1, x2)		#  Assume dy > 0 
+            =
+            {   dx = x2 - x1;
+
+		m = int::quot (dx, dy);
+
+                if    (dx < 0)
+                     
+		         m1 = m - 1;
+
+			  ix = -(dx + dx);
+			  iy =   dy + dy;
+
+			  incr1 = ix + iy * m1;
+			  incr2 = ix + iy * m;
+
+			  ( { x => x1, d => m1 * iy + ix }, incr (m, m1, incr1, incr2));
+		      
+                else
+		      {   m1 = m + 1;
+			  ix =   dx + dx;
+			  iy = -(dy + dy);
+
+			  incr1 = ix + iy * m1;
+			  incr2 = ix + iy * m;
+
+			  ( { x => x1, d => m * iy + ix }, incr (m, m1, incr1, incr2));
+		      };fi;
+            };
+
+    }; #  package bres 
+
+    large_coord = 1000000;
+    small_coord = -large_coord;
+
+    Edge = EDGE  {
+	adv:  bres::Bres_Info -> bres::Bres_Info, #  function to update Bresenham info 
+	bres:  Ref( bres::Bres_Info ),   #  Bresenham info to run the edge     
+	clockwise:  Bool,            #  flag for winding number rule       
+	ymax:  Int                   #  ycoord at which we exit this edge. 
+    };
+
+
+     Scanline = (Int, List( Edge ));
+
+     Edge_Table = ET  {
+	ymax:  Int,                 #  ymax for the polygon     
+	ymin:  Int,                 #  ymin for the polygon     
+        scanlines:  List( Scanline )   #  scanlines                
+    };
+
+    fun insert_edge (scanlines, miny:  Int, edge as EDGE { bres=> REF { x=>minx, ... }, ... } )
+        =
+        {   fun ine []
+                    =>
+                    [edge];
+
+	       ine (el as ((e as EDGE { bres=> REF { x, ... }, ... } ) ! rest))
+                    =>
+		    if (x < minx   ) e ! (ine rest);
+                                  else edge ! el;fi; end;
+
+	    fun ins []
+                    =>
+                    [(miny, [edge])];
+
+	       ins (sl as ((s as (y, edges)) ! rest))
+                    =>
+		    if (y < miny)                 s ! (ins rest);
+		    elif (y == miny) (y, ine edges) ! rest;
+		    else             (miny, [edge]) ! sl;
+                    fi;
+            end;
+
+            ins scanlines;
+        };
+
+    fun make_edge_table pts
+        =
+        loop (pts, list::last pts, small_coord, large_coord, [])
+        where
+            # use format;
+	    # fmt = formatf "make edge: topx %d topy %d botx %d boty %d cw %b\n"
+	    #             (outputc std_out);
+	    # fmt1 = formatf "number of scanlines = %d\n" (outputc std_out);
+
+	    fun make_edge (ymax, clockwise, dy, topx, botx)
+		=
+		{   my (info, f) =   bres::make_bresenham_info (dy, topx, botx);
+
+		    EDGE { ymax, clockwise, bres => REF info, adv=>f };
+		};
+
+
+	    fun loop ([], prevpt, ymax, ymin, slines)
+		    =>
+		    ET { ymax, ymin, scanlines=>slines };
+
+	       loop ( (cp as POINT { col=>x, row=>y } ) ! rest,
+                      POINT { col=>x', row=>y'},
+                      ymax,
+                      ymin,
+                      slines
+                    )
+		    =>
+		    {   #  fmt1 [INT (length slines)];
+
+			my (botx, boty, topx, topy, clockwise)
+			    = 
+			    if (y' > y)  (x', y', x,  y, FALSE);
+			    else         (x,  y,  x', y', TRUE);
+                            fi;
+
+			if (boty == topy)
+			    #
+			    loop (rest, cp, ymax, ymin, slines);
+			else
+			    dy =   boty - topy;
+			    e  =   make_edge (boty - 1, clockwise, boty-topy, topx, botx);
+
+			    #  fmt [INT topx, INT topy, INT botx, INT boty, BOOL clockwise];
+
+			    loop (
+				rest,
+				cp,
+				int::max (y', ymax),
+				int::min (y', ymin),
+				insert_edge (slines, topy, e)
+			    );
+
+			fi;
+		    };
+	    end;
+        end;
+
+    fun get_winding edges
+        =
+        loop (edges, 0, TRUE)
+        where
+            fun loop ([], _, _)
+                    =>
+                    [];
+
+	       loop ((e as EDGE { clockwise, ... } ) ! es, is_inside, inside)
+                    =>
+		    {   is_inside' =   if clockwise    is_inside + 1;
+                                       else            is_inside - 1;
+                                       fi;
+
+			if (inside == (is_inside' != 0))
+			    #
+                            e ! (loop (es, is_inside', not inside));
+			else
+                            loop (es, is_inside', inside);
+			fi;
+		    };
+	    end;
+        end;
+
+    fun gtr
+        ( EDGE { bres => REF { x,     ... }, ... },
+          EDGE { bres => REF { x=>x', ... }, ... }
+        )
+        =
+        x > x';
+
+    sorted = list_mergesort::sorted gtr;
+    sort'  = list_mergesort::sort   gtr;
+
+    fun sort edges
+        =
+        if (sorted edges) (edges,       FALSE);
+        else              (sort' edges, TRUE);
+        fi;
+
+
+    fun add_active ([], acs) => acs;
+	add_active (es,[]) => es;
+	add_active (el as (e as EDGE { bres => REF { x, ... }, ... } ) ! es,
+		    al as (a as EDGE { bres => REF { x=>ax, ... }, ... } ) ! acs)
+	     =>
+	     if (x <= ax) e ! (add_active (es, al));
+	     else         a ! (add_active (el, acs));
+             fi;
+    end;
+
+
+    fun even_odd (ET { ymin, ymax, scanlines } )
+        =
+        loop (ymin, scanlines,[],[])
+        where
+            fun do_edges (y, edges, pts)
+                =
+                loop (edges,[], pts)
+                where
+                    fun loop ([], es, pts)
+                           =>
+                           (reverse es, pts);
+
+		       loop ((e as EDGE { ymax, adv, bres, ... } ) ! rest, es, pts)
+			    =>
+			    {   my bi as { x, ... } =   *bres;
+
+				if (ymax == y)
+				    #
+                                    loop (rest, es, POINT { col=>x, row=>y } ! pts);
+				else
+                                    bres := adv bi;
+				    loop (rest, e ! es, POINT { col=>x, row=>y } ! pts);
+                                fi;
+			    };
+                    end;
+                end;
+
+
+	    fun check_active (y,[], active)
+                    =>
+                    ([], active);
+
+	        check_active (y, sl as ((y', edges) ! rest), active)
+                    =>
+		    if (y == y') (rest, add_active (edges, active));
+                    else         (sl, active);
+                    fi;
+            end;
+
+
+	    fun loop (y, scanlines, active, pts)
+                =
+		if (y == ymax)
+		    #
+                    pts;
+		else
+		    my (scanlines', active') =   check_active (y, scanlines, active) ;
+		    my (active'',   pts'   ) =   do_edges (y, active', pts);
+
+		    loop (y+1, scanlines',#1 (sort active''), pts');
+                fi;
+
+        end;
+
+
+    fun winding (ET { ymin, ymax, scanlines } )
+        =
+	loop (ymin, scanlines,[],[],[])
+        where
+            fun do_edges (y, edges, ws, pts)
+                =
+                loop (edges, ws, ([], FALSE), pts)
+                where
+                    fun update (e as EDGE { ymax, adv, bres, ... }, (es, fix))
+                        =
+			if (ymax == y)
+			    #
+                            (es, TRUE);
+			else
+                            bres := adv *bres;
+
+                            (e ! es, fix);
+                        fi;
+
+		    fun finish (edges, es, pts)
+                        =
+                        f (edges, es)
+			where
+                            fun f ([], (es, fix)) => (reverse es, pts, fix);
+			        f (e ! rest, es) => f (rest, update (e, es));
+                            end;
+                        end;
+
+		    fun loop (edges,[], es, pts)
+                            =>
+                            finish (edges, es, pts);
+
+		       loop (e ! rest, wl as (EDGE { bres => b', ... } ! ws), es, pts)
+                            =>
+                            {   my EDGE { bres => b as REF { x, ... }, ... } =   e;
+
+			        if (b == b')
+                                       loop (rest, ws, update (e, es), POINT { col=>x, row=>y } ! pts);
+			        else   loop (rest, wl, update (e, es), pts);
+                                fi;
+			    };
+
+		       loop _
+                            =>
+                            raise exception lib_base::IMPOSSIBLE "ScanConvert::winding";
+                    end;
+                end;
+
+
+	    fun check_active (y,[], active, ws)
+                    =>
+                    ([], active, ws);
+
+	       check_active (y, sl as ((y', edges) ! rest), active, ws)
+                    =>
+		    if (y == y')
+			#                        
+                        acs =   add_active (edges, active);
+		        (rest, acs, get_winding acs);
+		    else
+                        (sl, active, ws);
+                    fi;
+            end;
+
+	    fun loop (y, scanlines, active, ws, pts)
+                =
+		if (y == ymax)
+		    #
+                    pts;
+		else
+                    my (scanlines', active', ws')
+			=
+			check_active (y, scanlines, active, ws);
+
+		    my (active'', pts', fix)
+			=
+			do_edges (y, active', ws', pts);
+
+		    my (active''', changed)
+			=
+			sort active'';
+
+		    ws'' =   if (fix or changed)  get_winding active''';
+			     else                 active''';
+                             fi;
+
+		    loop (y+1, scanlines', active''', ws'', pts');
+	        fi;
+
+        end;
+ 
+    fun scan_convert (pts, EVEN_ODD) =>  even_odd  (make_edge_table  pts); 
+        scan_convert (pts, WINDING ) =>  winding   (make_edge_table  pts);
+    end;
+ 
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

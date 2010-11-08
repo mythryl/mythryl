@@ -1,0 +1,2861 @@
+## compile-treewalk-g.pkg -- make7 dependency graph treewalks.
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+#                  MOTIVATION
+#
+# If package A references type/fun/value in a package B.
+# then we say package A "depends upon" package B.
+#
+# This is important during compiles, when we must
+# have access to type information from B in order
+# to compile A, and also during linking, when we
+# must remember to link in B whenever we link A
+# into a process or program.
+# 
+# We represent the detailed dependency relationships
+# between a set of packages using a dependency graph
+# -- see
+#
+#     src/app/make7/depend/intra-library-dependency-graph.pkg
+# 
+# We represent less detailed dependency relationships,
+# accurate only to the granularity of libraries,
+# using library dependency graphs.  See
+#
+#     src/app/make7/depend/inter-library-dependency-graph.pkg
+# 
+# We need to do two kinds of treewalks over these graphs,
+# compile treewalks and link treewalks.
+# 
+# To achieve good separation of concerns, we implement
+# the mechanics of doing these treewalks separately
+# from the code needing them done, and hide the
+# implementation details behind an abstract api.
+#
+# Link treewalks are implemented in
+#
+#     src/app/make7/compile/linking-treewalk-g.pkg
+#
+# Compile treewalks are implemented here.
+
+
+
+
+#                  DATA STRUCTURE
+#
+# 'object_code_cache':
+#
+#     We use a 'object_code_cache' dictionary to remember which
+#     source code files we have already compiled, and to record
+#     for each such file the result of compiling it -- in
+#     particular, the resulting o7 and its creation date, and
+#     the interface information needed to compile other files
+#     dependent upon this file, namely the symboltable of
+#     exported values and types, and the dictionary of
+#     inlinable functions.
+#
+#     object_code_cache keys:       Bare_O7 records.
+#
+#         The 'object_code_cache' dictionary keys are 'Bare_O7' records,
+#         which summarize what we know about a given o7
+#         including its sourcefile and parsetree.
+#
+#         In particular, the Bare_O7 record includes
+#         a function make_oh7_file_name() which will generate and
+#         return the name of the corresponding .o7 file to generate
+#         presuming it is known to exist and be current. See
+#
+#             src/app/make7/o7/bare-o7.pkg
+#
+#
+#     object_code_cache values:     Object_Code_Cache_Entry records.
+#
+#         Each 'object_code_cache' dictionary value is an 'object_code_cache_entry'
+#         record (defined in this file -- see below).
+#
+#         This record includes a 'creation_time' timestamp field which
+#         may be used to determine whether the compiled .o7 file is
+#         currently valid, by checking to see if the sourcefile has
+#         been modified since the .o7 file was generated.
+#
+#         The record also includes pickle hashes for the oh7_file:
+#         If recompiling the sourcefile results in a new .o7 file with
+#         the same picklehashes, then the source edit didn't introduce any
+#         interesting (to a compiler) changes (maybe just some new comments)
+#         and we don't need to run around recompiling all files which
+#         depend on thaat sourcefile.  This can often avoid a lot of useless
+#         recompilations.
+#
+#         Finally, the 'object_code_cache_entry' record also includes all
+#         the interface information produced by compiling the corresponding
+#         sourcefile -- which is to say, all the information needed
+#         to recompile files which depend upon that sourcefile.
+
+
+
+
+#                  ALGORITHM
+#
+# Our basic algorithm is quite simple.
+#
+# In essence we do a post-order treewalk of
+# the dependency tree for the program, compiling
+# each node after all of its children.
+#
+# Our dependency 'tree' is really a lattice
+# (it has shared subtrees due to multiple libraries
+# calling the same library fns &tc) but we use
+# datastructures such as our 'object_code_cache'
+# dictionary to ensure that we don't compile a
+# given makefile or sourcefile more than once.
+#
+#
+# In a bit more detail, the heart of the
+# post-order dependency graph treewalk is
+#
+#     fun compile_dependencies_then_sourcefile
+#
+# Key points of interest:
+#
+#
+# o  Our 'dependency tree' is actually factored
+#    into one 'inter-library' dependency graph
+#    recording dependencies between complete
+#    libraries (a "library" being essentially
+#    the set of sourcefiles compiled by one
+#    .make6 file) plus one 'intra-library' graph
+#    per library recording dependencies between
+#    individual source files.
+#
+#    This factoring adds some complexity to the
+#    tree-traversal code, but does not change it
+#    in any essential way.
+#
+#
+# o  Before we compile a given sourcefile,
+#    we queue up compiles of all other sourcefiles
+#    that it depends upon, and wait for them to complete.
+#
+#    Each of them do the same thing recursively, so
+#    we wind up compiling the dependency tree in a
+#    wave that starts at the leafs and ripples up
+#    to the root.
+#
+#    This ensures that when we compile a given file,
+#    all needed info from other files is available.
+#
+#   (The structure of our source language
+#    guarantees we can order our compiles
+#    in this fashion:  We allow no cyclic
+#    dependencies between source files.
+#    To the occasional irritation of programmers!)
+#
+#
+# o  We use one 'scheduled_compiles' map per library
+#    to ensure that we don't queue up multiple compiles
+#    of a sourcefile.
+#
+#
+#
+#                 COMPLICATING FACTORS
+#
+# As usual, most of the code complexity derives from attempts
+# to improve speed and efficiency.  In this case, they include:
+#
+# o  To improve wallclock compile times, we support using
+#    multiple Unix processes to compile files in parallel
+#    during a build.  These processes may be on the same
+#    machine (to take advantage of multi-processor boxes)
+#    or on other machines.  (In the latter case, we assume
+#    use of a shared filesystem such as NFS.)
+#
+# o  To minimize redundant work done, particularly parsing
+#    of source code files, we do much of the work lazily,
+#    using thunks and memos.  As usual, this makes the code
+#    harder to understand and maintain. *wrygrin*
+#
+# o  To buy efficiency in cases where we do need to parse
+#    a file multiple times, where possible we work from a
+#    custom abstraction of the source code called a
+#    'module dependencies summary' which contains just
+#    the information we need from a source file.  See
+#
+#        src/app/make7/o7/module-dependencies-summary.pkg
+#
+#
+#
+#             JUST LIKE UNIX 'make'
+#
+# We retain enough information on disk between
+# runs (in particular, the .o7 files) that
+# the above algorithm also provides us with
+# 'make' functionality, in the sense that if
+# we compile everything, edit one or more files,
+# and then recompile, only the logically required
+# recompiles will be done.
+
+
+
+
+
+
+
+# GENERIC INVOCATION CONTEXT
+#
+#     Our compile_treewalk_g generic is invoked
+#     in two places,
+#
+#         src/app/make7/make-compiler/make-compiler-g.pkg
+#         src/app/make7/main/make7-g.pkg
+#
+#     which is to say, in the definitions of both the
+#     bootstrap and production compilers.
+#
+#
+#
+# RUNTIME INVOCATION CONTEXT
+#
+#     Our main two entrypoints are
+#
+#         make_intra_library_dependency_graph_walker
+#         walk_inter_library_dependency_graph
+#
+#     Both are invoked by both bootstrap and standard compiler:
+#
+#         src/app/make7/make-compiler/make-compiler-g.pkg
+#         src/app/make7/main/make7-g.pkg
+#
+#
+#
+# KNOWN GOTCHAS
+#
+#     This generic currently maintains a
+#     lot of persistent state, which must be explicitly
+#     reset by our client before each new compile, and
+#     which (for now) precludes using multiple threads
+#     to run multiple compiles in parallel within a
+#     single process.		XXX BUGGO FIXME
+
+
+
+
+###                      "In software as elsewhere,
+###                       good engineering is whatever
+###                       gets the job done without
+###                       calling attention to itself."
+###
+###                           -- Citadel 2.21 release notes, 1982
+
+
+
+stipulate
+    #
+    package m7 =  make7_state;				# make7_state				is from   src/app/make7/main/make7-state.pkg
+    package sg =  intra_library_dependency_graph;	# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg =  inter_library_dependency_graph;	# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+    package st =  symbol_table;				# symbol_table				is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+    package pp =  prettyprint;				# prettyprint				is from   src/lib/prettyprint/src/prettyprint.pkg
+    package pu =  unparse_stuff;			# unparse_stuff				is from   src/lib/compiler/frontend/typechecker/print/unparse-stuff.pkg
+    package em =  error_message;			# error_message				is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+    package ph =  picklehash;				# picklehash				is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+    package ad =  anchor_dictionary;			# anchor_dictionary			is from   src/app/make7/paths/anchor-dictionary.pkg
+
+    Picklehash
+        =
+        ph::Picklehash;
+
+    Symbol_Table
+        =
+        symbol_table::Symbol_Table;			# symbol_table				is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+
+    Inlining_Table
+        =
+        inlining_table::Dictionary;			# inlining_table			is from   src/lib/compiler/toplevel/compiler-state/inlining-table.pkg
+
+
+    # Per package table of exported symbols (functions, types...)
+    # and of exported inlinable functions:
+    #
+    Symbol_And_Inlining_Tables
+         =
+         { symbol_table:    Symbol_Table,
+           inlining_table:  Inlining_Table
+         };
+
+
+
+herein
+
+    api Make_Compile_Treewalk {
+
+	Oh7_File_Contents;
+	Byte_Sizes;
+
+	reset:  Void -> Void;                             #  Reset internal persistent state. 
+
+
+
+        # Support for hook which notifies
+        # linkage module of recompilations.
+        # The linker needs to know about these so it
+        # can flush stale information from its caches:
+        #
+        #                "You can observe a lot just by watching." -- Yogi Berra
+	#
+	Bare_O7_Watcher
+             =
+             m7::Make7_State					# Master make7 state record. 
+             ->
+             bare_o7::Bare_O7					# What is being recompiled.  
+             ->
+             Void; 						# Send the notification.
+
+
+
+	Oh7_File_Contents_Sink					# Type of a function which stores away oh7_file contents:
+             =
+             ( bare_o7::Bare_O7,
+	       { contents:       Oh7_File_Contents,
+		 byte_sizes:     Byte_Sizes
+	       }
+             )
+	     ->
+             Void;
+
+
+	get_o7_exports
+            :
+            bare_o7::Bare_O7
+            ->
+            o7_exports::Oh7_Exports;
+
+								# bare_o7			is from   src/app/make7/o7/bare-o7.pkg
+								# o7_exports			is from   src/app/make7/semant/o7-exports.pkg
+	 evict_stale:  Void -> Void;
+	 evict_all:    Void -> Void;
+
+
+	 make_intra_library_dependency_graph_walker
+            : 
+            Void
+	    ->
+            sg::Bare_Or_Iced_O7					#  Root node of graph to traverse.	
+	    ->
+            m7::Make7_State					#  Master make7 state record.		
+	    ->
+            Null_Or( o7_exports::Oh7_Exports );
+
+
+	 walk_inter_library_dependency_graph
+            :
+            ( Bare_O7_Watcher,					#  Notify linker of recompiles.		
+	      Oh7_File_Contents_Sink,				#  					
+	      lg::Library					#  Root library for treewalk.
+	    )
+	    ->
+            { symbol_and_inlining_tables:  m7::Make7_State -> Null_Or( Symbol_And_Inlining_Tables ),
+	      all_libraries:               m7::Make7_State -> Bool,
+	      exports:                     symbol_map::Map (m7::Make7_State -> Null_Or( Symbol_And_Inlining_Tables ) )
+	    };
+
+    };
+								# symbol_map			is from   src/app/make7/util/symbol-map.pkg
+								# Compiler_Client_Interface	is from   src/lib/compiler/toplevel/backend/compiler-client-interface.api
+								# Freezefile_Map		is from   src/app/make7/freezefile/freezefile-map-g.pkg
+								# freezefile_map_g		def in    src/app/make7/freezefile/freezefile-map-g.pkg
+								# file				is from   src/lib/std/src/unix/file.pkg
+
+    # Compile-time arguments:
+    #
+    #     read_eval_print_from_stream
+    #
+    #         When we're invoked by
+    #             src/app/make7/main/make7-g.pkg
+    #         this is a simple wrapper for the global
+    #             read_eval_print_from_stream_hook
+    #         there, which is initialized to
+    #             read_eval_print_from_stream
+    #         which comes ultimately from
+    #             src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+    #
+    #         When we're invoked by
+    #             src/app/make7/make-compiler/make-compiler-g.pkg
+    #         we get its argument
+    #             read_eval_print_from_stream_hook
+    #         supplied to it by
+    #             src/lib/core/make-compiler/x86-unix.pkg
+    #         (and kin) as
+    #             compiler_client_interface::interact::read_eval_print_from_stream;
+    #
+    #         I think that comes out the same, give or take
+    #         indirection through the hook ref.
+    #
+    generic package  compile_treewalk_g (
+	#
+        package compiler_client_interface:  Compiler_Client_Interface;		# We use this to compile parsetrees down to .o7 files.
+	#
+	package freezefile_map:             Freezefile_Map;
+
+
+	read_eval_print_from_stream:        file::Input_Stream -> Void;
+	compile_in_subprocess:              ad::File -> Bool;			#  We use this to fire off a remote compile. 
+
+    )
+    :
+    Make_Compile_Treewalk							# Make_Compile_Treewalk	is from   src/app/make7/compile/compile-treewalk-g.pkg
+    where  Oh7_File_Contents == oh7_file::Oh7_File_Contents
+    where  Byte_Sizes        == oh7_file::Byte_Sizes
+    =
+    package {
+
+        architecture_name = compiler_client_interface::architecture_name;	# "ppc", "sparc" or "x86".
+	version           = lib7_version::version.version_id;
+
+										# lib7_version		is from   src/lib/core/internal/version.pkg
+										# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+	Bare_O7_Watcher
+             =
+             m7::Make7_State
+             ->
+             bare_o7::Bare_O7
+             ->
+             Void;
+										# oh7_file		is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+	package ob =  oh7_file;							# "ob" == "OBject file"
+	package c  =  compiler_client_interface::compile;
+
+	Oh7_File_Contents =  ob::Oh7_File_Contents;
+	Byte_Sizes        =  ob::Byte_Sizes;
+
+	Oh7_File_Contents_Sink
+             =
+             ( bare_o7::Bare_O7,
+               { contents:   Oh7_File_Contents,
+	         byte_sizes: Byte_Sizes
+	       }
+             )
+	     ->
+             Void;
+
+
+
+        # #####################################################
+        #             filtered_symbol_tables_picklehash_cache
+        #
+        # Mythryl package sealing restricts
+        # the visible exports of a package to
+        # just those present in a given API.
+        #
+        # To implement this, we frequently wind up taking
+        # a symbol table (representing the exports of a
+        # compiled .pkg file, or more precisely, of one
+        # pkg...end clause) and filtering it to contain
+        # only the symbols in a given symbol set (representing
+        # the symbols from a given compiled api...end
+        # clause).
+        #
+        # Doing so changes the symbol table's picklehash,
+        # forcing us to recompute this, which is a
+        # moderately expensive operation.
+        #
+        # To avoid repeating such computations pointlessly,
+        # we keep a cache of their results and re-use
+        # rather than re-computing them were possible:
+        # ######################################################
+	#
+	package filtered_symbol_tables_picklehash_cache
+	    =
+	    map_g (					# map_g		def in    src/app/make7/util/map-g.pkg
+
+		package {
+
+		    Key = (Picklehash, symbol_set::Set);
+		    #	
+		    fun compare ((u, f), (u', f'))
+			=
+			case (ph::compare (u, u'))
+			    #
+			    EQUAL   =>  symbol_set::compare (f, f');
+			    unequal =>  unequal;
+			esac;
+		}
+	    );
+
+	filtered_symbol_tables_picklehash_cache							# More thread-hostile global mutable state :(        XXX BUGGO FIXME.
+            =
+            REF (filtered_symbol_tables_picklehash_cache::empty: filtered_symbol_tables_picklehash_cache::Map( Picklehash ));
+
+
+
+							# symbol_set		is from   src/app/make7/util/symbol-set.pkg
+							# picklehash_set	is from   src/app/make7/util/picklehash-set.pkg
+							# o7_exports		is from   src/app/make7/semant/o7-exports.pkg
+
+
+
+
+        # ######################################################
+        #                   object_code_cache
+        #
+        # 'object_code_cache' is our core "state-of-the-compilation"
+        # datastructure. It maps
+        #         Bare_O7
+        # records representing what we knew about a sourcefile before compiling it to
+        #         Object_Code_Cache_Entry
+        # records representing what we learned about a sourcefile by compiling it.
+        # ######################################################
+
+	Object_Code_Cache_Entry
+            =
+            { o7_exports:      o7_exports::Oh7_Exports,
+              creation_time:   time_stamp::Time_Stamp,         
+              picklehash_set:  picklehash_set::Set
+            };
+		#
+		#  creation_time is the cache entry creation date.
+		#  If it is older than the source file
+		#  last-modification time, then the
+		#  cache entry is outdated and needs
+		#  to be discarded.
+
+	object_code_cache							# More thread-hostile global mutable state :(        XXX BUGGO FIXME.
+            =
+            REF (bare_o7_map::empty:  bare_o7_map::Map( Object_Code_Cache_Entry ));
+
+
+	#
+	fun reset ()
+            =
+            {
+                object_code_cache :=  bare_o7_map::empty;
+
+                filtered_symbol_tables_picklehash_cache
+                    :=
+                    filtered_symbol_tables_picklehash_cache::empty;
+            };
+									# Object_Code_Cache_Entry	def is    above
+									# filtered_symbol_tables_picklehash_cache is defined above
+									# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+									# bare_o7_map		is from   src/app/make7/o7/bare-o7-map.pkg
+									# time_stamp		is from   src/app/make7/paths/timestamp.pkg
+									# picklehash_set	is from   src/app/make7/util/picklehash-set.pkg
+	#
+	fun object_code_cache_entry_is_usable
+	    (
+	      object_code_cache_entry: Object_Code_Cache_Entry,
+	      provided_picklehashes,
+	      bare_o7
+	    )
+            =
+            not (
+                time_stamp::needs_update
+		  {
+		    source =>  bare_o7::last_sourcefile_modification_time_seen  bare_o7,
+		    target =>  object_code_cache_entry.creation_time
+		  }
+            )
+	    and
+            picklehash_set::equal (
+                provided_picklehashes,
+                object_code_cache_entry.picklehash_set
+            );
+
+
+
+	#
+	fun oh7_file_contents_to_object_code_cache_entry
+            (
+              oh7_file_contents,
+              creation_time,
+              context_symboltable
+            )
+            =
+	    { o7_exports,
+	      creation_time,
+	      picklehash_set
+	    }
+            where
+		#
+                fun symbol_table_thunk ()
+		    =
+		    {
+                        modmap0
+                            =
+                            freezefile_map::get ();
+
+
+			context_module_map
+                            =
+                            symbol_table_to_module_map::make_map'
+                                (
+                                  context_symboltable,
+                                  modmap0
+                                );
+
+				# freezefile_map is a parameter, above.
+				# freezefile_map_g		def in    src/app/make7/freezefile/freezefile-map-g.pkg
+				# symbol_table_to_module_map	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-to-modulemap.pkg
+				# unpickle_module		is from   src/lib/compiler/frontend/semantic/pickle/unpickle-module.pkg
+
+
+			my { picklehash, pickle }
+                            =
+                            ob::pickle_of_symbol_table  oh7_file_contents;
+		    
+
+			unpickle_module::unpickle_symboltable
+                            (fn _ =  context_module_map)
+                            (picklehash, pickle);
+
+		    };
+
+		#
+		fun inlining_table_thunk ()
+                    =
+		    {
+                        my { pickle, ... }
+                            =
+                            ob::pickle_of_inlinables
+                                oh7_file_contents;
+
+
+			inlinables_list
+                            =
+                            if (unt8_vector::length pickle == 0)
+			        #
+                                NULL;
+			    else
+                                unpickle_module::unpickle_highcode  pickle;
+                            fi;
+
+							# unt8_vector		is from   src/lib/std/src/unt8-vector.pkg
+							# unpickle_module	is from   src/lib/compiler/frontend/semantic/pickle/unpickle-module.pkg
+							# inlining_table	is from   src/lib/compiler/toplevel/compiler-state/inlining-table.pkg
+		    
+			inlining_table::make
+                            (
+                                ob::hash_of_pickled_exports
+                                    oh7_file_contents,
+
+                                inlinables_list
+                            );
+		    };
+
+
+		o7_exports
+                    =
+                    { symbol_table_thunk        =>  memoize::memoize  symbol_table_thunk,
+		      inlining_table_thunk      =>  memoize::memoize  inlining_table_thunk,
+
+		      symbol_table_picklehash   =>  ob::hash_of_symbol_table_pickle  oh7_file_contents,
+		      inlining_table_picklehash =>  ob::hash_of_pickled_inlinables   oh7_file_contents,
+		      version                   =>  ob::version_of                   oh7_file_contents
+		    };
+
+							# memoize		is from   src/app/make7/util/memoize.pkg
+							# picklehash_set	is from   src/app/make7/util/picklehash-set.pkg
+		picklehash_set
+                    =
+                    picklehash_set::add_list
+			(
+                          picklehash_set::empty,
+
+                          ob::picklehash_list
+                              oh7_file_contents
+                        );
+	    
+	    end;                           #  oh7_file_contents_to_object_code_cache_entry 
+
+
+	#
+	fun picklehash_set (p1, p2)
+            =
+            picklehash_set::add (picklehash_set::singleton p1, p2);
+
+
+	# A typical source file S makes direct
+        # and indirect reference to types, values
+        # and functions from many other sourcefiles,
+        # collectively termed its "dependencies".
+        #
+        # Before S can be compiled, all of its
+        # dependencies must be compiled, and the
+        # resulting symbol and inlining tables
+        # combined to produce the environment
+        # in which P can be compiled.
+        #
+        # Also, if a given dependency D is sealed
+        # against some API, we must filter D's
+        # exports to reveal only those symbols
+        # permitted by the API before combining
+        # with the exports from other dependencies.
+        #
+        # For efficiency, symbol and inlining tables
+        # are exported lazily as thunks which construct
+        # those tables only if and when actually needed.
+        #
+        # To avoid wasting time and space by evaluating
+        # any such thunk more than once, we also memo-ize
+        # these thunks as we combine them to produce
+        # the overall compilation environment for S.
+        #
+        # When we filter a symbol table we change its
+        # picklehash and must compute a new one.  This
+        # is an expensive operation, likely to be
+        # repeated during a make, so we keep a cache,
+        # filtered_symbol_tables_picklehash_cache, and re-use
+	# rather than recomputing when possible.
+        #
+        # Below are two routines which handle this
+        # processing of dependency exports, one for the
+        # filtered case and one for the unfiltered:
+        #
+        #     fun memoize_unfiltered_dependency_exports
+        #     fun   memoize_filtered_dependency_exports
+        #
+        # One of the two will be called for each
+        # dependency.
+
+	#
+	fun memoize_unfiltered_dependency_exports  (o7_exports:  o7_exports::Oh7_Exports)
+            =
+            {
+                o7_exports
+                    ->
+                    { symbol_table_thunk,
+                      inlining_table_thunk,
+
+                      symbol_table_picklehash,
+                      inlining_table_picklehash,
+
+                      version
+                    };
+                    
+
+		symbol_table_thunk'
+                    =
+                    memoize::memoize  symbol_table_thunk;
+	    
+
+		{ symbol_and_inlining_tables_thunk
+                      =>
+                      fn ()
+                          =
+                          { symbol_table   =>  symbol_table_thunk'  (),
+			    inlining_table =>  inlining_table_thunk ()
+			  },
+
+		  picklehashes
+                      =>
+                      picklehash_set
+                         ( symbol_table_picklehash,
+                           inlining_table_picklehash
+                         )
+		};
+	    };
+
+	#
+	fun memoize_filtered_dependency_exports (o7_exports, symbol_set)
+            =
+            {
+		# Even if a the exports from a dependency
+		# are sealed against an API, it may be that
+		# explicit filtering of the exports is not
+		# needed, because all exported symbols are
+		# allowed visibility by the API.
+		#
+		# Here we check for this case, so as to avoid
+		# wasted explicit filtering, returning NULL
+		# if no filtering is required, and otherwise
+		# THE filtering symbol set:
+		#
+		fun required_filtering  symbol_set  symbol_table
+		    =
+		    {
+			domain
+			    =
+			    symbol_set::add_list (
+				symbol_set::empty,
+				browse_symbol_table::catalog  symbol_table
+			    );
+								# symbol_set		is from   src/app/make7/util/symbol-set.pkg
+								# browse_symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/browse.pkg
+			symbol_set'
+			    =
+			    symbol_set::intersection (
+				symbol_set,
+				domain
+			    );
+
+			symbol_set::equal (domain, symbol_set')
+			    ##
+			    ??  NULL
+                            ::  THE symbol_set';
+		    };
+
+                o7_exports					# unpack exports from compiled dependency.
+                    ->
+                    { symbol_table_thunk,
+                      inlining_table_thunk,
+
+                      symbol_table_picklehash,
+                      inlining_table_picklehash,
+
+                      version
+                    };
+
+
+		# We cannot filter a symbol table
+                # (or even decide not to filter it)
+                # without constructing it explicitly,
+                # so at this point we must force the
+                # symbol table thunk:
+	 	#
+		symbol_table
+                    =
+                    symbol_table_thunk ();
+	    
+
+		# If in fact no filtering is required, we
+		# can essentially revert to the unfiltered
+		# case (above):
+		#
+		case (required_filtering  symbol_set  symbol_table)
+		    #		  
+		    NULL								# No exported symbol table filtering needed.
+			=>
+			{ picklehashes
+			      =>
+			      picklehash_set
+				  ( symbol_table_picklehash,
+				    inlining_table_picklehash
+				  ),
+
+			   symbol_and_inlining_tables_thunk
+			       =>
+			       fn ()
+				   =
+				   { symbol_table,
+				     inlining_table => inlining_table_thunk ()
+				   }
+			};
+
+		    THE symbol_set							# Exported symbol table must be filtered per API.
+			=>
+			{   symbol_table'						# Construct filtered version of exports symbol table.
+				=
+				st::filter
+				    ( symbol_table,
+				      symbol_set::vals_list  symbol_set
+				    );
+											# symbol_set	is from   src/app/make7/util/symbol-set.pkg
+
+
+			    # If an appropriate filtered symbol table picklehash
+			    # is already in our cache we can just re-use it,
+			    # otherwise we must compute the new one from scratch:
+			    #
+			    key = (symbol_table_picklehash, symbol_set);		# key for searching the cache.
+
+			    symbol_table_picklehash'
+				=
+				case (filtered_symbol_tables_picklehash_cache::get
+					 (
+					   *filtered_symbol_tables_picklehash_cache,
+					   key
+					 ))
+				    #
+				    THE symbol_table_picklehash'			# Found a cached exports record, just return it.
+					=>
+					symbol_table_picklehash';
+
+				    NULL						# No cached exports record, construct one.
+					=>
+					{   symbol_table_picklehash'			# Filtering a symbol table changes its hash, so compute the new one.
+						=
+						rehash_module::rehash {
+						  symbol_table        =>  symbol_table',
+						  original_picklehash =>  symbol_table_picklehash,
+						  version
+						};
+											# rehash_module	is from   src/lib/compiler/frontend/semantic/pickle/rehash-module.pkg
+											# filtered_symbol_tables_picklehash_cache is defined above
+
+					    filtered_symbol_tables_picklehash_cache	# Enter new picklehash into our cache.
+						:=
+						filtered_symbol_tables_picklehash_cache::set (
+						    *filtered_symbol_tables_picklehash_cache,
+						    key,
+						    symbol_table_picklehash'
+						);
+
+					    symbol_table_picklehash';
+					};
+				esac;
+
+			    # Construct	
+			    #
+			    { picklehashes
+				  =>
+				  picklehash_set (symbol_table_picklehash', inlining_table_picklehash),
+
+			      symbol_and_inlining_tables_thunk
+				  =>
+				  fn ()
+				      =
+				      { symbol_table   =>  symbol_table',
+					inlining_table =>  inlining_table_thunk ()
+				      }
+			    };
+		       };
+                esac;
+	    };              #  fun memoize_filtered_dependency_exports 
+
+
+	# Combine two symbol+inlining table pairs,
+        # with the first pair logically atop the
+        # second (i.e., searched first):
+	#
+	fun symbol_and_inlining_tables_atop
+            (
+              { symbol_table, inlining_table  },
+              { symbol_table => symbol_table', inlining_table => inlining_table' }
+            )
+            =
+	    { symbol_table
+                  =>
+                  st::consolidate_lazy (
+                      st::atop
+                          (symbol_table, symbol_table')
+                  ),
+
+	      inlining_table
+                  =>
+                  inlining_table::atop
+                      (inlining_table, inlining_table')      #  "Let's not do stale picklehashes here..." 
+            };
+
+
+
+	empty_hashes_and_dictionaries
+            =
+	    { picklehashes
+                  =>
+                  picklehash_set::empty,
+
+              symbol_and_inlining_tables_thunk
+                  =>
+                  fn ()
+                      =
+                      { symbol_table   =>   st::empty,
+                        inlining_table =>   inlining_table::empty
+                      }
+            };
+							# inlining_table	is from   src/lib/compiler/toplevel/compiler-state/inlining-table.pkg
+							# picklehash_set	is from   src/app/make7/util/picklehash-set.pkg
+
+	# Combine two sets of dependency exports.
+	#
+        # This is always an assymetric operation
+	# in which one shadows the other in case
+	# of conflicting symbol definitions.
+	#
+	# As usual, we do things lazily to avoid
+	# explicitly constructing the result
+	# unless or until provably necessary:
+	#
+	fun layer ( { symbol_and_inlining_tables_thunk => dicts,  picklehashes => hashes  },
+                    { symbol_and_inlining_tables_thunk => dicts', picklehashes => hashes' }
+                  )
+            =
+	    { symbol_and_inlining_tables_thunk
+                  =>
+                  .{  symbol_and_inlining_tables_atop (
+                          dicts  (),
+                          dicts' ()
+                      );
+                   },
+
+	      picklehashes
+                  =>
+                  picklehash_set::union (hashes, hashes')
+            };
+
+
+
+
+	# I would rather not use an exception here, but short of a better
+	# implementation of concurrency I see no choice.
+	# The problem is that at each node we sequentially wait for the
+	# children nodes.  But the scheduler might (and probably will)
+	# let a child run that we are not currently waiting for, so an
+	# error there will not result in "wait"  returning immediately
+	# as it should for clean error recovery.
+	# Using the exception avoids having to implement a
+	# "wait for any child -- whichever finishes first" kind of call:
+	#
+	exception ABORT;
+
+
+
+        # We're given a symbol-plus-inlining-table pair,
+        # plus a thread which represents a compilation
+        # in progress, which will return another such
+        # symbol-plus-inlining-table pair once finished.
+	#
+        # Wait for the compilation to complete, then
+	# return the combination of the two dictionary pairs:
+	#
+	fun layer_wait  priority  (thread, NULL  )			# Ok, actually we were NOT given input symbol-plus-inlining tableplair.
+		=>
+		{
+                    simple_thread::result_at  priority  thread;		# Wait for the compile to finish.
+		    NULL;						# NULL input, so NULL output.
+		};
+									# thread	is from   src/app/make7/simple-concurrency/thread.pkg
+
+	    layer_wait  priority  (thread, THE symbol_and_inlining_tables)
+		=>
+		case (simple_thread::result_at  priority  thread)
+		    #		  
+		    THE symbol_and_inlining_tables'			# Success, return combination of the two tablepairs.
+			=>
+			THE (layer (symbol_and_inlining_tables',
+				    symbol_and_inlining_tables
+			    )      );
+
+		    NULL =>  NULL;					# Compile returned NULL, so we do too.
+                esac;
+        end;
+
+	# We have two levels of compile-dependency graphs,
+	# one which records which complete libraries have
+	# compile dependencies on which other complete
+	# libraries, and then one per library recording
+	# which individual sourcefiles have compile
+	# dependencies upon other individual sourcefiles.
+	#
+	# Here we walk an intra-library individual-sourcefile
+	# level dependency graph compiling sourcefiles in
+	# post-order, so that each sourcefile is compiled
+	# only after all the libraries it needs have been
+	# compiled (making available the relevant type
+	# declarations &tc):
+	#
+	fun make_intra_library_dependency_graph_walker' (
+                bare_o7_watcher,					# A hook letting us notify the linker when we re/compile a file. 
+                cache_oh7_file_contents,					# A dummy or else oh7_file_cache::cache, which caches a copy in ram. 
+                get_priority						# Prioritizes a sourcefile compile by # of files depending on it.
+            )
+            = 
+            {    # We use 'scheduled_compiles' to keep track
+                 # of which o7 files we've already compiled
+                 # (or are in the process of compiling).
+                 # 
+                 # We use bare_o7 records as keys, to
+                 # represent the individual .o7 files.
+                 # 
+                 # The values are memoized fates
+                 # representing compiles already fired off.
+		 #
+                scheduled_compiles
+                    =
+                    REF  bare_o7_map::empty;
+
+									# bare_o7_map	is from   src/app/make7/o7/bare-o7-map.pkg
+                # To process the mutually recursive
+                # o7-resolution dependency-graph
+                # datatypes defined in
+                #
+                #     src/app/make7/depend/intra-library-dependency-graph.pkg
+                #
+                # we here define a matching set of
+                # mutually recursive functions,
+                # one per type.
+
+                # Since o7 is a trivial wrapper around
+                # the two possibilities of
+                #     O7_IS_BARE   (.o7 file not stored in freezefile)
+                #     O7_IS_ICED   (.o7 file     stored in freezefile)
+                # our work here is just trivially delegating
+                # as appropriate:
+		#
+		fun compile_near_o7      make7_state  (sg::O7_IS_BARE bare_o7)
+			=>
+			compile_bare_o7  make7_state                  bare_o7;
+
+		    compile_near_o7  make7_state  (sg::O7_IS_ICED  (_, o7_exports, _))
+			=>
+			THE o7_exports;
+			    #
+			    # We never recompile anything in a
+			    # FROZEN REAL library,
+			    # so we have nothing to do here.
+                end 
+
+
+                # The only thing distinguishing a far o7
+                # (.o7 file in another library) from a
+                # near o7 (.o7 file in current library)
+                # is the export filter list, so the only
+                # work we can't delegate here is applying
+                # that filter list to the result:
+		#
+		also
+		fun compile_far_o7'  make7_state  (a_filter, near_o7)
+		    =
+		    case ( compile_near_o7  make7_state  near_o7,
+                           a_filter
+                         )
+		      
+			(NULL,           _             ) =>  NULL;
+			(THE o7_exports, NULL          ) =>  THE (memoize_unfiltered_dependency_exports o7_exports);
+			(THE o7_exports, THE symbol_set) =>  THE (memoize_filtered_dependency_exports  (o7_exports, symbol_set));
+                    esac
+
+
+
+                # Here's where the buck stops:
+                # compiling a .o7 file in the
+                # current library.
+		#
+		also
+		fun compile_bare_o7
+                        make7_state
+                        (   sg::BARE_O7
+			        { bare_o7,
+				  near_imports,
+				  far_imports
+				}
+                        )
+                    =
+                    {   youngest    =  make7_state.youngest;			# Most recent (known) edit of any sourcefile in the library.
+
+			oh7_file_name =  bare_o7::oh7_file_name     bare_o7;	# "foo.pkg.o7".
+
+										# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+										# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+										# say			is from   src/lib/std/src/io/say.pkg
+										# winix			is from   src/lib/std/winix.pkg
+										# sfprintf		is from   src/lib/src/sfprintf.pkg
+
+			#
+			fun make_temporary_filename  filename
+			    =
+			    {   pid =  winix::process::get_process_id ();
+				include sfprintf;
+				pid =  sprintf' "%d" [ INT pid ];
+
+				temporary_filename
+                                    =
+                                    filename + "." + pid + ".tmp";
+
+				temporary_filename;
+			    };
+
+			temporary_oh7_file_name
+			    =
+			    make_temporary_filename oh7_file_name;
+
+
+										# bare_o7_map	is from   src/app/make7/o7/bare-o7-map.pkg
+										# null_or	is from   src/lib/std/src/null-or.pkg
+										# thread	is from   src/app/make7/simple-concurrency/thread.pkg
+                        # If we've already hit this .o7 file
+                        # during this treewalk, it may already
+                        # have a compile running, otherwise we
+                        # need to start one:
+		        #
+			case (bare_o7_map::get
+                                 (*scheduled_compiles, bare_o7))
+			  
+			    THE memoized_optional_fate
+				=>
+				# We already have a compile
+				# running/done for this file,
+				# so we just return it:
+				#
+				null_or::map
+				    .o7_exports
+				    (simple_thread::result  memoized_optional_fate);
+
+			    NULL
+				=>
+				{   memoized_optional_fate
+					=
+					simple_thread::make_simple_thread
+
+					    .{  compile_dependencies_then_sourcefile () 
+						before
+						    bare_o7::forget_parsetree bare_o7;
+							#
+							# "We have not processed this file before,
+							#  so we should remove its parse tree afterward." -- Matthias Blume
+					     };
+
+				    scheduled_compiles
+					:=
+					bare_o7_map::set
+					    ( *scheduled_compiles,
+					      bare_o7,
+					      memoized_optional_fate
+					);
+
+								       # bare_o7_map	is from   src/app/make7/o7/bare-o7-map.pkg
+
+				    # Here we just wait (no "wait_at") so we don't get
+				    # priority over threads that may have to clean up
+				    # after errors:
+				    #
+				    null_or::map
+					.o7_exports
+					(simple_thread::result  memoized_optional_fate);
+				};
+                        esac
+                        where
+			    # Print the size-in-bytes of each of the
+			    # four major components of an oh7_file --
+			    # code, data, pickled symbol table and
+			    # pickled inlining table:
+			    #
+			    fun print_sizes  stream  (byte_sizes: ob::Byte_Sizes)
+				= 
+				{   fun info ((selector, label), (l, t))
+					=
+					case (selector  byte_sizes)
+					  
+					     0 => (l, t);				# Do not report zero-length segments.
+
+					     n => (   (   label				# "code"/"data"/"dictionary"/"inlinable".
+						      !   ": "
+						      !   int::to_string  n		# Number of bytes in segment.
+						      !   t				# ", " or "".
+						      !   " "
+						      !   l				# list-of-strings result accumulator.
+						      ),
+						      ", "
+						  );
+					esac;
+
+
+				    string
+					=
+					cat ( "["
+                                              !
+					      #1 (fold_right
+						     info
+						     (["bytes]\n"], "")
+						     [  (.code,       "code"     ),
+							(.data,       "data"     ),
+							(.dictionary, "dictionary"     ),
+							(.inlinable,  "inlinable")
+						     ]
+						 )
+					    );
+
+				    file::write (stream, string);
+				    file::flush stream;   
+				};
+
+
+			    #
+			    fun unparse_sizes
+				    (pp:         prettyprinter::Prettyprinter)
+				    (byte_sizes: ob::Byte_Sizes)
+				= 
+				{   fun info ((selector, label), result_so_far)
+					=
+					(   int::to_string  (selector byte_sizes)	# Number of bytes in segment.
+					!   " "
+					!   label					# "code"/"data"/"dictionary"/"inlinable".
+					!   " bytes\n"
+					!   result_so_far				# list-of-strings result accumulator.
+					);
+
+				    pp.out "\n\nCode segment byte sizes:\n";
+
+				    string
+					=
+					cat
+					    (fold_right
+						info
+						["\n"]
+						[  (.code,      "code"     ),
+						   (.data,      "data"     ),
+						   (.dictionary,      "dictionary"     ),
+						   (.inlinable, "inlinable")
+						]
+					    );
+
+				    pp.lit string;
+				};
+
+
+
+
+
+			    #
+			    fun announce_load _
+				=
+				file::vsay ["      .../compile/compile-treewalk-g.pkg:   Loading                 ", (ad::os_string'  (bare_o7::sourcepath bare_o7)), "\n"];
+
+			    #
+			    fun announce_o7_receipt  byte_sizes
+				=
+				{   file::vsay  ["      .../compile/compile-treewalk-g.pkg:  Receiving ", (bare_o7::describe bare_o7), "\n"];
+				    print_sizes  file::stdout byte_sizes;
+				};
+
+			    #
+			    fun handle_compile_error ()
+				=
+				if make7_state.make7_session.keep_going    NULL;
+				else                                       raise exception ABORT;
+                                fi; 
+
+
+
+			    # In general, a parallel 'make' may be spread
+			    # across multiple unix processes and/or machines.		(Except that is hopelessly broken! :-)
+			    #
+			    # We use 'compile_in_subprocess' to fire off remote compiles
+			    # on other machines or by other processes.
+			    #
+			    # We use 'compile_in_this_process' to do a compile in our own
+			    # process on our own machine.
+			    #
+			    # The compile server processes will compile by doing
+			    # 'compile_in_this_process' calls in their own process spaces,
+			    # of course, so ultimately all compiles are done via
+			    # this 'compile_in_this_process' function.  
+			    #
+			    # To keep life simple for the programmer, any 'remote' compiles
+			    # which generate errors are re-run locally, so as to have all
+			    # the error messages show up on the local console &tc.
+			    #
+			    fun compile_in_this_process
+                                    (
+				      symbol_table,		# These args constitute the exports
+				      inlining_table,		# from the o7s we depend upon.
+				      picklehashes,
+				      cross_module_inlining
+				    )
+				    # We also get from our enclosing
+                                    # 'compile_bare_o7' fn the critical args:
+				    #
+				    #     make7_state,
+				    #     bare_o7,
+				    #     far_imports,
+				    #     near_imports
+				=
+				{   # 'set_up' is a hack to support the make7 tools
+				    #  "setup" facility.
+				    #
+				    # This facility allows the tool to specify some source
+				    # code to be compiled immediately before ("pre") or
+				    # after ("post") the main body of code to be compiled
+				    # by the tool.
+				    #
+				    # It might be used, for example, to turn on some debugging
+				    # checks, or change some code optimizer settings.
+				    #
+				    # This function takes care of the mechanics of actually
+				    # compiling and running these code fragments, if present.
+				    #
+				    fun set_up _ NULL
+					    =>
+					    ();
+
+					set_up
+					    what		# Either "pre" or "post", for human narration. 
+					    (THE code)		# Literal source code to compile+run.		
+					    =>
+					    {   file::vsay [
+						    "      .../compile/compile-treewalk-g.pkg:  Setting up (",
+						    what,
+						    "): ",
+						    code,
+						    "]\n"
+						];
+							    # say	is from   src/lib/std/src/io/say.pkg
+							    # safely	is from   src/lib/std/safely.pkg
+
+						safely::do
+						    {	# This should be a supported, exported 'eval' function.
+
+						      open_it  =>   .{ file::open_string code; },
+						      close_it =>   file::close_input,
+						      cleanup  =>   fn _  =  ()
+						    }
+                                                    read_eval_print_from_stream;
+					    };
+				    end;
+
+
+
+				    # Given 'oh7_file_contents' (the in-hand result
+				    # of compiling one sourcefile), write it to
+				    # disk to create the actual .o7 file recording
+				    # the result of the compile:
+				    #
+				    fun write_oh7_file  oh7_file_contents
+					=
+					{   fun verbosely_write_oh7_file_contents_to_stream
+						    stream
+						=
+						{   byte_sizes
+							=
+							ob::write {  architecture_name,		# "ppc", "sparc" or "x86".
+								     version,
+								     no_pickle =>  FALSE,
+								     stream,
+								     oh7_file_contents
+								 };
+
+						 #  print_sizes  byte_sizes;  			# 2006-09-10 CrT:  This is just clutter for now. 
+						    byte_sizes;
+						};
+					    #
+					    fun cleanup _
+						=
+						winix::file::remove_file			# Remove any half-built compiled code file.
+						    temporary_oh7_file_name			# 'foo.pkg.o7.12345.tmp'
+						except
+						    _ = ();
+
+					    # Notify linker that we're about to re/create
+					    # the .o7 file for our sourcefile.  This lets
+					    # the linker flush from cache any stale
+					    # versions of that .o7 file, or whatever:
+					    #
+					    bare_o7_watcher  make7_state  bare_o7;
+
+												# bare_o7 was an arg to fun 'compile_bare_o7'
+												#
+												# winix		is from   src/lib/std/winix.pkg
+												# safely	is from   src/lib/std/safely.pkg
+												# autodir	is from   src/app/make7/util/autodir.pkg
+												# binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+												# time_stamp	is from   src/app/make7/paths/timestamp.pkg
+												# bare_o7	is from   src/app/make7/o7/bare-o7.pkg
+												# exceptions	is from   src/lib/std/exceptions.pkg
+
+					    (   safely::do
+                                                    { open_it   =>  .{ autodir::open_binary_output  temporary_oh7_file_name; },
+						      close_it  =>  binary_io::close_output,
+						      cleanup
+						    }
+						    verbosely_write_oh7_file_contents_to_stream
+						before
+                                                    {   time_stamp::set_last_file_modification_time (
+							    temporary_oh7_file_name,
+							    bare_o7::last_sourcefile_modification_time_seen
+								bare_o7
+							);
+
+							# Make .o7 file writes effectively atomic
+							# by renaming them to final filename only
+							# once they are completely written out:
+							#
+							winix::file::rename_file
+							    {
+							      from =>  temporary_oh7_file_name,
+							      to   =>            oh7_file_name
+							    };
+                                                    }
+					    )
+					    except
+						any_exception
+						=
+						{   fun ppb pps
+							=
+							{   pp::newline  pps;
+							    pp::string   pps (exceptions::exception_message  any_exception);
+							};
+
+						    bare_o7::error
+							make7_state
+							bare_o7
+							em::WARNING
+							("failed to write " + temporary_oh7_file_name)
+							ppb;
+
+						    { code       => 0,
+						      dictionary => 0,
+						      inlinable  => 0,
+						      data       => 0
+						    };
+						};
+					};						#  fn write_oh7_file  
+
+    # XXX BUGGO DELETEME
+				    unparse_generic
+				       =
+				       print_raw_syntax_tree_as_nada::print_declaration_as_nada;
+
+					    # print_raw_syntax_tree_as_nada	is from   src/lib/compiler/frontend/typechecker/print/print-raw-syntax-as-nada.pkg
+
+
+				    # Get the raw parsetree for the
+				    # file we're compiling.
+				    #
+				    # It may already be cached in ram.
+				    #
+				    # If not, we'll parse the sourcefile
+				    # at this point:
+				    #
+				    case (bare_o7::parsetree
+					     make7_state				# make7_state was an arg to fun 'compile_bare_o7'
+					     NULL                             		# Or, to prettyprint every file parsed: (THE (symbol_table, unparse_generic))
+					     bare_o7)					# bare_o7 was an arg to fun 'compile_bare_o7'
+
+
+				      
+					NULL => handle_compile_error ();		#  Syntax errors, couldn't parse sourcefile. 
+
+											# bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+											# core_hack		is from   src/app/make7/compile/corehack.pkg
+											# raw_syntax		is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+											# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+
+					THE ( raw_syntax_declaration:   raw_syntax::Declaration,
+					      source:                   source_code_source::Input_Source
+					    )
+					    =>
+					    {   # Maybe replace 'xcore' symbol with
+						# '_Core' symbol throughout parsetree.
+						# This is an obscure internal kludge
+						# we use to set up the original
+						# pervasive dictionary.
+						#	
+						raw_syntax_declaration
+						    =
+						    case (.explicit_core_symbol  (bare_o7::attributes  bare_o7))
+							#
+							NULL       =>  raw_syntax_declaration;
+							THE symbol =>  core_hack::rewrite  (raw_syntax_declaration, symbol);
+						    esac;
+
+
+						my (pre, post)
+						    =
+						    bare_o7::setup   bare_o7;
+
+
+
+						# 'controllers' is a hack to set controllers
+						# (essentially, unix commandline switches) to a new
+						# value for just the duration of this compile.
+						# It is more support for the make7 'tools' code:
+						#
+						controllers
+						    =
+						    bare_o7::controllers  bare_o7;
+
+
+
+						top_level					# Get set of packages, generics &tc
+						    =						# currently defined at the interactive toplevel.
+						    compiler_state::top_level ();
+
+											       # compiler_state	is from   src/lib/compiler/toplevel/interact/compiler-state.pkg
+
+
+
+
+						original_settings				# Save all current controller settings,
+						    =						# so we can restore them when done.
+						    map
+							(fn controller =  controller.save'restore ())
+							controllers;
+
+
+						original_toplevel_dictionary			# Ditto with defined packages.
+						    =
+						    top_level.get ();
+
+
+
+						# A function to restore original controller
+						# settings and known packages/generics. Below
+						# we use a safely::do to ensure that this gets
+						# called if for any reason we bomb out of the
+						# following work () fn, which is the heart of
+						# compile_in_this_process:	
+						#
+						fun restore_antecedent_global_compiler_state _
+						    =
+						    {   top_level.set  original_toplevel_dictionary;
+
+							apply  (fn r =  r ())  original_settings;
+						    };
+
+
+						# Here at last we arrive at the beating heart of
+						#
+						#     fun compile_in_this_process
+						#
+						# and thus
+						#
+						#     fun compile_bare_o7
+						#
+						# and ultimately
+						#
+						#     fun make_intra_library_dependency_graph_walker'
+						#
+						# itself:
+						#
+						fun compile_one_sourcefile ()
+						    =
+						    {   set_up  "pre"  pre;			# 'pre' was extracted from 'bare_o7', above.
+
+							# Clear error flag -- could still
+							# be set from earlier run:
+							#
+							source.any_errors
+							    :=
+							    FALSE;
+
+							err =  em::errors  source;		# 'source' was extracted from 'bare_o7', above.
+											       # compilation_exception		is from   src/lib/compiler/frontend/basics/mlcomp/compilation-exception.pkg
+							#
+							fun check_errors  phase
+							    =
+							    if (em::any_errors  err)
+								#
+								raise exception compilation_exception::COMPILE (phase + " failed");
+							    fi;
+
+
+							fun show_compile_phase_runtimes_for   filename
+							    =
+							    string::is_suffix  "nonsuch.pkg"  filename;
+
+							fun do_verbose_logging_for  filename
+							    =
+							    string::is_suffix  "oop-crib-tmp.pkg"  filename    or  
+							    string::is_suffix  "oop-crib.pkg"      filename    or  
+							    string::is_suffix  "oop-test.pkg"      filename    or  
+							    string::is_suffix  "test-class.pkg"    filename    or  
+							    string::is_suffix  "test-subclass.pkg" filename    or  
+							    string::is_suffix  "test.pkg"          filename    or
+							    string::is_suffix  "x.pkg"             filename;
+								      # XXX BUGGO FIXME Above check is a quick hack. Ideally, the check should be (say)
+								      # against a regular expression stored in a control, settable by a commandline
+								      # switch, but one thing at a time...! *grin*
+
+
+							source_file_name
+							    =
+							    ad::os_string'  (bare_o7::sourcepath  bare_o7);
+
+							# For which files should we show per-compile-phase CPU usage?
+							# This can be a LOT of spew, so we usually enable it only
+							# for a specific file of interest:
+							#
+							compile_statistics::say_begin        := FALSE;						# To reduce clutter, don't announce start of each phase.
+							compile_statistics::say_when_nonzero := FALSE;						# To reduce clutter, don't show phases which take 0.00 seconds.
+							compile_statistics::say_end          := (show_compile_phase_runtimes_for  source_file_name);
+
+							prettyprinter_or_null
+							    =
+							    if   (not (make7_defaults::make_compile_logs.get ()))
+								#
+								NULL;
+							    else
+
+								unparse_filename
+								    =
+								    cat [  source_file_name, ".compile.log" ];
+
+
+								pp  = prettyprinter::make_file_prettyprinter  unparse_filename;
+
+								pps = pp.stream;
+
+								if   (not (do_verbose_logging_for   source_file_name))
+
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::string   pps   "This is a concise compile log.";	pp::newline  pps;
+								     pp::string   pps   "To get a verbose compile log, edit";	pp::newline  pps;
+								     pp::string   pps	  "    do_verbose_logging_for";		pp::newline  pps;
+								     pp::string   pps	  "in";					pp::newline  pps;
+								     pp::string   pps   "   src/app/make7/compile/compile-treewalk-g.pkg";
+								     pp::newline  pps;
+
+# pp::string   pps   "Next is raw syntax tree for foo:";
+# pp::newline  pps;
+# foo = printf_format_string_to_raw_syntax::make_anonymous_curried_function ("%d %6.2f %-15s\n", 12, 13); 
+# unparse_raw_syntax::unparse_expression
+#     (symbol_table, NULL)
+#     pps
+#     (raw_syntax::PRE_FIXITY_EXPRESSION foo, 1000);
+# pp::string   pps   "Done raw syntax tree for foo:";
+# pp::newline  pps;
+
+								     pp::flush_stream  pps;
+								else
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::string   pps   "This is a verbose compile log.";		pp::newline  pps;
+								     pp::string   pps   "To get a concise compile log, edit";	pp::newline  pps;
+								     pp::string   pps	  "    do_verbose_logging_for";		pp::newline  pps;
+								     pp::string   pps	  "in";					pp::newline  pps;
+								     pp::string   pps   "   src/app/make7/compile/compile-treewalk-g.pkg";
+
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::string   pps   "(Following printed by src/lib/compiler/toplevel/main/compile-treewalk-g.pkg.)";
+								     pp::newline  pps;
+
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::string   pps   "Raw syntax tree unparsed:";
+								     pp::newline  pps;
+
+								     unparse_raw_syntax::unparse_declaration
+									 (symbol_table, THE source)
+									 pps
+									 (raw_syntax_declaration, 1000);
+
+
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::newline  pps;
+								     pp::string   pps   "Raw syntax tree prettyprinted (source code region records mostly suppressed for brevity):";
+								     pp::newline  pps;
+
+								     prettyprint_raw_syntax::prettyprint_declaration
+									 (symbol_table, THE source)
+									 pps
+									 (raw_syntax_declaration, 1000);
+
+
+# pp::newline  pps;
+# pp::string   pps   "Above fiddledeedee fn";
+# pp::newline  pps;
+# fun fiddledeedee arg1 arg2 arg3 = sfprintf::printf' "%d %6.2f %-15s\n" [ sfprintf::INT arg1, sfprintf::FLOAT arg2, sfprintf::STRING arg3 ];
+# pp::newline  pps;
+# pp::string   pps   "Below fiddledeedee fn";
+# pp::newline  pps;
+# pp::newline  pps;
+# pp::string   pps   "Starting raw syntax tree for foo:";
+# pp::newline  pps;
+# foo = printf_format_string_to_raw_syntax::make_anonymous_curried_function ("%d %6.2f %-15s\n", 12, 13); 
+# unparse_raw_syntax::unparse_expression
+#     (symbol_table, NULL)
+#     pps
+#     (raw_syntax::PRE_FIXITY_EXPRESSION foo, 1000);
+# pp::newline  pps;
+# pp::string   pps   "Done raw syntax tree for foo.";
+# pp::newline  pps;
+								     pp::flush_stream  pps;
+
+
+
+									   # unparse_raw_syntax		is from   src/lib/compiler/frontend/typechecker/print/unparse-raw-syntax.pkg
+									   # unparse_symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/prettyprint-symbol-table.pkg
+									   # unparse_code_segments	is from   src/lib/compiler/execution/code-segments/unparse-code-segments.pkg
+								fi;
+
+								THE pp;
+							    fi;
+
+							# What's the point of this?  We pass 'source'
+							# separately anyhow, and 'transform' is always
+							# null.  That leaves just the (here implicit) stamp generator.
+							# Should be either expanded or eliminated. XXX BUGGO FIXME
+							#
+							compile_info
+							    =
+							    c::make_compile_info {
+
+								source     =>  (source:  source_code_source::Input_Source),
+								transform  =>  fn x = x,
+
+								prettyprinter_or_null
+								    =>
+								    (do_verbose_logging_for   source_file_name)
+									?? prettyprinter_or_null
+									:: NULL
+							    };
+
+							cross_module_inlining
+							    =
+							    controls::inline::get'   cross_module_inlining;
+
+							version  =   bare_o7::version  bare_o7;
+
+
+										   # make_compile_info		def in    src/lib/compiler/toplevel/main/compile-g.pkg
+										   # source_code_source		is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+										   # raw_syntax			is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+										   # symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+										   # inlining_table		is from   src/lib/compiler/toplevel/compiler-state/inlining-table.pkg
+										   # compile_info		is from   src/lib/compiler/frontend/typecheck-stuff/main/compile-info.pkg
+										   # code_segments		is from   src/lib/compiler/execution/code-segments/code-segments.pkg
+										   # picklehash			is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+										   # controls			is from   src/lib/compiler/toplevel/main/controls.pkg
+										   # bare_o7			is from   src/app/make7/o7/bare-o7.pkg
+										   # Compile0			is from   src/lib/compiler/toplevel/main/compile.api
+										   # compile_g			is from   src/lib/compiler/toplevel/main/compile-g.pkg
+
+
+							# This is the central call of make7,
+							# where we actually compile a raw
+							# syntax tree all the way down to
+							# executable binary code:	We do this one other place:    src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+							#				
+							(c::compile		   # compile			def in    src/lib/compiler/toplevel/main/compile-g.pkg
+
+							    { source                 => source:                 source_code_source::Input_Source,
+							      raw_syntax_declaration => raw_syntax_declaration: raw_syntax::Declaration,
+
+							      # Next two args constitute the exports
+							      # from the o7s we depend upon:
+							      #
+							      symbol_table     => symbol_table:    symbol_table::Symbol_Table,
+							      inlining_table   => inlining_table:  inlining_table::Dictionary,
+
+							      compile_info     => compile_info:    compile_info::Compile_Info( deep_syntax::Declaration ), 
+							      check_errors     => check_errors:    String -> Void,
+
+							      cross_module_inlining => cross_module_inlining:        Null_Or( Int ),
+							      version				# Opaque here, ultimately either Void or String, 
+							    })
+
+							    ->
+
+							    { code_segments             => code_segments:	    code_segments::Code_Segments,		# Compiled binary code.
+							      new_symbol_table          => new_symbol_table:	    symbol_table::Symbol_Table,			# 'symbol_table' above plus stuff from 'raw_syntax_declaration'.  Not used.
+							      export_picklehash         => export_picklehash:      Null_Or( picklehash::Picklehash ),
+							      inline_expression         => inline_expression:      Null_Or( anormal::Program ),		# A-normal code for inlining into other modules.
+							      imports                   => imports:                List( import_tree::Import ),		# How to find our imports at linktime.
+							      symbol_table_picklehash,
+							      pickle => symbol_table_pickle,
+							      ...
+							     };
+										   # code_segments	is from   src/lib/compiler/execution/code-segments/code-segments.pkg
+										   # symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+										   # picklehash		is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+										   # import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+										   # anormal		is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+
+							# The 'inline_expression' returned by the compiler
+							# contains highcode-format (machine-independent)
+							# code for exported functions worth inlining in
+							# other modules.
+							#
+							# This will become part of the exported state
+							# of the module, so we pickle it now for inclusion
+							# in the .o7 file:
+							#
+							(pickle_module::pickle_highcode_program   inline_expression)
+							    ->
+							    { picklehash =>  inlinables_picklehash,
+							      pickle     =>  inlinables_pickle
+							    };
+										   # pickle_module	is from   src/lib/compiler/frontend/semantic/pickle/pickle-module.pkg
+										   # byte		is from   src/lib/std/src/byte.pkg
+										   # picklehash_set	is from   src/app/make7/util/picklehash-set.pkg
+							inlinables_pickle
+							    =
+							    case inline_expression
+
+								 NULL  =>  byte::string_to_bytes "";
+								 THE _ =>  inlinables_pickle;
+							    esac;
+
+
+							oh7_file_contents
+							    =
+							    ob::create {
+							      imports,
+							      export_picklehash,
+							      picklehash_list => picklehash_set::vals_list   picklehashes,	# picklehashes was an arg to fun 'compile_in_this_process'
+							      version,
+							      code_segments,
+
+							      symbol_table
+								  =>
+								  { pickle     =>  symbol_table_pickle,
+								    picklehash =>  symbol_table_picklehash
+								  },
+
+							      inlinables
+								  =>
+								  { pickle     =>  inlinables_pickle,
+								    picklehash =>  inlinables_picklehash
+								  }
+							    };
+
+
+							object_code_cache_entry
+							    =
+							    oh7_file_contents_to_object_code_cache_entry
+                                                              (
+								oh7_file_contents,
+								bare_o7::last_sourcefile_modification_time_seen   bare_o7,
+								symbol_table
+							      );
+
+
+							set_up "post" post;
+							restore_antecedent_global_compiler_state ();
+
+
+							(write_oh7_file  oh7_file_contents)             # Write the foo.o7 file.
+							    ->
+							    byte_sizes;	
+
+
+							case prettyprinter_or_null
+							    #
+							    NULL => ();
+
+							    THE pp
+								=>
+								{   pps = pp.stream;
+
+								    if (do_verbose_logging_for  source_file_name)
+
+									pp::newline  pps;
+									pp::newline  pps;
+									pp::string   pps   "(Following printed by src/app/make7/compile/compile-treewalk-g.pkg.)";
+									pp::newline  pps;
+
+									unparse_sizes   pp   byte_sizes;
+
+									pp::newline  pps;
+									pp::newline  pps;
+									pp::string   pps   "Version: ";
+									pp::string   pps   version;
+
+									pp::newline  pps;
+									pp::newline  pps;
+									pp::string   pps   "Compiled code saved in: ";
+									pp::string   pps   oh7_file_name;
+
+									pp::newline  pps;
+									pp::newline  pps;
+									pp::string   pps   "inline_expression: ";
+									pp::string   pps   case inline_expression
+											       NULL => "NULL";
+											       _    => "(non-NULL)";
+											   esac;
+
+									pp::newline  pps;
+									pp::newline  pps;
+									pp::string   pps   "Symbol table picklehash: ";
+									pp::string   pps   (picklehash::to_hex symbol_table_picklehash);
+									pp::newline  pps;
+									pp::string   pps   "Inlinables   picklehash: ";
+									pp::string   pps   (picklehash::to_hex inlinables_picklehash);
+
+
+
+									unparse_code_segments::unparse_code_segments   pps   code_segments;
+								    fi;
+
+								    pp.flush ();
+								    pp.close ();
+								};
+							esac;
+
+
+							# When cache_oh7_file_contents is not a dummy,
+							# it is oh7_file_cache::cache, which caches a
+							# copy of the .o7 file contents in memory,
+							# on the presumption we may shortly want it.
+							#
+							cache_oh7_file_contents (
+							    bare_o7,
+							    {   contents   =>  oh7_file_contents,
+								byte_sizes
+							    }
+							);
+
+							THE object_code_cache_entry;
+						    };							# fun compile_one_sourcefile
+
+					    safely::do
+						{
+						  open_it  =>   fn () = (),
+						  close_it =>   fn () = (),
+						  cleanup  =>   restore_antecedent_global_compiler_state
+						}
+						compile_one_sourcefile;
+
+					    }
+					    except
+						(em::COMPILE_ERROR | compilation_exception::COMPILE _)
+						=
+						handle_compile_error ();
+				    esac;               # At this point we handle only
+							# explicit compiler bugs and ordinary
+							# compilation errors because for those
+							# there will already have been
+							# explanatory messages.  Everything
+							# else "falls through" and will be
+							# treated at top level.
+
+				};									# fun compile_in_this_process 
+
+			    #
+			    fun compile_dependencies_then_sourcefile ()
+				=
+				{
+				    youngest				# Track most recent (known) edit of any sourcefile in the library.
+					:=
+					time_stamp::max (
+					    *youngest,
+					    bare_o7::last_sourcefile_modification_time_seen
+						bare_o7
+					);
+
+				    priority
+					=
+					get_priority   bare_o7;
+
+
+									    # safely			is from   src/lib/std/safely.pkg
+									    # compilation_exception	is from   src/lib/compiler/frontend/basics/mlcomp/compilation-exception.pkg
+									    # time_stamp		is from   src/app/make7/paths/timestamp.pkg
+									    # bare_o7			is from   src/app/make7/o7/bare-o7.pkg
+									    # thread			is from   src/app/make7/simple-concurrency/thread.pkg
+
+				    # Our .o7 file isn't in our 'scheduled_compiles'
+				    # so we're going to have schedule a compile for it.
+				    #
+				    # But before we can compile it, we must make sure
+				    # that everything it depends upon has been compiled,
+				    # to ensure that all the type declarations &tc that
+				    # it needs will be available at compile time.
+
+
+				    # Fire up compiles of all our far
+				    # dependencies, which is to say,
+				    # all .o7 files in other libraries
+				    # from which we import something:
+				    #
+				    far_imports_fate_list
+					=
+					map (fn far_imports_node
+						=
+						simple_thread::make_simple_thread
+						    .{ compile_far_o7  far_imports_node; }
+					    )
+					    far_imports			# 'far_imports' is from 'fun compile_bare_o7' argument.
+					where
+					    fun compile_far_o7  far_imports_node
+						=
+						compile_far_o7'  make7_state  far_imports_node;
+					end; 
+
+				    # Similarly, fire up compiles of all
+				    # our local dependencies, which is
+				    # to say, all .o7 files in this library
+				    # from which we import something:
+				    #
+				    near_imports_fate_list
+					=
+					map
+					    (fn near_imports_node
+						=
+						simple_thread::make_simple_thread
+						    .{ compile_near_o7  near_imports_node; }
+					    )
+					    near_imports			# 'far_imports' is also from 'fun compile_bare_o7' argument.
+					where
+					    fun compile_near_o7  near_imports_node
+						=
+						null_or::map
+						    memoize_unfiltered_dependency_exports
+						    (compile_bare_o7  make7_state  near_imports_node);
+
+					end;
+
+
+				    # Accumulate and combine the exports
+				    # of all the above compiles:
+				    #
+				    combined_symbol_and_inlining_tables
+					=
+					fold_left
+
+					    (layer_wait  priority)
+
+					    (fold_left
+						(layer_wait  priority)
+						(THE  empty_hashes_and_dictionaries)
+						far_imports_fate_list
+					    )
+
+					    near_imports_fate_list;
+
+
+				    case combined_symbol_and_inlining_tables
+					#				      
+					NULL		# We can't compile our sourcefile because
+					    =>		# one or more of the sourcefiles it depends upon
+					    NULL;		# failed to compile.
+
+					THE { symbol_and_inlining_tables_thunk, picklehashes }
+					    =>
+					    {   # We have successfully compiled all
+						# dependencies (imports) which needed it.
+						# (Which might be none.)
+						#
+						# Now we need to find/make object code
+						# appropriate to our source code.
+						#
+						# If we've compiled this sourcefile
+						# recently, we may have the needed
+						# object code cached in memory.
+						#
+						# If not, we'll have to either load
+						# the object code from its .o7 file,
+						# if any, or else generate it by
+						# compiling the source code.
+						#
+						#	We start by checking our in-memory
+						# object-code cache:	
+						#		
+						case (bare_o7_map::get					# bare_o7_map	is from   src/app/make7/o7/bare-o7-map.pkg
+							 (*object_code_cache, bare_o7))
+						    #
+						    NULL
+							=>
+							# No appropriate object code
+							# in our in-memory cache:
+							#
+							must_load_or_compile_o7_file ();
+
+						    THE object_code_cache_entry
+							=>
+							# Found matching object code in cache.
+							# Use it unless the source code has been
+							# modified since the object code was compiled:
+							#		
+							if (object_code_cache_entry_is_usable
+							      (
+								object_code_cache_entry,
+								picklehashes,
+								bare_o7
+							      )
+							)
+							     THE object_code_cache_entry;			# Use cached object code.
+							else must_load_or_compile_o7_file ();			# Don't use cached object code.
+							fi;
+						esac
+						where
+						    fun must_load_or_compile_o7_file ()
+							=
+							# Our in-memory cache doesn't contain
+							# usable compiled object code for our
+							# sourcefile, so we must either load 
+							# object code memory from a .o7 file
+							# (if one exists), or else actually
+							# compile the sourcefile:
+							#
+							case (load_else_compile_o7_file ())
+							    #
+							    NULL
+								=>
+								# No memory-cached object code,
+								# no .o7 file on disk, and
+								# the source code won't compile.
+								# Just give up:
+								#	
+								NULL;
+
+							    THE object_code_cache_entry
+								=>
+								# Save object code in our
+								# cache, then return it:
+								#
+								{  object_code_cache
+								       :=
+								       bare_o7_map::set (
+									   *object_code_cache,
+									   bare_o7,
+									   object_code_cache_entry
+								       );
+
+								   THE object_code_cache_entry;
+								};
+							esac
+							where
+							    # Get object code for our sourcefile,
+							    # by just reading it off disk if we can,
+							    # by actually compiling it if we must:
+							    #
+							    fun load_else_compile_o7_file ()
+								=
+								# If anything goes wrong loading
+								# the .o7 file, we re/compile it.
+								#
+								# Compiling may mean compiling it
+								# in a subprocess, and if so, we
+								# must load the resulting .o7.
+								#
+								# If the second load also goes wrong,
+								# we recompile locally to gather error
+								# messages and make everything look
+								# "normal", which is to say local
+								# within this process:in-process:
+								#
+								load_else_compile_o7_file' (
+								    announce_load,
+								    compile_preferably_in_subprocess
+								)
+								where
+
+								    # As a general policy, we avoid actually
+								    # constructing symbol and inlining tables
+								    # until we're sure we need them.
+								    #
+								    # We now definitely need the tables constituting
+								    # the combined exports from our dependencies,
+								    # so we go ahead and build them explicitly:
+								    #
+								    (symbol_and_inlining_tables_thunk ())
+									->
+									{ symbol_table, inlining_table };
+
+								    # Unpack	some relevant information
+								    # about the file to be compiled:
+								    #
+								    (bare_o7::attributes   bare_o7)
+									->
+									{ cross_module_inlining, extra_static_compile_dictionary, ... };
+
+
+										       # bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+
+
+								    # If an 'extra_static_compile_dictionary' was
+								    # supplied, fold it into our symbol table.
+								    #
+								    # This is an obscure special-case hack used (only) in
+								    #
+								    #     src/app/make7/make-compiler/primordial-make7file.pkg
+								    #
+								    # where it serves to supply modules flagged as "primitive" in
+								    #
+								    #     src/lib/core/init/init.cmi
+								    #
+								    # with access to   primitives_symbol_table::primitives_symbol_table   from
+								    #
+								    #     src/lib/compiler/frontend/semantic/symbol-table/primitives-symbol-table.pkg
+								    #
+								    # which contains various foundation-of-the-universe things
+								    # like 'Bool' which must be predefined in order to bootstrap
+								    # everything else:
+								    #
+								    symbol_table
+									=
+									case extra_static_compile_dictionary
+									    #
+									    NULL              =>  symbol_table;
+									    THE symbol_table' =>  st::atop (symbol_table, symbol_table');
+									esac;
+
+
+								    # We need compiled code for some "foo.pkg" sourcefile.
+								    # If we've already compiled a matching "foo.pkg.o7"
+								    # objectcode, just read it into memory, otherwise
+								    # compile "foo.pkg" to to generate the required
+								    # object code:
+								    #	
+								    fun load_else_compile_o7_file'
+									    (
+									      announce,		# A narration function to keep the guy at the console awake.
+									      compile_it	# A function to re/compile the file -- either "compile" or "verbosely_compile_in_this_process".
+									    )
+									=
+									case (load_oh7_file ())
+									    #
+									    NULL => compile_it ();
+
+									    THE (oh7_file_contents, creation_time, byte_sizes)
+										=>
+										{
+										    object_code_cache_entry
+											=
+											oh7_file_contents_to_object_code_cache_entry (
+											    oh7_file_contents,
+											    creation_time,
+											    symbol_table
+											);
+
+										    contents_and_sizes
+											=
+											{   contents  => oh7_file_contents,
+											    byte_sizes
+											};
+
+										    if (object_code_cache_entry_is_usable
+											   (
+											     object_code_cache_entry,
+											     picklehashes,
+											     bare_o7
+											   )
+										    )
+
+											announce  byte_sizes;
+											cache_oh7_file_contents (bare_o7, contents_and_sizes);
+
+											THE object_code_cache_entry;
+										    else
+											compile_it ();
+										    fi;
+										 };
+									esac
+									where
+									    fun load_oh7_file ()
+										 =
+										 # A function to read the .o7 object-code file
+										 # corresponding to our sourcefile, if it exists.
+										 #
+										 # On failure (usually because it doesn't exist) we return NULL.
+										 # On success we return THE( oh7_file_contents, oh7_file_creation_time, oh7_file_bytesizes):
+										 #
+										 {   creation_time
+											 =
+											 time_stamp::last_file_modification_time
+											     oh7_file_name;
+
+											       # time_stamp	is from   src/app/make7/paths/timestamp.pkg
+											       # binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+										      #
+										     fun open_o7_file ()
+											 =
+											 binary_io::open_for_read  oh7_file_name;
+
+
+										     fun read_o7_file  stream
+											 =
+											 {   my { contents, byte_sizes }
+												 =
+												 ob::read { architecture_name,		# "ppc", "sparc" or "x86".
+													    version,
+													    stream
+													  };
+
+											     bare_o7::set_version
+												 (bare_o7, ob::version_of contents);
+
+											     (contents, creation_time, byte_sizes);
+											 };
+
+												 # bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+												 # safely		is from   src/lib/std/safely.pkg
+												 # binary_io		is from   src/lib/std/src/unix/posix-binary-io.pkg
+
+										     # Return NULL immediately if .o7 file is unreadable.
+										     # This isn't strictly necessary, but avoids
+										     # generating background failed-to-open-file
+										     # errors that can be distracting when debugging:
+										     #
+										     if (not (winix::file::access
+												( oh7_file_name,
+												  [winix::file::MAY_READ]
+										     )	  )   )
+
+											 NULL;
+										     else
+											 # Our .o7 file looks readable,
+											 # so go ahead and try to read it:
+											 #
+											 THE (
+											     safely::do {
+												 open_it  =>  open_o7_file,
+												 close_it =>  binary_io::close_input,
+												 cleanup  =>  fn _ = ()
+											     }
+											     read_o7_file
+											 )
+											 except
+											     _ = NULL;
+										     fi;
+										 };                    
+									end;
+
+								    #	
+								    fun we_are_only_runnable_task ()
+									=
+									compile_client::all_idle ()
+									and
+									simple_thread::no_runnable_threads ();
+
+										       # servers		is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+										       # thread			is from   src/app/make7/simple-concurrency/thread.pkg
+										       # bare_o7		is from   src/app/make7/o7/bare-o7.pkg
+										       # anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+										       # say			is from   src/lib/std/src/io/say.pkg
+								    #	
+								    fun verbosely_compile_in_this_process ()
+									=
+									{
+									    sourcefile =  bare_o7::sourcepath  bare_o7;
+									    sourcepath =  ad::os_string'  sourcefile;		# Full host-os filename for sourcefile to be compiled.
+
+									    # List the source and object files to
+									    # keep the guy at the console awake:
+									    #
+									    {   # Keep narrative verbosity down by maybe
+										# stripping the root directory prefix
+										# off of oh7_file_name before printing it:
+										#
+										root = (the (ad::get_anchor (ad::dictionary, "ROOT"))) + "/";
+										#
+										oh7_file_name
+										    =
+										    if (string::is_prefix  root  oh7_file_name)
+											#
+											string::extract (oh7_file_name, string::length root, NULL);
+										    else
+											oh7_file_name;
+										    fi;
+
+										file::vsay [
+										    "      .../compile/compile-treewalk-g.pkg:   Compiling source file   ",
+										    (number_string::pad_right ' ' 50 sourcepath),
+										    "\tto object file   ",
+										    oh7_file_name,
+										    "\n"
+										];
+									    };
+
+									    compile_in_this_process
+										(
+										  symbol_table,
+										  inlining_table,
+										  picklehashes,
+										  cross_module_inlining
+										);
+									};
+								    #	
+								    fun compile_in_subprocess' p
+									=
+									not (we_are_only_runnable_task ())
+									and   compile_in_subprocess p;
+
+								    # Compile a sourcefile.
+								    #
+								    # If we have running compile server
+								    # subprocesses, have one of them do
+								    # the compile, so as to maybe get
+								    # some parallelism on multicore machines.
+								    #
+								    # If we have no compile server
+								    # subprocesses, then perforce we
+								    # just do a vanilla compile within
+								    # this process:
+								    #
+								    fun compile_preferably_in_subprocess ()
+									=
+									{
+									    source_path
+										=
+										bare_o7::sourcepath  bare_o7;
+
+									    winix::file::remove_file
+										oh7_file_name					# "foo.pkg.o7"
+									    except
+										_ = ();
+
+									    youngest := time_stamp::NO_TIMESTAMP;		# Set up to track most recent (known) edit of any sourcefile in the library.
+
+									    if (compile_in_subprocess' source_path)
+										#
+										wait_for_nonzero_oh7_file_filesize ();		# Can this possibly make any sense?!
+										load_else_compile_o7_file'
+										    ( announce_o7_receipt,
+										      verbosely_compile_in_this_process
+										    );
+									    else
+										verbosely_compile_in_this_process ();
+									    fi
+									    where
+										#
+										fun wait_for_nonzero_oh7_file_filesize ()
+										    =
+										    {   fun ready ()
+											    =
+											    (winix::file::file_size  oh7_file_name)  >  0
+											    except
+												 _ = FALSE;
+
+											# BUGGO XXX FIXME busy wait for file to appear;
+											# this is obviously very bad!
+
+											file::vsay ["[ENTERING BUSYWAIT LOOP]\n"];
+
+											for (not (ready ())) {
+											    # This whole design sucks, obviously :(                             XXX BUGGO FIXME
+											    #
+											    # Also, one second is an awfully long
+											    # time to sleep, but we apparently don't
+											    # currently have a library call capable
+											    # of waiting for less than a second
+											    # (e.g., I can't find ML level access to
+											    # select().                             XXX BUGGO FIXME
+											    #
+											    posix::sleep (time::from_seconds (large_int::from_int 1));	# A quick hack to ameliorate a spinwait loop.
+											};
+											file::vsay ["[EXITING BUSYWAIT LOOP]\n"];
+										    };
+
+												# say	is from   src/lib/std/src/io/say.pkg
+												# winix	is from   src/lib/std/winix.pkg
+									    end;
+									};			# fun compile_preferably_in_subprocess
+
+								end;				# fun load_else_compile_o7_file 
+
+							end;
+
+						end;
+
+					    };							# Dependencies compiled ok.
+				    esac;
+				};								# fun compile_dependencies_then_sourcefile
+                        end;
+		    };										# fun compile_bare_o7 
+
+
+		#
+		fun compile_far_o7  make7_state  (node_thunk, _, _) 
+		    =
+                    compile_far_o7'  make7_state  (node_thunk ());
+	    
+
+		{   compile_near_o7,
+		    compile_far_o7
+		};
+	    };                                        #  fun make_intra_library_dependency_graph_walker'
+
+	# We have two levels of compile-dependency graphs,
+	# one which records which complete libraries have
+	# compile dependencies on which other complete
+	# libraries, and then one per library recording
+	# which individual sourcefiles have compile
+	# dependencies upon other individual sourcefiles.
+	#
+	# Here we walk the library-level dependency graph
+	# making libraries in post-order, so that each
+	# library is compiled only after all the libraries
+	# it needs have been compiled (making available the
+	# relevant type declarations &tc):
+	#
+	fun walk_inter_library_dependency_graph (
+                bare_o7_watcher,								#  A hook letting us notify the linker when we re/compile a file. 
+		cache_oh7_file_contents,							#  A dummy or else oh7_file_cache::cache, which caches a copy in ram. 
+		this_library as lg::LIBRARY  { o7_views_by_name, ... }
+	    )
+		=>
+		{   symbol_and_inlining_tables,
+		    all_libraries,
+		    exports
+			=>
+			symbol_map::map								# symbol_map		is from   src/app/make7/util/symbol-map.pkg
+			    make_export
+			    o7_views_by_name
+		}
+                where
+
+		    # As a heuristic to try and save wall-clock
+		    # time when doing parallel makes on multicore
+		    # machines, we try to compile first those
+                    # sourcefiles on which many other sourcefiles
+                    # depend, since doing so is most likely to
+                    # open up opportunities to do multiple compiles
+                    # in parallel:
+                    #
+		    priority_memo
+			=
+			memoize::memoize
+                            .{   indegree::indegrees  this_library;   };
+
+												# memoize	is from   src/app/make7/util/memoize.pkg
+												# indegree	is from   src/app/make7/depend/indegree.pkg
+		    #
+		    fun get_priority  bare_o7
+			=
+			the_else (
+                            bare_o7_map::get
+                                ( priority_memo (),
+                                  bare_o7
+                                ),
+			    0
+			);
+
+
+		    # Generate the intra-library treewalker lazily:
+		    #
+		    do_intra_library_treewalk
+			=
+			memoize::memoize
+			   .{   .compile_far_o7
+				    (   make_intra_library_dependency_graph_walker'
+					    (bare_o7_watcher, cache_oh7_file_contents, get_priority)
+				    );
+                            };
+
+
+		    # Accept an import_export_list. ("make7_state list"?)
+		    # Return a symboltable-plus-inlining-dictionary combination
+		    # which is the result of concurrently compiling everything
+		    # on the input list and combining all the results.
+		    #
+		    fun concurrently_compile_import_exports
+                            ( make7_state,
+                              import_export_list
+                            )
+			=
+			{
+                            eo_cl							#  "export closure list"?          
+				=
+				map
+                                    (fn import_export
+                                        =
+                                        simple_thread::make_simple_thread
+                                            .{  do_intra_library_treewalk ()  make7_state  import_export;  }
+                                    )
+				    import_export_list;
+
+			    eo  =
+                                fold_left
+                                    (layer_wait 0)
+                                    (THE  empty_hashes_and_dictionaries)
+                                    eo_cl;
+
+			    case eo							# "eo" might have been "environment option", originally? Or "exports option"?
+				#			      
+				THE e =>  THE (e.symbol_and_inlining_tables_thunk ());
+				#
+				NULL  =>  {   compile_client::reset  FALSE;		# compile_client	is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+					      NULL;
+					  };
+			    esac;
+			}
+			except
+			    ABORT =  {   compile_client::reset  FALSE;
+                                         NULL;
+                                     };
+
+		    #
+		    fun symbol_and_inlining_tables  make7_state
+			=								# It returns all the info resulting from compiling a batch of libraries.
+			concurrently_compile_import_exports
+                            ( make7_state,
+                              symbol_map::vals_list  o7_views_by_name			# 'o7_views_by_name' is walk_inter_library_dependency_graph(... library.o7_views_by_name )
+                            );
+
+											# symbol_map	is from   src/app/make7/util/symbol-map.pkg
+
+		    #
+		    fun all_libraries  make7_state
+			=
+			{   # A little helper function for collect().
+			    # It takes an entry from a library.sublibraries list
+			    # and adds the library to our libraries-left-to-do list.
+			    #
+			    # (The ignored first and third components of the
+			    # first argtuple element are respectively a
+			    # path naming the library and the set of anchor
+			    # renamings for the library.)
+			    #
+			    fun add_library ((_, library_thunk
+                                                              , _	# MUSTDIE
+                                                              ), libraries_left)
+				=
+				library_thunk ()
+                                !
+                                libraries_left;
+
+
+			    # all_exported_symbols() constructs a list of all .exports-ed symbols
+			    # of a makefile/library node plus its direct and indirect sublibraries.
+			    #
+			    # First argument is the list of library graph nodes yet to process.
+			    # Initially, this is just the root library of the .sublibraries tree.
+			    #
+			    # Second argument is the set of library graph nodes already processed,
+			    # so we can avoid processing a given node more than once.
+			    #
+			    # Third argument is the accumulating result list of
+			    # symbols exported via the library .exports lists. -- CrT
+			    #
+			    fun all_exported_symbols (                                         [],                _,   result_so_far)
+				    =>
+				    result_so_far;
+
+
+				all_exported_symbols (lg::ERROR_LIBRARY          ! libraries_left,   libraries_done,   result_so_far)
+				    =>
+				    # Ignore bogus entries on left-to-do list:
+				    #
+				    all_exported_symbols (libraries_left, libraries_done, result_so_far);
+
+
+				all_exported_symbols (lg::LIBRARY library_record ! libraries_left,   libraries_done,   result_so_far)
+				    =>
+				    if (source_path_set::member							# source_path_set	is from   src/app/make7/paths/source-path-set.pkg
+					   (
+					     libraries_done,
+					     library_record.library_path
+					   )
+				    )
+			                # Skip library -- already done it:
+					#
+					all_exported_symbols ( libraries_left, libraries_done, result_so_far );
+				    else
+					all_exported_symbols (
+
+					    # Add all sublibraries of this lib to our left-to-do list:
+					    #
+					    fold_left
+						add_library
+						libraries_left
+						library_record.sublibraries,
+
+					    # Remember we've processed this library:
+					    #
+					    source_path_set::add
+						(
+						  libraries_done,
+						  library_record.library_path
+						),
+
+					    # Add all exports of this library to our results:
+					    #
+					    symbol_map::fold_left
+						(!)
+						result_so_far
+						library_record.o7_views_by_name
+					);
+				    fi;
+			    end;
+
+			    exported_symbols_list
+				=
+				all_exported_symbols  ([this_library], source_path_set::empty, []);
+
+			    not_null
+                                (concurrently_compile_import_exports
+                                    (make7_state, exported_symbols_list)
+                                );
+			};        			                            #  fun all_libraries 
+
+		    #
+		    fun make_export  ie  make7_state
+			=
+			case (do_intra_library_treewalk ()  make7_state  ie	except ABORT = NULL)
+			    #
+			    NULL  =>  { compile_client::reset FALSE;   NULL; };
+			    THE e =>  THE (e.symbol_and_inlining_tables_thunk ());
+			esac;
+		end;
+
+	    walk_inter_library_dependency_graph (_, _, lg::ERROR_LIBRARY)
+		=>
+		{  symbol_and_inlining_tables =>   fn _ = NULL,
+		   all_libraries              =>   fn _ = FALSE,
+		   exports                    =>   symbol_map::empty
+		};
+        end;                                                               #  walk_inter_library_dependency_graph 
+
+
+	#
+	fun make_intra_library_dependency_graph_walker ()
+            =
+	    do_o7_treewalk
+            where
+                my { compile_near_o7, ... }
+                    =
+                    make_intra_library_dependency_graph_walker' (
+                        fn _ = fn _ = (),
+			fn _ = (),
+			fn _ = 0 
+		    );
+		#
+		fun do_o7_treewalk  o7  make7_state
+                    =
+                    {   r =  compile_near_o7  make7_state  o7
+			     except
+                                 ABORT = NULL;
+		    
+			if (not_null r)  ();
+			else             compile_client::reset FALSE;
+                        fi;
+
+			r;
+		    };
+	    
+	    end;
+
+	#
+	fun evict_stale ()
+            =
+            object_code_cache
+                :=
+                bare_o7_map::keyed_filter
+                    (bare_o7::is_known o #1)
+                    *object_code_cache;
+
+	#
+	fun evict_all ()
+            =
+            object_code_cache
+                :=
+                bare_o7_map::empty;
+
+	#
+	fun get_o7_exports  bare_o7
+            =
+            .o7_exports (
+                the (
+                    bare_o7_map::get
+                        (*object_code_cache, bare_o7)
+                )
+            );
+    };
+end;
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"				 	 #
+# End:									 #
+##########################################################################
+

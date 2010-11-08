@@ -1,0 +1,147 @@
+# Conditional constant propagation.
+# This module performs the conditional constant propagation analysis,
+# but does not update the SSA graph.
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+generic package SSACondConstProp (CF:   SSA_CONSTANT_FOLDING)
+     : SSA_CONDITIONAL_CONSTANT_PROPAGATION =
+pkg
+
+   package cf  = CF
+   package ssa = cf::SSA
+   package rtl = SSA::RTL
+   package t   = RTL::T
+   package g   = graph
+   package a   = rw_vector
+   package w8a = rw_unt8_vector
+
+   type valueMap = rw_vector::Rw_Vector( cf::valnum )
+
+   fun error msg = lowcode_error_message::error("SSACondConstProp", msg)
+
+   fun condConstProp (SSA as g::GRAPH ssa) = 
+   let my CFG as g::GRAPH cfg = SSA::cfg SSA
+       N          = cfg.capacity ()
+       M          = ssa.capacity ()
+       my { ops, phis, sources, ... } = SSA::nodes SSA
+       defSiteTable = SSA::defSiteTable SSA
+       usesTable    = SSA::usesTable SSA
+       defsTable    = SSA::defsTable SSA
+       rtlTable     = SSA::rtlTable SSA
+       blockTable   = SSA::blockTable SSA
+       reachable  = w8a::rw_vector (N, 0w0) #  Blocks that are reachable 
+       onWorkList = w8a::rw_vector (M, 0w0) #  ssa ops that are on work list 
+       bot        = cf::bot
+       top        = cf::top 
+       nodes      = SSA::nodes SSA
+       V          = SSA::maxVariable SSA
+       values     = a::rw_vector (V, bot) #  Current values 
+
+       #  Add value v onto the worklist 
+       fun addWL (v, WL) =
+           let i = a::sub (defSiteTable, v)
+           in  if w8a::sub (onWorkList, i) != 0w0 then WL 
+               else (w8a::update (onWorkList, i, 0w1); i . WL)
+           end
+
+       #  Add all operations onto the worklist 
+       fun addWLs([], WL) = WL
+         | addWLs (i . ops, WL) = 
+            (w8a::update (onWorkList, i, 0w1); addWLs (ops, i . WL))
+
+       #  Constant folding function 
+       fold = cf::constantFolding SSA (fn _ => top)
+
+       #  Perform propagation on the worklist 
+       fun propagate [] = ()
+         | propagate (i . WL) =
+              (w8a::update (onWorkList, i, 0w0);
+               propagate (evaluate (i, a::sub (rtlTable, i),
+                              a::sub (defsTable, i), a::sub (usesTable, i), WL)))
+
+       #  Evaluate an SSA node 
+       and evaluate (i, t::PHI _,[t], s, WL) =
+           let fun join ([], v) = v
+                 | join (s . ss, v) = 
+                   let x = a::sub (values, s)
+                   in  if x == bot then join (ss, v)
+                       else if v == bot then join (ss, x)
+                       else if x == v then join (ss, v)
+                       else top
+                   end
+           in  update (t, join (s, bot), WL) 
+           end
+         | evaluate (i, t::SOURCE _, t, _, WL) = updateTops (t, WL)
+         | evaluate (i, t::SINK _, _, _, WL) = WL
+         | evaluate (i, i', s, t, WL) =
+           let fun get_val v = if v >= 0 then a::sub (values, v) else v
+               v = fold (i', map get_val s, 0, ())
+               b = a::sub (blockTable, i)  
+           in  case t of
+                 [t] => let WL = update (t, v, WL)
+                            fun chase e =
+                            case (e, v) of 
+                              (t::IF _,-1) => enableSucc (b, FALSE, WL)
+                            | (t::IF _,-2) => enableSucc (b, TRUE, WL)
+                            | (t::IF _, _)  => enableAllSucc (b, WL)
+                            | (t::JUMP _, _)  => enableAllSucc (b, WL)
+                            | (t::RTL { e, ... }, _) => chase e
+                            | _ => WL
+                        in  chase i' 
+                        end
+               | _   => updateTops (t, WL)
+           end  
+
+       #  Update the result 
+       and update (t, v, WL) =
+           if a::sub (values, t) == v then WL
+           else (a::update (values, t, v); addWL (t, WL))
+
+       #  Update top to all results 
+       and updateTops([], WL) = WL
+         | updateTops (t . ts, WL) = 
+           if a::sub (values, t) == top then updateTops (ts, WL)
+           else (a::update (values, t, top); updateTops (ts, addWL (t, WL)))
+
+       #  Mark a basic block as reachable 
+       and enableNode (b, WL) =
+           if w8a::sub (reachable, b) != 0w0 then WL
+           else 
+           let w8a::update (reachable, b, 0w1)
+               WL = addWLs (a::sub (ops, b), WL)
+               WL = addWLs (a::sub (phis, b), WL)
+               WL = addWLs (a::sub (sources, b), WL)
+           in  case cfg.out_edges b of
+                 [(_, b', _)] => enableNode (b', WL)
+               |  _ => WL
+           end
+
+       #  Mark an edge as reachable 
+       and enableEdge((_, b, _), WL) = enableNode (b, WL)
+
+       #  Mark a successor of b as reachable 
+       and enableSucc (b, cond, WL) =
+             fold_right (fn ((_, b', _), WL) => enableNode (b', WL)) WL (cfg.out_edges b)
+              
+       #  Mark all successors of b as reachable 
+       and enableAllSucc (b, WL) = fold_right enableEdge WL (cfg.out_edges b)
+
+       #  Initialize the table 
+       fun init () = 
+           (case SSA::C.zeroReg SSA::C.GP of
+              THE zeroR => a::update (values, zeroR, cf::zero)
+            | NULL => ()
+           )
+
+       #  Constant propagation main driver 
+       fun constantPropagation() = 
+           (init();
+            propagate (enableAllSucc (hd (cfg.entries ()),[]))
+           )
+   in  constantPropagation();
+       values        
+   end
+
+end

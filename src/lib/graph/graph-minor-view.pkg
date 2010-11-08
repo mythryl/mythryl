@@ -1,0 +1,237 @@
+# graph-minor-view.pkg
+#  Graph minor.
+#  Allows contraction of nodes.  
+#  Remove self-edges during contraction. 
+#  
+#  -- Allen Leung
+
+# Compiled by:
+#     src/lib/graph/graphs.make6
+
+api Graph_Minor_View {
+
+    minor:  graph::Graph( N, E, G )
+            ->
+            ((N, N, List( graph::Edge( E ) )) -> N)
+            ->
+            { view:       graph::Graph( N, E, G),
+	      union:     (graph::Node_Id, graph::Node_Id) -> Bool,
+	      same:      (graph::Node_Id, graph::Node_Id) -> Bool,
+	      partition:  graph::Node_Id -> List( graph::Node_Id )
+	    };
+};
+
+package graph_minor_view: (weak)  Graph_Minor_View		# Graph_Minor_View	is from   src/lib/graph/graph-minor-view.pkg
+{
+    package g= graph;						# graph			is from   src/lib/graph/graph.pkg
+    package u= union_find;					# union_find		is from   src/lib/src/union-find.pkg
+    package h= sparse_rw_vector;				# sparse_rw_vector	is from   src/lib/src/sparse-rw-vector.pkg
+
+
+    Node (N,E)
+        = 
+	NODE { key:    Int,
+	       data:   N,
+	       nodes:  List( graph::Node_Id ),
+	       next:   List( g::Edge( E ) ),
+	       prior:   List( g::Edge( E ) )
+	     };
+
+
+    fun minor (g::GRAPH ggg:  graph::Graph( N, E, G) ) merge_nodes
+	=
+	{ view, union, same, partition }
+        where
+
+	    fun unimplemented _
+		=
+		raise exception g::READ_ONLY;
+
+	    nnn   =  ggg.capacity ();
+	    table =  h::make_rw_vector'(nnn, fn _ =  raise exception g::NOT_FOUND);
+
+	    fun get n
+		=
+		{   my NODE x =  u::(!!) (h::get (table, n));
+		    x;
+		};
+
+	    ggg.forall_nodes 
+		(fn (n, n')
+		    =
+		    h::set (table, n,
+		       u::u_ref (NODE { key=>n,
+				   data=>n',
+				   nodes=> [n],
+				   next=> ggg.out_edges n,
+				   prior=> ggg.in_edges n } ))
+		);
+
+	    fun same (i, j)
+		=
+		u::equal (h::get (table, i), h::get (table, j));
+
+	    fun partition i
+		=
+		.nodes (get i); 
+
+	    size  =  REF (ggg.size  ());
+	    order =  REF (ggg.order ());
+
+	    fun out_edges n =  .next (get n);
+	    fun in_edges  n =  .prior (get n);
+
+	    fun next n  =  map #2 (out_edges n);
+	    fun prior n  =  map #1 (in_edges  n);
+
+	    fun nodes ()
+		= 
+		collect (ggg.nodes (),[])
+		where
+
+		    found =  h::make_rw_vector (10, FALSE);
+
+		    fun collect ((node as (n, _)) ! nodes, nodes')
+			    =>
+			    if (h::get (found, n) ) collect (nodes, nodes');
+			    else { ns = partition n;
+				   apply (fn n => h::set (found, n, TRUE); end ) ns;
+				     collect (nodes, node ! nodes');
+				 };fi;
+
+		       collect([], nodes')
+			   =>
+			   nodes';
+		    end;
+		end;
+
+	    fun edges ()
+		=
+		list::cat (
+		    map
+			(fn (n, _) =  out_edges n)
+			(nodes ())
+		);
+
+	    fun has_edge (i, j)
+		=
+		list::exists
+		    (fn (_, j', _) =  j == j')
+		    (out_edges i);
+
+	    fun has_node  n
+		=
+		{   h::get (table, n);
+		    TRUE;
+		}
+		except
+		    g::NOT_FOUND =  FALSE;
+
+	    fun node_info n
+		=
+		.data (get n);
+
+	    fun forall_nodes f =  apply f (nodes());
+	    fun forall_edges f =  apply f (edges());
+
+	    fun merge (NODE { key=>k1, data=>d1, next=>s1, prior=>p1, nodes=>n1 },
+		       NODE { key=>k2, data=>d2, next=>s2, prior=>p2, nodes=>n2 } )
+		=
+		node
+		where
+
+		    fun key i
+			=
+			.key (get i);
+
+		    fun partition ([], others, self)
+			    =>
+			    (others, self);
+
+			partition((e as (i, j, _)) ! es, others, self)
+			    =>
+			    {   k_i = key i;
+				k_j = key j;
+
+				if ((k_i == k1 or k_i == k2) and   
+				    (k_j == k1 or k_j == k2)
+                                   )
+				      partition (es, others, e ! self);  
+				else  partition (es, e ! others, self);
+                                fi;
+			    };
+		    end;
+
+		    my (s, s') =  partition (s1 @ s2,  [], []);
+		    my (p, p') =  partition (p1 @ p2,  [], []);
+
+		    node = NODE { key   => k1,
+				  data  => merge_nodes (d1, d2, s'),
+				  nodes => n1 @ n2, 
+				  next  => s,
+				  prior  => p
+				}; 
+
+		    order :=  *order - 1;
+		    size  :=  *size - length s';
+
+		end;
+
+	    fun union (i, j)
+		=
+		u::unify merge (h::get (table, i), h::get (table, j));
+
+	    view
+		=
+		g::GRAPH {
+		  name            => ggg.name,
+		  graph_info      => ggg.graph_info,
+		  new_id          => unimplemented,
+		  add_node        => unimplemented,
+		  add_edge        => unimplemented,
+		  remove_node     => unimplemented,
+		  set_in_edges    => unimplemented,
+		  set_out_edges   => unimplemented,
+		  set_entries     => unimplemented,
+		  set_exits       => unimplemented,
+		  garbage_collect => unimplemented,
+		  nodes,
+		  edges,
+		  order           => .{ *order; },
+		  size            => .{ *size; },
+		  capacity        => ggg.capacity,
+		  out_edges,
+		  in_edges,
+		  next,
+		  prior,
+		  has_edge,
+		  has_node,
+		  node_info,
+		  entries         => ggg.entries,
+		  exits           => ggg.exits,
+		  entry_edges     => ggg.entry_edges,
+		  exit_edges      => ggg.exit_edges,
+		  forall_nodes, 
+		  forall_edges
+		};
+	end;
+};
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

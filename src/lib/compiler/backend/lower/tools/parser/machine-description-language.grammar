@@ -1,0 +1,1238 @@
+#  There are 30 shift/reduce errors 
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/tools/parser.make6
+
+package raw_syntax  = raw_syntax_tree_pp::raw_syntax;
+
+package prec = precedence_parser;
+
+package pp = lowcode_prettyprinter;
+
+include raw_syntax;  
+
+precedence_stacks
+    =
+    REF []:   Ref List  precedence_parser::Precedence_Stack;
+
+fun new_scope precedence_stack
+    =
+    precedence_stacks := *precedence_stack ! *precedence_stacks;
+
+fun old_scope precedence_stack
+    = 
+    case *precedence_stacks
+         h ! t =>   { precedence_stacks := t;
+                      precedence_stack  := h;
+                    };
+    esac;
+
+
+fun infix_fn precedence_stack (p,[])
+        =>
+        ();
+
+    infix_fn precedence_stack (p, id ! ids)
+	=> 
+	{   precedence_stack
+                :=
+                prec::declare (*precedence_stack, id, prec::INFIX p); 
+
+	    infix_fn precedence_stack (p, ids);
+	};
+end;
+    
+
+fun infixr_fn precedence_stack (p,[])
+        =>
+        ();
+
+    infixr_fn precedence_stack (p, id ! ids)
+        => 
+	{   precedence_stack
+                :=
+                prec::declare(*precedence_stack, id, prec::INFIXR p); 
+
+	    infixr_fn precedence_stack (p, ids);
+	};
+end;
+
+fun nonfix_fn precedence_stack ([])
+        =>
+        ();
+
+    nonfix_fn precedence_stack (id ! ids)
+	=> 
+	{   precedence_stack
+                :=
+                prec::declare (*precedence_stack, id, prec::NONFIX); 
+
+	    nonfix_fn precedence_stack ids;
+	};
+end;
+
+fun p2s p   =   pp::text (raw_syntax_tree_pp::pattern p);
+fun e2s e   =   pp::text (raw_syntax_tree_pp::expression e);
+
+fun ps2s ps =   pp::text (pp::cat (map  raw_syntax_tree_pp::pattern  ps));
+
+fun boolean_expression b
+    =
+    LITEXP (BOOL_LIT b);
+
+fun precedence_error err loc msg
+    =
+    err (loc, msg);
+
+fun parse_expression precedence_stack err loc toks
+     =
+     prec::parse { error =>   precedence_error err loc,
+                   apply =>   APPLY_EXPRESSION,
+                   tuple =>   TUPLEEXP,
+                   id    =>   fn id =  IDEXP(IDENT([], id)),
+                   stack =>  *precedence_stack,
+                   to_string => e2s,
+                   kind => "expression"
+                 }
+                 toks;
+
+fun parse_pattern precedence_stack err loc toks
+    = 
+    {   fun apply_pattern (IDPAT id,          p) =>   CONSPAT(IDENT([], id), THE p);
+	    apply_pattern (CONSPAT(id, NULL), p) =>   CONSPAT(id, THE p);
+	    apply_pattern (p1,               p2) =>   {   err(loc, "pattern " + p2s p1 + " " + p2s p2);
+                                                         p1;
+                                                     };
+        end;
+
+	case (prec::parse
+		 {   error => precedence_error err loc,
+		     apply => apply_pattern,
+		     tuple => TUPLEPAT,
+		     id    => IDPAT,
+		     stack =>  *precedence_stack,
+		     kind  => "pattern",
+		     to_string => p2s
+		 }
+                 toks
+        )
+
+	    CONSPAT(IDENT([], "not"), THE p) => NOTPAT p;
+
+	    p => p;
+
+	esac;     
+    };
+
+fun parse_function_pattern precedence_stack err loc toks
+    = 
+    {   fun pr (THE f, ps) =>   f + " " + ps2s ps;
+	    pr(NULL, ps)  =>   ps2s ps;
+        end;
+
+	fun apply_pattern ((f, ps), (NULL, ps'))  =>   (f, ps @ ps');
+	    apply_pattern ((f, ps), (THE g, ps')) =>   (f, ps @ [IDPAT g] @ ps');
+        end; 
+
+	#  apply_pattern (p1, p2) => (err(loc, "fun pattern (" + pr p1 + ") " + pr p2); p1);
+
+	fun lower (NULL,[p]) =>   p;
+ 	    lower(THE f,[]) =>   IDPAT f;
+        end;
+
+	fun tuple ps =   (NULL, [TUPLEPAT(map lower ps)]);
+
+	fun id n =   (THE n,[]);
+
+	fun to_string (NULL,  ps) =>   ps2s ps;
+	    to_string(THE f, ps) =>   f + " " + ps2s ps;
+        end;
+
+        prec::parse { error => precedence_error err loc,
+		   apply => apply_pattern,
+		   tuple,
+		   id, 
+		   stack =>  *precedence_stack,
+		   kind => "function argument",
+		   to_string
+		  } (map (fn prec::EXP p => prec::EXP(NULL,[p]);
+			     prec::ID id => prec::ID id;
+                          end
+			 ) toks);
+    };
+
+
+fun markdecl source_map (decl, left, right) 
+     = 
+     MARKDECL(source_mapping::location source_map (left, right), decl);
+
+fun mark_expression source_map (expression, left, right)
+     = 
+     SOURCE_CODE_REGION_FOR_EXPRESSION(source_mapping::location source_map (left, right), expression);
+
+exception BAD;  # Does this serve any purpose?
+
+fun enum_pattern (err, loc, id, ps)
+    = 
+    map (fn IDPAT x => IDPAT(id + x) ;
+                  p => { err(loc, "bad pattern " + pp::text(raw_syntax_tree_pp::pattern p)); p; };
+         end
+                ) ps;
+
+fun enum_pattern'(err, loc, ps, id)
+    = 
+    map (fn IDPAT x => IDPAT(x + id) ;
+                  p => { err(loc, "bad pattern " + pp::text(raw_syntax_tree_pp::pattern p)); p; };
+         end 
+                ) ps;
+ 
+fun enum_expression (err, loc, id, es)
+    = 
+    map (fn IDEXP(IDENT([], x)) => IDEXP(IDENT([], id + x));
+            e => { err(loc, "bad expression " + pp::text(raw_syntax_tree_pp::expression e)); e; };
+         end
+                ) es;
+
+fun enum_expression'(err, loc, es, id)
+    = 
+    map (fn IDEXP(IDENT([], x)) => IDEXP(IDENT([], x + id));
+                   e => { err(loc, "bad expression " + pp::text(raw_syntax_tree_pp::expression e)); e; };
+         end
+                ) es;
+
+fun clause (pats, guard, exn, return_ty, e)
+    = 
+    {   e = case exn          NULL => e; THE x      => CONTEXP(e, x);       esac;
+        e = case return_ty    NULL => e; THE type => TYPEDEXP(e, type); esac;
+        CLAUSE(pats, guard, e);
+    };
+
+fun seqdecl [d] => d;
+    seqdecl ds  => SEQDECL ds;
+end;
+
+fun idty (IDENT([], "unit")) => TUPLETY [];
+    idty x => IDTY x;
+end;
+
+%%
+%header ( generic package mdl_parser( package token   : Token;
+                              package raw_syntax_tree_pp   : Mdl_Ast_Prettyprinter;
+                            )
+        )
+
+%arg	(source_map, err, an_import, precedence_stack, extra_cells) 
+   :    ( source_mapping::Sourcemap,
+	  ((source_mapping::Location, String) -> Void),
+	  ((source_mapping::Location, String) -> List Decl),
+	  Ref precedence_parser::Precedence_Stack,
+	  List raw_syntax::Storagedecl
+	)
+
+%name	Mdl
+%term	ARCHITECTURE | END_T | LOCAL_T | IN_T | OF_T | CASE_T | DATATYPE |
+	TYPE_T | EQ  | DOLLAR | TIMES | AND_T |  DEREF | NOT | MELD |
+	LLBRACKET | RRBRACKET | LHASHBRACKET |
+        LPAREN | RPAREN | LBRACKET | RBRACKET | LBRACE | RBRACE | SEMICOLON |
+        LDQUOTE | RDQUOTE | LMETA | RMETA |
+	CELLSET | FN_T | STORAGE | LOCATIONS | HASH |
+	COMMA | COLON | COLONGREATER |
+        DOT | DOTDOT | AT | BAR | ARROW | DARROW | PAR | BITS |
+	IF_T | THEN_T | ELSE_T | TRUE | FALSE | WILD | RAISE_T |
+        EXCEPT_T | LET_T | PACKAGE_T | GENERIC_T | API_T | BEGIN_API | STRUCT | WHERE_T |
+	SHARING_T | INSTRUCTION | REGISTER | CELL | CELLS | ORDERING |
+        FIELD_T | FIELDS | VLIW | SUPERSCALAR | SIGNED | UNSIGNED |
+	FORMATS | AS_T | ENCODING | WITHTYPE_T | FUN_T | MY_T | INCLUDE_T | OPEN | OP_T |
+	LITTLE | BIG | ENDIAN | PIPELINE | PREDICATED |
+        LOWERCASE | UPPERCASE | VERBATIM | WHEN | BRANCHING | TAKEN |
+        ASSEMBLY | RTL | SPAN | DEPENDENT | ASSIGN | DELAYSLOT | 
+	FORWARDS | ALWAYS | NEVER | BACKWARDS |
+	CANDIDATE | NONFIX_T | INFIX_T | INFIXR_T | DEBUG_T |
+        ASM_COLON | MC_COLON | RTL_COLON | DELAYSLOT_COLON | NULLIFIED_COLON |
+	PADDING_COLON | CANDIDATE_COLON | AGGREGABLE | ALIASING |
+	RESOURCE | CPU | RESERVATION | TABLE | LATENCY | EQUATION | 
+	EXCEPTION_T |
+	ID of String |
+	SYMBOL of String |
+	TYVAR of String |
+	WORD of unt32::Unt | 
+	INT of Int |
+	INTINF of integer::Int |
+	REAL_T of String |
+	STRING_T of String |
+	CHAR_T of Char |
+	ASMTEXT_T of String |
+	EOF_T
+
+%nonterm architecture of List Decl
+       | structexp of Package_Exp
+       | sigcon of Package_Cast
+       | opt_of of Void
+       | id of Id
+       | sym of Id
+       | symb of Id
+       | ident of Ident
+       | ident2 of Ident
+       | tid of Id
+       | tid2 of Id
+       | tident of Ident
+       | tpath of ((List Id), Id)
+       | idents of List Ident
+       | syms of List Id
+       | path of List Id
+       | decls of List Decl
+       | scopeddecls of List Decl
+       | genericarg of List Decl
+       | scopedmldecls of List Decl
+       | new_scope of Void
+       | old_scope of Void
+       | mldecls of List Decl
+       | exceptionbind of Exceptionbind
+       | exceptionbinds of List Exceptionbind
+       | decl of Decl
+       | locdecl of (Loc, Decl)
+       | loc of Loc
+       | mldecl of Decl
+       | mymldecl of Decl
+       | mddecl of Decl
+       | mymddecl of Decl
+       | sharingdecl of Share
+       | sharingdecls of List Share
+       | sharelist of List Ident
+       | aexp of Expression
+       | aexp2 of prec::Token Expression
+       | appexp of List prec::Token Expression
+       | expression of Expression
+       | typedexp of Expression
+       | guard of Null_Or Expression
+       | funguard of Null_Or Expression
+       | cont of Null_Or Id
+       | region of Null_Or Id
+       | opt_exp of Null_Or Expression
+       | exps of List Expression
+       | exps1 of List Expression
+       | exps2 of List Expression
+       | expseq of List Expression
+       | expseq2 of List Expression
+       | labexps0 of List( (Id, Expression) )
+       | labexps of List( (Id, Expression) )
+       | labexp of (Id, Expression )
+       | apat of Pattern
+       | asapat of Pattern
+       | apat2 of prec::Token Pattern
+       | apppat of List prec::Token Pattern
+       | pattern of Pattern
+       | typedpat of Pattern
+       | pats of List Pattern
+       | pats1 of List Pattern
+       | pats2 of List Pattern
+       | orpats2 of List Pattern
+       | andpats2 of List Pattern
+       | labpat of (Id, Pattern)
+       | labpats0 of (List( (Id, Pattern) ), Bool)
+       | labpats of (List( (Id, Pattern) ), Bool)
+       | of_ty of Null_Or Some_Type
+       | ty of Some_Type
+       | return_ty of Null_Or Some_Type
+       | aty of Some_Type
+       | appty of Some_Type
+       | tys2 of List Some_Type
+       | labty of (Id, Some_Type)
+       | labtys of List( (Id, Some_Type) )
+       | labtys1 of List( (Id, Some_Type) )
+       | tuplety of List Some_Type
+       | signedness of Signedness
+       | word of unt32::Unt
+       | unsignedint of unt32::Unt
+       | unsignedint_opt of Null_Or unt32::Unt
+       | width of Width
+       | int of Int
+       | intopt of Int
+       | intinf of integer::Int
+       | real of String
+       | endianess of Endianess
+       | kind of Arch_Kind
+       | string of String
+       | char of Char
+       | bool of Bool
+       | literal of Literal
+       | slice of (Int, Int)
+       | slices of List( (Int, Int) )
+       | storagedecl of Storagedecl
+       | aliasing of Null_Or Id
+       | printcell of Expression
+       | storagedecls of List Storagedecl
+       | cellcount of Null_Or Int
+       | locbind of Locbind
+       | locbinds of List Locbind
+       | fieldx of Field
+       | fieldid of Id
+       | cnv of Cnv
+       | fields of List Field
+       | formatbind of Formatbind
+       | formatbinds of List Formatbind
+       | datatypebinds of List Datatypebind
+       | datatypebind of Datatypebind
+       | consbinds of List Consbind
+       | consbind of Consbind
+       | consencoding of Null_Or Mc
+       | sdi of Null_Or Expression
+       | latency of Null_Or Expression
+       | pipeline of Null_Or Expression
+       | nop of Flag
+       | flag of Flag
+       | flagguard of Expression
+       | nullified of Flag
+       | delayslot of Null_Or Expression
+       | delayslotcandidate of Null_Or Expression
+       | delay of Delayslot
+       | branching of Branching
+       | consassembly of Null_Or Assembly
+       | typebinds of List Typebind
+       | withtypeclause of List Typebind
+       | typebind of Typebind
+       | typevariable of Typevar_Ref
+       | type_variables of List Typevar_Ref
+       | tyvarseq of List Typevar_Ref
+       | clause of Clause
+       | clauses of List Clause
+       | funclause of (Id, Clause)
+       | funclauses of (Id, List Clause)
+       | funbind of Funbind
+       | funbinds of List Funbind
+       | valbind of Valbind
+       | valbinds of List Valbind
+       | assemblycase of Assemblycase
+       | rtl of Null_Or Expression
+       | rtlterm of Rtlterm
+       | rtlterms of List Rtlterm
+       | opcodeencoding of Null_Or List Int
+       | encodingexp of List Int
+       | encodingexps of List Int
+       | fieldty of Null_Or Id
+       | asms of List Asm
+       | asm_strings of List Asm
+       | asm of Asm
+       | hasasm of Bool
+       | sigsub of Api_Exp -> Api_Exp
+       | sigsubs of Api_Exp -> Api_Exp
+       | api_expression of Api_Exp
+       | True of Void
+       | False of Void
+       | default of (Int, Expression)
+       | default_list of List( (Int, Expression))
+       | defaults of List( (Int, Expression))
+       | aggregable of Bool
+       | bitsize of (Int, Bool)
+       | resourcebinds of List Id
+       | cpubinds of List Cpubind
+       | cpubind of Cpubind
+       | aliases of List String
+       | resources of List( (Int, Id) )
+       | resource of (Int, Id)
+       | pipelinebinds of List Pipelinebind
+       | pipelinebind of Pipelinebind
+       | pipelineclauses of List( (Id, Pattern, Pipelineexp) )
+       | pipelineclause of (Id, Pattern, Pipelineexp)
+       | cycles0 of List Cycle
+       | cycles of List Cycle
+       | cycle of Cycle 
+       | latencybinds of List Latencybind
+       | latencybind of Latencybind
+       | latencyclauses of List( (Id, Pattern, Expression) )
+       | latencyclause of (Id, Pattern, Expression)
+       | optsemi of Void
+
+
+%verbose
+%nodefault
+%pos Int
+%eop EOF_T
+
+%left DARROW 
+%left IF_T THEN_T ELSE_T RAISE_T EXCEPT_T CASE_T FN_T OF_T SEMICOLON COMMA
+%left DOT
+%left EQ
+%right ARROW 
+%left AT
+%left TIMES
+%left DEREF NOT
+/* %left BITS CELL */
+/* %left BAR
+%left AND_T*/
+
+/*%left DARROW */
+
+%%
+
+architecture:	decls		(decls)
+
+decls:			  	([])
+|		decl decls	(decl ! decls)
+
+mldecls:			([])
+|		mldecl mldecls	(mldecl ! mldecls)
+
+optsemi:				()
+|		SEMICOLON optsemi	()
+
+decl:		mldecl optsemi	(mldecl)
+|		mddecl optsemi	(mddecl)
+|		INCLUDE_T string optsemi
+		(seqdecl(an_import
+                  (source_mapping::location source_map 
+                      (include_tleft, stringright), string)))
+
+mldecl:		mymldecl (markdecl source_map (mymldecl, mymldeclleft, mymldeclright))
+
+mddecl: 	mymddecl (markdecl source_map (mymddecl, mymddeclleft, mymddeclright))
+
+mymddecl:	ARCHITECTURE id EQ STRUCT decls END_T (ARCHDECL(id, decls))
+|		LITTLE ENDIAN   (ENDIANESSDECL LITTLE)
+|		BIG ENDIAN	(ENDIANESSDECL BIG)
+|		VLIW		(ARCHKINDDECL VLIW)
+|		SUPERSCALAR	(ARCHKINDDECL SUPERSCALAR)
+|		assemblycase ASSEMBLY (ASSEMBLYCASEDECL assemblycase) 
+|		INSTRUCTION FORMATS int BITS formatbinds 
+		  (FORMATDECL(THE int, formatbinds))
+|		INSTRUCTION FORMATS formatbinds 
+		  (FORMATDECL(NULL, formatbinds))
+|		STORAGE storagedecls 
+		  (STORAGEDECL(storagedecls @ extra_cells))
+|		LOCATIONS locbinds (LOCATIONSDECL locbinds)
+|		INSTRUCTION consbinds (INSTRUCTIONDECL consbinds)
+|		DEBUG_T id (DEBUGDECL id)
+|		RESOURCE resourcebinds (RESOURCEDECL resourcebinds)
+|		CPU cpubinds (CPUDECL cpubinds)
+|		PIPELINE pipelinebinds (PIPELINEDECL pipelinebinds)
+|		LATENCY latencybinds (LATENCYDECL latencybinds)
+
+resourcebinds: 	id			([id])
+|		id AND_T resourcebinds 	(id ! resourcebinds)
+
+cpubinds:	cpubind			([cpubind])
+|		cpubind AND_T cpubinds	(cpubind ! cpubinds)
+
+cpubind:	id aliases int LBRACKET resources RBRACKET
+		(CPUBIND { name => id, aliases,
+                         max_issues => int, resources => resources})
+
+aliases:        		([])
+|		string aliases	(string ! aliases)
+
+resources:	resource	([resource])
+|		resource COMMA resources	(resource ! resources)
+
+resource:	int id	(int, id)
+|		id	(1, id)
+
+pipelinebinds:	pipelinebind			([pipelinebind])
+|		pipelinebind AND_T pipelinebinds 	(pipelinebind ! pipelinebinds)
+
+pipelinebind:	pipelineclauses 
+                ( { name = #1(head pipelineclauses);
+                     clauses = map (fn (_, x, y) =  (x, y)) pipelineclauses;
+                   (PIPELINEBIND(name, clauses));
+                  }
+                )
+
+pipelineclauses:	pipelineclause ([pipelineclause])
+|			pipelineclause BAR pipelineclauses
+			(pipelineclause ! pipelineclauses)
+
+pipelineclause:	id pattern EQ LBRACKET cycles0 RBRACKET (id, pattern, PIPELINE cycles0) 
+
+cycles0:			([])
+|		cycles		(cycles)
+
+cycles:		cycle			([cycle])
+|		cycle COMMA cycles	(cycle ! cycles)
+
+cycle:		id		   (IDCYCLE id)
+|		cycle MELD cycle (ORCYCLE(cycle1, cycle2))
+|		cycle TIMES int    (REPEATCYCLE(cycle, int))
+|		LPAREN cycle RPAREN (cycle)
+
+latencybinds:	latencybind			([latencybind])
+|		latencybind AND_T latencybinds 	(latencybind ! latencybinds)
+
+latencybind:	latencyclauses 
+                ( { name = #1 (head latencyclauses);
+                     clauses = map (fn (_, x, y) =  (x, y)) latencyclauses;
+                   (LATENCYBIND(name, clauses));
+                  }
+                )
+
+latencyclauses:	latencyclause ([latencyclause])
+|		latencyclause BAR latencyclauses
+			(latencyclause ! latencyclauses)
+
+latencyclause:	id pattern EQ expression (id, pattern, expression)
+
+mymldecl:	DATATYPE datatypebinds withtypeclause 
+			(DATATYPEDECL(datatypebinds, withtypeclause))
+|		TYPE_T typebinds	(DATATYPEDECL([], typebinds))
+|		FUN_T funbinds (FUNDECL(funbinds))
+|		RTL id LBRACE labpats0 RBRACE EQ expression 
+                   (RTLDECL(IDPAT id, LAMBDAEXP
+                                  [CLAUSE([RECORD_PATTERN labpats0], NULL, expression)],
+                      source_mapping::location source_map (rtlleft, expressionright)))
+|		RTL asapat EQ expression
+                   (RTLDECL(asapat, expression,
+                            source_mapping::location source_map (rtlleft, expressionright)))
+|		RTL syms COLON ty (RTLSIGDECL(syms, ty))
+|		MY_T valbinds (VALDECL(valbinds))
+|		MY_T syms COLON ty	 (VALUE_API_DECL(syms, ty))
+|		TYPE_T tyvarseq tid (TYPE_API_DECL(tid, tyvarseq))
+|		LOCAL_T scopeddecls IN_T scopeddecls END_T 
+			(LOCALDECL(scopeddecls1, scopeddecls2))
+|		PACKAGE_T id EQ structexp 
+			(PACKAGEDECL(id,[], NULL, structexp))
+|		PACKAGE_T id sigcon EQ structexp 
+			(PACKAGEDECL(id,[], THE sigcon, structexp))
+|		PACKAGE_T id COLON api_expression (PACKAGEAPIDECL(id, api_expression))
+|		API_T id EQ api_expression (API_DECL(id, api_expression))
+|		GENERIC_T id LPAREN genericarg RPAREN EQ structexp
+			(PACKAGEDECL(id, genericarg, NULL, structexp))
+|		GENERIC_T id LPAREN genericarg RPAREN sigcon EQ structexp
+			(PACKAGEDECL(id, genericarg, THE sigcon, structexp))
+|		GENERIC_T id EQ structexp 
+			(GENERICDECL(id,[], NULL, structexp))
+|		SHARING_T sharingdecls (SHARINGDECL sharingdecls)
+|		INFIX_T intopt syms ({ infix_fn precedence_stack (intopt, syms); INFIXDECL(intopt, syms);})
+|		INFIXR_T intopt syms ({ infixr_fn precedence_stack (intopt, syms); INFIXRDECL(intopt, syms);})
+|		NONFIX_T syms ({ nonfix_fn precedence_stack (syms); NONFIXDECL(syms);})
+|		OPEN idents (OPENDECL(idents))
+|		INCLUDE_T api_expression (INCLUDE_API_DECL api_expression)
+|		EXCEPTION_T exceptionbinds (EXCEPTIONDECL exceptionbinds)
+
+exceptionbinds: exceptionbind			 ([exceptionbind])
+|		exceptionbind AND_T exceptionbinds (exceptionbind ! exceptionbinds)
+
+exceptionbind:	id 		(EXCEPTIONBIND(id, NULL))
+|		id OF_T ty	(EXCEPTIONBIND(id, THE ty))
+|		id EQ ident	(EXCEPTIONEQBIND(id, ident))
+
+
+genericarg:	scopeddecls		(scopeddecls)
+|		id sigcon		([GENERICARGDECL(id, sigcon)])
+
+api_expression:		ident			(IDSIG ident)
+|		BEGIN_API decls END_T		(DECLSIG decls)
+|		api_expression WHERE_T sigsubs 	(sigsubs api_expression)
+
+sigcon:		COLON api_expression		( { abstract => FALSE, api_expression => api_expression})
+|		COLONGREATER api_expression	( { abstract => TRUE, api_expression => api_expression})
+
+sigsubs:	sigsub			(sigsub)
+|		sigsub AND_T sigsubs	(sigsub o sigsubs)
+
+sigsub:		TYPE_T ident EQ ty	(fn s =  WHERETYPESIG(s, ident, ty))
+|		ident EQ structexp	(fn s =  WHERESIG(s, ident, structexp))
+
+sharingdecls:	sharingdecl			([sharingdecl])
+|		sharingdecl AND_T sharingdecls	(sharingdecl ! sharingdecls)
+
+sharingdecl:	TYPE_T sharelist	(TYPESHARE sharelist)
+|		sharelist	(STRUCTSHARE sharelist)
+
+sharelist:	ident EQ ident		([ident1, ident2])
+|		ident EQ sharelist	(ident ! sharelist)
+
+scopedmldecls:	new_scope mldecls old_scope	(mldecls)
+
+scopeddecls:	new_scope decls old_scope		(decls)
+
+new_scope:	(new_scope precedence_stack)
+old_scope:	(old_scope precedence_stack)
+
+syms:		sym		([sym])
+|		sym syms	(sym ! syms)
+
+idents:		ident	([ident])
+|		ident idents	(ident ! idents)
+
+assemblycase:	LOWERCASE	(LOWERCASE)
+|		UPPERCASE	(UPPERCASE)
+|		VERBATIM	(VERBATIM)
+
+rtl:		RTL_COLON expression		(THE(expression))
+|					(NULL)
+
+rtlterms:	rtlterm			([rtlterm])
+|		rtlterm rtlterms	(rtlterm ! rtlterms)
+
+rtlterm:	string	(LITRTL string)
+|		sym	(IDRTL sym)
+|		HASH id (COMPOSITERTL id)
+
+structexp:	ident			(IDSEXP ident)
+|		STRUCT scopeddecls END_T	(DECLSEXP scopeddecls)
+|		structexp LPAREN scopeddecls RPAREN 
+			(APPSEXP(structexp, DECLSEXP scopeddecls))
+|		structexp LPAREN ident RPAREN
+			(APPSEXP(structexp, IDSEXP ident))
+
+datatypebinds:	datatypebind			([datatypebind])
+|		datatypebind AND_T datatypebinds	(datatypebind ! datatypebinds)
+
+datatypebind:	tyvarseq id opcodeencoding fieldty hasasm EQ consbinds 
+                ( { a = hasasm or
+   			list::exists(fn CONSBIND { asm => THE _, ... }=>TRUE;
+				        _ => FALSE;
+                                     end
+                                    ) consbinds;
+
+		    DATATYPEBIND { id, type_variables => tyvarseq, mc => opcodeencoding,
+                                 asm => a, field' => fieldty, cbs => consbinds};
+		 }
+		)
+|		tyvarseq id opcodeencoding fieldty hasasm EQ DATATYPE ty
+		(DATATYPEEQBIND { id, type_variables => tyvarseq, type => ty})
+
+hasasm:		DEREF	(TRUE)
+|			(FALSE)
+
+fieldty:		 (NULL)
+|		COLON id (THE id)
+
+opcodeencoding:				       (NULL)
+|		LBRACKET encodingexps RBRACKET (THE encodingexps)
+
+encodingexps:	encodingexp			(encodingexp)
+|		encodingexp COMMA encodingexps	(encodingexp@encodingexps)
+
+encodingexp:	int			([int])
+|		int DOTDOT int	
+		( { fun f i =   if (i > int2 ) []; else i ! f(i+1); fi;
+                    f int1;
+                  }
+                )
+|		int int DOTDOT int	
+		(  { inc = int2 - int1;
+                     fun f i =   if (i > int3 ) []; else i ! f(i+inc); fi;
+                     f int1;
+                   }
+                )
+
+consbinds:	consbind		([consbind])
+|		consbind BAR consbinds	(consbind ! consbinds)
+
+consbind:	sym of_ty consassembly consencoding rtl nop 
+		nullified delayslot delayslotcandidate sdi latency pipeline
+		( {  cand = 
+			case delayslotcandidate
+			  THE _ => delayslotcandidate;
+			 _ => case (nop, nullified)
+				  (FLAGOFF, FLAGOFF) => NULL;
+ 		    	         _ => (THE(boolean_expression FALSE));
+                              esac;
+                        esac;
+
+		    CONSBIND { id => sym, type => of_ty, mc => consencoding,
+			  asm => consassembly, rtl,
+			  nop, sdi, nullified, 
+			  delayslot,
+			  delaycand => cand, latency, pipeline,
+                          loc => source_mapping::location source_map (symleft, sdiright)
+			 };
+		 }
+		)
+
+latency:	LATENCY COLON expression	(THE expression)
+|					(NULL)	
+
+pipeline:	PIPELINE COLON expression	(THE expression)
+|					(NULL)	
+
+delayslotcandidate:		      (NULL)
+|	DELAYSLOT CANDIDATE_COLON expression (THE expression)
+
+of_ty:			(NULL)
+|		OF_T ty	(THE ty)
+
+nop:				    (FLAGOFF)
+|		PADDING_COLON flag  (flag)
+|		PADDING_COLON False (FLAGOFF)
+|		PADDING_COLON True  (FLAGON)
+
+True:		TRUE	()
+|		ALWAYS	()
+
+False:		FALSE	()
+|		NEVER	()
+
+flag:		id flagguard		(FLAGID(id, TRUE, flagguard))
+|		NOT id flagguard	(FLAGID(id, FALSE, flagguard))
+|		id EQ True flagguard 	(FLAGID(id, TRUE, flagguard))
+|		id EQ False flagguard	(FLAGID(id, FALSE, flagguard))
+
+flagguard:			(boolean_expression TRUE)
+|		AND_T expression		(expression)
+
+nullified:			      (FLAGOFF)
+|		NULLIFIED_COLON FALSE (FLAGOFF)
+|		NULLIFIED_COLON flag  (flag)
+
+delayslot:      			(NULL)
+|		DELAYSLOT_COLON expression	(THE expression)
+
+branching:	BRANCHING FORWARDS	(BRANCHFORWARDS)
+|		BRANCHING BACKWARDS	(BRANCHBACKWARDS)
+	
+sdi:					(NULL)
+|		SPAN DEPENDENT expression	(THE expression)
+
+consencoding:				(NULL)
+|		unsignedint		(THE(WORDMC(unsignedint)))
+|		LPAREN expseq RPAREN	(THE(EXPMC(SEQUENTIAL_EXPRESSIONS expseq)))
+|		LPAREN exps2 RPAREN	(THE(EXPMC(TUPLEEXP exps2)))
+|		id LBRACE labexps0 RBRACE
+		(THE(EXPMC(APPLY_EXPRESSION (IDEXP (IDENT([], id)),
+			RECORD_EXPRESSION labexps0))))
+|		MC_COLON expression 		(THE(EXPMC expression))
+
+consassembly:				(NULL)
+|		string			(THE (STRINGASM string))
+|		asm_strings		(THE (ASMASM asm_strings))
+|		ASM_COLON expression		(THE (ASMASM [EXPASM expression]))
+
+asm_strings:
+ 	LDQUOTE asms RDQUOTE			(asms)
+|	LDQUOTE asms RDQUOTE asm_strings	(asms@asm_strings)
+
+asms:	asm 		([asm])
+|	asm asms	(asm ! asms)
+
+asm:	 	LMETA expression RMETA	(EXPASM expression)
+|		ASMTEXT_T		(TEXTASM asmtext_t)
+
+opt_of:			()
+|		OF_T	()
+
+withtypeclause:				([])
+|		WITHTYPE_T typebinds	(typebinds)
+
+
+typebinds:	typebind		([typebind])
+|		typebind AND_T typebinds	(typebind ! typebinds)
+
+typebind:	tyvarseq tid EQ ty	(TYPEBIND(tid, tyvarseq, ty))
+
+tyvarseq:				([])
+|		typevariable		([typevariable])
+|		LPAREN type_variables RPAREN	(type_variables)
+
+type_variables:		typevariable		([typevariable])
+|		typevariable COMMA type_variables	(typevariable ! type_variables)
+
+formatbinds:	formatbind			([formatbind])
+|		formatbind BAR formatbinds	(formatbind ! formatbinds)
+
+formatbind:	id opt_of LBRACE fields RBRACE opt_exp
+			(FORMATBIND(id, fields, opt_exp))
+
+opt_exp:		(NULL)
+|		EQ expression	(THE expression)
+
+fields:		fieldx			([fieldx])
+|		fieldx COMMA fields	(fieldx ! fields)
+
+fieldx:		fieldid COLON cnv signedness width unsignedint_opt 
+		(FIELD { id => fieldid, cnv,
+                       width, sign => signedness, value => unsignedint_opt})
+|		id 
+		(FIELD { id, cnv => NOCNV, width => WIDTH 0, sign => UNSIGNED, value => NULL})
+
+fieldid:	id	(id)
+|		WILD	("")
+
+cnv:			(NOCNV)
+|	id		(FUNCNV id)
+|	DOLLAR id	(CELLCNV id)
+
+width:				(WIDTH 0)
+|		int		(WIDTH int)
+|		int DOTDOT int	(RANGE(int1, int2))
+
+unsignedint:	int		(unt32::from_int int)
+|		word		(word)
+
+unsignedint_opt:		(NULL)
+|		EQ unsignedint	(THE unsignedint)
+
+signedness:	SIGNED		(SIGNED)
+|		UNSIGNED	(UNSIGNED)
+|				(UNSIGNED)
+
+funbinds:	funbind			([funbind])
+|		funbind AND_T funbinds	(funbind ! funbinds)
+
+funbind:	funclauses	(FUNBIND funclauses)
+
+valbinds:	valbind			([valbind])
+|		valbind AND_T valbinds	(valbind ! valbinds)
+
+valbind:	pattern EQ typedexp		(NAMED_VARIABLE(pattern, typedexp))
+
+literal:	word			(UNT32_LIT word)
+|		int			(INT_LIT int)	
+|		intinf			(INTEGER_LIT intinf)	
+|		string			(STRING_LIT string)	
+|		char			(CHAR_LIT char)	
+|		bool			(BOOL_LIT bool)	
+|		real			(FLOAT_LIT real)	
+
+aexp:		literal			(LITEXP literal)
+|		ident2			(IDEXP ident2)
+|		HASH id			(TYPEEXP(TYVARTY(INTTV id))) 
+|		OP_T symb			(IDEXP (IDENT([], symb)))
+|		LPAREN symb RPAREN	(IDEXP (IDENT([], symb)))
+/* |		LPAREN expression COLON ty RPAREN	(TYPEDEXP(expression, ty))*/
+|		asm_strings 		(ASMEXP(ASMASM asm_strings))
+|		LPAREN RPAREN		(TUPLEEXP [])
+|		LPAREN typedexp RPAREN	(typedexp)
+|		LPAREN exps2 RPAREN	(TUPLEEXP exps2)
+|		LPAREN expseq2 RPAREN	(SEQUENTIAL_EXPRESSIONS expseq2)
+|		LBRACKET exps RBRACKET	(LISTEXP(exps, NULL))
+|		LHASHBRACKET exps RBRACKET  (VECTOR_EXPRESSION exps)
+|		LBRACE labexps0 RBRACE	(RECORD_EXPRESSION labexps0)
+|		DOLLAR id LBRACKET expression region RBRACKET (LOCEXP(id, expression, region))
+|		LLBRACKET rtlterms RRBRACKET (RTLEXP(rtlterms))
+|		sym MELD LBRACKET exps RBRACKET 
+                ( { loc = source_mapping::location source_map 
+                                (symleft, rbracketright);
+                    LISTEXP(enum_expression(err, loc, sym, exps), NULL);
+                  }
+                )
+|		LBRACKET exps RBRACKET MELD sym
+                ( { loc = source_mapping::location source_map 
+                                (symleft, rbracketright);
+                    LISTEXP(enum_expression'(err, loc, exps, sym), NULL);
+                  }
+                )
+
+|		sym MELD LBRACKET exps RBRACKET MELD sym
+                ( { loc = source_mapping::location source_map 
+                                (symleft, rbracketright);
+                    LISTEXP(enum_expression'(err, loc,
+                                    enum_expression(err, loc, sym1, exps), sym2),
+                            NULL); 
+                  } 
+                )
+|		LET_T decls IN_T expseq END_T	(LET_EXPRESSION(decls, expseq))
+
+region:		  (NULL)
+|	COLON id (THE id) 
+
+aexp2:
+    aexp	(prec::EXP aexp)
+  | sym		(prec::ID sym)
+  | EQ		(prec::ID "=")
+
+  | aexp2
+    AT
+    LBRACKET
+    slices
+    RBRACKET 	(   prec::EXP(
+                        BITSLICEEXP(
+			    case aexp2
+                                prec::EXP e => e ;
+				prec::ID x  => IDEXP (IDENT([], x));
+			    esac,
+
+                            slices
+		        )
+                    )
+                )
+
+labexps0:				([])
+|		labexps			(labexps)
+labexps:	labexp			([labexp])
+|		labexp COMMA labexps	(labexp ! labexps)
+
+labexp:		id EQ typedexp		(id, typedexp)
+|		id			(id, IDEXP (IDENT([], id)))
+
+appexp:		aexp2			([aexp2])
+|		appexp aexp2		(appexp @ [aexp2])
+
+expression: 		appexp			(parse_expression precedence_stack err 
+                 (source_mapping::location source_map (appexpleft, appexpright)) appexp)
+|		IF_T typedexp THEN_T typedexp ELSE_T expression 
+			(IF_EXPRESSION(typedexp1, typedexp2, expression))
+|		CASE_T typedexp OF_T clauses	(CASE_EXPRESSION(typedexp, clauses))
+|		FN_T clauses		(LAMBDAEXP clauses)
+|		expression EXCEPT_T clauses	(EXCEPT_EXPRESSION(expression, clauses))
+|		RAISE_T expression		(RAISE_EXPRESSION expression)
+
+typedexp:	expression			(expression)
+|		typedexp COLON ty 	(TYPEDEXP(typedexp, ty))
+
+expseq:		typedexp			([typedexp])
+|		typedexp SEMICOLON expseq	(typedexp ! expseq)
+
+expseq2:	typedexp SEMICOLON expseq	(typedexp ! expseq)
+
+exps1:		typedexp		([typedexp])
+|		typedexp COMMA exps1	(typedexp ! exps1)
+
+exps2:		typedexp COMMA exps1 (typedexp ! exps1)
+
+exps:			([])
+|		exps1	(exps1)
+
+apat:		ident2				(CONSPAT(ident2, NULL))
+|		literal				(LITPAT literal)
+|		WILD				(WILDCARD_PATTERN)
+|		LPAREN RPAREN			(TUPLEPAT [])
+|		LBRACKET pats RBRACKET		(LISTPAT(pats, NULL))
+|		LHASHBRACKET pats RBRACKET	(VECTOR_PATTERN pats)
+|		LPAREN pats2 RPAREN		(TUPLEPAT pats2)
+|		LPAREN orpats2 RPAREN		(OR_PATTERN orpats2)
+|		LPAREN andpats2 RPAREN		(ANDPAT andpats2)
+|		LPAREN typedpat RPAREN		(typedpat)
+|		LPAREN typedpat WHERE_T typedexp RPAREN	
+			(WHEREPAT(typedpat, typedexp))
+|		LPAREN typedpat WHERE_T typedexp IN_T typedpat RPAREN	
+			(NESTEDPAT(typedpat1, typedexp, typedpat2))
+|		LBRACE labpats0 RBRACE		(RECORD_PATTERN(labpats0))
+|		sym MELD LBRACKET pats RBRACKET 
+                ( { loc = source_mapping::location source_map 
+                                   (symleft, rbracketright);
+                    LISTPAT(enum_pattern(err, loc, sym, pats), NULL);
+                  }
+		)
+|		sym MELD LBRACKET pats RBRACKET MELD sym
+                ( { loc = source_mapping::location source_map 
+                                   (symleft, rbracketright);
+                    LISTPAT(enum_pattern'(err, loc,
+                                enum_pattern(err, loc, sym1, pats), sym2), NULL);
+                   }
+		)
+
+|		LBRACKET pats RBRACKET MELD sym
+                ( { loc = source_mapping::location source_map 
+                                   (symleft, rbracketright);
+                    LISTPAT(enum_pattern'(err, loc, pats, sym), NULL);
+                  }
+		)
+
+
+orpats2:	typedpat BAR typedpat	([typedpat1, typedpat2])
+|		typedpat BAR orpats2	(typedpat ! orpats2)
+
+andpats2:	typedpat AND_T typedpat		([typedpat1, typedpat2])
+|		typedpat AND_T andpats2	(typedpat ! andpats2)
+
+apat2:		apat			(prec::EXP apat)
+|		sym			(prec::ID sym)
+|		OP_T sym			(prec::ID sym)
+
+apppat:		apat2			([apat2])
+|		apppat apat2		(apppat @ [apat2])
+
+pattern:		apppat		(parse_pattern precedence_stack err 
+                                    (source_mapping::location source_map 
+                                       (apppatleft, apppatright)) apppat)
+|		id AS_T pattern	(ASPAT(id, pattern))
+
+typedpat:	pattern			(pattern)
+|		typedpat COLON ty 	(TYPEDPAT(typedpat, ty)) 
+
+asapat:		apat		(apat)
+|		id AS_T asapat	(ASPAT(id, asapat))
+
+pats:			([])
+|		pats1	(pats1)
+
+pats1:		typedpat		([typedpat])
+|		typedpat COMMA pats1	(typedpat ! pats1)
+
+pats2:		typedpat COMMA pats1	(typedpat ! pats1)
+
+labpats0:			([], FALSE)
+|		labpats		(labpats)
+
+labpats:	labpat			([labpat], FALSE)
+|		labpat COMMA DOTDOT 	([labpat], TRUE)
+|		labpat COMMA labpats	(labpat ! #1 labpats, #2 labpats)
+
+labpat:		sym		(sym, IDPAT sym)
+|		sym EQ typedpat	(sym, typedpat)
+|		sym AS_T typedpat 	(sym, ASPAT(sym, typedpat))
+|		sym WHERE_T typedexp	(sym, WHEREPAT(IDPAT sym, typedexp))
+|		sym WHERE_T typedexp IN_T typedpat 
+			(sym, NESTEDPAT(IDPAT sym, typedexp, typedpat))
+
+clause:		typedpat guard cont DARROW expression	
+			(clause([typedpat], guard, cont, NULL, expression))
+
+cont:				(NULL)
+|		EXCEPTION_T id	(THE id) 
+
+guard:				(NULL)
+|		WHERE_T typedexp	(THE typedexp)
+
+clauses:	clause			([clause])
+|		clause BAR clauses	(clause ! clauses)
+
+funclause:	apppat funguard return_ty cont EQ typedexp	
+                ( {   loc = source_mapping::location source_map (apppatleft, typedexpright);
+
+		      case (parse_function_pattern precedence_stack err loc apppat)
+
+			  (THE f, ps) => (f, clause(ps, funguard, cont, return_ty, typedexp));
+
+			  (NULL, ps) => {   err(
+                                                loc,
+						   "in clause " + 
+						     pp::text(raw_syntax_tree_pp::clause (CLAUSE(ps, funguard, typedexp)))
+                                             );
+
+					     ("dummy", clause(ps, funguard, cont, return_ty, typedexp));
+                                        };
+		      esac;
+                  }
+                )
+
+return_ty:			(NULL)
+|		COLON ty	(THE ty)
+
+funguard:				(NULL)
+|		WHERE_T LPAREN typedexp RPAREN (THE typedexp)
+
+funclauses:	funclause		(#1 funclause,[#2 funclause])
+|		funclause BAR funclauses (#1 funclause,#2 funclause ! #2 funclauses)
+
+aty:		tident			(idty(tident))
+|		HASH int		(INTVARTY int)
+|		typevariable		(TYVARTY typevariable)
+|		DOLLAR id		(CELLTY id)
+|		LPAREN RPAREN		(TUPLETY [])
+|		LPAREN ty RPAREN	(ty)
+|		LBRACE labtys RBRACE	(RECORDTY labtys)
+
+appty:		aty				(aty)
+|		appty tident			(APPTY(tident,[appty]))
+|		LPAREN tys2 RPAREN tident 	(APPTY(tident, tys2))
+
+tid:		id	(id)
+|		tid2	(tid2)
+
+tid2:		BITS	("bits")
+|		CELL	("cell")
+|		INSTRUCTION ("instruction")
+	
+tident:		tid	(IDENT([], tid))
+|		tpath	(IDENT(reverse(#1 tpath), #2 tpath))
+
+tpath:		tid DOT tid	([tid1], tid2)
+|		tpath DOT tid	(#2 tpath ! #1 tpath, tid)
+
+
+tys2:		ty COMMA ty	([ty1, ty2])
+|		ty COMMA tys2	(ty ! tys2)
+
+ty: 		ty ARROW ty	(FUNTY(ty1, ty2))
+|		tuplety		(TUPLETY tuplety)	
+|		appty		(appty)
+
+labtys:				([])
+|		labtys1		(labtys1)
+
+labtys1:	labty			([labty])
+|		labty COMMA labtys1	(labty ! labtys1)
+
+labty:		id COLON ty		(id, ty)
+
+tuplety:	appty TIMES appty	([appty1, appty2])
+|		appty TIMES tuplety	(appty ! tuplety)
+
+storagedecls:	storagedecl	 	([storagedecl])
+|		storagedecl BAR storagedecls	(storagedecl ! storagedecls)
+
+storagedecl:	id EQ DOLLAR id LBRACKET cellcount RBRACKET bitsize
+                aliasing defaults printcell 
+		 (CELLDECL { id => id1, nickname => id2,
+			   bits =>  #1 bitsize, count => cellcount,
+                           alias =>  aliasing, aggregable =>  #2 bitsize,
+                           from => REF 0, to => REF 0, print => printcell,
+			   defaults => defaults})
+
+aggregable:		   (FALSE)
+|		AGGREGABLE (TRUE)
+
+bitsize:	OF_T int aggregable BITS	(int, aggregable)
+|					(0, FALSE)
+
+cellcount:	int 	(THE int)
+|			(NULL) 
+
+locbind:	id EQ expression	(LOCBIND(id, NULL, expression))
+|		id pattern EQ expression	(LOCBIND(id, THE pattern, expression))
+
+locbinds:	locbind			([locbind])
+|		locbind AND_T locbinds	(locbind ! locbinds)
+
+word:		WORD (word)
+
+int:		INT (int)
+
+intopt:		int	(int)
+|			(0)
+
+intinf:		INTINF	(intinf)
+
+real:		REAL_T	(real_t)
+
+aliasing:			(NULL)
+|		ALIASING  id	(THE id)
+
+printcell:	ASM_COLON string 
+			(LAMBDAEXP [CLAUSE([WILDCARD_PATTERN], NULL,
+                                     LITEXP(STRING_LIT string))])
+|		ASM_COLON LPAREN expression RPAREN   (expression)
+
+defaults:	 		   ([])
+|		WHERE_T default_list (default_list)
+
+default_list:	default 			([default])
+|		default AND_T default_list	(default ! default_list)
+
+default:	DOLLAR id LBRACKET int RBRACKET EQ expression (int, expression) 
+
+slices:		slice			([slice])
+|		slice COMMA slices	(slice ! slices)
+
+slice:		int DOTDOT int		(int1, int2)
+|		int			(int1, int1)
+
+id:		ID	(id)
+|		SYMBOL	(symbol)
+|		CELLSET	("cellset")
+
+sym:		id	(id)
+|		symb 	(symb)
+
+symb:		TIMES 	("*")
+|		NOT 	("not")
+|		DEREF	("!")
+
+ident:		id		(IDENT([], id))
+|		ident2		(ident2)
+
+ident2:		path		(IDENT (reverse (tail path), head path))
+
+path:		id DOT sym	([sym, id])
+|		path DOT sym	(sym ! path)
+
+typevariable:	TYVAR	(VARTV tyvar)
+|		HASH id (INTTV id)
+
+string:		STRING_T (string_t)
+
+char:		CHAR_T	(char_t)
+
+bool:		False	(FALSE)
+|		True	(TRUE)

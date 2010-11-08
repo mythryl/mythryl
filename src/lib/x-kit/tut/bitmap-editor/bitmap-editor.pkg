@@ -1,0 +1,383 @@
+## bitmap-editor.pkg
+#
+# Display a rectangular grid of fat pixels.
+# Set pixels under the mouse pointer one color if the mouse is dragged with button1 down;
+# set them the opposite color if it is dragged with button2 down;
+# flip pixels under the mouse pointer if it is dragged with any other button down.
+
+# Compiled by:
+#     src/lib/x-kit/tut/bitmap-editor/bitmap-editor.make6
+
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg =  xgeometry;				# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package xc =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg =  widget;				# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+herein
+
+    package bitmap_editor:  Bitmap_Editor {		# Bitmap_Editor		is from   src/lib/x-kit/tut/bitmap-editor/bitmap-editor.api
+
+	exception BAD_PARAMETER;
+
+	Pixel_Change = (Bool, xg::Point);
+
+	Bitmap_Editor
+	    =
+	    BITMAP_EDITOR
+	      { widget:  wg::Widget,
+		mailop:  Mailop( Pixel_Change )
+	      };
+
+	Cell_Change
+	    #
+	    =   DRAW  xg::Point
+	    | UNDRAW  xg::Point
+	    |   FLIP  xg::Point
+	    ;
+
+	fun mouse_reader (from_mouse', pixel_coordinate_to_cell_coordinate, mouse_slot)			# "mse" may be "mouse_event".
+	    =
+	    loop () 
+	    where
+		# As long as a mouse button is down,
+		# loop tracking the mouse and sending
+		# a stream of duplicate-free coordinates
+		# to  mouse_slot:
+		#
+		fun track command point						# 'command' will be DRAW, UNDRAW or FLIP.
+		    =
+		    {   point' =  pixel_coordinate_to_cell_coordinate  point;
+
+			give  (mouse_slot,  command point');
+
+			loop point';
+		    }
+		    where
+
+			fun next ()
+			    = 
+			    case (xc::envelope_contents (do_mailop from_mouse'))
+				#
+				xc::MOUSE_MOTION  { window_point, ... } => { point' => pixel_coordinate_to_cell_coordinate window_point, done => FALSE };
+				xc::MOUSE_LAST_UP { window_point, ... } => { point' => pixel_coordinate_to_cell_coordinate window_point, done => TRUE  };
+				xc::MOUSE_DOWN    { window_point, ... } => { point' => pixel_coordinate_to_cell_coordinate window_point, done => FALSE };
+				xc::MOUSE_UP      { window_point, ... } => { point' => pixel_coordinate_to_cell_coordinate window_point, done => FALSE };
+				#
+				_ =>  next ();
+			    esac;
+
+			# Keep firing non-duplicate points out mouse_slot
+			# until mousebuttons are all released:
+			#
+			fun loop point
+			    =
+			    {   my { point', done } =   next ();
+
+				if (point != point')    give (mouse_slot, command point');  fi; 
+
+				if (not done)   loop point';                                fi;
+			    };
+		    end;
+
+
+		fun do_mouse (xc::MOUSE_FIRST_DOWN { mouse_button, window_point, ... } )
+			=>
+			case mouse_button
+			    #
+			    xc::MOUSEBUTTON 1 =>  track DRAW   window_point;
+			    xc::MOUSEBUTTON 2 =>  track UNDRAW window_point;
+			    _                 =>  track FLIP   window_point;
+			esac;
+
+		    do_mouse _
+			=>
+			();
+		end;
+
+		# Loop watching mouse events.  Each time we
+		# see a mouse-down, start a series of
+		# DRAW, UNDRAW or FLIP command which
+		# last until that mousebutton is released:
+		#   button1          ==   DRAW commands
+		#   button2          == UNDRAW commands
+		#   any other button ==   FLIP commands
+		#
+		fun loop ()
+		    =
+		    loop (do_mouse (xc::envelope_contents (do_mailop from_mouse')));
+
+	    end;							# fun mouse_reader
+
+	fun make_bitmap_editor
+		root_window
+		 { horizontal_size_in_cells, vertical_size_in_cells, cell_size_in_pixels }
+	    =
+	    {   screen =  wg::screen_of root_window;
+
+		mailop_slot = make_mailslot ();
+
+		width_in_pixels  =  horizontal_size_in_cells * cell_size_in_pixels + 1;
+		height_in_pixels =    vertical_size_in_cells * cell_size_in_pixels + 1;
+
+		pixmap =  xc::make_readwrite_pixmap  screen  (xg::SIZE { wide=>width_in_pixels, high=>height_in_pixels }, 1);
+
+		pm =  xc::drawable_of_rw_pixmap  pixmap;
+
+		cell_map = rw_vector::make_rw_vector (horizontal_size_in_cells * vertical_size_in_cells, FALSE);
+
+		size_preferences
+		    =
+		    { col_preference =>   wg::INT_PREFERENCE { start_at=>1, step_by=>cell_size_in_pixels, min_steps=>2, ideal_steps=>horizontal_size_in_cells, max_steps=>THE horizontal_size_in_cells },
+		      row_preference =>   wg::INT_PREFERENCE { start_at=>1, step_by=>cell_size_in_pixels, min_steps=>2, ideal_steps=>vertical_size_in_cells,   max_steps=>THE   vertical_size_in_cells }
+		    };
+
+		max_col = horizontal_size_in_cells - 1;
+		max_row = vertical_size_in_cells   - 1;
+
+		draw_sz = cell_size_in_pixels - 3;
+
+		on_pen =  xc::make_pen [ xc::p::FOREGROUND  xc::rgb8_color1,
+				         xc::p::LINE_STYLE_ON_OFF_DASH,
+				         xc::p::DASH_OFFSET 0,
+				         xc::p::DASH_FIXED  1
+				       ];
+
+		off_pen  = xc::make_pen [ xc::p::FOREGROUND  xc::rgb8_color0 ];
+
+		copy_pen = xc::make_pen [ xc::p::FOREGROUND  xc::rgb8_black,
+				          xc::p::BACKGROUND  xc::rgb8_white
+				        ];
+
+		# Draw the lines visually defining
+		# the bitmap cell boundaries:
+		#
+		fun fill_pix_map  pm
+		    =
+		    {
+			pwid = width_in_pixels  - 1;
+			pht  = height_in_pixels - 1;
+
+			fun make_horizontal_seg i =  {  y = i*cell_size_in_pixels;   xg::LINE (xg::POINT { col=>0, row=>y }, xg::POINT { col=>pwid, row=>y   } );  };
+			fun make_vertical_seg   i =  {  x = i*cell_size_in_pixels;   xg::LINE (xg::POINT { col=>x, row=>0 }, xg::POINT { col=>x,    row=>pht } );  };
+
+			# Construct a list of 'count' horizontal
+                        # or vertical line segments:
+			#
+			fun make_segs seg_fn (i, count, results)
+			    =
+			    if (i == count)    seg_fn i  !  results;
+			    else               make_segs seg_fn (i+1, count, (seg_fn i) ! results);
+			    fi;
+
+			xc::clear_drawable pm;
+
+			# Draw horizontal and vertical lines
+                        # outlining all cells in bitmap:
+			#
+			xc::draw_segs
+                            pm
+                            on_pen
+                            (make_segs
+                                make_vertical_seg
+                                ( 0,					# Initial value for counter.
+                                  horizontal_size_in_cells+1,		# Number of line segments to create.
+                                  (make_segs
+                                      make_horizontal_seg
+                                      ( 0,				# Initial value for counter.
+                                        vertical_size_in_cells+1,	# Number of line segments to create.	
+                                        []				# Initial value for result list.
+                                      )
+                                  )
+                                )
+                            );
+		    };
+
+
+		fun pixel_coordinate_to_cell_coordinate (xg::POINT { col, row } )
+		    =
+		    xg::POINT { col => int::max (0, int::min (col / cell_size_in_pixels, max_col)),
+			        row => int::max (0, int::min (row / cell_size_in_pixels, max_row))
+			      };
+
+
+		fun index (xg::POINT { col, row } )
+		    =
+		    col + row*horizontal_size_in_cells;
+
+
+		# Construct a box defining the pixels
+		# associated with a given bitmap cell:
+		#
+		fun point_to_rectangle (xg::POINT { col, row } )
+		    =
+		    xg::BOX
+		      {
+			col  =>  2 + col * cell_size_in_pixels,
+			row  =>  2 + row * cell_size_in_pixels,
+			#
+			wide =>  draw_sz,
+			high =>  draw_sz
+		      };
+
+
+		fun blt drawable box
+		    =
+		    xc::bitblt  drawable  copy_pen  { from     =>  xc::FROM_RW_PIXMAP  pixmap,
+			   		              from_box =>  box,
+					              to_pos   =>  xg::box::upperleft  box
+					            };
+
+
+		fun redraw (drawable, boxlist)
+		    =
+		    apply (ignore o (blt drawable))
+			  boxlist;
+
+
+		fun draw_cell (drawable, point, turn_on, pen)
+		    =
+		    {   index = index point;
+
+			if (turn_on == rw_vector::get (cell_map, index))
+			    #
+			    NULL;
+			else 
+			    rw_vector::set (cell_map, index, turn_on);
+
+			    r = point_to_rectangle point;
+
+			    xc::fill_box  pm  pen  r;
+
+			    redraw (drawable,[r]);
+
+			    THE (turn_on, point);
+			fi;
+		    };
+
+		fun realize { kidplug, window, window_size }
+		    =
+		    {   my  xc::KIDPLUG { from_other', from_mouse', ... }
+			    =
+			    xc::ignore_keyboard  kidplug;
+
+			mouse_slot = make_mailslot ();
+
+			drawable =  xc::drawable_of_window  window;
+
+
+			fun do_other (xc::ETC_RESIZE (xg::BOX { col, row, wide, high } ))
+				=>
+				();
+
+			    do_other (xc::ETC_REDRAW rlist)
+				=>
+				{   redraw (drawable, rlist);
+				    ();
+				};
+
+			    do_other  xc::ETC_OWN_DEATH
+				=>
+				();
+
+			    do_other _
+				=>
+				();
+			end;
+
+
+			# Redraw cells per commands from mouse_reader:
+			#
+			fun do_mouse (  DRAW point) =>  draw_cell (drawable, point, TRUE,   on_pen);
+			    do_mouse (UNDRAW point) =>  draw_cell (drawable, point, FALSE, off_pen);
+
+			    do_mouse (FLIP point)
+				=>
+				case (rw_vector::get (cell_map, index point))
+				    #
+				    TRUE =>  draw_cell (drawable, point, FALSE, off_pen);
+				    _    =>  draw_cell (drawable, point, TRUE,   on_pen);
+				esac;
+			end;
+
+
+			fun loop ()
+			    =
+			    for (;;) {
+
+				fun if_change (NULL ) =>  ();
+				    if_change (THE v) =>  give (mailop_slot, v);
+				end;
+
+				select [
+				    #
+				    from_other'
+					==>
+				       .{  do_other (xc::envelope_contents  #mailop);  },
+
+				    take' mouse_slot
+					==>
+				       .{  if_change (do_mouse   #mailop);  }
+				];
+			    };
+
+			make_thread  "bitmap_editor mouse"  .{
+			    #
+			    mouse_reader (from_mouse', pixel_coordinate_to_cell_coordinate, mouse_slot);
+			};
+
+			make_thread  "bitmap_editor"  loop;
+
+			();
+		    };
+
+		# Draw the lines visually defining
+		# the bitmap cell boundaries:
+		#
+		fill_pix_map pm;
+
+		BITMAP_EDITOR
+		  {
+		    mailop =>  take'  mailop_slot,
+
+		    widget =>  wg::make_widget
+				 { root_window,
+				   realize,
+				   size_preference_thunk_of =>  fn () = size_preferences,
+				   args                     =>  fn () = { background => NULL }	# Added 2009-12-09 CrT just to make it compile.
+				 }
+		  };
+	};								# fun make_bitmap_editor
+
+	fun as_widget (BITMAP_EDITOR { widget, ... } ) =  widget;
+	fun mailop_of (BITMAP_EDITOR { mailop, ... } ) =  mailop;
+
+    };								# package bitmap_editor
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

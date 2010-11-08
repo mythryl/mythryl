@@ -1,0 +1,165 @@
+# thread-deathwatch.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+# This package is adapted from
+# Cliff Krumvieda's threadkit
+# debug utility.
+#
+# See also:
+#     src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+#     src/lib/src/lib/thread-kit/src/lib/threadkit-uncaught-exception-reporting.pkg
+
+stipulate
+    include threadkit;							# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    include tracing;							# tracing		is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+    #
+    package tc = thread_scheduler_control;
+herein
+
+    package thread_deathwatch: (weak)  Thread_Deathwatch {		# Thread_Deathwatch	is from   src/lib/src/lib/thread-kit/src/lib/thread-deathwatch.api
+
+
+
+	################################################################################
+	# Thread deathwatches.
+
+	# Controls printing of thread deathwatch messages: 
+	#
+	tracing
+	    =
+	    make_trace_tree_leaf
+	      { parent => all_tracing,
+		name   => "thread_deathwatch::tracing"
+	      };
+	#
+					    my _ = 
+	enable  tracing;
+
+	Deathwatch_Mail
+	  = START_DEATHWATCH  (Thread,         Mailslot(Void))
+	  |  STOP_DEATHWATCH  (Thread, Oneshot_Maildrop(Void))
+	  ;
+
+
+	my deathwatch_mailqueue:  Mailqueue( Deathwatch_Mail )
+	    =
+	    make_mailqueue ();
+
+
+	# Stop watching the named thread:
+	#
+	fun stop_thread_deathwatch  thread
+	    =
+	    {   ack_drop = make_oneshot_maildrop ();
+
+		push (deathwatch_mailqueue, STOP_DEATHWATCH (thread, ack_drop));
+
+		get ack_drop;
+	    };
+
+
+	# Watch the given thread for unexpected termination:
+	#
+	fun start_thread_deathwatch (thread_name, thread)
+	    =
+	    {   unwatch_slot = make_mailslot ();
+
+		fun handle_termination ()
+		    =
+		    {   print_if tracing .{
+
+			    cat [ "WARNING!  Watched thread ", thread_name, thread_to_string  thread,
+				  " has died."
+				];
+			};
+
+			stop_thread_deathwatch  thread;
+		    };
+
+		fun deathwatch_thread ()
+		    =
+		    {
+			push (deathwatch_mailqueue, START_DEATHWATCH (thread, unwatch_slot));
+
+			select [
+			    take'  unwatch_slot,
+
+			    thread_death_mailop  thread
+				==>
+				handle_termination
+			];
+		    };
+
+		make_thread  "thread_deathwatch"  deathwatch_thread;
+
+		();
+	    };
+
+
+	package thread_table
+	    =
+	    monomorphic_hash_table_g (
+		#
+		Hash_Key   = Thread;
+		hash_value = hash_thread;
+		same_key   = same_thread;
+	    );
+
+
+	# The deathwatch imp:
+	#
+	fun start_deathwatch_imp ()
+	    =
+	    {   table = thread_table::make_table (32, FAIL "start_deathwatch_imp");
+
+		fun loop ()
+		    =
+		    for (;;) {
+
+			case (pull  deathwatch_mailqueue)
+
+			    START_DEATHWATCH arg
+				=>
+				thread_table::set table arg;
+
+			    STOP_DEATHWATCH (thread, ack_1shot)
+				=>
+				{
+				    # Notify the watcher that the thread is no longer being
+				    # watched, and then acknowledge the unwatch command.
+				    #
+				    give (thread_table::remove  table  thread, ())
+				    except
+					_ = ();
+
+				    # Acknowledge that the thread has been removed:
+				    #
+				    set (ack_1shot, ());
+				};
+			esac;
+		    };
+
+		make_thread  "thread_deathwatch imp"  loop;
+
+		();
+	    };
+
+
+	my _ =  {   tc::note_mailqueue
+		      (
+			"tracing: deathwatch-mailqueue",
+			deathwatch_mailqueue
+		      );
+
+		    tc::note_imp
+		      {
+			name => "tracing: deathwatch-imp",
+			#
+			at_startup  =>  start_deathwatch_imp,
+			at_shutdown =>  (fn () = ())
+		      };
+		};
+    };						# package thread_deathwatch
+end;

@@ -1,0 +1,718 @@
+## line-of-widgets.pkg
+#
+# Lay out widgets in a line or column.
+#
+# The core layout algorithm is actually in
+#
+#     src/lib/x-kit/widget/layout/lay-out-linearly.pkg
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+
+
+###       "We hang the petty thieves and
+###        appoint the great ones to public office."
+###
+###                 -- Aesop (circa 620 - 560 BCE)
+
+
+# Stough + DeBoer in "The Future of eXene",
+#
+#     http:://mythryl.org/pub/exene/future.pdf
+#
+# note:
+#     "Although very useful, the existing [line-of-widgets]
+#      widget produces some odd results in some cases. E.g.,
+#      putting inflexible glue around a flexible widget
+#      results in an overall widget that's inflexible."
+# They mention a project to write a new layout widget
+# from scratch.
+
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg =  xgeometry;				# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package xc =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package bg =  background;				# background		is from   src/lib/x-kit/widget/wrapper/background.pkg
+    package li =  list_indexing;			# list_indexing		is from   src/lib/x-kit/widget/lib/list-indexing.pkg
+    package lo =  lay_out_linearly;			# lay_out_linearly	is from   src/lib/x-kit/widget/layout/lay-out-linearly.pkg
+    package mr =  xevent_mail_router;			# xevent_mail_router	is from   src/lib/x-kit/widget/basic/xevent-mail-router.pkg
+    package wg =  widget;				# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wt =  widget_types;				# widget_types		is from   src/lib/x-kit/widget/basic/widget-types.pkg
+herein
+
+    package line_of_widgets: (weak)  Line_Of_Widgets {	# Line_Of_Widgets	is from   src/lib/x-kit/widget/composite/line-of-widgets.api
+
+
+    /* DEBUG
+	package f = format
+	fun rectToString (xgeometry::BOX { x, y, wid, ht } ) = f::format "(%d,%d,%d,%d)" (map f::INT [x, y, wid, ht])
+	fun print s = (file::write (file::stderr, s); file::flush file::stderr)
+       END DEBUG
+    */
+
+	exception BAD_INDEX =  li::BAD_INDEX;
+
+	Layout_Tree
+	  #
+	  = HZ_TOP     List( Layout_Tree )
+	  | HZ_CENTER  List( Layout_Tree )
+	  | HZ_BOTTOM  List( Layout_Tree )
+	  #
+	  | VT_LEFT    List( Layout_Tree )
+	  | VT_CENTER  List( Layout_Tree )
+	  | VT_RIGHT   List( Layout_Tree )
+	  #
+	  | WIDGET     wg::Widget
+	  #
+	  | SPACER { min_size:    Int,
+		     ideal_size:  Int,
+		     max_size:    Null_Or( Int )
+		   }
+	  ;
+
+
+
+	Reply_Mail = ERROR  Exception | OKAY;
+
+	Plea_Mail
+	  = GET_SIZE 
+	  | DO_REALIZE  {
+	      kidplug:      xc::Kidplug,
+	      window:       xc::Window,
+	      window_size:  xg::Size
+	    }
+	  | INSERT   (Int, List( Layout_Tree ))
+	  | DELETE   List( Int )
+       #  | Replace of (Int * Null_Or( Int ) * List( Layout_Tree ) ) 
+	  | MAP      (Bool, List( Int ))
+	  ;
+
+	Line_Of_Widgets
+	    =
+	    LINE_OF_WIDGETS
+	      {
+		plea_slot:   Mailslot( Plea_Mail  ),
+		reply_slot:  Mailslot( Reply_Mail ),
+		widget:      wg::Widget
+	      };
+
+	Box_Rep
+	    =
+	    { widget:     wg::Widget,
+	      window:     xc::Window,
+
+	      box:        xg::Box,
+	      from_kid':  Mailop( xc::Mail_To_Mom )
+	    };
+
+	Layout_Rep
+	    =
+	    { box:    xg::Box,
+	      clist:  List( (Bool, lo::Box_Item, List( Box_Rep )) )
+	    };
+
+	loose_preference
+	    =
+	    wg::INT_PREFERENCE { start_at=>0, step_by=>1, min_steps=>0, ideal_steps=>0, max_steps=>NULL };
+
+	fun make_vertical_glue { min_size, ideal_size, max_size }
+	    =
+	    lo::GEOMETRY {
+	      col_preference =>  loose_preference,
+	      row_preference =>  wg::INT_PREFERENCE { start_at=>0, step_by=>1, min_steps=>min_size, ideal_steps=>ideal_size, max_steps=>max_size }
+	    };
+
+	fun make_horizontal_glue { min_size, ideal_size, max_size }
+	    =
+	    lo::GEOMETRY
+	      { row_preference =>  loose_preference,
+		col_preference =>  wg::INT_PREFERENCE { start_at=>0, step_by=>1, min_steps=>min_size, ideal_steps=>ideal_size, max_steps=>max_size }
+	      };
+
+	fun make_item glue_fn box
+	    =
+	    (b, *wl)
+	    where 
+
+		my wl:  Ref( List( wg::Widget ) )
+		     =  REF [];
+
+		fun convert (HZ_TOP boxes)    =>  lo::HB (wt::VTOP, map hcvt boxes);
+		    convert (HZ_CENTER boxes) =>  lo::HB (wt::VCENTER, map hcvt boxes);
+		    convert (HZ_BOTTOM boxes) =>  lo::HB (wt::VBOTTOM, map hcvt boxes);
+
+		    convert (VT_LEFT boxes)   =>  lo::NAMED_VALUE (wt::VTOP, map vcvt boxes);
+		    convert (VT_CENTER boxes) =>  lo::NAMED_VALUE (wt::VCENTER, map vcvt boxes);
+		    convert (VT_RIGHT boxes)  =>  lo::NAMED_VALUE (wt::VBOTTOM, map vcvt boxes);
+
+		    convert (SPACER arg)        =>  glue_fn arg;
+		    convert (WIDGET w)          =>  { wl := w ! *wl; lo::WIDGET w;};
+		end 
+
+		also
+		fun hcvt (WIDGET w)     =>  { wl := w ! *wl; lo::WIDGET w;};
+		    hcvt (SPACER arg) =>  make_horizontal_glue arg;
+		    hcvt arg          =>  convert arg;
+		end 
+
+		also
+		fun vcvt (WIDGET w)   =>  { wl := w ! *wl; lo::WIDGET w;};
+		    vcvt (SPACER arg) =>  make_vertical_glue arg;
+		    vcvt arg        =>  convert arg;
+		end;
+
+		b = convert box;
+	    end;
+
+	fun gen_fns (HZ_TOP    boxes) =>   (fn cl = lo::HB (wt::VTOP, cl),             make_item make_horizontal_glue, boxes);
+	    gen_fns (HZ_CENTER boxes) =>   (fn cl = lo::HB (wt::VCENTER, cl),          make_item make_horizontal_glue, boxes);
+	    gen_fns (HZ_BOTTOM boxes) =>   (fn cl = lo::HB (wt::VBOTTOM, cl),          make_item make_horizontal_glue, boxes);
+
+	    gen_fns (VT_LEFT   boxes) =>   (fn cl = lo::NAMED_VALUE (wt::VTOP, cl),    make_item make_vertical_glue, boxes);
+	    gen_fns (VT_CENTER boxes) =>   (fn cl = lo::NAMED_VALUE (wt::VCENTER, cl), make_item make_vertical_glue, boxes);
+	    gen_fns (VT_RIGHT  boxes) =>   (fn cl = lo::NAMED_VALUE (wt::VBOTTOM, cl), make_item make_vertical_glue, boxes);
+
+	    gen_fns _ => raise exception lib_base::IMPOSSIBLE "box::genFns";
+	end;
+
+	# Compute bounds for box layout.
+	#
+	layout_size =  lo::compute_size;
+
+	fun cloop from_kid' ()
+	    =
+	    {   do_mailop  from_kid';
+		cloop      from_kid' ();
+	    };
+
+	fun cleanup ( { window, from_kid', ... }: Box_Rep)
+	    =
+	    {   xc::destroy_window window;
+		make_thread "line_of_widgets cleanup" (cloop from_kid');
+		();
+	    };
+
+	fun mapfn make_mapped
+	    =
+	    {   mf =    case make_mapped   
+			    #	
+			    TRUE  =>  xc::show_window;
+			    FALSE =>  xc::hide_window;
+			esac;
+
+		fun mapf (r:  Box_Rep)
+		    =
+		    mf r.window;
+
+		fn (item as (is_mapped, box, replicate))
+		    =
+		    if (is_mapped == make_mapped)
+			#
+			item;
+		    else
+			apply mapf replicate;
+			(make_mapped, box, replicate);
+		    fi;
+	      };
+
+	fun any_visible [] => FALSE;
+	    any_visible ((TRUE, _, _) ! _) => TRUE;
+	    any_visible (_ ! rest) => any_visible rest;
+	end;
+
+	fun make_co cl
+	    =
+	    {   fun f' ( { window, from_kid', ... } : Box_Rep, l)
+		    =
+		    (from_kid' ==>  .{  (window, #mailop); })   !   l;
+
+		fun f ((_, _, replicate), l)
+		    =
+		    list::fold_left f' l replicate;
+
+		choose (list::fold_left f [] cl);
+	    };
+
+	fun preferred_size_box w
+	    =
+	    xg::box::make (xg::point::zero, wg::preferred_size w);
+
+
+	fun update_box (w as { box, window, widget, from_kid' }, nrect)
+	    =
+	    if   (box == nrect)
+
+		 w;
+	    else
+    /* DEBUG
+		print (implode["update box: ", rectToString nrect, "\n"]);
+       END DEBUG */
+
+		xc::move_and_resize_window window nrect;
+		{ box=>nrect, window, widget, from_kid' };
+
+	    fi;
+
+	fun make_line_of_widgets  root_window  (w as WIDGET  _) => make_line_of_widgets  root_window  (HZ_CENTER [w]);
+	    make_line_of_widgets  root_window  (g as SPACER  _) => make_line_of_widgets  root_window  (HZ_CENTER [g]);
+
+	    make_line_of_widgets  root_window  boxes
+		=>
+		{   plea_slot  =  make_mailslot ();
+		    reply_slot =  make_mailslot ();
+		    size_slot  =  make_mailslot ();
+
+		    my (cvt_fn, item_fn, clist)
+			=
+			gen_fns boxes;
+
+		    screen =  wg::screen_of  root_window;
+
+		    fun getvis l
+			=
+			cvt_fn
+			    (li::find
+
+				fn (_, (TRUE,  v, _)) =>  THE v;
+				   (_, (FALSE, _, _)) =>  NULL;
+				end
+
+				l
+			    );
+
+		    fun realize_box
+			{ kidplug => kidplug as xc::KIDPLUG { to_mom=>myco, ... }, window, window_size }
+			ctree
+			=
+			{   my { kidplug => my_kidplug, momplug => my_momplug }
+				=
+				xc::make_widget_cable ();
+
+			    router = mr::make_xevent_mail_router (kidplug, my_momplug, []);
+
+			    my xc::KIDPLUG { from_other', ... }
+				=
+				xc::ignore_mouse_and_keyboard my_kidplug;
+
+			    fun get_vis (me:  Layout_Rep)
+				=
+				getvis me.clist;
+
+			    box = xg::box::make (xg::point::zero, window_size);
+
+			    places = #2 (lo::compute_layout (box, getvis ctree));
+
+			    fun reposition (clist, rlist)
+				=
+				do_repos (reverse clist, rlist, [])
+				where 
+
+				    fun repos ([], rl, l) => (reverse l, rl);
+					repos (_,  [], _) => raise exception lib_base::IMPOSSIBLE "box::macroExpandBox";
+
+					repos (w ! wl, (_, r) ! rl, l)
+					    =>
+					    repos (wl, rl, (update_box (w, r)) ! l);
+				    end;
+
+				    fun do_repos ([], _, cl) => cl;
+
+					do_repos ((rep as (FALSE, _,  _)) ! rest, rl, cl) => do_repos (rest, rl, rep ! cl);
+					do_repos ((rep as (TRUE,  b, [])) ! rest, rl, cl) => do_repos (rest, rl, rep ! cl);
+
+					do_repos ((TRUE, b, wl) ! rest, rl, cl)
+					    =>
+					    {   my (replicate, rl')
+						    =
+						    repos (wl, rl,[]);
+
+						do_repos (rest, rl', (TRUE, b, replicate) ! cl);
+					    };
+				    end;
+
+				end;
+
+
+			    fun zombie (me:  Layout_Rep)
+				=
+				loop ()
+				where 
+
+				    to_child' =  make_co  me.clist;
+				    bounds    =  wg::make_tight_size_preference (1, 1);
+
+				    fun do_plea GET_SIZE =>  give (size_slot, bounds);
+					do_plea _        =>  ();
+				    end;
+
+				    fun loop ()
+					=
+					loop (
+
+					    select [
+						take' plea_slot ==>  do_plea,
+						from_other'     ==>  (fn _ = ()),
+						to_child'       ==>  (fn _ = ())
+					    ]
+					);
+				end;
+
+			    fun make_box_rep  rectfn  widget
+				=
+				{ 
+				    box  =  rectfn  widget;
+
+				    window_size =  xg::box::size  box;
+
+				    my { kidplug, momplug => momplug as xc::MOMPLUG { from_kid', ... } }
+					=
+					xc::make_widget_cable ();
+
+				    window =  wg::make_child_window (window, box, wg::args_of widget);
+
+				    from_kid' =  wg::wrap_queue  from_kid';
+
+				    rep = { widget,
+					    window,
+					    box,
+					    from_kid'
+					  };
+
+				    mr::add_child router (window, momplug);
+
+				    wg::realize_fn widget { kidplug, window, window_size };
+
+				    rep;
+				};
+
+			    fun init_fn (clist, rlist)
+				=
+				init (reverse clist, rlist, [])
+				where
+				    fun make_box ([], rl, l) => (reverse l, rl);
+					make_box (_,[], _) => raise exception lib_base::IMPOSSIBLE "box::initFn";
+					make_box (w ! wl, (_, r) ! rl, l) => make_box (wl, rl, (make_box_rep (fn _ = r) w) ! l);
+				    end;
+
+				    fun init ([], _, cl)
+					    =>
+					    cl;
+
+					init ((ison, b,[]) ! rest, rl, cl)
+					    =>
+					    init (rest, rl, (ison, b,[]) ! cl);
+
+					init ((FALSE, b, wl) ! rest, rl, cl)
+					    => 
+					    init (rest, rl, (FALSE, b, map (make_box_rep preferred_size_box) wl) ! cl);
+
+					init ((TRUE, b, wl) ! rest, rl, cl)
+					    =>
+					    {   my (replicate, rl')
+						    =
+						    make_box (wl, rl,[]);
+
+						apply (fn ( { window, ... }: Box_Rep) =  xc::show_window window)
+                                                      replicate;
+
+						init (rest, rl', (TRUE, b, replicate) ! cl); 
+					    };
+				    end;
+				end;
+
+			    fun insert_fn  box
+				=
+				{   my (b, wl) =  item_fn  box;
+
+				    (FALSE, b, map (make_box_rep preferred_size_box) wl);
+				};
+
+			    fun resize (me:  Layout_Rep)
+				=
+				{
+				    my (fits, nlist)
+					=
+					lo::compute_layout (me.box, get_vis me);
+	      /* DEBUG
+				    print (implode["resize: box = ", rectToString me.box, "\n"])
+				    print (f::format "resize: fits = %b\n        nlist =\n" [f::BOOL fits])
+				    apply (fn (_, r) => print (implode["        ", rectToString r, "\n"])) nlist
+		 END DEBUG */
+				    clist' = reposition (me.clist, nlist);
+				    me' = { box => me.box, clist => clist'};
+
+				    if (not fits)
+					#
+					do_mailop (myco xc::REQ_RESIZE);
+				    fi;
+
+				    me';
+				};
+
+			    fun do_to_child (me, (_, xc::REQ_RESIZE)) => resize me;
+				do_to_child (me, (_, xc::REQ_DESTRUCTION  )) => me;               #  FIX XXX BUGGO FIXME
+			    end;
+
+			    fun do_mom (me:  Layout_Rep, xc::ETC_RESIZE r)
+				   =>
+				   {   nrect =  xg::box::make (xg::point::zero, xg::box::size r);
+
+				       nlist =  #2 (lo::compute_layout (nrect, get_vis me));
+
+				       { box  => nrect,
+					 clist => reposition (me.clist, nlist)
+				       };
+				   };
+
+				do_mom (me, xc::ETC_CHILD_DEATH child)
+				    =>
+				    {   mr::del_child router child;
+					me;
+				    };
+
+				do_mom (me, xc::ETC_OWN_DEATH) =>  zombie me;
+				do_mom (me, _           ) =>  me;
+			    end;
+
+			    fun do_plea (me, plea)
+				=
+				case plea
+				    #
+				    GET_SIZE
+					=>
+					{   give (size_slot, layout_size (get_vis me));
+					    me;
+					};
+
+				    INSERT (index, bl)
+					=>
+					{   bl' = map insert_fn bl; 
+					    ct' = li::set (me.clist, index, bl');
+
+					    give (reply_slot, OKAY);
+					    main { box=> me.box, clist=>ct'};
+					}
+					except e = {   give (reply_slot, ERROR e);
+						       me;
+						   };
+
+				    DELETE indices
+					=>
+					{   my (ct', dl)
+						=
+						li::delete (me.clist, li::check_sort indices);
+
+					    me' = { box=> me.box, clist=>ct'};
+
+					    apply (fn (_, _, replicate) = apply cleanup replicate)
+						  dl;
+
+					    give (reply_slot, OKAY);
+
+					    if (any_visible dl)  main (resize me');
+					    else                 main me';
+					    fi;
+				       }
+				       except e = { give (reply_slot, ERROR e); me;};
+
+				    MAP (mapped, indices)
+					=>
+					{   ct' =  li::do_map (me.clist, mapfn mapped, li::check_sort indices);
+
+					    give (reply_slot, OKAY);
+
+					    resize { box=> me.box, clist=>ct'};
+					}
+					except e = {   give (reply_slot, ERROR e);
+						       me;
+						   };
+
+				    DO_REALIZE _ => me;
+				esac
+
+			    also
+			    fun main me
+				=
+				loop me
+				where
+				    to_child' = make_co me.clist;
+
+				    fun loop me
+					=
+					loop (
+					    select [
+						#
+						to_child'   ==>   (fn mail =  do_to_child (me, mail)),
+						from_other' ==>   (fn mail =  do_mom (me, xc::envelope_contents  mail)),
+
+						take'  plea_slot
+						    ==>
+						    (fn msg =  do_plea (me, msg))
+					    ]
+					);
+				end;
+
+			      main { box, clist => init_fn (ctree, places) };
+
+			      ();
+			  };
+
+		    fun init_item_fn  vis  b
+			=
+			{   my (box, wl) =  item_fn  b;
+
+			    (vis, box, wl);
+			};
+
+		    fun init_loop  ct
+			= 
+			case (take  plea_slot)
+
+			   GET_SIZE
+			       =>
+			       {   give (size_slot, layout_size (getvis ct));
+				   init_loop ct;
+			       };
+
+			   DO_REALIZE  arg
+			       =>
+			       realize_box  arg  ct;
+
+			   INSERT (index, bl)
+			       =>
+			       {   ct' = li::set (ct, index, map (init_item_fn FALSE) bl);
+
+				   give (reply_slot, OKAY);
+				   init_loop ct';
+			       }
+			       except e = {   give (reply_slot, ERROR e);
+					      init_loop ct;
+					  };
+
+			   DELETE indices
+			       =>
+			       {   ct' = #1 (li::delete (ct, li::check_sort indices));
+
+				   give (reply_slot, OKAY);
+				   init_loop ct';
+			       }
+			       except e = {   give (reply_slot, ERROR e);
+					      init_loop ct;
+					  };
+
+			   MAP (mapped, indices)
+			       =>
+			       {   ct' =   li::do_map
+					     ( ct,
+					       fn (_, b, wl) = (mapped, b, wl),
+					       li::check_sort indices
+					     );
+
+				   give (reply_slot, OKAY);
+				   init_loop ct';
+			       }
+			       except e = {   give (reply_slot, ERROR e);
+					      init_loop ct;
+					  };
+			esac;
+
+		    make_thread "line_of_widgets init" .{
+			#
+			init_loop (map (init_item_fn TRUE) clist);
+		    };
+
+		    LINE_OF_WIDGETS {
+			plea_slot => plea_slot,
+			reply_slot,
+
+			widget
+			    =>
+			    wg::make_widget {
+			      root_window,
+			      args      =>  (fn ()  = {   background => NULL }),
+			      size_preference_thunk_of =>  (fn ()  = {   give (plea_slot, GET_SIZE);   take size_slot;   }),
+			      realize   =>  (fn arg =     give (plea_slot, DO_REALIZE arg))
+			    }
+		      };
+		 };
+	end;		#  fun make_line_of_widgets 
+
+	fun line_of_widgets (root_window, view, _) box
+	    =
+	    {   my LINE_OF_WIDGETS { widget, plea_slot, reply_slot }
+		    =
+		    make_line_of_widgets  root_window  box;
+
+		widget' = bg::background (root_window, view,[]) widget;
+
+		LINE_OF_WIDGETS {
+		  widget => widget',
+		  plea_slot,
+		  reply_slot
+		};
+	    };
+
+	fun as_widget (LINE_OF_WIDGETS { widget, ... } )
+	    =
+	    widget;
+
+	stipulate
+
+	    fun command wrapfn (LINE_OF_WIDGETS { plea_slot, reply_slot, ... } )
+		=
+		fn arg
+		    =
+		    {   give (plea_slot, wrapfn arg);
+
+			case (take  reply_slot)
+			    #
+			    OKAY    => ();
+			    ERROR e => raise exception e;
+			esac;
+		    };
+	herein
+
+	    insert = command INSERT;
+
+	    fun append box (i, bl)
+		=
+		insert box (i+1, bl);
+
+	    delete = command DELETE;
+	    #  replace = command REPLACE 
+
+	    show = command  (fn l =  MAP (TRUE,  l));
+	    hide = command  (fn l =  MAP (FALSE, l));
+
+	end;
+    };		# package box 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991-1994 by AT&T Bell Laboratories. See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

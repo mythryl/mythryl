@@ -1,0 +1,1080 @@
+## prettyprint-type.pkg 
+## Copyright 2003 by The SML/NJ Fellowship 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+
+#  modified to use Lib7 Lib pp. [dbm, 7/30/03]) 
+
+api Prettyprint_Type {
+
+     type_formals
+         :
+         Int
+      -> List( String );
+
+     typevar_ref_printname
+         :
+         types::Typevar_Ref
+      -> String;
+
+     prettyprint_type_constructor
+         :
+         symbol_table::Symbol_Table
+      -> prettyprint::Stream 
+      -> types::Type_Constructor
+      -> Void;
+
+     prettyprint_type_scheme
+         :
+         symbol_table::Symbol_Table
+      -> prettyprint::Stream 
+      -> types::Type_Scheme
+      -> Void; 
+
+     prettyprint_type
+         :
+         symbol_table::Symbol_Table
+      -> prettyprint::Stream 
+      -> types::Type
+      -> Void;
+
+     prettyprint_typevar_ref
+         :
+         symbol_table::Symbol_Table
+      -> prettyprint::Stream 
+      -> types::Typevar_Ref
+      -> Void;
+
+     prettyprint_enum_constructor_domain
+         :
+         ((Vector( types::Datatype_Member ), List( types::Type_Constructor )) )
+      -> symbol_table::Symbol_Table 
+      -> prettyprint::Stream
+      -> types::Type
+      -> Void;
+
+     prettyprint_enum_constructor_types
+         :
+         symbol_table::Symbol_Table
+      -> prettyprint::Stream 
+      -> types::Type_Constructor
+      -> Void;
+
+     reset_prettyprint_type
+         :
+         Void -> Void;
+
+     prettyprint_formals
+         :
+         prettyprint::Stream
+      -> Int
+      -> Void;
+
+     debugging:  Ref(  Bool );
+     unalias:  Ref(  Bool );
+
+};
+
+package prettyprint_type: (weak)  Prettyprint_Type
+
+{
+    stipulate 
+
+	package sp = symbol_path;	# symbol_path	is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip = inverse_path;	# inverse_path	is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package tt = type_types;	# type_types	is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package t  = types;		# types		is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package ts = type_stuff;	# type_stuff	is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package pp = prettyprint;	# prettyprint	is from   src/lib/prettyprint/src/prettyprint.pkg
+
+	include types;
+	include unparse_stuff; 
+
+    herein
+
+	debugging = REF FALSE;
+	unalias = REF TRUE;
+	#
+	fun bug s
+            =
+            error_message::impossible ("prettyprint_type: " + s);
+
+	pps = pp::string;
+	#
+	fun by f x y
+	    =
+	    f y x;
+
+	internals
+            =
+            typechecking_control::internals;
+
+	unit_path
+            =
+            ip::extend
+                (
+                  ip::empty,
+                  symbol::make_type_symbol "Void"
+                );
+
+
+        # Map small integer 'k' to a type variable name.
+        # We name the first three X Y Z,
+        # then run through A B C ... W
+        # and then start in on AA, AB...	XXX BUGGO FIXME AA AB &tc aren't legal syntax, need A_1 or A_a or such.
+	#
+	fun bound_type_variable_name k
+	    =
+	    {   a =   char::to_int 'A';
+
+                case k
+                  
+                     0 => "X";
+                     1 => "Y";
+                     2 => "Z";
+                     _ => 
+			  if   (k < 26)
+			      
+			       string::from_char (char::from_int (k + a - 3));
+			  else
+			       implode [ char::from_int (int::(/) (k, 26) + a), 
+					 char::from_int (int::(%) (k, 26) + a)
+				       ];
+			  fi;
+                esac;
+	    };
+
+	#
+	fun meta_tyvar_name' k
+	    =
+	    {   a =  char::to_int 'a';	#  use reverse order for meta vars 
+
+		if   (k < 26)
+		    
+		     string::from_char (char::from_int (a - k));
+		else 
+		     implode [ char::from_int (a - (int::(/) (k, 26))), 
+			       char::from_int (a - (int::(%) (k, 26)))
+			     ];
+                fi;
+	    };
+	#
+	fun type_formals n
+	    =
+	    loop 0
+            where
+	        fun loop i
+		    =
+		    if   (i >= n)
+		        
+			 [];
+		    else 
+			 (bound_type_variable_name i)  !  loop (i + 1);
+                    fi;
+	    end;
+	#
+	fun literal_kind_printname (lk: t::Literal_Kind)
+	    =
+	    case lk
+	      
+		 t::INT => "Int";       # or "INT" 
+		 t::WORD => "Unt";      # or "WORD" 
+		 t::REAL => "Float";    # or "REAL" 
+		 t::CHAR => "Char";     # or "CHAR" 
+		 t::STRING => "String"; # or "STRING" 
+            esac;
+
+	stipulate  #  WARNING -- compiler global variables 
+
+	    count = REF(-1);  
+
+	    meta_tyvars = REF([]: List( Typevar_Ref ));
+
+	herein
+
+	    fun meta_tyvar_name (typevar_ref as { id, ref_typevar }: Typevar_Ref)
+		=
+		meta_tyvar_name' (find_or_add (*meta_tyvars, 0))
+                where
+		    fun find_or_add ([], _)
+			    =>
+			    {   meta_tyvars := typevar_ref ! *meta_tyvars;
+			        count := *count+1;
+			        *count;
+                            };
+
+		        find_or_add ({ id, ref_typevar => ref_typevar' } ! rest, k)
+			    =>
+			    ref_typevar == ref_typevar'
+			        ??   *count - k
+			        ::   find_or_add (rest, k+1);
+                    end;
+		end;
+	    #
+	    fun reset_prettyprint_type ()
+		=
+		{   count := -1;
+		    meta_tyvars := [];
+		};
+	end;
+	#
+	fun tv_head (eq, base)		# "tv" for "type variable"
+	    =
+	    (eq  ??  "'"
+		 ::   ""
+            )
+	    +
+	    base;
+	#
+	fun annotate (name, annotation, maybe_fn_nesting)
+	    =
+	    if *internals
+
+		 cat (  name
+			 ! "."
+			 ! annotation
+			 ! case maybe_fn_nesting
+
+				THE fn_nesting =>  ["[ fn_nesting == ", (int::to_string fn_nesting), "]"];
+				NULL           =>  NIL;
+			   esac
+			);
+	    else
+		 name;
+            fi;
+	#
+	fun typevar_ref_printname'  (typevar_ref as { id, ref_typevar })
+	    =
+	    sprint_typevar  *ref_typevar
+            where
+	        fun sprint_typevar  typevar
+		    =
+		    case typevar
+		      
+			 RESOLVED_TYPE_VARIABLE (TYPE_VARIABLE_REF (typevar_ref as { id, ref_typevar }) )
+                             =>
+                             {   my (printname, null_or_type)
+                                     = 
+                                     typevar_ref_printname'  typevar_ref;
+
+				 ( (sprintf "[id%d]" id) + printname,
+				   null_or_type
+				 );
+			     };
+
+			 RESOLVED_TYPE_VARIABLE  type
+                             =>
+                             ( (sprintf "[id%d]" id)  +  "<RESOLVED_TYPE_VARIABLE ?>",
+                               THE type
+                             );
+
+			 META_TYPE_VARIABLE { fn_nesting, eq }
+			     =>
+                             ( (sprintf "[id%d]" id)
+                               +
+			       tv_head (eq, annotate ( meta_tyvar_name typevar_ref,
+						       "META",
+						       THE fn_nesting
+                                       )             ),
+
+                               NULL
+                             );
+
+			 INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }
+			     =>
+                             ( (sprintf "[id%d]" id)
+                               +
+			       tv_head (eq, annotate ( meta_tyvar_name  typevar_ref,
+						       "INCOMPLETE_RECORD",
+						       THE fn_nesting
+                                       )             ),
+
+                               NULL
+                             );
+
+
+			 USER_TYPE_VARIABLE { name, fn_nesting, eq }
+			     =>
+			     ( (sprintf "[id%d]" id)
+			       +
+			       tv_head (eq, annotate (symbol::name name, "USER", THE fn_nesting)),
+
+			       NULL
+			     );
+
+			 LITERAL_TYPE_VARIABLE { kind, ... }
+			     =>
+			     ( (sprintf "[id%d]" id)
+			       +
+			       annotate (literal_kind_printname kind, "LITERAL", NULL),
+
+			       NULL
+			     );
+
+			 OVERLOADED_TYPE_VARIABLE eq
+			     =>
+			     ( (sprintf "[id%d]" id)
+			       +
+			       tv_head (eq, annotate (meta_tyvar_name typevar_ref, "OVERLOADED", NULL)),
+
+			       NULL
+			     );
+
+			 TYPE_VARIABLE_MARK _
+                             =>
+			     ( (sprintf "[id%d]" id)
+			       +
+			       "<TYPE_VARIABLE_MARK ?>",
+
+                               NULL
+                             );
+                    esac;
+	    end;
+
+	#
+	fun typevar_ref_printname  typevar_ref
+	    =
+	    {   my (printname, null_or_type)
+                    =
+                    typevar_ref_printname'  typevar_ref;
+
+                printname;
+            };
+
+
+
+	/*
+	fun ppkind stream kind
+            =
+	    pps stream
+	      (case kind
+		 of PRIMITIVE _ => "PRIMITIVE" | FORMAL => "FORMAL"
+		  | FLEXIBLE_TYPE_CONSTRUCTOR _ => "FLEXIBLE_TYPE_CONSTRUCTOR" | ABSTRACT _ => "ABSTYC"
+		  | DATATYPE _ => "DATATYPE" | TEMP => "TEMP")
+	*/
+	#
+	fun ppkind stream kind
+	    =
+	    pps stream
+	       case kind
+		   PRIMITIVE _                 => "P";
+		   FORMAL                      => "F";
+		   FLEXIBLE_TYPE_CONSTRUCTOR _ => "X";
+		   ABSTRACT _                  => "A";
+		   DATATYPE _                  => "D";
+		   TEMP                        => "T";
+              esac;
+	#
+	fun effective_path (path, type_constructor, symbol_table) : String
+	    =
+	    {   fun type_constructor_path (PRIMITIVE_TYPE_CONSTRUCTOR { path, ... } | DEFINED_TYPE_CONSTRUCTOR { path, ... } | TYPE_CONSTRUCTOR_BY_MODULE_PATH { path, ... } )
+			=>
+			THE path;
+
+		    type_constructor_path _
+			=>
+			NULL;
+                end;
+		#
+		fun find (path, type_constructor)
+		    =
+		    (find_path (path,
+			(fn type_constructor' = ts::type_constructor_equality (type_constructor', type_constructor)),
+			(fn x = find_in_symbol_table::find_type_constructor_via_symbol_path (symbol_table, x,
+						(fn _ = raise exception symbol_table::UNBOUND))))
+                    );
+		#
+		fun search (path, type_constructor)
+		    =
+		    {   my (suffix, found)
+                            =
+                            find (path, type_constructor);
+
+			if found
+			     (suffix, TRUE);
+			else
+			     if   (not *unalias)
+			         
+				  (suffix, FALSE);
+			     else
+				  case (ts::unwrap_definition_1 type_constructor)
+				    
+				       THE type_constructor'
+					   =>
+					   case (type_constructor_path type_constructor')
+					     	
+						THE path'
+						 =>
+						 {   my x as (suffix', found') = search (path', type_constructor');
+
+						      if   found'      x;
+								    else   (suffix, FALSE);fi;
+						 };
+						NULL => (suffix, FALSE);
+					   esac;
+
+				       NULL => (suffix, FALSE);
+                                  esac;
+                             fi;
+                        fi;
+		    };
+
+		my (suffix, found)
+                    =
+                    search (path, type_constructor);
+
+		name =   sp::to_string (sp::SYMBOL_PATH suffix);
+
+		if   found                 name;
+			     else /* "?." + */ name;   fi;	# 2008-01-02 CrT This seems more confusing than helpful, for the moment at least.
+	    };
+
+	arrow_stamp = tt::arrow_stamp;
+	#
+	fun strength  type
+	    =
+	    case type
+	      
+	         TYPE_VARIABLE_REF   { id, ref_typevar => REF (RESOLVED_TYPE_VARIABLE  type') }
+		     =>
+		     strength (type');
+
+	         CONSTRUCTOR_TYPE (type_constructor, args)
+		     =>
+		     case type_constructor
+		       
+			  PRIMITIVE_TYPE_CONSTRUCTOR { stamp, kind => PRIMITIVE _, ... }
+			      =>
+			      if (stamp::eq (stamp, arrow_stamp) ) 0; else 2;fi;
+
+			  RECORD_TYPE_CONSTRUCTOR (_ ! _)   #  excepting type Void
+                              => 
+			      if (tuples::is_tuple_type_constructor  type_constructor)
+                                   1;
+                              else 2;   fi;
+
+			  _   => 2;
+                     esac;
+
+	        _ => 2;
+            esac;
+	#
+	fun prettyprint_eq_prop stream p
+	    =
+	    {   a =    case p
+			   NO            =>  "NO";
+			   YES           =>  "YES";
+			   INDETERMINATE =>  "INDETERMINATE";
+			   CHUNK         =>  "CHUNK";
+			   DATA          =>  "DATA";
+			   EQ_ABSTRACT   =>  "EQ_ABSTRACT";
+			   UNDEF         =>  "UNDEF";
+                       esac;
+
+		pps stream a;
+	    };
+	#
+	fun prettyprint_inverse_path ppstream (inverse_path::INVERSE_PATH inverse_path: inverse_path::Inverse_Path)
+	    = 
+	    pp::string ppstream (symbol_path::to_string (symbol_path::SYMBOL_PATH (reverse inverse_path)));
+	#
+	fun prettyprint_type_constructor' symbol_table stream members_op
+	    =
+	    prettyprint_type_constructor''
+            where
+
+	        my  { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+		#
+		fun prettyprint_type_constructor'' (type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR { path, stamp, eq, kind, ... } )
+			=>
+			if *internals
+
+			     begin_wrap_box 1;
+			     unparse_inverse_path stream path;
+			     pps "[";
+			     pps "GEN_TYP"; ppkind stream kind; pps ";"; 
+			     pps (stamp::to_short_string stamp);
+			     pps ";";
+			     prettyprint_eq_prop stream *eq;
+			     pps "]";
+			     end_box ();
+			else
+			     pps (effective_path (path, type_constructor, symbol_table));
+			fi;
+
+		    prettyprint_type_constructor'' (type_constructor as DEFINED_TYPE_CONSTRUCTOR { path, type_scheme => TYPE_SCHEME { body, ... }, ... } )
+			=>
+			if *internals
+
+			     begin_wrap_box 1;
+			     unparse_inverse_path stream path;
+			     pps "["; pps "DEF_TYP;"; 
+			     prettyprint_type  symbol_table  stream  body;
+			     pps "]";
+			     end_box();
+			else
+			     pps (effective_path (path, type_constructor, symbol_table));
+                        fi;
+
+		    prettyprint_type_constructor'' (RECORD_TYPE_CONSTRUCTOR labels)
+			=>
+                        {
+			    unparse_closed_sequence
+				stream
+
+				{   front=> by pp::string "{ ",
+				    sep  => fn stream =  {   pp::string stream ", "; 
+							     pp::break stream { spaces=>0, indent_on_wrap=>0 };
+							 },
+				    back => by pp::string "}",
+				    style=> INCONSISTENT,
+				    pr   => unparse_symbol
+				}
+
+				labels;
+
+			};
+
+		    prettyprint_type_constructor'' (RECURSIVE_TYPE n)
+			=>
+                        {
+			    case members_op
+			      
+				 THE (members, _)
+				     => 
+				     {   my { type_constructor_name, constructor_list, ... }
+					     =
+					     vector::get (members, n);
+
+				         pps (string::cat ["[[<RECURSIVE_TYPE ", int::to_string n, ">\n"]);
+					 unparse_symbol stream type_constructor_name;
+				         pps (string::cat ["]]<RECURSIVE_TYPE ", int::to_string n, ">\n"]);
+				     };
+
+				 NULL
+				     =>
+				     pps (string::cat ["<RECURSIVE_TYPE ", int::to_string n, ">"]);
+			    esac;
+
+			};
+
+		    prettyprint_type_constructor'' (FREE_TYPE n)
+			=>
+			case members_op
+			  
+			     THE (_, free_type_constructors)
+				 => 
+				 {   type_constructor
+					 =
+					 (   list::nth (free_type_constructors, n)
+					     except _
+						 =
+						 bug "unexpected free_type_constructors in prettyprintTypeConstructor"
+					 );
+
+				      pps (string::cat ["[[<FREE_TYPE ", int::to_string n, ">\n"]);
+				      prettyprint_type_constructor'' type_constructor;
+				      pps (string::cat ["]]<FREE_TYPE ", int::to_string n, ">\n"]);
+				 };
+
+			     NULL
+				 => 
+				 pps (string::cat ["<FREE_TYPE ", int::to_string n, ">"]);
+                        esac;
+
+		    prettyprint_type_constructor'' (type_constructor as TYPE_CONSTRUCTOR_BY_MODULE_PATH { arity, module_path, path } )
+			=>
+			if *internals
+
+                             begin_wrap_box 1;
+			     unparse_inverse_path stream path; pps "[TYPE_CONSTRUCTOR_BY_MODULE_PATH;"; 
+			     pps (module_path::module_path_to_string module_path);
+			     pps "]";
+			     end_box ();
+			else
+                             unparse_inverse_path stream path;
+                        fi;
+
+		    prettyprint_type_constructor'' ERRONEOUS_TYPE_CONSTRUCTOR
+                        =>
+                        pps "[E]";
+                end;
+
+	    end
+
+
+	also
+	fun prettyprint_type'  symbol_table  stream
+            (
+              type:      Type,
+              an_api:      t::Type_Scheme_Arg_Eq_Properties, 
+              members_op:  Null_Or( (Vector( t::Datatype_Member ), List( t::Type_Constructor )) )
+            )
+            : Void
+	    =
+	    prty type
+            where
+
+	        my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, newline }
+                    =
+                    en_pp stream;
+		#
+		fun prty type
+		    =
+		    case type
+		      
+		         TYPE_VARIABLE_REF { id, ref_typevar => REF (RESOLVED_TYPE_VARIABLE type') }
+                             =>
+			     {   pps "TYPE_VARIABLE_REF (REF (RESOLVED_TYPE_VARIABLE:  ";
+                                 prty (type');
+			         pps " :TYPE_VARIABLE_REF (REF (RESOLVED_TYPE_VARIABLE.\n";
+                             };
+
+		         TYPE_VARIABLE_REF  typevar_ref
+                             =>
+			     {   pps "TYPE_VARIABLE_REF: ";
+                                 prettyprint_typevar_ref' typevar_ref;
+			         pps " :TYPE_VARIABLE_REF.\n";
+                             };
+
+		         TYPE_SCHEME_ARG_I n
+			     =>
+			     {   eq =   list::nth (an_api, n) 
+					except
+                                            (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = FALSE;
+
+			         pps "[[TYPE_SCHEME_ARG_I ...\n";
+				 pps (tv_head (eq, (bound_type_variable_name n)));
+			         pps "]]TYPE_SCHEME_ARG_I ...\n";
+			     };
+
+		         CONSTRUCTOR_TYPE (type_constructor, args)
+			     =>
+			     {   fun otherwise ()
+				     =
+				     {   begin_wrap_box 2;
+					 prettyprint_type_constructor' symbol_table stream members_op type_constructor;
+
+                                         case args
+                                           
+                                              [] => ();
+                                              _  => {   pps "[[CONSTRUCTOR_TYPE\n";
+							break { spaces=>0, indent_on_wrap=>0 };
+							prettyprint_type_args args; 
+							pps "]]CONSTRUCTOR_TYPE\n";
+                                                    };
+                                         esac;
+
+					 end_box();
+                                     };
+
+				 case type_constructor
+				   
+				      PRIMITIVE_TYPE_CONSTRUCTOR { stamp, kind, ... }
+					  =>
+					  case kind
+					    
+					       PRIMITIVE _ 
+						   =>
+						   if   (stamp::eq (stamp, arrow_stamp))
+						       
+                                                        case args
+							  
+							     [domain, range]
+                                                                 =>
+							         {   begin_horizontal_else_vertical_box 0;
+
+								     pps "[[CONSTRUCTOR_TYPE PRIMITIVE_TYPE_CONSTRUCTOR PRIMITIVE\n";
+								     if   (strength domain == 0)
+								         
+                                                                          begin_horizontal_else_vertical_box 1;
+									  pps "(";
+									  prty domain;
+									  pps ")";
+									  end_box();
+								     else
+                                                                          prty domain;
+                                                                     fi;
+
+								     break { spaces=>1, indent_on_wrap=>0 };
+								     pps "-> ";
+								     prty range;
+								     pps "]]CONSTRUCTOR_TYPE PRIMITIVE_TYPE_CONSTRUCTOR PRIMITIVE\n";
+								     end_box();
+                                                                 };
+
+							     _   => bug "CONSTRUCTOR_TYPE: arity";
+                                                        esac;
+						   else
+							begin_wrap_box 2;
+							pps "[[CONSTRUCTOR_TYPE PRIMITIVE_TYPE_CONSTRUCTOR non-PRIMITIVE\n";
+							prettyprint_type_constructor'  symbol_table  stream  members_op  type_constructor;
+
+                                                        case args
+                                                          
+                                                             [] => ();
+
+                                                              _ => {   pps "(";
+								       break { spaces=>0, indent_on_wrap=>0 };
+								       prettyprint_type_args args;
+								       pps ")";
+								   };
+                                                        esac;
+
+							pps "]]CONSTRUCTOR_TYPE PRIMITIVE_TYPE_CONSTRUCTOR non-PRIMITIVE\n";
+							end_box();
+                                                   fi;
+
+					       _   => otherwise ();
+                                          esac;
+
+				      RECORD_TYPE_CONSTRUCTOR labels
+					  =>
+					  if   (tuples::is_tuple_type_constructor  type_constructor)
+					       prettyprint_tuplety args;
+					  else prettyprint_recordty (labels, args);  fi;
+
+				      _ => otherwise ();
+                                 esac;
+			     };
+
+		         TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties => an_api,
+					    type_scheme => TYPE_SCHEME { arity, body }
+					  }
+			     => 
+			     {	 pps "[[TYPE_SCHEME_TYPE\n";
+			         prettyprint_type' symbol_table stream (body, an_api, members_op);
+			      	 pps "]]TYPE_SCHEME_TYPE\n";
+                             };
+
+		         WILDCARD_TYPE
+                             =>
+                             pps "_";
+
+		         UNDEFINED_TYPE
+                             =>
+                             pps "undef";
+                    esac
+
+		also
+		fun prettyprint_type_args []
+                        =>
+                        ();
+
+		    prettyprint_type_args [type]
+		        => 
+		        {   if   (strength type <= 1)
+		                
+                                 begin_wrap_box 1;
+			         pps "("; 
+			         prty type; 
+			         pps ")";
+			         end_box();
+		            else
+                                 prty type;
+                            fi;
+
+		            break { spaces=>0, indent_on_wrap=>0 };
+                        };
+
+		    prettyprint_type_args tys
+			=>
+			unparse_closed_sequence
+			    stream 
+			    {   front =>  by pp::string "(",
+				sep   =>  fn stream =  {   pp::string stream ", ";
+					                   pp::break stream { spaces=>0, indent_on_wrap=>0 };
+                                                       },
+				back  =>  by pp::string ")",
+				style =>  INCONSISTENT, 
+				pr    =>  fn _ =  fn type =  prty type
+			    }
+			    tys;
+                end 
+
+		also
+		fun prettyprint_tuplety []
+                        =>
+                        pps (effective_path (unit_path, RECORD_TYPE_CONSTRUCTOR [], symbol_table));
+
+		    prettyprint_tuplety tys
+			=>
+                        {   pps "(";
+
+			    unparse_sequence
+			       stream
+			       {   sep   => fn stream =  {   pp::string stream ",";	# Was "* "
+							     pp::break stream { spaces=>1, indent_on_wrap=>0 };
+							 },
+				   style => INCONSISTENT,
+				   pr    => (fn _ =  fn type = if   (strength type <= 1)
+								      begin_wrap_box 1;
+								      pps "(";
+								      prty type; 
+								      pps ")";
+								      end_box ();
+								 else
+								      prty type;
+								 fi
+					   )
+			       }
+			       tys;
+
+			       pps ")";
+		        };
+                end 
+
+		also
+		fun prettyprint_field (lab, type)
+		    =
+		    {   begin_horizontal_else_vertical_box 0;
+			unparse_symbol stream lab; 
+			pps ":";
+			prty type;
+			end_box ();
+		    }
+
+		also
+		fun prettyprint_recordty ([],[])
+			=>
+			pps (effective_path (unit_path, RECORD_TYPE_CONSTRUCTOR [], symbol_table));
+			  #  this case should not occur 
+
+		    prettyprint_recordty (lab ! labels, arg ! args)
+			=>
+			{   begin_wrap_box 1;
+			    pps "{ ";
+			    prettyprint_field (lab, arg);
+
+			    paired_lists::apply 
+				(fn field'
+				    =
+				    {   pps ", ";
+					break { spaces=>1, indent_on_wrap=>0 };
+					prettyprint_field field';
+				    }
+				)
+				(labels, args);
+
+			    pps "}";
+			    end_box ();
+			};
+
+		    prettyprint_recordty _
+			=>
+			bug "prettyprint_type_constructor::prettyprintRECORDty";
+                end 
+
+		also
+		fun prettyprint_typevar_ref' (typevar_ref as { id, ref_typevar => REF typevar }: Typevar_Ref): Void
+		    =
+		    {   printname =   typevar_ref_printname typevar_ref;
+
+			case typevar
+			  
+
+			     INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }
+				 =>
+				 case known_fields
+
+				      []  =>
+					  {   pps "{ ";
+					      pps printname;
+					      pps "}";
+					  };
+
+				      field' ! fields
+					  =>
+					  {   begin_wrap_box 1;
+					      pps "{ ";
+					      prettyprint_field field';
+					      apply (fn x =  {   pps ", ";
+								 break { spaces=>0, indent_on_wrap=>0 };
+								 prettyprint_field x;
+							     }
+						    )
+						   fields;
+					      pps ";";
+					      break { spaces=>1, indent_on_wrap=>0 };
+					      pps printname;
+					      pps "}";
+					      end_box ();
+					  };
+				 esac;
+
+			     _  => pps printname;
+
+                        esac;
+		    };
+	    end				# where (fun prettyprint_type')
+
+	also
+	fun prettyprint_type
+            (symbol_table: symbol_table::Symbol_Table)
+            stream
+            (type: Type)
+            :
+            Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		prettyprint_type' symbol_table stream (type,[], NULL);
+		pp::end_box stream;
+	    };
+
+	#
+	fun prettyprint_typevar_ref
+                (symbol_table:  symbol_table::Symbol_Table)
+                (stream:        prettyprint::Stream )
+                (typevar_ref:   types::Typevar_Ref)
+            :
+            Void
+	    =
+	    {   my (printname, null_or_type)
+                    =
+                    typevar_ref_printname'  typevar_ref;
+
+	        my  { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+
+		begin_wrap_box 1;
+		pps " typevar_ref: ";
+		pps printname;
+                case null_or_type
+                     NULL       => ();
+                     THE type => {
+		                       pps " == ";
+                                       prettyprint_type  symbol_table  stream  type;
+                                   };
+                esac;
+		end_box ();
+
+            };
+
+	#
+	fun prettyprint_enum_constructor_domain members (symbol_table: symbol_table::Symbol_Table) stream (type:  Type)
+	    : Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		prettyprint_type' symbol_table stream (type,[], THE members);
+		pp::end_box stream;
+	    };
+
+	#
+	fun prettyprint_type_constructor  symbol_table stream      type_constructor
+	    =
+	    prettyprint_type_constructor' symbol_table stream NULL type_constructor;
+
+	#
+	fun prettyprint_type_scheme symbol_table stream (TYPE_SCHEME { arity, body } )
+	    =
+	    {   my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+
+		begin_wrap_box 2;
+		pps "TYPE_SCHEME( { arity="; 
+		unparse_int stream arity;   unparse_comma stream;
+		break { spaces=>0, indent_on_wrap=>0 };
+		pps "body="; 
+		prettyprint_type  symbol_table  stream  body; 
+		pps "} )";
+		end_box();
+	    };
+	#
+	fun prettyprint_formals  stream
+	    =
+	    prettyprint_f
+            where
+	        fun prettyprint_f 0 =>  ();
+		    prettyprint_f 1 =>  pps stream "(X)";			# 2008-01-03 CrT: Was " 'a"
+
+		    prettyprint_f n
+                        =>
+			unparse_tuple
+			    stream
+			    (fn stream =  fn s =  pps stream s)		# 2008-01-03 CrT: Was ("'" + s)
+			    (type_formals n);
+                end;
+	    end;
+
+	#
+	fun prettyprint_enum_constructor_types symbol_table stream (PRIMITIVE_TYPE_CONSTRUCTOR { kind => DATATYPE dt, ... } )
+		=>
+		{   my { index, free_type_constructors, family=> { members, ... }, ... }
+			=
+			dt;
+
+		    my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+			=
+			en_pp stream;
+
+		    my { constructor_list, ... }
+			=
+			vector::get (members, index);
+
+		    begin_horizontal_else_vertical_box 0;
+
+		    apply
+                        (fn { name, domain, ... }
+                            =
+			    {   pps (symbol::name name);
+                                pps ":";
+
+			        case domain
+			          
+			             THE type
+                                         =>
+				         prettyprint_type'
+                                             symbol_table
+                                             stream
+                                             (type,[], THE (members, free_type_constructors));
+
+				     NULL
+                                         =>
+                                         pps "CONST";
+                                esac;
+
+			        break { spaces=>1, indent_on_wrap=>0 };
+                            }
+			)
+			constructor_list;
+
+		    end_box ();
+		};
+
+	    prettyprint_enum_constructor_types symbol_table stream _
+		=>
+		bug "prettyprint_enum_constructor_types";
+       end;
+
+    end;	#  toplevel "stipulate"
+
+};		#  package prettyprint_type 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1991 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,463 @@
+## translate-type-variable.pkg -- 
+# converting between different representations of 
+# type variables in a highcode program.
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+api Translate_Type_Variable {
+
+    deb_index2names:  anormal::Program -> anormal::Program;
+    names2deb_index:  anormal::Program -> anormal::Program;
+};
+
+
+package translate_type_variable:  Translate_Type_Variable {			# Translate_Type_Variable	is from   src/lib/compiler/backend/upper/anormal/translate-type-variable.pkg
+
+    # Local abbreviations:
+    #
+    package f  =  anormal;							# anormal			is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+    package di =  debruijn_index;						# debruijn_index		is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+    package lt =  highcode;							# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+    package lk =  highcode_guts;						# highcode_guts			is from   src/lib/compiler/backend/upper/highcode/highcode-guts.pkg
+
+    # `debIndex2names' converts all variables bound by the
+    # term-language TYPE_FN (capital lambda) construct into named
+    # variables.  This is primarily to experiment with the cost of
+    # named variables, should we introduce them during translate or
+    # other phases.
+    #
+    deb_index2names
+        =
+        {   fun extend_dictionary dictionary d _ tvtks
+		=
+		{   fun tvtk2type_constructor (tvar, _)
+                        =
+                        lt::tcc_nvar tvar;
+
+		    lk::insert_type_constructor (dictionary, (THE (map tvtk2type_constructor tvtks), 0));
+		};
+
+
+	    fun convert_expression dictionary d
+		=
+		{   fun tc_subst type_constructor
+                        =
+                        lk::type_constructor_closure_dictionary (type_constructor, d, d, dictionary);
+
+
+		    fun lt_subst lambda_type
+                        =
+                        lk::lambda_type_closure_dictionary (lambda_type, d, d, dictionary);
+
+
+		    fun convert_con (f::DATACON ((symbol, cr, lambda_type), ts, lv))
+                            =>
+			    f::DATACON ((symbol, cr, lt_subst lambda_type),
+				   map tc_subst ts, lv);
+
+		        convert_con c
+                            =>
+                            c;
+                    end;
+
+
+		    fun convert_dictionary { default, table }
+                        =
+			{   fun f (ts, lv)
+                                =
+                                ((map tc_subst ts), lv);
+
+			    { default,
+			      table => map f table
+			    } : f::Dictionary;
+			};
+
+
+		    fun convert_primop (dictionary_opt, po, lambda_type, tycs)
+                        =
+			( null_or::map convert_dictionary dictionary_opt,
+			  po,
+			  lt_subst lambda_type,
+			  map tc_subst tycs
+			)
+                        : f::Primitive_Operation;
+
+
+		    fun r expression
+                        = 
+			case expression
+                          
+			   f::RET _ => expression;              #  no processing required 
+
+			   f::LET (lvs, e1, e2)      		#  recursion only 
+			       =>
+			       f::LET (lvs, r e1, r e2);
+
+			   f::MUTUALLY_RECURSIVE_FNS (fundecs, e)        		#  recursion only 
+			       =>
+			       f::MUTUALLY_RECURSIVE_FNS (map (convert_fundec dictionary d) fundecs,
+				      r e);
+
+			   f::APPLY _
+                               =>
+                               expression;              	#  no processing required 
+
+			   f::TYPE_FN ((tfk, v, tvtks, e1), e2)
+			       => 
+			       f::TYPE_FN ((tfk, v, tvtks, 
+				       convert_expression (extend_dictionary dictionary d 0 tvtks) (di::next d) e1),
+				      r e2);
+
+			   f::TYPE_APPLY (v, ts)            		#  subst ts 
+			       =>
+			       f::TYPE_APPLY (v, map tc_subst ts);
+
+			   f::SWITCH (v, cs, conlexps, lexp_o)
+			       => 
+			       f::SWITCH (v, cs,
+					 (map (fn (con, lambda_expression) = (convert_con con, r lambda_expression)) 
+					      conlexps),
+					 null_or::map r lexp_o);
+
+			   f::CONSTRUCTOR ((symbol, cr, lambda_type), ts, v, lv, e)
+			       => 
+			       f::CONSTRUCTOR ((symbol, cr, lt_subst lambda_type),
+				      map tc_subst ts,
+				      v, lv, r e);
+
+			   f::RECORD (rk, vs, lv, e)
+			       => 
+			       f::RECORD
+                                 ( case rk    
+				       f::RK_VECTOR t => 
+				       f::RK_VECTOR (tc_subst t);
+				      _ => rk;
+                                   esac,
+				   vs, lv, r e
+                                 );
+
+			   f::SELECT (v, i, lv, e)
+			       =>
+			       f::SELECT (v, i, lv, r e);
+
+			   f::RAISE (v, ltys)
+			       => 
+			       f::RAISE (v, map lt_subst ltys);
+
+			   f::EXCEPT (e, v)
+			       => 
+			       f::EXCEPT (r e, v);
+
+			   f::BRANCH (po, vs, e1, e2)
+			       =>
+			       f::BRANCH (convert_primop po, 
+					 vs, r e1, r e2);
+
+			   f::PRIMOP (po, vs, lv, e)
+			       => 
+			       f::PRIMOP (convert_primop po,
+					 vs, lv, r e);
+                    esac;
+
+		    r;
+		}                    # fun convert_expression
+
+	    also
+	    fun convert_fundec dictionary d (fkind, lambda_variable, lvlts, e)
+		=
+		{   fun tc_subst type_constructor
+                        =
+                        lk::type_constructor_closure_dictionary (type_constructor, d, d, dictionary);
+
+
+		    fun lt_subst lambda_type
+                        =
+                        lk::lambda_type_closure_dictionary (lambda_type, d, d, dictionary);
+
+
+		    fun convert_fkind
+                        { is_recursive => THE (ltys, lk),
+			  calling_convention,
+			  all_call_sites_known,
+			  inlining_hint
+			}
+			    =>
+			    { is_recursive => THE (map lt_subst ltys, lk),
+			      calling_convention,
+			      all_call_sites_known,
+			      inlining_hint
+			    };
+
+		        convert_fkind fk
+                            =>
+                            fk;
+                    end;
+
+
+		    fun convert_lv_lt (lambda_variable, lambda_type)
+                        =
+                        (lambda_variable, lt_subst lambda_type);
+
+		    ( convert_fkind fkind, 
+		      lambda_variable,
+		      map convert_lv_lt lvlts,
+		      convert_expression dictionary d e
+		    )
+                    : f::Function_Declaration;
+		};					# fun convert_fundec 
+
+	    convert_fundec  lk::init_type_constructor_dictionary  di::top;
+	};
+
+
+
+    # `names2deb_index' removes all named variables (`TC_NAMED_VAR')
+    # from a highcode program, replacing them with deBruijn-indexed
+    # variables.  It expects, of course, that named variables are
+    # only bound by the term-language TYPE_FN (capital lambda), and not
+    # by the FNTYPE_POLYMORPHIC (forall) or TC_FN (lowercase lambda)
+    # in the  type language:
+    #
+    fun names2deb_index_fn ()
+	=
+	convert_fundec  int_red_black_map::empty  di::top
+	where
+	    fun extend_dictionary dictionary d i []
+                    =>
+                    dictionary;
+
+	        extend_dictionary dictionary d i ((tv, _) ! tvtks)
+		    =>
+		    extend_dictionary (int_red_black_map::set (dictionary, tv, (d, i)))
+			      d (i+1) tvtks;
+            end;
+
+
+	    fun query_dictionary dictionary (tvar, current_depth)
+                = 
+	        case (int_red_black_map::get (dictionary, tvar))
+		  
+		     THE (definition_depth, i)
+			 =>
+			 THE (lt::tcc_var (di::subtract (current_depth, definition_depth), i));
+
+		     NULL=>
+                         NULL;
+                esac;
+
+
+	    tc_nvar_elim =  lt::tc_nvar_elim_fn ();
+	    lt_nvar_elim =  lt::lt_nvar_elim_fn ();
+
+
+	    fun convert_expression dictionary d
+		=
+		r
+                where
+		    q = query_dictionary dictionary;
+
+		    # Make a new subst dictionary on each invocation.
+		    # Clean this up later.
+
+		    tc_subst =  tc_nvar_elim  q  d;
+		    lt_subst =  lt_nvar_elim  q  d;
+
+
+		    fun convert_con (f::DATACON ((symbol, cr, lambda_type), ts, lv))
+			    =>
+			    f::DATACON ((symbol, cr, lt_subst lambda_type),
+				       map tc_subst ts, lv);
+
+		        convert_con c
+                            =>
+                            c;
+                    end;
+
+
+		    fun convert_dictionary { default, table }
+			=
+			{   fun f (ts, lv)
+                                =
+                                ((map tc_subst ts), lv);
+
+			    { default,
+			      table => map f table
+			    }
+                            : f::Dictionary;
+			};				# fun convert_dictionary 
+
+
+		    fun convert_primop (dictionary_opt, po, lambda_type, tycs)
+                        =
+			( null_or::map convert_dictionary dictionary_opt,
+			  po,
+			  lt_subst lambda_type,
+			  map tc_subst tycs
+			)
+                        : f::Primitive_Operation;
+
+
+		    fun r expression                 #  Default recursive invocation 
+                        =
+			case expression
+                          
+			   f::RET _
+                               =>
+                               expression;              #  no processing required 
+
+			   f::LET (lvs, e1, e2)       #  recursion only 
+				=>
+				f::LET (lvs, r e1, r e2);
+
+			   f::MUTUALLY_RECURSIVE_FNS (fundecs, e)        #  recursion only 
+                                =>
+			        f::MUTUALLY_RECURSIVE_FNS
+                                  ( map (convert_fundec dictionary d) fundecs,
+				    r e
+                                  );
+
+			   f::APPLY _
+                               =>
+                               expression;              #  no processing required 
+
+			   f::TYPE_FN ((tfk, v, tvtks, e1), e2)
+			       => 
+			       f::TYPE_FN ((tfk, v, tvtks, 
+				       convert_expression (extend_dictionary dictionary d 0 tvtks) (di::next d) e1),
+				      r e2);
+
+			   f::TYPE_APPLY (v, ts)           #  subst ts
+			       => 
+			       f::TYPE_APPLY (v, map tc_subst ts);
+
+			   f::SWITCH (v, cs, conlexps, lexp_o)
+			       => 
+			       f::SWITCH
+                                 ( v,
+                                   cs,
+				   map (fn (con, lambda_expression) =  (convert_con con, r lambda_expression)) 
+				       conlexps,
+				   null_or::map r lexp_o
+                                 );
+
+			   f::CONSTRUCTOR ((symbol, cr, lambda_type), ts, v, lv, e)
+			       => 
+			       f::CONSTRUCTOR ((symbol, cr, lt_subst lambda_type),
+				      map tc_subst ts,
+				      v, lv, r e);
+
+			   f::RECORD (rk, vs, lv, e)
+			       => 
+			       f::RECORD
+                                 ( case rk    
+				       f::RK_VECTOR t => f::RK_VECTOR (tc_subst t);
+				       _ => rk;
+                                   esac,
+				   vs,
+                                   lv,
+                                   r e
+                                 );
+
+			   f::SELECT (v, i, lv, e)
+			       =>
+			       f::SELECT (v, i, lv, r e);
+
+			   f::RAISE (v, ltys)
+			       => 
+			       f::RAISE (v, map lt_subst ltys);
+
+			   f::EXCEPT (e, v)
+			       => 
+			       f::EXCEPT (r e, v);
+
+			   f::BRANCH (po, vs, e1, e2)
+			       =>
+			       f::BRANCH (convert_primop po, 
+					 vs, r e1, r e2);
+
+			   f::PRIMOP (po, vs, lv, e)
+			       => 
+			       f::PRIMOP (convert_primop po,
+					 vs, lv, r e);
+
+                    esac;		# fun r
+
+		end			# where (fun convert_expression)
+
+	    also
+	    fun convert_fundec dictionary d (fkind, lambda_variable, lvlts, e)
+		=
+		{   q = query_dictionary dictionary;
+
+		    # Make a new substitution dictionary on each invocation.
+		    # We'll clean this up later.  XXX BUGGO FXIME
+
+		    tc_subst =  tc_nvar_elim  q  d;
+		    lt_subst =  lt_nvar_elim  q  d;
+
+
+		    fun convert_fkind
+                            { is_recursive => THE (ltys, lk),
+			      calling_convention,
+			      all_call_sites_known,
+			      inlining_hint
+                            }
+			    =>
+			    {  is_recursive => THE (map lt_subst ltys, lk),
+			       calling_convention,
+			       all_call_sites_known,
+			       inlining_hint
+			    };
+
+		        convert_fkind fk
+                            =>
+                            fk;
+                    end;
+
+
+		    fun convert_lv_lt (lambda_variable, lambda_type)
+                        =
+                        (lambda_variable, lt_subst lambda_type);
+
+		    ( convert_fkind fkind, 
+		      lambda_variable,
+		      map convert_lv_lt lvlts,
+		      convert_expression dictionary d e
+		    )
+                    : f::Function_Declaration;
+
+		};	# fun convert_fundec
+
+	end;								# fun names2deb_index_fn
+
+
+    # Generate tables once per invocation 
+    # ie, once per compilation unit.
+    #
+    fun names2deb_index  program
+        =
+        names2deb_index_fn () program;
+
+};					#  translate_type_variable 
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

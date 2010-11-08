@@ -1,0 +1,193 @@
+
+# This is a collection of program transformations on ffi functions. 
+
+local 
+   package ca = Ast      #  CKit 
+   package cb = Namings #  CKit 
+   use ffi_packager 
+in
+api Ffi_Transforms =
+api
+
+   # ------------------------------------------------------------------------
+   # 
+   # The following combinators are used to specify 
+   # transformations on ffi functions.
+   #
+   # ------------------------------------------------------------------------
+   enum obj = OBJ of { id: Ast::id, cid: Ast::id }
+   enum type = TYP of { ty: Ast::ty, cty: ca::ctype, mode: ffi_mode }
+
+   exception Skip
+
+   #  A type conversion 
+   type convert( X )   = ffi_g * tr::state -> X -> X * List( Ast::decl ) * List( Ast::decl )
+   type item = obj * type
+   type cvt1 = convert( item )
+   type cvt2 = convert (item * item) 
+
+   #  A condition 
+   type cond( X ) = ffi_g -> X -> Bool
+   type cond1   = cond( item )
+   type cond2   = cond( item * item )
+
+   #  Conditions on functions 
+   my FunNameP:      (Ast::id -> Bool) -> cond1
+   my FunCnameP:     (Ast::id -> Bool) -> cond1
+   my FunNameIs:     Ast::id -> cond1
+   my FunCnameIs:    Ast::id -> cond1
+
+   #  Conditions on parameters 
+   my TyP:           (Ast::ty -> Bool) -> cond1
+   my NameP:         (Ast::id -> Bool) -> cond1
+   my CnameP:        (Ast::id -> Bool) -> cond1
+   my CtyP:          (ca::ctype -> Bool) -> cond1
+   my ParamIsIn:     cond1
+   my ParamIsOut:    cond1
+   my ParamIsPtr:    cond1
+   my FirstArg:      Int -> cond1
+   my LastArg:       Int -> cond1
+   my Args:          List( Int ) -> cond1
+
+   my TyIs:          String -> cond1
+   my NameIs:        String -> cond1
+   my CnameIs:       String -> cond1
+   my CtyIs:         String -> cond1
+
+   my FunNameMatches:   re::regexp -> cond1
+   my FunCnameMatches:  re::regexp -> cond1
+   my TyMatches:        re::regexp -> cond1
+   my NameMatches:      re::regexp -> cond1
+   my CnameMatches:     re::regexp -> cond1
+   my CtyMatches:       re::regexp -> cond1
+
+   #  Combinators 
+   my Cond2:  cond( X ) * cond( Y ) -> cond( X * Y )
+   my Yes:   cond(  X ) 
+   my No:    cond(  X ) 
+   my &&   : cond( X ) * cond( X ) -> cond( X )
+   my ||   : cond( X ) * cond( X ) -> cond( X )
+   my Not:   cond( X ) -> cond( X )
+   my Then:  convert( X ) * convert( X ) -> convert( X )
+   my If:    cond( X ) -> convert( X ) -> convert( X )
+   my Do:    List( convert( X ) ) -> convert( X )
+   my ForeachParam:   cvt1 -> tr::transform
+   my ForeachIn:      cvt1 -> tr::transform
+   my ForeachOut:     cvt1 -> tr::transform
+   my ForeachParam2:  cvt2 -> tr::transform
+   my ForeachIn2:     cvt2 -> tr::transform
+   my ForeachOut2:    cvt2 -> tr::transform
+
+
+      #  This conversion does nothing
+
+   my None:  convert( X )
+
+      # These conversions convert a pointer argument/return value from
+      #   C uchar_obj ptr' to an ml string
+
+   my StringArg:  cvt1
+   my StringRet:  cvt1
+   my FastStringArg:  cvt1
+
+      # This conversion convert a C uchar_obj ptr' into a "shared"
+      # ml string.  This means no copying is involved but could be 
+      # potentially unsafe.
+
+   my SharedStringRet:  cvt1
+
+      # These conversions convert an mlrep::XXX argument/return value 
+      # into ml type bool.
+
+   my BoolArg:  cvt1
+   my BoolRet:  cvt1
+
+      # These conversions convert an mlrep::XXX argument/return value 
+      # into ml type char.
+
+   my CharArg:  cvt1
+   my CharRet:  cvt1
+
+      # These conversions convert an mlrep::XXX argument/return value 
+      # into signed and/or unsigned.
+
+   my SignedArg:    cvt1
+   my UnsignedArg:  cvt1
+   my SignedRet:    cvt1
+   my UnsignedRet:  cvt1
+
+      # These conversions convert an enum type that the ML side sees
+      # into mlrep::SInt::int.  
+
+   my EnumArg:   cvt1
+   my EnumRet:   cvt1
+   my Enum:      cvt1
+
+      # This conversion converts an input pointer parameter 
+      # from call by reference to call by value.  
+      # After converting to call-by-value,
+      # apply the supplied conversion.
+
+   my CallByValue:  cvt1 -> cvt1 
+   my FastCallByValue:  cvt1 -> cvt1 
+
+      # These conversions convert a pointer argument/return from
+      #   (X,C) ptr' to 
+      #   (X,C) ptr' Null_Or
+      # i.e., it treats Ptr::null' as NULL
+      # When triggered, apply the supplied conversion.
+
+   my OptPtrArg:   cvt1 -> cvt1   #  ptr' 
+   my OptPtrRet:   cvt1 -> cvt1
+   my OptFptrArg:  cvt1 -> cvt1   #  fptr' 
+   my OptFptrRet:  cvt1 -> cvt1
+
+      # These conversions inserts non-null tests to pointer types.
+      # When the pointer is null, it raises an exception.   
+      # The supplied function is of the form:
+      #   (function name * argument name -> exception to raise)
+      # The type of the argument/return value is unchanged.
+      # NOTE: it is up to the user to make sure the argument it
+      #       tests is actually a pointer.
+      # When triggered, apply the supplied conversion.
+
+   my NonNullPtrArg:  (Ast::id * Ast::id -> Ast::exp) -> cvt1 -> cvt1
+   my NonNullPtrRet:  (Ast::id * Ast::id -> Ast::exp) -> cvt1 -> cvt1
+
+      # These conversions take a pointer to package type and flatten it
+      # into a tuple or a record.  Apply the supplied conversion on all
+      # elements.
+
+   my TupleStructPtrArg:  cvt1 -> cvt1
+   my TupleStructPtrRet:  cvt1 -> cvt1
+   my RecordStructPtrArg:  cvt1 -> cvt1
+   my RecordStructPtrRet:  cvt1 -> cvt1
+
+      # These conversions take a pointer type and treat it as a fixed length
+      # tuple parameter.  Apply the supplied conversion on all elements.
+      # NOTE: FixedTupleRet is changes call-by-reference to call-by-value.
+
+   my FixedTupleArg:  cvt1 -> Int -> cvt1 
+   my FixedTupleRet:  cvt1 -> Int -> cvt1 
+   my FastFixedTupleArg:  cvt1 -> Int -> cvt1 
+   my FastFixedTupleRet:  cvt1 -> Int -> cvt1 
+
+      # These conversions converts two input C parameters of the form
+      #   array:          ptr'(T,C),
+      #   len:           mlrep.{ Signed, Unsigned }.{ int, word }
+      # into a single ML (list, rw_vector or vector) argument
+      # When triggered, apply the supplied conversion on all elements. 
+
+   my ListArg:  cvt1 -> cvt2
+   my ArrayArg:  cvt1 -> cvt2
+   my VectorArg:  cvt1 -> cvt2
+
+       # These conversions expect the arguments in the opposite order: 
+       # len first/rw_vector second 
+
+   my ListArg' : cvt1 -> cvt2
+   my ArrayArg' : cvt1 -> cvt2
+   my VectorArg' : cvt1 -> cvt2
+
+end
+end

@@ -1,0 +1,716 @@
+## region.pkg
+
+# Compiled by:
+#     src/lib/x-kit/draw/xkit-draw.make6
+
+# Code for maintaining regions.
+#
+# The interface and algorithms are roughly based on those
+# found in the sample X library.
+#
+# Regions correspond to sets of points. 
+# Regions are implemented as YX banded lists of rectangles.
+# Specifically, a region is a list of bands listed by increasing y 
+# coordinates. A band is a list of rectangles listed by increasing x
+# coordinates. Within a band, the rectangles are non-contiguous
+# and all have the same upper and lower y coordinate. In addition,
+# the vertical intervals determined by two bands are disjoint.
+# (Note that if a band has upper and lower limits y1 and y2, this
+# corresponds to the half-open interval [y1, y2).)
+#
+# Thus, in a region, the rectangles lie in non-overlapping
+# bands. Within a band, the rectangles are as wide as possible.
+# Some effort is also taken to coalesce compatible bands, i.e.,
+# those that have the same x intervals and whose y intervals abut.
+
+
+package region: (weak)  Region {	# Region	is from   src/lib/x-kit/draw/region.api
+
+    package xg =  xgeometry;		# xgeometry	is from   src/lib/std/2d/xgeometry.pkg
+
+    min = int::min;
+    max = int::max;
+
+    fun impossible msg
+        =
+        raise exception lib_base::IMPOSSIBLE ("region" + msg);
+
+    include box2;			# box2		is from   src/lib/x-kit/draw/box2.pkg
+    include band;			# band		is from   src/lib/x-kit/draw/band.pkg
+    include scan_convert;		# scan_convrt	is from   src/lib/x-kit/draw/scan-convert.pkg
+
+    Region
+        =
+        REGION
+          {
+            num_boxes:  Int,
+            bands:      List( Band ),
+            extents:    Box
+          };
+
+    empty
+        =
+        REGION
+	  {
+	    num_boxes => 0,
+	    extents   => zero_box,
+	    bands     => []
+	  };
+
+
+    fun boxes_of (REGION { bands, ... } )
+        =
+        fold_right boxes_of_band [] bands;
+
+
+    # Calculate the bounding box of a region:
+    # 
+    fun set_extents (REGION { num_boxes, bands => [], ... } )
+            => 
+            REGION { num_boxes => 0, bands => [], extents => zero_box };
+
+        set_extents (REGION { num_boxes,
+                       bands => bands as ((b as BAND { y1, y2, ... } ) ! rs), ... } )
+	    =>
+	    {   my (x1, x2)
+		    =
+		    band_extent b;
+
+		fun bnds ([b as BAND { y2, ... } ], l, r)
+			=>
+			{   my (x1, x2) =   band_extent b;
+
+			    BOX { x1=>min (x1, l), y1, x2=>min (x2, r), y2 };
+			};
+
+		    bnds (b ! rs, l, r)
+			=> 
+			{   my (x1, x2) =   band_extent b;
+
+			   bnds (rs, min (x1, l), max (x2, r));
+			};
+
+		   bnds _ => impossible "set_extents";
+                end;
+
+		case rs    
+
+		    [] => REGION { num_boxes, bands,
+			           extents=> BOX { x1, y1, x2, y2 }
+                                 };
+
+		    _  => REGION { num_boxes, bands,
+			           extents=> bnds (rs, x1, x2)
+                                 };
+                esac;
+	    };
+    end;
+
+
+    fun clip_box (REGION { extents => BOX { x1, y1, x2, y2 }, ... } )
+        =
+        xg::BOX { col => x1, row => y2, wide => x2 - x1, high => y2 - y1 };
+
+
+    fun poly_region arg
+        =
+        {   include xgeometry;		# xgeometry	is from   src/lib/std/2d/xgeometry.pkg
+
+	    fun coalesce (b' as BAND { y2, ... }, n', b as BAND { y1, ... } )
+                =
+		if (y1 == y2 and n' == size_of b) 
+		     band::coalesce { upper=>b', lower=>b };
+                else
+                     NULL;
+                fi;
+
+	    fun skip (ps as (POINT { col=>x, row=>y } ! POINT { col=>x', ... } ! pts))
+                    => 
+		    if (x == x') skip pts;
+                    else         ps;
+                    fi;
+
+	        skip ps => ps;
+            end;
+
+	    # Assume at least two points and the first two satisfy x1 < x2.
+	    # This guarantees the band in non-empty.
+	    #
+	    fun get_band (POINT { col=>x2, row=>y2 } ! POINT { col=>x1, row=>y1 } ! ps)
+		    =>
+		    loop (ps, x1,[(x1, x2)], 1)
+                    where 
+		        fun loop ([], x1, xs, n)
+				=>
+				([], n, x1, x2, BAND { y1, y2=>y2+1, xs } );
+
+			    loop (ps as (POINT { col=>x, row=>y } ! POINT { col=>x', row=>y' } ! pts), x1, xs, n)
+				=>
+				if (y' == y1)
+				    #
+				    if (x == x')
+					#
+					loop (pts, x1, xs, n); 
+				    else
+					case xs
+					     (l, r) ! xs'
+						 =>
+						 if (x >= l)  loop (pts, x', (x', r) ! xs', n);
+						 else         loop (pts, x', (x', x) ! xs, n+1);
+						 fi;
+					    _ => impossible "polygonRegion::getBand::loop";
+				       esac;
+				    fi;
+				else
+				    (skip ps, n, x1, x2, BAND { y1, y2=>y2+1, xs } );
+                                fi;
+
+			   loop _
+				=>
+				impossible "polygonRegion: odd number of points";
+                        end;
+		    end;
+
+	       get_band _
+                    =>
+                    impossible "polygonRegion::getBand";
+            end;
+
+
+	    fun poly ([], n, x1, x2, bands)
+                    =>
+                    (n, x1, x2, bands);
+
+	        poly (pts, _, _, _,[])
+		    =>
+		    {   my (pts', n, x1, x2, b)
+                            =
+                            get_band pts;
+
+		        poly (pts', n, x1, x2,[b]);
+                    };
+
+	        poly (pts, n, x1, x2, bs as b ! rb)
+                    =>
+                    {   my (pts', dn, x1', x2', b')
+                            =
+                            get_band pts;
+
+		        my (bs', n')
+                            =
+                            case (coalesce (b', dn, b))
+				#
+				THE b'' => (b'' ! rb, n);
+				NULL    => (b' ! bs, n+dn); 
+                            esac;
+
+		        poly (pts', n', min (x1, x1'), max (x2, x2'), bs');
+                    };
+            end;
+
+	    my (num_boxes, x1, x2, bands)
+		=
+		poly (skip (scan_convert arg), 0, 0, 0,[]);
+
+	    if (num_boxes == 0)
+		 empty;
+	    else
+		 REGION
+                   {
+		     num_boxes,
+		     bands,
+		     extents => box2::BOX { x1, y1=> y1of (head       bands),
+				            x2, y2=> y2of (list::last bands)
+				          }
+		   };
+	    fi;
+        };					# fun poly_region
+
+    # Create a rectangular region
+    # given two opposing corners. 
+    #
+    fun box_r (ax, cx, ay, cy)
+        =
+        {   x1 = min (ax, cx);
+	    y1 = min (ay, cy);
+	    x2 = max (ax, cx);
+	    y2 = max (ay, cy);
+
+            if (x1 == x2  or
+                y1 == y2
+            )
+                empty;
+            else
+		REGION {
+		    num_boxes=>1,
+		    extents =>   BOX { x1, y1, x2, y2 },
+		    bands   => [ BAND { y1, y2, xs => [(x1, x2)] } ]
+		};
+            fi;
+        };
+
+    # If the points correspond to a rectangle,
+    # create the rectangular region.
+    # Else return NULL.
+    #
+    fun box_region ( xg::POINT { col=>ax, row=>ay }, xg::POINT { col=>bx, row=>by },
+                     xg::POINT { col=>cx, row=>cy }, xg::POINT { col=>dx, row=>dy }
+                   )
+        = 
+        if   ((ay == by and bx == cx and cy == dy and dx == ax)  or
+              (ax == bx and by == cy and cx == dx and dy == ay)
+             ) 
+             THE (box_r (ax, cx, ay, cy));
+        else NULL;
+        fi;
+
+    # Create a region from a rectangle. 
+    # If the rectangle is degenerate, returns empty.
+    # Canonicalizes the rectangle, so this works even
+    # for negative width and height.
+    #
+    fun box (xg::BOX { col=>x, row=>y, wide, high } )
+        = 
+        box_r (x, x+wide, y, y+high);
+
+    # Create a region given a list of points describing a
+    # polygon and a fill rule. Try to catch the simple case
+    # of rectangles.
+    #
+    fun polygon (arg as ([_, _, _], _))
+            =>
+            poly_region arg;
+
+       polygon (arg as ([a, b, c, d], _))
+            =>
+            case (box_region (a, b, c, d))
+		#
+                NULL  => poly_region arg;
+                THE r => r;
+            esac;
+
+       polygon (arg as ([a, b, c, d, e], _))
+            =>
+            if (a == e) 
+		#                
+		case (box_region (a, b, c, d))
+		    #
+		    NULL  => poly_region arg;
+		    THE r => r;
+		esac;
+            else
+                poly_region arg;
+            fi;
+
+       polygon (arg as ((_ ! _ ! _ ! _), _))
+            =>
+            poly_region arg;
+
+       polygon _
+            =>
+            empty;
+    end;
+
+
+    fun offsetf (REGION { bands, extents, num_boxes }, offsetbox, offsetband)
+        =
+        REGION
+          { num_boxes,
+            extents   => offsetbox extents, 
+            bands     => map offsetband bands
+          };
+
+    fun offset   (r, p) =   offsetf (r,   offset_box p,   offset_band p);
+    fun x_offset (r, x) =   offsetf (r, x_offset_box x, x_offset_band x);
+    fun y_offset (r, y) =   offsetf (r, y_offset_box y, y_offset_band y);
+          
+    #
+    # region_op --
+    #      Apply an operation to two regions.
+    #      The function recurses down the two lists of bands.
+    #      If the y intervals of two bands intersect in (y1, y2), a new band is
+    #      created with bounds (y1, y2) and horizontal intervals determined
+    #      by ofn applied to the two bands. For those y intervals in which
+    #      one band is disjoint from all others, a new band is created by
+    #      clipping the band to the y interval and applying nofn1 or nofn2. 
+    #      The function attempts to coalesce each band with the previous.
+
+    fun region_op (REGION { bands=>b1, extents=>e1, ... }, 
+                 REGION { bands=>b2, extents=>e2, ... }, ofn,  nofn1, nofn2)
+        =
+        loop (b1, b2, min (miny e1, miny e2),[], 0)
+        where
+            fun coalesce (b' as BAND { y1, ... }, n', bs as ((b as BAND { y2, ... } ) ! rest), n)
+		    =>
+		    if (y1 == y2  and  n' == size_of b)
+			#
+			case (band::coalesce { lower=>b', upper=>b })
+
+			     NULL => (b' ! bs, n+n');
+			    THE b'' => (b'' ! rest, n);
+			esac;
+		    else
+                        (b' ! bs, n+n');
+                    fi;
+
+               coalesce (b', n',[], _)
+                    =>
+                    ([b'], n');
+	    end;
+
+	    fun wrapup (bs, n)
+		=
+		REGION { bands     =>  reverse bs,
+                         extents   =>  zero_box,
+                         num_boxes =>  n
+                       };
+
+
+	    fun tail (b as BAND { y1, y2, ... }, rest, f, ybot, bs, n)
+		=
+		{   fun loop ([], a)
+			    =>
+			    wrapup a;
+
+			loop ((b as BAND { y1, y2, ... } ) ! rest, (bs, n))
+			    =>
+			    case (f (b, max (y1, ybot), y2))
+
+				   (_, 0) => loop (rest, (bs, n));
+
+				  (b', n') => loop (rest, (b' ! bs, n'+n));
+			    esac;
+		    end;
+
+		    case (f (b, max (y1, ybot), y2))
+			#
+			(_,  0 ) => loop (rest, (bs, n));
+			(b', n') => loop (rest, coalesce (b', n', bs, n));
+		    esac;
+		};
+
+
+	    fun inter (b, b', top, bot, bs, n)
+		=
+		case (ofn (b, b', top, bot))
+
+		    (_, 0)   => (bs, n);
+		    (b', n') => coalesce (b', n', bs, n);
+		esac;
+
+
+	    fun noninter (_, _, NULL, _, bs, n)
+		    =>
+		    (bs, n);
+
+	       noninter (top, bot, THE f, b, bs, n)
+		    =>
+		    if (top == bot)
+			(bs, n);
+		    else
+			case (f (b, top, bot))
+			    #
+			    (_, 0) => (bs, n);
+			    (b', n') => coalesce (b', n', bs, n);
+			esac;
+		    fi;
+	    end;
+
+	    fun loop ([],[], _, bs, n)
+		    =>
+		    wrapup (bs, n);
+
+		loop (b ! b1,[], ybot, bs, n)
+		    => 
+		    case nofn1
+			#
+                        NULL  =>  wrapup (bs, n);
+                        THE f =>  tail (b, b1, f, ybot, bs, n);
+                    esac;
+
+		loop ([], b ! b2, ybot, bs, n)
+		    =>
+		    case nofn2
+			#
+                        NULL  => wrapup (bs, n);
+                        THE f => tail (b, b2, f, ybot, bs, n);
+                    esac;
+
+		loop (bl as ((b as BAND { y1, y2, ... } ) ! next),
+		      bl' as ((b' as BAND { y1=>y1', y2=>y2', ... } ) ! next'), ybot, bs, n)
+		    =>
+		    {   my (ytop, (bs', n'))
+			    = 
+			    if   (y1 < y1' ) (y1', noninter (max (y1,  ybot), min (y2,  y1'), nofn1, b, bs, n));
+			    elif (y1' < y1 ) (y1,  noninter (max (y1', ybot), min (y2', y1), nofn2, b', bs, n));
+			    else (y1, (bs, n));
+			    fi;
+
+			ybot =   min (y2, y2');
+
+			my (bs'', n'')
+			    =
+			    if (ybot > ytop)   inter (b, b', ytop, ybot, bs', n');
+			    else               (bs', n');
+                            fi;
+
+			nb  =   if (y2 == ybot   ) next;   else bl;fi;
+			nb' =   if (y2' == ybot  ) next';  else bl';fi;
+
+			loop (nb, nb', ybot, bs'', n'');
+		    };
+	      end;
+        end;					# fun region_op
+
+    fun intersect (
+            reg1 as REGION { num_boxes, extents, ... },
+            reg2 as REGION { num_boxes=>num_boxes', extents=>extents', ... } )
+        =
+        if (num_boxes == 0 or num_boxes' == 0               #  Check for trivial cases 
+              or not (box2::overlap (extents, extents')))
+
+            empty;
+        else
+            set_extents (region_op (reg1, reg2, band::intersect, NULL, NULL));
+        fi;
+
+    fun union (
+            reg1 as REGION { num_boxes, extents, ... },
+            reg2 as REGION { num_boxes=>num_boxes', extents=>extents', ... } )
+        =
+        if (num_boxes == 0 ) reg2;
+        elif (num_boxes' == 0 ) reg1;
+        elif (num_boxes == 1 and inside (extents', extents) ) reg1;
+        elif (num_boxes' == 1 and inside (extents, extents') ) reg2;
+        else
+	    my REGION { bands, num_boxes, ... }
+		= 
+		region_op (reg1, reg2, band::union, THE squeeze, THE squeeze);
+
+	    REGION { bands, num_boxes,
+		extents => bound_box (extents, extents') } ;
+        fi;
+
+    fun subtract (
+            reg_m as REGION { num_boxes, extents, ... },
+            reg_s as REGION { num_boxes=>num_boxes', extents=>extents', ... } )
+        =
+        if (num_boxes == 0 or num_boxes' == 0                #  Check for trivial reject 
+              or not (box2::overlap (extents, extents')))
+
+            reg_m;
+        else
+            set_extents (region_op (reg_m, reg_s, band::subtract, THE squeeze, NULL));
+        fi;
+
+
+    # adjust:
+    #   Return region r' where (x, y) is in r' iff:
+    #     (x+m, y) in r for some m <= dx:    shiftfn=xOffset, opfn=union
+    #     (x+m, y) in r for all m <= dx:     shiftfn=xOffset, opfn=intersection
+    #     (x, y+m) in r for some m <= dx:    shiftfn=yOffset, opfn=union
+    #     (x, y+m) in r for all m <= dx:     shiftfn=yOffset, opfn=intersection
+    #
+    # ** NOTE: this code should be checked XXX BUGGO CHECKME **
+    #
+    fun adjust (r, dx, shiftfn, opfn)
+        =
+        comp (dx, 1, r, r)
+        where
+            fun comp (0, _, _, r)
+                    =>
+                    r;
+
+	       comp (arg as (dx, shift, s, r))
+                    =>
+		    if (unt::bitwise_and (unt::from_int dx, unt::from_int shift) != 0u0)
+		         
+			r' = opfn (shiftfn (r,-shift), s);
+			dx' = dx - shift;
+
+			if (dx' == 0)   r';
+		        else            c (dx', shift, s, r');
+                        fi;
+		    else
+                        c arg;
+                    fi;
+            end 
+
+            also
+            fun c (dx, shift, s, r)
+                =
+		comp (
+                    dx,
+                    unt::to_int_x (unt::(<<) (unt::from_int shift, 0u1)),
+                    opfn (shiftfn (s,-shift), s),
+                    r
+                );
+        end;
+
+
+    fun shrink (r, xg::POINT { col=>0, row=>0 } )
+            =>
+            r;
+
+       shrink (r, p as xg::POINT { col=>dx, row=>dy } )
+            =>
+            {   xr =   if   (dx == 0)  r;
+		       elif (dx <  0)  adjust (r, 2*(-dx), x_offset, union);
+		       else            adjust (r, 2*dx, x_offset, intersect);
+                       fi;
+
+		yr =   if   (dy == 0)   xr;
+		       elif (dy < 0)    adjust (xr, 2*(-dy), y_offset, union);
+		       else             adjust (xr, 2*dy, y_offset, intersect);
+                       fi;
+
+		offset (yr, p);
+            };
+    end;
+
+
+    fun xor (r1, r2)
+        =
+        union (subtract (r1, r2), subtract (r2, r1));
+
+
+    fun is_empty (REGION { num_boxes, ... } )
+        =
+        num_boxes == 0;
+
+
+    fun equal ( REGION { num_boxes, extents, bands, ... },
+                REGION { num_boxes=>num_boxes', extents=>extents', bands=>bands', ... }
+               )
+        =
+        (num_boxes == num_boxes') and
+       ((num_boxes == 0) or (extents == extents' and bands == bands'));
+
+
+    fun overlap ( REGION { num_boxes, extents, bands },
+                  REGION { num_boxes=>num_boxes', extents=>extents', bands=>bands' }
+                )
+        =
+        {   fun overl ([], _) => FALSE;
+	        overl (_,[]) => FALSE;
+
+	        overl (bl as ((b as BAND { y1, y2, xs } ) ! bs),
+		      bl' as ((b' as BAND { y1=>y1', y2=>y2', xs=>xs' } ) ! bs'))
+                  =>
+		  if   (y2 <= y1' )             overl (bs, bl');
+		  elif (y2' <= y1 )             overl (bl, bs');
+		  elif (band::overlap (b, b') ) TRUE;
+		  elif (y2 < y2' )              overl (bs, bl');
+		  elif (y2' < y2 )              overl (bl, bs');
+		  else                          overl (bs, bs');
+                  fi;
+            end;
+
+            num_boxes != 0 and num_boxes' != 0 and 
+            box2::overlap (extents, extents') and overl (bands, bands');
+        };
+
+
+    fun point_in (REGION { num_boxes=>0, ... }, _)
+            =>
+            FALSE;
+
+        point_in (REGION { extents, bands, ... }, p)
+            =>
+            in_box (extents, p) and list::exists (fn b => in_band (b, p); end ) bands;
+    end;
+
+
+    fun box_in (REGION { num_boxes => 0, ... }, _)
+            =>
+            BOX_OUT;
+
+       box_in (REGION { num_boxes, extents, bands }, xg::BOX { col=>x, row=>y, wide, high } )
+            =>
+            {   my  b  as BOX { x2=>rx2, y2=>ry2, ... }
+                    =
+                    BOX { x1=>x, y1=>y, x2 => x+wide, y2 => y+high };
+
+
+                fun end_check (FALSE, _) =>   BOX_OUT;
+                    end_check (_,    ry) =>   if (ry < ry2)  BOX_PART;
+                                              else           BOX_IN;
+                                              fi;
+                end;
+
+
+		fun check ([], ry, part_in, part_out)
+			=>
+			end_check (part_in, ry);
+
+		    check ((b as BAND { y1, y2, ... } ) ! rest, ry, part_in, part_out)
+			=>
+			if   (y2 <= ry)
+
+                            check (rest, ry, part_in, part_out);
+
+			elif (y1 >= ry2)
+
+			    end_check (part_in, ry);
+
+			elif (y1 > ry)
+
+			    if part_in
+				#
+				BOX_PART;
+			    else
+				case (box_in_band (b, x, rx2))
+				    #	
+				     BOX_OUT => check (rest, ry, FALSE, TRUE);
+				    _ => BOX_PART;
+				esac;
+			    fi;
+
+			else
+			    case (box_in_band (b, x, rx2))
+
+				 BOX_PART => BOX_PART;
+
+				 BOX_OUT  => if part_in      BOX_PART;
+						   else            check (rest, ry, FALSE, TRUE);
+						   fi;
+
+				 BOX_IN   => if part_out     BOX_PART;
+						   else            check (rest, y2, TRUE, FALSE);
+						   fi;
+			    esac;
+			fi;
+                end;
+
+		if (box2::overlap (extents, b))
+		    #
+                    check (bands, y, FALSE, FALSE);
+		else
+                    BOX_OUT;
+                fi;
+	    };
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,920 @@
+## oh7-file.pkg
+## (C) 2001 Lucent Technologies, Bell Labs
+## author: Matthias Blume (blume@research.bell-labs.com
+
+# Compiled by:
+#     src/lib/compiler/execution/execute.make6
+
+# See also:
+#     src/app/make7/freezefile/freezefile-g.pkg 
+
+
+
+# An .o7-file is the result of compiling one
+# source file (foo.api or foo.pkg).
+#
+# It serves much the same purpose as a Unix .o file,
+# containing executable code and a pickled symbol table
+# listing its exported funs, vals &tc.
+#
+# .o7 files are dynamically loaded into a running Lib7
+# process as needed and linked by calling a given
+# entrypoint with the current process linking dictionary,
+# which holds pointers to all the resources needed by
+# the .o7 file, such as addresses of external functions it calls.
+
+
+
+
+# This revised version of package o7file is now machine-independent.
+# Moreover, it deals with the file format only and does not know how to
+# create new o7file contents (aka "compile") or how to interpret the
+# pickles.  As a result, it does not statically depend on the compiler.
+# (Eventually we might want to support a light-weight o7file loader.)
+# 
+# ----------------------------------------------------------------------------
+# O7_FILE FORMAT description:
+#
+#  Every 4-byte integer field is stored in big-endian format.
+#
+#        Start Size Purpose
+# ----BEGIN OF HEADER----
+#            0 16  magic string
+#           16  4  number of import values (import_count)
+#           20  4  number of exports (export_count -- currently always 0 or 1)
+#           24  4  size of import tree area in bytes (import_bytes)
+#           28  4  size of CM-specific info in bytes (cm_info_bytes)
+#           32  4  size of pickled inlinables-expression in bytes (inlinables_bytes)
+#           36  4  size of GUID area in bytes (g)
+#           40  4  size of padding in bytes (pad)
+#           44  4  size of code area in bytes (code_bytes)
+#           48  4  size of pickled symboltable in bytes (symboltable_size_in_bytes)
+#           52  i  import trees [This area contains pickled import trees --
+#                    see below.  The total number of leaves in these trees is
+#                    import_count and the size is equal to import_bytes.]
+#         i+52 ex  export pickle_hashes [Each export picklehash occupies
+#                    16 bytes. Thus, the size " of this area ("ex) is
+#                    16*export_count (0 or 16).]
+#      ex+i+52 cm  CM info [Currently a list of picklehash-pairs.] (cm = cm_info_bytes)
+# ----END OF HEADER----
+#            0  h  HEADER (h = 52+cm+ex+i)
+#            h  l  pickle of exported inlinables-expr. (l = inlinables_bytes)
+#          l+h  g  GUID area (g = version)
+#        r+l+h  p  padding (p = pad)
+#      p+r+l+h  c  code area (c = code_bytes) [Structured into several
+#                    segments -- see below.]
+#    c+p+r+l+h  e  pickle of symbol table (e = symboltable_size_in_bytes)
+#  e+c+p+r+l+h  -  END OF O7_FILE
+#
+#
+#
+# IMPORT TREE FORMAT description:
+#
+#  The import tree area contains a list of (picklehash, tree) pairs.
+#  The pickle_hashes are stored directly as 16-byte strings.
+#  Trees are constructed according to the following Mythryl type:
+#    Tree = NODE List (Int, Tree)
+#  Leaves in this tree have the form (NODE []).
+#  Trees are written recursively -- (NODE l) is represented by n (= the
+#  length of l) followed by n (Int, node) subcomponents.  Each component
+#  consists of the integer selector followed by the corresponding tree.
+#
+#  Integer values in the import tree area (lengths and selectors) are
+#  written in "packed" integer format. In particular, this means that
+#  Values in the range 0..127 are represented by only 1 byte.
+#  Conceptually, the following pickling routine is used:
+#
+#    void recurWriteUl (unsigned long l, FILE *file)
+#    {
+#      if (l != 0) {
+#        recurWriteUl (l >> 7, file);
+#        putc ((l & 0x7f) | 0x80, file);
+#      }
+#    }
+#
+#    void writeUl (unsigned long l, FILE *file)
+#    {
+#      recurWriteUl (l >> 7, file);
+#      putc (l & 0x7f, file);
+#    }
+#
+#  See also:  src/lib/compiler/execution/main/import-tree.pkg
+#
+#
+#
+# CODE AREA FORMAT description:
+#
+#  The code area contains multiple code segments.
+#
+#  There will be at least two.
+#
+#  The first segment is the "data" segment, responsible for
+#  creating literal constants on the heap.  Code in the
+#  data segment will be executed only once, at link-time. Thus, it can
+#  then be garbage-collected immediately. (In fact, the data segment does
+#  not consist of machine code but of code for an internal bytecode engine
+#  -- see src/runtime/gc/build-literals.c
+#
+#  In the .o7 file, each code segment is represented by its size s and its
+#  entry point offset (in bytes -- written as 4-byte big-endian integers)
+#  followed by s bytes of machine- (or byte-) code. The total length of all
+#  code segments (including the bytes spent on representing individual sizes
+#  and entry points) is code_bytes.  The entrypoint field for the data segment
+#  is currently ignored (and should be 0).
+#
+#
+#
+# LINKING CONVENTIONS:
+#
+#  Linking is achieved by executing all code segments in sequential order.
+#
+#  Conceptually, the first code segment (the "data" segment) receives
+#  Void as its single argument. (In reality this code segment consists of
+#  bytecode which does not really receive any arguments.)
+#
+#  The second code segment receives a record as its single argument.
+#  This record has (import_count+1) components.
+#  The first import_count components correspond to the leaves of the import trees.
+#  The final component is the result of executing the data segment.
+#
+#  All other code segments receive a single argument which is the result
+#  of the preceding segment.
+#
+#  The result of the last segment represents the exports of the compilation
+#  unit.  It is to be paired up with the export picklehash and stored in the
+#  linking dictionary.  If there is no export picklehash, then the final result
+#  will be thrown away.
+#
+#  The import trees are used for constructing the argument record for the
+#  second code segment.  The picklehash at the root of each tree is the key for
+#  looking up a value in the existing linking dictionary.  In general,
+#  that value will be a record.  The selector fields of the import tree
+#  associated with the picklehash are used to recursively fetch components of that
+#  record.
+
+stipulate
+    package ph =  picklehash;					# picklehash	is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+    package cs =  code_segments;				# code_segments	is from   src/lib/compiler/execution/code-segments/code-segments.pkg
+herein
+
+    package oh7_file: Oh7_File	{				# Oh7_File	is from   src/lib/compiler/execution/o7-file/oh7-file.api
+
+	exception FORMAT_ERROR
+	    =
+	    cs::FORMAT_ERROR;
+
+	Picklehash =   ph::Picklehash;
+
+	Code_Segments =  cs::Code_Segments;
+	Executable    =  cs::Executable;
+
+	Byte_Sizes
+	    =
+	    { dictionary:    Int,
+	      inlinable:     Int,
+	      data:          Int,
+	      code:          Int
+	    };
+
+	Pickle
+	    =
+	    { picklehash:  Picklehash,
+	      pickle:      unt8_vector::Vector
+	    };
+
+
+	Oh7_File_Contents
+	    =
+	    OH7_FILE_CONTENTS  {
+
+	      imports:            List( import_tree::Import ),			# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+	      export_picklehash:  Null_Or( Picklehash ),
+	      picklehash_list:    List( Picklehash ),
+
+	      symbol_table:       Pickle,
+	      inlinables:         Pickle,
+	      version:            String,
+
+	      code_segments:      Code_Segments,
+	      executable:         Ref(  Null_Or(     Executable ) )
+	    };
+
+	#
+	fun unwrap_oh7_file_contents  (OH7_FILE_CONTENTS  x)
+	    =
+	    x;
+
+	bytes_per_pickle_hash
+	    =
+	    ph::pickle_hash_size;
+
+	magic_bytes  = 16;
+
+	hash_of_pickled_exports  =  .export_picklehash  o unwrap_oh7_file_contents;
+	picklehash_list          =  .picklehash_list    o unwrap_oh7_file_contents;
+	pickle_of_symbol_table   =  .symbol_table       o unwrap_oh7_file_contents;
+	pickle_of_inlinables     =  .inlinables         o unwrap_oh7_file_contents;
+	version_of               =  .version            o unwrap_oh7_file_contents;
+
+	hash_of_symbol_table_pickle =  .picklehash o pickle_of_symbol_table;
+	hash_of_pickled_inlinables  =  .picklehash o pickle_of_inlinables;
+
+	#
+	fun error msg
+	    =
+	    {   control_print::say						# control_print			is from   src/lib/compiler/frontend/basics/print/printcontrol.pkg
+		    (cat ["o7file format error: ", msg, "\n"]);
+
+		raise exception FORMAT_ERROR;
+	    };
+
+	from_int  =  unt32::from_int;					# unt32				is from   src/lib/std/unt32.pkg
+	from_byte =  unt32::from_large_unt o unt8::to_large_unt;
+	to_byte   =  unt8::from_large_unt o unt32::to_large_unt;
+
+	(>>)      =  unt32::(>>);
+	#
+	infix val  >> ;
+
+
+	fun bytes_in (stream, 0)
+		=>
+		byte::string_to_bytes "";					# byte				is from   src/lib/std/src/byte.pkg
+
+	    bytes_in (stream, bytes_to_read)
+		=>
+		{   byte_vector
+			=
+			binary_io::read_n  (stream, bytes_to_read);		# binary_io			is from   src/lib/std/src/unix/posix-binary-io.pkg
+
+		    if  (unt8_vector::length byte_vector == bytes_to_read)	# unt8_vector			is from   src/lib/std/src/unt8-vector.pkg
+			#
+			byte_vector;
+		    else
+                        error ( cat [ "expected ",
+					int::to_string bytes_to_read,	# int				is from   src/lib/std/int.pkg
+					" bytes, but found ",
+					int::to_string  (unt8_vector::length  byte_vector)
+				     ]
+			      );
+		    fi;
+		};
+	end;
+	#
+	fun read_int32 stream
+	    =
+	    large_unt::to_int_x (
+		pack_big_endian_unt32::get_vec (				# pack_big_endian_unt32		is from   src/lib/std/src/pack-big-endian-unt32.pkg
+		    bytes_in (stream, 4),
+		    0
+		)
+	    );
+	#
+	fun read_packed_int32 stream
+	    =
+	    large_unt::to_int_x  (loop  0u0)
+	    where
+		fun loop n
+		    =
+		    case (binary_io::read_one stream)
+			#
+			NULL =>   error "unable to read a packed int32";
+			#
+			THE w8
+			    =>
+			    {   n' =  n * 0u128
+				   + unt8::to_large_unt (unt8::bitwise_and (w8, 0u127));
+
+				if (unt8::bitwise_and (w8, 0u128) == 0u0)       n';
+				else                                       loop n';
+                                fi;
+			    };
+		    esac;
+	    end;
+
+	#
+	fun read_pickle_hash stream
+	    =
+	    ph::from_bytes (bytes_in (stream, bytes_per_pickle_hash));
+
+	#
+	fun read_pickle_hash_list (stream, n)
+	    =
+	    list::tabulate (n, fn _ = read_pickle_hash stream);			# list		is from   src/lib/std/src/list.pkg
+
+	#
+	fun read_import_tree stream
+	    =
+	    case (read_packed_int32 stream)
+		#
+		0   =>
+		    (import_tree::IMPORT_TREE_NODE [], 1);
+		#
+		count
+		    =>
+		    {   fun read_import_list 0
+				=>
+				([], 0);
+
+			   read_import_list count
+			       =>
+			       {   selector
+				       =
+				       read_packed_int32 stream;
+
+				   my (tree, n ) =  read_import_tree  stream;
+				   my (rest, n') =  read_import_list (count - 1);
+
+				   ((selector, tree) ! rest, n + n');
+			       };
+			end;
+
+			my (l, n) =   read_import_list  count;
+
+			(import_tree::IMPORT_TREE_NODE l, n);			# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+		    };
+	    esac;
+	#
+	fun read_imports (stream, hash_plus_tree_pairs_to_read )
+	    =
+	    if (hash_plus_tree_pairs_to_read  <=  0)
+		#
+		[];
+	    else
+		picklehash    =   read_pickle_hash stream;
+		my (tree, n') =   read_import_tree stream;
+		rest          =   read_imports   (stream, hash_plus_tree_pairs_to_read - n');
+
+		(picklehash, tree) ! rest;
+	    fi;
+	#
+	fun pickle_int32 i
+	    =
+	    {   w   =   from_int i;
+		#
+		fun out w =   to_byte w;
+
+		unt8_vector::from_list [ to_byte (w >> 0u24),			# unt8_vector	is from   src/lib/std/src/unt8-vector.pkg
+					 to_byte (w >> 0u16),
+					 to_byte (w >> 0u08),
+					 to_byte  w
+				       ];
+	    };
+	#
+	fun write_int32 stream i
+	    =
+	    binary_io::write (stream, pickle_int32 i);
+	#
+	fun pickle_packed_int32 i
+	    =
+	    {   n =  from_int  i;
+
+		/// =  large_unt::(/);						# large_unt	is from   src/lib/std/large-unt.pkg
+		%%  =  large_unt::(%);
+		!!  =  large_unt::bitwise_or;
+
+		infix val  /// %% !! ;
+
+		to_w8 = unt8::from_large_unt;					# unt8		is from   src/lib/std/unt8.pkg
+		#
+		fun r (0u0, l)   =>   unt8_vector::from_list l;
+		    r (n,   l)   =>   r (n /// 0u128, to_w8 ((n %% 0u128) !! 0u128) ! l);
+		end;
+
+		r (n /// 0u128, [to_w8 (n %% 0u128)]);
+	    };
+
+	#
+	fun write_picklehash (stream, picklehash)
+	    =
+	    binary_io::write (stream, ph::to_bytes picklehash);			# binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+
+	#
+	fun write_pickle_hash_list (stream, l)
+	    =
+	    apply (fn picklehash => write_picklehash (stream, picklehash); end )
+		l;
+
+	stipulate
+	    fun pickle_import_spec ((selector, tree), (n, p))
+		=
+		{   sp  =  pickle_packed_int32  selector;
+
+		    my (n', p')
+			=
+			pickle_import_tree (tree, (n, p));
+
+		    (n', sp ! p');
+		}
+
+	    also
+	    fun pickle_import_tree (import_tree::IMPORT_TREE_NODE [], (n, p))	# import_tree	is from   src/lib/compiler/execution/main/import-tree.pkg
+		    =>
+		    ( n + 1,
+		      pickle_packed_int32 0 ! p
+		    );
+
+	       pickle_import_tree (import_tree::IMPORT_TREE_NODE l, (n, p))
+		   =>
+		   {   my (n', p')
+			   =
+			   fold_right
+			       pickle_import_spec
+			       (n, p)
+			       l;
+
+		       ( n',
+			 pickle_packed_int32 (length l) ! p'
+		       );
+		   };
+	    end;
+	    #
+	    fun pickle_import ((picklehash, tree), (n, p))
+		=
+		{   my (n', p')
+			=
+			pickle_import_tree (tree, (n, p));
+
+		    ( n',
+		      ph::to_bytes picklehash ! p'
+		    );
+		};
+	herein
+	    fun pickle_imports l
+		=
+		{   my (n, p)
+			=
+			fold_right
+			    pickle_import
+			    (0, [])
+			    l;
+
+		    ( n,
+		      unt8_vector::cat  p
+		    );
+		};
+	end;
+	#
+	fun make_magic (architecture_name, version_id)
+	    =
+	    {   vbytes =   8;				#  version part         
+		abytes =   magic_bytes - vbytes - 1;	#  Architecture    part 
+
+		# Pad or truncate a string
+		#  to given length:
+		#
+		fun fit (desired_length, string)
+		    =
+		    {   new_string
+			    =
+			    number_string::pad_right		# number_string	is from   src/lib/std/src/number-string.pkg
+				' '
+				desired_length
+				string;
+
+			if (size new_string == desired_length)   new_string;
+			else                                     substring (new_string, 0, desired_length);
+                        fi;
+		    };
+
+		#  Use at most the first two components of version_id: 
+		fun version []          =>  [];
+		    version [x]         =>  [int::to_string x];
+		    version (x ! y ! _) =>  [int::to_string x, ".", int::to_string y];
+		end;
+
+		my_version      =   fit (vbytes, cat (version version_id));
+		my_architecture =   fit (abytes, architecture_name);
+
+		cat [my_version, my_architecture, "\n"];
+
+		#  Assert (unt8_vector::length (MAGIC <architecture>) = magicBytes 
+	    };
+
+
+	#  Calculate size of code chunks (including lengths and entrypoints): 
+	#
+	fun code_size (code_segments: Code_Segments)
+	    =
+	    list::fold_left
+		(fn (co, n) =  n + cs::size co + 8)
+		(cs::size code_segments.c0 + unt8_vector::length code_segments.data + 16)
+		code_segments.cn;
+
+
+	# This function must be kept in sync with the "write" function below.
+	# It calculates the number of bytes written by a corresponding
+	# call to "write".
+	#
+	fun size { contents, no_pickle }
+	    =
+	    {   (unwrap_oh7_file_contents  contents)
+		    ->
+		    { imports,  export_picklehash,  symbol_table,  picklehash_list,  inlinables,  code_segments, version,  ... };
+		    
+
+		my (_, imports_pickle)
+		    =
+		    pickle_imports  imports;
+
+		has_exports
+		    =
+		    not_null  export_picklehash;
+		#
+		fun pickle_size { picklehash, pickle }
+		    =
+		    if   no_pickle      0;
+				     else   unt8_vector::length pickle;   fi;
+
+		magic_bytes
+		    + 9 * 4
+		    + unt8_vector::length imports_pickle				# unt8_vector	is from   src/lib/std/src/unt8-vector.pkg
+		    + ( has_exports ??  bytes_per_pickle_hash
+				    ::  0
+		      )
+		    + bytes_per_pickle_hash * (length picklehash_list + 2)		# 2 extra: symboltable+inlining 
+		    + string::length version					# string	is from   src/lib/std/string.pkg
+		    + pickle_size  inlinables
+		    + code_size    code_segments
+		    + pickle_size  symbol_table;
+	    };
+
+	#
+	fun create              { imports, export_picklehash, picklehash_list, symbol_table, inlinables, version, code_segments }
+	    = OH7_FILE_CONTENTS { imports, export_picklehash, picklehash_list, symbol_table, inlinables, version, code_segments,  executable => REF NULL };
+
+
+
+	#  Must be called with second arg >= 0 
+	#
+	fun read_code_list (stream, nbytes)
+	    =
+	    {   fun read_code 0
+			=>
+			[];
+
+		    read_code n
+			=>
+			{   size =  read_int32  stream;
+			    ep =  read_int32  stream;
+
+			    n' =  n - size - 8;
+
+			    cchunk =  if (n' < 0)   error "code size";
+				      else          cs::read (stream, size);
+                                      fi;
+
+			    cs::set_entrypoint (cchunk, ep);		# code_segments		is from   src/lib/compiler/execution/code-segments/code-segments.pkg
+			    cchunk ! read_code n';
+			};
+		end;
+
+		data_size =   read_int32 stream;
+
+		read_int32  stream;          #  Ignore entry point field for data segment 
+
+		n'   = nbytes - data_size - 8;
+
+		data =   if (n' < 0)   error "data size";
+			 else          bytes_in (stream, data_size);
+                         fi;
+
+		case (read_code n')
+		    #
+		    []        =>  error "missing code chunks";
+		    (c0 ! cn) =>  { data, c0,  cn };
+		esac;
+	    };
+
+
+
+	# Read version string from o7file.
+	# This is called exactly once, in   src/app/make7/o7/bare-o7.pkg
+	#
+	# The version string uniquely
+	# identifies not just a particular
+	# .o7 file, but a particular version
+	# of that file.
+	#
+	# For                               src/etc/build7-o7-files/ROOT/src/app/make7/o7/tmp7/x86-unix/bare-o7.pkg.o7
+	# our version string will be like   "version-$ROOT/src/app/make7/(make7-lib.make6):o7/bare-o7.pkg-1187780741.285"
+	# where the suffix is the compile
+	# date+time to millisecond accuracy.
+	#
+	# 'stream' is open at the start of o7file,
+	# so we need to read down to the right offset
+	# and then read and return the right number of bytes:
+	#
+	fun read_version  stream
+	    =
+	    {   bytes_in  (stream, magic_bytes);                 
+		read_int32 stream;
+
+		export_count  =  read_int32  stream;
+		import_bytes  =  read_int32  stream;
+		cm_info_bytes =  read_int32  stream;
+
+		picklehashes     =  cm_info_bytes  /  bytes_per_pickle_hash;
+		inlinables_bytes =  read_int32  stream;
+
+		version_bytes    =   read_int32 stream;
+
+		bytes_in (stream, import_bytes + 3 * 4);                              
+		bytes_in (stream, export_count * bytes_per_pickle_hash);                 
+
+		read_pickle_hash_list (stream, picklehashes);                          
+
+		bytes_in (stream, inlinables_bytes);
+
+		byte::bytes_to_string (bytes_in (stream, version_bytes));
+	    };
+
+	#
+	fun read   {   architecture_name,   version=>my_version,   stream   }
+	    =
+	    { contents
+		  =>
+		  create {
+		    imports,
+		    export_picklehash,
+		    picklehash_list,
+
+		    symbol_table      =>  {   picklehash => symbol_table_picklehash,  pickle => pickled_symboltable   },
+		    inlinables        =>  {   picklehash => inlinables_picklehash,    pickle => pickled_inlinables    },
+
+		    version,
+
+		    code_segments     => code
+		  },
+
+	      byte_sizes
+		  =>
+		  { dictionary      =>  symboltable_bytes,
+		    inlinable =>  inlinables_bytes,
+		    code      =>  code_bytes,
+		    data      =>  unt8_vector::length code.data
+		  }
+	    }
+	    where
+
+		magic' =  make_magic  (architecture_name, my_version);
+		magic  =  bytes_in  (stream, magic_bytes);
+
+		if (byte::bytes_to_string magic != magic')			# byte		is from   src/lib/std/src/byte.pkg
+		     error "bad magic number";
+		fi;
+
+		import_count        = read_int32  stream;
+		export_count        = read_int32  stream;
+
+		import_bytes        = read_int32  stream;
+		cm_info_bytes       = read_int32  stream;
+
+		picklehashes        = cm_info_bytes  /  bytes_per_pickle_hash;
+
+		inlinables_bytes    =  read_int32  stream;
+		version_bytes       =  read_int32  stream;
+		pad_bytes           =  read_int32  stream;
+		code_bytes          =  read_int32  stream;
+		symboltable_bytes   =  read_int32  stream;
+
+		imports
+		    =
+		    read_imports  (stream, import_count);
+
+		export_picklehash
+		    =
+		    case export_count
+			#
+			0 =>  NULL;
+			1 =>  THE (read_pickle_hash  stream);
+			_ =>  error "too many export pickle_hashes";
+		    esac;
+
+		env_pickle_hashes
+		    =
+		    read_pickle_hash_list  (stream, picklehashes);
+
+		my  (symbol_table_picklehash,  inlinables_picklehash,  picklehash_list)
+		    =
+		    case env_pickle_hashes
+			#
+			st ! lm ! picklehash_list =>   (st, lm, picklehash_list);
+			_                         =>   error "dictionary PICKLE_HASH list";
+		    esac;
+
+		pickled_inlinables
+		    =
+		    bytes_in  (stream, inlinables_bytes);
+
+		version
+		    =
+		    byte::bytes_to_string					# byte	is from   x
+			    (bytes_in  (stream, version_bytes));
+
+
+		if (pad_bytes != 0) 
+		    #
+		    ignore (bytes_in (stream, pad_bytes));			# Skip padding.
+		fi;
+
+
+
+		code =   read_code_list  (stream, code_bytes);			# Get the code.
+
+
+		pickled_symboltable
+		    =
+		    bytes_in  (stream, symboltable_bytes);
+
+	    end;		     #  fun read 
+
+
+	#
+	fun write   {   architecture_name,   version=>my_version,   stream,   oh7_file_contents,   no_pickle   }
+	    =
+	    { dictionary      =>  dictionary_bytes,
+	      inlinable =>  inlinables_bytes,
+	      data      =>  data_bytes,
+	      code      =>  code_bytes
+	    }
+	    where
+
+		#  Keep this in sync with "size" (see above). 
+
+		(unwrap_oh7_file_contents oh7_file_contents)
+		    ->
+		    { imports,
+		      export_picklehash,
+		      picklehash_list,
+		      symbol_table,
+		      inlinables,
+		      code_segments,
+		      version,
+			...
+		    };
+
+		symbol_table ->  { pickle => symbol_table_pickle,   picklehash => symbol_table_picklehash };
+		inlinables   ->  { pickle => inlinables_pickle,     picklehash => inlinables_picklehash   };
+
+		env_pickle_hashes
+		    =
+		    symbol_table_picklehash ! inlinables_picklehash ! picklehash_list;
+
+		(pickle_imports imports) ->   (import_count, imports_pickle);
+
+		import_bytes
+		    =
+		    unt8_vector::length  imports_pickle;
+
+		my (export_count, export_picklehash_list)
+		    =
+		    case export_picklehash
+
+			 NULL  =>  (0, [] );
+			 THE p =>  (1, [p]);
+		    esac;
+
+		picklehashes
+		    =
+		    length  env_pickle_hashes;
+
+		cm_info_bytes
+		    =
+		    picklehashes * bytes_per_pickle_hash;
+
+		#
+		fun pickle_size { picklehash, pickle }
+		    =
+		    no_pickle  ??  0
+			       ::  unt8_vector::length pickle;			# unt8_vector		is from   src/lib/std/src/unt8-vector.pkg
+
+		inlinables_bytes =  pickle_size  inlinables;
+		version_bytes    =  string::length version;			# string		is from   src/lib/std/string.pkg
+		pad_bytes        =  0;			    			# Currently no padding. 
+		code_bytes       =  code_size  code_segments;
+		#
+		fun code_out c
+		    =
+		    {   write_int32 stream (cs::size c);
+			write_int32 stream (cs::entrypoint c);
+			cs::write (stream, c);
+		    };
+
+		dictionary_bytes
+		    =
+		    pickle_size  symbol_table;
+
+		write_dictionary
+		    =
+		    if   no_pickle      fn () =  ();
+		    else                .{ binary_io::write (stream, symbol_table_pickle); };
+                    fi;
+
+		data_bytes
+		    =
+		    unt8_vector::length  code_segments.data;
+
+		magic'
+		    =
+		    make_magic  (architecture_name, my_version);
+
+		binary_io::write
+		    (stream,  byte::string_to_bytes magic');
+
+		apply
+		    (write_int32  stream)
+		    [   import_count,
+			export_count,
+			import_bytes,
+			cm_info_bytes,
+			inlinables_bytes,
+			version_bytes,
+			pad_bytes,
+			code_bytes,
+			dictionary_bytes
+		    ];
+
+		binary_io::write (stream, imports_pickle);				# binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+		write_pickle_hash_list (stream, export_picklehash_list);
+
+		write_pickle_hash_list (stream, env_pickle_hashes);           	#  Arena1 
+
+
+		#  Arena2 -- pickled highcode stuff: 
+		if   (inlinables_bytes != 0)
+
+		     binary_io::write (stream, inlinables_pickle);
+		fi;
+
+		binary_io::write					#  GUID area 
+		    (stream,  byte::string_to_bytes version);			# byte	is from   src/lib/std/src/byte.pkg
+
+		#  Padding area is currently empty 
+
+		#  Code chunks: 
+		write_int32  stream  data_bytes;
+		write_int32  stream  0;		              #  Dummy entry point for data segment 
+
+		binary_io::write (stream, code_segments.data );
+		code_out                  code_segments.c0;
+		apply  code_out           code_segments.cn;
+
+		write_dictionary ();
+	    end;
+	#
+	fun exec (   OH7_FILE_CONTENTS  { imports,  export_picklehash,  executable,  code_segments, ... },
+		     linking_table,
+		     exception_wrapper
+		 )
+	    =
+	    {   executable
+		    =
+		    case *executable
+			#
+			THE executable'  => executable';
+			#
+			NULL
+			    =>
+			    {   executable'
+				    =
+				    callcc_wrapper::trap_callcc (
+
+					execute::make_executable_closure
+
+					    { code_segments,  exception_wrapper }
+				    );
+
+			       executable :=  THE executable';
+
+			       executable';
+			   };
+		    esac;
+
+						    # callcc_wrapper	is from   src/lib/compiler/execution/main/callccwrapper.pkg
+						    # execute		is from   src/lib/compiler/execution/main/execute.pkg
+
+		execute::execute
+
+		    { executable,  imports,  export_picklehash,  linking_table };
+	    };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

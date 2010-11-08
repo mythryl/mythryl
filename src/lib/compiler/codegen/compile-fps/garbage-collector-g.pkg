@@ -1,0 +1,1355 @@
+# garbage-collector-g.pkg
+#
+# This module is responsible for generating code to invoke the 
+# garbage collector.  This new version is derived from the generic CallGC.
+# It can handle derived pointers as roots and it can also be used as 
+# callbacks.  These extra facilities are neccessary for global optimizations  
+# in the presence of GC.  
+# 
+# -- Allen Leung
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+###              "I hate flowers. I paint them because they're
+###               cheaper than models and they don't move."
+###
+###                            -- Georgia O'Keeffe
+
+
+
+
+###              "We believe in rough concensus and working code."
+###
+###                                    -- David Clark, IETF
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+
+generic package garbage_collector_g (
+   
+    package machine_properties				# Typically 			  src/lib/compiler/codegen/x86/x86-machine-properties.pkg
+        :
+        Machine_Properties;				# Machine_Properties	is from   src/lib/compiler/codegen/main/machine-properties.api
+
+    package c
+        :
+        Cpsregs						# Cpsregs		is from   src/lib/compiler/codegen/compile-fps/fps-registers.api
+        where
+            codetree::region == cpsregions;
+
+    package codetree_stream
+        :
+        Codetree_Stream					# Codetree_Stream	is from   src/lib/compiler/backend/lower/codetree/codetree-stream.api
+	where
+            codetree == c::codetree;
+
+    package control_flow_graph
+        :
+        Control_Flow_Graph				# Control_Flow_Graph	is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where
+            pseudo_op
+            ==
+            codetree_stream::instruction_stream::pseudo_op;
+)
+
+: (weak) Garbage_Collector				# Garbage_Collector	is from   src/lib/compiler/codegen/compile-fps/garbage-collector.api
+
+{
+    package control_flow_graph   = control_flow_graph;
+    package codetree_stream      = codetree_stream;
+
+    package cb    = cells_basis;			# cells_basis		is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+    package s     = cb::sorted_cells;
+    package t     = c::codetree;
+    package d     = machine_properties::chunk_desc;
+    package r     = cpsregions;				# cpsregions		is from   src/lib/compiler/codegen/compile-fps/fps-regions.pkg
+    package sl    = sorted_list;			# sorted_list		is from   src/lib/compiler/backend/lower/library/sortedlist.pkg
+    package gc    = smlgctype;				# smlgctype		is from   src/lib/compiler/codegen/compile-fps/lib7-gctype.pkg
+    package cells = c::c;
+    package cfg   = control_flow_graph;
+    package ts    = codetree_stream;
+    package fps   = fate_passing_style;			# fate_passing_style	is from   src/lib/compiler/backend/upper/fps/fate-passing-style.pkg
+
+    fun error msg
+        =
+        error_message::impossible("garbage_collector." + msg);
+
+    Type = { max_alloc:  Int,
+	     regfmls:    List( t::Expression ),
+	     regtys:     List( fps::Fps_Type ),
+	     return:     t::Statement
+	   };
+
+    Stream
+        =
+        ts::Stream (t::Statement,  List( t::Expression ), cfg::Control_Flow_Graph); 
+
+    debug_gc = controls::lowcode::make_bool ("debug_gc", "GC invocation debug mode");
+
+    address_type = c::address_width;
+
+    zero_freq       = lowcode_notes::execution_freq.create 0;
+    callgc          = lowcode_notes::callgc.create ();
+    no_optimization = lowcode_notes::no_optimization.create ();
+
+
+    # The following enum is used to encapsulates 
+    # all the information needed to generate code to invoke gc.
+    # The important fields are:
+    #    known     -- is the function a known (i.e. internal) function 
+    #    optimized -- if this is on, gc code generation is delayed until
+    #                 we have performed all optimizations.  This is FALSE
+    #                 for normal Lib7 use.
+    #    lab       -- a list of labels that belongs to the call gc block
+    #    boxed, float, int32 -- roots partitioned by types
+    #    regfmls   -- the roots
+    #    ret       -- how to return from the call gc block.
+    #
+    Gc_Info
+       =
+       GCINFO 
+	 { known:      Bool,					# Known function ? 
+	   optimized:  Bool,					# Optimized? 
+	   lab:        Ref( label::Label ),			# Labels to invoke GC 
+	   boxed:      List( t::Int_Expression ),		# Locations with boxed chunks 
+	   int32:      List( t::Int_Expression ),		# Locations with int32 chunks 
+	   float:      List( t::Float_Expression ),		# Locations with float chunks 
+	   regfmls:    List( t::Expression ),			# All live registers 
+	   ret:        t::Statement				# How to return 
+         }
+
+     | MODULE 
+	 { info: Gc_Info,
+	  addresses: Ref(  List(  label::Label ) ) }		#  Addresses associated with long jump 
+     ;
+
+    # ====================================================================
+    # Implementation/architecture specific stuff starts here.
+    # ====================================================================
+
+    # Extra space in allocation space 
+    # The Lib7 runtime system leaves around 4K of extra space
+    # in the allocation space for safety.
+
+    skid_pad = 4096;
+    pty  = 32;
+
+    vfp = FALSE;			#  Don't use virtual frame ptr here 
+
+    unit = t::LITERAL 1;		# Representation of ML's unit; 
+					# this is used to initialize registers.
+
+    fun li i
+	=
+	t::LITERAL (t::machine_int::from_int (32, i));
+
+
+
+    # Callee-save registers 
+    # All callee save registers are used in the gc calling convention.
+    #
+    calleesaves
+	=
+	list::take (c::miscregs, machine_properties::num_callee_saves);
+
+
+    # Registers that are the roots of gc.
+    #
+    root_registers
+	= 
+	(c::stdlink (vfp) ! c::stdclos (vfp) ! c::stdcont (vfp) ! c::stdarg (vfp)
+	  ! calleesaves);
+
+
+    # How to call the call the GC 
+    #
+    gc_call
+	=
+	{   uses =   map t::INT_EXPRESSION root_registers;
+
+	    defs =  case c::exhausted
+			THE cc =>  t::BOOL_EXPRESSION cc ! uses;
+                        NULL   =>  uses; 
+                    esac;
+
+	    call = t::CALL
+                     {
+		       funct => t::LOAD ( 32, 
+			                  t::ADD (address_type, c::frameptr vfp, li machine_properties::startgc_offset),
+			                  r::stack
+                                        ),
+		       targets => [], defs, uses, region=>r::stack,
+		       pops=>0
+                     };
+
+	    # Mark it with a callgc annotation:
+
+	    call =   t::NOTE (call, callgc);
+
+	    t::NOTE (call, lowcode_notes::comment.create "call gc");
+	};
+
+
+	# Record descriptors
+
+    dtoi =   large_unt::to_int;
+
+    fun unboxed_desc words =   dtoi (d::make_desc (words, d::tag_raw64 ));
+    fun boxed_desc   words =   dtoi (d::make_desc (words, d::tag_record));
+
+
+    # The allocation pointer must
+    # always be in a register! 
+    #
+    allocptr_r
+	= 
+	case c::allocptr
+	  
+	    t::REG(_, allocptr_r) =>  allocptr_r; 
+	    _                     =>  error "allocptr must be a register";
+        esac;
+
+    # What type of comparison to use for GC test? 
+    #
+    gc_compare
+	=
+	c::signed_gctest  ??  t::GT
+			  ::  t::GTU;
+
+    unlikely
+	=
+	lowcode_notes::branch_prob.create probability::unlikely;
+
+    normal_test_limit
+	=
+	t::CMP (pty, gc_compare, c::allocptr, c::limitptr (vfp));
+
+
+    # ====================================================================
+    # Private state
+    # ====================================================================
+
+    # Gc info required for standard
+    # functions within the cluster:
+    #
+    cluster_gc_blocks
+	=
+	REF ([]: List( Gc_Info ));
+
+    # Gc info required for known
+    # functions within the cluster:
+    #
+    known_gc_blocks
+        =
+        REF ([]: List( Gc_Info ));
+
+    # Gc info required for modules:
+    #
+    module_gc_blocks
+	=
+        REF ([]: List( Gc_Info ));
+
+
+
+    # ====================================================================
+    # Auxiliary functions
+    # ====================================================================
+
+    # Convert a list of rexps into a
+    # set of registers and memory offsets.
+    #
+    # Memory offsets must be relative
+    # to the frame pointer.
+    #
+    fun set namings
+	=
+	{   the_vfp =   c::virtual_frame_pointer;
+
+	    the_fp
+		= 
+		case (c::frameptr FALSE)
+
+		    t::REG (_, the_fp)
+                        =>
+                        the_fp;
+
+		    _ => error "theFp";
+                esac;
+
+	    # At this point, theVfp will always eventually
+            # end up being theFp, but lowcodeGen might
+            # pass in references to theVfp anyway (because
+            # of some RCC that happens to be in the cluster).
+	    # Therefor, we test for either the real frame
+            # pointer (theFp) or the virtual frame pointer
+            # (theVfp) here.
+	    #
+	    fun is_frame_ptr fp
+		=
+		cb::same_color (fp, the_fp)    or
+		cb::same_color (fp, the_vfp);
+
+	    fun live (t::REG(_, r) ! es, regs, mem)
+		    =>
+		    live (es, r ! regs, mem);
+
+	        live (t::LOAD(_, t::REG(_, fp), _) ! es, regs, mem)
+		    =>
+		    if (is_frame_ptr fp)
+			 live (es, regs, 0 ! mem);
+		    else error "set: LOAD32";
+                    fi;
+
+	        live (t::LOAD(_, t::ADD(_, t::REG(_, fp), t::LITERAL i), _) ! es, regs, mem)
+		    =>
+		    if (is_frame_ptr fp)   live (es, regs, t::machine_int::to_int (32, i) ! mem);
+		    else                   error "set: LOAD32";
+		    fi;
+
+	        live([], regs, mem)
+		    =>
+		    (regs, mem);
+
+	        live _
+                    =>
+                    error "live";
+            end;
+
+	    my  (regs, mem)
+		=
+		live (namings, [], []);
+
+	    { regs =>   s::return (s::uniq regs),
+	      mem  =>   sl::uniq mem
+	    };
+	};
+
+    fun difference (   { regs=>r1, mem=>m1 },
+		       { regs=>r2, mem=>m2 }
+		   )
+	=
+	{ regs =>   s::difference (r1, r2),
+	  mem  =>   sl::difference (m1, m2)
+	};
+
+    fun set_to_string { regs, mem }
+	=
+	"{ " + fold_right (fn (r, s) =   cb::to_string r + " " + s) "" regs
+	     + fold_right (fn (m, s) =  int::to_string m + " " + s) "" mem + "}";
+
+
+
+    # The client communicates root pointers
+    # to the gc via the following set of
+    # registers and memory locations.
+    #
+    gcroot_set =   set root_registers;
+    a_root     =   head gcroot_set.regs;
+    a_root_reg =   t::REG (32, a_root);
+
+
+    # This function generates a gc limit check.
+    # It returns the label to the GC invocation block.
+    #
+    fun check_limit (emit, max_alloc)
+	=
+	lab
+        where
+	    lab =   label::make_anonymous_label();
+
+	    fun goto_gc (cc)
+		=
+		emit (t::NOTE (t::BCC (cc, lab), unlikely));
+
+	    if (max_alloc < skid_pad)
+	        
+	        case c::exhausted
+		    THE cc =>  goto_gc cc;
+		    NULL   =>  goto_gc normal_test_limit;
+                esac;
+
+	    else  
+		shifted_alloc_ptr =   t::ADD (address_type, c::allocptr, li (max_alloc-skid_pad));
+
+		shifted_test_limit =   t::CMP (pty, gc_compare, shifted_alloc_ptr, c::limitptr (vfp));
+
+		case c::exhausted
+
+		    THE (cc as t::CC(_, r))
+			=> 
+			{ emit (t::MOVE_BOOL (r, shifted_test_limit));
+			  goto_gc (cc);
+			};
+
+		    NULL => goto_gc (shifted_test_limit);
+
+		    _ => error "checkLimit";
+		esac;
+	    fi;
+	end;
+
+    base_offset
+	=
+	t::LITERAL (integer::from_int machine_properties::const_base_reg_offset);
+
+
+    # Recompute the base pointer address:
+    #
+    fun compute_base_ptr (emit, define_local_label, add_note)
+	=
+	{   return_lab =   label::make_anonymous_label();
+
+	    base_expression
+		= 
+		t::ADD (address_type, c::gc_link (vfp),
+		      t::LABEXP (t::SUB (address_type, base_offset, t::LABEL return_lab)));
+
+	    define_local_label return_lab;
+
+	    add_note  zero_freq; 
+
+	    emit    case (c::baseptr vfp)
+			t::REG (type, bpt)      =>  t::MOVE_INT (type, bpt, base_expression);
+			t::LOAD (type, ea, mem) =>  t::STORE (type, ea, base_expression, mem);
+			_                       =>  error "compute_base_ptr";
+                    esac;
+	};
+
+    # ====================================================================
+    # Main functions
+    # ====================================================================
+
+    fun init ()
+	=
+	{   cluster_gc_blocks        := [];
+	    known_gc_blocks          := [];
+	    module_gc_blocks         := [];
+	};
+
+
+    # Partition the root set into types:
+    #
+    fun split ([], [], boxed, int32, float)
+	    => 
+	    { boxed, int32, float };
+
+	split (t::INT_EXPRESSION   r ! rl, fps::INT32T ! tl, b, i, f) =>   split (rl, tl, b, r ! i, f);
+	split (t::INT_EXPRESSION   r ! rl, fps::FLTT ! tl,   b, i, f) =>   error "split: t::INT_EXPRESSION";
+	split (t::INT_EXPRESSION   r ! rl, _ ! tl,           b, i, f) =>   split (rl, tl, r ! b, i, f);
+	split (t::FLOAT_EXPRESSION r ! rl, fps::FLTT ! tl,   b, i, f) =>   split (rl, tl, b, i, r ! f);
+
+	split _ => error "split";
+    end;
+
+    fun gen_gc_info (cluster_ref, known, optimized) (ts::instruction_stream::STREAM { emit, ... } : Stream)
+		  { max_alloc, regfmls, regtys, return }
+	=
+	{   # Partition the root set into the appropriate ilks 
+
+	    my  { boxed, int32, float }
+		=
+		split (regfmls, regtys, [], [], []);
+
+	    cluster_ref
+		:= 
+		GCINFO {
+
+		    known,
+		    optimized,
+		    lab      => REF (check_limit (emit, max_alloc)),
+		    boxed,
+		    int32,
+		    float,
+		    regfmls,
+		    ret      => return
+		}
+		!
+		*cluster_ref;
+	};
+
+
+    # Check-limit for standard functions,
+    # i.e.~functions with external entries:
+    #
+    standard_function_check_limit
+	=
+	gen_gc_info   (cluster_gc_blocks, FALSE, FALSE);
+
+
+    # Check-limit for known functions,
+    # i.e.~functions with entries from
+    # within the same cluster.
+    #
+    known_function_check_limit
+	=
+	gen_gc_info (known_gc_blocks, TRUE, FALSE);
+
+
+    # Check-limit for optimized, known functions.  
+    #
+    optimized_known_function_check_limit
+	=
+	gen_gc_info (known_gc_blocks, TRUE, TRUE);
+
+
+    # A rw_vector for checking cycles:
+    #
+    stipulate
+
+	nnn = 1 + fold_right
+                      (fn (r, n) = int::max (cb::register_num r, n)) 
+		      0
+                      gcroot_set.regs;
+    herein
+
+	client_roots = rw_vector::make_rw_vector (nnn, -1);
+	stamp        = REF 0;
+    end;
+
+
+    # This function packs boxed, int32 and float
+    # into gcroots. gcroots must be non-empty.
+    # Return a function to unpack.
+    #
+    fun pack (emit, gcroots, boxed, int32, float)
+	=
+	{   # Datatype naming describes the contents a gc root.
+	    #
+	    Naming
+	      = REG      cb::Cell				# Integer register.
+	      | FREG     cb::Cell				# Floating point register.
+	      | MEM      (t::Int_Expression, r::Region)		# Integer memory register.
+ 	      | RECORD   { boxed: Bool,				# Is it a boxed record?
+			   words: Int,				# How many words?
+			   reg: cb::Cell,			# Address of this record.
+			   reg_tmp: cb::Cell,			# Temp used for unpacking.
+			   fields: List( Naming )		# Its fields.
+			 };
+
+
+	    # Translate int_expression/float_expression into namings.
+	    # Note: client roots from memory (XXX) should NOT be used without
+	    # fixing a potential cycle problem in the parallel copies below.
+	    # Currently, all architectures, including the x86, do not use
+	    # the LOAD(...) form.  So we are safe.
+	    #	
+	    fun bind (t::REG (32, r       )) =>   REG r;
+	        bind (t::LOAD (32, ea, mem)) =>   MEM (ea, mem);  #  XXX 
+	        bind(_)                      =>   error "bind";
+            end;
+
+	    fun fbind (t::FREG (64, r)) =>   FREG r;
+	        fbind(_)                =>   error "fbind";
+            end;
+
+	    st     = *stamp;
+	    cyclic = st + 1;
+
+	    if (st > 100000)   stamp := 0;
+	    else               stamp := st + 2;
+            fi;
+
+	    nnn =   rw_vector::length client_roots;
+
+
+	    fun mark_clients []
+                    =>
+                    ();
+
+	        mark_clients (t::REG(_, r) ! rs)
+		    => 
+		    {   rx = cb::register_num r;
+
+			if (rx < nnn)
+                            rw_vector::set (client_roots, rx, st);
+			fi;
+
+			mark_clients rs;
+		    };
+
+	        mark_clients(_ ! rs)
+                    =>
+                    mark_clients rs;
+            end;
+
+
+	    fun mark_gcroots []
+                    =>
+                    ();
+
+	        mark_gcroots (t::REG(_, r) ! rs)
+		    => 
+		    {   rx = cb::register_num r;
+
+			if  (rw_vector::get (client_roots, rx) == st)
+			     rw_vector::set (client_roots, rx, cyclic);
+			fi; 
+
+			mark_gcroots rs;
+		    };
+
+	        mark_gcroots(_ ! rs)
+		    =>
+		    mark_gcroots rs;
+            end;
+
+	    mark_clients boxed;
+	    mark_clients int32;
+	    mark_gcroots gcroots;
+
+
+	    # First, we pack all unboxed roots,
+	    # if any, into a record:
+	    #
+	    boxed_stuff
+		= 
+		case (int32, float)
+                  
+		    ([], [])
+			=>
+			map bind boxed;
+
+		     _
+			 =>
+			 # Align the allocptr if we
+			 # have floating point roots:
+			 #
+			 {   case float
+			         [] => ();
+
+				 _  => emit (t::MOVE_INT (address_type, allocptr_r, 
+					       t::BITWISEOR (address_type, c::allocptr, li 4)));
+                             esac;
+
+			     # If we have int32 or floating point stuff, package them
+			     # up into a raw record.  Floating point stuff have to come first.
+
+
+			     {   qwords =   length float + (length int32 + 1) / 2;
+
+				 RECORD {
+
+				   boxed   => FALSE,
+				   reg     => cells::new_reg(), 
+				   reg_tmp => cells::new_reg(),
+
+				   words   => qwords + qwords,
+				   fields  => map fbind float @ map bind int32
+				 } 
+				 !
+				 map bind boxed;
+			     };
+		         };
+                esac;
+
+	    # Then, we check whether we have enough
+            # gc roots to store boxed_stuff.
+	    # If so, we are safe.
+            # Otherwise, we have to pack up some of
+	    # the  boxed stuff into a record too.
+	    #
+	    n_boxed_stuff =   length boxed_stuff;
+	    n_gc_roots    =   length gcroots;
+
+	    namings
+		= 
+		if (n_boxed_stuff <= n_gc_roots) 
+		    
+		     boxed_stuff; #  good enough 
+		else
+		     # Package up some of the boxed stuff:
+
+		     extra         = n_boxed_stuff - n_gc_roots + 1;
+		     pack_up       = list::take (boxed_stuff, extra);
+		     don't_pack_up = list::drop (boxed_stuff, extra);
+
+		     RECORD {
+		       boxed   =>   TRUE,
+		       words   =>   length pack_up,
+		       reg_tmp =>   cells::new_reg(),
+		       reg     =>   cells::new_reg(),
+		       fields  =>   pack_up
+		     }
+		     !
+		     don't_pack_up; 
+		fi;
+
+	    fun copy ([], _)
+		    =>
+		    ();
+
+	        copy (dst, src)
+		    =>
+		    emit (t::COPY_INTS (32, dst, src));
+            end;
+
+
+	    # Copy the client roots into the real gc roots.
+	    # We have to make sure that cycles have correctly handled. 
+	    # So we can't do a copy at a time!  But see XXX below.
+	    #
+	    fun prolog (hp, unused_roots, [], rds, rss)
+		    => 
+		    {   fun init [] => ();
+
+			   init (t::REG (type, rd      ) ! roots) =>   { emit (t::MOVE_INT (type, rd, unit));         init roots; };
+			   init (t::LOAD (type, ea, mem) ! roots) =>   { emit (t::STORE (type, ea, unit, mem)); init roots; };
+
+			   init _ => error "init";
+			end;
+
+
+			# Update the heap pointer if we have done any allocation 
+
+			if (hp > 0)
+
+			     emit (t::MOVE_INT (address_type, allocptr_r, 
+				     t::ADD (address_type, c::allocptr, li hp)));
+			fi;
+
+			# Emit the parallel copies:
+			#
+			copy (rds, rss);
+
+			# Any unused gc roots have to be
+			# initialized with unit.
+			# The following MUST come last. 
+			#
+			init unused_roots;
+		    };
+
+	        prolog (hp, t::REG(_, rd) ! roots, REG rs ! bs, rds, rss)
+		    => 
+		    # Copy client root rs into gc root rd  
+		    #
+		    prolog (hp, roots, bs, rd ! rds, rs ! rss);
+
+	        prolog (hp, t::REG(_, rd) ! roots, RECORD (r as { reg, ... } ) ! bs, rds, rss)
+		    => 
+		    {    # Make a record then copy:
+
+		         hp =   make_record (hp, r);
+
+		         prolog (hp, roots, bs, rd ! rds, reg ! rss);
+		    };
+
+     #          prolog (hp, t::LOAD(_, ea, mem) ! roots, b ! bs, rds, rss)    # XXX
+     #             =
+     #             # The following code is unsafe because of potential cycles!
+     #             # But luckly, it is unused XXX.
+     #             #
+     #             {   my (hp, e)
+     #                    = 
+     #                     Case b
+     #                       of REG r => (hp, t::REG (32, r))
+     #                        | MEM (ea, mem) => (hp, t::LOAD (32, ea, mem))
+     #                        | RECORD (r as { reg, ... } ) => 
+     #                         (makeRecord (hp, r), t::REG (32, reg))
+     #                        | _ => error "floating point root";
+     #                 emit (t::STORE (32, ea, e, mem));
+     #                 prolog (hp, roots, bs, rds, rss);
+     #             }
+
+	        prolog _ => error "prolog";
+            end 
+
+	    # Make a record and put it in reg:
+	    #	
+	    also
+            fun make_record (hp, { boxed, words, reg, fields, ... } )
+		= 
+		{   fun disp (n)
+			=
+			t::ADD (address_type, c::allocptr, li n);
+
+		    fun alloci (hp, e)
+			=
+			emit (t::STORE (32, disp hp, e, r::memory));
+
+		    fun allocf (hp, e)
+			=
+			emit (t::FSTORE (64, disp hp, e, r::memory));
+
+
+		    fun alloc (hp, [])
+                            =>
+                            ();
+
+		        alloc (hp, b ! bs)
+			    => 
+			    case b
+			      
+				REG r
+				    =>
+				    {   alloci (hp, t::REG (32, r));
+					alloc (hp+4, bs);
+				    };
+
+				RECORD { reg, ... }
+				    => 
+				    {   alloci (hp, t::REG (32, reg));
+					alloc (hp+4, bs);
+				    };
+
+				MEM (ea, m)
+				    =>
+				    {   alloci (hp, t::LOAD (32, ea, m));
+					alloc (hp+4, bs);
+				    };
+
+				FREG r
+				    =>
+				    {   allocf (hp, t::FREG (64, r));
+					alloc (hp+8, bs);
+				    };
+			     esac;
+		    end;
+
+		    fun evaluate_args ([], hp)
+                            =>
+                            hp;
+
+		        evaluate_args (RECORD r ! args, hp)
+			    => 
+			    evaluate_args (args, make_record (hp, r));
+
+		        evaluate_args(_ ! args, hp)
+			    =>
+			    evaluate_args (args, hp);
+                    end;
+
+		    # MUST evaluate nested records first: 
+		    #
+		    hp   =   evaluate_args (fields, hp);
+
+		    desc =   boxed  ??  boxed_desc   words
+			            ::  unboxed_desc words;
+
+		    emit (t::STORE (32, disp hp, li desc, r::memory));
+		    alloc (hp+4, fields);
+		    emit (t::MOVE_INT (address_type, reg, disp (hp+4))); 
+		    hp + 4 + unt::to_int_x (unt::(<<) (unt::from_int words, 0u2));
+		};
+
+	    # Copy the gc roots back to client roots. 
+	    # Again, to avoid potential cycles we
+            # generate a single parallel copy that
+            # moves the gc roots back to the client roots.
+	    #
+	    fun epilog ([], unused_gc_roots, rds, rss)
+		    => 
+		    copy (rds, rss);
+
+	        epilog (REG rd ! bs, t::REG(_, rs) ! roots, rds, rss)
+		    => 
+		    epilog (bs, roots, rd ! rds, rs ! rss);
+
+	        epilog (RECORD { fields, reg_tmp, ... } ! bs, t::REG(_, r) ! roots, rds, rss)
+		    => 
+		    {   # Unbundle record 
+
+			emit (t::COPY_INTS (32, [reg_tmp], [r]));
+
+			my  (rds, rss)
+			    =
+			    unpack (reg_tmp, fields, rds, rss);
+
+			epilog (bs, roots, rds, rss);
+		    };
+
+	        epilog (b ! bs, r ! roots, rds, rss)
+		    => 
+		    {   assign (b, r); #  XXX 
+			epilog (bs, roots, rds, rss);
+		    };
+
+	        epilog _ => error "epilog";
+            end 
+
+	    also
+            fun assign (REG r, e)         =>   emit (t::MOVE_INT (32, r, e));
+	        assign (MEM (ea, mem), e) =>   emit (t::STORE (32, ea, e, mem));
+	        assign _                  =>   error "assign";
+            end 
+
+	    # Unpack fields from record:
+ 	    #
+	    also
+            fun unpack (record_r, fields, rds, rss)
+		= 
+		{   record =   t::REG (32, record_r);
+
+		    fun disp n
+			=
+			t::ADD (address_type, record, li n);
+
+		    fun sel n
+			=
+			t::LOAD (32, disp n, r::memory);
+
+		    fun fsel n
+			=
+			t::FLOAD (64, disp n, r::memory);
+
+		    nnn =   rw_vector::length client_roots;
+
+		    # Unpack normal fields:
+		    #
+		    fun unpack_fields (n, [], rds, rss)
+			    =>
+			    (rds, rss);
+
+		       unpack_fields (n, FREG r ! bs, rds, rss)
+			   => 
+			   {   emit (t::MOVE_FLOAT (64, r, fsel n)); 
+			       unpack_fields (n+8, bs, rds, rss);
+			   };
+
+		       unpack_fields (n, MEM (ea, mem) ! bs, rds, rss)
+			   => 
+			   {   emit (t::STORE (32, ea, sel n, mem));  #  XXX 
+			       unpack_fields (n+4, bs, rds, rss);
+			   };
+
+		       unpack_fields (n, RECORD { reg_tmp, ... } ! bs, rds, rss)
+			   => 
+			   {   emit (t::MOVE_INT (32, reg_tmp, sel n));
+			       unpack_fields (n+4, bs, rds, rss);
+			   };
+
+		       unpack_fields (n, REG rd ! bs, rds, rss)
+			   => 
+			   {   rdx =   cb::register_num rd;
+
+			       if (rdx < nnn and rw_vector::get (client_roots, rdx) == cyclic)
+			           
+				    tmp_r =   cells::new_reg();
+
+				    # print "WARNING: CYCLE\n"; 
+
+				    emit (t::MOVE_INT (32, tmp_r, sel n));
+				    unpack_fields (n+4, bs, rd ! rds, tmp_r ! rss);
+			       else
+				    emit (t::MOVE_INT (32, rd, sel n));
+				    unpack_fields (n+4, bs, rds, rss);
+			       fi;
+			   };
+			end;
+
+		    # Unpack nested record:
+		    # 
+		    fun unpack_nested (_, [], rds, rss)
+			    =>
+			    (rds, rss);
+
+		        unpack_nested (n, RECORD { fields, reg_tmp, ... } ! bs, rds, rss)
+			    => 
+			    {   my  (rds, rss)
+				    =
+				    unpack (reg_tmp, fields, rds, rss);
+
+				unpack_nested (n+4, bs, rds, rss);
+			    };
+
+		        unpack_nested (n, FREG _ ! bs, rds, rss)
+			    =>
+			    unpack_nested (n+8, bs, rds, rss);
+
+		        unpack_nested (n, _ ! bs, rds, rss)
+			    =>
+			    unpack_nested (n+4, bs, rds, rss);
+                    end;
+
+		    my  (rds, rss)
+			=
+			unpack_fields (0, fields, rds, rss);
+
+		    unpack_nested (0, fields, rds, rss);
+	       };
+
+
+	    # Generate code:
+	    #
+	    prolog (0, gcroots, namings, [], []);
+
+
+	    # Return the unpack function:
+	    #
+	    fn () =  epilog (namings, gcroots, [], []);
+	};
+
+
+    # The following auxiliary function
+    # generates the actual call gc code. 
+    #
+    # It packages up the roots into the
+    # appropriate records, calls the GC
+    # routine, then unpack the roots
+    # from the record.
+    #
+    fun emit_call_gc { stream=>ts::instruction_stream::STREAM { emit, add_note, define_local_label, ... }, 
+		   known, boxed, int32, float, ret }
+	=
+	{   fun set_to_codetree { regs, mem }
+		=
+		map (fn r = t::REG (32, r))
+                    regs
+		@ 
+		map (fn i = t::LOAD (32, t::ADD (address_type, c::frameptr vfp, li (i)), r::memory))
+                    mem;
+
+	    # IMPORTANT NOTE:  
+	    # If a boxed root happens be in a gc root register,
+	    # we can remove this root since it will be correctly
+            # targetted. 
+	    #
+	    # boxed_roots are the boxed roots that
+            # we have to move to the appropriate registers.
+	    #
+            # gcroot_set are the registers that are
+	    # available for communicating to the collector.
+	    #
+	    boxed_set    =   set boxed;
+	    boxed_roots  =   difference (boxed_set, gcroot_set);	# Roots.
+	    gcroot_avail =   difference (gcroot_set, boxed_set);	# Available gcroots.
+
+	    fun mark (call)
+		=
+		if *debug_gc
+
+		     t::NOTE (call, lowcode_notes::comment.create 
+			("roots=" + set_to_string gcroot_avail  + 
+			 " boxed=" + set_to_string boxed_roots));
+		else
+		     call;
+                fi;
+
+	    #  Convert them back to Codetree 
+	    #
+	    boxed   =   set_to_codetree   boxed_roots ;
+	    gcroots =   set_to_codetree   gcroot_avail;
+
+	    # If we have any remaining roots
+            # after the above trick, we have to 
+	    # make sure that gcroots is not empty.
+	    #
+	    my  (gcroots, boxed)
+		= 
+		case (gcroots, int32, float, boxed)
+
+		    ([], [], [], [])
+			=>
+			([], []);		#  It is okay.
+
+		    ([], _, _, _)
+			=>
+			([a_root_reg], boxed @ [a_root_reg]); 
+
+		    # Put aRootReg last to reduce register pressure 
+		    # during unpacking
+
+		    _  => (gcroots, boxed);
+                esac;
+
+	    unpack =   pack (emit, gcroots, boxed, int32, float);
+
+	    add_note  callgc;
+	    add_note  no_optimization; 
+	    add_note  zero_freq;
+	    emit (mark (gc_call));
+
+	    if known
+                compute_base_ptr (emit, define_local_label, add_note);
+            fi;
+
+	    add_note  no_optimization;
+	    unpack();
+	    emit ret;
+	};
+
+
+    # The following function is responsible
+    # for generating only the call_gc code.
+    #
+    fun call_gc stream { regfmls, regtys, ret }
+	=
+	{   my  { boxed, int32, float }
+		=
+		split (regfmls, regtys, [], [], []);
+
+	    emit_call_gc { stream, known=>TRUE, boxed, int32, float, ret };
+	};
+
+
+    # This function emits a comment
+    # that pretty prints the root set.
+    # This is used for debugging only.
+    #
+    fun root_set_to_string { boxed, int32, float }
+	= 
+	{   fun extract (t::REG (32, r)) => r;
+	        extract _ => error "extract";
+            end;
+
+	    fun fextract (t::FREG (64, f)) => f;
+	        fextract _ => error "fextract";
+            end;
+
+	    fun listify title f []
+                    =>
+                    "";
+
+	        listify title f l
+		    => 
+		    title + fold_right
+                                fn (x, "") => f x;
+				   (x,  y) => f x  +  ", "  +  y;
+				end
+				""
+                                (s::uniq l) + " ";
+            end;
+
+	    listify     "boxed=" cb::to_string (map extract boxed)
+	    +   listify "int32=" cb::to_string (map extract int32)
+	    +   listify "float=" cb::to_string (map fextract float);
+	};
+
+
+    # The following function is responsible for generating actual
+    # GC calling code, with entry labels and return information.
+    #
+    fun invoke_gc (stream as 
+		ts::instruction_stream::STREAM { emit, define_local_label, define_global_label, end_procedure, add_note, ... },
+		 external_entry) gc_info
+	= 
+	{   my  { known, optimized, boxed, int32, float, regfmls, ret, lab }
+		=
+		case gc_info
+
+		    GCINFO info => info;
+		    MODULE { info=>GCINFO info, ... } => info;
+		    _ => error "invokeGC: gcInfo";
+                esac;
+
+	    liveout =   optimized  ??  []
+				   ::  regfmls;
+
+	    if external_entry     define_global_label *lab;
+	    else                  define_local_label  *lab;
+            fi;
+
+	    # When the known block is optimized,
+	    # no actual code is generated until
+	    # later:
+	    #
+	    if optimized
+	         
+		 add_note (
+
+		     lowcode_notes::gcsafepoint.create 
+
+			 (*debug_gc  ??  root_set_to_string { boxed, int32, float }
+				     ::  ""
+			 )
+		 );
+
+		 emit ret;
+
+	    else
+		 emit_call_gc { stream, known, boxed, int32, float, ret };
+            fi;
+
+	    end_procedure (
+
+		case c::exhausted
+		    THE cc =>   t::BOOL_EXPRESSION cc ! liveout;
+		    NULL   =>   liveout; 
+                esac
+	    );
+	};
+
+
+    # The following function checks
+    # whether two root set have the
+    # same calling convention.
+    #
+    fun same_calling_convention
+	    ( GCINFO { boxed=>b1, int32=>i1, float=>f1, ret=>t::JUMP (ret1, _), ... },
+	      GCINFO { boxed=>b2, int32=>i2, float=>f2, ret=>t::JUMP (ret2, _), ... }
+            )
+	    =>
+	    {   fun eq_ea (t::REG(_, r1), t::REG(_, r2))
+			=>
+			cb::same_color (r1, r2);
+
+		    eq_ea (t::ADD(_, t::REG(_, r1), t::LITERAL i),
+			   t::ADD(_, t::REG(_, r2), t::LITERAL j))
+		        =>  
+			cb::same_color (r1, r2) and t::machine_int::eq (32, i, j);
+
+		    eq_ea _ => FALSE;
+		end;
+
+
+		fun eq_r (t::REG(_, r1), t::REG(_, r2))
+			=>
+			cb::same_color (r1, r2);
+
+		    eq_r (t::LOAD(_, ea1, _), t::LOAD(_, ea2, _))
+			=>
+			eq_ea (ea1, ea2);
+
+		    eq_r _
+			=>
+			FALSE;
+		end;
+
+
+		fun eq_f (t::FREG(_, f1), t::FREG(_, f2))
+			=>
+			cb::same_color (f1, f2);
+
+		    eq_f (t::FLOAD(_, ea1, _), t::FLOAD(_, ea2, _))
+			=>
+			eq_ea (ea1, ea2);
+
+		    eq_f _ => FALSE;
+		end;
+
+
+		fun all predicate
+		    = 
+		    f
+		    where
+			fun f (a ! x, b ! y) =>   predicate (a, b) and f (x, y);
+			    f (   [],    []) =>   TRUE;
+			    f _              =>   FALSE;
+			end;
+		    end;
+
+		eq_int_expression =   all eq_r;
+
+		eq_int_expression (b1, b2) and eq_r (ret1, ret2) and 
+		eq_int_expression (i1, i2) and all eq_f (f1, f2);
+	    };
+
+        same_calling_convention _
+            =>
+            FALSE;
+    end;
+
+
+    # The following function is called once
+    # at the end of compiling a cluster.
+    #
+    # It generates long jumps to the end
+    # of the module unit for standard functions,
+    # and directly invokes GC for known functions.
+    #
+    # The actual GC invocation code is not generated yet.
+    #
+    fun emit_longjump_garbage_collector_calls
+	(
+          stream
+              as
+              ts::instruction_stream::STREAM
+                {
+                  emit,
+                  define_local_label,
+                  end_procedure,
+                  ...
+                }
+        )
+	=
+	{   # GC code can be shared if the calling convention is the same 
+	    # Use linear search to find the gc subroutine.
+	    #
+	    fun find (info as GCINFO { lab as REF l, ... } )
+		    =>
+		    search *module_gc_blocks
+		    where 
+			fun search (MODULE { info=>info', addresses } ! rest)
+				=>
+				if (same_calling_convention (info, info'))
+
+				     addresses := l ! *addresses; 
+				else
+				     search rest;
+				fi;
+
+			    search []
+				=> 
+				{   # No matching convention:
+
+				    label =   label::make_anonymous_label();
+
+				    lab :=   label;
+
+				    module_gc_blocks
+					:=
+					MODULE { info, addresses => REF [l] }
+					!
+					*module_gc_blocks;
+				};
+
+			    search _
+				=>
+				error "search";
+			end;
+		    end;
+
+	        find _ => error "find";
+            end;
+
+
+	    # Generate a long jump to all external callgc routines 
+	    #
+	    fun long_jumps (MODULE { addresses=>REF [], ... } )
+		    =>
+		    ();
+
+	        long_jumps (MODULE { info=>GCINFO { lab, boxed, int32, float, ... }, addresses } )
+		    =>
+		    {   reg_roots  =   map t::INT_EXPRESSION (int32 @ boxed);
+			freg_roots =   map t::FLOAT_EXPRESSION float;
+			live_out   =   reg_roots @ freg_roots;
+			l         =   *lab;
+
+			apply  define_local_label  *addresses
+			before
+			    addresses := [];
+
+			emit (t::JUMP (t::LABEL l, []));
+			end_procedure live_out;
+		    };
+
+	        long_jumps _
+		    =>
+		    error "long_jumps";
+            end;
+
+	    apply  find  *cluster_gc_blocks
+	    before
+		cluster_gc_blocks := [];
+
+	    apply  long_jumps  *module_gc_blocks;
+
+	    apply  (invoke_gc (stream, FALSE))  *known_gc_blocks
+	    before
+		known_gc_blocks := [];
+	};						# fun emit_longjump_garbage_collector_calls
+
+    # The following function is called to generate module specific 
+    # GC invocation code 
+    #
+    fun emit_garbage_collector_calls_for_package stream
+	=
+	apply (invoke_gc (stream, TRUE)) *module_gc_blocks
+	before
+	    module_gc_blocks := [];
+
+};

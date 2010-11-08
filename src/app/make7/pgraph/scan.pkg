@@ -1,0 +1,369 @@
+# scan.pkg
+#
+# (C) 2001 Lucent Technologies, Bell Labs
+#
+# Read the output of format.pkg and reconstruct the original
+# portable_graph::graph.
+#
+# author: Matthias Blume (blume@research.bell-labs.com)
+
+# Compiled by:
+#     src/app/make7/pgraph/pgraph-util.make6
+
+
+
+package scan_portable: (weak)
+api {
+    exception PARSE_ERROR  String;
+
+    input:  file::Input_Stream -> portable_graph::Graph;
+}
+{
+    package p= portable_graph;		# portable_graph	is from   src/app/make7/pgraph/pgraph.pkg
+    package s= file::pure_io;		# file			is from   src/lib/std/src/unix/file.pkg
+
+    exception PARSE_ERROR  String;
+
+    fun input ins
+        =
+        {   s = file::get_instream ins;
+
+	    fun skip_line s
+                =
+                the_else (null_or::map #2 (s::read_line s), s);
+
+	    fun allof l s
+                =
+                fold_left (fn (f, s) = f s) s l;
+
+	    fun skip_ws s
+                =
+		case (s::read_one s)
+		  
+		     NULL => s;
+		     THE (c, s') => if (char::is_space c) skip_ws s';
+                                    else                           s;
+                                    fi;
+                esac;
+
+	    fun maybeident s
+                =
+                { s = skip_ws s;
+		    finish = string::implode o reverse;
+
+		    fun loop (s, a)
+                        =
+			case (s::read_one s)
+			  
+			     NULL => THE (finish a, s);
+
+			     THE (c, s')
+				 =>
+				 if   (char::is_alphanumeric  c)
+				     
+				      loop (s', c ! a);
+				 else
+				      THE (finish a, s);
+				 fi;
+                        esac;
+		
+		    case (s::read_one s)
+		      
+		        NULL => NULL;
+
+		        THE (c, s')
+			    =>
+			    if   (char::is_alpha c)
+			        
+				 loop (s', [c]);
+			    else
+				 NULL;
+                            fi;
+                    esac;
+		};
+
+	    fun ident s
+                =
+		case (maybeident s)
+		  
+		     NULL => raise exception PARSE_ERROR "expected: identifier";
+		     THE (i, s') => (i, s');
+                esac;
+
+	    fun maybestring s
+                =
+                {   s = skip_ws s;
+
+		    fun eof ()
+                        =
+                        raise exception PARSE_ERROR "unexpected EOF in string";
+
+		    fun loop (s, a)
+                        =
+			case (s::read_one s)
+			  
+			     NULL => eof ();
+			     THE ('"', s')
+                                 =>
+			         case (string::from_string (string::implode (reverse a)))
+			           
+			              THE x =>  THE (x, s');
+			              NULL  =>  raise exception PARSE_ERROR "illegal string syntax";
+                                 esac;
+
+
+			     THE ('\\', s')
+				 =>
+				 case (s::read_one s')
+				   
+				      NULL         =>  eof ();
+				      THE (c, s'') =>  loop (s'', c ! '\\' ! a);
+                                 esac;
+
+			     THE (c, s')
+				 =>
+				 loop (s', c ! a);
+                        esac;
+		
+		    case (s::read_one s)
+		      
+		         THE ('"', s') =>  loop (s', []);
+		         _             =>  raise exception PARSE_ERROR "expected: string";
+                    esac;
+		};
+
+	    fun string s
+                =
+		case (maybestring s)
+		  
+		     THE (x, s') =>  (x, s');
+		     NULL        =>  raise exception PARSE_ERROR "expected: String";
+                esac;
+
+	    fun expect c s
+                =
+                {   s = skip_ws s;
+
+		    fun notc what
+                        =
+			raise exception PARSE_ERROR (cat ["expected: ", char::to_string c,
+						  ", found: ", what]);
+		
+		    case (s::read_one s)
+		      
+		         NULL         =>  notc "EOF";
+		         THE (c', s') =>  if (c == c' ) s'; else notc (char::to_string c'); fi;
+                    esac;
+		};
+
+	    fun expect_id i s
+                =
+                {   my (i', s') = ident s;
+		
+		    if   (i == i')
+                        
+                          s';
+		    else
+                         raise exception PARSE_ERROR (cat ["expected: ", i, ", found: ", i']);
+                    fi;
+		};
+
+	    fun varlist s
+                =
+                {   fun eof ()
+                        =
+                        raise exception PARSE_ERROR "unexpected EOF in varlist";
+
+		    s = allof [expect '[', skip_ws] s;
+
+		    fun rest s
+                        =
+                        {   s = skip_ws s;
+			
+			    case (s::read_one s)
+			         NULL => eof ();
+				 THE (']', s') => ([], s');
+				 THE (',', s')
+				     =>
+				     { my (h, s'') = ident s';
+					 my (t, s''') = rest s'';
+
+					 (h ! t, s''');
+				     };
+
+				 THE (c, _)
+				     =>
+				     raise exception PARSE_ERROR
+					       (cat ["expected , or ], found: ",
+							char::to_string c]);
+                            esac;
+			};
+		
+		    case (s::read_one s)
+
+		         NULL => eof ();
+
+			 THE (']', s') => ([], s');
+
+			 THE _
+			     =>
+			     { my (h, s') = ident s;
+				 my (t, s'') = rest s';
+
+				(h ! t, s'');
+			     };
+                    esac;
+		};
+
+	    fun def s
+                =
+		case (maybeident s)
+
+		     THE ("my", s)
+                     =>
+		     { s = allof [expect '(', expect_id "c", expect ','] s;
+			 my (lhs, s) = ident s;
+			 s = allof [expect ')', expect '='] s;
+			 my (f, s) = ident s;
+			 s = expect_id "c" s;
+
+			 fun def (rhs, s)
+                             =
+			     THE (p::DEF { lhs, rhs }, s);
+
+			 fun comp native
+                             =
+                             { my (r, s) = string s;
+				 my (e, s) = ident s;
+				 my (ss, s) = ident s;
+			     
+				 def (p::COMPILE { src => (r, native),
+						  env => e, syms => ss },
+				      s);
+			     };
+
+			 fun symbol ns
+                             =
+                             { my (n, s) = string s;
+			     
+				 def (p::SYM (ns, n), s);
+			     };
+		     
+			 case f
+			   
+			      "syms"
+                              =>
+			      {   my (l, s) = varlist s;
+			      
+				  def (p::SYMS l, s);
+			      };
+
+			    "import"
+                             =>
+                             {   my (l, s) = ident s;
+				 my (ss, s) = ident s;
+			     
+				 def (p::IMPORT { lib => l, syms => ss }, s);
+			     };
+
+			    "compile"  =>  comp FALSE;
+			    "ncompile" => comp TRUE;
+
+			    "merge"
+                             =>
+                             {   my (l, s) = varlist s;
+			     
+				 def (p::MERGE l, s);
+			     };
+
+			    "filter"
+                             =>
+                             {   my (e, s) = ident s;
+				 my (ss, s) = ident s;
+			     
+				 def (p::FILTER { env => e, syms => ss }, s);
+			     };
+
+			    "sgn" => symbol p::SGN;
+			    "str" => symbol p::PACKAGE;
+			    "fct" => symbol p::GENERIC;
+
+			    x => raise exception PARSE_ERROR ("unknown function: " + x);
+                         esac;
+		     };
+
+		   _ => NULL;
+                esac;
+
+	    fun deflist s
+                =
+                {   fun loop (s, a)
+                        =
+			case (def s)
+			     THE (d, s') => loop (s', d ! a);
+			    NULL => (reverse a, s);
+                        esac;
+		
+		    loop (s, []);
+		};
+
+	    fun graph s
+                =
+                { s = allof [skip_line, expect_id "fn"] s;
+
+		    my (imports, s) = varlist s;
+
+		    s = allof [expect '=', expect '>', expect_id "stipulate",
+				   expect_id "use", expect_id "PGOps"] s;
+
+		    my (defs, s) = deflist s;
+
+		    s = allof [expect_id "herein", expect_id "export", expect_id "c"] s;
+
+		    my   (export, s)   =   ident s;
+
+		    #  gobble up remaining boilerplate... 
+
+		    s = allof [   expect_id "end",
+                                      expect '|',
+                                      expect '_',
+				      expect '=',
+                                      expect '>',
+                                      expect_id "raise",
+                                      expect_id "exception",
+				      expect_id "FAIL",
+                                      #2 o string,
+                                      expect ')',
+				      skip_line
+                                  ]
+				  s;
+		
+		    file::set_instream (ins, s);
+
+		    p::GRAPH {   imports,
+                                defs,
+                                export
+                            };
+		};
+	
+	    graph s;
+	};
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

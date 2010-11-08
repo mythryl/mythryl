@@ -1,0 +1,1453 @@
+## make-compiler-g.pkg
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+# Here we define a special app which 'make's
+# the compiler itself, a task which presents
+# special-case problems such as bootstrapping
+# a valid initial runtime state from nothing.
+#
+# (To 'make' any Mythryl program other than the
+# compiler, we use the
+#     src/app/make7/main/make7-g.pkg
+# app.)
+#
+#
+#
+# In this file, we do essentially the following:
+#
+#
+#  1)   Parse the "primordial" library specfile
+#
+#           src/lib/core/init/init.cmi
+#
+#       by calling
+#
+#           primordial_make7file::process
+#       
+#       init.cmi has a special syntax and defines
+#       various life-critical things like TRUE that
+#       must be in place before vanilla .make6file
+#       processing can take place.
+#
+#
+#  2)   Compile the primordial library if a usable
+#       freezefile is not already available for it.
+#
+#
+#  3)   Load the primordial library into memory.
+#
+#
+#  4)   Call
+#
+#           make7file::build_interlibrary_dependency_graph_from_make7file_tree
+#
+#       on the compiler's root .make6file
+#
+#           src/etc/root.make6
+#
+#       (which then recursively runs all
+#       the other .make6 files in the compiler)
+#       to ensure that all the libraries
+#       which are to be linked into the
+#
+#           bin/mythryld
+#
+#       "executable" heap image are up to date.
+#
+#       In the usual   lone_primary   case we pass this
+#       function a FREEZE_ALL arg which forces it to make
+#       .frozen freezefiles for all (real) libraries lacking them,
+#       which in turn forces all .pkg and .api sourcefiles to
+#       compile if they have not already done so.
+#
+#       In the (common) limiting case this requires
+#       recompiling all the relevant .api and .pkg
+#       sourcefiles and packing the resulting .o7
+#       files into .frozen library freezefiles.
+#
+#
+#  5)   Write out two diskfiles named
+#
+#           OH7_FILES_TO_LOAD
+#           LIBRARY_CONTENTS
+#
+#       containing all the information needed to
+#       link the compiler libraries together to
+#       form the   bin/mythryld   "executable".
+#
+#       Later, the
+#
+#           sh/make-compiler-executable
+#
+#       script will hand the above two files to
+#
+#           bin/runtime7
+#
+#       to generate the actual   bin/mythryld
+#       "executable" heap image, but that is
+#       outside of our purview;  we are just
+#       a subroutine invoked by the
+#
+#           sh/make-compiler-libraries
+#
+#       script.
+#
+#
+#  (make-compiler-g.pkg also contains a fair amount
+#  of non-working code intended to support parallel
+#  and distributed compiles, which probably should be
+#  ripped out and rewritten from scratch.   XXX BUGGO FIXME.) 
+#
+#
+#     [ At some point we should tweak the code to hide the
+#       special-case kludging around here from the user,
+#       so that at the command-line level, compiling and
+#       linking the compiler looks just like compiling
+#       and linking any other program. XXX BUGGO FIXME. ]
+#
+#
+#
+# Api:
+#
+#     We get :-sealed as  Make_Compiler			# Make_Compiler	is from   src/lib/core/internal/make-compiler.api
+#
+#
+#
+# Generic invocation context:
+#
+#     The generic we define is invoked in
+#
+#         src/lib/core/make-compiler/x86-unix.pkg
+#
+#     to define compile_x86_unix_compiler -- the other platforms
+#     define similar platform-specific backends.
+#
+#     One of these gets defined as make_compiler (the default
+#     bootstrap compiler) via conditional inclusion in
+#
+#         src/lib/core/make-compiler/current.make6
+#
+#     which gets invoked by src/etc/make-compiler
+#     which gets invoked by a toplevel 'make self'
+#
+#
+#
+# Generic arguments:
+#
+#     "compiler_client_interface" is defined by
+#
+#             package compiler_client_interface = x86_unix_compiler_client_interface;
+#         in
+#             src/lib/compiler/toplevel/backend/x86-unix-compiler-client-interface.pkg
+#
+#         which gets conditionally included by
+#
+#             src/lib/core/compiler/current.make6
+#
+#         (The above is for "x86-linux" platforms:
+#         The pattern is similar on other platforms.)
+#
+#     "read_eval_print_from_stream" is backend::interact::read_eval_print_from_stream
+#         which interact_g defines in
+#
+#             src/lib/compiler/toplevel/interact/interact-g.pkg
+#
+#         as a simple wrapper around the read_eval_print_from_stream
+#         function defined by read_eval_print_loop_g in
+#
+#             src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+#     
+#
+# Runtime invocation context:
+#
+#     One path is via
+#         src/lib/core/internal/main.pkg                    "boot_dictionary:set_up root_directory"
+#         src/lib/core/internal/boot-dictionary-g.pkg     "cmbmake ()"
+#         src/lib/core/internal/boot-dictionary.pkg         make_compiler::make' (...)
+#
+#     The most usual invocation is via
+#	      "make compiler"	
+#             Makefile ->
+#                 sh/make-compiler-libraries
+#         which first constructs the bootstrap compiler by running mythryld on
+#             src/lib/core/make-compiler/current.make6
+#         and then invokes it via a script-embedded
+#             make_compiler::make ()
+#
+#     Either way, we quickly wind up at make'()
+#     at the bottom of this file, and away we go.
+
+stipulate
+    package lg =  inter_library_dependency_graph;
+    package df =  make_compiler_defaults;			# make_compiler_defaults		is from   src/app/make7/make-compiler/make-compiler-defaults.pkg
+
+    find_set_of_o7_files_for_executable
+        =
+        find_set_of_o7_files_for_executable::find_set_of_o7_files_for_executable;
+herein
+
+								# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+								# find_set_of_o7_files_for_executable	is from   src/app/make7/make-compiler/find-set-of-o7-files-for-executable.pkg
+								# make_compiler				is from   src/lib/core/make-compiler/select-x86-unix.pkg
+								# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+								# anchor_dictionary			is from   src/app/make7/paths/anchor-dictionary.pkg
+								# lib7					is from   src/lib/std/lib7.pkg
+								# Compiler_Client_Interface		is from   src/lib/compiler/toplevel/backend/compiler-client-interface.api
+
+								# Os_Kind = UNIX | WIN32 | MACOS | OS2 | BEOS;
+								# for x86-linux, 'compiler_client_interface' will be x86_unix_compiler_client_interface
+								#                                                    from src/lib/compiler/toplevel/backend/x86-unix-compiler-client-interface.pkg
+    generic package   make_compiler_g   (
+
+	# We get the host architecture and abi from this:
+	#
+	package compiler_client_interface
+            :
+	    Compiler_Client_Interface;
+
+	# How to compile ascii source to executable binary:
+	#
+	read_eval_print_from_stream
+            :
+            file::Input_Stream -> Void;
+
+	os_kind: host_info::Os_Kind;
+
+	load_plugin						# load_plugin				def in    src/app/make7/main/make7-g.pkg
+            :
+            anchor_dictionary::Path_Root -> String -> Bool;
+    )
+    {
+        # Set up a little dictionary defining
+        # half a dozen platform properties
+        # like architecture ("x86" or such):
+	#
+	package host_properties
+            =
+            host_properties_g (
+		#
+		architecture_name =  compiler_client_interface::architecture_name;		# "ppc", "sparc" or "x86".
+		os_kind           =  os_kind;
+		abi_variant       =  compiler_client_interface::abi_variant;
+	    );
+
+
+								# host_properties_g		is from   src/app/make7/main/host-properties-g.pkg
+								# winix				is from   src/lib/std/winix.pkg
+								# filename_policy		is from   src/app/make7/main/filename-policy.pkg
+								# backend_index			is from   src/app/make7/make-compiler/backend-index.pkg
+        # Cross-platform file I/O:
+	#
+	package f =   winix::file;
+        package p =   backend_index;
+
+
+	package ad = anchor_dictionary;				# anchor_dictionary		is from   src/app/make7/paths/anchor-dictionary.pkg
+
+	architecture_name					# "ppc", "sparc" or "x86".
+            =
+            compiler_client_interface::architecture_name;
+
+	osname							# "linux"/"macos"/"win32"/...
+            =
+            filename_policy::os_kind_to_string   os_kind;
+
+	platform						# 'platform' string is architecture plus OS, e.g. "x86-linux"   XXX BUGGO FIXME should rename 'platform' to 'arch_os' or such -- clearer.
+            =
+            cat [ architecture_name,
+                  "-",
+                  osname
+                ];
+
+
+	package freezefile_map
+            =
+            freezefile_map_g ();
+								# freezefile_map_g		is from   src/app/make7/freezefile/freezefile-map-g.pkg
+								# compile_treewalk_g		is from   src/app/make7/compile/compile-treewalk-g.pkg
+								# compile_client		is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+								# anchor_dictionary		is from   src/app/make7/paths/anchor-dictionary.pkg
+	package compile_treewalk
+            =
+            compile_treewalk_g (
+		#
+		package   compiler_client_interface =  compiler_client_interface;
+		package   freezefile_map            =  freezefile_map;
+		#
+		read_eval_print_from_stream
+                    =
+                    read_eval_print_from_stream;
+
+		compile_in_subprocess
+                    =
+                    compile_client::compile
+                    o
+                    ad::encode;
+            );
+
+	package oh7_file_cache
+            =
+            oh7_file_cache_g (
+		#
+                architecture_name				# "ppc", "sparc" or "x86".
+                    = 
+                    compiler_client_interface::architecture_name;
+	    );
+
+
+								# oh7_file_cache_g			is from   src/app/make7/compile/oh7-file-cache-g.pkg
+								# freezefile_g				is from   src/app/make7/freezefile/freezefile-g.pkg
+								# compile_treewalk_g			is from   src/app/make7/compile/compile-treewalk-g.pkg
+	package freezefile
+            =
+	    freezefile_g (
+
+                architecture_name				# "ppc", "sparc" or "x86".
+                    =
+                    compiler_client_interface::architecture_name;
+
+		package freezefile_map
+                    =
+                    freezefile_map;
+
+								# make7_state				is from   src/app/make7/main/make7-state.pkg
+								# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+								# oh7_file_cache_g			is from   src/app/make7/compile/oh7-file-cache-g.pkg
+								# compile_treewalk_g 			is from   src/app/make7/compile/compile-treewalk-g.pkg
+								# linking_treewalk_g			is from   src/app/make7/compile/linking-treewalk-g.pkg
+		# A function which allows
+		#
+                #     freezefile::write_freezefile
+		#
+                # to recompile any thawed real library
+		# handed to it:
+		#
+		fun recompile
+                        (make7_state:   make7_state::Make7_State)
+                        (my_library:    inter_library_dependency_graph::Library)
+                    =
+                    {   my { cache_oh7_file, get }
+			    =
+			    oh7_file_cache::make ();
+
+			fun dummy_bare_o7_watcher _ _
+                            =
+                            ();
+
+			my  { symbol_and_inlining_tables, ... }
+                            =
+                            compile_treewalk::walk_inter_library_dependency_graph
+			      (
+				dummy_bare_o7_watcher,
+				cache_oh7_file,
+				my_library
+			      );
+
+			case (symbol_and_inlining_tables  make7_state)
+			    #
+			    NULL  =>  NULL;
+			    THE _ =>  THE get;
+                        esac;
+		    };
+
+		get_o7_exports
+                    =
+                    compile_treewalk::get_o7_exports;
+	    );
+
+	package	verify_freezefile
+	    =
+            verify_freezefile_g   (package freezefile = freezefile;);
+
+
+								# verify_freezefile_g			def in    src/app/make7/freezefile/verify-freezefile.pkg
+								# make7file_g				def in    src/app/make7/parse/make7file-g.pkg
+								# winix					is from   src/lib/std/winix.pkg
+	package make7file
+            =
+            make7file_g (
+		#
+		package freezefile     =  freezefile;
+		package freezefile_map =  freezefile_map;
+		#
+		evict_stale            =  compile_treewalk::evict_stale;
+		fun pending ()	       =  symbol_map::empty;
+	    );
+
+        include freeze_policy;
+
+	#
+	fun list_o7files_to_load  dependency_graph_root
+            =
+	    find_set_of_o7_files_for_executable
+		#
+		filepath_to_string
+		#
+		dependency_graph_root
+
+	    where
+
+                fun filepath_to_string  filepath
+                    =
+                    {
+                        # Convert absolute paths to ROOT-relative ones.
+			#
+			# NB: These were nice relative paths until
+			# I started frigging around with anchors,
+			# presumably an upstream fix somewhere
+			# would restore the status quo ante and
+			# obviate this kludge:		XXX BUGGO FIXME
+			#
+			root = (the (ad::get_anchor (ad::dictionary, "ROOT"))) + "/";
+			#
+                        filepath =  if (string::is_prefix  root  filepath)
+					#
+					string::extract (filepath, string::length root, NULL);
+				    else
+					filepath;
+				    fi;
+
+			case (winix::path::from_string  filepath)
+			    #
+			    { disk_volume =>  "",
+			      is_absolute =>  FALSE,
+			      arcs        =>  arc1 ! arcn
+			    }
+				=>
+				{   fun win32name ()
+					=
+					cat (   arc1 !
+						   fold_right
+						       (fn (a, r) =  "\\" ! a ! r)
+						       []
+						       arcn
+					       );
+
+				    case os_kind
+					#
+					host_info::WIN32
+					     =>
+					     win32name ();
+
+					_    =>
+					     winix::path::to_string {
+
+					       is_absolute =>  FALSE,
+					       disk_volume =>  "",
+					       arcs        =>  arc1 ! arcn
+					     };
+				    esac;
+				};
+
+			    _    =>
+				 raise exception FAIL ("src/app/make7/make-compiler/make-compiler-g.pkg/list_o7files_to_load/list_name: bad name: "  +  filepath);
+			esac;
+		};
+
+
+	    end;					# fun list_o7files_to_load
+
+							# find_set_of_o7_files_for_executable	is from   src/app/make7/make-compiler/find-set-of-o7-files-for-executable.pkg
+							# compile_treewalk_g			def in    src/app/make7/compile/compile-treewalk-g.pkg
+							# make7file_g				def in    src/app/make7/parse/make7file-g.pkg
+							# freezefile_map_g			def in    src/app/make7/freezefile/freezefile-map-g.pkg
+							# file					is from   src/lib/std/src/unix/file.pkg
+							# compile_client			is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+	#
+	fun reset_internal_state ()
+            =
+            {   compile_treewalk::reset ();
+	        make7file::reset ();
+	        freezefile_map::reset ();
+	    };
+
+
+        # This is the exported function which
+	# other modules use to reset us:
+	#
+	fun reset ()
+            =
+            {   file::vsay ["[make_compiler reset]\n"];
+
+                compile_client::with_servers .{
+
+                    compile_client::make_compiler_reset { platform };
+                };
+
+		reset_internal_state ();
+	    };
+
+
+        stipulate
+
+            current_build_directory
+                =
+                REF NULL;				# XXX BUGGO FIXME more thread-hostile embedded state :(
+        herein
+	    fun reset_state_if_build_directory_changed
+                    build_directory
+		=
+		case *current_build_directory
+		  
+		     NULL
+			 =>
+			 current_build_directory
+                             :=
+                             THE build_directory;
+
+		     THE build_directory'
+			 =>
+			 if   (build_directory != build_directory')
+			      
+			      file::vsay [   "src/app/make7/make-compiler/make-compiler-g.pkg:  New build directory is `",
+					    build_directory,
+					    "';   Resetting make_compiler state.]\n"
+					];
+
+			      reset_internal_state ();
+
+			      current_build_directory
+                                  :=
+                                  THE build_directory;
+			 fi;
+		esac;
+	end;
+
+	#
+	fun make_compiler {
+                primary,							# TRUE iff we're in the primary make7 process, FALSE if we're in a compile server.
+                make7file,							# NULL for default (src/etc/root.make6) else  THE make7file_path_as_a_string.
+                build_directory							# 'build_directory' string is root of the directory tree to compile into, usually "build7", "build7-1" or "build7-2".
+            }
+            =
+            {
+		# 2007-12-02 CrT: We can probably get rid of the build_directory argument at this point.  XXX BUGGO FIXME
+
+                build_directory
+                    =
+                    the_else (
+                        build_directory,
+                        df::default_build_directory			#  "build7" 
+                    );
+
+                reset_state_if_build_directory_changed
+                    build_directory;
+
+
+		primordial_makefile
+                    =
+                    df::primordial_makefile;				#  "$ROOT/src/lib/core/init/init.cmi"   
+
+
+		root_make7file
+                    =
+                    df::root_make7file;					#  "$ROOT/src/etc/root.make6" 
+
+
+                # In practice,   root_make7file   points to
+		#
+                #     src/etc/root.make6
+		#
+                # which in turn is a trivial wrapper for
+		#
+                #     src/lib/core/internal/interactive-system.make6
+		#
+                # This is important because it is the
+                # core specification of the entire
+                # compiler executable image that we're
+                # building here. :)
+		#
+		oh7_file_directory
+                    =
+                    cat [build_directory, df::o7_files_suffix ];	#  "-o7-files"
+
+
+		# Should we keep on compiling after
+                # encountering our first syntax error?
+		#
+		keep_going
+                    =
+                    make7_defaults::keep_going.get ();
+
+
+		path_root
+                    =
+                    ad::cwd ();
+									# make7_defaults	is from   src/app/make7/util/make7-defaults.pkg
+									# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+
+
+		o7files_to_load_filename
+                    =
+		    df::o7files_to_load;				#  "OH7_FILES_TO_LOAD" 
+
+
+		picklehash_map_file
+                    =
+		    df::picklehash_map;					#  "LIBRARY_CONTENTS" 
+
+
+		anchor_dictionary
+                    =
+                    ad::dictionary;
+
+
+
+                ad::sync ();
+
+		#
+		fun stdpath s
+                    =
+                    ad::file (
+
+                        ad::from_standard
+
+			    { plaint_sink   =>   fn s =  raise exception FAIL s,
+			      anchor_dictionary
+			    }
+
+			    { path_root,
+                              spec    => s
+                            }
+			);
+
+
+		primordial_makefile
+                    =
+                    stdpath  primordial_makefile;
+
+
+		root_make7file
+                    =
+                    case make7file
+		      
+		         THE filename =>  ad::decode   anchor_dictionary   filename;
+		         NULL         =>  stdpath      root_make7file;
+                    esac;
+
+
+		filename_policy = filename_policy::policy;
+
+		#
+		fun make7_session server_mode
+                    =
+                    {   host_property     => host_properties::symbol_value,
+
+			anchor_dictionary,
+			filename_policy,
+			platform,				# 'platform' string is architecture plus OS, e.g. "x86-linux" 
+			keep_going,
+			server_mode
+		    };
+
+
+		# The library_source_index essentially maps
+		# filenames to superficial file contents
+		# info -- line and column numbers &tc:
+		#
+		library_source_index
+                    =
+                    library_source_index::make ();
+								# library_source_index	is from   src/app/make7/semant/library-source-index.pkg
+								# error_message		is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+
+		# Where to send error messages:
+		#
+		plaint_sink
+                    =
+                    error_message::default_plaint_sink ();
+
+
+		# Build an initial make7_state, so that we can
+		# deal with the pervasive dictionary and friends...
+		#
+		make7_state
+                    =
+                    {   library_source_index,
+			plaint_sink,
+			make7_session =>  make7_session FALSE,
+			youngest      =>  REF time_stamp::ancient
+		    };
+
+		#
+		fun make_main_compile   { pervasive => pervasive_node, others, src }
+                    =
+                    {
+                        fun recompile_primordial_make7file ()
+                            =
+                            {   compile_treewalker
+                                    =
+                                    compile_treewalk::make_intra_library_dependency_graph_walker ();
+
+				#
+				fun recompile_treewalk o7
+                                    =
+                                   the (compile_treewalker o7 make7_state);
+
+				pervasive
+                                    =
+                                    recompile_treewalk   pervasive_node;
+
+				#
+				fun rt2ie (node,  o7_exports: o7_exports::Oh7_Exports)
+                                    =
+                                    {   symbol_table
+                                            =
+                                            o7_exports.symbol_table_thunk ();
+
+
+					my  (exports_dictionary, make_domain)
+                                            =
+                                            symbol_table_to_exports_dictionary::convert
+                                                symbol_table;
+
+
+					domain =   make_domain ();
+
+					{   domain,
+                                            ie     => ( fn () =  (NULL, node),
+                                                        exports_dictionary,
+                                                        domain
+                                                      )
+					};
+				    };
+				#
+				fun add_exports (o7, exports)
+                                    =
+                                    {   my  { ie, domain }
+                                            =
+                                            rt2ie (o7, recompile_treewalk o7);
+
+					#
+					fun insert_imports_exports (symbol, m)
+                                            =
+                                            symbol_map::set (m, symbol, ie);
+
+
+					symbol_set::fold_left
+                                           insert_imports_exports
+                                           exports
+                                           domain;
+				    };
+										# symbol_set		is from   src/app/make7/util/symbol-set.pkg
+										# symbol_map		is from   src/app/make7/util/symbol-map.pkg
+										# pervasive_symbol	is from   src/app/make7/main/pervasive-symbol.pkg
+				special_exports
+                                    =
+                                    {   fun make_imports_exports (pervasive_node, pervasive)
+                                            =
+                                            .ie (rt2ie (pervasive_node, pervasive));
+
+
+					symbol_map::set (
+                                            symbol_map::empty,
+					    pervasive_symbol::pervasive_package_symbol,
+					    make_imports_exports
+                                                (pervasive_node, pervasive)
+					);
+				    };
+
+				exports
+                                    =
+		                    fold_left
+					add_exports
+					special_exports
+					others;
+
+                                real_library
+                                    =
+		                    lg::REAL {
+                                        version => NULL,
+				        frozen_or_thawed
+                                            =>
+                                            lg::THAWED {
+					        wrapped_privileges => string_set::empty,
+					        sublibraries       => []
+					    }
+				    };
+
+				lg::LIBRARY
+				    {
+				      o7_views_by_name     =>   exports,
+				      real_or_virtual      =>   real_library,
+				      required_privileges  =>   string_set::singleton "primitive",
+				      library_path         =>   primordial_makefile,
+				      sources              =>   source_path_map::empty,   #  A hack -- sources never used for this library. 
+				      sublibraries         =>   []
+				    };
+										# string_set		is from   src/lib/src/string-set.pkg
+										# source_path_map	is from   src/app/make7/paths/source-path-map.pkg
+
+			    };			# fun recompile_primordial_make7file   in   fun make_main_compile   in   fun make_compiler
+
+			# Just go and load the primordial makefile
+                        # freezefile or signal failure:
+			#
+			fun load_primordial_make7file ()
+                            =
+                            {
+                                load_freezefile_argument
+                                    =
+				    { get_library =>  fn _ =  raise exception FAIL "make_compiler: load_primordial_make7file",
+				      any_errors  =>  REF FALSE
+                                    };
+
+				case (freezefile::load_freezefile
+                                         load_freezefile_argument
+                                         ( make7_state,
+                                           primordial_makefile
+                                           , NULL	# 'version' info XXX BUGGO DELETEME
+                                         , []	# MUSTDIE
+                                       ) )
+				  
+				      THE (g as lg::LIBRARY _ ) =>  THE g;
+				      NULL                      =>  NULL;
+				      THE lg::ERROR_LIBRARY     =>  NULL;
+                                esac;
+			    };
+
+
+
+			# Don't try to load the primordial
+                        # make7file's freezefile:
+			# Instead, recompile directly:
+			#
+			fun compile_primordial_make7file ()
+                            =
+                            {   # Function recompile_primordial_make7file
+                                # will not use servers (hence no call to
+				# compile_client::with_servers), but since
+                                # compile treewalks invoke the scheduler
+                                # anyway, we must still clear pending tasks
+				# when we hit an error or an interrupt:
+				#
+				primordial_library
+                                    =
+                                    safely::do {				# safely		is from   src/lib/std/safely.pkg
+
+					 open_it  =>  fn () = (),
+					 close_it =>  fn () = (),
+					 cleanup  =>  compile_client::reset
+				     }
+				     recompile_primordial_make7file;
+										# compile_client	is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+
+				freezefile_arg
+                                    =
+                                    {   library    =>  primordial_library,
+				        any_errors =>  REF FALSE
+				        , renamings  =>  []	# MUSTDIE
+				    };
+
+				if primary
+
+                                     case (freezefile::write_freezefile		# freezefile is defined above.  See also src/app/make7/freezefile/freezefile-g.pkg
+                                              make7_state
+                                              freezefile_arg)
+				       
+				          THE primordial_library
+                                              =>
+                                              {   make7file::reset ();
+                                                  primordial_library;
+                                              };
+
+					  NULL  =>  raise exception FAIL "make_compiler: cannot build initial library";
+                                     esac;
+				else
+                                     primordial_library;
+                                fi;
+			    };			# fun compile_primordial_make7file   in   fun make_main_compile   in   fun make_compiler
+
+
+
+			# Try loading the primordial library from
+			# its freezefile if possible; recompile it
+                        # if loading fails:
+			#
+			fun load_or_compile_primordial_make7file ()
+                            =
+                            case (load_primordial_make7file ())
+			      
+			         THE g =>  g;
+			         NULL  =>  compile_primordial_make7file ();
+                            esac;
+
+
+
+			# Ok, now, based on "paranoid" and
+                        # freezefile verification, call the
+                        # appropriate function (s)
+                        # to get the primordial library:
+			#
+			primordial_make7file
+                            =
+                            if   (not primary)
+			         the (load_primordial_make7file ());   #  Failure caught at the end. 
+			    else 
+				  export_nodes =  pervasive_node ! others;
+				  verify_arg   =  (primordial_makefile, export_nodes, [], source_path_set::empty, NULL);
+				  em           =  iced_o7_map::empty;
+
+										# source_path_set	is from   src/app/make7/paths/srcpathset.pkg
+										# iced_o7_map		is from   src/app/make7/freezefile/iced-o7-map.pkg
+										# verify_freezefile_g	def in    src/app/make7/freezefile/verify-freezefile.pkg
+										# library_source_index	is from   src/app/make7/semant/library-source-index.pkg
+
+				  if   (verify_freezefile::verify'  make7_state  em  verify_arg)
+				       load_or_compile_primordial_make7file  ();
+				  else         compile_primordial_make7file  (); fi;
+			    fi;
+
+			library_source_index
+			    =
+                            library_source_index::make ();
+
+			library_source_index::register
+                            library_source_index
+                            (primordial_makefile,   src);
+
+
+			# 2007-12-02 CrT: All this 'server' stuff should be chopped.
+			#                 it has never been debugged, doesn't work,
+			#		  and the design is poor -- instead of having
+			#                 each server reconstruct the compiler state on
+			#                 its own, we should just fork() to create the
+			#                 compile servers.
+			#
+			#		  Ultimately it would be nice to
+			#                 just use pthreads in-process, but we have
+			#		  to clean up a lot of global-variable idiocy
+			#		  to make that possible.
+
+			#
+			fun parse_arg_0  server_mode  (freeze_policy, paranoid)
+			    =
+			    {	 make7_file_to_read     => root_make7file,       #  Primary makefile -- src/etc/root.make6
+
+                                 load_plugin,
+				 library_source_index,
+
+				 make7_session         => make7_session  server_mode,
+				 freeze_policy,
+
+				 primordial_make7file,
+				 paranoid
+			    };
+
+			parse_arg       =  parse_arg_0  FALSE;
+			server_parse_arg =  parse_arg_0  TRUE ;
+
+			lone_primary
+                            =
+                            primary
+                            and
+                            compile_client::no_servers ();
+											# compile_client	is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+											# make7file_g	def in    src/app/make7/parse/make7file-g.pkg
+
+			interlibrary_dependency_graph					# There's actually a make7_state tucked in there as well.
+			    =
+			    if   (not primary)
+			        
+				 make7file::build_interlibrary_dependency_graph_from_make7file_tree (
+				     server_parse_arg (
+					 FREEZE_NONE,
+					 FALSE        #  paranoid mode.     
+				     )
+				 );                #  Server case 
+			    else
+				if lone_primary
+
+				    # No servers available: Do everything alone.
+				    # We still wrap "with_servers" around it to make sure
+				    # our queues get cleaned when an interrupt or error
+				    # occurs:
+				    #	
+				    compile_client::with_servers .{
+					make7file::build_interlibrary_dependency_graph_from_make7file_tree
+					    (parse_arg
+						(
+						  FREEZE_ALL,
+						  TRUE        #  paranoid mode.
+						)
+					    );
+				    };
+
+				else
+											       # simple_thread	is from   src/app/make7/simple-concurrency/simple-thread.pkg
+				    # Servers available: We want primary process
+				    # and compile server process initializations
+				    # to overlap, so we do the primary's parsing
+				    # in its own thread:
+				    #	
+				    fun worker ()
+					=
+					{   thread
+						=
+						simple_thread::make_simple_thread .{
+
+						    make7file::build_interlibrary_dependency_graph_from_make7file_tree
+							(parse_arg
+							    (
+							      FREEZE_NONE,
+							      TRUE		#  paranoid mode.     
+							    )
+							);
+						    };
+
+					    compile_client::make_compiler
+						{
+						  build_directory,				# 'build_directory' string is root of the directory tree to compile into, often "build7", "build7-1" or "build7-2".
+						  platform,					# 'platform' string is architecture plus OS, e.g. "x86-linux"
+						  root   => ad::encode
+								root_make7file
+						};
+
+					    simple_thread::result  thread;
+					};
+
+				     compile_client::with_servers  worker;
+				fi;
+                            fi;
+
+												# We're in   fun make_main_compile   in   fun make_compiler
+			case interlibrary_dependency_graph
+			  
+			     NULL =>  NULL;							# Couldn't parse .make6 tree, so just give up.
+
+			     THE (make7file_dependency_graph, make7_state)
+				 =>
+				 {   # Write to disk the OH7_FILES_TO_LOAD
+				     # and LIBRARY_CONTENTS files.
+				     #
+				     # These tell bin/runtime7 how to build the
+				     # bin/mythryld "executable" heap image:
+				     #
+                                     fun write__o7files_to_load__and__library_contents
+
+                                             ( make7file_dependency_graph,
+                                               make7_state
+                                             )
+					 =
+					 {   (list_o7files_to_load  make7file_dependency_graph)
+						 ->
+                                                 { l => o7files_to_load,
+                                                   ss
+                                                 };
+
+					     o7files_to_load
+                                                 =
+                                                 map  #2  o7files_to_load;
+
+
+                                             stipulate
+
+						 frozen_libraries
+                                                     =
+                                                     reachable::freezefiles_of  make7file_dependency_graph;
+
+						 #
+						 fun in_set bi
+						     =
+						     iced_o7_set::member (ss, bi);
+                                             herein
+						 frontiers
+						     =
+						     source_path_map::map
+							    (reachable::frontier in_set)
+							    frozen_libraries;
+                                             end;
+
+												# reachable	is from   src/app/make7/depend/find-reachable-sml-nodes.pkg
+												# file		is from   src/lib/std/src/unix/file.pkg
+                                             # Generate the OH7_FILES_TO_LOAD file:
+                                             # 
+					     fun write_o7files_to_load  output_stream
+						 =
+						 {   fun write_string  string
+							 =
+							 file::write (output_stream,  string + "\n");
+
+						     item_count
+                                                         =
+                                                         length  o7files_to_load;
+
+						     #
+						     fun maximum_length (string, n)
+							 =
+							 int::max (size string, n);
+
+
+						     maximum_line_length
+                                                         =
+                                                         fold_left
+                                                             maximum_length
+                                                             0
+                                                             o7files_to_load;
+
+						     apply  write_string  [
+							 "# This file was built  by src/app/make7/make-compiler/make-compiler-g.pkg: write_o7files_to_load",
+							 "# for consumption by runtime7: src/runtime/main/load-o7-files.c: read_in_oh7_file_list.",
+							 "#",
+							 "# It gives a list of .o7 files to be linked together to form a Lib7 executable (heap image).",
+							 "#",
+							 "# Each line after the header specifies one .o7 file to load.",
+							 "#",
+							 "# The lines are topogically sorted so that no .o7 file depends upon a later one.",
+							 "#",
+							 "# An .o7 file is specified as either a simple filename, or else as a",
+							 "# FREEZEFILENAME@OFFSET: LIBRARY_DESCRIPTION triple giving the offset of the",
+							 "# oh7_file image within some library file, where LIBRARY_DESCRIPTION in turn",
+							 "# is a MAKE7FILE@OFFSET (SOURCEFILE) triple giving the makefile which created",
+							 "# the library and the name of the source file which was compiled to produce",
+							 "# the .o7 file.  (The second OFFSET is redundant with the first.)",
+							 (cat ["FILES=",           int::to_string item_count]),
+							 (cat ["MAX_LINE_LENGTH=", int::to_string maximum_line_length  ]),
+							 ""
+                                                     ];
+
+						     apply  write_string  o7files_to_load;
+						 };						# fun write_o7files_to_load   in   fun write__o7files_to_load__and__library_contents   in   fun make_main_compile   in   fun make_compiler
+
+
+                                             # Generate the LIBRARY_CONTENTS file:
+                                             # 
+					     fun write_library_contents_file s
+						 =
+						 {   apply
+                                                         (fn text = file::write (s, text))
+                                                         [
+							     "# This file lists the contents of each library in this directory tree.\n",
+							     "# Each line lists the contents of one library.\n",
+							     "#\n",
+							     "# The first entry on each line is the name of\n",
+							     "# the make7 file which generated the library.\n",
+							     "#\n",
+							     "# The remaining entries on each line are OFFSET: PICKLEHASH pairs\n",
+							     "# representing .o7 files, where OFFSET is the byte offset\n",
+							     "# of the oh7_file image within the library file, and PICKLEHASH\n",
+							     "# is a 16-byte hash of that image, expressed as a 32-char hex string.\n",
+							     "#\n",
+							     "# This file was generated by src/app/make7/make-compiler/make-compiler-g.pkg: write_library_contents_file.\n",
+							     "# It will typically be read by src/app/make7/main/make7-g.pkg: read_picklehash_map.\n",
+							     "# It is not really intended for human consumption. :)\n"
+							 ];
+
+						     source_path_map::keyed_apply
+                                                         (write_picklehash_line s)
+                                                         frontiers;
+						 }
+                                                 where
+						     fun write_picklehash_line s (p, set)
+							 =
+							 if   (not (iced_o7_set::is_empty  set))
+							     
+							      file::write (s, ad::encode p);
+							      iced_o7_set::apply  (write_picklehash s)  set;
+							      file::write (s, "\n");
+							 fi
+                                                         where
+							     fun write_picklehash s i
+								 =
+								 {   freezefile_name =  iced_o7::freezefile_name  i;
+
+								     offset          =  iced_o7::offset           i;
+								     description     =  iced_o7::describe         i;
+
+											# iced_o7	is from   src/app/make7/freezefile/iced-o7.pkg
+											# oh7_file_cache defined above.
+
+								     oh7_file_contents
+									 =
+									 oh7_file_cache::extract_oh7_file_from_freezefile {
+
+									     freezefile_name,
+									     offset,
+									     description
+									 };
+
+											# oh7_file	is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+
+								     case (oh7_file::hash_of_pickled_exports  oh7_file_contents)
+								       
+									  NULL => ();
+
+									  THE pid
+									      =>
+									      apply
+										  (fn str =  file::write (s, str))
+										  [   " ",
+										      int::to_string  offset,
+										      ":",
+										      picklehash::to_hex  pid
+										  ];
+								     esac;
+											# file			is from   src/lib/std/src/unix/file.pkg
+											# int			is from   src/lib/std/int.pkg
+											# picklehash		is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+								 };
+                                                         end; 
+                                                 end;					# fun write_library_contents_file   in   fun write__o7files_to_load__and__library_contents   in   fun make_main_compile   in   fun make_compiler
+
+											# autodir		is from   src/app/make7/util/autodir.pkg
+											# file			is from   src/lib/std/src/unix/file.pkg
+
+					     safely::do
+						 { close_it =>  file::close_output,
+						   open_it  =>    .{  autodir::open_text_output          o7files_to_load_filename;  },
+						   cleanup  =>  fn _ = (winix::file::remove_file  o7files_to_load_filename
+								        except _ = ())
+						 }
+                                                 write_o7files_to_load;
+
+					     safely::do
+						 { close_it =>  file::close_output,
+						   open_it  =>    .{  autodir::open_text_output           picklehash_map_file;   },
+						   cleanup  =>  fn _ =  (winix::file::remove_file  picklehash_map_file
+								         except _ = ())
+						 }
+                                                 write_library_contents_file;
+
+
+					     TRUE;
+					 };						# fun write__o7files_to_load__and__library_contents   in   fun make_main_compile   in   fun make_compiler
+
+
+
+
+
+
+				     # Don't do another treewalk
+				     # if this is a lone primary:
+				     #
+				     fun just_build_library ()
+					 =
+					 write__o7files_to_load__and__library_contents
+
+                                             ( make7file_dependency_graph,
+                                               make7_state
+                                             );
+
+				     # The following thunk is executed
+				     # in primary process only;
+				     # compile servers just throw it away:
+				     #
+				     fun freeze ()
+					 =
+					 {   #  Make compilation treewalk and execute it: 
+
+					     my { all_libraries, ... }
+						 =
+						 compile_treewalk::walk_inter_library_dependency_graph (
+						     fn _ = fn _ = (),
+						     fn _ = (),
+						     make7file_dependency_graph
+						 );
+
+										# compile_treewalk_g	def in    src/app/make7/compile/compile-treewalk-g.pkg
+										# compile_client	is from   src/app/make7/simple-concurrency/unix-compile-client.pkg
+
+					     if  (compile_client::with_servers
+                                                      .{ all_libraries  make7_state; }
+					     )
+						  compile_treewalk::reset     ();
+						  freeze' ();
+					     else
+						  FALSE;
+                                             fi;
+					 }
+                                         where
+					     # Phase 2 (freezing):
+					     #
+					     fun freeze' ()
+						 =
+						 # Now we re-parse everything with freezing
+						 # turned on (and servers turned off):
+
+									# build_interlibrary_dependency_graph_from_make7file_tree defined above.
+
+						 case (make7file::build_interlibrary_dependency_graph_from_make7file_tree
+                                                       (parse_arg
+                                                           ( FREEZE_ALL,
+							     FALSE               #  paranoid mode.     
+						       )   ) )
+						   
+						      NULL => FALSE;
+
+						      THE (make7file_dependency_graph, make7_state)
+							  =>
+							  write__o7files_to_load__and__library_contents
+							      (make7file_dependency_graph, make7_state);
+						 esac;
+                                         end;
+
+
+				     THE (  ( make7file_dependency_graph,
+                                              make7_state,
+                                              anchor_dictionary
+                                            ),
+
+					    lone_primary  ??  just_build_library
+					                  ::  freeze
+					 );
+				 };
+                        esac;
+		    }							# fun make_main_compile   in   fun make_compiler
+                    except
+			# Catch any failure in runtime or any compiler server
+			# failure to load primordial_make7file library:
+			#
+                        NULL_OR =  {   compile_treewalk::reset ();
+                                       NULL;
+                                   };
+									# compile_treewalk_g		def in    src/app/make7/compile/compile-treewalk-g.pkg
+									# primordial_make7file		is from   src/app/make7/make-compiler/primordial-make7file.pkg
+		case (primordial_make7file::process
+                         make7_state
+                         primordial_makefile)
+		  
+		     THE x =>  make_main_compile  x;
+		     NULL  =>  NULL;
+                esac;
+	    };                                                          # fun make_compiler 
+
+									# freezefile_map_g		def in    src/app/make7/freezefile/freezefile-map-g.pkg
+	fun make'  build_directory
+	    =
+	    {   freezefile_map::reset ();
+
+	        case (make_compiler {
+                        primary   =>  TRUE,				# We're in the root make7 process, not in a secondary compile-server process.
+                        make7file =>  NULL,				# Use default root .make6 file, normally   src/etc/root.make6
+                        build_directory					# 'make self' leaves this null (thus defaulting to 'build7')
+                    })							# 'make fixpoint' successively sets it to (THE "build7-1"), (THE "build7-2")...
+		  
+		     NULL => FALSE;
+
+		     THE (_, thunk)
+                         =>
+                         thunk ();					# == either  just_build_library()  or  freeze()  -- see above.
+               esac;
+	    };
+
+
+        # To take advantage of multiple cores/CPUs/workstations,
+        # make7 can spawn and use multiple "compile server" processes,
+        # allowing multiple compiles to take place in parallel.
+        #
+        # Rather than load all platform-specific backends into memory
+        # at the start, these servers economize on memory by loading
+        # them only as needed -- the logic to do this is in
+        #
+        #     src/app/make7/make-compiler/backend-per-platform.pkg
+        #
+        # In order to be useful, as they load these backends must
+        # enter themselves into a dynamic registry so as to be
+        # accessible to make7 proper.  That registry is implemented in
+        #
+        #     src/app/make7/make-compiler/backend-index.pkg
+        #
+        # and it is now time to enter ourself into it.
+        #
+        # First we define the function which the toplevel compile-server
+	# logic will call to invoke us, then we enter it into the registry:
+        #
+	stipulate
+										# freezefile_map_g	def in    src/app/make7/freezefile/freezefile-map-g.pkg
+										# host_properties_g	def in    src/app/make7/main/host-properties-g.pkg
+	    fun backend_function  NULL
+                     =>
+                     {   reset_internal_state ();
+                         NULL;
+                     };
+
+	        backend_function
+                        (THE
+                            ( build_directory,					# 'build_directory' string is root of the directory tree to compile into, often "build7", "build7-1" or "build7-2".
+                              make7file						# 'make7file' string is .make6 file to compile, say "src/etc/root.make6" or "$ROOT/src/etc/root.make6".
+                        )   )
+		    =>
+		    {
+                        freezefile_map::reset ();
+
+			.set
+                            (host_properties::symbol_value "CMB_SERVER_MODE")	# This gets checked (only) in	 src/lib/core/internal/lib7-version.make6
+                            (THE 1);
+
+
+			case (make_compiler
+                                 {
+                                   primary         =>  FALSE,			# We're running in a compile server process, not in the primary process.
+				   make7file       =>  THE make7file,
+				   build_directory =>  THE build_directory
+				  })
+			  
+			     THE ((g, make7_state, anchor_dictionary), _)
+				 =>
+				 {
+                                     compile_treewalker
+                                         =
+                                         compile_treewalk::make_intra_library_dependency_graph_walker ();
+				     #	
+				     fun compile_treewalker' o7
+					 =
+					 not_null (compile_treewalker o7 make7_state);
+
+				     THE (g, compile_treewalker', anchor_dictionary);
+				 };
+
+			     NULL
+                                 =>
+                                 {
+                                     NULL;
+                                 };
+			 esac;
+		     };
+            end;
+									# compile_treewalk_g	def in    src/app/make7/compile/compile-treewalk-g.pkg
+									# backend_index			is from   src/app/make7/make-compiler/backend-index.pkg
+									# "p" is backend_index
+	herein                                                      	my _ =
+	    p::register_per_platform_backend_function
+		platform
+		backend_function;
+	end;
+
+	#
+	fun make ()
+            =
+            make' NULL;
+
+
+	host_property
+            =
+            host_properties::symbol_value;
+									# host_properties_g			def in    src/app/make7/main/host-properties-g.pkg
+    };
+
+end; #  with
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

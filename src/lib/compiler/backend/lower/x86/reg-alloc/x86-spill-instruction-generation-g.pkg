@@ -1,0 +1,1057 @@
+# x86-spill-instruction-generation-g.pkg
+#
+# X86 spilling is complicated business. 
+# Allen: and it just got more complicated; now we have to recognize the regmap.
+# I've also improved the spilling code so that more instructions are
+# recognized.  Addressing modes are now folded into the existing instruction
+# whenever possible.  This eliminates some redundant temporaries which were
+# introduced before.
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ia32.make6
+
+
+
+###              "No, no, you're not thinking;
+###               you're just being logical."
+###
+###                         -- Niels Bohr 
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/lower/x86/reg-alloc/x86-register-allocation-g.pkg
+
+generic package x86_spill_instruction_generation_g (
+
+    package instruction_set
+	:
+	Instruction_Set_X86;								# Instruction_Set_X86				is from   src/lib/compiler/backend/lower/x86/instruction/instruction-set-x86.api
+
+    package instruction_properties
+	:
+	Instruction_Properties								# Instruction_Properties			is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+	where instruction_set == instruction_set;
+)
+
+: (weak) Architecture_Specific_Spill_Instructions					# Architecture_Specific_Spill_Instructions	is from   src/lib/compiler/backend/lower/reg-alloc/arch-spill-instruction.api
+
+{
+    package instruction_set  = instruction_set;
+    package cells            = instruction_set::cells;
+
+    package i  = instruction_set;
+    package c  = cells;
+    package cb = cells_basis;	# cells_basis	is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    fun error msg
+        =
+        lowcode_error_message::impossible("X86Spill: " + msg);
+
+    fun immed (i::IMMED _)       => TRUE;
+        immed (i::IMMED_LABEL _) => TRUE;
+        immed _ => FALSE;
+    end;
+
+    fun immed_or_reg (i::DIRECT r)      => TRUE;
+        immed_or_reg (i::IMMED _)       => TRUE;
+        immed_or_reg (i::IMMED_LABEL _) => TRUE;
+        immed_or_reg _ => FALSE;
+    end;
+
+    fun is_memory (i::MEM_REG _)  => TRUE;
+	is_memory (i::DISPLACE _) => TRUE;
+	is_memory (i::INDEXED _)  => TRUE;
+	is_memory (i::LABEL_EA _) => TRUE;
+	is_memory _ => FALSE;
+    end;
+
+    # Annotate instruction:
+    #
+    fun annotate (instruction,           []) =>  instruction;
+        annotate (instruction, note ! notes) =>  annotate (i::NOTE { instruction, note }, notes);
+    end;
+
+    fun mark (instruction, an)
+        =
+        annotate (i::BASE_INSTRUCTION instruction, an);
+
+    fun live_dead (add, rmv) ( { regs, spilled }, reg)
+        = 
+	{   regs    =>   rmv (reg, regs),
+            spilled =>   add (reg, spilled)
+        };
+
+    f_live_dead =  live_dead (c::add_freg, c::rmv_freg);
+    r_live_dead =  live_dead (c::add_reg, c::rmv_reg);
+
+    new_reg = c::new_reg;
+
+
+    fun spill_r (instruction, reg, spill_loc)
+	=
+	{   fun x86spill (instruction, an)
+		=
+		{
+		    fun done (instruction, an)
+			=
+			{ code => [mark (instruction, an)], prohibitions => [], new_reg=>NULL };
+
+		    case instruction    
+
+			i::CALL { operand=>address, defs, uses, return, cuts_to, mem, pops }
+			    =>
+			    done (i::CALL { operand=>address, defs=>c::rmv_reg (reg, defs), 
+						  return, uses, 
+				       cuts_to, mem, pops }, an);
+
+			i::MOVE { mv_op as (i::MOVZBL|i::MOVSBL|i::MOVZWL|i::MOVSWL), src, dst }
+			    => 
+			    {   tmp_r = new_reg();
+				tmp = i::DIRECT tmp_r;
+
+				{ prohibitions => [tmp_r], new_reg=>THE tmp_r,
+				  code => [mark (i::MOVE { mv_op, src, dst=>tmp }, an),
+				      i::move { mv_op=>i::MOVL, src=>tmp, dst=>spill_loc } ]
+				};
+			   };
+
+			i::MOVE { mv_op, src as i::DIRECT rs, dst }
+			    =>
+			    if (cb::same_color (rs, reg) ) { code => [], prohibitions => [], new_reg=>NULL };
+			    else done (i::MOVE { mv_op, src, dst=>spill_loc }, an);
+			    fi;
+
+			i::MOVE { mv_op, src, dst=>i::DIRECT _}
+			   => 
+			   if (instruction_properties::eq_opn (src, spill_loc) )
+
+				{ code => [], prohibitions => [], new_reg=>NULL };
+
+			   elif (immed src) 
+
+				done (i::MOVE { mv_op, src, dst=>spill_loc }, an);
+			   else 
+				tmp_r = new_reg();
+				tmp  = i::DIRECT tmp_r;
+				{ prohibitions => [tmp_r],
+				  new_reg=>THE tmp_r,
+				  code => [ mark (i::MOVE { mv_op, src, dst=>tmp }, an),
+					    i::move { mv_op, src=>tmp, dst=>spill_loc }
+					  ]
+				};
+			   fi;
+
+			i::LEA { address, r32 }
+			   => 
+			   {   tmp_r = new_reg();
+
+			       { prohibitions => [tmp_r],
+				 new_reg=>THE tmp_r,
+				 code => [mark (i::LEA { address, r32=>tmp_r }, an),
+					i::move { mv_op=>i::MOVL, src=>i::DIRECT tmp_r, dst=>spill_loc } ]
+			       };
+			   }; 
+
+			i::BINARY { bin_op=>i::XORL, src as i::DIRECT rs, dst=>i::DIRECT rd }
+			   => 
+			   if (cb::same_color (rs, rd) ) 
+
+			       { prohibitions =>  [],
+				 code         =>  [mark (i::MOVE { mv_op=>i::MOVL, src=>i::IMMED 0, dst=>spill_loc }, an)],
+				 new_reg      =>  NULL
+			       };
+			   else
+			       { prohibitions => [],
+				 code => [mark (i::BINARY { bin_op=>i::XORL, src, dst=>spill_loc }, an)],
+				 new_reg=>NULL
+			       };
+			   fi;
+
+			i::BINARY { bin_op, src, dst }
+			    =>
+			    {   # Note: dst = reg 
+
+				fun mult_bin_op (i::MULL|i::MULW|i::MULB|i::IMULL|i::IMULW|i::IMULB) => TRUE;
+				    mult_bin_op _ => FALSE;
+				end;
+
+				 if (mult_bin_op bin_op )
+				    #  Destination must remain a register 
+				     tmp_r = new_reg();
+				     tmp = i::DIRECT tmp_r;
+
+				     { prohibitions => [tmp_r],
+				       code=>  [i::move { mv_op=>i::MOVL, src=>spill_loc, dst=>tmp },
+					      i::binary { bin_op, src, dst=>tmp },
+					      i::move { mv_op=>i::MOVL, src=>tmp, dst=>spill_loc } ],
+				       new_reg=>THE tmp_r
+				     };
+
+				 elif (immed_or_reg src )
+
+				    #  Can replace the destination directly 
+				    done (i::BINARY { bin_op, src, dst=>spill_loc }, an);
+
+				 else
+				    # A memory src and non mult_bin_op  
+				    # --- cannot have two memory operands
+
+				     tmp_r = new_reg();
+				     tmp = i::DIRECT tmp_r;
+
+				     { prohibitions => [tmp_r],
+				       code => [ i::move { mv_op=>i::MOVL, src, dst=>tmp },
+						 i::binary { bin_op, src=>tmp, dst=>spill_loc } ],
+				       new_reg=>NULL
+				      };
+			       fi;
+			    }; 
+
+			i::SHIFT { shift_op, count, src, dst }
+			    =>
+			    error "go and implement SHIFT";
+
+			i::CMOV { cond, src, dst }
+			    => 
+			    #  note: dst must be a register 
+			    case spill_loc   
+
+			      i::DIRECT r
+				  =>
+				  { prohibitions => [],
+				    new_reg=>NULL,
+				    code => [mark (i::CMOV { cond, src, dst=>r }, an)]
+				  };
+
+			     _ =>
+				 {   tmp_r = new_reg();
+				     tmp  = i::DIRECT tmp_r;
+
+				     { prohibitions => [tmp_r],
+				       new_reg=>THE tmp_r,
+				       code => [i::move { mv_op=>i::MOVL, src=>spill_loc, dst=>tmp },
+					     mark (i::CMOV { cond, src, dst=>tmp_r }, an),
+					     i::move { mv_op=>i::MOVL, src=>tmp, dst=>spill_loc } ]
+				     };
+				 };
+			    esac;
+
+			i::CMPXCHG { lock, size, src, dst }
+			    => 
+			    if (immed_or_reg src )
+
+				{ prohibitions => [],
+				  code => [mark (i::CMPXCHG { lock, size, src, dst=>spill_loc }, an)],
+				  new_reg=>NULL
+				};
+			    else
+				tmp_r = new_reg();
+				tmp  = i::DIRECT tmp_r;
+
+				{ prohibitions => [],
+				  code => [i::move { mv_op=>i::MOVL, src, dst=>tmp },
+					 mark (i::CMPXCHG { lock, size, src=>tmp, dst=>spill_loc }, an)],
+				  new_reg=>NULL
+			       };
+			    fi;
+
+			i::MULTDIV _ => error "spill: MULTDIV";
+
+			i::MUL3 { src1, src2, dst }
+			   => 
+			   {   tmp_r = new_reg(); 
+
+			       { prohibitions => [tmp_r], new_reg=>THE tmp_r,
+				  code => [mark (i::MUL3 { src1, src2, dst=>tmp_r }, an),
+					i::move { mv_op=>i::MOVL, src=>i::DIRECT tmp_r, dst=>spill_loc } ]
+			       };
+			   };
+
+			i::UNARY { un_op, operand } => done (i::UNARY { un_op, operand=>spill_loc }, an);
+			i::SET { cond, operand } => done (i::SET { cond, operand=>spill_loc }, an);
+			i::POP _ => done (i::POP spill_loc, an);
+			i::FNSTSW  => error "spill: FNSTSW";
+			_ => error "spill";
+		    esac;
+	        };						# fun x86spill 
+
+	    fun f (i::BASE_INSTRUCTION instruction, an)
+                      =>
+                      x86spill (instruction, an);
+
+		f (i::NOTE { note, instruction }, notes)
+                      =>
+                      f (instruction, note ! notes);
+
+		f (i::DEAD lk, an)
+                      => 
+		      { code => [annotate (i::DEAD (r_live_dead (lk, reg)), an)],
+			prohibitions => [],
+			new_reg=>NULL
+                      };
+
+		f _ => error "spill: f";
+            end;
+
+	    f (instruction, []);
+	}; 
+
+    fun reload_r (instruction, reg, spill_loc)
+	=
+	{
+	    fun x86reload (instruction, reg, spill_loc, an)
+		=
+		{
+		    fun do_operand (rt, operand)
+			=
+			case operand
+			   i::DIRECT r => if (cb::same_color (r, reg) ) i::DIRECT rt; else operand;fi;
+
+			   i::DISPLACE { base, disp, mem }
+			       => 
+			       if (cb::same_color (base, reg) )
+				    i::DISPLACE { base=>rt, disp, mem }; 
+			       else operand;fi;
+
+			   i::INDEXED { base=>NULL, index, scale, disp, mem }
+                               => 
+			       if (cb::same_color (index, reg) )
+				 i::INDEXED { base=>NULL, index=>rt, scale, disp, mem };
+			       else operand;fi;
+
+			   i::INDEXED { base as THE b, index, scale, disp, mem }
+                               => 
+			       if (cb::same_color (b, reg) ) 
+				 do_operand (rt, i::INDEXED { base=>THE rt, index, 
+						       scale, disp, mem } );
+			       elif (cb::same_color (index, reg) )
+				 i::INDEXED { base, index=>rt, scale, disp, mem };
+			       else operand;fi;
+
+			    operand => operand;
+			esac;
+
+
+		  fun done (instruction, an)
+		      =
+		      {   code => [mark (instruction, an)],
+			  prohibitions => [],
+			  new_reg=>NULL
+		      };
+
+		  fun is_reloading (i::DIRECT r)
+                          =>
+                          cb::same_color (r, reg); 
+
+		      is_reloading _
+                          =>
+                          FALSE;
+		  end;
+
+		  #  This version assumes that the value of tmpR is killed 
+		  #
+		  fun with_tmp (f, an)
+		      = 
+		      case spill_loc    
+
+			  i::DIRECT tmp_r
+                              =>  
+			      {   new_reg=>NULL,
+			          prohibitions => [], 
+			          code => [mark (f tmp_r, an)]
+			      };
+
+			  _ =>
+			   {  tmp_r = new_reg();
+			     { new_reg=>NULL,
+				prohibitions => [tmp_r], 
+				code => [i::move { mv_op=>i::MOVL, src=>spill_loc, dst=>i::DIRECT tmp_r }, 
+				      mark (f tmp_r, an)
+				     ]
+			       };
+			   };
+		      esac;
+
+		  # This version assumes that the
+                  # value of tmp_r is available afterwards 
+		  #
+		  fun with_tmp_avail (f, an)
+		      =  
+		      case spill_loc   
+
+			 i::DIRECT tmp_r
+			     =>
+			     { new_reg=>THE tmp_r,
+			       prohibitions => [tmp_r], 
+			       code => [mark (f tmp_r, an)]
+			     };
+
+			 _   =>
+			     {   tmp_r = new_reg();
+				 tmp  = i::DIRECT tmp_r;
+
+				 { new_reg=>THE tmp_r,
+				   prohibitions => [tmp_r], 
+				   code => [i::move { mv_op=>i::MOVL, src=>spill_loc, dst=>i::DIRECT tmp_r }, 
+					 mark (f tmp_r, an)
+					]
+				 };
+			     };
+		      esac;
+
+		  fun replace (opn as i::DIRECT r)
+			  => 
+			  if (cb::same_color (r, reg) ) spill_loc; else opn;fi;
+
+		      replace opn
+			  =>
+			  opn;
+		  end;
+
+		  # Fold in a memory operand if possible.
+                  # Make sure that both operands are
+		  # not in memory.  lsrc cannot be immediate.
+		  #
+		  fun reload_cmp (cmp, lsrc, rsrc, an)
+		      = 
+		      {   fun reload_it ()
+			      =  
+			      with_tmp ( fn tmp_r =   cmp { lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc) },
+					 an
+				       );
+
+			  if (immed_or_reg lsrc and immed_or_reg rsrc )
+
+			      lsrc' = replace lsrc;
+			      rsrc' = replace rsrc;
+
+			      if (is_memory lsrc' and is_memory rsrc')   reload_it ();
+			      else				         done (cmp { lsrc=>lsrc', rsrc=>rsrc'}, an);
+			      fi;
+
+			  else
+
+			      reload_it();
+			  fi;
+		      };
+
+		  fun reload_bt (bit_op, lsrc, rsrc, an)
+		      = 
+		      reload_cmp
+			  ( fn { lsrc, rsrc } =  i::BITOP { bit_op, lsrc, rsrc },
+			    lsrc,
+			    rsrc,
+			    an
+			  );
+
+		  # Fold in a memory operand if possible.  Makes sure that the right 
+		  # operand is not in memory and left operand is not an immediate.
+		  #  lsrc   rsrc
+		  #   AL,   imm8  opc1 A8
+		  #  EAX,   imm32 opc1 A9
+		  #  r/m8,  imm8  opc2 F6/0 ib
+		  #  r/m32, imm32 opc2 F7/0 id
+		  #  r/m32, r32   opc3 85/r
+		  #
+		  fun reload_test (test, lsrc, rsrc, an)
+		      = 
+		      {   fun reload_it ()
+			      = 
+			      with_tmp ( fn tmp_r =  test { lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc) },
+					 an
+				       );
+
+			  if (immed_or_reg lsrc and immed_or_reg rsrc)
+
+			      lsrc = replace lsrc;
+			      rsrc = replace rsrc;
+
+			      if (is_memory rsrc)
+				  if (is_memory lsrc)
+                                      reload_it();
+				  else
+                                      # It is commutative:
+				      done (test { lsrc=>rsrc, rsrc=>lsrc }, an);
+				  fi;
+			      else 
+				  done (test { lsrc, rsrc }, an);
+			      fi;
+
+			  else
+			      reload_it ();
+			  fi;
+		      };
+
+		  fun reload_push (push, arg as i::DIRECT _, an)
+			  =>
+			  done (push (replace arg), an);
+
+		      reload_push (push, arg, an)
+			  =>
+			  with_tmp_avail (fn tmp_r =  push (do_operand (tmp_r, arg)), an);
+		  end;
+
+		  fun reload_real (real_op, operand, an)
+                      =
+		      with_tmp_avail (fn tmp_r = real_op (do_operand (tmp_r, operand)), an);
+
+		  case instruction
+
+		      i::JMP (i::DIRECT _, labs) => done (i::JMP (spill_loc, labs), an);
+		      i::JMP (operand, labs) => with_tmp (fn t => i::JMP (do_operand (t, operand), labs); end, an);
+		      i::JCC { operand=>i::DIRECT _, cond } => done (i::JCC { operand=>spill_loc, cond }, an);
+
+		      i::JCC { operand, cond }
+                          => 
+			  with_tmp (fn t => i::JCC { operand=>do_operand (t, operand), cond }; end, an);
+
+		      i::CALL { operand, defs, uses, return, cuts_to, mem, pops }
+                          => 
+			  with_tmp
+                            ( fn t = i::CALL { operand=>do_operand (t, operand), defs, return, pops,
+				               uses=>c::rmv_reg (reg, uses), cuts_to, mem
+                                             },
+                              an
+                            );
+
+		      i::MOVE { mv_op, src as i::DIRECT _, dst as i::DIRECT _}
+                          => 
+			  done (i::MOVE { mv_op, src=>replace src, dst }, an);
+
+		      i::MOVE { mv_op, src, dst as i::DIRECT _}
+                          => 
+			  with_tmp_avail (fn t =>i::MOVE { mv_op, src=>do_operand (t, src), dst }; end, an);
+
+		      i::MOVE { mv_op, src as i::DIRECT _, dst }
+                          => 
+			  if (instruction_properties::eq_opn (dst, spill_loc))
+
+                               { code => [], prohibitions => [], new_reg=>NULL };
+
+			  else
+                               #  Dst is not the spill reg 
+
+                               with_tmp_avail
+			           (fn t = i::MOVE { mv_op, src=>do_operand (t, src), dst=>do_operand (t, dst) }, an);
+                          fi;
+
+		      i::MOVE { mv_op, src, dst }
+                          => 
+			  with_tmp_avail #  Dst is not the spill reg 
+			      (fn t = i::MOVE { mv_op, src=>do_operand (t, src), dst=>do_operand (t, dst) }, an);
+
+		      i::LEA { r32, address }
+                          => 
+			  with_tmp_avail (fn tmp_r = i::LEA { r32, address=>do_operand (tmp_r, address) }, an);
+
+		      i::CMPL { lsrc, rsrc } => reload_cmp (i::CMPL, lsrc, rsrc, an); 
+		      i::CMPW { lsrc, rsrc } => reload_cmp (i::CMPW, lsrc, rsrc, an); 
+		      i::CMPB { lsrc, rsrc } => reload_cmp (i::CMPB, lsrc, rsrc, an); 
+		      i::TESTL { lsrc, rsrc } => reload_test (i::TESTL, lsrc, rsrc, an); 
+		      i::TESTW { lsrc, rsrc } => reload_test (i::TESTW, lsrc, rsrc, an); 
+		      i::TESTB { lsrc, rsrc } => reload_test (i::TESTB, lsrc, rsrc, an); 
+		      i::BITOP { bit_op, lsrc, rsrc } => reload_bt (bit_op, lsrc, rsrc, an); 
+
+		      i::BINARY { bin_op, src, dst as i::DIRECT _}
+                          => 
+			  case src   
+
+			      i::DIRECT _
+                                  => 
+			          done (i::BINARY { bin_op, src=>replace src, dst }, an);
+
+			      _   =>
+                                  with_tmp
+                                      (fn tmp_r = i::BINARY { bin_op, src=>do_operand (tmp_r, src), dst }, an);
+                          esac;
+
+
+
+		      i::BINARY { bin_op, src, dst }
+                          => 
+			  with_tmp
+                              (fn tmp_r = i::BINARY { bin_op, src=>do_operand (tmp_r, src), dst=>do_operand (tmp_r, dst) }, an);
+
+
+		      i::CMOV { cond, src, dst }
+			  => 
+			  if (cb::same_color (dst, reg))  error "CMOV";
+			  else                            done (i::CMOV { cond, src=>spill_loc, dst }, an);
+                          fi;
+
+
+		      i::SHIFT { shift_op, count, src, dst }
+                          =>
+                          error "go and implement SHIFT";
+
+
+		      i::CMPXCHG { lock, size, src, dst }
+                          => 
+			  with_tmp (fn tmp_r =  i::CMPXCHG { lock, size,
+						     src=>do_operand (tmp_r, src),
+						     dst=>do_operand (tmp_r, dst) }, an);
+
+
+		      i::MULTDIV { mult_div_op, src as i::DIRECT _}
+                          => 
+			  done (i::MULTDIV { mult_div_op, src=>replace src }, an);
+
+
+		      i::MULTDIV { mult_div_op, src }
+                          =>
+			  with_tmp (fn tmp_r =
+			    i::MULTDIV { mult_div_op, src=>do_operand (tmp_r, src) }, an);
+
+
+		      i::MUL3 { src1, src2, dst }
+                          => 
+			  with_tmp ( fn tmp_r =  i::MUL3 { src1 => do_operand (tmp_r, src1), src2, 
+				                          dst  => if (cb::same_color (dst, reg) )
+					                             error "reload: MUL3";
+                                                                  else dst;fi
+                                                        },
+                                     an
+                                   );
+
+		      i::UNARY { un_op, operand }
+                          => 
+			  with_tmp_avail
+			     (fn tmp_r = i::UNARY { un_op, operand=>do_operand (tmp_r, operand) }, an);
+
+
+		      i::SET { cond, operand }
+                          => 
+			  with_tmp_avail (fn tmp_r = i::SET { cond, operand=>do_operand (tmp_r, operand) }, an);
+
+
+		      i::PUSHL arg => reload_push (i::PUSHL, arg, an);
+		      i::PUSHW arg => reload_push (i::PUSHW, arg, an);
+		      i::PUSHB arg => reload_push (i::PUSHB, arg, an);
+		      i::FILD operand => reload_real (i::FILD, operand, an); 
+		      i::FILDL operand => reload_real (i::FILDL, operand, an); 
+		      i::FILDLL operand => reload_real (i::FILDLL, operand, an); 
+		      i::FLDT operand => reload_real (i::FLDT, operand, an);
+		      i::FLDL operand => reload_real (i::FLDL, operand, an);
+		      i::FLDS operand => reload_real (i::FLDS, operand, an);
+		      i::FSTPT operand => reload_real (i::FSTPT, operand, an);
+		      i::FSTPL operand => reload_real (i::FSTPL, operand, an);
+		      i::FSTPS operand => reload_real (i::FSTPS, operand, an);
+		      i::FSTL operand => reload_real (i::FSTL, operand, an);
+		      i::FSTS operand => reload_real (i::FSTS, operand, an);
+		      i::FUCOM operand => reload_real (i::FUCOM, operand, an);
+		      i::FUCOMP operand => reload_real (i::FUCOMP, operand, an);
+		      i::FCOMI operand => reload_real (i::FCOMI, operand, an);
+		      i::FCOMIP operand => reload_real (i::FCOMIP, operand, an);
+		      i::FUCOMI operand => reload_real (i::FUCOMI, operand, an);
+		      i::FUCOMIP operand => reload_real (i::FUCOMIP, operand, an);
+
+		      i::FENV { fenv_op, operand }
+                          =>
+                          reload_real (fn operand = i::FENV { fenv_op, operand }, operand, an);
+
+		      i::FBINARY { bin_op, src, dst }
+                          => 
+			  with_tmp_avail (fn tmp_r = i::FBINARY { bin_op, src=>do_operand (tmp_r, src), dst }, an);
+
+		      i::FIBINARY { bin_op, src }
+                          => 
+			  with_tmp_avail (fn tmp_r =  i::FIBINARY { bin_op, src=>do_operand (tmp_r, src) }, an);
+
+		       #  Pseudo fp instrctions 
+		      i::FMOVE { fsize, src, dst }
+                          => 
+			  with_tmp_avail (fn tmp_r =  i::FMOVE { fsize, src=>do_operand (tmp_r, src), 
+					      dst=>do_operand (tmp_r, dst) }, an);
+
+		      i::FILOAD { isize, ea, dst }
+                          => 
+			  with_tmp_avail (fn tmp_r =  i::FILOAD { isize, ea=>do_operand (tmp_r, ea), 
+					       dst=>do_operand (tmp_r, dst) }, an);
+
+		      i::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+                          =>
+			  with_tmp_avail (fn tmp_r =  i::FBINOP { fsize, bin_op, lsrc=>do_operand (tmp_r, lsrc),
+				    rsrc=>do_operand (tmp_r, rsrc), dst=>do_operand (tmp_r, dst) }, an);
+
+		      i::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+                          =>
+			  with_tmp_avail (fn tmp_r = i::FIBINOP { isize, bin_op, lsrc=>do_operand (tmp_r, lsrc),
+				       rsrc=>do_operand (tmp_r, rsrc), dst=>do_operand (tmp_r, dst) }, an);
+
+		      i::FUNOP { fsize, un_op, src, dst }
+                          =>
+			  with_tmp_avail (fn tmp_r =  i::FUNOP { fsize, un_op, src=>do_operand (tmp_r, src),
+				   dst=>do_operand (tmp_r, dst) }, an);
+
+		      i::FCMP { i, fsize, lsrc, rsrc }
+                          =>
+			  with_tmp_avail (fn tmp_r = i::FCMP { i, fsize, 
+				  lsrc=>do_operand (tmp_r, lsrc), rsrc=>do_operand (tmp_r, rsrc)
+				 }, an);
+
+		      _ => error "reload";
+
+		  esac;
+	      };			# fun x86_reload
+
+	  fun f (i::NOTE { note, instruction }, notes)
+                    =>
+                    f (instruction, note ! notes);
+
+	      f (i::BASE_INSTRUCTION i, an)
+                    =>
+                    x86reload (i, reg, spill_loc, an);
+
+	      f (i::LIVE lk, an)
+                  => 
+		  { code => [annotate (i::LIVE (r_live_dead (lk, reg)), an)],
+		    prohibitions => [],
+		    new_reg=>NULL
+                  };
+
+	      f _ => error "reload: f";
+	  end;
+
+	  f (instruction, []);
+      };				# fun reload 
+
+
+
+
+    fun spill_f (instruction, reg, spill_loc)
+        =
+        {
+	    fun x86fspill (instruction, reg, spill_loc, an)
+                =
+                {
+		    fun with_tmp (f, fsize, an)
+                        =
+                        {
+			    tmp_r = c::new_freg();
+			    tmp  = i::FPR tmp_r;
+
+			     { prohibitions => [tmp_r], 
+			       code => [mark (f tmp, an), 
+				     i::fmove { fsize, src=>tmp, dst=>spill_loc } ],
+			       new_reg=>THE tmp_r #  XXX Should we propagate the definition? 
+			     };
+		        };
+
+		    case instruction 
+			i::FSTPL _ => { prohibitions => [], code => [mark (i::FSTPL spill_loc, an)], new_reg=>NULL };
+			i::FSTPS _ => { prohibitions => [], code => [mark (i::FSTPS spill_loc, an)], new_reg=>NULL };
+			i::FSTPT _ => { prohibitions => [], code => [mark (i::FSTPT spill_loc, an)], new_reg=>NULL };
+			i::FSTL _ => { prohibitions => [], code => [mark (i::FSTL spill_loc, an)], new_reg=>NULL };
+			i::FSTS _ => { prohibitions => [], code => [mark (i::FSTS spill_loc, an)], new_reg=>NULL };
+
+			i::CALL { operand, defs, uses, return, cuts_to, mem, pops }
+                            =>
+			    {   prohibitions => [],
+			        code => [mark (i::CALL { operand, defs=>c::rmv_freg (reg, defs), 
+					    return, uses, 
+					    cuts_to, mem, pops }, an)],
+			        new_reg=>NULL
+                            };
+
+		        #  Pseudo fp instrctions 
+			i::FMOVE { fsize, src, dst }
+                            => 
+			      if (instruction_properties::eq_opn (src, spill_loc) ) 
+				{ prohibitions => [], code => [], new_reg=>NULL };
+			      else
+				{ prohibitions => [], code => [mark (i::FMOVE { fsize, src, dst=>spill_loc }, an)],
+				 new_reg=>NULL };
+                              fi;
+
+			i::FILOAD { isize, ea, dst }
+                            =>
+			    { prohibitions => [], code => [mark (i::FILOAD { isize, ea, dst=>spill_loc }, an)],
+			     new_reg=>NULL }; #  XXX bad for single precision 
+
+			i::FBINOP { fsize as i::FP64, bin_op, lsrc, rsrc, dst }
+                            =>
+			    { prohibitions => [], code => [mark (i::FBINOP { fsize, bin_op,
+							 lsrc, rsrc,
+							 dst=>spill_loc }, an)],
+			     new_reg=>NULL };
+
+			i::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+                            =>
+			    with_tmp (fn tmp_r =
+				  i::FBINOP { fsize, bin_op,
+					   lsrc, rsrc, dst=>tmp_r },
+				  fsize, an);
+
+			i::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+                            =>
+			    with_tmp (fn tmp_r =
+				  i::FIBINOP { isize, bin_op,
+					    lsrc, rsrc, dst=>tmp_r },
+				  i::FP64, an); #  XXX 
+
+			i::FUNOP { fsize, un_op, src, dst }
+                            =>
+			    { prohibitions => [], code => [mark (i::FUNOP { fsize, un_op,
+						      src, dst=>spill_loc }, an)],
+					new_reg=>NULL };
+
+		       _ => error "fspill";
+		    esac;
+
+	        };				# fun x86fspill 
+
+
+	    fun f (i::NOTE { note, instruction }, notes)
+                    =>
+                    f (instruction, note ! notes);
+
+		f (i::BASE_INSTRUCTION (i), an)
+                    =>
+                    x86fspill (i, reg, spill_loc, an);
+
+		f (i::DEAD lk, an)
+                    => 
+		    {   code => [annotate (i::DEAD (f_live_dead (lk, reg)), an)],
+		        prohibitions => [],
+		        new_reg=>NULL
+                    };
+
+		f _ =>
+                    error "fspill: f";
+            end;
+
+	    f (instruction, []);
+        };
+
+
+    fun reload_f (instruction, reg, spill_loc)
+        =
+        f (instruction, [])
+        where 
+
+	  fun x86freload (instruction, reg, spill_loc, an)
+              =
+              {   fun rename (src as i::FDIRECT f)
+			  => 
+			  if (cb::same_color (f, reg) ) spill_loc; else src;fi; 
+
+		      rename (src as i::FPR f)
+			  => 
+			  if (cb::same_color (f, reg) ) spill_loc; else src;fi; 
+
+		      rename src
+                          =>
+                          src;
+                  end;
+
+		  fun with_tmp (fsize, f, an)
+                      = 
+		      case spill_loc
+                         
+			  i::FDIRECT _ => { new_reg=>NULL, prohibitions => [], code => [mark (f spill_loc, an)] };
+
+			  i::FPR _ => { new_reg=>NULL, prohibitions => [], code => [mark (f spill_loc, an)] };
+
+			   _ =>
+			      {   ftmp_r = c::new_freg();
+				  ftmp  = i::FPR (ftmp_r);
+
+				  { new_reg=>NULL,
+				    prohibitions => [ftmp_r], 
+				    code => [i::fmove { fsize, src=>spill_loc, dst=>ftmp }, 
+					   mark (f ftmp, an)
+					  ]
+				  };
+			      };
+                      esac;
+
+		    case instruction
+		       
+			i::FLDT operand => { code => [mark (i::FLDT spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FLDL operand => { code => [mark (i::FLDL spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FLDS operand => { code => [mark (i::FLDS spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FUCOM operand => { code => [mark (i::FUCOM spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FUCOMP operand => { code => [mark (i::FUCOMP spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FCOMI operand => { code => [mark (i::FCOMI spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FCOMIP operand => { code => [mark (i::FCOMIP spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FUCOMI operand => { code => [mark (i::FUCOMI spill_loc, an)], prohibitions => [], new_reg=>NULL };
+			i::FUCOMIP operand => { code => [mark (i::FUCOMIP spill_loc, an)], prohibitions => [], new_reg=>NULL };
+
+			i::FBINARY { bin_op, src=>i::FDIRECT f, dst }
+			    => 
+			    if   (cb::same_color (f, reg))
+                                 
+			         {   code => [mark (i::FBINARY { bin_op, src=>spill_loc, dst }, an)],
+			             prohibitions => [], 
+			             new_reg => NULL
+                                 };
+			    else
+                                 error "reloadF: FBINARY";
+                            fi;
+
+		        # Pseudo fp instructions.
+
+			i::FMOVE { fsize, src, dst }
+			    => 
+			    if (instruction_properties::eq_opn (dst, spill_loc) ) 
+			      { code => [], prohibitions => [], new_reg=>NULL };
+			    else
+			      { code => [mark (i::FMOVE { fsize, src=>spill_loc, dst }, an)], 
+				     prohibitions => [], new_reg=>NULL };
+                            fi;
+
+			i::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+			    =>
+			    { code => [mark (i::FBINOP { fsize, bin_op,
+						 lsrc=>rename lsrc, rsrc=>rename rsrc, dst }, an)],
+			      prohibitions => [],
+                              new_reg=>NULL
+                            };
+
+			i::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+			    =>
+			    { code => [mark (i::FIBINOP { isize, bin_op,
+						  lsrc=>rename lsrc, rsrc=>rename rsrc, dst }, an)],
+			      prohibitions => [],
+                              new_reg=>NULL
+                            };
+
+			i::FUNOP { fsize, un_op, src, dst }
+			    =>
+			    { code => [mark (i::FUNOP { fsize, un_op,
+						src=>rename src, dst }, an)], 
+			      prohibitions => [],
+                              new_reg=>NULL
+                            };
+
+			i::FCMP { i, fsize, lsrc, rsrc }
+                          =>
+			  # Make sure that the lsrc and
+                          # rsrc cannot both be in memory:
+			  #
+			  case (lsrc, rsrc)   
+
+			      (i::FPR fs1, i::FPR fs2)
+                                  =>
+				  case (cb::same_color (fs1, reg), cb::same_color (fs2, reg))   
+
+				       (TRUE, TRUE)
+                                           =>
+					   with_tmp (fsize, 
+					       fn tmp =  i::FCMP { i, fsize, lsrc=>tmp, rsrc=>tmp }, an);
+
+				       (TRUE, FALSE)
+                                           =>
+					   { code => [mark (i::FCMP { i, fsize, lsrc=>spill_loc, rsrc }, an)],
+					     prohibitions => [], new_reg=>NULL };
+
+				       (FALSE, TRUE)
+                                           =>
+					   { code => [mark (i::FCMP { i, fsize, lsrc, rsrc=>spill_loc }, an)],
+					     prohibitions => [], new_reg=>NULL };
+
+				       _ => error "fcmp.1";
+				  esac;
+
+			      (i::FPR _, _)
+                                  =>
+				  with_tmp (fsize, 
+				   fn tmp = i::FCMP { i, fsize, lsrc=>tmp, rsrc }, an);
+
+			      (_, i::FPR _)
+                                  =>
+				  with_tmp ( fsize, 
+				             fn tmp =  i::FCMP { i, fsize, lsrc, rsrc=>tmp }, an);
+
+			      _ => error "fcmp.2";
+                           esac;
+
+
+			i::CALL { operand, defs, uses, return, cuts_to, mem, pops }
+			    =>
+			    { prohibitions => [],
+			      code => [mark (i::CALL { operand, defs=>c::rmv_freg (reg, defs), 
+					       return, pops,
+					       uses, cuts_to, mem }, an)],
+			      new_reg=>NULL
+                            };
+
+			_  => error "reloadF";
+                  esac;
+
+	      };					# fun x86freload
+
+	  fun f (i::NOTE { note, instruction }, notes)
+                    =>
+                    f (instruction, note ! notes);
+
+	      f (i::BASE_INSTRUCTION i, an)
+                    =>
+                    x86freload (i, reg, spill_loc, an);
+
+	      f (i::LIVE lk, an)
+                    => 
+		    { code => [annotate (i::LIVE (f_live_dead (lk, reg)), an)],
+		      prohibitions => [],
+		      new_reg=>NULL
+                    };
+
+	      f _ => error "freload::f";
+	  end;
+
+    end;
+
+    fun spill_to_ea cb::REGISTER (reg, ea)
+        =>
+        {   fun return_move ()
+		= 
+		{   code => [i::move { mv_op=>i::MOVL, src=>i::DIRECT reg, dst=>ea } ],
+		    prohibitions => [], new_reg=>NULL
+                };
+
+	     case ea
+	       
+		 i::MEM_REG _ => return_move();
+		 i::DISPLACE _ => return_move();
+		 i::INDEXED _ => return_move();
+		 _ => error "spillToEA: GP";
+	     esac;
+	};
+
+	spill_to_ea cb::FLOAT_REGISTER (freg, ea) => error "spillToEA: FP";
+	spill_to_ea _ _ => error "spillToEA";
+    end;
+
+    fun reload_from_ea cb::REGISTER (reg, ea)
+            =>
+            {   fun return_move ()
+		    = 
+		    { code => [i::move { mv_op=>i::MOVL, dst=>i::DIRECT reg, src=>ea } ],
+		      prohibitions => [],
+		      new_reg=>NULL
+		    };
+
+		 case ea
+		     i::MEM_REG _  => return_move();
+		     i::DISPLACE _ => return_move();
+		     i::INDEXED _  => return_move();
+		     _ => error "reloadFromEA: GP";
+		 esac;
+	      }; 
+
+	reload_from_ea cb::FLOAT_REGISTER (freg, ea) => error "spillToEA: FP";
+	reload_from_ea _ _ => error "spillToEA";
+    end;
+
+
+    fun reload cb::REGISTER => reload_r;
+	reload cb::FLOAT_REGISTER => reload_f;
+	reload _ => error "reload";
+    end;
+
+    fun spill cb::REGISTER => spill_r;
+	spill cb::FLOAT_REGISTER => spill_f;
+	spill _ => error "spill";
+    end;
+};

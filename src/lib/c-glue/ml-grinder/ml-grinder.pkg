@@ -1,0 +1,1181 @@
+
+# The core of the ML-Grinder library
+
+
+
+###                      Never tell the truth to people who are not worthy of it.
+###
+###                                                  -- Mark Twain,
+###                                                     Notebook, 1902
+
+
+
+local
+
+   Author  = "Allen Leung"
+   Email   = "leunga@cs.nyu.edu, leunga@dorsai.org"
+   Version = "1.2.4"
+
+   basisForTheMatchCompiler =
+       string::cat
+       [ "enum List X = NIL | . of X * List( X )\n",
+         "enum Null_Or X = NULL | THE of X\n",
+         "enum order = LESS | EQUAL | GREATER\n"
+       ]
+in
+
+package ml_grinder :> Ml_Grinder {
+
+    package pp          = pp
+    package re          = reg_exp_lib
+    package err         = mdl_error
+    package raw         = mdl_raw_syntax
+    package raw_util     = mdl_abstract_syntax_utilities (raw)
+    package raw_pp       = mdl_raw_syntax_prettyprinter_g (raw_util)
+    package raw_rewriter = mdl_raw_syntax_rewriter_g (raw)
+
+    package raw_trans    = mdl_raw_syntax_translation_g
+       (package raw_pp = raw_pp package raw_rewriter = raw_rewriter)
+
+    package raw_consts   = mdl_raw_syntax_constants_g (raw)
+
+    package parser      = mdl_parser_driver_g
+       (package raw_pp = raw_pp mdl_mode = FALSE extra_cells = [])
+
+    package match_generic    = match_gen_g			# See src/lib/compiler/backend/lower/tools/match-compiler/match-gen-g.pkg
+       (package raw_pp = raw_pp
+	package raw_util = raw_util
+	package raw_rewriter = raw_rewriter
+       )
+    #  package html_g = html_g 
+
+    package r  = raw_rewriter
+    package a  = raw
+    package u  = raw_util
+    package m  = match_generic
+    package p  = parser
+    package tr = raw_trans
+
+    i2s = int::to_string
+    my ++  = pp.++
+    infix ++
+
+    type labeled X = raw::id * X
+
+    line_width = REF 160
+
+    nolocations = raw_trans::stripMarks
+
+    fakeId = "__fake_id__"
+
+    #  Pretty print as code 
+    fun asML prog
+        =
+	pp::text (pp::setmode "code" ++ pp::text_width *line_width ++ prog)
+
+    #  Error handling stuff 
+    exception MLGrinderErrorMsg of String
+    error   = err::error
+    warning = err::warning
+
+    fun bug (func, msg)
+	= 
+	{   msg = "ml_grinder error: " + func + ": " + msg;
+	    error msg;
+	    raise exception MLGrinderErrorMsg msg;
+	}
+
+    fun fail msg
+	=
+	{   error msg;
+	    raise exception MLGrinderErrorMsg msg;
+	}
+
+    silent = REF FALSE
+
+    fun comment text
+	=
+	A.@@@("" . "/* " . map (fn c => " * " + c) text @ [" */", ""])
+
+    package map {
+
+       enum rule = E of raw::exp -> raw::exp
+		     | SE of raw::structexp -> raw::structexp
+		     | D of raw::decl -> raw::decl
+		     | T of raw::ty -> raw::ty
+		     | P of raw::pat -> raw::pat
+    };
+
+    package rewrite {
+
+       enum rule = E of (raw::exp -> raw::exp) -> raw::exp -> raw::exp
+		     | SE of (raw::structexp -> raw::structexp) ->
+				 raw::structexp -> raw::structexp
+		     | D of (raw::decl -> raw::decl) -> raw::decl -> raw::decl
+		     | T of (raw::ty -> raw::ty) -> raw::ty -> raw::ty
+		     | P of (raw::pat -> raw::pat) -> raw::pat -> raw::pat
+    };
+
+    package fold {
+
+	enum rule X = E of raw::exp * X -> X
+			 | SE of raw::structexp * X -> X
+			 | D of raw::decl * X -> X
+			 | T of raw::ty * X -> X
+			 | P of raw::pat * X -> X
+    };
+
+    package app {
+
+	enum rule = E of raw::exp -> Void
+		      | SE of raw::structexp -> Void
+		      | D of raw::decl -> Void
+		      | T of raw::ty -> Void
+		      | P of raw::pat -> Void
+    };
+
+    package subst {
+
+	enum rule = E of String -> Null_Or( raw::exp )
+		      | SE of String -> Null_Or( raw::structexp )
+		      | D of String -> Null_Or( raw::decl )
+		      | T of String -> Null_Or( raw::ty )
+		      | P of String -> Null_Or( raw::pat )
+    };
+
+    nothing = r::noRewrite
+
+    #  Trace the current line 
+    fun markLines { exp, decl, ty, pat, sexp }
+	=
+	{   fun exp' f (e as a::MARKexp (l, _)) = { err::setLoc l; exp f e; }
+	      | exp' f e = exp f e;
+
+	    fun decl' f (d as a::MARKdecl (l, _)) = { err::setLoc l; decl f d; }
+	      | decl' f d = decl f d;
+
+	    { exp=exp', decl=decl', ty, pat, sexp };
+	}
+
+    fun mapper rules
+	=
+	{   use Map;
+
+	    fun f ([], e, d, t, p, se) = markLines { exp=e, decl=d, ty=t, pat=p, sexp=se }
+	      | f (E exp . rules, _, d, t, p, se)  = f (rules, fn _ => exp, d, t, p, se)
+	      | f (D decl . rules, e, _, t, p, se) = f (rules, e, fn _ => decl, t, p, se)
+	      | f (T ty . rules, e, d, _, p, se)   = f (rules, e, d, fn _ => ty, p, se)
+	      | f (P pat . rules, e, d, t, _, se)  = f (rules, e, d, t, fn _ => pat, se)
+	      | f (SE sexp . rules, e, d, t, p, _) = f (rules, e, d, t, p, fn _ => sexp);
+
+	    rules = f (rules, nothing, nothing, nothing, nothing, nothing);
+
+	    r::rewrite rules; 
+	}
+
+    fun rewriter rules
+	=
+	{   use Rewrite;
+
+	    fun f ([], e, d, t, p, se) = markLines { exp=e, decl=d, ty=t, pat=p, sexp=se }
+	      | f (E exp . rules, _, d, t, p, se)  = f (rules, exp, d, t, p, se)
+	      | f (D decl . rules, e, _, t, p, se) = f (rules, e, decl, t, p, se)
+	      | f (T ty . rules, e, d, _, p, se)   = f (rules, e, d, ty, p, se)
+	      | f (P pat . rules, e, d, t, _, se)  = f (rules, e, d, t, pat, se)
+	      | f (SE sexp . rules, e, d, t, p, _) = f (rules, e, d, t, p, sexp);
+
+	    rules =   f (rules, nothing, nothing, nothing, nothing, nothing);
+
+	    r::rewrite rules;
+	}
+
+    fun subster rules
+	=
+	{   use Subst;
+
+	    fun g1 f _ (e as a::IDexp (a::IDENT([], x))) =  
+		   (case f x of THE e => e | NULL => e)
+	      | g1 f _ e = e;
+
+	    fun g2 f _ (e as a::VALdecl[a::VALbind (a::WILDpat, a::LITexp (a::STRINGlit x))]) =  
+		   (case f x of THE e => e | NULL => e)
+	      | g2 f _ e = e;
+
+	    fun g3 f _ (e as a::IDty (a::IDENT([], x))) =  
+		   (case f x of THE e => e | NULL => e)
+	      | g3 f _ e = e;
+
+	    fun g4 f _ (e as a::IDpat x) =  
+		   (case f x of THE e => e | NULL => e)
+	      | g4 f _ e = e;
+
+	    fun g5 f _ (e as a::IDsexp (a::IDENT([], x))) =  
+		   (case f x of THE e => e | NULL => e)
+	      | g5 f _ e = e;
+
+	    fun f ([], e, d, t, p, se) = markLines { exp=e, decl=d, ty=t, pat=p, sexp=se }
+	      | f (E exp . rules, _, d, t, p, se)  = f (rules, g1 exp, d, t, p, se)
+	      | f (D decl . rules, e, _, t, p, se) = f (rules, e, g2 decl, t, p, se)
+	      | f (T ty . rules, e, d, _, p, se)   = f (rules, e, d, g3 ty, p, se)
+	      | f (P pat . rules, e, d, t, _, se)  = f (rules, e, d, t, g4 pat, se)
+	      | f (SE sexp . rules, e, d, t, p, _) = f (rules, e, d, t, p, g5 sexp);
+
+	    rules =   f (rules, nothing, nothing, nothing, nothing, nothing);
+
+	    r::rewrite rules;
+	}
+
+
+    fun folder rules x
+	=
+	{   use Fold;
+
+	    x =   REF x;
+
+	    fun g f _ y
+                =
+                {   x := f (y,*x);
+                    y;
+                };
+
+	    fun f ([], e, d, t, p, se) = markLines { exp=e, decl=d, ty=t, pat=p, sexp=se }
+	      | f (E exp . rules, _, d, t, p, se)  = f (rules, g exp, d, t, p, se)
+	      | f (D decl . rules, e, _, t, p, se) = f (rules, e, g decl, t, p, se)
+	      | f (T ty . rules, e, d, _, p, se)   = f (rules, e, d, g ty, p, se)
+	      | f (P pat . rules, e, d, t, _, se)  = f (rules, e, d, t, g pat, se)
+	      | f (SE sexp . rules, e, d, t, p, _) = f (rules, e, d, t, p, g sexp);
+
+	    rules =   f (rules, nothing, nothing, nothing, nothing, nothing);
+
+	    my { exp, decl, ty, pat, sexp }
+                =
+                r::rewrite rules;
+
+	    fun h f y
+                =
+                {    f y;
+                     *x;
+                };
+
+	    { exp = h exp, decl= h decl, ty=h ty, pat=h pat, sexp=h sexp };
+	}
+
+    fun apper rules
+	=
+	{   use App;
+
+	    fun g f _ x
+                =
+                {   f x;
+                    x;
+                };
+
+	    fun f ([], e, d, t, p, se) = markLines { exp=e, decl=d, ty=t, pat=p, sexp=se }
+	      | f (E exp . rules, _, d, t, p, se)  = f (rules, g exp, d, t, p, se)
+	      | f (D decl . rules, e, _, t, p, se) = f (rules, e, g decl, t, p, se)
+	      | f (T ty . rules, e, d, _, p, se)   = f (rules, e, d, g ty, p, se)
+	      | f (P pat . rules, e, d, t, _, se)  = f (rules, e, d, t, g pat, se)
+	      | f (SE sexp . rules, e, d, t, p, _) = f (rules, e, d, t, p, g sexp);
+
+	    rules =   f (rules, nothing, nothing, nothing, nothing, nothing);
+
+	    my { exp, decl, ty, pat, sexp }
+                =
+                r::rewrite rules;
+
+	    fun h f x
+                =
+                {   f x;
+                    ();
+                };
+
+	    { exp = h exp, decl= h decl, ty=h ty, pat=h pat, sexp=h sexp };
+	}
+
+    fun noSimplify x
+        =
+        x
+
+    #  Make a new type 
+    generic package Type (type t) {
+
+       type t     = t
+       type pp    = pp::pp
+       type ar    = App::rule
+       type fr X = Fold::rule X
+       type mr    = Map::rule
+       type rr    = Rewrite::rule
+       type sr    = Subst::rule
+    };
+
+    #  Map a list out of it 
+    generic package List (type t 
+		 my pp:        t -> pp::pp
+		 my apply:     List( App::rule ) -> t -> Void
+		 my fold:      List( Fold::rule( X ) ) -> X -> t -> X
+		 my map:       List( Map::rule ) -> t -> t
+		 my rewrite:   List( Rewrite::rule ) -> t -> t
+		 my subst:     List( Subst::rule ) -> t -> t
+		 my simplify:  t -> t
+		 my nolocations:   t -> t
+		) 
+    {
+       package t = Type (type t = List (t) )        use t
+       list = pp::seq (pp::nop, pp.!! ", ", pp::nop)
+       pp = fn x => list (list::map pp x)
+       show = asML o pp
+       apply = fn r => list::apply (apply r) 
+       fold = fn r => { f = fold r;  fold_left (fn (e, x) => f x e); }
+       map = fn r => list::map (map r)
+       subst = fn r => list::map (subst r)
+       rewrite = fn r => list::map (rewrite r)
+       simplify = list::map simplify
+       nolocations = list::map nolocations
+    };
+
+    #  Make a labeled something out of it 
+    generic package Labeled (type t 
+		    my pp:           labeled( t ) -> pp::pp
+		    my apply:        List( App::rule ) -> t -> Void
+		    my fold:         List( Fold::rule( X ) ) -> X -> t -> X
+		    my map:          List( Map::rule ) -> t -> t
+		    my rewrite:      List( Rewrite::rule ) -> t -> t
+		    my subst:        List( Subst::rule ) -> t -> t
+		    my simplify:     t -> t
+		    my nolocations:  t -> t
+		   )
+    {
+       package t = Type (type t = labeled (t) )     use t
+       pp   = pp
+       show = asML o pp
+       apply = fn r => fn (l, x) => apply r x
+       fold = fn r => fn u => fn (l, x) => fold r u x
+       map = fn r => fn (l, x) => (l, map r x)
+       rewrite = fn r => fn (l, x) => (l, rewrite r x)
+       subst = fn r => fn (l, x) => (l, subst r x)
+       simplify = fn (l, x) => (l, simplify x)
+       nolocations = fn (l, x) => (l, nolocations x)
+    };
+
+   #  Declaration 
+    package decl {
+
+       package t = Type (type t = raw::decl)     use t
+
+       fun parse s
+           = 
+	   case p::parseString' *silent s of 
+	     [a::MARKdecl(_, d)] => d | ds => a::SEQdecl ds
+
+       pp = raw_pp::decl 
+       show = asML o pp 
+       simplify = tr::simplify_declaration
+       map = .decl o mapper  
+       rewrite = .decl o rewriter  
+       apply = .decl o apper
+       subst = .decl o subster
+
+       fun fold r x = .decl (folder r x)
+
+       nolocations = nolocations
+    };
+
+    #  Make iterators for types without convenient ones 
+    generic package Iterators (type t 
+		      my ===> : t -> raw::decl
+		      my <== : String * raw::decl -> t
+		     ) 
+    {
+       fun simplify x = <==("simplify", decl::simplify(===> x))
+       fun map r x = <==("map", decl::map r (===> x))
+       fun rewrite r x = <==("rewrite", decl::rewrite r (===> x))
+       fun subst r x = <==("subst", decl::subst r (===> x))
+       fun apply r x = decl::apply r (===> x)
+       fun fold r u x = decl::fold r u (===> x)
+       fun nolocations x = <==("nolocations", decl::nolocations(===> x))
+    }
+
+
+    #  Expression 
+    package exp {
+
+       package t = Type (type t = raw::exp) use t
+
+       fun parse s = 
+	   case decl::parse("my _ =\n" + s) of
+	      a::VALdecl[a::VALbind(_, e)] => e | _ => raise exception p::PARSE_ERROR
+
+       pp = raw_pp::exp 
+       show = asML o pp 
+       simplify = tr::simplifyExp
+       map = .exp o mapper  
+       rewrite = .exp o rewriter  
+       apply = .exp o apper
+       subst = .exp o subster
+
+       fun fold r x = .exp (folder r x)
+
+       fun nolocations e = 
+	   case decl::nolocations (a::VALdecl[a::VALbind (a::WILDpat, e)]) of
+	     a::VALdecl[a::VALbind(_, e)] => e
+	   | _ => bug("Exp", "locations")
+    }
+
+    #  Expressions 
+    package exps {
+
+       fun parse s = 
+	   case decl::parse("my _ =\n(" + s + ")") of
+	      a::VALdecl[a::VALbind(_, a::TUPLEexp e)] => e 
+	    | a::VALdecl[a::VALbind(_, e)] => [e]
+	    | _ => raise exception p::PARSE_ERROR
+       package x = List (Exp) use x
+    }
+
+    package labexp {
+
+       fun parse s = 
+	   case decl::parse("{\n" + s + "}") of
+	      a::VALdecl[a::VALbind(_, a::RECORDexp[e])] => e 
+	    | _ => raise exception p::PARSE_ERROR
+       package x = Labeled (struct use Exp pp = raw_pp::labexp end)     use x
+    }
+
+    # Labeled Expressions:
+    #
+    package labexps {
+
+       fun parse s = 
+	   case decl::parse("{\n" + s + "}") of
+	      a::VALdecl[a::VALbind(_, a::RECORDexp e)] => e 
+	    | _ => raise exception p::PARSE_ERROR
+       package x = List (Labexp)           use x
+    }
+
+    # Package Expression:
+    #
+    package sexp {
+
+       package t = Type (type t = raw::structexp)    use t
+       fun parse s = 
+	   case decl::parse("package __fake_id__ =\n" + s) of
+	      a::PACKAGE_DECL(_, _, _, e) => e | _ => raise exception p::PARSE_ERROR
+
+       pp = raw_pp::sexp 
+       show = asML o pp 
+       map = .sexp o mapper  
+       rewrite = .sexp o rewriter  
+       apply = .sexp o apper
+       subst = .sexp o subster
+
+       fun fold r x = .sexp (folder r x)
+
+       simplify = tr::simplifySexp      
+
+       fun nolocations x = 
+	   case decl::nolocations (a::PACKAGE_DECL (fakeId,[], NULL, x)) of
+	     a::PACKAGE_DECL(_, _, _, x) => x
+	   | _ => bug("Sexp", "locations")
+    }
+
+    # API Expression:
+    #
+    package api_expression {
+
+       package t = Type (type t = raw::api_expression)        use t
+
+       fun parse s = 
+	   case decl::parse("api f =\n" + s) of
+	      a::API_DECL(_, e) => e | _ => raise exception p::PARSE_ERROR
+
+       pp = raw_pp::api_expression 
+       show  = asML o pp 
+
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::API_DECL (fakeId, x)
+	   fun <== (name, a::API_DECL(_, x)) = x
+	     | <== (name, _) = bug("Api_Exp", name)
+	  ) use i
+    }
+
+    #  Clauses: <clause> | ... | <clause> 
+    package clauses {
+
+       package t = Type (type t =  List (raw::clause))    use t
+       fun parse s =
+	   case exp::parse("fn\n" + s) of
+	      a::LAMBDAexp c => c |  _ => raise exception p::PARSE_ERROR
+
+       pp = raw_pp::clauses
+       show = asML o pp 
+       isComplex = m::isComplex
+
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::VALdecl[a::VALbind (a::WILDpat, a::LAMBDAexp x)]
+	   fun <== (name, a::VALdecl[a::VALbind(_, a::LAMBDAexp x)]) = x
+	     | <== (name, _) = bug("Clauses", name)
+	  ) use i
+    }
+
+    # Clause: <pat> => <exp>   
+    #  or     <pat> where <exp> => <exp>      (ml_grinder extension)
+
+    package clause {
+
+       package t = Type (type t = raw::clause)   use t
+
+       fun parse s = case Clauses::parse s of [c] => c |  _ => raise exception p::PARSE_ERROR
+
+       pp = raw_pp::clause show = asML o pp 
+       fun isComplex  c= m::isComplex[c]
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::VALdecl[a::VALbind (a::WILDpat, a::LAMBDAexp [x])]
+	   fun <== (name, a::VALdecl[a::VALbind(_, a::LAMBDAexp [x])]) = x
+	     | <== (name, _) = bug("Clause", name)
+	  ) use i
+    }
+
+    #  Funclauses:  <funclause> | ... | <funclause> 
+    package fun_clauses {
+
+       use Clauses
+       fun parse s =
+	   case decl::parse("fun \n" + s) of
+	      a::FUNdecl[a::FUNbind (f, cs)] => (f, cs)
+	   |  _ => raise exception p::PARSE_ERROR
+       fun nolocations (f, c) = (f, Clauses::nolocations c)
+    }
+
+    /* FunClause: f <pat> ... <pat> = <exp> 
+     *  or        f <pat> ....<pat> where (<exp>) => <exp> (ml_grinder extension)
+     */
+    package fun_clause {
+
+       use Clause
+       fun parse s =
+	   case FunClauses::parse s of
+	      (f,[c]) => (f, c)
+	   |  _ => raise exception p::PARSE_ERROR
+       fun nolocations (f, c) = (f, Clause::nolocations c)
+    }
+
+    #  Funbinds: <funbind> and ... and <funbind> 
+    package funbinds {
+
+       package t = Type (type t =  List (raw::funbind))          use t
+       fun parse s =
+	   case decl::parse("fun .\n" + s) 
+	     of a::FUNdecl b => b 
+	   |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::funbinds 
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::FUNdecl x
+	   fun <== (name, a::FUNdecl x) = x 
+	     | <== (name, _) = bug("Funbinds", name)
+	  ) use i
+    }
+
+    #  Funbind: f <funclause> 
+    package funbind {
+
+       package t = Type (type t = raw::funbind)     use t
+       fun parse s =
+	   case Funbinds::parse s of [b] => b | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::funbind
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::FUNdecl [x]
+	   fun <== (name, a::FUNdecl [x]) = x
+	     | <== (name, _) = bug("Funbind", name)
+	  )      use i
+    }
+
+    #  Valbinds: <valbind> and ... and <valbind> 
+    package valbinds {
+
+       package t = Type (type t = List (raw::valbind) )       use t
+       fun parse s =
+	   case decl::parse("my\n" + s) 
+	     of a::VALdecl b => b 
+	   |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::valbinds 
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::VALdecl x
+	   fun <== (name, a::VALdecl x) = x
+	     | <== (name, _) = bug("Valbinds", name)
+	  )     use i
+    }
+
+    #  Valbind: <pat> = <exp> 
+    package valbind {
+
+       package t = Type (type t = raw::valbind)        use t
+       fun parse s =
+	   case Valbinds::parse s of [b] => b | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::valbind
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::VALdecl [x]
+	   fun <== (name, a::VALdecl [x]) = x
+	     | <== (name, _) = bug("Valbind", name)
+	  )      use i
+    }
+
+    package consbinds {
+
+       package t = Type (type t = List( raw::consbind ))    use t
+       fun parse s = 
+	    case decl::parse("enum f=\n" + s) of
+	       a::DATATYPEdecl([a::DATATYPEbind { cbs=c, ... } ], _) => c 
+	    |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::consbinds
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl(
+			 [a::DATATYPEbind { id=fakeId, tyvars=[], mc=NULL,
+					 asm=FALSE, field=NULL, cbs=x } ],
+
+			 [])
+	   fun <== (name, a::DATATYPEdecl(
+			 [a::DATATYPEbind { cbs, ... } ], _)) = cbs
+	     | <== (name, _) = bug("Consbinds", name)
+	  )        use i
+    }
+
+    package consbind {
+
+       package t = Type (type t = raw::consbind)      use t
+       fun parse s = case Consbinds::parse s of [c] => c | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::consbind
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl(
+			 [a::DATATYPEbind { id=fakeId, tyvars=[], mc=NULL,
+					 asm=FALSE, field=NULL, cbs=[x] } ],
+			 [])
+	   fun <== (name, a::DATATYPEdecl(
+			 [a::DATATYPEbind { cbs=[x], ... } ], _)) = x
+	     | <== (name, _) = bug("Consbind", name)
+	  )     use i
+    }
+
+    package datatypebinds {
+
+       package t = Type (type t = List( raw::datatypebind ))         use t
+       fun parse s = 
+	    case decl::parse("enum " + s) 
+	      of a::DATATYPEdecl (db,[]) => db
+	       | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::datatypebinds
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl (x,[])
+	   fun <== (name, a::DATATYPEdecl (x, _)) = x
+	     | <== (name, _) = bug("Datatypebinds", name)
+	  )         use i
+    }
+
+    package datatypebind {
+
+       package t = Type (type t = raw::datatypebind)       use t
+       fun parse s = 
+	    case Datatypebinds::parse s of [d] => d |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::datatypebind
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl([x],[])
+	   fun <== (name, a::DATATYPEdecl([x], _)) = x
+	     | <== (name, _) = bug("Datatypebind", name)
+	  )        use i
+    }
+
+    package typebinds {
+
+       package t = Type (type t =  List( raw::typebind ))         use t
+       fun parse s = 
+	    case decl::parse("type " + s) 
+	      of a::DATATYPEdecl([], tb) => tb
+	       |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::typebinds
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl([], x)
+	   fun <== (name, a::DATATYPEdecl(_, x)) = x
+	     | <== (name, _) = bug("Typebinds", name)
+	  )       use i
+    }
+
+    package typebind {
+
+       package t = Type (type t = raw::typebind)         use t
+       fun parse s = 
+	    case Typebinds::parse s of [d] => d | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::typebind
+       show = asML o pp
+       package i = Iterators
+	  (type t = t
+	   fun ===> x = a::DATATYPEdecl([],[x])
+	   fun <== (name, a::DATATYPEdecl(_,[x])) = x
+	     | <== (name, _) = bug("Typebind", name)
+	  )         use i
+    }
+
+    package ty {
+
+       package t = Type (type t = raw::ty)        use t
+       fun parse s = 
+	   case decl::parse("type __fake_id__=\n" + s) of
+	      a::DATATYPEdecl(_,[a::TYPEbind(_, _, t)]) => t
+	   |  _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::ty show = asML o pp
+       map = .ty o mapper  
+       rewrite = .ty o rewriter  
+       apply = .ty o apper
+       subst = .ty o subster
+       fun fold r x = .ty (folder r x)
+       simplify = tr::simplifyTy
+       fun nolocations t = 
+	  case decl::nolocations (a::DATATYPEdecl([],[a::TYPEbind (fakeId,[], t)])) of
+	    a::DATATYPEdecl(_,[a::TYPEbind(_, _, t)]) => t
+	  | _ => bug("Ty", "locations")
+    }
+
+    package tys {
+
+       fun parse s = 
+	   case decl::parse("type t=\n(" + s + ")") of
+	      a::DATATYPEdecl(_,[a::TYPEbind(_, _, a::TUPLEty ts)]) => ts
+	    | a::DATATYPEdecl(_,[a::TYPEbind(_, _, t)]) => [t]
+	    | _ => raise exception p::PARSE_ERROR
+       package x = List (Ty)                use x
+    }
+
+    package labty {
+
+       fun parse s = 
+	   case decl::parse("type t= {\n" + s + "}") of
+	      a::DATATYPEdecl(_,[a::TYPEbind(_, _, a::RECORDty[t])]) => t
+	   |  _ => raise exception p::PARSE_ERROR
+       package x = Labeled (struct use Ty pp = raw_pp::labty end)     use x
+    }
+
+    package labtys {
+
+       fun parse s = 
+	   case decl::parse("type t= {\n" + s + "}") of
+	      a::DATATYPEdecl(_,[a::TYPEbind(_, _, a::RECORDty ts)]) => ts
+	   |  _ => raise exception p::PARSE_ERROR
+       package x = List (Labty)            use x
+    }
+
+    package pat {
+
+       package t = Type (type t = raw::pat)       use t
+       type t = raw::pat
+       fun parse s = 
+	   case decl::parse("my\n" + s + " = ()") of
+	      a::VALdecl[a::VALbind (p, _)] => p | _ => raise exception p::PARSE_ERROR
+       pp = raw_pp::pat show = asML o pp
+       map = .pat o mapper  
+       rewrite = .pat o rewriter  
+       apply = .pat o apper
+       subst = .pat o subster
+       fun fold r x = .pat (folder r x)
+       simplify = tr::simplifyPat
+       fun nolocations p = 
+	  case decl::nolocations (a::VALdecl[a::VALbind (p, a::TUPLEexp [])]) of
+	    a::VALdecl[a::VALbind (p, _)] => p
+	  | _ => bug("Pat", "locations")
+    }
+
+    package pats {
+
+       fun parse s = 
+	   case decl::parse("my(\n" + s + ")=()") of
+	      a::VALdecl[a::VALbind (a::TUPLEpat p, _)] => p 
+	    | a::VALdecl[a::VALbind (p, _)] => [p]
+	    | _ => raise exception p::PARSE_ERROR
+       package x = List (Pat)                use x
+    }
+
+    package labpat {
+
+       fun parse s = 
+	   case decl::parse("my {\n" + s + "} =()") of
+	      a::VALdecl[a::VALbind (a::RECORDpat([p], _), _)] => p 
+	    | _ => raise exception p::PARSE_ERROR
+       package x = Labeled (pkg use Pat pp = raw_pp::labpat end)        use x
+    {
+
+    package labpats {
+
+       fun parse s = 
+	   case decl::parse("my {\n" + s + "} =()") of
+	      a::VALdecl[a::VALbind (a::RECORDpat (ps, _), _)] => ps 
+	    | _ => raise exception p::PARSE_ERROR
+       package x = List (Labpat)          use x
+    }
+
+    package constants {
+
+       fun constants ()
+	   =
+	   {   t = raw_consts::newConstTable();
+	       defineConst = raw_consts::const t;
+
+	       fun declareConsts decl
+                   =
+		   case raw_consts::genConsts t of
+		     [] => decl
+		   | ds => a::LOCALdecl (ds,[decl]) 
+
+	       { defineConst, declareConsts };
+	   }
+    }
+
+    #  Input/Output 
+    package io {
+
+       type filename = String
+
+       fun read_string filename =
+       let s = file::open_for_read filename
+       in  file::read_all s before file::close_input s
+       end
+
+       fun read_lines filename
+	   =
+	   {   s =   file::open_for_read filename;
+
+	       fun read (text)
+                   = 
+		   case file::read_line s of
+		     "" => reverse text
+		   | t  => read (t . text)
+
+	       read [] before file::close_input s;
+	   }
+
+       fun stripNL "" = ""
+	 | stripNL s
+           = 
+	   {   i =   size s - 1;
+
+	       if   string::get (s, i) == '\n'
+               then string::substring (s, 0, i)
+               else s;
+	   }
+
+       fun read_lines' filename
+           =
+           map stripNL (read_lines filename);
+
+       fun read_verbatim filename
+           =
+           A.@@@(read_lines' filename);
+
+       fun read_file filename
+           = 
+	   case parser::load filename of
+	     [d] => d
+	   | ds => a::SEQdecl ds;
+
+       enum writeOpt = 
+	    INFILE of filename
+	  | OUTFILE of filename      
+	  | EXT of String
+	  | AUTHOR of String
+	  | VERSION of String
+	  | PROGRAM of String
+	  | EMAIL of String
+	  | COMMENT of List( String )
+
+
+       #  Don't write the file if nothing has changed 
+       fun changed (outfile, text)
+	   =
+	   {   ch
+		   = 
+		   {   s =   file::open_for_read outfile;
+		       t =   file::read_all s;
+
+		       t != text before file::close_input s;
+		   }
+		   except _ => TRUE;
+
+	       if ch   then err::log("[Writing " + outfile + "]") 
+		       else err::log("[No change to " + outfile + "]");
+
+	       ch;
+	   }
+
+       fun write_string (filename, text)
+	   = 
+	   if changed   (filename, text)
+	   then
+		{   s =   file::open filename;
+
+		    file::write (s, text)
+		    before
+			file::close s;
+		}
+	   else ()
+
+       fun write_lines (filename, text)
+           =
+           write_string (filename, string::cat text)
+
+       fun writeFile (opts, generatedProgram)
+	   = 
+	   {   infile  = REF NULL;
+	       outfile = REF NULL;
+	       extension  = REF "pkg";
+	       author     = REF NULL;
+	       version = REF NULL;
+	       program = REF NULL;
+	       email   = REF NULL;
+	       comment = REF [];
+
+	       apply (fn INFILE s => infile   :=   THE s;
+		       | OUTFILE s => outfile :=   THE s;
+		       | EXT s => extension   :=   s;
+		       | AUTHOR s => author   :=   THE s;
+		       | VERSION s => version :=   THE s;
+		       | PROGRAM s => program :=   THE s;
+		       | EMAIL s => email     :=   THE s;
+		       | COMMENT s => comment :=   s @ *comment) opts;
+
+	       #  Find out what output file to use 
+	       outfile
+                   =  
+		   case *outfile of 
+		     THE f => f
+
+		   | NULL => #  Determine outfile name from infile/suffix 
+		     case *infile of
+		       NULL => bug("writeFile", "no output filename given")
+
+		     | THE infile
+			   =>
+			   {   my { base, ext }
+                                   =
+                                   winix::path::split_base_ext infile;
+
+			       outfile = winix::path::join_base_ext
+						  { base, ext=THE *extension };
+
+			       if infile == outfile
+                               then 
+				  bug("writeFile",
+				      "input and output file have the same name: " +
+					 infile)
+			       else outfile;
+			   };
+
+	       #  Create a comment message on top 
+	       from  = case *infile of 
+			      THE f => [" * from \"" + f + "\""]
+			    | NULL   => [];
+	       auth  = case *author of THE a => a + " + s " | NULL => "";
+	       prog  = case *program of THE p => p + " " | NULL => "";
+	       ver   = case *version of THE v => "(version " + v + ")" | NULL => "";
+	       by    = case auth + prog + ver of "" => [] | s => [" * by " + s];
+	       other = map (fn s => " * " + s) (*comment);
+	       email = case *email of THE e => 
+			     [" * Please send comments and suggestions to " + e]
+			   | NULL => [] ;
+	       prog' = case *program of THE p => p + " is " | NULL => "";
+
+	       comment
+		   =  
+		   A.@@@("/*" .
+		       " * This file has been automatically generated" .
+		       from @
+		       by @
+		       email @
+		       [" * [" + prog'  + 
+			"built with the ml_grinder library (version " + Version + ")]"] @
+		       other @
+		       [ " */",
+			 ""
+		       ] 
+		      );
+
+	       #  Prettyprint and generate the program 
+
+	       text =   decl::show (a::SEQdecl[comment, generatedProgram]);
+
+	       write_string (outfile, text);
+	   }
+    }
+
+
+
+    #  The match compiler 
+    package match_compiler {
+
+
+	fakeBasis = decl::parse basisForTheMatchCompiler 
+
+	fun compileTypes datatypes
+            =
+            m::compileTypes (fakeBasis . datatypes)
+
+	exception MATCH_COMPILER = m::mc::MATCH_COMPILER
+
+	fun compile_case_pattern { datatypes, prog }
+	    =
+	    {   literals =   REF m::LitMap::empty;
+		info     =   compileTypes datatypes;
+
+		#  Compile a case statement 
+
+		fun compileCase (exp, rules)
+		    = 
+		    {   dfa  =   m::compile info rules
+
+			m::report { warning=err::warning, 
+					    error=err::error,
+					    log=err::log,
+					    dfa, 
+					    rules };
+
+		        m::codeGen { root=exp, dfa, 
+				  fail=fn () => a::RAISEexp (u::ID "MATCH"), 
+				  literals };
+		    };
+
+
+		#  Compile a function 
+
+		fun fbind (fb as a::FUNbind (f, cs as c . _))
+                    =
+		    if Clauses::isComplex cs
+                    then #  expand function 
+
+			  {   my a::CLAUSE (args, _, _)
+                                  =
+                                  c;
+
+			      arity = length args;
+			      vars  = list::tabulate (arity, fn i => "p_" + i2s i);
+			      root  = a::TUPLEexp (map u::ID vars);
+			      cs'   = map (fn a::CLAUSE (ps, g, e) =>
+						     a::CLAUSE([a::TUPLEpat ps], g, e)) cs;
+			      body  = compileCase (root, cs');
+
+			      a::FUNbind (f, [a::CLAUSE (map a::IDpat vars, NULL, body)]);
+			  }
+		    else  fb
+		  | fbind fb = fb
+
+		#  Find all occurances of conditional patterns and transform them 
+		prog = decl::map
+		       [Map::D (fn a::FUNdecl fbs => a::FUNdecl (map fbind fbs)
+			       | d => d
+			     ),
+			Map::E (fn e as a::CASEexp (r, cs) =>
+				 if Clauses::isComplex cs then compileCase (r, cs) 
+				 else e
+			       | e => e)
+		       ] prog;
+
+		litDecls = 
+		     m::LitMap::keyed_fold_right
+			 (fn (l, v, d) =>
+			    a::VALbind (a::IDpat v, a::LITexp l) . d) [] (*literals);
+
+		litDecls = case litDecls of 
+				 [] => []
+			       | _  => [a::VALdecl litDecls];
+
+	        { prog, literals=litDecls };
+	    }
+    } #  match_compiler 
+
+
+    #  The lexer generator 
+    package lexer_generator {
+
+
+	exception LEXER_GENERATOR of String
+	package p  = perl_syntax
+	package lg = lexer_generator_g (perl_syntax::R)
+
+	fun compile re = the (number_string::scan_string p::scan re)
+
+	fun lexerGenerate prog
+	    =
+	    {   exception WrongForm;
+
+		fun exp (origExp as 
+		      a::CASEexp (a::APPexp (a::IDexp (a::IDENT(["Lexer"], "lexer")), head),
+				clauses))
+			=
+			(   {   rules = map (fn a::CLAUSE([a::TUPLEpat[a::LITpat (a::STRINGlit re), p]], g, action)
+						   => 
+						   (re, p, g, action)
+						 | _ => raise exception WrongForm
+					       )
+					       clauses;
+
+				regexps = map (fn (re, _, _, _) => compile re) rules;
+				lexer   = lg::compile regexps;
+
+				clauses = map (fn (_, p, g, action) => a::CLAUSE([p], g, action))
+					      rules;
+
+				a::CASEexp
+				   (a::APPexp (a::IDexp (a::IDENT(["Lexer"], "match")), head), 
+				    clauses);
+			    }
+			    except
+                                WrongForm => origExp
+			)
+
+		  | exp e = e;
+
+		prog =   decl::map[Map::E exp] prog;
+
+		literals = [];
+
+	        { prog, literals };
+
+	    };
+
+    } #  lexer_generator 
+}; #  ml_grinder 
+
+end; #  local 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

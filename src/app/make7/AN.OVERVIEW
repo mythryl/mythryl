@@ -1,0 +1,311 @@
+OVERVIEW
+--------
+
+Make7 implements the user-interaction layer which sits on
+top of the compiler proper.  Its main two functions are:
+
+ o  Implement an interactive loop so users can
+    type in expressions at the prompt and have
+    them instantly compiled, executed, and the
+    results displayed.
+
+    The core code for this is the interact() function in
+        src/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+
+ o  Support programs separate compilation and linking of
+    applications which consist of more than one sourcefile.
+
+    The compiler proper deals only with the problem of
+    compiling a single source file to produce native code
+    in memory plus updated symbol tables.  Everything else
+    is our responsibility, including:
+
+     o  Defining and implementing the .o7 objectfile format
+        which holds the result of compiling one sourcefile.
+
+     o  Finding the complete set of sourcefiles needed for
+        an application.
+
+     o  Finding a topological ordering of that sourcefile set
+        which ensures that we don't compile any sourcefile
+        until all the sourcefiles upon which it depends have
+        already been compiled.  (This is necessary so that
+        their exported type information will be available
+        to the compiler when needed.)
+
+     o  Compiling all the sourcefiles needed in the required
+        order, maintaining the symbol tables appropriately
+        to reflect all externally visible information exported
+        by each file compiled.
+
+     o  Optionally combining .o7 files into code library
+        files if the user so requests.
+
+     o  Loading all required .o7 files into memory in proper
+        topological order, executing the top-level code in
+        each as soon as it is loaded, and tracking both the
+        set of .o7 files loaded and also the values they
+        have computed.
+
+
+STARTUP
+-------
+
+When mythryld is run, it begins execution near the bottom of
+
+    src/lib/core/internal/main.pkg
+
+picking up where the dump that generated the heap image
+left off.
+
+After printing the start-up banner and
+processing any command-line options,
+main.sml does
+     backend::interact::interact ()
+to enter the interaction loop.
+
+This invokes the
+    src/compiler/toplevel/interact/interact-g.pkg
+function
+    fun interact ()
+        =
+        (   read_eval_print_loop::interact ();
+            os::process::exit os::process::success
+        )
+
+        which in turn invokes the meatier
+            src/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+        interact() function.
+
+The two major commands invoking Make7 "make" functionality are
+
+    make7::make    "foobar.make6"
+    make7::compile "foobar.make6"
+
+which promptly land you at the respectively appropriate of the
+
+    src/app/make7/main/make7-g.pkg
+
+entrypoints
+
+    load
+    compile
+
+
+
+
+OPERATION
+---------
+
+The operation of Make7 can be understood best by looking at its
+central datastructure, the dependency graph.  You can find the
+definitions of its associated types in
+
+    src/app/make7/depend/intra-library-dependency-graph.pkg
+
+There is also a dependency graph at the resolution of libraries.
+Its definition is in
+
+    src/app/make7/depend/inter-library-dependency-graph.pkg
+
+One can roughly divide Make7 into front-end and back-end.  It is the
+front-end's responsibility to establish the dependency graph for a
+given project.  The back-end implements various ways of traversing the
+graph, thereby performing the operations that the user expects:
+consistency checking, recompilation, linking, library building,
+generation of listings or other statistics, etc.
+
+The central component of the front-end is the parser.  It builds the
+dependency graph incrementally with help from the dependency analyzer.
+
+* Analysis CAN be performed incrementally because the sub-graphs that
+correspond to sub-libraries are independent of how they are being used.
+
+* We DO perform analysis incrementally because the parser occasionally
+wants to know what the exported symbols of sub-libraries are.
+(This is required for the parser's conditional
+compilation facility.)  While it would probably be possible to achieve
+this using a more cursory analysis, the extra effort of implementing
+it would definitely not be outweighed by any gains.
+
+The dependency analyzer must inspect the source code of the
+project.  Within Make7, handling of source code is centralized -- all
+information pertaining to one source file is bundled as an abstract
+data type (SmlInfo.info).  You find the definition (and the
+implementation) of that type in smlfile/smlinfo.sml.  In particular,
+one important optimization that saves many repeated invocations of
+the compiler's parser is to strip the abstract syntax tree of all
+unnecessary (as far as Make7 is concerned) information and store the
+"compressed" version in a cache.  I call such compressed 
+syntax information a "module dependencies summary".  You will find
+the definition of the module dependencies summary type in
+   src/app/make7/o7/module-dependencies-summary.pkg
+Associated code is in the same directory.
+
+The dependency analyzer operates on module dependencies summaries.
+Its implementation can be found in
+    src/app/make7/depend/build-dependency-graph.pkg
+
+
+PRIVILEGES (access control)
+---------------------------
+
+The basic mechanisms for access control are implemented: Make7 can
+correctly detect which "privileges" would be required to access sublibraries
+and libraries.  However, nothing has been done to actually enforce
+anything.  In other words, everybody is assumed to have every possible
+privilege.  Make7 merely reports which privileges "would have been
+required".  For the time being this is not really critical.
+Enforcement must be tied into some form of OS-specific enforcement
+mechanism (such as Unix file permissions or something similar), and I
+haven't really thought out a way of doing this nicely and cleanly.
+
+The basic idea behind Make7's "privileges" is quite easy to understand.
+In their description files sublibraries and libraries can specify a list of
+privileges that the user of such a sublibrary/library must possess in order
+to be able to use it.  Privileges at this level are just names
+(strings).  If one sublibrary/library imports from another sublibrary/library,
+then privileges are being inherited.  In effect, to be able to use a
+program, one must have all privileges for all its libraries/sublibrary,
+sub-libraries, sub-sub-libraries, etc.
+
+Of course, this is not yet satisfactory because there should also be
+the possibility of setting up a "safety wall": a library LSafe.make6
+could "wrap" all the unsafe operations in LUnsafe.make6 with enough error
+checking that they become safe.  Therefore, a user of LSafe.make6 should
+not also be required to possess the privileges that would be required
+if one were to use LUnsafe.make6 directly.
+
+To this end, in Make7's model of privileges it is possible for a
+sub/library to "wrap" privileges.  If a privilege P is wrapped, then
+the user of the library does not need to have privilege P even though
+the library is using another library that requires privilege P.  In
+essence, the library acts as a "proxy" who provides the necessary
+privilege P to the sub-library.
+
+Of course, not everybody can be allowed to establish a library with
+such a "wrapped" privilege P.  The programmer who does that should at
+least herself have privilege P (but perhaps better, she should have
+"permission to wrap P" -- a stronger requirement).
+
+In Make7, wrapping a privilege is done by specifying the name of that
+privilege within parenthesis.  The wrapping becomes active once the
+library gets built (see below).  The (not yet implemented)
+enforcement mechanism must ensure that anyone who builds a library
+that wraps P has permission to wrap P.
+
+
+LIBRARY BUILDING
+----------------
+
+Aside from the issues concerning privileges, library building is a way of
+putting an entire pre-compiled library -- together with its
+pre-computed dependency graph -- into one single container.  Once this
+is done, Make7 will never need to have access to the original source
+code.  Before actually consulting the description file for a library,
+the parser will always check and see if there is a library built.
+If so, it will suck the dependency graph out of the container and be
+done.
+
+Because of the "use" feature, it sometimes is necessary for the
+dependency analyzer of a sublibrary to consult the contents (i.e., the
+definitions) of apis, packages, or generics that are imported
+from sub-libraries.  Since the pre-computed dependency graph does not
+contain such information, it will then become necessary to recover it
+in a different way.
+
+Remember, the source code shouldn't have to be available at this
+point.  However, the same information is contained in the static
+environment that is stored in every .o7 file.  (An .o7 file is the
+result of compiling one source file. It contains executable code
+and a pickled representation of the static environment that is
+exported from the compilation unit.)  Aside from the dependency graph,
+the container for a built library also stores all the associated
+.o7 files.
+
+Loading (stable) .o7 files for the purpose of dependency analysis is
+sometimes necessary, but since it is expensive we do it as seldom as
+we can (i.e., lazily).  The implementation of this mechanism (which is
+really just a hook into the actual implementation provided by
+GenericVC) is in depend/se2dae.sml. (See the comments there.)  It is
+used in stable/stable-library.sml.  (Look for "cvtMemo"!)
+
+Information pertaining to members of built libraries is managed
+by the abstract datatype BinInfo.info (see stable/bininfo.sml).  In
+some sense, BinInfo.info is to build libraries code what SmlInfo.info
+is to not-yet-built libraries.
+
+By the way, only libraries can be built.  A built library
+will encompass its own sources as well as the sources of sub-libraries
+(and their sub-libraries, and so on).  Sub-freezefiles of the library, on
+the other hand, will be referred to symbolically (they do not get
+"sucked" in like sublibraries do).  In effect, sub-libraries of a library
+becomes convenient for resolving name-spacing issues without
+compromising the "one single container" paradigm of freezefiles.
+
+
+DEPENDENCY GRAPH
+----------------
+
+The division into THAWED and FROZEN libraries is clearly
+visible in the definition of the types that make up dependency graphs.
+There are "iced_o7"s for objectfiles that live within freezefiles
+(frozen library case) and there are "bare_o7"s for objectfiles
+that live in their own independent .o7 files (thawed library case).
+
+You will notice that one can never go from an iced_o7 to a bare_o7.
+This mirrors our intention that a sub-library of a frozen library must
+also be frozen.  From bare_o7s, on the other hand, you can either go
+to other bare_o7s or to iced_o7s.  All the "localimports" of a
+bare_o7 (i.e., the imports that come from the same library) are
+also bare_o7.  To go to an iced_o7 one must look into the list of
+"globalimport"s.  Global imports refer to "far" nodes -- nodes that
+are within other libraries.  The edge that goes to such a node
+can have an export filter attached.  Therefore, a far_o7_in_lib is
+an iced_o7 with an optional filter attached and a far_o7 is an o7 with an
+optional filter attached.
+
+Imports and exports of a library are represented by "import_export"s.
+Import_exports are essentially just far_o7 nodes, but they also contain
+the dependency analyzers "exported package definitions dictionary"
+which contains information about the actual definitions (contents)
+of exported packages/generics.  As mentioned above, this is needed
+to handle the "use" construct of the language.
+
+The exports of a sub/library are then simply represented by a
+mapping from exported symbols to corresponding import_exports.
+(See depend/inter-library-dependency-graph.pkg.)
+
+
+RECOMPILATION AND EXECUTION
+---------------------------
+
+There is (NOT!) a generic treewalk routine that is used to implement both
+recompilation treewalks and execution (link-) treewalks
+(compile/generic.sml).  The decision of which kind of treewalk is
+implemented comes from the generic argument: the "compilation type".
+An api describing compilation types abstractly is in
+compile/compile-type.pkg.  In essence, it provides compilation
+environments and associated operations abstractly.
+
+Concrete instantiations of this api are in compile/recomp.sml
+and in compile/exec.sml.  As you will see, these are also implemented
+as generics parameterized by an abstraction of "persistent state".
+Persistent state is used to remember the results of treewalks from
+invocation to invocation of Make7.  This avoids needless recompilation in
+the case of recomp.sml and facilitates sharing of dynamic values in
+the case of exec.sml.  (However, the two cases are otherwise quite
+dissimilar.)
+
+Persistent state comes in two varieties: "recomp" and "full".  Full
+state is actually an extension of recomp state and can also be used
+where recomp state is expected.  The "normal" Make7 uses full state
+because it implements both recompilation and execution.  The same
+state is passed to both ExecFn and RecompFn, so it will be properly
+shared by recompilation and execution treewalks.  In the case of the
+bootstrap compiler, however, we never actually execute the code that
+comes out of the compiler.  (The code will be executed by the runtime
+system when bootstrapping.)  Therefore, for the bootstrap compiler we
+don't use full state but simply recomp state.  (If we cross-compile
+for a different architecture we could not possibly execute the code
+anyway.)

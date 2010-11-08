@@ -1,0 +1,284 @@
+## uncurry-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This file implements one of the fate-passing-style transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/backend/upper/highcode/highcode.api
+
+
+
+
+#    "It was easy and harmless to do uncurrying as part of
+#     'optimize_mutually_recursive_functions', with the
+#     added benefit that it merged two tree traversals into
+#     one.  This is particularly important since those phases are
+#     worth doing often and both traversals need to build a whole
+#     new result expression, which is slower than read-only traversals."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+
+
+
+#    "Simple form of uncurrying which turns curried
+#     functions
+#
+#         fun f x y = e
+#
+#     into an uncurried function
+#
+#         fun f'(x, y) = e
+#
+#     and an uncurry wrapper function
+#
+#         fun f x y = f'(x,y)
+#
+#    "The actual uncurrying at the call sites is done
+#     later on in the expand phase by inlining the wrapper."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+
+
+
+###                                "I am too good for philosophy
+###                                 and not good enough for physics.
+###                                 Mathematics is in between."
+###
+###                                              -- George Pólya
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/upper/fps-optimize/fps-optional-optimizations-g.pkg
+										# Machine_Properties			is from   src/lib/compiler/codegen/main/machine-properties.api
+generic package uncurry_g (
+
+    machine_properties:  Machine_Properties				# Typically		 			  src/lib/compiler/codegen/x86/x86-machine-properties.pkg
+
+)
+: (weak) Split_Known_Escaping_Functions						# Split_Known_Escaping_Functions	is from   src/lib/compiler/backend/upper/fps-optimize/split-known-escaping-functions-g.pkg
+
+{
+    stipulate
+
+	include fate_passing_style; 
+
+	package lt = highcode;							# highcode				is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package lv = highcode_var;						# highcode_var				is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+
+    herein
+
+	fun bug s = error_message::impossible ("Uncurry: " + s);
+
+	fun freein v
+	    = 
+	    g
+	    where
+		fun try (VAR w)     =>   v == w;
+		    try (LABEL w)   =>   v == w;
+		    try _ => FALSE;
+		end;
+
+		fun any (w ! rest) => try w or any rest;
+		    any NIL => FALSE;
+		end;
+
+		fun any1 ((w, _) ! rest) => try w or any1 rest;
+		    any1 NIL => FALSE;
+		end;
+
+		recursive val g
+		    =
+		    fn  APPLY  (f, args) => try f or any args;
+			SWITCH (v, c, l) => try v or list::exists g l;
+
+			RECORD(_, l, w, ce) => any1 l or g ce;
+
+			SELECT(_, v, w, _, ce) => try v or g ce;
+			OFFSET(_, v, w, ce)    => try v or g ce;
+
+			( SETTER (_, vl, e)
+			| LOOKER (_, vl, _, _, e)
+			| ARITH  (_, vl, _, _, e)
+			| PURE   (_, vl, _, _, e)
+			| RAW_C_CALL (_, _, _, vl, _, e)
+                        )   =>
+                            any vl or g e;
+
+			BRANCH(_, vl, c, e1, e2) => any vl or g e1 or g e2;
+			MUTUALLY_RECURSIVE_FNS (fl, e) => list::exists (g o #5) fl  or  g e;
+		    end ;
+	    end;
+
+	fun split_known_escaping_functions { function=>(fkind, fvar, fargs, ctyl, cexp),
+		      table=>typtable, click }
+	    = 
+	    {   debug = *controls::cg::debugcps; #  FALSE 
+
+		fun debugprint s = if debug  controls::print::say s; fi;
+		fun debugflush () = if debug  controls::print::flush(); fi;
+
+		rep_flag = machine_properties::representations;
+
+		type_flag = *controls::cg::checkcps1 and
+			    *controls::cg::checkcps2 and rep_flag;
+
+		default_arrow = lt::ltc_parrow (lt::ltc_void, lt::ltc_void);
+
+		fun extend_lty (t,[]) => t;
+		    extend_lty (t, a) => default_arrow;
+                end;
+
+		#  Count the number of GP and FP registers needed for a list of lvars 
+		unboxedfloat = machine_properties::unboxed_floats;
+
+		fun is_flt_cty FLTT => unboxedfloat; 
+		    is_flt_cty _    => FALSE;
+		end;
+
+		num_csgpregs =   machine_properties::num_callee_saves;
+		num_csfpregs =   machine_properties::num_float_callee_saves;
+
+		maxgpregs =   machine_properties::num_regs      - num_csgpregs - 1;
+		maxfpregs =   machine_properties::num_float_regs - num_csfpregs - 2;  
+
+		fun checklimit (cl)
+		    = 
+		    h (cl, 0, 0)
+                    where
+		        fun h (FLTT ! r, m, n) =>   if unboxedfloat    h (r, m, n+1);   else   h (r, m+1, n);   fi;
+			    h (_   ! r, m, n) =>   h (r, m+1, n);
+			    h ([],       m, n) =>   (m <= maxgpregs) and (n <= maxfpregs);
+			end;
+		    end;
+
+		exception NEWETA;
+
+		fun getty v
+		    = 
+		    if type_flag 
+			 (int_hash_table::get  typtable  v)
+			 except
+			     _ =  {   controls::print::say ("NEWETA: Can't find the variable " +
+					      (int::to_string v) + " in the typtable ***** \n");
+				      raise exception NEWETA;
+				  };
+		    else 
+			 lt::ltc_void;
+		    fi;
+
+		fun addty (f, t)
+		    =
+		    if type_flag
+			 int_hash_table::set typtable (f, t);
+		    fi;
+
+		fun make_var (t)
+		    =
+		    {   v = lv::make_highcode_variable();
+			addty (v, t);
+			v;
+		    };
+
+		fun copy_lvar v
+		    =
+		    {   x = lv::copy_highcode_variable (v);
+			addty (x, getty v);
+			x;
+		    };
+
+		# fun userfun (f) = case lt::out (getty (f)) of lt::ARROW _ => TRUE
+		#				| _ => FALSE
+
+		recursive val reduce
+		   = 
+		   fn RECORD (k, vl, w, e)      =>  RECORD (k, vl, w, reduce e);
+		      SELECT (i, v, w, t, e)    =>  SELECT (i, v, w, t, reduce e);
+		      OFFSET (i, v, w, e)       =>  OFFSET (i, v, w, reduce e);
+
+		      APPLY (f, vl)             =>  APPLY (f, vl);
+		      SWITCH (v, c, el)         =>  SWITCH (v, c, map reduce el);
+		      BRANCH (i, vl, c, e1, e2) =>  BRANCH (i, vl, c, reduce e1, reduce e2);
+
+		      LOOKER (i, vl, w, t, e)   =>  LOOKER (i, vl, w, t, reduce e);
+		      ARITH  (i, vl, w, t, e)   =>  ARITH  (i, vl, w, t, reduce e);
+		      PURE   (i, vl, w, t, e)   =>  PURE   (i, vl, w, t, reduce e);
+
+		      RAW_C_CALL (k, l, p, vl, wtl, e)
+                          =>
+                          RAW_C_CALL (k, l, p, vl, wtl, reduce e);
+
+		      SETTER (i, vl, e) => SETTER (i, vl, reduce e);
+
+		      MUTUALLY_RECURSIVE_FNS (l, e)
+			  =>
+			  {   fun uncurry (fd as (FATE, _, _, _, _)) => [reduce_body (fd)];
+
+				  uncurry (fd as 
+					(fk, f, k ! vl, ct ! cl, body as MUTUALLY_RECURSIVE_FNS([(gk, g, ul, cl', body2)],
+								       APPLY (VAR c,[VAR g']))))
+				      =>
+				      if (k==c and g==g'		  #  And userfun (g) 
+				      and not (freein k body2)
+				      and not (freein g body2)   #  g not recursive 
+				      and checklimit (cl@cl')
+				      )
+					   ul' = map copy_lvar ul;
+					   vl' = map copy_lvar vl;
+
+					   k' = copy_lvar k;
+					   g' = copy_lvar g;
+
+					   newlt = extend_lty (getty (g), (map getty vl));
+					   f' = make_var (newlt);
+					   click "u";
+
+					   (   NO_INLINE_INTO,
+					       f,
+					       k' ! vl',
+					       ct ! cl,
+					       MUTUALLY_RECURSIVE_FNS (   [   (gk, g', ul', cl', APPLY (VAR f', map VAR (ul' @ vl')))   ], 
+						       APPLY (VAR (k'), [VAR g'])
+						   )
+					   )
+					   !
+					   uncurry (fk, f', ul@vl, cl'@cl, body2 );
+
+				      else
+					  [reduce_body (fd)];
+				      fi;
+
+				  uncurry fd => [reduce_body (fd)];
+			      end 
+
+			   also
+			   fun reduce_body (fk, f, vl, cl, e)
+                               =
+                               (fk, f, vl, cl, reduce e);
+
+			   MUTUALLY_RECURSIVE_FNS (fold_right (fn (fd, r) = (uncurry fd) @ r) [] l,
+			       reduce e);
+		       };
+                  end;		# fn
+
+		  debugprint "Uncurry: ";
+		    debugflush();
+		    (fkind, fvar, fargs, ctyl, reduce cexp) before debugprint "\n";
+	    };
+    end;	#  toplevel stipulate
+};		#  generic package uncurry_g 
+
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

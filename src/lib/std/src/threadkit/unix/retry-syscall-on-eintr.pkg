@@ -1,0 +1,128 @@
+## retry-syscall-in-eintr.pkg
+#
+# Some system calls may take a long time
+# to complete and may be interrupted by
+# timer signals before they complete.
+#
+# This module implements a simple hack to
+# partially protect against this problem.
+#
+# For a longer discussion see comments at bottom of:
+#
+#     src/runtime/c-libs/lib7-socket/connect.c
+#
+# This hack gets used in:
+#     src/lib/x-kit/xclient/src/wire/display.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+
+
+
+stipulate
+    package tr =  tracing;					# tracing		is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+    package ts = thread_scheduler;				# thread_scheduler	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+herein
+
+    package retry_syscall_on_eintr: (weak)    api {
+
+	is_intr:  winix::System_Error -> Bool;
+	    #
+	    # Return TRUE iff error was due to system
+	    # call being interrupted -- that is, if it
+	    # returned posix EINTR in errno.
+
+	do_syscall_retry_on_eintr:  (X -> Y) -> X -> Y;
+	    #
+	    # Do a system call, and restart if it is interrupted
+	    # (that is, if it returns posix EINTR in errno).
+
+	do_atomic_syscall:  (X -> Y) -> X -> Y;
+	    #
+	    # Do a system call with timer signals masked (i.e., SIGALRM ignored) 
+
+        tracing:  tracing::Trace_Tree_Node;		# Controls printing of thread watching messages.
+    } {
+
+        tracing =  tr::make_trace_tree_leaf { parent => tr::all_tracing, name => "retry_syscall_tracing" };
+	trace   =  tr::print_if  tracing;			# Conditionally write strings to tracing.log or whatever.
+	    #
+	    # To debug via tracelogging, annotate the code with lines like
+	    #
+	    #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+
+	fun is_intr err
+	    =
+	    err == posix::error::intr;		# == posix EINTR.
+
+
+	
+	fun do_atomic_syscall f x
+	    =
+	    {
+		# Note that stopping the timer will stop all
+		# thread_scheduler timeslicing dead in its
+		# tracks, including all threads attempting to
+		# maintain periodic user interface stuff etc.
+		#
+		# This is probably a REALLY BAD IDEA. 		XXX BUGGO FIXME
+		#
+	        ts::stop_timer();
+		    #
+		    # XXX BUGGO FIXME this is still pretty slapdash;
+		    #                 we can still get interrupted by
+		    #                 signals like SIGCHLD, and if we
+		    #                 do we're screwed.
+
+		y = (f x)
+		    except
+			x = {
+				ts::restart_timer ();
+				raise exception x;
+			    };
+
+		ts::restart_timer();
+
+		y;
+	    };
+
+
+	# This function is only called in
+        #
+        #     src/lib/std/src/unix/threadkit-posix-binary-primitive-io.pkg
+        #
+        # where it protects a few read() and write() calls;
+	# if any other "slow" system call is interrupted,
+	# we are still screwed. :-(		XXX BUGGO FIXME
+        #
+	fun do_syscall_retry_on_eintr f x
+	    =
+	    try 3
+	    where
+
+		fun try 0
+			=>
+			do_atomic_syscall f x;
+
+		    try n
+			=>
+			(f x)
+			except
+			    (ex as winix::SYSTEM_ERROR(_, THE err))
+				=
+				if (is_intr err)      try (n - 1);
+				else                  raise exception ex;
+				fi;
+
+		end;
+	    end;
+    };
+
+end;
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

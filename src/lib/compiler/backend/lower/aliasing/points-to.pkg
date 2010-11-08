@@ -1,0 +1,440 @@
+## points-to.pkg
+#
+# This module performs low-level flow insensitive
+# points-to  analysis for type-safe languages.
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+###               "Everyone is more or less mad on one point."
+###
+###                                   -- Rudyard Kipling 
+
+
+
+# Currently our code clients are:
+#
+#     src/lib/compiler/codegen/main/translate-fate-passing-style-to-binary-g.pkg
+#     src/lib/compiler/codegen/compile-fps/memory-aliasing.pkg
+#     src/lib/compiler/codegen/compile-fps/fps-regions.pkg
+
+
+package points_to: (weak)  Points_To {		# Points_To	is from   src/lib/compiler/backend/lower/aliasing/points-to.api
+
+    Edgekind = PROJECTION | DOMAIN | RANGE | RECORD | MARK;
+
+    package c= cells_basis;	# cells_basis	is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    Cell
+	= LINK   Region
+	| SREF   (c::Cell, Ref( Edges ))
+	| WREF   (c::Cell, Ref( Edges ))
+	| SCELL  (c::Cell, Ref( Edges ))
+	| WCELL  (c::Cell, Ref( Edges ))
+	| TOP    { mutable: Bool, id: c::Cell, name: String }
+	   #  A collapsed node 
+
+    withtype Region = Ref( Cell )
+    also     Edges  = List( (Edgekind, Int, Region) );
+
+    fun error msg
+	=
+	lowcode_error_message::error("points_to", msg);
+
+    # PROJECTION > DOMAIN > RANGE > RECORD 
+    #
+    fun greater_kind (PROJECTION, _) => FALSE;   
+	greater_kind (DOMAIN, PROJECTION) => FALSE;
+	greater_kind (RANGE, (PROJECTION | DOMAIN)) => FALSE;
+	greater_kind (RECORD, (PROJECTION | DOMAIN | RANGE)) => FALSE;
+	greater_kind (MARK, (PROJECTION | DOMAIN | RANGE | RECORD)) => FALSE;
+	greater_kind _ => TRUE;
+    end;
+
+    fun less (k, i, k', i')
+	=
+	k==k'   and   i > i'           or
+	greater_kind (k, k');
+
+    my sort:  List( (Edgekind, Int, Region) )
+	      -> 
+	      List( (Edgekind, Int, Region) )
+       = 
+       list_mergesort::sort
+	   (fn ((k, i, _), (k', i', _)) =  less (k, i, k', i'));
+
+    new_mem = REF (fn _ =  error "newMem") : Ref( Void -> c::Cell );
+
+    fun reset f
+	=
+	new_mem := f;
+
+    fun new_sref () =  REF (SREF (*new_mem(), REF []));
+    fun new_wref () =  REF (WREF (*new_mem(), REF []));
+
+    fun new_scell () =  REF (SCELL (*new_mem(), REF []));
+    fun new_wcell () =  REF (WCELL (*new_mem(), REF []));
+
+    fun new_top { name, mutable }
+	= 
+	REF (TOP { mutable, id=> *new_mem(), name } );
+
+    fun find (REF (LINK x))
+	    =>
+	    find x;
+
+	find x
+	    =>
+	    x;
+    end;
+
+    fun mut (r as REF (LINK x))  =>   mut x;
+
+	mut (r as REF (SCELL x)) =>   r := SREF x;
+	mut (r as REF (WCELL x)) =>   r := WREF x;
+
+	mut (r as REF (TOP { mutable=>FALSE, id, name } ))
+            => 
+	    r := TOP { mutable=>TRUE, id, name };
+
+
+	mut _ => ();
+    end 
+
+    also
+    fun weak (REF (LINK x)) => weak x;
+	weak (REF (TOP _)) => ();
+	weak (r as REF (SCELL x)) => { r := WCELL x; merge_pis x;};
+	weak (r as REF (SREF x)) => { r := WREF x; merge_pis x;};
+	weak _ => ();
+    end 
+
+    also
+    fun merge_pis (_, edges)
+	= 
+	{   x = new_scell();
+
+	    fun merge ([], es') => es';
+		merge((PROJECTION, _, y) ! es, es') => { unify (x, y); merge (es, es');};
+		merge (e ! es, es') => merge (es, e ! es');
+	    end;
+
+	    edges := (PROJECTION, 0, x) ! merge (*edges, []);
+	}
+
+    also
+    fun get_ith (k, i,      REF (LINK x)) =>  get_ith (k, i, x);
+	get_ith (k, i, r as REF (TOP _))  =>  r;
+
+	get_ith (k, i, REF (SREF(_, edges)))  =>  get_ith'(k, i, edges);
+	get_ith (k, i, REF (WREF(_, edges)))  =>  get_ith'(k, i, edges);
+	get_ith (k, i, REF (SCELL(_, edges))) =>  get_ith'(k, i, edges);
+	get_ith (k, i, REF (WCELL(_, edges))) =>  get_ith'(k, i, edges);
+    end 
+
+    also
+    fun get_ith'(k, i, edges)
+	=
+	{   fun search ((k', i', x) ! es)
+		    => 
+		    if   (k == k' and i == i')
+		        
+			 find x;
+		    else
+			 search es;
+		    fi;
+
+		search []
+		    => 
+		    {   x = new_scell(); 
+			edges := (k, i, x) ! *edges;
+			x;
+		    };
+	    end;
+
+	    search *edges;
+	}
+
+    also
+    fun unify (x, y)
+	=
+	{   x = find x;
+	    y = find y;
+
+	    fun link_immut (edges, x, y) = { x := LINK y; collapse_all (*edges, y);};
+	    fun link_mut   (edges, x, y) = { x := LINK y; mut y; collapse_all (*edges, y);};
+
+	    fun linky (ex, ey, x, y) = { x := LINK y; ey := unify_list (*ex, *ey);};
+	    fun linkx (ex, ey, x, y) = { y := LINK x; ex := unify_list (*ex, *ey);};
+
+	    fun link_wref (ex, ey, id, x, y)
+		= 
+		{   ey =  unify_list (*ex, *ey);
+		    n  =  WREF (id, REF ey);
+		    x :=  LINK y;
+		    y :=  n;
+		};
+
+	    if (x != y)
+	         
+		 case (*x, *y)
+		   
+		      (TOP { mutable=>FALSE, ... }, TOP { mutable=>FALSE, ... } ) => (x := LINK y);
+		      (TOP _, TOP _)           => { x := LINK y; mut y;};
+
+		      (SREF(_, edges),  TOP _)  => link_mut (edges, x, y);
+		      (WREF(_, edges),  TOP _)  => link_mut (edges, x, y);
+		      (SCELL(_, edges), TOP _)  => link_immut (edges, x, y);
+		      (WCELL(_, edges), TOP _)  => link_immut (edges, x, y);
+
+		      (TOP _, SREF(_, edges))   => link_mut (edges, y, x);
+		      (TOP _, WREF(_, edges))   => link_mut (edges, y, x);
+		      (TOP _, SCELL(_, edges))  => link_immut (edges, y, x);
+		      (TOP _, WCELL(_, edges))  => link_immut (edges, y, x);
+
+		      (WREF(_, e1), WREF(_, e2)) => linky (e1, e2, x, y);
+		      (SREF(_, e1), WREF(_, e2)) => linky (e1, e2, x, y);
+		      (WCELL(_, e1), WREF(_, e2)) => linky (e1, e2, x, y);
+		      (SCELL(_, e1), WREF(_, e2)) => linky (e1, e2, x, y);
+
+		      (WREF(_, e1), SREF(_, e2))  => linkx (e1, e2, x, y);
+		      (SREF(_, e1), SREF(_, e2))  => linkx (e1, e2, x, y);
+		      (WCELL(_, e1), SREF (id, e2)) => link_wref (e1, e2, id, x, y);
+		      (SCELL(_, e1), SREF(_, e2))  => linky (e1, e2, x, y);
+
+		      (WREF(_, e1), WCELL(_, e2)) => linkx (e1, e2, x, y);
+		      (SREF(_, e1), WCELL (id, e2)) => link_wref (e1, e2, id, x, y);
+		      (WCELL(_, e1), WCELL(_, e2)) => linkx (e1, e2, x, y);
+		      (SCELL(_, e1), WCELL(_, e2)) => linky (e1, e2, x, y);
+
+		      (WREF(_, e1), SCELL(_, e2)) => linkx (e1, e2, x, y);
+		      (SREF(_, e1), SCELL(_, e2)) => linkx (e1, e2, x, y);
+		      (WCELL(_, e1), SCELL(_, e2)) => linkx (e1, e2, x, y);
+		      (SCELL(_, e1), SCELL(_, e2)) => linkx (e1, e2, x, y);
+		      _ => error "unify";
+		 esac;
+	    fi;
+	}
+
+    also
+    fun collapse_all ([], _)
+	    =>
+	    ();
+
+	collapse_all((_, _, x) ! xs, y)
+	    =>
+	    {   unify (x, y);
+		collapse_all (xs, y);
+	    };
+    end 
+
+    also
+    fun unify_list (l1, l2)
+	=
+	merge (sort l1, sort l2)
+        where
+	    fun merge ([], l) =>  l;
+		merge (l, []) =>  l;
+
+		merge (a as (c as (k, i, x)) ! u, b as (d as (k', i', y)) ! v)
+		    =>
+		    if   (k==k' and i==i')
+		         
+			 unify (x, y);
+			 c ! merge (u, v);
+		    else
+			 if   (less (k, i, k', i'))
+			     
+			      d ! merge (a, v);
+			 else c ! merge (u, b);  fi;
+		    fi;
+	    end;
+	end;
+
+    fun ith_projection (x, i) =  get_ith (PROJECTION, i, x);
+    fun ith_domain     (x, i) =  get_ith (DOMAIN,     i, x);
+    fun ith_range      (x, i) =  get_ith (RANGE,      i, x);
+
+    fun ith_subscript (x, i)
+	=
+	{   m = get_ith (PROJECTION, i, x);
+	    mut m;
+	    m;
+	};
+
+    fun ith_offset (x, i)
+	=
+	{   unify (x, new_top { mutable=>FALSE, name=>""} );
+	    find x;
+	}
+
+    also
+    fun unify_all (x,[])
+	    =>
+	    ();
+
+	unify_all (x, (_, _, y) ! l)
+	    =>
+	    {   unify (x, y);
+		unify_all (x, l);
+	    };
+    end; 
+
+    fun make_header (NULL,  es) =>  es;
+	make_header (THE h, es) =>  (PROJECTION,-1, h) ! es;
+    end;
+
+    fun make_alloc (header, xs)
+	= 
+	(*new_mem(), REF (make_header (header, collect (0, xs,[]))))
+        where
+	    fun collect (_,[], l) => l;
+		collect (i, x ! xs, l) => collect (i+1, xs, (PROJECTION, i, x) ! l);
+	    end;
+	end;
+
+    fun make_record (header, xs) =  REF (SCELL (make_alloc (header, xs)));
+    fun make_ref    (header, x)  =  REF (SREF  (make_alloc (header, [x])));
+    fun make_array  (header, xs) =  REF (SREF  (make_alloc (header, xs)));
+    fun make_vector (header, xs) =  REF (SCELL (make_alloc (header, xs)));
+
+    fun make_fn  xs
+	= 
+	REF (SCELL(*new_mem(), REF (collect (0, xs,[]))))
+        where
+	    fun collect (_,     [], l) =>  l;
+		collect (i, x ! xs, l) =>  collect (i+1, xs, (DOMAIN, i, x) ! l);
+	    end;
+	end;
+
+    fun apply (f, xs)
+	=
+	loop (0, xs)
+        where
+	    fun loop (_, []    ) =>  ();
+		loop (i, x ! xs) =>  {   unify (ith_domain (f, i), x);
+					 loop (i+1, xs);
+				     };
+	    end;
+	end;
+
+    fun ret (f, xs)
+	=
+	loop (0, xs)
+        where
+	    fun loop (_,     []) =>  ();
+		loop (i, x ! xs) =>  {   unify (ith_range (f, i), x);
+					 loop (i+1, xs);
+				     };
+	    end;
+	end;
+
+    fun strong_set (a, i, x)
+        =
+        unify (ith_subscript (a, i), x);
+
+    fun strong_get (a, i)
+        =
+        ith_subscript (a, i);
+
+    fun weak_set (a, x)
+	= 
+	{   element = ith_subscript (a, 0);
+	    weak element;
+	    unify (element, x);
+	};
+
+    fun weak_get (a)
+	= 
+	{   element = ith_subscript (a, 0);
+	    weak element;
+	    element;
+	};
+
+    fun interfere (x, y)
+	=
+	find x  ==  find y;
+
+    max_levels
+	=
+	low_code_control::make_int ("max_levels",
+					 "max # of level to show in points_to");
+
+				   my _ = 
+    max_levels := 3;
+
+    fun to_string r
+	=
+	show (*r, *max_levels)
+
+    also
+    fun show (LINK x,         lvl) =>  show(*x, lvl);
+
+	show (SREF (id, es),  lvl) =>  "sref" + c::to_string id + edges (es, lvl);
+	show (WREF (id, es),  lvl) =>  "wref" + c::to_string id + edges (es, lvl); 
+
+	show (SCELL (id, es), lvl) =>  "s" + c::to_string id + edges (es, lvl); 
+	show (WCELL (id, es), lvl) =>  "w" + c::to_string id + edges (es, lvl); 
+
+	show (TOP { name=>"", mutable=>TRUE,  id, ... }, _) =>  "var"   + c::to_string id;
+	show (TOP { name=>"", mutable=>FALSE, id, ... }, _) =>  "const" + c::to_string id;
+
+	show (TOP { name, ... }, _) => name;
+    end 
+
+    also
+    fun edges (es, -1)
+	    =>
+	    "";
+
+	edges (es, lvl)
+	    => 
+	    {   fun pr_int i
+		    =
+		    if   (i < 0)
+		        
+			 "-" + int::to_string(-i);
+		    else       int::to_string  i;  fi;
+
+		fun add (a, "") =>  a;
+		    add (a, b ) =>  a + ", " + b;
+		end;
+
+		fun cnv ((PROJECTION, i, x), s)
+			=>
+			add (pr_int i + "->" + show(*x, lvl - 1), s);
+
+		    cnv (_, s)
+			=>
+			s;
+		end;
+
+		case (fold_right cnv "" *es)
+		   
+		     "" =>  ""; 
+		     t  =>  if (lvl == 0)   "...";
+			    else            "[" + t + "]";
+                            fi;
+		esac; 
+	    };
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

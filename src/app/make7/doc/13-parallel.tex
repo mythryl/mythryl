@@ -1,0 +1,189 @@
+% -*- latex -*-
+
+\section{Parallel and distributed compilation}
+\label{sec:parmake}
+
+To speed up recompilation of large projects with many source files,
+make7 can exploit parallelism in the dependency graph by running
+multiple compile processes in parallel.
+
+Currently, the only kind of operating system for which this is
+implemented is Unix ({\tt OPSYS\_UNIX}), where separate processes are
+used.  From there, one can distribute the work across a network of
+machines by taking advantage of the network file system and the
+``rsh'' facility.
+
+To perform parallel compilations, one must attach {\em compile
+servers} to the currently running make7 session.  This is done using
+function {\tt make7::compile_server::start_a_compile_server}, which has the
+following type:
+
+\begin{verbatim}
+  package compile_server
+      :
+      api
+          Compile_Server;
+
+          start_a_compile_server
+              :
+              { name:       String,
+                cmd:       (String, List( String ),
+                path_translator: Null_Or (String -> String),
+                preference:      int
+              }
+              ->
+              Null_Or( Compile_Server )
+      end;
+\end{verbatim}
+
+Here, {\tt name} is an arbitrary string that is used by make7 when
+issuing diagnostic messages concerning the server\footnote{Therefore,
+it is useful to choose {\tt name} uniquely.} and {\tt cmd} is a value
+suitable as argument to {\tt unix::execute}.
+
+The program to be specified by {\tt cmd} should be another instance of
+make7---running as a ``compile server''.  To start make7 as a compile
+server, start {\tt mythryld} with a single command-line argument of
+{\tt --compile-server}.
+For example, if you have it installed in /path/to/bin/mythryld, then a
+server process on the local machine could be started by
+
+\begin{verbatim}
+  make7::compile_server::start_a_compile_server
+      {
+        name            =>  "A",
+        path_translator =>  NULL,
+        preference            =>  0,
+        cmd             =>  ("/path/to/bin/mythryld", ["--compile-server"])
+      };
+\end{verbatim}
+
+To run a process on a remote machine, e.g., ``thatmachine'', as
+compute server, one can use ``rsh''.\footnote{On certain systems it
+may be necessary to wrap {\tt rsh} into a script that protects rsh
+from interrupt signals.}  Unfortunately, at the moment it
+is necessary to specify the full path to ``rsh'' because {\tt
+unix::execute} (and therefore {\tt make7::compile_server::start_a_compile_server})
+does not perform a {\tt PATH} search. The remote machine
+must share the file system with the local machine, for example via NFS.
+
+\begin{verbatim}
+  make7::compile_server::start_a_compile_server { name = "thatmachine",
+                    path_translator = NULL, preference = 0,
+                    cmd = ("/usr/ucb/rsh",
+                           ["thatmachine",
+                            "/path/to/bin/mythryld",
+                            "--compile-server"]) };
+\end{verbatim}
+
+You can start as many servers as you want, but they all must have
+different names.  If you attach any servers at all, then you should
+attach at least two (unless you want to attach one that runs on a
+machine vastly more powerful than your local one).  Local servers make
+sense on multi-CPU machines: start as many servers as there are CPUs.
+Parallel make is most effective on multiprocessor machines because
+network latencies can have a severely limiting effect on what can be
+gained in the distributed case.
+(Be careful, though.  Since there is no memory-sharing to speak of
+between separate instances of {\tt mythryld}, you should be sure to check
+that your machine has enough main memory.)
+
+If servers on machines of different power are attached, one can give
+some preference to faster ones by setting the {\tt preference} value higher.
+(But since the {\tt preference} value is consulted only in the rare case
+that more than one server is idle, this will rarely lead to vastly
+better throughput.) All attached servers must use the same
+architecture-OS combination as the controlling machine.
+
+In parallel mode, the master process itself normally does not compile
+anything.  Therefore, if you want to utilize the master's CPU for
+compilation, you should start a compile server on the same machine
+that the master runs on (even if it is a uniprocessor machine).
+
+The {\tt path_translator} argument is used when connecting to a machine with
+a different file-system layout.  For local servers, it can safely be
+left at {\tt NULL}.  The ``path transformation'' function is used to
+translate local path names to their remote counterparts.  This can be
+a bit tricky to get right, especially if the machines use automounters
+or similar devices.  The {\tt path_translator} functions consumes and
+produces names in make7's internal ``protocol encoding'' (see
+Section~\REF{sec:pathencode}).
+
+Once servers have been attached, one can invoke functions like
+{\tt make7::compile}, {\tt make7::make}, and {\tt make7::freeze}.
+They should work the way they always do, but during compilation they
+will take advantage of parallelism.
+
+When make7 is interrupted using Control-C (or such), one will sometimes
+experience a certain delay if servers are currently attached and busy.
+This is because the interrupt-handling code will wait for the servers
+to finish what they are currently doing and bring them back to an
+``idle'' state first.
+
+\subsection{Pathname protocol encoding}
+\label{sec:pathencode}
+
+A path encoded by make7's compile-server protocol encoding does not only
+specify which file a path refers to but also, in some sense, specifies
+why make7 constructed this path in the first place.  For example, the
+encoding {\tt a/b/c.make6:d/e.sml} represents the file {\tt a/b/d/e.sml}
+but also tells us that it was constructed by putting {\tt d/e.sml}
+into the context of description file {\tt a/b/c.make6}.  Thus, an encoded
+path name consists of one or more colon-separated ({\bf :}) sections,
+and each section consists of slash-separated ({\bf /}) arcs.  To find
+out what actual file a path refers to, it is necessary to erase all
+arcs that precede colons.
+
+The first section is special because it also specifies whether the
+whole path was relative or absolute, or whether it was an anchored
+path.
+
+\begin{description}
+\item[Anchored paths] start with a dollar-symbol {\bf \$}.  The name
+of the anchor is the string between this leading dollar-symbol and the
+first occurence of a slash {\bf /} within the first section.  The
+remaining arcs of the first section are interpreted relative to the
+current value of the anchor.
+\item[Absolute paths] start either with a percent-sign {\bf \%} or a
+slash {\bf /}.  The canonical form is the one with the percent-sign:
+it specifies the volume name between the {\bf \%} and the first slash.
+In the common case where the volume name is empty (i.e, {\em always} on
+Unix systems), the path starts with {\bf /}.
+\item[Relative paths] are all other paths.
+\end{description}
+
+Encoded path names never contain white space.  Moreover, the encoding
+for path arcs, volume names, or anchor names does not contain special
+characters such as {\bf /}, {\bf \$}, {\bf \%}, {\bf :}, {\bf
+\verb|\|}, {\bf (}, and {\bf )}.  Instead, should white space or
+special characters occur in the non-encoded name, then they will be
+encoded using the escape-sequence \verb|\ddd| where {\tt ddd} is the
+decimal value of the respective character's ordinal number (i.e, the
+result of applying {\tt char.ord}).
+
+The so-called {\em current} arc is encoded as {\bf .}, the {\em
+parent} arc uses {\bf ..} as its representation.  It might be that
+under some operating systems the names {\tt .} or {\tt ..} do not
+actually refer to the current or the parent arc.  In such a case, make7
+will encode the dots in these names using the \verb|\ddd| method, too.
+
+When issuing progress messages, make7 shows path names in a form that is
+almost the same as the protocol encoding.  The only difference is that
+arcs that precede colon-sign {\bf :} are enclosed within parentheses
+to emphasize that they are ``not really there''.  The same form is
+also used by {\tt make7.library.descr}.
+
+\subsection{Parallel bootstrap compilation}
+
+The bootstrap compiler\footnote{otherwise not mentioned in this
+document} with its main function {\tt make_compiler.make} and the corresponding
+cross-compilation variants of the bootstrap compiler will also use any
+attached compile servers.  If one intends to exclusively use the
+bootstrap compiler, one can even attach servers that run on machines
+with different architecture or operating system.
+
+Since the compile-server protocol is fairly simple, it cannot handle
+complicated scenarios such as the one necessary for compiling the
+``init library'' (i.e., the small set of files necessary for setting up
+the ``pervasive'' environment) during {\tt make_compiler.make}.  Therefore, this
+will always be done locally by the master process.

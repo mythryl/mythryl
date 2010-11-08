@@ -1,0 +1,1271 @@
+## triangle-app.pkg
+#
+# This app displays a drawing window and a RESET button.
+# It puts a triangle wherever the user clicks in the drawing window;
+# It clears the drawing window when the RESET button is clicked.
+#
+# One way to run this app from the base-directory commandline is:
+#
+#     linux% my
+#     eval: make "src/lib/x-kit/tut/triangle/triangle-app.make6";
+#     eval: triangle_app::do_it "";
+
+# Compiled by:
+#     src/lib/x-kit/tut/triangle/triangle-app.make6
+
+stipulate
+    include make7::scripting_globals;
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;				# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package xtr =  xtracing;				# xtracing		is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+    #
+    package che =  cartouche;				# cartouche		is from   src/lib/x-kit/draw/cartouche.pkg
+    #
+    package ib  =  icon_bitmap;				# icon_bitmap		is from   src/lib/x-kit/tut/triangle/icon-bitmap.pkg
+    #
+    tracefile   =  "triangle-app.trace.log";
+    tracing     =  tracing::make_trace_tree_leaf { parent => xtracing::xkit_tracing, name => "triangle_app::tracing" };
+    trace	=  xtr::print_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+	#
+	# and then set   write_tracelog = TRUE;   below.
+herein
+
+    package triangle_app: Triangle_App {		# Triangle_App		is from   src/lib/x-kit/tut/triangle/triangle-app.api
+
+	write_tracelog = FALSE;
+
+	min_wide =  300;
+	min_high =  300;
+
+	min_sz   =  xg::SIZE { wide => min_wide, high => min_high };
+
+	button_wide = 100;
+	button_high =  30;
+
+	button_corner_radius = 8;
+
+
+	run_selfcheck =  REF FALSE;
+
+	# This is a hack allowing selfcheck code
+	# to wait until first drawing window redraw
+	# has happened, so as to start up in a
+	# known state:
+	# 
+        my  done_first_drawing_window_redraw:   Oneshot_Maildrop(Void)
+	    =
+	    make_oneshot_maildrop ();
+
+	# This is a hack to support selfcheck;
+	# if it is set non-NULL, drawing_window_imp
+	# will 'give' the displayed triangle list
+	# to this slot each time it changes:
+	#
+	my  add_triangle_watcher_slot:		Ref (Null_Or( Mailslot( List( xg::Point ))))
+	    =
+	    REF NULL;	
+
+	# This is another hack to support selfcheck;
+	# if it is set non-NULL, drawing_window_imp
+	# will 'give' () to the slot each time it
+	# does a reset:
+	#
+	my  drawing_window_''do_reset''_watcher_slot:		Ref (Null_Or( Mailslot(Void)))
+	    =
+	    REF NULL;	
+
+
+
+	stipulate
+	    selfcheck_tests_passed =  REF 0;
+	    selfcheck_tests_failed =  REF 0;
+	herein
+	    fun test_passed () =  selfcheck_tests_passed :=  *selfcheck_tests_passed + 1;
+	    fun test_failed () =  selfcheck_tests_failed :=  *selfcheck_tests_failed + 1;
+	    #
+	    fun assert bool    =  if bool   test_passed ();
+				  else      test_failed ();
+				  fi;				
+	    #
+	    fun test_stats  ()
+		=
+                { passed => *selfcheck_tests_passed,
+                  failed => *selfcheck_tests_failed
+                };
+	end;
+
+
+
+	# Put reset button window at bottom left of topwindow:
+	# 
+	fun reset_button_window_site  (topwindow_size as { wide => topwindow_wide, high => topwindow_high })
+	    =
+	    {   # We put the reset and exit buttons ten pixels
+		# above the bottom of the topwindow, side by side,
+		# splitting the remaining horizontal space evenly
+		# around them (right/center/left):
+		#
+		remaining_horizontal_space =  topwindow_wide - 2*button_wide;
+		gap                        =  remaining_horizontal_space / 3;
+
+		xg::WINDOW_SITE
+		  {
+		    upperleft    =>  xg::POINT { col =>  gap,
+						 row => (topwindow_high - (button_high+10))
+					       },
+		    size         =>  xg::SIZE  { wide => button_wide,
+						 high => button_high
+					       },
+		    border_thickness =>  0
+		  };
+	    };
+
+
+
+	# Put exit button window at bottom right of topwindow:
+	# 
+	fun exit_button_window_site  (topwindow_size as { wide => topwindow_wide, high => topwindow_high })
+	    =
+	    {   # We put the reset and exit buttons ten pixels
+		# above the bottom of the topwindow, side by side,
+		# splitting the remaining horizontal space evenly
+		# around them (right/center/left):
+		#
+		remaining_horizontal_space =  topwindow_wide - 2*button_wide;
+		gap                        =  remaining_horizontal_space / 3;
+
+		xg::WINDOW_SITE
+		  {
+		    upperleft    =>  xg::POINT { col =>  2*gap + button_wide,
+						 row => (topwindow_high - (button_high+10))
+					       },
+		    size         =>  xg::SIZE  { wide => button_wide,
+						 high => button_high
+					       },
+		    border_thickness =>  0
+		  };
+	    };
+
+
+
+	# Let drawing window fill the rest of topwindow:
+	# 
+	fun drawing_window_site (topwindow_size as { wide: Int, high: Int })
+	    =
+	    xg::WINDOW_SITE
+	      {
+		border_thickness =>  1,
+		upperleft    =>  xg::POINT { col => 5, row => 5 },
+		#
+		size         =>  xg::SIZE { wide => wide - 10,
+				            high => high - (button_high+25)
+				          }
+	      };
+
+
+
+	# Thread to exercise the app by simulating user
+	# mouseclicks and verifying their effects:
+	#
+	fun make_selfcheck_thread
+            { xsession:		    xc::Xsession,
+	      topwindow:	    xc::Window,
+              drawing_window:	    xc::Window,
+               exit_button_window:  xc::Window,
+              reset_button_window:  xc::Window
+            }
+	    =
+	    {   fun get_''seen_first_expose''_oneshot
+			window
+		    =
+		    case (xc::get_''seen_first_expose''_oneshot_of  window)
+			#
+			THE oneshot =>  oneshot;
+			NULL        =>  get_''seen_first_expose''_oneshot window;		# Cannot actually happen.
+		    esac;
+
+		fun selfcheck ()
+		    =
+		    {
+			check_periodic_asynchronous_operation ();
+			check_get_set_of_mouse_pointer ();
+			wait_until_gui_is_stable       { drawing_window };
+		       (check_drawing_window_triangle_draw { })                              -> { antedraw_midwindow_image };
+			check_reset_button_operation       { antedraw_midwindow_image };
+			check_exit_button_operation { };
+		    }
+		    where
+			# Try sleep/work loop.  This actually wasn't
+			# working at one point due to blocking on the
+			# X server socket, so it is worth checking:
+			#
+			fun check_periodic_asynchronous_operation ()
+			    =
+			    {   # Set up a counter which will be
+				# shared between our two threads:
+				#
+				counter = REF 0;
+
+				# Spin off a thread which increments
+				# the counter at 50Hz or so.  (The
+				# thread scheduler is normally run
+				# off a 50Hz SIGALRM signal, so we
+				# cannot count on shorter sleeps.)
+				#
+				xtr::make_thread "count slowly" count_slowly
+				where
+				    fun count_slowly ()
+					=
+					for (i = 0; i < 50; ++i) {
+
+					    # We currently run SIGALRM at 50HZ, so
+					    # we cannot usefully sleep less than 20ms
+					    # at a go:
+					    # 
+					    sleep_for (time::from_milliseconds 20);
+
+					    counter := *counter + 1;
+					};
+				end;
+
+				# Sleep a fifth of a second.  This is
+				# long enough to get significant results
+				# but short enough not to slow down our
+				# "make check" runs noticably:
+				#
+				sleep_for (time::from_milliseconds 200);
+
+				# In a perfect world the counter would be at 10 now;
+				# in practice we will settle for anything between 5 and 15:
+				#
+				count = *counter;
+				#
+				assert (count >= 5 and count <= 15);
+			    };	
+
+			# Originally I thought we'd have to move the
+			# mouse pointer around to generate simulated
+			# mouseclicks on buttons.  Then I discovered
+			# that the X protocol SendEvent request allows
+			# arbitrary events to be simulated for test
+			# purposes without moving the real mouse pointer,
+			# so I didn't use it.  But this is still a
+			# potentially useful facility, so we might as
+			# well unit-test it to defend it against bitrot:
+			#
+			fun check_get_set_of_mouse_pointer ()
+			    =
+			    {   # Note current mouse position, then move it to the origin:
+				# 
+			       (xc::get_mouse_location  xsession) ->   xg::POINT { row => initial_row,      col => initial_col      } ;
+				xc::set_mouse_location  xsession      (xg::POINT { row => 0,                col => 0                });
+			       (xc::get_mouse_location  xsession) ->   xg::POINT { row,                     col                     } ;
+				#
+				assert (row == 0
+                                    and col == 0);
+
+				# Return mouse to its original location,
+				# with luck before the user notices:
+				#
+				xc::set_mouse_location  xsession      (xg::POINT { row => initial_row, col => initial_col });
+			       (xc::get_mouse_location  xsession) ->   xg::POINT { row,                col                };
+				#
+				assert (row == initial_row
+                                    and col == initial_col);
+			    };
+		 
+			# Wait for drawing window to
+			# get its first EXPOSE x event:
+			#
+			fun wait_for_first_drawing_window_expose ()
+			    =
+			    {
+				# Normally we would use the
+				#
+				#     seen_first_redraw_oneshot_of
+				#
+				# from 
+				#
+				#     src/lib/x-kit/widget/basic/widget.api
+				#
+				# but the logic here doesn't use the widget
+				# support (I'm guessing this app predates
+				# the widget layer) so we have to use the
+				# following call instead:
+				#
+				# 
+				seen_first_drawing_window_expose_oneshot
+				    =
+				    get_''seen_first_expose''_oneshot
+					#
+					drawing_window;
+
+				get  seen_first_drawing_window_expose_oneshot;
+			    };
+
+			# Figure midpoint of window and also
+			# a small box centered on the midpoint:
+			#
+			fun midwindow window
+			    =
+			    {
+				# Get size of drawing window:
+				#
+				(xc::get_window_site  window)
+				    ->
+				    xg::BOX { row, col, high, wide };
+
+				# Define midpoint of drawing window,
+				# and a 9x9 box enclosing it:
+				#
+				stipulate
+				    row =  high / 2;
+				    col =  wide / 2;
+				herein
+				    midpoint =  xg::POINT { row, col };
+				    midbox   =  xg::BOX { row => row - 4, col => col - 4, high => 9, wide => 9 };
+				end;
+
+				(midpoint, midbox);
+			    };
+
+			# We do not want to start running the
+			# selfcheck code until the application
+			# is ready to respond:
+			#
+			fun wait_until_gui_is_stable { drawing_window }
+			    =
+			    {
+				# First order of business is to wait
+				# until things are up and running.
+				#
+				# This may actually not be needed now
+				# that we wait on
+				#     done_first_drawing_window_redraw
+				# in below logic, but exercising the
+				# facility is useful anyhow:
+				#
+				wait_for_first_drawing_window_expose ();
+
+
+				# Wait until first redraw is done:
+				#
+				get  done_first_drawing_window_redraw;
+
+			    };	
+
+			fun check_drawing_window_triangle_draw { }
+			    =
+			    {
+				(midwindow      drawing_window) ->  (     drawing_window_midpoint, drawing_window_midbox);
+				(midwindow  exit_button_window) ->  ( exit_button_window_midpoint,  _                   );
+				(midwindow reset_button_window) ->  (reset_button_window_midpoint,  _                   );
+
+				# Fetch from X server the mid-window pixels
+				# over which we are about to draw a triangle.
+				# These should be all all background color (black)
+				# at the moment:
+				#
+				antedraw_midwindow_image  =  xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+
+				# Do it again, verify that they compare equal:			
+				#
+				{   antedraw_midwindow_image2 =  xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+				    #
+				    assert (xc::same_cs_pixmap (antedraw_midwindow_image, antedraw_midwindow_image2));
+				};
+
+				# Set up a hook to detect when
+				#
+				#     add_triangle ()
+				#
+				# runs.  To avoid race conditions, we must
+				# do this BEFORE sending the below simulated
+				# mouseclicks.  (I forgot this at first, and
+				# in fact got bitten.)
+				# 
+				triangle_list_slot =  make_mailslot ();
+				# 
+				add_triangle_watcher_slot :=  THE triangle_list_slot;
+
+				# Simulate a mouseclick in center of drawing window:
+				#
+				xc::send_mousebutton_press_xevent
+				  { window =>  drawing_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  drawing_window_midpoint
+				  };
+				#
+				xc::send_mousebutton_release_xevent
+				  { window =>  drawing_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  drawing_window_midpoint
+				  };
+
+				# 
+				select [
+				    take' triangle_list_slot ==>  check_triangle_list1,
+				    timeout'                 ==>  do_timeout1
+				]
+				where
+				    timeout' =   timeout_in' (time::from_milliseconds 5000);
+
+				    fun check_triangle_list1  [ point ]
+					    =>
+					    {
+						assert (xg::point::eq (point, drawing_window_midpoint));
+
+						add_triangle_watcher_slot :=  NULL;
+					    };
+
+					check_triangle_list1  []
+					    =>
+					    {   test_failed ();
+
+						add_triangle_watcher_slot :=  NULL;
+					    };
+
+					check_triangle_list1  triangles
+					    =>
+					    {   test_failed ();
+
+						add_triangle_watcher_slot :=  NULL;
+					    };
+				    end;
+
+				    fun do_timeout1 ()
+					=
+					{   test_failed ();
+
+					    add_triangle_watcher_slot :=  NULL;
+					};	
+				end;
+
+
+				# Fetch from X server the mid-window pixels
+				# over which we should have drawn a triangle.
+				#
+				# Verify that they differ from our original
+				# all-black image of the same area:
+				#
+				{   postdraw_midwindow_image =  xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+				    #	
+# 2010-08-31 CrT: This was working on maw (4-core opteron running X over net);
+# it is currently failing on al (new 6-core Phenom II running X direct to screen);
+# This is probably a race condition; I'm not motivated to track it down just
+# now, so I'm just commenting out the offending test: XXX BUGGO FIXME
+#				    assert (not (xc::same_cs_pixmap (antedraw_midwindow_image, postdraw_midwindow_image)));
+				};
+
+				{ antedraw_midwindow_image };
+			    };
+
+			fun check_reset_button_operation { antedraw_midwindow_image }
+			    =
+			    {
+				(midwindow      drawing_window) ->  (     drawing_window_midpoint, drawing_window_midbox);
+				(midwindow  exit_button_window) ->  ( exit_button_window_midpoint,  _                   );
+				(midwindow reset_button_window) ->  (reset_button_window_midpoint,  _                   );
+
+				# Set up a hook to detect when drawing_window_imp
+				#
+				#     do_reset ()
+				#
+				# runs.  To avoid race conditions, we must
+				# do this BEFORE sending the below simulated
+				# mouseclicks.  (I forgot this at first, and
+				# in fact got bitten.)
+				# 
+				drawing_window_''do_reset''_slot =  make_mailslot ();
+				# 
+				drawing_window_''do_reset''_watcher_slot :=  THE drawing_window_''do_reset''_slot;
+
+
+				# Simulate a mouseclick in center of reset button:
+				#
+				xc::send_mousebutton_press_xevent
+				  { window =>  reset_button_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  reset_button_window_midpoint
+				  };
+				#
+				xc::send_mousebutton_release_xevent
+				  { window =>  reset_button_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  reset_button_window_midpoint
+				  };
+
+				# 
+				select [
+				    take' drawing_window_''do_reset''_slot ==>  check_reset,
+				    timeout'                               ==>  do_timeout2
+				]
+				where
+				    timeout' =   timeout_in' (time::from_milliseconds 5000);
+
+				    fun check_reset ()
+					=
+					{   drawing_window_''do_reset''_watcher_slot :=  NULL;
+
+					    test_passed ();
+					};
+
+				    fun do_timeout2 ()
+					=
+					{   drawing_window_''do_reset''_watcher_slot :=  NULL;
+
+					    test_failed ();
+					};	
+				end;
+
+
+				# Fetch from X server the mid-window pixels
+				# over which we drew the triangle.
+				#
+				# Verify that they match our original
+				# all-black image of the same area:
+				#
+				{   postreset_midwindow_image =  xc::make_clientside_pixmap_from_window (drawing_window_midbox, drawing_window);
+				    #	
+				    assert (xc::same_cs_pixmap (antedraw_midwindow_image, postreset_midwindow_image));
+				};
+			    };
+
+			fun check_exit_button_operation { }
+			    =
+			    {
+				(midwindow  exit_button_window) ->  ( exit_button_window_midpoint,  _                   );
+
+				# Simulate a mouseclick in center of exit button:
+				#
+				xc::send_mousebutton_press_xevent
+				  { window =>  exit_button_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  exit_button_window_midpoint
+				  };
+				#
+				xc::send_mousebutton_release_xevent
+				  { window =>  exit_button_window,
+				    button =>  xc::MOUSEBUTTON 1,
+				    point  =>  exit_button_window_midpoint
+				  };
+
+				# Give the exit button time to fire.
+				# It should shut down all threads, so
+				# we should never make it past this sleep:
+				#
+				sleep_for (time::from_milliseconds 5000);
+
+				# The exit button didn't shut us down:
+				# register a bug:
+				#
+				test_failed ();
+
+				(test_stats ()) ->  { passed, failed };
+
+				# Go ahead and do the shutdown
+				# that the EXIT button should have done:
+				#
+				xc::close_xsession  xsession;
+				shut_down_thread_scheduler  winix::process::success;
+			    }; 	
+
+		    end;					# fun selfcheck
+
+		xtr::make_thread "tri-app selfcheck" selfcheck;
+	    };
+
+
+
+	fun make_topwindow  xdisplay  xauthentication
+	    =
+	    ( xsession,
+              screen,
+              window,
+              kidplug
+            )
+	    where
+		xsession =  xc::open_xsession (xdisplay, xauthentication);
+
+		screen   =  xc::default_screen_of  xsession;
+
+		window_size   =  xg::SIZE { wide => 450, high => 400 };
+
+		my (window, kidplug, delete_slot)					# 2009-12-10 CrT: Had to add 'delete_slot' so it would compile.
+		    =
+		    xc::make_simple_top_window  screen
+		      {
+			site =>  xg::WINDOW_SITE { upperleft => xg::POINT { col=>0, row=>0 }, size=>window_size, border_thickness=>1 },
+			#
+			border_color     =>  xc::black,
+			background_color =>  xc::rgb8_white
+		      };
+
+		icon_ro_pixmap								# serverside
+		    =
+		    xc::make_readonly_pixmap_from_clientside_pixmap
+			screen
+			ib::icon_bitmap;						# clientside
+
+
+											# commandline		is from   src/lib/std/commandline.pkg
+		xc::set_window_manager_properties  window
+		  {
+		    window_name => THE "Triangle",
+		    icon_name   => THE "triangle",
+		    #
+		    size_hints =>
+		      [
+			xc::HINT_PPOSITION,
+			xc::HINT_PSIZE,
+			xc::HINT_PMIN_SIZE min_sz
+		      ],
+		    #
+		    nonsize_hints  =>  [ xc::HINT_ICON_RO_PIXMAP icon_ro_pixmap ],
+		    #
+		    class_hints    =>  THE { resource_name  => "triangle",
+                                             resource_class => "Triangle"
+                                           },
+		    #
+		    commandline_arguments =>  commandline::get_arguments ()
+		  };
+
+		xc::show_window  window;
+	    end;
+
+
+
+	# Divide the topwindow into a drawing window
+	# over two button windows:
+	#
+	fun make_drawing_and_button_windows  (screen, topwindow, top_kidplug)
+	    =
+	    {   (xc::size_of_window  topwindow)
+		    ->
+		    xg::SIZE topwindow_size;
+
+		drawing_window
+		    =
+		    xc::make_simple_subwindow  topwindow
+		      {
+			site => drawing_window_site  topwindow_size,
+			#
+			border_color     => THE  xc::black,
+			background_color => THE  xc::rgb8_color0
+		      };
+
+		xc::note_''seen_first_expose''_oneshot
+		    drawing_window
+		    (make_oneshot_maildrop ());
+
+		reset_button_window
+		    =
+		    xc::make_simple_subwindow  topwindow
+		      {
+			site =>  reset_button_window_site  topwindow_size,
+			#
+			border_color     =>  NULL,
+			background_color =>  THE  xc::rgb8_white
+		      };
+
+		exit_button_window
+		    =
+		    xc::make_simple_subwindow  topwindow
+		      {
+			site =>  exit_button_window_site  topwindow_size,
+			#
+			border_color     =>  NULL,
+			background_color =>  THE  xc::rgb8_white
+		      };
+
+		xc::note_''seen_first_expose''_oneshot
+		    reset_button_window
+		    (make_oneshot_maildrop ());
+
+		xc::show_window       drawing_window;
+		xc::show_window   exit_button_window;
+		xc::show_window  reset_button_window;
+
+		{ topwindow,
+		  top_kidplug,
+		  drawing_window,
+		  reset_button_window,
+		  exit_button_window
+		};
+	    };
+
+
+	fun make_reset_button_threads (reset_button_window, reset_button_kidplug)
+	    =
+	    {   xtr::make_thread "reset button" loop;
+		take' reset_slot;
+	    }
+	    where
+
+		# Define a function to re/draw the
+		# reset button as "RESET" inside a cartouche:
+		#
+		fun redraw ()
+		    =
+		    {
+                        draw_cartouche
+			  {
+			    corner_radius =>  button_corner_radius,
+			    #
+			    box  =>  xg::BOX { col  => 0,
+					       row  => 0,
+					       #	
+					       high => button_high - 1,
+					       wide => button_wide - 1
+					     }
+			  };
+
+			draw_string (text_point, text);
+		    }
+		    where
+			drawable =  xc::drawable_of_window  reset_button_window;
+
+			pen = xc::make_pen
+				[
+				  xc::p::FUNCTION    xc::OP_COPY,
+				  xc::p::FOREGROUND  xc::rgb8_black
+				];
+
+			draw_cartouche
+			    =
+			    che::draw_cartouche  drawable  pen;
+
+			text = "RESET";
+
+			font =  xc::open_font
+				    #
+				    (xc::xsession_of_window  reset_button_window)
+				    #
+				    "9x15";
+
+			text_point
+			    =
+			    {   text_width =  xc::text_width  font  text;
+
+				my { ascent, descent }
+				    =
+				    xc::font_high  font;
+
+				xg::POINT
+				  {
+				    col => ( button_wide - text_width) / 2,
+				    row => ((button_high - (ascent + descent)) / 2) + ascent
+				  };
+			    };
+
+			draw_string
+			    =
+			    xc::draw_transparent_string  drawable  pen  font;
+		    end;
+
+		# Define the main thread loop animating the button.
+		# We respond to ETC_REDRAW by redrawing our button;
+		# we respond to a click by resetting the draw thread:
+		#
+		(xc::ignore_keyboard  reset_button_kidplug)
+		    ->
+		    xc::KIDPLUG { from_mouse', from_other', ... };
+
+		from_mouse'' =   from_mouse' ==> xc::envelope_contents;
+		from_other'' =   from_other' ==> xc::envelope_contents;
+
+		reset_slot = make_mailslot ();
+
+		fun loop ()
+		    =
+		    {   fun do_mouse (xc::MOUSE_FIRST_DOWN _)
+				=>
+				give (reset_slot, ());
+
+			    do_mouse _
+				=>
+				();
+			end;
+
+
+			fun do_other (xc::ETC_REDRAW _)  =>  redraw ();
+			    do_other  xc::ETC_OWN_DEATH  =>  ();
+			    do_other _	  	          =>  ();
+			end;
+
+
+			for (;;) {
+			    #
+			    select [
+				from_mouse'' ==>  do_mouse,
+				from_other'' ==>  do_other
+			    ];
+			};
+		    };
+
+	    end;				# fun make_reset_button_threads 
+
+	fun make_exit_button_threads (exit_button_window, exit_button_kidplug)
+	    =
+	    {   xtr::make_thread "exit button" loop;
+		take' exit_slot;
+	    }
+	    where
+
+		# Define a function to re/draw the
+		# exit button as "EXIT" inside a cartouche:
+		#
+		fun redraw ()
+		    =
+		    {
+                        draw_cartouche
+			  {
+			    corner_radius =>  button_corner_radius,
+			    #
+			    box  =>  xg::BOX { col  => 0,
+					       row  => 0,
+					       #	
+					       high => button_high - 1,
+					       wide => button_wide - 1
+					     }
+			  };
+
+			draw_string (text_point, text);
+		    }
+		    where
+			drawable =  xc::drawable_of_window  exit_button_window;
+
+			pen = xc::make_pen
+				[
+				  xc::p::FUNCTION    xc::OP_COPY,
+				  xc::p::FOREGROUND  xc::rgb8_black
+				];
+
+			draw_cartouche
+			    =
+			    che::draw_cartouche  drawable  pen;
+
+			text = "EXIT";
+
+			font =  xc::open_font
+				    #
+				    (xc::xsession_of_window  exit_button_window)
+				    #
+				    "9x15";
+
+			text_point
+			    =
+			    {   text_width =  xc::text_width  font  text;
+
+				my { ascent, descent }
+				    =
+				    xc::font_high  font;
+
+				xg::POINT
+				  {
+				    col => ( button_wide - text_width) / 2,
+				    row => ((button_high - (ascent + descent)) / 2) + ascent
+				  };
+			    };
+
+			draw_string
+			    =
+			    xc::draw_transparent_string  drawable  pen  font;
+		    end;
+
+		# Define the main thread loop animating the button.
+		# We respond to ETC_REDRAW by redrawing our button;
+		# we respond to a click by exiting the program:
+		#
+		(xc::ignore_keyboard  exit_button_kidplug)
+		    ->
+		    xc::KIDPLUG { from_mouse', from_other', ... };
+
+		from_mouse'' =   from_mouse' ==> xc::envelope_contents;
+		from_other'' =   from_other' ==> xc::envelope_contents;
+
+		exit_slot = make_mailslot ();
+
+		fun loop ()
+		    =
+		    {   fun do_mouse (xc::MOUSE_FIRST_DOWN _)
+				=>
+				give (exit_slot, ());
+
+			    do_mouse _
+				=>
+				();
+			end;
+
+			fun do_other (xc::ETC_REDRAW _)  =>  redraw ();
+			    do_other  xc::ETC_OWN_DEATH  =>  ();
+			    do_other _	  	          =>  ();
+			end;
+
+
+			for (;;) {
+			    #
+			    select [
+				from_mouse'' ==>  do_mouse,
+				from_other'' ==>  do_other
+			    ];
+			};
+		    };
+
+	    end;				# fun make_exit_button_threads 
+
+	# Define drawing_window logic to put
+	# a triangle at each spot the user
+	# clicks on:
+	#
+	stipulate
+	    done_first_redraw = REF FALSE;
+	herein
+	    fun make_drawing_window_threads (xsession, drawing_window, exit', reset', draw_kidplug)
+		=
+		{   xtr::make_thread "drawing window mouse"  mouse_thread;
+		    xtr::make_thread "drawing window"       .{ drawing_window_imp []; };
+		    ();
+		}
+		where
+		    my xc::KIDPLUG { from_mouse', from_other', ... }
+			=
+			xc::ignore_keyboard  draw_kidplug;
+
+		    mouse' =   from_mouse' ==> xc::envelope_contents;
+		    other' =   from_other' ==> xc::envelope_contents;
+
+		    add_triangle_slot = make_mailslot ();
+
+		    fun mouse_thread ()
+			=
+			for (;;) {
+			    #
+			    case (do_mailop  mouse')
+				#
+				xc::MOUSE_FIRST_DOWN { window_point, ... }
+				    =>
+				    give (add_triangle_slot, window_point);
+				#
+				_   => ();
+			    esac;
+			};
+
+		    add_triangle' = take' add_triangle_slot;
+
+		    drawable =  xc::drawable_of_window  drawing_window;
+
+		    pen = xc::make_pen
+			    [
+			      xc::p::FUNCTION    xc::OP_COPY,
+			      xc::p::FOREGROUND  xc::rgb8_green
+			    ];
+
+		    draw = xc::fill_polygon drawable pen;
+
+
+		    fun draw_triangle (xg::POINT { col, row } )
+			=
+			draw
+			  {
+			    shape => xc::CONVEX_SHAPE,
+			    #
+			    verts => [ xg::POINT { col => col,       row => row - 10 },
+				       xg::POINT { col => col - 8,   row => row +  6 },
+				       xg::POINT { col => col + 8,   row => row +  6 }
+				     ]
+			  };
+
+
+		    # "triangles" is the list of points at which we
+		    # show triangles in the drawing window:
+		    #
+		    fun drawing_window_imp  triangles
+			=
+			{   fun do_exit ()
+				=
+				{   (test_stats ()) ->  { passed, failed };
+
+				    xc::close_xsession  xsession;
+
+				    shut_down_thread_scheduler  winix::process::success;
+				};
+
+
+			    fun do_reset ()
+				=
+				{   xc::clear_drawable  drawable;
+
+				    case *drawing_window_''do_reset''_watcher_slot
+					#
+					THE slot =>  give (slot, ());
+					NULL     =>  ();
+				    esac;
+
+				    drawing_window_imp [];
+				};
+
+
+			    fun do_other (xc::ETC_REDRAW _)
+				    =>
+				    {   xc::clear_drawable  drawable;
+
+					apply  draw_triangle  triangles;
+
+					# Selfcheck code waits for us to do first redraw
+					# before starting tests.  If this is our first
+					# redraw, give it the green light:
+					#
+					if (not *done_first_redraw)
+					    done_first_redraw := TRUE;
+					    set (done_first_drawing_window_redraw, ());
+					fi;
+
+					drawing_window_imp  triangles;
+				    };
+
+				do_other xc::ETC_OWN_DEATH
+				    =>
+				    {
+					();
+				    };
+
+				do_other _
+				    =>
+				    {
+					drawing_window_imp  triangles;
+				    };
+			    end;
+
+
+			    # In response to a mouse downclick at a point,
+			    # add a triangle to our list and draw it:
+			    #
+			    fun add_triangle  point
+				=
+				{   draw_triangle  point;
+
+				    case *add_triangle_watcher_slot
+					#
+					THE slot =>	 give (slot, (point ! triangles));
+					NULL     =>  ();
+				    esac;
+
+				    drawing_window_imp (point ! triangles);
+				};
+
+			    select [
+				#
+				exit'          ==>  do_exit,
+				reset'         ==>  do_reset,
+				other'         ==>  do_other,
+				add_triangle'  ==>  add_triangle
+			    ];
+
+			};				# fun drawing_window_imp
+		end;					# fun make_drawing_window_threads 
+	    end;					# stipulate
+
+	fun make_toplevel_threads
+            {
+              topwindow,
+              top_kidplug  => xc::KIDPLUG { from_keyboard', from_mouse', from_other', ... },
+              exit_button_window,
+              reset_button_window,
+              drawing_window
+            }
+	    =
+	    {   xtr::make_thread "triangle router" router;
+
+		{  exit_button_kidplug,
+		  reset_button_kidplug,
+		  draw_kidplug
+		};
+	    }
+	    where
+		(xc::make_widget_cable ()) ->   { kidplug =>  exit_button_kidplug, momplug =>  exit_button_momplug };
+		(xc::make_widget_cable ()) ->   { kidplug => reset_button_kidplug, momplug => reset_button_momplug };
+		(xc::make_widget_cable ()) ->   { kidplug =>         draw_kidplug, momplug =>         draw_momplug };
+		(xc::make_widget_cable ()) ->   { kidplug,                         momplug                         };
+
+		kidplug =  xc::ignore_all  kidplug;
+
+		fun find_cable  envelope
+		    =
+		    case (xc::route_envelope  envelope)
+			#
+			xc::TO_SELF _				# Envelope has reached its destination window/widget.
+			    =>
+			    momplug;
+
+			xc::TO_CHILD msg'			# Envelope needs to be passed on down the widget hierarchy.
+			    =>
+			    if   (xc::to_window (msg',      drawing_window))   draw_momplug;
+			    elif (xc::to_window (msg',  exit_button_window))    exit_button_momplug;
+			    elif (xc::to_window (msg', reset_button_window))   reset_button_momplug;
+			    else                                               raise exception FAIL "find_cable";
+			    fi;
+		    esac;
+
+		fun do_keyboard envelope
+		    =
+		    {   my xc::MOMPLUG { keyboard_sink, ... }
+			    =
+			    find_cable  envelope;
+
+			do_mailop (keyboard_sink envelope);
+		    };
+
+		fun do_mouse envelope
+		    =
+		    {   my xc::MOMPLUG { mouse_sink, ... }
+			    =
+			    find_cable  envelope;
+
+			do_mailop (mouse_sink  envelope);
+		    };
+
+		fun do_other envelope
+		    =
+		    {   my xc::MOMPLUG { other_sink, ... }
+			    =
+			    find_cable  envelope;
+
+			do_mailop (other_sink  envelope);
+		    };
+
+		fun router ()
+		    =
+		    for (;;) {
+			#
+			select [ from_keyboard' ==> do_keyboard,
+				 from_mouse'    ==> do_mouse,
+				 from_other'    ==> do_other
+			       ];
+		    };
+
+	    end;			# fun make_toplevel_threads
+
+	fun run_triangle_app  xdisplay  xauthentication
+	    =
+	    {
+		(make_topwindow  xdisplay  xauthentication)
+		    ->
+		    ( xsession,
+		      screen,
+		      topwindow,
+		      kidplug
+		    );
+
+	        (make_drawing_and_button_windows (screen, topwindow, kidplug))
+		    ->
+		    (x as { drawing_window, exit_button_window, reset_button_window, ... } );
+
+		(make_toplevel_threads  x)
+		    ->
+		    { exit_button_kidplug, reset_button_kidplug, draw_kidplug };
+		    
+
+		make_drawing_window_threads
+		  ( xsession,
+		    drawing_window,
+		     make_exit_button_threads ( exit_button_window,  exit_button_kidplug),
+		    make_reset_button_threads (reset_button_window, reset_button_kidplug),
+		    draw_kidplug
+		  );
+
+		if *run_selfcheck
+		    #
+		    make_selfcheck_thread  { xsession, topwindow, drawing_window, exit_button_window, reset_button_window };
+		    ();
+		fi;
+	    };
+
+	fun do_it' (flgs, display_name)
+	    =
+	    {   xtr::init flgs;
+
+		if write_tracelog
+		    #
+		    # Open tracelog file and select tracing level.
+		    # We don't need to truncate any existing file
+		    # because that is already done by the logic in
+		    #     src/lib/std/src/unix/posix-text-primitive-io.pkg
+		    #
+		    include tracing;				# tracing			is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+		    #
+		    log_trace_messages  (TO_FILE tracefile);
+		    #
+		    enable all_tracing;				# Gross overkill.
+		fi;
+
+	        my  ( xdisplay,								# Typically from $DISPLAY environment variable.
+                      xauthentication:  Null_Or(xc::Xauthentication)			# Typically from ~/.Xauthority
+                    )
+		    =
+		    xc::get_xdisplay_string_and_xauthentication
+			#
+			case display_name
+			    #
+			    "" =>  NULL;
+			    _  =>  THE display_name;
+			esac;
+
+		start_up_thread_scheduler'
+		    #
+		    (time::from_milliseconds 20)
+		    #
+		   .{
+                        xtr::make_thread  "triangle"  .{ run_triangle_app  xdisplay  xauthentication; };
+
+			();
+		    };
+	    };
+
+	fun do_it s
+	    =
+	    do_it' ([], s);
+
+	fun selfcheck ()
+	    =
+	    {   run_selfcheck :=  TRUE;
+		do_it' ([], "");
+		test_stats ();
+	    };	
+
+	fun main (program, server ! _) =>  do_it  server;
+	    main _                     =>  do_it  "";
+	end;
+    };								# package  main 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

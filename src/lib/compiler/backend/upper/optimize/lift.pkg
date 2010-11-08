@@ -1,0 +1,928 @@
+## lift.pkg 
+#
+#   ``"Lambda lifting" is a well-known transformation which rewrites
+#      a program into an equivalent one in which no function has
+#      free variables.''
+#           -- page 93 of Zhong Shao's PhD thesis,
+#              Compiling Standard ML for Efficient Execution on Modern Machines
+#              http://flint.cs.yale.edu/flint/publications/zsh-thesis.html
+#
+#  Which is to say, all values accessed by all functions
+#  are then passed as parameters:
+#
+#      fun print_sum x =  printf "sum %d\n x y;
+#
+#  gets transformed to (say)
+#
+#      fun print_sum (x, y) =  printf "sum %d\n x y;
+#
+#
+#   For additional background beyond Shao's thesis, read:
+#
+#       Lambda Lifting: Transforming Programs to Recursive Equations
+#       Thomas Johnsson
+#       1985, 15p
+#       http://citeseer.ist.psu.edu/johnsson85lambda.html
+#
+#       Optimal Type Lifting
+#       Bratin Saha, Zhong Shao (Yale)
+#       1998, 36p
+#       http://flint.cs.yale.edu/flint/publications/lift-tr.ps.gz
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This is one of the A-Normal Form optimization passes --
+# for context see the comments in
+#
+#     src/lib/compiler/backend/upper/anormal/anormal.api
+#
+
+
+
+
+###             "Never eat more than you can lift."
+###
+###                            --  Miss Piggy
+
+
+
+api Lift {
+    
+       type_lift: anormal::Program -> anormal::Program;
+       well_formed: anormal::Program -> Bool;
+  };
+
+  
+
+package lift: (weak)  Lift {					# Lift				is from   src/lib/compiler/backend/upper/optimize/lift.pkg
+
+    stipulate
+
+	package le = highcode;					# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package di= debruijn_index;				# debruijn_index		is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+	package pt= highcode_data_representation;		# highcode_data_representation	is from   src/lib/compiler/backend/upper/highcode/highcode-data-representation.pkg
+  #     package da = var_home    
+	package lb= highcode;					# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package ld= highcode_type;				# highcode_type			is from   src/lib/compiler/backend/upper/highcode/highcode-type.pkg
+	package ctrl= highcode_control;				# highcode_control		is from   src/lib/compiler/backend/upper/main/highcode-control.pkg
+
+	include anormal;
+	include highcode_guts;
+	include var_home;
+
+    herein
+
+
+	# ****  Utility functions ****
+
+
+	exception PARTIAL_TYPE_APP; 
+	exception VAR_NOT_FOUND;
+	exception LIFT_TYPE_UNKNOWN;
+	exception DO_NOT_LIFT;
+	exception FTABLE;
+	exception LIFT_COMPILE_ERROR;
+	exception VENV;
+	exception FENV;
+	exception ABSTRACT;
+
+	fun bug s
+	    =
+	    error_message::impossible ("Lift: " + s);
+
+
+	make_var = highcode_var::make_highcode_variable;
+
+	wellfixed  = REF TRUE;
+	welltapped = REF TRUE;
+	tapp_lifted = REF 0;
+
+	Depth    = Int;
+	Tdepth   = Int;
+	Num      = Int;
+	Abstract = Bool;
+
+	Var  = ((Highcode_Type, List( Highcode_Variable ), Depth, Tdepth, Abstract, Num));
+	Venv = int_hash_table::Hash_Table( Var );
+
+	Freevar = ((Highcode_Variable, Highcode_Type));
+	Fenv    = List (int_hash_table::Hash_Table( Freevar ) );
+
+
+
+	Ltype = TYPE_FUN | TYPEFN_APP;
+	Header = List ((Ltype, Highcode_Variable, Anormal_Expression));
+
+	Dictionary = IENV  (Venv, Fenv);
+
+	#  Utility functions 
+
+	abs = TRUE;
+	noabs = FALSE;
+	fkfct = { is_recursive=>NULL, all_call_sites_known=>FALSE, inlining_hint=>INLINE_IF_SIZE_SAFE, calling_convention=>CALLING_CONVENTION_GENERIC };
+
+	fun adjust (t, ntd, otd)
+            =
+            le::lt_adj (t, otd, ntd);
+
+	fun find_dictionary (v, IENV (venv, fenvs))
+            = 
+	    (int_hash_table::get  venv  v)
+	    except
+                _ = {   print (int::to_string v);
+                        bug "findDict: var not found" ;
+                    };
+
+	fun get_variable (v, IENV (venv, fenv ! fenvs), t, td, td')
+		=> 
+		{   my (v', nt') = (int_hash_table::get  fenv  v);
+		    (v', nt', NIL);
+		}
+                except
+                    _ = {   v' = make_var();
+			    nt' = adjust (t, td, td');
+			    int_hash_table::set fenv (v, (v', nt'));
+
+			    (v', nt', [v]);
+			};
+
+	    get_variable _
+                =>
+                bug "unexpected freevariableDict in getVariable";
+        end;
+
+	fun new_variable (v, dictionary, td)
+            = 
+	    expression
+            where
+	        my (t, vs, td', d', abs, _)
+                    =
+                    find_dictionary (v, dictionary);
+
+		expression = if (abs and (d' > 0) and (td' < td)) 
+
+				  my (v', t', fv) = get_variable (v, dictionary, t, td, td');
+
+				  (v', t', fv);
+			     else
+			          (v, adjust (t, td, td'), NIL);
+                             fi;
+	    end;
+
+
+	fun push_fenv (IENV (venv, fenvs))
+            = 
+	    {   nt = int_hash_table::make_table (32, FTABLE);
+	        IENV (venv, nt ! fenvs);
+	    };
+
+	fun pop_fenv (IENV (venv, fenv ! fenvs)) => IENV (venv, fenvs);
+	    pop_fenv _ => raise exception LIFT_COMPILE_ERROR;
+        end;
+
+	fun add_dictionary (IENV (venv, fenvs), vs, ts, fvs, td, d, abs)
+            =
+	    {
+		fun f (v, t)
+                    =
+                    int_hash_table::set venv (v, (t, fvs, td, d, abs, 0));
+
+		fun zip ([], [], acc)         =>  acc;
+		    zip (a ! r, a' ! r', acc) =>  zip (r, r', (a, a') ! acc);
+		    zip _                     =>  raise exception LIFT_COMPILE_ERROR;
+                end;
+
+		map f (zip (vs, ts, NIL));
+	    };
+
+	fun rm_dictionary (IENV (venv, fenvs), v)
+            =
+	    ignore (int_hash_table::remove venv v)
+                   except _ = ();
+
+
+	fun get_free_variable (fvs, IENV (venv, fenv ! fenvs))
+		=> 
+		map f fvs
+		where
+		    fun f (v)
+                        =
+                        (int_hash_table::get  fenv  v)
+			except
+                            _ = bug "freevar not found";
+		end;
+
+	    get_free_variable _
+                =>
+                bug "unexpected freevariableDict in getFreeVariable";
+        end;
+
+
+	fun write_lambda ([], expression)
+                =>
+                expression;
+
+	    write_lambda (fvs, expression)
+		=>
+		{   fun g (fvs', expression')
+                        = 
+			{   new_var = make_var();
+
+			    fund = { is_recursive         => NULL,
+				     calling_convention   => CALLING_CONVENTION_FUNCTION (FNFLAG_VARIABLE (TRUE, TRUE)),
+
+				     all_call_sites_known => FALSE,
+				     inlining_hint        => INLINE_IF_SIZE_SAFE
+				   };
+
+			    MUTUALLY_RECURSIVE_FNS
+                              ( [ (fund, new_var, fvs', expression') ],
+				RET [VAR new_var]
+			      );
+			};
+
+		    if ( (list::length fvs) <= 9)  
+			g (fvs, expression);
+		    else
+
+			fun f (x, e) = ([x], e);
+
+			fold_right (g o f) expression fvs;
+		    fi;
+		};
+        end;
+
+
+	fun write_app (v, vs)
+	    = 
+	    if  ((list::length vs) <= 9)
+
+		APPLY (v, vs);
+	    else
+		 fun f ([], e)
+                         =>
+                         {   new_var = make_var();
+			     (RET [VAR new_var], new_var);
+			 };
+
+		     f (v ! vs, e)
+                         =>
+                         {   my (e', v') = f (vs, e);
+			     new_var = make_var();
+			     (LET([v'], APPLY (VAR new_var,[v]), e'), new_var);
+			 };
+		 end;
+
+		 my (e', v') = f (list::tail vs, RET []);
+
+		 LET([v'], APPLY (v, [list::head vs]), e');
+	    fi;
+
+
+	fun write_header (hd, expression)
+            = 
+	    hds
+	    where
+		fun f ((TYPEFN_APP, v, e), e') => LET([v], e, e');
+		    f ((TYPE_FUN, v, TYPE_FN (e, e')), e'') => TYPE_FN (e, e'');
+		    f _ => bug "unexpected header in writeHeader";
+                end;
+
+		hds = fold_right f expression hd; 
+	    end;
+
+
+	# The way renaming is done is that if rename is TRUE and d > 0
+	# and td < td' then change var
+        #
+	fun init_info_dictionary ()
+            =
+	    {   my venv:  Venv = int_hash_table::make_table (32, VENV);
+		fenv = int_hash_table::make_table (32, FENV);
+
+		IENV (venv, [fenv]);
+	    };
+
+
+	fun well_formed (fdec:  Function_Declaration)
+	    = 
+	    case fdec
+		 (fk as { calling_convention => CALLING_CONVENTION_GENERIC, ... }, v, vts, e)
+		     =>
+		     formed (e, 0)
+		     where
+			 fun formed (RET _, d) => TRUE;
+			     formed (LET (vs, e1, e2), d) => formed (e1, d) and formed (e2, d);
+			     formed (APPLY (v, vs), d) => TRUE;
+
+			     formed (TYPE_APPLY (v, ts), d)
+                                 =>
+                                 case d    0 => TRUE;
+					   _ => FALSE;
+                                 esac;
+
+			     formed (RECORD (rk, vs, v, e), d) => formed (e, d);
+			     formed (SELECT (v, i, l, e), d) => formed (e, d);
+			     formed (RAISE _, d) => TRUE;
+			     formed (EXCEPT (e, v), d) => formed (e, d);
+			     formed (BRANCH (pr, vs, e1, e2), d) => formed (e1, d) and formed (e2, d);
+			     formed (PRIMOP (pr, vs, l, e), d) => formed (e, d);
+
+			     formed (SWITCH (v, a, ces, eopt), d)
+                                 => 
+			         {   b1 = case eopt    NULL => TRUE;
+						       THE e => formed (e, d);
+                                          esac;
+
+				     fun f (c, e) = (e, d);
+
+				     es = map f ces;
+				     b2 = map formed es;
+
+				     b = fold_right   (fn (x, y) = x and y)   b1   b2;
+
+				     b;
+				 };
+			     formed (CONSTRUCTOR (dc, ts, v, l, e), d) => formed (e, d);
+
+			     formed (TYPE_FN((tfk, l, ts, e1), e2), d)
+                                 =>
+			         formed (e1, d) and formed (e2, d);
+
+			     formed (MUTUALLY_RECURSIVE_FNS (fds, e), d)
+                                 => 
+			         {
+				     b1 = formed (e, d);
+				     b2 = case fds   
+					 ( { calling_convention => CALLING_CONVENTION_GENERIC, ... }, l, vs, e') ! r => map formed [(e', d)];
+					_ => { fun f (v1, v2, v3, v4) = (v4, d + 1);
+						  es = map f fds;
+						  b' = map formed es;
+
+						  b';
+					      }; esac;
+
+				     b = fold_right   (fn (x, y) = x and y)   b1   b2;
+
+				     b;
+			         };
+                         end;
+		     end;
+
+	       _ => bug "non GENERIC program in Lift";
+        esac;
+
+
+	fun lift (e, dictionary, td, d, ad, rename)
+	    = 
+	    loope (e, dictionary, d, ad)
+	    where 
+
+		fun comb ((v, t, fv, hd), (l1, l2, l3, l4))
+                    =
+                    (v ! l1, t ! l2, fv@l3, hd@l4);
+
+		fun lt_inst (lt, ts)
+		    = 
+		    case (le::instantiate_polymorphic_lambda_or_higher_order_constructor_type (lt, ts))
+
+			[x] => x;
+		       _ => bug "unexpected case in ltInst";
+		    esac;
+
+		fun arglty (lt, ts)
+                    = 
+		    { 
+			my (_, atys, _) = le::ltd_arrow (lt_inst (lt, ts));
+
+			case atys   
+			    [x] => x;
+			   _ => bug "unexpected case in arglty";
+                        esac;
+		    };
+
+		fun reslty (lt, ts)
+		    =
+		    {   my (_, _, rtys)
+			    =
+			    le::ltd_arrow (lt_inst (lt, ts));
+
+			case rtys
+
+			    [x] =>   x;
+			    _   =>   bug "unexpected case in reslty";
+			esac;
+		    };
+
+		fun loopcv dictionary var v
+		    =
+		    {   my (v', t, fv)
+			    =
+			    new_variable (v, dictionary, td); #  Not checking for poly 
+
+			(var v', t, fv, NIL);   #  Check whether this is t or t' 
+		    };
+
+		fun loopc dictionary v
+		    =
+		    {   fun c t =   (v, t, [], []);
+
+			case v
+
+			    VAR v'               => loopcv dictionary VAR v';
+			    INT _                => c le::ltc_int;
+			    WORD _               => c le::ltc_int;
+
+			    (INT32 _ | WORD32 _) => c le::ltc_int32;
+			    REAL _               => c le::ltc_real;
+			    STRING _             => c le::ltc_string;
+			esac;
+		    };
+
+		fun lpacc dictionary (HIGHCODE_VARIABLE v)
+			=> 
+			{   my (v', _, fv, _)
+                                =
+                                loopcv  dictionary  (fn v = v)  v;
+
+			    ( HIGHCODE_VARIABLE v',
+                              fv
+                            );
+			};
+
+		    lpacc dictionary (PATH (a, i))
+			=> 
+			{   my (a', fvs) = lpacc dictionary a;
+			    (PATH (a', i), fvs);
+			};
+
+		    lpacc dictionary a => (a, NIL);
+		end;
+
+		fun lpcon dictionary (EXCEPTION a)
+			=>  
+			{ my (a', fv) = lpacc dictionary a;
+			  (EXCEPTION (a'), fv);
+			};
+
+		    lpcon dictionary (SUSP NULL)
+			=>
+			(SUSP (NULL), NIL);
+
+		    lpcon dictionary (SUSP (THE (a', a'')))
+			=> 
+			{ 
+			    my (a1, fv1) = lpacc dictionary a';
+			    my (a2, fv2) = lpacc dictionary a'';
+
+			    (SUSP (THE (a', a'')), fv1 @ fv2);
+			};
+
+		    lpcon dictionary a
+			=>
+			(a, NIL);
+	       end;
+
+	       fun loope (RET vs, dictionary, d, ad)
+		       => 
+		       {   vls =  map (loopc dictionary) vs;
+
+			   my (vs, ts, fvs, hd)
+			       =
+			       fold_right comb (NIL, NIL, NIL, NIL) vls;
+
+			   (RET vs, ts, fvs, hd);
+		       };
+
+		  loope (LET (vs, e1, e2), dictionary, d, ad)
+		      => 
+		      {
+			  my (e', ts, fvs, hd) = loope (e1, dictionary, d, ad);
+			  add_dictionary (dictionary, vs, ts, fvs, td, d, abs);
+			  my (e'', ts', fvs', hd') = loope (e2, dictionary, d, ad);
+
+			  (LET (vs, e', e''), ts', fvs@fvs', hd@hd');
+		      };
+
+		  loope (APPLY (v1, vs), dictionary, d, ad)
+		      =>
+		      {   my (v1', t, fvs, hd)
+			      =
+			      loopc dictionary v1;
+
+			  vls = map (loopc dictionary) vs;
+
+			  my (vs', ts', fvs', hd')
+			     =
+			     fold_right comb (NIL, NIL, NIL, NIL) vls;
+
+			  nt = #2 (le::ltd_fkfun t);
+
+			  (APPLY (v1', vs'), nt, fvs@fvs', hd@hd');
+		      };
+
+		  loope (e as TYPE_APPLY (v, tycs), dictionary as IENV (venv, fenvs), d, ad)
+		      =>
+		      {
+			  my (v', nt', fv', hd) = loopc dictionary v; #  fv' and hd are NIL 
+			  nt = le::instantiate_polymorphic_lambda_or_higher_order_constructor_type (nt', tycs);
+			  len1 = list::length tycs;
+
+			  case d   
+			      0 => (e, nt, fv', hd);
+			     _ => case v   
+				  VAR v'' => 
+					  { 
+					      my (t', fvs', len2, vd, _, _)
+                                                  = 
+						  (int_hash_table::get  venv  v'')
+						  except
+                                                      _ = bug "TYPEFN_APP var not found";
+
+					      if ((len1 == len2) or (vd == 0)) 
+
+						      new_var = make_var();
+						      hd' = (TYPEFN_APP, new_var, TYPE_APPLY (v, tycs));
+						      fun f (x) = loopc dictionary (VAR x);
+						      my (expression, fvs) = case fvs'    
+							  [] => (RET([VAR new_var]), NIL);
+							  _ => { fvs'' = map f fvs';
+								    my (r1, r2, r3, r4) = fold_right comb (NIL, NIL, NIL, NIL) fvs'';
+
+								    (write_app (VAR new_var, r1), r3);
+								}; esac;
+
+						     { tapp_lifted := *tapp_lifted + 1;
+						       (expression, nt, fv'@fvs, [hd']) ;};
+
+					     else
+						   welltapped := FALSE;
+						   tapp_lifted := 0;
+						   raise exception PARTIAL_TYPE_APP ;
+                                             fi;
+					  };    
+				     _ => (e, nt, fv', hd);
+				 esac;
+			  esac;
+		      };
+
+		  loope (e as TYPE_FN((tfk, v, tvs, e1), e2), dictionary as IENV (venv, fenvs), d, ad)
+		      =>
+		      case  d
+
+			  0 => 
+			      {
+				  my (e1', nt', fv', hd') = lift (e1, dictionary, di::next td, d, ad, TRUE);
+				  ks = map (fn (t, k) => k; end ) tvs;
+				  nt = le::ltc_poly (ks, nt');
+
+			          # Hack for TYPEFN_APP. Stores the number of tvs instead of td  
+
+				  add_dictionary (dictionary, [v], [nt], fv', (list::length tvs), d, noabs);
+
+				  my (e2', nt'', fv'', hd'') = loope (e2, dictionary, d, ad);
+
+				  (TYPE_FN((tfk, v, tvs, e1'), e2'), nt'', fv'@fv'', hd'@hd'');
+			      };
+			 _ => 
+			      {
+				  dictionary' = push_fenv (dictionary);
+				  my (e1', nt', fvs, hd) = lift (e1, dictionary', di::next td, d, di::next ad, TRUE);
+				  freevars = get_free_variable (fvs, dictionary');
+				  ks = map (fn (t, k) => k; end ) tvs;
+				  nt = le::ltc_poly (ks, nt');
+
+			          # Hack for TYPEFN_APP. Stores the number of tvs 
+
+				  add_dictionary (dictionary, [v], [nt], fvs, (list::length tvs), d, noabs);
+
+				  my (e2', nt'', fvs', hd') = loope (e2, dictionary, d, ad);
+				  expression = write_lambda (freevars, e1');
+				  expression' = write_header (hd, expression);
+				  hd = (TYPE_FUN, v, TYPE_FN((tfk, v, tvs, expression'), RET [])) ! hd';
+
+				  (e2', nt'', fvs', hd);
+			      };
+		      esac;
+
+		  loope (SWITCH (v, a, cels, eopt), dictionary, d, ad)
+		      =>
+		      {   my (v', nt, fv, hd) = loopc dictionary v;
+
+			  fun f (c, e)
+			      = 
+			      {   case  c
+
+				      DATACON((_, _, lt), ts, v)
+					  =>
+					  add_dictionary (dictionary, [v], [arglty (lt, ts)], NIL, td, d, abs);
+				      _ => [()];
+				  esac;
+
+				  my (e', nt', fvs, hds) = loope (e, dictionary, d, ad);
+
+				  ((c, e'), nt', fvs, hds);
+			      };
+
+			  ls = map f cels;
+
+			  my (cels', nt', fvs', hds')
+			      =
+			      fold_right comb (NIL, NIL, NIL, NIL) ls;
+
+			  my (expression, t, f, h)
+			      =
+			      case eopt
+
+				  NULL => (SWITCH (v', a, cels', eopt), list::head nt', fv@fvs', hd@hds');
+
+				  THE (eopt') => 
+				      {
+					  my (eopt'', nt'', fvs'', hd'') = loope (eopt', dictionary, d, ad);
+
+					  (SWITCH (v', a, cels', THE (eopt'')), list::head nt', fv@fvs'@fvs'', hd@hds'@hd'');
+				      };
+			      esac;
+
+			  (expression, t, f, h);
+		      };
+
+		  loope (CONSTRUCTOR (dcons, tcs, vl, v, e), dictionary, d, ad)
+		      =>
+		      {   my (s, cr, lt) = dcons;
+			  my (cr', fv) = lpcon dictionary cr;
+			  nt = reslty (lt, tcs);
+
+			  my (vl', nt', fvs', hd') = loopc dictionary vl;
+
+			  add_dictionary (dictionary, [v], [nt], NIL, td, d, TRUE);
+			  my (e'', nt'', fvs'', hd'') = loope (e, dictionary, d, ad);
+
+			  (CONSTRUCTOR((s, cr', lt), tcs, vl', v, e''), nt'', fv@fvs'@fvs'', hd'@hd'');
+		       };
+
+		  loope (RECORD (rk, vls, v, e), dictionary, d, ad)
+		      =>
+		      {   ls = map (loopc dictionary) vls;
+			  my (vls', nt', fvs', hd') = fold_right comb (NIL, NIL, NIL, NIL) ls;
+			  nt = le::ltc_rkind (rk, nt');
+
+			  add_dictionary (dictionary, [v], [nt], fvs', td, d, TRUE);
+			  my (e', nt'', fvs'', hd'') = loope (e, dictionary, d, ad);
+
+			  (RECORD (rk, vls', v, e'), nt'', fvs'@fvs'', hd'@hd'');
+		      };
+
+		  loope (SELECT (v, i, l, e), dictionary, d, ad)
+		      =>
+		      {   my (v', nt', fvs', hd') = loopc dictionary v;
+			  nt = le::ltd_rkind (nt', i);
+			  add_dictionary (dictionary, [l], [nt], fvs', td, d, TRUE);
+			  my (e', nt'', fvs'', hd'') = loope (e, dictionary, d, ad);
+
+			  (SELECT (v', i, l, e'), nt'', fvs'@fvs'', hd'@hd'');
+		      };
+
+		  loope (RAISE (v, ls), dictionary, d, ad)
+		      =>
+		      {   my (v', nt', fvs', hd') = loopc dictionary v;
+
+			  (RAISE (v', ls), ls, fvs', hd');
+		      };
+
+		  loope (EXCEPT (e, v), dictionary, d, ad)
+		      => 
+		      {   my (v', nt',  fvs',  hd' ) =  loopc dictionary v;
+			  my (e', nt'', fvs'', hd'') =  loope (e, dictionary, d, ad);
+
+			  (EXCEPT (e', v'), nt'', fvs'@fvs'', hd'@hd'');
+		      };
+
+		  loope (BRANCH (pr, vl, e1, e2), dictionary, d, ad)
+		      => 
+		      {   ls = map (loopc dictionary) vl;
+			  my (vls', nt', fvs', hd') = fold_right comb (NIL, NIL, NIL, NIL) ls;
+			  my (e1', nt'', fvs'', hd'') = loope (e1, dictionary, d, ad);
+			  my (e2', nt''', fvs''', hd''') = loope (e2, dictionary, d, ad);
+
+			  (BRANCH (pr, vls', e1', e2'), nt''', fvs'@fvs''@fvs''', hd'@hd''@hd''');
+		      };
+
+		  loope (PRIMOP (pr, vl, l, e), dictionary, d, ad)
+		      => 
+		      {   ls = map (loopc dictionary) vl;
+			  my (vls', nt', fvs', hd') = fold_right comb (NIL, NIL, NIL, NIL) ls;
+			  my (_, _, lt, ts) = pr;
+			  nt = reslty (lt, ts);
+
+			  add_dictionary (dictionary, [l], [nt], fvs', td, d, abs);
+			  my (e', nt'', fvs'', hd'') = loope (e, dictionary, d, ad);
+
+			  (PRIMOP (pr, vls', l, e'), nt'', fvs'@fvs'', hd'@hd'');
+		      };
+
+		  loope (e as MUTUALLY_RECURSIVE_FNS ( [ ( { calling_convention => CALLING_CONVENTION_GENERIC, ... }, v, lvs, e1)], e2), dictionary, d, ad)
+		      => 
+		      {
+			  vs = map #1 lvs;
+			  ts = map #2 lvs;
+
+			  if (d > 0   )   wellfixed := FALSE;   fi;
+
+			  add_dictionary (dictionary, vs, ts, NIL, td, 0, noabs);
+
+			  my (e', nt', fvs', hd')
+			      =
+			      loope (e1, dictionary, 0, di::next ad);
+
+			  nt = le::ltc_fkfun (fkfct, ts, nt');
+			  add_dictionary (dictionary, [v], [nt], fvs', td, 0, noabs);
+			  my (e'', nt'', fvs'', hd'') = loope (e2, dictionary, d, ad);
+
+			  (MUTUALLY_RECURSIVE_FNS([(fkfct, v, lvs, e')], e''), nt'', fvs'@fvs'', hd'@hd'');
+		      };
+
+		  loope (e as MUTUALLY_RECURSIVE_FNS([(fk, v, lvs, e1)], e2), dictionary, d, ad)
+		      => 
+		      case fk
+
+			  { is_recursive => NULL,
+                            calling_convention => CALLING_CONVENTION_FUNCTION _,
+                            ...
+                          }
+			      => 
+			      { 
+				  vs = map #1 lvs;
+				  ts = map #2 lvs;
+				  add_dictionary (dictionary, vs, ts, NIL, td, di::next d, abs);
+				  my (e', nt', fvs', hd') = loope (e1, dictionary, di::next d, di::next ad);
+				  nt = le::ltc_fkfun (fk, ts, nt');
+				  abs = if (d > 0 ) TRUE; else FALSE;fi;
+				  add_dictionary (dictionary, [v], [nt], fvs', td, d, abs);
+				  my (e'', nt'', fvs'', hd'') = loope (e2, dictionary, d, ad);
+				  ne' = MUTUALLY_RECURSIVE_FNS([(fk, v, lvs, e')], e'');
+
+				  my (ne, hd)
+                                      =
+                                      case d   
+				          0 => (write_header (hd'@hd'', ne'), NIL);
+				          _ => (ne', hd'@hd'');
+                                      esac;
+
+			         (ne, nt'', fvs'@fvs'', hd);
+			      };
+
+			  { is_recursive => THE (rts, _), calling_convention => CALLING_CONVENTION_FUNCTION _, ... }
+			      => 
+			      {
+				  vs = map (#1) lvs;
+				  ts = map (#2) lvs;
+				  add_dictionary (dictionary, [v], [le::ltc_fkfun (fk, ts, rts)], NIL, td, di::next d, abs);
+				  add_dictionary (dictionary, vs, ts, NIL, td, di::next d, abs);
+				  my (e', nt', fvs', hd') = loope (e1, dictionary, di::next d, di::next ad);
+
+				  #  Check to see that the new value is inserted 
+
+				  add_dictionary (dictionary, [v], [le::ltc_fkfun (fk, ts, rts)], NIL, td, d, abs);
+				  #  The depth is changed for correct behaviour 
+
+				  my (e'', nt'', fvs'', hd'') = loope (e2, dictionary, d, ad);
+				  ne' = MUTUALLY_RECURSIVE_FNS([(fk, v, lvs, e')], e'');
+
+				  my (ne, hd)
+                                      =
+                                      case d   
+				          0 => (write_header (hd'@hd'', ne'), NIL);
+				          _ => (ne', hd'@hd'');
+                                      esac;
+
+			          (ne, nt'', fvs'@fvs'', hd);
+			      }; 
+
+			  _ => bug "unexpected Function_Declaration in main loop";
+		      esac;
+
+		  loope (e as MUTUALLY_RECURSIVE_FNS (fds, e2), dictionary, d, ad)
+		      =>
+		      {
+			  fun h d' ((fk as { is_recursive => THE (rts, _), ... }, f, lvs, e1):Function_Declaration)
+				  => 
+				  add_dictionary (dictionary, [f], [le::ltc_fkfun (fk, map #2 lvs, rts)], NIL, td, d', abs);
+
+			      h d fk
+				  =>
+				  bug "unexpected non-recursive fkind in loop";
+			  end;
+
+			  fun g ((fk, f, lvs, e) : Function_Declaration)
+			      = 
+			      {   add_dictionary (dictionary, map #1 lvs, map #2 lvs, NIL, td, di::next d, abs);
+
+				  my (e', nt', fvs', hd')
+				      =
+				      loope (e, dictionary, di::next d, di::next ad);
+
+				  ( (fk, f, lvs, e'), [le::ltc_fkfun (fk, map #2 lvs, nt')], fvs', hd');
+			      };
+
+			  map (h (di::next d)) fds;
+			  rets = map g fds;
+			  my (fds, nts, fvs, hds) = fold_right comb (NIL, NIL, NIL, NIL) rets;
+
+			  #  Check to see that the correct value is inserted 
+
+			  map (h d) fds;
+			  my (e'', nt'', fvs'', hd'') = loope (e2, dictionary, d, ad);
+			  ne' = MUTUALLY_RECURSIVE_FNS (fds, e'');
+
+			  case d    
+			      0 => (write_header (hds@hd'', ne'), nt'', fvs@fvs'', NIL);
+			      _ => (ne', nt'', fvs@fvs'', hds@hd'');
+                          esac;
+		      };
+	      end;
+	end;
+
+
+	fun type_lift fdec: Function_Declaration
+	    =
+	    #  if *controls::cg::lifttype then 
+	    case fdec
+
+		 (fk as { calling_convention => CALLING_CONVENTION_GENERIC, ... }, v, vts, e)
+		     =>
+		     {
+			 dictionary = init_info_dictionary();
+			 d    = 0; #  di::top ?? 
+			 td   = 0; #  di::top ?? 
+			 ad   = 0; #  di::top ?? 
+
+			 rename = FALSE;
+
+			 vs = map #1 vts;
+			 ts = map #2 vts;
+
+			 add_dictionary (dictionary, vs, ts, NIL, td, d, noabs);
+
+			 my (ne, _, _, _)
+			     =
+			     ( lift (e, dictionary, td, d, ad, rename) )
+			     except
+				 PARTIAL_TYPE_APP
+				     =
+				     { print "\n*** No Typelifting ";
+				       print " Partial Type Apply ***\n";
+				       (e, NIL, NIL, NIL);
+				     };
+
+			 if *wellfixed 
+				    ();
+				 else
+				     (); #  print "\n *** generic package at d > 0 *** \n" 
+                         fi;
+
+			 if *ctrl::saytappinfo 
+
+			     print "\n *** No. of TYPEFN_APPs lifted ";
+			     print (" " + (int::to_string *tapp_lifted) + " \n");
+			 fi;
+
+			 tapp_lifted := 0; 
+			 wellfixed   := TRUE;
+			 welltapped  := TRUE;
+
+			 (fk, v, vts, ne);
+		     };
+
+	        _ => bug "non GENERIC program in Lift";
+	    esac;
+    end;
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1997, 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

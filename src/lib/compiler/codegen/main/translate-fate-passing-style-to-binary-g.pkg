@@ -1,0 +1,3691 @@
+## translate-fate-passing-style-to-binary-g.pkg --- translate fate-passing-style to lowcode.
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial front-end code representation.
+#     2)  Deep Syntax is the second and final front-end code representation.
+#     3)  Polylambda is the first backend code representation, used only transitionally.
+#     4)  A-Normal  is the second backend code representation, and the first used for optimization.
+#     5)  Fate-Passing-Style is the third and chief backend upper-half code representation.
+#     6)  Codetree is the chief backend lower-half code representation.
+#     7)  X86 instruction format (or equivalent for other target machines) -- an abstract tree format.
+#     8)  X86 machine language   (or equivalent for other target machines) -- absolute binary code.
+#
+# For general context, see
+#
+#     src/lib/compiler/README
+#
+# This module primarily implements the translation from
+# front-end "Fate Passing Style" to back-end
+# "Codetree" code format.  Translation from Codetree down
+# to X86 instruction stream format is delegated to one of
+#
+#     src/lib/compiler/backend/lower/ppc/codetree/translate-codetree-to-ppc-g.pkg
+#     src/lib/compiler/backend/lower/sun/codetree/translate-codetree-to-sparc-g.pkg
+#     src/lib/compiler/backend/lower/x86/codetree/translate-codetree-to-x86-g.pkg
+# 
+#
+# This module implements the transition between the
+# machine-independent back-end upper-half centered on
+# 
+#     src/lib/compiler/backend/upper/main/backend-g.pkg 
+# 
+# and the machine-dependent back-end lower-half centered on
+# 
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+# 
+# Essentially, we translate code from fate-passing-style
+# (the last of the upper-half intermediate code formats) to
+# control-flow-graph format, the first of the lower half
+# intermediate code formats, and then call the lower half
+# to take it from there down to binary.
+# 
+# (See src/lib/compiler/README for more overview.)
+#
+#
+#
+# Our compiletime generic invocation is from
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+#
+# which in particular passes us the
+#
+#     translate_control_flow_graph_cluster_to_binary
+#
+# function which is our runtime entrypoint into the
+# back end.
+#
+#
+#
+# Runtime invocation of our (sole)
+#
+#     translate_fate_passing_style_to_binary
+#
+# entrypoint is from
+#
+#     src/lib/compiler/backend/upper/main/backend-g.pkg
+#
+# via the short wrapper at the bottom of
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+# 
+# 
+# 
+# This version of translate_fate_passing_style_to_binary_g also
+# injects garbage-collection types into the lower half.
+# I've also reorganized it a bit and added a few comments
+# so that I can understand it.
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+
+
+
+###                   "Do not say a little in many words,
+###                    but a great deal in a few."
+###
+###                                 -- Pythagoras (582-497 BCE)
+
+
+
+api Translate_Fate_Passing_Style_To_Binary {
+
+    translate_fate_passing_style_to_binary
+	:
+	{ funcs:        List( fate_passing_style::Function ),
+	  limits:       fate_passing_style::Highcode_Variable -> (Int, Int),
+	  err:          error_message::Plaint_Sink,
+	  source:       String,
+	  compile_info: compile_info::Compile_Info( deep_syntax::Declaration )
+	}
+	->
+	(Void -> Int);
+
+     # The result is a thunk around the address
+     # of the resulting code chunk's entry point.
+     #
+     # The client must call 'finish'
+     # before forcing it.
+};
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+
+							# Machine_Properties		is from   src/lib/compiler/codegen/main/machine-properties.api
+# We are invoked from:
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+
+generic package translate_fate_passing_style_to_binary_g (
+
+    package machine_spec:  Machine_Properties;		# Typically	 			  src/lib/compiler/codegen/x86/x86-machine-properties.pkg
+    package ext:           Lib7_Codetree_Ext;		# Lib7_Codetree_Ext		is from   src/lib/compiler/codegen/compile-fps/lib7-codetreeext.api
+
+    package c
+        :
+        Cpsregs						# Cpsregs			is from   src/lib/compiler/codegen/compile-fps/fps-registers.api
+	where codetree::region    == cpsregions 
+	also  codetree::constant  == lib7constant
+	also  codetree::extension == ext;
+
+    package client_pseudo_ops
+        :
+        Lib7_Pseudo_Ops;				# Lib7_Pseudo_Ops		is from   src/lib/compiler/codegen/compile-fps/pseudo-op.api
+
+    package pseudo_op
+        :
+        Pseudo_Ops					# Pseudo_Ops			is from   src/lib/compiler/backend/lower/flowgraph/pseudo-op.api
+	where codetree == c::codetree
+	also  client == client_pseudo_ops;
+
+    package translate_codetree_to_target_machine
+        :
+        Translate_Codetree_To_Target_Machine				# Translate_Codetree_To_Target_Machine		is from   src/lib/compiler/backend/lower/codetree/translate-codetree-to-target-machine.api
+	where
+            codetree_stream::codetree
+            ==
+            c::codetree
+        also
+            codetree_stream::instruction_stream::pseudo_op
+            ==
+            pseudo_op;
+
+    package flowgen
+        :
+        Control_Flow_Graph_Gen				# Control_Flow_Graph_Gen	is from   src/lib/compiler/backend/lower/flowgraph/build-flowgraph-g.pkg
+	where
+	    instruction_stream
+	    ==
+	    translate_codetree_to_target_machine::codetree_stream::instruction_stream
+	also
+	    instruction_set
+	    ==
+	    translate_codetree_to_target_machine::instruction_set
+	also
+	    control_flow_graph
+	    ==
+	    translate_codetree_to_target_machine::control_flow_graph;  
+
+    package garbage_collector
+        :
+        Garbage_Collector				# Garbage_Collector		is from   src/lib/compiler/codegen/compile-fps/garbage-collector.api
+	where
+            codetree_stream
+            ==
+            translate_codetree_to_target_machine::codetree_stream
+	also
+            control_flow_graph
+            ==
+            flowgen::control_flow_graph;
+
+    package cells:       Cells; 			# Cells				is from   src/lib/compiler/backend/lower/instruction/cells.api
+
+    package ccalls
+        :
+        Ansi_C_Calls					# Ansi_C_Calls			is from   src/lib/compiler/backend/lower/c-calls/c-calls.api
+        where codetree == c::codetree;
+
+    translate_control_flow_graph_cluster_to_binary
+        :
+        compile_info::Compile_Info( deep_syntax::Declaration )
+        ->
+        flowgen::control_flow_graph::Control_Flow_Graph
+        ->
+        Void;
+)
+
+: (weak) Translate_Fate_Passing_Style_To_Binary		# Defined above.
+
+{
+    package fps = fate_passing_style;			# fate_passing_style		is from   src/lib/compiler/backend/upper/fps/fate-passing-style.pkg
+    package t   = c::codetree;				# Codetree 
+    package e   = ext;					# Extensions 
+    package p   = fps::p;				# FPS primitive operators 
+    package r   = cpsregions;				# cpsregions			is from   src/lib/compiler/codegen/compile-fps/fps-regions.pkg
+    package pt  = r::pt;				# points_to			is from   src/lib/compiler/backend/lower/aliasing/points-to.pkg
+    package cg  = controls::cg;				# Compiler Control 
+    package ms  = machine_spec;				# Machine Specification 
+    package d   = ms::chunk_desc;			# ML chunk Descriptors 
+    package ts  = translate_codetree_to_target_machine::codetree_stream;	# Codetreestreams 
+    package cpo = client_pseudo_ops;
+    package pb  = pseudo_op_basis_type;			# pseudo_op_basis_type		is from   src/lib/compiler/backend/lower/flowgraph/pseudo-op-basis-type.pkg
+    package an  = lowcode_notes;			# lowcode_notes			is from   src/lib/compiler/backend/lower/instruction/lowcode-notes.pkg
+    package cb  = cells_basis;				# cells_basis			is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+
+    package arg_passing					#  Argument passing 
+        =
+        arg_passing_g (					# arg_passing_g			is from   src/lib/compiler/codegen/compile-fps/arg-passing-g.pkg
+            package cells = cells;
+	    package c = c;
+	    package ms = machine_spec;
+        );
+
+    #  Decompose a compilation unit into clusters:
+    #
+    package frag
+        =
+        fragments_g (					# fragments_g			is from   src/lib/compiler/codegen/compile-fps/fragments-g.pkg
+	    t
+	);
+
+    package mem_aliasing				#  Memory aliasing 
+        =
+        memory_aliasing_g( cells );
+
+    package fps_c_calls					#  C-Calls handling 
+	=
+        fps_c_calls_g (					# fps_c_calls_g			is from   src/lib/compiler/codegen/compile-fps/fps-c-calls-g.pkg
+
+            package ms = machine_spec;
+	    package c  = c;
+	    package translate_codetree_to_target_machine = translate_codetree_to_target_machine;
+	    package cells = cells;
+	    package ccalls = ccalls; 
+	);
+
+    fun error msg
+        =
+        lowcode_error_message::error("translate_fate_passing_style_to_binary_g", msg);
+
+    #  Debugging: 
+
+    fun print_fps_fun fps
+        =
+	{   controls::print::say "*********************************************** \n";
+	    prettyprint_fps::print_fps_function fps;
+	    controls::print::say "*********************************************** \n";
+	    controls::print::flush();
+	};
+
+    print =   controls::print::say;
+
+
+    # Garbage collection safety:
+
+    package garbage_collection_cells
+              =					# How to annotate GC information.
+	      garbage_collection_cells_g (	# garbage_collection_cells_g	is from   src/lib/compiler/backend/lower/gc-safety/garbage-collection-cells-g.pkg
+                  package c  = cells;
+		  package gc= smlgctype;	# smlgctype			is from   src/lib/compiler/codegen/compile-fps/lib7-gctype.pkg
+              );
+
+    i31    = smlgctype::i31;     #  tagged integers 
+    i32    = smlgctype::i32;     #  untagged integers 
+    real64 = smlgctype::real64;  #  untagged floats 
+    ptr    = smlgctype::ptr;     #  Boxed chunks 
+
+    no_opt = [an::no_optimization.create ()];
+
+    enter_gc = garbage_collection_cells::set_gc_type;
+
+    fun same_reg_as x y
+        =
+        cb::same_cell (x, y);
+
+    ptr' = an::mark_reg.create (fn r = enter_gc (r, ptr));
+    i32' = an::mark_reg.create (fn r = enter_gc (r, i32));
+    i31' = an::mark_reg.create (fn r = enter_gc (r, i31));
+    flt' = an::mark_reg.create (fn r = enter_gc (r, real64));
+
+    fun cty_to_ann fps::INTT   => i31'; 
+        cty_to_ann fps::INT32T => i32'; 
+        cty_to_ann fps::FLTT   => flt'; 
+        cty_to_ann _           => ptr';
+    end; 
+
+    # Convert kind to gc type 
+    fun kind_to_gcty (fps::p::INT  31) => i31;
+	kind_to_gcty (fps::p::UINT 31) => i31;
+	kind_to_gcty(_) => i32;
+    end; 
+
+    fun cty_to_gcty (fps::FLTT)   => real64;
+	cty_to_gcty (fps::INTT)   => i31;
+	cty_to_gcty (fps::INT32T) => i32;
+	cty_to_gcty _             => ptr;
+    end;
+
+    #  Make a GC livein/liveout annotation: 
+
+    fun gc_annotation (an, args, ctys)
+        =
+        an (collect (args, ctys, []))
+        where
+	    fun collect (t::INT_EXPRESSION (t::REG(_, r)) ! args, cty ! ctys, gctys)
+		    =>
+		    collect (args, ctys, (r, cty_to_gcty cty) ! gctys);
+
+	        collect (t::FLOAT_EXPRESSION (t::FREG(_, r)) ! args, cty ! ctys, gctys)
+		    =>
+		    collect (args, ctys, (r, cty_to_gcty cty) ! gctys);
+
+	        collect(_ ! args, _ ! ctys, gctys)
+                    =>
+                    collect (args, ctys, gctys);
+
+	        collect([], [], gctys)
+                    =>
+                    gctys;
+
+	        collect _
+                    =>
+                    error "gc_annotation";
+            end;
+        end;
+
+    # These are the type widths of ML.
+    # They are hardwired for now. XXX BUGGO FIXME     
+    #
+    pty = 32;	# Size of ML's pointer 
+    ity = 32;	# Size of ML's integer 
+    fty = 64;	# Size of ML's real number 
+
+    zero = t::LITERAL 0;
+    one  = t::LITERAL 1;
+    two  = t::LITERAL 2;
+
+    ml_zero = one;		# Tagged zero.
+    offp0   = fps::OFFP 0; 
+
+    fun li i = t::LITERAL (t::machine_int::from_int (ity, i));
+    fun lw w = t::LITERAL (t::machine_int::from_word32 (ity, w));
+
+    const_base_reg_offset
+        =
+        li machine_spec::const_base_reg_offset;
+
+    # The allocation pointer.
+    # This must be a register:
+    # 
+    allocptr_r
+        =
+	case c::allocptr
+	    t::REG(_, allocptr_r) => allocptr_r;
+	    _                     => error "allocptr_r";
+        esac;
+
+    # Dedicated registers: 
+    #
+    dedicated'
+        =
+	map  (fn r = t::INT_EXPRESSION   (t::REG  (ity, r))) c::dedicated_r
+        @ 
+	map  (fn f = t::FLOAT_EXPRESSION (t::FREG (fty, f))) c::dedicated_f;
+
+    dedicated
+        = 
+	case c::exhausted
+	    THE cc => t::BOOL_EXPRESSION cc ! dedicated';
+            NULL   => dedicated'; 
+        esac;
+
+    # This flag controls whether extra lowcode
+    # optimizations should be performed.
+    #
+    # By default, this is off:
+    #
+    do_extra_lowcode_optimizations
+        =
+        controls::lowcode::make_bool
+          ( "do_extra_lowcode_optimizations",
+            "whether to do lowcode optimizations"
+          );
+
+    # If this flag is on then annotate the registers with GC type info.  
+    # Otherwise use the default behavior.
+    #
+    lowcode_gc_types
+        =
+        controls::lowcode::make_bool
+          ( "lowcode_gc_types",
+            "whether to use GC type info"
+          );
+
+    # If this flag is on then perform optimizations before generating gc code. 
+    # If this flag is on then lowcode_gc_types must also be turned on!
+    # Otherwise use the default behavior.
+    #
+    lowcode_gc_safety
+        =
+        controls::lowcode::make_bool
+          ( "lowcode_gc_safety",
+	    "whether to optimize before generating GC code"
+          );
+
+    # If this flag is on then split the entry block.
+    # This should be on for SSA optimizations. 
+    #
+    split_entry_block
+        =
+        controls::lowcode::make_bool
+          ( "split_entry_block",
+            "whether to split entry block"
+          );
+
+    # This dummy annotation is used to get an empty block  
+    #
+    empty_block = an::empty_block.create ();
+
+    # Convert chunk descriptor to int 
+    #
+    dtoi = large_unt::to_int;   
+
+    new_label = label::make_anonymous_label;   
+
+
+    #  The main code generation function.
+    #
+    #  This represents the major entrypoint into
+    #  the machine-dependent back-end lower half
+    #  from the machine-independent upper half.
+    #  
+    #  Specifically, we get invoked from   translate_anormal_to_binary   in
+    #  
+    #      src/lib/compiler/backend/upper/main/backend-g.pkg
+    #  
+    fun translate_fate_passing_style_to_binary   args
+        =
+	{   my  { funcs:  List( fps::Function ),
+		  limits: fps::Highcode_Variable -> ((Int,Int)),
+		  err,
+                  source,
+                  compile_info
+                }
+                =
+		args;
+
+	    max_alloc =   #1 o limits;
+
+	    split_entry_block
+                =
+                *split_entry_block;
+
+	    # The natural address arithmetic width
+            # of the architecture.
+            # For most architectures this is 32.
+	    #
+	    address_type =   c::address_width;
+
+	    # These functions generate new virtual register names and
+	    # mark expressions with their gc types.
+	    # When the gc-safety feature is turned on, we'll use the
+	    # versions of new_reg that automatically update the GCMap.
+	    # Otherwise, we'll just use the normal version.
+
+	    lowcode_gc_types
+                =
+                *lowcode_gc_types;
+
+	    my  ( new_reg,
+                  new_reg_with_cty,
+                  new_reg_with_kind,
+                  new_freg
+                )
+                = 
+		if lowcode_gc_types
+
+		    new_reg  =   garbage_collection_cells::new_cell cb::REGISTER;
+		    new_freg =   garbage_collection_cells::new_cell cb::FLOAT_REGISTER;
+
+		    fun new_reg_with_cty cty
+			=
+			new_reg (cty_to_gcty cty);
+
+		    fun new_reg_with_kind kind
+			=
+			new_reg (kind_to_gcty kind);
+
+		    ( new_reg,
+		      new_reg_with_cty,
+		      new_reg_with_kind,
+		      new_freg
+		    );
+		else
+		    ( cells::new_reg,
+		      cells::new_reg,
+		      cells::new_reg,
+		      cells::new_freg
+		    );
+                fi;
+
+	    fun mark_ptr e =   if lowcode_gc_types  t::MARK  (e, ptr'); else e; fi;
+	    fun mark_i32 e =   if lowcode_gc_types  t::MARK  (e, i32'); else e; fi;
+	    fun mark_flt e =   if lowcode_gc_types  t::FMARK (e, flt'); else e; fi;
+
+	    fun mark_gc (e, cty)
+		=
+		lowcode_gc_types   ??   t::MARK (e, cty_to_ann cty)
+			           ::   e;
+
+	    fun mark_nothing e
+                =
+                e;
+
+	    # Known functions have parameters passed in fresh temporaries. 
+	    # We also annotate the gc types of these temporaries.
+	    #
+	    fun known [] => [];
+
+	        known (cty ! rest)
+                  =>
+		  case cty
+		    
+		      fps::FLTT   => t::FLOAT_EXPRESSION (t::FREG (fty, new_freg real64));
+
+		      fps::INTT   => t::INT_EXPRESSION   (t::REG (ity, new_reg i31));
+		      fps::INT32T => t::INT_EXPRESSION   (t::REG (ity, new_reg i32));
+		      _           => t::INT_EXPRESSION   (t::REG (pty, new_reg ptr));
+                  esac
+		  !
+                  known rest;
+            end;
+
+	    # label_table is a mapping of function names
+            # (fate_passing_style::lvars) to labels.
+            #
+	    # If the flag split_entry_block is on, we also
+            # distinguish between external and internal labels,
+            # make sure that no directly branches go to the
+	    # external labels. 
+
+	    exception LABEL_BIND;
+	    exception TYP_TABLE;
+
+	    my label_table:   int_hash_table::Hash_Table ( label::Label )
+                          =   int_hash_table::make_table (32, LABEL_BIND);
+
+	    function_label  =   int_hash_table::get   label_table;
+	    add_label_table =   int_hash_table::set    label_table;
+
+	    # type_table is a mapping of FPS::lvars to FPS types
+	    #
+	    my type_table:   int_hash_table::Hash_Table ( fps::Fps_Type )
+                         =   int_hash_table::make_table (32, TYP_TABLE);
+
+	    add_type_naming
+               =
+               int_hash_table::set type_table;
+
+            # Map FPS value expressions to FPS types:
+	    #
+	    typmap =   int_hash_table::get  type_table;
+
+	    # note_entrypoint_label_and_type define the labels
+            # and cty for all FPS functions:
+	    #
+	    fun note_entrypoint_label_and_type  (fun_kind, f, _, _, _)
+                =
+		{   # Internal label:
+		    add_label_table (f, new_label());
+
+		    # External entry label:
+		    #
+		    if split_entry_block
+
+			case fun_kind
+
+			    (fps::FATE | fps::ESCAPE)
+				=> 
+				add_label_table (-f - 1, label::make_label_generator (int::to_string f) ());
+
+			    _ => ();
+			esac;
+		    fi;
+
+		    case fun_kind
+			fps::FATE =>   add_type_naming (f, fps::CNTT);
+			_                 =>   add_type_naming (f, fps::bogt);
+                    esac;
+                };				# fun note_entrypoint_label_and_type
+
+	    branch_prob
+               =
+               fps_branch_prob::branch_prob  funcs;
+
+
+	    fun branch_with_prob (br, NULL)
+                    =>
+                    br;
+
+	       branch_with_prob (br, THE prob)
+                    => 
+		    t::NOTE (br, lowcode_notes::branch_prob.create prob);
+            end;
+
+
+	    # A FPS register may be implemented as a physical 
+	    # register or a memory location.  This function moves
+	    # a value v into a register or a memory location.
+	    #
+	    fun assign (t::REG (type, r),        v) =>  t::MOVE_INT (type, r, v);
+	        assign (t::LOAD (type, ea, mem), v) =>  t::STORE (type, ea, v, mem);
+	        assign _                            =>  error "assign";
+            end;
+
+
+	    # Function for generating code for one cluster.
+	    #
+	    fun compile_cluster
+                (cluster:   List( fate_passing_style::Function ))
+                : Void				# Results are side-effected onto cluster_list + data_list in src/lib/compiler/backend/lower/span/span-dependency-resolution-g.pkg
+                =
+                {   if *controls::debugging
+                        apply
+                            prettyprint_fps::print_fps_function
+                            cluster;
+                    fi;
+
+		    # The codetree stream
+		    #
+		    my stream
+                       as
+                       ts::instruction_stream::STREAM {
+
+			   begin_cluster,	# Start a cluster.
+			   end_cluster,		# End a cluster.
+			   emit,		# Emit Codetree statement.
+			   define_local_label,	# Define a local label 
+			   define_global_label,	# Define an external entry.
+			   end_procedure,	# Mark the end of a procedure 
+			   emit_pseudo_op,	# Emit a pseudo op.
+			   add_note,		# Add an annotation 
+			   ... 
+		       }
+                       =
+                       translate_codetree_to_target_machine::select_instructions  (flowgen::build ());
+
+
+		    # If RAW_C_CALL is present we need to use the virtual frame pointer
+		    #
+		    stipulate
+
+			fun has_raw_c_call  ((_, _, _, _, cexp) ! rest)
+				=>
+				fps::has_raw_c_call  cexp
+                                or
+                                has_raw_c_call  rest;
+
+                            has_raw_c_call  ([])
+                                =>
+                                FALSE;
+                        end;
+
+		    herein
+
+			use_virtual_frame_pointer
+                            =
+                            not  ms::frame_ptr_never_virtual
+                            and
+                            has_raw_c_call  cluster;
+								my _ =
+			cluster_annotation::use_virtual_frame_pointer
+                            :=
+                            use_virtual_frame_pointer;
+		    end;
+
+
+		    # This is the GC comparison test used.
+                    # We have a choice of signed or unsigned
+                    # comparisons.
+		    # 
+                    # This usually doesn't matter, but some
+		    # architectures work better in one way
+                    # or the other, so we are given a choice here.
+		    #
+		    gc_test
+                        =
+                        t::CMP (
+                            pty,
+                            c::signed_gctest  ??  t::GT
+                                              ::  t::GTU, 
+			    c::allocptr,
+                            c::limitptr  use_virtual_frame_pointer
+                        );
+
+		    cluster_size =   length cluster;
+
+
+		    # Per-cluster tables 
+
+		    exception REGISTER_MAP;
+                    exception GEN_TABLE;
+
+		    # gen_table -- is used to retrieve the
+                    # parameter passing conventions once a
+                    # function has been compiled.
+
+
+		    my gen_table:  int_hash_table::Hash_Table( frag::Fragment )
+                       =
+                       int_hash_table::make_table (cluster_size, GEN_TABLE);
+
+		    add_gen_table    =   int_hash_table::set  gen_table;
+		    lookup_gen_table =   int_hash_table::get  gen_table;
+
+
+		    # { fp, gp } RegTable -- mapping of lvars to registers  
+
+
+		    my fp_reg_table:  int_hash_table::Hash_Table( t::Float_Expression )
+                                   =  int_hash_table::make_table (2, REGISTER_MAP);
+
+
+		    my gp_reg_table:  int_hash_table::Hash_Table( t::Int_Expression )
+                                   =  int_hash_table::make_table (32, REGISTER_MAP);
+
+
+		    add_exp_naming =   int_hash_table::set gp_reg_table;
+
+
+		    fun add_reg_naming (x, r)
+                        =
+                        add_exp_naming (x, t::REG (ity, r));
+
+		    add_freg_naming =   int_hash_table::set fp_reg_table;
+
+		    # The following function is used to translate FPS into 
+		    # larger trees.  Definitions marked TREEIFY can be forward
+		    # propagated to their (only) use.   This can drastically
+		    # reduce register pressure.
+
+		    Treeify = TREEIFY | TREEIFIED | COMPUTE | DEAD;
+
+		    exception USE_COUNT_TABLE;
+
+		    my use_count_table:  int_hash_table::Hash_Table( Treeify )
+		                      =  int_hash_table::make_table (32, USE_COUNT_TABLE);
+
+		    fun treeify i
+                        =
+                        the_else (int_hash_table::find  use_count_table  i,   DEAD);
+
+
+		    add_count_table
+                        =
+                        int_hash_table::set  use_count_table;
+
+
+		    fun mark_as_treeified r
+                        =
+                        add_count_table (r, TREEIFIED);
+
+		    # Reset the namings and use count tables.
+		    # These tables can be reset at the same time.
+		    #
+		    fun clear_tables ()
+                        =
+			{   int_hash_table::clear  gp_reg_table; 
+			    int_hash_table::clear  fp_reg_table; 
+			    int_hash_table::clear  use_count_table;
+			};
+
+		    # Memory disambiguation uses
+                    # the new register counters, 
+		    # so this must be reset here.
+
+		    cells::reset ();
+
+		    mem_disambig
+                        =
+                        mem_aliasing::analyze  cluster;
+
+		    # Points-to analysis projection.
+		    #
+		    fun projection (x as REF (pt::TOP _), _)
+                            =>
+                            x;
+
+		        projection (x, i)
+                            =>
+                            pt::ith_projection (x, i);
+                    end;
+
+		    disambiguate_memory_flag
+                        =
+                        *cg::disambiguate_memory;
+
+
+		    fun get_region e
+                        = 
+			if disambiguate_memory_flag
+
+			    case e
+				fps::VAR v =>  mem_disambig v;
+				_          =>  r::readonly;
+			    esac;
+			else
+                            r::memory;
+                        fi;
+
+		    fun get_region_projection (e, i)
+                        =
+			if disambiguate_memory_flag
+
+			    case e
+				fps::VAR v =>  projection (mem_disambig v, i);
+				_          =>  r::readonly;
+			    esac;
+			else
+                            r::memory;
+                        fi;
+
+		    fun dataptr_region v
+                        =
+                        get_region_projection (v, 0);
+
+		    # fun array_region (x as REF (pt::TOP _)) = x;
+		    #     array_region x = pt::weakSubscript x;
+                    # end;
+
+		    # For safety, let's assume it's
+                    # the global memory right now: 
+		    #
+		    fun array_region _
+                        =
+                        r::memory;
+
+		    # This keeps track of all the advanced offset on the heap_ptr
+		    # since the beginning of the FPS function.
+		    # This is important for generating the correct address offset
+		    # for newly allocated records.
+		    #
+		    advanced_heap_ptr =   REF 0;
+
+		    # Function grabty looks up the FPS type of a value expression in FPS.
+		    #
+		    fun grabty (fps::VAR   v) => typmap v;
+			grabty (fps::LABEL v) => typmap v;
+			grabty (fps::INT _  ) => fps::INTT;
+			grabty (fps::INT32 _) => fps::INT32T;
+			grabty (fps::VOID   ) => fps::FLTT;
+			grabty _              => fps::bogt;
+                    end;
+
+		    # The baseptr contains the start address of the entire 
+		    # compilation unit.  This function generates the address of
+		    # a label that is embedded in the same compilation unit.
+		    #  The generated address is relative to the baseptr.
+		    #
+		    # Note: For GC safety, we consider this
+                    #       to be a chunk reference.
+		    #
+		    fun laddr (lab, k)
+                        =
+                        mark_ptr e
+                        where
+			    e =   t::ADD (
+                                      address_type,
+                                      c::baseptr  use_virtual_frame_pointer,
+				      t::LABEXP (
+                                          t::ADD (
+                                              address_type,
+                                              t::LABEL lab, 
+					      t::LITERAL (
+                                                  integer::from_int
+						      (k-machine_spec::const_base_reg_offset)
+                                  )   )   )   );
+                        end;
+
+		    # The following function looks up the Codetreeexpression
+		    # associated with a general purpose value expression. 
+		    #
+		    lookup_gp_reg_table
+                        =
+                        int_hash_table::get   gp_reg_table;
+
+		    # This function resolve the address computation of the
+		    # form t::CONST k, where offset is a reference to the
+		    # kth byte allocated since the beginning of the FPS function.
+		    #
+		    fun resolve_heap_ptr_offset (t::CONST (absolute_heap_ptr_offset))
+			    =>
+			    {   tmp_r =   new_reg ptr;
+
+				offset =   absolute_heap_ptr_offset - *advanced_heap_ptr;
+
+				emit (t::MOVE_INT (pty, tmp_r, t::ADD (address_type, c::allocptr, li offset)));
+
+				t::REG (pty, tmp_r);
+			    };
+
+		        resolve_heap_ptr_offset  e
+                            =>
+                            e;
+                    end;
+
+
+		    fun regbind (fps::VAR   v) => resolve_heap_ptr_offset (lookup_gp_reg_table v);
+		        regbind (fps::INT   i) => li (i+i+1);
+		        regbind (fps::INT32 w) => lw w;
+
+		        regbind (fps::LABEL v)
+			    => 
+			    laddr (function_label (split_entry_block  ??  -v - 1  ::  v), 0);
+
+		        regbind _
+                            =>
+                            error "regbind";
+                    end;
+
+
+		    # This version allows the value to be further propagated:
+		    #
+		    fun resolve_heap_ptr_offset' (t::CONST (absolute_heap_ptr_offset))
+                        => 
+			{   offset = absolute_heap_ptr_offset - *advanced_heap_ptr;
+
+                            mark_ptr (t::ADD (address_type, c::allocptr, li offset));
+			};
+
+		        resolve_heap_ptr_offset'  other
+                            =>
+                            other;
+                    end;
+
+
+		    fun regbind' (fps::VAR   v) => resolve_heap_ptr_offset'(lookup_gp_reg_table v);
+		        regbind' (fps::INT   i) => li (i+i+1);
+		        regbind' (fps::INT32 w) => lw w;
+
+		        regbind' (fps::LABEL v)
+			    => 
+			    laddr (function_label (split_entry_block ?? -v - 1 :: v), 0);
+
+		        regbind' _
+                            =>
+                            error "regbind'";
+                    end;
+
+
+		    # The following function looks up
+                    # the Codetree expression associated
+		    # with a floating point value expression:
+		    #
+		    lookup_fp_reg_table
+                        =
+                        int_hash_table::get   fp_reg_table;
+
+		    fun fregbind (fps::VAR v) =>   lookup_fp_reg_table v;
+		        fregbind _            =>   error "fregbind";
+                    end;
+
+		    # On entry to a function the parameters
+                    # are in formal parameter passing registers.
+		    #
+                    # Within the body of the function, they are
+		    # moved immediately to fresh temporary registers.
+		    #
+                    # This ensures that the life time of the
+                    # formal parameters is restricted to the 
+		    # function body and is critical in avoiding
+                    # artificial register interferences:
+		    #
+		    fun initial_register_namings_escaping (vl, rl, tl)
+                        = 
+			{   fun e_copy (x ! xs, t::INT_EXPRESSION (t::REG(_, r)) ! rl, rds, rss, xs', rl')
+				    => 
+				    {   t = new_reg ptr;
+
+					add_reg_naming (x, t); 
+
+					e_copy (xs, rl, t ! rds, r ! rss, xs', rl');
+				    };
+
+			        e_copy (x ! xs, r ! rl, rds, rss, xs', rl')
+				    => 
+				    e_copy (xs, rl, rds, rss, x ! xs', r ! rl');
+
+			        e_copy([], [], [], [], xs', rl')
+				    =>
+				    (xs', rl');
+
+			        e_copy([], [], rds, rss, xs', rl')
+				    => 
+				    {   emit (t::COPY_INTS (ity, rds, rss));
+					(xs', rl');
+				    };
+
+			        e_copy (([], _ ! _, _, _, _, _) | (_ ! _, [], _, _, _, _))
+				    =>
+				    error "eCopy";
+                            end;
+
+
+			    fun e_other (x ! xs, t::INT_EXPRESSION (r) ! rl, xs', rl')
+				    => 
+				    {   t = new_reg ptr;
+
+					add_reg_naming (x, t); emit (t::MOVE_INT (ity, t, r)); 
+
+					e_other (xs, rl, xs', rl');
+				    };
+
+			        e_other (x ! xs, (t::FLOAT_EXPRESSION (t::FREG(_, f))) ! rl, xs', rl')
+				    => 
+				    e_other (xs, rl, x ! xs', f ! rl');
+
+			        e_other([], [], xs, rl)
+				    =>
+				    (xs, rl);
+
+			        e_other (_, t::FLOAT_EXPRESSION _ ! _, _, _)
+				    =>
+				    error "eOther: FPR but not FREG";
+
+			        e_other (_, t::BOOL_EXPRESSION _ ! _, _, _)
+				    =>
+				    error "eOther: CCR";
+
+			        e_other (([], _ ! _, _, _) | (_ ! _, [], _, _))
+				    =>
+				    error "eOther";
+                            end;
+
+
+			    fun e_fcopy ([], []) => ();
+
+			        e_fcopy (xs, rl)
+				    => 
+				    {   fs =   map (fn _ = new_freg real64)
+                                                   xs;
+
+					paired_lists::apply 
+					    (fn (x, f) = add_freg_naming (x, t::FREG (fty, f)))
+                                            (xs, fs);
+
+					emit (t::COPY_FLOATS (fty, fs, rl));
+				    };
+                            end;
+
+			    my  (vl', rl')
+                                =
+                                e_copy (vl, rl, [], [], [], []);
+
+                            e_fcopy (e_other (vl', rl', [], []));
+
+			    paired_lists::apply add_type_naming (vl, tl);
+			};
+
+#		    fun initial_register_namings_known (vl, rl, tl)
+#                        = 
+#			{   fun f (v, t::INT_EXPRESSION (reg  as t::REG _ )) =   addExpNaming  (v, reg )
+#			      | f (v, t::FLOAT_EXPRESSION (freg as t::FREG _)) =   addFregNaming (v, freg)
+#			      | f _ = error "initial_register_namings_known::f";
+#
+#                            paired_lists::apply f (vl, rl);
+#
+#			    paired_lists::apply add_type_naming (vl, tl);
+#			};
+
+
+		    # Keep allocation pointer aligned on odd boundary. 
+		    # Note: We have accounted for the extra space this
+		    # eats up in package 'limit'						# limit		is from   src/lib/compiler/codegen/compile-fps/limit.pkg
+		    #
+		    fun update_heap_pointer heap_ptr
+                        = 
+			{   fun adv_by heap_ptr
+                                = 
+				{   advanced_heap_ptr := *advanced_heap_ptr + heap_ptr;
+				    emit (t::MOVE_INT (pty, allocptr_r, t::ADD (address_type, c::allocptr, li heap_ptr)));
+                                };
+
+                            if (heap_ptr != 0)
+                                 
+				if (unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0)
+				     adv_by (heap_ptr+4);
+				else adv_by (heap_ptr  );
+				fi;
+                            fi;
+			};
+
+		    fun test_limit heap_ptr
+                        = 
+			{   fun assign_cc (t::CC(_, cc), v)
+                                    =>
+                                    emit (t::MOVE_BOOL (cc, v));
+
+			        assign_cc _
+                                    =>
+                                    error "test_limit::assign";
+                            end;
+
+                            update_heap_pointer  heap_ptr;
+
+			    case c::exhausted 
+			        THE cc => assign_cc (cc, gc_test);
+			        NULL => (); 
+                            esac;
+			};
+
+
+		    # Function to allocate an integer record
+		    #   x <- [descriptor ... fields]
+		    #
+		    fun ea (r, 0) => r;
+		        ea (r, n) => t::ADD (address_type, r, li n);
+                    end;
+
+		    fun index_ea (r, 0) => r;
+		        index_ea (r, n) => t::ADD (address_type, r, li (n*4));
+                    end;
+
+		    fun alloc_record (mark_comp, mem, desc, fields, heap_ptr)
+                        =  
+			{   fun get_field (v, e, fps::OFFP 0) => e;
+			        get_field (v, e, fps::OFFP n) => t::ADD (address_type, e, li (4*n));
+			        get_field (v, e, p          ) => get_path (get_region v, e, p);
+                            end 
+
+			    also
+                            fun get_path (mem, e, fps::OFFP n)
+                                    =>
+                                    index_ea (e, n);
+
+			        get_path (mem, e, fps::SELP (n, fps::OFFP 0))
+				    =>
+				    mark_comp (t::LOAD (ity, index_ea (e, n), projection (mem, n)));
+
+			        get_path (mem, e, fps::SELP (n, p))
+				    =>
+				    {   mem =   projection (mem, n);
+
+					get_path (mem, mark_ptr (t::LOAD (ity, index_ea (e, n), mem)), p);
+				    };
+                            end;
+
+			    fun store_fields ([], heap_ptr, element)
+                                    =>
+                                    heap_ptr;
+
+			        store_fields((v, p) ! fields, heap_ptr, element)
+				    =>  
+				    {   emit (t::STORE (ity, t::ADD (address_type, c::allocptr, li heap_ptr),
+					     get_field (v, regbind' v, p), projection (mem, element)));
+
+					store_fields (fields, heap_ptr+4, element+1);
+				    };
+                            end;
+
+
+                            emit (t::STORE (ity, ea (c::allocptr, heap_ptr), desc, projection (mem, -1)));
+			    store_fields (fields, heap_ptr+4, 0);
+			    heap_ptr+4;
+			};
+
+
+
+		    # Allocate a floating point record
+		    #   x <- [descriptor ... fields]
+		    #
+		    fun alloc_frecord (mem, desc, fields, heap_ptr)
+                        = 
+			{   fun fea (r, 0) => r;
+			        fea (r, n) => t::ADD (address_type, r, li (n*8));
+                            end;
+
+			    fun fget_field (v, fps::OFFP 0) => fregbind v;
+			        fget_field (v, fps::OFFP _) => error "allocFrecord::fgetField";
+			        fget_field (v, p          ) => fget_path (get_region v, regbind' v, p);
+                            end 
+
+
+			    also
+                            fun fget_path (mem, e, fps::OFFP _)
+                                    =>
+                                    error "allocFrecord::fgetPath";
+
+			        fget_path (mem, e, fps::SELP (n, fps::OFFP 0))
+                                    =>
+				    mark_flt (t::FLOAD (fty, fea (e, n), projection (mem, n)));
+
+			        fget_path (mem, e, fps::SELP (n, p))
+				    =>
+				    {   mem =   projection (mem, n);
+
+				        fget_path (mem, mark_ptr (t::LOAD (ity, index_ea (e, n), mem)), p);
+				    };
+                            end;
+
+
+			    fun fstore_fields ([], heap_ptr, element)
+                                    =>
+                                    heap_ptr;
+
+			        fstore_fields((v, p) ! fields, heap_ptr, element)
+				    =>  
+				    {   emit (t::FSTORE (fty, t::ADD (address_type, c::allocptr, li heap_ptr),
+						   fget_field (v, p), projection (mem, element)));
+
+				        fstore_fields (fields, heap_ptr+8, element+1);
+				    };
+                            end;
+
+
+                            emit (t::STORE (ity, ea (c::allocptr, heap_ptr), desc, projection (mem, -1)));
+
+			    fstore_fields (fields, heap_ptr+4, 0);
+
+			    heap_ptr+4;
+			};
+
+
+		    # Allocate a header pair for vector or rw_vector
+		    #
+		    fun alloc_header_pair (hdr_desc, mem, data_ptr, len, heap_ptr)
+                        =
+			{   emit (t::STORE (ity, ea (c::allocptr, heap_ptr), li hdr_desc, projection (mem,-1)));
+
+			    emit (t::STORE (ity, ea (c::allocptr, heap_ptr+4), 
+				         t::REG (ity, data_ptr), projection (mem, 0)));
+
+			    emit (t::STORE (ity, ea (c::allocptr, heap_ptr+8), li (len+len+1),
+				         projection (mem, 1)));
+			    heap_ptr+4;
+		        };
+
+
+		    # Int 31 tag optimizations.
+		    # Note: if the tagging scheme changes
+                    # then we'll have to redo these. XXX BUGGO FIXME
+
+		    fun add_tag e   =   t::ADD (ity, e, one);
+		    fun strip_tag e =   t::SUB (ity, e, one);
+		    fun or_tag e    =   t::BITWISEOR (ity, e, one);
+
+		    fun tag (FALSE, e) => tag_unsigned e; 
+		        tag (TRUE,  e) => tag_signed   e;
+                    end 
+
+		    also
+                    fun tag_unsigned e
+                        = 
+			{   fun double r
+                                =
+                                t::ADD (ity, r, r);
+
+                            case e 
+			      
+				t::REG _
+				    =>
+				    add_tag (double e);
+
+			       _ => {   tmp =   new_reg ptr;		#  XXX ??? 
+
+					t::LET ( t::MOVE_INT (ity, tmp, e),
+					         add_tag (double (t::REG (ity, tmp)))
+                                               );
+				    };
+                            esac;
+			}
+
+		    also
+                    fun tag_signed e
+                        = 
+			{   fun double r
+                                =
+                                t::ADDT (ity, r, r);
+
+                            case e 
+			      
+			         t::REG _
+                                     =>
+                                     add_tag (double e);
+
+			        _ => {   tmp =   new_reg ptr;		#  XXX ??? 
+
+					 t::LET ( t::MOVE_INT (ity, tmp, e),
+						  add_tag (double (t::REG (ity, tmp)))
+						);
+				     };
+                            esac;
+			};
+
+		    fun untag (TRUE,  e) => untag_signed e; 
+		        untag (FALSE, e) => untag_unsigned e;
+                    end 
+
+		    also
+                    fun untag_unsigned (fps::INT i) => li i;
+		        untag_unsigned v            => t::RIGHTSHIFTU (ity, regbind v, one);
+                    end 
+
+		    also
+                    fun untag_signed (fps::INT i) => li i;
+		        untag_signed v            => t::RIGHTSHIFT (ity, regbind v, one);
+                    end;
+
+
+
+		    # Integer operators 
+
+		    fun int31add (add_op, fps::INT k, w     ) =>  add_op (ity, li (k+k), regbind w);
+		        int31add (add_op, w, v as fps::INT _) =>  int31add (add_op, v, w);
+		        int31add (add_op, v, w              ) =>  add_op (ity, regbind v, strip_tag (regbind w));
+                    end;
+
+		    fun int31sub (sub_op, fps::INT k, w) =>  sub_op (ity, li (k+k+2), regbind w);
+		        int31sub (sub_op, v, fps::INT k) =>  sub_op (ity, regbind v, li (k+k));
+		        int31sub (sub_op, v, w         ) =>  add_tag (sub_op (ity, regbind v, regbind w));
+                    end;
+
+		    fun int31xor (fps::INT k, w     ) =>  t::BITWISEXOR (ity, li (k+k), regbind w);
+		        int31xor (w, v as fps::INT _) =>  int31xor (v, w);
+		        int31xor (v, w              ) =>  add_tag (t::BITWISEXOR (ity, regbind v, regbind w));
+                    end;
+
+		    fun int31mul (signed, mul_op, v, w)
+                        = 
+			{   fun f (fps::INT k, fps::INT j) =>   (li (k+k), li (j));
+			        f (fps::INT k, w)          =>   (untag (signed, w), li (k+k));
+			        f (v, w as fps::INT _)     =>   f (w, v);
+			        f (v, w)                   =>   (strip_tag (regbind v), untag (signed, w));
+                            end;
+
+			    my  (v, w) =   f (v, w);
+
+                            add_tag (mul_op (ity, v, w));
+			};
+
+		    fun int31div (signed, drm, v, w)
+                        = 
+			{   my  (v, w)
+				= 
+				case (v, w)
+				    (fps::INT k, fps::INT j) =>   (li k, li j);
+				    (fps::INT k, w)          =>   (li k, untag (signed, w));
+				    (v, fps::INT k)          =>   (untag (signed, v), li (k));
+				    (v, w)                   =>   (untag (signed, v), untag (signed, w));
+                                esac;
+
+			    # The only way a 31-bit div can overflow
+                            # is when the result gets retagged so
+			    # we can use t::DIVS instead of t::DIVT:
+			    #
+			    tag ( signed, 
+				  signed  ??  t::DIVS (drm, ity, v, w)
+				          ::  t::DIVU (ity, v, w)
+                                );
+			};
+
+		    fun int31rem (signed, drm, v, w)
+                        =
+                        {   my  (v, w)
+                                =
+                                case (v, w)
+				    (fps::INT k, fps::INT j) =>   (li k, li j);
+				    (fps::INT k, w)          =>   (li k, untag (signed, w));
+				    (v, fps::INT k)          =>   (untag (signed, v), li (k));
+				    (v, w)                   =>   (untag (signed, v), untag (signed, w));
+                                esac;
+
+		            # Will not overflow, so
+                            # we tag like unsigned:
+			    #
+			    tag ( FALSE,
+				  signed  ??  t::REMS (drm, ity, v, w)
+				          ::  t::REMU (ity, v, w)
+                                );
+			};
+
+		    fun int31lshift (fps::INT k, w)
+			    =>
+			    add_tag (t::LEFTSHIFT (ity, li (k+k), untag_unsigned (w)));
+
+		       int31lshift (v, fps::INT k)
+			    => 
+			    add_tag (t::LEFTSHIFT (ity, strip_tag (regbind v), li (k)));
+
+		       int31lshift (v, w)
+			    => 
+			    add_tag (t::LEFTSHIFT (ity, strip_tag (regbind v), untag_unsigned (w)));
+                    end;
+
+
+		    fun int31rshift (rshift_op, v, fps::INT k)
+			    =>  
+			    or_tag (rshift_op (ity, regbind v, li (k)));
+
+		        int31rshift (rshift_op, v, w)
+			    =>
+			    or_tag (rshift_op (ity, regbind v, untag_unsigned (w)));
+                    end;
+
+
+		    fun get_chunk_descriptor (v)
+                        = 
+		        t::LOAD (ity, t::SUB (pty, regbind v, li (4)), get_region_projection (v, -1));
+
+
+		    fun get_chunk_length (v)
+                        = 
+		        t::RIGHTSHIFTU (ity, get_chunk_descriptor (v), li (d::tag_width - 1));
+
+
+
+		    # Note: Because formals are moved
+                    # into fresh temporaries,
+		    #     (formals intersect actuals)
+                    # is empty. 
+		    #
+		    # Do the treeified computation first so as to prevent extra
+		    # interferences from being created. 
+		    #
+		    fun call_setup (formals, actuals)
+                        = 
+                        gather (formals, actuals, [], [], [], [], [])
+                        where
+
+			    fun is_treeified (fps::VAR r) =>   treeify r == TREEIFIED;
+			        is_treeified _            =>   FALSE;
+                            end;
+
+			    fun gather ([], [], cp_rd, cp_rs, fcopies, treeified, moves)
+				    => 
+				    {   apply emit treeified;
+
+					case (cp_rd, cp_rs) 
+					  
+					    ([],[]) => (); 
+					    _ => emit (t::COPY_INTS (ity, cp_rd, cp_rs));
+                                        esac;
+
+					case fcopies
+					  
+					    [] => (); 
+					    _  => emit (t::COPY_FLOATS (fty, map #1 fcopies, map #2 fcopies));
+                                        esac;
+
+					apply emit moves;
+				    };
+
+			        gather (t::INT_EXPRESSION (t::REG (type, rd)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+				    => 
+				    case (regbind act)
+
+					t::REG(_, rs)
+					    =>
+					    gather (fmls, acts, rd ! cp_rd, rs ! cp_rs, f, t, m);
+
+					e => if   (is_treeified act)
+						  gather (fmls, acts, cp_rd, cp_rs, f,    t::MOVE_INT (type, rd, e) ! t, m);
+					     else gather (fmls, acts, cp_rd, cp_rs, f, t, t::MOVE_INT (type, rd, e) ! m);
+					     fi;
+				     esac;
+
+			        gather (t::INT_EXPRESSION (t::LOAD (type, ea, r)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+				    =>
+				    #  Always store them early! 
+				    gather (fmls, acts, cp_rd, cp_rs, f,
+					   t::STORE (type, ea, regbind act, r) ! t, m);
+
+			        gather (t::FLOAT_EXPRESSION (t::FREG (type, fd)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+				    => 
+				    case (fregbind act)
+
+					t::FREG(_, fs) => 
+					    gather (fmls, acts, cp_rd, cp_rs, (fd, fs) ! f, t, m);
+
+					e => 
+					    if (is_treeified act)
+					        gather (fmls, acts, cp_rd, cp_rs, f, t::MOVE_FLOAT (type, fd, e) ! t, m);
+					    else
+					        gather (fmls, acts, cp_rd, cp_rs, f, t, t::MOVE_FLOAT (type, fd, e) ! m);
+					    fi;
+				     esac;
+
+
+			        gather _
+                                    =>
+                                    error "call_setup::gather";
+                            end;
+			end;
+
+
+		    # Scale-and-add:
+		    #
+		    fun scale1 (a, fps::INT 0) => a;
+		        scale1 (a, fps::INT k) => t::ADD (ity, a, li (k));
+		        scale1 (a, i         ) => t::ADD (ity, a, untag_signed (i));
+                    end;
+		    #
+		    fun scale4 (a, fps::INT 0) => a;
+		        scale4 (a, fps::INT i) => t::ADD (ity, a, li (i*4));
+		        scale4 (a, i         ) => t::ADD (ity, a, t::LEFTSHIFT (ity, untag_signed (i), two));
+                    end;
+		    #
+		    fun scale8 (a, fps::INT 0) => a;
+		        scale8 (a, fps::INT i) => t::ADD (ity, a, li (i*8));
+		        scale8 (a, i         ) => t::ADD (ity, a, t::LEFTSHIFT (ity, strip_tag (regbind i), li (2)));
+                    end;
+
+
+
+		    # Zero-extend and sign-extend:
+		    #
+		    fun zx32 (size, e)
+                        =
+                        t::ZEROEXTEND (32, size, e);
+
+			#  t::RIGHTSHIFTU (32, t::LEFTSHIFT (32, e, li (32 - size)), li (32 - size)) 
+
+		    fun sx32 (size, e)
+                        =
+                        t::SIGNEXTEND (32, size, e);
+
+			#  t::RIGHTSHIFT (32, t::LEFTSHIFT (32, e, li (32 - size)), li (32 - size)) 
+
+		    # Add to storelist, the address
+                    # where a boxed update has occurred:
+		    #
+		    fun record_store (tmp, heap_ptr)
+                        =
+			{   emit (t::STORE (pty, t::ADD (address_type, c::allocptr, li (heap_ptr)),
+						   tmp, r::storelist));
+
+			    emit (t::STORE (pty, t::ADD (address_type, c::allocptr, li (heap_ptr+4)),
+						   c::storeptr  use_virtual_frame_pointer, r::storelist));
+
+			    emit (assign (c::storeptr  use_virtual_frame_pointer, t::ADD (address_type, c::allocptr, li (heap_ptr))));
+                        };
+
+		    fun unsigned_compare oper
+                        = 
+			case oper
+			    p::GT  => t::GTU;   p::GE  => t::GEU; 
+			    p::LT  => t::LTU;   p::LE  => t::LEU;
+			    p::EQL => t::EQ;    p::NEQ => t::NE;
+                        esac;
+
+		    fun signed_compare oper
+                        = 
+			case oper
+			    p::GT  => t::GT;   p::GE  => t::GE;   
+			    p::LT  => t::LT;   p::LE  => t::LE;
+			    p::NEQ => t::NE;   p::EQL => t::EQ;
+                        esac;
+
+		    fun real64cmp (oper, v, w)
+                        = 
+                        t::FCMP (64, fcond, fregbind v, fregbind w)
+                        where
+			    fcond = case oper
+					p::F_EQ  => t::FEQ;  	# XXX BUGGO FIXME should make these name sets identical (do we need both?)
+					p::F_ULG => t::FNEU; 
+					p::F_UN  => t::FUO;   
+					p::F_LEG => t::FGLE; 
+					p::F_GT  => t::FGT;   
+					p::F_GE  => t::FGE;  
+					p::F_UGT => t::FGTU; 
+					p::F_UGE => t::FGEU; 
+					p::F_LT  => t::FLT;   
+					p::F_LE  => t::FLE;  
+					p::F_ULT => t::FLTU; 
+					p::F_ULE => t::FLEU; 
+					p::F_LG  => t::FNE;  
+					p::F_UE  => t::FEQU;
+                                    esac ;
+                        end;
+
+		    fun branch_to_label (lab)
+                        =
+                        t::JUMP (t::LABEL lab,[]);
+
+
+		    stipulate
+
+		        include fps;
+
+		    herein
+
+			# This function initializes a FPS function before we generate
+			# code for it.   Its tasks include:
+			# 1. Add type namings for each definition. This is used to determine
+			#    the parameter passing convention for standard functions.
+			# 2. Compute the number of uses for each variable.  This is
+			#    used in the forward propagation logic.
+			# 3. Check whether the base pointer is needed.  
+			#      It is needed iff 
+			#       a.  There is a reference to LABEL
+			#       b.  It uses SWITCH (the jumptable requires the basepointer)
+			# 4. Generate the gc tests for STANDARD and KNOWN functions
+			# 5. Check to see if floating point allocation is being performed
+			#    in the function.  If so, we will align the allocptr.
+			#
+			fun make_fps_function (lab, kind, f, parameters, formals, tys, e)
+                            = 
+			    {   add =   add_type_naming;
+
+				fun add_use v
+                                    =
+				    case (treeify v)
+					DEAD    =>  add_count_table (v, TREEIFY);
+					TREEIFY =>  add_count_table (v, COMPUTE);
+					COMPUTE =>  ();
+					_       =>  error "add_use";
+                                    esac;
+
+				has_floats =   REF FALSE;		#  Default is no 
+
+				need_base_ptr =   REF FALSE;
+
+
+				fun add_value (VAR v)   =>   add_use v; 
+				    add_value (LABEL _) =>   need_base_ptr := TRUE;
+				    add_value _         =>   ();
+                                end;
+
+
+				fun add_values []             => ();
+				    add_values (VAR v ! vs)   => { add_use v; add_values vs;};
+				    add_values (LABEL _ ! vs) => { need_base_ptr := TRUE; add_values vs;};
+				    add_values(_ ! vs)        => add_values vs;
+                                end;
+
+
+				fun add_rec_values []              => ();
+				    add_rec_values((VAR v, _) ! l) => { add_use v; add_rec_values l;};
+
+				    add_rec_values((LABEL v, _) ! l)
+                                        => 
+				        {   need_base_ptr := TRUE;
+                                            add_rec_values l;
+                                        };
+
+				    add_rec_values(_ ! l)
+                                        =>
+                                        add_rec_values l;
+                                end;
+
+
+				fun init e
+                                    = 
+				    case e
+				      
+				        RECORD (k, vl, x, e)
+					    => 
+					    {   case k
+
+						      (RK_FCONT | RK_FBLOCK)
+							  =>
+							  has_floats := TRUE;
+
+						     _ => (); esac;
+
+						add_rec_values vl;
+						add (x, bogt);
+						init e;
+					    };
+
+				        SELECT (_, v, x, t, e) =>   { add_value v;   add (x, t);    init e; };
+				        OFFSET (_, v, x, e)    =>   { add_value v;   add (x, bogt); init e; };
+
+				        SWITCH (v, _, el)
+                                             => 
+					     {   need_base_ptr := TRUE;
+                                                 add_value v;
+                                                 apply init el;
+                                             };
+
+				        SETTER(_, vl, e)
+                                             => { add_values vl; init e;};
+
+				        LOOKER (looker, vl, x, t, e)
+                                             => 
+					    {   add_values vl;
+
+						# floating subscript cannot move past a floating update.
+						# For now subscript operations cannot be treeified.
+						# This is hacked by making it (falsely) used 
+						# more than once.
+
+						case looker   
+
+						    ( p::NUMSUBSCRIPT { kind=>p::FLOAT _}
+						    | p::RAWLOAD { kind=>p::FLOAT _}
+                                                    )
+                                                        =>
+						        add_count_table (x, COMPUTE);
+
+						    _ => ();
+                                                esac;
+
+						add (x, t);
+
+                                                init e;
+					    };
+
+				        ARITH (_, vl, x, t, e)
+                                            =>
+                                            {   add_values vl;
+						add (x, t);
+						init e;
+					    };
+
+				        RAW_C_CALL(_, _, _, vl, wl, e)
+                                            =>
+                                            {   add_values vl;
+                                                apply add wl;
+                                                init e;
+                                            };
+
+				        PURE (p, vl, x, t, e)
+                                             => 
+					     {   case p
+						     p::FWRAP =>  has_floats := TRUE;
+					             _        =>  ();
+                                                 esac;
+
+					         add_values vl;
+                                                 add (x, t);
+                                                 init e;
+					     };
+
+				        BRANCH(_, vl, _, e1, e2)
+                                             =>
+                                             {   add_values vl;
+                                                 init e1;
+                                                 init e2;
+                                             };
+
+				        APPLY (v, vl)
+                                             =>
+                                             {   add_value v;
+                                                 add_values vl;
+                                             };
+
+				        _ => error "make_fps_function";
+                                    esac;
+
+
+                                # Print debugging information 
+				#
+				if *cg::printit
+
+                                    print_fps_fun (kind, f, parameters, tys, e);
+                                fi;
+
+
+				# Move parameters 
+				#
+				case kind
+				  
+				    KNOWN
+					=>
+					{   define_local_label lab;
+					    init e;
+					    initial_register_namings_escaping (parameters, formals, tys);
+					};
+
+				    KNOWN_CHECK
+					=>
+					{   define_local_label lab;
+
+					    #  gc test 
+
+					    if     (*do_extra_lowcode_optimizations and *lowcode_gc_safety)
+						   garbage_collector::optimized_known_function_check_limit;
+					    else   garbage_collector::known_function_check_limit;
+                                            fi
+
+					    stream
+					      { max_alloc => 4*max_alloc f,
+                                                regfmls   =>formals,
+
+                                                regtys    => tys, 
+						return    => branch_to_label lab
+					      };
+
+					    init e;
+					    initial_register_namings_escaping (parameters, formals, tys);
+					};
+
+				    _ =>
+					# Standard function:
+					#
+					{   regfmls = formals;
+
+					    my (linkreg, regfmls_tl)
+						=
+						case formals
+
+						    (t::INT_EXPRESSION linkreg ! regfmls_tl)
+							=>
+							(linkreg, regfmls_tl);
+
+						    _ => error "no linkreg for standard function";
+						esac;
+
+					    entry_lab
+						= 
+						split_entry_block
+						    ??   function_label(-f - 1)
+						    ::   lab;
+
+					    if split_entry_block
+						define_global_label entry_lab; 
+						add_note    empty_block;
+						define_local_label lab;
+					    else 
+						define_global_label lab;
+					    fi;
+
+					    clear_tables();
+					    init e;
+
+					    if *need_base_ptr
+
+						baseval
+						    = 
+						    t::ADD (address_type, linkreg, 
+							  t::LABEXP (t::SUB (address_type,
+							      const_base_reg_offset,
+							      t::LABEL entry_lab)));
+
+						emit (assign (c::baseptr  use_virtual_frame_pointer, baseval));
+					    fi;
+
+					    garbage_collector::standard_function_check_limit
+						stream
+						{ max_alloc => 4 * max_alloc f,
+						  regfmls, 
+						  regtys   => tys,
+						  return   => t::JUMP (linkreg,[])
+						};
+
+					    initial_register_namings_escaping (
+						list::tail parameters,
+						regfmls_tl,
+						list::tail tys
+					    );
+					};
+				esac;
+
+				# Align the allocation
+                                # pointer if necessary:
+				#
+				if *has_floats
+
+				    emit (t::MOVE_INT  (pty, allocptr_r,
+					  t::BITWISEOR (pty, c::allocptr, li 4)));
+                                fi;
+
+				# Generate code:
+				#
+				advanced_heap_ptr := 0;
+				gen (e, 0);
+			    }
+
+			also
+                        fun define (r, x, e, k, heap_ptr)		# Generate code for   x := e;   k
+                            = 
+			    {   add_reg_naming (x, r);
+			        emit (t::MOVE_INT (ity, r, e));  
+			        gen (k, heap_ptr);
+			    }
+
+			also
+                        fun def (gc, x, e, k, heap_ptr)
+                            =
+                            define (new_reg gc, x, e, k, heap_ptr)
+
+			also
+                        fun def_with_cty (cty, x, e, k, heap_ptr)
+                            =
+                            define (new_reg_with_cty cty, x, e, k, heap_ptr)
+
+			also
+                        fun def_with_kind (kind, x, e, k, heap_ptr)
+                            = 
+			    define (new_reg_with_kind kind, x, e, k, heap_ptr)
+
+			also fun def_i31   (x, e, k, heap_ptr) =   def (i31, x, e, k, heap_ptr)
+			also fun def_i32   (x, e, k, heap_ptr) =   def (i32, x, e, k, heap_ptr)
+			also fun def_boxed (x, e, k, heap_ptr) =   def (ptr, x, e, k, heap_ptr)
+
+			also
+                        fun treeify_def (x, e, cty, k, heap_ptr)		# Generate code for x:  cty := e; k
+                            = 
+			    case (treeify x)
+			      
+				COMPUTE => def_with_cty (cty, x, e, k, heap_ptr);
+
+				TREEIFY => {   mark_as_treeified x;
+					       add_exp_naming (x, mark_gc (e, cty)); gen (k, heap_ptr);
+                                           };
+
+				DEAD    => gen (k, heap_ptr);
+
+				_       => error "treeifyDef";
+                            esac
+
+			# Generate code for
+			#    x := allocptr + offset; k
+			# where offset is the address offset of a newly allocated record.
+			# If x is only used once, we try to propagate that to its use.
+			#
+			also
+                        fun def_alloc (x, offset, k, heap_ptr)
+                            = 
+			    def_boxed (x, t::ADD (address_type, c::allocptr, li offset), k, heap_ptr)
+
+
+			# Generate code for
+			#    x := allocptr + offset; k
+			# Forward propagate until it is used.
+			#
+			also
+                        fun treeify_alloc (x, offset, k, heap_ptr)
+                            = 
+			    case (treeify x)
+
+			        COMPUTE => def_alloc (x, offset, k, heap_ptr);
+
+				TREEIFY
+				     =>
+				     # Note, don't mark this as treeified since it has low
+				     # register pressure.
+
+				     {   absolute_alloc_offset =   offset + *advanced_heap_ptr;
+
+					 add_exp_naming (x, t::CONST (absolute_alloc_offset));
+
+					 gen (k, heap_ptr);
+				     };
+
+				DEAD => gen (k, heap_ptr);
+				_    => error "treeifyAlloc";
+                            esac
+
+			also
+                        fun computef64 (x, e, k, heap_ptr)
+                            =
+                            {   f =   new_freg real64;
+
+				add_freg_naming (x, t::FREG (fty, f));  
+				emit (t::MOVE_FLOAT (fty, f, e));  
+				gen (k, heap_ptr);
+			    }
+
+			also
+                        fun treeify_def_f64 (x, e, k, heap_ptr)		#   x <- e   where e contains a floating-point value
+                            = 
+			    case (treeify x)
+
+				DEAD    => gen (k, heap_ptr);
+
+				TREEIFY => {   mark_as_treeified x; 
+					       add_freg_naming (x, e); gen (k, heap_ptr);
+                                           };
+
+				COMPUTE => computef64 (x, e, k, heap_ptr);
+
+				_       => error "treeifyDefF64";
+			    esac
+
+			also
+                        fun nop (x, v, e, heap_ptr)
+                            =
+                            def_i31 (x, regbind v, e, heap_ptr)
+
+			also
+                        fun copy (gc, x, v, k, heap_ptr)
+                            = 
+			    {   dst =   new_reg gc;
+
+                                add_reg_naming (x, dst);
+
+				case (regbind v)
+
+				    t::REG(_, src)
+                                        =>
+                                        emit (t::COPY_INTS (ity, [dst], [src]));
+
+				    e => emit (t::MOVE_INT (ity, dst, e));
+                                esac;
+
+				gen (k, heap_ptr);
+			    }
+
+			also
+                        fun copy_m (31, x, v, k, heap_ptr)  =>  copy (i31, x, v, k, heap_ptr);
+			    copy_m ( _, x, v, k, heap_ptr)  =>  copy (i32, x, v, k, heap_ptr);
+                        end 
+
+			also
+                        fun eq_val (VAR  x,   VAR y)   =>   x == y; 
+			    eq_val (LABEL x, LABEL y)   =>   x == y; 
+			    eq_val (INT   x,   INT y)   =>   x == y;
+			    eq_val _ => FALSE;
+                        end     
+
+			also
+                        fun branch (cv, compare, [v, w], yes, no, heap_ptr)	#  normal branches 
+				=> 
+				{   true_lab =   new_label ();
+
+				    #  Is single assignment great or what! 
+				    emit
+					(branch_with_prob
+					  (t::BCC (t::CMP (32, compare, regbind v, regbind w), true_lab), 
+					   branch_prob cv));
+
+				    gen_cont (no, heap_ptr);
+				    genlab (true_lab, yes, heap_ptr);
+				};
+
+			   branch _
+                               =>
+                               error "branch";
+                        end 
+
+			    
+			also
+                        fun branch_on_boxed (cv, x, yes, no, heap_ptr)		 # Branch if x is boxed
+			    = 
+			    {   lab =   new_label ();
+
+				compare =   t::CMP (32, t::NE, t::BITWISEAND (ity, regbind x, one), zero);
+
+				emit (branch_with_prob (t::BCC (compare, lab), branch_prob cv));
+
+				gen_cont (yes, heap_ptr);
+
+				genlab (lab, no, heap_ptr);
+			    }
+
+
+			also
+                        fun branch_streq (n, v, w, yes, no, heap_ptr)		 #  Branch if are identical strings v, w of length n 
+			    =
+			    {   n' =   ((n+3) / 4) * 4;
+
+				false_lab =   new_label ();
+
+				r1 =   new_reg i32;
+				r2 =   new_reg i32;
+
+				fun compare_word (i)
+				    = 
+				    t::CMP (32, t::NE, 
+					  t::LOAD (ity, t::ADD (ity, t::REG (ity, r1), i), r::readonly), 
+					  t::LOAD (ity, t::ADD (ity, t::REG (ity, r2), i), r::readonly));
+
+				fun unroll i
+				    = 
+				    if (i != n')
+					emit (t::BCC (compare_word (li (i)), false_lab));
+					unroll (i+4);
+				    fi;
+
+
+				emit (t::MOVE_INT (ity, r1, t::LOAD (ity, regbind v, r::readonly)));
+				emit (t::MOVE_INT (ity, r2, t::LOAD (ity, regbind w, r::readonly)));
+				unroll 0;
+				gen_cont (yes, heap_ptr);
+				genlab (false_lab, no, heap_ptr);
+			    }
+
+			    
+			also
+                        fun condmove (oper, args, x, t, e, heap_ptr)		 #  Conditional move 
+                            = 
+			    {    fun signed (oper, v, w)
+                                     =
+				     t::CMP (32, signed_compare oper, regbind v, regbind w);
+
+				 fun unsigned (oper, v, w)
+                                     = 
+				     t::CMP (32, unsigned_compare oper, regbind v, regbind w);
+
+				 fun equal (v, w)
+                                     = 
+				     t::CMP (32, t::EQ, regbind v, regbind w);
+
+				 fun notequal (v, w)
+                                     = 
+				     t::CMP (32, t::NE, regbind v, regbind w);
+
+				 fun unboxed x
+                                     = 
+				     t::CMP (32, t::NE, t::BITWISEAND (ity, regbind x, one), zero);
+
+				 fun boxed x
+                                     = 
+				     t::CMP (32, t::EQ, t::BITWISEAND (ity, regbind x, one), zero);
+
+				 my (compare, a, b)
+                                     = 
+				     case (oper, args)
+
+					 (p::CMP { oper, kind=>p::INT 31 },[v, w, a, b])
+					     =>
+					     (signed (oper, v, w), a, b);
+
+					 (p::CMP { oper, kind=>p::UINT 31 },[v, w, a, b])
+					     =>
+					     (unsigned (oper, v, w), a, b);
+
+					 (p::CMP { oper, kind=>p::INT 32 },[v, w, a, b])
+					     =>
+					     (signed (oper, v, w), a, b);
+
+					 (p::CMP { oper, kind=>p::UINT 32 },[v, w, a, b])
+					     =>
+					     (unsigned (oper, v, w), a, b);
+
+					 (p::FCMP { oper, size=>64 },[v, w, a, b])
+					     =>
+					     (real64cmp (oper, v, w), a, b);
+
+					(p::PEQL,[v, w, a, b])  => (equal    (v, w), a, b);
+					(p::PNEQ,[v, w, a, b])  => (notequal (v, w), a, b);
+					(p::BOXED,[v, a, b])    => (boxed v, a, b);
+					(p::UNBOXED,[v, a, b])  => (unboxed v, a, b);
+
+					_ => error "condmove";
+                                    esac;
+
+                                case t
+				  
+				    FLTT => computef64
+                                                (x, t::FCOND (64, compare, fregbind a, fregbind b), e, heap_ptr);
+
+				    _    => def_with_cty
+                                                (t, x, t::COND (32, compare, regbind a, regbind b), e, heap_ptr);
+                                esac;
+			    }
+
+			also
+                        fun arith (gc, oper, v, w, x, e, heap_ptr)
+                            = 
+			    def (gc, x, oper (ity, regbind v, regbind w), e, heap_ptr)
+
+			also
+                        fun arith32 (oper, v, w, x, e, heap_ptr)
+                            = 
+			    arith (i32, oper, v, w, x, e, heap_ptr) 
+
+			also
+                        fun logical (gc, oper, v, w, x, e, heap_ptr)
+                            = 
+			    def (gc, x, oper (ity, regbind v, untag_unsigned (w)), e, heap_ptr)
+
+			also
+                        fun logical31 (oper, v, w, x, e, heap_ptr)
+                            = 
+			    logical (i31, oper, v, w, x, e, heap_ptr) 
+
+			also
+                        fun logical32 (oper, v, w, x, e, heap_ptr)
+                            = 
+			    logical (i32, oper, v, w, x, e, heap_ptr) 
+
+			also
+                        fun gen_cont (e, heap_ptr)
+                            = 
+			    {   save =   *advanced_heap_ptr;
+
+                                gen (e, heap_ptr);
+
+                                advanced_heap_ptr := save;
+                            }
+
+			also
+                        fun genlab (lab, e, heap_ptr)
+                            =
+                            {   define_local_label lab;
+                                gen (e, heap_ptr);
+                            }
+
+			also
+                        fun genlab_cont (lab, e, heap_ptr)
+                            =
+                            {   define_local_label lab;
+                                gen_cont (e, heap_ptr);
+                            }
+
+			    
+			also
+                        fun make_record (vl, w, e, heap_ptr)		 #  Allocate a normal record 
+			    = 
+			    {   len =   length vl;
+
+				desc =   dtoi (d::make_desc (len, d::tag_record));
+
+				treeify_alloc (
+                                   w, 
+				   alloc_record (mark_ptr, mem_disambig w, li desc, vl, heap_ptr), 
+				   e,
+                                   heap_ptr + 4 + len*4
+                                );
+			    }
+
+			     
+			also
+                        fun make_i32block (vl, w, e, heap_ptr)		 #  Allocate a record with I32 components 
+			    = 
+			    {   len  =   length vl;
+				desc =   dtoi (d::make_desc (len, d::tag_raw32));
+
+				treeify_alloc (
+                                    w,
+				    alloc_record (mark_i32, mem_disambig w, li desc, vl, heap_ptr),
+				    e,
+                                    heap_ptr + 4 + len*4
+                                );
+			    }
+
+			    
+			also
+                        fun make_fblock (vl, w, e, heap_ptr)			 #  Allocate a floating point record 
+			    =
+			    {   len =   list::length vl;
+
+				desc =   dtoi (d::make_desc (len+len, d::tag_raw64));
+
+				# At initialization the allocation pointer is aligned on
+				# an odd-word boundary, and the heap offset set to zero. If an
+				# odd number of words have been allocated then the heap pointer
+				# is misaligned for this record creation.
+				#
+				heap_ptr
+                                    =
+                                    unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0
+                                      ??  heap_ptr + 4
+				      ::  heap_ptr;
+
+
+				# The components are floating point 
+				#
+				treeify_alloc (
+                                    w,
+				    alloc_frecord (mem_disambig w, li desc, vl, heap_ptr),
+				    e,
+                                    heap_ptr + 4 + len*8
+                                );
+			    }
+
+			    
+			also
+                        fun make_vector (vl, w, e, heap_ptr)			 #  Allocate a vector 
+			    = 
+			    {   len       =   length vl;
+
+				hdr_desc  =   dtoi (d::desc_polyvec);
+				data_desc =   dtoi (d::make_desc (len, d::tag_vec_data));
+
+				data_ptr  =   new_reg ptr;
+				mem       = mem_disambig w;
+				heap_ptr' = heap_ptr + 4 + len*4;
+
+				# The components are boxed. 
+				# Allocate the data:
+
+				alloc_record (mark_ptr, mem, li data_desc, vl, heap_ptr);
+
+				emit (t::MOVE_INT (pty, data_ptr, ea (c::allocptr, heap_ptr+4)));
+
+				# Now allocate the header pair:
+				#
+				treeify_alloc (
+                                    w, 
+				    alloc_header_pair (hdr_desc, mem, data_ptr, len, heap_ptr+4+len*4), 
+				    e,
+                                    heap_ptr'+12
+                                );
+			    }
+
+			also
+                        fun fselect (i, v, x, e, heap_ptr)		 #  Floating point select: 
+                            = 
+			    treeify_def_f64 (
+                                x, 
+				t::FLOAD (fty, scale8 (regbind v, INT i), r::real),
+				e,
+                                heap_ptr
+                            )
+
+			also
+                        fun select (i, v, x, t, e, heap_ptr)		 #  Non-floating point select: 
+                            =
+			    treeify_def (
+                                x, 
+				t::LOAD (ity, scale4 (regbind v, INT i), get_region_projection (v, i)),
+				t,
+                                e,
+                                heap_ptr
+                            )
+			
+			also
+                        fun funny_select (i, k, x, t, e, heap_ptr)		 #  Funny select; I don't know that this does: 
+			    =
+			    {   unboxedfloat =   ms::unboxed_floats;
+
+				fun is_flt t
+				    = 
+				    if unboxedfloat
+					 (case t    FLTT => TRUE;  _ => FALSE; esac);
+				    else FALSE; fi;
+
+				fun falloc_sp (x, e, heap_ptr)
+				    =
+				    {   add_freg_naming (x, t::FREG (fty, new_freg real64));
+					gen (e, heap_ptr);
+				    };
+
+				# WARNING: the following generated code should never be executed!
+				# It is semantic nonsense! XXX BUGGO FIXME
+				#
+				if  (is_flt t)
+				     falloc_sp (x, e, heap_ptr);
+				else def_i32 (x, li k, e, heap_ptr);		#  BOGUS 
+				fi;					
+			    }
+
+			    
+			also
+                        fun external_app (f, args, heap_ptr)			 #  Call an external function: 
+			    = 
+			    {   ctys =   map grabty args;
+
+				formals
+				    =
+				    arg_passing::standard
+                                      {
+                                        use_virtual_frame_pointer,
+                                        fn_type => typmap f,
+                                        arg_tys => ctys
+                                      };
+
+				dest =  case formals
+					    (t::INT_EXPRESSION dest ! _)
+                                                =>
+                                                dest;
+
+					    _   => error "external_app: dest";
+                                        esac;
+
+
+				call_setup (formals, args);
+
+				if lowcode_gc_types
+
+                                    add_note (
+					gc_annotation (
+					    garbage_collection_cells::gcliveout.create, 
+					    formals,
+					    ctys
+					)
+				    );
+			        fi;
+
+				test_limit heap_ptr;
+
+				emit (t::JUMP (dest, []));
+
+				end_procedure (formals @ dedicated);
+			    }
+
+			
+			also
+                        fun internal_app (f, args, heap_ptr)		 #  Call an internal function: 
+			    = 
+			    case (lookup_gen_table f)
+
+				frag::KNOWNFUN (REF (frag::GEN formals))
+				    => 
+				    {   update_heap_pointer (heap_ptr);
+					call_setup (formals, args); 
+					emit (branch_to_label (function_label f));
+				    };
+
+			       frag::KNOWNFUN (r as REF (frag::UNGEN (f, vl, tl, e)))
+				    => 
+				    {   formals = known tl;
+					lab = function_label f;
+					r := frag::GEN formals;
+					update_heap_pointer (heap_ptr);
+					call_setup (formals, args);
+					make_fps_function (lab, KNOWN, f, vl, formals, tl, e);
+				    };
+
+			       frag::KNOWNCHK (r as REF (frag::UNGEN (f, vl, tl, e)))
+				    => 
+				    {   formals
+					    = 
+					    ms::fixed_arg_passing
+					      ?? arg_passing::fixed { arg_tys=>tl, use_virtual_frame_pointer }
+                                              ::  known tl;
+
+					lab = function_label f;
+
+					r := frag::GEN formals;
+					call_setup (formals, args);
+					test_limit heap_ptr;
+					make_fps_function (lab, KNOWN_CHECK, f, vl, formals, tl, e);
+				    };
+
+			       frag::KNOWNCHK (REF (frag::GEN formals))
+				    => 
+				    {   call_setup (formals, args); 
+					test_limit heap_ptr;
+					emit (branch_to_label (function_label f));
+				    };
+
+			       frag::STANDARD { fml_typs, ... }
+				    => 
+				    {   formals
+					    =
+					    arg_passing::standard
+                                              { fn_type => typmap f,
+                                                arg_tys => fml_typs,
+                                                use_virtual_frame_pointer
+                                              };
+
+					call_setup (formals, args);
+					test_limit heap_ptr;
+					emit (branch_to_label (function_label f));
+				    };
+			    esac
+
+			also
+                        fun rawload ((p::INT 32 | p::UINT 32), i, x, e, heap_ptr)
+				=>
+				def_i32 (x, t::LOAD (32, i, r::memory), e, heap_ptr);
+
+			    rawload (p::INT (size as (8 | 16)), i, x, e, heap_ptr)
+				=>
+				def_i32 (x, sx32 (size, t::LOAD (size, i, r::memory)), e, heap_ptr);
+
+			    rawload (p::UINT (size as (8 | 16)), i, x, e, heap_ptr)
+				=>
+				def_i32 (x, zx32 (size, t::LOAD (size, i, r::memory)), e, heap_ptr);
+
+			    rawload ((p::UINT size | p::INT size), _, _, _, _)
+				=>
+				error ("rawload: unsupported size: " + int::to_string size);
+
+			    rawload (p::FLOAT 64, i, x, e, heap_ptr)
+				=>
+				treeify_def_f64 (x, t::FLOAD (64, i, r::memory), e, heap_ptr);
+
+			    rawload (p::FLOAT 32, i, x, e, heap_ptr)
+				=>
+				treeify_def_f64 (x, t::CVTF2F (64, 32, t::FLOAD (32, i, r::memory)),
+					       e, heap_ptr);
+
+			    rawload (p::FLOAT size, _, _, _, _)
+				=>
+				error ("rawload: unsupported float size: " + int::to_string size);
+                        end 
+
+			also
+                        fun rawstore ((p::UINT (size as (8 | 16 | 32)) |
+				       p::INT (size as (8 | 16 | 32))), i, x)
+				=>
+				# Both address and value are 32-bit values;
+                                # only size bits of the value are being stored:
+				#
+				emit (t::STORE (size, i, regbind x, r::memory));
+
+			    rawstore ((p::UINT size | p::INT size), _, _)
+				=>
+				error ("rawstore: unsupported int size: " + int::to_string size);
+
+			    rawstore (p::FLOAT (size as (32 | 64)), i, x)
+				=>
+				emit (t::FSTORE (size, i, fregbind x, r::memory));
+
+			    rawstore (p::FLOAT size, _, _)
+				=>
+				error ("rawstore: unsupported float size: " + int::to_string size);
+                        end 
+
+
+
+			# Generate code 
+
+
+			  
+                        # RECORD
+			also
+                        fun gen (RECORD (RK_FCONT,    vl, w, e), heap_ptr)   =>   make_fblock   (vl, w, e, heap_ptr);
+			    gen (RECORD (RK_FBLOCK,   vl, w, e), heap_ptr)   =>   make_fblock   (vl, w, e, heap_ptr);
+			    gen (RECORD (RK_VECTOR,   vl, w, e), heap_ptr)   =>   make_vector   (vl, w, e, heap_ptr);
+			    gen (RECORD (RK_I32BLOCK, vl, w, e), heap_ptr)   =>   make_i32block (vl, w, e, heap_ptr);
+			    gen (RECORD (_,           vl, w, e), heap_ptr)   =>   make_record   (vl, w, e, heap_ptr);
+
+			    # ** SELECT **
+			    gen (SELECT (i, INT k, x, t, e), heap_ptr)   =>   funny_select (i, k, x, t, e, heap_ptr);
+			    gen (SELECT (i, v, x, FLTT,  e), heap_ptr)   =>   fselect      (i, v, x,    e, heap_ptr);
+			    gen (SELECT (i, v, x, t,     e), heap_ptr)   =>   select       (i, v, x, t, e, heap_ptr);
+
+			    # ** OFFSET **
+			    gen (OFFSET (i, v, x, e), heap_ptr)
+				=>
+				def_boxed (x, scale4 (regbind v, INT i), e, heap_ptr);
+
+			    # ** APPLY **
+			    gen (APPLY (INT k, args), heap_ptr) => update_heap_pointer (heap_ptr);
+			    gen (APPLY (VAR f, args), heap_ptr) => external_app (f, args, heap_ptr);
+			    gen (APPLY (LABEL f, args), heap_ptr) => internal_app (f, args, heap_ptr);
+
+			    # ** SWITCH **
+			    gen (SWITCH (INT _, _, _), heap_ptr) => error "SWITCH";
+
+			    gen (SWITCH (v, _, l), heap_ptr)
+				 => 
+				 {   lab  =   new_label ();
+				     labs =   map (fn _ => new_label(); end ) l;
+
+				     tmp_r =   new_reg i32;
+				     tmp  =   t::REG (ity, tmp_r);
+
+				     emit (t::MOVE_INT (ity, tmp_r, laddr (lab, 0)));
+				     emit (t::JUMP (t::ADD (address_type, tmp, t::LOAD (pty, scale4 (tmp, v), 
+									  r::readonly)), labs));
+				     emit_pseudo_op (pb::DATA_READ_ONLY);
+				     emit_pseudo_op (pb::EXT (cpo::JUMPTABLE { base=>lab, targets=>labs } ));
+				     emit_pseudo_op (pb::TEXT);
+
+				     paired_lists::apply
+                                         (fn (lab, e) = genlab_cont (lab, e, heap_ptr))
+                                         (labs, l);
+				 };
+
+			    # ** PURE **
+			    gen (PURE (p::REAL { fromkind=>p::INT 31, tokind=>p::FLOAT 64 },  
+				      [v], x, _, e), heap_ptr)
+				 => 
+				 treeify_def_f64 (x, t::CVTI2F (fty, ity, untag_signed (v)), e, heap_ptr);
+
+			    gen (PURE (p::REAL { fromkind=>p::INT 32, tokind=>p::FLOAT 64 },
+				      [v], x, _, e), heap_ptr)
+				=>
+				treeify_def_f64 (x, t::CVTI2F (fty, ity, regbind v), e, heap_ptr);
+
+			    gen (PURE (p::PURE_ARITH { oper, kind=>p::FLOAT 64 }, [v], x, _, e), heap_ptr)
+				=>
+				{   r = fregbind v;
+
+				      case oper   
+					  p::NEGATE =>   treeify_def_f64 (x, t::FNEG (fty, r), e, heap_ptr);
+					  p::ABS    =>   treeify_def_f64 (x, t::FABS (fty, r), e, heap_ptr);
+					  p::FSQRT  =>   treeify_def_f64 (x, t::FSQRT (fty, r), e, heap_ptr);
+
+					  p::FSIN   =>   computef64 (x, t::FEXT (fty, e::FSINE r), e, heap_ptr);
+					  p::FCOS   =>   computef64 (x, t::FEXT (fty, e::FCOSINE r), e, heap_ptr);
+					  p::FTAN   =>   computef64 (x, t::FEXT (fty, e::FTANGENT r), e, heap_ptr);
+
+					  _ => error "unexpected primitive_operation in pure unary float64";
+				      esac;
+				};
+
+			    gen (PURE (p::PURE_ARITH { oper, kind=>p::FLOAT 64 }, [v, w], x, _, e), heap_ptr)
+				=> 
+				{   v = fregbind v; 
+				    w = fregbind w;
+
+				    t = case oper   
+					    p::ADD      => t::FADD (fty, v, w);
+					    p::MULTIPLY => t::FMUL (fty, v, w);
+					    p::SUBTRACT => t::FSUB (fty, v, w);
+					    p::DIVIDE   => t::FDIV (fty, v, w);
+					    _ => error "unexpected primitive_operation in pure binary float64";
+					esac;
+
+				    treeify_def_f64 (x, t, e, heap_ptr);
+				};
+
+			    gen (PURE (p::PURE_ARITH { oper=>p::BITWISEOR, kind }, [v, w], x, _, e), heap_ptr)
+				=> 
+				def_with_kind (kind, x, t::BITWISEOR (ity, regbind v, regbind w), e, heap_ptr);
+
+			    gen (PURE (p::PURE_ARITH { oper=>p::BITWISEAND, kind }, [v, w], x, _, e), heap_ptr)
+				=> 
+				def_with_kind (kind, x, t::BITWISEAND (ity, regbind v, regbind w), e, heap_ptr);
+
+			    gen (PURE (p::PURE_ARITH { oper, kind }, [v, w], x, type, e), heap_ptr)
+				=> 
+				case kind
+
+				    p::INT 31
+					=>
+					case oper   
+					    p::BITWISEXOR => def_i31 (x, int31xor (v, w), e, heap_ptr);
+					    p::LSHIFT     => def_i31 (x, int31lshift (v, w), e, heap_ptr);
+					    p::RSHIFT     => def_i31 (x, int31rshift (t::RIGHTSHIFT, v, w), e, heap_ptr);
+
+					    p::ADD        => def_i31 (x, int31add (t::ADD, v, w), e, heap_ptr);
+					    p::SUBTRACT   => def_i31 (x, int31sub (t::SUB, v, w), e, heap_ptr);
+					    p::MULTIPLY   => def_i31 (x, int31mul (TRUE, t::MULS, v, w), e, heap_ptr);
+
+					    _ => error "gen: PURE INT 31";
+					esac;
+
+				   p::INT 32
+				       =>
+				       case oper   
+					   p::BITWISEXOR  => arith32   (t::BITWISEXOR, v, w, x, e, heap_ptr);
+
+					   p::LSHIFT      => logical32 (t::LEFTSHIFT,  v, w, x, e, heap_ptr);
+					   p::RSHIFT      => logical32 (t::RIGHTSHIFT, v, w, x, e, heap_ptr);
+
+					   _ => error "gen: PURE INT 32";
+				       esac;
+
+				   p::UINT 31
+				       =>
+				       case oper   
+					   p::ADD      => def_i31 (x, int31add (t::ADD, v, w), e, heap_ptr);
+					   p::SUBTRACT => def_i31 (x, int31sub (t::SUB, v, w), e, heap_ptr);
+					   p::MULTIPLY => def_i31 (x, int31mul (FALSE, t::MULU, v, w), e, heap_ptr);
+
+					   p::DIVIDE   => # This is not really a pure 
+							  # operation -- oh well:
+							  #
+							  {   update_heap_pointer heap_ptr;
+							      def_i31 (x, int31div (FALSE, t::DIV_TO_ZERO, v, w), e, 0);
+							  };
+
+					   p::REM =>      #  Neither is this -- oh well 
+							  #
+						          {   update_heap_pointer heap_ptr;
+						              def_i31 (x, int31rem (FALSE, t::DIV_TO_ZERO, v, w), e, 0);
+                                                          };
+
+					   p::BITWISEXOR => def_i31 (x, int31xor (v, w), e, heap_ptr);
+					   p::LSHIFT     => def_i31 (x, int31lshift (v, w), e, heap_ptr);
+
+					   p::RSHIFT     => def_i31 (x, int31rshift (t::RIGHTSHIFT,  v, w), e, heap_ptr);
+					   p::RSHIFTL    => def_i31 (x, int31rshift (t::RIGHTSHIFTU, v, w), e, heap_ptr);
+					   _ => error "gen: PURE UINT 31";
+				       esac;
+
+				   p::UINT 32
+				       =>
+				       case oper   
+					   p::ADD       => arith32 (t::ADD, v, w, x, e, heap_ptr);
+					   p::SUBTRACT  => arith32 (t::SUB, v, w, x, e, heap_ptr);
+					   p::MULTIPLY  => arith32 (t::MULU, v, w, x, e, heap_ptr);
+
+					   p::DIVIDE    => {   update_heap_pointer heap_ptr; 
+							       arith32 (t::DIVU, v, w, x, e, 0);
+                                                           };
+
+					   p::REM       => {   update_heap_pointer heap_ptr;
+							       arith32 (t::REMU, v, w, x, e, 0);
+                                                           };
+
+					   p::BITWISEXOR => arith32   (t::BITWISEXOR,  v, w, x, e, heap_ptr);
+					   p::LSHIFT     => logical32 (t::LEFTSHIFT,   v, w, x, e, heap_ptr);
+
+					   p::RSHIFT     => logical32 (t::RIGHTSHIFT,  v, w, x, e, heap_ptr);
+					   p::RSHIFTL    => logical32 (t::RIGHTSHIFTU, v, w, x, e, heap_ptr);
+
+					   _ => error "gen: PURE UINT 32";
+				       esac;
+
+				   _ => error "unexpected numkind in pure binary arithop";
+				esac;
+
+			    gen (PURE (p::PURE_ARITH { oper=>p::BITWISENOT, kind }, [v], x, _, e), heap_ptr)
+				=>
+				case kind 
+
+				    (p::UINT 32 | p::INT 32)
+					=>
+					def_i32 (x, t::BITWISEXOR (ity, regbind v,  lw 0uxFFFFFFFF), e, heap_ptr);
+
+				    (p::UINT 31 | p::INT 31)
+					=>
+					def_i31 (x, t::SUB (ity, zero, regbind v), e, heap_ptr);
+
+				    _ =>   error "unexpected numkind in pure bitwise_not arithop";
+
+				esac;
+
+
+			    gen (PURE (p::PURE_ARITH { oper=>p::NEGATE, kind }, [v], x, _, e), heap_ptr)
+				=>
+				case kind   
+
+				    (p::UINT 32 | p::INT 32)
+					=>
+					def_i32 (x, t::SUB (ity, zero, regbind v), e, heap_ptr);
+
+				    (p::UINT 31 | p::INT 31)
+					=>
+					def_i31 (x, t::SUB (ity, li 2, regbind v), e, heap_ptr);
+
+				    _ => error "unexpected numkind in pure ~ primitive_operation";
+				esac;
+
+			    gen (PURE (p::COPY ft, [v], x, _, e), heap_ptr)
+				=>
+				case ft   
+
+				   (31, 32)
+                                       =>
+				       def_i32 (x, t::RIGHTSHIFTU (ity, regbind v, one), e, heap_ptr);
+
+				   (8, 31)
+                                       =>
+				       copy (i31, x, v, e, heap_ptr);
+
+				   (8, 32)
+                                       =>
+				       def_i32 (x, t::RIGHTSHIFTU (ity, regbind v, one), e, heap_ptr);
+
+				   (n, m) => if (n == m)   copy_m (m, x, v, e, heap_ptr); 
+					     else          error "gen: PURE: copy";
+                                             fi;
+				esac;
+
+
+			    gen (PURE (p::COPY_INF _, _, _, _, _), heap_ptr)
+				=>
+				error "gen: PURE: copy_inf";
+
+			    gen (PURE (p::EXTEND ft, [v], x, _, e), heap_ptr)
+				=> 
+				case ft   
+				    (8, 31) => 
+				      def_i31 (x, 
+					 t::RIGHTSHIFT (ity, t::LEFTSHIFT (ity, regbind v, li 23), li 23),
+					    e, heap_ptr);
+
+				    (8, 32) =>
+				       def_i32 (x, 
+					  t::RIGHTSHIFT (ity, t::LEFTSHIFT (ity, regbind v, li 23), li 24), 
+					     e, heap_ptr);
+
+				   (31, 32) =>
+				      def_i32 (x, t::RIGHTSHIFT (ity, regbind v, one), e, heap_ptr);
+
+				   (n, m) => if (n == m)  copy_m (m, x, v, e, heap_ptr); 
+					     else         error "gen: PURE: extend";
+					     fi;
+				esac;
+
+			    gen (PURE (p::EXTEND_INF _, _, _, _, _), heap_ptr)
+				=>
+				error "gen: PURE: extend_inf";
+
+			    gen (PURE (p::TRUNC ft, [v], x, _, e), heap_ptr)
+				=> 
+				case ft   
+
+				    (32, 31) => 
+					def_i31 (x, t::BITWISEOR (ity, t::LEFTSHIFT (ity, regbind v, one), one), e, heap_ptr);
+
+				    (31, 8) =>
+					 def_i32 (x, t::BITWISEAND (ity, regbind v, li 0x1ff), e, heap_ptr);
+
+				    (32, 8) =>
+					def_i32 (x, tag_unsigned (t::BITWISEAND (ity, regbind v, 
+							    li 0xff)), e, heap_ptr);
+
+				   (n, m) => if (n == m)  copy_m (m, x, v, e, heap_ptr); 
+					     else         error "gen: PURE: trunc";
+                                             fi;
+				esac;
+
+			    gen (PURE (p::TRUNC_INF _, _, _, _, _), heap_ptr)
+				=>
+				error "gen: PURE: trunc_inf";
+
+			    gen (PURE (p::CHUNKLENGTH, [v], x, _, e), heap_ptr)
+				=> 
+				def_i31 (x, or_tag (get_chunk_length (v)), e, heap_ptr);
+
+			    gen (PURE (p::LENGTH, [v], x, t, e), heap_ptr)
+				=>
+				select (1, v, x, t, e, heap_ptr);
+
+			    gen (PURE (p::SUBSCRIPTV, [v, INT i], x, t, e), heap_ptr)
+				=> 
+				{   #  get data pointer 
+				    mem  = dataptr_region v;
+				    a    = mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' = array_region mem;
+
+				    def_boxed (x, t::LOAD (ity, scale4 (a, INT i), mem'), e, heap_ptr);
+				};
+
+			    gen (PURE (p::SUBSCRIPTV, [v, w], x, _, e), heap_ptr)
+				=> 
+				{   # Get data pointer:
+				    # 
+				    mem  = dataptr_region v;
+				    a    = mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' = array_region mem;
+
+				    def_boxed (x, t::LOAD (ity, scale4 (a, w), mem'), e, heap_ptr);
+				};
+
+			    gen (PURE (p::PURE_NUMSUBSCRIPT { kind=>p::INT 8 }, [v, i], x, _, e), heap_ptr)
+				=>
+				{   # Get data pointer:
+				    #
+				    mem  = dataptr_region v;
+				    a    = mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' = array_region mem;
+
+				    def_i31 (x, tag_unsigned (t::LOAD (8, scale1 (a, i), mem')), e, heap_ptr);
+				};
+
+			    gen (PURE (p::GETTAG, [v], x, _, e), heap_ptr)
+				 => 
+				 def_i31 (x, tag_unsigned (t::BITWISEAND (ity, get_chunk_descriptor (v), li (d::pow_tag_width - 1))), e, heap_ptr);
+
+			    gen (PURE (p::MAKE_SPECIAL, [i, v], x, _, e), heap_ptr)
+				=> 
+				{   desc = case i
+					       INT n => li (dtoi (d::make_desc (n, d::tag_special)));
+
+					       _     => t::BITWISEOR (ity, t::LEFTSHIFT (ity, untag_signed (i), li d::tag_width),
+							   li (dtoi d::desc_special));
+                                           esac;
+
+				    # What gc types are the components? 
+				    #
+				    treeify_alloc
+                                      ( x,
+                                        alloc_record (mark_nothing, mem_disambig x, desc, [(v, offp0)], heap_ptr),
+                                        e,
+                                        heap_ptr+8
+                                      );
+				};
+
+			    gen (PURE (p::MAKEREF, [v], x, _, e), heap_ptr)
+				=> 
+				{   tag = li (dtoi d::desc_ref);
+				    mem = mem_disambig x;
+
+				    emit (t::STORE (ity, t::ADD (address_type, c::allocptr, li heap_ptr), tag, mem));
+				    emit (t::STORE (ity, t::ADD (address_type, c::allocptr, li (heap_ptr+4)), 
+						 regbind' v, mem));
+				    treeify_alloc (x, heap_ptr+4, e, heap_ptr+8);
+				};
+
+			    gen (PURE (p::FWRAP,[u], w, _,   e), heap_ptr) =>   make_fblock([(u, offp0)], w, e, heap_ptr);
+			    gen (PURE (p::FUNWRAP,[u], w, _, e), heap_ptr) =>   fselect (0, u, w, e, heap_ptr);
+
+			    gen (PURE (p::IWRAP,[u], w, _,   e), _)  =>   error "iwrap not implemented";
+			    gen (PURE (p::IUNWRAP,[u], w, _, e), _)  =>   error "iunwrap not implemented";
+
+			    gen (PURE (p::I32WRAP,[u], w, _, e), heap_ptr)
+				=> 
+				make_i32block([(u, offp0)], w, e, heap_ptr);
+
+			    gen (PURE (p::I32UNWRAP,[u], w, _, e), heap_ptr)
+				=> 
+				select (0, u, w, INT32T, e, heap_ptr);
+
+			    gen (PURE (p::WRAP,   [u], w, _, e), heap_ptr) => copy (ptr, w, u, e, heap_ptr);
+			    gen (PURE (p::UNWRAP, [u], w, _, e), heap_ptr) => copy (i32, w, u, e, heap_ptr);
+
+			    # Note: the gc type is unsafe! XXX BUGGO FIXME 
+			    #
+			    gen (PURE (p::CAST,[u], w, _, e), heap_ptr) => copy (ptr, w, u, e, heap_ptr);
+
+			    gen (PURE (p::GETCON,[u], w,      t, e), heap_ptr) =>   select (0, u, w, t, e, heap_ptr);
+			    gen (PURE (p::GETEXN,[u], w,      t, e), heap_ptr) =>   select (0, u, w, t, e, heap_ptr);
+			    gen (PURE (p::GETSEQDATA, [u], x, t, e), heap_ptr) =>   select (0, u, x, t, e, heap_ptr);
+
+			    gen (PURE (p::RECSUBSCRIPT, [v, INT w], x, t, e), heap_ptr)
+				=> 
+				select (w, v, x, t, e, heap_ptr);
+
+			    gen (PURE (p::RECSUBSCRIPT, [v, w], x, _, e), heap_ptr)
+				=>
+				# No indirection! 
+				#
+				{   mem = array_region (get_region v);
+
+				    def_i31 (x, t::LOAD (ity, scale4 (regbind v, w), mem), e, heap_ptr);
+				};
+
+			    gen (PURE (p::RAW64SUBSCRIPT, [v, i], x, _, e), heap_ptr)
+				=>
+				{   mem = array_region (get_region v);
+
+				    treeify_def_f64 (x, t::FLOAD (fty, scale8 (regbind v, i), mem), e, heap_ptr);
+				};
+
+			    gen (PURE (p::NEWARRAY0, [_], x, t, e), heap_ptr)
+				=> 
+				{   hdr_desc  =   dtoi (d::desc_polyarr);
+				    data_desc =   dtoi d::desc_ref;
+
+				    data_ptr  =   new_reg ptr;
+				    hdr_m     =   mem_disambig x;
+
+				    my (tag_m, val_m)
+				     = (hdr_m, hdr_m);		#  Allen 
+
+				    # Gen code to allocate "REF()" for rw_vector data 
+				    #
+				    emit (t::STORE (ity, t::ADD (address_type, c::allocptr, li heap_ptr), 
+						 li data_desc, tag_m));
+
+				    emit (t::STORE (ity, t::ADD (address_type, c::allocptr, li (heap_ptr+4)), 
+						 ml_zero, val_m));
+				    emit (t::MOVE_INT (pty, data_ptr, t::ADD (address_type, c::allocptr, li (heap_ptr+4))));
+
+				    # Gen code to allocate rw_vector header:
+
+				    treeify_alloc (x, 
+				       alloc_header_pair (hdr_desc, hdr_m, data_ptr, 0, heap_ptr+8),
+					  e, heap_ptr+20);
+				};
+
+			    gen (PURE (p::RAWRECORD NULL, [INT n], x, _, e), heap_ptr)
+				=>
+				#  Allocate space for FPS spilling 
+				#
+				treeify_alloc (x, heap_ptr, e, heap_ptr+n*4);	# No tag! 
+
+			    gen (PURE (p::RAWRECORD (THE rk), [INT n], x, _, e), heap_ptr)
+				=> 
+				#  Allocate an uninitialized record with a tag 
+				#
+				{   my (tag, fp)
+				       =			#  tagged version 
+				       case rk
+					  (RK_FCONT | RK_FBLOCK) =>   (d::tag_raw64, TRUE);
+					   RK_I32BLOCK           =>   (d::tag_raw32, FALSE);
+
+					   RK_VECTOR             =>   error "rawrecord VECTOR unsupported";
+
+					   _                     =>   (d::tag_record, FALSE);
+                                       esac;
+
+				    len =   if fp  n+n;		# Len of record in 32-bit words. 
+					    else   n;
+                                            fi;
+
+				    desc =   dtoi (d::make_desc (len, tag));	#  record descriptor 
+
+				    #  Align floating point 
+
+				    heap_ptr = if  (fp   and
+					            unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0
+					       )    heap_ptr+4;
+					       else heap_ptr;
+                                               fi;
+
+				    mem =   mem_disambig x;
+
+				    #  store tag now! 
+
+				    emit (t::STORE (ity, ea (c::allocptr, heap_ptr), li desc, projection (mem, -1)));
+
+				    treeify_alloc (x, heap_ptr+4, e, heap_ptr+len*4+4);	#  Assign the address to x 
+				};
+
+			    gen (PURE (p::CONDMOVE compare, vw, x, t, e), heap_ptr)
+				=> 
+				condmove (compare, vw, x, t, e, heap_ptr);
+
+			    ########	
+			    # ARITH
+			    ########	
+
+			    gen (ARITH (p::ARITH { kind=>p::INT 31, oper=>p::NEGATE}, [v], x, _, e), heap_ptr)
+				=> 
+				{   update_heap_pointer heap_ptr;
+
+				    def_i31 (x, t::SUBT (ity, li 2, regbind v), e, 0);
+				};
+
+			    gen (ARITH (p::ARITH { kind=>p::INT 31, oper }, [v, w], x, _, e), heap_ptr)
+				=> 
+				{   update_heap_pointer heap_ptr; 
+
+				    t = case oper
+
+					    p::ADD      =>   int31add (t::ADDT, v, w);
+					    p::SUBTRACT =>   int31sub (t::SUBT, v, w);
+
+					    p::MULTIPLY =>   int31mul (TRUE, t::MULT,          v, w);
+					    p::DIVIDE   =>   int31div (TRUE, t::DIV_TO_ZERO,   v, w);
+
+					    p::DIV      =>   int31div (TRUE, t::DIV_TO_NEGINF, v, w);
+					    p::REM      =>   int31rem (TRUE, t::DIV_TO_ZERO,   v, w);
+					    p::MOD      =>   int31rem (TRUE, t::DIV_TO_NEGINF, v, w);
+
+					    _   => error "gen: ARITH INT 31";
+					esac;
+
+				    def_i31 (x, t, e, 0);
+				};
+
+
+			    gen (ARITH (p::ARITH { kind=>p::INT 32, oper }, [v, w], x, _, e), heap_ptr)
+				=>
+				{   update_heap_pointer heap_ptr;
+
+				    case oper   
+					p::ADD       => arith32 (t::ADDT, v, w, x, e, 0);
+					p::SUBTRACT  => arith32 (t::SUBT, v, w, x, e, 0);
+					p::MULTIPLY  => arith32 (t::MULT, v, w, x, e, 0);
+
+					p::DIVIDE    => arith32 (fn (type, x, y) = t::DIVT (t::DIV_TO_ZERO, type, x, y),
+							  v, w, x, e, 0);
+
+					p::DIV => arith32 (fn (type, x, y) = t::DIVT (t::DIV_TO_NEGINF, type, x, y),
+							  v, w, x, e, 0);
+
+					p::REM => arith32 (fn (type, x, y) = t::REMS (t::DIV_TO_ZERO, type, x, y),
+							  v, w, x, e, 0);
+
+					p::MOD => arith32 (fn (type, x, y) = t::REMS (t::DIV_TO_NEGINF, type, x, y),
+							  v, w, x, e, 0);
+
+					_ => error "p::ARITH { kind=INT 32, oper }, [v, w], ...";
+				     esac;
+				 };
+
+			    gen (ARITH (p::ARITH { kind=>p::INT 32, oper=>p::NEGATE }, [v], x, _, e), heap_ptr)
+				=>
+				{   update_heap_pointer heap_ptr;
+				    def_i32 (x, t::SUBT (ity, zero, regbind v), e, 0);
+				};
+
+			    # Note: for testu operations we use a somewhat arcane method
+			    # to generate traps on overflow conditions. A better approach
+			    # would be to generate a trap-if-negative instruction available
+			    # on a variety of machines, e.g. sparc (maybe others).
+			    #
+			    gen (ARITH (p::TESTU (32, 32), [v], x, _, e), heap_ptr)
+				=> 
+				{   xreg = new_reg i32;
+				    vreg = regbind v;
+
+				    update_heap_pointer heap_ptr;
+				    emit (t::MOVE_INT (ity, xreg, t::ADDT (ity, vreg, 
+								regbind (INT32 0ux80000000))));
+				    def_i32 (x, vreg, e, 0);
+				};
+
+			    gen (ARITH (p::TESTU (31, 31), [v], x, _, e), heap_ptr)
+				=> 
+				{   xreg = new_reg i31;
+				    vreg = regbind v;
+
+				    update_heap_pointer heap_ptr;
+
+				    emit (t::MOVE_INT (ity, xreg, t::ADDT (ity, vreg, 
+							      regbind (INT32 0ux80000000))));
+
+				    def_i31 (x, vreg, e, 0);
+				};
+
+			    gen (ARITH (p::TESTU (32, 31), [v], x, _, e), heap_ptr)
+				=> 
+				{   vreg = regbind v;
+				    tmp = new_reg i32;
+				    tmp_r = t::REG (ity, tmp);
+				    lab = new_label ();
+
+				    emit (t::MOVE_INT (ity, tmp, regbind (INT32 0ux3fffffff)));
+				    update_heap_pointer heap_ptr;
+				    emit
+				      (branch_with_prob (t::BCC (t::CMP (32, t::LEU, vreg, tmp_r), lab), 
+						      THE probability::likely));
+				    emit (t::MOVE_INT (ity, tmp, t::LEFTSHIFT (ity, tmp_r, one)));
+				    emit (t::MOVE_INT (ity, tmp, t::ADDT (ity, tmp_r, tmp_r)));
+				    define_local_label lab;
+				    def_i31 (x, tag_unsigned (vreg), e, 0);
+				};
+
+			    gen (ARITH (p::TESTU _, _, _, _, _), heap_ptr)
+				=> 
+				error "gen: ARITH: testu with unexpected precisions (not implemented)";
+
+			    gen (ARITH (p::TEST (32, 31), [v], x, _, e), heap_ptr)
+				=> 
+				{   update_heap_pointer heap_ptr;
+                                    def_i31 (x, tag_signed (regbind v), e, 0);
+                                };
+
+			    gen (ARITH (p::TEST (n, m), [v], x, _, e), heap_ptr)
+				=> 
+				if (n == m)   copy_m (m, x, v, e, heap_ptr);
+				else          error "gen: ARITH: test";
+                                fi;
+
+			    gen (ARITH (p::TEST_INF _, _, _, _, _), heap_ptr)
+				=>
+				error "gen: ARITH: test_inf";
+
+			    gen (ARITH (p::ARITH { oper, kind=>p::FLOAT 64 }, [v, w], x, _, e), heap_ptr)
+				=> 
+				{   v = fregbind v;
+				    w = fregbind w;
+
+				    t = case oper   
+					    p::ADD      => t::FADD (fty, v, w);
+					    p::MULTIPLY => t::FMUL (fty, v, w);
+					    p::SUBTRACT => t::FSUB (fty, v, w);
+					    p::DIVIDE   => t::FDIV (fty, v, w);
+					    _ => error "unexpected primitive_operation in binary float64";
+					esac;
+
+				    treeify_def_f64 (x, t, e, heap_ptr);
+				};
+
+                            #########
+			    # LOOKER
+                            #########
+
+			    gen (LOOKER (p::BANG, [v], x, _, e), heap_ptr)
+				=> 
+				{   mem =   array_region (get_region v);
+
+				    def_boxed (x, t::LOAD (ity, regbind v, mem), e, heap_ptr);
+				};
+
+			    gen (LOOKER (p::SUBSCRIPT, [v, w], x, _, e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  = dataptr_region v;
+				    a    = mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' = array_region mem;
+
+				    def_boxed (x, t::LOAD (ity, scale4 (a, w), mem'), e, heap_ptr);
+				};
+
+			    gen (LOOKER (p::NUMSUBSCRIPT { kind => p::INT 8 }, [v, i], x, _, e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  =   dataptr_region v;
+				    a    =   mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' =   array_region mem;
+
+				    def_i31 (x, tag_unsigned (t::LOAD (8, scale1 (a, i), mem')), e, heap_ptr);
+				};
+
+			    gen (LOOKER (p::NUMSUBSCRIPT { kind => p::FLOAT 64 }, [v, i], x, _, e), heap_ptr)
+				=>
+				{   # Get data pointer:
+
+				    mem  = dataptr_region v;
+				    a    = mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' = array_region mem;
+
+				    treeify_def_f64 (x, t::FLOAD (fty, scale8 (a, i), mem'), e, heap_ptr);
+				};
+
+			    gen (LOOKER (p::GETHANDLER,                      [], x, _, e), heap_ptr)   =>   def_boxed (x, c::exnptr  use_virtual_frame_pointer, e, heap_ptr);
+			    gen (LOOKER (p::GET_CURRENT_THREAD_REGISTER,     [], x, _, e), heap_ptr)   =>   def_boxed (x, c::current_thread_ptr  use_virtual_frame_pointer, e, heap_ptr);
+			    gen (LOOKER (p::DEFLVAR,                         [], x, _, e), heap_ptr)   =>   def_boxed (x, zero,          e, heap_ptr);
+
+			    gen (LOOKER (p::GETSPECIAL, [v], x, _, e), heap_ptr)
+				=> 
+				def_boxed (x, or_tag (t::RIGHTSHIFT (ity, get_chunk_descriptor (v),
+							       li (d::tag_width - 1))), 
+					   e, heap_ptr);
+
+			    gen (LOOKER (p::GETPSEUDO, [i], x, _, e), heap_ptr)
+				=> 
+				{
+#                                   print "getpseudo not implemented\n";
+				    nop (x, i, e, heap_ptr);
+				};
+
+			    gen (LOOKER (p::RAWLOAD { kind }, [i], x, _, e), heap_ptr)
+				=>
+				rawload (kind, regbind i, x, e, heap_ptr);
+
+			    gen (LOOKER (p::RAWLOAD { kind }, [i, j], x, _, e), heap_ptr)
+				=>
+				rawload (kind, t::ADD (address_type, regbind i, regbind j), x, e, heap_ptr);
+
+                            #########
+			    # SETTER
+                            #########
+
+			    gen (SETTER (p::RAWUPDATE FLTT,[v, i, w], e), heap_ptr)
+				=>
+				{   emit (t::FSTORE (fty, scale8 (regbind' v, i), fregbind w, r::memory));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::RAWUPDATE _,[v, i, w], e), heap_ptr)
+				=> 
+				{   #  XXX BUGGO FIXME Assumes 32-bit. Needs 64-bit support later! 
+
+				    emit (t::STORE (ity, scale4 (regbind' v, i), regbind' w, r::memory));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::ASSIGN, [a as VAR arr, v], e), heap_ptr)
+				=> 
+				{   ea = regbind a;
+				    mem = array_region (get_region a);
+
+				    record_store (ea, heap_ptr);
+				    emit (t::STORE (ity, ea, regbind v, mem));
+				    gen (e, heap_ptr+8);
+				};
+
+			    gen (SETTER (p::UNBOXEDASSIGN, [a, v], e), heap_ptr)
+				=> 
+				{   mem =   array_region (get_region a);
+
+				    emit (t::STORE (ity, regbind a, regbind v, mem));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::UPDATE, [v, i, w], e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  =   dataptr_region v;
+				    a    =   mark_ptr (t::LOAD (ity, regbind v, mem));
+				    tmp_r =   cells::new_reg();				#  Derived pointer! 
+				    tmp  =   t::REG (ity, tmp_r);
+				    ea   =   scale4 (a, i);					#  Address of updated cell 
+				    mem' =   array_region (mem);
+
+				    emit (t::MOVE_INT (ity, tmp_r, ea));
+				    record_store( tmp, heap_ptr);
+				    emit (t::STORE (ity, tmp, regbind w, mem'));
+				    gen (e, heap_ptr+8);
+				};
+
+			    gen (SETTER (p::BOXED_SET, args, e), heap_ptr)
+				=> 
+				gen (SETTER (p::UPDATE, args, e), heap_ptr);
+
+			    gen (SETTER (p::UNBOXED_SET, [v, i, w], e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  =   dataptr_region v;
+				    a    =   mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' =   array_region mem;
+
+				    emit (t::STORE (ity, scale4 (a, i), regbind w, mem'));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::NUMUPDATE { kind => p::INT 8 }, [s, i, v], e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  =   dataptr_region v;
+				    a    =   mark_ptr (t::LOAD (ity, regbind s, mem));
+				    ea   =   scale1 (a, i);
+				    mem' =   array_region mem;
+
+				    emit (t::STORE (8, ea, untag_unsigned (v), mem'));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::NUMUPDATE { kind => p::FLOAT 64 }, [v, i, w], e), heap_ptr)
+				=> 
+				{   # Get data pointer: 
+
+				    mem  =   dataptr_region v;
+				    a    =   mark_ptr (t::LOAD (ity, regbind v, mem));
+				    mem' =   array_region mem;
+
+				    emit (t::FSTORE (fty, scale8 (a, i), fregbind w, mem')); 
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::SETSPECIAL, [v, i], e), heap_ptr)
+				=> 
+				{   ea =   t::SUB (ity, regbind v, li 4);
+
+				    i' =   case i 
+
+					       INT k => li (dtoi (d::make_desc (k, d::tag_special)));
+
+					       _ => t::BITWISEOR (ity, t::LEFTSHIFT (ity, untag_signed (i), 
+								    li d::tag_width),
+							 li (dtoi d::desc_special));
+					   esac;
+
+				    mem =   get_region_projection (v, 0);
+
+				    emit (t::STORE (ity, ea, i', mem));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::SETHANDLER,[x], e), heap_ptr)
+				=> 
+				{   emit (assign (c::exnptr  use_virtual_frame_pointer, regbind x));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::SET_CURRENT_THREAD_REGISTER, [x], e), heap_ptr)
+				=> 
+				{   emit (assign (c::current_thread_ptr  use_virtual_frame_pointer, regbind x));
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::USELVAR,[x], e), heap_ptr)   =>   gen (e, heap_ptr);
+			    gen (SETTER (p::ACCLINK, _,  e), heap_ptr)   =>   gen (e, heap_ptr);
+			    gen (SETTER (p::SETMARK, _,  e), heap_ptr)   =>   gen (e, heap_ptr);
+			    gen (SETTER (p::FREE,   [x], e), heap_ptr)   =>   gen (e, heap_ptr);
+
+			    gen (SETTER (p::SETPSEUDO, _, e), heap_ptr)
+				=> 
+				{
+#                                   print "setpseudo not implemented\n";
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::RAWSTORE { kind }, [i, x], e), heap_ptr)
+				=>
+				{   rawstore (kind, regbind i, x);
+				    gen (e, heap_ptr);
+				};
+
+			    gen (SETTER (p::RAWSTORE { kind }, [i, j, x], e), heap_ptr)
+				=>
+				{   rawstore (kind, t::ADD (address_type, regbind i, regbind j), x); 
+				    gen (e, heap_ptr);
+				};
+
+			    gen (RAW_C_CALL (arg as (_, _, _, _, wtl, e)), heap_ptr)
+				=> 
+				{   my  { result, heap_ptr }
+					= 
+					fps_c_calls::c_call 
+					    { stream, regbind, fregbind, typmap, use_virtual_frame_pointer, heap_ptr }
+					    arg;
+
+				    case (result, wtl)
+
+					([], [(w, _)]) => def_i31 (w, ml_zero, e, heap_ptr);
+
+					([t::FLOAT_EXPRESSION x],[(w, fps::FLTT)])     =>   treeify_def_f64 (w, x, e, heap_ptr);
+
+					    #  more sanity checking here ? 
+
+					([t::INT_EXPRESSION x],[(w, fps::INT32T)])   =>   def_i32   (w, x, e, heap_ptr);
+					([t::INT_EXPRESSION x],[(w, fps::PTRT _)])   =>   def_boxed (w, x, e, heap_ptr);
+
+					([t::INT_EXPRESSION x1, t::INT_EXPRESSION x2],[(w1, fps::INT32T), (w2, fps::INT32T)])
+					    =>
+					    {   my  (r1, r2)
+						    =
+						    (new_reg i32, new_reg i32);
+
+						add_reg_naming (w1, r1);
+						add_reg_naming (w2, r2);
+
+						emit (t::MOVE_INT (ity, r1, x1));
+						emit (t::MOVE_INT (ity, r2, x2));
+						gen (e, heap_ptr);
+					    };
+
+					_ =>   error "RAW_C_CALL: bad results";
+                                    esac;
+				};
+
+			    #########
+			    # BRANCH
+			    #########
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::INT 31 },[INT v, INT k], _, e, d), heap_ptr)
+				=>
+				if   case oper   
+					 p::GT    =>   v >  k; 
+					 p::GE    =>   v >= k; 
+					 p::LT    =>   v <  k; 
+					 p::LE    =>   v <= k;
+					 p::EQL   =>   v == k; 
+					 p::NEQ   =>   v != k;
+				     esac
+				     gen (e, heap_ptr);
+				else gen (d, heap_ptr);
+                                fi;
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::INT 32 },[INT32 v, INT32 k], _, e, d), heap_ptr)
+				=>
+				{   v' =   unt32::to_large_int_x v;
+				    k' =   unt32::to_large_int_x k;
+
+				    if    case oper   
+					      p::GT    =>   v >  k; 
+					      p::GE    =>   v >= k; 
+					      p::LT    =>   v <  k; 
+					      p::LE    =>   v <= k;
+					      p::EQL   =>   v == k; 
+					      p::NEQ   =>   v != k;
+					  esac
+
+					 gen (e, heap_ptr);
+				    else gen (d, heap_ptr);
+                                    fi;
+				};
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::INT 31 }, vw, p, e, d), heap_ptr)
+				=> 
+				branch (p, signed_compare oper, vw, e, d, heap_ptr);
+
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::UINT 31 },[INT v', INT k'], _, e, d), heap_ptr)
+				=>
+				{   include unt;
+
+				    v =   from_int v';
+				    k =   from_int k';
+
+				    if    case oper   
+					      p::GT    =>   v >  k;   
+					      p::GE    =>   v >= k;  
+					      p::LT    =>   v <  k;   
+					      p::LE    =>   v <= k;
+					      p::EQL   =>   v == k; 
+					      p::NEQ   =>   v != k;
+					 esac
+
+					 gen (e, heap_ptr);
+				    else gen (d, heap_ptr);
+                                    fi;
+				};
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::UINT 31 }, vw, p, e, d), heap_ptr)
+				=> 
+				branch (p, unsigned_compare oper, vw, e, d, heap_ptr);
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::UINT 32 },[INT32 v, INT32 k], _, e, d), heap_ptr)
+				=> 
+				{   include unt32;
+
+				    if   case oper   
+					      p::GT    =>   v >  k;   
+					      p::GE    =>   v >= k;  
+					      p::LT    =>   v <  k;   
+					      p::LE    =>   v <= k;
+					      p::EQL   =>   v == k; 
+					      p::NEQ   =>   v != k;
+					 esac
+
+					 gen (e, heap_ptr);
+				    else gen (d, heap_ptr);
+                                    fi;
+				};
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::UINT 32 }, vw, p, e, d), heap_ptr)
+				=> 
+				branch (p, unsigned_compare oper, vw, e, d, heap_ptr);
+
+			    gen (BRANCH (p::CMP { oper, kind=>p::INT 32 }, vw, p, e, d), heap_ptr)
+				=> 
+				branch (p, signed_compare oper, vw, e, d, heap_ptr);
+
+			    gen (BRANCH (p::FCMP { oper, size=>64 }, [v, w], p, d, e), heap_ptr)
+				=>
+				{   true_lab =   new_label ();
+				    compare     = real64cmp (oper, v, w);
+
+				    emit (t::BCC (compare, true_lab));
+				    gen_cont (e, heap_ptr);
+				    genlab (true_lab, d, heap_ptr);
+				};
+
+			    gen (BRANCH (p::PEQL, vw, p, e, d), heap_ptr)   =>   branch (p, t::EQ, vw, e, d, heap_ptr);
+			    gen (BRANCH (p::PNEQ, vw, p, e, d), heap_ptr)   =>   branch (p, t::NE, vw, e, d, heap_ptr);
+
+			    gen (BRANCH (p::STRNEQ, [INT n, v, w], p, d, e), heap_ptr)
+				=> 
+				branch_streq (n, v, w, e, d, heap_ptr);
+
+			    gen (BRANCH (p::STREQ, [INT n, v, w], p, d, e), heap_ptr)
+				=> 
+				branch_streq (n, v, w, d, e, heap_ptr);
+
+			    gen (BRANCH (p::BOXED,   [x], p, a, b), heap_ptr)   =>   branch_on_boxed (p, x, a, b, heap_ptr);
+			    gen (BRANCH (p::UNBOXED, [x], p, a, b), heap_ptr)   =>   branch_on_boxed (p, x, b, a, heap_ptr);
+
+			    gen (e, heap_ptr)
+                                =>
+                                {   prettyprint_fps::print_fps_expression e;
+                                    print "\n";
+                                    error "compile_cluster::gen";
+                                };
+                        end;
+
+		    end;		# stipulate
+
+		    fun frag_comp ()
+			= 
+			fcomp (frag::next ())
+                        where
+			    fun continue ()
+                                =
+                                fcomp (frag::next())
+
+			    also
+                            fun fcomp (NULL) => ();
+
+				fcomp (THE(_, frag::KNOWNFUN _)) =>  continue();
+				fcomp (THE(_, frag::KNOWNCHK _)) =>  continue();
+
+				fcomp (THE(_, frag::STANDARD { func=>REF NULL, ... } ))
+                                    =>
+                                    continue();
+
+				fcomp (THE (lab, frag::STANDARD { func as REF (THE (zz as (k, f, vl, tl, e))), ... }))
+				    => 
+				    {   formals =   arg_passing::standard { fn_type=>typmap f, arg_tys=>tl, use_virtual_frame_pointer };
+					func := NULL;
+					emit_pseudo_op (pb::ALIGN_SIZE 2);
+					make_fps_function (lab, k, f, vl, formals, tl, e);
+					continue();
+				    };
+                            end;
+			end;                              # fun frag_comp 
+
+		    # Execution starts at the first FPS function --
+		    # the frag  is maintained as a queue.
+		    #	
+		    fun init_frags (start ! rest:  List( fps::Function ))
+			    =>
+			    {   fun init (func as (fk, f, _, _, _))			# "fk" is "fun_kind"
+				    = 
+				    add_gen_table (f, frag::make_fragments (func, function_label f));
+
+				apply init rest;
+
+				init start;
+			    };
+
+		       init_frags []
+                            =>
+                            error "init_frags";
+                    end;
+
+		    # Create cluster annotations.
+		    # Currently, we only need
+                    # to enter the appropriate
+		    # gc map information.
+		    #	
+		    fun create_cluster_annotations ()
+                        =
+                        {   cellinfo
+                                =
+			        if lowcode_gc_types
+
+				    fun enter (t::REG(_, r), type) => enter_gc (r, type);
+					enter _ => ();
+				    end;
+
+				    enter_gc (allocptr_r, smlgctype::ALLOCPTR);
+				    enter (c::limitptr  use_virtual_frame_pointer, smlgctype::LIMITPTR);
+				    enter (c::baseptr   use_virtual_frame_pointer, ptr);
+				    enter (c::stdlink   use_virtual_frame_pointer, ptr);
+
+				    [   an::print_cellinfo.create (garbage_collection_cells::print_type)   ];
+			        else
+                                    [];
+                                fi;
+
+			    use_virtual_frame_pointer
+                              ??  an::uses_virtual_frame_pointer.set ((), cellinfo)
+			      ::                                          cellinfo ;
+			};
+
+		    init_frags cluster;
+		    begin_cluster 0;
+		    emit_pseudo_op  pb::TEXT;
+		    frag_comp();
+
+		    garbage_collector::emit_longjump_garbage_collector_calls   stream;
+
+		    translate_control_flow_graph_cluster_to_binary			# def in    src/lib/compiler/codegen/main/codegen-g.pkg
+                        compile_info
+                        (end_cluster (create_cluster_annotations()));
+
+		};                                            # fun compile_cluster 
+
+	    fun finish_compilation_unit file
+                =
+                {   stream
+                        =
+                        translate_codetree_to_target_machine::select_instructions (flowgen::build ());
+
+		    stream
+                        -> 
+                       ts::instruction_stream::STREAM { begin_cluster, emit_pseudo_op, end_cluster, ... };
+
+		    cells::reset();
+		    cluster_annotation::use_virtual_frame_pointer := FALSE;
+		    begin_cluster 0; 
+		    emit_pseudo_op  pb::TEXT;
+		    garbage_collector::emit_garbage_collector_calls_for_package stream;
+		    emit_pseudo_op  (pb::DATA_READ_ONLY);
+		    emit_pseudo_op  (pb::EXT (cpo::FILENAME file));
+
+		    translate_control_flow_graph_cluster_to_binary
+                        compile_info
+                        (end_cluster  no_opt);
+		};
+
+	    fun entrypoint ((_, f, _, _, _) ! _) ()
+                    =>
+                    label::addr_of (function_label f);
+
+	       entrypoint [] ()
+                    =>
+                    error "entrypoint: no functions";
+            end;
+
+								# cluster	is from   src/lib/compiler/codegen/compile-fps/cluster.pkg
+
+	    apply  note_entrypoint_label_and_type   funcs;
+	    apply compile_cluster (cluster::find_clusters_in_fps_functions funcs);
+	    finish_compilation_unit source;
+	    entrypoint funcs;
+	};							# fun translate_fate_passing_style_to_binary
+};								# generic package translate_fate_passing_style_to_binary_g 
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1996 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

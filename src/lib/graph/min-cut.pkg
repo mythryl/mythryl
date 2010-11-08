@@ -1,0 +1,220 @@
+#
+# This module implements minimal (undirected) cut.
+# The algorithm is due to Mechtild Stoer and Frank Wagner.
+#
+# -- Allen Leung
+
+# Compiled by:
+#     src/lib/graph/graphs.make6
+
+###      The time will come when diligent research
+###      over long periods will bring to light
+###      things which now lie hidden.
+###
+###      A single lifetime, even though entirely
+###      devoted to the sky, would not be enough
+###      for the investigation of so vast a subject...
+###
+###      And so this knowledge will be unfolded only
+###      through long successive ages.
+###
+###      There will come a time when our descendants
+###      will be amazed that we did not know things
+###      that are so plain to them...
+###      Many discoveries are reserved for ages
+###      still to come, when memory of us
+###      will have been effaced.
+###
+###      Our universe is a sorry little affair
+###      unless it has in it something for
+###      every age to investigate...
+###
+###      Nature does not reveal her mysteries
+###      once and for all.
+###
+###               -- Seneca, Book 7, first century
+
+
+
+generic package min_cut (num:  Abelian_Group) 			# Abelian_Group	is from   src/lib/graph/group.api
+: (weak)
+Min_Cut							# Min_Cut	is from   src/lib/graph/min-cut.api
+=
+package {
+
+    package num = num;
+    package g= graph;					# graph		is from   src/lib/graph/graph.pkg
+    package a= rw_vector;				# rw_vector	is from   src/lib/std/src/rw-vector.pkg
+    package q   = node_priority_queue( a );  
+    package l   = catlist;	          		#  for fast concatenation 
+
+    fun min_cut { graph=>g::GRAPH ggg, weight }
+	=
+	{   nnn         = ggg.capacity ();
+
+	    adj         = a::make_rw_vector (nnn,[]);
+	    group       = a::make_rw_vector (nnn, l::empty);
+	    on_queue    = a::make_rw_vector (nnn,-1);
+	    adj_edges   = a::make_rw_vector (nnn, (-1, REF num::zero));
+	    weights     = a::make_rw_vector (nnn, num::zero);
+
+	    fun new_edge (i, j, w)
+	       =
+	       {   a::set (adj, i, (j, w) ! a::get (adj, i));
+		   a::set (adj, j, (i, w) ! a::get (adj, j));
+               };
+
+	    # Initialize the adjacency and group arrays:
+	    #
+	    fun initialize (nodes)
+		=
+		{   fun node (i)
+                        =
+                        a::set (group, i, l::single i);
+
+		    fun edge (e as (i, j, _))
+			=
+			if  (i != j)
+                            new_edge (i, j, REF (weight e));
+                        fi;
+
+		    apply
+                        (fn i =  { node i;   apply edge (ggg.out_edges i); })
+                        nodes;
+		};
+
+	    # Priority queue ranked by non-decreasing cut weights:
+	    #
+	    qqq
+                =
+                q::create
+                    nnn
+                    (fn (u, v)
+                        =
+                        num::(<) (a::get (weights, v), a::get (weights, u)));
+
+	    #  Find a better cut (V-{ t },{ t } ) 
+	    fun find_cut (phase, a, nodes)
+		=
+		{   fun mark v     = a::set (on_queue, v, phase);
+		    fun unmark v   = a::set (on_queue, v,-1);
+		    fun marked v   = a::get (on_queue, v) == phase;
+		    fun deleted v  = a::get (on_queue, v) == -2;
+
+		    fun relax (v, w)
+			=
+			{   a::set (weights, v, num::(+) (a::get (weights, v),*w)); 
+			    q::decrease_weight (qqq, v);
+			};
+
+		    fun loop (s, t)
+			=
+			if   (q::is_empty qqq)
+
+			     (s, t, a::get (weights, t));
+			else
+			     t' =  q::delete_min qqq;
+			     unmark t';
+
+			     apply
+                                 (fn (v, w) =  if   (marked v   )   relax (v, w);   fi)
+				 (a::get (adj, t'));
+				 loop (t, t');
+			fi;  
+
+		    apply
+                        (fn u
+                            =
+                            if  (not (deleted u))
+				 a::set (weights, u, num::zero); 
+				 mark u;
+                                 q::set (qqq, u);
+                            fi
+                        )
+                        nodes;
+
+		    apply relax (a::get (adj, a));
+
+		    loop (-1, a);
+		};			# fun find_cut
+
+	    #  Coalesce vertices s and t 
+	    fun coalesce (s, t)
+		=
+		{   # Merge the group of s and t:
+
+		    a::set (group, s, l::append (a::get (group, s), a::get (group, t)));
+
+
+
+		    # Mark neighbors of s:
+
+		    apply (fn (u, w) => a::set (adj_edges, u, (s, w)); end ) (a::get (adj, s));
+
+
+
+		    # Change t-v (w) and s-v (w') to s-v (w+w') 
+		    # Change t-v (w) to s-v (w) 
+
+		    fun rmv ([], l) => l; 
+			rmv((x as (u, _)) ! l, l') => rmv (l, if (t == u ) l'; else x ! l';fi);
+		    end;
+
+		    apply
+			(fn (v, w)
+			    =
+			    {   my (s', w')
+				    =
+				    a::get (adj_edges, v);
+
+				if  (s == s')
+
+				     w' := num::(+) (*w',*w);
+				else
+				     if   (s != v)
+					  new_edge (s, v, w);
+				     fi;
+				fi;
+				a::set (adj, v, rmv (a::get (adj, v),[]));
+			    })
+
+			(a::get (adj, t));
+
+		    a::set (adj, t,[]); 
+		    a::set (on_queue, t,-2); #  Delete node t 
+		};
+
+	    fun iterate (n, a, best_group, best_cut, best_weight, nodes)
+		= 
+		if  (n >= 2)
+
+		      my (s, t, w) = find_cut (n, a, nodes);
+
+		      my (best_group, best_cut, best_weight)
+			  = 
+			  if (best_group < 0 or num::(<) (w, best_weight))
+			       (t, a::get (group, t), w);
+			  else
+                               (best_group, best_cut, best_weight);
+                          fi; 
+
+		      coalesce (s, t);
+
+		      iterate (n - 1, a, best_group, best_cut, best_weight, nodes); 
+
+		else
+		     (l::to_list (best_cut), best_weight);
+		fi;
+
+	    nodes = map #1 (ggg.nodes ());
+
+	    case nodes
+	      
+		 []    =>  ([], num::zero);
+		 [_]   =>  ([], num::zero);
+		 a ! l =>  {   initialize (nodes); 
+			       iterate (length nodes, a,-1, l::empty, num::zero, l);
+                           };
+	    esac;
+	};			# fun min_cut
+};

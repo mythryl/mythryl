@@ -1,0 +1,2040 @@
+## pickle-module.pkg
+#
+# The revised pickler using the new "generic" pickling facility.
+#
+# March 2000, Matthias Blume
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+api Pickle_Module {
+
+    # There are three situations in which we run the pickler.
+    #  Each form of pickle_context (see below) corresponds to one of them:
+    #
+    #  1. The initial pickle.  This is done right after a new symbol
+    #     table has been constructed by the typechecker.  The pickle_context
+    #     is used to identify those identifiers (module_map.<xxx>Id) that
+    #     correspond to stubs.  Only the domain of the given map is relevant
+    #     here, but since we (usually) need the full map right afterwards
+    #     for unpickling, there is no gain in using a set.
+    #
+    #  2. Pickling a previously pickled-and-unpickled dictionary from
+    #     which some parts may have been pruned.  This is used to calculate
+    #     a new hash value that is equal to the hash obtained from an initial
+    #     pickle (1.) of the dictionary if it had been pruned earlier.
+    #     (This is used by make7's cutoff recompilation system.
+    #     Pickles obtained here are never unpickled.)
+    #     No actual context is necessary because stubification info is
+    #     fully embedded in the dictionary to be pickled.  However, we
+    #     must provide the original picklehash obtained from the first
+    #     pickling because occurences of that picklehash have to be
+    #     treated the same way their "not-yet-occurrences" had been
+    #     treated in step 1.
+    #
+    #  3. A set of dictionaries that have already gone through an initial
+    #     pickling-and-unpickling is pickled as part of a freezefile.
+    #     The context is a sequence of maps together with information
+    #     on how to get hold of the same map later during unpickling.
+    #     (The full context of a freezefile is a set of other stable
+    #     libraries, but during unpickling we want to avoid unpickling
+    #     all of these other libraries in full.)
+
+    Pickle_Context
+        = INITIAL  module_map::Module_Map
+	| REHASH   picklehash::Picklehash
+	| LIBRARY   List(  (Null_Or( (Int, symbol::Symbol) ), module_map::Module_Map));
+
+    Map;
+
+    empty_map:  Map;
+
+    symbol_table_pickler:  (var_home::Highcode_Variable -> Void)
+			  -> Pickle_Context
+			  -> pickle_utilities::Pickler( Map, symbol_table::Symbol_Table );
+
+     pickle_symbol_table:  Pickle_Context
+			->  symbol_table::Symbol_Table
+			->  {  picklehash:  picklehash::Picklehash,
+			       pickle:      unt8_vector::Vector, 
+			       exported_highcode_variables: List( var_home::Highcode_Variable ),
+			       has_exports:  Bool
+			    };
+
+     pickle_highcode_program:  Null_Or( anormal::Program )
+			  -> { picklehash: picklehash::Picklehash,
+			       pickle:     unt8_vector::Vector
+			     };
+
+     symbol_dictionary_pickler:  pickle_utilities::Pickler( Map, inlining_table::Dictionary );
+
+     hash_pickle: unt8_vector::Vector -> picklehash::Picklehash;
+	
+     dont_pickle:  {   symbol_table:  symbol_table::Symbol_Table,
+                         count:        Int
+                     }
+                    ->
+                     {   new_symbol_table:          symbol_table::Symbol_Table,
+                         picklehash:              picklehash::Picklehash,
+	                 exported_highcode_variables: List( var_home::Highcode_Variable ),
+                         has_exports:              Bool
+                     };
+};
+
+stipulate
+
+    generic package map_g =  red_black_map_g;
+    package int_map     =  int_red_black_map;		# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+
+herein
+
+    package pickle_module:  Pickle_Module {		# Pickle_Module		is from   src/lib/compiler/frontend/semantic/pickle/pickle-module.pkg
+
+	Pickle_Context = INITIAL  module_map::Module_Map
+		       | REHASH   picklehash::Picklehash
+		       | LIBRARY   List( (Null_Or( (Int, symbol::Symbol) ), module_map::Module_Map))
+                       ;
+
+	# To gather some statistics:
+	#
+	add_pickles = compile_statistics::add_stat (compile_statistics::make_stat "Pickle Bytes");
+
+	fun bug msg
+            =
+            error_message::impossible ("pickle_module: " + msg);
+
+	package a= var_home;						# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+	package di= debruijn_index;					# debruijn_index		is from   src/lib/compiler/frontend/typechecker/basics/de-bruijn-index.pkg
+	package lk= highcode_guts;					# highcode_guts			is from   src/lib/compiler/backend/upper/highcode/highcode-guts.pkg
+	package pt= highcode_data_representation;			# highcode_data_representation	is from   src/lib/compiler/backend/upper/highcode/highcode-data-representation.pkg
+	package f= anormal;						# anormal			is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+	package t= types;						# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package sp= symbol_path;					# symbol_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip= inverse_path;					# inverse_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package mm= module_map;						# module_map			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-map.pkg
+	package ii= inlining_info;					# inlining_info			is from   src/lib/compiler/frontend/semantic/basics/inlining-info.pkg
+	package v= variables_and_constructors;				# variables_and_constructors	is from   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/variables-and-constructors.pkg
+	package ed= module_path::module_stamp_map;			# module_path			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-path.pkg
+	package ps= picklehash;						# picklehash			is from   src/lib/compiler/frontend/basics/mlcomp/picklehash.pkg
+	package p= highcode_primitive_op;				# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package m= module;						# module			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module.pkg
+	package b= symbol_table_entry;					# symbol_table_entry		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+
+	# NOTE:  The CRC functions really ought to work on unt8_vector::vectors XXX BUGGO FIXME *
+	#
+	fun hash_pickle pickle
+	    =
+	    ps::from_bytes
+	      (byte::string_to_bytes
+		 (crc::to_string
+		    (crc::from_string
+		      (byte::bytes_to_string pickle))));
+
+	fun compare_symbols (a, b)
+            =
+            if   (symbol::symbol_gt (a, b))   GREATER;
+	    elif (symbol::eq        (a, b))   EQUAL;
+	    else                              LESS;
+            fi;
+
+	package lambda_type_map      = map_g (package {  Key = lk::Highcode_Type;       compare = lk::compare_lambda_types;      });
+	package type_constructor_map = map_g (package {  Key = lk::Highcode_Type_Constructor;  compare = lk::compare_type_constructors; });
+	package type_kind_map        = map_g (package {  Key = lk::Highcode_Kind;         compare = lk::compare_type_kinds;        });
+
+									# stamp_map			is from   src/lib/compiler/frontend/typecheck-stuff/basics/stampmap.pkg
+									# pickle_utilities		is from   src/lib/compiler/src/library/pickle-utilities.pkg
+									# pickle_symbol_or_picklehash	is from   src/lib/compiler/frontend/semantic/pickle/pickle-symbol-or-picklehash.pkg
+	package data_type_map= stamp_map;
+	package datatype_member_map  = stamp_map;
+
+	package pu= pickle_utilities;
+
+	package psym_pid= pickle_symbol_or_picklehash;
+
+	Map =  { lambda_type:      lambda_type_map::Map( pu::Id ),
+		 type_constructor: type_constructor_map::Map( pu::Id ),
+		 type_kind:        type_kind_map::Map( pu::Id ),
+		 data_type:        data_type_map::Map( pu::Id ),
+		 datatype_member:  datatype_member_map::Map( pu::Id ),
+		 module_id:        mm::Uniformly_Typed_Module_Map( pu::Id )
+	       };
+
+	empty_map
+            =
+            { lambda_type      =>  lambda_type_map::empty,
+	      type_constructor =>  type_constructor_map::empty,
+	      type_kind        =>  type_kind_map::empty,
+	      data_type        =>  data_type_map::empty,
+	      datatype_member  =>  datatype_member_map::empty,
+	      module_id        =>  mm::empty_uniformly_typed_module_map
+	    };
+
+	# Highcode_Type_Constructor info:
+	#
+	my ( type_nk,     type_ao,    type_co,   type_po,    type_cs,     type_a,       type_cr,                   type_lt,    type_tc,      type_tk,
+	     type_v,      type_c,     type_e,    type_fk,    type_rk,     type_st,      type_mi,                   type_eqp,   type_tyckind, type_dti,
+	     type_dtf,    type_tycon, type_t,    type_i,     type_var,    type_sd,      type_sg,                   type_fsg,   type_sp,      type_en,
+	     type_str,    type_f,     type_ste,  type_tce,   type_stre,   type_fe,      type_ee,                   type_ed,    type_eev,     type_fx,
+	     type_b,      type_dcon,  type_dictionary, type_fprim, type_fundec, type_tfundec, type_enum_constructor, type_dtmem, type_nrd,     type_overld, 
+	     type_fctc,   type_sen,   type_fen,  type_symbol_path, type_inverse_path,  type_strid,   type_fctid,                type_cci,   type_ctype,   type_ccall_type
+	   )
+	   =
+	   (  1,      2,     3,    4,     5,      6,       7,                    8,     9,      10,
+	     11,     12,    13,   14,    15,     16,      17,                   18,    19,      20,
+	     21,     22,    23,   24,    25,     26,      27,                   28,    29,      30,
+	     31,     32,    33,   34,    35,     36,      37,                   38,    39,      40,
+	     41,     42,    43,   44,    45,     46,      47,                   48,    49,      50,
+	     51,     52,    53,   54,    55,     56,      57,                   58,    59,      60
+	   );
+
+	# This is a bit awful.
+	# We really ought to have syntax for "functional update" XXX FIXME BUGGO :
+	#
+	lambda_types = { find     =>   fn (m: Map, key) =  lambda_type_map::get (m.lambda_type, key),
+			 insert   =>   fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+					    key,
+					    value
+					 )
+				      =
+				      {   lambda_type      => lambda_type_map::set (lambda_type, key, value),
+					  type_constructor,
+					  type_kind,
+					  data_type,
+					  datatype_member,
+					  module_id
+				      }
+		       };
+
+	type_constructors = { find   => fn (m: Map, key) =  type_constructor_map::get (m.type_constructor, key),
+			      insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+					     key,
+					     value
+					  )
+				       =
+				       {   lambda_type,
+					   type_constructor => type_constructor_map::set (type_constructor, key, value),
+					   type_kind,
+					   data_type,
+					   datatype_member,
+					   module_id
+				       }
+			    };
+
+	type_kinds = { find   => fn (m: Map, key) =  type_kind_map::get (m.type_kind, key),
+		       insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+				      key,
+				      value
+				   )
+				=
+				{   lambda_type,
+				    type_constructor,
+				    type_kind        => type_kind_map::set (type_kind, key, value),
+				    data_type,
+				    datatype_member,
+				    module_id
+				}
+		     };
+
+	fun data_types key = { find   => fn (m: Map, _) =  data_type_map::get (m.data_type, key),
+			       insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+					      _,
+					      value
+					   )
+					=
+					{   lambda_type,
+					    type_constructor,
+					    type_kind,
+					    data_type        => data_type_map::set (data_type, key, value),
+					    datatype_member,
+					    module_id
+					}
+			     };
+
+	fun datatype_members key = { find   => fn (m: Map, _) =  datatype_member_map::get (m.datatype_member, key),
+				     insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+						     _,
+						     value
+						 )
+					      =
+					      {   lambda_type,
+						  type_constructor,
+						  type_kind,
+						  data_type,
+						  datatype_member  => datatype_member_map::set (datatype_member, key, value),
+						  module_id
+					      }
+				   };
+
+	fun module_type_constructors key = { find   => fn (m: Map, _) =  mm::ufind_type_constructor (m.module_id, key),
+					     insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+							    _,
+							    value
+							 )
+						      =
+						      {   lambda_type,
+							  type_constructor,
+							  type_kind,
+							  data_type,
+							  datatype_member,
+							  module_id        => mm::u_insert_type_constructor (module_id, key, value)
+						      }
+					   };
+
+	apis = { find   => fn (m: Map, key) =  mm::ufind_api (m.module_id, mm::api_identifier key),
+		 insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+				key,
+				value
+			     )
+			  =
+			  {   lambda_type,
+			      type_constructor,
+			      type_kind,
+			      data_type,
+			      datatype_member,
+			      module_id        => mm::u_insert_api (module_id, mm::api_identifier key, value)
+			  }
+	       };
+
+	fun packages key = { find   => fn (m: Map, _) =  mm::ufind_package (m.module_id, key),
+			     insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+					     _,
+					    value
+					 )
+				      =
+				      {   lambda_type,
+					  type_constructor,
+					  type_kind,
+					  data_type,
+					  datatype_member,
+					  module_id        => mm::u_insert_package (module_id, key, value)
+				      }
+			   };
+
+	fun generics key = { find   => fn (m: Map, _) =  mm::ufind_g (m.module_id, key),
+			     insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+					    _,
+					    value
+					 )
+				      =
+				      {   lambda_type,
+					  type_constructor,
+					  type_kind,
+					  data_type,
+					  datatype_member,
+					  module_id        => mm::u_insert_g (module_id, key, value)
+				      }
+			   };
+
+	typechecker_dictionary
+            =
+            { find   => fn (m: Map, key) =  mm::ufind_typechecked_package (m.module_id, mm::dictionary_identifier key),
+	      insert => fn (  { lambda_type, type_constructor, type_kind, data_type, datatype_member, module_id },
+			      key,
+			      value
+			   )
+			   =
+			   {   lambda_type,
+			       type_constructor,
+			       type_kind,
+			       data_type,
+			       datatype_member,
+			       module_id        => mm::u_insert_typechecked_package (module_id, mm::dictionary_identifier key, value)
+			   }
+		};
+
+	infix val 40  @@@ ;
+
+	do_an_int    = pu::pickle_int;
+	do_an_int32  = pu::pickle_int32;
+	do_an_unt    = pu::pickle_word;
+
+	do_an_unt32  = pu::pickle_unt32;
+	do_a_string  = pu::pickle_string;
+	share        = pu::ad_hoc_share;
+
+	do_a_list    = pu::pickle_list;
+	do_a_pair    = pu::pickle_pair;
+
+	do_a_bool    = pu::pickle_bool;
+	do_an_option = pu::pickle_option;
+
+	do_a_symbol  = psym_pid::pickle_symbol;
+
+	do_a_picklehash = psym_pid::pickle_picklehash;
+
+        # Assign compact small-integer encodings
+        # to a sparse set of integers:
+
+	fun make_alpha_convert ()
+	    =
+	    {   map   = REF int_map::empty;
+		count = REF 0;
+
+		fun alpha_convert some_integer
+		    =
+		    case (int_map::get (*map, some_integer))
+		      
+                         THE another_integer
+                             =>
+                             another_integer;
+
+		         NULL => {   new_integer = *count;
+				 
+				     count := new_integer + 1;
+				     map   := int_map::set (*map, some_integer, new_integer);
+
+				     new_integer;
+				 };
+                    esac;
+	    
+		alpha_convert;
+	    };
+
+        # Byte encodings for kinds of integers:
+	#
+	fun encode_number_kind arg
+	    =
+	    nk arg
+            where
+	        (@@@) = pu::(@@@) type_nk;
+
+		fun nk (p::INT   i)   =>   "A" @@@ [do_an_int i];
+		    nk (p::UINT  i)   =>   "B" @@@ [do_an_int i];
+		    nk (p::FLOAT i)   =>   "C" @@@ [do_an_int i];
+                end;
+	    end;
+
+        # Byte encodings for arithmetic operators:
+	#
+	fun encode_arithmetic_op  op
+	    =
+	    encode_it op @@@ []
+            where
+	        (@@@) = pu::(@@@) type_ao;
+
+		fun encode_it p::ADD      => "\000";
+		    encode_it p::SUBTRACT => "\001";
+		    encode_it p::MULTIPLY => "\002";
+		    encode_it p::DIVIDE   => "\003";
+
+		    encode_it p::NEGATE   => "\004";
+		    encode_it p::ABS      => "\005";
+
+		    encode_it p::LSHIFT  => "\006";
+		    encode_it p::RSHIFT  => "\007";
+		    encode_it p::RSHIFTL => "\008";
+
+		    encode_it p::BITWISEAND    => "\009";
+		    encode_it p::BITWISEOR     => "\010";
+		    encode_it p::BITWISEXOR    => "\011";
+		    encode_it p::BITWISENOT    => "\012";
+
+		    encode_it p::FSQRT   => "\013";
+		    encode_it p::FSIN    => "\014";
+		    encode_it p::FCOS    => "\015";
+		    encode_it p::FTAN    => "\016";
+
+		    encode_it p::REM     => "\017";
+		    encode_it p::DIV     => "\018";
+		    encode_it p::MOD     => "\019";
+                end;
+	    end;
+
+        # Byte encodings for arithmetic comparison operators:
+	#
+	fun encode_comparison_op  op
+	    =
+	    encode_it op @@@ []
+            where
+	        (@@@) = pu::(@@@) type_co;
+
+		fun encode_it p::GT  => "\000";
+		    encode_it p::GE  => "\001";
+		    encode_it p::LT  => "\002";
+		    encode_it p::LE  => "\003";
+		    encode_it p::LEU => "\004";
+		    encode_it p::LTU => "\005";
+		    encode_it p::GEU => "\006";
+		    encode_it p::GTU => "\007";
+		    encode_it p::EQL => "\008";
+		    encode_it p::NEQ => "\009";
+                end;
+	    end;
+
+        # Byte encodings for C language types:
+	#
+	fun encode_ctype t
+	    =
+	    {   (@@@) = pu::(@@@) type_ctype;
+
+		fun @?n   = string::from_char (char::from_int n);	# 2007-08-19-CrT: @? should be ? throughout.
+		fun %?n  = @?n @@@ [];
+	    
+		case t
+                  
+		     ctypes::C_VOID                         => %?0;
+		     ctypes::C_FLOAT                        => %?1;
+		     ctypes::C_DOUBLE                       => %?2;
+		     ctypes::C_LONG_DOUBLE                  => %?3;
+		     ctypes::C_UNSIGNED ctypes::I_CHAR      => %?4;
+		     ctypes::C_UNSIGNED ctypes::I_SHORT     => %?5;
+		     ctypes::C_UNSIGNED ctypes::I_INT       => %?6;
+		     ctypes::C_UNSIGNED ctypes::I_LONG      => %?7;
+		     ctypes::C_UNSIGNED ctypes::I_LONG_LONG => %?8;
+		     ctypes::C_SIGNED   ctypes::I_CHAR      => %?9;
+		     ctypes::C_SIGNED   ctypes::I_SHORT     => %?10;
+		     ctypes::C_SIGNED   ctypes::I_INT       => %?11;
+		     ctypes::C_SIGNED   ctypes::I_LONG      => %?12;
+		     ctypes::C_SIGNED   ctypes::I_LONG_LONG => %?13;
+		     ctypes::C_PTR                          => %?14;
+
+		     ctypes::C_ARRAY (t, i)                 => @?20 @@@ [encode_ctype t, do_an_int i];
+		     ctypes::C_STRUCT l                     => @?21 @@@ [do_a_list encode_ctype l];
+		     ctypes::C_UNION l                      => @?22 @@@ [do_a_list encode_ctype l];
+               esac;
+	    };
+
+        # Byte encodings for C function call argument representations:
+	#
+	fun encode_ccall_function_argument_representation t
+	    =
+	    {   (@@@) =   pu::(@@@) type_ccall_type;
+	    
+		case t
+                  
+		     p::CCI32 => "\000" @@@ [];              #  passed as int32 
+		     p::CCI64 => "\001" @@@ [];              #  int64, currently unused 
+		     p::CCR64 => "\002" @@@ [];              #  passed as float64 
+		     p::CCML  => "\003" @@@ [];              #  passed as unsafe::unsafe_chunk::chunk 
+                esac;
+	    };
+
+	fun encode_ccall_info { c_prototype => { calling_convention, return_type, parameter_types },
+			ml_argument_representations,
+			ml_result_representation,
+			is_reentrant
+		      }
+	    =
+	    {   (@@@) = pu::(@@@) type_cci; 
+	    
+		"C" @@@ [  do_a_string calling_convention,
+			 encode_ctype return_type,
+			 do_a_list encode_ctype parameter_types,
+			 do_a_list encode_ccall_function_argument_representation ml_argument_representations,
+			 do_an_option encode_ccall_function_argument_representation ml_result_representation,
+			 do_a_bool is_reentrant
+		      ];
+	    };
+
+	fun encode_primitive_operation p
+	    =
+	    {   (@@@) = pu::(@@@) type_po;
+
+		fun @? n
+                    =
+                    string::from_char (char::from_int n);
+
+		fun fromto tag (from, to)
+                    =
+                    @?tag @@@ [do_an_int from, do_an_int to];
+
+		fun %? n
+                    =
+                    @?n @@@ [];
+	    
+		case p
+		  
+		     p::ARITH { oper, overflow, kind }  => @?100 @@@ [encode_arithmetic_op oper, do_a_bool overflow, encode_number_kind kind];
+		     p::CMP { oper, kind }              => @?101 @@@ [encode_comparison_op oper, encode_number_kind kind];
+
+		     p::TEST   x    => fromto 102 x;
+		     p::TESTU  x    => fromto 103 x;
+		     p::TRUNC  x    => fromto 104 x;
+		     p::EXTEND x    => fromto 105 x;
+		     p::COPY x      => fromto 106 x;
+
+		     p::INLLSHIFT kind   => @?107 @@@ [encode_number_kind kind];
+		     p::INLRSHIFT kind   => @?108 @@@ [encode_number_kind kind];
+		     p::INLRSHIFTL kind  => @?109 @@@ [encode_number_kind kind];
+
+		     p::ROUND { floor, fromkind, tokind }   =>   @?110 @@@   [do_a_bool floor,   encode_number_kind fromkind,   encode_number_kind tokind];
+		     p::REAL         { fromkind, tokind }   =>   @?111 @@@                 [encode_number_kind fromkind,   encode_number_kind tokind];
+
+		     p::NUMSUBSCRIPT { kind, checked, immutable } => @?112 @@@ [encode_number_kind kind, do_a_bool checked, do_a_bool immutable];
+
+		     p::NUMUPDATE { kind, checked } => @?113 @@@ [encode_number_kind kind, do_a_bool checked];
+
+		     p::INLINE_MONOARRAY  kind   =>   @?114 @@@ [encode_number_kind kind];
+		     p::INLINE_MONOVECTOR kind   =>   @?115 @@@ [encode_number_kind kind];
+
+		     p::RAW_LOAD kind         => @?116 @@@ [encode_number_kind kind];
+		     p::RAW_STORE kind        => @?117 @@@ [encode_number_kind kind];
+		     p::RAW_CCALL (THE i)    => @?118 @@@ [encode_ccall_info i];
+		     p::RAW_RECORD { fblock } => @?119 @@@ [do_a_bool fblock];
+
+		     p::INLMIN kind => @?120 @@@ [encode_number_kind kind];
+		     p::INLMAX kind => @?121 @@@ [encode_number_kind kind];
+		     p::INLABS kind => @?122 @@@ [encode_number_kind kind];
+
+		     p::TEST_INF   i => @?123 @@@ [do_an_int i];
+		     p::TRUNC_INF  i => @?124 @@@ [do_an_int i];
+		     p::EXTEND_INF i => @?125 @@@ [do_an_int i];
+		     p::COPY_INF   i => @?126 @@@ [do_an_int i];
+
+		     p::MKETAG        => %?0;
+		     p::WRAP          => %?1;
+		     p::UNWRAP        => %?2;
+		     p::SUBSCRIPT     => %?3;
+		     p::SUBSCRIPTV    => %?4;
+		     p::INLSUBSCRIPT  => %?5;
+		     p::INLSUBSCRIPTV => %?6;
+		     p::INLMKARRAY    => %?7;
+		     p::PTREQL        => %?8;
+		     p::PTRNEQ        => %?9;
+		     p::POLYEQL       => %?10;
+		     p::POLYNEQ       => %?11;
+		     p::BOXED         => %?12;
+		     p::UNBOXED       => %?13;
+		     p::LENGTH        => %?14;
+		     p::CHUNKLENGTH     => %?15;
+
+		     p::CAST      => %?16;
+		     p::GETRUNVEC => %?17;
+		     p::MARKEXN   => %?18;
+		     p::GETHANDLER   => %?19;
+		     p::SETHANDLER   => %?20;
+		     p::GET_CURRENT_THREAD_REGISTER => %?21;
+		     p::SET_CURRENT_THREAD_REGISTER => %?22;
+		     p::GETPSEUDO => %?23;
+		     p::SETPSEUDO => %?24;
+		     p::SETMARK   => %?25;
+		     p::DISPOSE   => %?26;
+		     p::MAKEREF   => %?27;
+		     p::CALLCC    => %?28;
+		     p::CAPTURE   => %?29;
+		     p::THROW     => %?30;
+		     p::DEREF     => %?31;
+		     p::ASSIGN    => %?32;
+
+		    #  NOTE: p::UNBOXEDASSIGN is defined below 
+
+		     p::UPDATE        => %?33;
+		     p::INLUPDATE     => %?34;
+		     p::BOXED_SET   => %?35;
+		     p::UNBOXED_SET => %?36;
+
+		     p::GETTAG        => %?37;
+		     p::MAKE_SPECIAL     => %?38;
+		     p::SETSPECIAL    => %?39;
+		     p::GETSPECIAL    => %?40;
+		     p::USELVAR       => %?41;
+		     p::DEFLVAR       => %?42;
+		     p::INLNOT        => %?43;
+		     p::INLCOMPOSE    => %?44;
+		     p::INLBEFORE     => %?45;
+		     p::INLINE_ARRAY  => %?46;
+		     p::INLINE_VECTOR => %?47;
+		     p::ISOLATE       => %?48;
+		     p::WCAST         => %?49;
+		     p::NEW_ARRAY0    => %?50;
+		     p::GET_SEQ_DATA  => %?51;
+		     p::SUBSCRIPT_REC => %?52;
+		     p::SUBSCRIPT_RAW64 => %?53;
+		     p::UNBOXEDASSIGN   => %?54;
+		     p::RAW_CCALL NULL  => %?55;
+		     p::INLIGNORE       => %?56;
+		     p::INLIDENTITY     => %?57;
+		     p::CVT64           => %?58;
+                esac;
+	    };
+
+	fun encode_constructor_signature arg
+	    =
+	    cs arg
+            where 
+	        (@@@) = pu::(@@@) type_cs;
+
+		fun cs (a::CONSTRUCTOR_SIGNATURE (i, j)) => "S" @@@ [do_an_int i, do_an_int j];
+		    cs  a::NULLARY_CONSTRUCTOR           => "N" @@@ [];
+                end;
+	    end;
+
+	fun make_var_home { highcode_variable, is_local_pid }
+	    =
+	    { var_home,
+	      datatype_constructor_representation
+	    }
+            where
+	        (@@@) = pu::(@@@) type_a;
+
+		fun var_home (a::HIGHCODE_VARIABLE i) => "A" @@@ [highcode_variable i];
+		    var_home (a::EXTERN p)            => "B" @@@ [do_a_picklehash p];
+
+		    var_home (a::PATH (a as a::EXTERN p, i))
+			=>
+			# is_local_pid always returns false in the "normal pickler" case.
+			# It returns TRUE in the "repickle" case for the
+			# pid that was the hash of the original whole pickle.
+			# Since alpha-conversion has already taken place if we find
+			# an EXTERN pid, we don't call "highcode_variable" but "int".
+			#
+			if (is_local_pid  p)   "A" @@@ [do_an_int i];
+			else                   "C" @@@ [var_home a, do_an_int i];
+                        fi;
+
+		    var_home (a::PATH (a, i)) => "C" @@@ [var_home a, do_an_int i];
+		    var_home a::NO_VAR_HOME   => "D" @@@ [];
+                end;
+
+		(@@@) =  pu::(@@@) type_cr;
+
+		fun datatype_constructor_representation  a::UNTAGGED           => "A" @@@ [];
+		    datatype_constructor_representation (a::TAGGED i)          => "B" @@@ [do_an_int i];
+		    datatype_constructor_representation  a::TRANSPARENT        => "C" @@@ [];
+		    datatype_constructor_representation (a::CONSTANT i)        => "D" @@@ [do_an_int i];
+		    datatype_constructor_representation  a::REF_REP            => "E" @@@ [];
+		    datatype_constructor_representation (a::EXCEPTION a)       => "F" @@@ [var_home a];
+		    datatype_constructor_representation  a::LISTCONS           => "G" @@@ [];
+		    datatype_constructor_representation  a::LISTNIL            => "H" @@@ [];
+		    datatype_constructor_representation (a::SUSP NULL)         => "I" @@@ [];
+		    datatype_constructor_representation (a::SUSP (THE (a, b))) => "J" @@@ [var_home a, var_home b];
+                end;
+	    end;
+
+	# lambda-type stuff; some of it is used in both picklers 
+        #
+	fun encode_type_kind x
+	    =
+	    share type_kinds tk x
+            where
+	        (@@@) =   pu::(@@@) type_tk;
+
+		fun tk x
+                    =
+                    case (lk::type_kind_project  x)     
+		        lk::TYPEKIND_MONOMORPHIC_TYPE_CONSTRUCTOR       => "A" @@@ [];
+			lk::TYPEKIND_BOXED_TYPE_CONSTRUCTOR             => "B" @@@ [];
+			lk::TYPEKIND_TYPE_CONSTRUCTOR_SEQUENCE ks       => "C" @@@ [do_a_list encode_type_kind ks];
+			lk::TYPEKIND_TYPE_CONSTRUCTOR_FUNCTION (ks, kr) => "D" @@@ [do_a_list encode_type_kind ks, encode_type_kind kr];
+                    esac;
+	    end;
+
+	fun make_lambda_type highcode_variable
+	    =
+	    {   fun do_a_lambda_type x
+		    =
+		    share lambda_types lty_i x
+                    where
+		        (@@@) =   pu::(@@@) type_lt;
+
+			fun lty_i x
+			    =
+			    case (lk::lambda_type_project x)
+			         lk::FNTYPE_MONOMORPHIC_TYPE_CONSTRUCTOR tc  => "A" @@@ [do_a_type_constructor tc];
+				 lk::FNTYPE_PACKAGE l                      => "B" @@@ [do_a_list do_a_lambda_type l];
+				 lk::FNTYPE_GENERIC (ts1, ts2)               => "C" @@@ [do_a_list do_a_lambda_type ts1, do_a_list do_a_lambda_type ts2];
+				 lk::FNTYPE_POLYMORPHIC (ks, ts)             => "D" @@@ [do_a_list encode_type_kind ks, do_a_list do_a_lambda_type ts];
+
+				 lk::FNTYPE_INDIRECT_TYPETHUNK _  => bug "unexpected FNTYPE_INDIRECT_TYPETHUNK in mkPickleLty";
+				 lk::FNTYPE_TYPE_CLOSURE _        => bug "unexpected FNTYPE_TYPE_CLOSURE in mkPickleLty";
+				 lk::FNTYPE_INTERNAL_CLOSURE _    => bug "unexpected FNTYPE_INTERNAL_CLOSURE in mkPickleLty";
+                            esac;
+		    end
+
+		also
+		fun do_a_type_constructor x
+		    =
+		    share type_constructors tyc_i x
+                    where
+		        (@@@) =   pu::(@@@) type_tc;
+
+			fun tyc_i x
+			    =
+			    case (lk::type_constructor_project  x)     
+			        lk::TC_VAR (db, i)                           => "A" @@@ [do_an_int (di::di_toint db), do_an_int i];
+			        lk::TC_NAMED_VAR n                           => "B" @@@ [highcode_variable n];
+			        lk::TC_PRIM t                                => "C" @@@ [do_an_int (pt::prim_type_con_to_int t)];
+			        lk::TC_FN (ks, tc)                           => "D" @@@ [do_a_list encode_type_kind ks, do_a_type_constructor tc];
+			        lk::TC_APPLY (tc, l)                         => "E" @@@ [do_a_type_constructor tc, do_a_list do_a_type_constructor l];
+			        lk::TC_SEQ l                                 => "F" @@@ [do_a_list do_a_type_constructor l];
+			        lk::TC_PROJ (tc, i)                          => "G" @@@ [do_a_type_constructor tc, do_an_int i];
+			        lk::TC_SUM l                                 => "H" @@@ [do_a_list do_a_type_constructor l];
+			        lk::TC_RECURSIVE ((n, tc, ts), i)            => "I" @@@ [do_an_int n, do_a_type_constructor tc, do_a_list do_a_type_constructor ts, do_an_int i];
+			        lk::TC_ABSTRACT tc                           => "J" @@@ [do_a_type_constructor tc];
+			        lk::TC_BOXED tc                              => "K" @@@ [do_a_type_constructor tc];
+			        lk::TC_TUPLE (_, l)                          => "L" @@@ [do_a_list do_a_type_constructor l];
+			        lk::TC_ARROW (lk::FNFLAG_VARIABLE (b1, b2), ts1, ts2)  => "M" @@@ [do_a_bool b1, do_a_bool b2, do_a_list do_a_type_constructor ts1, do_a_list do_a_type_constructor ts2];
+			        lk::TC_ARROW (lk::FNFLAG_FIXED, ts1, ts2)     => "N" @@@ [do_a_list do_a_type_constructor ts1, do_a_list do_a_type_constructor ts2];
+			        lk::TC_EXTENSIBLE_TOKEN (tk, t)              => "O" @@@ [do_an_int (lk::token_int tk), do_a_type_constructor t];
+
+			        lk::TC_PARROW _                              => bug "unexpected TC_PARREW in mkPickleLty";
+			        lk::TC_INDIRECT _                            => bug "unexpected TC_INDIRECT in mkPickleLty";
+			        lk::TC_CLOSURE _                             => bug "unexpected TC_CLOSURE in mkPickleLty";
+			        lk::TC_FATE _                        => bug "unexpected TC_FATE in mkPickleLty";
+                            esac;
+		    end;
+	    
+		{   type_constructor => do_a_type_constructor,
+		    lambda_type      => do_a_lambda_type
+		};
+	    };
+
+	#  The highcode pickler 
+	fun highcode highcode_expression
+	    =
+	    {   alpha_convert = make_alpha_convert ();
+
+		highcode_variable
+                    =
+                    do_an_int  o  alpha_convert;
+
+		my { var_home, datatype_constructor_representation }
+                    =
+                    make_var_home { highcode_variable,
+				 is_local_pid => fn _ = FALSE
+                               };
+
+		my { lambda_type, type_constructor }
+                    =
+                    make_lambda_type  highcode_variable;
+
+		(@@@) = pu::(@@@) type_v;
+
+		fun value (f::VAR v)      => "a" @@@ [highcode_variable v];
+		    value (f::INT i)      => "b" @@@ [do_an_int i];
+		    value (f::INT32 i32)  => "c" @@@ [do_an_int32 i32];
+		    value (f::WORD w)     => "d" @@@ [do_an_unt w];
+		    value (f::WORD32 w32) => "e" @@@ [do_an_unt32 w32];
+		    value (f::REAL s)     => "f" @@@ [do_a_string s];
+		    value (f::STRING s)   => "g" @@@ [do_a_string s];
+                end;
+
+		fun con arg
+		    =
+		    c arg
+                    where
+		        (@@@) = pu::(@@@) type_c;
+
+			fun c (f::DATACON (dc, ts, v), e) => "1" @@@ [dcon (dc, ts), highcode_variable v, encode_lambda_expression e];
+			    c (f::INTCON i, e)            => "2" @@@ [do_an_int i,      encode_lambda_expression e];
+			    c (f::INT32CON i32, e)        => "3" @@@ [do_an_int32 i32,  encode_lambda_expression e];
+			    c (f::WORDCON w, e)           => "4" @@@ [do_an_unt w,      encode_lambda_expression e];
+			    c (f::WORD32CON w32, e)       => "5" @@@ [do_an_unt32 w32,  encode_lambda_expression e];
+			    c (f::REALCON s, e)           => "6" @@@ [do_a_string s,    encode_lambda_expression e];
+			    c (f::STRINGCON s, e)         => "7" @@@ [do_a_string s,    encode_lambda_expression e];
+			    c (f::VLENCON i, e)           => "8" @@@ [do_an_int i,      encode_lambda_expression e];
+                        end;
+		    end
+
+		also
+		fun dcon ((s, cr, t), ts)
+		    =
+		    {   (@@@) = pu::(@@@) type_dcon;
+		    
+			"x" @@@ [do_a_symbol s, datatype_constructor_representation cr, lambda_type t, do_a_list type_constructor ts];
+		    }
+
+		also
+		fun dictionary { default => v, table => tables }
+		    =
+		    {   (@@@) = pu::(@@@) type_dictionary;
+		    
+			"y" @@@ [highcode_variable v, do_a_list (do_a_pair (do_a_list type_constructor, highcode_variable)) tables];
+		    }
+
+		also
+		fun fprim (dtopt, p, t, ts)
+		    =
+		    {   (@@@) = pu::(@@@) type_fprim;
+		    
+			"z" @@@ [do_an_option dictionary dtopt, encode_primitive_operation p, lambda_type t, do_a_list type_constructor ts];
+		    }
+
+		also
+		fun encode_lambda_expression arg
+		    =
+		    l arg
+                    where
+		        (@@@) = pu::(@@@) type_e;
+
+			fun l (f::RET vs)                            => "j" @@@ [do_a_list value vs];
+			    l (f::LET (vs, e1, e2))                  => "k" @@@ [do_a_list highcode_variable vs, encode_lambda_expression e1, encode_lambda_expression e2];
+			    l (f::MUTUALLY_RECURSIVE_FNS (fdecs, e)) => "l" @@@ [do_a_list function_declaration fdecs, encode_lambda_expression e];
+
+			    l (f::APPLY (v, vs))                     => "m" @@@ [value v, do_a_list value vs];
+			    l (f::TYPE_FN (tfdec, e))                => "n" @@@ [tfundec tfdec, encode_lambda_expression e];
+			    l (f::TYPE_APPLY (v, ts))                => "o" @@@ [value v, do_a_list type_constructor ts];
+
+			    l (f::SWITCH (v, crl, cel, eo))          => "p" @@@ [value v, encode_constructor_signature crl, do_a_list con cel, do_an_option encode_lambda_expression eo];
+			    l (f::CONSTRUCTOR (dc, ts, u, v, e))     => "q" @@@ [dcon (dc, ts), value u, highcode_variable v, encode_lambda_expression e];
+			    l (f::RECORD (rk, vl, v, e))             => "r" @@@ [record_kind rk, do_a_list value vl, highcode_variable v, encode_lambda_expression e];
+
+			    l (f::SELECT (u, i, v, e))               => "s" @@@ [value u, do_an_int i, highcode_variable v, encode_lambda_expression e];
+			    l (f::RAISE (u, ts))                     => "t" @@@ [value u, do_a_list lambda_type ts];
+			    l (f::EXCEPT (e, u))                     => "u" @@@ [encode_lambda_expression e, value u];
+
+			    l (f::BRANCH (p, vs, e1, e2))            => "v" @@@ [fprim p, do_a_list value vs, encode_lambda_expression e1, encode_lambda_expression e2];
+			    l (f::PRIMOP (p, vs, v, e))              => "w" @@@ [fprim p, do_a_list value vs, highcode_variable v, encode_lambda_expression e];
+                        end;
+		    end
+
+		also
+		fun function_declaration (fk, v, vts, e)
+		    =
+		    {   (@@@) = pu::(@@@) type_fundec;
+		    
+			"a" @@@ [fkind fk, highcode_variable v, do_a_list (do_a_pair (highcode_variable, lambda_type)) vts, encode_lambda_expression e];
+		    }
+
+		also
+		fun tfundec (_, v, tvks, e)
+		    =
+		    {   (@@@) = pu::(@@@) type_tfundec;
+
+			"b" @@@ [highcode_variable v, do_a_list (do_a_pair (highcode_variable, encode_type_kind)) tvks, encode_lambda_expression e];
+		    }
+
+		also
+		fun fkind arg
+		    =
+		    fk arg
+                    where
+		        (@@@) = pu::(@@@) type_fk;
+
+			fun is_always f::INLINE_WHENEVER_POSSIBLE => TRUE;
+			    is_always _ => FALSE;
+                        end;
+
+			fun strip (x, y)
+                            =
+                            x;
+
+			fun fk { calling_convention => f::CALLING_CONVENTION_GENERIC, ... }
+                                =>
+                                "2" @@@ [];
+
+			    fk { is_recursive, calling_convention => f::CALLING_CONVENTION_FUNCTION fixed, all_call_sites_known, inlining_hint }
+				=>
+				case fixed
+				  
+				    lk::FNFLAG_VARIABLE (b1, b2)
+					=>
+					"3" @@@ [ do_an_option (do_a_list lambda_type) (null_or::map strip is_recursive),
+						  do_a_bool b1, do_a_bool b2, do_a_bool all_call_sites_known,
+						  do_a_bool (is_always inlining_hint)
+						];
+
+				    lk::FNFLAG_FIXED
+					=>
+					"4" @@@ [ do_an_option (do_a_list lambda_type) (null_or::map strip is_recursive),
+						  do_a_bool all_call_sites_known, do_a_bool (is_always inlining_hint)
+						];
+                                esac;
+                        end;
+		    end
+
+		also
+		fun record_kind arg
+		    =
+		    rk arg
+                    where 
+		        (@@@) = pu::(@@@) type_rk;
+
+			fun rk (f::RK_VECTOR tc) => "5" @@@ [type_constructor tc];
+			    rk f::RK_STRUCT => "6" @@@ [];
+			    rk (f::RK_TUPLE _) => "7" @@@ [];
+                        end;
+		    end;
+	    
+		function_declaration  highcode_expression;
+	    };								# fun highcode 
+
+	fun pickle_highcode_program fo
+	    =
+	    { pickle,
+	      picklehash
+	    }
+            where
+	        pickle
+                    =
+                    byte::string_to_bytes
+                        (pu::pickle
+                            empty_map
+                            (do_an_option  highcode  fo)
+                        );
+
+		picklehash = hash_pickle pickle;
+	    end;
+
+	fun symbol_dictionary_pickler symbol_dictionary
+            =
+            do_a_list
+                (do_a_pair
+                    (do_a_picklehash, highcode))
+                (inlining_table::keyvals_list  symbol_dictionary);
+
+	# Build and return a symbol table pickler:
+	#
+	fun symbol_table_pickler
+		register_lvar            #  
+		pickle_context           #  INITIAL/REHASH/LIBRARY 
+	    =
+	    {   my { type_constructor_stub, api_stub, package_stub, generic_stub, typechecked_package_stub, is_local_pid, is_lib }
+		    =
+		    case pickle_context
+		      
+			INITIAL type_map
+			    =>
+			    {
+				fun stub (x_id, fresh_x, get_x) r
+				    =
+				    {   id = x_id r;
+
+					if   (fresh_x id)
+
+					     NULL;
+					else
+					     if   (not_null (get_x (type_map, id)))
+
+						  THE (NULL, id);
+					     else NULL;       fi;
+					fi;
+				    };
+
+				{ type_constructor_stub     => stub (mm::type_identifier,        mm::type_identifier_is_fresh,       mm::find_type_constructor_via_symbol_path),
+				  api_stub                  => stub (mm::api_identifier,         mm::api_identifier_is_fresh,        mm::find_api_by_symbol),
+				  package_stub              => stub (mm::package_identifier,     mm::package_identifier_is_fresh,    mm::find_package_via_symbol_path),
+				  generic_stub              => stub (mm::generic_identifier,     mm::generic_identifier_is_fresh,    mm::find_generic_via_symbol_path),
+				  typechecked_package_stub  => stub (mm::dictionary_identifier,  mm::dictionary_identifier_is_fresh, mm::find_typechecked_package),
+				  is_local_pid          => fn _  =  FALSE,
+				  is_lib => FALSE
+				};
+			    };
+
+		      REHASH my_pid
+			  =>
+			  {
+			      fun is_local_pid p
+				  =
+				  picklehash::compare (p, my_pid) == EQUAL;
+
+			      fun stub (id_x, stub_x, owner) r
+				  =
+				  case (stub_x  r)
+
+				       THE stb
+					   =>
+					   if   (is_local_pid (owner stb))
+
+						THE (NULL, id_x r);
+					   else NULL;           fi;
+
+				       NULL
+					   =>
+					   bug "REHASH: no Stub_Info";
+				  esac;
+
+			      {   type_constructor_stub =>  stub (mm::type_identifier,        .stub,                            .owner),
+				  api_stub              =>  stub (mm::api_identifier,         .stub,                            .owner),
+				  package_stub          =>  stub (mm::package_identifier,     .stub o .typechecked_package,      .owner),
+				  generic_stub          =>  stub (mm::generic_identifier,     .stub o .typechecked_generic, .owner),
+				  typechecked_package_stub  =>  stub (mm::dictionary_identifier,  .stub,                            .owner),
+				  is_local_pid,
+				  is_lib                =>  FALSE
+			      };
+			  };
+
+		      LIBRARY l
+			  =>
+			  {   fun stub (id_x, stub_x, get_x, lib) r
+				  =
+				  {   fun get id
+					  =
+					  loop l
+                                          where
+					      fun loop []
+						      =>
+						      bug "LIBRARY: import info missing";
+
+						  loop ((lms, a_map) ! t)
+						      =>
+						      if   (not_null (get_x (a_map, id)))
+							   lms;
+						      else loop t;fi;
+					      end;
+					  end;
+
+				      case (stub_x r)
+
+					  NULL
+					      =>
+					      bug "LIBRARY: no Stub_Info";
+
+					  THE stb
+					      =>
+					      {   id = id_x r;
+
+						  if   (lib stb)   THE (get id, id);
+						  else             NULL;
+						  fi;
+					      };
+				      esac;
+				  };
+
+			      { type_constructor_stub     => stub (mm::type_identifier,        .stub,                         mm::find_type_constructor_via_symbol_path, .lib),
+				api_stub                  => stub (mm::api_identifier,         .stub,                         mm::find_api_by_symbol,                    .lib),
+				package_stub              => stub (mm::package_identifier,     .stub o .typechecked_package,  mm::find_package_via_symbol_path,          .lib),
+				generic_stub              => stub (mm::generic_identifier,     .stub o .typechecked_generic,  mm::find_generic_via_symbol_path,          .lib),
+				typechecked_package_stub  => stub (mm::dictionary_identifier,  .stub,                         mm::find_typechecked_package,              .lib),
+				is_local_pid              => fn _ = FALSE,
+				is_lib                    => TRUE
+			      };
+			  };
+                        esac;
+
+		# Owner pids of stubs are pickled
+                # only in the case of libraries,
+		# otherwise they are ignored completely.
+                #
+		fun lib_pid x
+		    =
+		    if (is_lib)
+		        
+			case x
+
+			    (NULL, _) => [];
+			    (THE stb, owner_of) => [do_a_picklehash (owner_of stb)];
+			esac;
+		    else
+                        [];
+                    fi;
+
+		fun lib_mod_spec lms
+                    =
+                    do_an_option (do_a_pair (do_an_int, do_a_symbol)) lms;
+
+		stamp_converter = stamp::new_converter ();
+
+		fun stamp s
+		    =
+		    {   (@@@) = pu::(@@@) type_st;
+		    
+			stamp::case'
+                            stamp_converter
+                            s
+                            {   fresh   =>   fn i                           =  "A" @@@ [do_an_int i],
+			        global  =>   fn { picklehash => p, count }  =  "B" @@@ [do_a_picklehash p, do_an_int count],
+				special =>   fn s                           =  "C" @@@ [do_a_string s]
+			    };
+		    };
+
+		type_identifier = stamp;
+		api_identifier  = stamp;
+
+		fun encode_package_identifier { an_api, typechecked_package }
+		    =
+		    {   (@@@) = pu::(@@@) type_strid;
+		    
+			"D" @@@ [stamp an_api, stamp typechecked_package];
+		    };
+
+		fun encode_generic { parameter_api, body_api, typechecked_package }
+		    =
+		    {   (@@@) = pu::(@@@) type_fctid;
+		    
+			"E" @@@ [stamp parameter_api, stamp body_api, stamp typechecked_package];
+		    };
+
+		dictionary_identifier = stamp;
+
+		module_stamp   =   stamp;
+		module_path    =   do_a_list module_stamp;
+
+		another_lvar
+		    =
+		    {   lvcount = REF 0;
+		    
+			(fn v   =    {   j = *lvcount;
+				     
+					 register_lvar v;
+					 lvcount := j + 1;
+					 j;
+				     }
+			);
+		    };
+
+		my { var_home, datatype_constructor_representation }
+		    =
+		    make_var_home { highcode_variable => do_an_int o another_lvar,
+			          is_local_pid
+			        };
+
+		(@@@)   =   pu::(@@@) type_symbol_path;     fun spath (sp::SYMBOL_PATH p)    =   "s" @@@ [do_a_list do_a_symbol p];
+		(@@@)   =   pu::(@@@) type_inverse_path;    fun ipath (ip::INVERSE_PATH p)   =   "i" @@@ [do_a_list do_a_symbol p];
+
+		#  For debugging:
+		#
+		fun showipath (ip::INVERSE_PATH p)
+		    =
+		    cat (map   (fn s =  symbol::symbol_to_string s + ".")   (reverse p));
+
+		label = do_a_symbol;
+
+		fun equality_property eqp
+		    =
+		    eqc eqp @@@ []
+                    where
+		        (@@@) = pu::(@@@) type_eqp;
+
+			fun eqc t::YES           => "\000";
+			    eqc t::NO            => "\001";
+			    eqc t::INDETERMINATE => "\002";
+			    eqc t::CHUNK         => "\003";
+			    eqc t::DATA          => "\004";
+			    eqc t::EQ_ABSTRACT   => "\005";
+			    eqc t::UNDEF         => "\006";
+			end;
+		    end;
+
+		fun do_a_datatype_constructor (t::ENUM_CONSTRUCTOR { symbol, const, constructor_type, representation, signature, is_lazy } )
+                    =
+                    {   (@@@) = pu::(@@@) type_enum_constructor;
+		    
+			"c" @@@ [ do_a_symbol symbol,
+                                  do_a_bool const,
+                                  do_a_type constructor_type,
+                                  datatype_constructor_representation representation,
+			          encode_constructor_signature  signature,
+                                  do_a_bool is_lazy
+                                ];
+		    }
+
+		also
+		fun do_atype_constructor_kind arg
+                    =
+		    tk arg
+                    where
+                        (@@@) = pu::(@@@) type_tyckind;
+
+			fun tk (t::PRIMITIVE pt) => "a" @@@ [do_an_int pt];
+			    tk (t::DATATYPE { index, family, stamps, root, free_type_constructors } ) => "b" @@@ [do_an_int index, do_an_option module_stamp root, do_adtype_info (stamps, family, free_type_constructors)];
+			    tk (t::ABSTRACT typecon) => "c" @@@ [do_a_type_constructor typecon];
+			    tk (t::FLEXIBLE_TYPE_CONSTRUCTOR tps) => "d" @@@ []; #  "f" @@@ Type_Constructor_Path tps 
+
+			    # I (Matthias) carried through this message from Zhong:
+			    #  Type_Constructor_Path should never be pickled; the only way it can be
+			    # pickled is when pickling the domains of a mutually 
+			    # recursive datatypes; right now the mutually recursive
+			    # datatypes are not assigned accurate domains ... (ZHONG)
+			    # the preceding code is just a temporary gross hack.  XXX BUGGO FIXME
+
+			    tk t::FORMAL => "d" @@@ [];
+			    tk t::TEMP => "e" @@@ [];
+                        end;
+		    end
+
+		also
+		fun do_adtype_info x
+		    =
+		    share   (data_types (vector::get (#1 x, 0)))   dti_raw    x
+                    where
+		        (@@@) = pu::(@@@) type_dti;
+
+			fun dti_raw (ss, family, free_type_constructors)
+			    =
+			    "a" @@@ [ do_a_list stamp (vector::fold_right (!) [] ss),
+				      do_adt_family family,
+				      do_a_list do_a_type_constructor free_type_constructors
+				    ];
+		    end
+
+		also
+		fun do_adt_family x
+		    =
+		    share (datatype_members x.mkey) dtf_raw x
+                    where
+		        (@@@) = pu::(@@@) type_dtf;
+
+			fun dtf_raw { mkey, members, property_list }
+			    =
+			    "b" @@@ [ stamp mkey,
+				      do_a_list do_a_datatype_member (vector::fold_right (!) [] members)
+				    ];
+		    end
+
+		also
+		fun do_a_datatype_member { type_constructor_name, constructor_list, arity, eq => REF e, is_lazy, an_api }
+		    =
+		    {   (@@@) = pu::(@@@) type_dtmem;
+		    
+			"c" @@@ [ do_a_symbol type_constructor_name,
+				  do_a_list do_aname_representation_domain constructor_list,
+				  do_an_int arity,
+				  equality_property e,
+				  do_a_bool is_lazy,
+				  encode_constructor_signature an_api
+				];
+		    }
+
+		also
+		fun do_aname_representation_domain { name, representation, domain }
+		    =
+		   {   (@@@) = pu::(@@@) type_nrd;
+		   
+		       "d" @@@ [do_a_symbol name, datatype_constructor_representation representation, do_an_option do_a_type domain];
+		   }
+
+		also
+		fun do_a_type_constructor arg
+		    =
+		    tc arg
+                    where
+		        (@@@) = pu::(@@@) type_tycon;
+
+			fun tc (type_constructor as t::PRIMITIVE_TYPE_CONSTRUCTOR g)
+				=>
+				{   fun gt_raw (g as { stamp => s,
+						       arity,
+						       eq => REF eq,
+						       kind,
+						       path,
+						       stub
+						     }
+					       )
+					=
+					case (type_constructor_stub g)
+					  
+					     THE (l, i)   =>   "A" @@@   [   lib_mod_spec l,  type_identifier i  ];
+					     NULL         =>   "B" @@@ ( [   stamp s,
+									    do_an_int arity,
+									    equality_property eq,
+									    do_atype_constructor_kind kind,
+									    ipath path
+									]
+									@
+									lib_pid (stub, .owner)
+								      );
+                                        esac;
+
+				    share   (module_type_constructors (mm::type_identifier g))   gt_raw   g;
+				};
+
+			    tc (type_constructor as t::DEFINED_TYPE_CONSTRUCTOR dt)
+				=>
+				{
+				    fun dt_raw { stamp => s, type_scheme, strict, path }
+					=
+					{   my t::TYPE_SCHEME { arity, body } = type_scheme;
+
+					    "C" @@@ [   stamp s,
+						      do_an_int arity,
+						      do_a_type body,
+						      do_a_list do_a_bool strict,
+						      ipath path
+						  ];
+					};
+
+				    share (module_type_constructors (mm::type_identifier' type_constructor)) dt_raw dt;
+				};
+
+			   tc (t::TYPE_CONSTRUCTOR_BY_MODULE_PATH { arity, module_path => ep, path } )   =>   "D" @@@ [do_an_int arity, module_path ep, ipath path];
+			   tc (t::RECORD_TYPE_CONSTRUCTOR l)                                             =>   "E" @@@ [do_a_list label l];
+			   tc (t::RECURSIVE_TYPE i)                                                      =>   "F" @@@ [do_an_int i];
+			   tc (t::FREE_TYPE i)                                                           =>   "G" @@@ [do_an_int i];
+			   tc t::ERRONEOUS_TYPE_CONSTRUCTOR                                              =>   "H" @@@ [];
+                        end;
+		    end
+
+		also
+		fun do_a_type arg
+		    =
+		    type arg
+                    where
+		        (@@@) = pu::(@@@) type_t;
+
+			fun type (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE t) } )   =>   type t;
+
+			    type (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::META_TYPE_VARIABLE              _) } )   =>   bug "unresolved TYPE_VARIABLE_REF in pickle-module";
+			    type (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::INCOMPLETE_RECORD_TYPE_VARIABLE _) } )   =>   bug "unresolved TYPE_VARIABLE_REF in pickle-module";
+
+			    type (t::CONSTRUCTOR_TYPE (c, l))   =>   "a" @@@ [do_a_type_constructor c, do_a_list type l];
+			    type (t::TYPE_SCHEME_ARG_I i)             =>   "b" @@@ [do_an_int i];
+			    type  t::WILDCARD_TYPE              =>   "c" @@@ [];
+			    type (t::TYPE_SCHEME_TYPE {
+					type_scheme_arg_eq_properties => an_api,
+					type_scheme => t::TYPE_SCHEME { arity, body }
+				    }
+				   )                              =>   "d" @@@ [do_a_list do_a_bool an_api, do_an_int arity, type body];
+			    type  t::UNDEFINED_TYPE             =>   "e" @@@ [];
+
+			    type _ => bug "unexpected type in pickmod-type";
+                        end;
+		    end;
+
+		(@@@) = pu::(@@@) type_i;
+
+		fun do_inlining_info i
+		    =
+		    ii::match i { do_inline_primitive =>   fn (p, t) =  "A" @@@ [encode_primitive_operation p, do_a_type t],
+				  do_inline_package   =>   fn sl     =  "B" @@@ [do_a_list do_inlining_info sl],
+				  do_inline_nothing   =>   fn ()     =  "C" @@@ []
+			        };
+
+		(@@@) = pu::(@@@) type_var;
+
+		fun do_a_variable (v::ORDINARY_VARIABLE {   var_home => a,   inlining_info,   path,   var_type => REF t } )
+			=>
+			"1"   @@@   [  var_home a,   do_inlining_info inlining_info,   spath path,   do_a_type t  ];
+
+		    do_a_variable (v::OVERLOADED_IDENTIFIER {   name,   alternatives,   type_scheme => t::TYPE_SCHEME { arity, body }   } )
+			=>
+			"2"   @@@   [  do_a_symbol name,   do_a_list do_an_overload *alternatives,   do_an_int arity,   do_a_type body  ];
+
+		    do_a_variable v::ERRORVAR
+                        =>
+                        "3" @@@ [];
+                end 
+
+		also
+		fun do_an_overload { indicator, variant }
+		    =
+		    {   (@@@) = pu::(@@@) type_overld;
+		    
+			"o"   @@@   [  do_a_type indicator,   do_a_variable variant  ];
+		    };
+
+		fun do_apackage_definition arg
+		    =
+		    sd arg
+                    where
+		        (@@@) = pu::(@@@) type_sd;
+
+			fun sd (m::CONSTANT_PACKAGE_DEFINITION s)        =>   "C" @@@ [do_a_package s];
+			    sd (m::VARIABLE_PACKAGE_DEFINITION (s, p))   =>   "V" @@@ [do_an_api s, module_path p];
+                        end;
+
+		    end
+
+		also
+		fun do_an_api arg
+		    =
+		    an_api arg
+                    where 
+		        (@@@) = pu::(@@@) type_sg;
+
+			fun an_api  m::ERRONEOUS_API
+                                =>
+                                "A" @@@ [];
+
+			    an_api (m::API s)
+				=>
+				   case (api_stub s)
+				     
+				        THE (l, i)
+                                            =>
+                                            "B" @@@ [lib_mod_spec l, api_identifier i];
+
+					NULL
+					    =>
+					    {   fun encode_raw_api (s: m::Api_Record)
+						    =
+						    {    my { stamp => sta,
+							      name,
+							      closed,
+							      contains_generic,
+							      symbols,
+							      elements,
+							      property_list,
+							      stub,
+							      type_sharing,
+							      package_sharing
+							    }
+							    = s;
+
+							b = package_property_lists::api_bound_generic_evaluation_paths s;
+							b = NULL; #  Currently turned off
+
+							"C" @@@ ( [ stamp sta,
+								  do_an_option do_a_symbol name,
+								  do_a_bool closed,
+								  do_a_bool contains_generic,
+								  do_a_list do_a_symbol symbols,
+								  do_a_list (do_a_pair (do_a_symbol, do_aspec)) elements,
+								  do_an_option (do_a_list (do_a_pair (module_path, encode_type_kind))) b,
+								  do_a_list (do_a_list spath) type_sharing,
+								  do_a_list (do_a_list spath) package_sharing
+								]
+								@ lib_pid (stub, .owner));
+						    };
+
+						share apis encode_raw_api s;
+					    };
+				   esac;
+                        end;
+		    end
+
+		also
+		fun do_a_pkg_fn_api arg
+		    =
+		    do_generic_api' arg
+                    where
+		        (@@@) = pu::(@@@) type_fsg;
+
+			fun do_generic_api' m::ERRONEOUS_GENERIC_API
+                                =>
+                                "a" @@@ [];
+
+			    do_generic_api' (m::GENERIC_API { kind, parameter_api, parameter_variable, parameter_symbol, body_api } )
+				=>
+				"c" @@@ [ do_an_option do_a_symbol kind,
+					  do_an_api  parameter_api,
+					  module_stamp   parameter_variable,
+					  do_an_option do_a_symbol parameter_symbol,
+					  do_an_api  body_api
+					];
+                        end;
+		    end
+
+		also
+		fun do_aspec arg
+		    =
+		    dospec arg
+                    where
+		        (@@@) = pu::(@@@) type_sp;
+
+			fun dospec (m::TYPE_CONSTRUCTOR_IN_API { type_constructor => t, module_stamp => v, is_a_replica, scope } )
+				=>
+				"1" @@@ [do_a_type_constructor t, module_stamp v, do_a_bool is_a_replica, do_an_int scope];
+
+			    dospec (m::PACKAGE_IN_API { an_api, slot, definition, module_stamp => v } )
+				=>
+				"2" @@@ [do_an_api an_api, do_an_int slot,
+				       do_an_option (do_a_pair (do_apackage_definition, do_an_int)) definition, module_stamp v];
+
+			    dospec (m::GENERIC_IN_API { a_generic_api, slot, module_stamp => v } )
+				=>
+				"3" @@@ [ do_a_pkg_fn_api  a_generic_api,
+                                          do_an_int        slot,
+                                          module_stamp  v
+                                        ];
+
+			    dospec (m::VALUE_IN_API { type, slot } )
+				=>
+				"4" @@@ [do_a_type type, do_an_int slot];
+
+			    dospec (m::ENUM_CONSTRUCTOR_IN_API { a_datatype => c, slot } )
+				=>
+				"5" @@@ [do_a_datatype_constructor c, do_an_option do_an_int slot];
+                        end;
+		    end
+
+		also
+		fun do_an_typechecked_package arg
+		    =
+		    en arg
+                    where
+		        (@@@) = pu::(@@@) type_en;
+
+		        fun en (m::TYPE_CONSTRUCTOR_ENTRY t) =>   "A" @@@ [do_atypechecked_type_constructor t];
+			    en (m::PACKAGE_ENTRY          t) =>   "B" @@@ [do_agenerics_expansion          t];
+			    en (m::GENERIC_ENTRY          t) =>   "C" @@@ [do_atypechecked_generic          t];
+			    en m::ERRONEOUS_ENTRY            =>   "D" @@@ [];
+                        end;
+		    end
+
+		also
+		fun do_ageneric_closure (m::GENERIC_CLOSURE { parameter_module_stamp=>parameter, body_package_expression=>body, typechecker_dictionary=>dictionary } )
+		    =
+		    {   (@@@) = pu::(@@@) type_fctc;
+
+			"f" @@@ [module_stamp parameter, do_apackage_expression body, do_an_typechecked_package_dictionary dictionary];
+		    }
+
+		also
+		fun do_a_package arg
+		    =
+		    a_package arg
+                    where
+		        (@@@) = pu::(@@@) type_str;
+
+			fun a_package (m::PACKAGE_API { an_api, module_path => p } )   =>   "A" @@@ [do_an_api an_api, module_path p];
+			    a_package m::ERRONEOUS_PACKAGE => "B" @@@ [];
+			    a_package (m::A_PACKAGE (s as { an_api, typechecked_package, var_home => a, inlining_info=>info } ))
+			        =>
+			        case (package_stub  s)       #  stub represents just the strerec suspension! 
+				  
+				     THE (l, i) => "C" @@@ [ do_an_api an_api,
+							     lib_mod_spec l,
+							     encode_package_identifier i,
+							     var_home a,
+							     do_inlining_info info
+							   ];
+
+			             NULL => "D" @@@ [ do_an_api an_api,
+						       do_ashared_generics_expansion (mm::package_identifier s) typechecked_package,
+						       var_home a,
+						       do_inlining_info info
+						     ];
+                               esac;
+			end;
+		    end
+
+		also
+		fun do_a_generic arg
+		    =
+		    ageneric arg
+                    where
+		        (@@@) = pu::(@@@) type_f;
+
+			fun ageneric m::ERRONEOUS_GENERIC
+                                =>
+                                "E" @@@ [];
+
+			    ageneric (m::GENERIC (f as { a_generic_api, typechecked_generic, var_home => a, inlining_info=>info } ))
+			        =>
+			        case (generic_stub  f)
+				  
+				     THE (l, i) => "F" @@@ [ do_a_pkg_fn_api  a_generic_api,
+							     lib_mod_spec l,
+							     encode_generic i,
+							     var_home a,
+							     do_inlining_info info
+							   ];
+
+				     NULL => "G" @@@ [ do_a_pkg_fn_api  a_generic_api,
+						       do_ashared_typechecked_generic (mm::generic_identifier f)  typechecked_generic,
+						       var_home a,
+						       do_inlining_info info
+						     ];
+                                esac;
+			end;
+		    end
+
+		also
+		fun # do_astamp_expression (m::CONST s)     => pu::(@@@) type_ste ("a", [stamp s]);
+		      do_astamp_expression (m::GET_STAMP s) => pu::(@@@) type_ste ("b", [do_apackage_expression s]);
+		      do_astamp_expression m::MAKE_STAMP    => "c" @@@ [];
+                end 
+
+		also
+		fun do_atype_constructor_expression (m::CONSTANT_TYPE_CONSTRUCTOR      t) => pu::(@@@) type_tce ("d", [do_a_type_constructor t]);
+		    do_atype_constructor_expression (m::FORMAL_TYPE_CONSTRUCTOR        t) => pu::(@@@) type_tce ("e", [do_a_type_constructor t]);
+		    do_atype_constructor_expression (m::TYPE_VARIABLE_TYPE_CONSTRUCTOR s) => pu::(@@@) type_tce ("f", [module_path s]);
+                end
+
+		also
+		fun do_apackage_expression arg
+		    =
+		    packageexpression arg
+                    where
+		        (@@@) = pu::(@@@) type_stre;
+
+			fun packageexpression (m::VARIABLE_PACKAGE s)             => "g" @@@ [module_path        s];
+			    packageexpression (m::CONSTANT_PACKAGE s)             => "h" @@@ [do_agenerics_expansion s];
+			    packageexpression (m::PACKAGE {
+						      stamp => s,
+						      module_declaration => e } ) => "i" @@@ [do_astamp_expression s, do_an_module_declaration e];
+
+			    packageexpression (m::APPLY (f, s))                   => "j" @@@ [do_ageneric_expression f, do_apackage_expression s];
+			    packageexpression (m::PACKAGE_LET { declaration,
+                                                                expression } )    => "k" @@@ [do_an_module_declaration declaration, do_apackage_expression expression];
+			    packageexpression (m::ABSTRACT_PACKAGE (s, e))        => "l" @@@ [do_an_api s, do_apackage_expression e];
+
+			    packageexpression (m::COERCED_PACKAGE {
+						      boundvar,
+						      raw,
+						      coercion } )                => "m" @@@ [  module_stamp boundvar,
+											      do_apackage_expression raw,
+											      do_apackage_expression coercion];
+			    packageexpression (m::FORMAL_PACKAGE fs)              => "n" @@@ [do_a_pkg_fn_api fs];
+			end;
+		    end
+
+		also
+		fun do_ageneric_expression arg
+		    =
+		    genericexpression arg
+                    where
+		        (@@@) = pu::(@@@) type_fe;
+
+			fun genericexpression (m::VARIABLE_GENERIC s)             => "o" @@@ [module_path s];
+			    genericexpression (m::CONSTANT_GENERIC e)             => "p" @@@ [do_atypechecked_generic e];
+			    genericexpression (m::LAMBDA { parameter, body } )    => "q" @@@ [module_stamp parameter, do_apackage_expression body];
+			    genericexpression (m::LAMBDA_TP {
+                                                   parameter,
+                                                   body,
+                                                   an_api } )                     => "r" @@@ [  module_stamp parameter,
+                                                                                             do_apackage_expression body,
+                                                                                             do_a_pkg_fn_api an_api  ];
+			    genericexpression (m::LET_GENERIC (e, f))             => "s" @@@ [  do_an_module_declaration e,
+                                                                                             do_ageneric_expression f ];
+                        end;
+		    end
+
+		also
+		fun do_an_module_expression arg
+		    =
+		    typechecked_packageexpression arg
+                    where
+		        (@@@) = pu::(@@@) type_ee;
+
+			fun typechecked_packageexpression (m::TYPE_CONSTRUCTOR_EXPRESSION  t) => "t" @@@ [do_atype_constructor_expression t];
+			    typechecked_packageexpression (m::PACKAGE_EXPRESSION         s) => "u" @@@ [do_apackage_expression s];
+			    typechecked_packageexpression (m::GENERIC_EXPRESSION           f) => "v" @@@ [do_ageneric_expression f];
+			    typechecked_packageexpression m::ERRONEOUS_ENTRY_EXPRESSION => "w" @@@ [];
+			    typechecked_packageexpression m::DUMMY_GENERIC_EVALUATION_EXPRESSION     => "x" @@@ [];
+                        end;
+		    end
+
+		also
+		fun do_an_module_declaration arg
+		    =
+		    typechecked_packagedeclaration arg
+                    where
+		        (@@@) = pu::(@@@) type_ed;
+
+			fun typechecked_packagedeclaration (m::TYPE_CONSTRUCTOR_DECLARATION (s, x))
+                                =>
+                                "A" @@@ [ module_stamp s,
+                                          do_atype_constructor_expression x
+                                        ];
+
+			    typechecked_packagedeclaration (m::PACKAGE_DECLARATION (s, x, n))
+                                =>
+                                "B" @@@ [ module_stamp s,
+                                          do_apackage_expression x,
+                                          do_a_symbol n
+                                        ];
+
+			    typechecked_packagedeclaration (m::GENERIC_DECLARATION (s, x))
+                                =>
+                                "C" @@@ [ module_stamp s,
+                                          do_ageneric_expression x
+                                        ];
+
+			    typechecked_packagedeclaration (m::SEQUENTIAL_DECLARATIONS e)
+                                =>
+                                "D" @@@ [ do_a_list do_an_module_declaration e];
+
+			    typechecked_packagedeclaration (m::LOCAL_DECLARATION (a, b))
+                                =>
+                                "E" @@@ [ do_an_module_declaration a,
+                                          do_an_module_declaration b
+                                        ];
+
+			    typechecked_packagedeclaration m::ERRONEOUS_ENTRY_DECLARATION
+                                =>
+                                "F" @@@ [];
+
+			    typechecked_packagedeclaration m::EMPTY_GENERIC_EVALUATION_DECLARATION
+                                =>
+                                "G" @@@ [];
+                        end;
+		    end
+
+		also
+		fun do_an_typechecked_package_dictionary (m::MARKED_TYPECHECKER_DICTIONARY m)
+			=>
+			case (typechecked_package_stub  m)
+			  
+			     THE (l, i)
+                                 =>
+                                 "D" @@@ [lib_mod_spec l, dictionary_identifier i];
+			     NULL
+				 =>
+				 {   fun mee_raw { stamp => s, typechecker_dictionary, stub }
+					 =
+					 "E" @@@ (  [ stamp s,
+                                                      do_an_typechecked_package_dictionary  typechecker_dictionary
+                                                    ]
+                                                    @
+                                                    lib_pid ( stub: Null_Or( m::Stub_Info ),
+						              .owner
+						            )
+					         );
+
+				    share typechecker_dictionary  mee_raw m;
+				};
+			esac;
+
+		    do_an_typechecked_package_dictionary (m::NAMED_TYPECHECKER_DICTIONARY (d, r))
+                        =>
+                        pu::(@@@) type_eev ("A", [do_a_list (do_a_pair (module_stamp, do_an_typechecked_package)) (ed::keyvals_list d), do_an_typechecked_package_dictionary r]);
+
+		    do_an_typechecked_package_dictionary m::NULL_TYPECHECKER_DICTIONARY
+                        =>
+                        "B" @@@ [];
+
+		    do_an_typechecked_package_dictionary m::ERRONEOUS_ENTRY_DICTIONARY
+                        =>
+                        "C" @@@ [];
+                end 
+
+		also
+		fun do_agenerics_expansion { stamp => s, typechecker_dictionary, property_list, inverse_path, stub }
+		    =
+		    {   (@@@) = pu::(@@@) type_sen;
+
+			"s" @@@ ([stamp s, do_an_typechecked_package_dictionary typechecker_dictionary, ipath inverse_path]
+			       @ lib_pid (stub: Null_Or( m::Stub_Info ), .owner));
+		    }
+
+		also
+		fun do_ashared_generics_expansion id
+                    =
+                    share (packages id) do_agenerics_expansion
+
+		also
+		fun do_atypechecked_generic
+                    { stamp => s,
+		      generic_closure,
+		      property_list,
+		      type_constructor_path,
+		      inverse_path,
+		      stub
+		    }
+		    =
+		    {   (@@@) = pu::(@@@) type_fen;
+
+			"f" @@@ ([stamp s, do_ageneric_closure  generic_closure,  ipath inverse_path]
+			       @ lib_pid (stub: Null_Or( m::Stub_Info ), .owner));
+		    }
+
+		also
+		fun do_ashared_typechecked_generic id
+                    =
+                    share (generics id) do_atypechecked_generic
+
+		also
+		fun do_atypechecked_type_constructor x
+                    =
+                    do_a_type_constructor x;
+
+		fun do_a_fixity  fixity::NONFIX          =>   "N" @@@ [];
+		    do_a_fixity (fixity::INFIX (i, j))   =>   pu::(@@@) type_fx ("I", [do_an_int i, do_an_int j]);
+                end;
+
+		(@@@) = pu::(@@@) type_b;
+
+		fun do_anaming (b::NAMED_VARIABLE    x) =>   "1" @@@ [do_a_variable             x];
+		    do_anaming (b::NAMED_CONSTRUCTOR x) =>   "2" @@@ [do_a_datatype_constructor x];
+		    do_anaming (b::NAMED_TYPE        x) =>   "3" @@@ [do_a_type_constructor     x];
+		    do_anaming (b::NAMED_API         x) =>   "4" @@@ [do_an_api                 x];
+		    do_anaming (b::NAMED_PACKAGE     x) =>   "5" @@@ [do_a_package              x];
+		    do_anaming (b::NAMED_GENERIC_API x) =>   "6" @@@ [do_a_pkg_fn_api           x];
+		    do_anaming (b::NAMED_GENERIC     x) =>   "7" @@@ [do_a_generic              x];
+		    do_anaming (b::NAMED_FIXITY      x) =>   "8" @@@ [do_a_fixity               x];
+                end;
+
+		fun symboltablepickler symbol_table
+		    =
+		    {   symbols = list_mergesort::unique_sort compare_symbols (symbol_table::symbols symbol_table);
+			pairs   = map (fn symbol = (symbol, symbol_table::get (symbol_table, symbol))) symbols;
+		    
+			do_a_list (do_a_pair (do_a_symbol, do_anaming)) pairs;
+		    };
+	    
+		symboltablepickler;
+	    };                         #  fun symbolTablePickler 
+
+	fun pickle_symbol_table pickle_context symbol_table
+	    =
+	    { picklehash,
+              pickle,
+              exported_highcode_variables,
+              has_exports
+            }
+            where
+	        lvlist = REF [];
+
+		fun register_lvar v
+                    =
+                    lvlist  :=  v ! *lvlist;
+
+		pickler       =   symbol_table_pickler register_lvar pickle_context;
+		pickle        =   byte::string_to_bytes (pu::pickle empty_map (pickler symbol_table));
+
+		exported_highcode_variables   =   reverse (*lvlist);
+
+		picklehash    =   hash_pickle pickle;
+		has_exports    =   not (list::null exported_highcode_variables);
+
+		add_pickles (unt8_vector::length pickle);
+	    end;
+
+	# The dummy symbol table pickler:
+	#
+	fun dont_pickle { symbol_table, count }
+	    =
+	    {   picklehash
+		    =
+		    {   to_byte = unt8::from_large_unt o unt32::to_large_unt;
+
+			my (>>) = unt32::(>>);
+
+			infix val  >> ;
+
+			w = unt32::from_int count;
+		    
+			ps::from_bytes
+			  (unt8_vector::from_list
+			   [0u0, 0u0, 0u0, to_byte (w >> 0u24), 0u0, 0u0, 0u0, to_byte (w >> 0u16),
+			    0u0, 0u0, 0u0, to_byte (w >> 0u08), 0u0, 0u0, 0u0, to_byte (w)]);
+		    };
+
+		# Next line is an alternative to using Dictionary::consolidate:
+		# 
+		syms = list_mergesort::unique_sort compare_symbols (symbol_table::symbols symbol_table);
+
+		fun make_var_home i
+                    =
+                    a::PATH (a::EXTERN picklehash, i);
+
+		fun mapnaming (symbol, (i, symbol_tablex, lvars))
+		    =
+		    case (symbol_table::get (symbol_table, symbol))
+		      
+		         b::NAMED_VARIABLE (v::ORDINARY_VARIABLE { var_home=>a, inlining_info=>z, path=>p, var_type => REF t } )
+			     =>
+			     case a
+			       
+			          a::HIGHCODE_VARIABLE k
+				      =>
+				      (   i+1,
+					  symbol_table::bind ( symbol,
+							     b::NAMED_VARIABLE ( v::ORDINARY_VARIABLE { var_home        => make_var_home i,
+												        inlining_info => z,
+												        path          => p,
+												        var_type      => REF t
+												      }
+									      ),
+									      symbol_tablex
+							   ),
+					   k ! lvars
+				      );
+
+				 _ => bug ("dontPickle 1: " + a::print_var_home a);
+                            esac;
+
+		        b::NAMED_PACKAGE (m::A_PACKAGE {   an_api => s,   typechecked_package => r,   var_home => a,   inlining_info =>z } )
+			    =>
+			    case a
+			      
+			         a::HIGHCODE_VARIABLE k
+				     => 
+				     (   i+1,
+					 symbol_table::bind ( symbol,
+								  b::NAMED_PACKAGE ( m::A_PACKAGE { var_home            => make_var_home i,
+												    an_api              => s,
+												    typechecked_package => r,
+												    inlining_info       => z
+												  }
+									    ),
+								  symbol_tablex
+								),
+					 k ! lvars
+				     );
+
+			        _ => bug ("dontPickle 2" + a::print_var_home a);
+                            esac;
+
+		        b::NAMED_GENERIC (m::GENERIC { a_generic_api => s,  typechecked_generic => r, var_home => a, inlining_info=>z } )
+			    =>
+			    case a
+			      
+			         a::HIGHCODE_VARIABLE k
+				     => 
+				     (   i+1,
+					 symbol_table::bind ( symbol,
+								  b::NAMED_GENERIC (m::GENERIC { var_home            => make_var_home i,
+												 a_generic_api       => s,
+												 typechecked_generic => r,
+												 inlining_info       => z
+											       }
+									    ),
+								  symbol_tablex
+								),
+					 k ! lvars
+				     );
+
+				_ => bug ("dontPickle 3" + a::print_var_home a);
+                            esac;
+
+		       b::NAMED_CONSTRUCTOR (t::ENUM_CONSTRUCTOR {   symbol           => n,
+								     const,
+								     constructor_type,
+								     signature,
+								     is_lazy          => FALSE,
+								     representation as (a::EXCEPTION a)
+								 }
+				  )
+			    =>
+			    {   newrep = a::EXCEPTION (make_var_home i);
+
+				case a
+
+				    a::HIGHCODE_VARIABLE k
+					=>
+					(   i+1,
+					    symbol_table::bind ( symbol,
+								     b::NAMED_CONSTRUCTOR ( t::ENUM_CONSTRUCTOR {  representation => newrep,
+														   symbol    => n,
+														   is_lazy   => FALSE,
+														   const,
+														   constructor_type,
+														   signature
+														 }
+									       ),
+								     symbol_tablex
+								   ),
+					    k ! lvars
+					);
+
+				   _ => bug ("dontPickle 4" + a::print_var_home a);
+
+				esac;
+			    };
+
+		        naming => (i,   symbol_table::bind (symbol, naming, symbol_tablex),   lvars);
+                    esac;
+
+		my (_, new_symbol_table, lvars)
+		    =
+		    fold_left
+                        mapnaming
+                        (0, symbol_table::empty, NIL)
+                        syms;
+
+		has_exports = not (list::null lvars);
+	    
+		{ new_symbol_table,
+		  picklehash,
+		  has_exports,
+		  exported_highcode_variables => reverse lvars
+		};
+	    };                  #  fun dont_pickle 
+    };
+end;
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

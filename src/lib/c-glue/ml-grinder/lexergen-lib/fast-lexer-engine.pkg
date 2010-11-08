@@ -1,0 +1,154 @@
+
+# Yet another dfa based pattern matching engine.
+# 
+# Features: 
+#  1. FastLexerEngine is a bit faster than dfa_engine in dfa construction.
+#  2. The metacharacter ^ and $ are supported.
+#     However, backreferences and other zero-length assertions like \b 
+#     are unsupported.
+#
+# This version is specialized to the usual 8-bit characters.
+# Note that the full match tree is not reported.
+# For that, you need LexerEngine.
+
+package FastLexerEngine:  Regular_Expression_Engine {
+
+   package r     = abstract_regular_expression 
+   package char  = r::char
+   package gen   = lexer_generator_g (R)
+   package lexer = LexerTables
+   package m     = match_tree
+   package a     = rw_vector
+
+   type regexp = Gen::Lexer::lexer
+
+   fun compile re = Gen::compile [re]
+
+   error = 0 #  the error state is always 0 
+
+   /* Create a new scanner */ 
+   fun scanner (lexer as 
+                  Lexer::LEXER { equiv, base, check, next, skels, numGroups, 
+                              default, accept, eof, 
+                              start, start', ... },
+               prefixOnly
+              ) =
+   let /* Generate the match tree from a successful match */ 
+       fun extract (rule, stream, endPos) = 
+           m::Match (THE { pos=stream, len=endPos }, [])
+
+       #  This function decodes the transition tables 
+       fun go (s, c) =
+       let offset = a::sub (base, s) + c
+       in  if a::sub (check, offset) == s 
+           then a::sub (next, offset)
+           else let s' = a::sub (default, s) 
+                in  if s' == error then error else go (s', c)
+                end
+       end
+
+       state0 = a::sub (start, 0)
+       state0' = a::sub (start', 0)
+       rule0 = a::sub (accept, state0)
+       rule0' = a::sub (accept, state0')
+
+       fun doScan getc stream = 
+       let fun scan (s0, r0, pos, stream) = 
+           let 
+               fun loop (state, pos, s, rule_ok, pos_ok, s_ok) =
+                   case getc s of
+                     NULL => end_of_stream (state, pos, s, rule_ok, pos_ok, s_ok)
+                   | THE (c, s') =>
+                     let state' = go (state, a::sub (equiv, char::to_int c))
+                     in  if state' == error 
+                         then finish (rule_ok, pos_ok, s_ok) 
+                         else  
+                         let rule = a::sub (accept, state')
+                         in  if rule >= 0 then #  An accept state 
+                                loop (state', pos+1, s', rule, pos, s)
+                             else
+                                loop (state', pos+1, s', rule_ok, pos_ok, s_ok)
+                         end
+                     end
+               and finish(-1, pos, s) = 
+                    if prefixOnly then NULL 
+                    else if state0 == error then fastcontinue (pos, stream)
+                         else continue (pos, stream)
+                 | finish (rule, pos, s) = 
+                    THE((extract (rule, stream, pos+1), rule), s)
+    
+               and end_of_stream (state, pos, s, rule_ok, pos_ok, s_ok) =
+                   let state' = go (state, eof)
+                   in  if state' == error 
+                       then finish (rule_ok, pos_ok, s_ok)
+                       else 
+                       let rule = a::sub (accept, state')
+                       in  if rule >= 0 then #  An accept state 
+                              finish (rule, pos, s)
+                           else
+                              finish (rule_ok, pos_ok, s_ok)
+                       end
+                  end
+    
+               and continue (pos, s) = 
+                   case getc s of 
+                     NULL => NULL
+                   | THE('\n', s) => scan (state0', rule0', pos+1, s)
+                   | THE(_, s) => scan (state0, rule0, pos+1, s) 
+
+               and fastcontinue (pos, s) = 
+                   case getc s of 
+                     NULL => NULL
+                   | THE('\n', s) => scan (state0', rule0', pos+1, s)
+                   | THE(_, s) => fastcontinue (pos+1, s) 
+           
+           in  loop (s0, pos, stream, r0, -1, stream)
+           end
+       in  scan (state0', rule0', 0, stream)
+       end
+    
+   in  doScan 
+   end
+
+   fun prefixOrFind (lexer, prefixOnly) = 
+   let scanner = scanner (lexer, prefixOnly)
+       fun scan getc stream =
+           case scanner getc stream of
+             THE((m, _), s) => THE (m, s)
+           | NULL => NULL
+   in  scan
+   end
+
+   fun prefix lexer = prefixOrFind (lexer, TRUE)
+   fun find   lexer = prefixOrFind (lexer, FALSE)
+
+   fun match rules =
+   let lexer = Gen::compile (map (fn (re, _) => re) rules)
+       actions = vector::from_list (map #2 rules)
+       scanner = scanner (lexer, TRUE)
+       fun matcher getc stream =
+           case scanner getc stream of
+              THE((m, ruleno), s) => THE((vector::get (actions, ruleno)) m, s)
+           |  NULL                 => NULL
+   in  matcher
+   end
+
+}
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

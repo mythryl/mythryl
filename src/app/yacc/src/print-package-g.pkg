@@ -1,0 +1,368 @@
+#  Mythryl-Yacc Parser Generator (c) 1989 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/Mythryl-Yacc.make6
+
+###                "Laughter without a tinge of philosophy
+###                 is but a sneeze of humor.
+###
+###                "Genuine humor is replete with wisdom."
+###
+###                                 -- Mark Twain,
+###                                    quoted in Mark Twain and I,
+###                                    Opie Read
+
+
+
+generic package print_package_g (
+
+    package lr_table:         Lr_Table;			# Lr_Table		is from   src/app/yacc/lib/base.api
+    package shrink_lr_table:  Shrink_Lr_Table;		# Shrink_Lr_Table	is from   src/app/yacc/src/shrink-lr-table.api
+
+    sharing lr_table == shrink_lr_table::lr_table;
+)
+: (weak) Print_Package		# Print_Package	is from   src/app/yacc/src/print-package.api
+{
+    include rw_vector;
+    include list;
+
+    infix val 9 sub;
+
+    package lr_table = lr_table;
+
+    include shrink_lr_table;
+    include lr_table;
+
+
+    # line_length = approximately the largest number of characters to allow
+    # on a line when printing out an encode string
+
+    line_length = 72;
+
+    # max_length = length of a table entry.  All table entries are encoded
+    # using two 16-bit integers, one for the terminal number and the other
+    # for the entry.  Each integer is printed as two characters (low byte,
+    # high byte), using the ML ascii escape sequence.  We need 4
+    #	 characters for each escape sequence and 16 characters for each entry
+
+    max_length =  16;
+
+    #  number of entries we can fit on a row 
+
+    entry_count = line_length / max_length;
+
+    # convert integer between 0 and 255 to the three character ascii
+    # decimal escape sequence for it
+
+    stipulate
+        lookup = rw_vector::make_rw_vector (256, "\000");
+
+	fun int_to_string i
+            =
+	    if   (i >= 100) "\\"   + (int::to_string i);
+	    elif (i >=  10) "\\0"  + (int::to_string i);
+	    else            "\\00" + (int::to_string i);
+            fi;
+
+	fun loop n
+            =
+            if (n !=256)
+	          rw_vector::set (lookup, n, int_to_string n);
+                  loop (n+1);
+            fi;
+
+	my _ = loop 0;
+
+    herein
+
+        fun chr i
+            =
+            lookup[ i ];
+    end;
+
+    fun make_package { table, name, print, verbose }
+	=
+	entries
+	where 
+
+	    states =   state_count table;
+	    rules  =   rule_count  table;
+
+	    fun print_pair_list (print_start:  (X, Y) -> Void) l
+		=
+		f (l, 0)
+                where
+		    fun f (EMPTY, _) => ();
+
+			 f (PAIR (a, b, r), count)
+			      =>
+			      if   (count >= entry_count)
+                                  
+				   print "\\\n\\"; print_start (a, b); f (r, 1);
+			      else
+                                   print_start (a, b); f (r, (count+1));
+                              fi;
+                    end;
+		end;
+
+	    fun print_list print_start l
+		=
+		f (l, 0)
+		where 
+		    fun f (NIL, _)
+                            =>
+                            ();
+
+		        f (a ! r, count)
+			   =>
+			   if   (count >= entry_count)
+                               
+			        print "\\\n\\";
+				print_start a;
+				f (r, 1);
+			   else
+                                print_start a;
+			        f (r, count+1);
+			   fi;
+                    end;
+		end;
+
+	    fun print_finish _
+		=
+		print "\\000\\000\\\n\\";
+
+	    fun print_pair_row print_start
+		=
+		fn entrylist
+		    =
+		    {   print_entries entrylist;
+			print_finish();
+		    }
+		    where 
+			print_entries
+			    =
+			    print_pair_list   print_start;
+            end;
+
+	    fun print_pair_row_with_default (print_start, pr_default)
+		=
+		{  f = print_pair_row print_start;
+
+		   fn (l, default)
+                       =
+                       {   pr_default default;
+                           f l;
+                       };
+		};
+
+	    fun print_table (print_row, count)
+		=
+		{   print "\"\\\n\\";
+
+		    f 0
+                    where
+		        fun f i
+			    =
+			    if   (i != count)
+                                
+                                 print_row i;
+                                 f (i+1);
+                            fi;
+		    end;
+
+		    print "\";\n";
+		};
+
+	    print_char
+		=
+		print o chr;
+
+
+	    # Print an integer between 0 and 2^16-1 as a
+	    # 2-byte character, with the low byte first:
+	    #
+	    fun print_int i
+		=
+		{   print_char (i % 256);
+		    print_char (i / 256);
+		};
+
+	    # encode actions as integers:
+	    #
+	    #	ACCEPT => 0
+	    #	ERROR => 1
+	    #	SHIFT i => 2 + i
+	    #	REDUCE rulenum => numstates+2+rulenum
+
+
+	    fun print_action (REDUCE rulenum)  =>   print_int (rulenum+states+2);
+	        print_action (SHIFT (STATE i)) =>   print_int (i+2);
+	        print_action ACCEPT            =>   print_int 0;
+	        print_action ERROR             =>   print_int 1;
+            end;
+
+	    fun print_terminal_action (TERM t, action)
+		=
+		{   print_int (t+1);
+		    print_action action;
+		};
+
+	    fun print_goto (NONTERM n, STATE s)
+		=
+		{   print_int (n+1);
+		    print_int s;
+		};
+
+	    my ((row_count, row_numbers, action_rows), entries)
+		= 
+		shrink_action_list (table, verbose);
+
+            stipulate
+                a =   rw_vector::from_list   action_rows;
+            herein
+	        fun get_action_row i
+                    =
+                    a[ i ];
+            end;
+
+	    fun print_goto_row i
+	       = 
+	       f (g (STATE i))
+	       where 
+
+		   f =   print_pair_row print_goto;
+		   g =   describe_goto table;
+	       end;
+
+	   fun print_action_row i
+	      =
+	      f (get_action_row i)
+	      where 
+
+		  f =   print_pair_row_with_default
+			   (   print_terminal_action,
+			       print_action
+			   );
+	      end;
+
+	   print "my ";
+	   print name;
+	   print "=";
+	   print "{   action_rows =\n";
+	   print_table (print_action_row, row_count);
+	   print "    action_row_numbers =\n\"";
+	   print_list (fn i => print_int i; end ) row_numbers;
+	   print "\";\n";
+	   print "   goto_table =\n"; 
+	   print_table (print_goto_row, states);
+	   print "   numstates = ";
+	   print (int::to_string states);
+	   print ";\n   numrules = ";
+	   print (int::to_string rules);
+	   print ";\n\
+		  \ s = REF \"\";  index = REF 0;\n\
+		  \    string_to_int = fn () = \n\
+		  \    {    i = *index;\n\
+		  \         index := i+2;\n\
+		  \         char::to_int (string::get(*s, i)) + char::to_int (string::get(*s, i+1)) * 256;\n\
+		  \    };\n\
+		  \\n\
+		  \    string_to_list = fn s' =\n\
+		  \    {   len = string::length s';\n\
+		  \        fun f () =\n\
+		  \           if (*index < len)\n\
+		  \           string_to_int() ! f();\n\
+		  \           else NIL; fi;\n\
+		  \        index := 0;\n\
+		  \        s := s';\n\
+		  \        f ();\n\
+		  \   };\n\
+		  \\n\
+		  \   string_to_pairlist =   fn (conv_key, conv_entry) =   f\n\
+                  \   where \n\
+		  \         fun f ()\n\
+		  \             =\n\
+		  \             case (string_to_int ())\n\
+		  \                 0 => EMPTY;\n\
+		  \                 n => PAIR (conv_key (n - 1), conv_entry (string_to_int()), f());\n\
+		  \             esac;\n\
+		  \   end;\n\
+		  \\n\
+		  \   string_to_pairlist_default =   fn (conv_key, conv_entry) =\n\
+		  \    {   conv_row = string_to_pairlist (conv_key, conv_entry);\n\
+		  \       fn () =\n\
+		  \       {   default = conv_entry (string_to_int());\n\
+		  \           row = conv_row();\n\
+		  \          (row, default);\n\
+		  \       };\n\
+		  \   };\n\
+		  \\n\
+		  \    string_to_table = fn (convert_row, s') =\n\
+		  \    {   len = string::length s';\n\
+		  \        fun f ()\n\
+		  \            =\n\
+		  \           if (*index < len)\n\
+		  \              convert_row() ! f();\n\
+		  \           else NIL; fi;\n\
+		  \        s := s';\n\
+		  \        index := 0;\n\
+		  \        f ();\n\
+		  \     };\n\
+		  \\n\
+		  \stipulate\n\
+		  \  memo = rw_vector::make_rw_vector (numstates+numrules, ERROR);\n\
+		  \  my _ ={   fun g i\n\
+		  \                =\n\
+		  \                {   rw_vector::set (memo, i, REDUCE (i-numstates));\n\
+		  \                    g (i+1);\n\
+		  \                };\n\
+		  \\n\
+		  \            fun f i\n\
+		  \                =\n\
+		  \                if   (i == numstates)\n\
+		  \                     g i;\n\
+		  \                else    rw_vector::set (memo, i, SHIFT (STATE i));\n\
+		  \                         f (i+1);\n\
+		  \                fi;\n\
+		  \\n\
+		  \            f 0\n\
+		  \            except\n\
+		  \                (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) =  ();\n\
+		  \        };\n\
+		  \herein\n\
+		  \    entry_to_action\n\
+                  \        =\n\
+                  \        fn 0 =>  ACCEPT;\n\
+                  \           1 =>  ERROR;\n\
+                  \           j =>  rw_vector::get (memo, (j - 2));\n\
+                  \        end;\n\
+		  \end;\n\
+		  \\n\
+		  \   goto_table = rw_vector::from_list (string_to_table (string_to_pairlist (NONTERM, STATE), goto_table));\n\
+		  \   action_rows = string_to_table (string_to_pairlist_default (TERM, entry_to_action), action_rows);\n\
+		  \   action_row_numbers = string_to_list action_row_numbers;\n\
+		  \   action_table\n\
+		  \    =\n\
+		  \    {   action_row_lookup\n\
+		  \            =\n\
+		  \            {   a=rw_vector::from_list (action_rows);\n\
+		  \\n\
+		  \                fn i =   rw_vector::get (a, i);\n\
+		  \            };\n\
+		  \\n\
+		  \        rw_vector::from_list (map action_row_lookup action_row_numbers);\n\
+		  \    };\n\
+		  \\n\
+		  \    lr_table::make_lr_table {\n\
+		  \        actions => action_table,\n\
+		  \        gotos   => goto_table,\n\
+		  \        rule_count   => numrules,\n\
+		  \        state_count  => numstates,\n\
+		  \        initial_state => STATE ";
+
+	   print (int::to_string ((fn (STATE i) => i; end ) (initial_state table)));
+
+	   print "   };\n\
+		 \};\n";
+       end;			# fun make_package
+};

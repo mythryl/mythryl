@@ -1,0 +1,1214 @@
+##  prettyprint-anormal.pkg -- Pretty printer for Anormal IL. 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+# 2007-09-17CrT note:
+#   The original code here wrote text exclusively to 'control_print::say',
+#   clashing with the front-end convention of writing to a prettyprint stream
+#   (and incidentally forcing use of yet another primitive prettyprint library).
+#
+#   As initial clean-up, I created duplicates of the 'say'-based functions
+#   which instead write to a prettyprint stream via a Prettyprinter.
+#   (Only) these new functions all have names starting with "prettyprint_";
+#   the matching older functions have names starting with "print_" or "p_".
+#
+#   Eventually, of course, I'd like to eliminate the older forms completely.  XXX BUGGO FIXME.
+
+package prettyprint_anormal:  Prettyprint_Anormal {			# Prettyprint_Anormal	is from   src/lib/compiler/backend/upper/anormal/prettyprint-anormal.api
+
+    # Frequently used packages:
+    package f    =  anormal;			# anormal			is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+    package fu   =  anormal_stuff;		# anormal_stuff			is from   src/lib/compiler/backend/upper/anormal/anormal-stuff.pkg
+    package s    =  symbol;			# symbol			is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+    package lv   =  highcode_var;		# highcode_var			is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+    package lt   =  highcode;			# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+    package po   =  highcode_primitive_op;	# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+    package pp   =  prettyprint;		# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+    package ppr  =  prettyprinter;		# prettyprinter			is from   src/lib/prettyprint/src/prettyprinter.pkg
+    package pu   =  print_utilities;		# print_utilities		is from   src/lib/compiler/frontend/basics/print/printutil.pkg
+    package ctrl =  controls::highcode;		# controls			is from   src/lib/compiler/toplevel/main/controls.pkg
+
+    # Some print utilities:
+    say    =  control_print::say;
+    margin =  REF 0;
+
+    exception UNDENT;
+
+
+    fun indent n
+        =
+        margin := *margin + n;
+
+
+    fun undent n
+        =
+        {   margin := *margin - n;
+
+	    if   (*margin < 0)
+                
+                 raise exception UNDENT;
+	    fi;
+        };
+
+
+    fun dent ()
+        =
+        pu::tab *margin;
+
+
+    newline = pu::newline;
+
+    infix val  & ;
+
+    fun (&) (f1, f2) ()
+        =
+        {   f1 ();
+            f2 ();
+        };
+
+
+    fun to_string_fflag ff
+        = 
+        {   fun h b
+                =
+                if b     "r";
+                       else  "c";  fi;
+	
+            lt::ffw_var (   ff,
+                           fn (b1, b2) =   (h b1) + (h b2),
+                           fn _        =   "f"
+                       );
+        };
+
+    fun to_string_fkind ( { is_recursive, calling_convention, inlining_hint, ... }:f::Function_Kind)
+        =
+	case inlining_hint
+          
+              f::INLINE_WHENEVER_POSSIBLE  => "(i)";
+	      f::INLINE_ONCE_WITHIN_ITSELF => "(u)";
+	      f::INLINE_MAYBE (s, ws)      => "(i:" + (int::to_string s) + ")";
+	      f::INLINE_IF_SIZE_SAFE       => "";
+        esac
+        +
+	case is_recursive
+	  
+             THE (_, f::OTHER_LOOP)             =>  "R";
+	     THE (_, f::PREHEADER_WRAPPED_LOOP) =>  "LR";
+	     THE (_, f::TAIL_RECURSIVE_LOOP)    =>  "TR";
+	     NULL => "";
+        esac
+        +
+	case calling_convention
+          
+             f::CALLING_CONVENTION_GENERIC        =>  "GENERIC";
+	     f::CALLING_CONVENTION_FUNCTION fixed =>  ("FUN " + (to_string_fflag fixed));
+        esac;
+
+
+#    fun toStringFKind f::FK_ESCAPE  = "FK_ESCAPE"
+#      | toStringFKind f::FK_KNOWN   = "FK_KNOWN"
+#      | toStringFKind f::FK_KREC    = "FK_KREC"
+#      | toStringFKind f::FK_KTAIL   = "FK_KTAIL"
+#      | toStringFKind f::FK_NOINL   = "FK_NOINL"
+#      | toStringFKind f::FK_HANDLER = "FK_HANDLER"
+
+
+    print_fkind = say o to_string_fkind;
+
+
+    # Classifications of various kinds of records:
+    fun to_string_rkind (f::RK_VECTOR type_constructor) =>  "VECTOR[" + lt::tc_print type_constructor + "]";
+        to_string_rkind f::RK_STRUCT                    =>  "STRUCT";
+        to_string_rkind (f::RK_TUPLE _)                 =>  "RECORD";
+    end;
+
+
+    print_rkind
+        =
+        say  o  to_string_rkind;
+
+
+    # Con: Used to specify all possible switching statements:
+    fun to_string_con (f::DATACON((symbol, _, _), _, _))   => s::name symbol;
+	to_string_con (f::INTCON    i) =>  "(I)" + (int::to_string i);
+	to_string_con (f::INT32CON  i) =>  "(I32)" + (int32::to_string i);
+	to_string_con (f::WORDCON   i) =>  "(W)" + (unt::to_string i);
+	to_string_con (f::WORD32CON i) =>  "(W32)" + (unt32::to_string i);
+	to_string_con (f::REALCON   r) =>  r;
+	to_string_con (f::STRINGCON s) =>  pu::heap_string s;
+	to_string_con (f::VLENCON   n) =>  int::to_string n;
+    end;
+
+
+    print_con
+        =
+        say  o  to_string_con;
+
+
+    # Simple values, including variables and static constants:
+    fun to_string_value (f::VAR    v) =>  lv::name_of_highcode_variable v;
+	to_string_value (f::INT    i) =>  "(I)" + int::to_string i;
+	to_string_value (f::INT32  i) =>  "(I32)" + int32::to_string i;
+	to_string_value (f::WORD   i) =>  "(W)" + unt::to_string i;
+	to_string_value (f::WORD32 i) =>  "(W32)" + unt32::to_string i;
+	to_string_value (f::REAL   r) =>  r;
+	to_string_value (f::STRING s) =>  pu::heap_string s;
+    end;
+
+    print_sval
+        =
+        say  o  to_string_value;
+
+    lvar_string
+        =
+        REF lv::name_of_highcode_variable;
+
+
+    fun print_variable v
+        =
+        say (*lvar_string v);
+
+
+    print_type_constructor
+        =
+        say  o  lt::tc_print;
+
+
+    print_lty
+        =
+        say  o  lt::lt_print;
+
+
+    fun print_tv_tk (tv: lt::Highcode_Variable, tk)
+        = 
+	say ( (lv::name_of_highcode_variable tv)
+              +
+              ":"
+              +
+              (lt::tk_print tk)
+            );
+
+    paren_comma_sep = ("(", ", ", ")");
+
+    print_val_list              =  pu::print_closed_sequence ("[", ", ", "]")  print_sval;
+    print_var_list              =  pu::print_closed_sequence ("[", ", ", "]")  print_variable;
+    print_type_constructor_list =  pu::print_closed_sequence ("[", ", ", "]")  print_type_constructor;
+    print_lty_list              =  pu::print_closed_sequence ("[", ", ", "]")  print_lty;
+    print_tv_tk_list            =  pu::print_closed_sequence ("[", ", ", "]")  print_tv_tk;
+
+
+
+    fun print_decon (f::DATACON((_, var_home::CONSTANT _, _), _, _))
+            =>
+            (); 
+
+        #  WARNING: a hack, but then what about constant exceptions ?  XXX BUGGO FIXME
+
+        print_decon (f::DATACON((symbol, datatype_constructor_representation, lambda_type), tycs, highcode_variable))
+            =>
+	    #  <highcode_variable> = DECON(<symbol>,<datatypeConstructorRepresentation>,<lambdaType>,[<tycs>]) 
+	    {   print_variable  highcode_variable; 
+	        say " = DECON("; 
+	        say (s::name symbol);
+                say ", ";
+	        say (var_home::print_representation datatype_constructor_representation);
+                say ", ";
+	        print_lty lambda_type;
+                say ", ";
+	        print_type_constructor_list tycs;
+                say ")"; 
+	        newline();
+                dent();
+            };
+
+        print_decon _
+            =>
+            ();
+    end;
+
+    fun apply_print prfun sepfun []
+            =>
+            ();
+
+        apply_print prfun sepfun (x ! xs)
+            =>
+	    {   prfun x;
+
+                apply
+                    (fn y =  { sepfun(); prfun y;})
+                    xs;
+            };
+    end;
+
+
+
+    # Definitions of the lambda expressions:
+
+    fun complex (f::LET         _) =>  TRUE;
+	complex (f::MUTUALLY_RECURSIVE_FNS         _) =>  TRUE;
+	complex (f::TYPE_FN     _) =>  TRUE;
+	complex (f::SWITCH      _) =>  TRUE;
+	complex (f::CONSTRUCTOR _) =>  TRUE;
+	complex (f::EXCEPT      _) =>  TRUE;
+	complex _                  =>  FALSE;
+    end;
+
+    fun p_lexp (f::RET values)
+            => 
+	    #   RETURN [values] 
+	    {   say "RETURN ";
+                print_val_list values;
+            };
+	
+        p_lexp (f::APPLY (f, args))
+            =>
+	    #   APPLY (f, [args]) 
+	    {   say "APPLY(";
+	        print_sval f;
+	        say ", ";
+	        print_val_list args;
+	        say ")";
+            };
+
+        p_lexp (f::TYPE_APPLY (tf, tycs))
+            =>
+	    #   TYPE_APPLY (tf, [tycs]) 
+	    {   say "TYPE_APPLY(";
+	        print_sval tf;
+	        say ", ";
+	        print_type_constructor_list tycs;
+	        say ")";
+            };
+
+        p_lexp (f::LET (vars, lambda_expression, body))
+	    =>
+	    # [vars] = lambda_expression   OR
+            # [vars] =
+	    #   body                 lambda_expression
+	    #                      body
+
+	    {   print_var_list vars;
+                say " = ";  
+
+		if   (complex lambda_expression)
+                    
+		     indent 2;
+		     newline();
+		     dent();
+		     p_lexp lambda_expression;
+		     undent 2;
+		else
+		     len = (3		#  for the " = " 
+				+ 2		#  for the "[]" 
+				+ (length vars) #  for each comma 
+				+ (fold_left	#  sum of varname lengths 
+				  (fn (v, n) =  n + (size (*lvar_string v)))
+				      0 vars));
+
+		     indent len;
+		     p_lexp lambda_expression;
+		     undent len;
+		fi;
+
+		newline ();
+                dent ();
+                p_lexp body;
+	    };
+
+        p_lexp (f::MUTUALLY_RECURSIVE_FNS (fundecs, body))
+	    =>
+	    # MUTUALLY_RECURSIVE_FNS(<fundec1>,
+	    #     <fundec2>,
+	    #     <fundec3>)
+	    # <body>
+
+	    {   say "MUTUALLY_RECURSIVE_FNS(";
+		indent 4;
+		apply_print print_fundec (newline & dent) fundecs;
+		undent 4;
+                say ")";
+                newline();
+		dent();  
+		p_lexp body;
+	    };
+	
+        p_lexp (f::TYPE_FN ((tfk as { inlining_hint, ... }, highcode_variable, tv_tk_list, tfnbody), body))
+	    =>
+	    # v = 
+	    #   TYPE_FN([tk], lambdaType,
+	    #     <tfnbody>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = ";
+                newline();
+		indent 2;
+                dent();
+
+		if   (inlining_hint != f::INLINE_IF_SIZE_SAFE)
+                     
+		     say "i";
+                fi;
+		say "TYPE_FN(";
+
+		print_tv_tk_list tv_tk_list;
+                say ", ";
+		# ** printLty lambdaType; say ", "; *** lambdaType no longer available **
+		newline();
+		indent 2;
+		dent();
+		p_lexp tfnbody;
+		undent 4;
+                say ")";
+                newline();
+		dent();
+		p_lexp body;
+	    };
+
+
+        # NOTE: I'm ignoring the Constructor_Signature here:
+
+        p_lexp (f::SWITCH (value, constructor_api, con_lexp_list, lexp_option))
+	    =>
+	    # SWITCH <value>
+	    #   <con> => 
+	    #       <Lambda_Expression>
+	    #   <con> => 
+	    #       <Lambda_Expression>
+
+	    {   say "SWITCH ";
+                print_sval value;
+                newline();
+	        indent 2;
+                dent();  
+
+	        apply_print
+                    print_case (newline & dent) con_lexp_list;
+
+	        case lexp_option
+                  
+		     NULL => ();
+
+		     THE lambda_expression		#  Default case 
+                         =>
+		         {   newline ();
+                             dent ();
+                             say "_ => ";
+			     indent 4;
+                             newline ();
+                             dent ();
+			     p_lexp lambda_expression;
+                             undent 4;
+                         };
+                esac;
+
+		undent 2;
+            };
+
+        p_lexp (f::CONSTRUCTOR ((symbol, _, _), tycs, value, highcode_variable, body))
+            =>
+	    # <highcode_variable> = CON(<symbol>, <tycs>, <value>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = CON(";
+	        say (s::name symbol);
+                say ", ";
+	        print_type_constructor_list tycs;
+                say ", ";
+	        print_sval value;
+                say ")";  
+	        newline();
+                dent();
+                p_lexp body;
+            };
+	  
+        p_lexp (f::RECORD (record_kind, values, highcode_variable, body))
+            =>
+	    # <highcode_variable> = RECORD(<recordKind>, <values>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = ";
+	        print_rkind record_kind;
+                say " ";
+	        print_val_list values; 
+	        newline ();
+                dent ();
+                p_lexp body;
+            };
+	 
+        p_lexp (f::SELECT (value, int, highcode_variable, body))
+            =>
+	    # <highcode_variable> = SELECT(<value>, <int>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = SELECT(";
+	        print_sval value;
+                say ", ";
+	        say (int::to_string int);
+                say ")";
+	        newline();
+                dent();
+                p_lexp body;
+            };
+	 
+        p_lexp (f::RAISE (value, ltys))
+	    =>
+	    # NOTE: I'm ignoring the Highcode_Type list here. It is the return type 
+	    # of the raise exception expression. (ltys temporarily being printed --v)
+
+	    #  RAISE(<value>) 
+	    {   say "RAISE(";
+	        print_sval value;
+                say ") : ";
+                print_lty_list ltys;
+            };
+	 
+        p_lexp (f::EXCEPT (body, value))
+            =>
+	    # <body>
+	    # EXCEPT(<value>)
+
+	    {   p_lexp body;  
+	        newline();
+                dent();
+	        say "EXCEPT(";
+                print_sval value;
+                say ")";
+            };
+
+        p_lexp (f::BRANCH ((d, primitive_operation, lambda_type, tycs), values, body1, body2))
+	    =>
+	    # IF PRIM(<primitive_operation>, <lambdaType>, [<tycs>]) [<values>] 
+	    # THEN
+	    #   <body1>
+	    # ELSE
+	    #   <body2>
+
+	    {   case d
+                  
+                     NULL =>  say "IF PRIMOP(";
+		      _   =>  say "IF GENOP(";
+                esac;
+
+		say (po::pr_primop primitive_operation);
+                say ", ";
+		print_lty lambda_type;
+                say ", ";
+		print_type_constructor_list tycs;
+                say ") ";
+		print_val_list values;
+                newline();
+		dent();
+
+		apply_print print_branch (newline & dent) 
+		    [("THEN", body1), ("ELSE", body2)];
+            };
+	 
+        p_lexp (f::PRIMOP (p as (_, po::MKETAG, _, _), [value], highcode_variable, body))
+	    =>
+	    # <highcode_variable> = EXCEPTION_TAG(<value>[<type_constructor>])
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = EXCEPTION_TAG(";
+	        print_sval value;
+                say "[";
+	        print_type_constructor (fu::get_etag_type_constructor p);
+                say "])";
+	        newline();
+                dent();
+                p_lexp body;
+            };
+
+        p_lexp (f::PRIMOP (p as (_, po::WRAP, _, _), [value], highcode_variable, body))
+	    =>
+	    # <highcode_variable> = WRAP(<type_constructor>, <value>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = WRAP(";
+	        print_type_constructor (fu::get_wrap_type_constructor p);
+                say ", ";
+	        print_sval value;
+                say ")";
+	        newline();
+                dent();
+                p_lexp body;
+            };
+
+        p_lexp (f::PRIMOP (p as (_, po::UNWRAP, _, []), [value], highcode_variable, body))
+            =>
+	    # <highcode_variable> = UNWRAP(<type_constructor>, <value>)
+	    # <body>
+
+	    {   print_variable highcode_variable;
+                say " = UNWRAP(";
+	        print_type_constructor (fu::get_un_wrap_type_constructor p);
+                say ", ";
+	        print_sval value;
+                say ")";
+	        newline();
+                dent();
+                p_lexp body;
+            };
+
+        p_lexp (f::PRIMOP ((d, primitive_operation, lambda_type, tycs), values, highcode_variable, body))
+	    =>
+	    # <highcode_variable> = PRIM(<primitive_operation>, <lambdaType>, [<tycs>]) [<values>]
+	    # <body>
+
+	    {   print_variable highcode_variable;  
+
+	        case d
+                  
+                     NULL => say " = PRIMOP(";
+		     _    => say " = GENOP(";
+                esac;
+
+		say (po::pr_primop primitive_operation);
+                say ", ";
+		print_lty lambda_type;
+                say ", ";
+		print_type_constructor_list tycs;
+                say ") ";
+		print_val_list values;
+		newline();
+                dent();
+                p_lexp body;
+            };
+    end 
+	 
+    also
+    fun print_fundec (fkind as { calling_convention, ... }, highcode_variable, lvar_lty_list, body)
+        =
+	#  <highcode_variable> : (<fkind>) <lambdaType> =
+	#    FN([v1:  lambdaType1,
+	#        v2:  lambdaType2],
+	#      <body>)
+
+	{   print_variable highcode_variable;
+            say " : "; 
+	    say "(";
+            print_fkind fkind;
+            say ") ";
+	    # ** the return-result lambdaType no longer available ---- printLty lambdaType; *
+	    say " = ";
+            newline();
+	    indent 2;
+	    dent();
+	    say "FN([";
+	    indent 4;
+
+	    case lvar_lty_list
+              
+		 [] => ();
+
+		 ((highcode_variable, lambda_type) ! lll)
+                     => 
+		     {   print_variable  highcode_variable;
+                         say " : ";
+
+		         if  (*ctrl::print_function_types
+                              or
+                              calling_convention != f::CALLING_CONVENTION_GENERIC
+		         )
+                              print_lty lambda_type;
+                         else
+                              say "???";
+                         fi;
+
+		         apply
+                             (fn (highcode_variable, lambda_type)
+                                 =
+			         {   say ", ";
+                                     newline ();
+                                     dent ();
+			             print_variable highcode_variable;
+                                     say " : ";
+                                     print_lty lambda_type;
+                                 })
+                             lll;
+                     };
+            esac;
+
+	    say "], ";
+            newline();
+	    undent 2;
+            dent();
+	    p_lexp body;
+            say ")";
+	    undent 4;
+        }
+ 
+    also
+    fun print_case (con, lambda_expression)
+        =
+	{   print_con con;
+	    say " => ";
+            indent 4;
+            newline();
+            dent();
+	    print_decon con;
+	    p_lexp lambda_expression;
+            undent 4;
+        }
+
+    also
+    fun print_branch (s, lambda_expression)
+        =
+	{   say s;
+            indent 4;
+            newline ();
+            dent ();
+	    p_lexp lambda_expression;
+            undent 4;
+        };
+
+    fun print_lexp lambda_expression
+        =
+        p_lexp lambda_expression
+        before
+            {   newline();
+                newline();
+            };
+
+    fun print_prog program
+        =
+        {   print_fundec program;
+            newline();
+        };
+	 
+
+
+
+    # Here's the new function which
+    # writes to a Prettyprinter
+    # instead of 'control_print::say'.
+    # It duplicates much of the above
+    # logic :-/
+
+    fun prettyprint_prog  pp  program
+        =
+        {   {   prettyprint_fundec  pp  program;
+                pp.put "\n";
+            }
+            where
+
+		fun prettyprint_sequence (separator: String) pr elements
+		    =
+		    prettyprint_elements elements
+		    where
+			fun prettyprint_elements [el]        =>  pr el;
+			    prettyprint_elements (el ! rest) =>  { pr el;  pp.put separator;   prettyprint_elements rest;};
+			    prettyprint_elements []          =>  ();
+			end;
+		    end;
+
+		fun prettyprint_closed_sequence (front: String, sep, back: String) pr elements
+		    =
+		    {   pp.put front;
+
+			prettyprint_sequence sep pr elements;
+
+			pp.put back;
+		    };
+
+
+		fun prettyprint_fkind  (pp: ppr::Prettyprinter)  fkind
+		    =
+		    pp.put (to_string_fkind  fkind);
+
+
+		fun prettyprint_rkind  (pp: ppr::Prettyprinter)  rkind
+		    =
+		    pp.put (to_string_rkind  rkind);
+
+
+		fun prettyprint_con  (pp: ppr::Prettyprinter)  con
+		    =
+		    pp.put (to_string_con  con);
+
+
+		fun prettyprint_sval  (pp: ppr::Prettyprinter)  sval
+		    =
+		    pp.put (to_string_value  sval);
+
+
+		fun prettyprint_variable  (pp: ppr::Prettyprinter)  v
+		    =
+		    pp.put (*lvar_string v);
+
+
+		fun prettyprint_type  (pp: ppr::Prettyprinter)  t
+		    =
+		    pp.put (lt::tc_print  t);
+
+
+		fun prettyprint_lty  (pp: ppr::Prettyprinter)  lty
+		    =
+		    pp.put (lt::lt_print  lty);
+
+
+		fun prettyprint_lty  (pp: ppr::Prettyprinter)  lty
+		    =
+		    pp.put (lt::lt_print  lty);
+
+
+		fun prettyprint_tv_tk  (pp: ppr::Prettyprinter)  (tv: lt::Highcode_Variable, tk)
+		    = 
+		    pp.put ( (lv::name_of_highcode_variable tv)
+			     +
+			     ":"
+			     +
+			     (lt::tk_print tk)
+			   );
+
+		fun prettyprint_val_list               (pp: ppr::Prettyprinter) =   { pr =  prettyprint_sval             pp;    prettyprint_closed_sequence ("[", ", ", "]")  pr;  };
+		fun prettyprint_var_list               (pp: ppr::Prettyprinter) =   { pr =  prettyprint_variable         pp;    prettyprint_closed_sequence ("[", ", ", "]")  pr;  };
+		fun prettyprint_type_constructor_list  (pp: ppr::Prettyprinter) =   { pr =  prettyprint_type pp;    prettyprint_closed_sequence ("[", ", ", "]")  pr;  };
+		fun prettyprint_lty_list               (pp: ppr::Prettyprinter) =   { pr =  prettyprint_lty              pp;    prettyprint_closed_sequence ("[", ", ", "]")  pr;  };
+		fun prettyprint_tv_tk_list             (pp: ppr::Prettyprinter) =   { pr =  prettyprint_tv_tk            pp;    prettyprint_closed_sequence ("[", ", ", "]")  pr;  };
+
+		fun prettyprint_decon (pp: ppr::Prettyprinter)  (f::DATACON((_, var_home::CONSTANT _, _), _, _))
+			=>
+			(); 
+
+		    #  WARNING: a hack, but then what about constant exceptions ?  XXX BUGGO FIXME
+
+		    prettyprint_decon  pp  (f::DATACON((symbol, datatype_constructor_representation, lambda_type), tycs, highcode_variable))
+			=>
+			#  <highcode_variable> = DECON(<symbol>,<datatypeConstructorRepresentation>,<lambdaType>,[<tycs>]) 
+			{   prettyprint_variable  pp  highcode_variable; 
+			    pp.put " = DECON("; 
+			    pp.put (s::name symbol);
+			    pp.put ", ";
+			    pp.put (var_home::print_representation datatype_constructor_representation);
+			    pp.put ", ";
+			    prettyprint_lty  pp  lambda_type;
+			    pp.put ", ";
+			    prettyprint_type_constructor_list  pp  tycs;
+			    pp.put ")\n"; 
+			};
+
+		    prettyprint_decon _ _
+			=>
+			();
+		end;
+
+		fun prettyprint_fundec  pp  (fkind as { calling_convention, ... }, highcode_variable, lvar_lty_list, body)
+		    =
+		    #  <highcode_variable> : (<fkind>) <lambdaType> =
+		    #    FN([v1:  lambdaType1,
+		    #        v2:  lambdaType2],
+		    #      <body>)
+
+		    {   prettyprint_variable  pp  highcode_variable;
+			pp.put " : ("; 
+			prettyprint_fkind  pp  fkind;
+			pp.put ")  =\n";		    # ** the return-result lambdaType no longer available ---- printLty lambdaType; *
+			pp.put "  FN( [ ";
+			pp.wrap .{
+
+			    case lvar_lty_list
+			      
+				 [] => ();
+
+				 ((highcode_variable, lambda_type) ! lll)
+				     => 
+				     {   prettyprint_variable  pp  highcode_variable;
+					 pp.put " : ";
+
+					 if ( *ctrl::print_function_types
+					      or
+					      calling_convention != f::CALLING_CONVENTION_GENERIC
+                                         )
+					      prettyprint_lty  pp  lambda_type;
+					 else
+					      pp.put "???";
+					 fi;
+
+					 apply
+					     (fn (highcode_variable, lambda_type)
+						 =
+						 {   pp.put ",\n";     prettyprint_variable  pp  highcode_variable;
+						     pp.put " : ";     prettyprint_lty       pp  lambda_type;
+						 })
+					     lll;
+				     };
+			    esac;
+
+			    pp.put "],\n";
+
+			    prettyprint_lexp  pp  body;
+
+			    pp.put ")";
+			};
+		    }
+
+		also
+		fun prettyprint_lexp  pp  (f::RET values)
+			=> 
+			#   RETURN [values] 
+			{   pp.put "RETURN ";
+			    prettyprint_val_list  pp  values;
+			};
+
+		    prettyprint_lexp  pp  (f::APPLY (f, args))
+			=>
+			#   APPLY (f, [args]) 
+			{   pp.put "APPLY(";
+			    prettyprint_sval  pp  f;
+			    pp.put ", ";
+			    prettyprint_val_list  pp  args;
+			    pp.put ")";
+			};
+
+		    prettyprint_lexp  pp  (f::TYPE_APPLY (tf, tycs))
+			=>
+			#   TYPE_APPLY (tf, [tycs]) 
+			{   pp.put "TYPE_APPLY(";
+			    prettyprint_sval  pp  tf;
+			    pp.put ", ";
+			    prettyprint_type_constructor_list  pp  tycs;
+			    pp.put ")";
+			};
+
+		    prettyprint_lexp  pp  (f::LET (vars, lambda_expression, body))
+			=>
+			# [vars] = lambda_expression   OR
+			# [vars] =
+			#   body                 lambda_expression
+			#                      body
+
+			{   prettyprint_var_list  pp  vars;
+			    pp.put " = ";  
+
+			    if   (complex lambda_expression)
+			        
+				 pp.wrap .{
+				     pp.put "\n";
+
+				     prettyprint_lexp  pp  lambda_expression;
+				 };
+			    else
+				 len = (3		#  for the " = " 
+					    + 2		#  for the "[]" 
+					    + (length vars) #  for each comma 
+					    + (fold_left	#  sum of varname lengths 
+					      (fn (v, n) =  n + (size (*lvar_string v)))
+						  0 vars));
+
+				 pp.wrap' len .{
+				     prettyprint_lexp  pp  lambda_expression;
+				 };
+			    fi;
+
+			    pp.put "\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::MUTUALLY_RECURSIVE_FNS (fundecs, body))
+			=>
+			# MUTUALLY_RECURSIVE_FNS(<fundec1>,
+			#     <fundec2>,
+			#     <fundec3>)
+			# <body>
+
+			{   pp.put "MUTUALLY_RECURSIVE_FNS(";
+			    pp.wrap .{
+				apply_print
+				    (prettyprint_fundec  pp)
+				    .{ pp.put "\n";}
+				    fundecs;
+			    };
+			    pp.put ")\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::TYPE_FN ((tfk as { inlining_hint, ... }, highcode_variable, tv_tk_list, tfnbody), body))
+			=>
+			# v = 
+			#   TYPE_FN([tk], lambdaType,
+			#     <tfnbody>)
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = \n";
+			    pp.wrap' 2 .{
+
+				if   (inlining_hint != f::INLINE_IF_SIZE_SAFE)
+				     
+				     pp.put "i";
+				fi;
+				pp.put "TYPE_FN(";
+
+				prettyprint_tv_tk_list  pp  tv_tk_list;
+				pp.put ", \n";		    # ** printLty lambdaType; say ", "; *** lambdaType no longer available **
+
+				pp.wrap' 2 .{
+				    prettyprint_lexp  pp  tfnbody;
+				};
+			    };
+			    pp.put ")\n";
+
+			    prettyprint_lexp  pp  body;
+			};
+
+
+		    # NOTE: I'm ignoring the Constructor_Signature here:
+
+		    prettyprint_lexp  pp  (f::SWITCH (value, constructor_api, con_lexp_list, lexp_option))
+			=>
+			# SWITCH <value>
+			#   <con> => 
+			#       <Lambda_Expression>
+			#   <con> => 
+			#       <Lambda_Expression>
+
+			{   pp.put "SWITCH ";
+			    prettyprint_sval  pp   value;
+			    pp.put "\n";
+			    pp.wrap' 2 .{
+
+				apply_print
+				    (prettyprint_case pp)
+				    .{ pp.put "\n"; }
+				    con_lexp_list;
+
+				case lexp_option
+				  
+				     NULL => ();
+
+				     THE lambda_expression		#  Default case 
+					 =>
+					 {   pp.put "\n_ => ";
+					     pp.wrap .{
+						 pp.put "\n";
+						 prettyprint_lexp  pp  lambda_expression;
+					     };
+					 };
+				esac;
+
+			    };
+			};
+
+		    prettyprint_lexp  pp  (f::CONSTRUCTOR ((symbol, _, _), tycs, value, highcode_variable, body))
+			=>
+			# <highcode_variable> = CONSTRUCTOR(<symbol>, <tycs>, <value>)
+			# <body>
+			#
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = CONSTRUCTOR(";
+			    pp.put (s::name symbol);
+			    pp.put ", ";
+			    prettyprint_type_constructor_list  pp  tycs;
+			    pp.put ", ";
+			    prettyprint_sval  pp  value;
+			    pp.put ")\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::RECORD (record_kind, values, highcode_variable, body))
+			=>
+			# <highcode_variable> = RECORD(<recordKind>, <values>)
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = ";
+			    prettyprint_rkind  pp  record_kind;
+			    pp.put " ";
+			    prettyprint_val_list  pp  values; 
+			    pp.put "\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::SELECT (value, int, highcode_variable, body))
+			=>
+			# <highcode_variable> = SELECT(<value>, <int>)
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = SELECT(";
+			    prettyprint_sval  pp  value;
+			    pp.put ", ";
+			    pp.put (int::to_string int);
+			    pp.put ")\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::RAISE (value, ltys))
+			=>
+			# NOTE: I'm ignoring the Highcode_Type list here. It is the return type 
+			# of the raise exception expression. (ltys temporarily being printed --v)
+
+			#  RAISE(<value>) 
+			{   pp.put "RAISE(";
+			    prettyprint_sval  pp  value;
+			    pp.put ") : ";
+			    prettyprint_lty_list  pp  ltys;
+			};
+
+		    prettyprint_lexp  pp  (f::EXCEPT (body, value))
+			=>
+			# <body>
+			# EXCEPT(<value>)
+
+			{   prettyprint_lexp  pp  body;  
+			    pp.put "\n";
+			    pp.put "EXCEPT(";
+			    prettyprint_sval  pp  value;
+			    pp.put ")";
+			};
+
+		    prettyprint_lexp  pp  (f::BRANCH ((d, primitive_operation, lambda_type, tycs), values, body1, body2))
+			=>
+			# IF PRIM(<primitive_operation>, <lambdaType>, [<tycs>]) [<values>] 
+			# THEN
+			#   <body1>
+			# ELSE
+			#   <body2>
+
+			{   case d
+			      
+				 NULL =>  pp.put "IF PRIMOP(";
+				  _   =>  pp.put "IF GENOP(";
+			    esac;
+
+			    pp.put (po::pr_primop primitive_operation);
+			    pp.put ", ";
+			    prettyprint_lty  pp  lambda_type;
+			    pp.put ", ";
+			    prettyprint_type_constructor_list  pp  tycs;
+			    pp.put ") ";
+			    prettyprint_val_list  pp  values;
+			    pp.put "\n";
+
+
+			    apply_print
+				(prettyprint_branch pp)
+				.{ pp.put "\n";}
+				[("THEN", body1), ("ELSE", body2)];
+			};
+
+		    prettyprint_lexp  pp  (f::PRIMOP (p as (_, po::MKETAG, _, _), [value], highcode_variable, body))
+			=>
+			# <highcode_variable> = EXCEPTION_TAG(<value>[<type_constructor>])
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = EXCEPTION_TAG(";
+			    prettyprint_sval  pp  value;
+			    pp.put "[";
+			    prettyprint_type  pp  (fu::get_etag_type_constructor p);
+			    pp.put "])\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::PRIMOP (p as (_, po::WRAP, _, _), [value], highcode_variable, body))
+			=>
+			# <highcode_variable> = WRAP(<type_constructor>, <value>)
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = WRAP(";
+			    prettyprint_type  pp  (fu::get_wrap_type_constructor p);
+			    pp.put ", ";
+			    prettyprint_sval  pp  value;
+			    pp.put ")\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::PRIMOP (p as (_, po::UNWRAP, _, []), [value], highcode_variable, body))
+			=>
+			# <highcode_variable> = UNWRAP(<type_constructor>, <value>)
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;
+			    pp.put " = UNWRAP(";
+			    prettyprint_type  pp  (fu::get_un_wrap_type_constructor p);
+			    pp.put ", ";
+			    prettyprint_sval  pp  value;
+			    pp.put ")\n";
+			    prettyprint_lexp  pp  body;
+			};
+
+		    prettyprint_lexp  pp  (f::PRIMOP ((d, primitive_operation, lambda_type, tycs), values, highcode_variable, body))
+			=>
+			# <highcode_variable> = PRIM(<primitive_operation>, <lambdaType>, [<tycs>]) [<values>]
+			# <body>
+
+			{   prettyprint_variable  pp  highcode_variable;  
+
+			    case d
+			      
+				 NULL => pp.put " = PRIMOP(";
+				 _    => pp.put " = GENOP(";
+			    esac;
+
+			    pp.put (po::pr_primop primitive_operation);
+			    pp.put ", ";
+			    prettyprint_lty  pp  lambda_type;
+			    pp.put ", ";
+			    prettyprint_type_constructor_list  pp  tycs;
+			    pp.put ") ";
+			    prettyprint_val_list  pp  values;
+			    pp.put "\n";
+			    prettyprint_lexp  pp  body;
+			};
+		end 
+
+		also
+		fun prettyprint_case  pp  (con, lambda_expression)
+		    =
+		    {   prettyprint_con  pp  con;
+			pp.put " => ";
+			pp.wrap .{
+			    pp.put "\n";
+			    prettyprint_decon  pp  con;
+			    prettyprint_lexp  pp  lambda_expression;
+			};
+		    }
+
+		also
+		fun prettyprint_branch  (pp: ppr::Prettyprinter)  (s, lambda_expression)
+		    =
+		    {   pp.put s;
+			pp.wrap .{
+			    pp.put "\n";
+			    prettyprint_lexp  pp  lambda_expression;
+			};
+		    };
+
+
+            end;
+        };					# fun prettyprint_prog
+
+};		#  package prettyprint_anormal 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+##  COPYRIGHT (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

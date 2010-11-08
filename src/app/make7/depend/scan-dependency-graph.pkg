@@ -1,0 +1,252 @@
+## scan-dependency-graph.pkg
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+# Visit every node in a dependency graph,
+# gathering caller-defined per-node information.
+#
+# At the moment, this is only called by
+#    src/app/make7/make-compiler/find-set-of-o7-files-for-executable.pkg
+
+
+
+package scan_dependency_graph
+:
+api {
+     scan_dependency_graph
+            : {   a7file_info:       iced_o7::Iced_O7 -> A_element,
+	          bare_o7:   bare_o7::Bare_O7  -> A_element,
+
+	          cons:  (A_element, A_elements) -> A_elements,
+	          nil:   A_elements
+              }
+           -> inter_library_dependency_graph::Library
+           -> A_elements;
+}
+{
+
+    package dg =  intra_library_dependency_graph;	# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg =  inter_library_dependency_graph;	# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+
+    # See if we've already added a freezefile or sml file (Bare_O7)
+    # to our (iced_o7_set, Bare_O7) accumulator 'm' == (bs, ss):
+    #
+    fun freezefile_is_registered ((bs, ss), i)   =   iced_o7_set::member (bs, i);
+    fun sml_file_is_registered       ((bs, ss), i)   =   bare_o7_set::member (ss, i);
+
+    # Add a freezefile or sml file
+    # (Bare_O7) to our accumulator 'm' == (bs, ss):
+
+
+    fun register_stable_library   ((bs, ss), i)   =   (iced_o7_set::add (bs, i), ss);
+    fun register_source_file         ((bs, ss), i)   =   (bs, bare_o7_set::add (ss, i));
+
+    # Apply do_element to every element of given list, 
+    # accumulating results in 'm' via do_element side-effects
+    # and returning k (m) when done.
+    #
+    # Arguments:
+    #
+    #  do_element:  Has three input arguments:
+    #                element     node being processed
+    #                fate     fate -- we return fate (libmap)
+    #                libmap   result accumulator (iced_o7_set, NakedO7InfoSet) 
+    #            do_element should side-effect stuff into 'm' as appropriate, then return fate (libmap)
+    #  [...]     list being processed
+    #  fate      Fate: When we're done, we return fate (libmap)
+    #  libmap    Initially empty (iced_o7_set, NakedO7InfoSet) pair in which we accumulate stuff
+
+    fun do_list do_element []      fate libmap
+            =>
+            fate libmap;
+
+        do_list do_element (h ! t) fate libmap
+            =>
+            do_element h (do_list do_element t fate) libmap;
+    end;
+
+    # This fn provides a very general way of iterating over
+    # a inter_library_dependency_graph, accumulating some sort
+    # of per-node information.
+    #
+    # We are passed a first argument containing:
+    # o  A way of extracting useful info from a iced_o7 node:     a7fileInfo: FreezefileInfo::info -> A_element
+    # o  A way of extracting useful info from a Bare_O7 node:  bare_o7: bare_o7::info -> A_element,
+    # o  An empty container in which to put such info elements:    Nil: A_elements
+    # o  A way of adding such an element to such a container:      Cons: A_element * A_elements -> A_elements
+    #
+    # Our second argument is the
+    # (root node of the) inter_library_dependency_graph
+    # to process.
+    #
+    # Our return value is the resulting containerful of elements.
+    #
+    fun scan_dependency_graph { nil, ... } lg::ERROR_LIBRARY
+            =>
+            nil;
+
+        scan_dependency_graph x (g as lg::LIBRARY { o7_views_by_name, ... } )
+	    =>
+	    {   x ->  { a7file_info, bare_o7, cons, nil };
+
+		# For a intra_library_dependency_graph a7fileInfo (freezefile) node,
+		# we need to process both 'near_imports' and 'far_imports'.
+		#
+		# If we've already seen this node, we return fate (libmap) immediately.
+		#
+		# Otherwise:
+		#
+		# First, we iterate recursively down near_imports via do_list,
+		# calling ourself (doOh7_FileNode) recursively one each element.
+		#
+		# Second, we call ourself recursively on each of our
+		# global imports, again via do_list.
+		#
+		# Third, we add ourself via register_stable_library
+		# to our running list of processed oh7_files,
+		# so we won't process it again.
+		#
+		# Fourth, call our fate, getting back in return
+		# the Cons()-ed up client container value result so far.
+		#
+		# Fifth and last, we extract the client-desired info
+		# from our node, Cons it into the client-provided container,
+		# and return the thus-augmented container.
+		#
+		# NB: Since all kids of a freezefile must
+		# themselves be stable libraries, we have no
+		# doSourcefileNode cases from here on down.
+		#
+		fun do_iced_o7 (dg::ICED_O7 node) fate libmap
+		    =
+		    {   node ->  { iced_o7   => file_info,
+				   near_imports,
+				   far_imports
+			         };
+			    
+
+			fun fate' libmap
+			    =
+			    cons ( a7file_info file_info,
+				   fate (register_stable_library (libmap, file_info))
+				 );
+
+			if   (freezefile_is_registered (libmap, file_info))
+			    
+                             fate libmap;
+			else
+			     do_list
+				 do_iced_o7				# Per-node fn.        
+				 near_imports				# List to process.    
+				 (do_list				# Fate.       
+				     do_lazy_far_oh7_file_node
+					 far_imports
+					 fate'
+				 )
+				 libmap;				# Result accumulator. 
+			fi;
+		    }
+
+		also
+		fun do_far_oh7_file_node (_, node, _)
+                    =
+                    do_iced_o7  node
+
+		also
+		fun do_lazy_far_oh7_file_node  thunk
+                    =
+                    do_far_oh7_file_node (thunk ());
+
+
+		# For a intra_library_dependency_graph bare_o7 node,
+		# we need to register all near_imports
+		# directly via register_source_file, then process
+		# all far_imports via recursive
+		# calls to our toplevel 'doFarSourcefileOrFreezefileNode' fn:
+		#
+		fun do_bare_o7 (dg::BARE_O7 node) fate libmap
+		    =
+		    {   node ->  { bare_o7   => file_info,
+				   near_imports,
+				   far_imports
+			         };
+			    
+
+			fun fate' libmap
+			    =
+			    cons (bare_o7 file_info, fate (register_source_file (libmap, file_info)));
+
+			if   (sml_file_is_registered (libmap, file_info))
+			    
+                             fate libmap;
+			else
+			     do_list
+				 do_bare_o7							# Per-node fn.        
+				 near_imports							# List to process.    
+				 (do_list
+				     do_bare_or_iced_o7
+				     far_imports
+				     fate'
+				 )								# Fate.       
+				 libmap;							# Result accumulator. 
+			fi;
+		    }
+
+		# Iterate over everything reachable from a
+		# toplevel intra_library_dependency_graph node.
+		# Our argument may be a iced_o7 or bare_o7
+		# node --  figure out which and delegate accordingly:
+		#
+		also
+		fun   do_bare_or_iced_o7 (_, dg::O7_IS_ICED (n, _, _))
+			  =>
+			  do_iced_o7 n;
+
+		      do_bare_or_iced_o7 (_, dg::O7_IS_BARE  n       )
+			  =>
+			  do_bare_o7 n;
+		end;
+
+		# We're called once for each (thunk) value exported
+		# by the inter_library_dependency_graph.  Force the thunk and hand
+		# off the result to 'doFarSourcefileOrFreezefileNode' to process:
+		#
+		fun do_o7 (node_thunk, _, _)
+		    =
+		    do_bare_or_iced_o7 (node_thunk ());
+
+		# Top level consists of applying import_export above to
+		# the inter_library_dependency_graph's 'o7_views_by_name' symbol map's values: 
+		#
+		do_list
+                    do_o7
+                    (symbol_map::vals_list  o7_views_by_name)
+		    (fn _ = nil)
+		    (iced_o7_set::empty, bare_o7_set::empty);
+
+	    };					# fun scan_dependency_graph 
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

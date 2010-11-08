@@ -1,0 +1,1117 @@
+## read-eval-print-loop-g.pkg         
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+ 
+# This generates the top-level read-evaluate-print    
+# loop for interactive compiler sessions.
+#
+#  For higher-level context, see comments at top of
+#
+#      src/app/make7/main/make7-g.pkg
+#      src/app/make7/make-compiler/make-compiler-g.pkg
+#
+#
+#
+# Compile-time invocation
+# -----------------------
+#
+#  The 'compile' argument gives us an abstract         
+#  interface to the actual mechanics of generating     
+#  executable machine code from a syntax tree.         
+#
+#
+#
+# Run-time invocation
+# -------------------
+#
+#  At start of execution
+#
+#      src/lib/core/internal/main.pkg
+#
+#  calls   process_commandline   in
+#
+#      src/app/make7/main/make7-g.pkg
+#
+#  to process commandline arguments, print
+#  the start-up banner and such, and then
+#  (for an interactive session) invokes our
+#
+#      read_eval_print_from_user
+#
+#  entrypoint via the trivial 'read_eval_print_from_user' wrapper in
+#
+#      src/lib/compiler/toplevel/interact/interact-g.pkg
+#
+
+
+
+###        "We make a living by what we get, but
+###         we make a life by what we give."
+###
+###                          -- Winston Churchill
+
+
+
+generic package   read_eval_print_loop_g   (
+    compile: Toplevel_Compile					# Toplevel_Compile		is from   src/lib/compiler/toplevel/main/compile.api
+)
+
+: (weak)  Read_Eval_Print_Loop					# Read_Eval_Print_Loop		is from   src/lib/compiler/toplevel/interact/read-eval-print-loop.api
+
+{
+    stipulate
+
+        include compiler_table_set;				# compiler_table_set		is from   src/lib/compiler/toplevel/compiler-state/compiler-table-set.pkg
+
+	package c  =  compile;
+	package em =  error_message;				# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+
+	package pp =  prettyprint;				# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+	package t  =  time;					# time				is from   src/lib/std/time.pkg
+	package u  =  unsafe;					# unsafe			is from   src/lib/std/src/unsafe/unsafe.pkg
+
+	package pc =  runtime_internals::profiling_control;	# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
+	package ed =  typechecking_debugging;			# typechecking_debugging	is from   src/lib/compiler/frontend/typechecker/typecheck/typechecking-debugging.pkg
+
+	include pp;
+
+    herein 
+
+	exception CONTROL_C_SIGNAL;
+
+	Highcode_Variable = var_home::Highcode_Variable;
+
+								# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+								# raw_syntax			is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+								# compile_state			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+								# symbol			is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+								# controls			is from   src/lib/compiler/toplevel/main/controls.pkg
+
+#	say   = controls::print::say;
+	fun say msg
+	    =
+	    {   controls::print::say msg;
+		controls::print::flush ();
+	    };
+
+	exception END_OF_FILE;
+
+								# lib7				is from   src/lib/std/lib7.pkg
+	#
+	fun interruptable f x
+            =
+	    {
+                old_fate
+                    =
+                    *u::toplevel_fate;
+
+                u::toplevel_fate
+		    :=
+                    fate::call_with_current_fate
+                        (fn fate
+                            =
+                            {   fate::call_with_current_fate
+                                    (fn fate'
+                                        =
+                                        (fate::resume_fate fate fate')
+                                    );
+
+			        raise exception CONTROL_C_SIGNAL;
+                            }
+                        );
+
+		( f x
+                  before
+
+                      u::toplevel_fate := old_fate
+                )
+		except
+                    e
+                    =
+                    {    u::toplevel_fate := old_fate;
+                         raise exception e;
+                    };
+	    };
+
+	exception EXCEPTION_DURING_EXECUTION  Exception;
+
+	# Here is the core loop handling
+        # user interaction at the interactive
+        # prompt.
+        #
+        # The base_dictionary and local_dictionary are refs,
+        # so that a top-level command can
+        # re-assign either one of them,
+        # and the next iteration of the loop
+	# will see the new value.
+        #
+        # It is important that the toplevelenv
+	# fate NOT see the "fetched"
+        # dictionary, but only the REF:
+	# This way, if the user "filters"
+        # the dictionary REF, a smaller image
+	# can be written. 
+
+									# parse_mythryl	is from   src/lib/compiler/frontend/parse/main/parse-mythryl.pkg
+
+        stipulate
+	    #
+	    fun read_eval_print_loop
+                    (
+                      source,
+                      (keep_looping: Bool)
+                    )
+		=
+		{
+# fd = file::open_for_append "read-eval-print-loop.log~";
+# file::write   (fd, "src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg: read_eval_print_loop: TOP\n"); 
+# file::flush    fd;
+# file::close    fd;
+
+		    prompt_read_parse_and_return_one_toplevel_mythryl_expression
+			=
+			# This is a quick hack!
+			# We should have a control which selects the interactive front-end
+			# to use, settable via commandline switch.  XXX BUGGO FIXME.
+			#
+			parse_mythryl::prompt_read_parse_and_return_one_toplevel_mythryl_expression
+			    source;
+
+    #                    parse_nada::prompt_read_parse_and_return_one_toplevel_nada_expression
+    #                       source;
+
+		    compile_info
+			=
+			c::make_compile_info
+			    {
+			      source,
+			      transform             =>  fn x = x,
+			      prettyprinter_or_null =>  NULL
+			    };
+		    #
+		    fun check_errors s
+			=
+			if (compile_info::any_errors  compile_info)		# compile_info	is from   src/lib/compiler/frontend/typecheck-stuff/main/compile-info.pkg
+			     raise exception em::COMPILE_ERROR;
+			fi;
+
+		    #
+		    fun prompt_read_evaluate_and_print_one_toplevel_mythryl_expression ()
+			=
+			case (prompt_read_parse_and_return_one_toplevel_mythryl_expression ())
+			  
+			     NULL
+				 =>
+				 raise exception END_OF_FILE;
+
+			     THE raw_syntax_declaration
+				 =>
+				 {
+				     top_level  = compiler_state::top_level ();
+				     base       = compiler_state::base      ();
+				     #	
+				     fun get_current_compiler_table_set ()
+					 =
+					 layer_compiler_table_sets (
+					     top_level.get (),
+					     base.get ()
+					 );
+
+				     # Start adding testing code of 
+				     # unparse_raw_syntax::unparse_interactive_deep_syntax_declaration here
+				     #
+				     debugging = REF TRUE;
+
+											    # control_print	is from   src/lib/compiler/frontend/basics/print/printcontrol.pkg
+
+				     print_depth = control_print::print_depth;
+
+				     (get_current_compiler_table_set ())
+					 ->
+					 { symbol_table,
+					   linking_table,
+					   inlining_table
+					 };
+
+
+				     cross_module_inlining
+					 =
+					 controls::inline::get ();				# controls	is from   src/lib/compiler/toplevel/main/controls.pkg
+				     #
+				     fun debug_print
+
+					     (debugging: Ref( Bool ))
+
+					     ( msg:     String,
+					       printfn: pp::Stream -> X -> Void,
+					       arg:     X
+					     )
+					 =
+					 if *debugging
+
+					      with_prettyprint_device
+
+						  (em::default_plaint_sink ())
+
+						  (fn stream
+						      =
+						      {   begin_horizontal_else_vertical_box   stream;
+							  pp::string      stream  msg;
+							  newline         stream;
+							  begin_horizontal_else_vertical_box   stream;
+							  printfn         stream  arg;
+							  end_box       stream;
+							  end_box       stream;
+							  newline         stream;
+							  flush_stream    stream;
+						      }
+						  );
+					 fi;
+												# unparse_raw_syntax	is from   src/lib/compiler/frontend/typechecker/print/unparse-raw-syntax.pkg
+												# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+				     fun unparse_raw_syntax_tree_debug
+					 ( msg,
+					   declaration
+					 )
+					 =
+					 {   fun unparse_raw_syntax_tree_declaration
+						     stream
+						     declaration
+						 =
+						 unparse_raw_syntax::unparse_declaration
+						     (symbol_table, NULL)
+						     stream
+						     (declaration, *print_depth);
+
+					     debug_print
+						 controls::unparse_raw_syntax_tree
+						 ( msg,
+						   unparse_raw_syntax_tree_declaration,
+						   declaration
+						 );
+					 };
+				     #
+				     fun prettyprint_raw_syntax_tree_debug
+					 ( msg,
+					   declaration
+					 )
+					 =
+					 {   fun prettyprint_raw_syntax_tree_declaration
+						     stream
+						     declaration
+						 =
+						 prettyprint_raw_syntax::prettyprint_declaration
+						     (symbol_table, NULL)
+						     stream
+						     (declaration, *print_depth);
+
+					     debug_print
+						 controls::prettyprint_raw_syntax_tree
+						 ( msg,
+						   prettyprint_raw_syntax_tree_declaration,
+						   declaration
+						 );
+					 };
+				     #	
+				     fun print_raw_syntax_tree_as_nada_debug (msg, declaration)
+					 =
+					 {   fun print_raw_syntax_tree_as_nada stream declaration
+						 =
+						 print_raw_syntax_tree_as_nada::print_declaration_as_nada
+						     (symbol_table, NULL)
+						     stream
+						     (declaration, *print_depth);
+
+					     debug_print (controls::unparse_raw_syntax_tree) (msg, print_raw_syntax_tree_as_nada, declaration);
+					 };
+				     #
+				     fun unparse_deep_syntax_tree_debug (msg, declaration)
+					 =
+					 {   fun unparse_deep_syntax_tree_declaration  stream  declaration
+						 = 
+						 unparse_deep_syntax::unparse_declaration	# unparse_deep_syntax	is from   src/lib/compiler/frontend/typechecker/print/unparse-deep-syntax.pkg
+						    (symbol_table, NULL)
+						    stream
+						    (declaration, *print_depth);
+
+					     debug_print
+						 (controls::unparse_deep_syntax_tree)
+						 (   msg,
+						     unparse_deep_syntax_tree_declaration,
+						     declaration
+						 );
+					 };
+				     #
+				     fun print_deep_syntax_tree_as_nada_debug (msg, declaration)
+					 =
+					 {   fun print_deep_syntax_tree_as_nada  stream  declaration
+						 = 
+						 print_deep_syntax_as_nada::print_declaration_as_nada
+						    (symbol_table, NULL)
+						    stream
+						    (declaration, *print_depth);
+
+					     debug_print
+						 (controls::unparse_deep_syntax_tree)
+						 (   msg,
+						     print_deep_syntax_tree_as_nada,
+						     declaration
+						 );
+					 };
+
+				     unparse_raw_syntax_tree_debug(        "Raw_Syntax: ", raw_syntax_declaration);   #  Testing code to print  raw_syntax_declaration. 
+				     prettyprint_raw_syntax_tree_debug(    "Raw_Syntax: ", raw_syntax_declaration);   #  Testing code to print  raw_syntax_declaration. 
+#				     print_raw_syntax_tree_as_nada_debug(  "LIB7_SYNTAX:", raw_syntax_declaration);   #  Testing code to translate raw_syntax_declaration to lib7. 
+
+
+
+				     # Returning deep_syntax_tree and
+				     # exported_highcode_variables here
+				     # is a bad idea: They hold on to
+				     # things unnecessarily.                       (But they are used in the prettyprint_declaration below. --CrT)
+				     # This must be fixed in the long run. (ZHONG) XXX BUGGO FIXME
+				     #					We do this one other place:   src/app/make7/compile/compile-treewalk-g.pkg
+				     (c::compile
+					 { source,
+					   raw_syntax_declaration,
+
+					   symbol_table,
+					   inlining_table,
+
+					   compile_info,
+					   check_errors,
+					   cross_module_inlining,
+
+					   version         =>  ()
+					 })
+					 ->
+					 { code_segments,
+					   new_symbol_table,
+					   deep_syntax_declaration,
+					   export_picklehash,
+					   exported_highcode_variables,
+					   imports,
+					   inline_expression,
+					   ...
+					 };
+												    # execute		is from   src/lib/compiler/execution/main/execute.pkg
+												    # callcc_wrapper	is from   src/lib/compiler/execution/main/callccwrapper.pkg
+				     executable
+					 =
+					 execute::make_executable_closure {
+					     code_segments,
+					     exception_wrapper => EXCEPTION_DURING_EXECUTION
+					 }
+					 before check_errors ();
+
+				     executable
+					 =
+					 callcc_wrapper::trap_callcc (interruptable executable);
+
+				     pc::current
+					 :=
+					 profile::other_index;
+
+				     new_linking_table
+					 =
+                                         if *controls::execute_compiled_code
+
+					      execute::execute
+						  {
+						    executable,
+						    imports,
+						    export_picklehash,
+						    linking_table
+						  };
+                                         else
+					      linking_table;
+                                         fi;
+
+				     pc::current
+					 :=
+					 profile::compile_index;
+
+				     new_compiler_table_set
+					 =
+					 make_compiler_table_set
+					     {
+					       symbol_table   =>  new_symbol_table,
+					       linking_table  =>  new_linking_table, 
+					       inlining_table =>  inlining_table::make (export_picklehash, inline_expression)
+					     };
+
+				     # Refetch toplevel tables because execution
+				     # may have changed their contents:
+				     #
+				     new_local_compiler_table_set
+					 =
+					 concatenate_compiler_table_sets
+					     (
+					       new_compiler_table_set,
+					       top_level.get ()
+					     );
+
+				     # We install the new local compiler state
+				     # before printing: Otherwise we would
+				     # find ourselves in trouble if the
+				     # autoloader changed the the contents
+				     # of loc out from under our feet:
+				     #
+				     top_level.set
+					 new_local_compiler_table_set;
+
+										    # symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+				     #
+				     fun look_and_load symbol
+					 =
+					 {   fun get ()
+						 =
+						 symbol_table::get
+						     ( symbol_table_part (get_current_compiler_table_set ()),
+						       symbol
+						     );
+
+					     get ()
+					     except
+						 symbol_table::UNBOUND
+						 =
+						 get ();
+					 };
+
+				     # Notice that even through several potential rounds
+				     # the result of get_symbols is constant (up to list
+				     # order), so memoization (as performed by
+				     # symbol_table::special) is ok.
+				     #
+				     fun get_symbols ()
+					 =
+					 {   symbol_table
+						 =
+						 symbol_table_part
+						     (get_current_compiler_table_set ());
+
+					     symbol_table::symbols
+						 symbol_table;
+					 };
+
+				     symbol_table1
+					 =
+					 symbol_table::special
+					     (
+					       look_and_load,
+					       get_symbols
+					     );
+
+				     e0   =   get_current_compiler_table_set ();
+
+				     e1   =   make_compiler_table_set
+						  {
+						    symbol_table   =>  symbol_table1,
+						    linking_table  =>  linking_part  e0,
+						    inlining_table =>  inlining_part e0
+						  };
+
+				     unparse_deep_syntax_tree_debug(       "Deep_Syntax:", deep_syntax_declaration);  #  Testing code to print deep_syntax_tree. 
+#				     print_deep_syntax_tree_as_nada_debug( "LIB7_SYNTAx:", deep_syntax_declaration);  #  Testing code to translate deep_syntax_tree to lib7. 
+
+				     if *mythryl_parser::interactive
+					  print "\n";	
+				     fi;
+
+				     if *mythryl_parser::unparse_result
+
+					  pp::with_prettyprint_device
+					      source.error_consumer		# unparse_interactive_deep_syntax_declaration	is from   src/lib/compiler/src/print/unparse-interactive-deep-syntax-declaration.pkg
+					      (fn stream
+						  =
+						  unparse_interactive_deep_syntax_declaration::unparse_declaration
+						      e1
+						      stream
+						      (deep_syntax_declaration, exported_highcode_variables)
+					      );
+				     fi;
+				 };
+			esac;
+		    #
+		    fun inner_read_eval_print_loop ()
+			=
+			{   # This is the core interactive
+			    # read-eval-print loop.
+			    #
+			    # You might expect to find the
+			    # the interactive prompt printed out
+			    # here, but in fact the code for
+			    # -that- is buried deep in the
+			    #     get_line ()
+			    # function in 
+			    #     src/lib/compiler/frontend/parse/main/mythryl-parser-guts.pkg
+			    #
+			    # The actual prompt strings are kept in
+			    #    mythryl_parser::primary_prompt    and
+			    #    mythryl_parser::secondary_prompt
+			    #
+			    prompt_read_evaluate_and_print_one_toplevel_mythryl_expression ();
+			    inner_read_eval_print_loop ();
+			};
+
+		    interruptable
+                        if   keep_looping      inner_read_eval_print_loop;
+			else                   prompt_read_evaluate_and_print_one_toplevel_mythryl_expression;
+                        fi
+                        ();
+
+		};								# fun read_eval_print_loop
+
+	herein
+
+	    #
+	    fun with_error_handling  treat_as_user { thunk,   flush,   fate }
+		=
+		{
+#		    fun show_history' [s]     =>  say (cat ["  raised at: ", s, "\n"]);
+#			show_history' (s ! r) =>  { show_history' r; say (cat ["             ", s, "\n"]);};
+#			show_history' []      =>  ();
+#		    end;
+		    fun show_history' [s]     =>  {
+                                                   say (cat ["  raised at: ", s, "\n"]);
+                                                  };
+			show_history' (s ! r) =>  {
+                                                   show_history' r;
+                                                   say (cat ["             ", s, "\n"]);
+                                                  };
+			show_history' []      =>  ();
+		    end;
+
+									    # compilation_exception	is from   src/lib/compiler/frontend/basics/mlcomp/compilation-exception.pkg
+									    # exceptions		is from   src/lib/std/exceptions.pkg
+		    #
+		    fun exception_message
+                            (compilation_exception::COMPILE  s)
+                            =>
+                            cat ["Compile: \"", s, "\""];
+
+			exception_message  exception'
+                            =>
+                            exceptions::exception_message
+                                exception';
+		    end;
+		    #
+		    fun show_history  exception'
+			=
+			show_history'
+                            (lib7::exception_history  exception');
+
+		    #
+		    fun user_handle (EXCEPTION_DURING_EXECUTION exception')
+			    =>
+			    user_handle exception';
+
+			user_handle exception'
+			    =>
+			    {
+                                msg  = exception_message  exception';
+				name = exception_name     exception';
+
+                                if   (name == "CONTROL_C_SIGNAL")
+                                       
+				     # 2008-01-07 CrT: This case wasn't here originally,
+				     #                 and is probably only needed due to
+				     #                 my screwing up the logic elsewhere.
+				     #
+				     #                 (Before my last round of frigging around,
+				     #                 the non-bt_handle CONTROL_C_SIGNAL case
+				     #                 was handling this.)           XXX BUGGO FIXME
+				     #
+				     say "\nCaught <CTRL>-C.  (Do <CTRL>-D to exit.)";
+				else
+				     if   (msg == name)   say (cat ["\nUncaught exception ", name, "\n"]);
+				     else                 say (cat ["\nUncaught exception ", name, " [", msg, "]\n"]);
+                                     fi;
+
+				     show_history exception';
+				fi;
+
+				flush (); 
+
+				fate exception';
+			    };
+		    end;
+		    #
+		    fun bug_handle exception'
+			=
+			{
+
+                            msg  = exception_message  exception';
+			    name = exception_name     exception';
+
+			    say (cat ["\nUnexpected exception (bug?): ", name, " [", msg, "]\n"]);
+			    show_history exception';
+			    flush();
+			    fate exception';
+			};
+		    #
+		    fun non_bt_handle exception'			# "bt" might be "base type" here... ?
+			=
+			case exception'
+			  
+			     END_OF_FILE
+				 =>
+				 say "\n";
+
+			     (CONTROL_C_SIGNAL | EXCEPTION_DURING_EXECUTION CONTROL_C_SIGNAL)
+				 =>
+				 {
+                                     say "\nSignal caught. (Do <CTRL>-D to exit.)\n";
+				     flush();
+				     fate exception';
+				 };
+
+			     em::COMPILE_ERROR
+				 =>
+				 {
+                                     flush();
+				     fate exception';
+				 };
+
+			     compilation_exception::COMPILE "syntax error"
+				 =>
+				 {
+                                     flush();
+				     fate exception';
+				 };
+
+			     compilation_exception::COMPILE s
+				 =>
+				 {
+                                     say (cat ["\nUncaught exception COMPILE: \"", s, "\"\n"]);
+				     flush();
+				     fate exception';
+				 };
+
+			     callcc_wrapper::TOPLEVEL_CALLCC
+				 =>
+				 {
+                                     say("Error: throw from one top-level expression into another\n");
+				     flush ();
+				     fate exception';
+				 };
+
+			     (execute::LINK | EXCEPTION_DURING_EXECUTION execute::LINK)
+				 =>
+				 {
+                                     flush ();
+				     fate exception';
+				 };
+
+			     EXCEPTION_DURING_EXECUTION exception''
+				 =>
+				 {
+                                     user_handle exception'';
+				 };
+
+			     exception''
+				 =>
+				 {
+				     if   treat_as_user      user_handle exception'';
+				     else                    bug_handle  exception'';
+                                     fi;
+				 };
+			esac;
+
+
+		    runtime_internals::tdp::with_monitors	# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+                        FALSE
+                        thunk
+		    except
+			e
+			=
+			non_bt_handle e;
+		};						#  fun with_error_handling 
+
+								# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+								# file			is from   src/lib/std/src/unix/file.pkg
+
+	    # Interactive loop, with error handling.
+	    #	
+	    # We wind up here primarily to execute
+	    #    #!/usr/bin/mythryl
+	    # scripts:
+	    #
+  	    #  o Logic in
+            #        src/runtime/o/mythryl.c
+            #    invokes /usr/bin/mythryld
+            #    with the unix environment setting
+	    #        MYTHRYL_MODE=SCRIPT
+	    #
+	    #  o Our main executable
+	    #        /usr/bin/mythryld
+            #    starts execution near the bottom of
+            #        src/lib/core/internal/main.pkg
+	    #    where the first thing is does is check
+            #    MYTHRYL_MODE and if it is set SCRIPT, it
+	    #
+	    #     *  Sets
+            #            mythryl_parser::interactive := FALSE;
+            #        to suppress interactive prompting;
+	    #
+	    #     *  Skips commandline switch processing,
+	    #        and thus the usual
+            #            src/app/make7/main/make7-g.pkg
+            #        entry into read_eval_print_from_user()
+	    #        in this file.
+	    #    
+	    #     *  Invokes read_eval_print_from_script() in
+            #            src/lib/compiler/toplevel/interact/interact-g.pkg
+	    #        which promptly invokes us.
+	    #
+	    fun read_eval_print_from_script ()
+		=
+		{    source
+			=
+			source_code_source::make_source (
+			    "stdin",
+			    1,
+			    file::stdin,
+			    TRUE,
+			    em::default_plaint_sink ()
+			);
+		    #
+		    fun flush' ()
+			=
+			case (file::can_read
+				 (
+				   file::stdin,
+				   4096
+				 ))
+			  
+			     (NULL | THE 0)
+				 =>
+				 ();
+
+			    THE _
+				 =>
+				 {   ignore  (file::read  file::stdin);
+				     flush'();
+				 };
+			esac;
+		    #
+		    fun flush ()
+			=
+			{   source.any_errors := FALSE;
+
+			    flush' ()
+			    except
+				io_exceptions::IO _ = ();
+			};
+		    #
+		    # We want scripts to exit cleanly on the first
+		    # uncaught exception, so we do NOT loop here
+		    # after catching one:
+
+		    with_error_handling FALSE {   thunk         =>   fn () =  read_eval_print_loop  (source, TRUE),
+						  flush,
+						  fate  =>   ignore
+					      };
+
+		};                                    # fun read_eval_print_from_script
+
+	    # This fn is duplicated between here and   src/app/make7/main/make7-g.pkg   XXX BUGGO FIXME
+	    fun input_is_tty  f
+		= 
+		{   my (rd, buf)
+			=
+			file::pure_io::get_reader
+			    (
+			      file::get_instream  f
+			    );
+
+		    is_tty
+			=
+			case rd
+			  
+			     text_primitive_io::READER { io_descriptor => THE iod, ... }
+				 =>
+				 (winix::io::kind iod == winix::io::kind::tty);
+
+			      _ => FALSE;
+			esac;
+
+		    # Since getting the reader will have terminated
+		    # the stream, we now need to build a new stream:
+		    #
+		    file::set_instream
+			(f, file::pure_io::make_instream (rd, buf) );
+
+		    is_tty;
+		};
+
+									# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+
+	    # We get invoked from
+	    #
+	    #     src/lib/compiler/toplevel/interact/interact-g.pkg
+	    #
+	    fun read_eval_print_from_stream
+		    (
+		      (filename:  String),				# Filename for 'stream', else "<Input_Stream>" or such. 
+		      (stream:   file::Input_Stream)
+		    )
+		=
+		{   interactive
+			=
+			input_is_tty stream;
+
+		    source
+			=
+			source_code_source::make_source
+			    (
+			      filename,					# Filename for 'stream', else "<Input_Stream>" or such. 
+			      1,
+			      stream,
+			      interactive,
+			      em::default_plaint_sink ()
+			    );
+
+		    read_eval_print_loop  (source, TRUE)
+		    except
+			exception'
+			=
+			{   source_code_source::close_source
+				source;
+
+			    case exception'
+			      
+				 END_OF_FILE =>   (); 
+				 _           =>   raise exception exception';
+			    esac;
+			};
+		};
+
+	    #
+	    fun read_eval_print_from_user ()
+		= 
+		{
+#		    interactive
+#			=
+#			input_is_tty file::stdin;
+
+                    print "\n";
+		    print lib7_version::banner;
+		    print "\nDo   help();   for help";
+
+		    outer_loop ();
+		}
+		where
+		    #
+		    fun read_eval_print_from_stream'  stream
+			=
+			{
+			    source
+				=
+				source_code_source::make_source
+				    (
+				      "stdin",			# "filename"
+				      1,
+				      stream,
+				      FALSE,			# Not interactive.
+				      em::default_plaint_sink ()
+				    );
+
+			    read_eval_print_loop  (source, FALSE)
+			    except
+				exception'
+				=
+				{   source_code_source::close_source
+					source;
+
+				    case exception'
+				      
+					 END_OF_FILE =>   (); 
+					 _           =>   raise exception exception';
+				    esac;
+				};
+			};
+
+		    #
+		    fun eval_string  code_string
+			=
+			safely::do {
+
+			  open_it  =>   .{ file::open_string  code_string; },
+			  close_it =>   file::close_input,
+			  cleanup  =>   fn _  =  ()
+			}
+			read_eval_print_from_stream';
+
+
+                    # Drop any terminal newline:
+                    #
+                    fun chomp line
+                        =
+			string::is_suffix "\n" line  ??  string::substring (line, 0, string::length line - 1)
+                                                     ::  line;
+			#
+			# There's another implementation of this fn in   src/lib/std/src/string-guts.pkg
+			# Probably one of them should be dropped.  XXX BUGGO FIXME
+
+		    #
+		    fun main_loop ()
+			=
+			{   print *mythryl_parser::primary_prompt;
+
+			    input_line
+				=
+				file::read_line file::stdin;
+
+			    case input_line
+			      
+				 THE line
+				     =>
+				     {   eval_string  (chomp line + " ;;");
+					 main_loop ();
+				     };
+
+				 NULL
+                                     =>
+                                     # EOF on stdin means it
+                                     # is time to shut down:
+				     #
+                                     winix::process::exit
+                                         winix::process::success;
+			    esac;
+			};
+
+		    #
+		    fun flush' ()
+			=
+			case (file::can_read
+				 (
+				   file::stdin,
+				   4096
+				 ))
+			  
+			     (NULL | THE 0)
+				 =>
+				 ();
+
+			    THE _
+				 =>
+				 {   ignore  (file::read  file::stdin);
+				     flush'();
+				 };
+			esac;
+		    #
+		    fun flush ()
+			=
+			{
+#                           source.any_errors := FALSE;
+
+			    flush' ()
+			    except
+				io_exceptions::IO _ = ();
+			};
+		    #
+		    fun main_loop_wrapper ()
+			=
+                        {
+			    include trap_control_c;		# trap_control_c	is from   src/lib/std/trap-control-c.pkg
+
+                            catch_interrupt_signal
+                                main_loop;
+
+			    ();
+                        };
+		    #
+		    fun outer_loop ()
+			=
+			{
+			    with_error_handling
+				TRUE							# 'treat_as_user'
+				{   thunk         =>   fn () = { main_loop_wrapper ();  (); },
+				    flush         =>   fn () = { flush             ();  (); },
+				    fate  =>   fn _  = { outer_loop        ();  (); }
+				};
+
+			};
+#			    {   thunk         =>   main_loop,
+#				flush         =>   fn () = (),
+#				fate  =>   outer_loop o ignore
+#			    };
+
+
+#		    fun loop ()
+#			=
+#			{   file::write       (file::stdout, *mythryl_parser::primary_prompt);
+#			    file::flush file::stdout;
+
+#                            input_line = REF (THE "");
+
+
+#			    with_error_handling
+#				TRUE							# 'treat_as_user'
+#				{   thunk         =>   fn () =  input_line := file::read_line  file::stdin,
+#				    flush         =>   fn () = (),
+#				    fate  =>   loop o ignore
+#				};
+
+#			    input_line
+#				=
+#				file::read_line
+#				    file::stdin;
+
+#			    case *input_line
+#			    in
+#				 THE line
+#				     =>
+#				     {
+#                                         with_error_handling
+#                                             TRUE							# 'treat_as_user'
+#                                             {   thunk         =>   fn () =  eval_string  (case (file::read_line  file::stdin)  THE line => line; NULL => ""; esac + " ;;"),
+#						 flush         =>   fn () =  (),
+#					         fate  =>   loop o ignore
+#					     };
+#
+##                                         eval_string  (line + " ;;");
+#					 loop ();
+#				     };
+
+#				 NULL => ();
+#			    esac;
+#			};	
+
+		end; 
+        end;
+    end;			# stipulate
+};				# read_eval_print_loop_g 
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

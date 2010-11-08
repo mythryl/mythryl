@@ -1,0 +1,255 @@
+## check-garbage-collector-calls-g.pkg
+#
+# Nomenclature:  In this file "gc" == "garbage collector".
+#
+# This module checks that no other values aside from
+# the standard GC calling convention registers, can be live across
+# a call GC instruction.   Call GC blocks and instructions are assumed
+# to be marked with the special CALLGC annotation.
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+api Check_Garbage_Collector_Calls {
+
+    package control_flow_graph:  Control_Flow_Graph;		# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+
+    check_gc
+        :
+        control_flow_graph::Control_Flow_Graph
+        ->
+        control_flow_graph::Control_Flow_Graph;
+};
+
+generic package check_garbage_collector_calls_g (
+
+    package asm
+        :
+        Instruction_Emitter;					# Instruction_Emitter		is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+
+    package control_flow_graph
+        :
+        Control_Flow_Graph					# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where instruction_set == asm::instruction_set
+	also  pseudo_op
+              ==
+              asm::instruction_stream::pseudo_op;
+
+    package instruction_properties
+        :
+        Instruction_Properties					# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+	where instruction_set
+              ==
+              control_flow_graph::instruction_set;
+
+    package fps_regs
+        :
+        Cpsregs;						# Cpsregs			is from   src/lib/compiler/codegen/compile-fps/fps-registers.api
+
+    root_registers
+        :
+        List( fps_regs::codetree::Int_Expression );
+)
+
+: (weak) Check_Garbage_Collector_Calls				# Check_Garbage_Collector_Calls			is from   src/lib/compiler/codegen/compile-fps/check-garbage-collector-calls-g.pkg
+
+{
+    package control_flow_graph = control_flow_graph;
+    package instruction_set    = control_flow_graph::instruction_set;
+    package cells              = instruction_set::cells;
+
+    package l     = liveness_g( control_flow_graph );		# liveness_g			is from   src/lib/compiler/backend/lower/reg-alloc/liveness-g.pkg
+    package i     = instruction_set;
+    package c     = cells;
+    package g     = graph;					# graph				is from   src/lib/graph/graph.pkg
+    package h     = int_hash_table; 				# int_hash_table		is from   src/lib/src/int-hash-table.pkg
+    package cb    = cells_basis;				# cells_basis			is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+    package cs    = cb::cell_set;
+    package t     = fps_regs::codetree;
+
+    # List of cells which are gc roots
+    # *and* dedicated registers:
+    #
+    gc_roots
+	= 
+	cb::sorted_cells::uniq(
+	  list::fold_right (fn (t::REG(_, r), sss) => r ! sss; 
+			      (_, sss)    => sss; end ) 
+	       (fps_regs::dedicated_r @ fps_regs::dedicated_f) root_registers);
+
+    # Def/use for integer and floating point registers 
+    #
+    def_use_r =  instruction_properties::def_use  cb::REGISTER;
+    def_use_f =  instruction_properties::def_use  cb::FLOAT_REGISTER;
+
+
+    #  Flag for debugging this phase 
+    #
+    debug_check_gc
+	=
+	low_code_control::make_bool   ("debug_check_gc", "Check GC debugging");
+
+
+    do_garbage_collection_check_on_control_flow_graph
+	=
+	low_code_control::make_bool   ("do_garbage_collection_check_on_control_flow_graph", "Turn on GC checking");
+
+
+    #  Dump a block of instructions 
+    fun show_block (control_flow_graph::BLOCK { instructions, ... } )
+	= 
+	{   my  asm::instruction_stream::STREAM { emit, ... }
+		=
+		asm_stream::with_stream file::stdout asm::make_stream [];
+
+	    apply emit (reverse *instructions);
+	};
+
+
+    #  Dump one instruction 
+    #
+    fun show_instr instruction
+	= 
+	{   my  asm::instruction_stream::STREAM { emit, ... }
+		=
+		asm_stream::with_stream file::stdout asm::make_stream [];
+
+	    emit instruction;
+	};
+
+    # Check gc
+    #
+    fun check_it (cfg as g::GRAPH graph)
+	=
+	{   # def/use for one instruction:
+	    #
+	    fun def_use i
+		= 
+		{   my (d1, u1) = def_use_r i;
+		    my (d2, u2) = def_use_f i;
+
+		    (d1@d2, u1@u2);
+		};
+
+
+	    #  Cellset -> List 
+	    #
+	    get_cell =   cs::to_cell_list;
+
+
+	    #  Compute liveness for all register kinds 
+	    #
+	    my  { live_in, live_out }
+		= 
+		l::liveness { def_use=>def_use_r, get_cell } cfg;
+
+
+	    #  Pretty-print a list of cells:
+	    #
+	    fun cells_to_string sss
+		=
+		cs::to_string (list::fold_right cs::add cs::empty sss);
+
+
+	    #  Check if an instruction is a call GC instruction 
+	    #
+	    fun is_call_gc i
+		= 
+		{   my  (_, a)
+			=
+			instruction_properties::get_notes i;
+
+		    lowcode_notes::callgc.contains a;
+		};
+
+
+	    #  Check a call gc instruction 
+	    #
+	    fun check_call_gc (instruction, live_out, live_in, block)
+		= 
+		{   if *debug_check_gc  
+			print ("live in=" + cells_to_string (live_in) + "\n");
+			show_instr  instruction;
+			print ("live out=" + cells_to_string (live_out) + "\n");
+		    fi;
+
+		    live_across =   cb::sorted_cells::difference (live_out, gc_roots);
+
+		    if (not (cb::sorted_cells::is_empty live_across))
+
+			 print("_______________________________________\n");
+			 print("WARNING: error in GC protocol:\n");
+			 print ("gc roots+dedicated=" + cells_to_string (gc_roots) + "\n");
+			 print ("live in=" + cells_to_string (live_in) + "\n");
+			 show_instr (instruction);
+			 print ("live out=" + cells_to_string (live_out) + "\n");
+			 print ("In block:\n");
+			 show_block (block);
+			 print("_______________________________________\n");
+			 error_message::impossible("CheckGC::gc protocol error");
+
+		    fi;
+		};
+
+	    #  Scan a GC block backwards and get for CALL GC instructions 
+	    #
+	    fun scan_block (b, block as control_flow_graph::BLOCK { instructions, ... } )
+		= 
+		{   live =   h::get  live_out  b;
+
+		    fun scan (live, [])
+			    =>
+			    ();
+
+			scan (live, i ! is)
+			    => 
+			    {
+				live' = l::live_step def_use (i, live);
+
+				if (is_call_gc i ) check_call_gc (i, live, live', block); fi;
+				scan (live', is);
+			    };
+		    end;
+
+		    if *debug_check_gc
+			 print("Liveout=" + cells_to_string (live) + "\n");
+			 show_block (block);
+		    fi;
+
+		    scan (live, *instructions);
+		};
+
+
+	    # GC blocks are marked with the special annotation CALLGC.  
+	    #
+	    fun is_gcblock (b, control_flow_graph::BLOCK { notes, ... } )
+		= 
+		lowcode_notes::callgc.contains *notes;
+
+
+	    # Check GC blocks 
+	    #
+	    fun check_block (b, b')
+		= 
+		if (is_gcblock (b, b')   ) scan_block (b, b');
+				       fi;
+
+
+	    #  Locate and check all blocks in the flowgraph 
+	    #
+	    graph.forall_nodes  check_block;
+	};
+
+    # Main entry point:
+    #
+    fun check_gc control_flow_graph
+	=
+	{   if *do_garbage_collection_check_on_control_flow_graph
+		 check_it  control_flow_graph;
+	    fi;
+
+	    control_flow_graph;
+	};
+
+};

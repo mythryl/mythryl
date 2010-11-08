@@ -1,0 +1,298 @@
+##  main.pkg 
+##  Copyright 1998 by Lucent Technologies 
+##  Copyright 1999 by Lucent Technologies 
+##  Copyright 2002 by Lucent Technologies 
+
+# Compiled by:
+#     src/lib/core/internal/interactive-system.make6
+
+# Here we handle generation of a new compiler executable
+# image, and also start-of-execution of that image, since our
+# image generation primitive (lib7::fork_to_disk f) is like fork()
+# in that it returns one value in the dumping process and another
+# value in the dumped process.
+#
+# At image generation time (aka "link time") this code builds the boot
+# dictionaries, sets default signal handlers, and then dumps a heap.
+# When the heap image restarts, the system goes interactive.
+# 
+# (We do not want to go interactive before dumping the heap because it
+# would mean that dictionaries get loaded unnecessarily.)
+#
+# This code refers directly to package compiler, because by the time it
+# gets compiled, Make7's conditional compilation facility has already
+# made sure that package compiler refers to the visible compiler
+# for the current architecture. 
+
+
+
+###            "If I had to do it over again?
+###             Hmmm...
+###             I guess I'd spell 'creat()' with an 'e'."
+###
+###                               -- Ken Thompson
+
+
+package main: (weak)  api { } {
+
+    root_directory
+        =
+        winix::file::current_directory ();                 # root install directory.
+
+    
+
+
+							# winix			is from   src/lib/std/winix.pkg
+							# boot_dictionary	is from   src/lib/core/internal/boot-dictionary.pkg
+							# io_exceptions		is from   src/lib/std/src/io/io-exceptions.pkg
+							# file			is from   src/lib/std/src/unix/file.pkg
+							# exceptions		is from   src/lib/std/exceptions.pkg
+							# unsafe		is from   src/lib/std/src/unsafe/unsafe.pkg
+    #  Dictionary initializations: 
+    #
+    my { heapfile, process_commandline }
+        =
+	boot_dictionary::set_up  root_directory
+	except
+            e as io_exceptions::IO { function, name, cause }
+		=>
+		{   file::write (file::stderr,
+				   cat ["IO exception: file = ", name,
+					   ", function = ", function,
+					   ", cause: ",
+					   exceptions::exception_message cause,
+					   "\n"]);
+		    raise exception e;
+		};
+
+           e
+	       =>
+	       {   file::write (file::stderr,
+				       cat ["exception raised during init phase: ",
+					       exceptions::exception_message e, "\n"]);
+		   raise exception e;
+	       };
+        end;
+	
+
+
+    # Establish default signal handlers:
+    #
+    fun handle_int  _
+        =
+        *unsafe::toplevel_fate;
+
+    #
+    fun handle_term _
+        =
+        winix::process::exit  winix::process::failure;
+
+    #
+    fun if_signal (signal_name, handler)
+        =
+	case (signals::from_string signal_name)
+	  
+	     THE s
+                 =>
+                 {   signals::override_signal_handler
+                         (s, signals::HANDLER handler);
+		     ();
+		 };
+
+	     _   => ();
+	esac;
+                                                                             my _ =
+    {   signals::override_signal_handler (signals::interrupt_signal,  signals::HANDLER handle_int );
+        signals::override_signal_handler (signals::terminal_signal, signals::HANDLER handle_term);
+        if_signal ("QUIT", handle_term);
+    };
+
+
+    # Install "read_eval_print_hook" functionality:
+                                                                                 my _ =
+    read_eval_print_hook::read_eval_print_hook
+        :=
+        compiler_client_interface::interact::read_eval_print_from_file;
+
+
+    # Put lowcode controls into the main hierarchy of controls:
+                                                                                 my _ =
+    basic_control::note_subindex
+        ( controls::lowcode::prefix,					# basic_control	is from   src/lib/compiler/frontend/basics/main/basiccontrol.pkg
+	  controls::lowcode::registry,					# controls	is from   src/lib/compiler/toplevel/main/controls.pkg
+	  controls::lowcode::priority
+        );
+
+    # Add cleanup code that resets the internal timers
+    # and stats when resuming from fork_to_disk:
+    #
+    stipulate
+	package i  =  runtime_internals;				# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+	package at =  i::at;
+	#
+	fun reset _
+            =
+            {   i::reset_timers ();
+                compile_statistics::reset ();				# compile_statistics	is from   src/lib/compiler/frontend/basics/stats/compile-statistics.pkg
+            };
+    herein                                                                       my _ =
+        at::schedule
+            (
+              "initialize-timers-and-stats",	# Arbitrary string label.
+              [ at::STARTUP ],			# When to run the function.
+              reset				# Function to run.
+            );
+    end;
+
+
+                            							my _ =
+    {
+	# Initialize controls.  In particular, this will
+	# (for example) initialize control cm::foo
+	# from the Unix environment variable CM_FOO,
+	# if it exists:
+	#
+	control_index::set_up_controls_from_unix_environment
+	    basic_control::top_index;					# control_index	is from   src/lib/controls/control-index.pkg
+	
+
+	stipulate
+
+	    fun eval_string  code_string
+		=
+		safely::do {	# This should be a supported, exported 'eval' function.
+
+		  open_it  =>   .{ file::open_string  code_string; },
+		  close_it =>   file::close_input,
+		  cleanup  =>   fn _  =  ()
+		}
+		compiler_client_interface::interact::read_eval_print_from_stream;
+
+	herein
+	    # Empty the contents of the 'make7' package
+	    # into the toplevel environment, so we can
+	    # interactively type
+	    #     help ()
+	    # instead of the more verbose
+	    #     make7::help ()
+	    # and ditto for   show_apis()   &tc.
+							my _ =
+	    { eval_string "include make7;;";	        print "\n\n"; };
+
+
+	    # Ditto for the 'math' package:
+							my _ =
+	    { eval_string "include math;;";	        print "\n\n"; };
+
+
+	    # Ditto for the 'file' package:
+							my _ =
+	    { eval_string "include file;;";	        print "\n\n"; };
+
+							my _ =
+	    { eval_string "include make7::scripting_globals;;";	        print "\n\n"; };
+        end;
+
+
+        # Launch interactive loop:
+	#
+        filename_for_executable
+            =
+            fate::call_with_current_fate
+                (fn old_fate
+                    =
+                    {  compiler_client_interface::interact::redump_heap_fate
+                           :=
+                           old_fate;
+
+		       heapfile;
+		    }
+		);
+
+        controls::print::say "          src/lib/core/internal/main.pkg:   Generating heap image...\n";
+
+	# Now we do our 'fork-to-disk' call.
+	#
+	# If it returns FALSE, we're the
+	# 'parent' process generating the
+	# executable, and we're done.
+	#
+	# If it returns TRUE, we're the
+	# dumped executable (heap image)
+	# just starting execution after
+	# being invoked as an application,
+	# and we need to go do our stuff:
+	#
+	if   (lib7::fork_to_disk  filename_for_executable)
+	    
+	     #################################################
+	     #                                              
+	     #         START OF THE Mythryld WORLD            
+	     #                                              
+	     #  Congratulations!  You've found the start-   
+	     #  of-execution for the mythryld executable --   
+	     #  the equivalent of main() in a C program.    
+	     #################################################
+
+	     # When our mythryl.c wrapper invokes us to run a script,
+             # it sets MYTHRYL_MODE=SCRIPT in the environment.
+             #
+             # This is our cue to disable interactive prompts,
+             # which otherwise generate unexpected and ugly clutter.
+	     #
+	     # In this case, we also skip processing commandline
+             # arguments, in deference to the script logic:
+             #
+fd = file::open_for_append "main.log~";
+file::write       (fd, "src/lib/core/internal/main.pkg: START\n"); 
+file::flush        fd;
+file::close_output fd;
+	     case (winix::process::get_env "MYTHRYL_MODE")
+               
+                  THE "SCRIPT" =>   mythryl_parser::interactive := FALSE;
+                  _            =>   the_else (process_commandline, fn () = ()) ();		# process_commandline	def in   src/app/make7/main/make7-g.pkg
+	     esac;										# process_commandline Won't return -- it finishes up
+												# by invoking compiler_client_interface::interact::read_eval_print_from_user
+	     
+
+	     compiler_client_interface::interact::read_eval_print_from_script ();			# See src/lib/compiler/toplevel/interact/interact-g.pkg
+             
+	else
+	     print "          src/lib/core/internal/main.pkg:   Wrote executable for ";
+	     print lib7_version::banner;
+	     print "\n";
+	     print "          src/lib/core/internal/main.pkg:   Done, doing exit (0);\n";
+	     winix::process::exit   winix::process::success;
+	fi;
+										# compiler_client_interface		is from   src/lib/core/compiler/x86-with-unix-call-conventions.pkg
+										# winix					is from   src/lib/std/winix.pkg
+										# lib7_version				is from   src/lib/core/internal/version.pkg
+										# compiler_client_interface_g		is from   src/lib/compiler/toplevel/backend/compiler-client-interface-g.pkg
+										# interact_g				is from   src/lib/compiler/toplevel/interact/interact-g.pkg
+										# read_eval_print_loop_g		is from   src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+										# compile_g				is from   src/lib/compiler/toplevel/main/compile-g.pkg
+    };
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+##  Copyright 1997 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

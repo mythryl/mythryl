@@ -1,0 +1,1278 @@
+## typecheck-type.pkg
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+
+# The center of the typechecker is
+#
+#      src/lib/compiler/frontend/typechecker/typecheck/typecheck-package-language-g.pkg
+# 
+#  -- see it for a higher-level overview.
+#  It calls us to do specialized typechecking
+#  of types.
+#
+
+
+
+###           "The future just ain't what it use to be
+###             -- and what's more it never was."
+###
+###                             -- Lee Hays
+
+
+
+package typecheck_type
+
+: (weak)  Typecheck_Type			# Typecheck_Type	is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-type.api
+
+{
+    stipulate
+
+	package em  = error_message;		# error_message		is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package s   = symbol;			# symbol		is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+	package sp  = symbol_path;		# symbol_path		is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip  = inverse_path;		# inverse_path		is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package st  = symbol_table;		# symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+	package l   = find_in_symbol_table;	# find_in_symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/find-in-symbol-table.pkg
+	package b   = symbol_table_entry;	# symbol_table_entry	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+	package t   = types;			# types			is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package ts  = type_stuff;		# type_stuff		is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package bt  = type_types;		# type_types		is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package tcs = typecheck_stuff;		# typecheck_stuff	is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-stuff.pkg
+	package set  = type_variable_set;	# type_variable_set	is from   src/lib/compiler/frontend/typechecker/typecheck/type-variable-sets.pkg
+        package raw = raw_syntax; 
+
+	include symbol;
+        include deep_syntax;
+        include print_utilities;
+        include types;
+        include variables_and_constructors;
+
+    herein
+
+	debugging   =   typechecking_control::typecheck_type_debugging;      # eval:  set_control "typechecker::typecheck_type_debugging" "TRUE";
+	say         =   control_print::say;
+
+	fun if_debugging_say (msg: String)
+	    =
+	    if   *debugging
+                say msg;
+                say "\n";
+	    fi;
+
+	fun bug msg
+	    =
+	    error_message::impossible ("typecheck_type: " + msg);
+
+        fun unparse_type
+            (
+              msg:          String,
+              type:         types::Type,
+              symbol_table: symbol_table::Symbol_Table
+            )
+            =
+            if *debugging
+		print "\n";
+                print msg;
+                pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+                pps = pp.stream;
+
+                unparse_type::unparse_type
+                    symbol_table
+                    pps
+                    type;
+
+                pp.flush ();
+                pp.close ();
+		print "\n";
+            fi;
+
+
+
+	##### TYPES #####
+
+	my --> =  bt::(-->);
+
+	infix val  --> ;
+
+	fun typecheck_type_variable (
+                type_variable:       raw::Type_Variable,
+                error_function,
+                source_code_region:  Source_Code_Region
+            )
+	    =
+	    case type_variable
+
+	         raw::TYPE_VARIABLE  type_variable_symbol		# X
+		     =>
+		     make_type_variable_ref
+                       (
+                         ts::make_user_type_variable  type_variable_symbol,
+                         ["typecheck_type_variable  from  typecheck-type.pkg"]
+                       );
+
+	         raw::SOURCE_CODE_REGION_FOR_TYPE_VARIABLE (type_variable, source_code_region)
+		     =>
+		     typecheck_type_variable (type_variable, error_function, source_code_region);
+            esac;
+
+	fun typecheck_type_variable_list (type_variables, error_function, source_code_region)
+            =
+            type_variables
+            where 
+
+	        type_variables
+                    =
+                    map (fn type_variable =  typecheck_type_variable (type_variable, error_function, source_code_region))
+                         type_variables;
+
+		names = map (   fn { id, ref_typevar => REF (USER_TYPE_VARIABLE { name, ... } ) }
+					=>
+					name;
+
+				    _   =>   bug "typecheck_type_variable_list";
+                                end 
+                            )
+                            type_variables;
+
+		tcs::forbid_duplicates_in_list (
+                    (error_function source_code_region),
+                    "duplicate type variable name",
+                    names
+                );
+	    end;
+
+
+
+	# We get invoked from various places in
+	#     src/lib/compiler/frontend/typechecker/typecheck/typecheck-core-language.pkg
+        #
+	fun typecheck_type
+            (
+	      raw_syntax_tree:     raw::Any_Type,
+	      symbol_table:        st::Symbol_Table,
+	      error_function:      error_message::Error_Function,
+	      source_code_region:  Source_Code_Region
+	    )
+	    :
+            ( types::Type,
+              set::Type_Variable_Set
+            )
+	    =
+	    case raw_syntax_tree   
+
+		raw::TYPE_VARIABLE_TYPE type_variable
+		    => 
+		    {   type_variable
+                            =
+                            typecheck_type_variable
+                                (type_variable, error_function, source_code_region);
+
+			( TYPE_VARIABLE_REF type_variable,
+			  set::singleton type_variable
+			);
+		    };
+
+		raw::TYPE_CONSTRUCTOR_TYPE (constructor_list, types)
+		    => 
+		    {   constructor1
+			    = 
+			    if ((s::name (head constructor_list)) == "->")
+
+				bt::arrow_tycon;
+			    else
+				l::find_type_constructor_via_symbol_path_and_check_arity (
+
+				    symbol_table,
+				    sp::SYMBOL_PATH constructor_list,
+				    length types,
+				    error_function  source_code_region
+				);
+			    fi;
+
+			my (lambda_types1, lambda_variable_type1)
+			    =
+			    typecheck_type_list (types, symbol_table, error_function, source_code_region);
+
+
+			(   ts::make_constructor_type (constructor1, lambda_types1),
+			    lambda_variable_type1
+			);
+		    };
+
+		raw::RECORD_TYPE labels         #  (symbol*Any_Type) List 
+		    => 
+		    {   my (lbs1, lvt1)
+			    =
+			    typecheck_tlabel (labels, symbol_table, error_function, source_code_region);
+
+			( bt::record_type (tcs::sort_record (lbs1, error_function source_code_region)),
+			  lvt1
+			);
+		    };
+
+		raw::TUPLE_TYPE types
+		    =>
+		    {   my (lts1, lvt1)
+                            =
+                            typecheck_type_list (types, symbol_table, error_function, source_code_region);
+
+			( bt::tuple_type lts1,
+			  lvt1
+			);
+		    };
+
+		raw::SOURCE_CODE_REGION_FOR_TYPE (type, source_code_region)
+		    =>
+		    typecheck_type
+                        (type, symbol_table, error_function, source_code_region);
+            esac
+
+
+
+	also
+	fun typecheck_tlabel (labels, symbol_table, error_function, source_code_region: Source_Code_Region)
+	    =
+	    fold_right 
+	      (   fn (   ( lb2, t2),
+                         (lts2, lvt2)
+                     )
+                     =
+		     {   my (t3, lvt3)
+                             =
+                             typecheck_type (t2, symbol_table, error_function, source_code_region);
+
+			 ( (lb2, t3) ! lts2,
+			   set::union (lvt3, lvt2, error_function source_code_region)
+			 );
+		     }
+              )
+	      ([], set::empty)
+              labels
+
+	also
+	fun typecheck_type_list (ts, symbol_table, error_function, source_code_region: Source_Code_Region)
+	    =
+	    fold_right 
+	      (   fn (t2, (lts2, lvt2))
+                     =
+		     {   my (t3, lvt3)
+                             =
+                             typecheck_type (t2, symbol_table, error_function, source_code_region);
+
+                         ( t3 ! lts2,
+                           set::union (lvt3, lvt2, error_function source_code_region)
+                         );
+		     }
+              )
+	      ([], set::empty)
+              ts;
+
+
+	# *** ENUM_CONSTRUCTOR DECLARATIONS ***
+
+	exception ISREC;
+
+	fun typecheck_named_constructor (
+                (type_constructor, args, name, def, source_code_region, is_lazy),
+                symbol_table,
+                inverse_path: ip::Inverse_Path,
+                error_function
+            )
+	    =
+	    {   rhs = ts::make_constructor_type   (type_constructor,   map TYPE_VARIABLE_REF args);
+
+
+                unparse_type ("typecheck_named_constructor processing: ", rhs, symbol_table );
+
+
+		fun checkrec (_, NULL)
+                        =>
+                        ();
+
+		    checkrec (_, THE type)
+			=> 
+		        findname type
+                        where
+			    fun findname (raw::TYPE_VARIABLE_TYPE _)
+                                    =>
+                                    ();
+
+				findname (raw::TYPE_CONSTRUCTOR_TYPE ([co], ts))
+				    => 
+				    if   (symbol::eq (co, name))
+				         
+					 (raise exception ISREC); 
+				    else
+					 apply findname ts;
+				    fi;
+
+				findname (raw::TYPE_CONSTRUCTOR_TYPE (_, ts))      => apply findname ts;
+				findname (raw::RECORD_TYPE  lbs)                   => apply   (fn (_, t) =  findname t)   lbs;
+				findname (raw::TUPLE_TYPE  ts)                     => apply findname ts;
+
+				findname (raw::SOURCE_CODE_REGION_FOR_TYPE (t, _)) => findname t;
+			    end;
+			end;
+                 end;
+
+		 fun typecheck_constr (name,  THE type)
+			 =>
+			 {   my (t, type_variable)
+				 =
+				 typecheck_type (type, symbol_table, error_function, source_code_region);
+
+			     ( (name, FALSE, (t --> rhs)),
+			       type_variable
+			     );
+			 };
+
+		     typecheck_constr (name, NULL)
+			 =>
+			 ( (name, TRUE, rhs),
+			   set::empty
+			 );
+                 end;
+
+		 arity   =   length args;
+
+		 is_recursive
+                     =
+                     {   apply checkrec def;
+                         FALSE;
+                     }
+                     except
+                         ISREC = TRUE;
+
+		 my (dcl, type_variables)
+                     = 
+		     fold_right
+		        (   fn (d, (dcl1, type_variables1))
+                               =
+			       {   my  (dc2, type_variable2)
+                                       =
+                                       typecheck_constr d;
+
+                                   ( dc2 ! dcl1,
+                                     set::union (type_variable2, type_variables1, error_function source_code_region)
+                                   );
+			       }
+                        )
+		        ([], set::empty)
+                        def;
+
+                 tcs::check_bound_type_variables (type_variables, args, error_function source_code_region);
+                 ts::resolve_type_variables_to_typescheme_slots args;
+
+		 sdcl   =   tcs::sort3 dcl;
+
+		 my (reps, signature)
+                     =
+                     datatype_constructor_representation::infer is_recursive sdcl;
+
+		 fun bind_dcons ((symbol, const, constructor_type), representation)
+                     =
+		     {
+                         ts::drop_macro_expanded_indirections_from_type constructor_type;
+
+			 constructor_type
+                             = 
+			     if (arity > 0)
+			         
+                                  TYPE_SCHEME_TYPE {
+
+                                      type_scheme_arg_eq_properties
+					  =>
+					  ts::make_polymorphic_api arity,
+
+				      type_scheme
+					  =>
+					  TYPE_SCHEME
+					    { arity,
+					      body  => constructor_type
+					    }
+                                  };
+			     else
+                                  constructor_type;
+                             fi;
+
+                         ENUM_CONSTRUCTOR {
+
+                             constructor_type,
+                             is_lazy,
+                             symbol,
+                             const,
+
+                             representation,
+			     signature
+                         };
+		     };
+
+		 fun bind_dconslist
+                         ( (r1 as (name, _, _))  !  l1,
+                            r2                   !  l2
+                         )
+			 =>
+			 {   dcon   =   bind_dcons (r1, r2);
+
+			     my (dcl, e2)
+				 =
+				 bind_dconslist (l1, l2);
+
+			     (   dcon ! dcl,
+				 st::bind (
+				     name,
+				     b::NAMED_CONSTRUCTOR dcon,
+				     e2
+				 )
+			     );
+			 };
+
+		     bind_dconslist ([],[]) =>   ([], st::empty);
+		     bind_dconslist _       =>   bug "typecheckDB::bindDconslist";
+                 end;
+
+
+                 if (length sdcl < length dcl)    #  Duplicate constructor names 
+
+		      fun member (x: String,   []) =>   FALSE;
+			  member (x,        y ! r) =>   (x == y)   or   member (x, r);
+                      end;
+
+		       fun dups (  [], l)
+                               =>
+                               l;
+
+			   dups (x ! r, l)
+			       =>
+			       if   (member (x, r)   and   not (member (x, l)))
+			            dups (r, x ! l);
+			       else dups (r,     l);
+                               fi;
+                       end;
+
+		       fun add_commas []          =>   [];
+			   add_commas (y as [_])  =>   y;
+			   add_commas (s ! r)      =>   s ! ", " ! add_commas (r);
+                       end;
+
+		       duplicates
+			   =
+			   dups (map (fn (n, _, _) => s::name n; end ) dcl,[]);
+
+
+		       error_function
+			   source_code_region
+			   em::ERROR
+			   (   cat [
+				   "enum ",
+				   s::name name,
+				   " has duplicate constructor name (s): ",
+				   cat (add_commas (duplicates))
+			       ]
+			   )
+			   em::null_error_body;
+
+                 fi;
+
+		 bind_dconslist (sdcl, reps);
+	     };
+
+
+	# *** TYPE DECLARATIONS ***
+
+	fun typecheck_named_types (
+		named_types:     List( raw::Named_Type ),
+		notwith: Bool,
+		symbol_table0,
+                inverse_path,
+		source_code_region,
+		{ make_stamp, error_fn, ... }: tcs::Compile_Info
+	    )
+	    :
+            ( List( t::Type_Constructor ),
+              List( s::Symbol ),
+              st::Symbol_Table
+            )
+	    =
+	    {   fun typecheck_named_type (
+                        tb: raw::Named_Type,
+                        symbol_table,
+                        source_code_region
+                    )
+                    : (t::Type_Constructor, Symbol)
+		    =
+		    case tb
+
+		         raw::NAMED_TYPE   { type_constructor => name,   definition,   type_variables }
+			     =>
+			     {   type_variables
+                                     =
+                                     typecheck_type_variable_list
+                                         (type_variables, error_fn, source_code_region);
+
+				 my (type, type_variable)
+				     =
+				     typecheck_type
+                                         (definition, symbol_table, error_fn, source_code_region);
+
+				 arity   =   length type_variables;
+
+				 tcs::check_bound_type_variables (type_variable, type_variables, error_fn source_code_region);
+				 ts::resolve_type_variables_to_typescheme_slots type_variables;
+				 ts::drop_macro_expanded_indirections_from_type type;
+
+				 type_constructor
+				     = 
+				     DEFINED_TYPE_CONSTRUCTOR
+                                       {
+					 stamp  => make_stamp(),
+					 path   => inverse_path::extend (inverse_path, name),
+					 strict => tcs::calculate_strictness (arity, type),
+
+					 type_scheme => TYPE_SCHEME { arity, body=>type }
+				       };
+
+				 (type_constructor, name);
+			     };
+
+		        raw::SOURCE_CODE_REGION_FOR_NAMED_TYPE (tb', source_code_region')
+			    =>
+			    typecheck_named_type (tb', symbol_table, source_code_region');
+                    esac;
+
+                loop (named_types, NIL, NIL, st::empty)
+                where
+		    fun loop (NIL, tycons, names, symbol_table)
+			    =>
+			    ( reverse tycons,
+			      reverse names,
+			      symbol_table
+			    );
+
+			loop (named_type ! rest, tycons, names, symbol_table)
+			    =>
+			    {  symbol_table'
+				    =
+				    if   notwith      symbol_table0;
+						   else   st::atop (symbol_table, symbol_table0);fi;
+
+				my (type_constructor, name)
+				    =
+				    typecheck_named_type (named_type, symbol_table', source_code_region);
+
+				loop (
+				    rest,
+				    type_constructor ! tycons,
+				    name ! names,
+				    st::bind (name, b::NAMED_TYPE type_constructor, symbol_table)
+				);
+			    };
+		    end;
+		end;
+	    };
+
+	fun typecheck_type_declaration (
+                named_types: List( raw::Named_Type ),
+                symbol_table,
+                inverse_path,
+                source_code_region,
+		compile_info as { error_fn, make_stamp, ... }: tcs::Compile_Info
+            )
+	    : (deep_syntax::Declaration, st::Symbol_Table)
+	    =
+	    {   if_debugging_say ">>typecheck_type_declaration";
+
+		my (tycs, names, symbol_table')
+                    =
+		    typecheck_named_types (
+                        named_types,
+                        TRUE,
+                        symbol_table,
+                        inverse_path,
+                        source_code_region,
+                        compile_info
+                    );
+
+                if_debugging_say "--typecheck_type_declaration: typecheck_named_types done";
+	    
+                tcs::forbid_duplicates_in_list   (error_fn source_code_region,   "duplicate type definition",   names);
+
+		if_debugging_say "<<typecheck_type_declaration";
+
+		(TYPE_DECLARATIONS tycs,   symbol_table');
+	    };
+
+	fun typecheck_datatype_declaration (
+
+                { datatype_constructors, with_type_constructors },
+                symbol_table0,
+                api_context, 
+	        api_typechecker_dictionary,
+                is_free,
+                inverse_path,
+                source_code_region, 
+	        compile_info as { make_stamp, error_fn, ... }: tcs::Compile_Info
+            )
+	    =
+	    {   #  predefine datatypes 
+
+                if_debugging_say ">>typecheck_datatype_declaration";
+
+		fun preprocess
+                        source_code_region
+                        (   raw::NAMED_ENUM {
+                                type_constructor => name,
+                                right_hand_side   => raw::ENUM_CONSTRUCTORS definition,
+                                type_variables,
+                                is_lazy
+                            }
+                        )
+			=> 
+			{   type_variables
+				=
+				typecheck_type_variable_list
+				    (type_variables, error_fn, source_code_region);
+
+			    strict_name
+				=
+				if   is_lazy      s::make_type_symbol (s::name name + "!");
+					       else   name;                                 fi;
+
+			    type_constructor
+				=
+				PRIMITIVE_TYPE_CONSTRUCTOR {
+
+				    path  => ip::extend (inverse_path, strict_name),
+				    arity => length type_variables,
+				    stamp => make_stamp(),
+				    eq    => REF DATA,
+				    kind  => TEMP,
+				    stub  => NULL
+				};
+
+			    binddef
+				=
+				if is_lazy
+
+				     DEFINED_TYPE_CONSTRUCTOR {
+
+					 stamp  => make_stamp(),
+
+					 path   => ip::extend (inverse_path, name),
+
+					 strict => map   (fn _ = TRUE)   type_variables,
+
+					 type_scheme => TYPE_SCHEME {
+							    arity => length type_variables,
+							    body  => CONSTRUCTOR_TYPE (
+									bt::susp_tycon,
+									[   CONSTRUCTOR_TYPE (
+										type_constructor,
+										map TYPE_VARIABLE_REF type_variables
+									    )
+									]
+								    )
+							}
+				     };
+
+				else
+				     type_constructor;
+				fi;
+
+			    THE {
+				type_variables,
+				name,
+				definition,
+
+				binddef,
+				is_lazy,
+
+				source_code_region,
+				type_constructor,
+				strict_name
+			    };
+			};
+
+		    preprocess source_code_region (   raw::NAMED_ENUM {   type_constructor => name,
+                                                                             right_hand_side   => raw::REPLICAS _,
+                                                                             ...
+                                                                         }
+                                                )
+			=> 
+			{   error_fn
+				source_code_region
+				em::ERROR
+				("enum replication mixed with regular datatypes:" + s::name name)
+				em::null_error_body;
+
+			    NULL;
+			};
+
+		    preprocess _ (raw::SOURCE_CODE_REGION_FOR_NAMED_DATATYPE (db', source_code_region'))
+			=>
+			preprocess source_code_region' db';
+                end;
+
+		dbs = list::map_maybe_null_fn
+                          (preprocess source_code_region)
+                          datatype_constructors;
+
+                if_debugging_say "--typecheck_datatype_declaration: preprocessing done";
+
+		env_dtycs         #  symbol_table containing preliminary datatype_constructors 
+                    =
+		    fold_left
+                        (fn ( { name, binddef, ... }, symbol_table)
+                            =
+			    st::bind (name, b::NAMED_TYPE binddef, symbol_table)
+                        )
+			st::empty
+                        dbs;
+
+                if_debugging_say "--typecheck_datatype_declaration: envDTycs defined";
+
+
+
+		#  Typecheck associated with_type_constructors: 
+
+		my (with_type_constructors, withtyc_names, env_wtycs)
+                    = 
+		    typecheck_named_types (
+                        with_type_constructors,
+                        FALSE,
+                        st::atop (env_dtycs, symbol_table0),
+			inverse_path,
+                        source_code_region,
+                        compile_info
+                    );
+
+                if_debugging_say "--typecheck_datatype_declaration: with_type_constructors elaborated";
+
+
+
+		#  Check for duplicate type_constructor names: 
+
+                tcs::forbid_duplicates_in_list (
+                    error_fn source_code_region,
+		    "duplicate type names in type declaration",
+	            map .name dbs @ withtyc_names
+                    );
+
+                if_debugging_say "--typecheck_datatype_declaration: uniqueness checked";
+
+
+
+		#  Add lazy auxiliary with_type_constructors if any: 
+
+		with_type_constructors
+                    =
+                    map .binddef
+                       (list::filter .is_lazy dbs) @ with_type_constructors;
+
+
+
+		# symbol_table containing only new
+                # datatype_constructors and with_type_constructors:
+
+		env_tycs   =   st::atop (env_wtycs, env_dtycs);
+
+
+
+		# symbol_table for evaluating the
+                # Constructor types:
+
+		full_symbol_table   =   st::atop (env_tycs, symbol_table0);
+
+                if_debugging_say "--typecheck_datatype_declaration: envTycs, fullSymbolTable defined";
+
+		prelim_dtycs   =   map .type_constructor dbs;
+
+
+
+		# The following functions pull out all the flexible components
+		# inside the domains of the datatypes, and put them into the
+		# free_type_constructors field in the DATATYPE kind; this way, future 
+		# re-instantiations of the datatypes only need to modify the
+		# free_type_constructors list, rather than all the domains (ZHONG)
+
+
+		free_tycs_ref
+                    =
+                    REF  ([]:  List( Type_Constructor ),   0);
+
+		fun reg_free type_constructor
+                    = 
+                    h (ss, n)
+                    where
+		        my (ss, n)
+                            =
+                            *free_tycs_ref;
+
+			fun h (x ! rest, i)
+				=> 
+				if   (ts::type_constructors_are_equal (type_constructor, x))
+				    
+				     FREE_TYPE (i - 1);
+				else
+				     h (rest, i - 1);
+				fi;
+
+			    h ([], _)
+				=> 
+				{   (free_tycs_ref := (type_constructor ! ss, n+1));
+
+				    FREE_TYPE n;
+				};
+                        end;
+		    end;
+
+		fun translate_type_constructor (type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR { kind => TEMP, ... } )
+			=>
+			g (type_constructor, 0, prelim_dtycs)
+                        where
+			    fun g (type_constructor, i, x ! rest)
+				    =>
+				    if   (ts::type_constructors_are_equal (type_constructor, x))
+				        
+					 RECURSIVE_TYPE i;
+				    else
+					 g (type_constructor, i+1, rest);
+				    fi;
+
+			        g (type_constructor, _, NIL)
+                                    =>
+                                    type_constructor;
+                            end;
+			end;
+
+		   translate_type_constructor (type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR _)
+			=> 
+			if (is_free type_constructor   )   reg_free type_constructor;
+			else                               type_constructor;      fi;
+
+		   translate_type_constructor (type_constructor as (DEFINED_TYPE_CONSTRUCTOR _ | TYPE_CONSTRUCTOR_BY_MODULE_PATH _))
+			=> 
+			if   (is_free type_constructor   )   reg_free type_constructor;
+			else                                 type_constructor;      fi;
+
+		   translate_type_constructor type_constructor
+			=>
+			type_constructor;
+                end;
+
+
+		fun translate_type type
+                    = 
+		    case (ts::head_reduce_type  type)
+
+		        CONSTRUCTOR_TYPE (type_constructor, args)
+			    =>
+			    CONSTRUCTOR_TYPE (translate_type_constructor type_constructor, map translate_type args);
+
+		        TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties, type_scheme => TYPE_SCHEME { arity, body } }
+			    =>
+			    TYPE_SCHEME_TYPE {
+				type_scheme_arg_eq_properties,
+				type_scheme => TYPE_SCHEME {
+						   arity,
+						   body  => translate_type body
+					       }
+			    };
+
+		        type => type;
+                    esac;
+
+
+
+		#  Typecheck the definition of a enum: 
+		#
+		fun typecheck_right_hand_side (
+                        {   type_variables,
+                            name,
+                            definition,
+                            source_code_region,
+                            type_constructor,
+                            is_lazy,
+                            binddef,
+                            strict_name
+                        },
+			(i, done)
+                    )
+                    = 
+		    {   my (datacons, _)
+                            = 
+			    typecheck_named_constructor (
+                                (   type_constructor,
+                                    type_variables,
+                                    name,
+                                    definition,
+                                    source_code_region,
+                                    is_lazy
+                                ),
+                                full_symbol_table,
+                                inverse_path,
+                                error_fn
+                            );
+
+			fun make_dcon_desc (ENUM_CONSTRUCTOR { symbol, const, representation, signature, constructor_type, is_lazy } )
+                            = 
+			    {   name           =>  symbol,
+                                representation,
+			        domain         =>  if   (const)
+						       
+							NULL;
+						   else
+							case (translate_type  constructor_type)
+
+							     CONSTRUCTOR_TYPE (_, [dom, _])
+								 =>
+								 THE dom;
+
+							     TYPE_SCHEME_TYPE
+                                                                 {
+								   type_scheme => TYPE_SCHEME {
+								   body          => CONSTRUCTOR_TYPE (_, [dom, _]), ... },
+								   ...
+							         }
+							         =>
+							         THE dom;
+
+							   _ => bug "typecheck_right_hand_side";
+						       esac;
+						   fi
+                            };
+
+                        (   i+1,
+			    {   index       =>  i,
+
+				is_lazy,
+			        name,
+				type_constructor,
+				strict_name,
+
+				dcon_names  =>  map   (fn ENUM_CONSTRUCTOR { symbol, ... } = symbol)   datacons,
+				dcons       =>  datacons,
+				dcon_descs  =>  map  make_dcon_desc  datacons
+
+                            } ! done
+                        );
+		    };
+
+		my (_, dbs')
+                    =
+                    fold_left
+                         typecheck_right_hand_side
+                         (0, NIL)
+                         dbs;
+
+		dbs'   =   reverse dbs';
+
+                if_debugging_say "--typecheck_datatype_declaration: RHS elaborated";
+
+		fun make_member
+			{
+			  name,
+			  dcon_descs,
+			  dcon_names,
+			  index,
+			  is_lazy,
+			  strict_name,
+			  dcons            => ENUM_CONSTRUCTOR { signature, ... } ! _,
+			  type_constructor => PRIMITIVE_TYPE_CONSTRUCTOR { stamp, arity, eq, ... }
+			}
+			=>
+			#  Extract common signature from first Constructor 
+
+			( stamp,
+			  { constructor_list => dcon_descs,
+			     arity,
+			     eq,
+			     is_lazy,
+			     type_constructor_name => strict_name,
+			     an_api        => signature
+			  }
+			);
+
+		    make_member _   =>   bug "makeMember";
+                end;
+
+		my (mstamps, members)
+                    =
+                    paired_lists::unzip (map make_member dbs');
+
+		nstamps
+                    =
+                    vector::from_list  mstamps;
+
+		nfamily
+                    =
+                    { members       => vector::from_list members,
+		      property_list => property_list::make_property_list (),
+		      mkey          => make_stamp()
+                    };
+
+		nfreetycs
+                    = 
+		    {   my (x, n)
+                            =
+                            *free_tycs_ref;  
+
+                        if (length x != n)   #  Sanity check 
+			    bug "unexpected nfreetycs in typecheck_datatype_declaration";
+                        fi;
+
+                        reverse x; 
+		    };
+
+                if_debugging_say "--typecheck_datatype_declaration: members defined";
+
+		fun fix_dtyc {
+                        name,
+                        index,
+		        type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR { path, arity, stamp, eq, kind, stub },
+			dcon_names,
+                        dcons,
+                        dcon_descs,
+                        is_lazy,
+                        strict_name
+                    }
+                    =>
+		    {   old  => type_constructor,
+		        name => strict_name,
+		        new  => PRIMITIVE_TYPE_CONSTRUCTOR {
+			           stub  => NULL,
+                                   path,
+                                   arity,
+                                   stamp,
+                                   eq,
+				   kind  => DATATYPE {
+                                               index,
+					       stamps   => nstamps,
+					       family   => nfamily,
+					       free_type_constructors => nfreetycs,
+					       root     => NULL
+                                           }
+                               }
+                    };
+
+		   fix_dtyc _ => bug "fixDtyc"; end;
+
+		dtycmap
+                    =
+                    map fix_dtyc dbs';     # Map preliminary to final datatype_constructors 
+
+                if_debugging_say "--typecheck_datatype_declaration: fixDtycs done";
+
+		final_dtycs   =   map .new dtycmap;
+
+                if_debugging_say "--typecheck_datatype_declaration: finalDtycs defined";
+
+                eq_types::define_eq_props (final_dtycs, api_context, api_typechecker_dictionary);
+
+                if_debugging_say "--typecheck_datatype_declaration: defineEqProps done";
+
+		fun apply_map m
+                    =
+                    f
+                    where
+		        fun same_type_identifier
+				( PRIMITIVE_TYPE_CONSTRUCTOR g1,
+				  PRIMITIVE_TYPE_CONSTRUCTOR g2
+				)
+				=>
+				stamp::eq
+                                  ( g1.stamp,
+				    g2.stamp
+				  );
+
+			    same_type_identifier
+                                ( type_constructor1 as DEFINED_TYPE_CONSTRUCTOR _,
+                                  type_constructor2 as DEFINED_TYPE_CONSTRUCTOR _
+                                )
+				=>
+				ts::type_constructor_equality (type_constructor1, type_constructor2);  
+
+			    same_type_identifier _
+                                =>
+                                FALSE;
+                        end;
+
+			fun f (CONSTRUCTOR_TYPE (type_constructor, args))
+				=>
+				{   fun get ( { old, new, name } ! rest)
+					    => 
+					    if (same_type_identifier (old, type_constructor))
+						 new;
+					    else
+						 get rest;
+					    fi;
+
+					get NIL
+					    =>
+					    type_constructor;
+				    end;
+
+
+				    CONSTRUCTOR_TYPE
+                                      ( get m,
+					map  (apply_map m)  args
+				      );
+				};
+
+			    f (   TYPE_SCHEME_TYPE {
+                                      type_scheme_arg_eq_properties,
+                                      type_scheme => TYPE_SCHEME { arity, body }
+                                  }
+                              )
+				=>
+				TYPE_SCHEME_TYPE {
+				    type_scheme_arg_eq_properties,
+
+				    type_scheme => TYPE_SCHEME { arity,
+								 body  => f body
+							       }
+				};
+
+			    f t   =>   t;
+                        end;
+		    end;
+
+		fun aug_tycmap
+			( type_constructor as
+			      DEFINED_TYPE_CONSTRUCTOR {
+				  stamp,
+				  strict,
+				  path,
+				  type_scheme => TYPE_SCHEME { arity, body }
+			      },
+			  tycmap
+			)
+			=>
+			{   old  => type_constructor,
+
+			    name => ip::last path,
+
+			    new  => DEFINED_TYPE_CONSTRUCTOR {
+
+				       strict,
+				       stamp,
+				       path,
+
+				       type_scheme => TYPE_SCHEME {
+							  arity,
+							  body  => apply_map tycmap body
+						      }
+				   }
+			}
+			! tycmap;
+
+		    aug_tycmap _
+			=>
+			bug "aug_tycmap";
+                end;
+
+		# Use fold_left to process the
+                # with_type_constructors in their
+                # original order:
+                # 
+		alltycmap
+                    =
+                    fold_left
+                        aug_tycmap
+                        dtycmap
+                        with_type_constructors;
+
+                if_debugging_say "--typecheck_datatype_declaration: alltycmap defined";
+
+		fun header (_,     0, z)  =>  z;
+		    header (a ! r, n, z)  =>  header (r, n - 1, a ! z);
+		    header (  [],  _, _)  =>  bug "header2 in typecheck_datatype_declaration";
+                end;
+
+		final_withtycs
+                    =
+                    map .new (header (alltycmap, length with_type_constructors, []));
+
+                if_debugging_say "--typecheck_datatype_declaration: finalWithtycs defined";
+
+		fun fix_dcon (ENUM_CONSTRUCTOR { symbol, const, representation, signature, constructor_type, is_lazy } )
+                    = 
+		    ENUM_CONSTRUCTOR {
+
+			constructor_type =>   apply_map  alltycmap  constructor_type,
+
+                        symbol,
+                        const,
+                        representation,
+                        signature,
+                        is_lazy
+                    };
+
+		final_dcons
+                    =
+                    list::cat (map (map fix_dcon) (map .dcons dbs'));
+
+                if_debugging_say "--typecheck_datatype_declaration: finalDcons defined";
+
+		env_dcons
+                    =
+                    fold_left
+                        (fn (d as ENUM_CONSTRUCTOR { symbol, ... },   e)
+                            =
+			    st::bind   (symbol,   b::NAMED_CONSTRUCTOR d,   e)
+                        )
+		        st::empty 
+		        final_dcons;
+
+		final_symbol_table
+                    =
+                    fold_right
+                        (fn ( { old, name, new },   e)
+                            =
+			    st::bind   (name,   b::NAMED_TYPE new,   e)
+                        ) 
+			env_dcons
+                        alltycmap;
+
+                if_debugging_say "--typecheck_datatype_declaration: envDcons, finalSymbolTable defined";
+
+		tcs::forbid_duplicates_in_list
+		  ( error_fn source_code_region,
+                    "duplicate Constructor names in enum declaration",
+		    list::cat (map .dcon_names dbs')
+                  );
+
+		if_debugging_say "<<typecheck_datatype_declaration";
+
+		(final_dtycs, final_withtycs, final_dcons, final_symbol_table);
+
+	    };			# fun typecheck_datatype_declaration 
+
+    end;			# stipulate
+};				# package typecheck_type 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

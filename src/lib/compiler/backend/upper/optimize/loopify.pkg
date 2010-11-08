@@ -1,0 +1,511 @@
+## loopify.pkg
+## monnier@cs.yale.edu 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This is one of the A-Normal Form optimization passes --
+# for context see the comments in
+#
+#     src/lib/compiler/backend/upper/anormal/anormal.api
+#
+
+
+
+#    "Look for functions that call themselves, wrap them
+#     up in a pre-header, eliminate arguments that stay
+#     constant through the loop, and check whether all the
+#     recursive calls are in tail position, in which case
+#     the loop is marked as being a 'while' loop.  The
+#     corresponding optimization in the old optimizer
+#     was done in 'expand'."
+#
+#     [...]
+#
+#    "'loopify' was moved out of
+#     'optimize_mutually_recursive_functions' because it
+#     does not need to be run as often, but it requires two
+#     passes (a first pass that collects information and
+#     a second that does the code transformation) whereas
+#     'optimize_mutually_recursive_functions' is implemented
+#     in a single pass."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+# See also:
+#
+#     Loop Headers in \-calculus or FPS
+#     Andrew W Appel
+#     1994, 6p
+#     http://citeseer.ist.psu.edu/appel94loop.html
+#         One reference for src/lib/compiler/backend/upper/fps-optimize/do-fn-inlining-g.pkg
+
+
+
+###                  "There is no monument dedicated
+###                   to the memory of a committee."
+###
+###                          -- Lester J. Pourciau
+
+
+
+api Loopify {
+
+     loopify:  anormal::Program -> anormal::Program;
+};
+
+
+package loopify: Loopify {			# Loopify		is from   src/lib/compiler/backend/upper/optimize/loopify.pkg
+
+    stipulate
+
+	package f= anormal;			# anormal		is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+	package o= null_or;			# null_or		is from   src/lib/std/src/null-or.pkg
+	package m= int_red_black_map;		# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+	package s= int_red_black_set;		# int_red_black_set	is from   src/lib/src/int-red-black-set.pkg
+	package ou= opt_utils;			# opt_utils		is from   src/lib/compiler/backend/upper/optimize/optutils.pkg
+	package lk= highcode_guts;		# highcode_guts		is from   src/lib/compiler/backend/upper/highcode/highcode-guts.pkg
+	package ctrl= highcode_control;		# highcode_control	is from   src/lib/compiler/backend/upper/main/highcode-control.pkg
+
+    herein
+
+	say = control_print::say;
+	fun bug msg = error_message::impossible ("Loopify: " + msg);
+	cplv = highcode_var::copy_highcode_variable;
+
+	Al = List( List( f::Value ) );
+
+	Info = INFO  { tails:  Ref( Al ),
+		       calls:  Ref( Al ),
+		       icalls: Ref( Al ),
+		       tcp:    Ref( Bool ),
+		       parent: f::Highcode_Variable
+		     };
+
+	exception NOT_FOUND;
+
+	fun loopify (program as (progkind, progname, progargs, progbody)) = {
+
+	    my m:  int_hash_table::Hash_Table( Info ) = int_hash_table::make_table (128, NOT_FOUND);
+
+	    # tails: number of tail-recursive calls
+	    # calls: number of other calls
+	    # icalls: non-tail self-recursive subset of `calls'
+	    # tcp: always called in tail-position
+	    # parent: enclosing function
+	    #
+	    fun new (f, known, parent)
+                =
+                info
+                where
+		    info = INFO { tails=>REF [],
+                               calls=>REF [],
+                               icalls=>REF [],
+			       tcp=>REF known,
+                               parent
+                             };
+
+		    int_hash_table::set m (f, info);
+                end;
+
+	    fun get f
+                =
+                int_hash_table::get  m  f;
+
+	# collect tries to determine what calls are tail recursive.
+	# If a function f is always called in tail position in a function g,
+	# then all tail calls to g from f are indeed tail recursive.
+
+	# tfs:  we are currently in tail position relative to those functions
+	# p:  englobing function
+
+	fun collect p tfs le
+	    =
+	    {
+		loop = collect p tfs;
+
+	        case le
+
+		      f::RET _ => ();
+
+		      f::LET(_, body, le)
+                          =>
+                          {   collect p s::empty body;
+                              loop le;
+                          };
+
+		      f::MUTUALLY_RECURSIVE_FNS([( { is_recursive=>(NULL | THE(_, f::TAIL_RECURSIVE_LOOP)), all_call_sites_known, ... }, f, _, body)], le)
+			  =>
+			  {   my INFO { tcp, calls, icalls, ... } = new (f, all_call_sites_known, p);
+			      loop le;
+			      necalls = length *calls;
+			      collect f (if *tcp  s::add (tfs, f); else s::singleton f;fi) body;
+			      icalls := list::take (*calls, length *calls - necalls);
+			  };
+
+		      f::MUTUALLY_RECURSIVE_FNS (fdecs, le)
+			  =>
+			  {   # Create the new entries in the map 
+			      #	
+			      fs = map (fn (fk as { all_call_sites_known, ... }, f, _, body)
+                                           =
+					   (fk, f, body, new (f, FALSE, p))
+                                       )
+				       fdecs;
+
+			      fun cfun ( { is_recursive, ... }:f::Function_Kind, f, body, INFO { calls, icalls, ... } )
+                                  =
+				  {   necalls = length *calls;
+				      collect f (s::singleton f) body;
+				      icalls := list::take (*calls, length *calls - necalls);
+				  };
+
+			      loop le;
+
+			      apply cfun fs;
+			  };
+
+		      f::APPLY (f::VAR f, vs)
+                          =>
+			  {   my INFO { tails, calls, tcp, parent, ... } = get f;
+
+			      if (s::member (tfs, f) )
+                                   tails := vs ! *tails;
+			      else
+                                   calls := vs ! *calls;
+				   if (not (s::member (tfs, parent)))  tcp := FALSE;   fi;
+                              fi;
+			  }
+                          except
+                              NOT_FOUND = ();
+
+		      f::TYPE_FN((_, _, _, body), le)
+                          =>
+                          {   collect p s::empty body;
+                              loop le;
+                          };
+
+		      f::TYPE_APPLY _
+                          =>
+                          ();
+
+		      f::SWITCH (v, ac, arms, def)
+                          =>
+		          {   fun carm (_, body)
+                                  =
+                                  loop body;
+
+			      apply carm arms;
+
+                              case def
+                                  THE le =>  loop le;
+                                  _      =>  ();
+                              esac;
+		          };
+
+		      ( f::CONSTRUCTOR(_, _, _, _, le)
+                      | f::RECORD     (_, _, _,    le)
+		      |	f::SELECT     (_, _, _,    le)
+                      | f::PRIMOP     (_, _, _,    le)
+                      )
+                          =>
+                          loop le;
+
+		      f::RAISE _ => ();
+		      f::EXCEPT (le, v) => collect p s::empty le;
+		      f::BRANCH(_, _, le1, le2) => { loop le1; loop le2;};
+
+		      f::APPLY _ => bug "weird f::APPLY in collect";
+                esac;
+	    };
+
+	# (intended as a `fold_right' argument).
+	# `filt' is the bool list indicating if the arg is kept
+	# `func' is the list of arguments for the MUTUALLY_RECURSIVE_FNS
+	# `call' is the list of arguments for the APPLY
+	# `free' is the list of resulting free variables
+	#
+	fun drop_invariant ((v, t), actuals, (filt, func, call, free))
+            =
+	    if (*ctrl::dropinvariant and list::all (fn a => f::VAR v == a; end ) actuals )
+		#  Drop the argument: the free list is unchanged 
+		(FALSE ! filt, func, call, (v, t) ! free);
+	    else
+		# Keep the argument:
+                # Create a new var (used in the call)
+		# which will replace the old
+                # in the free vars:
+		#
+		nv = cplv v;
+		(TRUE ! filt, (v, t) ! func, (f::VAR nv) ! call, (nv, t) ! free);
+            fi;
+
+	# m:  intmap( Int )	renaming for function calls
+	# tf: List( Int, Int )	the current functions (if any) and their tail version
+	# le:			you get the idea
+	#
+	fun lambda_expression m tfs le
+	    =
+	    {
+		loop = lambda_expression m tfs;
+
+		case le
+
+		     f::RET _
+                         =>
+                         le;
+
+		     f::LET (lvs, body, le)
+                         =>
+                         f::LET (lvs, lambda_expression m [] body, loop le);
+
+		     f::MUTUALLY_RECURSIVE_FNS (fdecs, le)
+                         =>
+			 f::MUTUALLY_RECURSIVE_FNS (map cfun fdecs, loop le)
+                         where
+
+			     fun cfun
+                                 ( fk: f::Function_Kind as { is_recursive=>THE (ltys, f::OTHER_LOOP), calling_convention, ... },
+				   f,
+                                   args,
+                                   body
+                                 )
+                                 =>
+				 {   my INFO { tcp=>REF tcp, icalls=>REF icalls, tails=>REF tails, ... }
+                                         =
+					 get f;
+
+				     tfs = (if tcp  tfs; else [];fi);
+
+				     # fps_optional_optimizations uses the following condition:
+				     # escape = 0 and *unroll_call > 0
+				     #  	    and (*call - *unroll_call > 1 
+				     #  		     or list::exists (fn t=t) inv)
+				     # `escape = 0': I don't quite see the need for it, though it
+				     #    probably won't change much since split_known_escaping_functions should have
+				     #    made "everything" known already.
+				     # `!call - *unroll_call > 1 or list::exists (fn t=t) inv)':
+				     #    loopification is only useful if there is more than one
+				     #    external call or if there are loop invariants.
+				     #    Note that we deal with invariants elsewhere, so it's
+				     #    not a good reason to loopify here.
+
+				     # *** rationale behind the restrictions: ***
+				     # `icallnb = 0': loopification is pointless and will be
+				     #     undone by fcontract.
+				     # `c::callnb fi <= icallnb + 1': if there's only one external
+				     #     call, loopification will probably (?) not be of much use
+				     #     and the same benefit would be had by just moving f.
+				     #
+				     if (null icalls and null tails)
+
+					  (fk, f, args, lambda_expression m tfs body);
+				     else
+					  calling_convention'
+					       =
+					       case calling_convention
+
+						   ( f::CALLING_CONVENTION_GENERIC
+						   | f::CALLING_CONVENTION_FUNCTION (lk::FNFLAG_FIXED)
+						   )
+							=>
+							calling_convention;
+
+						    f::CALLING_CONVENTION_FUNCTION (lk::FNFLAG_VARIABLE (f1, f2)) =>
+						    f::CALLING_CONVENTION_FUNCTION (lk::FNFLAG_VARIABLE (TRUE, f2));
+					       esac;
+
+					  # Figure out which arguments of the tail loop
+					  # are invariants and create the corresponding
+					  # function args, call args, filter
+					  # function for the actual calls, ...
+					  #
+					  my (tfs', atfun, atcall, args, ft)
+					      =
+					      if (null tails )
+
+						  (tfs,[],[], args, f);
+					      else
+						  ft = cplv f;
+						  actuals = ou::transpose tails;
+						  my (fcall, afun, acall, afree) =
+						      paired_lists::fold_right drop_invariant
+								     ([],[],[],[])
+								     (args, actuals);
+						  ( (f, ft, fcall) ! tfs,
+						    afun, acall, afree, ft);
+					      fi;
+
+					  # Do the same for the non-tail loop.  
+					  #
+					  my (nm, alfun, alcall, args, fl)
+					      =
+					      if (null icalls )
+
+						  (m,[],[], args, f);
+
+					      else
+
+						  fl = cplv f;
+
+						  actuals = ou::transpose icalls;
+
+						  my (fcall, afun, acall, afree)
+						      =
+						      paired_lists::fold_right drop_invariant
+								     ([],[],[],[])
+								     (args, actuals);
+
+						  (m::set (m, f, (fl, fcall)),
+						    afun, acall, afree, fl);
+					      fi;
+
+					  # Make the new body:
+					  #
+					  nbody = lambda_expression nm tfs' body;
+
+					  # Wrap into a tail loop if necessary:
+					  #
+					  nbody
+					      =
+					      if (null tails)
+
+						  nbody;
+					      else
+						  f::MUTUALLY_RECURSIVE_FNS([( { is_recursive=>THE (ltys, f::TAIL_RECURSIVE_LOOP),
+							   all_call_sites_known=>TRUE, inlining_hint=>f::INLINE_IF_SIZE_SAFE,
+							   calling_convention=>calling_convention'}, ft, atfun,
+							  nbody)],
+
+						  f::APPLY (f::VAR ft, atcall));
+					      fi;
+
+					  # Wrap into a non-tail
+					  # loop if necessary.
+					  #
+					  nbody
+					      =
+					      if (null icalls)
+
+						  nbody;
+
+					      else
+						  f::MUTUALLY_RECURSIVE_FNS([( { is_recursive=>THE (ltys, f::PREHEADER_WRAPPED_LOOP),
+							   all_call_sites_known=>TRUE, inlining_hint=>f::INLINE_IF_SIZE_SAFE,
+							   calling_convention=>calling_convention'}, fl, alfun,
+							  nbody)],
+
+						  f::APPLY (f::VAR fl, alcall));
+					      fi;
+
+					  (fk, f, args, nbody);
+				     fi;
+				 };
+
+				 cfun (fk as { inlining_hint=>f::INLINE_ONCE_WITHIN_ITSELF, is_recursive=>THE _, ... }, f, args, body)
+                                     =>
+				     {   my INFO { tcp=>REF tcp, ... } = get f;
+				         (fk, f, args, lambda_expression m (if tcp  tfs; else [];fi) body);
+				     };
+
+				 cfun (fk, f, args, body)
+                                     =>
+				     {   my INFO { tcp=>REF tcp, ... } = get f;
+				         (fk, f, args, lambda_expression m (if tcp  tfs; else [];fi) body);
+				     };
+			      end;			# fun cfun
+			 end;
+
+		     f::APPLY (f::VAR f, vs)
+			 =>
+			 case (list::find (fn (ft, ft', filt) => ft == f; end ) tfs)
+
+			      THE (ft, ft', filt)
+                                  =>
+                                  f::APPLY (f::VAR ft', ou::filter filt vs);
+
+			      NULL
+                                  => 
+				  case (m::get (m, f) )
+
+				       THE (fl, filt)
+					   =>
+					   f::APPLY (f::VAR fl, ou::filter filt vs);
+
+				       NULL => le;
+				  esac;
+
+			 esac;
+
+		     f::TYPE_FN((tfk, f, args, body), le)
+                         =>
+                         f::TYPE_FN((tfk, f, args, loop body), loop le);
+
+		     f::TYPE_APPLY (f, tycs)
+                         =>
+                         le;
+
+		     f::SWITCH (v, ac, arms, def)
+                         =>
+		         f::SWITCH (v, ac, map carm arms, o::map loop def)
+                         where
+		             fun carm (con, le)
+                                 =
+                                 (con, loop le);
+		         end;
+
+		     f::CONSTRUCTOR (dc, tycs, v, lv, le) =>  f::CONSTRUCTOR (dc, tycs, v, lv, loop le);
+		     f::RECORD (rk, vs, lv, le)           =>  f::RECORD (rk, vs, lv, loop le);
+		     f::SELECT (v, i, lv, le)             =>  f::SELECT (v, i, lv, loop le);
+
+		     f::RAISE (v, ltys) => le;
+
+		     f::EXCEPT (le, v)            => f::EXCEPT (lambda_expression m [] le, v);
+		     f::BRANCH (po, vs, le1, le2) => f::BRANCH (po, vs, loop le1, loop le2);
+		     f::PRIMOP (po, vs, lv, le)   => f::PRIMOP (po, vs, lv, loop le);
+
+		     f::APPLY _ => bug "unexpected APPLY";
+                esac;
+	    };					# fun lambda_expression
+
+
+	    collect progname s::empty progbody;
+
+	    ( progkind,
+              progname,
+              progargs,
+              lambda_expression m::empty [] progbody
+            );
+	};
+
+    end;
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## copyright 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,470 @@
+## bt-engine.pkg
+
+# Compiled by:
+#     src/lib/src/lib7.make6
+
+# A regular expressions matcher based on a backtracking search.
+
+
+###              "Technology has advanced more
+###               in the last thirty years than
+###               in the previous two thousand.
+###               The exponential increase in
+###               advancement will only continue."
+###
+###                      -- Niels Bohr
+
+
+
+package backtrack_engine: (weak)  Regular_Expression_Engine {		# Regular_Expression_Engine	is from   src/lib/regex/back-end/regular-expression-engine.api
+
+    exception ERROR;
+
+    package r = abstract_regular_expression;				# abstract_regular_expression	is from   src/lib/regex/front-end/abstract-regular-expression.pkg
+    package s = r;
+    package m = regex_match_result;					# regex_match_result		is from   src/lib/regex/glue/regex-match-result.pkg
+
+    Regex = s::Syntax;
+
+    fun compile r = r;
+
+    fun scan (regexp, getc, pos, stream)
+        =
+	{   fun getc' s
+		=
+		case (getc s)
+		  
+		     THE v =>  v;
+		     NULL  =>  raise exception SUBSCRIPT;
+		esac;
+
+	    # This function gets an empty match structure,
+            # for when the appropriate alternative is not
+            # followed at all:
+	    #
+	    fun get_match_structure (s::GROUP e)            =>  [m::MATCH (NULL, get_match_structure e)];
+		get_match_structure (s::ALT l)              =>  list::cat (map get_match_structure l);
+		get_match_structure (s::CONCAT l)           =>  list::cat (map get_match_structure l);
+
+		get_match_structure (s::INTERVAL (e, _, _)) =>  get_match_structure e;
+		get_match_structure (s::OPTION e)           =>  get_match_structure e;
+		get_match_structure (s::STAR e)             =>  get_match_structure e;
+		get_match_structure (s::PLUS e)             =>  get_match_structure e;
+
+		get_match_structure (_)                     =>  [];
+	    end;
+
+
+	    # Walk a regular expression in fate-passing style
+	    # The fate is simply a list of all this is left to do
+	    # Fates only seem to arise when concatenation are considered
+	    # 
+	    # Walk returns the boolean status of the beast, and a match_tree
+	    # containing the match information.
+	    # Also: the last position scanned and the remainder stream
+	    # MODIFICATION: walk returns a list of matches
+	    # (because we need to extract the longest match)
+	    #
+	    fun max []       sel
+                    =>
+                    raise exception ERROR;
+
+		max (x . xs) sel
+		    => 
+		    {   fun max' [] curr curr_sel => curr;
+
+			    max' (x . xs) curr curr_sel
+				=>
+				{   x_sel = sel x;
+				    if (x_sel > curr_sel   )   max' xs x x_sel;
+							  else   max' xs curr curr_sel;   fi;
+				};
+			end;
+
+			max' xs x (sel x);
+		    };
+	    end;
+
+
+	    fun longest l
+		=
+		max l (#3: (X, Y, Int, Z) -> Int);
+
+	    fun opt_minus1 (THE i) =>  THE (i - 1);
+		opt_minus1 NULL    =>  NULL;
+	    end;
+
+	    fun walk (s::GROUP e, fate, p, inits)
+		    => 
+		    case (walk (e,[], p, inits) )
+		      
+			 [] => [(FALSE,[], p, inits)];
+
+			 ((b, matches, last, s) . ls)
+			     => 
+			     {   fun loop [] c_last 1 c_cont c_list
+					 =>
+					 {   my [(b,  matches,  last,  s )] =  c_list;
+					     my [(b', matches', last', s')] =  c_cont;
+
+					     [(b', (m::MATCH (THE { pos=>inits, len=>last-p }, 
+							     matches)) . matches', last', s')];
+					 };
+
+				     loop [] c_last n c_cont c_list
+					 =>
+					 raise exception ERROR;
+
+				     loop ((b, matches, last, s) . es) c_len c_num c_cont c_list
+					 =>
+					 {  my v as (_, _, last', _)
+						=
+						longest (walk (s::CONCAT [], fate, last, s));
+
+					     if   (last' > c_len)
+					         
+						  loop es last' 1 [v] [(b, matches, last, s)];
+					     else
+						  if   (last' == c_len)
+						      
+						       loop es c_len (c_num+1) (v . c_cont) 
+								((b, matches, last, s) . c_list);
+						  else
+						       loop es c_len c_num c_cont c_list;
+						  fi;
+					      fi;
+					 };
+				 end;
+
+				 loop ls last 1 [longest (walk (s::CONCAT [], fate, last, s))] 
+				      [(b, matches, last, s)];
+			     };
+		    esac;
+
+		walk (s::ALT [],[], p, inits) =>  [(TRUE,[], p, inits)];
+		walk (s::ALT [], (c . cs), p, inits) =>  walk (c, cs, p, inits);
+		walk (s::ALT l, fate, p, inits)
+		     => 
+		     loop l
+		     where
+			 fun loop [] => [];
+
+			     loop (e . es)
+				 =>
+				 {   g = longest (walk (e, fate, p, inits));
+
+				     if   (#1 g)
+				          g . (loop es);
+				     else     (loop es);       fi;
+				 };
+			 end;
+		     end;
+
+		walk (s::CONCAT [],[], p, inits) =>  [(TRUE,[], p, inits)];
+		walk (s::CONCAT [], (c . cs), p, inits) =>  walk (c, cs, p, inits);
+		walk (s::CONCAT (e . es), fate, p, inits) =>  walk (e, (es@fate), p, inits);
+		walk (s::INTERVAL (e, 0, THE 0),[], p, inits) =>  [(TRUE,[], p, inits)];
+		walk (s::INTERVAL (e, 0, THE 0), (c . cs), p, inits) =>  walk (c, cs, p, inits);
+		walk (s::INTERVAL (e, 0, k), fate, p, inits)
+		     => 
+		     {   my (b', matches', last', s') = longest (walk (s::CONCAT [],          fate, p, inits));
+			 my (b,  matches,  last,  s ) = longest (walk (s::INTERVAL (e, 1, k), fate, p, inits));
+
+			 if   ((b and b' and last >= last') or (b and not b'))
+			     
+			      [(b, matches, last, s)];
+			 else
+			      if ((b' and b and last' > last) or (b' and not b))
+			          
+				   [(b', (get_match_structure e)@matches', last', s')];
+			      else
+				   [(FALSE,[], p, inits)];
+			      fi;
+			 fi;
+		     };
+
+		walk (s::INTERVAL (e, 1, THE 1), fate, p, inits) => walk (e, fate, p, inits);
+		walk (s::INTERVAL (e, 1, k), fate, p, inits)
+		    => 
+		    {   my (b', matches', last', s') = longest (walk (e,[], p, inits));  #  need to match 1 
+
+			if   (not b')
+			    
+			     [(FALSE, [], p, inits)];
+			else
+			     my (b,   matches,   last,   s  ) = longest (walk (s::INTERVAL (e, 1, opt_minus1 k), fate, last', s'));
+			     my (b'', matches'', last'', s'') = longest (walk (s::CONCAT [],                     fate, last', s'));
+
+			     if   (b and b'' and last'' >= last)
+			         
+				  [(b'', matches'@matches'', last'', s'')];
+			     else
+				  if b   [(b, matches, last, s)];
+				  else   [(b'', matches'@matches'', last'', s'')];	fi;
+			     fi;
+
+			fi;
+		    };
+
+		walk (s::INTERVAL (e, n1, k), fate, p, inits)
+		    =>
+		    walk (s::CONCAT [e, s::INTERVAL (e, n1 - 1, opt_minus1 k)], fate, p, inits);
+
+		walk (s::OPTION e, fate, p, inits)
+		    =>
+		    walk (s::INTERVAL (e, 0, THE 1), fate, p, inits);
+
+		walk (s::STAR e, fate, p, inits)
+		    =>
+		    walk (s::INTERVAL (e, 0, NULL), fate, p, inits);
+
+		walk (s::PLUS e, fate, p, inits)
+		    =>
+		    walk (s::INTERVAL (e, 1, NULL), fate, p, inits);
+
+		walk (s::MATCH_SET set,[], p, inits)
+		    =>
+		    if   (s::char_set::is_empty set)
+		        
+			 [(TRUE,[], p, inits)];
+		    else 
+			 case (getc inits)
+			   
+			      THE (chr, s)
+				  => 
+				  {   b = s::char_set::member (set, chr);
+
+				      [(b,[], p+(b ?? 1 :: 0), (b ?? s :: inits))];
+				  };
+
+			      NULL => [(FALSE,[], p, inits)];
+			 esac;
+		    fi;
+
+		walk (s::MATCH_SET set, (c . cs), p, inits)
+		    =>
+		    if   (s::char_set::is_empty set)
+		        
+			 walk (c, cs, p, inits);
+		    else
+			 case (getc inits)
+			   
+			      THE (chr, s)
+				  => 
+				  if   (s::char_set::member (set, chr))
+				      
+				       walk (c, cs, (p+1), s);
+				  else
+				       [(FALSE,[], p, inits)];
+				  fi;
+
+			      NULL => [(FALSE,[], p, inits)];
+			 esac;
+		    fi;
+
+		walk (s::NONMATCH_SET set,[], p, inits)
+		    =>
+		    case (getc inits)
+		      
+			 THE (chr, s)
+			     => 
+			     {   b = not (s::char_set::member (set, chr));
+
+				 [(b, [], p+(b ?? 1 :: 0), (b ?? s :: inits))];
+			     };
+
+			 NULL
+			     =>
+			     [(FALSE,[], p, inits)];
+		   esac;
+
+		walk (s::NONMATCH_SET set, (c . cs), p, inits)
+		    => 
+		    case (getc inits)
+		      
+			 THE (chr, s)
+			     =>
+			     if   (s::char_set::member (set, chr))
+			         
+				  [(FALSE,[], p, inits)];
+			     else
+				  walk (c, cs, (p+1), s);
+			     fi;
+
+			 NULL => [(FALSE,[], p, inits)];
+		    esac;
+
+		walk (s::CHAR ch,[], p, inits)
+		    =>
+		     case (getc inits)
+		       
+			  THE (chr, s)
+			      => 
+			      {   b = (chr == ch);
+
+				  [(b, [], p+(b ?? 1 :: 0), (b ?? s :: inits))];
+			      };
+
+			  NULL => [(FALSE,[], p, inits)];
+		     esac;
+
+		walk (s::CHAR ch, (c . cs), p, inits)
+		    =>
+		    case (getc inits)
+		      
+			 THE (chr, s)
+			     =>
+			     if   (chr == ch)
+			         
+				  walk (c, cs, (p+1), s) ;
+			     else
+				  [(FALSE,[], p, inits)];
+			     fi;
+
+			 NULL => [(FALSE,[], p, inits)];
+		    esac;
+
+		walk (s::BEGIN,[], p, inits)
+                    =>
+                    [(p==0,[], p, inits)];
+
+		walk (s::BEGIN, (c . cs), p, inits)
+		    =>
+		    if   (p==0)
+		        
+			 walk (c, cs, p, inits);
+		    else
+			 [(FALSE,[], p, inits)];
+		    fi;
+
+		walk (s::END,[], p, inits)
+		    =>
+		    [(not (null_or::not_null (getc (inits))),[], p, inits)];
+
+		walk (s::END, (c . cs), p, inits)
+		    =>
+		    if   (null_or::not_null (getc (inits)))
+		        
+			 [(FALSE,[], p, inits)];
+		    else
+			 walk (c, cs, p, inits);
+		    fi;
+
+		walk _
+		    =>
+		    raise exception ERROR;
+	    end;
+
+	    l = walk (regexp,[], pos, stream)
+		except
+		    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = [(FALSE,[], pos, stream)];
+
+	    my v as (result, matches, last, s')
+		=
+		longest l
+		except
+		    _ = (FALSE,[], pos, stream);
+
+	    if result   THE (m::MATCH (THE { pos=>stream, len=>last-pos }, matches), s');
+	    else        NULL;   fi;
+        };				# fun scan
+
+
+    fun prefix regexp getc stream
+	=
+	scan (regexp, getc, 0, stream);
+
+    fun find regexp getc stream
+	=	
+	{   fun loop (p, s)
+		=
+		case (scan (regexp, getc, p, s))
+		  
+		     NULL
+			 =>
+			 case (getc s)
+			   
+			      THE (_, s') =>  loop (p+1, s');
+			      NULL        =>  NULL;
+			 esac;
+
+		     THE v => THE v;
+		esac;
+
+	    loop (0, stream);
+	};
+
+
+    fun match [] getc stream
+	    =>
+	    NULL;
+
+	match l  getc stream
+	    =>
+	    {   m = map
+			(fn (r, f) =  (prefix r getc stream, f))
+			l;
+
+
+		#  Find the longest THE 
+
+		fun loop ([], max, len)
+			=>
+			max;
+
+		    loop ((NULL, _) . xs, max, maxlen)
+			=>
+			loop (xs, max, maxlen);
+
+		    loop ((THE (m, cs), f) . xs, max, maxlen)
+			=>
+			{   my (THE { pos, len } )
+			       =
+			       match_tree::nth (m, 0);
+
+			    if   (len > maxlen)
+			         loop (xs, (THE (m, cs), f), len);
+			    else loop (xs, max, maxlen);  fi;
+			};
+		end;
+
+		my (max, f)
+		    =
+		    loop (tail m, head m, -1);
+
+		case max 
+		  
+		     NULL => NULL;
+		     THE (m, cs) => THE (f m, cs);
+		esac;
+	    };
+    end;
+
+};
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

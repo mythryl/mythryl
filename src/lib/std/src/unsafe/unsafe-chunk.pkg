@@ -1,0 +1,343 @@
+## unsafe-chunk.pkg
+
+# Compiled by:
+#     src/lib/std/src/stdlib-core.make6
+
+
+package unsafe_chunk: Unsafe_Chunk {		# Unsafe_Chunk	is from   src/lib/std/src/unsafe/unsafe-chunk.api
+
+    Chunk
+        =
+        core::assembly::Chunk;		# core	is from   src/lib/core/init/core.pkg
+
+    # Information about the memory representation of an chunk.
+    # NOTE: some of these are not supported yet, but will be once the new
+    # rw_vector representation is available.
+
+    Representation
+	= UNBOXED
+	| WORD32
+	| REAL
+	| PAIR
+	| RECORD
+	| REF
+	| POLY_VECTOR
+	| POLY_ARRAY	#  includes REF 
+	| BYTE_VECTOR	#  includes    unt8_vector::Vector and char_vector::Vector 
+	| BYTE_ARRAY	#  includes rw_unt8_vector::Rw_Vector and rw_char_vector::Rw_Vector 
+#       | float_vector	use POLY_VECTOR for now 
+	| FLOAT_ARRAY
+	| SUSP
+	| WEAK_PTR;
+
+    my to_chunk:  X -> Chunk = inline_t::cast;
+
+    stipulate
+	my record1:  Chunk -> Chunk
+	    =
+            c_interface::c_function "Lib7-Runtime" "record1";
+
+	my r_meld:  ((Chunk, Chunk)) -> Chunk
+	    =
+            c_interface::c_function "Lib7-Runtime" "recordMeld";
+    herein
+	fun make_tuple [] => to_chunk();
+	    make_tuple [a] => record1 a;
+	    make_tuple [a, b] => to_chunk (a, b);
+	    make_tuple [a, b, c] => to_chunk (a, b, c);
+	    make_tuple [a, b, c, d] => to_chunk (a, b, c, d);
+	    make_tuple (a ! b ! c ! d ! r) => r_meld (to_chunk (a, b, c, d), make_tuple r);
+        end;
+
+    end; #  with
+
+    boxed   =  inline_t::boxed;
+    unboxed =  inline_t::unboxed;
+
+    fun rep chunk
+        =
+        if   (unboxed chunk)
+	     UNBOXED;
+	else
+               case (inline_t::gettag chunk)
+                 
+
+		   0x02 /* tag_record */
+                       =>
+		       if   (inline_t::chunklength chunk == 2)
+		            PAIR;
+		       else RECORD;fi;
+
+		   0x06 /* tag_vec_hdr */
+                       =>
+                       case (inline_t::chunklength chunk)
+                         
+			   0 => POLY_VECTOR;
+			   1 => BYTE_VECTOR;
+			   _ => raise exception FAIL "unknown vec_hdr";
+                       esac;
+
+
+		   0x0a /* tag_tag_arr_hdr */
+                       =>
+		       case (inline_t::chunklength chunk)
+                         
+			   0 => POLY_ARRAY;
+			   1 => BYTE_ARRAY;
+			   6 => FLOAT_ARRAY;
+			   _ => raise exception FAIL "unknown arr_hdr";
+		       esac;
+
+		   0x0e /* tag_arr_data/tag_ref */
+		       =>
+		       if (inline_t::chunklength chunk == 1 )
+			   REF;
+		       else
+			   raise exception FAIL "Unknown arr_data";
+		       fi;
+
+		   0x12 /* tag_raw32 */ => WORD32;
+
+		   0x16 /* tag_raw64 */ => REAL;
+
+		   0x1a /* tag_special */
+		       =>
+		       case (inline_t::getspecial chunk)
+                         
+			   (0 | 1) => SUSP;
+			   (2 | 3) => WEAK_PTR;
+			   _       => raise exception FAIL "unknown special";
+		       esac;
+
+		   _ /* tagless pair */ => PAIR;
+               esac;
+        fi;
+
+    exception REPRESENTATION;
+
+    fun length chunk
+        =
+        case (rep chunk)
+          
+	     PAIR    =>  2;
+	     UNBOXED =>  raise exception REPRESENTATION;
+	      _      =>  inline_t::chunklength  chunk;
+        esac;
+
+
+    fun nth (chunk, n)
+        =
+        case (rep chunk)
+          
+
+	    PAIR =>
+		 if (0 <= n  and  n < 2)
+		     inline_t::record_get (chunk, n);
+		 else
+                     raise exception REPRESENTATION;
+                 fi;
+
+	    RECORD
+                =>
+                {   len = inline_t::chunklength chunk;
+		
+		    if (0 <= n  and  n < len)
+		         inline_t::record_get (chunk, n);
+		    else raise exception REPRESENTATION;fi;
+		};
+
+	    REAL =>
+                 {   len = inline_t::int31::rshift (inline_t::chunklength chunk, 1);
+		
+		     if (n < 0  or  len <= n)
+
+			 raise exception REPRESENTATION;
+		     else
+                         if (n == 0)
+			     chunk;	#  flat singleton tuple 
+			 else
+                             inline_t::cast (inline_t::raw64get (chunk, n));
+                         fi;
+                     fi;
+		 };
+
+	    _ => raise exception REPRESENTATION;
+        esac;
+
+
+    fun to_tuple chunk
+        =
+        case (rep chunk)
+          
+
+	    UNBOXED => if( ((inline_t::cast chunk) : Int) == 0 )
+	                   [];
+	               else
+                           raise exception REPRESENTATION;
+                       fi;
+
+	    PAIR => [
+		 inline_t::record_get (chunk, 0),
+		 inline_t::record_get (chunk, 1)
+	       ];
+
+	    RECORD => {
+	         fun f i = inline_t::record_get (chunk, i);
+
+		 list::tabulate (inline_t::chunklength chunk, f);
+	       };
+
+	    REAL => {
+		 len = inline_t::int31::rshift (inline_t::chunklength chunk, 1);
+
+		 fun f i = (inline_t::cast (inline_t::raw64get (chunk, i)) : Chunk);
+
+		 if   (len == 1   )
+		     [chunk];
+		 else 
+                     list::tabulate (len, f);
+                 fi;
+	       };
+	    _ => raise exception REPRESENTATION;
+        esac;
+
+    fun to_string chunk
+        =
+        case (rep chunk)   
+	    BYTE_VECTOR => ((inline_t::cast chunk) : String);
+	     _         => raise exception REPRESENTATION;
+        esac;
+
+    fun to_ref chunk
+        =
+	  if  (rep chunk == REF )
+	      ((inline_t::cast chunk) : Ref( Chunk ));
+	  else
+              raise exception REPRESENTATION;
+          fi;
+
+    fun to_array chunk
+        =
+        case (rep chunk)
+          
+	    POLY_ARRAY => ((inline_t::cast chunk) : Rw_Vector( Chunk ));
+	     _         => raise exception REPRESENTATION;
+        esac;
+
+    fun to_real_array chunk
+        =
+        case (rep chunk)
+          
+	     FLOAT_ARRAY => ((inline_t::cast chunk) : rw_float64_vector::Rw_Vector);
+	      _          => raise exception REPRESENTATION;
+        esac;
+
+    fun to_byte_array chunk
+        =
+        case (rep chunk)
+          
+	     BYTE_ARRAY =>  ((inline_t::cast chunk) : rw_unt8_vector::Rw_Vector);
+	     _          =>  raise exception REPRESENTATION;
+        esac;
+
+    fun to_vector chunk
+        =
+        case (rep chunk)
+          
+	     POLY_VECTOR =>  ((inline_t::cast chunk) : Vector( Chunk ));
+	     _           =>  raise exception REPRESENTATION;
+        esac;
+
+    fun to_byte_vector chunk
+        =
+        case (rep chunk)
+          
+	     BYTE_VECTOR =>  ((inline_t::cast chunk) : unt8_vector::Vector);
+	     _           =>  raise exception REPRESENTATION;
+        esac;
+
+    fun to_exn chunk
+        =
+	if   (rep chunk == RECORD   and   inline_t::chunklength chunk == 3)
+	     ((inline_t::cast chunk) : Exception);
+	else raise exception REPRESENTATION;  fi;
+
+    fun to_float chunk
+        =
+        case (rep chunk)
+          
+	     REAL =>  ((inline_t::cast chunk) : Float);
+	     _    =>  raise exception REPRESENTATION;
+        esac;
+
+    fun to_int chunk
+        =
+        if  (unboxed chunk)
+            
+	    ((inline_t::cast chunk) : Int);
+	else
+            raise exception REPRESENTATION;
+        fi;
+
+    fun to_int32 chunk
+        =
+	if   (rep chunk == WORD32)
+	    
+            ((inline_t::cast chunk) : int32::Int);
+	else
+            raise exception REPRESENTATION;
+        fi;
+
+    fun to_word  chunk
+        =
+        if   (unboxed chunk)
+	    
+             ((inline_t::cast chunk) : Unt);
+	else
+             raise exception REPRESENTATION;
+        fi;
+
+    fun to_word8 chunk
+        =
+        if   (unboxed chunk)
+	    
+             ((inline_t::cast chunk) : unt8::Unt);
+	else
+             raise exception REPRESENTATION;
+        fi;
+
+    fun to_word32 chunk
+        =
+	if   (rep chunk == WORD32)
+	    
+             ((inline_t::cast chunk) : unt32::Unt);
+	else
+             raise exception REPRESENTATION;
+        fi;
+
+};
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

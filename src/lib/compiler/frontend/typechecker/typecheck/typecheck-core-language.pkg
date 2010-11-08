@@ -1,0 +1,4701 @@
+## typecheck-core-language.pkg 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+
+# The epicenter of the typechecker is
+#
+#     src/lib/compiler/frontend/typechecker/typecheck/typecheck-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+# It calls us to typecheck core-language syntax,
+# which is to say, bread-and-butter function and
+# declaration code devoid of module-level stuff
+# like packages, apis and generics.
+
+
+
+
+api Typecheck_Core_Language {
+
+     typecheck_abstract_type_declaration:  ({   abstract_type_constructors: List( raw_syntax::Named_Datatype ),
+					       with_type_constructors:     List( raw_syntax::Named_Type ),
+					       body:                       raw_syntax::Declaration
+					   },
+					  symbol_table::Symbol_Table,
+					  typecheck_stuff::Syntactic_Typechecking_Context,
+					  (types::Type_Constructor -> Bool),
+					  inverse_path::Inverse_Path,
+					  source_map::Source_Code_Region,
+					  typecheck_stuff::Compile_Info)
+
+					-> (deep_syntax::Declaration,
+					    symbol_table::Symbol_Table);
+
+				      #  * module::Typechecker_Dictionary ??? 
+
+     typecheck_declaration:  ( raw_syntax::Declaration,
+                               symbol_table::Symbol_Table,
+                               (types::Type_Constructor -> Bool),
+	                       inverse_path::Inverse_Path,
+                               source_map::Source_Code_Region,
+                               typecheck_stuff::Compile_Info
+                             )
+	                     ->
+                             ( deep_syntax::Declaration,
+                               symbol_table::Symbol_Table
+                             );
+
+     debugging:  Ref(  Bool );
+
+}; #  Api Typecheck_Core_Language 
+
+
+package typecheck_core_language
+
+: (weak) Typecheck_Core_Language			# Typecheck_Core_Language	is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-core-language.pkg
+
+{
+    stipulate
+
+	package em= error_message;			# error_message			is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package sp= symbol_path;			# symbol_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip= inverse_path;			# inverse_path			is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package st= symbol_table;			# symbol_table			is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+	package lu= find_in_symbol_table;		# find_in_symbol_table		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/find-in-symbol-table.pkg
+	package v= variables_and_constructors;		# variables_and_constructors	is from   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/variables-and-constructors.pkg
+	package b= symbol_table_entry;			# symbol_table_entry		is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+	package m= module;				# module			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module.pkg
+	package mu= module_stuff;			# module_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/modules/module-stuff.pkg
+	package t= types;				# types				is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package ts  = type_stuff;			# type_stuff			is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package bt  = type_types;			# type_types			is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package ed  = typechecker_dictionary;		# typechecker_dictionary	is from   src/lib/compiler/frontend/typecheck-stuff/modules/typechecker-dictionary.pkg
+	package tcs = typecheck_stuff;			# typecheck_stuff		is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-stuff.pkg
+	package td  = typechecking_debugging;		# typechecking_debugging	is from   src/lib/compiler/frontend/typechecker/typecheck/typechecking-debugging.pkg
+	package tvs = type_variable_set;		# type_variable_set		is from   src/lib/compiler/frontend/typechecker/typecheck/type-variable-sets.pkg
+	package tt= typecheck_type;			# typecheck_type		is from   src/lib/compiler/frontend/typechecker/typecheck/typecheck-type.pkg
+	package s= symbol;				# symbol			is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+	package a= var_home;				# var_home			is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+	package table= symbol_hash_table;		# symbol_hash_table		is from   src/lib/compiler/frontend/basics/miscutil/symbol-hashtable.pkg
+	package raw = raw_syntax; 			# raw_syntax			is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+
+	include deep_syntax;				# deep_syntax			is from   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/deep-syntax.pkg
+        include type_types;
+        include var_home;
+        include typecheck_stuff;
+        include types;
+        include variables_and_constructors;		# variables_and_constructors	is from   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/variables-and-constructors.pkg
+
+							# rewrite_raw_syntax_expression	is from   src/lib/compiler/frontend/typechecker/typecheck/rewrite-raw-syntax-expression.pkg
+        rewrite_raw_syntax_expression
+            =
+            rewrite_raw_syntax_expression::rewrite_raw_syntax_expression;
+
+    herein
+
+	fun c_markexp (e, r)   =   if *typechecking_control::mark_deep_syntax_tree    SOURCE_CODE_REGION_FOR_EXPRESSION  (e, r);   else e;fi;
+	fun c_markdec (d, r)   =   if *typechecking_control::mark_deep_syntax_tree    SOURCE_CODE_REGION_FOR_DECLARATION (d, r);   else d;fi;
+
+	say = control_print::say;
+	debugging = REF FALSE;
+
+	fun if_debugging_say (msg: String)
+            =
+            if   *debugging      { say msg; say "\n";};
+                              else   ();fi;
+
+	fun bug msg
+            =
+            error_message::impossible("typecheck_core_language: " + msg);
+
+	debug_print   =   fn x =  td::debug_print debugging x;
+
+	fun show_declaration (msg, declaration, symbol_table)
+            =
+	#   td::with_internals (fn () => 
+	    debug_print
+                (
+                  msg,
+		  (fn pps
+                      =
+                      fn declaration
+                          =
+			  unparse_deep_syntax::unparse_declaration (symbol_table, NULL) pps (declaration, 100)
+                  ),
+		  declaration
+                );
+        #  ) 
+
+	infix val  --> ;
+
+	# Type_Variable_Set management:
+        #
+	Type_Variable_Set_Update
+            =
+            tvs::Type_Variable_Set -> Void;
+
+	my ---- = tvs::diff_pure;
+
+	union = tvs::union;
+	diff  = tvs::diff;
+
+	fun no_update (_ : tvs::Type_Variable_Set)
+            =
+            ();
+
+	fun no_typevars (declaration, symbol_table)
+            =
+            (declaration, symbol_table, tvs::empty, no_update);
+
+	infix val  +++ --- ---- ;
+
+	fun strip_exp_abs (SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)      )   =>   strip_exp_abs e;
+	    strip_exp_abs (TYPE_CONSTRAINT_EXPRESSION (e, _))   =>   strip_exp_abs e;
+	    strip_exp_abs e                      =>   e;
+        end;
+
+	fun strip_exp_raw_syntax_tree (raw::SOURCE_CODE_REGION_FOR_EXPRESSION (e, r'),                r) =>   strip_exp_raw_syntax_tree (e, r');
+	    strip_exp_raw_syntax_tree (raw::TYPE_CONSTRAINT_EXPRESSION { expression=>e, ... },        r) =>   strip_exp_raw_syntax_tree (e, r);
+	    strip_exp_raw_syntax_tree (raw::SEQUENCE_EXPRESSION [e],                                  r) =>   strip_exp_raw_syntax_tree (e, r);
+	    strip_exp_raw_syntax_tree (raw::PRE_FIXITY_EXPRESSION [{ item, source_code_region, ... } ], r) =>   strip_exp_raw_syntax_tree (item, source_code_region);
+	    strip_exp_raw_syntax_tree x                                                                  =>   x;
+        end;
+
+	internal_sym = special_symbols::internal_var_id;
+
+	dummy_fnexp
+            =
+	    FN_EXPRESSION (   [   CASE_RULE ( WILDCARD_PATTERN,
+                                              RAISE_EXPRESSION (CONSTRUCTOR_EXPRESSION   (v::bogus_exception, []),   UNDEFINED_TYPE)
+                                            )
+                              ],
+                              UNDEFINED_TYPE
+                          );
+
+	#  LAZY 
+	# clauseKind: used for communicating information about lazy fun decls
+	# between preprocessing phase (makeVar) and main part of typecheckSMLFUNdec
+
+	Clause_Kind = STRICT | LAZY_OUTER | LAZY_INNER;
+
+	stipulate
+
+	    fun make_core_expression name symbol_table
+                =
+                VARIABLE_IN_EXPRESSION (REF (core_access::get_variable (symbol_table, name)), []);
+	herein
+
+	    make_assignment_expression    =   make_core_expression "assign";
+	    make_dereference_expression   =   make_core_expression "deref";
+
+	end;
+
+	# This function gets invoked from exactly one place,
+	# in typecheck_declaration'() in  src/lib/compiler/frontend/typechecker/typecheck/typecheck-package-language-g.pkg
+	#
+	fun typecheck_abstract_type_declaration
+                (
+                    {    abstract_type_constructors,
+                         with_type_constructors,
+                         body
+                    },
+		    symbol_table,
+                    context,
+                    is_free,
+		    inverse_path,
+                    source_code_region,
+                    compile_info
+		)
+	    =
+	    {   my (datatype_constructors, with_type_constructors, _, symbol_table1)
+		    =
+		    tt::typecheck_datatype_declaration (
+			{    datatype_constructors => abstract_type_constructors,
+			     with_type_constructors
+			},
+			symbol_table,
+			[],
+			ed::empty,
+			is_free,
+			inverse_path,
+			source_code_region,
+			compile_info
+		    );
+
+		my (body, symbol_table2)
+		    = 
+		    typecheck_declaration (
+			body,
+			st::atop (symbol_table1, symbol_table),
+			is_free,
+			inverse_path,
+			source_code_region,
+			compile_info
+		    );
+
+		# We'' change datatype_constructors to
+		# abstract_type_constructors during type checking
+		# by changing the equality_property field:
+
+		fun bind (x, e)
+		    =
+		    st::bind ( ts::type_constructor_name   x,
+			       b::NAMED_TYPE x,
+			       e
+			     );
+
+		new_symbol_table
+		    =
+		    fold_left   bind   (fold_left bind st::empty datatype_constructors)   with_type_constructors;
+
+                (   ABSTRACT_TYPE_DECLARATION {   abstract_type_constructors => datatype_constructors,
+						  with_type_constructors,
+						  body
+					      },
+
+		    st::atop (symbol_table2, new_symbol_table)
+                );
+	    }                        #  function typecheckAbstractTypeDeclaration 
+
+
+
+	# Typecheck core-language (non-module) declarations.
+        #
+        # This function contains about 95% of the code in this file. :)
+        #
+        # The most interesting case here, which involves most of
+        # the coding, is a sequence of mutually recursive functions
+        # like
+        #
+        #     fun foo this => expression1;
+        #         foo that => expression2;
+        #     end
+        #
+        #     also
+        #     fun bar this => expression3;
+        #         bar that => expression4;
+        #     end;
+        #
+        # where (say) 'this' may in turn be something as complicated as
+        #
+        #     a as SOME_CONSTRUCTOR { key1 = value1, key2 = ANOTHER_CONSTRUCTOR (b, _, c) } 
+        #  
+        # and of course each of the 'expression's can be a block
+        # full of if-then-else-fi statements and loops and so forth.
+        #  
+        # Processing any set of mutually recursive entities
+        # is normally a two-phase process, with a first phase
+        # which locates all the entities and a second phase
+        # which processes them, and this is no exception:
+        #
+        # We process such a declaration in two phases,
+        # analysis followed by synthesis:
+        #
+        #     Analysis Phase:
+        #               Do sanity checks that all definitions of a
+        #               given function use the same name for it
+        #               (say, "foo") and have the same number of
+        #               arguments and so forth.
+        #
+        #               In this phase we also boil down the raw
+        #               syntax tree somewhat, allocate symbols
+        #               as function names, and set up symbol
+        #               table entries for functions.  (These are
+        #               mostly place-holders at this point since
+        #               we have not yet constructed the actual
+        #               corresponding symbol table values.)
+        #
+        #     Synthesis Phase:
+        #               Do the actual translation from raw syntax
+        #               to deep syntax.
+        #
+        #               Complete the symbol table definitions
+        #               set up in Analysis Phase.
+        #
+	# This function gets invoked from exactly one place,
+	# in typecheck_declaration'() in  src/lib/compiler/frontend/typechecker/typecheck/typecheck-package-language-g.pkg
+	#
+	also
+	fun typecheck_declaration ( declaration,
+				    symbol_table,
+				    is_free,
+				    inverse_path,
+				    source_code_region,
+				    compile_info as {  make_highcode_variable,
+						       error_fn,
+						       error_match,
+						       ...
+						   }
+            )
+            =
+	    {
+                if_debugging_say ">>typecheck_core_language::typecheck_declaration";
+
+		complete_match = tcs::complete_match (symbol_table, "MATCH");
+
+                if_debugging_say "--typecheck_core_language::typecheck_declaration << completeBind Match";
+
+		complete_bind = tcs::complete_match (symbol_table, "BIND");
+
+                if_debugging_say "--typecheck_core_language::typecheck_declaration << completeBind BIND";
+
+                # Create a symbol table entry for a
+                # vanilla variable.  Input is a
+                # value-space symbol::symbol, result
+                # is a variables_and_constructors::variable::ORDINARY_VARIABLE:
+
+		fun new_valvar symbol
+                    =
+                    v::make_ordinary_variable (   symbol,
+                                                  a::named_var_home (symbol, make_highcode_variable)
+                                              );
+
+
+		#  LAZY: utilities for lazy sml translation 
+
+		# Will one forcingFun do, or should new ones be generated with
+		# different bound variables for each use? (David B MacQueen)     XXX BUGGO FIXME
+
+		fun force_expression e
+                    = 
+		    {   v = new_valvar (s::make_value_symbol "x");
+
+                        APPLY_EXPRESSION (
+                            FN_EXPRESSION (
+                                complete_match [
+                                    CASE_RULE (
+                                        APPLY_PATTERN (
+                                            bt::dollar_dcon,
+                                            [],
+                                            VARIABLE_IN_PATTERN v
+                                        ),
+					VARIABLE_IN_EXPRESSION (REF v,[])
+                                    )
+                                ],
+				UNDEFINED_TYPE
+                            ),
+			    e
+                        );
+			# David B MacQueen: second arg of APPLY_PATTERN and VARIABLE_IN_EXPRESSION = NIL and 
+			# of FN_EXPRESSION = UNDEFINED_TYPE ok?  XXX BUGGO FIXME
+		    };
+
+		fun delay_expression e
+                    = 
+		    APPLY_EXPRESSION (
+                        CONSTRUCTOR_EXPRESSION (bt::dollar_dcon, []),
+                        e
+                    );
+
+		# Build declaration of n-ary Y combinator for lazy my rec 
+		#
+		fun lazy_rec_val_make_ycombinator_declaration n
+                    =
+		    {   fun upto 0 =>  [];
+			    upto n =>  n ! (upto (n - 1));
+                        end;
+
+			base   =   reverse (upto n);           #  [1, 2, ..., n] 
+
+			fun repeat f
+                            =
+                            map f base;
+
+			fun hold e
+                            =
+                            delay_expression (force_expression e);
+
+			# Capture MATCH exception from coreDict as
+                        # a random exception for use internally
+			# in the Y combinator definition:
+			#
+			exn = core_access::get_exception (symbol_table, "MATCH");		# "exn" == "exception"
+
+			#  exn = v::bogusException;	 /* See if this will work? */ 
+
+			#  Y variable and local variables ri and fi and d 
+
+			yvar            #  As ORDINARY_VARIABLE { path, type, var_home, info } 
+                            =
+			    new_valvar(  s::make_value_symbol( "Y@@@" + (int::to_string n)));
+
+			fun make_var_sym s i
+                            =
+                            new_valvar( s::make_value_symbol( s + (int::to_string i)));
+
+			rvars   =   repeat (make_var_sym "r@@@");
+			fvars   =   repeat (make_var_sym "f@@@");
+			dvar    =   new_valvar (s::make_value_symbol "d@@@");
+
+			# "REF(@@@(raise exception MATCH))" 
+			#
+			fun rdr_expression _
+                            =
+                            APPLY_EXPRESSION (CONSTRUCTOR_EXPRESSION (bt::ref_dcon,[]),
+					      delay_expression (RAISE_EXPRESSION (CONSTRUCTOR_EXPRESSION (exn,[]), UNDEFINED_TYPE)));
+
+			rpat  = tuplepat (map VARIABLE_IN_PATTERN rvars);
+			int_expression  = tupleexp (repeat rdr_expression);
+			rdec  = VALUE_DECLARATIONS (   [   NAMED_VALUE {   pattern            => rpat,
+                                                                           expression         => int_expression,
+                                                                           bound_typevar_refs => [],
+                                                                           ref_typevar_refs   => REF []
+                                                                       }
+                                                           ]
+                                                       );
+
+			#  "@@@(force *ri)" 
+
+			fun dfbr rv
+                            =
+                            hold (
+                                APPLY_EXPRESSION (
+                                    make_dereference_expression symbol_table,
+                                    VARIABLE_IN_EXPRESSION (REF rv, [])
+                                )
+                            );
+
+			ddec  = VALUE_DECLARATIONS [
+                                        NAMED_VALUE {    pattern            => VARIABLE_IN_PATTERN dvar,
+                                                         expression         => tupleexp (map dfbr rvars),
+					                 bound_typevar_refs => [],
+                                                         ref_typevar_refs   => REF []
+                                                    }
+                                    ];
+
+			fun dexp ()
+                            =
+                            VARIABLE_IN_EXPRESSION (REF dvar, []);
+
+			fun setr_expression (rv, fv)
+                            =
+			    APPLY_EXPRESSION (
+                                make_assignment_expression symbol_table,
+			        tupleexp (
+                                    [   VARIABLE_IN_EXPRESSION (REF rv, []),
+					hold (
+                                            APPLY_EXPRESSION (
+                                                VARIABLE_IN_EXPRESSION (REF fv, []),
+                                                dexp ()
+                                            )
+                                        )
+                                    ]
+                                )
+                            );
+
+			updates = paired_lists::map setr_expression (rvars, fvars);
+
+			yexp = FN_EXPRESSION (
+                                       complete_match
+                                           [   CASE_RULE (
+                                                   tuplepat (map VARIABLE_IN_PATTERN fvars),
+						   LET_EXPRESSION (
+                                                       SEQUENTIAL_DECLARATIONS [rdec, ddec],
+						       SEQUENTIAL_EXPRESSIONS (updates @ [ dexp() ] )
+                                                   )
+                                               )
+                                           ],
+					   UNDEFINED_TYPE
+                                   );
+
+
+                        (   yvar,
+
+                            VALUE_DECLARATIONS [
+
+                                NAMED_VALUE {
+
+                                    pattern            => VARIABLE_IN_PATTERN yvar,
+				    expression         => yexp,
+
+				    bound_typevar_refs => [],
+				    ref_typevar_refs   => REF []
+				}
+                            ]
+                        );
+		    };                   #  fun lazyRecValMakeYCombinatorDeclaration 
+
+
+		# *** EXCEPTION DECLARATIONS ***
+
+		fun typecheck_exception_naming (source_code_region:  Source_Code_Region) 
+                                              (symbol_table:       st::Symbol_Table)
+                                              (exception_naming:  raw::Named_Exception)
+                    =
+		    case exception_naming
+
+		         raw::NAMED_EXCEPTION { exception_symbol=>id, exception_type=>NULL }
+			     =>
+			     {   exn = ENUM_CONSTRUCTOR { symbol => id,
+							  const  => TRUE,
+							  constructor_type  => exception_type,
+							  is_lazy => FALSE,
+							  representation => EXCEPTION ( HIGHCODE_VARIABLE ( make_highcode_variable (THE id))),
+							  signature => NULLARY_CONSTRUCTOR
+							};
+
+				 (   [   NAMED_EXCEPTION {   exception_constructor  => exn,
+							       exception_type         => NULL, 
+							       name_string            => STRING_CONSTANT_IN_EXPRESSION (s::name id)
+							   }
+				     ], 
+				     st::bind (   id,
+						 b::NAMED_CONSTRUCTOR exn,
+						 st::empty
+					     ),
+				     tvs::empty
+				 );
+			     };
+
+		         raw::NAMED_EXCEPTION { exception_symbol   => id,
+                                                exception_type     => THE type
+                                              }
+			     =>
+			     {   my (type, vt)
+                                     =
+                                     tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+				 exn = 
+				     ENUM_CONSTRUCTOR { symbol  => id,
+							const  => FALSE,
+							constructor_type  => (type --> exception_type),
+							is_lazy => FALSE,
+							representation   => EXCEPTION (HIGHCODE_VARIABLE (make_highcode_variable (THE id))),
+							signature => NULLARY_CONSTRUCTOR
+						      };
+
+				 (   [  NAMED_EXCEPTION { exception_constructor  => exn,
+							    exception_type         => THE type,
+							    name_string            => STRING_CONSTANT_IN_EXPRESSION (s::name id)
+							  }
+				     ],
+				     st::bind ( id,
+					       b::NAMED_CONSTRUCTOR exn,
+					       st::empty
+					     ),
+				     vt
+				 ); 
+			     };
+
+		         raw::DUPLICATE_NAMED_EXCEPTION { exception_symbol=>id, equal_to=>qid }
+			     =>
+			     {   my equal_to as ENUM_CONSTRUCTOR { const, constructor_type, signature, ... }
+				     =
+				     lu::find_exception_via_symbol_path (symbol_table, sp::SYMBOL_PATH qid, error_fn source_code_region);
+
+				 nrep   =   EXCEPTION( HIGHCODE_VARIABLE( make_highcode_variable (THE id)));
+
+				 exn    =   ENUM_CONSTRUCTOR { symbol => id,
+							       const,
+							       constructor_type,
+							       is_lazy=>FALSE,
+							       signature,
+							       representation=>nrep
+							     };
+
+				 (   [ DUPLICATE_NAMED_EXCEPTION { exception_constructor=>exn, equal_to } ],
+				     st::bind (id, b::NAMED_CONSTRUCTOR exn, st::empty),
+				     tvs::empty
+				 );
+			     };
+
+		         raw::SOURCE_CODE_REGION_FOR_NAMED_EXCEPTION (exception_naming, source_code_region)
+			     => 
+			     typecheck_exception_naming source_code_region symbol_table exception_naming;
+                    esac;
+
+
+
+		fun typecheck_exceptiondec ( excbinds:    List( raw::Named_Exception ),
+					   symbol_table: st::Symbol_Table,
+					   source_code_region
+					 )
+                    =
+		    {   my (exception_namings, symbol_table, vt)
+                            = 
+			    fold_left
+				(fn (exc1, (exception_namings1, symbol_table1, vt1))
+				    =
+				    {   my (exception_naming2, symbol_table2, vt2)
+                                            =
+                                            typecheck_exception_naming source_code_region symbol_table exc1;
+
+					(   exception_naming2 @ exception_namings1,
+					    st::atop (symbol_table2, symbol_table1),
+					    union (vt1, vt2, error_fn source_code_region)
+					);
+				   }
+				)
+			        ([], st::empty, tvs::empty)
+                                excbinds;
+
+			fun get_name (NAMED_EXCEPTION           { exception_constructor => ENUM_CONSTRUCTOR { symbol, ... }, ... } ) => symbol;
+			    get_name (DUPLICATE_NAMED_EXCEPTION { exception_constructor => ENUM_CONSTRUCTOR { symbol, ... }, ... } ) => symbol;
+                        end;
+
+
+                        tcs::forbid_duplicates_in_list
+                            ( error_fn source_code_region,
+                              "duplicate exception declaration",
+			      map get_name exception_namings
+                            );
+
+			( EXCEPTION_DECLARATIONS (reverse exception_namings),
+                          symbol_table,
+                          vt,
+                          no_update
+                        );
+		    };
+
+
+		# *** PATTERNS ***
+
+		fun apply_pattern
+                        ( constructor as raw::SOURCE_CODE_REGION_FOR_PATTERN ( _, (l1, r1)),
+                          argument    as raw::SOURCE_CODE_REGION_FOR_PATTERN ( _, (l2, r2))
+                        )
+			=> 
+			raw::SOURCE_CODE_REGION_FOR_PATTERN
+                          (
+                            raw::APPLY_PATTERN { constructor, argument },
+
+			    ( int::min (l1, l2),
+			      int::max (r1, r2)
+			    )
+			  );
+
+		    apply_pattern (constructor, argument)
+			=>
+			raw::APPLY_PATTERN { constructor, argument };
+                end;
+
+		fun tuple_pattern
+                        ( a as raw::SOURCE_CODE_REGION_FOR_PATTERN (_, (l, _)),
+                          b as raw::SOURCE_CODE_REGION_FOR_PATTERN (_, (_, r))
+                        )
+			=>
+			raw::SOURCE_CODE_REGION_FOR_PATTERN (raw::TUPLE_PATTERN [a, b], (l, r));
+
+		    tuple_pattern (a, b)
+			=>
+			raw::TUPLE_PATTERN [a, b];
+                end;
+
+		exception FREE_OR_VARIABLES;
+
+								# resolve_operator_precedence	is from   src/lib/compiler/frontend/typechecker/typecheck/resolve-operator-precedence.pkg
+
+                # The Mythryl parser doesn't resolve infix
+                # expressions because the user-specified
+                # infix precedences &tc aren't known at that
+                # point.
+                #
+                # Instead, the parser passes them through
+                # and we resolve the package in a post-pass.
+                #
+                # Here we build the post-pass
+                # precedence resolver for patterns.
+                # (Later we build a matching one for expressions.)
+                # 
+                # 'resolve_pattern_by_fixity' gets invoked in exactly
+                # one place, the RAW::PRE_FIXITY_PATTERN
+		# case within 'typecheck_pattern', the
+                # immediately following function.               XXX BUGGO FIXME put it in a local...in...end
+		#
+		resolve_pattern_by_fixity
+                    =
+                    resolve_operator_precedence::parse
+                      { apply => apply_pattern,
+                        pair  => tuple_pattern
+                      };
+
+                # Translate a raw-syntax pattern
+                # to a deep-syntax one, typechecking,
+                # syntax-checking and sanity-checking
+                # as we go.
+                #
+                # If the statement being compiled was
+                #
+                #     fun foo a b c = expression
+                #
+                # then at this point 'pattern' will be
+                # bound to one of syntax trees a b c --
+                # which might be some complicated
+                #
+                #     c as { bar = ..., zot = ZOT(...) }
+                #
+                # syntax tree.
+                #
+                # This is mostly just a matter of grinding
+                # through all the cases -- a raw variable
+                # becomes a deep variable, a raw integer
+                # constant becomes a deep integer constant
+                # &tc &tc &tc.
+                #
+                # One nontrivial operation:
+                #    Any constructor applications (which
+                #    may be prefix or infix) are at this
+                #    point held in an undigested
+                #    RAW::PRE_FIXITY_PATTERN patterns
+		#
+		fun typecheck_pattern (
+                        pattern:             raw::Case_Pattern,
+                        symbol_table:        st::Symbol_Table,
+                        source_code_region:  Source_Code_Region
+                    ) 
+		    :
+                    ( deep_syntax::Case_Pattern,
+                      tvs::Type_Variable_Set
+                    )
+                    =
+		    {   case pattern
+                          
+			     raw::WILDCARD_PATTERN
+				 =>
+				 (WILDCARD_PATTERN, tvs::empty);
+
+			     raw::VARIABLE_IN_PATTERN path
+				 => 
+				 (   clean_pattern
+					 (error_fn source_code_region) 
+					 (tcs::do_var_pattern (sp::SYMBOL_PATH path, symbol_table, error_fn source_code_region, compile_info)),
+
+				     tvs::empty
+				 );
+
+			     raw::INT_CONSTANT_IN_PATTERN   s
+				 =>
+				 (INT_CONSTANT_IN_PATTERN  (s, ts::make_overloaded_literal_type_variable (t::INT, source_code_region, ["typecheck_pattern/INT_CONSTANT_IN_PATTERN  from  typecheck-core-language.pkg"])), tvs::empty);
+
+			     raw::UNT_CONSTANT_IN_PATTERN        s
+				 =>
+				 (UNT_CONSTANT_IN_PATTERN (s, ts::make_overloaded_literal_type_variable (t::WORD, source_code_region, ["typecheck_pattern/UNT_CONSTANT_IN_PATTERN  from  typecheck-core-language.pkg"])), tvs::empty);
+
+			     raw::STRING_CONSTANT_IN_PATTERN      s
+				 =>
+				 (STRING_CONSTANT_IN_PATTERN s,  tvs::empty);
+
+			     raw::CHAR_CONSTANT_IN_PATTERN   s
+				 =>
+				(CHAR_CONSTANT_IN_PATTERN s,    tvs::empty);
+
+			     raw::RECORD_PATTERN { definition, is_incomplete }
+				 =>
+				 {   my (lps, tyv) = typecheck_labelled_patterns source_code_region symbol_table definition;
+
+				     (   make_record_pattern (lps, is_incomplete, error_fn source_code_region),
+					 tyv
+				     );
+				 };
+
+			     raw::LIST_PATTERN NIL
+				 =>
+				 (nilpat, tvs::empty);
+
+			     raw::LIST_PATTERN (a ! rest)
+				 =>
+				 {   my (p, tyv) = typecheck_pattern (raw::TUPLE_PATTERN [a, raw::LIST_PATTERN rest], symbol_table, source_code_region);
+
+				     (conspat p, tyv);
+				 };
+
+			     raw::TUPLE_PATTERN pats
+				 =>
+				 {   my (ps, tyv) = typecheck_pattern_list (pats, symbol_table, source_code_region);
+
+				     (tuplepat ps, tyv);
+				 };
+
+			     raw::VECTOR_PATTERN pats
+				 =>
+				 {   my (ps, tyv) = typecheck_pattern_list (pats, symbol_table, source_code_region);
+
+				     (   VECTOR_PATTERN (ps, UNDEFINED_TYPE),
+					 tyv
+				     );
+				 };
+
+			     raw::APPLY_PATTERN { constructor, argument }
+				 =>
+				 {   fun typecheck_constructor (raw::SOURCE_CODE_REGION_FOR_PATTERN (pattern, source_code_region), source_code_region')
+					     =>
+					     typecheck_constructor (pattern, source_code_region);
+
+					 typecheck_constructor (raw::VARIABLE_IN_PATTERN path, source_code_region')
+					     => 
+					     {   dcb =  tcs::do_var_pattern (sp::SYMBOL_PATH path, symbol_table, error_fn source_code_region', compile_info);
+
+						 my (pattern, type_variable) = typecheck_pattern (argument, symbol_table, source_code_region);
+
+						 (   make_apply_pattern (error_fn source_code_region) (dcb, pattern),
+						     type_variable
+						 );
+					     };
+
+					 typecheck_constructor (_, source_code_region')
+					     => 
+					     {   error_fn
+						   source_code_region'
+						   em::ERROR 
+						   "non-constructor applied to argument in pattern"
+						   em::null_error_body;
+
+						 (WILDCARD_PATTERN, tvs::empty);
+					     };
+                                     end;
+
+				     typecheck_constructor (constructor, source_code_region);
+				 };
+
+			     raw::TYPE_CONSTRAINT_PATTERN { pattern, type_constraint => type }
+				 =>
+				 {   my (p1, type_variable1) = typecheck_pattern (pattern,  symbol_table,           source_code_region);
+				     my (t2, type_variable2) = tt::typecheck_type (type,  symbol_table, error_fn, source_code_region);
+
+				     (   TYPE_CONSTRAINT_PATTERN (p1, t2),
+
+					 union (type_variable1, type_variable2, error_fn source_code_region)
+				     );
+				 };
+
+			     raw::AS_PATTERN { variable_pattern, expression_pattern }
+				 =>
+				 {   my (p1, type_variable1) = typecheck_pattern (  variable_pattern, symbol_table, source_code_region);
+				     my (p2, type_variable2) = typecheck_pattern (expression_pattern, symbol_table, source_code_region);
+
+				     (   make_layered_pattern (p1, p2, error_fn source_code_region),
+
+					 union (type_variable1, type_variable2, error_fn source_code_region)
+				     );
+				 };
+
+			     raw::SOURCE_CODE_REGION_FOR_PATTERN (pattern, source_code_region)
+				 =>
+				 {   my (p, type_variable) = typecheck_pattern (pattern, symbol_table, source_code_region);
+
+				     (p, type_variable);
+				 };                      #  XXX BUGGO FIXME Why not drop the 'let' entirely here?? 
+
+			     raw::PRE_FIXITY_PATTERN patterns
+				 =>
+				 # Here is one of the few nontrivial
+				 # cases in this routine.
+				 #
+				 # Recall that Mythryl allows user-declared
+				 # precedence and fixity for functions
+				 # and constructors.
+				 #
+				 # Since those declarations haven't been
+				 # resolved yet at parse time, the Mythryl
+				 # parser passes through constructor 
+				 # patterns as undigested RAW::PRE_FIXITY_PATTERN
+				 # nodes, which must later be resolved
+				 # via resolve_operator_precedence::parse
+				 # once all precedence and fixity info is in hand.
+				 #
+				 # We're now at that 'later' point, so here
+				 # we do the full parsetree resolution, then
+				 # call ourselves recursively to process the
+				 # now fully-defined pattern parsetree:
+				 #
+				 typecheck_pattern (
+				     resolve_pattern_by_fixity (patterns, symbol_table, error_fn),
+				     symbol_table,
+				     source_code_region
+				 );
+
+			     raw::OR_PATTERN pats
+				 =>
+				 # Check that the sub-patterns of an
+				 # or-pattern have exactly the same
+				 # free variables.
+				 # 
+				 # Also, rewrite the sub-patterns so that
+				 # all instances of a given free variable
+				 # have the same type REF and the same
+				 # var_home:
+
+				 {   my (ps, tyv) = typecheck_pattern_list (pats, symbol_table, source_code_region);
+
+				     fun free_or_vars (pattern ! pats)
+					     =>
+					     {   my table:     table::Hash_Table( (Var_Home, Ref( Type ), Int) )
+						     =
+						     table::make_table (16, FREE_OR_VARIABLES);
+
+						 fun ins kv
+						     =
+						     table::set table kv;
+
+						 fun get k
+						     =
+						     table::get  table  k;
+
+						 fun error_msg x
+						     = 
+						     error_fn
+							 source_code_region
+							 em::ERROR
+							 (   "variable "
+							 +   s::name x
+							 +   " does not occur in all branches of or-pattern"
+							 )
+							 em::null_error_body;
+
+						 fun ins_fn (id, var_home, type)
+						     =
+						     {    ins (id, (var_home, type, 1));
+							  (var_home, type);
+						     };
+
+						 fun bump_fn (id, var_home0, a_type0)
+						     =
+						     {   my (var_home, type, n)
+							     =
+							     get id;
+
+							 ins (id, (var_home, type, n+1));
+
+							 (var_home, type);
+						     }
+						     except
+							 FREE_OR_VARIABLES
+							 =
+							 {   error_msg id;
+							     (var_home0, a_type0);
+							 };
+
+						 fun check_fn (id, var_home0, a_type0)
+						     = 
+						     {   my (var_home, type, _) = get id; 
+
+							 (var_home, type);
+						     }
+						     except
+							 FREE_OR_VARIABLES
+							 =
+							 {   error_msg id;
+							     (var_home0, a_type0);
+							 };
+
+						 fun do_pattern (   ins_fn:  ((s::Symbol, Var_Home, Ref( Type )) )
+									-> (Var_Home,
+									    Ref( Type ))
+							       )
+						     =
+						     {   fun do_pattern' (
+								     VARIABLE_IN_PATTERN (
+									 ORDINARY_VARIABLE { var_home, inlining_info, path, var_type }
+								     )
+								 )
+								 =>
+								 {   my (var_home, type)
+									 = 
+									 ins_fn (symbol_path::first path, var_home, var_type);
+
+								     VARIABLE_IN_PATTERN (
+									 ORDINARY_VARIABLE { var_type => type,
+											     var_home,
+											     path,
+											     inlining_info
+											   }
+								     );
+								 };
+
+							     do_pattern' (RECORD_PATTERN { fields, is_incomplete, type_ref } )
+								 =>
+								 RECORD_PATTERN {
+
+								     fields => map   (fn (l, p) = (l, do_pattern' p))   fields,
+								     is_incomplete,
+								     type_ref
+								 };
+
+							     do_pattern' (APPLY_PATTERN (dc, type, pattern))
+								 =>
+								 APPLY_PATTERN (dc, type, do_pattern' pattern);
+
+							     do_pattern' (TYPE_CONSTRAINT_PATTERN (pattern, type))
+								 =>
+								 TYPE_CONSTRAINT_PATTERN (do_pattern' pattern, type);
+
+							     do_pattern' (AS_PATTERN (p1, p2))
+								 =>
+								 AS_PATTERN (do_pattern' p1, do_pattern' p2);
+
+							     do_pattern' (OR_PATTERN (p1, p2))
+								 =>
+								 OR_PATTERN (do_pattern' p1, do_pattern check_fn p2);
+
+							     do_pattern' (VECTOR_PATTERN (pats, type))
+								 =>
+								 VECTOR_PATTERN (map do_pattern' pats, type);
+
+							     do_pattern' pattern
+								 =>
+								 pattern;
+							 end;
+
+							 do_pattern';
+						     };
+
+
+
+						 #  Check that each variable occurs in each sub-pattern: 
+
+						 fun check_complete m (id, (_, _, n: Int))
+						     =
+						     if   (n != m)
+
+							  error_msg id;
+						     fi;
+
+						 pats = (do_pattern ins_fn pattern)
+							    ! 
+							    (map (do_pattern bump_fn) pats);
+
+
+						 table::keyed_apply (check_complete (length pats)) table;
+
+						 pats;
+					     };                   #  freeOrVars 
+
+					 free_or_vars _
+                                             =>
+                                             bug "freeOrVars";
+                                     end;
+
+				     my (pattern, pats)
+					 =
+					 case (free_or_vars ps)
+					   
+					      (h ! t)   =>   (h, t);
+					      _          =>   bug "typecheck_pattern: no free or vars";
+					 esac;
+
+				     fun fold_or (p, []     )   =>   p;
+					 fold_or (p, p' ! r)   =>   OR_PATTERN (p, fold_or (p', r));
+				     end;
+
+				     (   fold_or (pattern, pats),
+					 tyv
+				     );
+				 };
+                        esac;
+                    }                   #  end of typecheck_pattern 
+
+
+                # Translate a record pattern
+                # from raw syntax to deep syntax,
+                # typechecking, syntax-checking
+                # and sanity-checking as we go.
+                #
+                # If the input source code was something like
+                #
+                #     fun foo { lab1 = pat1, lab2 = pat2 ... } = expression;
+                #
+                # then at this point our 'labelledPatterns' argument
+                # is the list of "lab=pat" clauses from inside the
+                # curly braces.
+                # 
+                # All we really have to do here is pick apart the
+                # list, apply typecheck_pattern to the patterns,
+                # and assemble the list of results -- typecheck_pattern
+                # does all the heavy lifting for us:
+
+		also
+		fun typecheck_labelled_patterns (source_code_region: Source_Code_Region) (symbol_table: st::Symbol_Table) labelled_patterns
+                    =
+		    fold_left
+			(fn ((label1, pattern1), (labelled_patterns1, type_variable_set1))
+			    =
+			    {   my (pattern2, type_variable_set2) = typecheck_pattern (pattern1, symbol_table, source_code_region);
+
+				(   (label1, pattern2) ! labelled_patterns1,
+				    union (type_variable_set2, type_variable_set1, error_fn source_code_region)
+				);
+			    }
+			)
+		        ([], tvs::empty)
+                        labelled_patterns
+
+
+
+                # Translate a list of patterns
+                # from raw syntax to deep syntax,
+                # typechecking, syntax-checking
+                # and sanity-checking as we go.
+                #
+                # If the input statement was 
+                #
+                #     fun foo a b c = expression
+                #
+                # then "patterns" will be a list of
+                # three(?) (simple!) pattern syntax trees.
+
+		also
+		fun typecheck_pattern_list (patterns, symbol_table: st::Symbol_Table, source_code_region: Source_Code_Region)
+                    =
+		    fold_right
+			(fn (p1, (lps1, lvt1))
+			    =
+			    {   my (p2, lvt2) = typecheck_pattern (p1, symbol_table, source_code_region);
+
+                                (p2 ! lps1, union (lvt2, lvt1, error_fn source_code_region));
+                            }
+                        )
+
+			([], tvs::empty)
+
+                        patterns;
+
+
+		#          INFIX EXPRESSION RESOLUTION
+		#
+                # The Mythryl parser proper does not resolve
+                # infix expressions because the user-specified
+                # infix precedences and associativities are not
+                # known at that point.
+                #
+                # Instead, the parser passes infix expressions
+                # through as unresolved symbol sequences and we
+                # recover the actual tree structure of these
+                # expressions in a post-pass.
+                #
+                # Here we build the post-pass
+                # precedence resolver for expressions.
+                # (Previously we built one for patterns.)
+                # 
+                # 'resolve_expression_by_fixity' gets invoked
+                # in exactly one place, the RAW::PRE_FIXITY_EXPRESSION
+		# case within 'typecheck_expression', the
+                # immediately following function.
+		#
+		resolve_expression_by_fixity
+                    =									# resolve_operator_precedence	is from   src/lib/compiler/frontend/typechecker/typecheck/resolve-operator-precedence.pkg
+                    resolve_operator_precedence::parse
+                      {   pair  =>   fn (a, b) = raw::TUPLE_EXPRESSION [a, b],
+
+			  apply =>   fn (function, argument)
+                                         =
+                                         raw::APPLY_EXPRESSION { function, argument }
+		      };
+
+		fun typecheck_expression ( expression:         raw::Raw_Expression,
+                                           symbol_table:       st::Symbol_Table,
+                                           source_code_region: Source_Code_Region
+                                        ) 
+		    :
+                    ( deep_syntax::Deep_Expression,
+                      tvs::Type_Variable_Set,
+                      Type_Variable_Set_Update
+                    )
+		    =
+		    case expression
+
+			 raw::VARIABLE_IN_EXPRESSION path
+			     =>
+			     ( case (lu::find_value_via_symbol_path ( symbol_table, sp::SYMBOL_PATH path, error_fn source_code_region))
+
+				    v::VARIABLE v
+					=>
+					VARIABLE_IN_EXPRESSION (REF v, []);  
+
+				    v::CONSTRUCTOR (d as ENUM_CONSTRUCTOR { is_lazy, const, ... } )
+					=>
+					if is_lazy
+							#  LAZY 
+					     if const
+
+						  delay_expression (CONSTRUCTOR_EXPRESSION (d, []));
+					     else
+						  var = new_valvar (s::make_value_symbol "x");
+
+						  FN_EXPRESSION (
+						      complete_match
+							  [ CASE_RULE (
+								VARIABLE_IN_PATTERN (var),
+								delay_expression (
+								    APPLY_EXPRESSION (
+									CONSTRUCTOR_EXPRESSION (d, []),
+									VARIABLE_IN_EXPRESSION (REF var, [])
+								    )
+								)
+							    )
+							  ],
+							  UNDEFINED_TYPE    #  David B MacQueen: ? 
+						  );
+					     fi;
+					else
+					     CONSTRUCTOR_EXPRESSION (d, []);
+					fi;
+			       esac,
+
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::IMPLICIT_THUNK_PARAMETER path
+			     =>
+			     {   # We use IMPLICIT_THUNK_PARAMETER to represent #x
+				 # variables early in parsing.  They are all supposed
+				 # to get converted to VARIABLE_IN_EXPRESSION long
+				 # before we get here, so if we see one here, it is a bug:
+				 #
+				 exception IMPOSSIBLE;
+				 raise exception     IMPOSSIBLE;   # XXX BUGGO FIXME should be using some standard exception here.
+			     };
+
+			 raw::INT_CONSTANT_IN_EXPRESSION s
+			     => 
+			     ( INT_CONSTANT_IN_EXPRESSION (s, ts::make_overloaded_literal_type_variable (t::INT, source_code_region, ["typecheck_expression/INT_CONSTANT_IN_EXPRESSION  from  typecheck-core-language.pkg"])),
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::UNT_CONSTANT_IN_EXPRESSION s
+			     => 
+			     ( UNT_CONSTANT_IN_EXPRESSION (s, ts::make_overloaded_literal_type_variable (t::WORD, source_code_region, ["typecheck_expression/UNT_CONSTANT_IN_EXPRESSION  from  typecheck-core-language.pkg"])),
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::FLOAT_CONSTANT_IN_EXPRESSION r
+			     =>
+			     ( FLOAT_CONSTANT_IN_EXPRESSION r,
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::STRING_CONSTANT_IN_EXPRESSION s
+			     =>
+			     ( STRING_CONSTANT_IN_EXPRESSION s,
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::CHAR_CONSTANT_IN_EXPRESSION s
+			     =>
+			     ( CHAR_CONSTANT_IN_EXPRESSION s,
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::RECORD_EXPRESSION cells
+			     => 
+			     {   my (les, tyv, update)
+                                     =
+                                     typecheck_record_element_expressions
+
+                                         (cells, symbol_table, source_code_region);
+
+				 ( make_record_expression (les, error_fn source_code_region),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::SEQUENCE_EXPRESSION exps
+			     =>
+			     case exps
+
+				  [e] => typecheck_expression (e, symbol_table, source_code_region);
+
+				  []  => bug "typecheck_expression (SEQUENCE_EXPRESSION[])";
+
+				  _   => {   my (es, tyv, update)
+                                                 =
+                                                 typecheck_expression_list
+						     #
+                                                     (exps, symbol_table, source_code_region);
+
+					     ( SEQUENTIAL_EXPRESSIONS es,
+					       tyv,
+					       update
+					     );
+					 };
+			     esac;
+
+
+			 raw::LIST_EXPRESSION NIL
+			     =>
+			     ( nilexp,
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::LIST_EXPRESSION (a ! rest)
+			     =>
+			     {   my (e, tyv, update)
+				     = 
+				     typecheck_expression (
+					 raw::TUPLE_EXPRESSION [ a, raw::LIST_EXPRESSION rest],
+					 symbol_table,
+					 source_code_region
+				     );
+
+				 ( APPLY_EXPRESSION (consexp, e),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::TUPLE_EXPRESSION exps
+			     =>
+			     {   my (es, tyv, update)
+                                     =
+                                     typecheck_expression_list
+					 #
+                                         (exps, symbol_table, source_code_region);
+
+				 ( tupleexp es,
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::VECTOR_EXPRESSION exps
+			     =>
+			     {   my (es, tyv, update)
+                                     =
+                                     typecheck_expression_list
+					 #
+					 (exps, symbol_table, source_code_region);
+
+				 ( VECTOR_EXPRESSION (es, UNDEFINED_TYPE),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::APPLY_EXPRESSION { function, argument }
+			     =>
+			     {   my (e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) = typecheck_expression (function, symbol_table, source_code_region);
+				 my (e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) = typecheck_expression (argument, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( APPLY_EXPRESSION (e1, e2),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::OBJECT_FIELD_EXPRESSION { object, field }
+			     =>
+			     {
+				 error_fn
+				     source_code_region
+				     em::ERROR
+				     "object->field not allowed outside of class definition"
+				     em::null_error_body;
+
+				 # Return random valid value:
+				 #
+				 ( STRING_CONSTANT_IN_EXPRESSION "",
+				   tvs::empty,
+				   no_update
+				 );
+			     };
+
+			 raw::TYPE_CONSTRAINT_EXPRESSION { expression, constraint => type }
+			     =>
+			     {   my (e1, type_variable1, update)
+				     =
+				     typecheck_expression (expression, symbol_table, source_code_region);
+
+				 my (t2, type_variable2)
+				     =
+				     tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+
+				 ( TYPE_CONSTRAINT_EXPRESSION (e1, t2),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   update
+				 );
+			     };
+
+			 raw::EXCEPT_EXPRESSION { expression, rules }
+			     =>
+			     {   my (e1,   type_variable1, finalize_deep_syntax_typevar_sets_fn1)   =   typecheck_expression (expression, symbol_table, source_code_region);
+				 my (rls2, type_variable2, finalize_deep_syntax_typevar_sets_fn2)   =   typecheck_case_rules (rules, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( make_handle_expression (e1, rls2, compile_info), 
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::RAISE_EXPRESSION expression
+			     =>
+			     {   my (e, tyv, update)
+				     =
+				     typecheck_expression (
+					 expression,
+					 symbol_table,
+					 source_code_region
+				     );
+
+				 ( RAISE_EXPRESSION (e, UNDEFINED_TYPE),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::LET_EXPRESSION { declaration, expression }
+			     => 
+			     {   my (d1, e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =  typecheck_declaration' (declaration, symbol_table, ip::INVERSE_PATH [], source_code_region);
+				 my (    e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =  typecheck_expression   (expression,   st::atop (e1, symbol_table),      source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( LET_EXPRESSION (d1, e2),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::CASE_EXPRESSION { expression, rules }
+			     =>
+			     {   my (e1,   type_variable1, finalize_deep_syntax_typevar_sets_fn1) =   typecheck_expression (expression, symbol_table, source_code_region);
+				 my (rls2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =   typecheck_case_rules  (rules,      symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( CASE_EXPRESSION (e1, complete_match rls2, TRUE),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::IF_EXPRESSION { test_case, then_case, else_case }
+			     =>
+			     {   my (e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =   typecheck_expression (test_case, symbol_table, source_code_region);
+				 my (e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =   typecheck_expression (then_case, symbol_table, source_code_region);
+				 my (e3, type_variable3, finalize_deep_syntax_typevar_sets_fn3) =   typecheck_expression (else_case, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn3  typevar_set;
+				     };
+
+				 ( deep_syntax::IF_EXPRESSION { test_case => e1, then_case => e2, else_case => e3 },
+				   union (type_variable1, union (type_variable2, type_variable3, error_fn source_code_region), error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::AND_EXPRESSION (expression1, expression2)
+			     =>
+			     {   my (e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =   typecheck_expression (expression1, symbol_table, source_code_region);
+				 my (e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =   typecheck_expression (expression2, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( AND_EXPRESSION (e1, e2),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::OR_EXPRESSION (expression1, expression2)
+			     =>
+			     {   my (e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =  typecheck_expression (expression1, symbol_table, source_code_region);
+				 my (e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =  typecheck_expression (expression2, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {  finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( OR_EXPRESSION (e1, e2),
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::WHILE_EXPRESSION { test, expression }
+			     =>
+			     {   my (e1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =  typecheck_expression (test,       symbol_table, source_code_region);
+				 my (e2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =  typecheck_expression (expression, symbol_table, source_code_region);
+
+				 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				     =
+				     {   finalize_deep_syntax_typevar_sets_fn1  typevar_set;
+					 finalize_deep_syntax_typevar_sets_fn2  typevar_set;
+				     };
+
+				 ( deep_syntax::WHILE_EXPRESSION { test => e1, expression => e2 },
+				   union (type_variable1, type_variable2, error_fn source_code_region),
+				   finalize_deep_syntax_typevar_sets_fn
+				 );
+			     };
+
+			 raw::FN_EXPRESSION rules
+			     => 
+			     {   my (rls, tyv, update)
+                                     =
+                                     typecheck_case_rules
+					 #
+				         (rules, symbol_table, source_code_region);
+
+				 ( FN_EXPRESSION (complete_match rls, UNDEFINED_TYPE),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, source_code_region)
+			     => 
+			     {   my (e, tyv, update)
+                                     =
+                                     typecheck_expression
+					 #
+					 (expression, symbol_table, source_code_region);
+
+				 ( c_markexp (e, source_code_region),
+				   tyv,
+				   update
+				 );
+			     };
+
+			 raw::RECORD_SELECTOR_EXPRESSION s
+			     => 
+			     ( {   v = new_valvar s;
+
+				   FN_EXPRESSION (
+
+				       complete_match
+
+					   [   CASE_RULE (
+
+						   RECORD_PATTERN {
+
+						       fields        => [ (s, VARIABLE_IN_PATTERN v)],
+						       is_incomplete => TRUE,
+						       type_ref      => REF UNDEFINED_TYPE
+						   },
+
+						   c_markexp (
+						       VARIABLE_IN_EXPRESSION (REF v, []),
+						       source_code_region
+						   )
+					       )
+					   ],
+					   UNDEFINED_TYPE
+				   );
+			       },
+			       tvs::empty,
+			       no_update
+			     );
+
+			 raw::PRE_FIXITY_EXPRESSION items
+			     =>
+			     # Here is one of the few nontrivial
+			     # cases in this routine.
+			     #
+			     # Recall that Mythryl allows user-declared
+			     # precedence and fixity for functions
+			     # and constructors. (E.g., 'infix val 60 ** ;'.)
+			     #
+			     # Since those declarations haven't been
+			     # resolved yet at parse time, the Mythryl
+			     # parser passes through function and constructor
+			     # expressions as undigested RAW::PRE_FIXITY_EXPRESSION
+			     # nodes, which must later be resolved
+			     # via resolve_operator_precedence::parse from
+			     #     src/lib/compiler/frontend/typechecker/typecheck/resolve-operator-precedence.pkg
+			     # once all precedence and fixity info is in hand.
+			     #
+			     # We're now at that 'later' point, so here
+			     # we do the full parsetree resolution, then
+			     # call ourselves recursively to process the
+			     # now fully-defined expression parsetree:
+			     #
+			     typecheck_expression (
+				 rewrite_raw_syntax_expression  (resolve_expression_by_fixity (items, symbol_table, error_fn)),
+				 symbol_table,
+				 source_code_region
+			     );
+		    esac					# fun typecheck_expression 
+
+
+		also
+		fun typecheck_record_element_expressions (labels, symbol_table, source_code_region)
+                    =
+		    {   my (les1, lvt1, finalize_deep_syntax_typevar_sets_fns)
+                            =
+			    fold_right 
+				(   fn ((lb2, e2), (les2, lvt2, updates2))
+				       =
+				       {   my (e3, lvt3, update3)
+                                               =
+                                               typecheck_expression (e2, symbol_table, source_code_region);
+
+					   (   (lb2, e3) ! les2,
+                                               union (lvt3, lvt2, error_fn source_code_region),
+					       update3 ! updates2
+                                           );
+				       }
+                                )
+				([], tvs::empty, [])
+                                labels;
+
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =
+                            apply
+                                (fn f =  f typevar_set)
+                                finalize_deep_syntax_typevar_sets_fns;
+
+                        (les1, lvt1, finalize_deep_syntax_typevar_sets_fn);
+		    }
+
+		also
+		fun typecheck_expression_list (es, symbol_table, source_code_region)
+                     =
+		     {   my (les1, lvt1, finalize_deep_syntax_typevar_sets_fns)
+                             =
+			     fold_right 
+				 (   fn (e2, (es2, lvt2, updates2))
+                                        =
+					{   my (e3, lvt3, update3)
+                                                =
+                                                typecheck_expression (e2, symbol_table, source_code_region);
+
+                                            (   e3 ! es2,
+                                                union (lvt3, lvt2, error_fn source_code_region), 
+					        update3 ! updates2
+                                            );
+					}
+                                 )
+				 ([], tvs::empty, [])
+                                 es;
+
+			 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                             =
+                             apply
+                                 (fn f = f typevar_set)
+                                 finalize_deep_syntax_typevar_sets_fns;
+
+                         (les1, lvt1, finalize_deep_syntax_typevar_sets_fn);
+		     }
+
+		also
+		fun typecheck_case_rules (rule_patterns, symbol_table, source_code_region)
+                    =
+                    # 'rule_patterns' is the
+                    # list of 'pattern => expression"
+                    # rules constituting some 'case'
+                    # statement or 'fun' def.
+		    #
+		    {   my (rules, lvt, update1)
+                            =
+			    fold_right 
+				(fn (r1, (rules1, lvt1, update1))
+                                    =
+				    {   my (r2, lvt2, update2)
+                                            =
+                                            typecheck_case_rule (r1, symbol_table, source_code_region);
+
+                                        (   r2 ! rules1,
+                                            union (lvt2, lvt1, error_fn source_code_region), 
+					    update2 ! update1
+                                        );
+				    }
+                                )
+
+				([], tvs::empty, [])
+
+                                rule_patterns;
+
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =
+                            apply
+                                (fn f = f typevar_set)
+                                update1;
+
+                        (rules, lvt, finalize_deep_syntax_typevar_sets_fn);
+		    }
+		    where
+			fun typecheck_case_rule (raw::CASE_RULE { pattern, expression }, symbol_table, source_code_region)
+			    =
+			    # We're given one "pattern => expression"
+			    # rule from a case statement or fun def:
+			    # translate it from raw syntax into deep syntax.
+			    #
+			    {   source_code_region'
+				    =
+				    case pattern
+
+					 raw::SOURCE_CODE_REGION_FOR_PATTERN (p, reg)   =>   reg;
+					 _                                              =>   source_code_region;
+				    esac;
+
+				my (p, type_variable1)
+				    =
+				    typecheck_pattern (pattern, symbol_table, source_code_region);
+
+				symbol_table' = st::atop (bind_varp ([p], error_fn source_code_region'), symbol_table);
+
+				my (e, type_variable2, update)
+				    =
+				    typecheck_expression (expression, symbol_table', source_code_region);
+
+				( CASE_RULE (p, e),
+				  union (type_variable1, type_variable2, error_fn source_code_region),
+				  update
+				);
+			    };
+		    end
+
+
+		# Simple declarations:
+		#
+		also
+		fun typecheck_declaration' (declaration, symbol_table, inverse_path, source_code_region)
+		    :
+                    ( deep_syntax::Declaration,
+                      st::Symbol_Table,
+                      tvs::Type_Variable_Set,
+                      Type_Variable_Set_Update
+                    )
+                    =
+		    case declaration 
+
+			 raw::TYPE_DECLARATIONS named_types
+			     => 
+			     {   my (declaration', symbol_table')
+				 =
+				 tt::typecheck_type_declaration (
+				     named_types,
+				     symbol_table,        #  tcs::TOP,??? XXX BUGGO FIXME  
+				     inverse_path,
+				     source_code_region,
+				     compile_info
+				 );
+
+				 no_typevars (declaration', symbol_table');
+			     };
+
+			 raw::ENUM_DECLARATIONS (x as { datatype_constructors, with_type_constructors } )
+			     => 
+			     (   case datatype_constructors
+
+				      ( raw::NAMED_ENUM {   right_hand_side => (raw::ENUM_CONSTRUCTORS _), ... } ) ! _
+				      =>
+				      {   my (dtycs, wtycs, _, symbol_table')
+					     =
+					     tt::typecheck_datatype_declaration (
+						 x,
+						 symbol_table,
+						 [],
+						 ed::empty,
+						 is_free,
+						 inverse_path,
+						 source_code_region,
+						 compile_info
+					     );
+
+					  no_typevars (
+					      ENUM_DECLARATIONS {   datatype_constructors => dtycs,
+							      with_type_constructors => wtycs
+							  },
+					      symbol_table'
+					  );
+				      };
+
+				     ( raw::NAMED_ENUM {
+					       type_constructor => name,
+					       right_hand_side   => raw::REPLICAS symbols,
+
+					       type_variables   => NIL,
+					       is_lazy           => FALSE
+					   }
+					!
+					NIL
+				      )
+				      =>
+				      #  LAZY: not allowing "enum lazy t = enum t'" 
+				      #  BUG: what to do if rhs is lazy "enum"? (David B MacQueen) 
+				      #
+				      case with_type_constructors
+
+					   NIL
+					   =>
+					   {   type_constructor
+						   =
+						   lu::find_type_constructor_via_symbol_path (symbol_table, sp::SYMBOL_PATH symbols, error_fn source_code_region);
+
+					       dcons   =   ts::extract_datatype_constructor type_constructor;
+
+					       env_dcons
+						   =
+						   fold_left
+						       (fn (d as t::ENUM_CONSTRUCTOR { symbol, ... }, e)
+							    =
+							    st::bind (symbol, b::NAMED_CONSTRUCTOR d, e)
+							)
+							st::empty 
+							dcons;
+
+					       symbol_table
+						   =
+						   st::bind (
+						       name,
+						       b::NAMED_TYPE type_constructor,
+						       env_dcons
+						   );
+
+					       no_typevars (
+						   ENUM_DECLARATIONS {   datatype_constructors => [type_constructor],
+								   with_type_constructors => []
+							       },
+						   symbol_table
+					       );
+					   };
+
+					  _ => {   error_fn
+							source_code_region
+							em::ERROR
+							"withtype not allowed in enum replication"
+							em::null_error_body;
+
+						    no_typevars (SEQUENTIAL_DECLARATIONS [], st::empty);
+						};
+				      esac;
+
+
+				     _ => {   error_fn
+						   source_code_region
+						   em::ERROR
+						   "argument type variables in enum replication"
+						   em::null_error_body;
+
+					       no_typevars (SEQUENTIAL_DECLARATIONS [], st::empty);
+					   };
+				 esac
+			     );
+
+			 raw::ABSTRACT_TYPE_DECLARATIONS x
+			     => 
+			     {   my (declaration', symbol_table')
+				     =
+				     typecheck_abstract_type_declaration (
+					 x,
+					 symbol_table,
+					 tcs::AT_TOPLEVEL,
+					 is_free,
+					 inverse_path,
+					 source_code_region,
+					 compile_info
+				     );
+
+				 no_typevars (declaration', symbol_table');
+			     };
+
+			 raw::EXCEPTION_DECLARATIONS exception_namings
+			     =>
+			     typecheck_exceptiondec (exception_namings, symbol_table, source_code_region);
+
+			 raw::VALUE_DECLARATIONS (vbs, explicit_type_variable_refs)
+			     =>
+			     typecheck_valdec (vbs, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region);
+
+			 raw::FIELD_DECLARATIONS (fields, explicit_type_variable_refs)
+			     =>
+			     typecheck_fielddec (fields, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region);
+
+			 raw::FUNCTION_DECLARATIONS (named_functions, explicit_type_variable_refs)
+			     =>
+			     typecheck_smlfundec (named_functions, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region);
+
+			 raw::NADA_FUNCTION_DECLARATIONS (named_functions, explicit_type_variable_refs)
+			     =>
+			     typecheck_lib7fundec (named_functions, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region);
+
+			 raw::RECURSIVE_VALUE_DECLARATIONS (rvbs, explicit_type_variable_refs)
+			     =>
+			     typecheck_valrecdec (rvbs, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region);
+
+			 raw::SEQUENTIAL_DECLARATIONS ds
+			     =>
+			     typecheck_seqdec (ds, symbol_table, inverse_path, source_code_region);
+
+			 raw::LOCAL_DECLARATIONS ld
+			     =>
+			     typecheck_localdec (ld, symbol_table, inverse_path, source_code_region);
+
+			 raw::INCLUDE_DECLARATIONS ds
+			     =>
+			     typecheck_include_declarations (ds, symbol_table, source_code_region);
+
+			 raw::FIXITY_DECLARATIONS (ds as { fixity, ops } )
+			     => 
+			     {   symbol_table
+				     = 
+				     fold_right
+					 (   fn (id, symbol_table)
+						=
+						st::bind (id, b::NAMED_FIXITY fixity, symbol_table)
+					 )
+					 st::empty ops;
+
+				 ( FIXITY_DECLARATION ds,
+				   symbol_table,
+				   tvs::empty,
+				   no_update
+				 );
+			     };
+
+			 raw::OVERLOADED_VARIABLE_DECLARATION declaration
+			     =>
+			     typecheck_overloaded_variable_declaration (declaration, symbol_table, inverse_path, source_code_region);
+
+			 raw::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, source_code_region')
+			     =>
+			     {   my (d, symbol_table, type_variable, update)
+				     =
+				     typecheck_declaration' (
+					 declaration,
+					 symbol_table,
+					 inverse_path,
+					 source_code_region'
+				     );
+
+				 ( c_markdec (d, source_code_region'),
+				   symbol_table,
+				   type_variable,
+				   update
+				 );
+			     };
+
+			 raw::PACKAGE_DECLARATIONS           _   =>   bug "strdec";
+			 raw::GENERIC_DECLARATIONS           _   =>   bug "fctdec";
+			 raw::API_DECLARATIONS               _   =>   bug "sigdec";
+			 raw::GENERIC_API_DECLARATIONS       _   =>   bug "fsigdec";
+
+		    esac                    			# fun typecheck_declaration'
+
+
+
+		# Here we handle
+                #    overloaded val * = ( ... )
+                # statements such as may be found in
+                #    src/lib/core/init/pervasive.pkg 
+		#
+		also
+		fun typecheck_overloaded_variable_declaration
+                    (
+                      ( name,			# Name (symbol) of overloaded operator.
+                        type,			# Type declared for that operator, e.g.  ((X, X) -> X)
+                        alternatives,		# The alternative actual ops to which the overloaded op may be resolved.
+                        extend_pre_existing	# FALSE normally; TRUE for a "overloaded val * += ( ... )" statement extending a pre-existing overloaded op.
+                      ),
+                      symbol_table,
+                      inverse_path,
+                      source_code_region
+                    )
+                    =
+		    {
+                        pre_existing_alternatives
+                            =
+                            if (not extend_pre_existing)
+                                #
+                                [];
+                            else
+                                case (st::get (symbol_table, name))
+
+                                    b::NAMED_VARIABLE (OVERLOADED_IDENTIFIER { name, type_scheme, alternatives => REF pre_existing_alternatives } )
+                                        =>
+                                        {   # NB: We really should check that 'type' above is compatible with 'type_scheme'    XXX BUGGO FIXME
+					    # We might also at least think about dropping duplicates from the alternatives list...
+					    #
+                                            pre_existing_alternatives;
+					};
+
+                                    _   =>
+                                        {   # A case could be made for signalling an error if
+					    #     overloaded val @@ ... += ... ;
+                                            # is specified and no preceding definition of '@@'
+					    # is found (as here) but accepting this silently
+					    # allows multiple modules overloading '@@' to be
+					    # included in a largely order-independent manner,
+					    # which I think is more valuable in practice:
+					    #
+                                            [];
+                                        }; 
+                                esac;
+                            fi
+                            except
+                                st::UNBOUND = [];
+                              
+                        my (body, typevar_set)
+                            =
+                            tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+			type_variables =  tvs::get_elements  typevar_set;
+			arity          =  length  type_variables;
+
+                        ts::resolve_type_variables_to_typescheme_slots  type_variables;
+                        ts::drop_macro_expanded_indirections_from_type  body;
+
+			type_scheme
+                            =
+			    TYPE_SCHEME { body, arity };
+
+
+			typechecked_alternatives
+                            =
+                            map typecheck_alternative
+				alternatives
+                            where
+                                fun typecheck_alternative  expression
+				    =
+				    typecheck_expression (
+					expression,
+					symbol_table,
+					source_code_region
+				    );
+                            end;
+
+			syntax_trees =   map  #1  typechecked_alternatives;
+			finalize_deep_syntax_typevar_sets_fns   =   map  #3  typechecked_alternatives;
+
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =
+                            apply (fn f = f typevar_set)
+                                  finalize_deep_syntax_typevar_sets_fns;
+
+			alternatives
+                            =
+                            REF (
+				pre_existing_alternatives
+				@
+				(map  make_alternative  syntax_trees)
+			    )
+			    where
+				fun make_alternative (SOURCE_CODE_REGION_FOR_EXPRESSION (e, _))
+					=>
+					make_alternative e;
+
+				    make_alternative (VARIABLE_IN_EXPRESSION (REF (v as ORDINARY_VARIABLE { var_type, ... } ), _))
+					=>
+					{   indicator => ts::match_scheme (type_scheme, *var_type),
+					    variant   => v
+					};
+
+				    make_alternative _
+					=>
+					bug "makeOVERLOADdec::alternative";
+				end;
+                            end;
+
+			overloaded_variable
+                            =
+                            OVERLOADED_IDENTIFIER
+                             {
+                               name,
+                               type_scheme,
+			       alternatives
+                             };
+
+                        ( OVERLOADED_VARIABLE_DECLARATION  overloaded_variable,
+                          st::bind (name, b::NAMED_VARIABLE overloaded_variable, st::empty),
+			  tvs::empty,
+                          finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }
+
+		# 'stipulate':
+		#
+		also
+		fun typecheck_localdec ((ldecs1, ldecs2), symbol_table, inverse_path: ip::Inverse_Path, source_code_region)
+                    =
+		    {   my (ld1, symbol_table1, type_variable1, finalize_deep_syntax_typevar_sets_fn1) =  typecheck_declaration' (ldecs1, symbol_table,                    ip::INVERSE_PATH [], source_code_region);
+			my (ld2, symbol_table2, type_variable2, finalize_deep_syntax_typevar_sets_fn2) =  typecheck_declaration' (ldecs2, st::atop (symbol_table1, symbol_table), inverse_path, source_code_region);
+
+			fun finalize_deep_syntax_typevar_sets_fn  type_variable
+                            =
+                            {   finalize_deep_syntax_typevar_sets_fn1  type_variable;
+                                finalize_deep_syntax_typevar_sets_fn2  type_variable;
+                            };
+
+                        (   LOCAL_DECLARATIONS (ld1, ld2),
+                            symbol_table2,
+                            union (type_variable1, type_variable2, error_fn source_code_region),
+                            finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }
+
+		# "include"
+		#
+		also
+		fun typecheck_include_declarations (spaths, symbol_table, source_code_region)
+                    = 
+                    loop (strs, st::empty)
+                    where
+		        err  = error_fn source_code_region;
+
+			strs = map (   fn s = {   sp = sp::SYMBOL_PATH s;
+
+                                                 (sp, lu::find_package_via_symbol_path (symbol_table, sp, err));
+					      }
+                                   )
+                                   spaths;
+
+			fun loop ([],         symbol_table)   =>   (INCLUDE_DECLARATIONS strs, symbol_table, tvs::empty, no_update);
+			    loop ((_, s) ! r, symbol_table)   =>   loop (r, mu::include_package (symbol_table, s));
+                        end;
+		    end
+
+		# ***  VALUE DECLARATIONS ***
+		#
+		also
+		fun typecheck_named_value (raw::SOURCE_CODE_REGION_FOR_NAMED_VALUE (named_value, source_code_region), explicit_type_variable_refs, symbol_table, _)
+			=>
+			{   my (d, type_variables, u)
+				=
+				typecheck_named_value ( named_value, explicit_type_variable_refs, symbol_table, source_code_region);
+
+			    d'  =   c_markdec (d, source_code_region);
+
+			    (d', type_variables, u);
+			};
+
+		   typecheck_named_value (raw::NAMED_VALUE { pattern, expression, is_lazy }, explicit_type_variable_refs, symbol_table, source_code_region)
+			=>
+			{   my (pattern, pv)
+				=
+				typecheck_pattern (pattern, symbol_table, source_code_region);
+
+			    my (expression, ev, update_expression)
+				=
+				typecheck_expression (expression, symbol_table, source_code_region);
+
+			    expression = if   is_lazy      delay_expression (force_expression expression);
+							else   expression;fi;
+
+			    # When all other typechecking is complete
+                            # we do a final pass computing type variable
+                            # sets and plugging them into the deep syntax
+                            # tree.  This reference cell:
+                            #
+			    type_variableref = REF [];
+			    #
+                            # becomes NAMED_VALUE.ref_typevar_refs
+			    # in the deep syntax tree and gets
+                            # backpatched by this function:
+			    #
+			    fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				=
+				{   fun a+++b = union (a, b, error_fn  source_code_region);
+				    fun a---b = diff  (a, b, error_fn  source_code_region);
+
+				    local_type_vars = (ev+++pv+++explicit_type_variable_refs) --- (typevar_set----explicit_type_variable_refs);
+
+					 # explicitTypeVariables should be the second argument to union
+					 # to avoid having the explicit type variables
+					 # macro expanded by the union operation.
+
+				    downtypevars = local_type_vars +++ (typevar_set----explicit_type_variable_refs);
+
+				    type_variableref := tvs::get_elements local_type_vars;
+
+				    update_expression downtypevars;
+				};
+
+			    # WARNING: the following code is trying to propagate
+			    # the  PRIMOP var_home through simple value naming.
+			    #
+			    # It is an old hack and should be cleaned up in the future. (ZHONG)
+			    #
+			    # This won't apply if is_lazy==TRUE. (David B MacQueen)    XXX BUGGO FIXME
+			    #
+			    pattern
+				= 
+				case (strip_exp_abs expression)
+
+				     VARIABLE_IN_EXPRESSION (REF (ORDINARY_VARIABLE { inlining_info => dinfo, ... } ), _)
+				         =>
+				         if   (inlining_information::is_simple dinfo)
+					     
+					      case pattern
+
+						   TYPE_CONSTRAINT_PATTERN (
+						       VARIABLE_IN_PATTERN (
+							   ORDINARY_VARIABLE { path, var_type, var_home, ... }
+						       ),
+						       type
+						   )
+						       =>
+						       TYPE_CONSTRAINT_PATTERN (
+							   VARIABLE_IN_PATTERN (
+							       ORDINARY_VARIABLE { path,
+										   var_type,
+										   var_home,
+										   inlining_info => dinfo
+										 }
+							   ),
+							   type
+						       );
+
+						   VARIABLE_IN_PATTERN (ORDINARY_VARIABLE { path, var_type, var_home, ... } )
+						       =>
+						       VARIABLE_IN_PATTERN (ORDINARY_VARIABLE { path,
+												var_type,
+												var_home,
+												inlining_info => dinfo
+											      }
+							      );
+
+						  _ => pattern;
+                                              esac;
+				      else
+                                           pattern;
+                                      fi;
+
+				   _ => pattern;
+                                esac;
+
+			    #  David B MacQueen: can the first two cases ever return NULL? 
+			    #
+			    fun bind_pattern (VARIABLE_IN_PATTERN (ORDINARY_VARIABLE { var_home, ... } ))
+				    =>
+				    a::highcode_variable_or_null  var_home;
+
+			        bind_pattern (TYPE_CONSTRAINT_PATTERN (VARIABLE_IN_PATTERN (ORDINARY_VARIABLE { var_home, ... } ), _))
+				    =>
+				    a::highcode_variable_or_null  var_home;
+
+			        bind_pattern _
+                                    =>
+                                    NULL;
+                            end;
+
+
+			    case (bind_pattern  pattern) 
+
+			         NULL     #  David B MacQueen: pattern is not a variable? 
+				 =>
+				 (   {   my (newpat, oldvars, newvars)
+					     =
+					     replace_pattern_variables (pattern, compile_info);
+
+					     #  NB: Above is the only call of replace_pattern_variables. 
+
+					 b   =   map   (fn v = VARIABLE_IN_EXPRESSION (REF v,[]))   newvars;
+					 r   =   CASE_RULE (newpat, tupleexp (b));
+
+					 newexp   = CASE_EXPRESSION (expression, complete_bind [r], FALSE);
+
+					 case oldvars
+
+					      []
+					      => 
+					      {   nvb = NAMED_VALUE { expression         =>  newexp,
+								      ref_typevar_refs   =>  type_variableref,
+								      pattern            =>  WILDCARD_PATTERN,
+								      bound_typevar_refs =>  []
+								    };
+
+						  (   VALUE_DECLARATIONS [nvb],
+						      [],
+						      finalize_deep_syntax_typevar_sets_fn
+						  );
+					      };
+
+
+					     _
+					      => 
+					      {   nv      =   new_valvar internal_sym;
+						  nvpat   =   VARIABLE_IN_PATTERN (nv);
+						  nvexp   =   VARIABLE_IN_EXPRESSION (REF nv, []);
+
+						  nvdec   =   VALUE_DECLARATIONS (
+								  [   NAMED_VALUE { expression         => newexp,
+										    ref_typevar_refs   => type_variableref, 
+										    pattern            => nvpat,
+										    bound_typevar_refs => []
+										  }
+								  ]
+							      );
+
+						  fun h ( [], _, d)
+							  =>  
+							  LOCAL_DECLARATIONS (nvdec, SEQUENTIAL_DECLARATIONS (reverse d));
+
+						      h (vp ! r, i, d)
+							  => 
+							  {   nvb = NAMED_VALUE { expression => tpselexp (nvexp, i),
+										  pattern    => vp,
+
+										  bound_typevar_refs => [],
+										  ref_typevar_refs   => REF []
+										};
+
+
+							      h (r,   i + 1,   VALUE_DECLARATIONS ( [nvb] ) ! d);
+							  };
+                                                  end;
+
+
+						  (   h (oldvars, 1, []),
+						      oldvars,
+						      finalize_deep_syntax_typevar_sets_fn
+						  );
+					      };
+                                         esac;
+
+				     }
+				 );
+
+			       THE _
+				=> 
+				(   VALUE_DECLARATIONS (
+					[   NAMED_VALUE { expression,
+							  pattern,
+							  ref_typevar_refs   => type_variableref,
+							  bound_typevar_refs => []
+							}
+					]
+				    ),
+
+				    [pattern],
+
+				    finalize_deep_syntax_typevar_sets_fn
+				);
+                            esac; 
+			};
+                end 
+
+		also
+		fun typecheck_valdec (named_value, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region)
+                    =
+		    {   explicit_type_variable_refs
+                            =
+                            tt::typecheck_type_variable_list (explicit_type_variable_refs, error_fn, source_code_region);
+
+			my (ds, pats, finalize_deep_syntax_typevar_sets_fns)
+                            = 
+			    fold_right 
+			       (   fn (vdec, (ds1, pats1, update1))
+                                      =
+				      {   explicit_type_variable_refs
+                                              =
+                                              tvs::make_type_variable_set
+                                                  (map  t::copy_type_variable_ref  explicit_type_variable_refs);
+
+					  my (d2, pats2, update2)
+                                              =
+                                              typecheck_named_value (vdec, explicit_type_variable_refs, symbol_table, source_code_region);
+
+                                          (   d2    ! ds1,
+                                              pats2 @  pats1,
+                                              update2 ! update1
+                                          ); 
+				      }
+                               )
+			       ([], [], [])
+                               named_value;
+
+			 fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                             =
+                             apply   (fn f =  f typevar_set)
+                                     finalize_deep_syntax_typevar_sets_fns;
+
+                        ( SEQUENTIAL_DECLARATIONS ds,
+			  bind_varp (pats,   error_fn  source_code_region),
+			  tvs::empty,
+			  finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }
+
+		also
+		fun typecheck_fielddec (named_field, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region)
+                    =
+		    {
+			error_fn
+			    source_code_region
+			    em::ERROR
+			    "typecheck-core-language.pkg: field declaration not allowed in non-class package.\n"
+			    em::null_error_body;
+
+			# 2009-02-23 CrT:  The following code
+			# is only intended to compile, not to do
+                        # anything sane if run:
+			#
+                        explicit_type_variable_refs
+                            =
+                            tt::typecheck_type_variable_list (explicit_type_variable_refs, error_fn, source_code_region);
+
+
+			 fun finalize_deep_syntax_typevar_sets_fn  type_variable
+                             =
+                             ();
+
+                        (   SEQUENTIAL_DECLARATIONS [],
+                            symbol_table,
+                            tvs::empty,
+                            finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }
+
+		also
+		fun typecheck_named_recursive_values (
+                        raw::SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (
+                            named_recursive_values,
+                            source_code_region
+                        ),
+                        symbol_table,
+                        _
+                    )
+			=>
+			{   my ( { match, type, name }, type_variables, finalize_deep_syntax_typevar_sets_fn)
+				=
+				typecheck_named_recursive_values (named_recursive_values, symbol_table, source_code_region);
+
+			    match' = c_markexp (match, source_code_region);
+
+			    (   {   match => match',
+				    type,
+				    name
+				},
+				type_variables,
+				finalize_deep_syntax_typevar_sets_fn
+			    );
+			};
+
+		   typecheck_named_recursive_values (
+                        raw::NAMED_RECURSIVE_VALUE { variable_symbol, fixity, expression, null_or_type, is_lazy },
+                        symbol_table,
+                        source_code_region
+                    )
+			=>
+		        case (strip_exp_raw_syntax_tree (expression, source_code_region))
+
+			     (raw::FN_EXPRESSION _, source_code_region')
+				 =>
+				 {   my (e, ev, finalize_deep_syntax_typevar_sets_fn)
+					 =
+					 typecheck_expression (expression, symbol_table, source_code_region');
+
+				     my (t, type_variable)
+					 = 
+					 case null_or_type 
+
+					      THE t1
+						  => 
+						  {   my  (t2, type_variable2)
+							  =
+							  tt::typecheck_type (t1, symbol_table, error_fn, source_code_region);
+
+						      (THE t2, type_variable2);
+						  };
+
+					     NULL => (NULL, tvs::empty);
+					 esac;
+
+
+				     case fixity 
+
+					  NULL => ();
+
+					  THE (f, source_code_region)
+					      => 
+					      case (lu::find_fixity_by_symbol (symbol_table, f) )
+
+						   fixity::NONFIX => ();
+
+						   _ => error_fn
+							    source_code_region
+							    em::ERROR
+							    (   "infix symbol \""
+							    +   s::name f
+							    +   "\" used where a nonfix identifier was expected"
+							    )
+							    em::null_error_body;
+					      esac;
+				     esac;
+
+				     ( { match  => e,
+					 type => t,
+					 name   => variable_symbol
+				       },
+
+				       union (ev, type_variable, error_fn source_code_region),
+
+				       finalize_deep_syntax_typevar_sets_fn
+				     );
+				 };
+
+			    _ => {   error_fn
+					 source_code_region
+					 em::ERROR
+					 "fn expression required on rhs of my rec"
+					 em::null_error_body;
+
+				     ( { match  => dummy_fnexp,
+					 type => NULL,
+					 name   => variable_symbol
+				       },
+
+				       tvs::empty,
+
+				       no_update
+				     );
+				 };
+			esac;
+
+                end 			# fun typecheck_named_recursive_values
+
+		also
+		fun typecheck_valrecstrict (rvbs, explicit_type_variable_refs, symbol_table, source_code_region)
+                    = 
+		    {   symbol_table'   =   REF (st::empty: st::Symbol_Table);
+
+			fun make_var source_code_region (p as raw::NAMED_RECURSIVE_VALUE { variable_symbol, ... } )
+				=>
+				{   v  = new_valvar variable_symbol;
+				    nv = new_valvar variable_symbol;        #  David B MacQueen: What is this for? XXX BUGGO FIXME 
+
+				    #  check_bound_constructor (symbol_table, var, error_fn source_code_region); --- fix bug 1357 
+
+				    symbol_table' := st::bind (variable_symbol, b::NAMED_VARIABLE v, *symbol_table');
+
+				    (v, p);
+				};
+
+			    make_var _ (p as raw::SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (named_recursive_values, source_code_region))
+				=> 
+				{   my (v, _)
+					=
+					make_var source_code_region named_recursive_values;
+
+				    (v, p);
+				};
+                        end;
+
+			rvbs'   =   map (make_var source_code_region) rvbs;
+
+			symbol_table''   =   st::atop (*symbol_table', symbol_table);
+
+			my (rvbs, type_variables, finalize_deep_syntax_typevar_sets_fns)
+                            =
+			    fold_left
+                                (   fn ((v, named_recursive_values1),   (rvbs1, type_variables1, update1))
+                                       =
+				       {   my (named_recursive_values2, type_variable2, update2)
+                                               =
+					       typecheck_named_recursive_values (named_recursive_values1, symbol_table'', source_code_region);
+
+
+                                           (   (v, named_recursive_values2) ! rvbs1, 
+					       union (type_variable2, type_variables1, error_fn source_code_region),
+					       update2 ! update1
+                                           );
+				       }
+                                ) 
+
+				([], tvs::empty, [])
+
+                                rvbs';
+
+			# When all other typechecking is complete
+			# we do a final pass computing type variable
+			# sets and plugging them into the deep syntax
+			# tree.  This reference cell:
+			#
+			ref_typevar_refs = REF [];
+			#
+			# becomes NAMED_RECURSIVE_VALUES.ref_typevar_refs
+			# in the deep syntax tree and gets
+			# backpatched by this function:
+			#
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =  
+			    {   fun a+++b   =   union (a, b,   error_fn  source_code_region);
+				fun a---b   =   diff  (a, b,   error_fn  source_code_region);
+
+				local_type_vars = (type_variables +++ explicit_type_variable_refs) --- (type_variables ---- explicit_type_variable_refs);
+
+				downtypevars  = local_type_vars +++ (type_variables ---- explicit_type_variable_refs);
+
+                                ref_typevar_refs := tvs::get_elements local_type_vars;
+
+				apply   (fn f =  f downtypevars)
+                                        finalize_deep_syntax_typevar_sets_fns;
+			    };
+
+                        tcs::forbid_duplicates_in_list
+                            ( error_fn  source_code_region,
+			      "duplicate function name in my rec declaration",
+			       (map   (fn (v, { name, ... } ) =  name)   rvbs)
+                            );
+
+			my (ndec, nenv)
+                            = 
+			    wrap_named_recursive_values_list(
+
+                                (map   (fn (v, { type, match, name } )
+                                           =
+					   NAMED_RECURSIVE_VALUES { variable             => v,
+                                                                    null_or_type         => type,
+                                                                    ref_typevar_refs,
+                                                                    expression           => match,
+						                    bound_typevar_refs => []
+                                                                  }
+                                       )
+
+				       rvbs
+                                ),
+
+				compile_info
+                            );
+
+                        (ndec, nenv, tvs::empty, finalize_deep_syntax_typevar_sets_fn);
+		    }                                        #  fun typecheckVALRECstrict 
+
+		                                             #  LAZY: "my rec lazy ..." 
+		also
+		fun typecheck_valreclazy (rvbs, explicit_type_variable_refs, symbol_table, source_code_region)
+                    = 
+		    {   fun split []
+                                =>
+                                ([], []);
+
+			    split ((raw::NAMED_RECURSIVE_VALUE { variable_symbol, expression, null_or_type, is_lazy, ... } ) ! xs)
+				=>
+				{   my (a, b) = split xs;
+
+				    (   (variable_symbol, null_or_type) ! a,
+					(expression,      is_lazy     ) ! b
+				    );
+				};
+
+			    split ((raw::SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (x, _)) ! xs)
+				=> 
+				split (x ! xs);
+                        end;                    #  Losing regions 
+
+			my (yvar, decl_y)
+                            =
+                            lazy_rec_val_make_ycombinator_declaration (length rvbs);
+
+			my   (lhss, exps)   =   split rvbs;
+
+			argpat
+                            =
+                            raw::TUPLE_PATTERN (
+                                map  fn (symbol, NULL       )
+					    =>
+					    raw::VARIABLE_IN_PATTERN [symbol];
+
+				        (symbol, THE type)
+					    =>
+					    raw::TYPE_CONSTRAINT_PATTERN {
+						pattern        => raw::VARIABLE_IN_PATTERN [symbol],
+						type_constraint => type
+                                        };
+                                     end 
+
+				    lhss
+                            );
+
+			fun typecheck_fn ((expression, is_lazy),   (fexps, type_variables, finalize_deep_syntax_typevar_sets_fns))
+                            =
+			    {   my   (p, type_variable1)   =   typecheck_pattern (argpat, symbol_table, source_code_region);
+
+				symbol_table'   =   st::atop (bind_varp ([p], error_fn source_code_region), symbol_table);
+
+				my (e, type_variable2, finalize_deep_syntax_typevar_sets_fn)
+                                    =
+                                    typecheck_expression
+					#
+					(expression, symbol_table', source_code_region);
+
+                                (   FN_EXPRESSION (
+                                        complete_match
+                                            [   CASE_RULE (   p,
+                                                         if   is_lazy      e;
+                                                                      else   delay_expression e;fi
+                                                     )
+                                            ],
+
+				        UNDEFINED_TYPE
+                                    )
+                                    !
+                                    fexps,
+
+				    union   (union (type_variable1, type_variable2, error_fn  source_code_region),   type_variables,   error_fn  source_code_region),
+
+				    finalize_deep_syntax_typevar_sets_fn ! finalize_deep_syntax_typevar_sets_fns
+                                );
+			    };
+
+			my (fns, type_variables, finalize_deep_syntax_typevar_sets_fns)
+                            =
+                            fold_right
+                                 typecheck_fn
+                                 ([], tvs::empty, [])
+                                 exps;
+
+			lhs_syms   =   map #1 lhss;                #  left hand side symbols 
+			lhs_vars   =   map new_valvar lhs_syms;
+
+			#  Copied from original typecheckVALRECdec 
+
+			# When all other typechecking is complete
+			# we do a final pass computing type variable
+			# sets and plugging them into the deep syntax
+			# tree.  This reference cell:
+			#
+			ref_typevar_refs =  REF [];
+			#
+			# becomes NAMED_VALUE.ref_typevar_refs
+			# in the deep syntax tree and gets
+			# backpatched by this function:
+			#
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =  
+			    {   fun   a+++b   =   union (a, b, error_fn  source_code_region);
+				fun   a---b   =   diff  (a, b, error_fn  source_code_region);
+
+				local_type_vars   =   (type_variables +++ explicit_type_variable_refs) --- (type_variables ---- explicit_type_variable_refs);
+
+				downtypevars      =   local_type_vars +++ (type_variables ---- explicit_type_variable_refs);
+
+                                ref_typevar_refs :=  tvs::get_elements local_type_vars;
+
+				apply   (fn f = f downtypevars)
+                                        finalize_deep_syntax_typevar_sets_fns;
+			    };
+
+			decl_app_y
+                            =
+			    VALUE_DECLARATIONS
+                                [   NAMED_VALUE { pattern    => tuplepat (map VARIABLE_IN_PATTERN lhs_vars),
+				                  expression => APPLY_EXPRESSION (VARIABLE_IN_EXPRESSION (REF yvar, []), tupleexp fns),
+
+				                  ref_typevar_refs,
+                                                  bound_typevar_refs => []
+                                                }
+                                ];
+
+			fun force_strict ((symbol, var1, is_lazy),   (vbs, vars))
+                            =
+			    {   var2   =   new_valvar symbol;
+
+				named_value
+                                    =
+                                    if is_lazy
+
+                                         NAMED_VALUE { pattern    =>  VARIABLE_IN_PATTERN var2, 
+						       expression =>  VARIABLE_IN_EXPRESSION (REF var1, []),
+
+						       bound_typevar_refs => [],
+						       ref_typevar_refs   => REF []
+						     };
+				    else
+                                         NAMED_VALUE { pattern    => APPLY_PATTERN ( bt::dollar_dcon, [], (VARIABLE_IN_PATTERN var2)), 
+						       expression => VARIABLE_IN_EXPRESSION (REF var1, []),
+
+						       bound_typevar_refs =>  [],
+						       ref_typevar_refs   =>  REF []
+						     };
+                                    fi;
+
+                                (   named_value ! vbs,
+                                    var2         ! vars
+                                );
+			    };
+
+			fun zip3 (x ! xs, y ! ys, z ! zs)   =>   (x, y, z) ! zip3 (xs, ys, zs);
+			    zip3 (NIL, _, _) => NIL;
+			    zip3 _ => bug "zip3";
+                        end;
+
+			my (vbs, vars)
+                            =
+			    fold_right
+                                force_strict
+                                ([], [])
+                                (zip3 (lhs_syms, lhs_vars, map #2 exps));
+
+			symbol_table'
+                            =
+                            fold_left
+                                (   fn ((s, v), symbol_table)
+                                       =
+                                       st::bind (s, b::NAMED_VARIABLE v, symbol_table)
+                                )
+                                st::empty
+				(paired_lists::zip (lhs_syms, vars));
+
+			deep_syntax_tree   =   LOCAL_DECLARATIONS (SEQUENTIAL_DECLARATIONS [decl_y, decl_app_y], VALUE_DECLARATIONS vbs);
+
+			show_declaration ("typecheckVALREClazy: ", deep_syntax_tree, symbol_table');
+
+			(   deep_syntax_tree,
+                            symbol_table',
+                            tvs::empty,    # ?
+                            finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }                              #  fun typecheckVALREClazy 
+
+		also
+		fun typecheck_valrecdec (   rvbs: List( raw::Named_Recursive_Value ),
+					    explicit_type_variable_refs,
+					    symbol_table,
+					    inverse_path: ip::Inverse_Path,
+					    source_code_region
+					)
+                    = 
+		    {   explicit_type_variable_refs
+                            =
+                            tvs::make_type_variable_set (
+                                tt::typecheck_type_variable_list (
+                                    explicit_type_variable_refs,
+                                    error_fn,
+                                    source_code_region
+                                )
+                            );
+
+			fun is_lazy (raw::NAMED_RECURSIVE_VALUE { is_lazy, ... } )
+                                =>
+                                is_lazy;
+
+			    is_lazy (raw::SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (named_recursive_values, _)  )
+                                =>
+                                is_lazy named_recursive_values;
+                        end;
+
+                        if   (list::exists is_lazy rvbs)
+			    
+                             typecheck_valreclazy   (rvbs, explicit_type_variable_refs, symbol_table, source_code_region);
+			else typecheck_valrecstrict (rvbs, explicit_type_variable_refs, symbol_table, source_code_region);
+                        fi; 
+		    }
+
+		also
+		fun typecheck_seqdec (ds, symbol_table, inverse_path: ip::Inverse_Path, source_code_region)
+                    =
+		    {   my (ds1, symbol_table1, type_variable1, finalize_deep_syntax_typevar_sets_fns)
+                            = 
+			    fold_left 
+			        (   fn (decl2, (ds2, symbol_table2, type_variables2, update2))
+                                       =
+				       {   my (d3, symbol_table3, type_variables3, update3)
+                                               =
+					       typecheck_declaration' (
+                                                   decl2,
+                                                   st::atop (symbol_table2, symbol_table),
+                                                   inverse_path,
+                                                   source_code_region
+                                               );
+
+                                           (   d3 ! ds2,
+                                               st::atop (symbol_table3, symbol_table2), 
+					       union (type_variables3, type_variables2,   error_fn  source_code_region),
+                                               update3 ! update2
+                                           );
+				       }
+                                )
+
+			        ([], st::empty, tvs::empty, [])
+
+                                ds;
+
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =
+                            apply   (fn f = f typevar_set)
+                                    finalize_deep_syntax_typevar_sets_fns;
+
+
+                        (   SEQUENTIAL_DECLARATIONS (reverse ds1),
+                            symbol_table1,
+                            type_variable1,
+                            finalize_deep_syntax_typevar_sets_fn
+                        );
+		    }
+
+
+                #  Translation from raw syntax to deep syntax
+                #  of (in the most general case) a sequence of
+                #  mutually recursive function definitions, each
+                #  composed of a sequence of
+                #      fun pattern => expression
+                #  clauses.
+                #
+                #  We do this via a two-phase process consisting of:
+                #
+                #   o  An analysis phase
+                #          which locates all the functions and
+                #          creates symbol table definitions for
+                #          them with place-holders where their
+                #          eventual translations will be;
+                #   
+                #   o  A synthesis phase
+                #          which does the actual translation from
+                #          raw syntax to deep syntax, armed with
+                #          the above-gathered information.
+                #
+                #  Input:
+                #     'functionNamings'
+                #         is in general the raw syntax parsetree
+                #         for something like
+                #
+                #             fun foo this = expression1;
+                #               | foo that = expression2;
+                #
+                #             and bar this = expression3; 
+                #               | bar that = expression4;
+                #
+                #         It takes the form essentially of a list of
+                #         NAMED_FUNCTION nodes, one per function
+                #         defined -- in the above case, two, one for 'foo',
+                #         one for 'bar'.
+                #
+                #     'explicitTypeVariables'
+                #         is almost always NIL in practice -- it supports
+                #         the very rarely used option of preceding a statement
+                #         with a list of type variables to be used in it.
+                #
+                #     'symbol_table'
+                #         is the topl-level symbol table passed down
+                #         ultimately from read-eval-print-loop-g.pkg
+                #         or such, augmented by additional local declarations
+                #         as appropriate.
+                #
+                #     'inverse_path'
+                #         appears to be something vaguely like the
+                #         (inverse) symbol leading to the package
+                #         (or whatever) currently being compiled.
+                #         It is hard to find any uses of it. :-/   XXX BUGGO FIXME
+                #
+                #     'source_code_region'
+                #         is as usual just the line-column source-code
+                #         range corresponding to the statement being
+                #         typechecked, for diagnostic message purposes.
+                #
+                # Result:
+                #     We return a quadruple
+                #
+                #         (deepSyntax, resultSymbolTable, typeVariableSet, update)
+                #
+                #     where:
+                #
+                #         'deepSyntax'
+                #             is the typechecked version of our 'functionNamings' argument.
+                #
+                #         'resultSymbolTable'
+                #             is XXX BUGGO FIXME
+                #
+                #         'typeVariableSet'
+                #             is XXX BUGGO FIXME
+                #
+                #         'update'
+                #             is XXX BUGGO FIXME
+
+		also
+		fun typecheck_smlfundec (named_functions, explicit_type_variable_refs, symbol_table, inverse_path, source_code_region)
+                    =
+		    {   explicit_type_variable_refs
+                            =
+                            tvs::make_type_variable_set (
+                                tt::typecheck_type_variable_list (
+                                    explicit_type_variable_refs,
+                                    error_fn,
+                                    source_code_region
+                                )
+                            );
+
+                        # Analysis Phase processing of a function declaration.
+                        #
+			# Here we analyse the function's raw-syntax tree to:
+                        #
+                        #  o  Check for syntax errors,
+                        #
+                        #  o  Determine the function name,
+                        #
+                        #  o  Create a variables_and_constructors::variable::ORDINARY_VARIABLE
+                        #     symboltable-entry record to represent the function being defined, and
+                        #
+                        #  o  Enter it into our symbol table.
+                        #
+                        # Our first argument is just the relevant source
+                        # code region, for error diagnostic purposes.
+                        #
+                        # Our second argument is a pair (input, result) where:
+                        # 
+                        #     'input'   is the raw syntax tree for the sequence
+                        # 
+                        #                   fun foo this = expression1;
+                        #                     | foo that = expression2;
+                        #                       ...
+                        #
+                        #               naming some function to 'foo'.
+                        #
+                        #               This will consist essentially of an
+                        #               NAMED_FUNCTION node containing a list of
+                        #               PATTERN_CLAUSE nodes -- in the above
+                        #               example two such nodes, one per source line.
+                        #
+                        #      'result' is the result so far, a pair (functions, symbol_table)
+                        #               in which:
+                        #
+                        #                   'functions'
+                        #                       is a list containing one
+                        #                           (symbol_table_entry, pattern_clauses, source_region)
+                        #                       triple per function definition
+                        #
+                        #                    'symbol_table'
+                        #                        has been updated with entries for these functions.
+                        #
+                        # We update the 'result' argument and return it as our result.
+			#
+			fun digest_one_named_function _ (raw::SOURCE_CODE_REGION_FOR_NAMED_FUNCTION (named_function, named_functionregion), result_so_far)
+				=>
+				digest_one_named_function named_functionregion (named_function, result_so_far);
+
+			    digest_one_named_function  named_functionregion  (raw::NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type }, (clause_list_so_far, symbol_table'))
+				=>
+				{   fun get_fixity (THE f)   =>   lu::find_fixity_by_symbol (symbol_table, f);
+				        get_fixity  NULL     =>   fixity::NONFIX;
+                                    end;
+
+
+				    # Check that 'fixity' is -not- NONFIX,
+				    # then return 'item':
+
+				    fun ensure_infix { item, fixity, source_code_region }
+					=
+					{   case (get_fixity fixity)
+
+					         fixity::NONFIX
+						 =>
+						 error_fn
+						     source_code_region
+						     em::ERROR
+						     "infix operator required, or delete parentheses" 
+						     em::null_error_body;
+
+						_ => ();
+                                            esac;
+
+					    item;
+					};
+
+				    # Check that 'fixity' is NONFIX,
+				    # then return 'item':
+
+				    fun ensure_nonfix { item, fixity, source_code_region }
+					=
+					{   case (get_fixity fixity, fixity)
+
+					         (fixity::NONFIX, _) => ();
+
+						(_, THE symbol)
+						 =>
+						 error_fn
+						     source_code_region
+						     em::ERROR
+						     (   "infix operator \""
+						     +   s::name symbol
+						     +   "\" used without \"op\" in fun declaration"
+						     )
+						     em::null_error_body;
+
+						_ => bug "ensureNonfix";
+                                            esac;
+
+					    item;
+					};
+
+				    # Extract the function "name"
+				    # (a value-space symbol::symbol)
+				    # from the "pattern" part of a
+				    #    "fun pattern => expression"
+				    # raw syntax pattern clause.
+				    #
+				    # This basically just means looking
+				    # for the root VARIABLE_IN_PATTERN node:
+				    #
+				    fun get_function_name (raw::SOURCE_CODE_REGION_FOR_PATTERN (p, source_code_region), _)
+					    =>
+					    get_function_name (p, source_code_region);
+
+				        get_function_name (raw::VARIABLE_IN_PATTERN [v], _)
+					    =>
+					    v;
+
+				        get_function_name (_, source_code_region)
+					    => 
+					    {   error_fn
+						    source_code_region
+						    em::ERROR
+						    "illegal function symbol in clause"
+						    em::null_error_body;
+
+						bogus_id;
+					    };
+                                    end;
+
+
+
+				    # See comment on "fun get_fun_name_and_argument_list", below. 
+				    #
+				    fun get_fun_name_and_argument_list'
+                                            ( { item => raw::PRE_FIXITY_PATTERN [ a,
+										  b as { source_code_region, ... },
+										  c
+										],
+						...
+					      }
+					      !
+					      rest
+					    )
+					    => 
+					    ( get_function_name (ensure_infix b, source_code_region),
+					      tuple_pattern (ensure_nonfix a, ensure_nonfix c)   !   map ensure_nonfix rest
+					    );
+
+				        get_fun_name_and_argument_list' [ { item, source_code_region, ... } ]
+					    => 
+					    {   error_fn
+						    source_code_region
+						    em::ERROR
+						    "can't find function arguments in clause"
+						    em::null_error_body;
+
+						( get_function_name (item, source_code_region),
+						  [ raw::WILDCARD_PATTERN ]
+						);
+					    };
+
+				        get_fun_name_and_argument_list' ((a as { source_code_region, ... } ) ! rest)
+					    =>
+					    ( get_function_name (ensure_nonfix a, source_code_region), 
+					       map ensure_nonfix rest
+					    );
+
+				        get_fun_name_and_argument_list' []
+                                            =>
+                                            bug "get_fun_name_and_argument_list':[]";
+                                    end;
+
+					  #  XXX BUGGO FIXME Is there any need for the above to be a separate fun from below? 
+
+
+
+				    # We're given the 'patterns' list
+				    # from an PATTERN_CLAUSE
+				    # raw-syntax node representing a
+				    #
+				    #    fun pattern = expression
+				    #
+				    # parsetree or the like.
+				    #
+				    # We need to return a pair (name, args) where
+				    #
+				    #    'name' is the symbol naming the
+				    #           function being defined and
+				    #
+				    #    'args' is the list of (raw syntax trees for the)
+				    #           arguments to which that function
+				    #           is being applied.  
+				    #
+				    fun get_fun_name_and_argument_list ( { item => raw::SOURCE_CODE_REGION_FOR_PATTERN (pattern, _), source_code_region, fixity }   !   rest)
+					    => 
+					    get_fun_name_and_argument_list ( { item   => pattern,
+								source_code_region,
+								fixity
+							      }
+							      !
+							      rest
+							    );
+
+				        get_fun_name_and_argument_list ( patterns as [ a as { source_code_region => ra, ... },
+										 b as { item, fixity, source_code_region },
+										 c
+									       ]
+								  )
+					    =>
+					    case (get_fixity fixity)   
+
+						fixity::NONFIX => get_fun_name_and_argument_list' patterns;
+
+						_ => (   get_function_name (item, source_code_region),
+
+							  [ tuple_pattern (  ensure_nonfix a,
+									    ensure_nonfix c
+									 )
+							  ]
+						      );
+					   esac;
+
+
+				        get_fun_name_and_argument_list patterns
+					   =>
+					   get_fun_name_and_argument_list' patterns;
+				   end;
+
+
+
+				    # Map the raw syntax tree
+				    # representing one
+				    #
+				    #     fun foo this = expression;
+				    #
+				    # input expression to the five-field
+				    # record with which we will
+				    # represent it henceforth:
+				    #
+				    fun digest_pattern_clause (raw::PATTERN_CLAUSE { patterns, result_type, expression } )
+					=
+					{   (get_fun_name_and_argument_list  patterns)
+                                                ->
+                                                ( function_symbol,
+                                                  raw_syntax_argument_patterns
+                                                );
+
+					    { kind                      => STRICT,
+					      function_symbol,
+					      raw_syntax_argument_patterns,
+					      result_type,
+					      raw_syntax_expression       => expression
+					    };
+					};
+
+				    # Given a list of raw-syntax
+				    # PATTERN_CLAUSE nodes, 
+				    # each representing one line of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    #
+				    # function definition, sanity-check them all,
+				    # convert each to more convenient record form,
+				    # and construct a result list
+				    #     'digestedSmlPatternClauses'
+				    # of those records.
+				    #
+				    # Each entry in this list is a triple
+				    #     (name, patternClauses, sourceRegion)
+				    # representing one function definition where
+				    # 'patternClauses' is in turn a list of records
+				    #     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+				    # and 'rawSyntaxArgumentPatterns' is in its turn a list of
+				    # raw-syntax pattern parsetrees.
+				    #
+				    # As a convenience, we also return the
+				    # value-space symbol::symbol naming the
+				    # function being defined, extracted
+				    # from the pattern clauses:
+				    #
+				    my (digested_pattern_clauses, function_symbol)
+					= 
+					case (map digest_pattern_clause pattern_clauses)
+					  
+					     []  => bug "typecheck-core-language: No clauses";
+
+					     (l as ( { function_symbol, ... } ! _))
+						 =>
+						 (l, function_symbol);
+                                        esac;
+
+				    # Syntax check:
+				    # Given our 'digestedSmlPatternClauses' list of
+				    #     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+				    # records representing the lines of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    # 
+				    # function definition, check that
+				    # all the 'foo' are the same symbol:
+				    #
+				    if (  list::exists
+					      (   fn { function_symbol=>my_function_symbol, ... }
+						     =
+						     not (s::eq (function_symbol, my_function_symbol))
+					      )
+					      digested_pattern_clauses
+                                       )
+
+					 error_fn
+					     named_functionregion
+					     em::ERROR 
+					     "clauses don't all have same function name"
+					     em::null_error_body;
+				    fi;
+
+
+	       # David B MacQueen: fix bug 1357 -- allow 'fun' to rebind data constructor names:
+	       #			checkBoundConstructor (symbol_table, functionSymbol, error_fn function_namingregion);
+
+
+				    # Create a symbol table entry record for
+				    # the function being defined, of type
+				    #
+				    #     variables_and_constructors::variable::ORDINARY_VARIABLE
+				    #
+				    # NB: Actually entering this record into a
+				    #     symbol table is a separate operation,
+				    #     done later.
+				    #
+				    fun_symbol_table_entry
+                                        =
+                                        new_valvar  function_symbol;
+
+
+
+				    # Syntax check:
+				    # Given our 'digestedSmlPatternClauses' list of
+				    # 
+				    #     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+				    # 
+				    # records representing the lines of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    # 
+				    # function definition, check that
+				    # 'this', 'that' &tc are all the
+				    # same arity (number of arguments):
+				    #
+				    arity
+					= 
+					case digested_pattern_clauses
+					  
+					     ( { raw_syntax_argument_patterns, ... } ) ! rest
+						 => 
+						 {   len   =   length raw_syntax_argument_patterns;
+
+						     if ( list::exists
+							      (   fn { raw_syntax_argument_patterns, ... }
+								     =
+								     len != length raw_syntax_argument_patterns
+							      )
+							      rest
+						     )
+							  error_fn
+							      named_functionregion
+							      em::ERROR 
+							      "clauses don't all have same number of patterns"
+							      em::null_error_body;
+
+						     fi;
+
+						     len;
+						 };
+
+					    []   =>   bug "typecheckSMLFUNdec: no clauses";
+                                        esac;
+
+												   #  digest_one_named_function _ (RAW::NAMED_FUNCTION ... ) 
+				    if   is_lazy #  LAZY 
+
+				         # Make a list of value-space
+					 # symbols   [ @@@1, @@@2, ... ]
+					 #
+					 fun make_list_of_numbered_value_symbols (0, result_list)
+                                                 =>
+                                                result_list;
+
+					     make_list_of_numbered_value_symbols (n, result_list)
+						 => 
+						 make_list_of_numbered_value_symbols ( n - 1,
+							   [ s::make_value_symbol ("@@@" + int::to_string n) ]   !   result_list
+
+							 );
+                                         end;
+
+					 fun curry_apply_expression (f, [])
+                                                 =>
+                                                 f;
+
+					     curry_apply_expression (f, x ! xs)
+						 =>
+						 curry_apply_expression (
+						     raw::APPLY_EXPRESSION {   function => f,
+									      argument => x
+									  },
+						     xs
+						 );
+                                         end;
+
+					 lazy_var_symbol   =   s::make_value_symbol (s::name function_symbol + "_");
+
+					 lazy_var   =   new_valvar lazy_var_symbol;
+
+					 fun make_lazy (new, resty, [])
+                                                 =>
+                                                 (reverse new, resty);
+
+					     make_lazy (new, resty, { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }   !   rest)
+						 =>
+						 make_lazy ( {   kind                      => LAZY_INNER,
+								function_symbol                    => lazy_var_symbol,
+								raw_syntax_argument_patterns,
+								result_type                => NULL,     #  moved to outer clause 
+								raw_syntax_expression
+							    }
+							     !
+							    new,
+
+							  case resty
+							       NULL => result_type;
+							      _    => resty;
+                                                          esac,
+
+							  rest
+							);
+                                         end;
+
+					 # BUG: this captures the first result_type encountered,
+					 # if any, and discards the rest, not checking
+					 # consistency of redundant result_type constraints
+					 # XXX BUGGO FIXME
+
+					 my (innerclauses, result_type)
+					     =
+					     make_lazy ([], NULL, digested_pattern_clauses);
+
+					 outerargs   =   make_list_of_numbered_value_symbols (arity, []);
+
+					 outerclause
+					     = 
+					     {   kind                         => LAZY_OUTER,
+						 function_symbol,
+						 result_type,
+						 raw_syntax_argument_patterns => map raw::VARIABLE_IN_PATTERN outerargs,
+						 raw_syntax_expression        => curry_apply_expression (
+										  raw::VARIABLE_IN_EXPRESSION [lazy_var_symbol],
+										  map raw::VARIABLE_IN_EXPRESSION outerargs
+									      )
+					     };
+
+					 (   (lazy_var, innerclauses, named_functionregion) ! (fun_symbol_table_entry, [outerclause], named_functionregion)   !   clause_list_so_far,
+
+					     st::bind (
+						 function_symbol,
+						 b::NAMED_VARIABLE fun_symbol_table_entry,
+						 st::bind (
+						     lazy_var_symbol,
+						     b::NAMED_VARIABLE lazy_var,
+						     symbol_table'
+						 )
+					     )
+					 );
+
+				    else                                                                      #  Not lazy. 
+					 # Prepend the digested function naming
+					 # to our result list, and also enter
+					 # the function into our symbol table:
+					 #
+					 (   (fun_symbol_table_entry, digested_pattern_clauses, named_functionregion)   !   clause_list_so_far,
+
+					     st::bind (function_symbol,   b::NAMED_VARIABLE fun_symbol_table_entry,   symbol_table')
+					 );
+                                    fi;
+				};
+                            end;               #  fun digest_one_named_function 
+
+
+			    # Given our list 'named_functions'
+			    # which represents some input like
+			    #
+			    #     fun foo this = expression1;
+			    #       | foo that = expression2;
+			    #
+			    #     and bar this = expression3; 
+			    #       | bar that = expression4;
+			    #
+			    # via one raw-syntax NAMED_FUNCTION
+			    # node per function (e.g. "foo" or "bar" or ...),
+			    # apply 'digestOneFunctionNaming' once
+			    # per list entry, collecting the resulting
+			    # digested raw-syntax trees in a list
+			    #
+			    #     digested_named_functions
+			    #
+			    # Each entry in this list is a triple
+			    #
+			    #     (symbolTableEntry, patternClauses, sourceRegion)
+			    #
+			    # representing one function definition where
+			    # 'patternClauses' is in turn a list of records
+			    #
+			    #     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+			    #
+			    # and 'rawSyntaxArgumentPatterns' is in its turn a list of
+			    # raw-syntax pattern parsetrees.
+			    #
+			    # We also construct a symbol_table' with
+			    # one (placeholder) entry for each
+			    # thus-defined function.
+
+			    my (digested_named_functions, symbol_table')
+				=
+				fold_left
+				    (digest_one_named_function source_code_region)
+				    ([], st::empty)
+				    named_functions;
+
+			    # Construct a new symbol table containing
+			    # both all pre-existing definitions and
+			    # also the ones defined by the 'fun'
+			    # statement we're processing:
+			    #
+			    symbol_table''
+                                =
+                                st::atop (symbol_table', symbol_table);
+
+
+
+			    # Synthesis Phase processing of one
+			    #
+			    #     fun pattern => expression
+			    #
+			    # clause.
+			    #
+			    # INPUT:
+			    #     Our first argument is the source code
+			    #     region for the clause, for diagnostic-
+			    #     printing purposes.
+			    #
+			    #     Our second argument is one "pattern => expression"
+			    #     clause from a function definition, which at this
+			    #     point has been digested from a raw syntax tree
+			    #     into a handier five-slot record
+			    #
+			    #         { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+			    #
+			    #     courtesy of digestSmlPatternClause above.
+			    #
+			    # RETURN:
+			    #     Our return value is a triple
+			    #
+			    #         (clause, type_variables, finalize_deep_syntax_typevar_sets_fn)
+			    #
+			    #     where
+			    #
+			    #         'clause'
+			    #             is a record
+			    #                 { deepSyntaxPatterns,     # Deep-syntax translation of 'rawSyntaxArgumentPatterns' above. 
+			    #                   deepSyntaxExpression,   # Deep-syntax translation of 'expression' above.
+			    #                   result_type              # (NULL, empty typevariable set) if not yet known, else
+			    #                                           # (THE types::Type, tvs::Type_Variable_Set)
+			    #                 }
+			    #
+			    #         'type_variables'
+			    #             is the set of all type_variables used in 'clause' above
+			    #
+			    #         'finalize_deep_syntax_typevar_sets_fn'
+			    #             something about building up a post-pass
+			    #             function to be applied to all type variables.  XXX BUGGO FIXME
+			    #
+			    fun synthesize_pattern_clause (source_code_region, ( { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression } ))
+				=
+				{   # Typecheck the patterns first:
+
+				    my (deep_syntax_patterns, type_variable1)
+					=
+					typecheck_pattern_list (raw_syntax_argument_patterns, symbol_table, source_code_region);
+
+				    # To properly typecheck the 'expression' side
+				    # our clause, we need a symbol table which includes:
+				    # 
+				    #  o  All visible external namings;
+				    #  o  All functions declared in the current 'fun' statement; and
+				    #  o  All namings established by the patterns for the rule.
+				    # 
+				    # Construct the required symbol table:
+				    #
+				    symbol_table_with_pattern_namings_added
+					=
+					st::atop (bind_varp (deep_syntax_patterns,   error_fn  source_code_region),   symbol_table'');
+
+				    # With the preceding now in hand, we
+				    # can now go ahead and typecheck the
+				    # 'expression' half of the current
+				    #     fun pattern => expression
+				    # clause:
+				    #
+				    my (deep_syntax_expression, type_variable2, finalize_deep_syntax_typevar_sets_fn)
+					=
+					typecheck_expression (raw_syntax_expression, symbol_table_with_pattern_namings_added, source_code_region);
+
+				    # LAZY: Wrap delay or force around rhs as appropriate
+				    #
+				    deep_syntax_expression
+					= 
+					case kind
+					     STRICT       =>                   deep_syntax_expression;
+					    LAZY_OUTER   =>   delay_expression deep_syntax_expression;
+					    LAZY_INNER   =>   force_expression deep_syntax_expression;
+                                        esac;
+
+				    my (type, type_variable3)
+					=
+					case result_type
+					  
+					     NULL
+                                                 =>
+                                                 (NULL, tvs::empty);
+
+					     THE type
+						 => 
+						 {   my (t4, type_variable4)
+							 =
+							 tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+						     ( THE t4,
+						       type_variable4
+						     );
+						 };
+                                        esac;
+
+
+				    ( { deep_syntax_patterns,
+					result_type            =>  type,
+					deep_syntax_expression
+				      },
+
+				      union (type_variable1, union (type_variable2, type_variable3, error_fn  source_code_region), error_fn  source_code_region),
+
+				      finalize_deep_syntax_typevar_sets_fn
+				    );
+				};
+
+			    # Synthesis Phase processing of a function declaration.
+			    #
+			    # The first argument contains inputs,
+			    # the second argument contains accumulated results-so-far.
+			    #
+			    # On the input side:
+			    #
+			    #     'functionSymbolTableEntry' is the newly constructed
+			    #                 variables_and_constructors::variable::ORDINARY_VARIABLE
+			    #                 symbol-table entry for the function being defined.
+			    #
+			    #     'clauses'   is the list of "pattern => expression" clauses
+			    #                 which collectively define the new function.
+			    #
+			    #                 At this point, they have been digested from
+			    #                 raw syntax trees into handier five-slot records
+			    #
+			    #                     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+			    #
+			    #                 courtesy of digestSmlPatternClause above.
+			    #
+			    #     'source_code_region'
+			    #                 merely gives the line-column begin/end
+			    #                 points for the relevant source code, for
+			    #                 diagnostic printing purposes. 
+			    #
+			    #
+			    # On the output side:
+			    #
+			    #     'functions' is a list of triples
+			    #                     (functionName, functionClauses, source_code_region)
+			    #
+			    #     'type_variables'
+			    #             is the set of all type_variables used
+			    #
+			    #     'finalize_deep_syntax_typevar_sets_fns'
+			    #             something about building up a post-pass
+			    #             function to be applied to all type variables.  XXX BUGGO FIXME
+			    #
+			    fun synthesize_function_declaration (
+				    (function_symbol_table_entry, raw_syntax_clauses, source_code_region),   #  Inputs.              
+				    (deep_syntax_functions, type_variables, finalize_deep_syntax_typevar_sets_fns)                      #  Result accumulators. 
+				)
+				= 
+				{   my (deep_syntax_clauses1, type_variables1, finalize_deep_syntax_typevar_sets_fn1)
+					=
+					# Run the 'raw_syntax_clauses' one by one
+					# through 'synthesize_pattern_clause'
+					# and collect the lists of results:
+					#
+					fold_left
+					    (   fn (raw_syntax_clause2, (deep_syntax_clauses2, type_variables2, finalize_deep_syntax_typevar_sets_fns2))
+						   =
+						   {   my (deep_syntax_clause3, type_variables3, finalize_deep_syntax_typevar_sets_fn3)
+							   =
+							   synthesize_pattern_clause (source_code_region, raw_syntax_clause2);
+
+						       ( deep_syntax_clause3 ! deep_syntax_clauses2,
+							 union (type_variables3, type_variables2, error_fn  source_code_region),
+							 finalize_deep_syntax_typevar_sets_fn3 ! finalize_deep_syntax_typevar_sets_fns2
+						       );
+						   }
+					    ) 
+
+					    ([], tvs::empty, [])
+
+					    raw_syntax_clauses;
+
+				    ( (function_symbol_table_entry, reverse deep_syntax_clauses1, source_code_region) ! deep_syntax_functions,
+				      union (type_variables1, type_variables, error_fn  source_code_region),
+				      finalize_deep_syntax_typevar_sets_fn1 @ finalize_deep_syntax_typevar_sets_fns
+				    );
+				};
+
+			    # Run all of our 'digested_named_functions'
+			    # one by one through the above 'synthesize_function_declaration'
+			    # and accumulate the result lists:
+			    #
+			    my (deep_syntax_named_functions, fn_type_vars, finalize_deep_syntax_typevar_sets_fns)
+				=
+				fold_left
+				    synthesize_function_declaration
+				    ([], tvs::empty, [])
+				    digested_named_functions;
+
+
+			    # When all other typechecking is complete
+                            # we do a final pass computing type variable
+                            # sets and plugging them into the deep syntax
+                            # tree.  This reference cell:
+                            #
+			    ref_typevar_refs =  REF [];           #  Common typeVariableref cell for all namings!   # XXX BUGGO FIXME Is this what we really want? 
+			    #
+                            # becomes NAMED_RECURSIVE_VALUES.ref_typevar_refs
+			    # in the deep syntax tree and gets
+                            # backpatched by this function:
+			    #
+			    fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+				=  
+				{   fun   a+++b   =   union (a, b, error_fn  source_code_region);
+				    fun   a---b   =   diff  (a, b, error_fn  source_code_region);
+
+				    local_type_vars   =   (fn_type_vars +++ explicit_type_variable_refs) --- (typevar_set ---- explicit_type_variable_refs);
+
+				    downtypevars      =   local_type_vars +++ (typevar_set ---- explicit_type_variable_refs);
+
+
+				    ref_typevar_refs :=  tvs::get_elements local_type_vars;
+
+				    apply  (fn f = f downtypevars)
+                                           finalize_deep_syntax_typevar_sets_fns;
+				};
+
+			    fun make_named_function (var as ORDINARY_VARIABLE { path => symbol_path::SYMBOL_PATH [_], ... }, clauses, source_code_region)
+				    =>
+				    { var,
+				      clauses,
+				      ref_typevar_refs,
+				      source_code_region
+				    };
+
+			        make_named_function _
+                                    =>
+                                    bug "typecheckSMLFUNdec::makeFunctionNaming";
+                            end;
+
+												#  fun typecheckSMLFUNdec 
+
+			    tcs::forbid_duplicates_in_list (
+				error_fn  source_code_region,
+				"duplicate function names in fun declaration",
+				(map fn (ORDINARY_VARIABLE { path => symbol_path::SYMBOL_PATH [x], ... }, _, _)
+					 =>
+					 x;
+
+					 _   =>   bug "typecheckSMLFUNdec: forbid_duplicates_in_list";
+				     end 
+				     deep_syntax_named_functions
+				)
+			    );
+
+			    {   my (new_declaration, new_symbol_table)
+				    = 
+				    tcs::make_deep_syntax_for_mutually_recursive_functions
+                                        #
+                                        ( complete_match,
+
+                                          map  make_named_function
+                                               deep_syntax_named_functions,
+
+                                          compile_info
+                                        );
+
+				show_declaration ("typecheckSMLFUNdec: ", new_declaration, new_symbol_table);
+
+				( new_declaration,
+				  new_symbol_table,
+				  tvs::empty,
+				  finalize_deep_syntax_typevar_sets_fn
+				);
+			    };
+			}                                                                     # fun typecheck_smlfundec
+
+                #  Translation from raw syntax to deep syntax
+                #  of (in the most general case) a sequence of
+                #  mutually recursive function definitions, each
+                #  composed of a sequence of
+                #      fun pattern => expression
+                #  clauses.
+                #
+                #  We do this via a two-phase process consisting of:
+                #
+                #   o  An analysis phase
+                #          which locates all the functions and
+                #          creates symbol table definitions for
+                #          them with place-holders where their
+                #          eventual translations will be;
+                #   
+                #   o  A synthesis phase
+                #          which does the actual translation from
+                #          raw syntax to deep syntax, armed with
+                #          the above-gathered information.
+                #
+                #  Input:
+                #     'named_functions'
+                #         is in general the raw syntax parsetree
+                #         for something like
+                #
+                #             fun foo this = expression1;
+                #               | foo that = expression2;
+                #
+                #             and bar this = expression3; 
+                #               | bar that = expression4;
+                #
+                #         It takes the form essentially of a list of
+                #         NADA_NAMED_FUNCTION nodes, one per function
+                #         defined -- in the above case, two, one for 'foo',
+                #         one for 'bar'.
+                #
+                #     'explicit_type_ariable_refs'
+                #         is almost always NIL in practice -- it supports
+                #         the very rarely used option of preceding a statement
+                #         with a list of type variables to be used in it.
+                #
+                #     'symbol_table'
+                #         is the topl-level symbol table passed down
+                #         ultimately from read-eval-print-loop-g.pkg
+                #         or such, augmented by additional local declarations
+                #         as appropriate.
+                #
+                #     'inverse_path'
+                #         appears to be something vaguely like the
+                #         (inverse) symbol leading to the package
+                #         (or whatever) currently being compiled.
+                #         It is hard to find any uses of it. :-/   XXX BUGGO FIXME
+                #
+                #     'source_code_region'
+                #         is as usual just the line-column source-code
+                #         range corresponding to the statement being
+                #         typechecked, for diagnostic message purposes.
+                #
+                # Result:
+                #     We return a quadruple
+                #
+                #         ( deep_syntax,
+                #           result_symbol_table,
+                #           type_variable_set,
+                #           update
+                #         )
+                #
+                #     where:
+                #
+                #         'deep_syntax'
+                #             is the deep_syntax translation of our
+                #             raw_wyntax 'named_functions' argument.
+                #
+                #         'result_symbol_table'
+                #             is XXX BUGGO FIXME
+                #
+                #         'type_variable_set'
+                #             is XXX BUGGO FIXME
+                #
+                #         'update'
+                #             is XXX BUGGO FIXME
+		#
+		also
+		fun typecheck_lib7fundec
+                    (
+                      named_functions,
+                      explicit_type_variable_refs,
+                      symbol_table,
+                      inverse_path,
+                      source_code_region
+                    )
+                    =
+		    {   explicit_type_variable_refs                     #  Buggo, should kill all this stuff. 
+                            =
+                            tvs::make_type_variable_set (
+                                tt::typecheck_type_variable_list (
+                                    explicit_type_variable_refs,
+                                    error_fn,
+                                    source_code_region
+                                )
+                            );
+
+                        # Analysis Phase processing of a function declaration.
+                        #
+			# Here we analyse the function's raw-syntax tree to:
+                        #
+                        #  o  Check for syntax errors,
+                        #
+                        #  o  Determine the function name,
+                        #
+                        #  o  Create a variables_and_constructors::variable::ORDINARY_VARIABLE
+                        #     symboltable-entry record to represent the function being defined, and
+                        #
+                        #  o  Enter it into our symbol table.
+                        #
+                        # Our first argument is just the relevant source
+                        # code region, for error diagnostic purposes.
+                        #
+                        # Our second argument is a pair (input, result) where:
+                        # 
+                        #     'input'   is the raw syntax tree for the sequence
+                        # 
+                        #                   fun foo this = expression1;
+                        #                     | foo that = expression2;
+                        #                       ...
+                        #
+                        #               naming some function to 'foo'.
+                        #
+                        #               This will consist essentially of an
+                        #               NADA_NAMED_FUNCTION node containing a list of
+                        #               NADA_PATTERN_CLAUSE nodes -- in the above
+                        #               example two such nodes, one per source line.
+                        #
+                        #      'result' is the result so far, a pair (functions, symbol_table)
+                        #               in which:
+                        #
+                        #                   'functions'
+                        #                       is a list containing one
+                        #                           (symbolTableEntry, patternClauses, sourceRegion)
+                        #                       triple per function definition
+                        #
+                        #                    'symboltable'
+                        #                        has been updated with entries for these functions.
+                        #
+                        # We update the 'result' argument and return it as our result.
+			#
+			fun digest_one_named_function _ (raw::SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (named_function, named_functionregion), result_so_far)
+				=>
+				digest_one_named_function
+                                    named_functionregion
+                                   (named_function, result_so_far);
+
+			    digest_one_named_function named_functionregion (raw::NADA_NAMED_FUNCTION (pattern_clauses, is_lazy), (clause_list_so_far, symbol_table'))
+				=>
+				{   # We're given the 'patterns' list
+				    # from a NADA_PATTERN_CLAUSE
+				    # raw-syntax node representing a
+				    #
+				    #    fun pattern = expression
+				    #
+				    # parsetree or the like.
+				    #
+				    # We need to return a pair (name, args) where
+				    #
+				    #    'name' is the symbol naming the
+				    #           function being defined and
+				    #
+				    #    'args' is the list of (raw syntax trees for the)
+				    #           arguments to which that function
+				    #           is being applied.  
+				    #
+				    fun get_fun_name_and_argument_list ( raw::SOURCE_CODE_REGION_FOR_PATTERN (pattern, _) )
+					    => 
+					    get_fun_name_and_argument_list ( pattern );
+
+				        get_fun_name_and_argument_list ( raw::APPLY_PATTERN { constructor => raw::VARIABLE_IN_PATTERN [v], argument } )
+					    =>  
+					    ( v,
+					      [ argument ]
+					    );
+
+				        get_fun_name_and_argument_list _
+                                            =>
+                                            bug "get_fun_name_and_argument_list: Unsupported NADA_PATTERN_CLAUSE 'pattterns' value";
+                                    end;
+
+    /* XXX BUGGO FIXME We need to handle a curried function declaration
+       fun (apply (apply f x) y) = expression
+    here.
+    */
+
+					#  XXX BUGGO FIXME need to get rid of the superfluous list wrapper all through here. 
+
+
+				    # Map the raw syntax tree
+				    # representing one
+				    #
+				    #     fun foo this = expression;
+				    #
+				    # input expression to the five-field
+				    # record with which we will
+				    # represent it henceforth:
+				    #
+				    fun digest_lib7pattern_clause (raw::NADA_PATTERN_CLAUSE { pattern, result_type, expression } )
+					=
+					{   my (function_symbol, raw_syntax_argument_patterns)
+                                                =
+                                                get_fun_name_and_argument_list  pattern;
+
+					    {   kind                      => STRICT,
+						function_symbol,
+						raw_syntax_argument_patterns,
+						result_type,
+						raw_syntax_expression       => expression
+					    };
+					};
+
+				    # Given a list of raw-syntax
+				    # NADA_PATTERN_CLAUSE nodes, 
+				    # each representing one line of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    #
+				    # function definition, sanity-check them all,
+				    # convert each to more convenient record form,
+				    # and construct a result list
+				    #     'digestedLib7PatternClauses'
+				    # of those records.
+				    #
+				    # Each entry in this list is a triple
+				    #     (name, patternClauses, sourceRegion)
+				    # representing one function definition where
+				    # 'patternClauses' is in turn a list of records
+				    #     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+				    # and 'rawSyntaxArgumentPatterns' is in its turn a list of
+				    # raw-syntax pattern parsetrees.
+				    #
+				    # As a convenience, we also return the
+				    # value-space symbol::symbol naming the
+				    # function being defined, extracted
+				    # from the pattern clauses:
+				    #
+				    my (digested_lib7pattern_clauses, function_symbol)
+					= 
+					case (map  digest_lib7pattern_clause  pattern_clauses)
+
+					     []   =>   bug "typecheck-core-language: No clauses";
+
+					     (l as ( { function_symbol, ... } ! _))
+						 =>
+						 (l, function_symbol);
+                                        esac;
+
+				    # Syntax check:
+				    # Given our 'digested_lib7_pattern_clauses' list of
+				    #     { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }
+				    # records representing the lines of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    # 
+				    # function definition, check that
+				    # all the 'foo' are the same symbol:
+				    #
+				    if (  list::exists
+					      (   fn { function_symbol=>my_function_symbol, ... }
+						     =
+						     not (s::eq (function_symbol, my_function_symbol))
+					      )
+					      digested_lib7pattern_clauses
+                                       )
+
+					 error_fn
+					     named_functionregion
+					     em::ERROR 
+					     "clauses don't all have same function name"
+					     em::null_error_body;
+				    fi;
+
+
+	       # David B MacQueen: fix bug 1357 -- allow 'fun' to rebind data constructor names:
+	       #			checkBoundConstructor (symbol_table, functionSymbol, error_fn  functionNamingregion);
+
+
+				    # Create a symbol table entry record for
+				    # the function being defined, of type
+				    #
+				    #     variables_and_constructors::variable::ORDINARY_VARIABLE
+				    #
+				    # NB: Actually entering this record into a
+				    #     symbol table is a separate operation,
+				    #     done later.
+				    #
+				    fun_symbol_table_entry
+                                        =
+                                        new_valvar function_symbol;
+
+
+				    # Syntax check:
+				    # Given our 'digestedLib7PatternClauses' list of
+				    # 
+				    #     { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }
+				    # 
+				    # records representing the lines of a
+				    # 
+				    #     fun foo this = expression1;
+				    #       | foo that = expression2;
+				    #         ...
+				    # 
+				    # function definition, check that
+				    # 'this', 'that' &tc are all the
+				    # same arity (number of arguments):
+				    #
+				    arity
+					= 
+					case digested_lib7pattern_clauses
+
+					     ( { raw_syntax_argument_patterns, ... } ) ! rest
+					     => 
+					     {   len   =   length raw_syntax_argument_patterns;
+
+						 if ( list::exists
+							  (   fn { raw_syntax_argument_patterns, ... }
+								 =
+								 len != length raw_syntax_argument_patterns
+							  )
+							  rest
+						    )
+
+						      error_fn
+							  named_functionregion
+							  em::ERROR 
+							  "clauses don't all have same number of patterns"
+							  em::null_error_body;
+						 fi;
+
+						 len;
+					     };
+
+					    []   =>   bug "typecheckLib7FUNdec: no clauses";
+                                       esac;
+
+
+				    if   is_lazy #  LAZY 
+
+					 # Make a list of value-space
+					 # symbols   [ @@@1, @@@2, ... ]
+					 #
+					 fun make_list_of_numbered_value_symbols (0, result_list)
+                                                 =>
+                                                 result_list;
+
+					     make_list_of_numbered_value_symbols (n, result_list)
+						 => 
+						 make_list_of_numbered_value_symbols ( n - 1,
+							   [ s::make_value_symbol ("@@@" + int::to_string n) ]   !   result_list
+
+							 );
+                                         end;
+
+					 fun curry_apply_expression (f, [])
+                                                 =>
+                                                 f;
+
+					     curry_apply_expression (f, x ! xs)
+						 =>
+						 curry_apply_expression (
+						     raw::APPLY_EXPRESSION { function => f,
+									     argument => x
+									   },
+						     xs
+						 );
+                                         end;
+
+					 lazy_var_symbol   =   s::make_value_symbol (s::name function_symbol + "_");
+
+					 lazy_var   =   new_valvar lazy_var_symbol;
+
+					 fun make_lazy (new, resty, [])
+						 =>
+						 (reverse new, resty);
+
+					     make_lazy (new, resty, { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }   !   rest)
+						 =>
+						 make_lazy ( { kind            =>  LAZY_INNER,
+							       function_symbol =>  lazy_var_symbol,
+							       result_type     =>  NULL,     #  moved to outer clause 
+							       raw_syntax_argument_patterns,
+							       raw_syntax_expression
+							     }
+							     !
+							     new,
+
+							  case resty
+
+							       NULL =>  result_type;
+							       _    =>  resty;
+							  esac,
+
+							  rest
+							);
+					 end;
+
+
+					 # BUG: this captures the first result_type encountered,
+					 # if any, and discards the rest, not checking
+					 # consistency of redundant result_type constraints
+					 # XXX BUGGO FIXME
+					 #
+					 my (innerclauses, result_type)
+					     =
+					     make_lazy ([], NULL, digested_lib7pattern_clauses);
+
+					 outerargs   =   make_list_of_numbered_value_symbols (arity, []);
+
+					 outerclause
+					     = 
+					     { kind                       => LAZY_OUTER,
+					       function_symbol,
+					       result_type,
+					       raw_syntax_argument_patterns  => map raw::VARIABLE_IN_PATTERN outerargs,
+					       raw_syntax_expression        => curry_apply_expression (
+										raw::VARIABLE_IN_EXPRESSION [lazy_var_symbol],
+										map raw::VARIABLE_IN_EXPRESSION outerargs
+									    )
+					     };
+
+					 (   (lazy_var, innerclauses, named_functionregion) ! (fun_symbol_table_entry, [outerclause], named_functionregion)   !   clause_list_so_far,
+
+					     st::bind (
+						 function_symbol,
+						 b::NAMED_VARIABLE fun_symbol_table_entry,
+						 st::bind (
+						     lazy_var_symbol,
+						     b::NAMED_VARIABLE lazy_var,
+						     symbol_table'
+						 )
+					     )
+					 );
+
+
+				    else                                                                      #  Not lazy. 
+					 # Prepend the digested function naming
+					 # to our result list, and also enter
+					 # the function into our symbol table:
+					 #
+					 ( (fun_symbol_table_entry, digested_lib7pattern_clauses, named_functionregion)   !   clause_list_so_far,
+
+					   st::bind (function_symbol,   b::NAMED_VARIABLE fun_symbol_table_entry,   symbol_table')
+					 );
+                                    fi;
+				};
+                        end;               #  fun digest_one_named_function 
+
+
+                        # Given our list 'named_functions'
+                        # which represents some input like
+                        #
+                        #     fun  foo this = expression1;
+                        #        | foo that = expression2;
+                        #
+                        #     also bar this = expression3; 
+                        #        | bar that = expression4;
+                        #
+                        # via one raw-syntax NADA_NAMED_FUNCTION
+                        # node per function (e.g. "foo" or "bar" or ...),
+                        # apply 'digestOneFunctionNaming' once
+                        # per list entry, collecting the resulting
+                        # digested raw-syntax trees in a list
+                        #
+                        #     digested_named_functions
+                        #
+			# Each entry in this list is a triple
+                        #
+			#     (symbol_table_entry, pattern_clauses, source_region)
+                        #
+			# representing one function definition where
+			# 'pattern_clauses' is in turn a list of records
+                        #
+			#     { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }
+                        #
+			# and 'raw_wyntax_argument_patterns' is in its turn a list of
+			# raw-syntax pattern parsetrees.
+                        #
+                        # We also construct a symbol_table' with
+                        # one (placeholder) entry for each
+                        # thus-defined function.
+			#
+			my (digested_named_functions, symbol_table')
+                            =
+                            fold_left
+                                (digest_one_named_function source_code_region)
+                                ([], st::empty)
+                                named_functions;
+
+                        # Construct a new symbol table containing
+                        # both all pre-existing definitions and
+                        # also the ones defined by the 'fun'
+                        # statement we're processing:
+			#
+			symbol_table''
+                            =
+                            st::atop (symbol_table', symbol_table);
+
+
+
+                        # Synthesis Phase processing of one
+                        #
+                        #     fun pattern => expression
+                        #
+                        # clause.
+                        #
+                        # INPUT:
+                        #     Our first argument is the source code
+                        #     region for the clause, for diagnostic-
+                        #     printing purposes.
+                        #
+                        #     Our second argument is one "pattern => expression"
+                        #     clause from a function definition, which at this
+                        #     point has been digested from a raw syntax tree
+                        #     into a handier five-slot record
+                        #
+                        #         { kind, functionSymbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression }
+                        #
+                        #     courtesy of digest_lib7_pattern_clause above.
+                        #
+                        # RETURN:
+                        #     Our return value is a triple
+                        #
+                        #         (clause, type_variables, update)
+                        #
+                        #     where
+                        #
+                        #         'clause'
+                        #             is a record
+                        #                 { deep_syntax_patterns,     # Deep-syntax translation of 'raw_syntax_argument_patterns' above. 
+                        #                   deep_syntax_expression,   # Deep-syntax translation of 'expression' above.
+                        #                   result_type               # (NULL, empty typevariable set) if not yet known, else
+                        #                                             # (THE types::some_type, tvs::type_variable_set)
+                        #                 }
+                        #
+                        #         'type_variables'
+                        #             is the set of all type_variables used in 'clause' above
+                        #
+                        #         'finalize_deep_syntax_typevar_sets_fn'
+                        #             something about building up a post-pass
+                        #             function to be applied to all type variables.  XXX BUGGO FIXME
+			#
+			fun synthesize_pattern_clause (source_code_region, ( { kind, function_symbol, raw_syntax_argument_patterns, result_type, raw_syntax_expression } ))
+                            =
+			    {   # Typecheck the patterns first:
+				#
+                                my (deep_syntax_patterns, type_variable1)
+                                    =
+                                    typecheck_pattern_list (raw_syntax_argument_patterns, symbol_table, source_code_region);
+
+                                # To properly typecheck the 'expression' side
+                                # our clause, we need a symbol table which includes:
+                                # 
+                                #  o  All visible external namings;
+                                #  o  All functions declared in the current 'fun' statement; and
+                                #  o  All namings established by the patterns for the rule.
+                                # 
+                                # Construct the required symbol table:
+				#
+				symbol_table_with_pattern_namings_added
+                                    =
+                                    st::atop (bind_varp (deep_syntax_patterns, error_fn  source_code_region), symbol_table'');
+
+                                # With the preceding now in hand, we
+                                # can now go ahead and typecheck the
+                                # 'expression' half of the current
+                                #     fun pattern => expression
+                                # clause:
+				#
+				my (deep_syntax_expression, type_variable2, finalize_deep_syntax_typevar_sets_fn)
+                                    =
+                                    typecheck_expression
+                                      ( raw_syntax_expression,
+                                        symbol_table_with_pattern_namings_added,
+                                        source_code_region
+                                      );
+
+				#  LAZY: Wrap delay or force around rhs as appropriate
+
+				deep_syntax_expression
+                                    = 
+				    case kind
+				      
+					 STRICT       =>                    deep_syntax_expression;
+					 LAZY_OUTER   =>   delay_expression deep_syntax_expression;
+					 LAZY_INNER   =>   force_expression deep_syntax_expression;
+                                    esac;
+
+				my (type, type_variable3)
+                                    =
+				    case result_type
+				      
+				         NULL
+                                             =>
+                                             (NULL, tvs::empty);
+
+					 THE type
+					     => 
+					     {   my (t4, type_variable4)
+						     =
+						     tt::typecheck_type (type, symbol_table, error_fn, source_code_region);
+
+						 (   THE t4,
+						     type_variable4
+						 );
+					     };
+                                    esac;
+
+
+                                ( { deep_syntax_patterns,
+                                    result_type            => type,
+                                    deep_syntax_expression
+                                  },
+
+				  union (type_variable1, union (type_variable2, type_variable3, error_fn  source_code_region), error_fn  source_code_region),
+
+                                  finalize_deep_syntax_typevar_sets_fn
+                                );
+			    };
+
+                        # Synthesis Phase processing of a function declaration.
+                        #
+                        # The first argument contains inputs,
+                        # the second argument contains accumulated results-so-far.
+                        #
+                        # On the input side:
+                        #
+                        #     'functionSymbolTableEntry' is the newly constructed
+                        #                 variables_and_constructors::variable::ORDINARY_VARIABLE
+                        #                 symbol-table entry for the function being defined.
+                        #
+                        #     'clauses'   is the list of "pattern => expression" clauses
+                        #                 which collectively define the new function.
+                        #
+                        #                 At this point, they have been digested from
+                        #                 raw syntax trees into handier five-slot records
+                        #
+                        #                     { kind, functionSymbol, rawSyntaxArgumentPatterns, result_type, rawSyntaxExpression }
+                        #
+                        #                 courtesy of digestLib7PatternClause above.
+                        #
+                        #     'source_code_region'
+                        #                 merely gives the line-column begin/end
+                        #                 points for the relevant source code, for
+                        #                 diagnostic printing purposes. 
+                        #
+                        #
+                        # On the output side:
+                        #
+                        #     'functions' is a list of triples
+                        #                     (functionName, functionClauses, source_code_region)
+                        #
+                        #     'type_variables'
+                        #             is the set of all type_variables used
+                        #
+                        #     'finalize_deep_syntax_typevar_sets_fns'
+                        #             something about building up a post-pass
+                        #             function to be applied to all type variables.  XXX BUGGO FIXME
+			#
+			fun synthesize_function_declaration (
+                                (function_symbol_table_entry, raw_syntax_clauses, source_code_region),   #  Inputs.              
+                                (deep_syntax_functions, type_variables, finalize_deep_syntax_typevar_sets_fns)                      #  Result accumulators. 
+                            )
+                            = 
+			    {   my (deep_syntax_clauses1, type_variables1, finalize_deep_syntax_typevar_sets_fns1)
+                                    =
+				    # Tun the 'raw_syntax_clauses' one by one
+				    # through 'synthesize_pattern_clause'
+				    # and collect the lists of results:
+				    #
+				    fold_left
+                                        (   fn (raw_syntax_clause2, (deep_syntax_clauses2, type_variables2, finalize_deep_syntax_typevar_sets_fns2))
+                                               =
+					       {   my (deep_syntax_clause3, type_variables3, finalize_deep_syntax_typevar_sets_fn3)
+                                                       =
+                                                       synthesize_pattern_clause (source_code_region, raw_syntax_clause2);
+
+                                                   (   deep_syntax_clause3 ! deep_syntax_clauses2,
+                                                       union (type_variables3, type_variables2,   error_fn  source_code_region),
+						       finalize_deep_syntax_typevar_sets_fn3 ! finalize_deep_syntax_typevar_sets_fns2
+                                                   );
+					       }
+                                        ) 
+
+					([], tvs::empty, [])
+
+                                        raw_syntax_clauses;
+
+                                ( (function_symbol_table_entry, reverse deep_syntax_clauses1, source_code_region) ! deep_syntax_functions,
+                                  union (type_variables1, type_variables,   error_fn  source_code_region),
+				  finalize_deep_syntax_typevar_sets_fns1 @ finalize_deep_syntax_typevar_sets_fns
+                                );
+			    };
+
+                        # Run all of our 'digested_named_functions'
+                        # one by one through the above 'synthesize_function_declaration'
+                        # and accumulate the result lists:
+			#
+			my (deep_syntax_named_functions, fn_type_vars, updates)
+                            =
+                            fold_left
+                                synthesize_function_declaration
+                                ([], tvs::empty, [])
+                                digested_named_functions;
+
+			# When all other typechecking is complete
+			# we do a final pass computing type variable
+			# sets and plugging them into the deep syntax
+			# tree.  This reference cell:
+			#
+			ref_typevar_refs =  REF [];    #  Common typeVariableref cell for all namings!   # XXX BUGGO FIXME Is this what we really want? 
+			#
+			# becomes NAMED_RECURSIVE_VALUES.ref_typevar_refs
+			# in the deep syntax tree and gets
+			# backpatched by this function:
+			#
+			fun finalize_deep_syntax_typevar_sets_fn  typevar_set
+                            =  
+			    {   fun   a+++b   =   union (a, b,   error_fn  source_code_region);
+				fun   a---b   =   diff  (a, b,   error_fn  source_code_region);
+
+				local_type_vars   =   (fn_type_vars +++ explicit_type_variable_refs) --- (typevar_set ---- explicit_type_variable_refs);
+
+				downtypevars      =   local_type_vars +++ (typevar_set ---- explicit_type_variable_refs);
+
+                                ref_typevar_refs :=   tvs::get_elements  local_type_vars;
+
+				apply   (fn f = f downtypevars)   updates;
+			    };
+
+			fun make_named_function (var as ORDINARY_VARIABLE { path => symbol_path::SYMBOL_PATH [_], ... }, clauses, source_code_region)
+                                =>
+			        { var,
+                                  clauses,
+                                  ref_typevar_refs,
+                                  source_code_region
+                                };
+
+
+			    make_named_function _
+                                =>
+                                bug "typecheckLib7FUNdec::makeFunctionNaming";
+                        end;
+
+		                                                                         #  fun typecheckLib7FUNdec 
+
+                        tcs::forbid_duplicates_in_list (
+                            error_fn  source_code_region,
+                            "duplicate function names in fun declaration",
+			    (map fn (ORDINARY_VARIABLE { path => symbol_path::SYMBOL_PATH [x], ... }, _, _)
+				    =>
+				    x;
+
+				   _   =>   bug "typecheckLib7FUNdec: forbid_duplicates_in_list";
+                                 end 
+
+				 deep_syntax_named_functions
+                            )
+                        );
+
+		        {   my (new_declaration, new_symbol_table)
+				= 
+				tcs::make_deep_syntax_for_mutually_recursive_functions
+                                  ( complete_match,
+                                    map  make_named_function  deep_syntax_named_functions,
+                                    compile_info
+                                  );
+
+			    show_declaration ("typecheckLib7FUNdec: ", new_declaration, new_symbol_table);
+
+			    ( new_declaration,
+			      new_symbol_table,
+			      tvs::empty,
+			      finalize_deep_syntax_typevar_sets_fn
+			    );
+			};
+
+		    };                                                                      #  fun typecheck_lib7fundec 
+
+
+                if_debugging_say ("ec::typecheck_declaration calling typecheck_declaration' - foo");
+
+		my (declaration', symbol_table', type_variables, finalize_deep_syntax_typevar_sets_fn)
+                    =
+                    typecheck_declaration' (declaration, symbol_table, inverse_path, source_code_region);
+
+
+                finalize_deep_syntax_typevar_sets_fn
+                    type_variables;
+
+		(declaration', symbol_table');
+	    };                                     #  function typecheck_declaration 
+
+    end;	#  top-level local 
+
+};		#  package typecheck_core_language 
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

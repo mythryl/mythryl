@@ -1,0 +1,829 @@
+## abcopt.pkg
+## yichen.xie@yale.edu 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This is one of the A-Normal Form optimization passes --
+# for context see the comments in
+#
+#     src/lib/compiler/backend/upper/anormal/anormal.api
+#
+
+
+
+###             "The mind is not a vessel to be filled
+###              but a fire to be kindled."
+###
+###                                 -- Plutarch
+
+
+
+api Abc_Opt {
+
+     abc_opt:  anormal::Program -> anormal::Program;
+};
+
+package abcopt: Abc_Opt {			# Abc_Opt		is from   src/lib/compiler/backend/upper/optimize/abcopt.pkg
+
+    stipulate
+
+	package lv=  highcode_var;		# highcode_var			is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+	package lt=  highcode;			# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package m=  int_red_black_map;		# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
+	package s=  int_red_black_set;		# int_red_black_set		is from   src/lib/src/int-red-black-set.pkg
+	package f=  anormal;			# anormal			is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+	package po=  highcode_primitive_op;	# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package pp=  prettyprint_anormal;	# prettyprint_anormal		is from   src/lib/compiler/backend/upper/anormal/prettyprint-anormal.pkg
+	package ctrl= highcode_control;		# highcode_control		is from   src/lib/compiler/backend/upper/main/highcode-control.pkg
+
+    herein
+
+	fun bug msg
+	    =
+	    error_message::impossible ("ABCOpt: " + msg);
+
+	lvname = *pp::lvar_string;
+
+	p_debug = REF FALSE;
+
+	say = control_print::say;
+
+	fun say_abc s =  ();
+	    # (if *CTRL::printABC then say s
+	    #  else ())
+
+	fun debug s = ();
+	    # (if *CTRL::printABC and *pDebug then
+	    # 	 say s
+	    #  else ())
+
+	fun print_vals NIL => say "\n";
+	    print_vals (x ! xs) => { pp::print_sval x; say ", "; print_vals xs;};
+	end;
+
+	fun abc_opt (pgm as (progkind, progname, progargs, progbody))
+	    =
+	    {   lt_len
+		    =
+		    lt::ltc_tyc (
+			lt::tcc_arrow (
+			    lt::ffc_fixed,
+			    [lt::tcc_void], 
+			    [lt::tcc_int]
+			)
+		    );
+
+		fun cse lmap rmap lambda_expression
+		    =
+		    g lambda_expression
+		    where
+
+			fun subst_variable x
+			    =
+			    case (m::get (rmap, x))
+
+				 THE y
+				     =>
+				     {    say_abc ("replacing: " +
+						    (lvname x)   +
+						    " with "     +
+						    (lvname y)   +
+						    "\n"); 
+					  y;
+				     };
+
+				 NULL => x;
+			    esac;
+
+			fun subst_val (f::VAR x)
+				=>
+				(f::VAR (subst_variable x));
+
+			    subst_val x
+				=>
+				x;
+			end;
+
+			fun subst_vals vals
+			    =
+			    map  subst_val  vals;
+
+			fun g (f::PRIMOP (p as (d, po::LENGTH, lambda_type, tycs), 
+					 [f::VAR array_variable], dest, body))
+				=>
+				case (m::get (lmap, array_variable))
+
+				     THE x
+					 =>
+					 cse lmap (m::set (rmap, dest, x)) body; 
+
+				     NULL
+					 => 
+					 (f::PRIMOP 
+					  (p, [f::VAR array_variable], dest,
+					   cse (m::set (lmap, array_variable, dest))
+					       rmap body));
+				esac;
+
+			    g (f::RET x)
+				=>
+				f::RET (subst_vals x);
+
+			    g (f::LET (vars, lambda_expression, body))
+				=> 
+				f::LET (vars, g lambda_expression, g body);
+
+			    g (f::MUTUALLY_RECURSIVE_FNS (fundecs, body))
+				=>
+				f::MUTUALLY_RECURSIVE_FNS (map h fundecs, g body);
+
+			    g (f::APPLY (v, vs))
+				=>
+				f::APPLY (subst_val v, subst_vals vs);
+
+			    g (f::TYPE_FN (tfundec as (tfkind, lv, tvtks, tfnbody), body))
+				=> 
+				f::TYPE_FN ((tfkind, lv, tvtks, g tfnbody), g body);
+
+			    g (f::TYPE_APPLY (v, tycs))
+				=>
+				f::TYPE_APPLY (subst_val v, tycs);
+
+			    g (f::SWITCH (v, constructor_api, cel, lexp_opt))
+				=>
+				{   fun hh (c, e)
+					=
+					(c, g e);
+
+				    cel' = map hh cel;
+
+				    fun gg (THE x) =>  THE (g x);
+					gg NULL    =>  NULL;
+				    end;
+
+				    f::SWITCH (subst_val v, constructor_api, cel', gg lexp_opt);
+				};
+
+			    g (f::CONSTRUCTOR (dcon, tycs, v, lv, body))
+				=>
+				f::CONSTRUCTOR (dcon, tycs, subst_val v, lv, g body);
+
+			    g (f::RECORD (rk, vals, lv, body))
+				=>
+				f::RECORD (rk, subst_vals vals, lv, g body);
+
+			    g (f::SELECT (v, field', lv, body))
+				=>
+				f::SELECT (subst_val v, field', lv, g body);
+
+			    g (f::RAISE (v, type))
+				=>
+				f::RAISE (subst_val v, type);
+
+			    g (f::EXCEPT (body, v))
+				=>
+				f::EXCEPT (g body, subst_val v);
+
+			    g (f::BRANCH (p, vals, body1, body2))
+				=> 
+				f::BRANCH (p, subst_vals vals, g body1, g body2);
+
+			    g (f::PRIMOP (p, vals, lv, body))
+				=>
+				f::PRIMOP (p, subst_vals vals, lv, g body);
+			end 
+
+			also
+			fun h (fk, highcode_variable, lvty, body)
+			    =
+			    (fk, highcode_variable, lvty, g body);
+
+
+		    end;
+
+		fun len_op (src, mm, body)
+		    =
+		    {    say_abc ("hoisting: length of " + (lvname src) + "\n");
+
+			 case (m::get (mm, src))
+
+			      THE lambda_type
+				  =>
+				  f::PRIMOP((NULL, po::LENGTH, lambda_type, []),
+					   [f::VAR src],
+					   lv::make_highcode_variable (),
+					   body);
+			      NULL =>  bug "strange bug!";
+
+			 esac;
+		    };
+
+		agressive_hoist =  REF TRUE;
+
+		map_union     =  m::union_with (fn (a, b) => a; end );
+		map_intersect =  m::intersect_with (fn (a, b) => a; end );
+
+		fun remove' (m, k)
+		     =
+		     {   my (m', _) = m::drop (m, k);
+			 m';
+		     };
+
+		fun say_vars NIL       =>  ();
+		    say_vars (x ! NIL) =>  say_abc (lvname x);
+
+		    say_vars (x ! xs)
+			=>
+			{   say_abc (lvname x);
+			    say_abc ", ";
+			    say_vars xs;
+			};
+		end;
+
+		fun hoist (f::RET x)
+			=>
+			(m::empty, (f::RET x));
+
+		    hoist (f::LET (vars, lambda_expression, body))
+			=>
+			{
+			    my (m1, lambda_expression') = hoist lambda_expression;
+			    my (m2, body') = hoist body;
+
+			    fun ft x = m::contains_key (m2, x);
+			    hlist = list::filter ft vars;
+
+			    fun h NIL mm b => (mm, b);
+			        h (x ! xs) mm b => 
+				h xs (remove' (mm, x)) (len_op (x, mm, b));
+                            end;
+
+			    my (m2', body'') = h hlist m2 body';
+
+			    (map_union (m1, m2'), f::LET (vars, lambda_expression', body''));
+			};
+
+		    hoist (f::MUTUALLY_RECURSIVE_FNS (fundecs, body))
+			=>
+			{   fun hoist_fundec (fk, lv,
+					     lvtys:  List( (f::Highcode_Variable, f::Highcode_Type) ), 
+					     body)
+				=
+				{   var_list =  map #1 lvtys;
+
+				    my (m, b) =  hoist body;
+
+				    fun ft x
+					=
+					m::contains_key (m, x);
+
+				    to_hoist =  list::filter  ft  var_list;
+
+				    fun h mm NIL b
+					    =>
+					    (mm, b);
+
+					h mm (v ! vs) b
+					    => 
+					    h (remove' (mm, v)) vs (len_op (v, mm, b));
+				    end;
+
+				    my (m', body')
+					=
+					h m to_hoist b;
+
+
+				    /*
+				    sayABC ("List of extern vars in " + (lvname lv) + " (MUTUALLY_RECURSIVE_FNS): [");
+				    sayVars (s::vals_list set);
+				    sayABC ("]\n");
+				     */
+
+				    say_abc ("List of hoisted vars in " +
+					    (lvname lv) + " (MUTUALLY_RECURSIVE_FNS): [");
+
+				    say_vars (to_hoist);
+
+				    say_abc ("]\n");
+
+				    (m', (fk, lv, lvtys, body'));
+				};
+
+
+			    #  fundec sets and bodys 
+			    fsbody =  map hoist_fundec fundecs;
+			    fsets  =  map #1 fsbody;
+			    fbody  =  map #2 fsbody;
+
+			    my (bmap, newbody)
+				=
+				hoist body;
+
+			    mmm =  fold_left map_union bmap fsets;
+
+
+			    (mmm, f::MUTUALLY_RECURSIVE_FNS (fbody, newbody));
+			};
+
+		    hoist (f::APPLY x)
+			=>
+			(m::empty, f::APPLY x);
+
+		    hoist (f::TYPE_FN (tfundec as (tfkind, lv, tvtks, tfnbody), body))
+			=>
+			{   my (mtfn, btfn) =  hoist tfnbody;
+			    my (m, b)       =  hoist body;
+
+			    (map_union (mtfn, m), f::TYPE_FN (tfundec, b));
+			};
+
+		    hoist (f::TYPE_APPLY (v, tl))
+			=>
+			(m::empty, f::TYPE_APPLY (v, tl));
+
+
+		    #  If agressive, use union; otherwise use intersect 
+		    #  no var defined, so no hoisting 
+
+		    hoist (f::SWITCH (v, constructor_api, clexps, lambda_expression))
+			=>
+			{
+			    lexps =  map #2 clexps;
+
+			    sblist = (map hoist lexps);
+
+			    maps  =  map #1 sblist;
+			    bodys =  map #2 sblist;
+
+			    my (def_map, def_body)
+				=
+				case lambda_expression
+
+				     THE l
+					 =>
+					 {   my (m, b) =   hoist l;
+
+					     (THE m, THE b);
+					 };
+
+				     NULL =>  (NULL, NULL);
+				esac;
+
+
+			    #  Agressive may not always be benificial 
+			    #  it's turned off by default 
+
+			    map_oper
+				=
+				if   *agressive_hoist      map_union;
+							else   map_intersect;   fi;
+
+			    result_set
+				=
+				fold_left
+				    map_oper
+				    (head maps)
+				    (tail maps);
+
+
+			    fun helper NIL nil
+				    =>
+				    NIL;
+
+				helper ((c, le) ! xs) (le' ! ys)
+				    =>
+				    (c, le') ! (helper xs ys);
+
+				helper _ _ => bug "no!!!! help!!!!\n";
+			    end;
+
+			    result_clexps = helper clexps bodys;
+
+
+			    ( case def_map
+				  THE m => map_oper (m, result_set);
+				  NULL  => result_set;
+                              esac,
+
+			      f::SWITCH (v, constructor_api, result_clexps, def_body)
+                            );
+			};
+
+
+		     # There probably isn't anything
+                     # interesting here but: 
+		    #
+		     hoist (f::CONSTRUCTOR (d, tl, v, lv, le))
+			 =>
+			 {   my (m, b) =  hoist le;
+
+			     if    (m::contains_key (m, lv))
+
+				  (remove' (m, lv),
+				  f::CONSTRUCTOR (d, tl, v, lv, len_op (lv, m, b)));
+			     else
+				  (m, f::CONSTRUCTOR (d, tl, v, lv, b));
+			     fi;
+			 };
+
+
+		    # There probably isn't anything
+                    # interesting here either:
+		    #
+		    hoist (f::RECORD (rk, vals, lv, le))
+			=>
+			{   my (m, b) =   hoist le;
+
+			    if   (m::contains_key (m, lv))
+
+				 (remove' (m, lv),
+				 f::RECORD (rk, vals, lv, len_op (lv, m, b)));
+			    else
+				 (m, f::RECORD (rk, vals, lv, b));
+			    fi;
+			};
+
+		    hoist (f::SELECT (v, f, lv, le))
+			=>
+			{   my (m, b) =   hoist le;
+
+			    if   (m::contains_key (m, lv))
+
+				 (remove' (m, lv), 
+				 f::SELECT (v, f, lv, len_op (lv, m, b)));
+			    else
+				 (m, f::SELECT (v, f, lv, b));
+			    fi;
+			};
+
+		    hoist (f::RAISE (v, ltys))
+			=> 
+			(m::empty, f::RAISE (v, ltys));
+
+		    hoist (f::EXCEPT (le, v))
+			=>
+			{   my (m, b) =  hoist le;
+
+			    (m, f::EXCEPT (b, v));
+			};
+
+
+		    # We just use the intersection
+		    # of the two branches:
+		    #
+		    hoist (f::BRANCH (po, vals, le1, le2))
+			=>
+			{   my (m1, b1) = hoist le1;
+			    my (m2, b2) = hoist le2;
+
+			    map_oper
+				=
+				*agressive_hoist
+                                    ??  map_union
+				    ::  map_intersect;
+
+			    /*
+			    sayABC "for this branch: [";
+			    sayVars (s::vals_list (s::union (s1, s2)));
+			    sayABC "]\n";
+			     */
+			    (map_oper (m1, m2), f::BRANCH (po, vals, b1, b2));
+			};
+
+
+
+		    # The use site:
+		    #
+		    hoist (f::PRIMOP (p as (d, po::LENGTH, lambda_type, tycs),
+				    vals, dest, body))
+			=>
+			{   my (m, b) =   hoist body;
+
+			    say_abc "got one!\n";
+
+			    case vals
+
+				 [f::VAR x]
+				     =>
+				     (m::set (m, x, lambda_type), 
+					       f::PRIMOP (p, vals, dest, b));
+				 _   =>
+				     (m, f::PRIMOP (p, vals, dest, b));
+			    esac;
+			};
+
+
+		    # The result of a primitive_operation
+		    # is unlikely to be an rw_vector but:
+		    #	
+		    hoist (f::PRIMOP (p, vals, dest, body))
+			=>
+			{   my (m, b) =   hoist body;
+
+			    if   (m::contains_key (m, dest))
+
+				(remove' (m, dest),
+				 f::PRIMOP (p, vals, dest, len_op (dest, m, b)));
+			    else
+				 (m, f::PRIMOP (p, vals, dest, b));
+			    fi;
+			};
+		end;
+
+		fun elim_switches
+                        cmps_vv
+                        cmps_iv
+                        lambda_expression
+		    =
+		    g lambda_expression
+		    where
+
+			compare_lambda_types
+			    = 
+			    lt::ltc_tyc 
+				(lt::tcc_arrow (lt::ffc_fixed,
+					       [lt::tcc_int, lt::tcc_int],
+					       [lt::tcc_void]));
+
+			fun g (f::LET ([lv], 
+				      br as 
+					 (f::BRANCH (p as (NULL, 
+							  po::CMP { oper=>po::LTU, 
+								  kind=>po::UINT 31 },
+							  compare_lambda_types,
+							  NIL),
+						    [val1, val2],
+						    tbr,
+						    #  just to make sure it's an ABC 
+						    fbr as
+							(f::RECORD
+							     (_, _, _,
+							      f::RECORD
+								  (_, _, _,
+								   f::PRIMOP
+								       ((_, po::WRAP, _, _), _, _,
+									f::PRIMOP
+									    ((_, po::MARKEXN, _, _), _, _,
+									     f::RAISE _))))))),
+					 body))
+				=> 
+				{
+				    fun decide (f::VAR v1, f::VAR v2)
+					    =>
+					    {
+						fun lookup (v1, v2)
+						    =
+						    {   say_abc ("cmp: looking for " + (lvname v1)  + 
+							     " and " + (lvname v2) + "\n");
+
+							case (m::get (cmps_vv, v2))
+
+							     THE set => s::member (set, v1);
+							     NULL => FALSE;
+							esac;
+						    };
+
+						fun add (v1, v2)
+						    =
+						    {   say_abc ("cmp: entering " + (lvname v1)  + 
+							     " and " + (lvname v2) + "\n");
+
+							 case (m::get (cmps_vv, v2))
+
+							      THE set
+								  =>
+								  m::set (cmps_vv, v2, s::add (set, v1));
+
+							      NULL
+								  =>
+								  m::set (cmps_vv, v2, s::singleton v1);
+							 esac;
+						     };
+
+						if   (lookup (v1, v2))
+						     (TRUE, cmps_vv, cmps_iv);
+						else (FALSE, add (v1, v2), cmps_iv);
+                                                fi;
+					    };
+
+					decide (f::INT n, f::VAR v)
+					    =>
+					    {   fun lookup (n, v)
+						    =
+						    {   say_abc ("looking for ("  + 
+								(int::to_string n) + "<"  + 
+								(lvname v) + ")\n");
+
+							if   (n == 0)
+
+							     TRUE;
+							else
+							     case (m::get (cmps_iv, v))
+
+								  THE x =>  (n <= x);
+								  NULL  =>  FALSE;
+							     esac;
+							fi;
+						    };
+
+						fun add (n, v)
+						    =
+						    m::set (cmps_iv, v, n);
+
+
+						if  (lookup (n, v)  )  (TRUE,  cmps_vv, cmps_iv);
+								   else  (FALSE, cmps_vv, add (n, v));   fi;
+					    };
+
+					decide _
+					    =>
+					    (FALSE, cmps_vv, cmps_iv);
+				    end;
+
+				    my (to_elim, new_vv, new_iv)
+					=
+					decide (val1, val2);
+
+
+				    if to_elim
+
+					 case tbr
+
+					      f::PRIMOP (p, vals, lv1, f::RET [f::VAR lv2])
+						  =>
+						  if   (lv1 == lv2)
+
+						       f::PRIMOP (p, vals, lv, g body);
+						  else
+						       f::LET ([lv], g tbr, g body);
+						  fi;
+
+					      _ => f::LET ([lv], g tbr, g body);
+					 esac;
+				    else
+					(f::LET
+                                          ( [lv],
+					    f::BRANCH
+					      ( p, 
+						[val1, val2],
+						elim_switches new_vv new_iv tbr,
+						g fbr
+					      ),
+					      elim_switches new_vv new_iv body
+                                          )
+                                        );
+				    fi;
+				};
+
+			    g (f::RET x)
+				=>
+				f::RET x;
+
+			    g (f::LET (vars, lambda_expression, body))
+				=>
+				f::LET (vars, g lambda_expression, g body);
+
+			    g (f::MUTUALLY_RECURSIVE_FNS (fundecs, body))
+				=>
+				f::MUTUALLY_RECURSIVE_FNS (map h fundecs, g body);
+
+			    g (f::APPLY (v, vs))
+                                =>
+                                f::APPLY (v, vs);
+
+			    g (f::TYPE_FN (tfundec, body))
+				=>
+				f::TYPE_FN (tfundec, g body);
+
+			    g (f::TYPE_APPLY (v, tycs))
+				=>
+				f::TYPE_APPLY (v, tycs);
+
+			    g (f::SWITCH (v, constructor_api, cel, lexpopt))
+				=>
+				{   fun hh (c, e) =   (c, g e);
+
+				    cel' =   map hh cel;
+
+				    fun gg (THE x) =>  THE (g x);
+					gg NULL    =>  NULL;
+				    end;
+
+
+				    f::SWITCH (v, constructor_api, cel', gg lexpopt);
+				};
+
+			    g (f::CONSTRUCTOR (dcon, tycs, v, lv, body))
+				=>
+				f::CONSTRUCTOR (dcon, tycs, v, lv, g body);
+
+			    g (f::RECORD (rk, vals, lv, body))
+				=>
+				f::RECORD (rk, vals, lv, g body);
+
+			    g (f::SELECT (v, field', lv, body))
+				=>
+				f::SELECT (v, field', lv, g body);
+
+			    g (f::RAISE (v, type))
+				=>
+				f::RAISE (v, type);
+
+			    g (f::EXCEPT (body, v))
+				=>
+				f::EXCEPT (g body, v);
+
+			    g (f::BRANCH (p, vals, body1, body2))
+				=>
+				f::BRANCH (p, vals, g body1, g body2);
+
+			    g (f::PRIMOP (p, vals, lv, body))
+				=>
+				f::PRIMOP (p, vals, lv, g body);
+			end 
+
+			also
+			fun h (fk, highcode_variable, lvty, body)
+			    =
+			    (fk, highcode_variable, lvty, g body);
+
+
+		    end;
+
+		my (s, hoisted) =   hoist progbody;
+
+		csed =   cse m::empty m::empty hoisted;
+
+		elimed =   elim_switches m::empty m::empty csed;
+
+		# 		optimized = (progkind, progname, progargs, elimed)
+		optimized = (progkind, progname, progargs, elimed);
+
+		#  some advertising stuff! 
+
+		# if *CTRL::printABC then
+		# 	(say "\nhello! This is ABCOpt!\n";
+		# 
+		# 	 (say "[Before ABCOpt...]\n\n";
+		# 	  pp::printProg pgm);
+		# 	 
+		# 	 (say "\n[After Hoisting...]\n\n";
+		# 	  pp::printProg (progkind, progname, progargs, hoisted));
+		# 	 
+		# 	 (say "\n[After CSE...]\n\n";
+		# 	  pp::printProg (progkind, progname, progargs, csed));
+		# 
+		# 	 (say "\n[After Elim...]\n\n";
+		# 	  pp::printProg (progkind, progname, progargs, elimed));
+		# 
+		# 	 say "\nbyebye! i'm done!\n\n")
+		# fi;
+
+		#  Can eventually be removed after testing 
+		/*
+		case (s::vals_list s)
+
+		      NIL => ();
+		      _   => bug "should be NIL!!!";
+		esac;
+		 */
+
+		optimized;
+	    };
+    end;
+};
+
+
+
+###		"You know what I like?  I like that brief idyllic
+###              moment between the invention of the flush toilet
+###              and nuclear armageddon, when civilization seems
+###              sane and beneficent and eternal."
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) Yale FLINT Project 2000 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

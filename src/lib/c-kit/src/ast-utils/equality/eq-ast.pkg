@@ -1,0 +1,260 @@
+## eq-ast.pkg
+
+
+
+###             "C++ is like jamming a helicopter
+###              inside a Miata and expecting some
+###              sort of improvement."
+###                            -- Drew Olbrich
+
+
+
+package EqRawSyntaxTree /* : EQAST */ {
+
+  package raw_syntax = raw_syntax
+  package ct = c_type
+  package ECT = EqCType
+  package PPL = prettyprint_lib
+  package PPA = unparse_raw_syntax
+  package EAT = EqRawSyntaxTreeExt
+  package pt = Pidtab
+
+  use raw_syntax
+
+  exception internalFail
+
+  myFold = ECT::myFold
+
+  trace = REF FALSE
+
+  fun tracer prettyprint (ttab1, ttab2) (v1, v2) =
+      ( print "\nChecking:  "
+      ; PPL::prettyprintToStrm (prettyprint () ttab1) file::stdout v1
+      ; print "\nand:  "
+      ; PPL::prettyprintToStrm (prettyprint () ttab2) file::stdout v2
+      ; print "\n"
+      ) 
+
+  fun PTinserts pidmap =
+      myFold (fn () => fn (v1, v2) => Pidtab::set (pidmap, v1, v2)) ()
+
+  fun TTinserts tidmap =
+       myFold (fn () => fn (v1, v2) => Tidtab::set (tidmap, v1, v2)) ()
+
+  fun eqOpt f tabs maps (NULL, NULL) = ()
+    | eqOpt f tabs maps (THE v1, THE v2) = f tabs maps (v1, v2)
+    | eqOpt f tabs maps _ = raise exception internalFail
+
+  fun eqRawSyntaxTree (edecls1, ttab1, edecls2, ttab2) =
+      let tl1 = Tidtab::vals_list ttab1
+	  tl2 = Tidtab::vals_list ttab2
+      in if list::length tl1 == list::length tl2
+	     then eqExternalDecls (ttab1, ttab2) (edecls1, edecls2)
+	 else raise exception ECT::eqFail
+      end
+
+  and eqExternalDecls tabs decs = 
+      let maps = (Tidtab::uidtab (), Pidtab::uidtab ())
+      in  getExternalTypeNamings tabs maps decs
+	 ; myFold (eqExternalDecl tabs) maps decs
+      end
+
+  and getExternalTypeNamings tabs maps decs =
+      myFold (getExternalTypeNaming tabs) maps decs
+
+  #  Dpo: this needs to be fixed to declare types/functions and then check 
+
+  and getExternalTypeNaming tabs maps edeclPair = ()
+
+  and eqExternalDecl tabs maps (DECL (coreDecl1, _, _), DECL (coreDecl2, _, _)) =
+      eqExternalCoreDecl tabs maps (coreDecl1, coreDecl2)
+
+  and eqExternalCoreDecl (tabs as (ttab1, ttab2)) (maps as (tidmap, pidmap)) coreDeclPair =
+      ( if *trace then tracer PPA::prettyprintCoreExternalDecl tabs coreDeclPair
+	else ()
+      ; case coreDeclPair
+	  of (ExternalDecl decl1, ExternalDecl decl2) => 
+	      eqDecl tabs maps (decl1, decl2)
+	   | (FunctionDef (id1, ids1, stmt1), FuncDecl (id2, ids2, stmt2)) =>
+		 let pids1 = map (fn { uid, ... } => uid) (id1 . ids1)
+		     pids2 = map (fn { uid, ... } => uid) (id2 . ids2)
+		 in   PTinserts pidmap (pids1, pids2)
+		    ; eqStmt tabs maps (stmt1, stmt2)
+		 end
+	   | _ => raise exception ECT::eqFail
+      )
+
+  and eqStmt (tabs as (ttab1, ttab2)) maps (stmtPair as (STMT (coreStmt1, _, _), STMT (coreStmt2, _, _))) =
+      ( if *trace then tracer PPA::prettyprintStatement tabs stmtPair else ()
+      ; eqCoreStmt tabs maps (coreStmt1, coreStmt2)
+      )
+    except internalFail => 
+	 ( print "\nThese two statements are not condidered equal:"
+	 ; PPL::prettyprintToStrm (PPA::prettyprintStatement () ttab1) file::stdout (#1 stmtPair)
+	 ; print "\nand:"
+	 ; PPL::prettyprintToStrm (PPA::prettyprintStatement () ttab2) file::stdout (#2 stmtPair)
+	 ; print "\n"
+	 ; raise exception ECT::eqFail
+	 )
+
+  and eqDecl tabs (maps as (tidmap, pidmap)) declPair = 
+      case declPair
+	of (TypeDecl tid1, TypeDecl tid2) =>
+	    ECT::getTidNamings tabs maps (tid1, tid2)
+         | (VarDecl ( { uid=pid1, ... }, initExpOpt1),
+	    VarDecl ( { uid=pid2, ... }, initExpOpt2)) =>
+	       if eqInitExprOpt tabs maps (initExpOpt1, initExpOpt2)
+	       then Pidtab::set (pidmap, pid1, pid2)
+	       else raise exception internalFail
+	 | _ => raise exception internalFail 
+
+  and eqDecls tabs maps declsPair = 
+      ECT::myFold
+      (fn () => fn declPair => eqDecl tabs maps declPair)
+      ()
+      declsPair
+
+  and eqInitExpr tabs maps initExpPair = 
+      case initExpPair
+	of (Simple expression1, Simple expression2) => eqExpr tabs maps (expression1, expression2)
+	 | (Aggregate initExps1, Aggregate initExps2) => 
+	       ECT::myFold
+	         (fn () => fn iePair => eqInitExpr tabs maps iePair)
+		 ()
+		 (initExps1, initExps2)
+
+  and eqInitExprOpt tabs = eqOpt eqInitExpr tabs
+
+  and eqCoreStmt (tabs as (ttab1, ttab2)) (maps as (tidmap, pidmap)) coreStmtPair = 
+    (case coreStmtPair
+      of (Expr expOpt1, Expr expOpt2) => 
+	   if eqExpr tabs maps (expOpt1, expOpt2) then ()
+	   else raise exception internalFail
+       | (Compound (decls1, stmts1), Compound (decls2, stmts2)) =>
+	   ( eqDecls (ttab1, ttab2) maps (decls1, decls2)
+	   ; eqStmts tabs maps (stmts1, stmts2)
+	   )
+       | (While (expression1, stmt1), While (expression2, stmt2)) => 
+	   if eqExpr tabs maps (expression1, expression2)
+	       then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail
+       | (Do (expression1, stmt1), Do (expression2, stmt2)) => 
+	   if eqExpr tabs maps (expression1, expression2) 
+	       then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail
+       | (For (expOpt1_1, expOpt1_2, expOpt1_3, stmt1),
+	  For (expOpt2_1, expOpt2_2, expOpt2_3, stmt2)) =>
+	   if eqExprOpt tabs maps (expOpt1_1, expOpt2_1) and
+	      eqExprOpt tabs maps (expOpt1_2, expOpt2_2) and
+	      eqExprOpt tabs maps (expOpt1_3, expOpt2_3) 
+	       then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail		     
+       | (Labeled (pid1, stmt1), Labeled (pid2, stmt2)) =>
+	   let pidmap = Pidtab::set (pidmap, pid1, pid2)
+	   in eqStmt tabs (tidmap, pidmap) (stmt1, stmt2) end
+       | (CaseLabel (li1, stmt1), CaseLabel (li2, stmt2)) => 
+	   if li1 == li2 then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail
+       | (DefaultLabel stmt1, DefaultLabel stmt2) =>
+	   eqStmt tabs maps (stmt1, stmt2)
+       | (Goto pid1, Goto pid2) => 
+	   if ECT::eqPid pidmap (pid1, pid2) then maps
+	   else raise exception internalFail
+       | (Break, Break) => maps
+       | (Continue, Continue) => maps
+       | (Return expOpt1, Return expOpt2) => 
+	   if eqExprOpt tabs maps (expOpt1, expOpt2) then ()
+	   else raise exception internalFail
+       | (IfThen (expression1, stmt1), IfThen (expression2, stmt2)) => 
+	   if eqExpr tabs maps (expression1, expression2)
+	       then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail
+       | (IfThenElse (expression1, stmt1_1, stmt1_2), IfThenElse (expression2, stmt2_1, stmt2_2)) => 
+	   if eqExpr tabs maps (expression1, expression2)
+	       then eqStmts tabs maps ([stmt1_1, stmt1_2],[stmt2_1, stmt2_2]) 
+	   else raise exception internalFail
+       | (Switch (expression1, stmt1), Switch (expression2, stmt2)) =>
+	   if eqExpr tabs maps (expression1, expression2)
+	       then eqStmt tabs maps (stmt1, stmt2)
+	   else raise exception internalFail
+       | (StatExt se1, StatExt se2) => EAT::eqStatementExt tabs maps (se1, se2)
+       | _ => raise exception internalFail)
+
+  and eqStmts tabs maps = myFold (eqStmt tabs) maps
+
+  and eqExprOpt tabs = eqOpt eqExpr tabs
+
+  and eqExpr (tabs as (ttab1, ttab2)) maps (expPair as (EXPR (coreExpr1, _, _), EXPR (coreExpr2, _, _)))  = 
+      ( if *trace then tracer PPA::prettyprint_expression tabs expPair else ()
+      ; if eqCoreExpr tabs maps (coreExpr1, coreExpr2) then TRUE else raise exception internalFail
+      ) except internalFail => 
+	    ( print "\nThese two expressions are not condidered equal:"
+	    ; PPL::prettyprintToStrm (PPA::prettyprint_expression () ttab1) file::stdout (#1 expPair)
+	    ; print "\n and"
+	    ; PPL::prettyprintToStrm (PPA::prettyprint_expression () ttab2) file::stdout (#2 expPair)
+	    ; print "\n"
+	    ; raise exception ECT::eqFail
+	    )
+
+  and eqCoreExpr tabs (maps as (tidmap, pidmap)) coreExprPair = 
+      case coreExprPair
+	of (IntConst li1, IntConst li2) => li1 = li2
+	 | (RealConst r1, RealConst r2) => float::(====) (r1, r2)
+	 | (StringConst s1, StringConst s2) => s1=s2
+	 | (Call (expression1, exps1), Call (expression2, exps2)) => 
+	       eqExprs tabs maps (expression1 . exps1, expression2 . exps2)
+	 | (QuestionColon (e1_1, e1_2, e1_3), QuestionColon (e2_1, e2_2, e2_3)) =>
+	       eqExprs tabs maps ([e1_1, e1_2, e1_3],[e2_1, e2_2, e2_3])
+	 | (Assign (e1_1, e1_2), Assign (e2_1, e2_2)) =>
+	       eqExprs tabs maps ([e1_1, e1_2],[e2_1, e2_2])
+	 | (Comma (e1_1, e1_2), Comma (e2_1, e2_2)) =>
+	       eqExprs tabs maps ([e1_1, e1_2],[e2_1, e2_2])
+	 | (Sub (e1_1, e1_2), Sub (e2_1, e2_2)) =>
+	       eqExprs tabs maps ([e1_1, e1_2],[e2_1, e2_2])
+	 | (Member (expression1, pid1), Member (expression2, pid2)) =>
+	       ECT::eqPid pidmap (pid1, pid2) and eqExpr tabs maps (expression1, expression2)
+	 | (Arrow (expression1, pid1), Arrow (expression2, pid2)) =>
+	       ECT::eqPid pidmap (pid1, pid2) and eqExpr tabs maps (expression1, expression2)
+	 | (Deref expression1, Deref expression2) => eqExpr tabs maps (expression1, expression2)
+	 | (AddrOf expression1, AddrOf expression2) => eqExpr tabs maps (expression1, expression2)
+	 | (Binop (binop1, e1_1, e1_2), Binop (binop2, e2_1, e2_2)) => 
+	       binop1 = binop2 and eqExprs tabs maps ([e1_1, e1_2],[e2_1, e2_2])
+	 | (Unop (unop1, expression1), Unop (unop2, expression2)) => 
+	       unop1 = unop2 and eqExpr tabs maps (expression1, expression2)
+	 | (Cast (ctype1, expression1), Cast (ctype2, expression2)) =>
+	     (ECT::eqCtype tidmap (ctype1, ctype2) except _ => FALSE)
+	     and eqExpr tabs maps (expression1, expression2)
+	 | (Id pid1, Id pid2) =>
+	       ECT::eqPid pidmap (pid1, pid2)
+	 | (EnumId (pid1, li1), EnumId (pid2, li2)) => 
+	       li1 = li2 and ECT::eqPid pidmap (pid1, pid2)
+	 | (ExprExt ee1, ExprExt ee2) => EAT::eqExpressionExt tabs maps (ee1, ee2)
+	 | (ErrorExpr, ErrorExpr) => TRUE
+	 | _ => raise exception internalFail
+
+  and eqExprs tabs maps = ECT::eqList (eqExpr tabs maps)
+
+}	#  package EqRawSyntaxTree 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,551 @@
+## button-group.pkg
+#
+# Manage a group of radiobuttons
+# or any similar ON/OFF widgets.
+
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xc =  xclient;				# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg =  widget;				# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wt =  widget_types;				# widget_types		is from   src/lib/x-kit/widget/basic/widget-types.pkg
+    package li =  list_indexing;			# list_indexing		is from   src/lib/x-kit/widget/lib/list-indexing.pkg
+herein
+
+    package button_group: (weak)  Button_Group {	# Button_Group		is from   src/lib/x-kit/widget/lib/button-group.api
+
+	exception BAD_INDEX =  li::BAD_INDEX;
+
+	exception ONLY_ONE_RADIOBUTTON_MAY_BE_ON;
+
+	fun is_chosen (  wt::ACTIVE v) =>  v;
+	    is_chosen (wt::INACTIVE v) =>  v;
+	end;
+
+	fun flip_state (  wt::ACTIVE v) =>  (wt::ACTIVE   (not v));
+	    flip_state (wt::INACTIVE v) =>  (wt::INACTIVE (not v));
+	end;
+
+	Button_Group_Member
+	    =
+	    { button:           wg::Widget,
+	      initial_state:    wt::Button_State,
+
+	      on_off_callback:  Bool -> Void,
+	      active_callback:  Bool -> Void
+	    };
+
+	Reply_Mail
+	  = OKAY
+	  | ERROR  Exception
+	  ;
+
+	Ireply_Mail
+	  = WIDGETS  List( wg::Widget )
+	  | IERROR  Exception
+	  ;
+
+	Plea_Mail
+	  = INSERT                   ((Int, List( Button_Group_Member )), Mailslot( Ireply_Mail ))
+	  | SET_BUTTON_STATE         List ((Int, Bool))
+	  | SET_BUTTON_ACTIVE_STATE  List ((Int, Bool))
+	  | GET_ON_BUTTONS           Mailslot( List( Int ) )
+	  | GET_BUTTON_STATES        Mailslot( List( wt::Button_State ) )
+	  ;
+
+
+	Button_Group
+	    =
+	    BUTTON_GROUP
+	      { reply_slot: Mailslot( Reply_Mail ),
+		plea_slot:  Mailslot( Plea_Mail )
+	      };
+
+	Item_Msg
+	  = REMOVE 
+	  | PICK    Oneshot_Maildrop( Void )
+	  | UNPICK  Oneshot_Maildrop( Void )
+	  ;
+
+	Group_Member
+	    =
+	    GROUP_MEMBER
+	      {
+		state:            Ref( wt::Button_State ),
+		#
+		on_off_callback:  Bool -> Void,
+		active_callback:  Bool -> Void,
+		#
+		mailop:           Mailop( Item_Msg )
+	      };
+
+	fun is_active (GROUP_MEMBER { state => REF (wt::ACTIVE _), ... } ) => TRUE;
+	    is_active _ => FALSE;
+	end;
+
+	 Result(X)
+	    #
+	    = SUCCESS  (X, List( Group_Member ), List( wg::Widget ))
+	    | FAILURE  Exception
+	    ;
+
+	fun cloop co ()
+	    =
+	    {   do_mailop co;
+		cloop co ();
+	    };
+
+	fun make_repetition (state, pfn, afn, w_slot)
+	    = 
+	    GROUP_MEMBER
+	      { state    =>  REF state,
+		on_off_callback   =>  pfn, 
+		active_callback =>  afn,
+		mailop   =>  take' w_slot
+	      };
+
+	fun wrap_w (w, w_slot)
+	    =
+	    {
+		include widget;
+
+		fun realize { window, window_size, kidplug as xc::KIDPLUG { from_mouse', from_other', from_keyboard', ... } }
+		    =
+		    {   mouse_slot    = make_mailslot ();
+			mom_slot      = make_mailslot ();
+			keyboard_slot = make_mailslot ();
+
+			kidplug'
+			    = 
+			    xc::replace_keyboard
+			      ( xc::replace_other (xc::replace_mouse (kidplug, take' mouse_slot), take' mom_slot),
+				take' keyboard_slot
+			      );
+
+			fun check wf
+			    =
+			    {   reply_1shot = make_oneshot_maildrop ();
+
+				give (w_slot, wf reply_1shot);
+
+				get reply_1shot;
+			    };
+
+			fun do_mouse  envelope
+			    =
+			    {   case (xc::envelope_contents  envelope)
+				    #
+				    xc::MOUSE_FIRST_DOWN { mouse_button=>xc::MOUSEBUTTON 1, ... } => check PICK;
+				    xc::MOUSE_FIRST_DOWN { mouse_button=>xc::MOUSEBUTTON 2, ... } => check UNPICK;
+				    _ => ();
+				esac;
+
+				give (mouse_slot, envelope);
+			    };
+
+			fun do_mom  envelope
+			    =
+			    {   case (xc::envelope_contents  envelope)
+				    #
+				    xc::ETC_OWN_DEATH
+					=>
+					if (xc::to_window (envelope, window))
+					    #
+					    give (w_slot, REMOVE);
+					fi;
+
+				    _ => ();
+				esac;
+
+				give (mom_slot, envelope);
+			    };
+
+			make_thread  "button_group"  loop
+			where
+			    fun loop ()
+				=
+				for (;;) {
+				    #
+				    select [
+					from_keyboard' ==>  .{ give (keyboard_slot, #msg); },
+					from_mouse'    ==>  do_mouse,
+					from_other'    ==>  do_mom
+				    ];
+				};
+			end;
+
+			realize_fn  w  { kidplug=>kidplug', window, window_size };
+		    };
+
+		  make_widget
+		    {
+		      root_window =>  root_window_of  w,
+
+		      args =>  args_fn  w,
+
+		      realize,
+
+		      size_preference_thunk_of
+			  =>
+			  size_preference_thunk_of  w
+		    };
+	      };
+
+
+	fun do_item (arg, (sl, wl))
+	    =
+	    ( s ! sl,
+	      w ! wl
+	    )
+	    where
+		fun do_item { button, initial_state, on_off_callback, active_callback }
+		    =
+		    {   w_slot = make_mailslot ();
+
+			w' = wrap_w (button, w_slot);
+
+			(make_repetition (initial_state, on_off_callback, active_callback, w_slot), w');
+		    };
+
+		my (s, w) =  do_item arg;
+	    end;
+
+
+	fun make_widget_mailop slist
+	    =
+	    choose (#2 (list::fold_left wf (0,[]) slist))
+	    where
+		fun wf (item as GROUP_MEMBER { mailop, ... }, (i, l))
+		    =
+		    ( i+1,
+		      (mailop ==> .{ (#e, i, item); })   !   l
+		    );
+	    end;
+
+
+	fun get_state (GROUP_MEMBER { state, ... } )
+	    =
+	    *state;
+
+
+	fun set_button_active_state  slist  (i, onoff)
+	    =
+	    case (li::findi (slist, i), onoff)
+
+		(GROUP_MEMBER { state => state as REF (wt::INACTIVE w), active_callback, ... }, TRUE)
+		    => 
+		    {   state := wt::ACTIVE w;
+			active_callback TRUE;
+		    };
+
+		(GROUP_MEMBER { state => state as REF (wt::ACTIVE w), active_callback, ... }, FALSE)
+		    => 
+		    {   state := wt::INACTIVE w;
+			active_callback FALSE;
+		    };
+
+		_ => ();
+	    esac;
+
+
+	fun make_button_group'
+	    (pick, set_pick, get_pick)
+	    (root_window:  wg::Root_Window)
+	    (items:        List( Button_Group_Member ))
+	    =
+	    {   my (slist, wlist)
+		    =
+		    list::fold_right do_item ([],[]) items;
+
+		picked = set_pick slist;
+
+		reply_slot =  make_mailslot ();
+		plea_slot  =  make_mailslot ();
+
+		fun do_insert (picked, slist, index, ilist)
+		    =
+		    {   if (not (li::is_valid (slist, index)))
+			    raise exception BAD_INDEX;
+			fi;
+
+			my (sl, wl)
+			    =
+			    list::fold_right
+				do_item
+				([],[])
+				ilist;
+
+			slist' = li::set (slist, index, sl);
+
+			picked = set_pick slist';
+
+			SUCCESS (picked, slist', wl);
+		    }
+		    except e = FAILURE e;
+
+		fun main (picked, slist)
+		    =
+		    loop picked
+		    where
+			widget' =  make_widget_mailop  slist;
+
+			fun picki ((i, dopick), picked)
+			    =
+			    pick (dopick, i, li::findi (slist, i), picked);
+
+			fun do_plea (SET_BUTTON_STATE setl, picked)
+				=>
+				(   list::fold_left picki picked setl
+				    before
+				    give (reply_slot, OKAY)
+				)
+				except
+				    e = {   give (reply_slot, ERROR e);
+					    picked;
+					};
+
+			    do_plea (SET_BUTTON_ACTIVE_STATE activel, picked)
+				=>
+				{   {   apply (set_button_active_state slist) activel;
+					give (reply_slot, OKAY);
+				    } 
+				    except e =  give (reply_slot, ERROR e);
+
+				    picked;
+				};
+
+			    do_plea (GET_ON_BUTTONS rc, picked)
+				=>
+				{   give (rc, get_pick (picked, slist));
+				    picked;
+				};
+
+			    do_plea (GET_BUTTON_STATES rc, picked)
+				=>
+				{   give (rc, map get_state slist);
+				    picked;
+				};
+
+			    do_plea (INSERT ((index, ilist), rc), picked)
+				=>
+				case (do_insert (picked, slist, index, ilist))
+				    SUCCESS (p, s, wl) => { give (rc, WIDGETS wl); main (p, s);  };
+				    FAILURE e          => { give (rc, IERROR e);   picked;       };
+				esac;
+			end;
+
+			fun do_widget ((REMOVE, i, _), _)
+				=>
+				{   my (slist', dl)
+					=
+					li::delete (slist,[i]);
+
+				    my GROUP_MEMBER { mailop, ... }
+					=
+					head dl;
+
+				    make_thread  "button_group mailop"  (cloop mailop);
+
+				    main (set_pick slist', slist');
+				  };
+
+			   do_widget ((PICK reply_1shot, i, item), picked)
+			       =>
+			       if (is_active item)  pick (TRUE, i, item, picked);
+			       else                 picked;
+			       fi
+			       before
+				   set (reply_1shot, ());
+
+			   do_widget ((UNPICK reply_1shot, i, item), picked)
+			       =>
+			       if (is_active item)  pick (FALSE, i, item, picked);
+			       else                 picked;
+			       fi
+			       before
+				   set (reply_1shot, ());
+			end;
+
+			fun loop picked
+			    =
+			    loop (
+				select [
+				    take' plea_slot  ==>  (fn plea =  do_plea   (plea, picked)),
+				    widget'          ==>  (fn mail =  do_widget (mail, picked))
+				]
+			    );
+		    end;
+
+		make_thread  "button_group main picked"  .{
+		    #
+		    main (picked, slist);
+		    ();
+		};
+
+		(BUTTON_GROUP { reply_slot, plea_slot }, wlist);
+	    };
+
+	fun set_pick _
+	    =
+	    ();
+
+	fun get_pick (_, slist)
+	    = 
+	    li::find
+		(fn (i, GROUP_MEMBER { state, ... } ) =   is_chosen *state  ??  THE i  ::  NULL)
+		slist;
+
+	fun pick (do_pick, index, GROUP_MEMBER { state, on_off_callback, ... }, _)
+	    =
+	    if (do_pick != is_chosen *state)
+
+		on_off_callback do_pick;
+
+		state := flip_state *state;
+
+	    fi;
+
+	make_button_group
+	    =
+	    make_button_group' (pick, set_pick, get_pick);
+
+	fun set_pick1 slist
+	    =
+	    #2 (list::fold_left setp (0, NULL) slist)
+	    where
+		fun setp (item as GROUP_MEMBER { state, ... }, (i, NULL))
+			=>
+			if (is_chosen *state )  (i+1, THE (i, item));
+			else                    (i+1, NULL);
+			fi;
+
+		    setp (item as GROUP_MEMBER { state, ... }, (i, p))
+			=>
+			if (is_chosen *state )  raise exception ONLY_ONE_RADIOBUTTON_MAY_BE_ON;
+			else                    (i+1, p);
+			fi;
+		end;
+	    end;
+
+	fun get_pick1 (THE (i, _), _) =>  [i];
+	    get_pick1 (NULL,       _) =>  [ ];
+	end;
+
+	fun pick1 (TRUE, index, item as GROUP_MEMBER { state, on_off_callback, ... }, NULL)
+		=> 
+		{   on_off_callback TRUE;
+		    state := flip_state *state;
+		    THE (index, item);
+		};
+
+	    pick1 (FALSE, index, GROUP_MEMBER { state, on_off_callback, ... }, NULL)
+		=>
+		NULL;
+
+	    pick1 (TRUE, index, item as GROUP_MEMBER { state, on_off_callback, ... }, p as THE (i, GROUP_MEMBER { state=>s, on_off_callback=>pf, ... } ))
+		=>
+		if (i == index)
+		    p; 
+		else
+		    pf FALSE;
+		    on_off_callback TRUE;
+		    s := flip_state *s; 
+		    state := flip_state *state; 
+		    THE (index, item);
+		fi;
+
+	    pick1 (FALSE, index, GROUP_MEMBER { state, on_off_callback, ... }, p as THE (i, _))
+		=>
+		if (i != index)
+		    p; 
+		else
+		    on_off_callback FALSE;
+		    state := flip_state *state;
+		    NULL;
+		fi;
+	end;
+
+	make_radiobutton_group
+	    =
+	    make_button_group' (pick1, set_pick1, get_pick1);
+
+	stipulate
+
+	    fun get plea (BUTTON_GROUP { plea_slot, ... } )
+		=
+		{   reply_slot = make_mailslot ();
+
+		    give (plea_slot, plea reply_slot);
+		    take reply_slot;
+		};
+
+	    fun command wrapfn (BUTTON_GROUP { plea_slot, reply_slot, ... } )
+		=
+		fn arg
+		    =
+		    {   give (plea_slot, wrapfn arg);
+
+			case (take reply_slot)
+			    #
+			    ERROR e =>  raise exception e;
+			    okay    =>  ();
+			esac;
+		    };
+	herein
+
+	    get_on_buttons          = get GET_ON_BUTTONS;
+	    get_button_states       = get GET_BUTTON_STATES;
+
+	    set_button_state        = command SET_BUTTON_STATE;
+	    set_button_active_state = command SET_BUTTON_ACTIVE_STATE;
+
+	    fun insert (BUTTON_GROUP { plea_slot, ... } ) arg
+		=
+		{   reply_slot = make_mailslot ();
+
+		    give (plea_slot, INSERT (arg, reply_slot));
+
+		    case (take reply_slot)
+			#
+			WIDGETS wl =>  wl;
+			IERROR e   =>  raise exception e;
+		    esac;
+		};
+
+	    fun append wset (i, bl)
+		=
+		insert wset (i+1, bl);
+
+	end;				# stipulate
+
+    };					# package button_group 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

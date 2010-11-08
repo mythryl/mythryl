@@ -1,0 +1,823 @@
+## print-type-as-nada.pkg 
+## Copyright 2003 by The SML/NJ Fellowship 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+
+#  modified to use Lib7 Lib pp. [dbm, 7/30/03]) 
+
+api Print_Type_As_Lib7 {
+
+     type_formals:  Int
+                   -> List( String );
+
+     tyvar_printname_as_nada:  types::Typevar_Ref
+                      -> String;
+
+     print_tycon_as_nada:  symbol_table::Symbol_Table
+                        -> prettyprint::Stream 
+		        -> types::Type_Constructor
+                        -> Void;
+
+     print_tyfun_as_nada:  symbol_table::Symbol_Table
+                        -> prettyprint::Stream 
+		        -> types::Type_Scheme
+                        -> Void; 
+
+     print_type_as_nada:   symbol_table::Symbol_Table
+                        -> prettyprint::Stream 
+		        -> types::Type
+                        -> Void;
+
+     print_dcon_domain_as_nada:  ((Vector( types::Datatype_Member ), List( types::Type_Constructor )) ) 
+		             -> symbol_table::Symbol_Table 
+		             -> prettyprint::Stream
+                             -> types::Type
+                             -> Void;
+
+     print_datacon_types_as_nada:  symbol_table::Symbol_Table
+                               -> prettyprint::Stream 
+		               -> types::Type_Constructor
+                               -> Void;
+
+     reset_prettyprint_type:  Void
+                   -> Void;
+
+     print_formals_as_nada:  prettyprint::Stream
+                          -> Int
+                          -> Void;
+
+     debugging: Ref( Bool );
+     unalias:   Ref( Bool );
+
+}; #  Api Print_Type_As_Lib7 
+
+package print_type_as_nada: (weak)  Print_Type_As_Lib7 {		# Print_Type_As_Lib7	is from   src/lib/compiler/frontend/typechecker/print/print-type-as-nada.pkg
+
+    stipulate 
+
+	package sp= symbol_path;	# symbol_path	is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package ip= inverse_path;	# inverse_path	is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-path.pkg
+	package bt= type_types;		# type_types	is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+	package t= types;		# types		is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+	package tu= type_stuff;		# type_stuff	is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+	package pp= prettyprint;	# prettyprint	is from   src/lib/prettyprint/src/prettyprint.pkg
+
+	include types;
+	include print_as_nada_stuff; 
+
+    herein
+
+	debugging = REF FALSE;
+	unalias = REF TRUE;
+
+	fun bug s = error_message::impossible ("print_type_as_nada: " + s);
+
+	pps = pp::string;
+
+	fun by f x y
+	    =
+	    f y x;
+
+	internals = typechecking_control::internals;
+
+	unit_path = ip::extend (ip::empty, symbol::make_type_symbol "Void");
+
+	fun bound_type_variable_name k
+	    =
+	    { a = char::to_int 'a';
+	    
+		if   (k < 26)
+		    
+		     string::from_char (char::from_int (k+a));
+		else
+		      implode [ char::from_int (int::(/) (k, 26) + a), 
+				char::from_int (int::(%) (k, 26) + a)
+			      ];fi;
+	    };
+
+	fun meta_tyvar_name' k
+	    =
+	    {   a = char::to_int 'Z'; #  use reverse order for meta vars 
+	    
+		if   (k < 26)
+		    
+		     string::from_char (char::from_int (a - k));
+		else 
+		     implode [ char::from_int (a - (int::(/) (k, 26))), 
+			       char::from_int (a - (int::(%) (k, 26)))
+			     ];
+                fi;
+	    };
+
+	fun type_formals n
+	    =
+	    { fun loop i
+		=
+		if   (i>=n)
+
+		     [];
+		else 
+		     (bound_type_variable_name i)  !  loop (i + 1);
+                fi;
+	    
+		loop 0;
+	    };
+
+	fun literal_kind_printname (lk: t::Literal_Kind)
+	    =
+	    case lk
+	        t::INT => "int";  #  or "INT" 
+	        t::WORD => "word"; #  or "WORD" 
+	        t::REAL => "real"; #  or "REAL" 
+	        t::CHAR => "char"; #  or "CHAR" 
+	        t::STRING => "string"; #  or "STRING" 
+            esac;
+
+	stipulate  #  WARNING -- compiler global variables 
+	    count = REF(-1);  
+	    meta_tyvars = REF([]:List( Typevar_Ref ));
+	herein
+	    fun meta_tyvar_name (tv: Typevar_Ref)
+		=
+		{ fun find ([], _)
+			=>
+			{ meta_tyvars := tv ! *meta_tyvars;
+			  count := *count+1;
+			 *count;
+                        };
+
+		       find (tv' ! rest, k)
+			   =>
+			   if   (tv == tv')
+			        *count - k;
+			   else find (rest, k+1);fi;
+                  end;
+		
+		    meta_tyvar_name' (find (*meta_tyvars, 0));
+		};
+
+	    fun reset_prettyprint_type ()
+		=
+		{   count := -1;
+		    meta_tyvars := []
+		;};
+	end;
+
+	fun tv_head (eq, base)
+	    =
+	    (if   eq      "''";  
+		       else   "'";fi
+	    )
+	    +
+	    base;
+
+	fun annotate (name, annotation, maybe_fn_nesting)
+	    =
+	    if *internals
+
+		 cat (  name
+			 ! "."
+			 ! annotation
+			 ! case maybe_fn_nesting
+				THE fn_nesting =>  ["[fn_nesting == ", (int::to_string fn_nesting), "]"];
+				NULL           =>  NIL;
+			   esac
+			);
+	    else
+		 name;
+            fi;
+
+	fun tyvar_printname_as_nada (tv as { id => _, ref_typevar })
+	    =
+	    pr_kind  *ref_typevar
+            where
+	        fun pr_kind info
+		    =
+		    case info
+		      
+		         RESOLVED_TYPE_VARIABLE (TYPE_VARIABLE_REF  (tv as { id, ref_typevar => _ }))
+                             =>
+                             (tyvar_printname_as_nada  tv)
+                             +
+                             (sprintf "[id%d]" id);
+
+		         RESOLVED_TYPE_VARIABLE _
+                             =>
+                             "<RESOLVED_TYPE_VARIABLE ?>";
+
+			 META_TYPE_VARIABLE { fn_nesting, eq }
+			     =>
+			     tv_head (eq, annotate (meta_tyvar_name tv,
+                                                  "META",
+						 THE fn_nesting));
+
+			 INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }
+			     =>
+			     tv_head (eq, annotate (meta_tyvar_name tv,
+                                                    "F",
+						 THE fn_nesting));
+
+			 USER_TYPE_VARIABLE { name, fn_nesting, eq }
+			     =>
+			     tv_head (eq, annotate (symbol::name name, "USER", THE fn_nesting));
+
+			 LITERAL_TYPE_VARIABLE { kind, ... }
+			     =>
+			     annotate (literal_kind_printname kind, "LITERAL", NULL);
+
+			 OVERLOADED_TYPE_VARIABLE eq
+			  =>
+			  tv_head (eq, annotate (meta_tyvar_name  tv, "OVERLOAD", NULL));
+
+			 TYPE_VARIABLE_MARK _ => "<TYPE_VARIABLE_MARK ?>";
+                    esac;
+	    
+	    end;
+
+	/*
+	fun ppkind stream kind =
+	    pps stream
+	      (case kind
+		 of PRIMITIVE _ => "PRIMITIVE" | FORMAL => "FORMAL"
+		  | FLEXIBLE_TYPE_CONSTRUCTOR _ => "FLEXIBLE_TYPE_CONSTRUCTOR" | ABSTRACT _ => "ABSTYC"
+		  | DATATYPE _ => "DATATYPE" | TEMP => "TEMP")
+	*/
+
+	fun ppkind stream kind
+	    =
+	    pps stream
+	       case kind
+		   PRIMITIVE _                 => "P";
+		   FORMAL                      => "F";
+		   FLEXIBLE_TYPE_CONSTRUCTOR _ => "X";
+		   ABSTRACT _                  => "A";
+		   DATATYPE _                  => "D";
+		   TEMP                        => "T";
+               esac;
+
+	fun effective_path (path, type_constructor, dictionary) : String
+	    =
+	    {   fun type_constructor_path (PRIMITIVE_TYPE_CONSTRUCTOR { path, ... } | DEFINED_TYPE_CONSTRUCTOR { path, ... } | TYPE_CONSTRUCTOR_BY_MODULE_PATH { path, ... } )
+			=>
+			THE path;
+
+		    type_constructor_path _
+			=>
+			NULL;
+                end;
+
+		fun find (path, type_constructor)
+		    =
+		    (find_path (path,
+			(fn type_constructor' => tu::type_constructor_equality (type_constructor', type_constructor); end ),
+			(fn x = find_in_symbol_table::find_type_constructor_via_symbol_path (dictionary, x,
+						(fn _ =  raise exception symbol_table::UNBOUND)))));
+
+		fun search (path, type_constructor)
+		    =
+		    {   my (suffix, found) = find (path, type_constructor);
+		    
+			if   (found)
+			    
+			     (suffix, TRUE);
+			else
+			     if   (not *unalias)
+			         
+				  (suffix, FALSE);
+			     else
+				  case (tu::unwrap_definition_1 type_constructor)
+
+				       THE type_constructor'
+					   =>
+					   case (type_constructor_path type_constructor')
+
+						 THE path'
+						     =>
+						     {   my x as (suffix', found')
+                                                             =
+                                                             search (path', type_constructor');
+
+							 if found'      x;
+							 else           (suffix, FALSE);
+                                                         fi;
+						     };
+
+						 NULL => (suffix, FALSE);
+					   esac;
+
+
+				      NULL => (suffix, FALSE);
+                                esac;
+                             fi;
+                        fi;
+		    };
+
+		my (suffix, found) = search (path, type_constructor);
+		name = sp::to_string (sp::SYMBOL_PATH suffix);
+	    
+		if   found      name;
+			     else   "?." + name;fi;
+	    };
+
+	arrow_stamp = bt::arrow_stamp;
+
+	fun strength  type
+	    =
+	    case type
+
+	         TYPE_VARIABLE_REF { id, ref_typevar => (REF (RESOLVED_TYPE_VARIABLE type')) }
+		     =>
+		     strength  type';
+
+	         CONSTRUCTOR_TYPE (type_constructor, args)
+		     =>
+		     case type_constructor
+
+			   PRIMITIVE_TYPE_CONSTRUCTOR { stamp, kind => PRIMITIVE _, ... }
+			       =>
+			       if (stamp::eq (stamp, arrow_stamp) ) 0; else 2;fi;
+
+			   RECORD_TYPE_CONSTRUCTOR (_ ! _)	  #  excepting type unit 
+			       =>
+			       if (tuples::is_tuple_type_constructor (type_constructor) ) 1; else 2;fi;
+
+			  _ => 2;
+		      esac;
+
+	        _ => 2;
+            esac;
+
+	fun print_eq_prop_as_nada stream p
+	    =
+	    {   a = case p
+			NO            => "NO";
+			YES           => "YES";
+			INDETERMINATE => "INDETERMINATE";
+			CHUNK         => "CHUNK";
+			DATA          => "DATA";
+			EQ_ABSTRACT   => "EQ_ABSTRACT";
+			UNDEF         => "UNDEF";
+                    esac;
+	    
+		pps stream a;
+	    };
+
+	fun print_inverse_path_as_nada ppstream (inverse_path::INVERSE_PATH inverse_path: inverse_path::Inverse_Path)
+	    = 
+	    pp::string ppstream (symbol_path::to_string (symbol_path::SYMBOL_PATH (reverse inverse_path)));
+
+	fun print_tycon1_as_nada dictionary stream members_op
+	    =
+	    {   my  { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+
+		fun print_type_constructor_as_nada (type_constructor as PRIMITIVE_TYPE_CONSTRUCTOR { path, stamp, eq, kind, ... } )
+			=>
+			if *internals
+
+			     begin_wrap_box 1;
+			     print_inverse_path_as_nada stream path;
+			     pps "[";
+			     pps "G"; ppkind stream kind; pps ";"; 
+			     pps (stamp::to_short_string stamp);
+			     pps ";";
+			     print_eq_prop_as_nada stream *eq;
+			     pps "]";
+			     end_box();
+			else
+			     pps (effective_path (path, type_constructor, dictionary));
+			fi;
+
+		    print_type_constructor_as_nada (type_constructor as DEFINED_TYPE_CONSTRUCTOR { path, type_scheme => TYPE_SCHEME { body, ... }, ... } )
+			=>
+			if *internals
+			     begin_wrap_box 1;
+			     print_inverse_path_as_nada stream path;
+			     pps "["; pps "D;"; 
+			     print_type_as_nada dictionary stream body;
+			     pps "]";
+			     end_box();
+			else
+			     pps (effective_path (path, type_constructor, dictionary));
+			fi;
+
+		    print_type_constructor_as_nada (RECORD_TYPE_CONSTRUCTOR labels)
+			=>
+			print_closed_sequence_as_nada stream 
+			    { front=>by pp::string "{",
+			     sep=>fn stream => { pp::string stream ", "; 
+					       pp::break stream { spaces=>0, indent_on_wrap=>0 } ;}; end ,
+			     back=>by pp::string "}",
+			     style=>INCONSISTENT,
+			     pr=>print_symbol_as_nada
+                            }
+                            labels;
+
+		    print_type_constructor_as_nada (RECURSIVE_TYPE n)
+			=>
+			case members_op
+
+			    THE (members, _)
+				=> 
+				{ my { type_constructor_name, constructor_list, ... } = vector::get (members, n);
+				  print_symbol_as_nada stream type_constructor_name;
+				};
+
+			    NULL => pps (string::cat ["<RECURSIVE_TYPE ", int::to_string n, ">"]);
+			esac;
+
+		    print_type_constructor_as_nada (FREE_TYPE n)
+		        =>
+		        case members_op
+
+			    THE (_, free_type_constructors)
+				=> 
+				{   type_constructor
+					=
+					(   list::nth (free_type_constructors, n)
+					    except _
+						=
+						bug "unexpected free_type_constructors in print_type_constructor_as_nada"
+					);
+
+				     print_type_constructor_as_nada type_constructor;
+				 };
+
+			    NULL
+				=> 
+				pps (string::cat ["<FREE_TYPE ", int::to_string n, ">"]);
+                        esac;
+
+		    print_type_constructor_as_nada (type_constructor as TYPE_CONSTRUCTOR_BY_MODULE_PATH { arity, module_path, path } )
+			=>
+			if *internals
+			    begin_wrap_box 1;
+			    print_inverse_path_as_nada stream path; pps "[P;"; 
+			    pps (module_path::module_path_to_string module_path);
+			    pps "]";
+			    end_box();
+			else
+                            print_inverse_path_as_nada stream path;
+                        fi;
+
+		    print_type_constructor_as_nada ERRONEOUS_TYPE_CONSTRUCTOR
+                        =>
+                        pps "[E]";
+                end;
+
+	    
+		print_type_constructor_as_nada;
+	    }
+
+
+	also
+	fun print_type1_as_mythyrl7 dictionary stream (   type:      Type,
+					            an_api:      t::Type_Scheme_Arg_Eq_Properties, 
+					            members_op:  Null_Or( (Vector( t::Datatype_Member ), List( t::Type_Constructor )) )
+					        )
+					        : Void
+	    =
+	    {   my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, newline }
+                    =
+                    en_pp stream;
+
+		fun prty type
+		    =
+		    case type
+
+		         TYPE_VARIABLE_REF { id, ref_typevar => REF (RESOLVED_TYPE_VARIABLE  type') }
+                             =>
+                             prty  type';
+
+		         TYPE_VARIABLE_REF  tv
+                             =>
+                             print_type_variable_as_nada  tv;
+
+		         TYPE_SCHEME_ARG_I n
+			     =>
+			     { eq = list::nth (an_api, n) 
+					    except INDEX_OUT_OF_BOUNDS = FALSE;
+
+				 pps (tv_head (eq, (bound_type_variable_name n)));
+			     };
+
+		         CONSTRUCTOR_TYPE (type_constructor, args)
+			     =>
+			     {
+				 fun otherwise ()
+				     =
+				     { begin_wrap_box 2;
+				       print_type_args_as_nada args; 
+				       break { spaces=>0, indent_on_wrap=>0 };
+				       print_tycon1_as_nada dictionary stream members_op type_constructor;
+				       end_box();
+				     };
+
+				 case type_constructor
+
+				      PRIMITIVE_TYPE_CONSTRUCTOR { stamp, kind, ... }
+					  =>
+					  case kind
+						PRIMITIVE _ 
+						    =>
+						    if (stamp::eq (stamp, arrow_stamp))
+
+							case args
+							     [domain, range]
+								 =>
+								 {   begin_horizontal_else_vertical_box 0;
+
+								     if (strength domain == 0)
+								           begin_horizontal_else_vertical_box 1;
+									   pps "(";
+									   prty domain;
+									   pps ")";
+									   end_box();
+								     else
+									   prty domain;
+								     fi;
+								     break { spaces=>1, indent_on_wrap=>0 };
+								     pps "-> ";
+								     prty range;
+								     end_box();
+                                                                  };
+
+							    _ => bug "CONSTRUCTOR_TYPE: arity";
+							 esac;
+						    else
+							  begin_wrap_box 2;
+							  print_type_args_as_nada args;
+							  break { spaces=>0, indent_on_wrap=>0 };
+							  print_tycon1_as_nada dictionary stream members_op type_constructor;
+							  end_box();
+						   fi;
+
+					      _ => otherwise ();
+					 esac;
+
+				      RECORD_TYPE_CONSTRUCTOR labels
+					  =>
+					  if (tuples::is_tuple_type_constructor (type_constructor))
+					       print_tuple_ty_as_nada args;
+					  else print_record_ty_as_nada (labels, args);fi;
+
+				     _ => otherwise ();
+                                 esac;
+			     };
+
+		         TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties => an_api,
+					    type_scheme => TYPE_SCHEME { arity, body }
+					  }
+			     => 
+			     print_type1_as_mythyrl7 dictionary stream (body, an_api, members_op);
+
+		         WILDCARD_TYPE  => pps "_";
+		         UNDEFINED_TYPE => pps "undef";
+                    esac
+
+		also
+		fun print_type_args_as_nada []
+                        =>
+                        ();
+
+		    print_type_args_as_nada [type]
+			=> 
+			{  if (strength type <= 1)
+			        begin_wrap_box 1;
+				pps "("; 
+				prty type; 
+				pps ")";
+				end_box();
+			   else
+				 prty type;
+			   fi;
+			   break { spaces=>1, indent_on_wrap=>0 } ;
+                        };
+
+		    print_type_args_as_nada tys
+			=>
+			print_closed_sequence_as_nada
+			    stream 
+			    {   front => by pp::string "(",
+				sep   => fn stream => { pp::string stream ", ";
+					     pp::break stream { spaces=>0, indent_on_wrap=>0 } ;}; end ,
+				back  => by pp::string ") ",
+				style => INCONSISTENT, 
+				pr    => fn _ => fn type => prty type; end;  end 
+			    }
+			    tys;
+                    end 
+
+		also
+		fun print_tuple_ty_as_nada [] => pps (effective_path (unit_path, RECORD_TYPE_CONSTRUCTOR [], dictionary));
+
+		   print_tuple_ty_as_nada tys
+		    => 
+		    print_sequence_as_nada
+                       stream
+		       {   sep   => fn stream => { pp::break stream { spaces=>1, indent_on_wrap=>0 };
+					  pp::string stream "* ";}; end ,
+			   style => INCONSISTENT,
+			   pr    => (fn _ =  fn type = if (strength type <= 1)
+							       begin_wrap_box 1;
+							       pps "("; 
+							       prty type; 
+							       pps ")";
+							       end_box();
+							 else 
+                                                               prty type;
+                                                         fi
+                                   )
+                       }
+		       tys; end 
+
+		also
+		fun print_field_as_nada (lab, type)
+		    =
+		    {   begin_horizontal_else_vertical_box 0;
+			print_symbol_as_nada stream lab; 
+			pps ":";
+			prty type;
+			end_box()
+		    ;}
+
+		also
+		fun print_record_ty_as_nada ([],[])
+		    =>
+		    pps (effective_path (unit_path, RECORD_TYPE_CONSTRUCTOR [], dictionary));
+		      #  this case should not occur 
+
+		   print_record_ty_as_nada (lab ! labels, arg ! args)
+		    =>
+		    {   begin_wrap_box 1;
+		        pps "{";
+		        print_field_as_nada (lab, arg);
+		        paired_lists::apply 
+			  (fn field' = { pps ", "; break { spaces=>1, indent_on_wrap=>0 }; print_field_as_nada field';})
+			  (labels, args);
+		        pps "}";
+		        end_box()
+                    ;};
+
+		   print_record_ty_as_nada _
+		    =>
+		    bug "print_type_as_nada::print_record_ty_as_nada"; end 
+
+		also
+		fun print_type_variable_as_nada (tv as { id, ref_typevar => (ref_info as REF info) }:Typevar_Ref) :Void
+		    =
+		    {   printname = tyvar_printname_as_nada tv;
+		    
+			case info
+
+			     INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }
+			         =>
+				 case known_fields
+
+				      [] => { pps "{"; pps printname; pps "}";};
+
+				      field' ! fields
+					  =>
+					  {   begin_wrap_box 1;
+					      pps "{";
+					      print_field_as_nada field';
+					      apply (fn x => { pps ", ";
+							    break { spaces=>1, indent_on_wrap=>0 };
+							    print_field_as_nada x;}; end )
+						   fields;
+					      pps ";";
+					      break { spaces=>1, indent_on_wrap=>0 };
+					      pps printname;
+					      pps "}";
+					      end_box();
+					  };
+				  esac;
+
+			    _ => pps printname;
+
+                        esac;
+		    };
+	    
+		prty type;
+	    }  #  print_type1_as_mythyrl7 
+
+
+	also
+	fun print_type_as_nada (dictionary: symbol_table::Symbol_Table) stream (type:  Type) : Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		print_type1_as_mythyrl7 dictionary stream (type,[], NULL);
+		pp::end_box stream;
+	    };
+
+
+	fun print_dcon_domain_as_nada members (dictionary: symbol_table::Symbol_Table) stream (type:  Type)
+	    : Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		print_type1_as_mythyrl7 dictionary stream (type,[], THE members);
+		pp::end_box stream;
+	    };
+
+
+	fun print_tycon_as_nada  dictionary stream      type_constructor
+	    =
+	    print_tycon1_as_nada dictionary stream NULL type_constructor;
+
+
+	fun print_tyfun_as_nada dictionary stream (TYPE_SCHEME { arity, body } )
+	    =
+	    {   my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp  stream;
+	    
+		begin_wrap_box 2;
+		pps "TYPE_SCHEME( { arity="; 
+		print_int_as_nada stream arity; print_comma_as_nada stream;
+		break { spaces=>0, indent_on_wrap=>0 };
+		pps "body="; 
+		print_type_as_nada dictionary stream body; 
+		pps "} )";
+		end_box();
+	    };
+
+	fun print_formals_as_nada stream
+	    =
+	    print_formals_as_nada'
+            where
+	        fun print_formals_as_nada' 0 => ();
+		    print_formals_as_nada' 1 => pps stream " 'a";
+		    print_formals_as_nada' n => { pps stream " ";
+			     print_tuple_as_mythrl7 stream (fn stream =  fn s =  pps stream ("'" + s))
+					    (type_formals n);};
+                end;
+	    end;
+
+	fun print_datacon_types_as_nada dictionary stream (PRIMITIVE_TYPE_CONSTRUCTOR { kind => DATATYPE dt, ... } )
+	    =>
+	    {   my { index, free_type_constructors, family=> { members, ... }, ... } = dt;
+
+		my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... } = en_pp stream;
+
+		my { constructor_list, ... } = vector::get (members, index);
+	    
+		begin_horizontal_else_vertical_box 0;
+
+		apply
+                    (fn { name, domain, ... }
+                        =
+			{   pps (symbol::name name);
+                            pps ":";
+
+			    case domain
+			      
+			         THE type
+                                     =>
+				     print_type1_as_mythyrl7 dictionary stream (type,[], THE (members, free_type_constructors));
+
+			         NULL
+                                     =>
+                                     pps "CONST";
+                            esac;
+
+			    break { spaces=>1, indent_on_wrap=>0 };
+                        }
+                    )
+		    constructor_list;
+
+		end_box();
+	    };
+
+	   print_datacon_types_as_nada dictionary stream _
+            =>
+            bug "print_datacon_types_as_nada"; end;
+
+    end; #  toplevel stipulate 
+
+}; #  package print_type_as_nada 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1991 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

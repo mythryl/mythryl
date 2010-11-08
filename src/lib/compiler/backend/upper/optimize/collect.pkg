@@ -1,0 +1,729 @@
+## collect.pkg
+## monnier@cs.yale.edu 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This is support for the A-Normal Form optimization passes --
+# for context see the comments in
+#
+#     src/lib/compiler/backend/upper/anormal/anormal.api
+#
+
+
+
+#                 "For the day would come when
+#                  patent clerks would rule
+#                  the destinies of Men."
+
+
+
+api Collect {
+
+    Info;
+    
+
+    # Collect information about variables and function uses.
+    # The info is accumulated in the map `m'
+
+    collect:  anormal::Function_Declaration -> anormal::Function_Declaration;
+
+    get:  anormal::Highcode_Variable -> Info;
+
+
+    # Query functions 
+
+    escaping:   Info -> Bool;	#  non-call uses 
+    called:     Info -> Bool;	#  known call uses 
+    dead:       Info -> Bool;	#  usenb = 0 ? 
+    usenb:      Info -> Int;		#  total nb of uses 
+    callnb:     Info -> Int;		#  total nb of calls 
+
+
+    # Self-referential (i.e. internal) uses 
+    iusenb:     Info -> Int;
+    icallnb:    Info -> Int;
+
+
+    # Reset to safe values (0 and 0) 
+
+    ireset:     Info -> Void;
+
+
+    # inc the "true=call, false=use" count 
+    use   : Null_Or( List( anormal::Value ) ) -> Info -> Void;
+
+    # Dec the "true=call, false=use" count and return TRUE if zero 
+    unuse:   Bool -> Info -> Bool;
+
+
+    # Transfer the counts of var1 to var2 
+
+    transfer:  (anormal::Highcode_Variable, anormal::Highcode_Variable) -> Void;
+
+    #  Add the counts of var1 to var2 
+    #   my addto:   info * info -> Void 
+    #  Delete the last reference to a variable 
+    #   my kill:    anormal::Highcode_Variable -> Void 
+    #  Create a new var entry (THE arg list if fun) initialized to zero 
+
+    new:      Null_Or( List( anormal::Highcode_Variable ) ) -> anormal::Highcode_Variable -> Info;
+
+    # When creating a new var.  Used when alpha-renaming 
+    #  my copy:    anormal::Highcode_Variable * anormal::Highcode_Variable -> Void 
+
+
+    # Fix up function to keep counts up-to-date when getting rid of code.
+    # the arg is called for *free* variables becoming dead.
+
+    unuselexp:  (anormal::Highcode_Variable -> Void) -> anormal::Anormal_Expression -> Void;
+
+
+    # Function to collect info about a newly created Anormal_Expression 
+
+    uselexp:  anormal::Anormal_Expression -> Void;
+
+
+    # Function to copy (and collect info) a Anormal_Expression 
+
+    copylexp:  highcodeint_map::Map( anormal::Highcode_Variable ) -> anormal::Anormal_Expression -> anormal::Anormal_Expression;
+
+
+    # Mostly useful for prettyprint_anormal 
+
+    lvar_string:  anormal::Highcode_Variable -> String;
+};
+
+# Internal vs External references:
+# I started with a version that kept track separately of internal and external
+# uses.  This has the advantage that if the extuses count goes to zero, we can
+# consider the function as dead.  Without this, recursive functions can never
+# be recognized as dead during fcontract (they are still eliminated at the
+# beginning, tho).  This looks nice at first, but poses problems:
+# - when you do simple inlining (just moving the body of the procedure), you
+#   may inadvertently turn ext-uses into int-uses.  This only happens when
+#   inlining mutually recursive function, but this can be commen (think of
+#   when fcontract undoes a useless uncurrying of a recursive function).  This
+#   can be readily overcome by not using the `move body' optimization in
+#   dangerous cases and do the full copy+kill instead.
+# - you have to keep track of what is inside what.  The way I did it was to
+#   have an 'inside' REF cell in each fun.  That was a bad idea.  The problem
+#   stems from the fact that when you detect that a function becomes dead,
+#   you have to somehow reset those `inside' REF cells to reflect the location
+#   of the function before you can uncount its references.  In most cases, this
+#   is unnecessary, but it is necessary when undertaking a function mutually
+#   recursive with a function in which you currently are when you detect the
+#   function's death.
+# rather than fix this last point, I decided to give up on keeping internal
+# counts up-to-date.  Instead, I just compute them once during collect and
+# never touch them again:  this means that they should not be relied on in
+# general.  More specifically, they become potentially invalid as soon as
+# the body of the function is changed.  This still allows their use in
+# many cases.
+
+
+package collect: Collect {			# Collect		is from   src/lib/compiler/backend/upper/optimize/collect.pkg
+
+    stipulate
+
+	package f= anormal;			# anormal			is from   src/lib/compiler/backend/upper/anormal/anormal.pkg
+	package m= int_hash_table;		# int_hash_table		is from   src/lib/src/int-hash-table.pkg
+	package fu= anormal_stuff;		# anormal_stuff			is from   src/lib/compiler/backend/upper/anormal/anormal-stuff.pkg
+	package lv= highcode_var;		# highcode_var			is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+	package pp= prettyprint_anormal;	# prettyprint_anormal		is from   src/lib/compiler/backend/upper/anormal/prettyprint-anormal.pkg
+	package po= highcode_primitive_op;	# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+
+    herein
+
+	say = control_print::say;
+
+	fun bug      msg      =  error_message::impossible ("Collect: " + msg);
+	fun buglexp (msg, le) =  { say "\n"; pp::print_lexp le; say " "; bug msg;};
+	fun bugval  (msg, v)  =  { say "\n"; pp::print_sval v; say " "; bug msg;};
+
+
+	# We keep track of calls and escaping uses:
+
+	Info = INFO  { calls: Ref( Int ), uses: Ref( Int ), int: Ref( (Int, Int) ) };
+
+	exception NOT_FOUND;
+
+	my m:   m::Hash_Table( Info )
+	    =    m::make_table (128, NOT_FOUND);
+
+	fun new args lv
+	    =
+	    i
+	    where 
+
+		i = INFO { uses=>REF 0, calls=>REF 0, int=>REF (0, 0) };
+
+		m::set m (lv, i);
+	    end;
+
+
+	# Map-related helper functions 
+	#
+	fun get lv
+	    =
+	    (m::get  m  lv)
+	    except
+		x as NOT_FOUND
+		    =
+		    {    # say (
+			 #      "Collect: ERROR: get unknown var "
+			 #    + (lv::name_of_highcode_variable lv)
+			 #    + ". Pretending dead...\n");
+			 #   raise x; 
+
+			 new NULL lv;
+		    };
+
+	fun lvar_string lv
+	    =
+	    {   my INFO { uses=>REF uses, calls=>REF calls, ... }
+		   =
+		   get lv;
+
+		(lv::name_of_highcode_variable lv)
+	      +	"{ "
+	      + (int::to_string uses)
+	      +	(if (calls > 0 ) ", " + (int::to_string calls); else "";fi)
+	      + " }";
+	    };
+
+
+	#  Adds the counts of lv1 to those of lv2 
+	#
+	fun addto (INFO { uses=>uses1, calls=>calls1, ... },
+                   INFO { uses=>uses2, calls=>calls2, ... } )
+            =
+	    {   uses2 := *uses2 + *uses1;
+                calls2 := *calls2 + *calls1;
+            };
+
+	fun transfer (lv1, lv2)
+            =
+	    {   i1 = get lv1;
+		i2 = get lv2;
+
+	        addto (i1, i2);
+
+		#  note the transfer by redirecting the map 
+		m::set m (lv1, i2);
+	    };
+
+	fun inc ri =  (ri := *ri + 1);
+	fun dec ri =  (ri := *ri - 1);
+
+
+	# - first list is list of formal args
+	# - second is list of `up to know known arg'
+	# - third is args of the current call.
+
+	fun mergearg (NULL, a)
+                =>
+                NULL;
+
+	    mergearg (THE (fv, NULL), a)
+		=>
+		if (a == f::VAR fv ) THE (fv, NULL); else THE (fv, THE a);fi;
+
+	    mergearg (THE (fv, THE b), a)
+		=>
+		if (a == b or a == f::VAR fv ) THE (fv, THE b); else NULL;fi;
+        end;
+
+	fun use call (INFO { uses, calls, ... } )
+            =
+	    {   inc uses;
+
+	        case call
+	          
+	             NULL     =>  ();
+	             THE vals =>  inc calls;
+                esac;
+            };
+
+	fun unuse call (INFO { uses, calls, ... } )
+            =
+	    # Notice the calls could be dec'd to negative values because a
+	    # use might be turned from escaping to known between the census
+	    # and the unuse.  We can't easily detect such changes, but
+	    # we can detect it happened when we try to go below zero.
+	    {   dec uses;
+
+	        if  (call /*  and *calls > 0 */)
+                     dec calls;
+	        fi;
+
+	        if   (*uses < 0)
+                    
+                     bug "decrementing too much"; #  f::VAR lv) 
+	        else
+                     *uses == 0;
+                fi;
+            };
+
+	fun usenb    (INFO { uses=>REF uses, ... } )   =  uses;
+	fun callnb   (INFO { calls=>REF calls, ... } ) =  calls;
+	fun used     (INFO { uses, ... } )             =  *uses > 0;
+	fun dead     (INFO { uses, ... } )             =  *uses == 0;
+	fun escaping (INFO { uses, calls, ... } )      =  *uses > *calls;
+	fun called   (INFO { calls, ... } )            =  *calls > 0;
+	fun iusenb   (INFO { int=>REF (u, _), ... } )  =  u;
+	fun icallnb  (INFO { int=>REF(_, c), ... } )   =  c;
+	fun ireset   (INFO { int, ... } )              =  int := (0, 0);
+
+
+	#                "When the Hymalayan peasant meets the he-bear in his pride,
+	#                   He shouts to scare the monster, who will often turn aside.
+	#                     But the she-bear thus accosted, rends the peasant tooth and nail,
+	#                       For the female of the species is more deadly than the male."
+	#
+	#                                -- Rudyard Kipling,
+	#                                   The Female of the Species
+
+
+	# Ideally, we should check that usenb = 1, but we may have been a bit
+	# conservative when keeping the counts uptodate
+
+	fun kill lv
+	    =
+	    ignore (m::remove m lv) except _ => (); end ;
+
+	#  ********************************************************************** 
+	#  ********************************************************************** 
+
+	 Usage
+	  = ALL
+	  | NONE
+	  | SOME  List( Bool );
+
+	fun usage bs
+	    =
+	    {   fun ua [] => ALL;
+		    ua (FALSE ! _) =>   SOME bs;
+		    ua (TRUE ! bs) =>   ua bs;
+		end;
+
+		fun un [] => NONE;
+		    un (TRUE ! _)   =>   SOME bs;
+		    un (FALSE ! bs) =>   un bs;
+		end;
+
+		case bs
+		  
+		    TRUE  ! bs =>   ua bs;
+		    FALSE ! bs =>   un bs;
+		    []         =>   NONE;
+		esac;
+	    };
+
+	fun impure_po (po: f::Primitive_Operation)
+	    =
+	    po::effect (#2 po);
+
+	census
+            =
+            {   #  use = if inc then use else unuse 
+
+		fun call args lv
+		    =
+		    use args (get lv);
+
+		use =   fn f::VAR lv =>   use NULL (get lv);
+			   _         =>   ();
+                         end ;
+
+		fun newv lv = new NULL lv;
+		fun newf args lv = new args lv;
+		fun id x = x;
+
+
+		#  Here, the use resembles a call, but it's safer to consider it as a use 
+
+		fun cpo (NULL: Null_Or( f::Dictionary ), po, lambda_type, tycs)
+                        =>
+                        ();
+
+		    cpo (THE { default, table }, po, lambda_type, tycs)
+                        =>
+		        {   use (f::VAR default); apply (use o f::VAR o #2) table;};
+                end;
+
+		fun cdcon (s, var_home::EXCEPTION (var_home::HIGHCODE_VARIABLE lv), lambda_type)
+                        =>
+                        use (f::VAR lv);
+
+		    cdcon _
+                        =>
+                        ();
+                end;
+
+
+		# The actual function:
+		# `uvs' is an optional list of booleans representing which of 
+		# the return values are actually used 
+
+		fun cexp lambda_expression
+		    =
+		    case lambda_expression
+		      
+			f::RET vs
+                            =>
+                            apply use vs;
+
+			f::LET (lvs, le1, le2)
+			    =>
+			    {   lvsi = map newv lvs;
+				cexp le2;
+				cexp le1;
+			    };
+
+			f::MUTUALLY_RECURSIVE_FNS (fs, le)
+			    =>
+			    {   fs = map (fn (_, f, args, body) =>
+					      (newf (THE (map #1 args)) f, args, body); end )
+					     fs;
+				fun cfun (INFO { uses, calls, int, ... }, args, body)
+				    =
+				    # Census of a Function_Declaration.
+				    # We get the internal counts by examining
+				    # the count difference between before
+				    # and after census of the body.
+				    {   my (euses, ecalls) = (*uses, *calls);
+
+					apply (fn (v, t) => ignore (newv v); end ) args;
+					cexp body;
+					int := (*uses - euses, *calls - ecalls);
+				    };
+
+				fun cfix fs	#  Census of a list of fundecs 
+                                    =
+				    {   my (ufs, nfs) = list::partition (used o #1) fs;
+
+				        if   (not (list::null ufs))
+                                            
+                                             apply cfun ufs;
+                                             cfix nfs;
+                                        fi;
+				    };
+
+				cexp le;
+				cfix fs;
+			    };
+
+			f::APPLY (f::VAR f, vs)
+			    =>
+			    {    call (THE vs) f;
+				 apply use vs;
+			    };
+
+			f::TYPE_FN ((tfk, tf, args, body), le)
+			    =>
+			    {   tfi = newf (THE []) tf;
+				cexp le;
+				if (used tfi ) cexp body; fi;
+			    };
+
+			f::TYPE_APPLY (f::VAR tf, tycs)
+                            =>
+                            call (THE []) tf;
+
+			f::SWITCH (v, cs, arms, def)
+			    =>
+			    {   use v;
+                                null_or::map cexp def;
+
+			        apply (fn (f::DATACON (dc, _, lv), le) => { cdcon dc; newv lv; cexp le;};
+				    (_, le) => cexp le; end )
+				 arms;};
+
+			f::CONSTRUCTOR (dc, _, v, lv, le)
+			    =>
+			    {   lvi = newv lv;
+			        cdcon dc;
+                                cexp le;
+                                if (used lvi ) use v; fi;
+			    };
+
+			f::RECORD (_, vs, lv, le)
+			    =>
+			    {   lvi = newv lv;
+			        cexp le;
+                                if (used lvi ) apply use vs; fi;
+			    };
+
+			f::SELECT (v, _, lv, le)
+			    =>
+			    {   lvi = newv lv;
+			        cexp le;
+                                if (used lvi ) use v; fi;
+			    };
+
+			f::RAISE (v, _)
+                            =>
+                            use v;
+
+			f::EXCEPT (le, v)
+                            =>
+                            {   use v;
+                                cexp le;
+                            };
+
+			f::BRANCH (po, vs, le1, le2)
+                            =>
+			    {   apply use vs;
+                                cpo po;
+                                cexp le1;
+                                cexp le2;
+                            };
+
+			f::PRIMOP (po, vs, lv, le)
+			    =>
+			    {   lvi = newv lv;
+			        cexp le;
+
+				if (used lvi or impure_po po )
+                                    cpo po;
+                                    apply use vs;
+                                fi;
+			    };
+
+			le => buglexp("unexpected Anormal_Expression", le);
+
+		    esac;
+
+		cexp;
+	    };
+
+	# The code is almost the same for uncounting, except that calling
+	# undertaker should not be done for non-free variables.  For that we
+	# artificially increase the usage count of each variable when it's defined
+	# (accomplished via the "def" calls)
+	# so that its counter never reaches 0 while processing its scope.
+	# Once its scope has been processed, we can completely get rid of
+	# the variable and corresponding info (after verifying that the count
+	# is indeed exactly 1 (accomplished by the "kill" calls)
+
+	fun unuselexp undertaker
+	    =
+	    cexp
+	    where 
+
+		#  use = if inc then use else unuse 
+
+		fun uncall lv
+		    =
+		    if (unuse TRUE (get lv) ) undertaker lv; fi;
+
+		unuse = fn f::VAR lv => if (unuse FALSE (get lv) ) undertaker lv; fi;
+			      _ => ();
+                        end ;
+
+		fun def i
+		    =
+		    (use NULL i);
+
+		fun id x
+		    =
+		    x;
+
+		fun cpo (NULL: Null_Or( f::Dictionary ), po, lambda_type, tycs)
+			=>
+			();
+
+		    cpo (THE { default, table }, po, lambda_type, tycs)
+			=>
+			{   unuse (f::VAR default);
+			    apply (unuse o f::VAR o #2) table;
+			};
+		end;
+
+		fun cdcon (s, var_home::EXCEPTION (var_home::HIGHCODE_VARIABLE lv), lambda_type)
+		       =>
+		       unuse (f::VAR lv);
+
+		   cdcon _
+		       =>
+		       ();
+		end;
+
+		fun cfun (args, body)		#  Census of a Function_Declaration 
+		    =
+		    {   apply (def o get) args;
+			cexp body;
+			apply kill args;
+		    }
+
+		also
+		fun cexp lambda_expression
+		    =
+		    case lambda_expression
+		       
+			f::RET vs
+			    =>
+			    apply unuse vs;
+
+			f::LET (lvs, le1, le2)
+			    =>
+			    {   apply (def o get) lvs;
+				cexp le2;
+				cexp le1;
+				apply kill lvs;
+			    };
+
+			f::MUTUALLY_RECURSIVE_FNS (fs, le)
+			    =>
+			    {   fs     = map (fn (_, f, args, body) => (get f, f, args, body); end ) fs;
+				usedfs = (list::filter (used o #1) fs);
+
+				apply (def o #1) fs;
+				cexp le;
+				apply   (fn (_, _, args, le) => cfun (map #1 args, le); end )   usedfs;
+				apply (kill o #2) fs;
+			    };
+
+			f::APPLY (f::VAR f, vs)
+			    =>
+			    {   uncall f;
+				apply unuse vs;
+			    };
+
+			f::TYPE_FN ((tfk, tf, args, body), le)
+			    =>
+			    {   tfi = get tf;
+				if (used tfi ) cexp body; fi;
+				def tfi;
+				cexp le;
+				kill tf;
+			    };
+
+			f::TYPE_APPLY (f::VAR tf, tycs)
+			    =>
+			    uncall tf;
+
+			f::SWITCH (v, cs, arms, default)
+			    =>
+			    {   unuse v;
+				null_or::map cexp default;
+
+				# here we don't absolutely have to keep track of vars bound within
+				# each arm since these vars can't be eliminated anyway
+				apply
+				    (   fn (f::DATACON (dc, _, lv), le)
+					       =>
+					       {   cdcon dc;
+						   def (get lv);
+						   cexp le; kill lv;
+					       };
+
+					  (_, le)
+					       => cexp le; end 
+				    )
+				    arms;
+			    };
+
+			f::CONSTRUCTOR (dc, _, v, lv, le)
+			    =>
+			    {   lvi = get lv;
+				cdcon dc;
+				if (used lvi)   unuse v;   fi;
+				def lvi;
+				cexp le;
+				kill lv;
+			    };
+
+			f::RECORD (_, vs, lv, le)
+			    =>
+			    {   lvi = get lv;
+				if (used lvi) apply unuse vs; fi;
+				def lvi; cexp le; kill lv;
+			    };
+
+			f::SELECT (v, _, lv, le)
+			    =>
+			    {   lvi = get lv;
+				if (used lvi) unuse v; fi;
+				def lvi;
+				cexp le;
+				kill lv;
+			    };
+
+			f::RAISE (v, _)   =>   unuse v;
+			f::EXCEPT (le, v) =>   { unuse v; cexp le;};
+
+			f::BRANCH (po, vs, le1, le2)
+			    =>
+			    {   apply unuse vs;
+				cpo po;
+				cexp le1;
+				cexp le2;
+			    };
+
+			f::PRIMOP (po, vs, lv, le)
+			    =>
+			    {   lvi = get lv;
+
+				if (used lvi or impure_po po)
+				      cpo po;
+                                      apply unuse vs;
+				fi;
+
+				def lvi;
+				cexp le;
+				kill lv;
+			    };
+
+			le => buglexp("unexpected Anormal_Expression", le);
+		    esac;
+	    end;
+
+	uselexp = census;
+
+	fun copylexp alpha le
+	    =
+	    {   nle = fu::copy [] alpha le;
+		uselexp nle;
+		nle;
+	    };
+
+	fun collect (fdec as (_, f, _, _))
+	    =
+	    {   #   say "Entering Collect...\n"; 
+		m::clear m;				#  start from a fresh state 
+		pp::lvar_string := lvar_string;
+		uselexp (f::MUTUALLY_RECURSIVE_FNS([fdec], f::RET [f::VAR f]));
+		#   say "...Collect Done.\n"; 
+		fdec;
+	    };
+
+    end;
+};
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

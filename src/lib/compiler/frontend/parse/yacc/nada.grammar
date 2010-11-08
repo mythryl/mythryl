@@ -1,0 +1,3694 @@
+## nada.grammar
+## Copyright 1989, 1992 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.
+
+# NB: None of the 'nada' stuff is current usable or used.
+#     I'm keeping it as a place-holder in case I decide
+#     to support an alternate syntax like prolog or lisp.
+
+
+
+
+
+# This is the Nada syntax grammar file.
+# Mythryl-Yacc consumes this and spits out an LALR (1)
+# parser which eats ASCII text and excretes
+# raw_syntax syntax trees -- see
+#
+#     compiler/parse/raw-syntax/raw-syntax.api
+#     compiler/parse/raw-syntax/raw-syntax.pkg
+#
+# The file syntax here is very close to classic
+# YACC input syntax, with SML substituting for
+# C in the actions.  The biggest difference is
+# that when we declare nonterminal symbols via
+# '%nonterm', we also declare types for them.
+#
+#  The top section (to the first double-percent-sign
+#  separator) contains arbitrary SML code -- support
+# for rule actions.
+
+
+
+###      "A language that doesn't affect the
+###       way you think about programming, is
+###       not worth knowing."
+###
+###                       -- Alan Perlis
+
+
+#                DESIGN PRINCIPLES
+#
+# All statements end with a semicolon:  Semicolon is -not- a seperator.
+#
+# Reserved punctuation symbols are ` ' " ( ) { } [ ]
+#
+# Identifiers are [_A-Za-z][_A-Za-z0-9]*[']*
+# Infix operators are composed from & $ hashmark ! ~ - + * / % : < = > ? @ ^ | \ ; . ,
+# Prefix and suffix operators are single characters from the above,
+# except | > may not be prefix and > | ; : ' , may not be suffix operators.
+# 
+# That means we are barring from  infix operators: ( ) { } [ ] " ' `
+#                           from prefix operators: ( ) { } [ ] " ' ` | < >
+#                       and from suffix operators: ( ) { } [ ] " ' ` | < > ; : ' ,
+#
+# Also prefix '.' is pre-empted for record selection,
+# and  prefix '*' is pre-empted for dereferencing,
+# and  prefix '/' is pre-empted for regular expressions.
+# The set of user prefix operators is thus > & $ hashmark ! ~ - + % : = > ? @ ^ \ ; . ,
+# The set of user suffix operators is thus < & $ hashmark ! ~ - + % = ? @ ^ \ .
+#
+# The set of user-definable bracket operators is <a> |a| { a} [a] /a/
+#
+# On reflection, I think we should also allow
+# QED style mismatched bracket operators:
+#
+#     <a| <a} <a] <a/
+#     |a> |a} |a] |a/
+#     { a> { a| { a] { a/
+#     [a> [a| [a} [a/
+#     /a> /a| /a} /a]
+#
+# I don't expect them to be heavily used, but
+# I figure type errors (in particular, "operator
+# undefined") will catch typoes just fine, so there
+# seems vanishingly little reason not to allow them.
+#
+# SML operators are composed from:  ! % & $ hashmark + - / : < = > ? @ \ ~ ` ^ | *
+# That means they are reserving: = ( ) { } [ ] " ' ` , . ;
+#
+# Equality is == not =
+#
+# Individual values may be named via
+#
+#     variable = expression;
+#
+# Assignment to more complicated patterns is handled as
+#
+#     pattern = expression;
+#
+# Function definition syntax is:
+#   fun pattern = expression;
+# or
+#   fun pattern => expression;
+#       pattern => expression;
+#       ...
+#   end;
+#
+# Switch syntax is: 
+#
+#   case expression of
+#       pattern => expression;
+#       pattern => expression;
+#       ...
+#   end;
+#
+#  If-then-else is
+#
+#      if   expression then
+#           statements;
+#      else
+#           statements;
+#      fi;
+#
+#  C-style 'for' loops are
+#  
+#      for statements;; expression;; statements do
+#          statements;
+#      end;
+#  
+#      -- How about:
+#      for statements while expression end statements do
+#      end.
+#
+#      -- Also a special but common case
+#      for 0 < i < n do        -- <= allowed too.
+#          statements.
+#      end.
+
+
+
+include raw_syntax;
+include error_message;
+include symbol;
+include fast_symbol;
+include raw_syntax_stuff;
+include fixity;
+
+Raw_Symbol = fast_symbol::Raw_Symbol;
+
+
+
+# Two little fns for use in rule actions, which
+# annotate syntax expression and declaration trees
+# with the corresponding source file line+column
+# number range (s).
+#
+# They do nothing if the tree is already so annotated:
+
+fun note_expression_location (e as SOURCE_CODE_REGION_FOR_EXPRESSION _, _, _)
+	=>
+	e;
+
+    note_expression_location (e, a, b)
+	=>
+	SOURCE_CODE_REGION_FOR_EXPRESSION (e, (a, b));
+end;
+
+fun note_declaration_location (d as SOURCE_CODE_REGION_FOR_DECLARATION _, _, _)
+	=>
+	d;
+
+    note_declaration_location (d, a, b)
+	=>
+	SOURCE_CODE_REGION_FOR_DECLARATION (d, (a, b));
+end;
+
+
+# A few handy constants for use in rule actions:
+
+package_string     = "package";
+package_hash       = hash_string::hash_string "package";
+
+api_string         = "api";
+api_hash           = hash_string::hash_string "api";
+
+macro_string       = "macro";
+macro_hash         = hash_string::hash_string "macro";
+
+transparent_string = "transparent";
+transparent_hash   = hash_string::hash_string "transparent";
+
+opaque_string      = "opaque";
+opaque_hash        = hash_string::hash_string "opaque";
+
+underbar_hash      = hash_string::hash_string "_";
+underbar_string    = "_";
+
+equal_hash         = hash_string::hash_string "=";
+equal_string       = "=";
+
+bogus_hash         = hash_string::hash_string "BOGUS";
+bogus_string       = "BOGUS";
+
+quoted_bogus_hash   = hash_string::hash_string "'BOGUS";
+quoted_bogus_string = "'BOGUS";
+
+
+
+# The grammar token declaration section starts after this marker:
+
+%%
+
+
+# First we declare the terminal symbols returned by
+# the lexer -- the various constant types, the keywords,
+# and the identifier classes (VALUE_ID, ANTIQUOTE_ID, TYPE_ID)
+# that do most of the real work:
+
+%term
+      ANTIQUOTE_ID of fast_symbol::Raw_Symbol
+    | CHAR of String
+    | CHUNKL of String
+    | CONSTRUCTOR_ID of fast_symbol::Raw_Symbol	/* ALL_CAPS */
+    | ENDQ of String
+    | VALUE_ID of fast_symbol::Raw_Symbol		# lower_case
+    | INT of integer::Int
+    | INT0 of integer::Int
+    | REAL of String
+    | SHEBANG of String					# #!...
+    | STRING of String 
+    | TYPE_ID of fast_symbol::Raw_Symbol		# Mixed_Case
+    | TYPEVAR_ID of fast_symbol::Raw_Symbol		# C or C_lower_case
+    | UNT of integer::Int
+
+    | TIGHT_INFIX_OP of fast_symbol::Raw_Symbol	# Infix op with no adjacent whitespace.
+    | LOOSE_INFIX_OP of fast_symbol::Raw_Symbol	# Infix op with whitespace adjacent on both sides.
+    | PREFIX_OP      of fast_symbol::Raw_Symbol
+    | SUFFIX_OP      of fast_symbol::Raw_Symbol
+
+    | ALSO_T
+    | AND_T
+    | API_T
+    | AS_T
+    | BEGIN_T
+    | BEGINQ 				# ```
+    | CASE_T
+    | DO_T
+    | ELSE_T
+    | END_T
+    | ENUM_T
+    | EOF
+    | EQTYPE_T
+    | EXCEPT_T
+    | EXCEPTION_T
+    | FI_T
+    | FN_T
+    | FUN_T
+    | IF_T
+    | IN_T
+    | INCLUDE_T
+    | INFIX_ARROW			# ->
+    | INFIX_BANGBANG			# !!
+    | INFIX_DARROW			# =>
+    | INFIX_DOTDOTDOT			# ...
+    | INFIX_EQUAL			# =
+    | INFIX_QMARKQMARK			# ??
+    | LAZY_T
+    | LET_T
+    | LOCAL_T
+    | LOOSE_INFIX_LVECTOR		# #[
+    | LOOSE_INFIX_LBRACKET		#  [
+    | LOOSE_INFIX_RBRACKET		#  ]
+    | LOOSE_INFIX_LBRACE		#  {
+    | LOOSE_INFIX_RBRACE		#  }
+    | LPAREN				#  (
+    | MACRO
+    | MY_T
+    | OF_T 
+    | OPAQUE
+    | OR_T
+    | PACKAGE_T
+    | PREFIX_BAR			# |
+    | PREFIX_DOT			# .
+    | PREFIX_LANGLE			# <
+    | PREFIX_LBRACE			# {
+    | PREFIX_LBRACKET			# [
+    | PREFIX_SLASH			# /
+    | RAISE_T
+    | RAW_AMPERSAND
+    | RAW_UNDERBAR
+    | RAW_DOLLAR
+    | RAW_SHARP
+    | RAW_BANG
+    | RAW_TILDA
+    | RAW_DASH
+    | RAW_PLUS
+    | RAW_STAR
+    | RAW_SLASH
+    | RAW_PERCENT
+    | RAW_COLON
+    | RAW_LANGLE
+    | RAW_RANGLE
+    | RAW_LBRACE
+    | RAW_RBRACE
+    | RAW_LBRACKET
+    | RAW_RBRACKET
+    | RAW_EQUAL
+    | RAW_QUESTION
+    | RAW_ATSIGN
+    | RAW_CARET
+    | RAW_BAR
+    | RAW_BACKSLASH
+    | RAW_SEMI
+    | RAW_DOT
+    | RAW_COMMA
+    | RAW_WHITESPACE
+    | REC_T
+    | RPAREN				# )
+    | SHARING_T
+    | SUFFIX_BAR			# |
+    | SUFFIX_COLON			# :
+    | SUFFIX_COMMA			# ,
+    | SUFFIX_DOT			# .
+    | SUFFIX_SEMI			# ;
+    | SUFFIX_RANGLE			# >
+    | SUFFIX_RBRACE			# }
+    | SUFFIX_RBRACKET			# ]
+    | SUFFIX_SLASH			# /
+    | THEN_T
+    | TIGHT_INFIX_COLON			# :
+    | TIGHT_INFIX_DOT			# .
+    | TRANSPARENT
+    | TYPE_T
+    | UNDERBAR				# _
+    | USE
+    | WHERE_T
+    | WHILE_T
+    | WITH_T
+    | XXX
+    | YYY
+    | ZZZ
+
+
+# Next we declare the grammar's
+# nonterminal symbols, which is
+# to say, the rule names:
+#
+# XXX BUGGO FIXME Separating the rule types from
+#                 the rest of the rule in this way
+#                 is silly.  Why not just some syntax like
+#    rule: type = {
+#      subrule => action;
+#      subrule => action;
+#      ...
+#    }
+
+%nonterm an_api                              of Api_Expression
+       | a_package                           of Package_Expression
+       | any_type                            of Any_Type
+       | api_namings                        of List Named_Api
+       | api_element                         of List Api_Element
+       | api_elements                        of List Api_Element
+       | backquotation                       of List Raw_Expression
+       | backquotation_contents              of List Raw_Expression
+       | block_contents                      of Raw_Expression
+       | block_declarations_and_expressions  of List Declaration
+       | loose_infix_pattern                 of Case_Pattern
+       | apply_pattern                       of Case_Pattern
+       | infix_pattern                       of Case_Pattern
+       | suffix_pattern                      of Case_Pattern
+       | prefix_pattern                      of Case_Pattern
+       | typed_pattern                       of Case_Pattern
+       | constructor                         of (Symbol, Null_Or Any_Type)
+       | constructors                        of List( (Symbol, Null_Or Any_Type))
+       | declaration_in_package              of Declaration
+       | declaration_in_generic_args   of Declaration
+       | declarations_in_package    	     of Declaration
+       | declarations_in_generic_args  of Declaration
+       | qualified_constructor_id            of (fast_symbol::Raw_Symbol -> Symbol) -> List Symbol
+       | qualified_type_id                   of (fast_symbol::Raw_Symbol -> Symbol) -> List Symbol
+       | qualified_value_id                  of (fast_symbol::Raw_Symbol -> Symbol) -> List Symbol
+       | dotted_identifier_p                 of List List symbol::Symbol
+       | dotted_type_constructor             of List Symbol
+       | enum_naming                        of Named_Datatype_Right_Hand_Side
+       | named_datatypes                       of List Named_Datatype
+       | exception_namings                  of List Named_Exception
+       | exception_in_api                    of List( (Symbol, Null_Or Any_Type) )
+       | expression                          of Raw_Expression 
+       | expressions                         of List Raw_Expression
+       | generic_parameter             of (Null_Or Symbol, Api_Expression)
+       | generic_parameters            of List( (Null_Or Symbol, Api_Expression))
+       | a_generic_api                 of Generic_Api_Expression
+       | optional_generic_api_cast     of Package_Cast Generic_Api_Expression
+       | function_clause                     of Nada_Pattern_Clause
+       | function_clauses                    of List Nada_Pattern_Clause
+       | named_functions                   of List Nada_Named_Function
+       | generic_namings              of List Named_Generic
+       | generic_expression            of Package_Cast Generic_Api_Expression -> Generic_Expression
+       | generic_api_namings          of List Named_Generic_Api
+       | id                                  of fast_symbol::Raw_Symbol
+       | value_id                            of fast_symbol::Raw_Symbol
+       | idents                              of List Api_Element
+       | int                                 of integer::Int
+       | list_contents                       of List Raw_Expression
+       | local_declaration                   of Declaration
+       | local_declaration_or_expression     of Declaration
+       | local_declarations                  of Declaration
+       | local_declarations_and_expressions  of Declaration
+       | local_package_declarations          of Declaration
+       | optional_api_elements               of List Api_Element
+       | optional_declarations_and_expressions_in_package    of Declaration
+       | optional_declarations_in_generic_args    of Declaration
+       | optional_local_declarations         of Declaration
+       | optional_local_declarations_and_expressions         of Declaration
+       | optional_local_package_declarations of Declaration
+       | optional_type_constraint            of Null_Or Any_Type
+       | or_pattern_list                     of List Case_Pattern
+       | named_packages                      of List Named_Package
+       | module_declaration                  of Declaration
+       | package_in_api                      of  List( (Symbol, Api_Expression, Null_Or Path) )
+       | pat_2c                              of List Case_Pattern
+       | path_equation                       of (fast_symbol::Raw_Symbol ->Symbol) -> List List Symbol
+       | pattern                             of Case_Pattern
+       | pattern_element                     of Case_Pattern
+       | pattern_list                        of List Case_Pattern
+       | pattern_match                       of List Case_Rule
+       | record_pattern                      of (Symbol, Case_Pattern)
+       | record_patterns                     of (List ((Symbol, Case_Pattern)), Bool)
+       | record_contents                     of  List( (Symbol, Raw_Expression) )
+       | record_element                      of (Symbol, Raw_Expression)
+       | record_type_contents                of List( (Symbol, Any_Type) )
+       | record_type_element                 of (Symbol, Any_Type)
+       | named_recursive_values              of List Named_Recursive_Value
+       | rule                                of Case_Rule
+       | selector                            of Symbol
+       | sharing_in_api                      of List Api_Element
+       | optional_api_cast                   of Package_Cast Api_Expression
+       | expression_element                  of Raw_Expression
+       | simple_type                         of Any_Type
+       | generic_args                        of List( (Package_Expression, Bool) )
+       | generic_in_api                      of List( (Symbol, Generic_Api_Expression) )
+       | toplevel_package_declarations       of Declaration
+       | toplevel_statement                  of Declaration
+       | tuple_contents                      of List Raw_Expression
+       | tuple_type                          of List Any_Type
+       | named_types                         of List Named_Type
+       | type_fn_arglist                     of List Any_Type
+       | type_in_api                         of List( (Symbol, List Type_Variable, Null_Or Any_Type) )
+       | named_value                         of List Named_Value
+       | value_in_api                        of List( (Symbol, Any_Type) )
+       | where_on_api                        of List Where_Spec
+
+       | typed_expression                    of Raw_Expression
+       | suffix_expression                   of Raw_Expression
+       | prefix_expression                   of Raw_Expression
+       | infix_expression                    of Raw_Expression
+       | apply_expression                    of Raw_Expression
+       | loose_infix_expression              of Raw_Expression
+
+# Finally, various random incidental declarations
+# and settings. (See the mythryl-yacc docs for details.)
+#
+# The most important is the '%start' declaration,
+# which specifies which rule is the top level of
+# the grammar:
+
+
+%start toplevel_statement
+
+%verbose                                              # Produce a .desc file for the grammar.
+%pos Int                                              # Declare the type for position values.
+%arg (error) : (Source_Position, Source_Position) -> error_message::Plaint_Sink # Argument list and type for the parse function.
+%eop EOF SUFFIX_SEMI                                  # "eop" == "end of parse": Terminals which cause the parser to stop and return parsetree.
+%noshift EOF                                          # Terminals which the parser will never shift -- end of file marker.
+
+# These need to be in order of increasing
+# (tighter-naming) precedence:
+
+%nonassoc WITH_T
+%right ALSO_T
+%right INFIX_ARROW
+%left  WHERE_T
+%left  DO_T
+%left  ELSE_T
+%left  INFIX_QMARKQMARK
+%left  INFIX_BANGBANG
+%left  RAISE_T
+%right EXCEPT_T
+%right OR_T
+%right AND_T
+%right AS_T
+%left  TIGHT_INFIX_COLON
+
+
+# A prefix to be added to generated global identifiers.
+# This allows multiple parsers to co-exist in the same
+# namespace without problem:
+
+%name Nada
+
+# Define our "keywords".
+# This is basically a hint to the parser's
+# error-correction logic, telling it to
+# avoid changing these tokens when
+# recovering from a syntax error
+# (since users rarely confuse keywords):
+
+%keyword
+  ALSO_T
+  AND_T
+  API_T
+  AS_T
+  BEGIN_T
+  CASE_T
+  INFIX_DARROW
+  DO_T
+  INFIX_DOTDOTDOT
+  ELSE_T
+  END_T
+  ENUM_T
+  EQTYPE_T
+  EXCEPT_T
+  EXCEPTION_T
+  FI_T
+  FN_T
+  FUN_T
+  IF_T
+  IN_T
+  INCLUDE_T
+  LAZY_T
+  LET_T
+  LOCAL_T
+  MY_T
+  OF_T
+  OR_T
+  PACKAGE_T
+  RAISE_T
+  REC_T
+  SHARING_T
+  THEN_T
+  TYPE_T
+  USE
+  WHERE_T
+  WHILE_T
+  WITH_T
+
+# Recommend changes for the parser to try
+# during error correction from syntax errors:
+
+%change -> MY_T                 		# Inserting a 'my' is a good try.
+      | -> THEN_T
+      | -> ELSE_T
+      | -> FI_T
+      | -> LPAREN
+      | -> RPAREN
+      | -> SUFFIX_SEMI
+      | INFIX_DARROW -> INFIX_EQUAL    # Changing a '=>' to a '>=' is a good try.
+      | INFIX_EQUAL -> INFIX_DARROW
+      | ALSO_T -> AND_T
+      | SUFFIX_SEMI -> SUFFIX_COMMA
+      | SUFFIX_COMMA -> SUFFIX_SEMI
+      | -> IN_T VALUE_ID END_T
+      | -> ELSE_T VALUE_ID
+
+# The parser will often insert tokens when
+# trying to recover from a syntax error.
+# Here we tell it what default values to associate
+# with inserted value-carrying tokens:
+
+%value VALUE_ID (raw_symbol (bogus_hash, bogus_string))
+%value TYPEVAR_ID (raw_symbol (quoted_bogus_hash, quoted_bogus_string))
+%value INT  (integer::from_int 1)
+%value INT0 (integer::from_int 0)
+%value UNT  (integer::from_int 0)
+%value REAL ("0.0")
+%value STRING ("")
+%value CHAR ("a")
+
+
+
+# The grammar rule section proper starts after
+# this next double-percent-sign separator:
+
+
+%%
+
+#########################################
+#         Table of Contents            	#
+#                                      	#
+# 0) Overview                          	#
+# 1) Top-level stuff                   	#
+# 2) Executable expressions.		#
+# 3) Declarations:			#
+#    3.1) Value namings.		#
+#    3.2) Function namings.		#
+#    3.3) Type namings.		#
+#    3.4) Enum namings.		#
+#    3.5) Exception namings.		#
+# 4) Type syntax.			#
+# 5) Pattern-match syntax.		#
+# 6) Package syntax.			#
+# 7) API_T syntax.			#
+# 8) Package macro syntax		#
+# 9) Package macro API_T syntax		#
+#                                       #
+#########################################
+
+
+#########################################
+# 0) Overview                           #
+#########################################
+
+# The grammar is big enough that it
+# is worth giving an overview and
+# table of contents by way of helping
+# the reader see the forest for the
+# trees.
+#
+# In general, we present the grammar
+# top-down, so that the reader has
+# the appropriate containing context
+# freshly in mind when encountering
+# each new rule.
+#
+# We break the presentation up into
+# seven sections:
+#
+# (1) Top-level stuff, which handles
+#     the file-level special cases
+#     and establishes the psychological
+#     context.
+#
+# (2) Executable expressions.
+#     These tend to be easiest for the
+#     working programmer to understand,
+#     hence a good way to work up some
+#     momentum.
+#
+# (3) Declarations.
+#     To a great extent, these are just
+#     named expressions, so they provide
+#     an easy transition from the preceding
+#     section, and a good segue to the next:
+#
+# (4) Type syntax.
+#     Specifications of types.  Not nearly
+#     as exciting to the working programmer
+#     as expressions which actually -do-
+#     something, but good stuff all the same.
+#
+# (5) Pattern-match syntax.
+#     Here we return to executable expressions
+#     to cover the pattern syntax used in 'switch'
+#     statements and pattern-matching function
+#     definitions (which are just disguised
+#     switch statements).
+#     This syntax is involved enough to deserve
+#     its own section.  Besides, much of it
+#     just regurgitates expression syntax in
+#     a slightly different setting.
+#
+# (6) Package syntax.
+#
+# (7) API_T syntax.
+#     An API_T is essentially a type declaration
+#     at the package level:  It declares an
+#     abstract interface which one or more
+#     packages may implement.
+#
+# (8) Package macros.
+#       A package macro is a macro
+#     for a family of related packages:  At
+#     compile-time it accepts some
+#     arguments (typically types and
+#     other packages) and expands into
+#     a full package definition, with the
+#     arguments slotted neatly into place.
+#     (Nada class macros are vaguely
+#     like C++ templates -- only better! :)
+#       A package macro may be invoked
+#     multiple times to generate multiple
+#     packages.
+#       In essence, package macros implement
+#     a compile-time language in which the
+#     values are packages, the types are
+#     APIs, and the functions are the
+#     package macros themselves.
+#       This language provides a powerful
+#     tool for programming in the large.
+#     It has most of advantages of object-oriented
+#     programming with few of the disadvantages.
+#       In particular, package macros provide
+#     a powerful way to factor source code
+#     into independent packages exhibiting
+#     good separation of concerns, without
+#     incurring runtime overhead as a result:
+#     Just write package macros to express
+#     the factored parts, and then apply
+#     them to generate efficiently specialized
+#     and meshed runtime code modules.
+
+
+#########################################
+# 1)      Top-level stuff               #
+#########################################
+
+# At the top level, valid Nada input
+# may consist either of one or more
+# package-level declarations, as in
+# a library file, or else an individual
+# expression to be evaluated, as in
+# interactive use or simple scripts:
+
+
+# NB: Rule names are flush-left,
+#     rule definitions follow, and
+#     rule actions are in parens to the right:
+
+
+toplevel_statement
+
+    : toplevel_package_declarations		(note_declaration_location (toplevel_package_declarations,
+                                        	             toplevel_package_declarationsleft,
+                                        	             toplevel_package_declarationsright))
+
+
+# This is a helper rule
+# used only in the above rule:
+
+toplevel_package_declarations
+
+    : module_declaration	  SUFFIX_SEMI  	(note_declaration_location (module_declaration, module_declarationleft, module_declarationright))
+
+    | module_declaration	  SUFFIX_SEMI
+      toplevel_package_declarations		(   make_declaration_sequence (
+						        note_declaration_location (module_declaration, module_declarationleft, module_declarationright),
+					                toplevel_package_declarations
+					        )   )
+
+# Under "module_declaration"
+# we include of course packages
+# declarations proper, and also
+# package macros, api declarations,
+# and so forth -- the complete
+# package-level sublanguage.
+#    We also include the core language
+# via local_declaration_or_expression:
+
+module_declaration
+    : local_declaration_or_expression		(note_declaration_location (   local_declaration_or_expression,
+                                                	        local_declaration_or_expressionleft,
+                                                	        local_declaration_or_expressionright
+                                        	)           )
+
+    | named_packages				(PACKAGE_DECLARATIONS         named_packages           )
+    | api_namings				(API_DECLARATIONS         api_namings               )
+    | generic_namings			(GENERIC_DECLARATIONS           generic_namings     )
+    | generic_api_namings		(GENERIC_API_DECLARATIONS generic_api_namings )
+
+
+    | LOCAL_T
+          optional_local_package_declarations
+      IN_T
+          optional_local_package_declarations
+      END_T					(   LOCAL_DECLARATIONS (
+							note_declaration_location (   optional_local_package_declarations1,
+                                                	               optional_local_package_declarations1left,
+                                                	               optional_local_package_declarations1right
+                                                	           ),
+							note_declaration_location (   optional_local_package_declarations2,
+                                                	               optional_local_package_declarations2left,
+                                                	               optional_local_package_declarations2right
+                                                	           )
+						)   )
+
+
+
+# For non-toplevel package declaration
+# sequences we relax the syntax somewhat,
+# in particular allowing empty sequences.
+#
+# This rule is used only in the above
+# module_declaration definition of
+# local ... in ... end, hence the name:
+
+optional_local_package_declarations
+    :						(SEQUENTIAL_DECLARATIONS [])
+    | local_package_declarations		(local_package_declarations)
+
+# A helper rule for the previous:
+
+local_package_declarations
+
+    : module_declaration	  SUFFIX_SEMI	(module_declaration)
+
+    | module_declaration	  SUFFIX_SEMI
+      local_package_declarations		(   make_declaration_sequence (
+							note_declaration_location (
+                                                            module_declaration,
+                                                            module_declarationleft,
+                                                            module_declarationright
+                                                        ),
+						        local_package_declarations
+						)   )
+
+
+
+
+
+
+#########################################
+# 2) Executable expressions.		#
+#########################################
+
+expression
+    : loose_infix_expression                 	(loose_infix_expression)
+
+    | expression
+      EXCEPT_T
+          pattern_match
+      END_T					(EXCEPT_EXPRESSION { expression, rules=>pattern_match } )
+
+    | loose_infix_expression
+      SUFFIX_COLON
+      any_type					(TYPE_CONSTRAINT_EXPRESSION { expression=>loose_infix_expression, constraint=>any_type } )
+
+
+    | expression OR_T expression			(OR_EXPRESSION (
+                                        	    note_expression_location (expression1, expression1left, expression1right),
+						    note_expression_location (expression2, expression2left, expression2right)
+                                        	) )
+
+    | expression AND_T expression			(AND_EXPRESSION (
+                                        	    note_expression_location (expression1, expression1left, expression1right),
+						    note_expression_location (expression2, expression2left, expression2right)
+                                        	) )
+
+    | FN_T pattern_match END_T              	(note_expression_location (FN_EXPRESSION pattern_match, fn_tleft, end_tright))
+
+    | CASE_T expression OF_T
+          pattern_match
+      END_T					(note_expression_location (
+						    CASE_EXPRESSION { expression, rules=>pattern_match },
+						    case_tleft, pattern_matchright
+                                        	) )
+
+    | WHILE_T expression
+      DO_T    block_contents
+      END_T			 		(WHILE_EXPRESSION
+						    {   test       => note_expression_location (expression,     expressionleft,     expressionright    ),
+							expression => note_expression_location (block_contents, block_contentsleft, block_contentsright)
+                                        	    }
+						)
+
+    | expression WHERE_T
+          optional_local_declarations_and_expressions
+      END_T
+						(note_expression_location (
+						    LET_EXPRESSION {
+							declaration => note_declaration_location (optional_local_declarations_and_expressions,
+                                        	                                  optional_local_declarations_and_expressionsleft,
+                                        	                                  optional_local_declarations_and_expressionsright),
+							expression  => note_expression_location (expression, expressionleft, expressionright)
+						    },
+						    expressionleft, end_tright
+						) )
+
+
+
+    | IF_T   expression
+      THEN_T block_contents
+      ELSE_T block_contents
+      FI_T					(IF_EXPRESSION
+						    { test_case => expression1,
+				        	      then_case => note_expression_location (block_contents1, block_contents1left, block_contents1right),
+						      else_case => note_expression_location (block_contents2, block_contents2left, block_contents2right)
+                                        	    }
+						)
+
+    | expression
+      INFIX_QMARKQMARK
+      expression
+      INFIX_BANGBANG
+      expression				(IF_EXPRESSION
+						    { test_case => expression1,
+				        	      then_case => note_expression_location (expression2, expression2left, expression2right),
+						      else_case => note_expression_location (expression3, expression3left, expression3right)
+                                        	    }
+						)
+
+    | RAISE_T expression 				(note_expression_location (
+						    note_expression_location (RAISE_EXPRESSION expression, expressionleft, expressionright),
+				        	    raise_tleft, expressionright
+						) )
+
+
+loose_infix_expression
+    : apply_expression				(apply_expression)
+
+    | loose_infix_expression
+      LOOSE_INFIX_OP
+      apply_expression              		(APPLY_EXPRESSION {  function=>VARIABLE_IN_EXPRESSION [make_value_symbol loose_infix_op],
+                                        	                     argument=>TUPLE_EXPRESSION [loose_infix_expression, apply_expression]
+                                        	                  }
+                                        	)
+
+apply_expression
+    : infix_expression				(infix_expression)
+
+    | apply_expression
+      infix_expression              		(APPLY_EXPRESSION {  function=>apply_expression,
+                                        	                     argument=>infix_expression
+                                        	                  }
+                                        	)
+
+
+infix_expression
+    : suffix_expression				(suffix_expression)
+
+    | infix_expression
+      TIGHT_INFIX_OP
+      suffix_expression               		(APPLY_EXPRESSION {  function=>VARIABLE_IN_EXPRESSION [make_value_symbol tight_infix_op],
+                                        	                     argument=>TUPLE_EXPRESSION [infix_expression, suffix_expression]
+                                        	                  }
+                                        	)
+
+
+suffix_expression
+    : prefix_expression				(prefix_expression)
+
+    | suffix_expression SUFFIX_OP 		(APPLY_EXPRESSION {  function=>VARIABLE_IN_EXPRESSION [make_value_symbol suffix_op],
+                                       		                     argument=>suffix_expression
+                                       		                  }
+                                        	)
+
+
+prefix_expression
+    : typed_expression				(typed_expression)
+
+    | PREFIX_OP prefix_expression		(APPLY_EXPRESSION {  function=>VARIABLE_IN_EXPRESSION [make_value_symbol prefix_op],
+                                        	                     argument=>prefix_expression
+                                        	                  }
+                                        	)
+
+
+typed_expression
+    :         expression_element		(expression_element)
+    | TYPE_ID expression_element   		(TYPE_CONSTRAINT_EXPRESSION { expression=>expression_element, constraint=>TYPE_CONSTRUCTOR_TYPE ([make_type_symbol type_id], []) } )
+
+
+# Here we enumerate the basic nuts-and-bolts
+# components of Nada expressions -- integer
+# constants, quoted strings and so forth.
+#
+# This rule is used only in 'infix_expression'
+# above and in backquotation_contents:
+
+
+
+expression_element
+    : value_id					(VARIABLE_IN_EXPRESSION ([ make_value_symbol value_id ] ))
+    | BEGIN_T       block_contents  END_T		(block_contents)
+    | UNT					(UNT_CONSTANT_IN_EXPRESSION unt)
+    | REAL					(FLOAT_CONSTANT_IN_EXPRESSION real)
+    | STRING					(STRING_CONSTANT_IN_EXPRESSION string)
+    | CHAR 			        	(CHAR_CONSTANT_IN_EXPRESSION char)
+    | int					(INT_CONSTANT_IN_EXPRESSION int)
+
+    | CONSTRUCTOR_ID				(VARIABLE_IN_EXPRESSION ([ make_value_symbol constructor_id ] ))
+
+    | value_id
+      TIGHT_INFIX_COLON
+      qualified_value_id			(VARIABLE_IN_EXPRESSION (make_package_symbol value_id   !   qualified_value_id make_value_symbol))
+
+    | value_id
+      TIGHT_INFIX_COLON
+      qualified_constructor_id			(VARIABLE_IN_EXPRESSION (make_package_symbol value_id   !   qualified_constructor_id make_value_symbol))
+
+    | PREFIX_DOT selector			(note_expression_location (RECORD_SELECTOR_EXPRESSION selector, prefix_dotleft, selectorright))
+
+    | LOOSE_INFIX_LBRACE
+      LOOSE_INFIX_RBRACE			(RECORD_EXPRESSION NIL)
+
+    | LOOSE_INFIX_LBRACKET
+      LOOSE_INFIX_RBRACKET			(LIST_EXPRESSION     NIL)
+
+    | LPAREN			  RPAREN	(void_expression)
+    | LOOSE_INFIX_LVECTOR
+      LOOSE_INFIX_RBRACKET			(VECTOR_EXPRESSION   NIL) 
+
+    | LOOSE_INFIX_LBRACE
+      record_contents
+      LOOSE_INFIX_RBRACE			(note_expression_location (RECORD_EXPRESSION record_contents, loose_infix_lbraceleft, loose_infix_rbraceright))
+
+    | LPAREN      expression      RPAREN	(expression)
+    | LPAREN      tuple_contents  RPAREN	(TUPLE_EXPRESSION    tuple_contents)
+
+# XXX BUGGO FIXME strictly test stuff:
+    | PREFIX_SLASH
+      tuple_contents
+      SUFFIX_SLASH				(TUPLE_EXPRESSION    tuple_contents)
+
+# XXX BUGGO FIXME strictly test stuff:
+    | PREFIX_BAR
+      tuple_contents
+      SUFFIX_BAR				(TUPLE_EXPRESSION    tuple_contents)
+
+# XXX BUGGO FIXME strictly test stuff:
+    | PREFIX_LANGLE
+      tuple_contents
+      SUFFIX_RANGLE				(TUPLE_EXPRESSION    tuple_contents)
+
+# XXX BUGGO FIXME strictly test stuff:
+    | PREFIX_LBRACE
+      tuple_contents
+      SUFFIX_RBRACE				(TUPLE_EXPRESSION    tuple_contents)
+
+# XXX BUGGO FIXME strictly test stuff:
+    | PREFIX_LBRACKET
+      tuple_contents
+      SUFFIX_RBRACKET				(TUPLE_EXPRESSION    tuple_contents)
+
+    | LOOSE_INFIX_LBRACKET
+      list_contents
+      LOOSE_INFIX_RBRACKET			(LIST_EXPRESSION     list_contents)
+
+    | LOOSE_INFIX_LVECTOR
+      list_contents
+      LOOSE_INFIX_RBRACKET			(VECTOR_EXPRESSION   list_contents)	  
+
+    | ANTIQUOTE_ID				(VARIABLE_IN_EXPRESSION ( [ make_value_symbol antiquote_id ] ) )
+    | backquotation				(LIST_EXPRESSION backquotation)
+
+# Next, a few rules to mop up the little stuff
+# needed by "expression_element" above:
+
+
+int
+    : INT					(int)
+    | INT0					(int0)
+
+value_id                                   
+    : VALUE_ID 					(value_id)
+    | API_T					(raw_symbol (        api_hash,         api_string))
+    | MACRO					(raw_symbol (      macro_hash,       macro_string))
+    | OPAQUE					(raw_symbol (     opaque_hash,      opaque_string))
+    | PACKAGE_T					(raw_symbol (    package_hash,     package_string))
+    | TRANSPARENT				(raw_symbol (transparent_hash, transparent_string))
+
+
+
+qualified_constructor_id                       	/* a: b:TREE and such. */ 
+
+    : CONSTRUCTOR_ID				(fn kind = [kind constructor_id])
+
+    | VALUE_ID
+      TIGHT_INFIX_COLON
+      qualified_constructor_id			(fn kind = make_package_symbol value_id   !   qualified_constructor_id kind)
+
+
+
+qualified_type_id                       	/* a: b:Type and such. */ 
+    : TYPE_ID					(fn kind = [kind type_id])
+    | VALUE_ID
+      TIGHT_INFIX_COLON
+      qualified_type_id				(fn kind = make_package_symbol value_id   !   qualified_type_id kind)
+
+qualified_value_id                       	/* a: b:c and such. */ 
+    : value_id					(fn kind = [kind value_id])
+    | VALUE_ID
+      TIGHT_INFIX_COLON
+      qualified_value_id			(fn kind = make_package_symbol value_id   !   qualified_value_id kind)
+
+
+
+# Nada regards a tuple and a record as being
+# much the same thing, just a heterogenously-typed
+# sequence of values which may be retrieved by name,
+# with the minor difference that in the case of
+# tuples the names happen to be consecutive integers
+# starting at 1.
+#
+# Here we define the selectors used to pick
+# values out of tuples and records:
+
+selector
+    : value_id					(make_label_symbol value_id)
+    | INT					(symbol::make_label_symbol (integer::to_string int))
+
+
+# Currently used only in pattern_element XXX BUGGO FIXME
+
+id
+    : VALUE_ID					(value_id)
+
+
+# We create a tuple just by listing a
+# comma-separated sequence of values
+# between parentheses.
+#
+# (Note that we disallow single-element
+# tuples here, since we need that syntax
+# for just regular parenthesization.)
+#
+# This rule is used only in expression_element,
+# above, which also provides the parens.
+
+tuple_contents
+    : expression SUFFIX_COMMA tuple_contents	(expression ! tuple_contents)
+    | expression SUFFIX_COMMA expression	( [ expression1, expression2 ] )
+
+
+# We write a record much like a tuple,
+# except between braces instead of parens
+# and with mandatory alpha labels on each
+# expression.
+#
+# As a convenience, we take "foo" to be
+# an abbreviation for "foo = foo", which
+# is otherwise a drearily common case.
+#
+# This rule is used only in expression_element,
+# above, which also provides the braces:
+
+record_contents
+    : record_element
+      SUFFIX_COMMA
+      record_contents				(record_element ! record_contents)
+
+    | record_element			        ([ record_element ])
+
+record_element					/* Used only in the preceding rule. */
+    : selector INFIX_EQUAL expression		(selector, expression)
+
+
+# Lists and vectors differ semantically
+# from records and tuples in that lists
+# and vectors are of arbitrary length
+# and homoegeously types -- all the
+# elements of a list or vector must have
+# the same type.
+#
+# From our point of view here in the parser, however,
+# the only difference is that we wrap a list in
+# square brackets.  (For a vector we add a '#'
+# before the opening bracket.)
+#
+# This rule is used only in expression_element,
+# above, which also provides the brackets:
+
+list_contents
+    : expression				( [ expression ] )
+    | expression SUFFIX_COMMA list_contents	(expression ! list_contents)
+
+
+
+
+
+# SML/NJ implements a non-Standard
+# quotation/antiquotation mechanism
+# somewhat akin to lisp's comma
+# operator &tc.
+#
+# The syntax involves wrapping an expression
+# in backquotes and then using caret as an
+# escape within the quoted string.
+# (See http://www.smlnj.org/doc/quote.html)
+#
+# Maybe not worth keeping around in the
+# Nada context, which has other mechanisms
+# for such cases, but we'll leave it in
+# place for now.
+#
+# This rule is used only in expression_element,
+# above:
+
+backquotation
+    : BEGINQ ENDQ				( [ quote_expression endq ] )
+    | BEGINQ
+          backquotation_contents
+      ENDQ					(backquotation_contents @ [ quote_expression endq ] )
+
+
+# Used only in the above rule:
+backquotation_contents
+    : CHUNKL expression_element			( [ quote_expression chunkl,   antiquote_expression expression_element ] )
+    | CHUNKL
+          expression_element
+          backquotation_contents		(   quote_expression chunkl
+                                                    !
+                                                    antiquote_expression expression_element
+                                                    !
+                                                    backquotation_contents
+                                                )
+
+#########################################
+# 3) Declarations.			#
+#########################################
+
+# Blocks of local declarations.
+
+
+
+
+# Some places we allow both declarations
+# and expressions, internally patching
+# the expressions to look like
+#     my _ = ...
+# "declarations" for the benefit of the
+# rest of the compiler:
+
+optional_local_declarations_and_expressions
+    : 						(SEQUENTIAL_DECLARATIONS NIL)
+    | local_declarations_and_expressions	(local_declarations_and_expressions)	
+
+local_declarations_and_expressions
+    : local_declaration_or_expression SUFFIX_SEMI  (local_declaration_or_expression)
+
+    | local_declaration_or_expression SUFFIX_SEMI
+      local_declarations_and_expressions	(make_declaration_sequence   (note_declaration_location   (   local_declaration_or_expression,
+                                                	                                     local_declaration_or_expressionleft,
+                                        	                                             local_declaration_or_expressionright
+                                        	                                         ),
+                                        	                                         local_declarations_and_expressions
+                                        	)                          )
+
+    | LOCAL_T
+          optional_local_declarations_and_expressions
+      IN_T
+          optional_local_declarations_and_expressions
+      END_T 			SUFFIX_SEMI    	(   note_declaration_location (
+							LOCAL_DECLARATIONS (
+							    note_declaration_location (optional_local_declarations_and_expressions1,
+									optional_local_declarations_and_expressions1left,
+									optional_local_declarations_and_expressions1right),
+							    note_declaration_location (optional_local_declarations_and_expressions2,
+									optional_local_declarations_and_expressions2left,
+									optional_local_declarations_and_expressions2right)
+							),
+							local_tleft,
+							end_tright
+						    )
+						)
+
+
+
+local_declaration_or_expression
+
+    : local_declaration				(local_declaration)
+
+    # Don't require leading 'my' on simple variable patterns:
+    | VALUE_ID INFIX_EQUAL expression		(   note_declaration_location (
+                                                        VALUE_DECLARATIONS (
+                                                            [   NAMED_VALUE {
+								    expression,
+								    pattern    => (VARIABLE_IN_PATTERN [make_value_symbol value_id]),
+								    is_lazy      => FALSE
+								}
+                                                            ],
+                                                            NIL
+                                                        ),
+						        value_idleft,
+                                                        expressionright
+                                                    )
+						)
+
+    # Allow bare expressions
+    # too -- fake up a
+    #     my _ = ...
+    # by hand to make it look like
+    # a declaration to later logic:
+
+    | expression				(   note_declaration_location (
+                                                        VALUE_DECLARATIONS (
+                                                            [   NAMED_VALUE {
+								    expression,
+								    pattern    => WILDCARD_PATTERN,
+								    is_lazy      => FALSE
+								}
+                                                            ],
+                                                            NIL
+                                                        ),
+						        expressionleft,
+                                                        expressionright
+                                                    )
+						)
+
+
+
+# Here we enumerate generic core-level
+# declarations of types and variables
+# (as opposed to packages and apis).
+#
+# This rule is used in the
+#     local_declarations
+# rule above, but also independently in
+#     module_declaration
+# (to allow a single declaration to be
+# entered interactively or in a script)
+# and in
+#     declaration_in_package
+
+local_declaration
+    : named_value				(VALUE_DECLARATIONS (named_value, NIL))
+    | named_recursive_values			(RECURSIVE_VALUE_DECLARATIONS (named_recursive_values, NIL))
+    | named_functions				(NADA_FUNCTION_DECLARATIONS (named_functions, NIL))
+    | named_types		        	(TYPE_DECLARATIONS named_types)
+    | named_datatypes				(ENUM_DECLARATIONS { datatype_constructors => named_datatypes, with_type_constructors => [] } )
+    | EXCEPTION_T exception_namings		(EXCEPTION_DECLARATIONS exception_namings)
+    | USE dotted_identifier_p			(INCLUDE_DECLARATIONS dotted_identifier_p)
+
+    | named_datatypes
+      WITH_T
+      named_types				(ENUM_DECLARATIONS { datatype_constructors => named_datatypes, with_type_constructors => named_types } )
+
+
+# Qualified identifier sequences in 'open' statements:
+dotted_identifier_p
+    : qualified_value_id			( [ qualified_value_id make_package_symbol ] )
+    | qualified_value_id dotted_identifier_p	(   qualified_value_id make_package_symbol   !   dotted_identifier_p)
+
+
+
+#########################################
+# 3.1) Value namings.			#
+#########################################
+
+# Used only in above local_declaration rule:
+
+named_value
+    : MY_T LAZY_T
+      pattern
+      INFIX_EQUAL
+      expression				(   [   SOURCE_CODE_REGION_FOR_NAMED_VALUE (
+							    NAMED_VALUE {
+								expression,
+								pattern,
+								is_lazy      => TRUE
+							    },
+							    (patternleft, expressionright)
+							)
+						    ]
+						)
+
+
+    | MY_T
+      pattern
+      INFIX_EQUAL
+      expression				(   [   SOURCE_CODE_REGION_FOR_NAMED_VALUE (
+							    NAMED_VALUE {
+								expression,
+								pattern,
+								is_lazy      => FALSE
+							    },
+	                                	 	    (patternleft, expressionright)
+							)
+						    ]
+						)
+
+
+/* XXX BUGGO FIXME  As far as I can tell
+   from skimming the Definition and the code,
+   the difference between
+
+         pat1 = exp1 also pat2 = exp2;
+
+   and
+
+         pat1 = exp1;  pat2 = exp2;
+
+   is just that in the former case both
+   are defined in the pre-existing context,
+   (the second doesn't "see" the first).
+
+   http://successor-ml.org/index.php?title=Fixed_scoping_for_manifest_type_specifications
+   comments 
+
+       "...this is different from all other uses of and in the language,
+        which elsewhere introduces either parallel or recursive naming."
+
+   Which supports the above parallel-assignment theory.
+
+   But then 
+
+       (pat1, pat2) = (exp1, exp2);
+
+   should provide the same functionality anyhow, to
+   the limited extent that it is really needed.
+
+   (Admittedly, it is a bit neat for
+
+       (x, y) = (y, x);
+   ) 
+
+   I'm not at all sure we need this increment
+   of semantic complexity.  (May need to survey
+   the codebase to see how often it is used.)
+
+    | named_values
+      ALSO_T
+      named_values				(named_values1 @ named_values2)
+ */
+
+# Used only in above local_declaration rule:
+# XXX BUGGO FIXME can we make 'ALSO_T' the mark of recursive namings,
+#                 and dispense with 'REC_T'?
+
+named_recursive_values
+    : named_recursive_values
+      ALSO_T
+      named_recursive_values			(named_recursive_values1 @ named_recursive_values2)
+
+# XXX BUGGO FIXME need to support prefix VALUE_ID type declarations here
+    | MY_T REC_T
+      value_id
+      optional_type_constraint
+      INFIX_EQUAL  	                        # XXX BUGGO FIXME shouldn't be any fixity stuff in this file... or is this harmless?
+      expression				(   {   my (variable_symbol, fixity)
+                                                            =
+                                                            make_value_and_fixity_symbols value_id;
+
+							[   SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (
+								NAMED_RECURSIVE_VALUE {
+								    variable_symbol,
+								    fixity         => THE (fixity, (value_idleft, value_idright)),
+								    null_or_type   => optional_type_constraint,
+								    expression,
+								    is_lazy         => FALSE
+								},
+								(value_idleft, expressionright)
+							    )
+							];
+						    }
+						)
+
+    | MY_T LAZY_T REC_T
+      value_id
+      optional_type_constraint
+      INFIX_EQUAL
+      expression				(   {   my (variable_symbol, fixity)
+                                                            =
+                                                            make_value_and_fixity_symbols value_id;
+
+							[   SOURCE_CODE_REGION_FOR_RECURSIVELY_NAMED_VALUE (
+								NAMED_RECURSIVE_VALUE {
+								    variable_symbol,
+								    fixity          => THE (fixity, (value_idleft, value_idright)),
+								    null_or_type    => optional_type_constraint,
+								    expression,
+								    is_lazy         => TRUE
+								},
+								(value_idleft, expressionright)
+							    )
+							];
+						    }
+						)
+
+
+
+optional_type_constraint
+    :						(NULL)
+    | SUFFIX_COLON any_type 			(THE any_type)
+
+
+#########################################
+# 3.2) Function namings.		#
+#########################################
+
+# Used only in above local_declaration rule:
+
+named_functions
+    /* The two terminal cases,
+     * lazy and vanilla:
+     */
+    : FUN_T
+      function_clauses
+      END_T					( [ SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (NADA_NAMED_FUNCTION (function_clauses, FALSE), (function_clausesleft, function_clausesright)) ]    )
+
+    | LAZY_T FUN_T
+      function_clauses
+      END_T					( [ SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (NADA_NAMED_FUNCTION (function_clauses, TRUE ), (function_clausesleft, function_clausesright)) ]    )
+
+    /* The matching two recursive cases:
+     */
+    | FUN_T
+      function_clauses
+      END_T
+      ALSO_T
+      named_functions				(   SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (NADA_NAMED_FUNCTION (function_clauses, FALSE), (function_clausesleft, function_clausesright)) ! named_functions)
+
+    | LAZY_T FUN_T
+      function_clauses
+      END_T
+      ALSO_T
+      named_functions				(   SOURCE_CODE_REGION_FOR_NADA_NAMED_FUNCTION (NADA_NAMED_FUNCTION (function_clauses, TRUE ), (function_clausesleft, function_clausesright)) ! named_functions)
+
+
+
+# Function clauses.
+# This rule is used only in the one above:
+
+function_clauses
+    : function_clause		SUFFIX_SEMI	([ function_clause ])
+
+    | function_clause		SUFFIX_SEMI
+      function_clauses				(function_clause ! function_clauses)
+
+
+# Pattern-matching clause within a function naming.
+# This rule is used only in function_clauses, above:
+
+function_clause
+    : loose_infix_pattern
+      optional_type_constraint
+      INFIX_EQUAL
+      expression				(   NADA_PATTERN_CLAUSE {
+							pattern    => loose_infix_pattern,
+							result_type => optional_type_constraint,
+							expression => note_expression_location (expression, expressionleft, expressionright)
+						    }
+						)
+
+
+
+#########################################
+# 3.3) Type namings.			#
+#########################################
+
+# Type namings:
+named_types
+    : named_types ALSO_T named_types		(named_types1 @ named_types2)
+
+    | TYPE_T
+      TYPE_ID
+      INFIX_EQUAL
+      any_type					(   [   SOURCE_CODE_REGION_FOR_NAMED_TYPE (
+							    NAMED_TYPE {
+								type_variables   => NIL,
+								type_constructor => make_type_symbol type_id,
+								definition       => any_type
+							    },
+							    (any_typeleft, any_typeright)
+							)
+						    ]
+						)
+
+
+
+
+#########################################
+# 3.4) Enum namings.			#
+#########################################
+
+# "enum ..." namings:
+named_datatypes
+    : named_datatypes ALSO_T named_datatypes		(named_datatypes1 @ named_datatypes2)
+
+    | ENUM_T
+      TYPE_ID
+      INFIX_EQUAL
+      enum_naming				(   [   NAMED_ENUM {
+							    type_constructor => make_type_symbol type_id,
+							    type_variables   => NIL,
+							    right_hand_side  => enum_naming,
+							    is_lazy	     => FALSE
+							}
+						    ]
+						)
+
+    | LAZY_T ENUM_T
+      TYPE_ID
+      INFIX_EQUAL
+      enum_naming				(   [   NAMED_ENUM {
+							    type_constructor => make_type_symbol type_id,
+							    type_variables   => NIL,
+							    right_hand_side  => enum_naming,
+							    is_lazy          => TRUE
+							}
+						    ]
+						)
+
+
+
+enum_naming
+    : constructors				(ENUM_CONSTRUCTORS constructors)
+    | ENUM_T dotted_type_constructor		(REPLICAS dotted_type_constructor)
+
+
+
+# Datatype constructors:
+constructors
+    : constructor				([constructor])
+    | constructor
+      SUFFIX_COMMA
+      constructors				(constructor ! constructors)
+
+
+
+constructor
+    : CONSTRUCTOR_ID				(make_value_symbol constructor_id,   NULL   )
+    | CONSTRUCTOR_ID any_type			(make_value_symbol constructor_id,   THE any_type)
+
+
+#########################################
+# 3.5) Exception namings.		#
+#########################################
+
+exception_namings
+    : exception_namings
+      ALSO_T
+      exception_namings				(exception_namings1 @ exception_namings2)
+
+    | CONSTRUCTOR_ID				(   [   NAMED_EXCEPTION {
+							    exception_symbol => (make_value_symbol constructor_id),
+							    exception_type   => NULL
+							}
+						    ]
+						)
+    | CONSTRUCTOR_ID
+      any_type					(   [   NAMED_EXCEPTION {
+							    exception_symbol => (make_value_symbol constructor_id),
+							    exception_type   => THE any_type
+							}
+						    ]
+						)
+
+    | CONSTRUCTOR_ID
+      INFIX_EQUAL
+      qualified_value_id			(   [   DUPLICATE_NAMED_EXCEPTION {
+							    exception_symbol => make_value_symbol constructor_id,
+							    equal_to         => qualified_value_id make_value_symbol
+							}
+						    ]
+						)
+
+
+
+
+
+
+
+
+
+
+
+
+#########################################
+# 4) Type syntax.			#
+#########################################
+
+# any_type is our generic type declaration,
+# used all through the grammar wherever
+# we need a vanilla type declaration.
+#
+# It basically handles tuple and function
+# types and delegates everything else to
+# simple_type:
+
+any_type
+    : simple_type	 			(simple_type)
+    | LPAREN tuple_type RPAREN			(TUPLE_TYPE (tuple_type))
+    | any_type INFIX_ARROW any_type		(TYPE_CONSTRUCTOR_TYPE ( [arrow_tycon], [any_type1, any_type2]))
+
+# Syntactically, tuple types are just
+# parenthesized comma-separated lists
+# of types.
+#
+# Again, we require at least two elements
+# since a single-element tuple would look
+# like regular parenthesization.
+#
+# This rule is used only in any_type, above:
+
+tuple_type
+    : simple_type SUFFIX_COMMA simple_type	( [ simple_type1, simple_type2 ] )
+    | simple_type SUFFIX_COMMA tuple_type	(simple_type ! tuple_type)
+
+
+
+# Declaration of simple types, which means
+# basically everything but tuples and functions.
+# This rule is used only in the above two:
+
+simple_type
+    : LOOSE_INFIX_LBRACE
+      LOOSE_INFIX_RBRACE			(RECORD_TYPE [])
+
+    | LPAREN any_type RPAREN			(any_type)
+
+    | TYPEVAR_ID				(   SOURCE_CODE_REGION_FOR_TYPE (
+                                        	        TYPE_VARIABLE_TYPE   (TYPE_VARIABLE (make_type_variable_symbol typevar_id)),
+				        	        (typevar_idleft, typevar_idright)
+                                        	)   )
+
+    | LOOSE_INFIX_LBRACE
+          record_type_contents
+      LOOSE_INFIX_RBRACE			(    SOURCE_CODE_REGION_FOR_TYPE (
+                                        	         RECORD_TYPE record_type_contents,
+                                        	         (loose_infix_lbraceleft, loose_infix_rbraceright)
+                                        	)    )
+
+      # Type function application.  I've switched
+      # Robin Milner's baffling function-follows-arguments convention
+      # back to a more mainstream function-before-arguments one:
+
+
+    | dotted_type_constructor
+      LPAREN
+          type_fn_arglist
+      RPAREN
+						(    SOURCE_CODE_REGION_FOR_TYPE (
+                                        	         TYPE_CONSTRUCTOR_TYPE (
+                                        	             dotted_type_constructor,
+                                        	             type_fn_arglist
+                                        	         ),
+                                        	         (   dotted_type_constructorleft,
+                                        	             dotted_type_constructorright
+                                        	         )
+                                        	)    )
+
+    | dotted_type_constructor
+      simple_type				(    SOURCE_CODE_REGION_FOR_TYPE (
+							TYPE_CONSTRUCTOR_TYPE (
+                                        	            dotted_type_constructor,
+                                        	            [simple_type]
+                                        	        ),
+							(   dotted_type_constructorleft,
+                                        	            dotted_type_constructorright
+                                        	        )
+						)    )
+
+
+    | dotted_type_constructor			(    SOURCE_CODE_REGION_FOR_TYPE (
+							TYPE_CONSTRUCTOR_TYPE (
+                                        	            dotted_type_constructor,
+                                        	            []
+                                        	        ),
+							(    dotted_type_constructorleft,
+                                        	             dotted_type_constructorright
+                                        	        )
+						)    )
+
+# Dot-separated identifier sequences in
+# type declarations, including the
+# degenerate case of zero dots.
+#
+# Used in simple_type and also enum_naming:
+
+
+dotted_type_constructor
+
+    : TYPE_ID					( [make_type_symbol type_id] )
+
+    | VALUE_ID
+      TIGHT_INFIX_COLON
+      dotted_type_constructor			(make_package_symbol value_id ! dotted_type_constructor)
+
+
+
+
+# Here we define the contents of
+# record type declarations like
+#
+#    {   name: String,   length: int,   dumb: Bool }
+#
+# This rule is used only in simple_type, above,
+# which also supplies the surrounding braces:
+
+record_type_contents
+
+    : record_type_element			([ record_type_element ])
+
+    | record_type_element
+      SUFFIX_COMMA
+      record_type_contents			(record_type_element ! record_type_contents)
+
+record_type_element                     	/* This rule is used only in the one above. */
+    : selector SUFFIX_COLON any_type		(selector, any_type )
+
+
+# The argument list for a type-function
+# applications like List (int), is just
+# a parenthesized, comma-separated list
+# of types.
+#
+# This rule is used only in simple_type,
+# above, which also supplies the parens:
+
+type_fn_arglist
+    : any_type SUFFIX_COMMA any_type		( [any_type1, any_type2] )
+    | any_type SUFFIX_COMMA type_fn_arglist	(any_type ! type_fn_arglist)
+
+
+
+
+#########################################
+# 5) Pattern-match syntax.		#
+#########################################
+
+# Pattern-match syntax is used two ways:
+# in implementing switch statements, and
+# in implementing pattern-matching function
+# definitions like
+#
+#     sub factorial 0 => 1;
+#         factorial n => n * factorial (n-1);
+#     end
+#
+# The latter is just an abbreviation for
+#
+#     sub factorial (n) {
+#         switch (n) {
+#         case 0 => return 1;
+#         case n => return n * factorial (n-1);
+#         }
+#     }
+#
+# but many users like the conciseness
+# of the first form.
+#
+# (Of course, even the 'switch' form is logically
+# unnecessary, since any switch statement can
+# be expanded into a sequence of if-then-elses,
+# so this entire section of the grammar is in fact
+# just syntactic sugar -- which as we all know tends
+# to lead to cancer of the semi-colon. :-)
+#
+# Recall that we've seen pattern_match in three
+# places in the grammar:
+#
+# expression
+#     :  switch expression OF_T pattern_match
+#     |  FN_T                   pattern_match      
+#     |  expression EXCEPT_T    pattern_match
+#
+
+
+
+
+pattern_match
+    : rule	SUFFIX_SEMI			( [rule] )
+
+    | rule      SUFFIX_SEMI
+      pattern_match				(rule ! pattern_match)
+
+
+rule
+    : pattern INFIX_DARROW expression		(   CASE_RULE {
+                                        	        pattern, 
+				        	        expression => note_expression_location (   expression,
+                                        	                                    expressionleft,
+                                        	                                    expressionright
+                                        	                                )
+                                        	    }
+                                        	)
+
+pattern
+    : pattern AS_T pattern			(layered   (pattern1,   pattern2,   error (pattern1left, pattern2right)))
+
+    | loose_infix_pattern SUFFIX_COLON any_type	(TYPE_CONSTRAINT_PATTERN { pattern=>loose_infix_pattern, type_constraint=>any_type } )
+    | loose_infix_pattern				(loose_infix_pattern)
+
+
+
+# Note that we're essentially duplicating the
+# expression grammar rules here:
+
+loose_infix_pattern
+    : apply_pattern				(apply_pattern)
+    | apply_pattern
+      LOOSE_INFIX_OP
+      loose_infix_pattern              		(APPLY_PATTERN    {  constructor=>VARIABLE_IN_PATTERN [make_value_symbol loose_infix_op],
+                                        	                     argument=>TUPLE_PATTERN [loose_infix_pattern, apply_pattern]
+                                        	                  }
+                                        	)
+
+apply_pattern
+    : infix_pattern				(infix_pattern)
+    | apply_pattern
+      infix_pattern              		(APPLY_PATTERN    {  constructor=>apply_pattern,
+                                        	                     argument=>infix_pattern
+                                        	                  }
+                                        	)
+
+infix_pattern
+    : suffix_pattern				(suffix_pattern)
+    | infix_pattern
+      TIGHT_INFIX_OP
+      suffix_pattern               		(APPLY_PATTERN    {  constructor=>VARIABLE_IN_PATTERN [make_value_symbol tight_infix_op],
+                                        	                     argument=>TUPLE_PATTERN [infix_pattern, suffix_pattern]
+                                        	                  }
+                                        	)
+
+suffix_pattern
+    : prefix_pattern				(prefix_pattern)
+    | suffix_pattern SUFFIX_OP 			(APPLY_PATTERN    {  constructor=>VARIABLE_IN_PATTERN [make_value_symbol suffix_op],
+                                        	                     argument=>suffix_pattern
+                                        	                  }
+                                        	)
+
+prefix_pattern
+    : typed_pattern				(typed_pattern)
+    | PREFIX_OP prefix_pattern			(APPLY_PATTERN    {  constructor=>VARIABLE_IN_PATTERN [make_value_symbol prefix_op],
+                                        	                     argument=>prefix_pattern
+                                        	                  }
+                                        	)
+
+typed_pattern
+    :         pattern_element			(pattern_element)
+    | TYPE_ID pattern_element			(TYPE_CONSTRAINT_PATTERN { pattern=>pattern_element, type_constraint=>TYPE_CONSTRUCTOR_TYPE ([make_type_symbol type_id], []) } )
+
+
+
+# This rule is used only in typed_pattern, above:
+
+pattern_element
+    : VALUE_ID
+      TIGHT_INFIX_COLON
+      qualified_value_id			(VARIABLE_IN_PATTERN (make_package_symbol value_id   !   qualified_value_id make_value_symbol))
+    | id					(VARIABLE_IN_PATTERN [make_value_symbol id])  /* XXX BUGGO FIXME 'id' needs to be 'value_id' by and by */
+    | int					(INT_CONSTANT_IN_PATTERN       int)
+    | UNT					(UNT_CONSTANT_IN_PATTERN       unt)
+    | STRING					(STRING_CONSTANT_IN_PATTERN    string)
+    | CHAR 					(CHAR_CONSTANT_IN_PATTERN char)
+    | UNDERBAR					(WILDCARD_PATTERN)
+    | LOOSE_INFIX_LBRACKET
+      LOOSE_INFIX_RBRACKET			(LIST_PATTERN   NIL)
+
+    | LOOSE_INFIX_LBRACKET
+      pattern_list
+      LOOSE_INFIX_RBRACKET			(LIST_PATTERN   pattern_list)
+
+    | LOOSE_INFIX_LVECTOR
+      LOOSE_INFIX_RBRACKET			(VECTOR_PATTERN NIL)
+    | LOOSE_INFIX_LVECTOR
+      pattern_list
+      LOOSE_INFIX_RBRACKET			(VECTOR_PATTERN pattern_list)
+
+    | LOOSE_INFIX_LBRACE
+      LOOSE_INFIX_RBRACE			(void_pattern)
+
+    | LPAREN                   RPAREN		(void_pattern)
+    | LPAREN      pattern      RPAREN		(pattern)
+
+    | LPAREN
+          pattern
+          SUFFIX_COMMA
+	  pattern_list
+      RPAREN					(TUPLE_PATTERN ( pattern ! pattern_list))
+
+    | LPAREN
+          pattern
+          OR_T
+          or_pattern_list			/* ... more of the same ... */
+      RPAREN					(OR_PATTERN (pattern ! or_pattern_list) )
+
+    | LOOSE_INFIX_LBRACE
+      record_patterns
+      LOOSE_INFIX_RBRACE			(   {   my (definition, is_incomplete)
+                                                            =
+                                                            record_patterns;
+
+							SOURCE_CODE_REGION_FOR_PATTERN (
+							    RECORD_PATTERN {
+								definition,
+								is_incomplete
+							    },
+							    (loose_infix_lbraceleft, loose_infix_rbraceright)
+							);
+						    }
+						)
+
+
+
+
+
+
+# Pattern-match the contents of a record.
+# This rule is used only in pattern_element, above:
+
+record_patterns
+
+    : record_pattern				([record_pattern], FALSE)
+    | INFIX_DOTDOTDOT				(NIL, TRUE)
+
+    | record_pattern
+      SUFFIX_COMMA
+      record_patterns				(   {   my (a, (b, fx))
+                                                            =
+                                                            (record_pattern, record_patterns);
+
+							(a ! b, fx);
+						    }
+						)
+
+
+# Pattern-match one element of a record.
+# This rule is used only in the above one:
+
+record_pattern
+    : selector INFIX_EQUAL pattern		((selector, pattern))
+    | VALUE_ID					(make_label_symbol value_id,   VARIABLE_IN_PATTERN [ make_value_symbol value_id ] )
+
+    | VALUE_ID AS_T pattern			(   make_label_symbol value_id, 
+						    AS_PATTERN {
+							variable_pattern   => VARIABLE_IN_PATTERN [make_value_symbol value_id], 
+							expression_pattern => pattern
+						    }
+						)
+
+    | VALUE_ID SUFFIX_COLON any_type		(   make_label_symbol value_id,
+						    TYPE_CONSTRAINT_PATTERN {
+							pattern        => VARIABLE_IN_PATTERN [ make_value_symbol value_id ],
+							type_constraint => any_type
+						    }
+						)
+
+    | VALUE_ID
+      SUFFIX_COLON
+      any_type
+      AS_T
+      pattern					(   make_label_symbol value_id,
+						    AS_PATTERN {
+							variable_pattern => TYPE_CONSTRAINT_PATTERN {
+									      pattern        => VARIABLE_IN_PATTERN [ make_value_symbol value_id ],
+									      type_constraint => any_type
+								  },
+							expression_pattern => pattern
+						    }
+						)
+
+# Pattern-match the contents of a list.
+# (Or a vector.)
+# This rule is used in compound_pattern
+# and pattern_element above, and
+# or_pattern_list below:
+
+pattern_list
+    : pattern					( [ pattern ] )
+    | pattern
+      SUFFIX_COMMA
+      pattern_list				(   pattern ! pattern_list)
+
+
+
+or_pattern_list
+    : pattern					( [ pattern ] )
+
+    | pattern
+      OR_T
+      or_pattern_list				(pattern ! or_pattern_list)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#########################################
+# 6) Package syntax.			#
+#########################################
+
+# Here we define what comes immediately
+# after a 'package' keyword.  The first
+# form handles a sequence of package
+# declarations, the second handles
+# assigning a name to one:
+
+named_packages
+    : named_packages
+      ALSO_T
+      named_packages				(named_packages1 @ named_packages2)
+
+    | MY_T PACKAGE_T value_id
+      optional_api_cast
+      INFIX_EQUAL
+      a_package					(   [   SOURCE_CODE_REGION_FOR_NAMED_PACKAGE (
+							    NAMED_PACKAGE {
+								name_symbol => make_package_symbol value_id,
+								definition  => a_package, 
+								constraint  => optional_api_cast,
+								kind        => PLAIN_PACKAGE
+							    },
+							    (value_idleft, a_packageright)
+							)
+						    ]
+						)
+
+# Here we enumerate the ways of
+# supplying a package value within
+# a package naming:
+
+a_package
+    # We can fish a sub-package
+    # out of a previously known
+    # package:
+
+    : qualified_value_id			(   (   SOURCE_CODE_REGION_FOR_PACKAGE (
+							    PACKAGE_BY_NAME (qualified_value_id make_package_symbol),
+							    (qualified_value_idleft, qualified_value_idright)
+						)   )   )
+
+    # We can list all the contents
+    # of the package explicitly:
+
+    | BEGIN_T
+          optional_declarations_and_expressions_in_package
+      END_T					(   SOURCE_CODE_REGION_FOR_PACKAGE (
+							PACKAGE_DEFINITION  optional_declarations_and_expressions_in_package,
+							(begin_tleft, end_tright)
+						)   )
+
+    # We can expand a package
+    # macro into a package
+    # by applying it to an
+    # argument list:
+
+    | qualified_value_id
+      generic_args			(   SOURCE_CODE_REGION_FOR_PACKAGE (
+							CALL_OF_GENERIC (qualified_value_id make_generic_symbol, generic_args),
+							(qualified_value_idleft, generic_argsright)
+						)   )
+    # We can wrap a LET_T around any
+    # of the above to supply package-local
+    # declarations:
+
+# XXX BUGGO FIXME do we still want to support this 'LET_T' syntax?
+    | LET_T optional_declarations_and_expressions_in_package
+      IN_T  a_package
+      END_T					(   SOURCE_CODE_REGION_FOR_PACKAGE (
+							LET_IN_PACKAGE (optional_declarations_and_expressions_in_package, a_package),
+							(let_tleft, end_tright)
+						)   )
+
+    # We can transparently cast
+    # any of the above to a given
+    # API_T:
+
+    | a_package
+      SUFFIX_COLON TRANSPARENT
+      an_api					(   SOURCE_CODE_REGION_FOR_PACKAGE (
+							PACKAGE_CAST (a_package, WEAK_PACKAGE_CAST an_api),
+							(a_packageleft, an_apiright)
+						)   )
+
+    # We can opaquely cast
+    # any of the above to a
+    # given API_T:
+
+    | a_package
+      SUFFIX_COLON OPAQUE
+      an_api					(   SOURCE_CODE_REGION_FOR_PACKAGE (
+							PACKAGE_CAST (a_package, STRONG_PACKAGE_CAST an_api),
+							(a_packageleft, an_apiright)
+						)   )
+
+
+# These following three rules are used in
+#     a_package
+#     generic_expression
+# but not in
+#     generic_args
+# where we disallow expressions (vs declarations)
+# -- see the subsequent three rules for that:
+
+optional_declarations_and_expressions_in_package
+    : 						(SEQUENTIAL_DECLARATIONS [])
+    |   declarations_in_package			(declarations_in_package)
+
+declarations_in_package
+    : declaration_in_package	SUFFIX_SEMI	(declaration_in_package)
+    | declaration_in_package	SUFFIX_SEMI
+      declarations_in_package			(   make_declaration_sequence (
+							note_declaration_location (   declaration_in_package,
+                                        	                       declaration_in_packageleft,
+                                        	                       declaration_in_packageright
+                                        	                   ),
+						        declarations_in_package
+						)   )
+
+
+# This rule is used only in the above rule:
+
+declaration_in_package
+    : named_packages				(PACKAGE_DECLARATIONS named_packages)
+
+    | generic_namings    		(GENERIC_DECLARATIONS   generic_namings)
+
+    | local_declaration_or_expression		(note_declaration_location (   local_declaration_or_expression,
+                                        	                local_declaration_or_expressionleft,
+                                        	                local_declaration_or_expressionright
+                                        	            )
+                                        	)
+
+    | LOCAL_T optional_declarations_and_expressions_in_package
+      IN_T    optional_declarations_and_expressions_in_package
+      END_T
+      						(   LOCAL_DECLARATIONS (
+							note_declaration_location (optional_declarations_and_expressions_in_package1,
+                                        	                    optional_declarations_and_expressions_in_package1left,
+                                        	                    optional_declarations_and_expressions_in_package1right
+                                        	                   ),
+							note_declaration_location (optional_declarations_and_expressions_in_package2,
+                                        	                    optional_declarations_and_expressions_in_package2left,
+                                        	                    optional_declarations_and_expressions_in_package2right
+                                        	                   )
+						)   )
+
+
+# The following sequence of three rules
+# is exactly the same as the above three
+# rules except that we don't allow local
+# expressions, only local declarations.
+#
+# We use the following three rules (only)
+# in generic_args, where they solve
+# a syntactic ambiguity which arises
+# otherwise in the case
+#     MY_T PACKAGE_T value_id optional_api_cast INFIX_EQUAL qualified_value_id ( value_id ! (
+# where it isn't clear if we're seeing a
+# parameter to the generic or the start
+# of a following expression.  I think.
+#
+# Anyhow, expressions are pretty silly
+# in a package macro argument list, so
+# there's really no reason to allow this,
+# it is just a bit clumsy forbidding it:
+
+optional_declarations_in_generic_args
+    : 						(SEQUENTIAL_DECLARATIONS [])
+    |   declarations_in_generic_args	(declarations_in_generic_args)
+
+declarations_in_generic_args
+    : declaration_in_generic_args	SUFFIX_SEMI	(declaration_in_generic_args)
+    | declaration_in_generic_args	SUFFIX_SEMI
+      declarations_in_generic_args	(   make_declaration_sequence (
+							note_declaration_location (   declaration_in_generic_args,
+                                        	                       declaration_in_generic_argsleft,
+                                        	                       declaration_in_generic_argsright
+                                        	                   ),
+						        declarations_in_generic_args
+						)   )
+declaration_in_generic_args
+    : named_packages				(PACKAGE_DECLARATIONS named_packages)
+
+    | generic_namings    		(GENERIC_DECLARATIONS   generic_namings)
+
+    | local_declaration				(note_declaration_location (   local_declaration,
+                                        	                local_declarationleft,
+                                        	                local_declarationright
+                                        	            )
+                                        	)
+
+    | LOCAL_T optional_declarations_and_expressions_in_package
+      IN_T    optional_declarations_and_expressions_in_package
+      END_T
+      						(   LOCAL_DECLARATIONS (
+							note_declaration_location (optional_declarations_and_expressions_in_package1,
+                                        	                    optional_declarations_and_expressions_in_package1left,
+                                        	                    optional_declarations_and_expressions_in_package1right
+                                        	                   ),
+							note_declaration_location (optional_declarations_and_expressions_in_package2,
+                                        	                    optional_declarations_and_expressions_in_package2left,
+                                        	                    optional_declarations_and_expressions_in_package2right
+                                        	                   )
+						)   )
+
+
+# A helper rule for named_packages,
+# also used by generic_namings:
+# XXX BUGGO FIXME should there be a PARTIAL case here?
+
+optional_api_cast
+    :						(     NO_PACKAGE_CAST         )
+    | SUFFIX_COLON TRANSPARENT an_api		(   WEAK_PACKAGE_CAST (an_api))
+    | SUFFIX_COLON OPAQUE      an_api		( STRONG_PACKAGE_CAST (an_api))
+
+
+
+
+
+#########################################
+# 7) API_T syntax.			#
+#########################################
+
+# An API_T declaration lists the types,
+# functions, values &tc which a given
+# package must export in order to count
+# as a valid implementation of that API_T.
+
+
+
+# Here is the top-level syntax
+# for assigning a name to an
+# API_T.
+#
+# This rule is used only
+# in module_declaration:
+
+
+api_namings
+
+    : api_namings ALSO_T
+      api_namings				(api_namings1 @ api_namings2)
+
+    | MY_T API_T
+      TYPE_ID
+      INFIX_EQUAL
+      an_api					(   [   NAMED_API {
+							    name_symbol => make_api_symbol type_id,
+							    definition => an_api
+							}
+						    ]
+						)
+
+
+
+
+# Here we list the ways of supplying
+# an API_T value in a package-level
+# expression:
+
+an_api
+    # We may refer to a previously-
+    # defined API_T by name:
+
+    : TYPE_ID					(   SOURCE_CODE_REGION_FOR_API (
+							API_BY_NAME (make_api_symbol type_id),
+				        	        (type_idleft, type_idright)
+						)   )
+
+    # We may explicitly list
+    # all the elements of the
+    # API_T:
+
+    | BEGIN_T optional_api_elements END_T		(   SOURCE_CODE_REGION_FOR_API (
+							API_DEFINITION (optional_api_elements),
+							(optional_api_elementsleft, optional_api_elementsright)
+						)   )
+
+    # Finally, we may alter
+    # an existing API_T by
+    # specializing one or
+    # more of its types: 
+
+    | an_api WHERE_T where_on_api	END_T		(   SOURCE_CODE_REGION_FOR_API (
+							API_WITH_WHERE_SPECS (an_api, where_on_api),
+							(an_apileft, where_on_apiright)
+						)   )
+
+
+
+# Sequences of API_T elements.
+#
+# This rule is used in an_api (above)
+# to provide the contents for API_T ... END_T.
+#
+# This rule is also used in
+# generic_parameter, for the
+# argument list for a package macro.
+
+optional_api_elements
+
+    :		 				( [] )
+
+    | api_elements				(api_elements)
+
+api_elements
+
+    : api_element SUFFIX_SEMI
+      api_elements				(api_element @ api_elements)
+
+    | api_element SUFFIX_SEMI			(api_element)
+
+
+
+# Here we enumerate the things
+# which may be declared in an
+# API_T.
+# This rule is used only in
+# api_elements, above:
+
+api_element
+    : MY_T PACKAGE_T             package_in_api	( [ PACKAGES_IN_API package_in_api ] )
+    | MY_T PACKAGE_T MACRO generic_in_api	( [ GENERICS_IN_API generic_in_api ] )
+    | TYPE_T                      type_in_api	( [ TYPE_CONSTRUCTORS_IN_API (type_in_api, FALSE) ] )
+    | EQTYPE_T                    type_in_api	( [ TYPE_CONSTRUCTORS_IN_API (type_in_api, TRUE ) ] )
+    | MY_T                       value_in_api	( [ VALUES_IN_API value_in_api ] )
+    | EXCEPTION_T exception_in_api		( [ EXCEPTIONS_IN_API exception_in_api ] )
+    | ENUM_T named_datatypes			( [ ENUM_CONSTRUCTORS_IN_API { datatype_constructors => named_datatypes, with_type_constructors => NIL } ] )
+    | INCLUDE_T an_api				( [ IMPORT_IN_API an_api ] )
+    | INCLUDE_T value_id idents			(IMPORT_IN_API (API_BY_NAME (fast_symbol::make_api_symbol value_id)) ! idents)
+    | SHARING_T sharing_in_api			(sharing_in_api)
+
+    | ENUM_T named_datatypes
+      WITH_T
+      named_types				( [ ENUM_CONSTRUCTORS_IN_API { datatype_constructors => named_datatypes, with_type_constructors => named_types  } ] )
+
+
+
+idents
+    : value_id					( [ IMPORT_IN_API (API_BY_NAME (fast_symbol::make_api_symbol value_id)) ] )
+    | value_id idents				(   IMPORT_IN_API (API_BY_NAME (fast_symbol::make_api_symbol value_id)) ! idents)
+
+
+
+# It makes no sense to explicitly
+# define a package within an API_T
+# declaration, so we allow only
+# naming and casting to a given
+# sub-api:
+
+package_in_api
+
+    : package_in_api ALSO_T
+      package_in_api				(package_in_api1 @ package_in_api2)
+
+    | value_id SUFFIX_COLON an_api		( [ (make_package_symbol value_id, an_api, NULL) ] )
+
+    | value_id
+      SUFFIX_COLON an_api
+      INFIX_EQUAL
+      qualified_value_id			( [ (make_package_symbol value_id, an_api, THE (qualified_value_id make_package_symbol)) ] )
+
+
+
+# Similarly, it makes no sense to
+# explicitly define a package macro
+# in an API_T, so we allow only naming
+# them and specifying API_T requirements:
+
+generic_in_api
+    : generic_in_api ALSO_T
+      generic_in_api			(generic_in_api1 @ generic_in_api2)
+    | value_id a_generic_api		( [ (make_generic_symbol value_id, a_generic_api) ] )
+
+
+# A little helper rule
+# used only in the above rule:
+
+a_generic_api
+
+    : SUFFIX_COLON value_id			(GENERIC_API_BY_NAME (make_generic_api_symbol value_id))
+
+    | generic_parameters
+      SUFFIX_COLON
+      an_api					(   GENERIC_API_DEFINITION {
+							parameter => generic_parameters,
+							result    => an_api
+						    }
+						)
+
+
+# Type specifications in APIs.
+# We do allow explicit specifications
+# of types within an API_T declaration:
+
+type_in_api
+    : type_in_api ALSO_T type_in_api		(type_in_api1 @ type_in_api2)
+    | VALUE_ID					( [ (make_type_symbol value_id, NIL, NULL        ) ] )
+    | VALUE_ID INFIX_EQUAL any_type		( [ (make_type_symbol value_id, NIL, THE any_type) ] )
+
+
+
+# An exception declaration is really
+# just a special kind of type declaration,
+# so this case pretty much mirrors the
+# preceding one:
+
+exception_in_api
+    : exception_in_api ALSO_T
+      exception_in_api				(exception_in_api1 @ exception_in_api2)
+    | value_id					( [ (make_value_symbol value_id, NULL         ) ] )
+    | value_id any_type			( [ (make_value_symbol value_id, THE any_type) ] )
+
+
+
+# An API_T may specify values as well as
+# types, functions &tc.  These values
+# will typically be constants such as
+# the empty set for a set implementation.
+#
+# The the API_T context, of course, all
+# we care about is the type of the
+# value:
+
+value_in_api
+    : value_in_api ALSO_T value_in_api		(value_in_api1 @ value_in_api2)
+    | value_id SUFFIX_COLON any_type		( [ (make_value_symbol value_id, any_type) ] )
+
+
+
+# We often need to specialize a type in an
+# API_T before we can use it.  For example,
+# a binary tree API_T may leave unspecified
+# the type of the keys, so that we can
+# specialize it to strings, ints or whatever.
+#
+# Type-sharing constraints let us do this
+# by specifying that this-here type is to
+# be the same as that-there type:
+
+sharing_in_api
+    : sharing_in_api ALSO_T
+      sharing_in_api				(sharing_in_api1 @ sharing_in_api2)
+    | TYPE_T path_equation			(   [   SOURCE_CODE_REGION_FOR_API_ELEMENT (
+							    TYPE_SHARING_IN_API (path_equation make_type_symbol),
+							    (path_equationleft, path_equationright)
+                                        	        )
+						    ]
+						)
+    | path_equation				(   [   SOURCE_CODE_REGION_FOR_API_ELEMENT (
+							    PACKAGE_SHARING_IN_API (path_equation make_package_symbol),
+							    (path_equationleft, path_equationright)
+							)
+						    ]
+						)
+
+
+
+path_equation
+
+    : qualified_value_id
+      INFIX_EQUAL
+      qualified_value_id			(fn kind = [qualified_value_id1 kind,   qualified_value_id2 kind])
+
+    | qualified_value_id
+      INFIX_EQUAL
+      path_equation				(fn kind =  qualified_value_id kind ! path_equation kind)
+
+
+
+# 'where' specifications are another form
+# of sharing constraint.  The difference
+# is that the above sharing is specified
+# in the spot -defining- an API_T, whereas
+# 'where' sharing is specified in the spot
+# -using- that API_T:
+
+where_on_api
+
+    : where_on_api
+      ALSO_T
+      where_on_api				(where_on_api1 @ where_on_api2)
+
+    | qualified_value_id
+      INFIX_EQUAL
+      qualified_value_id			( [ WHERE_PACKAGE (qualified_value_id1 make_package_symbol, qualified_value_id2 make_package_symbol) ] )
+
+    | TYPE_T
+      qualified_type_id
+      INFIX_EQUAL
+      any_type					( [ WHERE_TYPE      (qualified_type_id make_type_symbol, NIL, any_type) ] )
+
+
+
+
+
+
+#########################################
+# 8) Package macro syntax		#
+#########################################
+
+# Here we give the package macro
+# definition syntax -- the stuff which
+# may follow "my package macro".
+# 
+# A package macro is basically just a
+# package definition with some holes left
+# to be filled in by arguments, so there
+# isn't a whole lot new or interesting
+# here.
+
+
+# Here is the top-level package
+# macro declaration syntax.
+#
+# This rule is used by module_declaration
+# and declarations_in_package:
+
+generic_namings
+
+    : generic_namings
+      ALSO_T
+      generic_namings			(generic_namings1 @ generic_namings2)
+
+    | MY_T PACKAGE_T MACRO
+      value_id
+      generic_parameters
+      optional_api_cast
+      INFIX_EQUAL
+      a_package					(   [   SOURCE_CODE_REGION_FOR_NAMED_GENERIC (
+							    NAMED_GENERIC {
+								name_symbol => make_generic_symbol value_id,
+								definition => GENERIC_DEFINITION {
+									         parameters => generic_parameters,
+										 body       => a_package,	
+										 constraint => optional_api_cast
+									     }
+                                        	            },
+			                	            (value_idleft, a_packageright)
+                                        	        )
+                                        	    ]
+                                        	)
+
+    | MY_T PACKAGE_T MACRO
+      value_id
+      optional_generic_api_cast
+      INFIX_EQUAL
+      generic_expression			(   [   SOURCE_CODE_REGION_FOR_NAMED_GENERIC (
+							    NAMED_GENERIC {
+								name_symbol => make_generic_symbol value_id,
+								definition => generic_expression (optional_generic_api_cast)
+							    },
+			                	            (value_idleft, generic_expressionright)
+							)
+						    ]
+						)
+
+
+
+# generics-valued expressions.
+# We can produce a package macro by:
+# (1) Fetching a pre-existing one from
+#     some known package:
+# (2) Invoking a generics-valued
+#     package macro.
+#     (Woops, wasn't going to tell you
+#     about those. Mum's the word!)
+# (3) Wrapping some declarations in a
+#     LET_T and -then- doing one of the above:
+
+generic_expression
+
+    : qualified_value_id			(fn constraint = GENERIC_BY_NAME (qualified_value_id make_generic_symbol, constraint))
+
+
+    | qualified_value_id
+      generic_args			(fn constraint = SOURCE_CODE_REGION_FOR_GENERIC (
+								      CONSTRAINED_CALL_OF_GENERIC (
+                                        	                          qualified_value_id make_generic_symbol,
+                                        	                          generic_args,
+                                        	                          constraint
+                                        	                      ),
+								      (qualified_value_idleft, generic_argsright)
+						)                 )
+
+# XXX BUGGO FIXME do we still want to support this 'LET_T' syntax?
+    | LET_T optional_declarations_and_expressions_in_package
+      IN_T  generic_expression
+      END_T					(fn constraint = SOURCE_CODE_REGION_FOR_GENERIC (
+								      LET_IN_GENERIC (optional_declarations_and_expressions_in_package, generic_expression constraint),
+								      (let_tleft, end_tright)
+						)                 )
+
+
+# Here we give syntax for the argument
+# list in a package macro invocation.
+#
+# This basically looks like a package
+# (first subrule) except that a macro
+# can return another macro which can
+# be invoked in its turn, so we allow
+# arbitrary chains of invocations (second
+# subrule).
+#
+# Technically, the argument to a package
+# macro is always supposed to be a
+# package, but in practice it is handy
+# to be able to supply a bare type
+# definition or such, so the third and
+# fourth subrules allows for this by faking
+# up a package from the given lower-level
+# declarations.
+#
+# This rule is used in generic_expression
+# (immediately above) and also in a_package:
+
+generic_args
+
+    : LPAREN a_package RPAREN 			([(a_package, TRUE)])
+
+    | LPAREN a_package RPAREN
+      generic_args			((a_package, TRUE) ! generic_args)
+
+    | LPAREN
+          optional_declarations_in_generic_args
+      RPAREN
+      generic_args			(   (   SOURCE_CODE_REGION_FOR_PACKAGE (
+						            PACKAGE_DEFINITION
+                                                                optional_declarations_in_generic_args,
+						            (   optional_declarations_in_generic_argsleft,
+                                                                optional_declarations_in_generic_argsright
+							    )
+						        ),
+						        FALSE
+						    )
+						    !
+						    generic_args
+						)
+
+    | LPAREN
+          optional_declarations_in_generic_args
+      RPAREN 					(   [   (   SOURCE_CODE_REGION_FOR_PACKAGE (
+								PACKAGE_DEFINITION
+                                        	                    optional_declarations_in_generic_args,
+								(   optional_declarations_in_generic_argsleft,
+                                        	                    optional_declarations_in_generic_argsright
+                                        	                )
+							    ),
+						            FALSE
+							)
+						    ]
+						)
+#
+
+# Here we define the syntax for defining
+# package macro parameter lists.
+#
+# At invocation time, the argument to a
+# package macro is a package, so at
+# parameter definition time, we naturally
+# enough give -- actually or in in essence
+# -- an API_T definition, since APIs are our
+# way of classifying packages.
+#
+# Since macros can return macros to
+# be evaluated in their turn we allows
+# arbitrary sequences of such parameter
+# lists (subrule two):
+
+generic_parameters
+
+    : LPAREN
+      generic_parameter
+      RPAREN					( [ generic_parameter ] )
+
+    | LPAREN
+      generic_parameter
+      RPAREN
+      generic_parameters			(   generic_parameter ! generic_parameters)
+
+
+# A helper rule used only in the above rule:
+
+generic_parameter
+    : VALUE_ID SUFFIX_COLON an_api		(   (   THE (make_package_symbol value_id), an_api) )
+    | optional_api_elements			(   (   NULL,
+							SOURCE_CODE_REGION_FOR_API (
+							    API_DEFINITION (optional_api_elements), 
+							    (optional_api_elementsleft, optional_api_elementsright)
+						)   )   )
+
+
+
+
+# By way of clean-up, we end
+# the section with a simple
+# helper function used only
+# in generic_namings
+# above:
+# XXX BUGGO FIXME should there be a PARTIAL case here?
+
+optional_generic_api_cast
+    :						(     NO_PACKAGE_CAST)
+    | SUFFIX_COLON TRANSPARENT TYPE_ID		(   WEAK_PACKAGE_CAST (GENERIC_API_BY_NAME (make_generic_api_symbol type_id)))
+    | SUFFIX_COLON OPAQUE      TYPE_ID		( STRONG_PACKAGE_CAST (GENERIC_API_BY_NAME (make_generic_api_symbol type_id)))
+
+
+
+
+#########################################
+# 9) Package macro API_T syntax.	        #
+#########################################
+
+# Right now we distinguish between package APIs
+# and package macro APIs.  (This distinction
+# should go away by and by.) 
+
+
+# Here we define the top-level syntax for
+# naming a package macro api -- the
+# stuff which can follow "package macro" in
+# module_declaration (which is the
+# only rule referencing us):
+
+
+generic_api_namings
+
+    : generic_api_namings
+      ALSO_T
+      generic_api_namings		(generic_api_namings1 @ generic_api_namings2)
+
+    | MY_T PACKAGE_T MACRO API_T
+      TYPE_ID
+      generic_parameters
+      INFIX_EQUAL
+      an_api					(   [   NAMED_GENERIC_API {
+								    name_symbol => make_generic_api_symbol type_id,
+								    definition => GENERIC_API_DEFINITION {
+										     parameter => generic_parameters,
+										     result    => an_api
+										 }
+							}
+						    ]
+						)
+
+
+# ******************************************************************
+#                           END_T OF_T GRAMMAR
+# ******************************************************************
+#
+# Only design notes below this point.
+
+
+
+
+
+
+/* XXX Should allow /regex/ in patterns anywhere we currently allow
+ * string constants in patterns.                                         I thought about having a SWITCH <stringExpression> OF ... END_T
+ *                                                                       parallel to the existing CASE_T ... OF ... END_T but using regular expression matching
+ *                                                                       on strings instead of tree pattern-matching, but that requires an extra keyword,
+ *                                                                       introduces a confusing case/switch distinction hard to remember, and is
+ *                                                                       much less pleasant than smoothly integrating the two paradigms.
+ * Since the same machinery is used for case patterns and
+ * function patterns, we should get more nice stuff for free like
+ *
+ *    fun foo /^[A-Za-z]*$/ => bar;
+ *        foo /^[0-9]*$/    => zot;
+ *    end;
+ *
+ * I ORIGINALLY thought that:
+     *                      we should have   $/.../
+     *                                       $|...|
+     *                                       $!...!
+     * for regular expressions, allowing
+     * as quotes basically any special
+     * characters but $ { " ( -- the
+     * latter two excepted so that we
+     * can have
+     *                                       $"..."       # Do interpolation in this string
+     *                                       X           # Do interpolation in this string value
+     *                                       $(f a)       # Do interpolation in this string value   
+     *
+     * I think we should then have          @@/.../.../   # Do regular expression substitution
+     *                                      @@|...|...|   # 
+     *                                      @@!...!...!   # 
+     *
+     * When we need modifiers, I think      ${ mods}/.../
+     *                                      ${ mods}|...|
+     *                                      ${ mods}!...!
+     *
+     *                                      @@{ mods}/.../.../   # Do regular expression substitution
+     *                                      @@{ mods}|...|...|   # 
+     *                                      @@{ mods}!...!...!   # 
+     *
+   but now I'm inclined to use prefix-/ as
+   the common case and
+ *                                          REGEX !...!
+ *                                          REGEX |...|
+ *
+ * &tc for the other cases, to avoid spending
+ * so nice an operator as '$' so frivolously.
+ *
+ * Of course, I should re-read the Lib7 Synopsis on
+ * regular expressions before nailing down their syntax. :)
+ *
+ * ...
+ * After a couple of re-readings, two main reactions:
+ *
+ * o  I think explicit character class syntax should
+ *    stay the same [^A-Z] not <[-A..Z]> -- this is
+ *    not a matter of logic but of cultural expectation,
+ *    I think there will be too much resistance to
+ *    changing anything so familiar.  (Also I don't
+ *    feel so much of a need for non-capturing brackets
+ *    as Larry apparently does.)
+ *
+ *     LATER: We could scrap numbered variables entirely
+ *            and use x=(...) to bind 'x' to the captured
+ *            value.  In this case, lack of an 'x=' prefix
+ *            would make the parens non-capturing anyhow.
+ *
+ *
+ * o  For the rest, where I consider his ideas worth
+ *    implementing in the Lib7 context, I'm inclined
+ *    to follow his suggestions.
+ *    
+ * )
+ */
+
+
+
+/* XXX BUGGO FIXME It may be that we should support
+                   separate long and short
+                   enum syntax, something like
+
+                       my enum foo = BAR, ZOT;
+
+                       my  enum foo ==
+                           BAR (Int, String);
+                           ZOT { int: INT, string: String};
+                       end enum foo;
+
+                   (With the illustrated use of 'my' we avoid
+                   as usual the need to make 'enum' a reserved
+                   word.)
+
+                   If so, we might want to make it a general
+                   convention that '=' matches ';' and '=='
+                   matches 'end':
+
+                       my xxx id = ... ;
+
+                   but
+
+                       my xxx id ==
+                           ... ;
+                           ... ;
+                       end;
+
+                   for all xxx.
+ */             
+
+/* XXX BUGGO FIXME It would be very nice if we allowed an alternative to
+
+                       my package foo = ...
+                       end;
+
+                   of the form
+
+                       my  package foo = ...
+                       end package foo;
+                  
+                   The point is that while we can write
+
+                       my     package foo = ...
+                       end; # package foo
+
+                   already, the latter comment may well be wrong,
+                   but the compiler guarantees that the former is
+                   correct, hence the reader finds it much more
+                   informative.
+
+                   This idea should definitely be extended to
+
+                       my  api Foo = ...
+                       end api Foo;
+
+                       my  package macro mac_foo = ...
+                       end package macro mac_foo;
+
+                       my  package macro api McFoo = ...
+                       end package macro api McFoo;
+
+                   This idea should probably also be extended to
+
+                       case ... of
+                       ...
+                       end case;
+
+                       while ... do
+                       ...
+                       end while;
+
+                       local
+                       ...
+                       in
+                       ...
+                       end local;
+
+                       ...
+                       except
+                           ...
+                       end except;
+
+                   and so forth.  All as optional alternatives to
+                   bare 'ends' of course, not as required verbosity.
+ */
+
+/* XXX BUGGO FIXME It would be very nice if we allowed an alternative to
+
+   'fold_left' and kith have a number of severe drawbacks:
+
+    o  The arguments and results are often anonymous
+       tuple slots, decreasing readability.
+
+    o  'l' for 'left' breaks my no-abbreviations rule.  Ditto
+       'apply' for 'apply'.
+
+    o  The argument order seems wrong in typical usage.
+       The statement is uninterpretable until the input
+       is known, but that is usually placed last.
+
+    o  The fn argument (an anonymous function constituting
+       the body of the loop) is often the largest, hence should
+       be last by length rule, but in fact is first.
+
+    o  The statement is essentially a loop with the anonymous
+       function being the loop body, but the anonymous function
+       syntax is much harder to read than the typical imperative
+       loop body, and is rather off-putting to mainstream readers. 
+
+    Possible improvements:
+
+    o  Use records in preference to tuples for
+       input and output records in such code.
+
+    o  Rename these functions for clarity.          
+
+    o  Re-order arguments in this class of functions.
+       If this were combined with renaming, the
+       transition could be incremental rather than heroic.
+
+    o  Better anonymous-function syntax.  say,
+           !{ ... $0 ... $2 ... $1    }
+       where the special '!{' bracket helps identify
+       which level of nesting the numbered parameters
+       go with.
+
+    o  Some sort of special loop syntax like C 'for'
+       to make such stuff more readable...? 
+
+
+http://www.csse.monash.edu.au/courseware/cse3322/2006/Code/hof.sml
+
+	# left-associative fold
+	# fold_left : ('a * 'b -> 'a) -> 'a -> 'b List -> 'a 
+	fun fold_left f z [] = z
+	  | fold_left f z (x ! xs) = fold_left f (f (z, x)) xs;
+
+	# NB. The standard SML fold_left seems to have the wrong type! 
+
+	# right-associative fold 
+	# fold_right : ('a * 'b -> 'b) -> 'b -> 'a List -> 'b 
+	fun fold_right f z [] = z
+	  | fold_right f z (x ! xs) = f (x, (fold_right f z xs))
+	# equivalent to standard SML fold_right
+
+
+
+
+
+Here's a fold-vs-loop experiment:
+
+SML style (30 lines):
+	fun synthesizeFunctionDeclaration (
+		(funsymVar, rawSyntaxClauses, source_code_region),   # Inputs.
+		(deepSyntaxFunctions, type_variables, update)       # Result accumulators.
+	    )
+	    = 
+	    {   my (deepSyntaxClauses1, typeVariables1, update1)
+		    =
+		    fold_left
+			(   fn (rawSyntaxClause2, (deepSyntaxClauses2, typeVariables2, update2))
+			       =
+			       let my (deepSyntaxClause3, typeVariables3, update3)
+				       =
+				       synthesizePatternClause (source_code_region, rawSyntaxClause2)
+			       in
+				   (   deepSyntaxClause3 ! deepSyntaxClauses2,
+				       union (typeVariables3, typeVariables2, error source_code_region),
+				       update3 ! update2
+				   )
+			       end
+			) 
+
+			([], TS.empty, [])
+
+			rawSyntaxClauses;
+
+		(   (funsymVar, reverse deepSyntaxClauses1, source_code_region) ! deepSyntaxFunctions,
+		    union (typeVariables1, type_variables, error source_code_region),
+		    update1 @ update
+		);
+	    }
+
+
+C style (26 lines):
+	fun synthesizeFunctionDeclaration (
+		(funsymVar, rawSyntaxClauses, source_code_region),   # Inputs.
+		(deepSyntaxFunctions, type_variables, update)       # Result accumulators.
+	    )
+                allDeepSyntaxClauses = [];
+                allTypeVariables     = TS.empty;
+                allUpdates           = [];
+
+                for rawSyntaxClause2 in rawSyntaxClauses do
+
+                    {   (deepSyntaxClause, type_variables, update)
+                            =
+                            synthesizePatternClause (source_code_region, rawSyntaxClause2);
+
+			allDeepSyntaxClauses ::= deepSyntaxClause;
+			allTypeVariables     ::= type_variables;
+			allUpdates           ::= updates;
+                    }
+
+                return  
+		    (   (funsymVar, reverse deepSyntaxClauses1, source_code_region) ! deepSyntaxFunctions,
+			union (typeVariables1, type_variables, error source_code_region),
+			update1 @ update
+		    );
+            end
+
+It's hard not to conclude that the
+C-style version is shorter and clearer.
+And even so it seems wordy, one would
+like something like
+
+C style (22 lines):
+	fun synthesizeFunctionDeclaration (
+		(funsymVar, rawSyntaxClauses, source_code_region),   # Inputs.
+		(deepSyntaxFunctions, type_variables, update)       # Result accumulators.
+	    )
+	    = 
+                allDeepSyntaxClauses = [];
+                allTypeVariables     = TS.empty;
+                allUpdates           = [];
+
+                for rawSyntaxClause2 in rawSyntaxClauses do
+
+                    (deepSyntaxClause, type_variables, update)
+                        ::=
+                        synthesizePatternClause (source_code_region, rawSyntaxClause2);
+                end
+
+                return  
+		    (   (funsymVar, reverse deepSyntaxClauses1, source_code_region) ! deepSyntaxFunctions,
+			union (typeVariables1, type_variables, error source_code_region),
+			update1 @ update
+		    );
+            end
+
+Particular problems with the SML version:
+
+ o  The initial values for the accumulator variables
+    appear anonymously, arbitrarily far from their names.
+
+ o  Using accumulator records instead of tuples would
+    help with the above, but we'd still have wordiness
+    due to having to repeat all the field names as
+    function parameters.
+        Basically, the function syntax is simply less
+    context-aware than the dedicated loop syntax, so we
+    have to do more manual labor as a coe writers, and
+    wade through more syntactic clutter as code readers.
+
+
+
+
+Datum:
+
+    cynbe@maw mythryl7.110.58/mythryl7.110.58% find ! -type f -print | xargs egrep fold_left | wc
+	621    5478   59422
+
+    cynbe@maw mythryl7.110.58/mythryl7.110.58% find ! -type f -print | xargs egrep fold_right | wc
+	665    6194   67296
+
+But *shrug* we can just do 
+
+    for clause in reverse clauses do
+        ...
+        return reverse results;
+    end
+
+
+
+
+ */
+
+/* XXX BUGGO FIXME 
+
+   I think maybe the best C-style for-loop syntax is
+
+       for  ;;   ;;  do
+       end
+
+   The double-semi is better than the C 'comma'
+   weak-semi operator, and 'do' is better than
+   C's parens.
+
+   Independently, for list iteration, we likely
+   should have
+
+       for x in list_expression do
+       end   
+   
+ */
+
+/* XXX BUGGO FIXME 
+
+   Python's list comprehensions have been very popular.
+   (Haskell also?)  Might be worth seeing if something
+   along those lines fits into the syntax and semantics.
+
+       http://docs.python.org/tut/node7.html
+
+	   List comprehensions provide a concise
+	   way to create lists without resorting to
+	   use of map(), filter() and/or
+	   lambda. The resulting list definition
+	   tends often to be clearer than lists
+	   built using those constructs. Each list
+	   comprehension consists of an expression
+	   followed by a for clause, then zero or
+	   more for or if clauses. The result will
+	   be a list resulting from evaluating the
+	   expression in the context of the for and
+	   if clauses which follow it. If the
+	   expression would evaluate to a tuple, it
+	   must be parenthesized.
+
+		    >>> freshfruit = ['  banana', '  loganberry ', 'passion fruit  ']
+
+		    >>> [weapon.strip() for weapon in freshfruit]
+		    ['banana', 'loganberry', 'passion fruit']
+
+		    >>> vec = [2, 4, 6]
+
+		    >>> [3*x for x in vec]
+		    [6, 12, 18]
+
+		    >>> [3*x for x in vec if x > 3]
+		    [12, 18]
+
+		    >>> [3*x for x in vec if x < 2]
+		    []
+
+		    >>> [[x, x**2] for x in vec]
+		    [[2, 4], [4, 16], [6, 36]]
+
+		    >>> [x, x**2 for x in vec]# error - parens required for tuples
+		      File "<stdin>", line 1, in ?
+			[x, x**2 for x in vec]
+				   ^
+		    SyntaxError: invalid syntax
+
+		    >>> [(x, x**2) for x in vec]
+		    [(2, 4), (4, 16), (6, 36)]
+
+		    >>> vec1 = [2, 4, 6]
+		    >>> vec2 = [4, 3, -9]
+
+		    >>> [x*y for x in vec1 for y in vec2]
+		    [8, 6, -18, 16, 12, -36, 24, 18, -54]
+
+		    >>> [x+y for x in vec1 for y in vec2]
+		    [6, 5, -7, 8, 7, -5, 10, 9, -3]
+
+		    >>> [vec1[i]*vec2[i] for i in range (len (vec1))]
+		    [8, 12, -5]
+
+ */
+
+# XXX BUGGO FIXME 
+# http://successor-ml.org/index.php?title=Record_labels_as_fields
+#    SML allows record patterns of the form { a=a, b=b, ... } to be
+#    abbreviated conveniently as { a, b, ... } (sometimes called "punning").
+#    The same abbreviation is not currently provided for record expressions.
+#    Such an abbreviation can be equally convenient.
+#
+# I'm definitely a believer in this one,
+#  and have been wanting it for a long time. :)
+
+
+# XXX BUGGO FIXME 
+# http://successor-ml.org/index.php?title=Match_guards
+# suggests pattern guards
+#       mrule ::= pat <if exp> => exp
+
+# XXX BUGGO FIXME 
+#
+# The sML page http://successor-ml.org/index.php?title=Functional_record_extension_and_row_capture
+# offers a fairly sophisticated ellipsis extensision which I don't
+# find entirely convincing, but
+#
+# http://successor-ml.org/index.php?title=Functional_record_update
+# proposes the simpler
+#
+#    { myRecord where key1=val1, key2=val2 }
+#
+# syntax for functional record updates.  We could definitely use
+# that, as comments in the compiler source code suggest -- and
+# as the code in it painfully demonstrates!
+
+
+/* XXX BUGGO FIXME 
+   I think maybe we should change
+       while ... do
+           ...
+       end
+   to
+       while ... begin
+           ...
+       end 
+
+   Then we can return the very handy
+       "do"
+   identifier to the user pool, for
+   example so that
+       safely.perform
+   can become
+       safely.do
+
+   This does break one proposed 'for'
+   loop syntax.  *shruggrin*   
+
+ */
+
+/* XXX BUGGO FIXME 
+   I think maybe in pattern-matching we should put
+   record labels to the right of the "=".  This
+   maintains the convention that "=" defines the
+   expression on the left in terms of the expression
+   on the right.  The current (reverse) pattern-matching 
+   convention is quite jarring to the newcomer...
+
+   The main disadvantage is that this will often
+   put the longest of the two expressions first,
+   since the label is never going to be very long
+   but the pattern matching it might well be.
+
+   (The alternative idea of using => instead of =
+   in patterns is I think too spendthrift of
+   operators, but I might change my mind again...)
+ */
+
+/* XXX BUGGO FIXME 
+   There's no grammar provision for SHEBANG lines as yet.
+ */
+
+/* XXX BUGGO FIXME 
+   Hrm:
+   (1) I've been wanting to ban global mutable state.
+   (2) I've been looking for a good syntax for thread-load variables.
+
+   Should we combine the two, and re-invent global mutable
+   cells as cells in a thread-local hidden vector which is
+   replaced by a new vector each time an update is done?
+
+   Actually, we may need both possibilities.
+   Possibly we should require a per_thread
+   or per_heap qualifier, with the possibility
+   of a per_strand ("per_yarn" "per_braid"?)
+   qualifier later.
+ */
+
+/* XXX BUGGO FIXME 
+   What -does- happen with refs in a multitasking
+   environment?  How bad can uncontrolled competing
+   updates get -- can they coredump us?  If so, we
+   probably need forced implicit locking or some such.
+ */
+
+/* XXX BUGGO FIXME 
+
+   The Haskell quicksort-in-one-line example gets great
+   milage out of partially applied infix operators in
+   the form of "filter (< x) ...".  There isn't any reason
+   we couldn't support such syntax, and I don't see any
+   reason we shouldn't...
+    Hrm -- would appear to require that binary ops translate
+   into curried functions rather than tuple ones...?  There
+   are rumors SML/NJ is better optimized for tuple-fns than
+   curried-fns?
+    Then again, I don't see why we can't translate such a
+   syntax into tupled form...
+
+ */
+
+/* XXX BUGGO FIXME 
+   Maybe 'ilk' should be 'clan'' or (better) 'clade'.  ["Flavor" works too! :) ]
+   That's more reminiscient of 'class' yet is used
+   very little if at all in contemporary programming.
+   And 'cladify' sounds better than 'classify' :)
+ */
+
+/* XXX BUGGO FIXME 
+   Api (api) ascription is essentially a function-like operation
+   in which an api is applied to a class (package):  It would be
+   nice if it were written so.
+
+   How about:
+       class package = { package_def }                      # Simplest case
+       class package = Api { structure_def }                # Opaque (preferred) ascription
+       class package = transparent  Api { structure_def }   # Transparent ascription
+       class package extending his_class = ...                # Subclassing case.
+
+   BUT --  what then happens to 
+       package struct_b = struct_a :> Api_A;   # vs
+       package struct_b = struct_a :  Api_A;   # 
+   We'd like
+       package struct_b = Api_A struct_a;
+       package struct_b = (transparent Api_A) struct_a;
+   That seems doable as far as it goes...?
+   UNFORTUNATELY, all this seems to conflict with offside-rule
+   syntax for packages :(
+ */
+
+# XXX BUGGO FIXME 
+# Is there any deep reason to require that a enum have
+# at least one constructor?  (The phantom types folks wind
+# up creating unused enum constructors just to satisfy
+# this apparently arbitrary requirement -- see "Phantom
+# Types and Subtyping", Fluet & Pucella.)
+
+
+
+/* XXX BUGGO FIXME 
+
+   The ML 2000 group recommend dropping overflow
+   exceptions on integer arithmetic, and I think
+   they're right.
+
+   I doubt much of the codebase depends upon their
+   being generated (maybe the 'integer' implementation?)
+   so we should be able to adopt this just by killing
+   generation of the relevant code...?
+
+ */
+
+/* XXX BUGGO FIXME 
+
+   The ML2000 group recommend dropping generic equality,
+   equality type variables, and 'eqtype' declarations.
+   To my great relief! :)
+
+ */
+
+/* XXX BUGGO FIXME 
+
+   How about
+
+       fun  This -> That;
+	    foo this => that;
+	    foo here => there;
+       end;
+
+   as a less-ugly syntax for including function types
+   in function declarations?
+ */
+
+/* XXX BUGGO FIXME 
+   Nick Benton and Andrew Kennedy present a case in
+       http://citeseer.ist.psu.edu/388363.html
+   for supporting 'try ... catch ... in...'
+   as an alternative to the simple 'handle'.
+   This requires tinkering with intermediate
+   representations, which isn't something I
+   want to spend time on now (2006-12-31) but
+   could be worth returning to in future...
+ */
+
+/*
+The "proper views" explanation below deserves careful consideration:
+From: Andreas Rossberg <rossberg@ps.uni-sb.de>
+Subject: [Sml-evolution] HaMLet-S and views
+To: sml-evolution@cs.uchicago.edu
+Cc:
+Date: Fri, 23 Mar 2007 14:55:10 +0100
+
+Dear sMLers,
+
+I have just put up a version of HaMLet that incorporates a number of
+the proposals for Successor ML. Consider it a testbed, and sort of
+(incomplete) personal vision of where sML could go (well, is it going
+anywhere?).
+
+Among the extensions are:
+
+  - most "immediate" changes listed in the Wiki
+    (extensible records, pattern matching extension, etc.),
+  - higher-order modules, nested apis, and first-class modules,
+  - views.
+
+The latter point includes Greg's "poor man's views", as well as
+"proper" views following the papers by Wadler and Okasaki. Having both
+real views and the "poor man's" alternative implemented in the same
+system should allow some useful experimentation.
+
+Poor man's views
+----------------
+
+Let's call them "transformation patterns". They have one of these two forms:
+
+    ?atexp
+    ?atexp atpat
+
+The first form provides boolean "views", e.g.:
+
+    (*) is_space : char -> bool
+
+    fun skipSpace(?is_space ! cs) = skipSpace cs
+      | skipSpace cs = cs
+
+The parameterised form allows actual matching. Consider a queue ADT:
+
+    (*) val dequeue : 'a queue -> ('a * 'a queue) option
+
+    fun process (?dequeue(x,q)) = (digest x; process q)
+      | process _ = terminate()
+
+The transformation may be denoted by an arbitrary expression. Consider
+a simple set ADT:
+
+    (*) val isEmpty : set -> bool
+    (*) val has : int -> set -> bool
+
+    fun f n ?isempty = f1 ()
+      | f n ?(has n) = f2 ()
+      | f n _ = f3 ()
+
+Or another example, with a parameterised transformation:
+
+    (*) val split : char -> string -> (string * string) option
+
+    fun manExp(?(split #"E")(b,e)) => (b,e)
+      | manExp s => (s,"1")
+
+As a minor subtlety, in patterns with multiple subpatterns, patterns
+to the right may refer to variables bound by patterns to the left. For
+example,
+
+    (x, ?(equals x))
+    x as ?(notOccurs x)(T(x1,x2))
+
+In particular, this allows the function f from above to be expressed
+without a separate case (cf. the definition of the fun derived form).
+
+Transformation patterns are actually only sugar for "nested matches":
+the form "?atexp" expands to "x with true = atexp x", while the
+parameterised form "?atexp atpat" expands to "x with SOME atpat =
+atexp x".
+
+
+Proper Views
+------------
+
+The design of views is a mixture of Wadler's paper and of
+Okasaki's. The syntax of a view definition is:
+
+    viewtype <tyvars> <tycon> = <ty> as <conbind> with <dec> end
+
+Like with Wadler's original proposal, views define both injections and
+projections. The declaration <dec> must hence define (at least) two
+functions named "from" and "to" for conversion. Here is a simple
+example:
+
+    viewtype peano = int as Zero | Succ of int
+    with
+      fun from Zero     = 0            (*) projection
+        | from (Succ n) = n+1
+      fun to 0          = Zero         (*) injection
+        | to n if (n>0) = Succ(n-1)
+        | to n          = raise exception DOMAIN
+    end
+
+Unlike with previous proposals, views must be used consistently in
+patterns, that is, a match may not use different views, or a view and
+concrete constants of the underlying type, *for the same position* in
+a pattern. For instance, the following is illegal:
+
+    fun fac (0 | 1)  = 1
+      | fac (Succ n) = Succ n * fac n
+
+Thanks to this restriction, the compiler is still able to check
+exhaustiveness and irredundancy of patterns, even in the presence of
+views. I consider this crucial, and it's one of the advantages over
+"poor man's views".
+
+Like with Okasaki's proposal, viewtype specifications in apis
+can be matched by datatypes. Here is a respective example adapted from
+Wadler's paper:
+
+    api COMPLEX =
+    sig
+      type complex
+      viewtype cart = complex as Cart of real * real
+      viewtype pole = complex as Pole of real * real
+      val add : complex * complex -> complex
+      val mul : complex * complex -> complex
+    end
+
+    structure Complex :> COMPLEX =
+    struct
+      datatype cart = Cart of real * real
+      type complex = cart
+      viewtype pole = complex as Pole of real * real
+      with
+        fun to (Cart(x,y)) = Pole(sqrt(x*x + y*y), atan2(x,y))
+        fun from (Pole(r,t)) = Cart(r*cos(t), r*sin(t))
+      end
+      fun add (Cart(x1,y1), Cart(x2,y2)) = Cart(x1+x2, y1+y2)
+      fun mul (Pole(r1,t1), Pole(r2,t2)) = Pole(r1*r2, t1+t2)
+   end
+
+Instead of opening a structure, a view can also be pulled into scope
+(and thus enable unqualified use of its constructors) by a viewtype
+replication declaration, analogous to SML's datatype replication:
+
+    viewtype cart = viewtype Complex.cart
+
+This explains why views are named. Apart from viewtype replication,
+the name of a view acts as a synonym for the underlying representation
+type -- except inside the view definition itself, where it used to
+denote the (otherwise anonymous) datatype representing the view.
+
+Here are a few more examples of using views:
+        http://www.ps.uni-sb.de/hamlet/examples/views.sml
+
+
+Please see the HaMLet page for more details:
+        http://www.ps.uni-sb.de/hamlet/#successor-ml
+A brief description of all extensions implemented in HaMLet-S:
+        http://www.ps.uni-sb.de/hamlet/README-next.txt
+
+Also, I took the liberty to put a link on the sML Wiki. :-)
+
+Best regards,
+- Andreas
+
+_______________________________________________
+Sml-evolution mailing list
+Sml-evolution@mailman.cs.uchicago.edu
+https://mailman.cs.uchicago.edu/mailman/listinfo/sml-evolution
+
+
+
+
+*/
+
+
+# XXX BUGGO FIXME 
+# We need a better garbage collector for multi-core realtime
+# work. The   Perry Cheng, Guy E. Blelloch paper
+#     http://citeseer.ist.psu.edu/493194.html
+# outlines one.  This is Cheng's work for his CMU PhD, available here:
+#     http://reports-archive.adm.cs.cmu.edu/cs2001.html
+
+
+/* REJECTED IDEA
+
+     [ LATER:  I think the better way to handle this
+               is to define a enum with one
+               constructors FOO BAR ZOT ... for the
+               optional arguments, then call the
+               fn with a list  [FOO 1, BAR "x.c", ZOT TRUE...]
+
+               This isn't super fast, but this facility
+               is mostly for very high-level interface
+               fns where efficiency isn't a big issue
+               anyhow, and the availability of this
+               solution removes most of the incentive
+               for adding complexity to the language,
+               making for a compelling argument from
+               simplicity against the below idea.
+     ]
+
+   One of the few aggravating "missing feeps" in the
+   design at this point is defaulting of optional
+   keyword arguments.
+     It occurs to me that we can adopt a convention
+   such as, if a fn is named 'foo' and takes a record
+   as first argument, then if 'foo_default_arg1' exists,
+   we can interpret
+      foo { key0=val0, key1=val1, ... }
+   as meaning to take the remaining values from the
+   given default.  This would help greatly with functions
+   which have dozens of mostly uninteresting optional
+   parameters.
+      We could instead (presuming the mooted functional
+   record updates) write
+      foo { foo_default_arg1 where key0=val0, key1=val1, ... }
+   but that's obnoxiously ugly no matter how I stare at it.
+   (It could however be the derived form of the preceding
+   shorthand.)
+
+ */
+
+# XXX BUGGO FIXME 
+# The quite useful SML 'before' expression
+# seems to have gotten lost somewhere along
+# the way.
+
+
+
+# "Mythryl is a language subtle, supple yet simple."
+# "Mythryl is a braid of three languages, one each for values, types and packages."
+
+
+
+# Here's a list comprehensions in SML/NJ implementation,
+# taken from the mlton list:   http://osdir.com/ml/lang.sml.smlnj/2006-12/msg00010.html

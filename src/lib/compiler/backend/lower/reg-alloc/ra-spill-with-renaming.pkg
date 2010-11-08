@@ -1,0 +1,917 @@
+## ra-spill-with-renaming.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ra.make6
+
+
+
+# This version also performs local renaming on the spill code.
+# For example, spilling t below
+#
+#    t <- ...
+#    .. <- t
+#    ....
+#    ....
+#    .. <- t
+#    .. <- t
+#
+# would result in
+#
+#    tmp1 <- ...
+#    mem[t] <- tmp1
+#    .. <- tmp1      <---- rename from t to tmp1
+#    ....
+#    ....
+#    tmp2 <- mem[t]
+#    .. <- tmp2
+#    .. <- tmp2      <---- rename from t to tmp2
+#
+# That is, we try to avoid inserting reload code whenever it is possible.
+# This is done by keeping track of which values are live locally.
+#
+# Allen (5/9/00)
+#
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/ra.make6
+
+#
+# This module manages the spill/reload process. 
+# The reason this is detached from the main module is that 
+# I can't understand the old code. 
+#
+# Okay, now I understand the code.
+#
+# The new code does things slightly differently.
+# Here, we are given an instruction and a list of registers to spill
+# and reload.  We rewrite the instruction until all instances of these
+# registers are rewritten.
+#
+# (12/13/99) Some major caveats when spill coalescing/coloring is used:
+# When parallel copies are generated and spill coalescing/coloring is used,
+# two special cases have to be identified:
+#
+# Case 1 (spillLoc dst = spillLoc src)
+#        Suppose we have a parallel copy
+#             (u, v) <- (x, y)
+#        where u has to be spilled and y has to reloaded.  When both
+#        u and y are mapped to location M.  The following wrong code may
+#        be generated:
+#                M <- x  (spill u)
+#                v <- M  (reload y)
+#        This is incorrect.  Instead, we generate a dummy copy and
+#        delay the spill after the reload, like this:  
+#               
+#               tmp <- x (save value of u)
+#               v <- M   (reload y)
+#               M <- tmp (spill u)
+# Case 2 (spillLoc copyTmp = spillLoc src)
+#        Another case that can cause problems is when the spill location of
+#        the copy temporary is the same as that of one of the sources:
+#
+#              (a, b, v) <- (b, a, u)  where spillLoc (u) = spillLoc (tmp) = v
+#
+#        The incorrect code is
+#              (a, b) <- (b, a) 
+#              v <- M
+#        But then the shuffle code for the copy can clobber the location M.
+#
+#              tmp <- M
+#              (a, b) <- (b, a) 
+#              v <- tmp
+#
+#       (Note that spillLoc copyTmp = spillLoc src can never happen) 
+# 
+# -- Allen Leung
+
+
+stipulate
+
+    debug = FALSE;
+
+herein
+
+    generic package register_allocator_spilling_with_renaming_g (
+
+        package instruction_properties:  Instruction_Properties; 		# Instruction_Properties		is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+
+	package asm
+	    :
+	    Instruction_Emitter							# Instruction_Emitter			is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+	    where instruction_set
+                  ==
+                  instruction_properties::instruction_set;
+
+	# Spilling a variable v creates tiny live-ranges at all its definitions
+	# and uses.  The following parameter is the maximal distance of
+	# live-ranges created between a definition and its use,
+	# measured in the number of instructions.  If, max_dist = D, then
+	# the spill routine will never create a new live-range that is more
+	# than D instructions apart.
+	#
+	max_dist:  Ref( Int );
+
+	# When this parameter is on, the spill routine will keep track of
+	# multiple values for the renaming process.  This is recommended
+	# if the architecture has a lot of free registers.  But it should
+	# probably be turned off on the x86.
+	#
+	 keep_multiple_values:  Ref( Bool );
+       )
+
+    : (weak)  Register_Allocation_Spilling					# Register_Allocation_Spilling		is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-spilling.api
+
+    {
+	package instruction_set  = instruction_properties::instruction_set;
+	package cells            = instruction_set::cells;
+
+	package i      = instruction_set;
+	package p      = instruction_properties;
+	package c      = cells;
+	package cb= cells_basis;						# cells_basis				is from   src/lib/compiler/backend/lower/instruction/cells-basis.pkg
+	package core= register_allocation_core;					# register_allocation_core		is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-core.pkg
+	package g      = core::g;
+
+	fun error msg
+	    =
+	    lowcode_error_message::error("register_allocator_spilling_with_renaming_g", msg);
+
+	fun dec1 n
+	    =
+	    unt::to_int_x (unt::from_int n - 0u1);
+
+	fun dec { block, instruction }
+	    =
+	    { block, instruction=>dec1 instruction };
+
+
+	package t = register_allocation_spill_types_g( i );			# register_allocation_spill_types_g	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-spill-types-g.pkg
+
+	include t;
+
+	fun uniq s
+	    =
+	    cb::sorted_cells::return (cb::sorted_cells::uniq s); 
+
+	i2s    = int::to_string;
+
+	fun pt2s { block, instruction }
+	    =
+	    "b" + i2s block + ":" + i2s instruction;
+
+	my asm::instruction_stream::STREAM { emit, ... }
+	    =
+	    asm::make_stream [];
+
+	# spilled_copy_tmps = lowcode_control::get_counter "ra-spilled-copy-temps"; 
+
+
+	# The following function performs spilling.
+	#
+	fun spill_rewrite
+	    { graph=> ggg as g::GRAPH { show_reg, spilled_regs, nodes, mode, dedicated, ... },
+	      spill:       Spill, 
+	      spill_copy_tmp:  Spill_Copy_Tmp, 
+	      spill_src:   Spill_Src, 
+	      rename_src:  Rename_Src,
+	      reload:      Reload, 
+	      reload_dst:  Reload_Dst, 
+	      copy_instr:  Copy_Instr, 
+	      cellkind,
+	      spill_set,
+	      reload_set,
+	      kill_set
+	    }
+	    =
+	    { 
+		# Must do this to make sure
+                # the interference graph is 
+		# reflected to the cells
+
+		core::update_cell_aliases ggg;
+
+		get_spill_loc = core::spill_loc ggg;
+
+		fun spill_loc_of (cb::CELL { id, ... } )
+		    =
+		    get_spill_loc id;
+
+		spill_locs_of = map spill_loc_of;
+
+		getnode =  int_hash_table::get  nodes;
+		getnode =  fn cb::CELL { id, ... } =  getnode id;
+
+		max_dist' = *max_dist;
+
+		instruction_def_use = p::def_use cellkind;
+
+		fun has_non_dedicated rs
+		    =
+		    loop rs
+		    where
+			fun loop []
+				=>
+				FALSE;
+
+			    loop (r ! rs)
+				=>
+				if   (dedicated (cb::register_id r))
+				    
+				     loop rs;
+				else
+				     TRUE;
+				fi;
+			end;
+		    end;
+
+
+		# Merge prohibited registers 
+
+		enter_spill
+		    =
+		    int_hash_table::set spilled_regs;
+
+		add_proh
+		    =
+		    apply
+			(fn c =  enter_spill (cb::register_id c, TRUE)); 
+
+		get_spills  =  g::ppt_hash_table::find spill_set;
+		get_spills  =  fn p =  case (get_spills p)
+                                           THE s => s;
+                                           NULL  => [];
+                                       esac;
+
+		get_reloads =  g::ppt_hash_table::find reload_set;
+		get_reloads =  fn p =  case (get_reloads p)
+                                           THE s => s;
+                                           NULL  => [];
+                                       esac;
+
+		get_kills   =  g::ppt_hash_table::find kill_set;
+		get_kills   =  fn p =  case (get_kills p)
+                                           THE s => s;
+                                           NULL  => [];
+                                       esac;
+
+		fun get_loc (g::NODE { color=>REF (g::ALIASED n), ... } ) => get_loc n;
+		    get_loc (g::NODE { color=>REF (g::MEMREG(_, m)), ... } ) => g::MEM_REG m;
+		    get_loc (g::NODE { color=>REF (g::SPILL_LOC s), ... } ) => g::FRAME s;
+		    get_loc (g::NODE { color=>REF (g::SPILLED), number, ... } ) => g::FRAME number;
+		    get_loc (g::NODE { color=>REF (g::PSEUDO), number, ... } ) => g::FRAME number;
+		    get_loc _ => error "getLoc";
+		end;
+
+		fun print_regs regs
+		    = 
+		    apply
+			(fn r
+			    =
+			    print (cat [ cb::to_string r, " [", core::spill_loc_to_string ggg (cb::cell_id r), "] " ])
+                        )
+			regs;
+
+		parallel_copies
+		    =
+		    unt::bitwise_and (core::has_parallel_copies, mode)  !=  0u0;
+
+		fun chase (cb::CELL { ref_color => REF (cb::ALIASED c), ... } )
+			=>
+			chase c;
+
+		    chase c
+			=>
+			c;
+		end;
+
+		fun cell_id (cb::CELL { id, ... } )
+		    =
+		    id;
+
+		fun same_cell ( cb::CELL { id=>x, ... },
+				cb::CELL { id=>y, ... } )
+		    =
+		    x == y;
+
+		fun same (x, reg_to_spill)
+		    =
+		    same_cell (chase x, reg_to_spill);
+
+
+		# Rewrite the instruction given
+                # that a bunch of registers have 
+		# to be spilled and reloaded.
+		#
+		fun spill_rewrite { pt, instrs, notes }
+		    = 
+		    {   # Dictionary manipulation functions.
+			# The dictionary is just a list of triples.
+
+			fun update (pt, dictionary, r, NULL)
+                                =>
+                                kill (dictionary, r);
+
+			    update (pt, dictionary, r, THE new_reg)
+                                =>
+			        (r, new_reg, pt)
+                                !
+                                if *keep_multiple_values  dictionary;
+                                else                      [];
+                                fi;
+			end 
+
+			also
+			fun kill (dictionary, r)
+			    =
+			    loop (dictionary, [])
+			    where
+				fun loop ([], dictionary')
+					=>
+					dictionary';
+
+				    loop((naming as (r', _, _)) ! dictionary, dictionary')
+					=>
+					loop
+                                          ( dictionary, 
+
+					    (cb::same_color (r, r'))
+                                               ??           dictionary'
+					       ::  naming ! dictionary'
+					  );
+				end;
+			    end;
+
+
+			# Insert reloading code for an instruction.
+			# Note: reload code goes after the instruction, if any.
+			#
+			fun reload_instr (pt, instruction, reg_to_spill, dictionary, spill_loc)
+			    = 
+			    {   my { code, prohibitions, new_reg }
+				    =
+				    reload { instruction, reg=>reg_to_spill,
+					  spill_loc, notes };
+
+				add_proh (prohibitions); 
+
+				(code, update (pt, dictionary, reg_to_spill, new_reg));
+			    };
+
+
+			# Renaming the source for an instruction.
+			#
+			fun rename_instr (pt, instruction, reg_to_spill, dictionary, to_src)
+			    = 
+			    {   my { code, prohibitions, new_reg }
+				    =
+				    rename_src { instruction, from_src=>reg_to_spill, to_src };
+
+				add_proh (prohibitions);
+
+				(code, update (pt, dictionary, reg_to_spill, new_reg));
+			    };
+
+
+			# Remove uses of reg_to_spill from a set of parallel copies.
+			# If there are multiple uses, then return multiple moves.
+			#
+			fun extract_uses (reg_to_spill, rds, rss)
+			=
+			loop (rds, rss, [], [], [])
+			where
+			    fun loop (rd ! rds, rs ! rss, new_rds, rds', rss')
+				    =>
+				    if   (same (rs, reg_to_spill))
+				        
+					 loop (rds, rss, rd ! new_rds, rds', rss');
+				    else loop (rds, rss, new_rds, rd ! rds', rs ! rss');
+                                    fi;
+
+				loop (_, _, new_rds, rds', rss')
+				    =>
+				    (new_rds, rds', rss');
+			    end;
+			end;
+
+
+			# Insert reload code for the sources of a copy.
+			# Transformation:
+			#    d1..dn <- s1..sn
+			# =>
+			#    d1..dn/r <- s1...sn/r.
+			#    reload code
+			#    reload copies
+			#
+			fun reload_copy_src (instruction, reg_to_spill, dictionary, spill_loc)
+			    = 
+			    {   my (dst, src)
+                                    =
+                                    p::move_dst_src instruction;
+
+				my (rds, copy_dst, copy_src)
+                                    =
+                                    extract_uses (reg_to_spill, dst, src);
+
+				fun process_moves ([], reload_code)
+					=>
+					reload_code; 
+
+				    process_moves (rd ! rds, reload_code)
+					=>
+					{   code = reload_dst { spill_loc, reg=>reg_to_spill, dst=>rd, notes };
+
+					    process_moves (rds, code@reload_code);
+					};
+				end;
+
+				reload_code = process_moves (rds, []);
+
+				case copy_dst
+				  
+				     [] =>  (reload_code, dictionary);
+				     _  =>  (copy_instr((copy_dst, copy_src), instruction) @ reload_code, dictionary);
+				esac;
+			    }; 
+
+			fun diff ( { block=>b1: Int, instruction=>i1 },{ block=>b2, instruction=>i2 } )
+			    =
+			    if   (b1 == b2)
+			        
+				 i1 - i2;
+			    else
+				 max_dist' + 1;
+			    fi;
+
+
+			# Insert reload code
+			#
+			fun reload (pt, instruction, reg_to_spill, dictionary, spill_loc)
+			    =
+			    if   (p::move_instruction instruction)
+			           
+				 reload_copy_src (instruction, reg_to_spill, dictionary, spill_loc); 
+			    else
+				 fun lookup []
+					 =>
+					 reload_instr (pt, instruction, reg_to_spill, dictionary, spill_loc);
+
+				     lookup((r, current_reg, def_pt) ! dictionary)
+					 =>
+					 if   (cb::same_color (r, reg_to_spill))
+					     
+					      if   (def_pt == pt)
+					          
+						   lookup dictionary;		# This is NOT the right renaming!  XXX BUGGO FIXME
+					      else
+						   if   (diff (def_pt, pt) <= max_dist')
+						       
+							rename_instr (pt, instruction, reg_to_spill, dictionary, current_reg);
+						   else reload_instr (pt, instruction, reg_to_spill, dictionary, spill_loc);
+                                                   fi;
+					      fi;
+					 else
+					      lookup dictionary;
+					 fi;
+				 end;
+
+				 lookup dictionary;
+			    fi;
+
+
+			# Check whether the id is in a list
+			#
+			fun contains_id (id,[])
+				=>
+				FALSE;
+
+			    contains_id (id: cb::Cell_Id, r ! rs)
+				=>
+				r == id or contains_id (id, rs);
+			end;
+
+			fun spill_conflict (g::FRAME loc, rs)
+				=>
+				contains_id (-loc, rs);
+
+			    spill_conflict (g::MEM_REG (cb::CELL { id, ... } ), rs)
+				=> 
+				contains_id (id, rs);
+			end;
+
+			fun contains (r',     [])
+				=>
+				FALSE;
+
+			    contains (r', r ! rs)
+				=>
+				same_cell (r', r) or contains (r', rs);
+			end;
+
+
+			# Insert spill code for an instruction.
+			# Spill code occur after the instruction.
+			# If the value in regToSpill is never used, the client also
+			# has the opportunity to remove the instruction.
+			#
+			fun spill_instr (pt, instruction, reg_to_spill, spill_loc, kill, dictionary)
+			    = 
+			    {   my { code, prohibitions, new_reg }
+				    =
+				    spill { instruction, 
+					    kill, spill_loc,
+					    reg=>reg_to_spill, notes
+                                          };
+
+				add_proh (prohibitions);
+
+				(code, update (pt, dictionary, reg_to_spill, new_reg));
+			    };
+
+			# Remove the definition regToSpill <- from 
+			# parallel copies rds <- rss.
+			# Note, there is a guarantee that regToSpill is not aliased
+			# to another register in the rds set.
+			#
+			fun extract_def (reg_to_spill, rds, rss, kill)
+			    =
+			    loop (rds, rss, [], [])
+			    where
+				fun loop (rd ! rds, rs ! rss, rds', rss')
+					=>
+					if (spill_loc_of rd == spill_loc_of rs)  (rs, rds@rds', rss@rss', TRUE);
+					elif (same (rd, reg_to_spill))           (rs, rds@rds', rss@rss', kill);
+					else                               loop (rds, rss, rd ! rds', rs ! rss');
+                                        fi;
+
+				   loop _
+				       =>
+				       {   fun pr r
+					       =
+					       print (cat [
+						   cb::to_string r, ":", i2s (spill_loc_of r), " "
+						 ]);
+
+					   print("rds="); 
+					   apply pr rds;
+					   print("\nrss="); 
+					   apply pr rss;
+					   print "\n";
+					   error("extractDef: " + cb::to_string reg_to_spill);
+				       };
+				end;
+			    end;
+
+
+			# Insert spill code for a destination of a copy
+			#    suppose d = r and we have a copy d <- s in
+			#    d1...dn <- s1...sn
+			#
+			#    d1...dn <- s1...sn
+			# =>
+			#    spill s to spillLoc 
+			#    d1...dn/d <- s1...sn/s
+			#
+			#    However, if the spill code may ovewrite the spill location
+			#    shared by other uses, we do the following less 
+			#    efficient scheme:  
+			#
+			#    # save the result of d
+			#    d1...dn, tmp <- s1...sn, s
+			#    spill tmp to spillLoc    # spill d
+			#
+			fun spill_copy_dst (pt, instruction, reg_to_spill, spill_loc,
+					 kill, dictionary, don't_overwrite)
+			    = 
+			    {   my (dst, src)
+                                    =
+                                    p::move_dst_src instruction;
+
+				my (mv_src, copy_dst, copy_src, kill)
+                                    = 
+				    extract_def (reg_to_spill, dst, src, kill);
+
+				copy = case copy_dst
+					   [] =>  [];
+					   _  =>  copy_instr ((copy_dst, copy_src), instruction);
+				       esac;
+
+				if kill 
+
+				     # Kill the move.
+
+				     # print ("Copy " + int::to_string (hd mvDst) + " <- " +
+				     #	  int::to_string (hd mvSrc) + " removed\n");
+				     (copy, dictionary);
+
+				else
+				     # Normal spill. 
+
+				     if   (spill_conflict (spill_loc, don't_overwrite))
+				         
+					  # Cycle found 
+
+					  # print("Register r" + int::to_string regToSpill  +  
+					  #	      " overwrites [" + int::to_string spillLoc + "]\n")
+
+					  tmp  =  i::cells::new_variable reg_to_spill;	#  new temporary 
+
+					  copy =  copy_instr((tmp ! copy_dst, mv_src ! copy_src),
+								   instruction); 
+
+					  spill_code = spill_src { src=>tmp, reg=>reg_to_spill,
+								  spill_loc,
+								  notes };
+
+					  (copy @ spill_code, [(reg_to_spill, tmp, pt)]);
+
+				     else
+					  # Spill the move instruction.
+ 
+					  spill_code
+                                              =
+                                              spill_src
+                                                { src => mv_src,
+                                                  reg => reg_to_spill,
+						  spill_loc,
+						  notes
+                                                };
+
+					  (spill_code @ copy, [(reg_to_spill, mv_src, pt)]);
+				     fi;
+				fi;
+			    };			# fun spill_copy_dst
+
+			# Insert spill code for a copy
+			#
+			fun spill_copy (pt, instruction, reg_to_spill, spill_loc, kill, dictionary, don't_overwrite)
+			    =
+			    case (p::move_tmp_r instruction)
+			      
+				 NULL =>
+				     spill_copy_dst (pt, instruction, reg_to_spill, spill_loc, kill, dictionary,
+						   don't_overwrite);
+				 THE tmp
+				     => 
+				     if   (same (tmp, reg_to_spill))
+				         
+					  #  spilledCopyTmps := *spilledCopyTmps + 1; 
+					  ( [spill_copy_tmp { copy=>instruction, spill_loc, reg=>reg_to_spill, notes } ],
+                                            []
+                                          );
+				     else
+					  spill_copy_dst (pt, instruction, reg_to_spill, spill_loc, kill,
+						       dictionary, don't_overwrite);
+				     fi;
+			    esac;
+
+			# Insert spill code
+			#
+			fun spill (pt, instruction, reg_to_spill, spill_loc, kill_set, dictionary, don't_overwrite)
+			    =
+			    {   kill =  contains (reg_to_spill, kill_set);
+
+				if   (p::move_instruction instruction)
+				    
+				     spill_copy  (pt, instruction, reg_to_spill, spill_loc, kill, dictionary, don't_overwrite);
+				else spill_instr (pt, instruction, reg_to_spill, spill_loc, kill, dictionary);
+                                fi;
+			    };
+
+			fun contains ([], reg) => FALSE;
+			    contains (r ! rs, reg) => same (r, reg) or contains (rs, reg);
+			end;
+
+			fun has_def (i, reg) =  contains (#1 (instruction_def_use i), reg);
+			fun has_use (i, reg) =  contains (#2 (instruction_def_use i), reg);
+
+			fun spill_one_reg (pt,[], _, _, _, dictionary, _)
+				=>
+				([], dictionary);
+
+			    spill_one_reg (pt, i ! instrs, r, spill_loc, kill_set, dictionary, don't_overwrite)
+				=>
+				if   (has_def (i, r))
+				     
+				     my (instrs', dictionary)
+					 = 
+					 spill (pt, i, r, spill_loc, kill_set, dictionary, don't_overwrite);
+
+				     spill_one_reg (pt, instrs'@instrs, r, spill_loc,
+						   kill_set, dictionary, don't_overwrite);
+
+				else
+				     my (instrs, dictionary)
+					 = 
+					 spill_one_reg (pt, instrs, r, spill_loc, kill_set,
+						   dictionary, don't_overwrite);
+
+				     (i ! instrs, dictionary);
+				fi;
+			end;
+
+			fun reload_one_reg (pt,[], _, dictionary, _)
+				=>
+				([], dictionary);
+
+			    reload_one_reg (pt, i ! instrs, r, dictionary, spill_loc)
+				=> 
+				if   (has_use (i, r))
+				    
+				     my (instrs', dictionary)
+					 =
+					 reload (pt, i, r, dictionary, spill_loc);
+
+				     reload_one_reg (pt, instrs'@instrs, r, dictionary, spill_loc);
+
+				else
+				     my (instrs, dictionary)
+					 =
+					 reload_one_reg (pt, instrs, r, dictionary, spill_loc);
+
+				     (i ! instrs, dictionary); 
+				fi;
+			end;
+
+
+			# This function spills a set of
+                        # registers for an instruction:
+			#
+			fun spill_all (pt, instrs,[], kill_set, dictionary, don't_overwrite)
+				=>
+				(instrs, dictionary);
+
+			    spill_all (pt, instrs, r ! rs, kill_set, dictionary, don't_overwrite)
+				=> 
+				{   node      = getnode r;
+				    spill_loc = get_loc node;
+
+				    my (instrs, dictionary)
+					= 
+					spill_one_reg (pt, instrs, r, spill_loc, kill_set,
+						    dictionary, don't_overwrite);
+
+				    spill_all (pt, instrs, rs, kill_set, dictionary, don't_overwrite);
+				};
+			end;
+
+
+			# This function reloads a set of
+                        # registers for an instruction:
+			#
+			fun reload_all (pt, instrs, dictionary,[])
+				=>
+				(instrs, dictionary);
+
+			    reload_all (pt, instrs, dictionary, r ! rs)
+				=> 
+				{   node     = getnode r;
+				    spill_loc = get_loc node;
+
+				    my (instrs, dictionary)
+					=
+					reload_one_reg (pt, instrs, r, dictionary, spill_loc);
+
+				    reload_all (pt, instrs, dictionary, rs);
+				};
+			end;
+
+			fun loop ([], pt, dictionary, new_instrs)
+				=>
+				new_instrs;
+
+			    loop (instruction ! rest, pt, dictionary, new_instrs)
+				=> 
+				{   spill_regs  =  get_spills  pt;
+				    reload_regs =  get_reloads pt;
+
+				    case (spill_regs, reload_regs)
+				      
+					 ([], [])
+					     => 
+					     {   dictionary'
+						     =
+						     case dictionary
+						       
+							  [] => []; #  An approximation here 
+
+							  _  =>
+							     {   my (defs, uses)
+								     =
+								     instruction_def_use instruction;
+
+								 (has_non_dedicated defs or
+								  has_non_dedicated uses
+                                                                 )
+								    ?? []
+								    :: dictionary;
+							     };
+						     esac;
+
+						 # Should be handled better  XXX BUGGO FIXME
+						 #
+						 loop (rest, dec pt, dictionary', instruction ! new_instrs);
+					     };
+
+					 _   =>
+					     {   #  Eliminate duplicates from the spill/reload candidates 
+
+						 kill_regs   =  get_kills pt;
+						 spill_regs  =  uniq spill_regs;
+						 reload_regs =  uniq reload_regs;
+
+
+						 # Spill locations that we can't overwrite
+						 # if we are spilling a parallel copy
+
+						 don't_overwrite
+						     = 
+						     if (parallel_copies)
+						          spill_locs_of reload_regs;
+						     else [];
+                                                     fi;
+
+						 fun pr_dictionary dictionary
+						     =
+						     {   print("Dictionary=");
+
+							 apply
+							     (fn (r, v, _)
+								 =
+								 print (cat [
+								     cb::to_string r, "=>",
+								     cb::to_string v, " "
+								   ]))
+							     dictionary;
+
+							 print "\n";
+						     };
+
+						 my (instrs, dictionary)
+						     = 
+						     spill_all (pt,[instruction], spill_regs, kill_regs,
+							      dictionary, don't_overwrite);
+
+						 if debug
+
+						      print("pt=" + pt2s pt + "\n");
+
+						      case spill_regs
+						         
+							   [] => ();
+
+							   _  =>
+							      {   print("Spilling "); 
+								  print_regs spill_regs;
+								  print "\n";
+							      };
+						      esac;
+
+						      case reload_regs
+						        
+							   [] => ();
+							   _  =>
+							      {   print("Reloading "); 
+								  print_regs reload_regs; 
+								  print "\n";
+							      };
+						      esac;
+
+						      print "Before:";
+						      emit instruction;
+						      pr_dictionary dictionary;
+
+						 fi;
+
+						 my (instrs, dictionary)
+						     = 
+						     reload_all (pt, instrs, dictionary, reload_regs);
+
+						 if debug
+						      print "After:";
+						      apply emit instrs;
+						      print "------------------\n";
+						 fi;
+
+						 fun cat (   [], l) =>  l;
+						     cat (a ! b, l) =>  cat (b, a ! l);
+						 end;
+
+						 loop (rest, dec pt, dictionary, cat (instrs, new_instrs)); 
+					     };
+				    esac;
+				};
+			end;			# fun loop
+
+			loop (reverse instrs, pt, [], []);
+
+		    };				# fun spill_rewrite
+		spill_rewrite;
+	    };					# fun spill_rewrite
+    };						# generic package  register_allocator_spilling_with_renaming_g
+
+end;						# stipulate
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

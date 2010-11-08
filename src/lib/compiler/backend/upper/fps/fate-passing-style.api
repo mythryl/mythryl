@@ -1,0 +1,396 @@
+## fate-passing-style.api 
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial front-end code representation.
+#     2)  Deep Syntax is the second and final front-end code representation.
+#     3)  Polylambda is the first backend code representation, used only transitionally.
+#     4)  A-Normal  is the second backend code representation, and the first used for optimization.
+#     5)  Fate-Passing-Style is the third and chief backend upper-half code representation.
+#     6)  Codetree is the chief backend lower-half code representation.
+#     7)  X86 instruction format (or equivalent for other target machines) -- an abstract tree format.
+#     8)  X86 machine language   (or equivalent for other target machines) -- absolute binary code.
+#
+# For general context, see
+#
+#     src/lib/compiler/README
+#
+# Fate-passing-style (FPS) is the core intermediate code
+# representation used by the Mythryl compiler back end upper
+# half, which began life as the Yale FLINT project, home page
+#
+#     http://flint.cs.yale.edu/
+#
+# For authoritative background see Zhong Shal's PhD thesis:
+#
+#     Compiling Standard ML for Efficient Execution on Modern Machines
+#     http://flint.cs.yale.edu/flint/publications/zsh-thesis.html
+#
+# In particular see the compiler phases diagram on p32.
+# Nomenclature translation table:
+#   What he calls          We call                       See
+#   -------------          ----------                    -----------
+#   raw abstract syntax    raw  syntax                   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.api
+#       abstract syntax    deep syntax                   src/lib/compiler/frontend/typecheck-stuff/deep-syntax/deep-syntax.api
+#   FPS                    fate passing style    src/lib/compiler/backend/upper/fps/fate-passing-style.api
+# 
+# Two major differences between the compiler as described in his
+# thesis and the current Mythryl (and SML/NJ) compilers:
+#
+#  o The addition of an A-Normal form pass between the polylambda
+#    and FPS phases.
+#
+#  o His binary machine code generation phase has been replaced
+#    by the much more elaborate MLRISC project (Mythryl compiler
+#    back end lower half, home page here:
+#
+#        http://www.cs.nyu.edu/leunga/www/MLRISC/Doc/html/index.html
+#
+#
+# Here is a concise definition of FPS form:
+#
+#    "In general, a term is said to be in FPS form if all the
+#     function calls are tail calls.  That means that non-tail
+#     function calls need to be modified by passing an explicit
+#     'fate' (which is equivalent in some sense to a
+#     return address and an activation frame), which the called
+#     function will then call when it wants to return.  Also,
+#     all primitive operations only take immediate values or
+#     variables as arguments, rather than expressions, and bind
+#     their result to a variable, so every intermediate value
+#     has a name and all operations are explicitly sequentialized.
+#
+#    "Since tail-calls are only a step away from an assembly
+#     JUMP instruction, the FPS representation of a program
+#     provides a nice mix of being very close to assembly
+#     code while still enjoying the high-level formalism
+#     provided by the lambda-calculus."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+#  See also the section "ADVANTAGES OF USING FPS" in:
+#      src/lib/compiler/backend/upper/anormal/anormal.api
+#
+#
+# FPS format code is produced from A-Normal code by:
+#
+#     src/lib/compiler/backend/upper/fps/translate-anormal-to-fps-g.pkg
+#
+# Translation of FPS format to Codetree is managed by
+#
+#     src/lib/compiler/codegen/main/translate-fate-passing-style-to-binary-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# "fps" == "fate passing style", the second
+# of the major middle-end intermediate code representations.
+#
+# For more context, see the comments in
+#
+#     src/lib/compiler/backend/upper/highcode/highcode.api
+#
+
+
+
+
+# This file is apparently only actually directly used by
+#
+#     src/lib/compiler/codegen/compile-fps/lib7-gctype.api
+
+api Fate_Passing_Style {
+
+    Record_Kind
+      = RK_VECTOR
+      | RK_RECORD
+      | RK_SPILL
+      | RK_ESCAPE
+      | RK_EXN
+      | RK_CONT
+      | RK_FCONT
+      | RK_KNOWN
+      | RK_BLOCK
+      | RK_FBLOCK
+      | RK_I32BLOCK
+      ;
+
+    Pkind
+      = VPT
+      | RPT  Int
+      | FPT  Int;
+
+    Fps_Type
+        = INTT
+        | INT32T
+        | PTRT  Pkind
+	| FUNT
+        | FLTT
+        | CNTT
+        | DSPT
+        ;
+
+    package p:  api {
+
+	# Numkind includes kind and size:
+        #
+	Numkind
+          = INT   Int
+          | UINT  Int
+          | FLOAT Int
+          ;
+
+	Arithop
+          = ADD
+          | SUBTRACT
+          | MULTIPLY
+          | DIVIDE
+          | NEGATE
+          | ABS 
+	  | FSQRT
+          | FSIN
+          | FCOS
+          | FTAN 
+	  | LSHIFT
+          | RSHIFT
+          | RSHIFTL
+          | BITWISEAND
+          | BITWISEOR
+          | BITWISEXOR
+          | BITWISENOT
+	  | REM
+          | DIV
+          | MOD
+          ;
+
+	Compare_Op = GT | GE | LT | LE | EQL | NEQ;
+
+	# The IEEE std 754 predicates:
+	#
+	Ieee754_Floating_Point_Compare_Op
+	  = F_EQ  # =
+	  | F_ULG # ?<>
+	  | F_UN  # ?
+	  | F_LEG # <=>
+	  | F_GT  # >
+	  | F_GE  # >=
+	  | F_UGT # ?>
+	  | F_UGE # ?>=
+	  | F_LT  # < 
+	  | F_LE  # <=
+	  | F_ULT # ?<
+	  | F_ULE # ?<=
+	  | F_LG  # <>
+	  | F_UE;  # ?= 
+
+
+	# Two-way branches dependent on pure inputs:
+	#
+	Branch
+	  = CMP  { oper: Compare_Op, kind: Numkind }
+	  | FCMP  { oper: Ieee754_Floating_Point_Compare_Op, size: Int }
+	  | BOXED
+          | UNBOXED
+          | PEQL
+          | PNEQ
+	  | STREQ
+          | STRNEQ;  
+	      # streq (n, a, b) is defined only if strings a and b have
+	      # exactly the same length n>1 
+
+	# These all update the store:
+	#
+	Setter
+	  = NUMUPDATE  { kind: Numkind }
+	  | UNBOXED_SET
+          | BOXED_SET
+          | UPDATE
+	  | UNBOXEDASSIGN
+          | ASSIGN
+	  | SETHANDLER
+          | SET_CURRENT_THREAD_REGISTER
+          | USELVAR
+          | SETSPECIAL
+	  | FREE
+          | ACCLINK
+          | SETPSEUDO
+          | SETMARK
+	  | RAWSTORE  { kind: Numkind }
+	  | RAWUPDATE  Fps_Type;
+
+	# These fetch from the store,
+        # never have functions as arguments:
+	#
+	Looker
+	  = BANG | SUBSCRIPT | NUMSUBSCRIPT  { kind: Numkind } | GETSPECIAL | DEFLVAR
+	  | GETRUNVEC | GETHANDLER | GET_CURRENT_THREAD_REGISTER | GETPSEUDO
+	  | RAWLOAD  { kind: Numkind };
+
+	# These might raise exceptions,
+	# never have functions as arguments:
+	#
+	Arith
+	  = ARITH  { oper: Arithop, kind: Numkind }
+	  | TEST  (Int, Int)
+	  | TESTU  (Int, Int)
+	  | TEST_INF  Int
+	  | ROUND  { floor: Bool, fromkind: Numkind, tokind: Numkind };
+
+	# These don't raise exceptions
+        # and don't access the store:
+	#
+	Pure
+	  = PURE_ARITH  { oper: Arithop, kind: Numkind }
+	  | PURE_NUMSUBSCRIPT  { kind: Numkind }
+	  | LENGTH | CHUNKLENGTH | MAKEREF
+	  | EXTEND  (Int, Int)
+	  | TRUNC  (Int, Int)
+	  | COPY  (Int, Int)
+	  | EXTEND_INF  Int
+	  | TRUNC_INF  Int
+	  | COPY_INF  Int
+	  | REAL  { fromkind: Numkind, tokind: Numkind }
+	  | SUBSCRIPTV
+	  | GETTAG
+          | MAKE_SPECIAL
+          | WRAP
+          | UNWRAP
+          | CAST
+          | GETCON
+          | GETEXN
+	  | FWRAP
+          | FUNWRAP
+          | IWRAP
+          | IUNWRAP
+          | I32WRAP
+          | I32UNWRAP
+	  | GETSEQDATA
+          | RECSUBSCRIPT
+          | RAW64SUBSCRIPT
+          | NEWARRAY0
+	  | RAWRECORD  Null_Or( Record_Kind )
+	       # allocate uninitialized words from the heap; optionally
+	       # initialize the tag.
+
+	  | CONDMOVE  Branch; #  Conditional move 
+
+	 opp:  Branch -> Branch;
+
+	 iadd:  Arith;
+	 isub:  Arith;
+	 imul:  Arith;
+	 idiv:  Arith;
+	 ineg:  Arith;
+
+	 fadd:  Arith;
+	 fsub:  Arith;
+	 fmul:  Arith;
+	 fdiv:  Arith;
+	 fneg:  Arith;
+
+	 ieql:  Branch;
+	 ineq:  Branch;
+	 igt:   Branch;
+	 ige:   Branch;
+	 ile:   Branch;
+	 ilt:   Branch;
+    #   my iltu:  branch
+    #   my igeu:  branch
+
+	 feql:  Branch;
+	 fneq:  Branch;
+	 fgt:   Branch;
+	 fge:   Branch;
+	 fle:   Branch;
+	 flt:   Branch;
+
+	 arity:  Arithop -> Int; 
+
+    }; #  P 
+
+    Highcode_Variable;
+
+    Value 
+      = VAR    Highcode_Variable
+      | LABEL  Highcode_Variable
+      | INT    Int
+      | INT32  unt32::Unt
+      | REAL   String
+      | STRING String
+      | CHUNK  unsafe::unsafe_chunk::Chunk
+      | VOID;
+
+    Accesspath 
+      = OFFP  Int 
+      | SELP  (Int, Accesspath);
+
+    Fun_Kind
+      = FATE		# Fate functions.
+      | KNOWN			# General known functions.
+      | KNOWN_RECURSIVE		# Known recursive functions.
+      | KNOWN_CHECK		# Known functions that need a heap limit check.
+      | KNOWN_TAIL		# Tail-recursive kernel.
+      | KNOWN_FATE		# Known fate functions.
+      | ESCAPE			# Before the closure phase: any user function;
+			    	# After  the closure phase: escaping user function.
+      | NO_INLINE_INTO;		# A user function inside of which no in-line expansions
+				# should be performed.  (Not used after closure phase.)
+
+    Fps_Expression
+      = RECORD  (Record_Kind, List ((Value, Accesspath)), Highcode_Variable, Fps_Expression)
+      | SELECT  (Int, Value, Highcode_Variable, Fps_Type, Fps_Expression)
+      | OFFSET  (Int, Value, Highcode_Variable, Fps_Expression)
+      | APPLY   (Value, List( Value ))
+      | MUTUALLY_RECURSIVE_FNS (List( Function ), Fps_Expression)
+      | SWITCH  (Value, Highcode_Variable, List( Fps_Expression ))
+      | BRANCH  (p::Branch, List( Value ), Highcode_Variable, Fps_Expression, Fps_Expression)
+      | SETTER  (p::Setter, List( Value ), Fps_Expression)
+      | LOOKER  (p::Looker, List( Value ), Highcode_Variable, Fps_Type, Fps_Expression)
+      | ARITH   (p::Arith,  List( Value ), Highcode_Variable, Fps_Type, Fps_Expression)
+      | PURE    (p::Pure,   List( Value ), Highcode_Variable, Fps_Type, Fps_Expression)
+      #  experimental "raw C call" (Blume, 1/2001) 
+
+      # When non-empty, the string contains the linkage info, which
+      # is a string of the form:
+      #      shared library name/name of the C function. 
+
+      | RAW_C_CALL (Rcc_Kind, String, ctypes::Ckit_Prototype, List( Value ),
+		    List ((Highcode_Variable, Fps_Type)), Fps_Expression)
+    also
+    Rcc_Kind
+      = FAST_RCC
+      | REENTRANT_RCC
+    withtype
+    Function
+        =
+        ( Fun_Kind,
+          Highcode_Variable,
+          List( Highcode_Variable ),
+          List( Fps_Type ),
+          Fps_Expression
+        );
+
+    combinepaths:  (Accesspath, Accesspath) -> Accesspath;
+    lenp:  Accesspath -> Int;
+    cty_to_string:   Fps_Type -> String;
+    has_raw_c_call:  Fps_Expression -> Bool;
+    size_in_bits:    Fps_Type -> Int;   #  size of its representation in bits 
+    is_float:        Fps_Type -> Bool; #  is it a floating point type? 
+    is_tagged:       Fps_Type -> Bool; 
+
+    bogt:  Fps_Type;
+
+    ctyc:   highcode_type::Highcode_Type_Constructor -> Fps_Type;
+    ctype:  highcode_type::Highcode_Type   -> Fps_Type;
+};
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,271 @@
+## feedback.pkg
+## original version by: Andrew Appel (appel@cs.princeton.edu) (is this right?)
+## recent cleanup by: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+##    The cleanup involves getting rid of duplicate SCC code (using
+##    the library module graph_strongly_connected_components_g) and making use of integer set-
+##    and map-modules (from the same library).  The use of sorted_list
+##    has been eliminated.
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+#  Compute minimum feedback vertex set of a given directed graph.
+
+
+package feedback
+:
+api {
+    # Input: A directed graph; that is, a list of vertex-numbers, 
+    #        each node with a list of out-edges which indicate other vertices.
+    # Output:  A minimum feedback vertex set.
+    #
+    # Method: branch and bound
+    #
+    Vertex =  Int;
+    Node   =  (Vertex, List( Vertex ));	#  vertex + outgoing edges 
+    Graph  =  List( Node );
+    feedback: Graph -> List( Vertex );
+}
+{
+
+    # NOTE:  By setting MAXDEPTH=infinity, this algorithm will produce
+    #        the exact minimum feedback vertex set.  With MAXDEPTH<infinity,
+    #        the result will still be a feedback vertex set, but not
+    #        always the minimum set.  However, on almost all real programs,
+    #        MAXDEPTH=3 will give perfect and efficiently computed results.
+    #        Increasing MAXDEPTH will not make the algorithm take longer or
+    #        produce better results on "real" programs. 
+    maxdepth = 3;
+
+    Vertex = Int;
+    Node = (Vertex, List( Vertex ));	#  vertex + outgoing edges 
+    Graph = List( Node );
+
+    fun bug s = error_message::impossible ("Feedback::feedback: " + s);
+
+    package is= int_red_black_set;	# int_red_black_set	is from   src/lib/src/int-red-black-set.pkg
+    fun l2s l = is::add_list (is::empty, l);
+    s2l = is::vals_list;
+
+    package im= int_red_black_map;	# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+
+    package nd
+    =
+    package {
+        Key = Int;
+	compare = int::compare;
+    };
+
+    package scc				#  "SCC" == "Strongly Connected Component" 
+        =
+        digraph_strongly_connected_components_g( nd );
+
+
+    #  Normalize graph by eliminating edges that lead elsewhere:
+    #
+    fun normalize g
+        =
+        {   vs = l2s (map #1 g);
+
+	    fun prune (v, e)
+                =
+                (v, is::intersection (e, vs));
+	
+	    map prune g;
+	};
+
+    fun scc g					# "scc" == "strongly connected component"
+        =
+        {   roots = map #1 g;
+
+	    fun add ((v, e), (sm, fm))
+                =
+		(im::set (sm, v, e), im::set (fm, v, s2l e));
+
+	    my (set_map, follow_map) = fold_left add (im::empty, im::empty) g;
+
+	    fun follow v
+                =
+                the (im::get (follow_map, v));
+
+	    # Do the actual scc calculation.
+            #
+            # For a sanity check we could
+	    # match the result against (scc::SIMPLE root ! _),
+            # but we trust the SCC module and "nontrivial"
+            # (below) will take care of the root node.
+	    #
+	    sccres = scc::topological_order' { roots, follow };
+
+	    # At this point we have already eliminated
+            # all trivial (= SIMPLE) components.
+
+	    fun to_node v
+                =
+                (   v,
+                    the (im::get (set_map, v))
+                );
+
+	    fun nontrivial (scc::SIMPLE _, a) => a;
+	        nontrivial (scc::RECURSIVE l, a) => map to_node l ! a;
+            end;
+
+	    ntcomps = fold_right nontrivial [] sccres;
+	
+	    # Finally, We make each component "self-contained"
+	    # by pruning away all edges that lead out of it:
+
+	    map normalize ntcomps;
+	};
+
+    fun feedback graph0
+        =
+        {   # Make edges into vertex sets: 
+	    #
+	    graph = map (fn (v, e) = (v, l2s e))
+                        graph0;
+
+	    # Any node with an edge to itself
+            # MUST be in the minimum feedback
+	    # vertex set.
+            # Remove these "selfnodes" first
+	    # to simplify the problem.
+	    #
+	    fun has_self_loop (v, e)
+                =
+                is::member (e, v);
+
+	    my (selfnodes, rest) = list::partition has_self_loop graph;
+
+	    # The following value is part 1
+            # of the final result:
+	    #
+	    selfvertices = l2s (map #1 selfnodes);
+
+	    # With missing nodes, the rest
+            # needs to be normalized: 
+	    #
+	    rest = normalize rest;
+
+	    # Here is the branch-and-bound algorithm
+            # that is used for the rest:
+	    #
+	    fun feedb (limit, graph, depth)
+                =
+		if   (depth <= 0)
+                    
+		     if   (limit >= length graph)
+		         
+			  THE (l2s (map #1 graph));			  #  Approximate! 
+		     else
+			  # Note: the original algorithm would have continued
+			  # here when depth < 0; but that seems wrong.       XXX BUGGO FIXME
+
+			 NULL;
+                     fi;
+		else
+		     comps = scc graph;
+
+		     fun g (lim, set, c ! comps)
+			     =>
+			     if   (lim <= 0)
+				  NULL;
+			     else
+				  case (try (lim, c, depth))
+
+				       NULL => NULL;
+
+				       THE vs => g (   lim - is::vals_count vs + 1,
+							    is::union (vs, set),
+							    comps
+							);
+				  esac;
+			       fi;
+
+
+			 g (lim, set, [])
+			     =>
+			     THE set;
+		     end;
+
+		     g (limit - length comps + 1, is::empty, comps);
+		fi
+
+	    also
+            fun try (limit, nodes, depth)
+                =
+                {   fun f (best, lim, left, [])
+			    =>
+			    best;
+
+			f (best, lim, left, (node as (x, e)) ! right)
+			    =>
+			    if   (not (list::null left) and is::vals_count e == 1)
+			        
+				 # A node with only one out-edge can't be part of
+				 # a unique minimum feedback vertex set, unless they
+				 # all have one out-edge.
+				 #
+				 f (best, lim, node ! left, right);
+			    else
+
+				    fun prune (n, es)
+					=
+					(n, is::delete (es, x)
+					    except lib_base::NOT_FOUND => es; end );
+
+				    reduced = map prune (list::reverse_and_prepend (left, right));
+
+				    case (feedb (lim - 1, reduced, depth - 1))
+
+					 THE vs
+					     =>
+					     f (THE (is::add (vs, x)),
+							  is::vals_count vs,
+							  node ! left, right);
+					 NULL
+					     =>
+					     f (best, lim, node ! left, right);
+                                    esac;
+			    fi;
+                    end;
+		
+		    f (NULL, int::min (limit, length nodes), [], nodes);
+		};
+
+	    fun bab g
+                =
+		case (feedb (length g, g, maxdepth))
+
+                    THE solution =>   solution;
+		    NULL         =>   bug "no solution";
+                esac;
+	
+	    s2l (is::union (selfvertices, bab rest));
+	};
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 2000 by Lucent Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

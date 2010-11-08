@@ -1,0 +1,406 @@
+## get-mouse-selection.pkg
+
+# Compiled by:
+#     src/lib/x-kit/tut/show-graph/show-graph-app.make6
+
+# Various geometric utility routines.
+# This assumes a mechanism for allowing only
+# one thread at a time to grab the server.
+
+
+###              "Seek not the favor of the multitude;
+###               it is seldom got by honest and lawful means.
+###               But seek the testimony of few; and number not
+###               voices, but weigh them."
+###
+###                               -- Immanuel Kant multitude
+
+
+stipulate
+    include  threadkit;						# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg  =  xgeometry;					# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    package xc  =  xclient;					# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package xtr =  xtracing;					# xtracing		is from   src/lib/x-kit/xclient/src/stuff/xtracing.pkg
+herein
+
+    package get_mouse_selection:  Get_Mouse_Selection {		# Get_Mouse_Seletion	is from   src/lib/x-kit/widget/fancy/graphviz/get-mouse-selection.api
+
+	fun pts_to_box (xg::POINT { col=>x, row=>y }, xg::POINT { col=>x', row=>y' } )
+	    =
+	    {   fun minmax (a:  Int, b)
+		    =
+		    a <= b   ??   (a, b-a)
+			     ::   (b, a-b);
+
+		my (ox, sx) = minmax (x, x');
+		my (oy, sy) = minmax (y, y');
+
+		xg::BOX { col=>ox, row=>oy, wide=>sx, high=>sy };
+	    };
+
+	fun wait_mouse mevt
+	    = 
+	    case (do_mailop mevt)
+		#
+		xc::MOUSE_FIRST_DOWN { mouse_button, window_point, ... } =>  (mouse_button, window_point);
+		 _                                                       =>  wait_mouse  mevt;
+	    esac;
+
+
+	fun wait_up (display, mevt, cursor)
+	    =
+	    loop ()
+	    where
+		fun loop ()
+		    =
+		    case (do_mailop  mevt)
+			#
+			xc::MOUSE_LAST_UP _ =>  ();
+			_                   =>  loop ();
+		    esac;
+
+		xc::change_active_grab_cursor  display  cursor;
+	    end;
+
+	fun get_pt' waitup (window, m) (mbut, state)
+	    =
+	    {
+		xsession =  xc::xsession_of_window  window;
+
+		reply_slot = make_mailslot ();
+
+		mevt = wrap (m, xc::envelope_contents); 
+
+
+		fun is_set s
+		    =
+		    xc::mousebutton_is_set (s, mbut);
+
+
+		fun do_pt ()
+		    =
+		    {
+			pt_cursor = xc::get_standard_xcursor
+					xsession
+					xc::cursors::tcross;
+
+			#  Need to block output to window subtree 
+
+			# Create overlay window and
+			# set its cursor:
+			#
+			my { size, ... }
+			    =
+			    xc::shape_of_window  window;
+
+			overwin
+			    =
+			    xc::make_input_only_window
+				window
+				(xg::box::make (xg::point::zero, size));
+
+			xc::set_cursor
+			    overwin
+			    (THE pt_cursor);
+
+			xc::show_window  overwin;
+
+			# Make sure button is up:
+			# 
+			xc::while_mouse_state  is_set  (state, mevt);
+
+			# Wait for mouse hit:
+			# 
+			my (bttn, pt)
+			    =
+			    wait_mouse  mevt;
+
+			if waitup
+			    #
+			    xc::while_mouse_state  xc::some_mousebutton_is_set (state, mevt);
+			fi;
+
+			xc::destroy_window overwin;
+
+			# Unblock output to window subtree:
+			#
+			if (bttn == mbut)   give (reply_slot, THE pt);
+			else                give (reply_slot, NULL  );
+			fi;
+		    };
+
+
+		xtr::make_thread  "get_mouse_selection get_pt"  do_pt;
+
+		take'  reply_slot;
+	    };
+
+	get_pt       =  get_pt'  FALSE;
+	get_click_pt =  get_pt'  TRUE;
+
+	fun get_box (window, m) mbut
+	    =
+	    {   xtr::make_thread  "get_mouse_selection get_box"  do_box;
+		#
+		take' reply_slot;
+	    }
+	    where
+		xsession =  xc::xsession_of_window  window;
+
+		black =  xc::black;
+
+		pen = xc::make_pen [ xc::p::FUNCTION    xc::OP_XOR,
+				     xc::p::FOREGROUND  xc::rgb8_color1
+			           ];
+
+		reply_slot = make_mailslot ();
+
+		mevt = wrap (m, xc::envelope_contents);
+
+		fun is_set s
+		    =
+		    xc::mousebutton_is_set (s, mbut);
+
+		draw =  xc::draw_box
+                            (xc::make_unbuffered_drawable  (xc::drawable_of_window  window))
+                            pen;
+
+		fun do_box' (pos, clip_g)
+		    =
+		    loop_box (initr, pos)
+		    where
+			cursor = xc::get_standard_xcursor  xsession  xc::cursors::tcross;
+
+			xc::change_active_grab_cursor  xsession  cursor;
+
+			initr = pts_to_box (pos, pos);
+
+			draw initr;
+
+			fun loop_box (r, p)
+			    =
+			    case (do_mailop mevt)
+				#
+				xc::MOUSE_MOTION  { window_point,               ... } =>  update (r, p, clip_g window_point);
+				xc::MOUSE_UP      { window_point, mouse_button, ... } =>  update (r, p, clip_g window_point);
+				xc::MOUSE_DOWN    { window_point,               ... } =>  update (r, p, clip_g window_point);
+				xc::MOUSE_LAST_UP { window_point, mouse_button, ... } => { draw r;   r;  };
+				_                                                     =>  loop_box (r, p);
+			    esac
+
+			also
+			fun update (oldr, oldp, newp)
+			    =
+			    if (newp == oldp)
+				#
+				loop_box (oldr, oldp);
+			    else
+				newr = pts_to_box (pos, newp);
+
+				draw oldr;
+				draw newr;
+
+				loop_box (newr, newp);
+			    fi;
+		    end;
+
+		fun do_box ()
+		    =
+		    {
+			box_cursor =  xc::get_standard_xcursor  xsession  xc::cursors::sizing;
+			x_cursor   =  xc::get_standard_xcursor  xsession  xc::cursors::x_cursor;
+
+			#  Need to block output to window subtree 
+
+			# Create overlay window and set its cursor:
+			#	
+			my { size=> size as xg::SIZE { wide, high }, ... }
+			    =
+			    xc::shape_of_window  window;
+
+			overwin = xc::make_input_only_window
+				      window
+				      (xg::box::make (xg::point::zero, size));
+
+			xc::set_cursor  overwin  (THE box_cursor);
+			xc::show_window  overwin;
+
+
+			fun ext_box (xg::BOX { col, row, wide, high } )
+			    =
+			    xg::BOX { col, row, wide=>wide+1, high=>high+1 };
+
+
+			fun clip (xg::POINT { col, row } )
+			    =
+			    xg::POINT { col =>   col < 0   ??   0   ::   (col >= wide ?? (wide - 1) :: col),
+				        row =>   row < 0   ??   0   ::   (row >= high ?? (high - 1) :: row)
+				      };
+
+			# Wait for mouse hit:
+			#
+			my (bttn, p)
+			    =
+			    wait_mouse  mevt;
+
+
+			box = if (mbut == bttn)
+				   #
+				   do_box' (clip p, clip);
+			       else
+				   wait_up (xsession, mevt, x_cursor);
+
+				   xg::BOX { col=>0, row=>0, wide=>0, high=>0 };
+			       fi; 
+
+			xc::destroy_window  overwin;
+
+			#  Unblock output to window subtree 
+
+			if (mbut == bttn)   give (reply_slot, THE (ext_box box));
+			else                give (reply_slot, NULL);
+			fi;
+		    };		# fun do_box
+
+	    end;		# fun get_box
+
+	# move_box:
+	# Move outline of given rectangle on screen.
+	# First window argument specifies window making the grab
+	# of resources.
+	# Rectangle is in coordinates of second window;
+	# return final rectangle in coordinates of second window.
+	# We assume argument bttn is down; we wait until that
+	# button is up to record final rectangle; we return
+	# when all buttons are up.
+
+      /*
+	fun move_box (ownwin:  Pwin, window:  Pwin, bttn:  Button_State, r:  Box)
+	    =
+	    {
+		winrect = inq_box window;
+		winorigin = origin winrect;
+
+		my (winox, winoy) = coords winorigin;
+		my (wincx, wincy) = coords (winorigin + size winrect);
+
+		rsize = size r;
+		my (width, height) = coords rsize;
+		bttnum = button_num bttn;
+
+		# Make overlay:
+		#
+		overlay = make_odOverlay_win ownwin;
+
+		# Change cursor:
+		#
+		set_pointer (overlay, THE move_cursor);
+
+		# Get current mouse position
+		#
+		my (bttn0, pos0) = inq_pointer overlay;
+
+		# Translate initial r to screen coordinates:
+		#
+		r0 = translate (r, winorigin)
+
+		# do_box assumes bttn is down.
+		# It loops until button is up:
+		#
+		fun do_box (p: Point, r:  Box)
+		    =
+		    {   my mouse (bttns, newp)
+			    =
+			    pw::read_mouse overlay;
+
+			if (is_up (bttnum, bttns))
+			    #
+			    # Erase rectangle:
+			    draw_box (overlay, r, pn::xor_pen);;
+			    r;
+			else
+			    my (delx, dely) = coords (newp - p)           ;
+			    my (ox, oy) = coords (origin r);
+
+			    # Set new x values:
+			    #
+			    newox
+				=
+				if   (ox + delx < winox)            winox;
+				elif (ox + width + delx > wincx)    wincx - width;
+				else                                ox + delx;
+				fi;
+
+			    # Set new y values:
+			    #
+			    newoy
+				=
+				if   (oy + dely < winoy)               winoy;
+				elif (oy + height + dely > wincy)      wincy - height;
+				else                                   oy + dely;
+				fi;
+
+			    newr = xg::box::make (mkPoint (newox, newoy), rsize);
+
+			    # Redraw only if new rectangle:
+			    #
+			    if ((ox != newox) or (oy != newoy))
+				#
+				draw_box (overlay, r,    pn::xor_pen);
+				draw_box (overlay, newr, pn::xor_pen);
+			    fi;
+
+			    do_box (newp, newr);
+			fi
+		      };
+
+		finalr
+		    = 
+		    if (is_up (bttnum, bttn0))
+			#
+			r0;
+		    else
+			# Draw original rectangle:
+			#
+			draw_box (overlay, r0, pn::xor_pen);
+			do_box (pos0, r0);
+		    fi;
+
+		# Reset cursor:
+		#
+		reset_pointer overlay;
+
+		# Wait for buttons up:
+		#
+		bttns_up overlay;
+
+		# Release overlay:
+		#
+		del_overlay_win overlay;
+
+		THE (rtranslate (finalr, winorigin));
+	};
+      */
+
+    };				# package get 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

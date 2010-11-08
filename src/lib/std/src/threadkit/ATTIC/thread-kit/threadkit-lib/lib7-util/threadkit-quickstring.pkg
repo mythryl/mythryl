@@ -1,0 +1,168 @@
+## threadkit-quickstring.pkg
+## COPYRIGHT (c) 1996 by AT&T Research
+## AUTHOR:	John Reppy
+##		AT&T Bell Laboratories
+##		Murray Hill, NJ 07974
+##		jhr@research.att.com
+
+
+
+
+# This is a threadkit version of the Quickstring module from the Lib7 library.
+# It protects the global hash table in a server thread.
+#
+
+
+
+package Quickstring:  QUICKSTRING {
+
+    package md = maildrop
+
+    # local definition of apply 
+    #
+    fun apply f = let
+	  fun applyF [] = ()
+	    | applyF (x . r) = (f x; applyF r)
+	  in
+	    applyF
+	  end
+
+    # unique names 
+    enum quickstring = QUICKSTRING of {
+	hash:  word,
+	id:  String
+      }
+
+    fun to_string (QUICKSTRING { id, ... } ) = id
+
+    fun hash (QUICKSTRING { hash=h, ... } ) = h
+
+    fun sameQuickstring (QUICKSTRING { hash=h1, id=id1 }, QUICKSTRING { hash=h2, id=id2 } ) =
+	  (h1 = h2) and (id1 = id2)
+
+    # compare two names for their relative order; note that this is
+    # not lexical order!
+    #
+    fun compare (QUICKSTRING { hash=h1, id=id1 }, QUICKSTRING { hash=h2, id=id2 } ) =
+	  if (h1 == h2)
+	    then if (id1 == id2)
+	      then EQUAL
+	    else if (id1 < id2)
+	      then LESS
+	      else GREATER
+	  else if (h1 < h2)
+	    then LESS
+	    else GREATER
+
+
+    # The unique name hash table; this is protected in a server thread:
+    #
+    tableSz = 64 #  initial table size 
+
+    # A request to the server:
+    #
+    type req = { key:  word, str:  String, reply:  md::ivar( quickstring ) }
+
+    # The server's request channel:
+    #
+    my request_slot:  threadkit::chan( req ) = threadkit::make_mailslot()
+
+    # The name server:
+    # 
+    fun nameServer () = let
+	  fun server (tableSize, table, vals_count) = let
+		my { key, str, reply } = threadkit::get_mail request_slot
+		fun isName (QUICKSTRING { hash, id } ) = (hash = key) and (id = str)
+		fun insert (tableSz, table, vals_count) =
+		      if (vals_count > tableSz)
+			then grow (tableSz, table, vals_count)
+			else let
+			  index = unt::toIntX (unt::bitwise_and (key, unt::from_int tableSz - 0w1))
+			  fun get [] = let
+				newName = QUICKSTRING { hash = key, id = str }
+				in
+				  rw_vector::set (
+				    table, index, newName . rw_vector::get (table, index));
+				  md::iPut (reply, newName);
+				  (tableSz, table, vals_count+1)
+				end
+			    | get (name . r) = (
+				if (isName name)
+				  then (
+				    md::iPut (reply, name);
+    				    (tableSz, table, vals_count))
+				  else get r)
+			  in
+			    get (rw_vector::get (table, index))
+			  end
+	      #  Double the table size 
+		and grow (tableSz, table, vals_count) = let
+		      newSz = tableSz+tableSz
+		      newMask = unt::from_int newSz - 0w1
+		      newTable = rw_vector::rw_vector (newSz, [])
+		      fun ins (item as QUICKSTRING { hash, ... } ) = let
+			    index = unt::toIntX (unt::bitwise_and (hash, newMask))
+			    in
+			      rw_vector::set (newTable, index,
+				item . rw_vector::get (newTable, index))
+			    end
+		      appins = apply ins
+		      fun copy i = (appins (rw_vector::get (table, i)); copy (i+1))
+		      in
+			(copy 0) except _ => ();
+			insert (newSz, newTable, vals_count)
+		      end
+		in
+		  server (insert (tableSize, table, vals_count))
+		end #  server 
+	  in
+	    server (tableSz, rw_vector::rw_vector (tableSz, [] : List( quickstring )), 0)
+	  end
+
+  /* make an quickstring from a string; this operation is split into a client
+   * part (compute the hash key), and a server part (map to unique
+   * representation).
+   */
+    fun from_string s = let
+	  replyV = md::iVariable()
+	  in
+	    threadkit::put_mail (request_slot, { key=hash_string::hash_string s, str=s, reply=replyV } );
+	    md::iGet replyV
+	  end
+
+  /* eventually, we should hash the substring and check for prior definition
+   * before creating the string.
+   */
+    fun from_substring ss = from_string (substring::string ss)
+
+  # * Initialization code *
+    fun startup () = (threadkit::make_thread nameServer; ())
+    fun shutdown () = ()
+
+    my _ = RunTHREADKIT::logServer("Name", startup, shutdown)
+    my _ = RunTHREADKIT::logChannel("Name: request_slot", request_slot)
+
+};		#  Quickstring 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

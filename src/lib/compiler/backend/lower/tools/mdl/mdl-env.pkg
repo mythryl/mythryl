@@ -1,0 +1,185 @@
+
+# Machine description dictionary.
+
+
+
+###        "Use the word cybernetics, Norbert,
+###         because nobody knows what it means.
+###         This will always put you at
+###         an advantage in arguments."
+###
+###                         -- Claude Shannon 
+
+
+
+generic package mdl_dictionary (TypeUtils:  Mdl_Type_Utilities) : Mdl_Dictionary {
+
+
+    package raw_syntax   = TypeUtils::raw_syntax
+    package RawSyntaxTreePP = TypeUtils::RawSyntaxTreePP
+    package error = mdl_error
+
+    enum dictionary = 
+       DICTIONARY of
+	 { TE:  Dictionary::dictionary( raw_syntax::aType ),                           # type dictionary 
+	   VE:  Dictionary::dictionary( raw_syntax::expression * raw_syntax::aType ),  # value dictionary 
+	   EE:  Dictionary::dictionary (List( raw_syntax::decl ) * dictionary),              # Package dictionary
+	   DE:  List( raw_syntax::decl ),                                  # Declarations dictionary 
+	   SE:  List( raw_syntax::decl )                                   # Api dictionary 
+	 }
+
+    use raw_syntax
+
+    infix ++
+    infix @@
+    infix ===>
+
+    my op @@ = Dictionary::union
+    op ===> = Dictionary::bind
+    O = Dictionary::empty
+
+    empty = DICTIONARY { te=O, ve=O, ee=O, de=[], se=[] }
+
+    fun (DICTIONARY { te=te1, ve=ve1, ee=ee1, de=de1, se=se1 } )
+	++ 
+	(DICTIONARY { te=te2, ve=ve2, ee=ee2, de=de2, se=se2 } )
+	=
+	dictionary { te=te1 @@ te2, ve=ve1 @@ ve2, ee=ee1 @@ ee2, de=de1@de2, se=se1@se2 }
+
+    fun mkDECL d     = DICTIONARY { te=o, ve=o, ee=o, de=[d], se=[] }
+    fun mkSIG  d     = DICTIONARY { te=o, ve=o, ee=o, de=[], se=[d] }
+    fun mkVALs vbs   = DICTIONARY { te=o, ve=vbs, ee=o, de=[], se=[] }
+
+    fun named_variable (id, e, t)= mkVALs (id ===> (e, t))
+    fun type_bind (id, t) = DICTIONARY { te=id ===> t, ve=o, ee=o, de=[], se=[] }
+    fun named_package (id, args, E) = DICTIONARY { te=o, ve=o, ee= id ===> (args, e), de=[], se=[] }
+
+    #  Create a new free variable; instantiation and generalization:
+    #
+    fun var (DICTIONARY _) = TypeUtils::newVariable 0 #  XXX 
+    fun inst (DICTIONARY _) t = TypeUtils::inst 0 t  #  XXX 
+    fun gen (DICTIONARY _) t  = TypeUtils::gen 0 t   #  XXX 
+    fun lambda (DICTIONARY _) t  = TypeUtils::lambda 0 t   #  XXX 
+
+    #  Extract components 
+    fun de (DICTIONARY { de, ... } ) = de
+    fun se (DICTIONARY { se, ... } ) = se
+
+    fun datatypeDefinitions (DICTIONARY { de, ... } )
+	=  
+	let fun collect (DATATYPEdecl (dbs, _), dbs') = dbs @ dbs'
+	      | collect (MARKdecl(_, d), dbs') = collect (d, dbs')
+	      | collect(_, dbs') = dbs'
+	in  list::fold_right collect [] de
+	end
+
+    /* Look up components from the dictionary */ 
+    fun lookupType (E as DICTIONARY { TE, EE, ... } ) (IDENT([], id)) =
+	(Dictionary::get TE id
+	 except _ => (error::error("undefined type '"$id$"'"); var E))
+      | lookupType (DICTIONARY { EE, ... } ) (IDENT (s . ss, id)) =
+	 lookupType (lookupPackage' EE (IDENT (ss, s))) (IDENT([], id))
+
+    and lookupVal' err (E as DICTIONARY { VE, EE, ... } ) (IDENT([], id)) =
+	 (inst E (Dictionary::get VE id)
+	 except _ => (err id; (LITexp (INTlit 0), var E)))
+      | lookupVal' err (DICTIONARY { EE, ... } ) (IDENT (s . ss, id)) =
+	 lookupVal' err (lookupPackage' EE (IDENT (ss, s))) (IDENT([], id))
+
+    and lookupVal E x = lookupVal' 
+	 (fn x => error::error("undefined value '"$x$"'")) E x
+
+    and lookupPackage (DICTIONARY { EE, ... } ) id = lookupPackage' EE id
+
+    and lookupPackage' EE (IDENT([], id)) =
+	(#2 (Dictionary::get EE id)
+	 except _ => 
+	   (error::error("undefined package '"$id$"'"); empty))
+      | lookupPackage' EE (IDENT (s . ss, id)) =
+	 lookupPackage (lookupPackage' EE (IDENT (ss, s))) (IDENT([], id))
+
+    #  Interators 
+    fun foldVal f x (DICTIONARY { VE, ... } ) = 
+	Dictionary::fold (fn (id, (e, type), l) => f (id, e, type, l)) x VE
+
+    /* 
+     * Elaborate a declaration in an dictionary.
+     * Return an dictionary.
+     */
+    fun elab eee d = 
+    let #  elaborate a declaration 
+	mkDECL = fn (l, d) => mkDECL (MARKdecl (l, d))
+	mkSIG = fn (l, d) => mkSIG (MARKdecl (l, d))
+	fun ddd eee l (d as DATATYPEdecl (dbs, tys)) = mkDECL (l, d) ++ mkSIG (l, d)
+	  | ddd eee l (d as INSTRUCTIONdecl cbs) = mkDECL (l, d)
+	  | ddd eee l (d as FUNdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as RTLdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as RTLSIGdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as VALdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as TYPESIGdecl _) = mkSIG (l, d)
+	  | ddd eee l (d as VALSIGdecl _) = mkSIG (l, d)
+	  | ddd eee l (d as LOCALdecl (d1, d2)) = mkDECL (l, d)
+	    #  let eee' = Ds eee l d1 in Ds (eee ++ eee') l d2 end 
+	  | ddd eee l (d as SEQdecl ds) = Ds eee l ds
+	  | ddd eee l (d as OPENdecl ids) = mkDECL (l, d) ++ openStrs eee ids
+	  | ddd eee l (d as PACKAGE_DECL (id, args, _, DECLsexp ds)) = 
+	    let eee' = Ds eee l ds
+	    in  NAMED_PACKAGE (id, args, eee') ++ mkDECL (l, d) end
+	  | ddd eee l (PACKAGE_API_decl _) = empty
+	  | ddd eee l (d as INFIXdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as INFIXRdecl _) = mkDECL (l, d)
+	  | ddd eee l (d as NONFIXdecl _) = mkDECL (l, d)
+	  | ddd eee _ (MARKdecl (l, d)) = (error::setLoc l; ddd eee l d)
+	  | ddd eee l d = error::fail("illegal declaration: "$
+			 (pp::text (RawSyntaxTreePP::decl d)))
+
+	and Ds eee l [] = empty
+	  | Ds eee l (d . ds) = let eee' = ddd eee l d
+			   in  eee' ++ Ds (eee ++ eee') l ds end
+
+	    #  open up a list of packages 
+	and openStrs eee ids = 
+	    list::fold_right (fn (id, eee') => lookupPackage eee id ++ eee') empty ids
+
+    in  ddd eee SourceMapping::dummyLoc d
+    end
+
+
+    # Treat a type expression as a pattern and
+    # compute its set of namings.  Duplicated names are assigned 
+    # unique suffixes.
+
+    fun namingsInType type = 
+    let names = Dictionary::envir "names"
+	fun count id = let my (n, total) = Dictionary::lookup names id
+		       in  total := *total + 1 end
+		       except _ => Dictionary::update names (id, (REF 0, REF 1))
+	fun getName id = let my (n, total) = Dictionary::lookup names id
+			 in  if *total == 1 then id else
+			     (n := *n + 1; id$int::to_string *n)
+			 end
+	fun f (IDty (IDENT(_, id))) = count id
+	  | f (APPty(_,[type])) = f type
+	  | f (CELLty id) = count id
+	  | f (TUPLEty tys) = apply f tys
+	  | f (RECORDty ltys) = apply (fn (id, _) => count id) ltys
+	  | f _ = ()
+    in  f type; (*names, getName) end
+
+    #  Look up from nested dictionary 
+    fun declOf (DICTIONARY { EE, ... } ) id =
+	let my (_, DICTIONARY { DE, ... } ) = Dictionary::get EE id 
+	in  SEQdecl DE
+	end except _ => @@@ []
+
+    fun genericArgOf (DICTIONARY { EE, ... } ) id = 
+	let my (args, _) = Dictionary::get EE id
+	in  SEQdecl args
+	end except _ => @@@ []
+
+    fun typeOf (DICTIONARY { EE, ... } ) id = 
+	let my (_, DICTIONARY { SE, ... } ) = Dictionary::get EE id 
+	in  SEQdecl SE
+	end except _ => @@@ []
+
+};

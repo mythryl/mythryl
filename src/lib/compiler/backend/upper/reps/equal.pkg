@@ -1,0 +1,254 @@
+## equal.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+###                 "Every child is an artist. The problem is
+###                  how to remain an artist once he grows up."
+###
+###                                    -- Pablo Picasso
+
+
+
+api Equal {
+
+    # Constructing generic equality functions; the current version will
+    # use runtime polyequal function to deal with abstract types. (ZHONG)
+
+    equal_branch:  (anormal::Primitive_Operation, List( anormal::Value ), anormal::Anormal_Expression, anormal::Anormal_Expression)
+                     -> anormal::Anormal_Expression;
+
+    debugging:  Ref(  Bool );     
+
+}; #  Api EQUAL 
+
+
+package equal: (weak)  Equal {				# Equal				is from   src/lib/compiler/backend/upper/reps/equal.pkg
+
+    stipulate
+
+	package bt = type_types;
+
+	package lt= highcode;				# highcode			is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+	package pt= highcode_data_representation;	# highcode_data_representation	is from   src/lib/compiler/backend/upper/highcode/highcode-data-representation.pkg
+	package po= highcode_primitive_op;		# highcode_primitive_op		is from   src/lib/compiler/backend/upper/highcode/highcode-primitive-op.pkg
+	package pp= prettyprint;			# prettyprint			is from   src/lib/prettyprint/src/prettyprint.pkg
+	package fu= anormal_stuff;			# anormal_stuff			is from   src/lib/compiler/backend/upper/anormal/anormal-stuff.pkg
+
+	include anormal;
+
+    herein
+
+	debugging = REF FALSE;
+	fun bug msg = error_message::impossible("Equal: " + msg);
+	say = controls::print::say;
+
+	make_var = highcode_var::make_highcode_variable;
+
+	ident = fn x => x; end ;
+
+
+	my (true_dcon', false_dcon')
+	    = 
+	    {   lt = lt::ltc_arrow (lt::ffc_rrhighcode, [lt::ltc_unit], [lt::ltc_bool]);
+
+		fun h (types::ENUM_CONSTRUCTOR { symbol, representation, ... } )
+		    =
+		    (symbol, representation, lt);
+
+		( h bt::true_dcon,
+                  h bt::false_dcon
+                );
+	    };
+
+	tc_eqv = lt::type_constructors_are_equivalent;
+
+
+	fun bool_lexp b
+	    = 
+	    RECORD ( fu::rk_tuple,
+                     [],
+                     v,
+                     CONSTRUCTOR (dc, [], VAR v, w, RET [VAR w])
+                   )
+	    where  
+
+		v = make_var();
+		w = make_var();
+
+		dc = if b  true_dcon'; else false_dcon';fi;
+	    end;
+
+	exception POLY;
+
+	###############################################################################
+	#                   Commonly-used Anormal Types
+	###############################################################################
+
+
+	# We assume types created here will
+        # be reprocessed in  src/lib/compiler/backend/upper/reps/wrapping.pkg
+        #
+	fun eq_lty  lt =  lt::ltc_arrow (lt::ffc_rrhighcode, [lt, lt], [lt::ltc_bool]);
+	fun eq_type tc =  eq_lty (lt::ltc_tyc tc);
+
+	inteqty   = eq_lty (lt::ltc_int);
+	int32eqty = eq_lty (lt::ltc_int32);
+	booleqty  = eq_lty (lt::ltc_bool);
+	realeqty  = eq_lty (lt::ltc_real);
+
+	###############################################################################
+	#              equal --- the equality function generator
+	###############################################################################
+	exception NOT_FOUND;
+
+	fkfun = { is_recursive         => NULL,
+                  all_call_sites_known => FALSE,
+
+                  calling_convention   => CALLING_CONVENTION_FUNCTION lt::ffc_rrhighcode,
+                  inlining_hint        => INLINE_IF_SIZE_SAFE
+                };
+
+	fun branch (e, te, fe)
+	    =
+	    {   x = make_var();
+
+		LET ([x], e,
+		   SWITCH (VAR x, bt::bool_signature,
+			  [ (DATACON (true_dcon',  [], make_var()), te),
+			    (DATACON (false_dcon', [], make_var()), fe)
+			  ],
+			  NULL));
+	    };
+
+	fun equal (peqv, seqv)
+	    =
+	    {
+
+	    fun eq (tc, x, y, 0, te, fe)
+                    =>
+                    raise exception POLY;
+
+		eq (tc, x, y, d, te, fe)
+		    =>
+		    {   fun eq_tuple (_, _, [], te, fe)
+				=>
+				te;
+
+			    eq_tuple (n, d, type ! tys, te, fe)
+				=>
+				{   a = make_var();
+				    b = make_var();
+
+				    SELECT (x, n, a,
+					  SELECT (y, n, b,
+						 eq (type, VAR a, VAR b, d - 1,
+						    eq_tuple (n + 1, d - 1, tys, te, fe),
+						    fe)));
+				};
+			end;
+
+
+			if (lt::tcp_tuple tc )
+
+			    case fe
+
+				(APPLY _ | RET _)
+				    =>
+				    eq_tuple (0, d, lt::tcd_tuple tc, te, fe);
+
+				_ =>
+				    {   f = make_var();
+
+					MUTUALLY_RECURSIVE_FNS([(fkfun, f, [], fe)],
+					      eq_tuple (0, d, lt::tcd_tuple tc,
+						       te, APPLY (VAR f, [])));
+				    };
+			    esac;
+
+			elif (tc_eqv (tc, lt::tcc_int) )
+
+			    BRANCH((NULL, po::ieql, inteqty, []), [x, y], te, fe);
+
+			elif (tc_eqv (tc, lt::tcc_int32) )
+
+			    BRANCH((NULL, po::ieql, int32eqty, []), [x, y], te, fe);
+
+			elif (tc_eqv (tc, lt::tcc_bool) )
+
+			    BRANCH((NULL, po::ieql, booleqty, []), [x, y], te, fe);
+
+			elif (tc_eqv (tc, lt::tcc_string) )
+
+			    branch (APPLY (VAR seqv, [x, y]), te, fe);
+
+			elif ( (lt::tcp_app tc)
+				  and
+				  { my (x, _) = lt::tcd_app tc;
+				    ((lt::tcp_prim x) and (lt::tcd_prim x == pt::prim_type_con_ref));
+				  }
+				)
+
+			     BRANCH((NULL, po::PTREQL, eq_type tc, []), [x, y], te, fe);
+
+			else
+			     raise exception POLY;
+			fi;
+		    };
+	    end;
+
+	    fn (tc, x, y, d, te, fe)
+		=
+		eq (tc, x, y, d, te, fe)
+		except
+		    POLY
+			=
+			{   f = make_var();
+
+			    LET ([f], TYPE_APPLY (VAR peqv, [tc]), branch (APPLY (VAR f, [x, y]), te, fe));
+			};
+
+	};
+
+	fun equal_branch ((d, p, lt, ts), vs, e1, e2)
+	    =
+	    case (d, p, ts, vs)
+
+		( THE { default => pv, table => [(_, sv)] },
+                  po::POLYEQL,
+                  [tc],
+                  [x, y]
+                )
+		    =>
+		    equal (pv, sv) (tc, x, y, 10, e1, e2);
+
+		_ =>   bug "unexpected case in equal_branch";
+	    esac;
+
+    end;	#  toplevel stipulate 
+};		#  package equal 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

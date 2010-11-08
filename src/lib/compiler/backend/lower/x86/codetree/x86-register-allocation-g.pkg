@@ -1,0 +1,510 @@
+## x86-register-allocation-g.pkg
+#
+# X86 specific register allocator.
+# This module abstracts out all the nasty RA business on the x86.  
+# So you should only have to write the callbacks.
+
+
+generic package  x86_register_allocation_g (
+
+    package i:           X86INSTR
+    package instruction_properties:   Instruction_Properties where I = I
+    package f:           FLOWGRAPH where I = I
+    package asm:         Instruction_Emitter where I = I
+
+      # Spilling heuristics determines which node should be spilled. 
+      # You can use Chaitin, ChowHenessey, or one of your own.
+
+    package spill_heuristic:  Register_Allocation_Spill_Heuristics 
+
+      # The Spill module figures out the strategies for inserting 
+      # spill code.  You can use register_allocation_spilling_g,
+      # or register_allocator_spilling_with_renaming_g, or
+      # write your own if you are feeling adventurous.
+
+    package spill:  Register_Allocation_Spilling where I = I 
+
+    sharing f::P = Asm::P
+
+       # Should we use allocate register on the floating point stack? 
+       # Note that this flag must match the one passed to the code generator 
+       # module.
+
+    my fast_floating_point:  REF(  Bool )
+
+    enum raPhase = SPILL_PROPAGATION 
+                     | SPILL_COLORING
+
+    #  Called before register allocation; perform your initialization here. 
+    my beforeRA:  Void -> Void
+
+    #  Integer register allocation parameters 
+    package int :
+    api
+       my avail:      List(  i::C::cell )
+       my dedicated:  List(  i::C::cell )
+       my memRegs:    List(  i::C::cell )
+       my phases:     List(  raPhase )
+
+       my spillLoc:   Ref( Annotations::annotations ) * 
+                       register_allocation_graph::logical_spill_id -> i::operand
+
+       #  This function is called once before spilling begins 
+       my spillInit:   register_allocation_graph::interferenceGraph -> Void
+
+    end   
+
+    #  Floating point register allocation parameters 
+    package float :
+    api
+       #  Sethi-Ullman mode 
+       my avail:      List(  i::C::cell )
+       my dedicated:  List(  i::C::cell )
+       my memRegs:    List(  i::C::cell )
+       my phases:     List(  raPhase )
+
+       my spillLoc:   Ref( Annotations::annotations ) * 
+                       register_allocation_graph::logical_spill_id -> i::operand
+
+       #  This function is called once before spilling begins 
+       my spillInit:  register_allocation_graph::interferenceGraph -> Void
+
+       #  When fast_floating_point is on, use these instead: 
+       my fastMemRegs:  List(  i::C::cell )
+       my fastPhases:   List(  raPhase )
+    end
+
+  ) : CLUSTER_OPTIMIZATION =
+pkg
+
+    package f = F
+    package i = I
+    package c = i::C
+
+    name = "x86_register_allocation_g"
+
+    type flowgraph = f::cluster 
+
+    intSpillCnt = LowCodeControl::getCounter "ra-int-spills"
+    floatSpillCnt = LowCodeControl::getCounter "ra-float-spills"
+    intReloadCnt = LowCodeControl::getCounter "ra-int-reloads"
+    floatReloadCnt = LowCodeControl::getCounter "ra-float-reloads"
+    intRenameCnt = LowCodeControl::getCounter "ra-int-renames"
+    floatRenameCnt = LowCodeControl::getCounter "ra-float-renames"
+    x86CfgDebugFlg = LowCodeControl::getFlag "x86-cfg-debug"
+
+/*
+    deadcode = LowCodeControl::getCounter "x86-dead-code"
+    deadblocks = LowCodeControl::getCounter "x86-dead-blocks"
+ */
+
+    package PrintFlowGraph
+        =
+        PrintCluster (package flowgraph=F
+                    package asm = Asm)
+
+    package x86_floating_point_code = 
+       x86_floating_point_code_g (package instruction_set_x86_g = I
+             package x86_instruction_semantic_properties = instruction_properties
+             package flowgraph = F
+             package liveness = liveness (F)
+             package asm = Asm
+            )
+
+    package X86Spill = X86Spill (package instruction=I package props=instruction_properties)
+
+
+    # Dead code elimination 
+
+    exception X86_DEAD_CODE
+
+    affectedBlocks
+       =
+       int_hash_table::make_table (32, X86_DEAD_CODE) : int_hash_table::Hash_Table(  Bool )
+
+    deadRegs
+       =
+       int_hash_table::make_table (32, X86_DEAD_CODE) : int_hash_table::Hash_Table( Bool )
+
+    fun removeDeadCode (f::CLUSTER { blocks, ... } ) =
+    let find = int_hash_table::find deadRegs
+        fun isDead r = 
+            case find (c::registerId r) of
+               THE _ => TRUE
+            |  NULL   => FALSE
+        fun isAffected i = the_else (int_hash_table::find affectedBlocks i, FALSE)
+        fun isDeadInstr (i::NOTE { instruction, ... } ) = isDeadInstr instruction 
+          | isDeadInstr (i::MOVE { dst=i::DIRECT rd, ... } ) = isDead rd
+          | isDeadInstr (i::MOVE { dst=i::MemReg rd, ... } ) = isDead rd
+          | isDeadInstr (i::COPY { dst=[rd], ... } ) = isDead rd
+          | isDeadInstr _ = FALSE
+
+        fun scan [] = ()
+          | scan (f::BBLOCK { blknum, instructions, ... } . rest) =
+            (if isAffected blknum then 
+                (#  Deadblocks := *deadblocks + 1; 
+                 instructions := elim (*instructions, [])
+                ) 
+             scan rest)
+          | scan(_ . rest) = scan rest
+       and elim([], code) = reverse code
+         | elim (i . instrs, code) = 
+          if isDeadInstr i then 
+             (/* deadcode := *deadcode + 1; */ elim (instrs, code))
+          else elim (instrs, i . code)
+    in if int_hash_table::vals_count affectedBlocks > 0 then 
+          (scan blocks;
+	     int_hash_table::clear deadRegs;
+	     int_hash_table::clear affectedBlocks)
+       else ()
+    end
+
+    /* This function finds out which pseudo memory registers are unused.
+     * Those that are unused are made available for spilling.
+     * The register allocator calls this function right before spilling 
+     * a set of nodes.
+     */
+    firstSpill = REF TRUE
+    firstFPSpill = REF TRUE
+
+    fun spillInit (graph, i::C.GP) = 
+        if *firstSpill then #  only do this once! 
+            (int::spillInit graph;
+             firstSpill := FALSE
+            )
+         else ()
+      | spillInit (graph, i::C.FP) = 
+        if *firstFPSpill then
+            (float::spillInit graph;
+             firstFPSpill := FALSE
+            )
+        else ()
+ 
+								# 
+    #  This is the generic register allocator 
+    package Ra = 
+      register_allocator
+       (spill_heuristic)
+       (register_allocator_memory_coalescing_g(			# register_allocator_memory_coalescing_g	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocator-memory-coalescing-g.pkg
+          register_allocation_dead_code_elimination_g (		# register_allocation_dead_code_elimination_g	is from   src/lib/compiler/backend/lower/reg-alloc/register-allocation-dead-code-elimination-g.pkg
+             cluster_register_allocation_g (			# cluster_register_allocation_g		is from   src/lib/compiler/backend/lower/reg-alloc/cluster-register-allocation-g.pkg
+                package flowgraph = F
+                package asm = Asm
+                package instruction_properties = instruction_properties
+                package spill = Spill
+               )
+            )
+            (fun cellkind i::C.GP = TRUE | cellkind _ = FALSE
+             deadRegs = deadRegs
+             affectedBlocks = affectedBlocks
+             spillInit = spillInit
+            )
+         )
+      )
+
+
+    /* -------------------------------------------------------------------
+     * Floating point stuff 
+     * -------------------------------------------------------------------*/
+    KF32 = length float::avail
+    package FR32 = get_reg (nRegs=KF32 
+                            available=map c::registerId float::avail
+                            first=c::registerId (i::C.ST 8))
+
+    availF8 = c::Regs c::FP { from=0, to=6, step=1 }
+    KF8  = length availF8
+    package FR8  = get_reg (nRegs=KF8
+                            available=map c::registerId availF8
+                            first=c::registerId (i::C.ST 0))
+ 
+    /* -------------------------------------------------------------------
+     * Callbacks for floating point K=32 
+     * -------------------------------------------------------------------*/
+    fun copyInstrF((rds as [_], rss as [_]), _) =
+          i::FCOPY { dst=rds, src=rss, tmp=NULL }
+      | copyInstrF((rds, rss), i::FCOPY { tmp, ... } ) = 
+          i::FCOPY { dst=rds, src=rss, tmp=tmp }
+      | copyInstrF (x, i::NOTE { instruction, note } ) = 
+          i::NOTE { instruction=copyInstrF (x, instruction), note }
+
+    copyInstrF = fn x => [copyInstrF x]
+ 
+    fun getFregLoc (an, Ra::FRAME loc) = float::spillLoc (an, loc)
+      | getFregLoc (an, Ra::MEM_REG r) = i::FDIRECT r
+
+    #  spill floating point 
+    fun spillF { instruction, reg, spillLoc, kill, annotations=an } = 
+        (floatSpillCnt := *floatSpillCnt + 1;
+         X86Spill::fspill (instruction, reg, getFregLoc (an, spillLoc)) 
+        )
+
+    fun spillFreg { src, reg, spillLoc, annotations=an } = 
+       (floatSpillCnt := *floatSpillCnt + 1;
+        [i::FLDL (i::FDIRECT (src)), i::FSTPL (getFregLoc (an, spillLoc))]
+       )
+
+   fun spillFcopyTmp { copy=i::FCOPY { dst, src, ... }, spillLoc, 
+                     annotations=an } =
+        (floatSpillCnt := *floatSpillCnt + 1;
+         i::FCOPY { dst=dst, src=src, tmp=THE (getFregLoc (an, spillLoc)) }
+        )
+     | spillFcopyTmp { copy=i::NOTE { instruction, note }, spillLoc, annotations } =
+        let instruction = spillFcopyTmp { copy=instruction, spillLoc=spillLoc, 
+                                  annotations=annotations }
+        in  i::NOTE { instruction, note } end
+
+    #  rename floating point 
+    fun renameF { instruction, fromSrc, toSrc } =
+        (floatRenameCnt := *floatRenameCnt + 1;
+         X86Spill::freload (instruction, fromSrc, i::FDIRECT toSrc)
+        )
+
+    #  reload floating point 
+    fun reloadF { instruction, reg, spillLoc, annotations=an } = 
+        (floatReloadCnt := *floatReloadCnt + 1;
+         X86Spill::freload (instruction, reg, getFregLoc (an, spillLoc))
+        )
+
+    fun reloadFreg { dst, reg, spillLoc, annotations=an } = 
+        (floatReloadCnt := *floatReloadCnt + 1;
+         [i::FLDL (getFregLoc (an, spillLoc)), i::FSTPL (i::FDIRECT dst)]
+        )
+
+    /* -------------------------------------------------------------------
+     * Callbacks for floating point K=7 
+     * -------------------------------------------------------------------*/
+    fun FMemReg f = let fx = c::registerNum f
+                    in  if fx >= 8 and fx < 32
+                        then i::FDIRECT f else i::FPR f
+                    end
+
+    fun copyInstrF'((rds as [d], rss as [s]), _) =
+         i::FMOVE { fsize=i::FP64, src=FMemReg s, dst=FMemReg d }
+      | copyInstrF'((rds, rss), i::FCOPY { tmp, ... } ) = 
+         i::FCOPY { dst=rds, src=rss, tmp=tmp }
+      | copyInstrF'(x, i::NOTE { instruction, note } ) =
+         i::NOTE { iinstruction=copyInstrF'(x, instruction), note }
+
+    copyInstrF' = fn x => [copyInstrF' x]
+
+    fun spillFreg'{ src, reg, spillLoc, annotations=an } = 
+        (floatSpillCnt := *floatSpillCnt + 1;
+         [i::FMOVE { fsize=i::FP64, src=FMemReg src, dst=getFregLoc (an, spillLoc) } ]
+        )
+
+    fun renameF'{ instruction, fromSrc, toSrc } =
+        (floatRenameCnt := *floatRenameCnt + 1;
+         X86Spill::freload (instruction, fromSrc, i::FPR toSrc)
+        )
+
+    fun reloadFreg'{ dst, reg, spillLoc, annotations=an } = 
+        (floatReloadCnt := *floatReloadCnt + 1;
+         [i::FMOVE { fsize=i::FP64, dst=FMemReg dst, src=getFregLoc (an, spillLoc) } ]
+        )
+ 
+    /* -------------------------------------------------------------------
+     * Integer 8 stuff 
+     * -------------------------------------------------------------------*/
+    fun memToMemMove { dst, src } =
+        let tmp = i::C.new_reg() 
+        in  [i::MOVE { mvOp=i::MOVL, src=src, dst=i::DIRECT tmp },
+             i::MOVE { mvOp=i::MOVL, src=i::DIRECT tmp, dst=dst }
+            ]
+        end
+
+    fun copyInstrR((rds as [d], rss as [s]), _) =
+        if c::sameColor (d, s) then [] else 
+        let dx = c::registerNum d and sx = c::registerNum s
+        in  case (dx >= 8 and dx < 32, sx >= 8 and sx < 32) of
+             (FALSE, FALSE) => [i::COPY { dst=rds, src=rss, tmp=NULL } ]
+           | (TRUE, FALSE) => [i::MOVE { mvOp=i::MOVL, src=i::DIRECT s,
+                                      dst=i::MemReg d } ]
+           | (FALSE, TRUE) => [i::MOVE { mvOp=i::MOVL, src=i::MemReg s,
+                                      dst=i::DIRECT d } ]
+           | (TRUE, TRUE) => memToMemMove { src=i::MemReg s, dst=i::MemReg d }
+        end
+      | copyInstrR((rds, rss), i::COPY { tmp, ... } ) = 
+         [i::COPY { dst=rds, src=rss, tmp=tmp } ]
+      | copyInstrR (x, i::NOTE { instruction, note } ) = 
+          copyInstrR (x, instruction) #  XXX 
+      
+
+    fun getRegLoc (an, Ra::FRAME loc) = int::spillLoc (an, loc)
+      | getRegLoc (an, Ra::MEM_REG r) = i::MemReg r
+
+        #  No, logical spill locations... 
+
+    package GR8 = get_reg (nRegs=8 
+                           available=map c::registerId int::avail
+                           first=0)
+ 
+    K8 = length int::avail
+
+     #  register allocation for general purpose registers 
+    fun spillR8 { instruction, reg, spillLoc, kill, annotations=an } = 
+        (intSpillCnt := *intSpillCnt + 1;
+         X86Spill::spill (instruction, reg, getRegLoc (an, spillLoc))
+        ) 
+
+    fun isMemReg r = let x = c::registerNum r
+                     in  x >= 8 and x < 32 end
+ 
+    fun spillReg { src, reg, spillLoc, annotations=an } = 
+        let intSpillCnt := *intSpillCnt + 1;
+            dstLoc = getRegLoc (an, spillLoc)
+            isMemReg = isMemReg src
+            srcLoc = if isMemReg then i::MemReg src else i::DIRECT src
+        in  if instruction_properties::eqOpn (srcLoc, dstLoc) then []
+            else if isMemReg then memToMemMove { dst=dstLoc, src=srcLoc }
+            else [i::MOVE { mvOp=i::MOVL, src=srcLoc, dst=dstLoc } ]
+        end
+
+    fun spillCopyTmp { copy=i::COPY { src, dst, ... }, spillLoc, annotations=an } = 
+        (intSpillCnt := *intSpillCnt + 1;
+         i::COPY { dst=dst, src=src, tmp=THE (getRegLoc (an, spillLoc)) }
+        )
+   
+    fun renameR8 { instruction, fromSrc, toSrc } = 
+        (intRenameCnt := *intRenameCnt + 1;
+         X86Spill::reload (instruction, fromSrc, i::DIRECT toSrc)
+        )
+
+    fun reloadR8 { instruction, reg, spillLoc, annotations=an } = 
+        (intReloadCnt := *intReloadCnt + 1;
+         X86Spill::reload (instruction, reg, getRegLoc (an, spillLoc))
+        ) 
+
+    fun reloadReg { dst, reg, spillLoc, annotations=an } = 
+        let intReloadCnt := *intReloadCnt + 1
+            srcLoc = getRegLoc (an, spillLoc)
+            isMemReg = isMemReg dst
+            dstLoc = if isMemReg then i::MemReg dst else i::DIRECT dst
+        in  if instruction_properties::eqOpn (srcLoc, dstLoc) then []
+            else if isMemReg then memToMemMove { dst=dstLoc, src=srcLoc }
+            else [i::MOVE { mvOp=i::MOVL, src=srcLoc, dst=dstLoc } ]
+        end
+
+    fun resetRA() = 
+      (firstSpill := TRUE;
+       firstFPSpill := TRUE;
+       int_hash_table::clear affectedBlocks; 
+       int_hash_table::clear deadRegs;
+       if *fast_floating_point then FR8::reset() else FR32::reset(); 
+       GR8::reset()
+      )
+
+    #  Dedicated + available registers 
+    fun mark (a, l) = apply (fn r => rw_vector::set (a, c::registerId r, TRUE)) l
+
+    dedicatedR   = rw_vector::rw_vector (32, FALSE)
+    dedicatedF32 = rw_vector::rw_vector (64, FALSE)
+    dedicatedF8  = rw_vector::rw_vector (64, FALSE)
+    my _ = mark (dedicatedR, int::dedicated)
+    my _ = mark (dedicatedF32, float::dedicated)
+
+
+    fun phases ps =
+    let fun f ([], m) = m
+          | f (SPILL_PROPAGATION . ps, m) = f (ps, Ra::SPILL_PROPAGATION+m)
+          | f (SPILL_COLORING . ps, m) = f (ps, Ra::SPILL_COLORING+m)
+    in  f (ps, Ra::NO_OPTIMIZATION)
+    end
+
+    #  RA parameters 
+
+    # How to allocate integer registers:    
+    # Perform register alocation + memory allocation
+
+    RAInt = { spill     = spillR8,
+                 spillSrc  = spillReg,
+                 spillCopyTmp= spillCopyTmp,
+                 reload    = reloadR8,
+                 reloadDst = reloadReg,
+                 renameSrc = renameR8,
+                 copyInstr = copyInstrR,
+                 K         = K8,
+                 getreg    = GR8::getreg,
+                 cellkind  = i::C.GP,   
+                 dedicated = dedicatedR,
+                 spillProh = [],
+                 memRegs   = int::memRegs,
+                 mode      = phases (int::phases)
+                } : Ra::raClient
+
+    # How to allocate floating point registers:    
+    # Allocate all fp registers on the stack.  This is the easy way.
+
+    RAFP32 = { spill     = spillF,
+                 spillSrc  = spillFreg,
+                 spillCopyTmp= spillFcopyTmp,
+                 reload    = reloadF,
+                 reloadDst = reloadFreg,
+                 renameSrc = renameF,
+                 copyInstr = copyInstrF,
+                 K         = KF32,
+                 getreg    = FR32::getreg,
+                 cellkind  = i::C.FP,   
+                 dedicated = dedicatedF32,
+                 spillProh = [],
+                 memRegs   = float::memRegs,
+                 mode      = phases (float::phases)
+                } : Ra::raClient
+
+    # How to allocate floating point registers:    
+    # Allocate fp registers on the %st stack.  Also perform
+    # memory allcoation.
+
+     RAFP8 = { spill     = spillF,
+                 spillSrc  = spillFreg',
+                 spillCopyTmp= spillFcopyTmp,
+                 reload    = reloadF,
+                 reloadDst = reloadFreg',
+                 renameSrc = renameF',
+                 copyInstr = copyInstrF',
+                 K         = KF8,
+                 getreg    = FR8::getreg,
+                 cellkind  = i::C.FP,   
+                 dedicated = dedicatedF8,
+                 spillProh = [],
+                 memRegs   = float::fastMemRegs,
+                 mode      = phases (float::fastPhases) 
+                } : Ra::raClient
+
+    # Two RA modes, fast and normal:
+    fast_fp = [RAInt, RAFP8]
+    normal_fp = [RAInt, RAFP32]
+ 
+    #  The main ra routine 
+    fun run cluster =
+    let printGraph = 
+            if *x86CfgDebugFlg then 
+               PrintFlowGraph::printCluster(*LowCodeControl::debug_stream)
+            else fn msg => fn _ => () 
+
+        beforeRA() 
+        resetRA()
+
+        #  generic register allocator 
+
+        cluster = Ra::ra
+                      (if *fast_floating_point then fast_fp else normal_fp)
+                      cluster
+
+        removeDeadCode cluster
+
+        printGraph "\t---After register allocation K=8---\n" cluster
+
+        # Run the FP translation phase when fast floating point has
+        # been enabled
+
+        cluster = 
+             if *fast_floating_point and i::C.numCell i::C.FP () > 0 then 
+             let cluster = x86_floating_point_code::run cluster
+             in  printGraph "\t---After X86 FP translation ---\n" cluster;
+                 cluster
+             end
+             else cluster
+    in  cluster
+    end
+
+end

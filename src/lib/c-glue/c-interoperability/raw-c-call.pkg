@@ -1,0 +1,284 @@
+package raw_c_call:  Raw_Ccall {
+
+   type address = c_memory::address 
+   type lib_handle = dynamic_linkage::lib_handle
+   type fun_handle = Void -> address
+   type library_name  = String
+   type function_name = String
+
+   fun LoadLib library
+       = 
+       dynamic_linkage::open_lib { name=library, global=TRUE, lazy=TRUE }
+          except e as dynamic_linkage::DYNAMIC_LINK_ERROR msg =>
+           raise exception FAIL msg
+
+   fun LoadFn libh function
+       = 
+       {   sh =   dynamic_linkage::lib_symbol (libh, function);
+
+           fn () => dynamic_linkage::address sh;
+       }
+       except
+           e as dynamic_linkage::DYNAMIC_LINK_ERROR msg
+               =>
+	       raise exception FAIL msg;
+
+
+# The following mapping applies:
+#   Given C-type t, we write [t] to denote its encoding in ML types.
+#
+# [double]             = real
+# [float]              = real List
+# [long double]        = real List list
+# [char]               = char
+# [unsigned char]      = unt8::word
+# [int]                = int31::int
+# [unsigned int]       = unt31::word
+# [long]               = int32::Int
+# [unsigned long]      = unt32::word
+# [short]              = char List
+# [unsigned short]     = unt8::word List
+# [long long]          = int32::Int List
+# [unsigned long long] = unt32::word List
+# [T*]                 = String
+# [struct {} ]          = exn
+# [struct { t1, ...tn } ]   = Void * [t1] * ... * [tn]
+# [void]               = Void
+#
+# Currently we don't encode arrays.  (C arrays are mostly like pointers
+# except within structures.  For the latter case, we can simulate the
+# desired effect by making n fields of the same type.)
+#
+# The prototype of a function taking arguments of types a1, ..., an (n > 0)
+# and producing a result of type r is encoded as:
+#       (Void * [a1] * ... * [an] -> [r]) List
+# We use
+#       (Void * [a1] * ... * [an] -> [r]) List list
+# to specify a "windows_convention" calling convention used by, e.g., Win32.
+# 
+# For n = 0 (C argument list is "(void)"), we use:
+#       (Void -> [r]) List     or      (Void -> [r]) List list
+# The use of list constructor (s) here is a trick to avoid having to construct
+# an actual function value of the required type when invoking the RAW_CCALL
+# primop.  Instead, we just pass NIL.  The code generator will throw away
+# this value anyway.
+# The unit type for non-empty records and non-empty argument lists
+# avoids the degenerate case of 1-element (ML-)records.
+
+
+   #  ML -> C 
+   c_sint = c_memory::wrap_sint
+   c_uint = c_memory::wrap_uint
+   c_schar = c_memory::wrap_schar
+   c_uchar = c_memory::wrap_uchar
+   c_sshort = c_memory::wrap_sshort
+   c_ushort = c_memory::wrap_ushort
+   c_slong = c_memory::wrap_slong
+   c_ulong = c_memory::wrap_ulong
+   c_float = c_memory::wrap_float
+   c_double = c_memory::wrap_double
+   fun c_ptr x  = c_memory::wrap_addr (C_Int::reveal (c::Ptr::inject' x))
+   fun c_fptr x  = c_memory::wrap_addr (C_Int::freveal x)
+   fun c_voidptr x  = c_memory::wrap_addr (C_Int::reveal x)
+
+   #  C -> ML 
+   ml_sint = c_memory::unwrap_sint
+   ml_uint = c_memory::unwrap_uint
+   ml_schar = c_memory::unwrap_schar
+   ml_uchar = c_memory::unwrap_uchar
+   ml_sshort = c_memory::unwrap_sshort
+   ml_ushort = c_memory::unwrap_ushort
+   ml_slong = c_memory::unwrap_slong
+   ml_ulong = c_memory::unwrap_ulong
+   ml_float = c_memory::unwrap_float
+   ml_double = c_memory::unwrap_double
+   fun ml_ptr x = C_Int::pcast (c_memory::unwrap_addr x)
+   fun ml_fptr x = C_Int::fcast (c_memory::unwrap_addr x)
+   fun ml_voidptr x = C_Int::vcast (c_memory::unwrap_addr x)
+
+   # All witness types and encoding types are phathom types.
+   # They are only needed for the types to work out.
+
+   enum c_param (A_ml,C,X,A_en)  = 
+     PARAM of (A_ml -> C) * (C -> A_ml) 
+
+   type c_arg (A_ml,C,X,A_en) = c_param  (A_ml,C,X,A_en)
+   type c_ret (A_ml,C,X,A_en) = c_param  (A_ml,C,X,A_en)
+
+   type c_ptr (T,C) 
+           = 
+         c_param ( c::ptr' c::obj (T,C),   c_memory::cc_addr, 
+                   c::ptr  c::obj (T,C),   String
+                 )
+   type c_fptr T  =  c_param (c::fptr' T, c_memory::cc_addr, c::fptr T, String)
+   type void_ptr = c_param (c::voidptr, c_memory::cc_addr, c::voidptr, String)
+
+   enum c_proto (A_to_c,A_to_ml,X,A_en) = 
+       PROTO of { toC:   A_to_c,
+                 toML:  A_to_ml
+                }
+
+   schar  = PARAM (c_schar, ml_schar) 
+   uchar  = PARAM (c_uchar, ml_uchar) 
+   sshort = PARAM (c_sshort, ml_sshort) 
+   ushort = PARAM (c_ushort, ml_ushort) 
+   sint   = PARAM (c_sint, ml_sint) 
+   uint   = PARAM (c_uint, ml_uint) 
+   slong  = PARAM (c_slong, ml_slong) 
+   ulong  = PARAM (c_ulong, ml_ulong) 
+
+   float  = PARAM (c_float, ml_float) 
+   double = PARAM (c_double, ml_double)
+
+   fun unimplemented _ = raise exception FAIL "unimplemented"
+   
+   string = PARAM (c_ext::c_string, unimplemented)
+
+   anyptr = PARAM (c_ptr, ml_ptr) 
+   fun ptr x  = anyptr
+   fun const p = anyptr
+   charptr = anyptr
+
+   anyfptr = PARAM (c_fptr, ml_fptr)
+   fun fptr x = anyfptr
+
+   voidptr= PARAM (c_voidptr, ml_voidptr) :   
+                (c::voidptr, c_memory::cc_addr, c::voidptr, String) c_param
+
+   char  = (schar, uchar)
+   short = (sshort, ushort)
+   int   = (sint, uint)
+   long  = (slong, ulong)
+
+   fun signed (x, y) = x
+   fun unsigned (x, y) = y
+
+   void = PARAM (fn x => x, fn x => x)
+   voidptr = PARAM (fn x => x, fn x => x)
+
+   #  Create prototypes 
+   fun Fn0 (PARAM(_, toML)) () = 
+       PROTO { toC=fn () => (), toML }
+
+   fun Fn1 (PARAM(_, y)) (PARAM (f1, _)) =
+       PROTO { toC=f1, toML=y }
+
+   fun Fn2 (PARAM(_, y)) (PARAM (f1, _), PARAM (f2, _)) =
+       PROTO { toC=fn (x1, x2) => (f1 x1, f2 x2), toML=y }
+
+   fun Fn3 (PARAM(_, y))
+          (PARAM (f1, _),
+           PARAM (f2, _),
+           PARAM (f3, _)
+          ) = 
+       PROTO { toC=fn (x1, x2, x3) => (f1 x1, f2 x2, f3 x3), toML=y }
+
+   fun Fn4 (PARAM(_, y))
+          (PARAM (f1, _),
+           PARAM (f2, _),
+           PARAM (f3, _),
+           PARAM (f4, _)
+          )  =
+       PROTO { toC=fn (x1, x2, x3, x4) => (f1 x1, f2 x2, f3 x3, f4 x4), toML=y }
+
+   fun Fn5 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5), 
+             toML=y }
+
+   fun Fn6 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _),
+            PARAM (f6, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5, x6) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5, f6 x6), 
+             toML=y }
+
+   fun Fn7 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _),
+            PARAM (f6, _),
+            PARAM (f7, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5, x6, x7) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5, f6 x6, f7 x7), 
+             toML=y }
+
+   fun Fn8 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _),
+            PARAM (f6, _),
+            PARAM (f7, _),
+            PARAM (f8, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5, x6, x7, x8) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5, f6 x6, f7 x7, f8 x8), 
+             toML=y }
+
+   fun Fn9 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _),
+            PARAM (f6, _),
+            PARAM (f7, _),
+            PARAM (f8, _),
+            PARAM (f9, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5, x6, x7, x8, x9) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5, f6 x6, f7 x7, f8 x8, f9 x9), 
+             toML=y }
+
+   fun Fn10 (PARAM(_, y))
+           (PARAM (f1, _),
+            PARAM (f2, _),
+            PARAM (f3, _),
+            PARAM (f4, _),
+            PARAM (f5, _),
+            PARAM (f6, _),
+            PARAM (f7, _),
+            PARAM (f8, _),
+            PARAM (f9, _),
+            PARAM (f10, _)
+           )  =
+       PROTO { toC=fn (x1, x2, x3, x4, x5, x6, x7, x8, x9, x10) => 
+                    (f1 x1, f2 x2, f3 x3, f4 x4, f5 x5, f6 x6, f7 x7, f8 x8, f9 x9,
+                     f10 x10), 
+             toML=y }
+
+
+   # A thunk represents three things:
+   #  1.  The address of the function to be called,
+   #  2.  Its arguments,
+   #  3.  Its return type in C,
+   #  3.  Its return type in ML,
+   #  3.  Its type encoding
+
+   type c_thunk (C_arg, A_to_c, A_en) = address * C_arg * A_en
+
+   fun fhandle_addr fh = fh()
+   fun fptr_addr f = C_Int::freveal (c::Light::fptr f)
+   fptr'_addr = C_Int::freveal
+
+   fun Thunk'(address, PROTO { toML, toC }, x) = (address, toC x, []) 
+   fun Thunk (fh, PROTO { toML, toC }, x) = (fh(), toC x, []) 
+   Eval = raw_mem_inline_t::rawccall
+   fun Return (PROTO { toML, ... }, r) = toML r  
+}

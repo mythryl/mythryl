@@ -1,0 +1,607 @@
+## symbol-table-dictionary.pkg 
+
+# Compiled by:
+#     src/lib/compiler/frontend/typecheck-stuff/typecheckdata.make6
+
+
+
+# Implementation for the eight individual subtables
+# of the symbol table (one per namespace).
+#
+# The core implementation datastructure is a
+# conventional rw_vector-of-bucketchains hashtable.
+#
+# These hashtables then get layered, one per lexical scope.
+#
+# For more on the symbol table generally,
+# see the OVERVIEW section in:
+#
+#     src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+
+
+
+# The HASH_TABLE_API provides an
+# abstract interface to the individual
+# hash tables, to insulate the rest
+# of the module from details of their
+# implementation:
+
+
+
+api Symbol_Hash_Table_Api {     #  Used only within this file. 
+
+    Symbol_Hash_Table( X );
+
+    # NB: In case of duplicates, 'new' discards the element
+    # towards the head of the list and keeps the one towards
+    # the tail:
+
+
+    new:  List( (Unt, String, X) )
+           -> Symbol_Hash_Table( X );
+
+
+    elems:  Symbol_Hash_Table( X )
+             -> Int;
+
+
+    map:    Symbol_Hash_Table( X )
+             -> (Unt,
+                 String)
+             -> X;
+
+    apply:     ((Unt, String, X) -> Void)
+             -> Symbol_Hash_Table( X )
+             -> Void;
+
+    fold:   ((((Unt, String, X)), Y) -> Y)
+             -> Y
+             -> Symbol_Hash_Table( X )
+             -> Y;
+
+    transform:  (X -> Y)
+                 -> Symbol_Hash_Table( X )
+                 -> Symbol_Hash_Table( Y );
+};
+
+package symbol_table_dictionary: (weak)  Symbol_Table_Dictionary {		# Symbol_Table_Dictionary	is from   src/lib/compiler/frontend/typecheck-stuff/basics/symbol-table-dictionary.api
+
+    #  Debugging 
+    say      = control_print::say;
+    debugging = REF FALSE;
+
+    fun if_debugging_say (msg: String)
+        =
+	if *debugging
+             say msg;
+             say "\n";
+        fi;
+
+    exception UNBOUND;
+
+    package symbol_hashtable: Symbol_Hash_Table_Api {
+
+	package v = vector;			# vector	is from   src/lib/std/src/vector.pkg
+
+	Bucket_Chain X
+            = NIL
+	    | BUCKET  ( ( Unt,			# Symbol hashcode.      
+			  String,		# Symbol name.          
+			  X,			# Symbol bound value.   
+			  Bucket_Chain( X )	# Next bucket in chain. 
+		      )	);
+
+	Symbol_Hash_Table( X )
+            =
+            v::Vector( Bucket_Chain( X ) );
+
+	elems = v::length;
+
+	fun bucket_chain_map f
+	    =
+	    {   fun loop NIL
+                        =>
+                        NIL;
+
+		    loop (BUCKET (i, s, j, r))
+                        =>
+                        BUCKET (i, s, f (j), loop r);
+                end;
+	    
+		loop;
+	    };
+
+	fun bucket_chain_app f
+	    =
+	    loop
+            where
+	        fun loop NIL
+                        =>
+                        ();
+
+		    loop (BUCKET (i, s, value, rest))
+			=>
+			{    f (i, s, value);
+			     loop rest;
+			};
+                end;
+	    end;
+
+	fun transform f v
+	    =
+	    v::tabulate (v::length v, fn i => bucket_chain_map f (v::get (v, i)); end );
+
+	fun index (len, i)
+	    =
+	    unt::to_int (unt::(%) (i, unt::from_int len));
+
+	fun map hash_table (i, s)
+	    =
+	    {   # Iterate on down a hashbucket chain looking
+		# for a match on our key symbol hashcode ('i')
+		# and name (string 's'):
+		#
+		fun bucket_chain_find NIL
+                        =>
+                        raise exception UNBOUND;
+
+		    bucket_chain_find (BUCKET (i', s', value, rest))
+			=>
+			if (    i==i'
+			   and  s==s'
+                           )
+
+			     value;
+			else
+			     bucket_chain_find rest;
+                        fi;
+                end;
+
+	        # Hash 'i' (symbol's integer id hashcode part) 
+		# to a bucketchain slot, then search that
+		# bucket chain.
+		#
+		# NB:  We hash down using integer division,
+		# in the academic tradition, where
+		# most Unix hackers would probably instead
+		# use a logical AND operation for speed.
+		# XXX BUGGO FIXME
+		#
+		(   bucket_chain_find (
+			v::get (
+			   hash_table,
+			   index (
+			       v::length hash_table,
+			       i
+			   )
+			)
+		    )
+		)
+		except
+		    DIVIDE_BY_ZERO = raise exception UNBOUND;
+	    };
+
+	fun apply f v
+	    =
+	    f 0
+            where
+	        n    =  v::length v;
+		bapp =  bucket_chain_app f;
+
+		fun f i
+		    =
+		    if (i != n)
+			 bapp (v::get (v, i));
+                         f (i+1);
+                    fi;
+	    end;
+
+	fun fold f zero v
+	    =
+	    g (0, zero)
+            where
+	        n = v::length v;
+
+		fun bucketfold (NIL, x) => x;
+		    bucketfold (BUCKET (i, s, j, r), x) => bucketfold (r, f((i, s, j), x));
+                end;
+
+		fun g (i, x)
+		    =
+		    i == n   ??   x
+		             ::   g (i+1, bucketfold (v::get (v, i), x));
+	    end;
+
+        # Create a new hashtable from a list 
+        # of (keyhash, keystring, value) triples.
+        #
+        # Note that the hashtable always has
+        # exactly as many buckets as slots,
+        # because we create it that way and
+        # never modify it thereafter:
+
+	fun new (namings: List( (Unt, String, Y) ) )
+	    =
+	    {   n  = list::length namings;
+		a0 = rw_vector::make_rw_vector (n, NIL: Bucket_Chain( Y ));
+		dups = REF 0;
+
+                # Add one (keyhash, keystring, value) triple
+                # to the hashtable, except if it is a duplicate,
+                # instead drop it and increment 'dups':
+
+		fun add a (i, s, b)
+		    =
+		    {   index = index (rw_vector::length a, i);
+
+			fun f NIL =>   BUCKET (i, s, b, NIL);
+
+			    f (BUCKET (i', s', b', r))
+				=>
+				if (i'==i and s'==s)
+				    
+                                     dups := *dups+1;
+                                     BUCKET (i, s, b, r);
+				else BUCKET (i', s', b', f r);  fi;
+                        end;
+		    
+			rw_vector::set (a, index, f (rw_vector::get (a, index)));
+		    };
+		                                               
+                list::apply (add a0) namings;
+
+                # If we had duplicates, construct
+                # a correspondingly shorter rw_vector:
+
+		a1 = case *dups
+		       
+                          0 => a0;
+
+			  d => {   a = rw_vector::make_rw_vector (n-d, NIL: Bucket_Chain( Y ));
+
+				   list::apply (add a) namings;
+				   a;
+			       };
+                     esac;
+	    
+                # Convert rw_vector a1 to a 
+                # vector of same length,
+                # with same contents:
+                #
+		vector::tabulate
+                    ( rw_vector::length a1,
+                      fn i = rw_vector::get (a1, i)
+                    );
+	    };
+
+    };					# package symbol_hashtable 
+
+
+
+    # Representation of symbol table dictionaries.
+    #
+    #     compiler/typecheck-stuff/symbol-table/symboltable.sml
+    #
+    # Macro-cxpands Y to real_naming, which is just
+    # Symbol_Table_Entry plus an optional Module_Tree
+    # for make7.
+    #
+    # The representation is essentially a singly-linked
+    # stack of hashtables, one per lexical scope, terminated
+    # by an EMPTY entry. 
+    #
+    # TABLE lets us handle a scope with lots of namings
+    #       via a hashtable, while
+    #
+    # BIND  lets us bind a single symbol to a value
+    #       without having to use up a whole hashtable.
+    #
+    Symbol_Table_Dictionary Y
+        = EMPTY
+
+	| BIND  (Unt,
+		 String,
+		 Y,
+		 Symbol_Table_Dictionary( Y ))
+
+	| TABLE  (symbol_hashtable::Symbol_Hash_Table( Y ),
+		  Symbol_Table_Dictionary( Y ))
+
+
+	  #  For, e::g., debugger: 
+
+	| SPECIAL  ((symbol::Symbol -> Y),
+		    (Void -> List( symbol::Symbol )),
+		    Symbol_Table_Dictionary( Y ));
+					      
+
+    empty = EMPTY;
+
+    fun get (dictionary, symbol as symbol::SYMBOL (is as (i, s)))
+        = 
+        f dictionary
+        where
+	    fun f EMPTY
+		    =>
+		    {    if_debugging_say ("@@@SymbolTableDictionary::get " + s);
+			 raise exception UNBOUND;
+		    };
+
+	        f (BIND (i', s', b, n))
+		    =>
+		    if (i == i' and s == s')   b;
+                    else                       f n;
+                    fi;
+
+	        f (TABLE (t, n))
+		    =>
+		    symbol_hashtable::map t is
+		    except
+			UNBOUND = f n;
+
+	        f (SPECIAL (g, _, n))
+		    =>
+		    g symbol
+                    except
+                        UNBOUND = f n;
+            end;
+	end;
+
+    fun bind (symbol::SYMBOL (i, s), naming, dictionary)
+        =
+        BIND (i, s, naming, dictionary);
+
+    fun special (get', get_syms)
+        =
+	{   memo_env = REF empty;
+
+	    fun get_mem symbol
+                =
+		get (*memo_env, symbol) 
+		except
+                    UNBOUND
+                    =
+		    { naming = get' symbol;
+		    
+			memo_env := bind (symbol, naming,*memo_env);
+			naming;
+		    };
+
+	    memo_syms = REF (NULL: Null_Or(  List(  symbol::Symbol ) ));
+
+	    fun getsyms_mem ()
+                =
+		case *memo_syms
+		  
+		     NULL => {   syms = get_syms();
+			    
+                                 memo_syms := THE syms; syms;
+			     };
+
+		    THE syms => syms;
+               esac;
+	
+            SPECIAL (get_mem, getsyms_mem, empty);
+	};
+
+    infix val  atop ;
+
+    fun (EMPTY)                atop e =>   e;
+        (BIND (i, s, b, n))    atop e =>   BIND (i, s, b,    n atop e);
+        (TABLE (t, n))         atop e =>   TABLE (t,         n atop e);
+        (SPECIAL (g, syms, n)) atop e =>   SPECIAL (g, syms, n atop e);
+    end;
+
+    fun apply f
+        =
+        g
+        where
+	    fun g (BIND (i, s, b, n))
+                    =>
+                    {   g n;
+                        f (symbol::SYMBOL (i, s), b);
+                    };
+
+	        g (TABLE (t, n))
+		    =>
+		    {   g n;
+			symbol_hashtable::apply (fn (i, s, b) = f (symbol::SYMBOL (i, s), b)) t;
+		    };
+
+	        g (SPECIAL (looker, syms, n))
+		    => 
+		    {   g n;
+			list::apply (fn symbol = f (symbol, looker symbol)) (syms());
+		    };
+
+	        g EMPTY
+                    =>
+                    ();
+            end;
+	end;
+
+    fun symbols dictionary
+        =
+        f (NIL, dictionary)
+        where
+	    fun f (syms, BIND (i, s, b, n))
+                    =>
+                    f (symbol::SYMBOL (i, s) ! syms, n);
+
+	        f (syms, TABLE (t, n))
+		    =>
+		    {   r = REF syms;
+			fun add (i, s, _) = r := symbol::SYMBOL (i, s) ! *r;
+
+			symbol_hashtable::apply add t; f(*r, n);
+		    };
+
+	        f (syms, SPECIAL(_, syms', n))
+                    =>
+                    f (syms'()@syms, n);
+
+	        f (syms, EMPTY)
+                    =>
+                    syms;
+            end;
+	end;
+
+    fun map func (TABLE (t, EMPTY))   #  optimized case 
+	    =>
+	    TABLE (symbol_hashtable::transform func t, EMPTY);
+
+        map func dictionary
+	    =>
+	    TABLE (symbol_hashtable::new (f (NIL, dictionary)), EMPTY)
+            where
+	        fun f (syms, BIND (i, s, b, n))
+			=>
+			f((i, s, func b) ! syms, n);
+
+		    f (syms, TABLE (t, n))
+			=>
+			{   r = REF syms;
+
+			    fun add (i, s, b)
+				=
+				r := (i, s, func b) ! *r;
+
+			    symbol_hashtable::apply add t;
+			    f(*r, n);
+			};
+
+		    f (syms, SPECIAL (get', syms', n))
+			=> 
+			f (list::map (   fn (symbol as symbol::SYMBOL (i, s))
+					   =>
+					   (i, s, func (get' symbol)); end 
+				    )
+
+				    (syms' ()) @ syms, 
+			     n);
+
+		    f (syms, EMPTY)
+		        =>
+		        syms;
+                end;
+	    end;
+    end;
+
+    fun fold f base e
+        =
+        g (e, base)
+        where
+	    fun g (BIND (i, s, b, n), x)
+		    => 
+		    {   y = g (n, x);
+
+			f ((symbol::SYMBOL (i, s), b), y);
+		    };
+
+	        g (e as TABLE (t, n), x)
+		    =>
+		    {   y = g (n, x);
+
+			symbol_hashtable::fold
+			   (fn ((i, s, b), z) = f ((symbol::SYMBOL (i, s), b), z))
+                            y
+                            t;
+		    };
+
+	        g (SPECIAL (looker, syms, n), x)
+		    => 
+		    {   y = g (n, x);
+			symbols = (syms());
+
+			list::fold_right
+                            (fn (symbol, z) = f ((symbol, looker symbol), z))
+                            y
+                            symbols;
+		    };
+
+	        g (EMPTY, x)
+                    =>
+                    x;
+            end;
+	end;
+
+    fun consolidate (dictionary as TABLE(_, EMPTY)) => dictionary;
+        consolidate (dictionary as EMPTY)           => dictionary;
+
+        consolidate dictionary
+	    =>
+	    map (fn x = x) dictionary
+            except
+                no_symbol_list = dictionary;
+    end;
+
+    fun should_consolidate dictionary
+        =
+        f (0, 0, dictionary)
+        where
+	    fun f (depth, size, BIND   (_, _, _, n)) =>  f (depth+1, size+1, n);
+	        f (depth, size, TABLE  (t, n)      ) =>  f (depth+1, size+symbol_hashtable::elems t, n);
+	        f (depth, size, SPECIAL(_, _, n)   ) =>  f (depth+1, size+100, n);
+	        f (depth, size, EMPTY              ) =>  depth*10 > size;
+            end;
+	end;
+
+    /*
+    fun tooDeep dictionary
+        =
+	let fun f (depth, dictionary) = if depth > 30 then TRUE
+	      else case dictionary 
+		    of BIND(_, _, _, n) => f (depth+1, n)
+		     | TABLE(_, n) => f (depth+1, n)
+		     | SPECIAL(_, _, n) => f (depth+1, n)
+		     | EMPTY => FALSE
+	in
+            f (0, dictionary)
+	end
+    */
+
+    fun consolidate_lazy (dictionary as TABLE(_, EMPTY))  =>   dictionary;
+        consolidate_lazy (dictionary as EMPTY)            =>   dictionary;
+
+        consolidate_lazy dictionary
+	    => 
+	    if   (should_consolidate dictionary) 
+	        
+		 map (fn x = x) dictionary
+		 except
+		     no_symbol_list = dictionary;
+	    else
+		 dictionary;
+            fi;
+    end;
+
+};				#  package symbol_table_dictionary 
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

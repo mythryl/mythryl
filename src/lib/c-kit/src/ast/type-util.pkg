@@ -1,0 +1,1349 @@
+## type-util.pkg
+
+# Compiled by:
+#     src/lib/c-kit/src/ast/group.make6
+
+package type_util: (weak)  Type_Util {				# Type_Util	is from   src/lib/c-kit/src/ast/type-util.api
+
+    package s= symbol;						# symbol	is from   src/lib/c-kit/src/ast/symbol.pkg
+    package pid = pid;
+    package tid = tid;
+    package b= namings;						# namings	is from   src/lib/c-kit/src/ast/bindings.pkg
+    package type_check_control= config::type_check_control;	# config	is from   src/lib/c-kit/src/variants/ansi-c/config.pkg
+
+    exception TYPE_ERROR  raw_syntax::Ctype;
+
+    # Some parameters used here,
+    # but passed in that should be
+    # lifted out of here 
+    #
+    fun warning s
+	=
+	{   print "warning ";
+	    print s;
+	    print "\n";
+	};
+
+    fun internal_error s
+	=
+	{   print "internal error ";
+	    print s;
+	    print "\n";
+	};
+
+    don't_convert_short_to_int
+        =
+        type_check_control::don't_convert_short_to_int;
+	    #
+	    # In ANSI C, usual unary converstion converts
+	    # SHORT to INT; for DSP code, we want to
+	    # keep SHORT as SHORT.
+	    # Default: TRUE for ANSI C behavior.
+
+    don't_convert_double_in_usual_unary_cnv
+        =
+        type_check_control::don't_convert_double_in_usual_unary_cnv;
+	    #
+	    # In ANSI, FLOAT is not converted to DOUBLE during
+	    # usual unary converstion; in old style compilers
+	    # FLOAT *is* converted to DOUBLE.
+	    # Default: TRUE for ANSI behavior.
+
+    enumeration_incompatibility
+        =
+        type_check_control::enumeration_incompatibility;
+	    #
+	    # ANSI says that different enumerations are incompatible
+	    # (although all are compatible with int);
+	    # older style compilers say that different enumerations
+	    # are compatible.
+	    # Default: TRUE for ANSI behavior.
+
+    pointer_compatibility_quals
+        =
+        type_check_control::pointer_compatibility_quals;
+	    #
+	    # ANSI says that pointers to differently qualified types
+	    # are different; some compilers vary.
+	    # Default: TRUE for ANSI behavior.
+
+    std_int
+        =
+        raw_syntax::NUMERIC
+          ( raw_syntax::NONSATURATE,
+            raw_syntax::WHOLENUM,
+            raw_syntax::SIGNED,
+            raw_syntax::INT,
+            raw_syntax::SIGNASSUMED
+          );
+
+    fun ct_to_string tidtab
+	=
+        prettyprint_lib::prettyprint_to_string (unparse_raw_syntax::prettyprint_ctype () tidtab);
+	    #
+            # pid table actually not needed to print out a ct, but it is 
+	    # a parameter passed to prettyprintCtype, so just fudge one to make types work.
+	    # This is ugly dpo?
+
+    fun reduce_typedef (tidtab: tables::Tidtab) type
+        = 
+        case type
+
+	    raw_syntax::TYPE_REF tid
+                => 
+	        case (tidtab::find (tidtab, tid))
+
+		    THE { ntype=>THE (b::TYPEDEFX (_, type)), ... }
+                        =>
+                        reduce_typedef tidtab type;
+
+		    _   =>
+                        {   internal_error "poorly formed type table (unresolved type id), assuming Void";
+			    raw_syntax::VOID;
+			};
+                esac;
+
+	    type => type;
+        esac;
+
+
+    fun get_core_type tidtab type
+	=
+	# Deref typedefs and
+        # remove qualifiers: 
+	#
+	case type
+	    raw_syntax::TYPE_REF tid   =>  get_core_type tidtab (reduce_typedef tidtab type);
+	    raw_syntax::QUAL (_, type) =>  get_core_type tidtab type;
+	    type                       =>  type;
+	esac;
+
+
+    fun check_qualifiers tidtab type
+	=
+	{ redundant_const    => result.cerr,
+	  redundant_volatile => result.verr
+	}
+        where
+	    result = check type
+            where
+		fun check type
+		    = 
+		    case type
+
+			raw_syntax::TYPE_REF tid
+			    =>
+			    check (reduce_typedef tidtab type);
+
+			raw_syntax::QUAL (q, type)
+			    => 
+			    {   my { volatile, const, cerr, verr }
+				    =
+				    check type;
+
+				case q   
+				    raw_syntax::CONST    => { volatile,       const=>TRUE, verr, cerr=>const    };
+				    raw_syntax::VOLATILE => { volatile=>TRUE, const,       cerr, verr=>volatile };
+				esac;
+			    };
+
+			type =>
+			    { volatile => FALSE,
+			      const    => FALSE,
+			      verr     => FALSE,
+			      cerr     => FALSE
+			    };
+		    esac;
+	    end;
+	end;
+
+
+    fun get_quals tidtab type
+        =
+	# Collect qualifiers:
+        #
+        case type
+
+	    raw_syntax::TYPE_REF tid
+                =>
+                get_quals tidtab (reduce_typedef tidtab type);
+
+	    raw_syntax::QUAL (q, type)
+                => 
+	        {   my { volatile, const, type }
+                        =
+                        get_quals tidtab type;
+
+	            case q   
+	                raw_syntax::CONST    => { volatile,       const=>TRUE, type };
+	                raw_syntax::VOLATILE => { volatile=>TRUE, const,       type };
+                    esac;
+	        };
+
+	    type =>
+                { volatile=>FALSE, const=>FALSE, type };
+        esac;
+
+  /*
+     fun hasKnownStorageSize tidtab { type, withInitializer } =
+	     # withInitializer=TRUE: does type have known storage size when an initializer is present (see rw_vector case)
+	     # withInitializer=FALSE: does type have known storage size, period.
+      case type of
+	raw_syntax::VOID => FALSE
+      | raw_syntax::QUAL(_, type) => hasKnownStorageSize tidtab type
+      | raw_syntax::NUMERIC _ => TRUE
+      | raw_syntax::ARRAY (THE _, type) => hasKnownStorageSize tidtab type
+      | raw_syntax::ARRAY (NULL, _) => withInitializer
+      | raw_syntax::POINTER _ => TRUE
+      | raw_syntax::FUNCTION _ => TRUE
+      | raw_syntax::ENUM_REF tid => TRUE
+      | raw_syntax::AGGR_REF tid =>
+	  (case tidtab::find (tidtab, tid)
+	     of THE(_, THE (raw_syntax::AGGR (_, _, fields)), _) => 
+		 list::fold_left
+		   (fn ((type, _, _), b) => b and (hasKnownStorageSize tidtab type))
+		   TRUE fields
+	      | _ => FALSE)
+      | raw_syntax::TYPE_REF tid => hasKnownStorageSize tidtab (reduceTypedef tidtab type)
+      | raw_syntax::ELLIPSES => FALSE
+  */
+
+
+  /* nch fix: 
+      hasKnownStorageSize should reuse some code from
+      sizeof -- same kinds of checks and memoization 
+  */
+
+
+    fun has_known_storage_size (tidtab: tables::Tidtab) type
+	=
+	case type
+
+	    raw_syntax::POINTER _           => TRUE;
+	    raw_syntax::FUNCTION _          => TRUE;
+	    raw_syntax::NUMERIC _           => TRUE;
+
+	    raw_syntax::ELLIPSES            => FALSE;
+	    raw_syntax::ERROR               => FALSE;
+	    raw_syntax::VOID                => FALSE;
+	    raw_syntax::ARRAY (NULL, _)     => FALSE;
+
+	    raw_syntax::ARRAY (THE _, type) => has_known_storage_size tidtab type;
+	    raw_syntax::QUAL(_, type)       => has_known_storage_size tidtab type;
+	    raw_syntax::TYPE_REF tid        => has_known_storage_size tidtab (reduce_typedef tidtab type);
+
+	    raw_syntax::ENUM_REF tid
+                => 
+	        case (tidtab::find (tidtab, tid))
+
+		    THE { ntype=>THE _, ... }
+                        =>
+                        TRUE;
+
+	            _   => 
+		        not (type_check_control::partial_enums_have_unknown_size);
+
+                esac;
+
+	    raw_syntax::STRUCT_REF tid
+		=>
+		case (tidtab::find (tidtab, tid))
+
+		    THE { ntype=>THE (b::STRUCT (_, fields)), ... }
+                        => 
+		        list::all
+			    (fn (type, _, _) = (has_known_storage_size tidtab type))
+			    fields;
+
+		    _   =>
+                        FALSE;
+                esac;
+
+	    raw_syntax::UNION_REF tid
+                =>
+	        case (tidtab::find (tidtab, tid))
+
+		    THE { ntype=>THE (b::UNION (_, fields)), ... }
+                        => 
+		        list::all
+		            (fn (type, _) =  has_known_storage_size tidtab type)
+		            fields;
+
+		    _   =>
+                        FALSE;
+                esac;
+
+	esac;
+
+  /*
+    fun fixArrayType tidtab { type, n } =
+      case type of
+	raw_syntax::VOID => { err=(n<=1), type }
+      | raw_syntax::QUAL(_, type) => fixArrayType tidtab { type=aType, n }
+      | raw_syntax::NUMERIC _ => { err=(n<=1), type }
+      | raw_syntax::ARRAY (THE n', type) => { err=(n<=n'), type }
+      | raw_syntax::ARRAY (NULL, type) => { err=TRUE, raw_syntax::Array (THE n, type } )
+      | raw_syntax::POINTER _ => { err=(n<=1), type }
+      | raw_syntax::FUNCTION _ => { err=(n<=1), type }
+      | raw_syntax::ENUM_REF tid => { err=(n<=1), type }
+      | raw_syntax::AGGR_REF tid => { err=(n<=1), type }
+      | raw_syntax::TYPE_REF tid => fixArrayType tidtab { type=reduceTypedef tidtab type, n }
+      | raw_syntax::ELLIPSES => { err=FALSE, type }
+  */
+
+    fun is_const tidtab type
+        =
+        .const (get_quals tidtab type);
+
+
+    fun is_pointer tidtab type
+        =
+	case type
+	    raw_syntax::QUAL (_, type) => is_pointer tidtab type;
+	    raw_syntax::TYPE_REF _     => is_pointer tidtab (reduce_typedef tidtab type);
+
+	    raw_syntax::ARRAY _        => TRUE;
+	    raw_syntax::POINTER _      => TRUE;
+	    raw_syntax::FUNCTION _     => TRUE;
+
+	    _                          => FALSE;
+        esac;
+
+    fun is_integral tidtab type
+        =
+	case type
+	    raw_syntax::QUAL (_, type) => is_integral tidtab type;
+	    raw_syntax::ARRAY _ => FALSE;
+	    raw_syntax::POINTER _ => FALSE;
+	    raw_syntax::FUNCTION _ => FALSE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::CHAR, _) => TRUE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::SHORT, _) => TRUE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::INT, _) => TRUE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::LONG, _) => TRUE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::LONGLONG, _) => TRUE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::FLOAT, _) => FALSE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::DOUBLE, _) => FALSE;
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::LONGDOUBLE, _) => FALSE;
+	    raw_syntax::ENUM_REF _ => TRUE;
+	    raw_syntax::TYPE_REF _ => is_integral tidtab (reduce_typedef tidtab type);
+	    _ => FALSE;
+        esac;
+
+    fun is_array tidtab type
+        =
+	case type
+	  
+	     raw_syntax::QUAL (_, type) => is_array tidtab type;
+	     raw_syntax::ARRAY _ => TRUE;
+	     raw_syntax::TYPE_REF _ => is_array tidtab (reduce_typedef tidtab type);
+	     _ => FALSE;
+        esac;
+
+    fun is_number_or_pointer tidtab type
+        =
+	case type
+	  
+	    raw_syntax::QUAL (_, type) => is_number_or_pointer tidtab type;
+	    raw_syntax::ARRAY _ => TRUE;
+	    raw_syntax::POINTER _ => TRUE;
+	    raw_syntax::FUNCTION _ => TRUE;
+	    raw_syntax::NUMERIC _ => TRUE;
+	    raw_syntax::ENUM_REF _ => TRUE;
+	    raw_syntax::TYPE_REF _ => is_number_or_pointer tidtab (reduce_typedef tidtab type);
+	    _ => FALSE;
+        esac;
+
+    fun is_number tidtab type
+        =
+	case type
+	  
+	     raw_syntax::QUAL (_, type) => is_number tidtab type;
+	     raw_syntax::ARRAY _ => FALSE;
+	     raw_syntax::POINTER _ => FALSE;
+	     raw_syntax::FUNCTION _ => FALSE;
+	     raw_syntax::NUMERIC _ => TRUE;
+	     raw_syntax::ENUM_REF _ => TRUE;
+	     raw_syntax::TYPE_REF _ => is_number tidtab (reduce_typedef tidtab type);
+	     _ => FALSE;
+        esac;
+
+    fun deref tidtab type
+        =
+	case type
+	  
+	     raw_syntax::QUAL (_, type) => deref tidtab type;
+	     raw_syntax::ARRAY (_, type) => THE type;
+	     raw_syntax::POINTER type => THE type;
+	     raw_syntax::FUNCTION _ => THE type;
+	     raw_syntax::TYPE_REF _ => deref tidtab (reduce_typedef tidtab type);
+	     _ => NULL;
+        esac;
+
+    fun get_function tidtab type
+        =
+	get_f type { deref=>FALSE }
+        where
+            fun get_f type { deref }
+                =
+	        case type
+	            raw_syntax::QUAL (_, type)
+                        =>
+                        get_f type { deref };
+
+	            raw_syntax::POINTER type
+                        =>
+                        if deref  NULL; else get_f type { deref=>TRUE };fi;
+
+	            raw_syntax::TYPE_REF _
+                        =>
+                        get_f (reduce_typedef tidtab type) { deref };
+
+	            # Allow one level of dereferencing of function pointers
+	            # see H & S p 147: "an expression of type `pointer to function' can be used in a 
+	            #             function call without an explicit dereferencing"
+		    #
+	            raw_syntax::FUNCTION (ret_type, arg_tys)
+                        =>
+                        THE (ret_type, arg_tys);
+
+	            _ => NULL;
+                esac;
+        end;
+
+    fun is_function tidtab type			#  returns TRUE of type is a function; excludes fn pointer case 
+	=
+	case (reduce_typedef tidtab type) 	#  might have prototype fn def using typedef?? 
+	  
+	     raw_syntax::FUNCTION _ => TRUE;
+	     _                      => FALSE;
+        esac;
+
+
+    fun is_function_prototype tidtab type
+        =
+	case (get_function tidtab type)
+	    NULL          => FALSE;
+	    THE(_, NIL)   => FALSE;
+	    THE(_, _ ! _) => TRUE;
+        esac;
+
+
+    fun is_non_pointer_function tidtab type
+        =
+	case type
+	    raw_syntax::QUAL (_, type) => is_non_pointer_function tidtab type;
+	    raw_syntax::TYPE_REF _     => is_non_pointer_function tidtab (reduce_typedef tidtab type);
+	    raw_syntax::FUNCTION _     => TRUE;
+	    _ => FALSE;
+        esac;
+
+
+    fun is_struct_or_union tidtab type
+        =
+        case (reduce_typedef tidtab type)
+
+	    raw_syntax::QUAL (_, type)
+                =>
+                is_struct_or_union tidtab type;
+
+	   (raw_syntax::STRUCT_REF tid | raw_syntax::UNION_REF tid)
+                =>
+                THE tid;
+
+	   _    => NULL;
+        esac;
+
+
+    fun is_enum tidtab (type, member as { uid, kind=>raw_syntax::ENUMMEM _, ... }: raw_syntax::Member)
+            =>
+            case (reduce_typedef tidtab type)
+
+	        raw_syntax::QUAL (_, type)
+                    =>
+                    is_enum tidtab (type, member);
+
+	        raw_syntax::ENUM_REF tid
+                    =>
+	            case (tidtab::find (tidtab, tid))
+
+		        THE { ntype=>THE (b::ENUM (_, member_int_list)), ... }
+                            => 
+		            list::exists prior member_int_list
+                            where
+		                fun prior ( { uid=>uid', ... }: raw_syntax::Member, _)
+                                    =
+			            pid::equal (uid', uid);
+                            end;
+
+		        THE { ntype=>NULL, ... }
+                            =>
+		            {   warning "Enum type used but not declared, assuming member is not an EnumId";
+		                FALSE;
+                            };
+
+		        THE { ntype=>THE _, ... }
+                            =>
+		            {   internal_error ("poorly formed type table: expected enumerated type for " + (tid::to_string tid));
+		                FALSE;
+                            };
+
+		        NULL =>
+		            {   internal_error ("poorly formed type table: expected enumerated type for " + (tid::to_string tid));
+		                FALSE;
+                            };
+                    esac;
+
+	        _ => FALSE;
+            esac;
+
+        is_enum tidtab (type, member)
+            => 
+	    {   internal_error "isEnum applied to struct or union member";
+	        FALSE;
+            };
+    end;
+
+
+    fun lookup_enum tidtab (type, member as { uid, ... }: raw_syntax::Member)
+        =
+        case (reduce_typedef tidtab type)
+
+	    raw_syntax::QUAL (_, type)
+                =>
+                lookup_enum tidtab (type, member);
+
+	    raw_syntax::ENUM_REF tid
+                =>
+	        case (tidtab::find (tidtab, tid))
+
+		    THE { ntype=>THE (b::ENUM(_, member_int_list)), ... }
+                        => 
+			case (list::find prior member_int_list)
+			    THE (_, i) => THE i;
+			    NULL       => NULL;
+			esac
+                        where
+		            fun prior ( { uid=>uid', ... }: raw_syntax::Member, _)
+                                =
+			        pid::equal (uid', uid);
+		        end;
+
+		    _ => NULL;
+                esac;
+
+	    _ => NULL;
+	esac;
+
+    # Haberson/Steele "C Reference Manual",
+    # 4th Ed, section 5.11.1 p152 
+    #
+    fun types_are_equal tidtab (type1, type2)
+        =
+        eq (type1, type2)
+        where
+            include raw_syntax;
+
+	    fun eq (type1, type2)
+                = 
+		case (type1, type2)
+
+		    (VOID, VOID)
+                        =>
+                        TRUE;
+
+		    (QUAL (q1, ct1), QUAL (q2, ct2))
+                        => 
+			(q1 == q2) and eq (ct1, ct2);
+
+		    ( NUMERIC (sat1, frac1, sign1, int_knd1, signedness_tag1),
+		      NUMERIC (sat2, frac2, sign2, int_knd2, signedness_tag2)
+                    )
+		         =>
+			 sat1 == sat2 and frac1 == frac2 and
+			 sign1 == sign2 and int_knd1 == int_knd2;
+			 #
+			 # Note: Do not require signednessTags to be the same.
+
+		    (ARRAY (THE (i1, _), ct1), ARRAY (THE (i2, _), ct2))
+                        =>
+                        (i1==i2) and eq (ct1, ct2);
+
+		    (POINTER      ct1,  POINTER      ct2 ) => eq (ct1, ct2);
+		    (ARRAY (NULL, ct1), ARRAY (NULL, ct2)) => eq (ct1, ct2);
+		    (ARRAY _,           ARRAY _          ) => FALSE;
+
+		    (FUNCTION (ct1, ctl1), FUNCTION (ct2, ctl2))
+                        =>
+			eq (ct1, ct2) and eql (ctl1, ctl2);
+
+		    (ENUM_REF   tid1, ENUM_REF   tid2) => tid::equal (tid1, tid2);
+		    (UNION_REF  tid1, UNION_REF  tid2) => tid::equal (tid1, tid2);
+		    (STRUCT_REF tid1, STRUCT_REF tid2) => tid::equal (tid1, tid2);
+
+		    (TYPE_REF _, _) => eq (reduce_typedef tidtab type1, type2);
+		    (_, TYPE_REF _) => eq (type1, reduce_typedef tidtab type2);
+		    _ => FALSE;
+                esac
+
+	    also
+            fun eql ([],[])
+                    =>
+                    TRUE;
+
+	        eql ((type1, _) ! tyl1, (type2, _) ! tyl2)
+                    =>
+	            eq (type1, type2) and eql (tyl1, tyl2);
+
+	        eql _
+                    =>
+                    FALSE;
+            end;
+	end;
+
+    # Implement "ISO C conversion" column
+    # of table 6-4 in Haberson/Steele, p175
+    # C Reference Manual", 4th Ed
+    #
+    fun usual_unary_cnv tidtab tp
+	=
+        {   tp = get_core_type tidtab tp;
+
+	    case tp
+
+		raw_syntax::NUMERIC (sat, frac, _, raw_syntax::CHAR, _)
+                    =>
+		    raw_syntax::NUMERIC (sat, frac, raw_syntax::SIGNED, if don't_convert_short_to_int  raw_syntax::SHORT; else raw_syntax::INT;fi, raw_syntax::SIGNASSUMED);
+
+	        raw_syntax::NUMERIC (sat, frac, _, raw_syntax::SHORT, _)
+                    =>
+		    raw_syntax::NUMERIC (sat, frac, raw_syntax::SIGNED, if don't_convert_short_to_int  raw_syntax::SHORT; else raw_syntax::INT;fi, raw_syntax::SIGNASSUMED);
+
+	        # For dsp work, want to keep short as short. 
+
+	        type as (raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::FLOAT, d))
+                    =>
+		    if don't_convert_double_in_usual_unary_cnv  type;
+                    else                                        raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::DOUBLE, d);
+                    fi;
+
+		raw_syntax::ARRAY (_, array_tp)
+		    =>
+		    if config::dflag  tp;
+		    else              raw_syntax::POINTER array_tp;
+		    fi;
+
+		raw_syntax::FUNCTION x
+		    =>
+		    raw_syntax::POINTER tp;  # This code is now not used: it is overridden by the stronger condition that
+					     # all expressions of Function type are converted to Pointer (Function),
+					     # (except for & and sizeof)
+
+		raw_syntax::ENUM_REF _
+		    =>
+		    std_int;
+			#
+			#  Not explicit in table 6-4, but seems to be implicitly assumed -- e.g. see compatibility 
+
+		_    => tp;
+            esac;
+        };
+
+    # Implement section 6.3.5 of H&S, p177. 
+    #
+    fun function_arg_conv tidtab tp
+        = 
+        case (get_core_type tidtab tp)
+	   
+	    raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::FLOAT, d)
+                => 
+	        raw_syntax::NUMERIC (sat, frac, sign, raw_syntax::DOUBLE, d);
+
+	    _   =>
+                usual_unary_cnv tidtab tp;
+        esac;
+
+
+    fun combine_sat (raw_syntax::SATURATE, raw_syntax::SATURATE) => raw_syntax::SATURATE;
+        combine_sat _                                            => raw_syntax::NONSATURATE;
+    end;
+
+
+    fun combine_frac (raw_syntax::FRACTIONAL, _) => raw_syntax::FRACTIONAL;
+        combine_frac (_, raw_syntax::FRACTIONAL) => raw_syntax::FRACTIONAL;
+        combine_frac _ => raw_syntax::WHOLENUM;
+    end;
+
+    # Implement "ISO C conversion" column
+    # of table 6-5 in Haberson/Steele, p176
+    # "C Reference Manual", 4th Ed
+    #
+    fun usual_binary_cnv tidtab (tp1, tp2)
+        =
+	case ( usual_unary_cnv tidtab (get_core_type tidtab tp1),
+	       usual_unary_cnv tidtab (get_core_type tidtab tp2)
+	     )
+
+	    ( raw_syntax::NUMERIC (sat1, frac1, sign1, int1, d1),
+	      raw_syntax::NUMERIC (sat2, frac2, sign2, int2, d2)
+	    )
+                =>
+	        # Remove CHAR, and (maybe) SHORT:
+		# 
+		THE ( raw_syntax::NUMERIC (combine_sat (sat1, sat2),
+		      combine_frac (frac1, frac2), sign', int', raw_syntax::SIGNASSUMED)
+		    )
+                where
+	            my (sign', int')
+                        =
+		        case ((sign1, int1), (sign2, int2))
+			    ((_, raw_syntax::LONGDOUBLE), _) => (raw_syntax::SIGNED, raw_syntax::LONGDOUBLE);
+			    (_, (_, raw_syntax::LONGDOUBLE)) => (raw_syntax::SIGNED, raw_syntax::LONGDOUBLE);
+
+			    ((_, raw_syntax::DOUBLE), _) => (raw_syntax::SIGNED, raw_syntax::DOUBLE);
+			    (_, (_, raw_syntax::DOUBLE)) => (raw_syntax::SIGNED, raw_syntax::DOUBLE);
+
+			    ((_, raw_syntax::FLOAT), _) => (raw_syntax::SIGNED, raw_syntax::FLOAT);
+			    (_, (_, raw_syntax::FLOAT)) => (raw_syntax::SIGNED, raw_syntax::FLOAT);
+
+			    # We've removed: LONGDOUBLE, DOUBLE, FLOAT, CHAR and (maybe) SHORT 
+			    # This leaves: INT, LONG, LONGLONG and (possibly) SHORT 
+
+			    (x1, x2)
+                                =>
+			        {   int'  = case (int1, int2)
+						(raw_syntax::LONGLONG, _) => raw_syntax::LONGLONG;
+						(_, raw_syntax::LONGLONG) => raw_syntax::LONGLONG;
+
+						(raw_syntax::LONG, _) => raw_syntax::LONG;
+						(_, raw_syntax::LONG) => raw_syntax::LONG;
+
+						(raw_syntax::INT, _) => raw_syntax::INT;
+						(_, raw_syntax::INT) => raw_syntax::INT;
+
+						(raw_syntax::SHORT, _) => raw_syntax::SHORT;
+						(_, raw_syntax::SHORT) => raw_syntax::SHORT;
+
+						_ => int1;  #  should be nothing left 
+					    esac;
+
+				    sign' = case (sign1, sign2)
+					        (raw_syntax::UNSIGNED, _) => raw_syntax::UNSIGNED;
+				                (_, raw_syntax::UNSIGNED) => raw_syntax::UNSIGNED;
+				                _                         => raw_syntax::SIGNED;
+                                            esac;
+
+				    (sign', int');
+                                };
+                        esac;
+	        end;					# where
+
+	    (tp1', tp2')
+                => 
+	        {   print "Warning: unexpected call of usualBinaryCnv on non-Numeric types\n";
+
+	            types_are_equal tidtab (tp1', tp2')
+		      ??  THE tp1'
+	              ::  NULL;
+                };
+	esac;					# fun usual_binary_cnv
+
+    # Many compilers consider function args
+    # to be compatible when they can be
+    # converted to pointers of the same type
+    #
+    fun pre_arg_conv tidtab type
+        =
+        case (reduce_typedef tidtab type)
+          
+	   raw_syntax::ARRAY (_, array_tp) =>  raw_syntax::POINTER array_tp;
+	   raw_syntax::FUNCTION x          =>  raw_syntax::POINTER type;
+	   raw_syntax::QUAL (q, type)      =>  raw_syntax::QUAL (q, pre_arg_conv tidtab type);
+	   _                               =>  type;
+        esac;
+
+
+    # Convert function args of type Function(...)
+    # to Pointer (Function(...)) 
+    #
+    fun cnv_function_to_pointer2function tidtab type
+        =
+        case (get_core_type tidtab type)
+          
+	    (core_type as (raw_syntax::FUNCTION _)) =>  raw_syntax::POINTER (core_type);
+            _                                       =>  type;
+        esac;
+
+    # Section 5.11, p 151-155, in Haberson/Steele
+    # "C Reference Manual", 4th Ed 
+    #
+    fun composite tidtab (type1, type2)
+        =
+	compose (type1, type2)
+        where
+            include raw_syntax;
+
+	    fun enum_compose (tid, type)
+                =
+	        case type   
+
+		    ENUM_REF tid2
+                        => 
+		        if enumeration_incompatibility 
+		            if (tid::equal (tid, tid2)) THE type;
+                            else                        NULL;
+                            fi;
+		        else
+		            THE type;  #  old style: all enums are compatible 
+                        fi;
+
+		    NUMERIC (NONSATURATE, WHOLENUM, SIGNED, INT, d)
+                        =>
+                        THE (NUMERIC (NONSATURATE, WHOLENUM, SIGNED, INT, d));
+
+		    # enumeration types are always compatible with the underlying implementation type, 
+		    # assume in this frontend to the int
+		     _ => NULL;
+                esac;
+
+	    fun composeid (NULL, x2) => x2;
+	        composeid (x1, NULL) => x1;
+
+	        composeid (x1 as THE (i1: raw_syntax::Id), THE (i2: raw_syntax::Id))
+                    =>
+		    if (symbol::equal (i1.name, i2.name))  x1;
+                    else                                   NULL;
+                    fi;
+            end;
+
+	    fun compose (type1, type2)
+                = 
+	        {   type1 = if pointer_compatibility_quals  type1; else get_core_type tidtab type1;fi;
+		    type2 = if pointer_compatibility_quals  type2; else get_core_type tidtab type2;fi;
+
+		    fun em1 () = ("Prototype " + (ct_to_string tidtab type1) +
+				" and non-prototype " + (ct_to_string tidtab type2) +
+				" are not compatible because parameter is not compatible with the" +
+				" type after applying default argument promotion.");
+
+		    fun em2 () = ("Prototype " + (ct_to_string tidtab type2) +
+				" and non-prototype " + (ct_to_string tidtab type1) +
+				" are not compatible because parameter is not compatible with the" +
+				" type after applying default argument promotion.");
+
+		    case (type1, type2)
+
+			(VOID, VOID) => (THE (VOID), NIL);
+
+			(TYPE_REF _, _) => compose (reduce_typedef tidtab type1, type2);
+			(_, TYPE_REF _) => compose (type1, reduce_typedef tidtab type2);
+
+			(ENUM_REF tid1, _) => (enum_compose (tid1, type2), NIL);
+			(_, ENUM_REF tid2) => (enum_compose (tid2, type1), NIL);
+
+			(ARRAY (io1, ct1), ARRAY (io2, ct2))
+			    => 
+			    case (compose (ct1, ct2), io1, io2)   
+
+				((THE ct, eml), NULL, NULL) => (THE (ARRAY (NULL, ct)), eml);
+
+				((THE ct, eml), THE opt1, NULL) => (THE (ARRAY (THE opt1, ct)), eml);
+				((THE ct, eml), NULL, THE opt2) => (THE (ARRAY (THE opt2, ct)), eml);
+
+				((THE ct, eml), THE (i1, expr1), THE (i2, _))
+				    =>
+				    # Potential source-to-source problem: what if i1==i2, but expr1 and expr2 are diff? 
+				   if (i1 == i2)  (THE (ARRAY (THE (i1, expr1), ct)),
+						      eml);
+				   else (NULL, "Arrays have different lengths." ! eml);
+				   fi;
+
+				((NULL, eml), _, _) => (NULL, eml);
+			    esac;
+
+			(FUNCTION (ct1, NIL), FUNCTION (ct2, NIL)) #  Both non-prototypes 
+			    =>
+			    case (compose (ct1, ct2))   
+				 (THE ct, eml) => (THE (FUNCTION (ct, NIL)), eml);
+				 (NULL, eml) => (NULL, eml);
+			    esac;
+
+			(FUNCTION (ct1, [(VOID, _)]), FUNCTION (ct2, NIL)) #  first is Void-arg-prototype 
+			    =>
+			    case (compose (ct1, ct2))   
+				(THE ct, eml) => (THE (FUNCTION (ct, [(VOID, NULL)])), eml);
+				(NULL, eml)   => (NULL, eml);
+			    esac;
+
+			(FUNCTION (ct1, NIL), FUNCTION (ct2, [(void, _)])) #  second is Void-arg-prototype 
+			    =>
+			    case (compose (ct1, ct2))   
+				(THE ct, eml) => (THE (FUNCTION (ct, [(void, NULL)])), eml);
+				(NULL, eml)   => (NULL, eml);
+			    esac;
+
+			(FUNCTION (ct1, ctl1), FUNCTION (ct2, NIL)) #  first is prototype 
+			    =>
+			    case (compose (ct1, ct2), check_args ctl1)   
+				 ((THE ct, eml), fl) => (THE (FUNCTION (ct, ctl1)), if fl  eml; else (em1()) ! eml;fi);
+				 ((NULL, eml),   fl) => (NULL, if fl  eml; else (em1()) ! eml;fi);
+			    esac;
+
+			(FUNCTION (ct1, NIL), FUNCTION (ct2, ctl2)) #  second is prototype 
+			    =>
+			    case (compose (ct1, ct2), check_args ctl2)   
+				((THE ct, eml), fl) => (THE (FUNCTION (ct, ctl2)), if fl  eml; else (em2()) ! eml;fi);
+				((NULL,   eml), fl) => (NULL, if fl  eml; else (em2()) ! eml;fi);
+			    esac;
+
+			(FUNCTION (ct1, ctl1), FUNCTION (ct2, ctl2)) #  Both are prototypes 
+			    =>
+			    case (compose (ct1, ct2), composel (ctl1, ctl2))    #  Composel: deals with ellipses 
+				((THE ct, eml1), (THE ctl, eml2)) => (THE (FUNCTION (ct, ctl)), eml1 @ eml2);
+				((_,      eml1), (_,       eml2)) => (NULL, eml1 @ eml2);
+			    esac;
+
+			(ct1 as QUAL _, ct2 as QUAL _)
+			    => 
+			    {   my { volatile, const, type=>ct }
+				    =
+				    get_quals tidtab ct1;
+
+				(get_quals tidtab ct2)
+				    ->
+				    { volatile=>volatile', const=>const', type=>ct' };
+
+				case (compose (ct, ct'))
+
+				     (NULL,   eml) => (NULL, eml);
+
+				     (THE ct, eml) => { ct = if volatile  QUAL (VOLATILE, ct); else ct;fi;
+						        ct = if const  QUAL (CONST, ct); else ct;fi;
+
+						        (THE ct, eml);
+						      };
+				esac;
+			    };
+
+			(NUMERIC x, NUMERIC y)
+			    =>
+			    if (x == y ) (THE type1, NIL); else (NULL, NIL);fi;
+
+			(POINTER ct1, POINTER ct2)
+			    =>
+			    case (compose (ct1, ct2))   
+				(THE ct, eml) => (THE (POINTER ct), eml);
+				(NULL,   eml) => (NULL, eml);
+			    esac;
+
+			( (STRUCT_REF tid1, STRUCT_REF tid2)
+                        | (UNION_REF  tid1, UNION_REF  tid2)
+                        )
+			    =>
+			    if (tid::equal (tid1, tid2) ) (THE type1, NIL); else (NULL, NIL);fi;
+
+			_ => (NULL, NIL);
+                    esac;
+	        }
+
+	    also
+            fun check_args ((ELLIPSES, _) ! _)
+                    =>
+                    TRUE;
+
+	        check_args ((ct, _) ! ctl)
+                    =>
+                    case (compose (ct, function_arg_conv tidtab ct))   
+		        (THE _, _) => check_args ctl;
+		        (NULL,  _) => FALSE;
+                    esac;
+			#
+			# H & S, p 154, midpage:
+			# each parameter type T must be compatible with the type
+			# resulting from applying the usual unary conversions to T.
+			# Correction: usual unary cnv except that float always
+			#    converted to unary (c.f. ISO conversion)
+
+
+	        check_args NIL => TRUE;
+            end 
+
+	    also
+            fun composel ([],[])
+                    =>
+                    (THE NIL, NIL);
+
+		composel ([(raw_syntax::ELLIPSES, _)], [(raw_syntax::ELLIPSES, _)])
+                    =>
+                    (THE([(raw_syntax::ELLIPSES, NULL)]), NIL);
+
+		composel ([(raw_syntax::ELLIPSES, _)], _) => (NULL,  ["Use of ellipses does not match."]);
+		composel (_, [(raw_syntax::ELLIPSES, _)]) => (NULL,  ["Use of ellipses does not match."]);
+
+		composel ((type1, id1) ! tyl1, (type2, id2) ! tyl2)
+                    => 
+		    case (compose (type1, type2), composel (tyl1, tyl2))   
+
+		        ((THE type, eml1), (THE tyl, eml2))
+                            =>
+		            (THE((type, composeid (id1, id2)) ! tyl), eml1@eml2);
+
+		        ((_, eml1), (_, eml2))
+                            =>
+                            (NULL, eml1@eml2);
+                    esac;
+
+		composel _
+                    =>
+                    (NULL, ["Function types have different numbers of arguments."]);
+            end;
+        end;					# fun composite
+
+    fun compatible tidtab (type1, type2)
+        = 
+        case (composite tidtab (type1, type2))   
+	    (THE _, _) => TRUE;
+	    (NULL,  _) => FALSE;
+        esac;
+
+    fun is_assignable tidtab { lhs, rhs, rhs_expr0 }
+        =
+        # From H&S p 174, table 6-3 (but also see Table 7-7, p221)
+	#  Note 1: This function just checks that the
+        #          implicit assignment conversion is allowable.
+	#	  - it does not check that lhs is assignable.
+	#  Note 2: The usualUnaryCnv conversion on rhs
+	#	   is not explicit in H & S, but seems implied?
+	#	   (otherwise can't typecheck: int i[4], *j = i)
+	#  Note 3: The definition below package to correspond
+        #          to table 6-3, but because of the redundancy
+        #          in this definition, we have reorganized order
+        #          of some lines
+	#  Note 4: The EnumRef case is not explicit in Table 6-3,
+	#	   but seems implied by compatibility (and is needed).
+	#
+        case (get_core_type tidtab lhs, usual_unary_cnv tidtab rhs, rhs_expr0)    
+
+	    #  Note: usualUnary eliminates: Array, Function and Enum 
+
+    /*1*/   (raw_syntax::NUMERIC _, raw_syntax::NUMERIC _, _) => TRUE;
+
+    /*2a*/  (type1 as raw_syntax::STRUCT_REF _, type2 as raw_syntax::STRUCT_REF _, _) => compatible tidtab (type1, type2);
+    /*2b*/  (type1 as raw_syntax::UNION_REF  _, type2 as raw_syntax::UNION_REF  _, _) => compatible tidtab (type1, type2);
+
+    /*3a*/  (raw_syntax::POINTER raw_syntax::VOID, _, TRUE) => TRUE;
+    /*3c*/  (raw_syntax::POINTER raw_syntax::VOID, raw_syntax::POINTER raw_syntax::VOID, _) => TRUE;
+    /*3b*/  (raw_syntax::POINTER raw_syntax::VOID, raw_syntax::POINTER _, _) => TRUE;
+
+
+    /*5a*/  (raw_syntax::POINTER (raw_syntax::FUNCTION _), _, TRUE) => TRUE;
+    /*5b*/  (raw_syntax::POINTER (type1 as raw_syntax::FUNCTION _), raw_syntax::POINTER (type2 as raw_syntax::FUNCTION _), _)
+		 => compatible tidtab (type1, type2);
+
+    /*4a*/  (raw_syntax::POINTER type1, _, TRUE) => TRUE;
+    /*4c*/  (raw_syntax::POINTER _, raw_syntax::POINTER raw_syntax::VOID, _) => TRUE;
+    /*4b*/  (raw_syntax::POINTER type1, raw_syntax::POINTER type2, _)
+                => 
+		{   type1' = get_core_type tidtab type1;
+		    type2' = get_core_type tidtab type2;
+
+		    my { volatile=>disk_volume1, const=>const1, ... } = get_quals tidtab type1;
+		    my { volatile=>disk_volume2, const=>const2, ... } = get_quals tidtab type2;
+
+		    qual1 = disk_volume1 or not disk_volume2;
+		    qual2 = const1 or not const2;
+
+		    qual1 and qual2 and compatible tidtab (type1', type2');
+		};
+
+	    (raw_syntax::ENUM_REF _, _, _)
+                =>
+                is_integral tidtab rhs;
+
+	    (type1, type2, fl)      # This case is important when type checking function calls if
+				    # convert_function_args_to_pointers is set to FALSE
+		=>
+	        (types_are_equal tidtab (type1, type2)) or
+	        (types_are_equal tidtab (type1, get_core_type tidtab rhs));
+        esac;
+
+    fun is_equable tidtab { type1, expression1zero, type2, expression2zero }  #  for Eq and Neq 
+        =
+        case (usual_unary_cnv tidtab type1, expression1zero, usual_unary_cnv tidtab type2, expression2zero)
+          
+	    (raw_syntax::NUMERIC _, _, raw_syntax::NUMERIC _, _)
+                =>
+                usual_binary_cnv tidtab (type1, type2);		# Get common type 
+
+	    (raw_syntax::POINTER raw_syntax::VOID, _, raw_syntax::POINTER _, _) => THE type1;
+	    (raw_syntax::POINTER _, _, raw_syntax::POINTER raw_syntax::VOID, _) => THE type2;
+
+	    (raw_syntax::POINTER _, _, _, TRUE) => THE type1;
+	    (_, TRUE, raw_syntax::POINTER _, _) => THE type2;
+
+	    (type1' as raw_syntax::POINTER _, _, type2' as raw_syntax::POINTER _, _)
+                =>
+	        {   my (x, _)
+                        =
+                        composite tidtab (type1', type2');	#  Composite *AFTER* usualUnaryCnv! 
+		    x;
+	        };
+
+	    _ => NULL;
+        esac;
+
+    fun conditional_expression tidtab { type1, expression1zero, type2, expression2zero }	 #  for Eq and Neq 
+        =
+        case (usual_unary_cnv tidtab type1, expression1zero, usual_unary_cnv tidtab type2, expression2zero)     
+
+	    (raw_syntax::NUMERIC _, _, raw_syntax::NUMERIC _, _)
+                =>
+                usual_binary_cnv tidtab (type1, type2); #  get common type 
+
+
+	    ( (raw_syntax::STRUCT_REF tid1, _, raw_syntax::STRUCT_REF tid2, _)
+            | (raw_syntax::UNION_REF tid1, _, raw_syntax::UNION_REF tid2, _)
+            )
+                =>
+	        tid::equal (tid1, tid2)
+                  ?? THE type1
+	          :: NULL;
+
+
+	    (raw_syntax::VOID, _, raw_syntax::VOID, _)
+                =>
+                THE type1;
+
+	    (raw_syntax::POINTER _, _, raw_syntax::POINTER raw_syntax::VOID, _) => THE type2;
+	    (raw_syntax::POINTER raw_syntax::VOID, _, raw_syntax::POINTER _, _) => THE type1;
+
+
+	    (type1' as raw_syntax::POINTER _, _, type2' as raw_syntax::POINTER _, _)
+                =>
+		{   my (x, _)
+                        =
+                        composite tidtab (type1', type2');	#  Composite *AFTER* usualUnaryCnv! 
+
+		    x;
+		};
+
+	    (raw_syntax::POINTER _, _, _, TRUE) => THE type1;
+	    (_, TRUE, raw_syntax::POINTER _, _) => THE type2;
+
+	    (type1, _, type2, _) => NULL;
+        esac;
+
+
+    fun is_addable tidtab { type1, type2 }	 #  for Plus 
+	=
+        case (usual_unary_cnv tidtab type1, usual_unary_cnv tidtab type2)     
+
+	    (raw_syntax::NUMERIC _, raw_syntax::NUMERIC _)
+                => 
+	        case (usual_binary_cnv tidtab (type1, type2)) #  get common type 
+	            THE type => THE { type1=>type, type2=>type, result_type=>type };
+		    NULL     => NULL;
+                esac;
+
+	    (raw_syntax::POINTER _, raw_syntax::NUMERIC _)
+                => 
+	        is_integral tidtab type2
+                  ?? THE { type1, type2=>std_int, result_type=>type1 }
+	          :: NULL;
+
+	    (raw_syntax::NUMERIC _, raw_syntax::POINTER _)
+                => 
+	        is_integral tidtab type1
+                  ?? THE { type1=>std_int, type2, result_type=>type2 }
+	          :: NULL;
+
+	    _   => NULL;
+        esac;
+
+
+    fun is_subtractable tidtab { type1, type2 } #  for Plus 
+        =
+        case (usual_unary_cnv tidtab type1, usual_unary_cnv tidtab type2)     
+
+	    (raw_syntax::NUMERIC _, raw_syntax::NUMERIC _)
+                => 
+	        case (usual_binary_cnv tidtab (type1, type2))	# Get common type.
+		    THE type => THE { type1=>type, type2=>type, result_type=>type };
+		    NULL => NULL;
+                esac;
+
+	    (type1' as raw_syntax::POINTER _, type2' as raw_syntax::POINTER _)
+                => 
+	        case (composite tidtab (type1', type2'))    #  Composite *AFTER* usualUnaryCnv 
+		    (THE type, _) => THE { type1=>type, type2=>type, result_type=>std_int };
+		    (NULL,     _) => NULL;
+                esac;
+
+	    (raw_syntax::POINTER _, raw_syntax::NUMERIC _)
+                => 
+	        is_integral tidtab type2
+                  ?? THE { type1, type2=>std_int, result_type=>type1 }
+	          :: NULL;
+
+	    _ => NULL;
+        esac;
+
+    fun is_comparable tidtab { type1, type2 }	 #  for Eq and Neq 
+	=
+	case (usual_unary_cnv tidtab type1, usual_unary_cnv tidtab type2)
+	    
+	     (raw_syntax::NUMERIC _, raw_syntax::NUMERIC _)
+		 =>
+		 usual_binary_cnv tidtab (type1, type2); #  get common type 
+
+	     (type1' as raw_syntax::POINTER _, type2' as raw_syntax::POINTER _)
+		 =>
+		 {   my (x, _) = composite tidtab (type1', type2'); #  Composite *AFTER* usualUnaryCnv 
+		     x;
+		 };
+
+	     _ => NULL;
+	esac;
+
+    fun check_fn tidtab (fun_type, arg_tys, is_zero_exprs)
+	=
+	case (get_function tidtab fun_type)
+	  
+	     NULL => (raw_syntax::VOID, ["Called chunk is not a function."], arg_tys);
+
+	     THE (ret_type, param_tys_id_opts)
+		 =>
+		 {   parameter_types
+                         =
+                         map #1 param_tys_id_opts;
+
+		     parameter_types
+			 =
+			 case parameter_types
+			   
+			      [raw_syntax::VOID] =>  NIL;		#  A function with a single void argument is a function of no args.
+			      _                  =>  parameter_types;
+			 esac;
+
+		     fun is_assignable_l n x
+			 = 
+			 case x
+			   
+			     (raw_syntax::ELLIPSES ! _, argl, _)
+				 =>
+				 (NIL, list::map (function_arg_conv tidtab) argl);
+
+			      # Ellipses = variable arg length function:
+                              #
+			      (parameter ! paraml, arg ! argl, is_zero_expr ! is_zero_exprs)
+                                  =>
+			          {   my (str_l, paraml)
+                                          =
+                                         is_assignable_l (n+1) (paraml, argl, is_zero_exprs);
+
+			              str_l' = if (is_assignable tidtab { lhs=>parameter, rhs=>arg, rhs_expr0=>is_zero_expr })
+					           str_l;
+				               else
+					           msg = "Bad function call: arg " + int::to_string n
+					               + " has type " + (ct_to_string tidtab arg)
+					               + " but fn parameter has type " + (ct_to_string tidtab parameter);
+
+					          msg ! str_l;
+				               fi;
+
+			              (str_l', parameter ! paraml);
+			          };
+
+			      (NIL, NIL, _) => (NIL, NIL);
+
+				  # bugfix 12/Jan/00: the previous bugfix of 15/jun/99 overdid it a little (recursion!).
+				  #		       the case of a function with a single void arg is
+				  #		       now handled above in parameterTypes = ...
+				  #	  | ([raw_syntax::VOID], NIL) => (NIL, NIL) # bugfix 15/jun/99: a function with a single void argument
+				  #						    # is a function of no args
+
+			      ( (_, NIL, _)
+                              | (_, _, NIL)
+                              )
+                                  =>
+                                  ( ["Type Warning: function call has too few args"],
+				    NIL
+				  );
+
+			      (NIL, argl, _)
+                                  =>
+                                  ( ["Type Warning: function call has too many args"],
+				    list::map (function_arg_conv tidtab) argl
+				  );
+                         esac;
+
+		     my (msg_l, arg_tys')
+                         =
+                         is_assignable_l 1 (parameter_types, arg_tys, is_zero_exprs);
+
+		     (ret_type, msg_l, arg_tys');
+		 };
+	esac;
+
+    # The notion of "scalar" types is not defined
+    # in e.g. K&R or H&S although it is referred
+    # to in H&S p218. 
+    #
+    # It is used to restrict the type of controlling
+    # expressions (e.g. while, do, for, ?:, etc.).
+    #
+    # According to the ISO standard (p24), scalars consist of
+    #   a) arithmetic types (integral and floating types)
+    #   b) pointer types
+    # This seems to exclude array and function types.
+    #
+    # However most compilers consider an array type
+    # to be scalar (i.e. just consider it a pointer).
+    #
+    # We shall assume that everthing is a scalar
+    # except functions, unions and structs.
+    #
+    # Lint agrees with this; gcc and SGI cc disagree
+    # with this on functions. 
+
+
+    fun is_scalar tidtab type
+       =
+       case type
+	   raw_syntax::QUAL (_, type) => is_scalar tidtab type;
+	   raw_syntax::NUMERIC _ => TRUE;
+	   raw_syntax::POINTER _ => TRUE;
+	   raw_syntax::ARRAY _ => TRUE;
+	   raw_syntax::ENUM_REF _ => TRUE; 
+	   raw_syntax::TYPE_REF _ => is_scalar tidtab (reduce_typedef tidtab type);
+	   raw_syntax::FUNCTION _ => FALSE; #  Although a function can be viewed as a pointer 
+	   raw_syntax::STRUCT_REF _ => FALSE;
+	   raw_syntax::UNION_REF _ => FALSE;
+	   raw_syntax::ELLIPSES => FALSE;  #  Can't occur 
+	   raw_syntax::VOID => FALSE;
+	   raw_syntax::ERROR => FALSE;
+       esac;
+
+};				# package type_util
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

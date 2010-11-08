@@ -1,0 +1,813 @@
+## widget.pkg
+#
+# See bottom-of-file comments for
+# extended widget-internals docs.
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+
+
+###       "Steve Jobs said two years ago
+###        that X is brain-damaged and
+###        it will be gone in two years.
+###        He was half right."
+###
+###                  -- Dennis Ritchie
+
+
+
+stipulate
+    include threadkit;				# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xc =  xclient;			# xclient		is from   src/lib/x-kit/xclient/src/api/build.pkg
+    #
+    package xg =  xgeometry;			# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package rw =  root_window;			# root_window		is from   src/lib/x-kit/widget/basic/root-window.pkg
+    package wa =  widget_attribute;		# widget_attribute	is from   src/lib/x-kit/widget/lib/widget-attribute.pkg
+herein
+
+    package widget: (weak)  Widget {		# Widget		is from   src/lib/x-kit/widget/basic/widget.api
+
+	include widget_base;			# widget_base		is from   src/lib/x-kit/widget/basic/widget-base.pkg
+	include root_window;			# root_window		is from   src/lib/x-kit/widget/basic/root-window.pkg
+	include widget_attributes;		# widget_attributes	is from   src/lib/x-kit/widget/basic/widget-attributes.pkg
+	    #
+	    # These three are all specified by api Widget.
+
+	Arg = (wa::Name, wa::Value);
+
+	Realize_Fn
+	    =
+	    { kidplug:      xc::Kidplug,
+	      window:       xc::Window,
+	      window_size:  xg::Size
+	    }
+	    ->
+	    Void;
+						# Soon we'll want to change all the Size values
+						# in this file to Box values, so as to track the
+						# full size+position info relative to parent for
+						# each window.
+
+	exception ALREADY_REALIZED;
+
+	Widget
+	    =
+	    WIDGET
+	      {
+		root_window:	Root_Window,
+		id:		Int,
+		args:		Void -> Window_Args,
+		#
+		size_preference_thunk_of:  Void -> Widget_Size_Preference,
+		#
+		seen_first_redraw:	Oneshot_Maildrop( Void ),
+		realized:		Oneshot_Maildrop( Void ),
+		realize:		Realize_Fn,
+		#
+		# Support for window_of.
+		# This ise NULL until realization
+		# and non-NULL thereafter:
+		#
+		window:		Ref( Null_Or(xc::Window) )
+	      };
+
+	fun make_widget { root_window as ROOT_WINDOW { next_widget_id, ... }, args, size_preference_thunk_of, realize }
+	    =
+	    WIDGET
+	      {
+		root_window,
+		args,
+		#
+		realized 	  =>  make_oneshot_maildrop (),
+		seen_first_redraw =>  make_oneshot_maildrop (),
+		id       	  =>  next_widget_id (),			# Is there any reason not to make this just a Ref(Void) as usual?	XXX BUGGO FIXME.
+		#
+		size_preference_thunk_of,
+		realize,
+		#
+		window   => REF NULL
+	      };
+
+	fun root_window_of  (WIDGET { root_window,      ... } ) =  root_window;
+	fun args_of         (WIDGET { args,             ... } ) =  args ();
+	fun args_fn         (WIDGET { args,             ... } ) =  args;
+
+	fun window_of       (WIDGET { window => REF (THE window), ... } ) =>  window;
+	    window_of       (WIDGET { window => REF  NULL,        ... } ) =>  raise exception  FAIL "widget::window_of called before realization";
+	end;
+
+#	fun size_of         (WIDGET { size   => REF (THE size),   ... } ) =>  size;
+#	    size_of         (WIDGET { size   => REF  NULL,        ... } ) =>  raise exception  FAIL "widget::size_of called before realization";
+#	end;
+
+	fun size_preference_of       (WIDGET { size_preference_thunk_of, ... } ) =  size_preference_thunk_of ();
+	fun size_preference_thunk_of (WIDGET { size_preference_thunk_of, ... } ) =  size_preference_thunk_of;
+
+	fun seen_first_redraw_oneshot_of  (WIDGET { seen_first_redraw,   ... } ) =  seen_first_redraw;
+
+	fun realize_fn
+            (WIDGET { realize, realized, window => window_ref, seen_first_redraw, ... } )
+            (arg as { kidplug, window, window_size } )
+	    =
+	    {   set (realized, ())
+		except
+		    _ = raise exception ALREADY_REALIZED;
+
+		# Cache window as support for window_of:
+		#
+		window_ref :=  THE window;
+
+		# Post  seen_first_redraw  oneshot as support for
+		#
+		#     seen_first_redraw_oneshot_of
+		#
+		xc::note_''seen_first_expose''_oneshot  window  seen_first_redraw;
+
+               	realize arg;
+	    };
+
+
+	fun same_widget
+	    ( WIDGET { id,      root_window,               ... },
+	      WIDGET { id=>id', root_window=>root_window', ... }
+	    )
+	    =
+	    id == id'
+	    and
+	    same_root (root_window, root_window');
+
+
+	fun preferred_size (WIDGET { size_preference_thunk_of, ... } )
+	    =
+	    {   my { col_preference, row_preference }
+		    =
+		    size_preference_thunk_of ();
+
+		xg::SIZE { wide => preferred_length col_preference,
+		           high => preferred_length row_preference
+		         };
+	    };
+
+
+	fun okay_size (widget, size)
+	    =
+	    is_within_size_limits (size_preference_of widget, size);
+
+
+	# Given a widget, return a replacement widget
+	# in which the 'keyboard', 'mouse' or 'other'
+	# eventstream is replaced by an externally
+	# filtered version of the original one.
+	#
+	# To be effective, this needs to be done pre-realization.
+	#
+	# We return a pair:
+	#
+	#   o The replacement widget.
+	#
+	#   o A mailop yielding a (read-mailop, write-slot) pair
+	#     to be used to perform the desired event filtering.
+	#
+	#
+	# Arguments:
+	#
+	#     which_eventstream   extracts from a kidplug either from_mouse', from_keyboard' or from_other'.
+	#
+	#     replace_eventstream  is one of replace_mouse, replace_keyboard, replace_other from   src/lib/x-kit/xclient/src/window/widget-cable.pkg
+	#                 -- it does functional update of a kidplug, replacing one component.
+	#
+	#     widget to filter.
+	#
+	fun filter_widget
+                (which_eventstream, replace_eventstream)
+                (WIDGET { root_window, realize, size_preference_thunk_of, args, ... } )
+	    =
+	    {   realize_slot = make_mailslot ();
+
+		fun realize' { window, kidplug, window_size }
+		    =
+		    {   event = which_eventstream kidplug;
+			eslot = make_mailslot ();
+
+			kidplug' =  replace_eventstream  (kidplug,  take' eslot);
+
+			give  (realize_slot,  (event, eslot));
+
+			realize { window, window_size, kidplug=>kidplug'};
+		    };
+
+		( make_widget
+		    {
+		      root_window,
+		      args,
+		      size_preference_thunk_of,
+		      realize => realize'
+		    },
+
+		  take'  realize_slot
+		);
+	   };
+
+	filter_mouse    =  filter_widget  (fn (xc::KIDPLUG { from_mouse',     ... } ) = from_mouse',      xc::replace_mouse   );
+	filter_keyboard =  filter_widget  (fn (xc::KIDPLUG { from_keyboard',  ... } ) = from_keyboard',   xc::replace_keyboard);
+	filter_other    =  filter_widget  (fn (xc::KIDPLUG { from_other',     ... } ) = from_other',      xc::replace_other   );
+
+
+	fun ignore_widget
+	    (which_eventstream, replace_eventstream)
+	    (WIDGET { root_window, realize, size_preference_thunk_of, args, ... } )
+	    =
+	    {   fun realize' { window, window_size, kidplug }
+		    =
+		    {   fun discard_all_input mailop ()
+			    =
+			    for (;;) {
+				#
+				do_mailop mailop;
+			    };
+
+			# Replace original kidplug eventstream with
+			# a null stream -- anyone who attempts to read
+			# it will block forever:
+			#
+			kidplug'
+			    =
+			    replace_eventstream
+			      ( kidplug,
+				get' (make_oneshot_maildrop ())
+			      );
+
+			make_thread "widget" (discard_all_input (which_eventstream kidplug));
+
+			realize { window, window_size, kidplug=>kidplug'};
+		    };
+
+		make_widget
+		  { root_window,
+		    args,
+		    size_preference_thunk_of,
+		    realize => realize'
+		  };
+	    };
+
+	ignore_mouse    =  ignore_widget   (fn (xc::KIDPLUG { from_mouse',    ... } ) = from_mouse',     xc::replace_mouse   );
+	ignore_keyboard =  ignore_widget   (fn (xc::KIDPLUG { from_keyboard', ... } ) = from_keyboard',  xc::replace_keyboard);
+
+	Relief == three_d::Relief;
+
+	Attribute_Spec = (wa::Name, wa::Type, wa::Value);
+
+	fun get_''gui_startup_complete''_oneshot_of
+		#
+                (WIDGET { root_window, ... })
+	    =
+	    xc::get_''gui_startup_complete''_oneshot_of_xsession  (rw::xsession_of  root_window);
+
+    };				# package widget 
+
+end;
+
+
+# Prior reading:
+#
+#     Before reading this section you will want to have
+#     read the bottom-of-file comments in:
+#
+#         src/lib/x-kit/widget/basic/widget.api
+#
+#
+# Widget Internals
+# ================
+#
+#     (The following comments are adapted from Chapter 5 of
+#         http:://mythryl.org/pub/exene/1993-widgets.ps
+#      -- Gansner+Reppy's 1993 eXene widget manual.)
+# 
+# Widget creation is usually simple:
+# 
+#  o Compute some parameters;
+#  o Allocate resources such as fonts, colors or pixmaps;
+#  o Possibly spawn a thread encapsulating mutual widget state.
+# 
+# No X window is created at this point.
+# The widget value returned by make_widget wraps
+# 
+#  o The relevant Root_Window;
+#  o a size_preference function;
+#  o a realize function.
+#
+#
+#
+# Realize functions
+# -----------------
+#
+# In x-kit each parent widget controls the resources of its kid(s):
+#
+#  o It allocates the child's X window;
+#  o It positions that window on the screen;
+#  o It sizes that window;
+#  o Ultimately, it deletes that window.
+#
+# When a child needs any of these actions performed
+# it sends a request to its parent.
+#
+# When a parent invokes the realize function of a child
+# it passes it three parameters:
+#
+#  o The Kidplug end of the Widget_Cable from
+#    which the child receives mouse and keyboard
+#    input and through which it sends parent requests.
+#
+#  o The child's window. (The canvas on which the child draws itself.)
+#
+#  o The size of that window. (Supplied for convenience.)
+# 
+# The parent will size the child's window taking into
+# account its expressed size preference.
+#
+# 
+#
+# The child widget's realize function must:
+#
+#  o Configure itself per its assigned window size.
+#
+#  o Spawn the threads it needs to draw itself and
+#    handle keyboard and mouse input appropriately.
+#
+#  o For layout widgets, the realize function must
+#
+#     *  Lay out its children;
+#
+#     *  Allocate their X windows;
+#
+#     *  Arrange handling of its end
+#        of their Widget_Cable traffic.
+#
+#     *  Call their realize functions.
+#
+#     *  Map their windows.
+#        (A leaf widget should not un/map itself.)
+#
+#
+# Handling Keyboard and Mouse Events
+# ----------------------------------
+#
+# Keyboard input arrives via the Kidplug
+#
+#     from_keyboard'
+#
+# mailop in the form of Keyboard_Mail messages.
+# These specify whether the event was a keypress
+# or key release, the X keysym of that key, and
+# the state of the modifier keys, in particular
+# the shift and control keys.
+#
+# For details see:
+#
+#     src/lib/x-kit/xclient/src/window/widget-cable.pkg
+#
+# For translation of keysyms into ascii characters see:
+#
+#     src/lib/x-kit/xclient/src/window/keysym-to-ascii.api
+# 
+# Mouse input arrives via the Kidplug
+#
+#     from_mouse'
+#
+# mailop in the form of Mouse_Mail messages.
+# These signal mouse button press and release events,
+# mouse motions and window enter/leave events.
+#
+# IMPORTANT:  X-kit guarantees that when a widget receives
+#             a mouse buttonpress that it will receive all mouse
+#             events until all mouse buttons have been released.
+#             This corresponds to an "active grab" in X jargon.
+#
+# The first mouse button event a widget receives is always a
+#
+#     MOUSE_FIRST_DOWN
+#
+# message, and the last is always
+#
+#     MOUSE_LAST_UP
+#
+# 
+# 
+# Handling Non-keyboard, Non-mouse Events
+# ---------------------------------------
+#
+# Messages not correspondingly directly to user input
+# arrive via the Kidplug
+#
+#     from_other'
+#
+# mailop in the form of Other_Mail messages:
+#
+#   ETC_REDRAW:
+#       Signals an X Expose event, listing one or more
+#       rectangular parts of the widget window which need
+#       to be redrawn.  It is always safe to redraw the
+#       entire window, but redrawing just the indicated
+#       parts may be quicker.
+#
+#   ETC_RESIZE:
+#       Notifies widget that its window has been moved
+#       or resized, and gives the current size and location.
+#       Any required resizing has already been done by parent.
+#       Layout widgets will need to recompute their layout
+#       upon receiving this message and perhaps use
+#       move_window, resize_window and/or move_and_resize_window
+#       to reposition them:  See
+#
+#           src/lib/x-kit/xclient/src/window/window.api
+#
+#       Layout widgets need not explicitly send ETC_RESIZE
+#       messages their children; such messages will be
+#       generated as needed by the above calls.
+#
+#       It is not necessary (or good) to redraw upon
+#       receiving a ETC_RESIZE; separate ETC_REDRAW
+#       messages will be sent automatically as appropriate.
+#
+#   ETC_OWN_DEATH:
+#       Our window has been destroyed.  We must stop
+#       drawing on our window, but continue to read
+#       any mouse and keyboard events which might be
+#       still en route.  (One approach is to attach
+#       simple null loops to the from_keyboard' and
+#       from_mouse' mailops.)
+#
+#
+#   ETC_CHILD_BIRTH:
+#   ETC_CHILD_DEATH:
+#       Used by layout widgets to coordinate mail routing.
+#
+#
+# 
+# 
+# Asking Mommy For Help
+# ---------------------
+#
+# A widget requests parental favors via the Kidplug.to_mom function:
+#
+#     REQ_RESIZE:
+#         Asks parent to resize us.  Parent will call
+#         our size_preference function to get our
+#         (presumably changed) size preference and
+#         (maybe) reposition/resize us accordingly.
+#
+#         The parent is not obligated to respond to
+#         this request;  the child should not assume
+#         anything has changed unless/until it receive
+#         an ETC_RESIZE message.
+# 
+#     REQ_DESTRUCTION:
+#         Child  wishes its window destroyed.  Parent
+#         will attempt this via window::destroy_window:
+#
+#             src/lib/x-kit/xclient/src/window/window.api
+#             
+#         Child will get an ETC_OWN_DEATH message on completion.
+#
+#
+# Layout and Wrapper Widgets
+# --------------------------
+#
+# Layout widgets arrange multiple visible children.
+#
+# Wrapper widgets usually have just one visible child,
+# performing some service such as sizing it or drawing
+# a border around it.
+#
+# Layout and wrapper widgets must handle the Kidplug
+# end of their own Widget_Cable just like any leaf
+# widget, and must in addition handle the Momplug
+# ends of the cable(s) leading to their kid(s).
+#
+# Tasks include:
+#
+#  o Geometric layout of kids within own window.
+#  o Creating windows and cables for kids.
+#  o Calling child realize function(s).
+#  o Mapping child windows.
+#
+# By convention x-kit windows do not explicitly
+# use the X server border or background properties,
+# instead using wrapper widgets to implement this
+# functionality.  This is intended to yield cleaner
+# and more consistent code better insulated from
+# X idiosyncracies;  for example widgets need
+# not take border presence or thickness into account
+# when computing their geometry.
+#
+# Widget authors are encouraged to use make_child_window()
+# to create child windows, as it both automates
+# busywork and implements expected conventions. See:
+#
+#     src/lib/x-kit/widget/basic/widget-base.api
+#     src/lib/x-kit/widget/basic/widget-base.pkg
+#
+# Widget cables are created using
+#
+#     widget_cable::make_widget_cable() :
+#
+# from
+#
+#     src/lib/x-kit/xclient/src/window/widget-cable.pkg
+#
+# Wrapper and layout widgets have a Momplug for each
+# child, which they must service promptly. ("Parents
+# should be more responsible than their children.")
+#
+# REQ_RESIZE and REQ_DESTRUCTION messages should be
+# handled as described above.
+#
+# Note that a child's REQ_RESIZE message may be handled
+# locally using the layout widget's current window size,
+# or the layout widget may in turn send a REQ_RESIZE of
+# its own to its own parent.
+#
+# BEWARE the deadlock potential in two-way communications
+# between parent and child!  E.g deadlock can easily result
+# if a layout widget recomputing layout calls a child's
+# size preference function when the child, in response to
+# user input, is sending a REQ_RESIZE to the parent.
+#
+# The x-kit convention is that it is the parent's responsibility
+# to always be receptive to child requests.  The
+#
+#     wrap_queue
+#
+# function from
+#
+#     src/lib/x-kit/widget/basic/widget-base.api
+#     src/lib/x-kit/widget/basic/widget-base.pkg
+#
+# may be used to wrap a queue around the Momplug.from_child'
+# mailop, assuring that the child will not block even
+# if the parent thread is occupied.
+#
+#
+# Mail Delivery:
+# ..............
+#
+# The final task of layout and wrapper widgets is routing
+# X event mail that arrives via its Kidplug.  Each Kidplug
+# message may be destined either for the widget itself or
+# for one of its children. The envelope on each incoming
+# mail message contains the route to its destination.
+#
+# The Xinput api defines various functions which may be used
+# to assist in deciding whether a given message is for the
+# widget itself or one of its children, and if so which child:
+#
+#     src/lib/x-kit/xclient/xinput.api
+#
+# The Xevent_Mail_Router api defines functionality which can
+# handle most typical mail-routing situations:
+#
+#     src/lib/x-kit/widget/basic/xevent-mail-router.api
+#
+# At realization time a layout or wrapper widget can create
+# a router using make_xevent_mail_router(), passing it the
+# Kidplug that it received from its realize fn.  The widget
+# will also need to create a new Widget_Cable, passing the
+# Momplug end to the make_xevent_mail_router() call; the
+# widget will read its own input from the Kidplug end of
+# that cable, while the new router sits between the
+# widget and its original parent, intercepting and
+# processing mail:
+#
+#                    ----------------------       ----------
+#      (parent) >===>| xevent_mail_router |>=====>| widget |
+#                   |----------------------|  |  |----------
+#                   |                      |  |  |
+#                   |            New Momplug  |  New Kidplug 
+#                Original                     |
+#                Kidplug                     New
+#                                        Widget_Cable
+# 
+# In addition, for each child widget, the layout/wrapper
+# widget will need to create another Widget_Cable, passing
+# the Kidplug end to the child through its realize fn
+# while registering the child's Momplug and window with
+# the router via its add_child() call.  (The child widgets
+# may also be passed in via the make_xevent_mail_router()
+# call.)  The resulting topology winds up looking like:
+# 
+#                    ----------------------       ----------
+#      (parent) >===>| xevent_mail_router |>=====>| widget |
+#                    ----------------------       ----------
+#                      \/      \/     \/
+#                      ||      ||     ||---- more Widget_Cables
+#                      ||      ||     ||
+#                      \/      \/     \/
+#                    -----   -----   -----
+#                    |kid|   |kid|   |kid|
+#                    -----   -----   -----
+# 
+# To simplify life in the special case of wrapper widgets
+# with a single child, the xevent_mail_router package
+# provides the route_pair() function which does everything
+# necessary in one call.
+#
+# With either of these routers, all child mail will be routed
+# to them automatically without further work on behalf of the
+# layout/wrapper widget itself.
+#
+# The widget_base::make_child_window() function specified by
+#
+#    src/lib/x-kit/widget/basic/widget-base.api
+#
+# handles making child windows, returning a subwindow
+# of the given window of the given size in the given
+# (relative) position.
+#
+#
+# Sub-widget insert/remove
+# ........................
+#
+# Layout and wrapper widgets may permit post-realization
+# dynamic insertion and removal of child widgets.
+#
+# Inserted children should be assumed to be unrealized.
+# The layout widget should reposition its existing children
+# in light of the new widget, allocate needed resources
+# (e.g., fonts, window), and then realize the new child.
+#
+# When a layout or wrapper widget removes a child it should
+# destroy the child's window and remove it from the router.
+# 
+#
+# 
+# Wrapper Widget Support
+# ......................
+#
+# The x-kit design is intended to encourage re-use of
+# existing widgets by wrapping them in a modulating
+# widget in preference to writing a new widget from
+# scratch or adding complexity to an existing widget.
+#
+# To encourage the writing of wrapper widgets, the
+# Widget api
+#
+#     src/lib/x-kit/widget/basic/widget.api
+#
+# defines a number of support functions:
+#
+#     filter_mouse:
+#     filter_keyboard:
+#     filter_other:
+#         Wrap a new widget around a given existing
+#         widget while giving access to the given
+#         mail stream.
+#
+#     ignore_mouse:
+#     ignore_keyboard:
+#         Wrap a new widget around a given existing
+#	  widget which intercepts and discards all
+#         messages on the given mail stream.
+#
+#
+#
+# Suggested Widget Programming Conventions
+# ----------------------------------------
+#    From:   http:://mythryl.org/pub/exene/dusty-thesis.pdf
+#
+#  Parents should be more responsible than children:
+#
+#   o A parent must guarantee kids never block indefinitely
+#     when attempting to mail it -- preferably not block at
+#     all, or only momentarily.
+#
+#   o Child methods must always terminate, preferably quickly.
+#
+#   o Parents should queue messages sent to children or applications,
+#     to prevent parent threads from being blocked by slow kids:
+#
+#       "Because all queued messages originated with the user, there
+#        is little risk of the message queues becoming especially long."
+#
+#   o Parents should call child size_preference fns only prior
+#     to realization:
+#
+#      * Parent should cache child size preference pre-realization.
+#      * Parent should update cached value only on REQ_RESIZE
+#      * REQ_RESIZE should contain child's (presumably changed) size preference.
+#
+#     Since pre-realization kids have no user input to distract
+#     them they should answer promptly, or at minimum deterministically,
+#     meaning that any deadlock should show up early rather than late.
+#
+#   o Suggested widget life cycle:
+#
+#      1 Create widget; its state-encapusulating thread starts up.
+#
+#      2 Parent calls size_preference fn of child.  An exception
+#        should be thrown if this fn is called a second time.
+#
+#      3 Parent calls realize fn of child, handing it Kidplug and Window.
+#        An exception should be throw if it is called a second time.
+#
+#         -> The existing codebase has a problem with widgets which
+#            change size preference between (2) and (3).  They need
+#            to remember to file a REQ_RESIZE after realization.
+#
+#      4 Child runs, processing user input.
+#        Children responding to user input should send at most
+#        one REQ_RESIZE. (Parent is not obligated to honor them.)
+#
+#      5 Widget is notified of loss of window via ETC_OWN_DEATH
+#        and ceases drawing. (But continues to accept incoming
+#        user input.)
+#
+#   o Existing eXene irritations:
+#
+#      * Keyboard focus defaults in X to the root window,
+#        in practice the one pointed to by the mouse, which
+#        is a nuisance. Using SetInputFocus to set it to
+#        a more appropriate default would be nice. So would
+#        being able to TAB between textfields.
+#
+#      * Topwindows could trap CLIENT_TakeFocus from window
+#        manager and restore last-active widget.
+#
+#      * Textwidgets could highlight when they have keyboard focus.
+#
+#   o In Dusty's version windows recieve window manager CI_FocusIn
+#     and CI_FocusOut messages are sent.
+#
+#   o Dusty added support for WM_DELETE_WINDOW x protocol,
+#     and a 'shell' deletionEvent made available which
+#     signals CLIENT_DeleteWindow messages.
+#
+#   o Dusty's 'shell' has an input-focus manager supporting
+#     TABbing through text widgets. (See circa p23 in his
+#     thesis for much detail.)
+#
+#   o Dusty added a wrapper object to highlight focusable objects.
+#
+#   o Dusty thinks buttons should participate in the TAB protocol
+#     too, to support mouse-free GUI usage (I'm sure Drake would approve!)
+#     but did not implement this.
+#
+#   o Dusty's X resource stuff:
+#
+#      * "view" == "style" + "style-view":
+#
+#        . "style" == eXene version of Xlib resource db
+#        . "style-view" == search key into that db, e.g. app name.
+#
+#      * "args" list is attribute/value pair list.
+#
+#        Widget maintains "attrs" list of triples (attrfibute, type, default_value)
+#
+#      * eXene supports searching for attribute in (in order)
+#        . args list
+#        . style per style-view
+#        . attrs list default.
+#
+#   o Dusty implemented a commandline arg parsing facility
+#     inspired by xlib's XrmParseCommand
+#
+#   o Dusty implements X Selections.  At least part
+#     of the logic appears to be in:
+#         src/lib/x-kit/xclient/src/window/selection.pkg
+#         src/lib/x-kit/xclient/src/window/selection-imp.api
+#         src/lib/x-kit/xclient/src/window/selection-imp.pkg  
+#     
+# The above comments summarize material in Dusty's thesis
+#     
+#    http:://mythryl.org/pub/exene/dusty-thesis.pdf
+#     
+# Much the same material is repeated in the "The Future of eXene"
+#     
+#    http:://mythryl.org/pub/exene/future.pdf
+#     
+# 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991, 1994 by AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,586 @@
+## viewport.pkg
+#
+# Viewport widget, for panning over a child widget.
+#
+#
+# Two ways of providing a viewport with scrollbars:
+#     widget_with_scrollbars:
+#         src/lib/x-kit/widget/layout/widget-with-scrollbars.api
+#     scrolled_widget:
+#         src/lib/x-kit/widget/layout/scrolled-widget.api
+#
+# TODO:	XXX BUGGO FIXME
+#   Allow child window to vary per size preferences.
+#   Parameterize by child (granularity, specific scroll function)
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+
+
+# Viewport widget, for panning over a child widget.
+#
+# TODO:		XXX BUGGO FIXME
+#   Allow child window to vary per size preference.
+#   Parameterize by child (granularity, specific scroll function)
+
+stipulate
+    include threadkit;				# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xg =  xgeometry;			# xgeometry		is from   src/lib/std/2d/xgeometry.pkg
+    #
+    package xc =  xclient;			# xclient		is from   src/lib/x-kit/xclient/xclient.pkg
+    #
+    package wg =  widget;			# widget		is from   src/lib/x-kit/widget/basic/widget.pkg
+    package wa =  widget_attribute;		# widget_attribute	is from   src/lib/x-kit/widget/lib/widget-attribute.pkg
+    package mr =  xevent_mail_router;		# xevent_mail_router	is from   src/lib/x-kit/widget/basic/xevent-mail-router.pkg
+herein
+
+    package viewport: (weak)  Viewport {		# Viewport		is from   src/lib/x-kit/widget/composite/viewport.api
+
+	Plea_Mail
+	  = REALIZE  {
+		kidplug:     xc::Kidplug,
+		window:      xc::Window,
+		window_size: xg::Size
+	      }
+	  | GET
+	  | SET  { horz:  Null_Or( Int ),
+                   vert:  Null_Or( Int )
+                 }
+	  ;
+
+	Geometry
+	    =
+	    { box:         xg::Box,
+	      child_size:  xg::Size
+	    };
+
+	Reply_Mail
+	    =
+	    GEOMETRY  Geometry;
+
+	Viewport
+	    =
+	    VIEWPORT
+	      { child:                    wg::Widget,
+		configuration_change':    Mailop( Geometry  ),
+		#
+		plea_slot:                Mailslot(  Plea_Mail   ),
+		reply_slot:               Mailslot(  Reply_Mail )
+	      };
+
+	fun preferred_size { col_preference, row_preference }
+	    =
+	    xg::SIZE
+	      { wide =>  wg::preferred_length  col_preference,
+		high =>  wg::preferred_length  row_preference
+	      };
+
+
+	fun preferred_size_box arg
+	    =
+	    xg::box::make (xg::point::zero, preferred_size arg);
+
+
+	fun view_size_preference (wide, high, child_size_preference)
+	    =
+	    size_preference
+	    where
+		fun loose_preference v
+		    =
+		    wg::INT_PREFERENCE
+		      { start_at => 0,
+			step_by  => 1,
+			#
+			min_steps       => 1,
+			ideal_steps => v,
+			max_steps       => NULL
+		      };
+
+		fun size_preference ()
+		    =
+		    {   my { col_preference, row_preference }
+			    =
+			    child_size_preference ();
+
+			cols =  case wide      NULL => wg::preferred_length  col_preference;   THE cols => cols;   esac;
+			rows =  case high      NULL => wg::preferred_length  row_preference;   THE rows => rows;   esac;
+
+			{ col_preference =>  loose_preference  cols,
+			  row_preference =>  loose_preference  rows
+			};
+		    };
+	    end;
+
+
+	# Adjust view's box:
+	#
+	fun new_origin ( { horz, vert }, xg::BOX { col, row, wide, high } )
+	    =
+	    {   col =  case horz     THE h => h;  _ => col;  esac;
+		row =  case vert     THE v => v;  _ => row;  esac;
+
+		xg::BOX { col, row, wide, high };
+	    };
+
+
+	# Handle child's resize plea:  UNIMPLEMENTED 
+	#
+	fun do_resize_plea  g
+	    =
+	    g;		# XXX BUGGO FIXME
+
+
+	fun filter (in_mailop, outslot)
+	    =
+	    main ()
+	    where
+		timeout'
+		    =
+		    timeout_in' (time::from_milliseconds 30);
+
+		filter_count = 10;
+
+		fun opt_give (i, v)
+		    =
+		    if (i != filter_count)   give (outslot, v);   fi;
+
+		fun main ()
+		    =
+		    case (do_mailop in_mailop)
+			#                  
+			v as SET _ =>  {   give (outslot, v);     counter (filter_count, v);   };
+			GET        =>  {   give (outslot, GET);   main ();                     };
+			_          =>  main ();
+		    esac
+
+		also
+		fun counter (0, v)
+			=>
+			{   give (outslot, v);
+			    counter (filter_count, v);
+			};
+
+		    counter (arg as (i, v))
+			=>
+			select [
+
+			    timeout'
+				==>
+			       .{   opt_give arg;
+				    main ();
+				},
+
+			    in_mailop
+				==>
+				(fn mailop
+				    =
+				    case mailop   
+					#
+					v' as SET _ =>  counter (i - 1, v');
+					      GET   =>  {   opt_give arg;   give (outslot, GET);   main (); };
+					       _    =>  {   opt_give arg;                          main (); };
+				    esac
+				)
+			];
+		end;
+	    end;
+
+
+	fun new_geometry (wide, high,{ box=>xg::BOX { col=>x, row=>y, ... }, child_size } )
+	    =
+	    {   my xg::SIZE { wide=>cw, high=>ch }
+		    =
+		    child_size;
+
+		fun normal (x, w, cw)
+		    =
+		    if   (x < 0)      0;
+		    elif (x+w <= cw)  x;
+		    else              int::max (0, cw-w);
+		    fi;
+
+		x' = normal (x, wide, cw);
+		y' = normal (y, high, ch);
+
+		box' = xg::BOX { wide, high, col=>x', row=>y'};
+
+		box';
+	    };
+
+
+	fun make_viewport' (wide, high, child)
+	    =
+	    {   root_window =  wg::root_window_of  child;
+
+		screen      =  wg::screen_of  root_window;
+
+		plea_slot   =  make_mailslot (); 
+		reply_slot  =  make_mailslot ();
+		mailop_slot =  make_mailslot ();
+
+		fun realize_view
+		    { window, window_size,  kidplug as xc::KIDPLUG { to_mom=>myco, ... }}
+		    (geometry:  Geometry)
+		    =
+		    {   my_window = window;
+
+			filt_slot = make_mailslot ();
+
+			(xc::make_widget_cable ())
+			    ->
+			    { kidplug =>  my_kidplug,
+			      momplug =>  my_momplug
+			    };
+
+
+			my xc::KIDPLUG { from_other', ... }
+			    =
+			    xc::ignore_mouse_and_keyboard  my_kidplug;
+
+			geometry.box
+			    ->
+			    r as xg::BOX { col => x,
+					   row => y,
+					   ...
+					 };
+
+			child_box    =  preferred_size_box (wg::size_preference_of  child);
+
+			child_window =  wg::make_child_window  (my_window,  child_box,  wg::args_of child);
+
+
+			(xc::make_widget_cable ())
+			    ->
+			    { kidplug => ckidplug,
+			      momplug => cmomplug as xc::MOMPLUG { from_kid'=>childco, ... }
+			    };
+
+			fun do_mom (xc::ETC_RESIZE (xg::BOX { wide, high, ... } ), geometry)
+				=> 
+				{ box       =>  new_geometry (wide, high, geometry),
+				  child_size =>  geometry.child_size
+				};
+
+			    do_mom (_, geometry)
+				=>
+				geometry;
+			end;
+
+
+			fun handle_co (xc::REQ_RESIZE, { box, child_size })
+				=>
+				{ box,
+				  #	
+				  child_size
+				      =>
+				      xg::box::size
+					  (preferred_size_box
+					      (wg::size_preference_of  child)
+					  )
+				};
+
+			    handle_co (xc::REQ_DESTRUCTION, g)
+				=>
+				{   xc::destroy_window  child_window;
+				    g;
+				};
+			end;
+
+
+			fun do_plea (SET arg,{ box, child_size } : Geometry)
+				=>
+				{   my r as xg::BOX { col=>x, row=>y, ... }
+					=
+					new_origin (arg, box);
+
+				    if (r != box)
+					xc::move_window child_window (xg::POINT { col=> -x, row=> -y });
+				    fi;
+
+				    { box => r, child_size };
+				};
+
+			   do_plea (GET, geometry)
+			       =>
+			       {   give (reply_slot, GEOMETRY geometry);
+				   geometry;
+			       };
+
+			   do_plea (_, geometry)
+			       =>
+			       geometry;
+		       end;
+
+
+		       fun loop (geometry as { child_size, box } )
+			    =
+			    {   fun do_mom2  mail
+				    =
+				    {   my geometry as { box=>box', ... }
+					    =
+					    do_mom (xc::envelope_contents mail, geometry);
+
+
+					my origin' as xg::POINT { col=>x, row=>y }
+					    =
+					    xg::box::upperleft  box';
+
+
+					if (origin' !=  xg::box::upperleft box)
+					    #
+					    xc::move_window child_window (xg::POINT { col=> -x, row=> -y } ); 
+					    #
+					    changed { box=>box', child_size };
+					    #
+					else
+					    if (xg::box::size box != xg::box::size box')
+						#
+						changed { box=>box', child_size };
+					    else
+						loop geometry;
+					    fi;
+					fi;
+				    };
+
+				fun do_co2  mailop							# This function was added in SML/NJ 110.59
+				    =
+				    {   my  geometry' as { box=>box', child_size => child_size' }
+					    =
+					    handle_co (mailop, geometry);
+
+					my origin' as xg::POINT { col, row }
+					    =
+					    xg::box::upperleft  box';
+
+					if (child_size == child_size')
+					    #
+					    loop geometry;
+					else
+					    child_size' ->  xg::SIZE { wide, high };
+
+					    child_box
+						=
+						xg::BOX
+						  { col => -col,
+						    row => -row,
+						    #
+						    wide,
+						    high
+						  };
+
+					    xc::move_and_resize_window
+						#
+						child_window
+						child_box;
+
+					    changed  geometry';
+
+					fi;
+				    };
+
+				select [
+				    from_other'       ==>  do_mom2,
+				    childco           ==>  do_co2,
+				    take'  filt_slot  ==>  (fn arg =  loop (do_plea (arg, geometry)))
+				];
+			    }
+
+			also
+			fun changed geometry
+			    =
+			    select [
+
+				give' (mailop_slot, geometry)
+				    ==>
+				   .{  loop geometry; },
+
+				from_other'
+				    ==>
+				    (fn mail =  changed (do_mom  (xc::envelope_contents mail, geometry))),
+
+				childco
+				    ==>
+				    (fn arg   =  changed (handle_co  (arg,               geometry))),
+
+				take'  filt_slot
+				    ==>
+				    (fn arg   =  changed (do_plea (arg,               geometry)))
+			    ];
+
+
+			mr::route_pair (kidplug, my_momplug, cmomplug);
+
+			xc::move_window  child_window  (xg::POINT { col=> -x, row=> -y } );
+
+			wg::realize_fn  child
+			  {
+			    kidplug     =>  ckidplug, 
+			    window      =>  child_window,
+			    window_size =>  xg::box::size  child_box
+			  };
+
+			make_thread "viewport" .{
+			    #
+			    filter  (take' plea_slot,  filt_slot);
+			};
+
+			xc::show_window  child_window;
+
+			changed { box        =>  xg::box::make (xg::POINT { col=>x, row=>y }, window_size),
+				  child_size =>  xg::box::size child_box
+				};
+		    };
+
+		fun init_geometry ()
+		    =
+		    {   my  xg::SIZE { wide => cwid, high => cht }
+			    =
+			    preferred_size (wg::size_preference_of  child);
+
+			wide = case wide    NULL => cwid;  THE w => w;  esac;
+			high = case high    NULL => cht;   THE h => h;  esac;
+
+			{ box        => xg::BOX { col=>0, row=>0, wide, high },
+			  child_size => xg::SIZE { wide=>cwid, high=>cht }
+			};
+		    };
+
+		fun init_loop (geometry:  Geometry)
+		    =
+		    {   fun update ( { horz, vert } )
+			    =
+			    {   geometry.box ->  xg::BOX { col=>x, row=>y, wide, high };
+
+				x' = case horz    THE h => h;  _ => x; esac;
+				y' = case vert    THE v => v;  _ => y; esac;
+
+				my  xg::SIZE { wide=>cwid, high=>cht }
+				    =
+				    preferred_size (wg::size_preference_of  child);
+
+				{ box        => xg::BOX { col=>x', row=>y', wide, high },
+				  child_size => xg::SIZE { wide=>cwid, high=>cht }
+				};
+			    };
+
+			case (take  plea_slot)   
+			    #
+			    SET arg     =>  init_loop (update arg);
+			    GET         =>  {   give (reply_slot, GEOMETRY geometry);   init_loop geometry;   };
+			    REALIZE arg =>  realize_view  arg  geometry;
+			esac;
+		    };
+
+		make_thread "viewport init"  .{
+		    #
+		    init_loop (init_geometry ());
+		};
+
+		VIEWPORT
+		  {
+		    plea_slot,
+		    reply_slot,
+
+		    configuration_change'         =>  take'  mailop_slot,
+
+		    child
+			=>
+			wg::make_widget
+			    {
+			      root_window, 
+			      args      =>  wg::args_fn  child,
+			      realize   =>  fn arg =  give (plea_slot, REALIZE arg),
+
+			      size_preference_thunk_of
+				  =>
+				  view_size_preference
+				    ( wide,
+				      high,
+				      wg::size_preference_thunk_of  child
+				    )
+			    }
+		  };
+	    };
+
+	fun make_viewport  child
+	    =
+	    make_viewport' (NULL, NULL, child);
+
+	attributes
+	    =
+	    [ (wa::width,        wa::INT,      wa::NO_VAL),
+	      (wa::height,       wa::INT,      wa::NO_VAL),
+	      (wa::background,   wa::COLOR,    wa::STRING_VAL "white")
+	    ];
+
+	fun viewport (root_window, view, args) child
+	    =
+	    {   attributes = wg::find_attribute (wg::attributes (view, attributes, args));
+
+		wide  = wa::get_int_opt (attributes wa::width);
+		high  = wa::get_int_opt (attributes wa::height);
+		color = wa::get_color   (attributes wa::background);
+
+		make_viewport' (wide, high, child);
+	    };
+
+	fun as_widget (VIEWPORT { child, ... } )
+	    =
+	    child;
+
+
+	fun set_horizontal_position (VIEWPORT { plea_slot, reply_slot, ... } ) arg
+	    =
+	    give (plea_slot, SET { horz=>THE arg, vert=>NULL } );
+
+
+	fun set_vertical_position (VIEWPORT { plea_slot, reply_slot, ... } ) arg
+	    =
+	    give (plea_slot, SET { vert=>THE arg, horz=>NULL } );
+
+
+	fun set_origin (VIEWPORT { plea_slot, reply_slot, ... } ) (xg::POINT { col, row } )
+	    = 
+	    give (plea_slot, SET { vert=>THE row, horz=>THE col } );
+
+
+	fun get_geometry (VIEWPORT { plea_slot, reply_slot, ... } )
+	    =
+	    {   give (plea_slot, GET);
+
+		case (take reply_slot)    GEOMETRY g => g;   esac;
+	    };
+
+
+	fun get_viewport_configuration_change_mailop (VIEWPORT { configuration_change', ... } )
+	    =
+	    configuration_change';
+
+    };		#  Viewport 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

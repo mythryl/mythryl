@@ -1,0 +1,5170 @@
+## build-ast.pkg
+
+# Compiled by:
+#     src/lib/c-kit/src/ast/group.make6
+
+
+
+# Input:   A parse tree.
+# 
+# Output:  A type-checked abstract syntax tree,
+#          a map from expression adornments to types,
+#          and mappings from variables (uids) to types
+#          and type ids (uids) to types.
+#
+# AUTHORS: Michael Siff (siff@cs.wisc.edu) 
+#          Satish Chandra (chandra@research.bell-labs.com)
+#          Nevin Heintze (nch@research.bell-labs.com)
+#          Dino Oliva (oliva@research.bell-labs.com)
+#          Dave MacQueen (dbm@research.bell-labs.com)
+#
+# TBD:
+#   - needs to be tested for robustness
+#    (particularly type table and expression-type map)
+#   - add casts to constant expr evaluator 
+
+
+# Type checking: minor checks not implemented:
+# 3. no pointer or arrays of bitfields: most compiler (and lint) don't implement this.
+# 5. only storage-class specifier in a parameter declaration is register.
+
+
+
+# Notes: Treatment of function pointers.
+# In C, the types Function(...) and Pointer (Function(...))
+# are almost interchangeable.  If f is a function, then
+# it can be called using ( *f )(args); if x is a function pointer,
+# then the function it points to can be called using x (args)
+# (Dennis R. says this was introduced by the pcc compiler, and then adopted by ANSI.)
+# The auto-promotion of Function(...) and Pointer (Function(...)) has some
+# strange consequences: ( ******f ) is just f.
+#
+# We deal with this as follows:
+# 1. all expressions of type Function(...) are immediately 
+#    promoted to type Pointer (Function(...))
+# 2. exceptions to (1) involving sizeof and &
+#    are handled as special cases in the code for unary operations.
+# 3. derefs of expressions of type Pointer (Function(...)) are eliminated.
+# 4. & of functions are eliminated.
+# 5. function parameters of type Function(...) are promoted to  Pointer (Function(...)).
+
+
+# Changes to make sometime around April 1st, 99
+# 2. get rid of redundancy relating to top_level/global (i.e. remove top_level parameters)
+#    - once it's been tested.
+
+
+
+###           "I must go down to the seas again,
+###                To the lonely sea and the sky.
+###            And all I want is a tall ship,
+###                And a star to steer her by."
+###
+###                       -- John Masefield
+
+
+
+package build_raw_syntax_tree: (weak)  Build_Raw_Syntax_Tree {		# Build_Raw_Syntax_Tree	is from   src/lib/c-kit/src/ast/build-ast.api
+
+    Raw_Syntax_Tree_Bundle
+        =
+        { raw_syntax_tree: raw_syntax::Raw_Syntax_Tree,
+          tidtab:          tidtab::Uidtab( namings::Tid_Naming ),
+          error_count:     Int,
+          warning_count:   Int,
+          auxiliary_info:  { aidtab:    tables::Aidtab,
+		             implicits: tables::Aidtab,
+		             dictionary:      state::Symtab
+                           }
+        };
+
+    #  Imported packages w/abbreviations 
+    #  ----------------------------------- 
+
+    package aid = aid;
+    package tid = tid;
+    package pid = pid;
+
+    package sm= source_map;		# source_map		is from   src/lib/c-kit/src/parser/util/source-map.pkg
+    package pt= parse_tree;		# parse_tree		is from   src/lib/c-kit/src/parser/parse-tree.pkg
+    package sym= symbol;		# symbol		is from   src/lib/c-kit/src/ast/symbol.pkg
+    package b= namings;			# namings		is from   src/lib/c-kit/src/ast/bindings.pkg
+    package ppl= prettyprint_lib;	# prettyprint_lib	is from   src/lib/c-kit/src/ast/prettyprint/pp-lib.pkg
+    package raw= raw_syntax;
+    package s= state;			# state			is from   src/lib/c-kit/src/ast/state.pkg
+    package w= unt;			# unt			is from   src/lib/std/unt.pkg
+    package tu= type_util;		# type_util		is from   src/lib/c-kit/src/ast/type-util.pkg
+    package tt= tidtab;			# tidtab		is from   src/lib/c-kit/src/ast/tidtab.pkg
+    package at= aidtab;			# aidtab		is from   src/lib/c-kit/src/ast/aidtab.pkg
+					# config		is from   src/lib/c-kit/src/variants/ansi-c/config.pkg
+
+    package type_check_control
+        =
+        config::type_check_control;
+
+    #  local packages 
+    #  ---------------- 
+    #  David B MacQueen: an inefficient version of string binary map 
+    package id_map
+        =
+        binary_map_g (
+	    Key = String;
+	    compare = string::compare;
+        );
+
+
+    #  Abstract syntax of translation unit in context 
+
+    Raw_Syntax_Tree_Bundle
+        =
+        { raw_syntax_tree: raw::Raw_Syntax_Tree,
+          tidtab:          tidtab::Uidtab( namings::Tid_Naming ),
+          error_count:     Int,
+          warning_count:   Int,
+          auxiliary_info:  { aidtab:      tables::Aidtab,
+		             implicits:   tables::Aidtab,
+		             dictionary:  state::Symtab
+                           }
+        };
+
+
+    # XXX BUGGO FIXME more mutable global state :(
+    # These should be in a state record.
+
+    insert_explicit_coersions =  REF FALSE;
+    insert_scaling            =  REF FALSE;
+    reduce_sizeof             =  REF FALSE;
+    reduce_assign_ops         =  REF FALSE;
+    multi_file_mode_flag      =  REF FALSE;
+    local_externs_ok          =  REF TRUE;
+    default_signed_char       =  REF FALSE;
+
+    fun multi_file_mode ()
+        =
+        {   insert_explicit_coersions := FALSE;
+            insert_scaling            := FALSE;
+            reduce_sizeof             := FALSE;
+            reduce_assign_ops         := FALSE;
+            multi_file_mode_flag      := TRUE;
+            local_externs_ok          := TRUE;
+        };
+
+    fun compiler_mode ()
+        =
+        {   insert_explicit_coersions := TRUE;
+            insert_scaling            := TRUE;
+            reduce_sizeof             := TRUE;
+            reduce_assign_ops         := TRUE;
+            multi_file_mode_flag      := FALSE;
+            local_externs_ok          := TRUE;
+        };
+
+    fun source_to_source_mode ()
+        =
+        {   insert_explicit_coersions := FALSE;
+            insert_scaling            := FALSE;
+	    reduce_sizeof             := FALSE;
+	    reduce_assign_ops         := FALSE;
+	    multi_file_mode_flag      := FALSE;
+	    local_externs_ok          := TRUE;
+        };
+
+    my _ = source_to_source_mode();   #  Default is source-to-source mode 
+
+    perform_type_checking
+        =
+        type_check_control::perform_type_checking;
+        #
+	# TRUE = do type checking;
+        # FALSE = disable type checking;
+	#	 Note: with type checking off, there is still some
+	#	       rudimentary type processing, but no
+	#	       usual unary conversions, usual binary conversions, etc.
+
+    undeclared_id_error
+        =
+        type_check_control::undeclared_id_error;
+        #
+	# In ANSI C, an undeclared id is an error;
+	#	 in older versions of C, undeclared ids are assumed integer.
+	#	 Default value: TRUE (for ANSI behavior)
+
+    convert_function_args_to_pointers
+       =
+       type_check_control::convert_function_args_to_pointers;
+        #
+	# In ANSI C, arguments of functions governed by prototype
+	#	 definitions that have type function or array are not
+	#	 promoted to pointer type; however many compilers do this
+	#	 promotion.
+	#	 Default value: TRUE (to get standard behavior)
+
+    storage_size_check
+       =
+       type_check_control::storage_size_check;
+        #
+	# Declarations and package fields must have known storage
+	#	 size; maybe you want to turn this check off?
+	#	 Default value: TRUE (to get ANSI behavior).
+
+    allow_non_constant_local_initializer_lists
+	=
+	type_check_control::allow_non_constant_local_initializer_lists; 
+        #
+	# Allow non constant local initializers for aggregates and unions.
+	#   e.g. int x, y, z;
+	#         int a[] = { x, y, z };
+	#   This is allowed gcc
+
+    my (repeated_declarations_ok, resolve_anonymous_structs)
+	=
+	if *multi_file_mode_flag    (TRUE,  TRUE);
+	else                        (FALSE, FALSE);
+	fi;
+
+    fun debug_pr_naming (name: String, naming: b::Sym_Naming)
+        =
+	print ( "symbol naming: " + name
+	      + case naming
+
+		      b::MEMBER _ => " MEMBER";
+		      b::TAG _ => " TAG";
+		      b::TYPEDEF _ => " TYPEDEF";
+		      b::ID _ => " ID";
+		 esac
+	      + "\n"
+	      );
+
+
+    #  some auxiliary functions 
+    #  ---------------------- 
+
+    fun to_id tid
+        =
+        ".anon" + (tid::to_string tid);
+
+    fun dt2ct { qualifiers, specifiers, storage }
+        =
+	{ qualifiers, specifiers };
+
+    fun signed_num   ik =   raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::SIGNED,   ik, raw::SIGNASSUMED);
+    fun unsigned_num ik =   raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::UNSIGNED, ik, raw::SIGNASSUMED);
+
+    std_int = type_util::std_int;
+
+    fun get_naming_loc (b::MEMBER  { location, ... } ) =>  location;
+	get_naming_loc (b::ID      { location, ... } ) =>  location;
+	get_naming_loc (b::TYPEDEF { location, ... } ) =>  location;
+	get_naming_loc (b::TAG     { location, ... } ) =>  location;
+    end;
+
+
+    bogus_tid = tid::new();
+    bogus_uid = pid::new();
+
+
+    fun bogus_member symbol
+        =
+	{ name     =>  symbol,
+          uid      =>  pid::new(),
+          location =>  source_map::UNKNOWN,
+	  ctype    =>  raw::ERROR,
+          kind     =>  raw::STRUCTMEM
+        };					#  Dbm: is this kind ok? 
+
+
+    fun is_zero_expression (raw::EXPRESSION (raw::INT_CONST 0, _, _))
+            =>
+            TRUE;
+
+        is_zero_expression _
+            =>
+            FALSE;
+    end;
+
+
+    fun is_zero_core_expression (raw::INT_CONST 0)
+            =>
+            TRUE;
+
+        is_zero_core_expression _
+            =>
+            FALSE;
+    end;
+
+
+    fun get_core_expr (raw::EXPRESSION (expr, _, _))
+        =
+        expr;
+
+
+    # Check if a parse-tree type is of the `tagged' variety
+    # -- i.e. it refers to a (struct, union, or enum) type
+    # defined elsewhere
+
+    fun is_tag_type ( { specifiers, ... }: pt::Decltype)
+	=
+	list::exists s_test specifiers
+        where 
+	    fun s_test (pt::STRUCT_TAG _) =>  TRUE;
+	        s_test (pt::ENUM_TAG   _) =>  TRUE;
+	        s_test                _   =>  FALSE;
+            end;
+	end;
+
+    stipulate
+
+	include namings;
+
+    herein
+
+	# Main function:
+
+	fun make_raw_syntax_tree
+            ( sizes:        sizes::Sizes,
+              state_info:   s::State_Info,
+	      error_state:  error::Error_State
+            )
+	    =
+	    make_raw_syntax_tree'
+	    where 
+
+		# If there are any parse errors, then don't print any type-checking errors
+		#
+		if (error::error_count error_state > 0) 
+		    
+                     error::no_more_errors   error_state;
+                     error::no_more_warnings error_state;
+		fi;
+
+		my global_state as { uid_tables=> { ttab, atab, implicits }, ... }
+                    =
+		    s::init_global (state_info, error_state);
+
+		local_state = s::init_local ();
+
+		state_funs = s::state_funs (global_state, local_state);
+
+		state_funs
+                    ->
+		    { loc_funs      =>  { push_loc, pop_loc, get_loc, error, warn },
+		      tids_funs     =>  { push_tids, reset_tids },
+		      tmp_vars_funs =>  { push_tmp_vars, reset_tmp_vars },
+		      uid_tab_funs  =>  { bind_aid, get_aid=>get_aid0, bind_tid, get_tid },
+		      fun_funs      =>  { new_function, get_return_type, check_labels, add_label, add_goto }, 
+		      switch_funs   =>  { push_switch_labels, pop_switch_labels, add_switch_label, add_default_label },
+		      env_funs      =>  { top_level, push_local_dictionary, pop_local_dictionary, get_sym, bind_sym,
+					  get_sym_global, bind_sym_global, get_local_scope, get_global_dictionary
+                                        },
+		      ...
+		    };
+
+		bug = error::bug error_state;
+
+		fun conv_fun_error s _
+                    =
+		    raise exception FAIL("Fatal Bug: extension conversion function " + s + " not installed yet!");
+
+
+		#  refs for extension conversion functions 
+
+		ref_cnvexp   = REF (conv_fun_error "CNVExp" : cnv_ext::Expression_Ext -> (raw::Ctype, raw::Expression));
+		ref_cnvstat  = REF (conv_fun_error "CNVStat": cnv_ext::Statement_Ext -> raw::Statement);
+		ref_cnvbinop = REF (conv_fun_error "CNVBinop": { binop: parse_tree_ext::Operator_Ext, arg1expr: parse_tree::Expression,
+								arg2expr: parse_tree::Expression }
+							      -> (raw::Ctype, raw::Expression));
+
+		ref_cnvunop  = REF (conv_fun_error "CNVUnop": { unop: parse_tree_ext::Operator_Ext, arg_expr: parse_tree::Expression }
+							      -> (raw::Ctype, raw::Expression));
+
+		ref_cnvexternal_decl = REF (conv_fun_error "CNVExternalDecl" : cnv_ext::External_Decl_Ext -> List( raw::External_Decl ) );
+		ref_cnvspecifier     = REF (conv_fun_error "CNVSpecifier": { is_shadow: Bool, rest:  List( parse_tree::Specifier ) } 
+								      -> cnv_ext::Specifier_Ext
+								      -> raw::Ctype);
+		ref_cnvdeclarator    = REF (conv_fun_error "CNVDeclarator":  (raw::Ctype, cnv_ext::Declarator_Ext) 
+								       -> (raw::Ctype, Null_Or( String )) );
+		ref_cnvdeclaration   = REF (conv_fun_error "CNVDeclaration": cnv_ext::Declaration_Ext -> List( raw::Declaration ) );
+
+		fun cnvexp x = *ref_cnvexp x;
+		fun cnvstat x = *ref_cnvstat x;
+		fun cnvbinop x = *ref_cnvbinop x; 
+		fun cnvunop x = *ref_cnvunop x;
+		fun cnvexternal_decl x = *ref_cnvexternal_decl x;
+		fun cnvspecifier x = *ref_cnvspecifier x;
+		fun cnvdeclarator x = *ref_cnvdeclarator x;
+		fun cnvdeclaration x = *ref_cnvdeclaration x;
+
+	        #  miscellaneous utility functions 
+
+		#  Could be a component of stateFuns 
+		#  indicates a type used before it is defined: structs, unions, enums 
+		#  should never happen for tid bound to a typedef 
+		# 
+		fun is_partial tid
+                    = 
+		    case (get_tid tid)
+		      
+		         THE { ntype=>NULL, ... } =>  TRUE;
+			 _                      =>  FALSE;
+                    esac;
+
+		fun is_partial_type
+                        ( raw::STRUCT_REF tid
+                        | raw::UNION_REF  tid
+                        )
+                        =>
+                       is_partial tid;
+
+		    is_partial_type _
+                        =>
+                        FALSE;
+                end;
+
+
+		fun is_local_scope symbol
+                    =
+                    not_null (get_local_scope symbol);
+
+		# Redefine lookUpAid with error recovery behavior:
+		#
+		fun get_aid aid
+                    =
+		    case (get_aid0 aid)
+		      
+		         NULL =>
+			     {   bug ("lookUpAid: no type for this expression."
+				      + int::to_string aid);
+
+			         raw::VOID;
+                             };
+
+			 THE ct => ct;
+                    esac;
+
+		# pretty-printer utils        # David B MacQueen: not used 
+		#
+		fun prettyprint_ct ()
+		    =
+		    ppl::prettyprint_to_strm (unparse_raw_syntax::prettyprint_ctype () ttab) file::stdout;
+
+		ct_to_string
+                    =
+                    ppl::prettyprint_to_string
+                        (unparse_raw_syntax::prettyprint_ctype () ttab);
+
+		#  identifier convention: loc:  Errors::location 
+
+		is_pointer = tu::is_pointer ttab;
+		is_function = tu::is_function ttab;  #  is real function type; excludes pointer to function 
+		is_non_pointer_function = tu::is_non_pointer_function ttab;
+		is_number_or_pointer = tu::is_number_or_pointer ttab;
+		is_number = tu::is_number ttab;
+		is_array = tu::is_array ttab;
+
+		fun deref v
+		    = 
+		    case (tu::deref ttab v)
+		      
+		         THE x => x;
+
+			 NULL => { error
+				     ("Cannot dereference type " + (ct_to_string v));
+				   raw::VOID;};
+                    esac;
+
+		get_function = tu::get_function ttab;
+		is_struct_or_union= tu::is_struct_or_union ttab;
+		is_enum = tu::is_enum ttab;
+
+		fun lookup_enum v
+                    = 
+		    case (tu::lookup_enum ttab v)
+		      
+		         THE x => x;
+			 NULL => { bug "lookupEnum: invalid enum type";
+				   large_int::from_int 0;};
+                    esac;
+
+		types_are_equal  =  tu::types_are_equal ttab;
+		is_scalar        =  tu::is_scalar ttab;
+		is_integral      =  tu::is_integral ttab;
+
+		usual_unary_cnv  =  tu::usual_unary_cnv ttab;
+		usual_binary_cnv =  tu::usual_binary_cnv ttab;
+
+		is_const         =  tu::is_const ttab;
+		is_equable       =  tu::is_equable ttab;
+		is_addable       =  tu::is_addable ttab;
+		is_subtractable  =  tu::is_subtractable ttab;
+		is_comparable    =  tu::is_comparable ttab;
+
+		conditional_expression =  tu::conditional_expression ttab;
+		compatible             =  tu::compatible ttab;
+
+		function_arg_conv      =  tu::function_arg_conv ttab;
+		is_function_prototype  =  tu::is_function_prototype ttab;
+		get_core_type          =  tu::get_core_type ttab;
+
+
+		fun composite (type1, type2)
+                    =
+		    case (tu::composite ttab (type1, type2))
+		      
+			(result, NIL)
+                            =>
+                            result;
+
+			(result, err_l)
+			    => 
+			    {   list::map error err_l;
+				result;
+			    };
+                    esac;
+
+		has_known_storage_size = tu::has_known_storage_size ttab;
+		pre_arg_conv = tu::pre_arg_conv ttab;
+		cnv_function_to_pointer2function = tu::cnv_function_to_pointer2function ttab;
+
+
+		fun check_qualifiers type
+                    =
+                    tu::check_qualifiers ttab type;
+
+
+		fun wrap_statement (core_statement: raw::Core_Statement) : raw::Statement
+                    =
+		    raw::STMT (core_statement, aid::new (), get_loc());
+
+
+		fun wrap_decl (core_ext_decl: raw::Core_External_Decl) : raw::External_Decl
+                    =
+		    raw::DECL (core_ext_decl, aid::new (), get_loc());
+
+
+		fun wrap_expr (type, core_expr)
+		    = 
+		    {   type = cnv_function_to_pointer2function type;
+
+			# all expressions of type Function are promoted to Pointer (Function)
+			# exceptions (&, sizeof) are handled in unops
+
+			# Strictly speaking, arrays should also be converted to pointers here;
+			# however code using array expressions deal with the array case directly (e.g. Sub, Deref);
+			# Caution: if we were to make this change, we still need to know it was an array!
+			# Where is the right place to do this conversion?
+
+			adorn = bind_aid type;
+
+		       (type, raw::EXPRESSION (core_expr, adorn, get_loc()));
+		    };
+
+
+		simplify_assign_ops
+                    =
+                    simplify_assign_ops::simplify_assign_ops
+					  { get_aid, get_core_type, wrap_expr,
+					   get_loc, top_level, bind_sym, push_tmp_vars };
+
+
+		fun make_function_ct (ret_type, arg_tys)
+                    =
+		    {   if   (is_non_pointer_function ret_type)
+			    
+                             error "Return type of function cannot be function type.";
+		        fi;
+
+		        if  (is_array ret_type)
+			    
+                             error "Return type of function cannot be array type.";
+		        fi;
+
+			fun with_name f (t, n)
+			    =
+			    (f t, n);
+
+			arg_tys
+			    = 
+			    if   (convert_function_args_to_pointers)
+			        
+				 list::map (with_name pre_arg_conv) arg_tys;
+			    else list::map (with_name cnv_function_to_pointer2function) arg_tys;
+                            fi;
+
+			raw::FUNCTION (ret_type, arg_tys);
+
+                    };
+
+
+		fun get_storage_ilk symbol
+                    =
+		    case (get_sym symbol)
+		      
+		         THE (b::ID { st_ilk, ... } )
+                             =>
+                             THE st_ilk;
+
+			 _   => NULL;
+                    esac;
+
+		fun check_fn (fun_type, arg_tys, exprs)
+                    = 
+		    {   is_zero_exprs
+                            =
+                            list::map is_zero_expression exprs;
+
+		        case (tu::check_fn ttab (fun_type, arg_tys, is_zero_exprs))
+		          
+                             (result, NIL, args)
+                                 =>
+                                 (result, args);
+
+			     (result, err_l, args)
+                                 => 
+			         {   list::map error err_l;
+			             (result, args);
+                                 };
+                        esac;
+		  };
+
+		# David B MacQueen: should this go in State?
+                # or be defined in terms of a more 
+		# primitive operation in State like the former insertOpAid?
+                #
+		fun note_implicit_conversion (raw::EXPRESSION (_, aid, _), type)
+                    =
+                    at::insert (implicits, aid, type);
+
+
+		fun wrap_cast (type, expr as (raw::EXPRESSION (_, aid', loc')))
+                    =
+		    if   (ctype_eq::eq_ctype (get_core_type (get_aid aid'), get_core_type type))
+                        
+                         expr;  #  David B MacQueen: gen. equality on types 
+
+			 # 7/29/99: tentative fix for spurious casts
+			 # old code: if lookUpAid aid' == type then expr  #  David B MacQueen: gen. equality on types 
+			 #
+		    else
+			aid = bind_aid type;
+
+			if *insert_explicit_coersions
+			     raw::EXPRESSION (raw::CAST (type, expr), aid, loc');
+			else
+			     note_implicit_conversion (expr, type);
+			     expr;
+			fi;
+		    fi;
+
+		fun sizeof type
+                    =
+		    large_int::from_int (.bytes (sizeof::byte_size_of { sizes, err=>error, warn, bug } ttab type));
+
+		fun is_lval (expr, type)
+                    =
+		    case expr
+		      
+			raw::MEMBER (raw::EXPRESSION (expr'', aid, _), _)
+			    => 
+			    is_lval (expr'', get_aid aid);
+
+			( raw::ID _
+                        | raw::SUB _
+                        | raw::ARROW _
+                        | raw::DEREF _
+                        )
+			    =>
+			    TRUE;
+
+			_   =>
+			    FALSE;
+                    esac;
+
+		fun check_assignable_lval (expr, type, s)
+                    =
+		    # check we can assign to this expression,
+		    # and generate error messages if not
+		    if (is_lval (expr, type))
+                        
+			if   (is_const type)
+                             
+			     error ("Type Error: lhs of assignment is const"
+			            +
+                                   (s == ""   ??                "."
+                                              ::   " in " + s + ".")
+                             );
+			else
+                             case expr
+			       
+				  raw::ID _
+                                      => 
+				      if   (is_array type)
+                                           
+				           error (
+                                               "Type Error: lhs of assignment is an array (not a modifiable lval)"
+					       +
+                                               if (s == "")  ".";
+                                               else         (" " + s + ".");
+                                               fi
+                                           );
+				      fi;
+
+				  _ => ();
+
+                             esac;
+			fi;
+		  else
+		        error (
+                            "Type Error: lhs of assignment is not an lvalue"
+		            +
+                            (s == ""    ??             "."
+                                        ::   " " + s + ".")
+                        );
+                  fi;
+
+		fun is_assignable_tys { lhs_type, rhs_type, rhs_expr_opt:  Null_Or( raw::Core_Expression ) }
+                    =
+		    {   rhs_expr0
+                            =
+                            case rhs_expr_opt
+			      
+                                 THE rhs_expr =>  is_zero_core_expression rhs_expr;
+				 NULL         =>  FALSE;
+                            esac;
+
+		        tu::is_assignable
+                            ttab
+                            { lhs => lhs_type,
+                              rhs => rhs_type,
+                              rhs_expr0
+                            };
+		    };
+
+		fun check_assignable_tys (x as { lhs_type, rhs_type, rhs_expr_opt } )
+                    =
+		    if   (not (is_assignable_tys x))
+                        
+		         lhs  = ct_to_string lhs_type;
+			 rhs' = ct_to_string (usual_unary_cnv rhs_type);
+			 rhs  = ct_to_string rhs_type;
+
+			 error 
+			   ("Type Error: rval of type " + rhs
+			    + " cannot be assigned to lval of type " + lhs + ".");
+
+		    fi;
+
+		fun check_assign { lhs_type, lhs_expr, rhs_type, rhs_expr_opt:  Null_Or( raw::Core_Expression ) }
+                    =
+		    if perform_type_checking
+		         check_assignable_lval (lhs_expr, lhs_type, "");
+		         check_assignable_tys { lhs_type, rhs_type, rhs_expr_opt };
+		    fi;
+
+		fun is_typedef ( { storage, ... } : pt::Decltype)
+		    =
+		    if (list::exists (fn pt::TYPEDEF => TRUE;  _ => FALSE; end ) storage)	 #  Any typedefs? 
+
+                         case storage
+			      [pt::TYPEDEF] =>  TRUE;  #  must be exactly one typedef 
+			      _             =>  {   error "illegal use of TYPEDEF";  
+					            TRUE;
+                                                };
+			 esac;
+		    else
+			 FALSE;
+		    fi;
+
+		fun decl_expr_to_decl error_package (decr, pt::EMPTY_EXPR) =>  decr;
+		    decl_expr_to_decl error_package (decr, _)              =>  { error error_package;   decr;};
+                end;
+
+		# Check for illegal renaming within current local scope,
+		# for other than chunks and functions:
+		#
+		fun check_non_id_renaming (symbol, type, kind: String) : Void
+                    =
+		    case (get_local_scope symbol)
+		      
+                         THE (b::TYPEDEF { location=>loc, ... } )
+                             =>
+			     (error ("illegal redeclaration of " + kind + (sym::name symbol) +
+				  ";\n   previously declared as typedef at " +
+				  sm::loc_to_string loc));
+
+			 THE (b::MEMBER { location=>loc, ... } )
+                             =>
+			     (error ("illegal redeclaration of " + kind + (sym::name symbol) +
+				  ";\n   previously declared as member at " +
+				  sm::loc_to_string loc));
+
+			 THE (b::TAG { location=>loc, ... } )
+                             =>
+			     (error ("illegal redeclaration of " + kind + (sym::name symbol) +
+				  ";\n   previously declared as tag at " +
+				  sm::loc_to_string loc));
+
+			 NULL => (); #  not previously bound in local scope 
+
+			 _    => bug "checkNonIdRenaming: unexpected naming";
+                    esac;
+
+
+		# Check for illegal renaming within current local scope.
+		# Only called in processDecr for "chunk" declaration.
+		#
+		fun check_id_renaming (symbol, new_type, new_status: raw::Decl_Status, { global_naming } )
+		    : (raw::Decl_Status, raw::Ctype, Null_Or( pid::Uid ))
+		    =
+		    case (if global_naming  get_sym_global  symbol;
+			  else              get_local_scope symbol;  fi)
+		      
+			 THE (b::ID { status=>old_status, kind, location, ctype=>old_type, uid, ... } )
+			     =>
+			     if (global_naming or top_level())
+			         
+                                  status
+                                      =
+				      case (new_status, old_status)
+				        
+					   (raw::DEFINED, raw::DEFINED)
+					       =>
+					       {   error
+						      case kind
+						         
+							    raw::FUNCTION_KIND _
+								=>
+								(   "illegal redefinition of identifier "
+								+   (sym::name symbol)
+                                                                +   ";\n   previously defined as function at "
+							        +   sm::loc_to_string location
+                                                                );
+
+							    raw::NONFUN
+								=>
+								(   "illegal redefinition of identifier "
+								+   (sym::name symbol)
+							        +   ";\n   previously declared with initializer at "
+							        +   sm::loc_to_string location
+                                                                );
+						      esac;
+
+						   raw::DEFINED;
+					       };
+					  (raw::DEFINED, _)  => raw::DEFINED;
+					  (_, raw::DEFINED)  => raw::DEFINED;
+
+					  (raw::DECLARED, _) => raw::DECLARED;
+					  (_, raw::DECLARED) => raw::DECLARED;
+
+					  _                         => raw::IMPLICIT;
+				      esac;
+
+				  type = case kind
+					     raw::FUNCTION_KIND _
+                                                 =>
+						 if (types_are_equal (new_type, old_type))
+                                                     old_type;
+						 else
+						     case (composite (new_type, old_type))
+
+							 THE type => type;
+
+						         NULL => {   error ( "illegal redeclaration of function "
+								           + (sym::name symbol)
+								           + " has type incompatible with previous "
+								           + "declaration at "
+								           +  sm::loc_to_string location
+                                                                           );
+
+								     new_type;
+                                                                 };
+                                                     esac;
+                                                 fi;
+
+					     raw::NONFUN
+						 =>
+						 if (types_are_equal (new_type, old_type))
+						     old_type;
+						 else
+						     case (composite (new_type, old_type))
+
+							  THE type => type;
+
+							  NULL => { error
+									("illegal redeclaration of identifier "
+									 + (sym::name symbol) +
+									 ";\n   type incompatible with previous \
+									  \declaration at " +
+									 sm::loc_to_string location);
+
+								    new_type;
+								  };
+						     esac;
+						 fi;
+					 esac;
+
+			          (status, type, THE uid);
+
+		             else #  no redefinition 
+
+				  error ( "illegal redeclaration of " + (sym::name symbol)
+					+ " in nested scope;\n   previous declaration at "
+				        + sm::loc_to_string location
+                                        );
+
+				  (new_status, new_type, NULL);
+                             fi;
+
+			 NULL =>   (new_status, new_type, NULL);	# Not previously bound in local scope.
+
+			 _    =>  {    error ((sym::name symbol) + " is not a variable");
+
+			               (new_status, new_type, NULL);	# Not previously bound in local scope.
+                                  };
+		    esac;						# fun check_id_renaming
+
+
+		# Code for calling initializer normalizer: 
+		#
+		fun normalize (type, expr)
+                    = 
+		    initializer_normalizer::normalize
+                      { get_tid,
+                        bind_aid,
+		        init_type => type,
+                        init_expr => expr
+                      };
+
+
+		# Typecheck initializer:
+		#   Recursively descend into type and initializer, checking as we go.
+		#   NB 1: if type is unions and structs, then don't generate errors when initializer is simple
+		#   NB 2: if type is array then *do* generate errors when initializer is simple
+		#
+		fun tcinitializer (ctype as (raw::TYPE_REF _ | raw::QUAL _), expr)
+                        =>
+		        tcinitializer (get_core_type ctype, expr);  #  the following tcinitializer cases expect coretypes 
+
+		    tcinitializer (raw::ARRAY (opt, ctype), raw::AGGREGATE exprs)
+                        => 
+		        {   case (opt, large_int::from_int (list::length exprs))
+
+				(NULL, _)
+				    =>
+				    bug "TCInitializer: array size should be filled in by now?";
+
+				(THE (x, _), y)
+				    =>
+				    if   (x == y ) ();   #  large_int equality 
+				    elif (x < y )
+				      error "TCInitializer: badly formed array initializer: \
+					     \too many initializers";
+				    else error "TCInitializer: badly formed array initializer: \
+						\not enough initializers";
+				    fi;
+                            esac;
+
+		            list::apply
+                                (fn e = tcinitializer (ctype, e))
+                                exprs;
+                        };
+
+		    tcinitializer (raw::ARRAY _, _)
+                        =>
+		        error "badly formed array initializer: expected { ";
+
+		    tcinitializer (raw::STRUCT_REF tid, raw::AGGREGATE exprs)
+			=>
+			case (get_tid tid)
+
+			      THE { ntype=>THE (b::STRUCT (tid, fields)), ... }
+                                  =>
+				  f (fields, exprs)
+                                  where
+				      fun f ((field_type, _, _) ! l, expr ! exprs)
+                                              =>
+					      {   tcinitializer (field_type, expr);
+					          f (l, exprs);
+                                              };
+
+					   f (NIL, NIL) => ();
+
+					   f (_, NIL) =>
+					      error
+						"badly formed struct initializer: not enough initializers";
+
+					   f (NIL, _) =>
+					      error
+						"badly formed struct initializer: too many initializers";
+				       end;
+				  end;
+
+			     NULL => bug "TCInitializer: lookUpTid failed";
+
+			     _ => error "TCInitializer: ill-formed StructRef type";
+                        esac;
+
+
+		    tcinitializer (raw::UNION_REF tid, raw::AGGREGATE exprs)
+			=>
+			case (get_tid tid)
+
+			      THE { ntype=>THE (b::UNION (tid, (field_type, _) ! fields)), ... }
+                                  =>
+				  case exprs
+
+				      [expr] => tcinitializer (field_type, expr);
+
+				      _ !  _ => error "badly formed union initializer: \
+					              \initializer has too many elements";
+
+				      NIL    => error "badly formed union initializer: empty initializer";
+				  esac;
+
+			     THE { ntype=>THE (b::UNION (tid, _)), ... }
+                                 =>
+				 error "empty union";
+
+			     NULL => bug "TCInitializer: lookUpTid failed";
+
+			     _    => error "TCInitializer: ill-formed UnionRef type";
+                        esac;
+
+
+		    tcinitializer
+                        ( type as ( raw::STRUCT_REF _
+                                  | raw::UNION_REF _
+                                  ),
+                          raw::SIMPLE (raw::EXPRESSION (core_expression, aid, _))
+                        )
+                        =>
+		        if (not (is_assignable_tys { lhs_type     => type,
+                                                     rhs_type     => get_aid aid,
+                                                     rhs_expr_opt => THE core_expression
+                                                   }
+                           )    )
+			    
+		             error "type of initializer is incompatible with type of lval";
+                        fi;
+
+
+		    tcinitializer
+                        ( raw::POINTER (raw::NUMERIC (_, _, _, raw::CHAR, _)),
+			  raw::SIMPLE  (raw::EXPRESSION (raw::STRING_CONST _, _, _))
+                        )
+                        =>
+                        ();
+
+
+		    tcinitializer
+                        ( type,
+                          raw::AGGREGATE
+                              (  [ raw::SIMPLE
+                                       (raw::EXPRESSION (core_expression, aid, _))
+                                 ]
+                        )     )
+                        =>
+		        if  (is_scalar type)
+                            
+			     if (not (is_assignable_tys { lhs_type     => type,
+                                                          rhs_type     => get_aid aid,
+						          rhs_expr_opt => THE core_expression
+                                                        }
+                                )    )
+
+			         error "type of initializer is incompatible with type of lval";
+                             fi;
+		        else
+			     error "illegal aggregate initializer";
+                        fi;
+
+
+		    tcinitializer (_, raw::AGGREGATE _)
+                        =>
+		        error "illegal aggregate initializer";
+
+
+		    tcinitializer (type, raw::SIMPLE (raw::EXPRESSION (core_expression, aid, _)))
+                        =>
+		        if   (not (is_assignable_tys { lhs_type=>type, rhs_type=>get_aid aid,
+					  rhs_expr_opt=>THE core_expression } ))
+
+		              error "type of initializer is incompatible with type of lval";
+                        fi;
+                end;
+
+
+		# Check form of initializer:
+		#
+		fun check_initializer (type, init_expr, auto)
+                    =
+		    (init_expr', type)
+                    where
+		        init_expr'
+                            = 
+			    case init_expr
+                              
+			         raw::AGGREGATE _
+                                     =>
+                                     if  (is_array type
+                                     or   case (is_struct_or_union type)
+                                            
+                                               THE _ => TRUE;
+                                               NULL => FALSE;
+                                          esac
+				     )
+                                          normalize (type, init_expr);
+				     else
+                                          init_expr;
+                                     fi;
+
+			         raw::SIMPLE (raw::EXPRESSION (raw::STRING_CONST _, _, _))
+                                     =>
+                                     normalize (type, init_expr);
+
+			         _   =>
+                                     init_expr;
+                            esac;
+
+			    # The purpose of normalize is the handle
+                            # the case of strings as initializers,
+			    # and to pad out curly-brace initializers
+
+			#  old code: 3/10/00
+			#     case (initExpr, auto) of
+			#	(raw::AGGREGATE _, _) => normalize (type, initExpr)
+			#     | (_, FALSE) => normalize (type, initExpr)
+			#     | (raw::SIMPLE (raw::EXPRESSION (raw::STRING_CONST _, _, _)), _) => normalize (type, initExpr)
+			#     | (_, TRUE) => initExpr
+
+			type = case (get_core_type type)
+
+				   raw::ARRAY (NULL, ctype)
+				       => 
+				       case init_expr'
+
+					     raw::AGGREGATE inits
+						 =>
+						 {   len = list::length inits;
+						     i   = large_int::from_int len;
+
+						     expr = #2 (wrap_expr (std_int, raw::INT_CONST i));
+
+						     if (len==0)  warn "Array has zero size."; fi;
+
+						     raw::ARRAY (THE (i, expr), ctype);
+						 };
+
+					    _ => { error "badly formed array initializer: missing \"{\"";
+						   type;
+						 };
+				       esac;
+
+				   _ => type;
+                               esac;
+
+		        tcinitializer (type, init_expr');
+		    end;					# fun check_initializer
+
+		# Process declarator parse tree:
+		#
+		fun process_declarator (type as { qualifiers, specifiers, storage }, decr)
+                    =
+		    {   fun vardecl_to_type_name_loc (type as { qualifiers, specifiers }, decr)
+                            =
+			    {   fun make_typ spc = { qualifiers => [], specifiers => [spc] };
+				fun add_qual q   = { qualifiers => q ! qualifiers, specifiers };
+
+			        case decr
+				  
+				     pt::VAR_DECR x
+                                         =>
+                                         (type, THE x, get_loc());
+
+				     pt::POINTER_DECR x
+                                         =>
+				         vardecl_to_type_name_loc (make_typ (pt::POINTER type), x);
+
+				     pt::ARRAY_DECR (x, size)
+                                         =>
+				         vardecl_to_type_name_loc (make_typ (pt::ARRAY (size, type)), x);
+
+				     pt::FUNC_DECR (x, lst)
+                                         =>
+				         vardecl_to_type_name_loc (make_typ (pt::FUNCTION { ret_type=>type, parameters=>lst } ), x);
+
+				     pt::QUAL_DECR (q, decr)
+                                         =>
+				         vardecl_to_type_name_loc (add_qual q, decr);
+
+				     pt::EMPTY_DECR
+                                         =>
+                                         (type, NULL, get_loc());
+
+				     pt::ELLIPSES_DECR
+                                         =>
+                                         (make_typ pt::ELLIPSES, THE("**ellipses**"), get_loc());
+
+				     pt::MARKDECLARATOR (loc, decr)
+                                         =>
+				         {   push_loc loc;
+				             vardecl_to_type_name_loc (type, decr)
+				             before pop_loc ();
+                                         };
+
+				     pt::DECR_EXT _
+                                         =>
+                                         (type, NULL, get_loc());
+                                esac;
+
+                                #  should call decr extension? 
+			    };
+
+			my ( { qualifiers, specifiers }, s_opt, loc)
+                            =
+			    vardecl_to_type_name_loc ( { qualifiers,
+						   specifiers },
+						  decr);
+
+		        ( { qualifiers, specifiers, storage }, s_opt, loc);
+		    }; 
+
+		# processDecr:  
+		#   raw::ctype * raw::storageIlk * Bool
+		#   -> (ParseTree::declarator * ParseTree::expression)
+		#      * ((raw::id * raw::expression) List)
+		#   -> ((raw::id * raw::expression) List)
+		# to be used by both external (global) decls and internal (statement
+		# level - within function body) decls. 
+		# After type and storage ilk are specified, designed to be used with
+		# a fold function.
+		#
+		fun cnv_init_expression (pt::INIT_LIST exprs)
+			=>
+			raw::AGGREGATE (map cnv_init_expression exprs);
+
+		    cnv_init_expression (pt::MARKEXPRESSION (loc, expr))
+			=>
+			{   push_loc loc;
+
+			    cnv_init_expression expr
+			    before
+				pop_loc ();
+			};
+
+		    cnv_init_expression (expr)
+			=>
+			raw::SIMPLE (#2 (cnv_expression expr));
+                end 
+
+		also
+		fun process_decr (type, sc, top_level0) (decr, expr)
+                    =
+		    {   my (type, var_name_opt, loc)
+                            =
+                            munge_ty_decr (type, decr);
+
+			var_name
+                            = 
+			    case var_name_opt
+			      
+			         THE name => name;
+
+				 NULL =>
+				     {   error "missing declarator in declaration - \
+				                \filling with <missing_declarator>.";
+				          "<missing_declarator>";
+                                     };
+                            esac;
+
+			has_initializer
+                            =
+                            case expr   
+				pt::EMPTY_EXPR => FALSE;
+				_              => TRUE;
+                            esac;
+
+			var_sym = sym::chunk var_name;
+
+			if   (top_level0 != top_level())
+                            
+			     bug "inconsistency of top_level!";
+                        fi;
+
+			auto = case (top_level0, sc)
+                                 
+				    (TRUE, raw::AUTO)
+                                        =>
+				        {   error "`auto' not allowed in top-level declarations";
+				            FALSE;
+                                        };
+
+				    (TRUE, raw::REGISTER)
+                                        =>
+				        {   error "`register' not allowed in top-level declarations";
+				            FALSE;
+                                        };
+
+				    (TRUE, _)
+                                        =>
+                                        TRUE;
+
+				    (FALSE, raw::EXTERN)
+                                        =>
+				        {   if   (not *local_externs_ok)
+                                                
+				                 error "`extern' not allowed in local declarations";
+                                            fi;
+				            FALSE;
+                                        };
+
+				    (FALSE, raw::STATIC)
+                                        =>
+                                        FALSE;
+
+				    (FALSE, _)
+                                        =>
+                                        TRUE;
+                               esac;
+					#  local declarations are auto unless declared static 
+
+		        # ISO p71: initExprs must be constant if
+		        # a) they are in an initializer list for an chunk of aggregate or union type
+		        # b) the chunk has static storage duration			      
+
+			# NB: We should really fold arithmetic constant
+                        #     expressions down to simple constants.
+			# 
+			fun const_check (raw::EXPRESSION((raw::STRING_CONST _ | raw::INT_CONST _ | raw::REAL_CONST _), _, _))
+                                =>
+                                TRUE;
+
+			    const_check (raw::EXPRESSION (raw::QUESTION_COLON (e1, e2, e3), _, _))
+			        =>
+                                const_check e1 and const_check e2 and const_check e3;
+
+			    const_check (raw::EXPRESSION (raw::BINOP(_, e1, e2), _, _))
+			        =>
+                                const_check e1 and const_check e2;
+
+			    const_check (raw::EXPRESSION (raw::UNOP(_, e1), _, _)) => const_check e1;
+			    const_check (raw::EXPRESSION (raw::CAST(_, e1), _, _)) => const_check e1;
+
+			    const_check (raw::EXPRESSION (raw::ENUM_ID _, _, _)) => TRUE;
+			    const_check (raw::EXPRESSION (raw::SIZE_OF _, _, _)) => TRUE;
+			    const_check (raw::EXPRESSION (raw::ADDR_OF _, _, _)) => TRUE;
+
+			    const_check (raw::EXPRESSION (raw::ID id, _, _))
+                                => 
+			        #   id must be a function or an array (note: a function pointer won't do) 
+				{   id ->  { ctype, ... };
+
+				    is_function ctype or is_array ctype;
+				};
+			    const_check _
+                                =>
+                                FALSE;
+                        end;
+
+			fun const_check_ie'(raw::SIMPLE expr)
+                                =>
+                                const_check expr;
+
+			    const_check_ie'(raw::AGGREGATE exprl)
+			        =>
+                                list::fold_left
+                                    (fn (x, y)
+                                        =
+                                        (const_check_ie' x) and y)
+                                    TRUE
+                                    exprl;
+                        end;
+
+			fun const_check_ie (raw::SIMPLE expr)
+				=> 
+				 if (top_level0 or sc == raw::STATIC or sc == raw::EXTERN)
+				       
+				     if (const_check expr ) ();
+				     else error("Illegal initializer: chunk has static storage duration, but initializer is not constant.");
+                                     fi;
+
+				 elif (is_array type)
+				        
+				     if (const_check expr ) ();
+				     else error("Illegal initializer: chunk is an array, but initializer is not constant.");
+                                     fi;
+				 
+                                 fi;
+
+			    const_check_ie x
+                                =>
+                                if  (allow_non_constant_local_initializer_lists
+                                or   const_check_ie' x
+                                )
+                                     ();
+				else
+                                     error("Illegal initializer: initializer list elements must be constants.");
+                                fi;
+                        end;
+
+			# ** Checking initializers: from ISO p72.
+			# 1. if toplevel or static or extern or array then initializer must be const
+			# 2. case of type:
+			#     scalar: initializer must be a single expression, optionally enclosed in {}
+			#     aggregate or union:
+			#     a) apply normalize
+			#     b) type check 
+			#        - but don't generate errors due to simple for unions and structs
+			#        - do generate errors due to simple for arrays
+			#
+			my (id, type)
+			    = 
+			    if (is_function type)
+                                
+                                 #  Declaring (NOT defining) a function 
+				 #  CHECK: sc should be either DEFAULT, or EXTERN or STATIC? 
+
+			         my (status, new_type, uid_opt)
+                                     =
+				     check_id_renaming
+                                       ( var_sym,
+                                         type,
+                                         raw::DECLARED,
+                                         { global_naming=>TRUE }
+                                       );
+
+				 uid = case uid_opt
+				           THE uid => uid;
+				           NULL    => pid::new();
+                                       esac;
+
+				 id = { uid,
+                                        status,
+                                        name     =>  var_sym,
+                                        location =>  loc,
+					ctype    =>  new_type,
+                                        st_ilk   =>  sc,
+                                        global   =>  TRUE,
+					kind     =>  raw::FUNCTION_KIND { has_function_def=>FALSE }
+                                      };
+
+				 naming = ID id;
+
+				 bind_sym_global (var_sym, naming);
+
+				 (id, new_type); 
+
+			    else
+                                 # Not a function type 
+
+			         status =  has_initializer
+                                             ?? raw::DEFINED
+                                             :: raw::DECLARED;
+
+				 has_extern
+                                     =
+                                     case sc
+                                       
+                                          raw::EXTERN =>  TRUE;
+                                          _                  =>  FALSE;
+                                     esac;
+
+				    # If has_extern then force globalization of this naming. 
+
+				 my (status, type, uid_opt)
+                                     =
+				     check_id_renaming
+                                       ( var_sym,
+                                         type,
+                                         status,
+                                         { global_naming => has_extern }
+                                       );
+
+				 uid = case uid_opt
+					   THE uid =>  uid;
+					   NULL    =>  pid::new();
+                                       esac;
+
+				 id = { name => var_sym,
+                                        uid,
+                                        location => loc,
+					ctype => type,
+                                        st_ilk => sc,
+                                        status,
+                                        global => top_level() or has_extern,
+					kind => raw::NONFUN
+                                       };
+
+				 # Always rebind, even if there was
+				 # a previous naming in scope:
+				 #
+				 if has_extern
+                                      bind_sym_global (var_sym, ID id);
+				 else bind_sym        (var_sym, ID id);
+                                 fi;
+
+				 (id, type);
+			    fi;
+
+			# Delay processing of initializer until we've added a naming for
+			# the variable.  This implements the "left-to-right" processing
+			# strategy of C -- i.e. we process the declaration before we process
+			# the initializer.
+			# This means that
+			#      int x=43;
+			#      main () {
+			#        int x = x+2;
+			#      }
+			# does not have its intuitive meaning (at least for functional programmers).
+			# In other words, initializers are not quite let statements!
+			# 
+			# This does lead to a problem: sometimes we don't know the full type
+			# of something until we've looked at the initializer 
+			#   e.g. int [] = { 1, 2, 3 };
+			# So, we might have to fix up the type!
+			#
+			#  David B MacQueen: return fixed id as well, to fix Bug 19
+			#
+			my (init_expr_opt, type, id)
+                            =
+			    case expr
+			      
+			        pt::EMPTY_EXPR
+                                    =>
+                                    (NULL, type, id);
+
+				_ => 
+				    {   e = cnv_init_expression expr;
+
+					const_check_ie e;
+
+					my (e', type')
+                                            =
+                                            check_initializer (type, e, auto);
+
+					id' = if (types_are_equal (type', type))
+
+                                                  id; #  no fix for id required 
+
+					      else #  fix up type of id 
+
+					          case (get_sym var_sym)
+
+						      THE (b::ID x)
+                                                          =>
+						          {   x ->  { name, uid, location, ctype, st_ilk, status, global, kind };
+
+						              newid = { name, uid, location, ctype=>type', st_ilk, status, global, kind };
+
+						              bind_sym (var_sym, ID newid);
+
+						              newid;
+						          };
+
+						      _ => id;
+                                                  esac;
+                                              fi;  #  Can never arise: id must have ID naming 
+
+					(THE e', type', id');
+				    };
+                            esac;
+
+			# Now do storage size check: can't do it earlier,
+			# because type might be incomplete, and only
+                        # completed by processing the initializer:
+			#
+			if storage_size_check
+
+			     if (not (has_known_storage_size type))
+                                 
+			          case sc
+				    
+                                       raw::EXTERN => ();
+
+				       _ => error ( "Storage size of `"
+				                  + sym::name var_sym
+				                  + "' is not known (e.g. incomplete type, void)"
+                                                  );
+                                  esac;
+                             fi;
+			fi;
+
+		        (id, init_expr_opt);
+		    }
+
+
+		# process_typedef:  
+		# raw::ctype -> ParseTree::declarator -> ()
+		# (storage ilk simply meant to discriminate between
+		# top-level (STATIC) and local (AUTO))
+		#
+		also
+		fun process_typedef type decr
+                  =
+		  if *multi_file_mode_flag		#  version of processTypede for multi_file_mode 
+
+		       my (type, name_opt, loc)
+                           =
+                           munge_ty_decr (type, decr);
+
+		       name
+                           = 
+			   case name_opt
+
+			       THE name => name;
+
+			       NULL => 
+				   {   error "Missing declarator in typedef - filling with missing_typedef_name";
+				       "missing_typedef_name";
+                                   };
+                           esac;
+
+		       symbol = sym::typedef name;
+
+		       tid_opt
+                           =
+			   case (get_local_scope symbol)
+			     
+			        THE (TYPEDEF { ctype=>type, location=>loc', ... } )
+                                    => 
+				    case type
+				      
+				         raw::TYPE_REF tid
+                                             => 
+					     if repeated_declarations_ok
+                                                  THE tid;
+					     else
+                                                  error
+						      ("Redeclaration of typedef `" +
+						       (sym::name symbol) +
+						       "'; previous declaration at " +
+						       sm::loc_to_string loc');
+
+						 NULL;
+                                             fi;
+
+					_ => {   error
+						   ("Redeclaration of typedef `" +
+						    (sym::name symbol) +
+						    "'; previous declaration at " +
+						    sm::loc_to_string loc');
+
+						 NULL;
+                                             };
+                                    esac;
+
+				THE naming
+                                    =>
+				    {   error
+					    ( "Redeclaration of `"
+					    + (sym::name symbol)
+					    + "' as a typedef; previous declaration at "
+					    + sm::loc_to_string (get_naming_loc naming)
+                                            );
+
+					NULL;
+                                    };
+
+				NULL => NULL; #  not bound locally 
+
+			   esac; 
+
+
+		       tid = case tid_opt
+				  THE tid => tid;
+				  NULL    => tid::new ();  	#  Create a new named type id 
+			     esac;
+
+		       type' = raw::TYPE_REF tid;
+
+		       #  store actual typdef symbol mapped to named type id
+		       #
+		       check_non_id_renaming (symbol, type', "typedef ");
+
+		       naming = TYPEDEF { name     => symbol,
+                                          uid      => pid::new(),
+                                          location => loc,
+					  ctype    => type'
+                                        };
+
+		       # Store named type id mapped to
+                       # typedef in named-type table:
+		       #	
+		       bind_sym (symbol, naming);
+
+		       bind_tid (tid, { name=>THE name, ntype=>THE (b::TYPEDEFX (tid, type)),
+				      global => top_level(), location=>get_loc() } );
+		       tid;
+
+		  else
+                       # Standard version of process_typedef.
+		       # In time the two version should be combined. 		XXX BUGGO FIXME
+
+		       my (type, name_opt, loc)
+                           =
+                           munge_ty_decr (type, decr);
+
+		       name = 
+			  case name_opt
+
+			      THE name => name;
+
+			      NULL =>
+				  {   error "Missing declarator in typedef - filling with missing_typedef_name";
+				      "missing_typedef_name";
+                                  };
+                          esac;
+
+		      symbol = sym::typedef name;
+
+		      # Create a new named type id:
+		      #
+		      tid = tid::new ();
+		      type' = raw::TYPE_REF tid;
+
+		      check_non_id_renaming (symbol, type', "typedef ");
+
+		      naming = TYPEDEF { name     => symbol,
+                                         uid      => pid::new(),
+                                         location => loc,
+					 ctype    => type'
+                                       };
+
+		      # Store named type id mapped to
+                      # typedef in named-type table:
+		      #	
+		      bind_sym (symbol, naming);
+
+		      bind_tid (tid, { name=>THE name, ntype=>THE (b::TYPEDEFX (tid, type)),
+				     global => top_level(), location=>get_loc() } );
+		      tid;
+		  fi
+
+
+		# Like process_declarator, except it
+                # munges a raw::ctype with
+		# a pt::declarator
+		#
+		also
+		fun munge_ty_decr (type: raw::Ctype, decr:  pt::Declarator)
+		    : (raw::Ctype, Null_Or( String ), source_map::Location)
+		    =
+		    case decr
+		      
+			pt::VAR_DECR str
+                            =>
+                            (type, THE str, get_loc());
+
+			pt::POINTER_DECR decr
+                            =>
+                            munge_ty_decr (raw::POINTER type, decr);
+
+			pt::ARRAY_DECR (decr, pt::EMPTY_EXPR)
+                            =>
+                            munge_ty_decr (raw::ARRAY (NULL, type), decr);
+
+			pt::ARRAY_DECR (decr, size)
+                            => 
+			    {   my (i, aexpr)
+                                    =
+                                    case (evaluate_expr size)  #  Cannot be EmptyExpr 
+
+				        (THE i, _, aexpr, _)
+                                            =>
+                                            {   if (i==0 ) warn "Array has zero size."; fi;
+						(i, aexpr);
+                                            };
+
+			                (NULL, _, aexpr, _)
+                                            =>
+                                            {   error "Array must have constant size.";
+						(0, aexpr);
+                                            };
+                                    esac;
+
+			        munge_ty_decr (raw::ARRAY (THE (i, aexpr), type), decr);
+			    };
+
+			pt::FUNC_DECR (decr, lst)
+                            =>
+			    {   fun folder (dt, decr)
+				    =
+				    {   my (dty, arg_id_opt, loc)
+                                            =
+                                            process_declarator (dt, decr);
+
+					my (type, sc)
+                                            =
+                                            cnv_type (FALSE, dty);
+
+					fun make_id n
+                                            =
+                                            { name => sym::chunk n,
+					      uid => pid::new (),
+					      location => loc,
+					      ctype => type,
+					      st_ilk => sc,
+					      status => raw::DECLARED,
+					      kind => raw::NONFUN,
+					      global => FALSE
+                                            };
+
+				        (type, null_or::map make_id arg_id_opt);
+				    };
+
+			        arg_tys = list::map folder lst;
+
+			        munge_ty_decr (make_function_ct (type, arg_tys), decr); 
+			    };
+
+			pt::QUAL_DECR (pt::CONST, decr)
+                            => 
+			    {   type' = raw::QUAL (raw::CONST, type);
+
+			        # dpo: is this check necessary?
+			        # Doesn't the 2nd call get the same info?
+
+				my { redundant_const,                   ... } = check_qualifiers type;
+				my { redundant_const=>redundant_const', ... } = check_qualifiers type';
+
+				if (not redundant_const and redundant_const')
+					 error "Duplicate `const'.";
+				fi;
+
+				munge_ty_decr (type', decr);
+			    };
+
+			pt::QUAL_DECR (pt::VOLATILE, decr)
+                            => 
+			     {   type' = raw::QUAL (raw::VOLATILE, type);
+
+				 my { redundant_volatile,                      ... } = check_qualifiers type;
+				 my { redundant_volatile=>redundant_volatile', ... } = check_qualifiers type';
+
+				 if (not (redundant_volatile) and redundant_volatile')
+					 error "Duplicate `volatile'.";
+				 fi;
+
+				 munge_ty_decr (type', decr);
+			     };
+
+			pt::ELLIPSES_DECR
+                            =>
+                            (raw::ELLIPSES, THE "**ellipses**", get_loc());
+
+			pt::EMPTY_DECR
+                            =>
+                            (type, NULL, get_loc());
+
+			pt::MARKDECLARATOR (loc, decr)
+                            =>
+			    {   push_loc loc;
+
+			        munge_ty_decr (type, decr)
+			        before
+                                pop_loc ();
+                            };
+
+			pt::DECR_EXT ext
+                            =>
+			    {   my (t, n)
+                                    =
+                                    cnvdeclarator (type, ext);
+
+                                (t, n, get_loc());
+                            };
+                    esac
+
+
+		# --------------------------------------------------------------------
+		# cnvExternalDecl:  ParseTree::externalDecl -> List( raw::externalDecl )
+		#
+		# Converts a parse-tree top-level declaration into an raw_syntax_tree top-level
+		# declaration by adding the necessary symbols and types to the
+		# dictionary and recursively converting statements of function bodies.
+		# --------------------------------------------------------------------
+
+		also
+		fun cnv_external_decl (pt::EXTERNAL_DECL (pt::DECLARATION_EXT ext))
+                        =>
+		        {   declarations = cnvdeclaration ext;
+
+		            list::map (fn x => wrap_decl (raw::EXTERNAL_DECL x); end ) declarations;
+		        };
+
+		    cnv_external_decl (pt::EXTERNAL_DECL (pt::MARKDECLARATION (loc, decl)))
+                        =>
+		        {   push_loc loc;
+		            cnv_external_decl (pt::EXTERNAL_DECL decl)
+		            before pop_loc ();
+                        };
+
+		    cnv_external_decl (pt::EXTERNAL_DECL (pt::DECLARATION (dt as { qualifiers, specifiers, storage },
+								    decl_exprs)))   : List( raw::External_Decl )
+			=>
+			# The following code is almost identical
+			# to corresponding case in processDecls ...
+			# Any changes made here should very likely
+			# be reflected in changes to the processDecls code.
+			#
+			if (is_typedef dt)
+
+			    ct = { qualifiers, specifiers };
+
+			    decls = list::map (decl_expr_to_decl "initializers in typedef") decl_exprs;
+
+			    # Global typedefs.
+
+			    if (list::null decls)
+				warn "empty typedef";
+				[];
+			    else
+				type = cnv_ctype (FALSE, ct);
+				tidl = list::map (process_typedef type) decls;
+
+				list::map
+				    (fn x =  wrap_decl (raw::EXTERNAL_DECL (raw::TYPE_DECL { shadow=>NULL, tid=>x } )))
+				    tidl;
+			    fi;
+
+			else
+			    # Global variable and struct declarations. 
+
+			    is_shadow = list::null decl_exprs and is_tag_type dt;
+
+			    # is_shadow does not necessarily mean "shadows a previous definition";
+			    # Rather, it refers to empty type declarations of the form
+			    #	   struct t;
+			    #	   enum e;
+			    # Of course, the real use of these declarations is 
+			    # for defining mutually recursive structs/unions
+			    # that reuse previously defined ids i.e. for shadowing....
+			    # Note: if we had
+			    #	   struct t x;
+			    #	 then this would not be a shadow,
+			    #	 hence the null declExprs test.
+
+			    my (type, sc)
+				=
+				cnv_type (is_shadow, dt);
+
+			    if is_shadow
+
+				fun get_tid (raw::STRUCT_REF tid) => THE( { strct=>TRUE }, tid);
+				    get_tid (raw::UNION_REF tid) => THE( { strct=>FALSE }, tid);
+				    get_tid (raw::QUAL(_, ct)) => get_tid ct;  #  ignore qualifiers 
+				    get_tid _ => NULL; #  Don't deref typerefs 
+				end;
+
+				case (get_tid type)   
+
+				    THE (strct, tid)
+					=>
+					[ wrap_decl (raw::EXTERNAL_DECL (raw::TYPE_DECL { shadow=>THE strct, tid } )) ];
+
+				    NULL => [];
+				esac;
+
+			    else
+				id_exprs = list::map (process_decr (type, sc, TRUE)) decl_exprs;
+
+				list::map
+				    (fn x = wrap_decl (raw::EXTERNAL_DECL (raw::VAR_DECL x)))
+				    id_exprs;
+			    fi;
+			fi;
+
+		    cnv_external_decl
+			( pt::FUNCTION_DEF { ret_type as { qualifiers, specifiers, storage },
+					     fun_decr,
+					     kr_params: List( pt::Declaration ),
+					     body
+					   }
+			)
+			=>
+			# Function definitions.
+			{
+			    my (fun_type, tag_opt, fun_loc)
+				=
+				process_declarator (ret_type, fun_decr);
+
+			    fun_name = case tag_opt
+					   THE tag => tag;
+					   NULL    => { bug "Missing function name - \
+							    \filling with missing_function_name";
+
+							"missing_function_name";
+						      };
+				       esac;
+
+			    my (ret_type, args)
+				=
+				case fun_type
+
+				    { specifiers => [pt::FUNCTION { ret_type, parameters } ], ... }
+					=>
+					(ret_type, parameters);
+
+				    _   =>
+					{   error "ill-formed function declaration";
+
+					    ( { qualifiers => [],
+						specifiers => []
+					      },
+
+					      NIL
+					    );
+					};
+				esac;
+
+			    ret_type' = cnv_ctype (FALSE, ret_type);
+
+			    sc = cnv_storage storage;
+
+			    #  Check validity of storage ilk 
+			    #
+			    case sc
+				raw::DEFAULT => ();
+				raw::EXTERN  => ();
+				raw::STATIC  => ();
+				_ => (error "`auto' and `register' are not allowed \
+						   \in function declarations");
+			    esac;
+
+			    arg_ty_id_opts
+				=
+				list::map process_declarator args;
+
+			    fun unzip3 ((x, y, z) ! l)
+				    => 
+				    {   my (xl, yl, zl)
+					    =
+					    unzip3 l;
+
+					(x ! xl, y ! yl, z ! zl);
+				    };
+
+				unzip3 NIL
+				    =>
+				    (NIL, NIL, NIL);
+			    end;
+
+			    fun zip3 (x ! xl, y ! yl, z ! zl)
+				    =>
+				    (x, y, z) ! (zip3 (xl, yl, zl));
+
+				zip3 _
+				    =>
+				    NIL;
+			    end;
+
+			    my (arg_tys, arg_id_opts, locs)
+				=
+				unzip3 arg_ty_id_opts;
+
+			    fun no_decl_type { specifiers=>NIL, qualifiers=>NIL, storage=>NIL }
+				    =>
+				    TRUE;
+
+				no_decl_type _
+				    =>
+				    FALSE;
+			    end;
+
+			    kr_params_admitted
+				=
+				list::all no_decl_type arg_tys;		#  if TRUE, K&R parameters are admitted 
+
+			    # Enter a local scope - push a new symbol table 
+			    #
+			    push_local_dictionary ();
+
+			    #  insert (and convert) argument types in this symbol table 
+
+			    # This needs to be done left to right because the first
+			    # argument could define a type used in later args
+
+			    arg_ty_sc_list
+				=
+				list::map
+				    (fn type = cnv_type (FALSE, type))
+				    arg_tys;
+
+			    # Create a (ctype * storageIlk) IdMap::map 
+			    #	
+			    arg_ids'
+				= 
+				{   fun iter ((THE s) ! l)
+					    =>
+					    (s ! (iter l));
+
+					iter (NULL ! l)
+					    =>
+					    {   warn "unnamed function argument";
+						NIL;
+					    };
+
+					iter NIL
+					    =>
+					    NIL;
+				    end;
+
+				    case arg_ty_id_opts
+
+					[( { specifiers => [pt::VOID], qualifiers => NIL, storage => NIL }, NULL, _)]
+					    =>
+					    NIL;
+					    #
+					    # Special case of function definition f (void) {... } 
+
+					_   =>
+					    iter  arg_id_opts;
+				    esac;
+				};
+
+			    # Zipped list will be size of shorter list - if one is shorter 
+			    #
+			    arg_ty_sc_id_loc_list
+				=
+				zip3 (arg_ty_sc_list, arg_ids', locs);
+
+			    fun folder ((ty_sc, id, loc), mp)
+				=
+				id_map::set (mp, id, (ty_sc, FALSE, loc));
+				#	
+				# FALSE component means hasn't been matched with K&R parameters spec 
+
+			    arg_map = list::fold_left folder id_map::empty arg_ty_sc_id_loc_list;
+
+			    #  Check if krParams are ok 
+			    if (null kr_params or kr_params_admitted)
+				 ();
+			    else
+				 error "mixing of K&R parameters and prototype style parameters not allowed";
+			    fi;
+
+			    #  rectify additional types from K&R style parameters 
+			    #
+			    arg_map
+				=
+				{   fun folder (decl, arg_map)
+					= 
+					case decl
+
+					    pt::MARKDECLARATION (loc, decl')
+						=>
+						{   push_loc loc;
+						    folder (decl', arg_map) before
+						    pop_loc();
+						};
+
+					    pt::DECLARATION_EXT _
+						=>
+						{   error "Declaration extensions not permitted in K&R parameter declarations";
+						    arg_map;
+						};
+
+					    pt::DECLARATION (decltype as { storage, ... }, decr_exprs)
+						=>
+						if (is_typedef decltype)
+
+						    error "typedef in function parameter declaration";
+						    arg_map;
+						else
+						    decrs = list::map
+								(decl_expr_to_decl "initializer in function declaration")
+								decr_exprs;
+
+						    my (type, sc)
+							=
+							cnv_type (FALSE, decltype);
+
+						    fun folder' (decr, arg_map)
+							= 
+							{   my (type, s_opt, loc)
+								=
+								munge_ty_decr (type, decr);
+
+							    s = case s_opt
+
+								    THE s
+									=>
+									case (id_map::get (arg_map, s))
+
+									    NULL =>
+										{   error "K&R parameter not in function's identifier list";
+										    s;
+										};
+
+									    THE (_, matched, _)
+										=>
+										if matched 
+										    error ("repeated K&R declaration for parameter " + s);
+										    s;
+										else
+										    s;
+										fi;
+									esac;
+
+								    NULL =>
+									{   error "Unnamed K&R style parameter - \
+										  \filling with unnamed_KR_parameter";
+
+									    "<unnamed_KR_parameter>";
+									};
+								esac;
+
+							    arg_map = id_map::set (arg_map, s, ((type, sc), TRUE, loc));
+
+							    arg_map;
+							};
+
+						    list::fold_left folder' arg_map decrs;
+						fi;
+					esac;
+
+					list::fold_left folder arg_map kr_params;
+				};
+
+			    fun mapper id
+				= 
+				{   my (p, loc)
+					= 
+					case (id_map::get (arg_map, id))
+
+					    THE (p, _, loc)
+						=>
+						(p, loc);
+
+					    NULL =>
+						{   bug "mapper: inconsistent arg map";
+						    ((raw::ERROR, raw::DEFAULT), sm::UNKNOWN);
+						};
+					esac;
+
+				    (p, id, loc);
+				};
+
+			    arg_ty_sc_id_loc_list'
+				=
+				list::map mapper arg_ids';
+
+			    fun check_storage_ilk ((_, raw::REGISTER), _, _) => ();
+				check_storage_ilk ((_, raw::DEFAULT ), _, _) => ();  #  David B MacQueen: ??? 
+				check_storage_ilk _
+				    =>
+				    error "Only valid storage ilk for function parameters is `register'.";
+			    end;
+
+			    list::map
+				check_storage_ilk
+				arg_ty_sc_id_loc_list';
+
+			    # Insert function name in global scope:
+			    #
+			    arg_tys' = #1 (paired_lists::unzip (#1 (unzip3 arg_ty_sc_id_loc_list')));
+
+			    # Insert the arguments in the local symbol table:
+			    #
+			    arg_pids
+				=
+				list::map
+				    bind_arg
+				    arg_ty_sc_id_loc_list'
+				where 
+				    fun bind_arg ((type, sc), name, loc)
+					= 
+					{   type   = pre_arg_conv type;	#  array and function replaced by pointers 
+					    symbol = sym::chunk name;
+					    kind   = raw::NONFUN;
+
+					    # argument types cannot have function type: 
+					    # even if declared as function types,
+					    # they are treated as function pointers.
+
+					    id = { name => symbol, uid => pid::new(), location => loc,
+						      ctype => type, st_ilk => sc, status=>raw::DECLARED,
+						      kind, global => FALSE };
+
+					    case (get_local_scope symbol)
+						 THE _ => error ("Repeated function parameter " + (sym::name symbol));
+						 NULL => ();
+					    esac;
+					    bind_sym (symbol, ID id);
+					    id;
+					};
+				end;
+
+			    # ASSERT: argument type list is null
+			    # iff not a prototype style defn 
+			    #
+			    fun_type'
+				=
+				make_function_ct
+				  (
+				    ret_type',
+
+				    null kr_params
+				      ?? paired_lists::zip (arg_tys', map THE arg_pids)
+				      :: NIL
+				  );
+
+			    fun_sym
+				=
+				sym::func  fun_name;
+
+			    my (status, new_type, uid_opt)
+				=
+				check_id_renaming
+				  ( fun_sym,
+				    fun_type',
+				    raw::DEFINED,
+				    { global_naming=>TRUE }
+				  );
+
+			    uid = case uid_opt   
+				      THE uid => uid;
+				      NULL    => pid::new();
+				  esac;
+
+			    fun_id = { name => fun_sym, uid, location => fun_loc,
+					 ctype => fun_type', st_ilk => sc, status,
+					 kind => raw::FUNCTION_KIND { has_function_def => TRUE }, global => TRUE
+				     };
+
+			    naming = ID fun_id;
+
+			    bind_sym_global (fun_sym, naming);
+
+			    # Note: we've already pushed a local
+			    # dictionary for the function args,
+			    # so  we are no longer at top level --
+			    # we must use bind_sym_global here!
+
+			    # Set new function context (labels and returns) 
+			    #
+			    new_function ret_type';
+
+			    # Get new type declarations (tids)
+			    # from ret_type and argTys: 
+			    #
+			    newtids = reset_tids ();
+
+			    body_statement = cnv_statement body;
+
+			    # Note: What one might think of as an
+			    # empty function body would actually
+			    # be a compound statement consisting
+			    # of an empty list of statements -- thus
+			    # all functions consist of one statement.
+
+			    pop_local_dictionary ();
+
+			    case (check_labels ())
+
+				NULL => ();
+
+				THE (lab, loc)
+				    => 
+				    error::error (error_state, loc, "Label " + ((sym::name lab)) + "used but not defined.");
+			    esac;
+
+			    (list::map
+				(fn x = wrap_decl (raw::EXTERNAL_DECL (raw::TYPE_DECL( { shadow=>NULL, tid=>x } ))))
+				newtids
+			    )
+			    @
+			    [wrap_decl (raw::FUNCTION_DEF (fun_id, arg_pids, body_statement))];
+
+			};
+
+		    cnv_external_decl (pt::MARKEXTERNAL_DECL (loc, ext_decl))
+			=>
+			{   push_loc loc;
+			    cnv_external_decl ext_decl
+			    before
+			    pop_loc ();
+			};
+
+		    cnv_external_decl (pt::EXTERNAL_DECL_EXT ext_decl)
+			=>
+			cnvexternal_decl ext_decl;
+                end 						# fun cnv_external_decl
+
+		# --------------------------------------------------------------------
+		# cnvStatement:  ParseTree::statement -> raw::statement ternary_option
+		#
+		# Converts a parse-tree statement into an raw_syntax_tree statement by adding the
+		# necessary symbols and types to the dictionary and recursively converting
+		# statements and expressions.
+		#
+		# A statement could be a type (or struct/union/enum) declaration which
+		# only effects the dictionary, so return type is raw::statement list
+		# where the empty list is returned for such declarations.
+		# A parse-tree statement can also be a variable declaration which 
+		# declares multiple variables in which case the result will be multiple 
+		# raw_syntax statements.  All other cases will result in one raw::statement
+		# being returned.
+		#
+		# In the parse tree, most (in principle all) statements have their
+		# locations marked by being wrapped in a MARKstatement constructor.
+		# In the raw_syntax_tree, each core statement is wrapped by a STMT constructor
+		# which also contains the location in the source file from where
+		# the statement came. This is reflected in the package of the
+		# function: each MARKstatement causes the marked location to pushed
+		# onto the stack in the dictionary, the wrapped statement is
+		# recursively converted, then wrapped in a STMT constructor with the
+		# location; finally the location is popped off the location stack in
+		# the dictionary.
+		# --------------------------------------------------------------------
+
+		also
+		fun process_decls ((pt::DECL decl) ! rest, astdecls: List(  List(  raw::Declaration ) ))
+		    :  (List( raw::Declaration ),  List( pt::Statement ))
+			=> 
+			process_decls (rest, process_declaration decl)
+			where
+			    fun process_declaration (pt::DECLARATION (dt as { qualifiers, specifiers, ... }, decl_exprs))
+				    =>
+				    #  The following code is almost identical to corresponding case in cnv_external_decl    
+				    #  But we have deal with struct definitions -- cnvExternalDecl doesn't 
+				    #  have to deal with them because makeRawSyntaxTree' catches these at top level 
+				    #  Any changes made here should very likely be reflected in changes to the cnv_external_decl code. 
+				    #	
+				    if (is_typedef dt)
+
+					ct = { qualifiers, specifiers };
+
+					decrs = list::map
+						    (decl_expr_to_decl "initializer in typedef")
+						    decl_exprs;
+
+					if (list::null decrs)
+					    warn "empty typedef";
+					    astdecls;
+					else
+					    type = cnv_ctype (FALSE, ct);
+					    tidl = list::map (process_typedef type) decrs;
+
+					    newtids = reset_tids ();
+
+					    (list::map (fn tid = raw::TYPE_DECL { shadow=>NULL, tid }) tidl) !
+					    (list::map (fn tid = raw::TYPE_DECL { shadow=>NULL, tid }) newtids) ! astdecls;
+
+					    # Note: must process declarations left to right
+					    # since we could have e::g. int i=45, j = i;
+					fi;
+
+				    else
+					is_shadow
+					    =
+					    list::null  decl_exprs
+					    and
+					    is_tag_type  dt;
+
+					my (type, sc)
+					    =
+					    cnv_type (is_shadow, dt);
+
+					#  ASSERT: null (tidsContext) 
+					#  ASSERT: not at top level (i.e. top_level() => FALSE) 
+
+					if is_shadow
+
+					     fun get_tid (raw::STRUCT_REF tid) => THE( { strct=>TRUE }, tid);
+						 get_tid (raw::UNION_REF tid) => THE( { strct=>FALSE }, tid);
+						 get_tid (raw::QUAL(_, ct)) => get_tid ct;  #  ignore qualifiers 
+						 get_tid _ => NULL;
+					     end; #  Don't deref typerefs 
+
+					     case (get_tid type)
+						 THE (strct, tid) => [raw::TYPE_DECL { shadow=>THE strct, tid } ];
+						 NULL => [];
+					     esac
+					     !
+					     (list::map (fn tid = raw::TYPE_DECL { shadow=>NULL, tid }) (reset_tids ()))# should always be null
+					     !
+					     astdecls;
+
+					else
+					      id_exprs
+						=
+						 list::map (process_decr (type, sc, FALSE)) decl_exprs;
+
+					       # Note: Must process declarations left to right
+					       # since we could have e.g. int i=45, j = i;
+
+					       newtids = reset_tids ();
+
+					       (list::map raw::VAR_DECL id_exprs)
+					       ! (list::map (fn tid = raw::TYPE_DECL { shadow=>NULL, tid }) newtids)
+					       ! astdecls;
+
+					       # David B MacQueen: push decl lists onto astdecls in reverse order since
+					       # astdecls will be reversed before flattening
+					fi;
+				    fi;
+
+				process_declaration (pt::DECLARATION_EXT ext)
+				    =>
+				    {   declarations = cnvdeclaration ext;
+					declarations ! astdecls;
+				    };
+
+				process_declaration (pt::MARKDECLARATION (newloc, decl))
+				    =>
+				    {   push_loc newloc;
+
+					process_declaration decl
+					before
+					pop_loc ();
+				    };
+			    end;
+
+			end;
+
+		    process_decls((pt::MARKSTATEMENT (newloc, statement as pt::DECL _)) ! rest, astdecls)
+                        =>
+			{   push_loc newloc;
+
+			    process_decls (statement ! rest, astdecls)
+			    before
+                            pop_loc ();
+                        };
+
+		    process_decls((pt::MARKSTATEMENT (newloc, statement as pt::MARKSTATEMENT _)) ! rest, astdecls)
+                        =>
+			process_decls (statement ! rest, astdecls);
+
+		    process_decls (rest, astdecls)
+                        =>
+                        (list::cat (reverse astdecls), rest);
+                end 
+
+		#  CnvStatement:  pt::statement -> raw::statement 
+		also
+		fun cnv_statement (statement: pt::Statement): raw::Statement
+		    =
+		    case statement
+
+			pt::EXPR pt::EMPTY_EXPR
+                            =>
+                            wrap_statement (raw::EXPR NULL);
+
+			pt::EXPR e
+                            => 
+			    {   my (_, e') = cnv_expression e;
+
+			        wrap_statement (raw::EXPR (THE e'));
+			    };
+
+			pt::COMPOUND stmts
+                            =>
+			    {   push_local_dictionary ();
+
+				{   my (decls, rest)
+                                        =
+                                        process_decls (stmts,[]);
+
+				    stmts = list::map cnv_statement rest;
+
+				    newtids   = reset_tids ();
+				    new_tmps  = reset_tmp_vars();
+
+				    tmpdecls  = list::map (fn pid = raw::VAR_DECL (pid, NULL)) new_tmps;
+				    typedecls = list::map (fn tid = raw::TYPE_DECL { shadow=>NULL, tid }) newtids;
+
+				    wrap_statement (raw::COMPOUND (decls@tmpdecls@typedecls, stmts));
+				}
+			        before
+                                pop_local_dictionary ();
+                            };
+
+			pt::DECL _
+                            =>
+			    # Shouldn't occur; process decls anyway, but discard them 
+			    {   error "unexpected declaration";
+			        process_decls([statement],[]);
+			        #  may violate assertion top_level() = FALSE for processDecls 
+			        wrap_statement (raw::ERROR_STMT);
+                            };
+
+			pt::WHILE (expr, statement)
+			    =>
+			    {   my (expr_type, expr')
+                                    =
+                                    cnv_expression expr;
+
+				statement = cnv_statement statement;
+
+				if (perform_type_checking and not (is_scalar expr_type))
+				    error "Type Error: condition of while statement is not scalar.";
+				fi;
+
+				wrap_statement (raw::WHILE (expr', statement));
+			    };
+
+			pt::DO (expr, statement)
+			    =>
+			    {   my (expr_type, expr')
+				    =
+				    cnv_expression expr;
+
+				statement = cnv_statement statement;
+
+				if (perform_type_checking and not (is_scalar expr_type))
+				       error "Type Error: condition of do statement is not scalar.";
+				fi;
+
+				wrap_statement (raw::DO (expr', statement));
+			    };
+
+			pt::FOR (expr1, expr2, expr3, statement)
+                            => 
+			    {   expr1' = case expr1
+					     pt::EMPTY_EXPR => NULL;
+				             _              => THE(#2 (cnv_expression expr1));
+                                         esac;
+
+			        expr2' = case expr2
+					     pt::EMPTY_EXPR => NULL;
+				             _   =>
+					         {   my (expr_type, expr2')
+                                                         =
+                                                         cnv_expression expr2;
+
+					             if (perform_type_checking and not (is_scalar expr_type))
+						         error "Type Error: condition of for statement is not scalar.";
+					             fi;				 
+
+					             THE expr2';
+					         };
+                                         esac;
+
+			        expr3' = case expr3
+					     pt::EMPTY_EXPR => NULL;
+				             _              => THE(#2 (cnv_expression expr3));
+                                         esac;
+
+			        statement = cnv_statement statement;
+
+			        wrap_statement (raw::FOR (expr1', expr2', expr3', statement));
+			    };
+
+			pt::LABELED (s, statement)
+                            =>
+			    {   statement = cnv_statement statement;
+			        label_sym = sym::label s;
+
+			        label = add_label (label_sym, get_loc());
+
+			        wrap_statement (raw::LABELED (label, statement));
+			    };
+
+			pt::CASE_LABEL (expr, statement)
+                            =>
+			    {   n = case expr   
+
+			                pt::EMPTY_EXPR
+                                            =>
+                                            {   error "Non-constant case label.";
+                                                0;
+                                            };
+
+			                _   =>
+					    case (evaluate_expr expr)     #  Cannot be EmptyExpr 
+
+						(THE i, _, _, sizeof_fl)
+						    =>
+						    {   if (sizeof_fl and not *reduce_sizeof)
+							    warn("sizeof in case label not preserved in source-to-source mode.");
+							fi;
+
+							i;
+						    };
+
+						(NULL, _, _, _)
+                                                    =>
+                                                    {   error "Non-constant case label.";
+                                                        0;
+                                                    };
+					    esac;
+                                    esac;
+			        case (add_switch_label n)
+				    THE msg => error msg;
+				    NULL    => ();
+				esac;
+
+			        wrap_statement (raw::CASE_LABEL (n, (cnv_statement statement)));
+			    };
+
+			pt::DEFAULT_LABEL statement
+                            => 
+			    {   statement = cnv_statement statement;
+
+			        case (add_default_label ())
+				    NULL => ();
+				    THE msg => error msg;
+			        esac;
+
+			        wrap_statement (raw::DEFAULT_LABEL (statement));
+			    };
+
+			pt::GOTO s
+                            => 
+			    {   lab_sym = sym::label s;
+			        label = add_goto (lab_sym, get_loc());
+			        wrap_statement (raw::GOTO label);
+			    };
+
+			pt::BREAK    => wrap_statement (raw::BREAK);
+			pt::CONTINUE => wrap_statement (raw::CONTINUE);
+
+			pt::RETURN expr
+			    => 
+			    {   my (expr_type, expr')
+				    = 
+				    case expr
+					 pt::EMPTY_EXPR => (raw::VOID, NULL);
+					_ => 
+					  { my (type, expr) = cnv_expression expr;
+					    (type, THE expr);
+					  };
+				    esac;
+
+				return_type = get_return_type ();
+
+				if perform_type_checking 
+
+				    case return_type
+
+					THE return_type
+					    =>
+					    if (not (is_assignable_tys
+						       { lhs_type     => return_type,
+							 rhs_type     => expr_type,
+							 rhs_expr_opt => case expr'
+									     THE expr'' => THE (get_core_expr expr'');
+									     NULL => NULL;
+									 esac
+						       }
+					       )    )
+
+					        lhs = ct_to_string return_type;
+						rhs = ct_to_string expr_type;
+
+					        case expr   
+
+						    pt::EMPTY_EXPR => warn "missing return value.";
+						        #
+						        #  lcc gives this a warning: check ISO standard... 
+
+						    _ => error (     "Type Error: returning expression has illegal type " + rhs
+							       + ".\n            Function has return type " + lhs + "."
+							       );
+                                                esac;
+					    fi;
+
+				       NULL => ();
+
+                                    esac;
+				fi;
+
+				wrap_statement((raw::RETURN expr'));
+			    };
+
+			pt::IF_THEN (expr, statement)
+                            =>
+			    {   my (expr_type, expr')
+                                    =
+                                    cnv_expression expr;
+
+			        statement = cnv_statement statement;
+
+			        if (perform_type_checking and not (is_scalar expr_type))
+				     error "Type Error: condition of if statement is not scalar.";
+			        fi;
+
+			        wrap_statement (raw::IF_THEN (expr', statement));
+			    };
+
+			pt::IF_THEN_ELSE (expr, stmt1, stmt2)
+                            =>
+			    {   my (expr_type, expr')
+                                    =
+                                    cnv_expression expr;
+
+				stmt1 = cnv_statement stmt1;
+				stmt2 = cnv_statement stmt2;
+
+				if (perform_type_checking and not (is_scalar expr_type))
+				    error "Type Error: condition of if statement is not scalar.";
+				fi;
+
+				wrap_statement (raw::IF_THEN_ELSE (expr', stmt1, stmt2));
+			  };
+
+			pt::SWITCH (expr, statement)
+                            =>
+			    {   my (expr_type, expr')
+                                    =
+                                    cnv_expression expr;
+
+				if (perform_type_checking and not (is_integral expr_type))
+				       error "The controlling expression of switch statement \
+					     \is not of integral type.";
+				fi;		   
+
+				push_switch_labels ();
+				statement = cnv_statement statement;
+			        pop_switch_labels ();
+			        wrap_statement (raw::SWITCH (expr', statement));
+			    };
+
+			pt::STAT_EXT statement
+                            =>
+			    cnvstat statement;
+
+			pt::MARKSTATEMENT (newloc, statement)
+                            => 
+			    {   push_loc newloc;
+
+			        cnv_statement statement
+			        before
+                                pop_loc ();
+                            };
+		   esac
+
+
+		# --------------------------------------------------------------------
+		# cnvExpression:  ParseTree::expression -> raw::ctype * raw::expression
+		#
+		# Converts a parse-tree expression into an raw_syntax_tree expression by
+		# recursively converting subexpressions. 
+		#
+		# In the raw_syntax_tree, each core statement is wrapped by an EXPR constructor
+		# which also contains the nearest marked location in the source file
+		# from which the expression came. This is reflected in the package
+		# of the function: each parse-tree expression is converted into an raw_syntax_tree
+		# core expression and then wrapped in EXPR along with the current
+		# location indicated by the dictionary and a unique
+		# adornment. Subsequently each raw_syntax_tree expression can be referred to by
+		# its adornment. Along the way, the type of each expression is
+		# calculated and stored in the dictionary in a map from expression
+		# adornments to types. 
+		# 
+		# The fact that types are computed for each expression does _not_ mean
+		# that this is a type checker. The bare minimum type checking is done
+		# to allow for the expression-adornment-type map to be built.  #  David B MacQueen ??? 
+		# --------------------------------------------------------------------
+
+		also
+		fun cnv_expression expr
+		    = 
+		    cnv_expr expr
+		    where
+			fun number_or_pointer (type, s)
+			    =
+			    if (not (is_number_or_pointer type))
+			        error ("Type Error: operand of " + s +
+					" must be a number or a pointer.");
+			    fi;
+
+			fun number (type, s)
+                            =
+			    if (not (is_number type))
+			        error("Type Error: operand of " + s + " must be a number.");
+			    fi;
+
+			fun make_binop_expression ((type1, type2, result_type), expr1, expr2, binop)
+			    =
+			    {   result_type = get_core_type result_type;
+
+			        wrap_expr (result_type, raw::BINOP (binop, wrap_cast (type1, expr1), wrap_cast (type2, expr2)));
+			    };
+
+			fun make_unop_expression ((type, result_type), expr, unop)
+			     = 
+			     {   result_type = get_core_type result_type;
+
+			         wrap_expr (result_type, raw::UNOP (unop, wrap_cast (type, expr)));
+			     };
+
+			fun make_binary_assign_op_expression ((new_type1, new_type2, result_type), type1, expr1, type2, expr2, assign_op, simple_op)
+			    =
+			    {   check_assign { lhs_type=>type1, lhs_expr=>get_core_expr expr1, rhs_type=>result_type, rhs_expr_opt=>NULL };
+
+			        fun get_type (raw::EXPRESSION(_, adorn, _))
+                                    =
+                                    get_core_type (get_aid adorn);
+
+				if *reduce_assign_ops 
+				    simplify_assign_ops (process_binop, simple_op, { pre_op=>TRUE }, expr1, expr2);
+				else
+				    if (not (ctype_eq::eq_ctype (get_type expr1, get_core_type new_type1)))
+				        note_implicit_conversion (expr1, new_type1);
+                                    fi;
+
+				    if (not (ctype_eq::eq_ctype (get_type expr2, get_core_type new_type2)))
+				        note_implicit_conversion (expr2, new_type2);
+                                    fi;
+
+				    make_binop_expression((type1, type2, type1), expr1, expr2, assign_op);
+
+                                fi; #  result type is (getCoreType type1) 
+			    }
+
+			also
+			fun make_unary_assign_op_expression ((new_type1, new_type2, result_type), type1, expr1, pre_op, assign_op, simple_op)
+			   =
+			   {   my (one_type, one)
+                                   =
+                                   wrap_expr (std_int, raw::INT_CONST 1);  # implicit one constant
+									   # -- all unaryassignops use one
+			       expr2 = one;
+			       type2 = one_type;
+
+			       check_assign { lhs_type=>type1, lhs_expr=>get_core_expr expr1, rhs_type=>result_type, rhs_expr_opt=>NULL };
+
+			       if *reduce_assign_ops 
+				   simplify_assign_ops (process_binop, simple_op, pre_op, expr1, expr2);
+			       else
+				   make_unop_expression((type1, type1), expr1, assign_op); #  result type is (getCoreType type1) 
+                               fi;
+			   }  
+
+			also
+			fun scale_expr (size: large_int::Int, expr as raw::EXPRESSION(_, adorn, _))
+			    =
+			    {   type1 = get_aid adorn;
+				expr1 = expr;
+				type2 = std_int;
+
+				expr2 = #2 (wrap_expr (type2, raw::INT_CONST size));
+
+				process_binop (type1, expr1, type2, expr2, pt::TIMES);
+			    }
+
+			also
+			fun scale_plus (type1, expr1, type2, expr2)		#  scale integer added to pointer 
+			    =
+			    case (*insert_scaling, is_pointer type1, is_pointer type2)
+
+				(TRUE, TRUE, FALSE)
+                                    =>
+                                    {   my (type2, expr2)
+                                            =
+                                            scale_expr (sizeof (deref type1), expr2);
+
+					(type1, expr1, type2, expr2);
+				    };
+
+				(TRUE, FALSE, TRUE)
+                                    =>
+                                    {   my (type1, expr1)
+                                            =
+                                            scale_expr (sizeof (deref type2), expr1);
+
+					(type1, expr1, type2, expr2);
+				    };
+
+				_ => (type1, expr1, type2, expr2);  #  no change 
+			    esac
+
+			also
+			fun scale_minus (type1, type2, expr2)  #  scale integer subtracted from pointer 
+			    =
+			    case (*insert_scaling, is_pointer type1, is_pointer type2)
+
+				 (TRUE, TRUE, FALSE)
+				     =>
+				     {   my (type2, expr2)
+                                             =
+                                             scale_expr (sizeof (deref type1), expr2);
+
+					 (type2, expr2);
+				     };
+
+				 _ => (type2, expr2);  #  no change
+			    esac
+
+			also
+			fun plus_op (type1, type2)  #  type check plus 
+			    =
+			    if perform_type_checking 
+
+				 case (is_addable { type1, type2 })
+
+				     THE { type1, type2, result_type }
+					 =>
+					 (type1, type2, result_type);
+
+				     NULL =>
+                                         {   error "Type Error: Unacceptable operands of \"+\" or \"++\".";
+					     (type1, type2, type1);
+                                         };
+				 esac;
+			    else
+				 (type1, type2, type1);
+			    fi
+
+			also
+			fun minus_op (type1, type2)
+			    =
+			    if perform_type_checking
+
+				 case (is_subtractable { type1, type2 })
+
+				      THE { type1, type2, result_type }
+					  =>
+					  (type1, type2, result_type);
+
+				      NULL
+					  =>
+					  {   error "Type Error: Unacceptable operands of \"-\" or \"--\".";
+					      (type1, type2, type1);
+					  };
+				 esac;
+			    else
+				 (type1, type2, type1);
+			    fi
+
+			also
+			fun process_binop (type1, expr1, type2, expr2, expop)
+			    =
+			    {   fun eq_op (type1, expression1, type2, expression2) #  see H&S p208 
+				    =
+				    if perform_type_checking
+
+					 case (is_equable { type1, expression1zero=>is_zero_expression expression1,
+						       type2, expression2zero=>is_zero_expression expression2 })
+
+					     THE type => (type, type, signed_num raw::INT);
+
+					     NULL =>
+						 {   error "Type Error: bad types for arguments of eq/neq operator.";
+						     (type1, type2, signed_num raw::INT);
+                                                 };
+					 esac;
+				    else
+					 (type1, type2, signed_num raw::INT);
+				    fi;
+
+				fun comparison_op (type1, type2) #  see H&S p208 
+				    =
+				    if  perform_type_checking
+
+					 case (is_comparable { type1, type2 })
+
+					     THE type => (type, type, signed_num raw::INT);
+
+					     NULL => {   error "Type Error: bad types for arguments of \
+							       \comparison operator.";
+
+							 (type1, type2, signed_num raw::INT);
+						     };
+					 esac;
+				    else
+					 (type1, type2, signed_num raw::INT);
+				    fi;
+
+				fun logical_op2 (type1, type2)  #  And and Or 
+				    =
+				    {   std_int = signed_num raw::INT;
+
+					if perform_type_checking 
+
+					     if (is_number_or_pointer type1
+					       and is_number_or_pointer type2
+					       )
+						  (std_int, std_int, std_int);
+					     else
+						  error "Type Error: Unacceptable argument of logical operator.";
+
+						  (type1, type2, signed_num raw::INT);
+					     fi;
+					else
+					     (type1, type2, signed_num raw::INT);
+					fi;
+				    };
+
+				fun integral_op (type1, type2)
+				    =
+				    if perform_type_checking
+
+					 if  (is_integral type1
+					 and  is_integral type2
+					 )
+					      case (usual_binary_cnv (type1, type2))
+
+						   THE type => (type, type, type);
+
+						   NULL => {  bug "cnvExpression: integralOp.";
+							      (type1, type2, signed_num raw::INT);
+							   };
+					      esac;
+				      else
+					   error "Type Error: arguments of mod, shift and \
+						 \bitwise operators must be integral numbers.";
+
+					   (type1, type2, signed_num raw::INT);  fi;
+				    else   (type1, type2, signed_num raw::INT);  fi;
+
+				fun mul_div_op (type1, type2)
+				    =
+				    if perform_type_checking
+
+					if  (is_number type1
+					and  is_number type2)
+
+					     case (usual_binary_cnv (type1, type2))
+
+						 THE type => (type, type, type);
+
+						 NULL => 
+						    {   bug "usualBinaryCnv should \
+							     \succeed for numeric types.";
+
+							(type1, type2, signed_num raw::INT);
+						    };
+					     esac;
+					else
+					     error "Type Error: arguments of mul and div must be numbers.";
+
+					     (type1, type2, signed_num raw::INT);
+					fi;
+				    else
+					 (type1, type2, type1);
+				    fi;
+
+				case expop
+
+				     pt::PLUS
+					 => 
+					 {   my (type1, expr1, type2, expr2)
+						 =
+						 scale_plus (type1, expr1, type2, expr2);
+
+					     result_type
+						 =
+						 plus_op (type1, type2);
+
+					     make_binop_expression (result_type, expr1, expr2, raw::PLUS);
+					 };
+
+				     pt::MINUS
+					 => 
+					 {   my (type2, expr2)
+						 =
+						 scale_minus (type1, type2, expr2);
+
+					     result_type = minus_op (type1, type2);
+
+					     make_binop_expression (result_type, expr1, expr2, raw::MINUS);
+					 };
+
+				     pt::TIMES => make_binop_expression (mul_div_op (type1, type2), expr1, expr2, raw::TIMES);
+				     pt::DIVIDE => make_binop_expression (mul_div_op (type1, type2), expr1, expr2, raw::DIVIDE);
+				     pt::MOD => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::MOD);
+				     pt::EQ => make_binop_expression (eq_op (type1, expr1, type2, expr2), expr1, expr2, raw::EQ);
+				     pt::NEQ => make_binop_expression (eq_op (type1, expr1, type2, expr2), expr1, expr2, raw::NEQ);
+				     pt::GT => make_binop_expression (comparison_op (type1, type2), expr1, expr2, raw::GT);
+				     pt::LT => make_binop_expression (comparison_op (type1, type2), expr1, expr2, raw::LT);
+				     pt::GTE => make_binop_expression (comparison_op (type1, type2), expr1, expr2, raw::GTE);
+				     pt::LTE => make_binop_expression (comparison_op (type1, type2), expr1, expr2, raw::LTE);
+				     pt::AND => make_binop_expression (logical_op2 (type1, type2), expr1, expr2, raw::AND);
+				     pt::OR => make_binop_expression (logical_op2 (type1, type2), expr1, expr2, raw::OR);
+				     pt::BIT_OR => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::BIT_OR);
+				     pt::BIT_AND => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::BIT_AND);
+				     pt::BIT_XOR => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::BIT_XOR);
+				     pt::LSHIFT => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::LSHIFT);
+				     pt::RSHIFT => make_binop_expression (integral_op (type1, type2), expr1, expr2, raw::RSHIFT);
+				     pt::PLUS_ASSIGN => make_binary_assign_op_expression (plus_op (type1, type2), type1, expr1, type2, expr2, raw::PLUS_ASSIGN, pt::PLUS);
+				     pt::MINUS_ASSIGN => make_binary_assign_op_expression (minus_op (type1, type2), type1, expr1, type2, expr2, raw::MINUS_ASSIGN, pt::MINUS);
+				     pt::TIMES_ASSIGN => make_binary_assign_op_expression (mul_div_op (type1, type2), type1, expr1, type2, expr2, raw::TIMES_ASSIGN, pt::TIMES);
+				     pt::DIV_ASSIGN => make_binary_assign_op_expression (mul_div_op (type1, type2), type1, expr1, type2, expr2, raw::DIV_ASSIGN, pt::DIVIDE);
+				     pt::MOD_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::MOD_ASSIGN, pt::MOD);
+				     pt::XOR_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::XOR_ASSIGN, pt::BIT_XOR);
+				     pt::OR_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::OR_ASSIGN, pt::BIT_OR);
+				     pt::AND_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::AND_ASSIGN, pt::BIT_AND);
+				     pt::LSHIFT_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::LSHIFT_ASSIGN, pt::LSHIFT);
+				     pt::RSHIFT_ASSIGN => make_binary_assign_op_expression (integral_op (type1, type2), type1, expr1, type2, expr2, raw::RSHIFT_ASSIGN, pt::RSHIFT);
+
+				     pt::OPERATOR_EXT binop
+					 =>
+					 {   bug "Operator extension (binop case) should be dealt with at top level case";
+
+					     wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+					 };
+
+				    _ => {   bug "[BuildRawSyntaxTree::cnvExpression] \
+						 \Binary operator expected.";
+
+					     wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+					 };
+				esac;
+			    };
+
+			fun process_unop (type, expr, unop)
+			    = 
+			    {   fun simple_un_op (expop, s)
+				    =
+				    {   new_type = usual_unary_cnv type;
+
+				        if perform_type_checking 
+
+				            if (not (is_number new_type))
+                                                error ("Type Error: operand of " + s + " must be a number.");
+                                            fi;
+				        fi;
+
+				        make_unop_expression((type, new_type), expr, expop);
+				    };
+
+				fun logical_op1 type1  #  Not 
+				    =
+				    {   std_int = signed_num raw::INT;
+
+					if perform_type_checking 
+
+					    if (is_number_or_pointer type1)
+						(std_int, std_int);
+					    else
+					        error "Type Error: Unacceptable argument of logical operator.";
+					        (type1, signed_num raw::INT);
+                                            fi;
+					else
+                                            (type1, signed_num raw::INT);
+                                        fi;
+				    };
+
+				case unop 
+
+				     pt::POST_INC => make_unary_assign_op_expression (plus_op (type, std_int), type, expr, { pre_op=>FALSE }, raw::POST_INC, pt::PLUS);
+				     pt::PRE_INC => make_unary_assign_op_expression (plus_op (type, std_int), type, expr, { pre_op=>TRUE }, raw::PRE_INC, pt::PLUS);
+				     pt::POST_DEC => make_unary_assign_op_expression (minus_op (type, std_int), type, expr, { pre_op=>FALSE }, raw::POST_DEC, pt::MINUS);
+				     pt::PRE_DEC => make_unary_assign_op_expression (minus_op (type, std_int), type, expr, { pre_op=>TRUE }, raw::PRE_DEC, pt::MINUS);
+				     pt::UPLUS => simple_un_op (raw::UPLUS, "unary op +");
+				     pt::NEGATE => simple_un_op (raw::NEGATE, "unary op +");
+				     pt::NOT => make_unop_expression (logical_op1 type, expr, raw::NOT);
+				     pt::BIT_NOT => simple_un_op (raw::BIT_NOT, "unary op ~");
+				     _ => { bug "BuildRawSyntaxTree::cnvExpression \
+						 \Unary operator expected";
+					    wrap_expr (raw::ERROR, raw::ERROR_EXPR);};
+				esac;
+			    };
+
+			fun cnv_expr expr	 #  returns (raw::ctype * raw::CoreExpr) 
+                            =
+			    case expr 
+
+				pt::EMPTY_EXPR
+                                    => 
+				    {   bug "cnvExpression: pt::EMPTY_EXPR";
+				        wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+                                    };
+				    #  David B MacQueen: no more raw::EMPTY_EXPR ??? 	XXX BUGGO FIXME
+
+				pt::MARKEXPRESSION (loc, expr)
+                                    =>
+				    {   push_loc loc;
+
+				        cnv_expression expr
+				        before
+                                        pop_loc ();
+                                    };
+
+				pt::INT_CONST i
+                                    =>
+				    wrap_expr (signed_num raw::INT, raw::INT_CONST i);
+
+				pt::REAL_CONST r
+                                    =>
+				    wrap_expr (signed_num raw::DOUBLE, raw::REAL_CONST r);
+
+				pt::STRING s
+                                    =>  
+				    {   t = if *default_signed_char
+						   signed_num raw::CHAR;
+					    else unsigned_num raw::CHAR;
+                                            fi;
+
+				        ct = raw::POINTER t;
+
+				        wrap_expr (ct, raw::STRING_CONST s);
+                                    };
+
+				pt::ID s
+                                    => 
+				    # Should id of type function be immediately
+				    # converted to pointer to function?
+				    #
+				    case (get_sym (sym::chunk s))
+
+					THE (ID (id as { ctype=>type, ... } ))
+                                            => 
+					    wrap_expr (type, raw::ID id);
+
+					THE (MEMBER (member as { ctype=>type, kind, ... } ))
+                                            => 
+					    #  Could it be an enum constant? 
+					    #
+					    # Note: An enum const is inserted as EnumConst,
+					    # but is in same namespace as Chunk
+					    #
+					    case kind
+
+						raw::ENUMMEM i
+                                                    => 
+						    wrap_expr (type, raw::ENUM_ID (member, i));
+
+					        raw::STRUCTMEM
+                                                    => 
+						    {   error ("struct member used as id: " + s);
+						        wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+                                                    };
+
+					        raw::UNIONMEM
+                                                    => 
+						    {   error ("union member used as id: " + s);
+						        wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+                                                    };
+                                            esac;
+
+					NULL => #  implicit declaration 
+					    {   type = signed_num raw::INT;
+					        symbol = sym::chunk s;
+
+					        id = { name => symbol, uid => pid::new(), location => get_loc(),
+							ctype => type, st_ilk => raw::DEFAULT, status => raw::IMPLICIT,
+							kind => raw::NONFUN, global => top_level() };
+
+					        bind_sym (symbol, b::ID (id /*, b::CHUNK { final=FALSE } */ ));
+
+					        if undeclared_id_error  error; else warn;fi
+						   (s + " not declared");
+
+					        wrap_expr (type, raw::ID id);
+					    };
+
+					THE naming
+                                            =>
+					    {   bug ("cnvExpression: bad id naming for " + s) ;
+					        debug_pr_naming (s, naming);
+					        wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+                                            };
+				    esac;
+
+				pt::UNOP (pt::OPERATOR_EXT unop, expr)
+                                    => 
+				    cnvunop { unop, arg_expr=>expr }; 
+
+				pt::UNOP (pt::SIZEOF_TYPE type_name, _)
+                                    => 
+				    {   type = cnv_ctype (FALSE, type_name);
+
+					if storage_size_check  
+
+					    if (not (has_known_storage_size type))
+						error "Cannot take sizeof an expression of unknown size.";
+					    fi;
+				        fi;
+
+					if *reduce_sizeof 
+
+					    raw_syntax_tree = raw::INT_CONST (sizeof type);
+
+					    wrap_expr (raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::UNSIGNED, raw::INT, raw::SIGNASSUMED),
+						      raw_syntax_tree);
+					else
+					    wrap_expr (raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::UNSIGNED, raw::INT, raw::SIGNASSUMED),
+						   raw::SIZE_OF type);
+                                        fi;
+				   };
+
+				pt::UNOP (expop, expr_parse_tree)
+                                    => 
+				    {   my (type, expr)
+                                            =
+                                            cnv_expression (expr_parse_tree);
+
+					#  ASSERT: expr_parseTree cannot be pt::EMPTY_EXPR 
+
+				        case expop
+					    pt::SIZEOF
+                                                =>
+					        {   check_for_fun  expr_parse_tree
+                                                    where
+                                                        fun check_for_fun (pt::ID s)
+                                                                =>
+							        case (get_sym (sym::chunk s))
+
+								    THE (b::ID { ctype=>raw::FUNCTION _, ... } )
+                                                                        =>
+								        error "Cannot take sizeof a function.";
+
+								    _    => ();
+                                                                esac;
+
+							    check_for_fun (pt::MARKEXPRESSION (loc, expr))
+                                                                =>
+                                                                check_for_fun expr;
+
+							    check_for_fun _
+                                                                =>
+                                                                ();
+                                                        end;
+						    end;
+
+						    if storage_size_check  
+						        if (not (has_known_storage_size type))
+						            error "Cannot take sizeof an expression of unknown size.";
+                                                        fi;
+						    fi;
+
+						    if *reduce_sizeof 
+
+						        raw_syntax_tree = raw::INT_CONST (sizeof type);
+
+						        wrap_expr (raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::UNSIGNED, raw::INT, raw::SIGNASSUMED), raw_syntax_tree);
+
+						    else
+						        wrap_expr (raw::NUMERIC (raw::NONSATURATE, raw::WHOLENUM, raw::UNSIGNED, raw::INT, raw::SIGNASSUMED),
+							      raw::SIZE_OF type);
+						    fi;
+					        };
+
+					    pt::ADDR_OF
+                                                =>
+					        {   core_expr = get_core_expr expr;
+
+					            type = if (is_lval (core_expr, type))
+							       case core_expr   
+								   raw::ID { ctype=>id_ctype, st_ilk, ... }
+                                                                       =>
+								       {   if (st_ilk == raw::REGISTER) 
+									       error "Cannot take address of register variable.";
+								           fi;
+
+								           if (is_function id_ctype)
+                                                                                type;				# A_type already pointer to fn 
+								           else raw::POINTER type;
+                                                                           fi;
+                                                                       };
+								   _ => raw::POINTER type;
+                                                               esac;
+						           else
+                                                               error "Cannot take address of non-lval expression.";
+						               raw::POINTER type;
+                                                           fi;
+
+					            wrap_expr (type, raw::ADDR_OF expr);
+					        };
+
+		    /**** old code: delete in due course 
+						let fun checkId (pt::ID s) =
+						     (case getStorageIlk (Sym::chunk s)
+							of THE raw::REGISTER => 
+							    error
+							      "Cannot take address of register variable."
+							 | _ => ();
+						      if isFunction type then 
+							(case type
+							   of raw::POINTER _ => wrapEXPR (type, getCoreExpr expr)
+							    | _ => wrapEXPR (raw::POINTER type, getCoreExpr expr))
+
+				 # Bug fix from Satish: 2/4/99
+				 #	 It should be just "type" in place of "Pointer type", because we convert
+				 #	 all function types to pointer types at the end of cnvExpr, by
+				 #	 calling cnvFunctionToPointer2Function.
+				 #   Conservative coding: above deals with case when function may
+				 #   *not* have pointer around it.
+
+						      else wrapEXPR (raw::POINTER type, raw::ADDR_OF expr))
+						      | checkId (pt::MARKEXPRESSION (loc, expr)) = checkId expr
+						      | checkId _ = wrapEXPR (raw::POINTER type, raw::ADDR_OF expr)
+						in
+						  checkId expr_parseTree
+						end
+					      else
+						(error
+						   "Cannot take address of non-lval expression.";
+						 wrapEXPR (raw::POINTER type, raw::ADDR_OF expr))
+		    end old code ******/
+
+					    pt::STAR
+                                                =>
+                                                wrap_expr (deref type, raw::DEREF expr);
+						#
+					        # Used to explicitly squash *f, but this is incorrect.
+						# Note 1: this happens automatically for type.
+						#  If I have *f and f has type=pointer (function),
+						#  then deref type give us type=function,
+						#  and then wrapEXPR gives us back pointer (function).
+						# Note 2: the real semantic processing of what star
+						#  achieves operationally is defined in simplify.
+
+					    pt::OPERATOR_EXT unop
+                                                => 
+					        {   bug "Operator extension (unop case) should be dealt with at top level case";
+						    wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+                                                };
+
+					    _   =>
+                                                process_unop (type, expr, expop);
+                                        esac;
+				   };
+
+				pt::BINOP (pt::OPERATOR_EXT binop, expr1, expr2)
+                                    => 
+				    cnvbinop { binop, 
+					       arg1expr=>expr1,
+					       arg2expr=>expr2
+                                             };
+
+				pt::BINOP (expop, expr1, expr2)
+				    => 
+				    {   my (type1, expr1')
+                                            =
+                                            cnv_expression (expr1);
+
+					case expop
+
+					    pt::DOT
+                                                =>
+					        {   s = get_id expr2
+                                                        where
+						            fun get_id (pt::ID str)
+                                                                    =>
+                                                                    str;
+
+							        get_id (pt::MARKEXPRESSION (loc, expr))
+                                                                    =>
+                                                                    get_id expr;
+
+							        get_id _
+                                                                    =>
+                                                                    {   error "Identifier expected - filling with missing_id";
+								        "<missing_id>";
+                                                                    };
+                                                            end;
+						        end;
+
+						    my m as { ctype, ... }
+                                                        =
+							case (is_struct_or_union type1)
+
+							    THE tid
+                                                                => 
+								{   symbol = sym::member (tid, s);
+
+								    case (get_sym symbol)
+
+								        THE (MEMBER m)
+                                                                            =>
+                                                                            m;
+
+									_   =>
+									    {   if (is_partial tid)
+									             error "Can't access fields in incomplete type.";
+									        else error ("Field " + s + " not found.");
+                                                                                fi;
+
+									        # Get garbage pid to continue:
+										# 
+									        bogus_member symbol;
+                                                                            };
+                                                                    esac;
+								};
+
+							    NULL =>
+							       {   error ("Field " + s + " not found; expression does not have package \
+								          \or union type.");
+
+								   # Get garbage pid to continue:
+								   #
+								   bogus_member (sym::member (bogus_tid, "s"));
+                                                               };
+							esac;
+
+						    wrap_expr (ctype, raw::MEMBER (expr1', m));
+					        };
+
+					    pt::ARROW
+                                                =>
+					        {   s = get_id expr2
+                                                        where
+                                                            fun get_id (pt::ID str) => str;
+							        get_id (pt::MARKEXPRESSION (loc, expr)) => get_id expr;
+							        get_id _
+                                                                    =>
+                                                                    {   error "Identifier expected - filling with missing_id";
+								        "<missing_id>";
+                                                                    };
+						            end;
+						        end;
+
+						    ty_deref = deref type1;
+
+						    my m as ( { ctype, ... }: raw::Member)
+							=
+							case (is_struct_or_union ty_deref)
+
+							    THE tid
+                                                                => 
+							        {   symbol = sym::member (tid, s);
+
+								    case (get_sym symbol)
+
+									THE (b::MEMBER m)
+                                                                            =>
+                                                                            m;
+
+									NULL =>
+									    {   if (is_partial tid)
+									             error "Can't access fields in incomplete type.";
+									        else error ("Field " + s + " not found.");
+                                                                                fi;
+
+									        # Get garbage pid to continue:
+										#
+									        bogus_member symbol;
+                                                                            };
+
+								       _ => {   error (s + " is not a member");
+										bogus_member symbol;
+                                                                            };
+								     esac;
+							       };
+
+							    NULL =>
+							        {   error ("Field " + s +
+								          " not found; expression does not have package \
+								          \or union type.");
+
+							            # Get garbage pid to continue:
+								    #
+							            bogus_member (sym::member (bogus_tid, "s"));
+                                                                };
+							esac;
+
+						    wrap_expr (ctype, raw::ARROW (expr1', m));
+					        };
+
+					    pt::SUB
+                                                =>
+					        {   my (type2, expr2')
+                                                        =
+                                                        cnv_expression (expr2);
+
+						    type = if   (is_pointer type1 ) deref type1;
+							   elif (is_pointer type2 ) deref type2;
+							   else
+								 error "Array/ptr expected.";
+								 raw::ERROR;
+							   fi;
+						    wrap_expr (type, raw::SUB (expr1', expr2'));
+					        };
+
+					    pt::COMMA
+                                                =>
+					        {   my (type2, expr2')
+                                                        =
+                                                        cnv_expression (expr2);
+
+						    wrap_expr (type2, raw::COMMA (expr1', expr2'));
+					        };
+
+					    pt::ASSIGN
+                                                =>
+					        {   my (expr_type, expr2')
+                                                        =
+                                                        cnv_expression  expr2;
+
+						    check_assign { lhs_type=>type1, lhs_expr=>get_core_expr expr1',
+								       rhs_type=>expr_type,
+								       rhs_expr_opt=>THE (get_core_expr expr2') };
+
+						    result_type = get_core_type type1;
+
+						    expr2' = wrap_cast (result_type, expr2');
+
+						    wrap_expr (result_type, raw::ASSIGN (expr1', expr2'));
+
+						    # type of result is the unqualified type of the left
+						    # operand: H&S p 221.
+					        };
+
+					   _ => {   my (type2, expr2') = cnv_expression (expr2);
+						    process_binop (type1, expr1', type2, expr2', expop);
+						};
+					esac;
+				    };
+
+			        pt::QUESTION_COLON (expr1, expr2, expr3)
+                                    => 
+				    {   my (expr_type, expr1')
+                                            =
+                                            cnv_expression  expr1;
+
+				        if (perform_type_checking and not (is_scalar expr_type)) 
+					    error "Type Error: condition of question-colon statement is not scalar.";
+				        fi;
+
+					my (type2, expr2') = cnv_expression (expr2);
+					my (a_type3, expr3') = cnv_expression (expr3);
+
+					a_type4 = case (conditional_expression { type1=>type2, expression1zero=>is_zero_expression expr2',
+									type2=>a_type3, expression2zero=>is_zero_expression expr3'})
+						      THE type => type;
+						      NULL     => {   error "Type Error: Unacceptable operands of question-colon.";
+							              type2;
+                                                                  };
+                                                  esac;
+
+					my (expr2') = wrap_cast (a_type4, expr2');
+					my (expr3') = wrap_cast (a_type4, expr3');
+
+					wrap_expr (a_type4, raw::QUESTION_COLON (expr1', expr2', expr3'));
+				    };
+
+			        pt::CALL (expr, exprs)
+                                    => 
+				    {   my (fun_type, expr', prototype)
+                                            = 
+					    check_id expr
+					    where
+						fun check_id (pt::ID s)
+							=>
+							{    my fun_id as ( { ctype=>fun_type, ... }: raw::Id)
+								 =
+								 case (get_sym (sym::func s))
+
+								      THE (ID id) => id;
+
+								      NULL => 
+									  # If ANSI C then this should be an error... 
+									  {
+									      type = make_function_ct (signed_num raw::INT,[]);
+
+									      var_sym = sym::chunk s;
+
+									      id = { name => var_sym, uid => pid::new(),
+											location => get_loc(), status=>raw::IMPLICIT,
+											ctype => type, st_ilk => raw::EXTERN,
+											kind => raw::FUNCTION_KIND { has_function_def=>FALSE },
+											global => TRUE }; #  is is a function, so it is global! 
+
+									      naming = ID id;
+
+									      # Force insertion of symbol at top level 
+
+									      bind_sym_global (var_sym, naming);
+
+									      (if (config::type_check_control::undeclared_fun_error)
+											error; else warn;fi)
+										("function " + s + " not declared");
+
+									      id;
+									  };
+
+								     _ => {   error (s + " is not a function");
+
+									      { name => sym::func s, uid => pid::new(),
+										location => source_map::UNKNOWN,
+										ctype => raw::ERROR, global => top_level(),
+										st_ilk => raw::DEFAULT, status => raw::IMPLICIT,
+										kind => raw::FUNCTION_KIND { has_function_def=>FALSE }
+									      };
+									  };
+								 esac;
+
+							     adorn = bind_aid fun_type;
+
+							     (fun_type, raw::EXPRESSION (raw::ID fun_id, adorn, get_loc()),
+								is_function_prototype fun_type);
+							};
+
+						    check_id (pt::MARKEXPRESSION (loc, expr))
+                                                        =>
+						        {   push_loc loc;
+
+							    check_id expr
+							    before
+                                                            pop_loc ();
+						        };
+
+						    check_id _
+                                                        =>
+						        {   my (fun_type, expr)
+                                                                =
+                                                                cnv_expression expr;
+
+							    prototype = is_function_prototype fun_type;
+
+							    (fun_type, expr, prototype);
+						        };
+						end;
+					  end;
+
+				   ty_expr_list
+                                       =
+                                       list::map cnv_expression exprs;
+
+
+				   my (arg_tys, exprs)
+                                       =
+                                       paired_lists::unzip ty_expr_list;
+
+
+				   fun cnv_args (expr ! exprs, type ! tys)
+                                           => 
+					   expr ! exprs
+                                           where
+					       expr  = wrap_cast (type, expr);
+					       exprs = cnv_args (exprs, tys);
+					   end;
+
+				       cnv_args (NIL, NIL)
+                                           =>
+                                           NIL;
+
+				       cnv_args _
+                                           =>
+					   {   bug "type list and expression list must be same size";
+					       NIL;
+                                           };
+                                   end;
+
+
+				   my (ret_type, exprs)
+				       =
+				       if perform_type_checking
+
+					    if prototype 
+
+						my (ret_type, cnv_arg_tys)
+						    =
+						    check_fn (fun_type, arg_tys, exprs);
+
+						exprs = cnv_args (exprs, cnv_arg_tys);
+
+						(ret_type, exprs);
+
+					    else
+						cnv_arg_tys = list::map (function_arg_conv) arg_tys;
+
+						ret_type
+                                                    =
+						    case (get_function fun_type)
+
+							THE (ret_type, _)
+                                                            =>
+                                                            ret_type;
+
+							NULL => {   error "Called chunk is not a function.";
+							            raw::ERROR;
+                                                                };
+                                                    esac;
+
+						exprs = cnv_args (exprs, cnv_arg_tys);
+
+						(ret_type, exprs);
+
+					    fi;
+				       else
+					    ret_type = case (get_function fun_type)
+							    THE (ret_type, _) => ret_type;
+							    NULL => raw::VOID;
+                                                       esac;
+
+					    (ret_type, exprs);
+				       fi;
+
+				       wrap_expr (ret_type, raw::CALL (expr', exprs));
+				    };
+
+			        pt::CAST (ct, expr)	 #  TODO: should check consistency of cast 
+                                    =>
+				    {   type = cnv_ctype (FALSE, ct);
+
+				        my (_, expr')
+                                            =
+                                            cnv_expression expr;
+
+				        wrap_expr (type, raw::CAST (type, expr'));
+				    };
+
+			        pt::INIT_LIST exprs
+                                    => 
+				    {   fun process e
+                                            =
+                                            #2 (cnv_expression e);
+
+				        exprs = list::map process exprs;
+
+				        # pt::INIT_LIST should only occur within declarators as
+				        # an aggregate initializer.  It is handled in processDecr.
+
+					bug "cnvExpression: unexpected InitList";
+					wrap_expr (raw::ERROR, raw::ERROR_EXPR);
+				    };
+
+			        pt::EXPR_EXT expr
+                                    =>
+                                    cnvexp expr;
+                            esac;
+
+		    end
+
+		# --------------------------------------------------------------------
+		# cnvType:  Bool * pt::ctype -> raw::ctype
+		#
+		# Converts a parse-tree type into an raw_syntax_tree type, adding new type and
+		# symbol (e.g. enumerated values and field identifiers) into the
+		# dictionary.
+		#
+		# The boolean first argument is a flag indicating if this type is a
+		# `shadow' - that is a struct/enum/union tag type used to refer
+		# to a future struct/union/enum declaration rather than one defined in
+		# an outer scope.
+		# 
+		# Named types (i.e. structs/unions/enums/typedefs) are represented by
+		# indexes into the named-type table. That table maps these indexes to
+		# the actual struct/union/enum/typedef. This allows for for such a
+		# type to be resolved without having to do multiple enquiries into the
+		# symbol-table stack. By convention, an explicitly tagged type will be
+		# stored redundantly in the symbol table: once as its explicit tag and
+		# once as a manufactured one corresponding to the unique named type id
+		# generated by Tidtab::new.
+		# --------------------------------------------------------------------
+
+		also
+		fun cnv_ctype (is_shadow: Bool, type: pt::Ctype) : raw::Ctype
+		    =
+		    {	type ->  { qualifiers, specifiers };
+		        cnv_qualifiers (cnv_specifier specifiers) qualifiers;
+                    }
+                    where
+		        fun cnv_specifier specifiers
+			    =
+			    {   signed = REF (NULL:  Null_Or( raw::Signedness ));
+				frac   = REF (NULL:  Null_Or( raw::Fractionality ));
+				sat    = REF (NULL:  Null_Or( raw::Saturatedness ));
+				kind   = REF (NULL:  Null_Or( raw::Int_Kind ));
+
+			        fun cnv_spec_list (spec ! spec_l)
+					=>
+					{   case spec 
+
+						pt::SIGNED
+						    =>
+						    {   case *kind
+							    THE (raw::FLOAT | raw::DOUBLE | raw::LONGDOUBLE)
+								=> 
+								error "illegal combination of signed with float/double/long double";
+							    _   =>
+								();
+							esac;
+
+							case *signed
+							    NULL  => (signed := THE raw::SIGNED);
+							    THE _ => error "Multiple signed/unsigned";
+							esac;
+						    };
+
+						pt::UNSIGNED
+						    =>
+						    {   case *kind
+							    THE (raw::FLOAT | raw::DOUBLE | raw::LONGDOUBLE)
+								=> 
+								error "illegal combination of unsigned with float/double/long double";
+							    _   => ();
+							esac;
+
+							case *signed
+							    NULL  => (signed := THE raw::UNSIGNED);
+							    THE _ => error "Multiple signed/unsigned";
+							esac;
+						    };
+
+						pt::CHAR
+						    =>
+						    case *kind
+
+							NULL =>
+							    kind := THE raw::CHAR;
+
+							THE ct
+							    =>
+							    error case ct
+								      raw::CHAR => "duplicate char specifier";
+								      _         => "illegal use of char specifier";
+								  esac;
+						    esac;
+
+						pt::SHORT
+						    =>
+						    case *kind
+
+							(NULL | THE raw::INT)
+							    =>
+							    kind := THE raw::SHORT;
+
+							THE ct
+							    =>
+							    error case ct
+								      raw::SHORT => "duplicate short specifier";
+								      _          => "illegal use of short specifier";
+								  esac;
+						    esac;
+
+						pt::INT
+						    =>
+						    case *kind
+
+							NULL =>
+							    kind := THE raw::INT;
+
+							THE (raw::SHORT | raw::LONG | raw::LONGLONG)
+							    =>
+							    ();
+
+							THE ct
+							    =>
+							    error case ct
+								      raw::INT => "duplicate int specifier";
+								      _        => "illegal use of int specifier";
+								  esac;
+						    esac;
+
+						pt::LONG
+						    =>
+						    case *kind
+
+							NULL          =>  kind := THE raw::LONG;
+							THE raw::LONG =>  kind := THE raw::LONGLONG;
+							THE raw::INT  =>  kind := THE raw::LONG;
+
+							THE ct
+							    =>
+							    error case ct
+								      raw::LONGLONG => "triplicate long specifier";
+								      _             => "illegal use of long specifier";
+								  esac;
+						    esac;
+
+						pt::FLOAT
+						    =>
+						    {   case *signed
+							    NULL => ();
+							    THE _ => error "illegal combination of signed/unsigned with float";
+							esac;
+
+							case *kind
+
+							    NULL =>
+							       kind := THE raw::FLOAT;
+
+							    THE ct
+								=>
+								error case ct
+									  raw::FLOAT => "duplicate float specifier";
+									  _          => "illegal use of float specifier";
+								      esac;
+							esac;
+						    };
+
+						pt::DOUBLE
+						    =>
+						    {   case *signed
+							    NULL  => ();
+							    THE _ => error "illegal combination of signed/unsigned with double";
+							esac;
+
+							case *kind
+
+							    NULL          =>  kind := THE raw::DOUBLE;
+							    THE raw::LONG =>  kind := THE raw::LONGDOUBLE;
+
+							    THE ct
+								=>
+								error case ct
+									  raw::DOUBLE => "duplicate double specifier";
+									  _           => "illegal use of double specifier";
+								      esac;
+							esac;
+						    };
+
+						pt::FRACTIONAL
+						    =>
+						    case *frac
+							NULL  =>  frac := THE raw::FRACTIONAL;
+							THE _ =>  error "Multiple fractional or wholenum";
+						    esac;
+
+						pt::WHOLENUM
+						    =>
+						    case *frac
+							NULL  =>  frac := THE raw::WHOLENUM;
+							THE _ =>  error "Multiple fractional or wholenum";
+						    esac;
+
+						pt::SATURATE
+						    =>
+						    case *sat
+							NULL  =>  sat := THE raw::SATURATE;
+							THE _ =>  error "Multiple saturate or nonsaturate";
+						    esac;
+
+						pt::NONSATURATE
+						    =>
+						    case *sat
+							NULL  =>  sat := THE raw::NONSATURATE;
+							THE _ =>  error  "Multiple saturate or nonsaturate";
+						    esac;
+
+						_   =>
+						    error("Illegal combination of type specifiers.");
+					    esac;
+
+					    cnv_spec_list  spec_l;
+					};
+
+			            cnv_spec_list []
+                                        => 
+				        {   num_kind = case *kind
+						           NULL         =>  raw::INT;
+						           THE num_kind =>  num_kind;
+                                                       esac;
+
+				            frac = case *frac
+						       NULL     => raw::WHOLENUM;
+						       THE frac => frac;
+                                                   esac;
+
+				            my (sign, decl)
+					        =
+                                                case (*signed, num_kind) 
+						    (NULL, raw::CHAR)
+                                                        => 
+							if *default_signed_char
+							     (raw::SIGNED, raw::SIGNASSUMED);
+							else (raw::UNSIGNED, raw::SIGNASSUMED);
+                                                        fi;
+
+							# According to H&S p115
+							# char can be signed or unsigned.
+
+						        (NULL,     _) => (raw::SIGNED, raw::SIGNASSUMED);
+						        (THE sign, _) => (sign, raw::SIGNDECLARED);
+                                                esac;
+
+				            sat = case *sat
+						      NULL    => raw::NONSATURATE;
+						      THE sat => sat;
+                                                  esac;
+
+				            raw::NUMERIC (sat, frac, sign, num_kind, decl);
+				        };
+                                end;			# fun cnv_spec_list
+
+			        fun no_more [] _  => ();
+			            no_more _ err => error (err + " cannot be combined with a specifier.");
+                                end;
+
+			        case specifiers
+
+			            # Singleton cases: These should appear solo: 
+
+			            pt::VOID     ! l => { no_more l "Void";    raw::VOID;     };
+			            pt::ELLIPSES ! l => { no_more l "Ellipse"; raw::ELLIPSES; };
+
+			           (pt::ARRAY (expr, type)) ! l
+                                        =>
+				        {   no_more l "Array";
+
+				            opt = case expr   
+
+				                      pt::EMPTY_EXPR => NULL;
+
+				                      _ => case (evaluate_expr expr)     #  Cannot be EmptyExpr 
+
+							       (THE i, _, expr', _)
+                                                                   =>
+							           {   if (i==0)   warn "Array has zero size.";   fi;
+								       THE (i, expr');
+                                                                   };
+
+							       (NULL, _, expr', _)
+                                                                   =>
+                                                                   {   error "Array size must be constant expression.";
+								       THE (0, expr');
+                                                                   };
+                                                           esac; 
+                                                  esac; 
+
+				            type' = cnv_ctype (FALSE, type);
+
+				            raw::ARRAY (opt, type');
+				        };
+
+			           (pt::POINTER type) ! l
+                                       =>
+				       {   no_more l "Pointer";
+				           type' = cnv_ctype (FALSE, type);
+				           raw::POINTER type';
+				       };
+
+			           (pt::FUNCTION { ret_type, parameters } ) ! l
+                                       =>
+				       {   no_more l "Function";
+
+					   ret_type = cnv_ctype (FALSE, ret_type);
+
+					   fun process (dt, decl)
+                                               =
+					       {   # Dpo: ignore storage ilk in translating type 
+
+						   my (dty, arg_id_opt, loc)
+                                                       =
+						       process_declarator (dt, decl);
+
+						   my (type, sc)
+                                                       =
+                                                       cnv_type (FALSE, dty);
+
+						   fun make_id n
+                                                       =
+                                                       { name => sym::chunk n,
+							 uid => pid::new (),
+							 location => loc,
+							 ctype => type,
+							 st_ilk => sc,
+							 status => raw::DECLARED,
+							 kind => raw::NONFUN,
+							 global => FALSE
+                                                       };
+
+
+						   (type, null_or::map make_id arg_id_opt);
+					       };
+
+					   arg_tys = list::map
+                                                         process
+                                                         parameters;
+
+					   make_function_ct (ret_type, arg_tys);
+				       };
+
+				   # ------------- Enumerated Types ---------------- 
+				   # If enum tag is explicitly mentioned:
+				   #   if partially defined then use that named type
+				   #   identifier;
+				   #   otherwise, if it has never been mentioned or if
+				   #   it has been mentioned for a completely defined
+				   #   type (so that this definition is new for an
+				   #   inner scope) then create a new named type id
+				   #   and store a reference to it in the current
+				   #   symbol table.
+				   # Otherwise, this is an `anonynmous' enum type: create a
+				   # new named type id and store a reference to it in the
+				   # current symbol table.
+
+
+				   (pt::ENUM { tag_opt, enumerators, trailing_comma } ) ! l
+                                       =>
+				       {   no_more l "Enum";
+
+					   #  Check for trailing comma warning/error 
+
+					   if trailing_comma
+
+						if config::parse_control::trailing_comma_in_enum.error
+
+						     error "trailing comma in enum declaration";
+						else
+						     if config::parse_control::trailing_comma_in_enum.warning
+
+							  warn "trailing comma in enum declaration";
+						     fi;
+						fi;
+					   fi;
+
+					   my (tid, already_defined)
+					       =
+					       #  AlreadyDefined for multi-file analysis mode 
+					       case tag_opt
+
+						   THE tagname
+							=> 
+							{   symbol = sym::tag tagname;
+
+							    tid_flag_opt
+                                                                = 
+								case (get_local_scope symbol)
+
+								    THE (TAG { ctype=>type, location=>loc', ... } )
+									 => 
+									 case type 
+
+									     raw::ENUM_REF tid
+										 => 
+										 if (is_partial tid)
+
+										     THE { tid, already_defined=>FALSE };
+
+										 elif repeated_declarations_ok
+
+										     THE { tid, already_defined=>TRUE };
+										 else
+										     error ( "Redeclaration of enum tag `"
+										           +  tagname
+										           +  "'; previous declaration at "
+										           +  sm::loc_to_string loc'
+                                                                                           );
+
+										     NULL;
+										 fi;
+
+									    _ => {   error ( "Redeclaration of enum tag `"
+										           + tagname
+										           + "'; previous declaration was not an "
+										           + "enum tag and appeared at "
+										           + sm::loc_to_string loc'
+                                                                                           );
+									             NULL;
+                                                                                 };
+									 esac;
+
+								    NULL => NULL;
+
+								    _    => {   error (tagname + " is not an enum tag");
+									        NULL;
+                                                                            };
+								esac;
+
+							    case tid_flag_opt
+
+								THE { tid, already_defined }
+                                                                    =>
+								    (tid, already_defined);
+
+								NULL => 
+								    {   tid = tid::new ();
+
+									type = raw::ENUM_REF tid;
+
+									bind_sym (symbol, TAG { name=>symbol, uid=>pid::new(),
+											    location=>get_loc(), ctype=>type } );
+									bind_tid (tid, { name=>tag_opt, ntype=>NULL,
+											  global=>top_level(), location=>get_loc() } );
+									(tid, FALSE);
+								    };
+							    esac;
+							};
+
+						  NULL => 
+						      {   my (tid, already_defined)
+							      = 
+							      if (*multi_file_mode_flag and (top_level ()) )
+
+								  # In multi_file_mode, give identical top-level
+								  # enums the same tid
+								  #
+								  case (anonymous_structs::find_anon_struct_enum  type)
+
+								      THE tid => (tid, TRUE);
+
+								      NULL =>
+									  {   tid = tid::new ();
+									      anonymous_structs::add_anon_tid (type, tid);
+									      (tid, FALSE);
+									  };
+								  esac;	
+
+							      else		    
+
+								  tid = tid::new ();
+								  #  in standard mode, allocate new tid 
+								  (tid, FALSE);
+							      fi;
+
+							  if (not already_defined)
+
+							      bind_tid (tid, { name     => tag_opt,
+                                                                               ntype    => NULL,
+									       global   => top_level(),
+                                                                               location => get_loc()
+                                                                             }
+                                                                       );
+							  fi;
+
+							  (tid, already_defined);
+						      };
+					       esac;
+
+					   # add each enum value into symbol table (and evaluate it);
+					   #  prevVal passes the enum value from one enum entry to the next
+					   #	 so that 
+					   #	    enum { e1, e2, e3=4, e4 };
+					   #   gives
+					   #	    enum { e1=0, e2=1, e3=4, e4=5 };
+
+					   fun process prev_val NIL
+						   =>
+						   NIL;
+
+					       process prev_val ((name, e) ! l)
+						   =>
+						   {   const_val_opt
+							   = 
+							   case e   
+
+							       pt::EMPTY_EXPR
+								   =>
+								   NULL;
+
+							       _ => case (evaluate_expr e)   
+
+									(THE i, _, _, sizeof_fl)
+									    => 
+									    {   if (sizeof_fl and not *reduce_sizeof)
+										    warn("sizeof in enum value " + "not preserved in source-to-source mode.");
+										fi;
+
+										THE i;
+									    };
+
+									(NULL, _, _, _)
+									    =>
+									    {   error "Enum value must be constant expression.";
+										NULL;
+									    };
+								    esac;
+							   esac;
+
+						       const_val
+							   =
+							   case const_val_opt
+								THE n => n;
+							       NULL => prev_val + 1;
+							   esac;
+
+						       symbol = sym::enum_const name;
+						       type = raw::ENUM_REF tid;
+						       check_non_id_renaming (symbol, type, "enum constant ");
+
+						       member = { name => symbol, uid => pid::new(),
+								  location => get_loc(), ctype=>type,
+								  kind => raw::ENUMMEM const_val
+								};
+
+						       naming = b::MEMBER member;
+
+						       bind_sym (symbol, naming);
+
+						       (member, const_val) ! (process const_val l);
+						   };
+					  end;		# fun process
+
+					  if (not already_defined)
+
+					       id_int_list = process (large_int::from_int -1) enumerators;
+
+					       named_type  = b::ENUM (tid, id_int_list);
+
+					       bind_tid (tid, { name=>tag_opt, ntype=>THE named_type,
+								global=>top_level(), location=>get_loc()
+							      }
+							);
+
+					       push_tids tid;
+					  fi;
+
+					  raw::ENUM_REF tid;
+				      };
+
+
+				   ###################################################
+			           #                Structs and  Unions 
+				   #
+			           # Very similar to rules for converting enums.
+
+			           (pt::STRUCT { is_struct, tag_opt, members } ) ! l
+				       =>
+				       {   no_more l "Struct";
+
+					   my (tid, already_defined)
+					       = 
+					       case tag_opt
+
+						   THE tagname
+						       => 
+						       {   symbol = sym::tag tagname;
+
+							   tid_flag_opt
+							       = 
+							       case (get_local_scope symbol)
+
+								   THE (TAG { ctype=>type, location=>loc', ... } )
+								       => 
+								       case type
+
+									   (raw::UNION_REF tid | raw::STRUCT_REF tid)
+                                                                               => 
+									       if (is_partial tid)
+										    THE { tid, already_defined=>FALSE };
+									       elif repeated_declarations_ok
+										    THE { tid, already_defined=>TRUE };
+									       else error("Redeclaration of type tag `"
+										       + tagname
+										       + "'; previous declaration at "
+										       + sm::loc_to_string loc');
+										     NULL;
+									       fi;
+
+									  _ => {   error ("Redeclaration of type tag `"
+											 + tagname
+											 + "'; previous declaration was not a "
+											 + "type tag and appeared at "
+											 + sm::loc_to_string loc'
+                                                                                         );
+									           NULL;
+                                                                               };
+								      esac;
+
+								   NULL => NULL;
+
+								  _ => { bug "cnvExpression: tag symbol 2"; NULL;};
+							       esac;
+
+							   case tid_flag_opt
+
+							       THE { tid, already_defined }
+                                                                   => 
+								   (tid, already_defined);
+
+							       NULL =>
+                                                                   # Create a partial tid:
+								   #
+								   {   tid = tid::new ();
+
+								       type = if is_struct  raw::STRUCT_REF tid;
+									      else          raw::UNION_REF  tid;
+                                                                              fi;
+
+								       bind_sym (symbol, TAG { name=>symbol, uid=>pid::new(),
+											location=>get_loc(),
+											ctype=>type } );
+
+								       bind_tid (tid, { name=>NULL, ntype=>NULL,
+										     global=>top_level(), location=>get_loc() } );
+
+								       (tid, FALSE);
+								   };
+							   esac;
+
+						       };
+
+						   NULL => 
+						       {   my (tid, already_defined)
+							       = 
+							       if (*multi_file_mode_flag and (top_level ()) )
+
+								   # In multi_file_mode, give identical top-level
+								   # structs the same tid 
+								   #
+								   case (anonymous_structs::find_anon_struct_enum type)
+
+								       THE tid => (tid, TRUE);
+
+								       NULL => 
+									       { tid = tid::new ();
+										anonymous_structs::add_anon_tid (type, tid);
+										  (tid, FALSE);
+									       };
+								   esac;
+							      else 
+								   tid = tid::new ();
+								   (tid, FALSE);
+
+							      fi;
+
+							  if (not already_defined)
+
+							      bind_tid (tid, { name=>NULL, ntype=>NULL,
+										  global=>top_level(), location=>get_loc() } );
+							  fi;
+
+							  (tid, already_defined);
+						       };
+					       esac;
+
+					   # Add members to symbol table,
+					   # evaluate bit fields
+					   # when present
+					   # 
+					   fun process1 (ct, decl_exprs)
+					       =
+					       map process2  decl_exprs
+                                               where
+
+					           type = cnv_ctype (FALSE, ct);
+
+						   fun process2 (decr, expr)
+							: (raw::Ctype, Null_Or( raw::Member ), Null_Or( large_int::Int ))
+                                                       = 
+						       {   my (type', mem_name_opt, loc)
+                                                               =
+                                                               munge_ty_decr (type, decr);
+
+							   size_opt
+                                                               = 
+							       case expr   
+
+							           pt::EMPTY_EXPR => NULL;
+								       #  nch: fix: check bitfield types -- see checks in sizeof  XXX BUGGO FIXME
+
+							          _ => case (evaluate_expr  expr)   
+
+									   (THE i, _, _, FALSE)
+                                                                               =>
+                                                                               THE i;
+
+									   (THE i, _, _, TRUE)
+                                                                               => 
+									       {   if (not *reduce_sizeof)
+									               warn ("sizeof in bitfield specification " +
+											     "not preserved in source-to-source mode");
+                                                                                   fi;
+
+									           THE i;
+                                                                               };
+
+									   (NULL, _, _, _)
+                                                                               => 
+									       {   error "Bitfield size must be constant expression";
+										   NULL;
+                                                                               };
+                                                                       esac;
+                                                               esac;
+
+							   my member_opt:  Null_Or( raw::Member )
+                                                               = 
+							       case mem_name_opt
+
+								   THE id'
+                                                                       => 
+								       {   symbol = sym::member (tid, id');
+
+									   check_non_id_renaming (symbol, type',
+											 "struct/union member ");
+
+									   if (is_partial_type type')
+									       error("Member `" + id' 
+										     + "' has incomplete type.");
+									   fi;
+
+									   if (is_non_pointer_function type')
+									       error("Member `" +  id'
+										   + "' has function type.");
+									   fi;
+
+									   member = { name => symbol,
+										       uid => pid::new(),
+										       location => loc,
+										       ctype => type',
+										       kind => is_struct ?? raw::STRUCTMEM
+													 :: raw::UNIONMEM
+										   };
+								           bind_sym (symbol, MEMBER member);
+
+									   THE member;
+
+								           #  David B MacQueen: FIELDs? 	XXX BUGGO FIXME
+								       };
+
+								   NULL => NULL;
+                                                               esac;
+
+							   (type', member_opt, size_opt);
+						       };					#  fun process2 
+					       end;						#  fun process1 
+
+					   # Union members are more
+                                           # restricted than struct members:
+                                           #
+					   fun check_union_member
+						   ( type: raw::Ctype,
+						     NULL: Null_Or( raw::Member ),
+						     _   : Null_Or( large_int::Int )
+						   )
+                                                   =>
+						   {   error "union member has no name";
+						      (type, bogus_member (sym::member (tid, "<noname>")));
+                                                   };
+
+					       check_union_member (type, THE m, THE _)
+                                                   =>
+						   {   error "union member has size spec";
+						       (type, m);
+                                                   };
+
+					       check_union_member (type, THE m, NULL)
+                                                   =>
+                                                   (type, m);
+					   end;
+
+					   if (not already_defined)
+
+						members = list::map process1 members;
+						members = list::cat members;
+
+						named_type
+                                                    =
+						    if is_struct  b::STRUCT (tid, members);
+						    else          b::UNION  (tid, map check_union_member members);
+                                                    fi;
+
+						my naming:  b::Tid_Naming
+                                                    =
+						    { name => tag_opt, ntype => THE named_type,
+						     global => top_level(), location => get_loc() };
+
+						bind_tid (tid, naming);
+						push_tids tid;
+					   fi;
+
+					   (is_struct ?? raw::STRUCT_REF :: raw::UNION_REF)
+                                               tid;
+				       };
+
+			           (pt::TYPEDEF_NAME s) ! l
+                                       => 
+				       # type symbol is added at the point of declaration: see
+				       # cnvExternalDecl (case) ExternalDecl (TypeDecl) and cnvStatement (case)
+				       # Decl (TypeDecl)
+				       #	
+				       {   no_more l "Typedef";
+
+					   case (get_sym (sym::typedef s))
+
+					       THE (TYPEDEF { ctype, ... } ) => ctype;
+
+					       _                             => {   error("typedef " + s + " has not been defined.");
+						                                    raw::ERROR;
+                                                                                };
+                                           esac;
+                                       };
+
+			           (pt::STRUCT_TAG { is_struct, name=>s } ) ! l
+                                       => 
+				       {   no_more l "Struct";
+
+					   symbol = sym::tag s;
+
+					   ty_opt
+                                               =
+					       case (get_sym symbol)
+						   THE (TAG { ctype, ... } ) => THE ctype;
+						   NULL => NULL;
+						   _ => { bug "cnvExpression: bad tag 3"; NULL;};
+                                               esac;
+
+					   if (not (not_null ty_opt) or 
+						(is_shadow and not (is_local_scope symbol)))
+
+					       tid = tid::new ();
+
+					       type = (if is_struct  raw::STRUCT_REF; else raw::UNION_REF;fi) tid;
+
+					       bind_sym (symbol, TAG { name=>symbol, uid=>pid::new(),
+								    location=>get_loc(), ctype=>type } );
+
+					       bind_tid (tid, { name=>THE s, ntype=>NULL,
+								  global=>top_level(), location=>get_loc() } );
+					       type;
+
+					   else
+                                               the ty_opt;  #  guaranteed to be THE 
+                                           fi;
+				       };
+
+			           (pt::ENUM_TAG s) ! l		 #  nearly idenitical to struct tag case 
+                                       =>
+				       {   no_more l "Enum";
+				           symbol = sym::tag s;
+
+					   ty_opt
+                                               = 
+					       case (get_sym symbol)
+
+						   THE (TAG { ctype, ... } )
+                                                       =>
+                                                       THE ctype;
+
+						   NULL =>
+                                                       {   if (type_check_control::partial_enum_error)
+								    error("incomplete enum " + s);
+							   fi;
+
+							   NULL;
+                                                       };
+
+						  _ => {   bug "cnvExpression: bad tag 3";
+                                                           NULL;
+                                                       };
+                                               esac;
+
+					   if (not (not_null ty_opt) or 
+					      (is_shadow and not (is_local_scope symbol)))
+
+					       # If this is explicitly a shadow or a enum tag not seen
+					       # before then create a new named type identifier and
+					       # record that this type is partially (incompletely)
+					       # defined:
+
+					       {   tid = tid::new ();
+						   type = raw::ENUM_REF tid;
+
+						   bind_sym (symbol, TAG { name=>symbol, uid=>pid::new(),
+								    location=>get_loc(), ctype=>type } );
+
+						   bind_tid (tid, { name=>THE s, ntype=>NULL,
+								  global=>top_level(), location=>get_loc() } );
+
+						   type;
+					       };
+					   else
+					       # Otherwise return the type already
+					       # established in dictionary:
+
+                                               the ty_opt;
+                                           fi;
+				       };
+
+			           (pt::SPEC_EXT xspec) ! rest
+                                       => 
+				       cnvspecifier { is_shadow, rest } xspec;
+
+			           l => cnv_spec_list l;
+                           esac;
+			};					# fun cnv_specifier specifiers
+
+		    end						# fun cnv_ctype
+
+		also
+		fun cnv_type (is_shadow: Bool, { storage, qualifiers, specifiers }: pt::Decltype)
+		      : (raw::Ctype, raw::Storage_Ilk)
+                    =
+		    {   sc = cnv_storage storage;
+			ct = cnv_ctype (is_shadow, { qualifiers, specifiers } );
+
+		        (ct, sc);
+		    }
+
+		also
+		fun cnv_qualifiers type []             => type;
+		    cnv_qualifiers type [pt::CONST]    => raw::QUAL (raw::CONST, type);
+		    cnv_qualifiers type [pt::VOLATILE] => raw::QUAL (raw::VOLATILE, type);
+
+		    cnv_qualifiers type (pt::VOLATILE ! pt::VOLATILE ! _)
+                        =>
+		        { error "Duplicate `volatile'."; type;};
+
+		    cnv_qualifiers type (pt::CONST ! pt::CONST ! _)
+                        => 
+		        { error "Duplicate 'const'."; type;};
+
+		    cnv_qualifiers type (_ ! _ ! _ ! _)
+                        => 
+		        { error "too many 'const/volatile' qualifiers."; type;};
+			#
+		        #  See: ISO-C Standard, p. 64 for meaning of const volatile. 
+
+		    cnv_qualifiers type (_ ! _ ! NIL)
+                        =>
+                        type;
+                end 
+
+
+
+		# --------------------------------------------------------------------
+		# cnvStorage:  List( pt::storage ) -> Null_Or( raw::storageIlk )
+		#
+		# Converts a parse-tree storage ilk into an raw_syntax_tree storage ilk. The
+		# only subtlety is the case where no parse-tree storage ilk has been
+		# given in which case the default (supplied by second argument) raw_syntax_tree
+		# storage ilk is used.
+		#      
+		# For rules for storage ilks, see K&R A8.1
+		# -------------------------------------------------------------------- 
+
+		also
+		fun cnv_storage []             => raw::DEFAULT;
+		    cnv_storage [pt::STATIC]   => raw::STATIC;
+		    cnv_storage [pt::EXTERN]   => raw::EXTERN;
+		    cnv_storage [pt::REGISTER] => raw::REGISTER;
+		    cnv_storage [pt::AUTO]     => raw::AUTO;
+
+		    cnv_storage [pt::TYPEDEF]
+                        =>
+		        {   error "illegal use of TYPEDEF";
+		            raw::DEFAULT;
+                        };
+
+		    cnv_storage _
+                        => 
+		        {   error "Declarations can contain at most one storage ilk\
+			          \ (static, extern, register, auto).";
+		            raw::DEFAULT;
+                        };
+                end 
+
+		# --------------------------------------------------------------------
+		# evaluateExpr:  ParseTree expr -> Null_Or( Int )
+		#
+		# Converts parse-tree expressions to integer constants where possible;
+		# NULL used for cases where no constant can be computed or when no
+		# expression is given. A new dictionary is returned because it is
+		# possible to embed definitions of struct/union/enum types within
+		# sizeofs and casts. 
+		# --------------------------------------------------------------------
+
+		also
+		fun evaluate_expr e		 # evaluate_expr should not be called with pt::EMPTY_EXPR 
+                    =
+		    {   encountered_sizeof = REF FALSE;
+
+			my (e_type, e')
+                            =
+                            cnv_expression  e;
+
+			fun evaluate_raw_syntax_tree_expr (raw::EXPRESSION (core_expr, adorn, _))
+                            =
+			    case core_expr
+				raw::INT_CONST i => THE i;
+				raw::UNOP (unop, e) => evaluate_unary_op (unop, e);
+				raw::BINOP (binop, e, e') => evaluate_binary_op (binop, e, e');
+
+				raw::QUESTION_COLON (e0, e1, e2)
+                                    =>
+				    case (evaluate_raw_syntax_tree_expr e0)
+					THE 0 => evaluate_raw_syntax_tree_expr e2;
+					THE _ => evaluate_raw_syntax_tree_expr e1;
+					NULL  => NULL;
+                                    esac;
+
+				raw::CAST (ct, e)
+                                    => 
+				    {   e_type = get_aid adorn;
+
+				        if (not (compatible (ct, e_type)))
+					    warn "evaluateExpr: cast not handled yet";
+                                        fi;
+
+					evaluate_raw_syntax_tree_expr e;
+				    };
+
+				raw::ENUM_ID (_, i)
+                                    =>
+                                    THE i;
+
+				raw::SIZE_OF ct
+                                    =>
+                                    {   encountered_sizeof := TRUE;
+					THE (sizeof ct);
+                                    };
+
+				_ => NULL;
+                            esac
+
+			also
+			fun evaluate_binary_op (binop, e, e')
+                            =
+			    {   opt  = evaluate_raw_syntax_tree_expr  e ;
+				opt' = evaluate_raw_syntax_tree_expr  e';
+
+			        if (not_null opt and not_null opt')
+
+				    i  = the opt ;
+				    i' = the opt';
+
+				    case binop
+					raw::PLUS   => THE (i + i');
+					raw::MINUS  => THE (i - i');
+					raw::TIMES  => THE (i * i');
+					raw::DIVIDE => THE (large_int::quot (i, i'));
+					raw::MOD    => THE (large_int::rem (i, i'));
+					raw::GT     => THE (if (i > i' ) 1; else 0;fi);
+					raw::LT     => THE (if (i < i' ) 1; else 0;fi);
+					raw::GTE    => THE (if (i >= i' ) 1; else 0;fi);
+					raw::LTE    => THE (if (i <= i' ) 1; else 0;fi);
+					raw::EQ     => THE (if (i == i' ) 1; else 0;fi);
+					raw::NEQ    => THE (if (i != i' ) 1; else 0;fi);
+					raw::AND    => THE (if (i!=0 and i'!=0 ) 1; else 0;fi);
+					raw::OR     => THE (if (i!=0 or i'!=0 ) 1; else 0;fi);
+
+					raw::BIT_OR  => THE (w::to_large_int (w::bitwise_or (w::from_large_int i, w::from_large_int i')));  
+					raw::BIT_XOR => THE (w::to_large_int (w::bitwise_xor (w::from_large_int i, w::from_large_int i')));  
+					raw::BIT_AND => THE (w::to_large_int (w::bitwise_and (w::from_large_int i, w::from_large_int i')));  
+					raw::LSHIFT  => THE (w::to_large_int (w::(<<) (w::from_large_int i, w::from_large_int i')));  
+					raw::RSHIFT  => THE (w::to_large_int (w::(>>) (w::from_large_int i, w::from_large_int i')));
+					_   => NULL;
+                                    esac;
+			        else
+				    NULL;
+                                fi;
+			    }
+
+			also
+			fun evaluate_unary_op (unop, e)
+			    =
+			    {   opt  = evaluate_raw_syntax_tree_expr e;  
+
+				if (not_null opt)
+
+				     i  = the opt;
+
+				     case unop
+
+					  raw::NEGATE => THE (-i);
+					  raw::NOT    => THE (if (i == 0 ) 1; else 0;fi);
+					  raw::UPLUS  => THE i;
+					  raw::BIT_NOT => THE (w::to_large_int (w::bitwise_not (w::from_large_int i)));
+					  _                  => NULL;
+				     esac;
+
+				else
+				     NULL;
+				fi;
+			    };
+
+			  (evaluate_raw_syntax_tree_expr e', e_type, e', *encountered_sizeof);
+		    };
+
+		# --------------------------------------------------------------------
+		# makeRawSyntaxTree' : List( ParseTree::external_decl ) * error::errorState -> raw::Raw_Syntax_Tree 
+		# 
+		# Converts a parse tree into an raw_syntax_tree, by recursively converting
+		# each delcaration in the list.
+		# --------------------------------------------------------------------
+
+		#  initializing extension conversion functions 
+
+
+		{   core_funs
+                        =
+                        { state_funs,
+			  cnv_type,
+			  cnv_expression,
+			  cnv_statement,
+			  cnv_external_decl,
+			  wrap_expr,
+			  wrap_statement,
+			  wrap_decl,
+
+			  munge_ty_decr
+                              =>
+			      # Since we added location in the output of mungeTyDecr and
+			      # we don't want to change the extension interface:
+                              (fn (type, decr)
+                                  =
+				  {   my (ctype, name, _)
+                                          =
+					  munge_ty_decr (type, decr);
+				     (ctype, name);
+                                  }
+                              )
+                        }; 
+
+		     my  { cnvexp, cnvstat, cnvbinop, cnvunop, cnvexternal_decl,
+			   cnvspecifier, cnvdeclarator, cnvdeclaration
+			 }
+			 =
+			 cnv_ext::make_extension_funs  core_funs;
+
+		     ref_cnvexp := cnvexp;
+		     ref_cnvstat := cnvstat;
+		     ref_cnvbinop := cnvbinop;
+		     ref_cnvunop := cnvunop;
+		     ref_cnvexternal_decl := cnvexternal_decl;
+		     ref_cnvspecifier := cnvspecifier;
+		     ref_cnvdeclarator := cnvdeclarator;
+		     ref_cnvdeclaration := cnvdeclaration;
+		};
+
+		fun make_raw_syntax_tree' ext_decls
+		    =
+		    {   if *multi_file_mode_flag
+                            print "Warning: multi_file_mode on\n";
+			fi;
+			sizeof::reset();
+
+			# This is the top-level call for this package;
+			# must reset sizeof memo table:
+
+			ast_ext_decls
+                            = 
+			    list::map process ext_decls
+                            where
+			        fun process x
+                                    = 
+				    {   ast_ext_decl = cnv_external_decl x;
+					newtids = reset_tids ();
+
+				        (list::map
+                                            (fn x = wrap_decl (raw::EXTERNAL_DECL (raw::TYPE_DECL { shadow=>NULL, tid=>x } )))
+					    newtids
+                                        )
+					@
+                                        ast_ext_decl;
+				    };
+			    end;
+
+			ast_ext_decls = list::cat ast_ext_decls;
+
+			error_count   =  error::error_count    error_state;
+			warning_count =  error::warning_count  error_state;
+
+			{ raw_syntax_tree=>ast_ext_decls, tidtab=>ttab, error_count, warning_count, 
+			 auxiliary_info => { aidtab=>atab, implicits, dictionary=>get_global_dictionary() }};
+
+			#  David B MacQueen: will we want to reuse error_state?  XXX BUGGO FIXME
+
+		    };				#  fun make_raw_syntax_tree' 
+
+
+
+	  end; #  fun make_raw_syntax_tree 
+
+    end; #  stipulate
+
+}; #  package build_raw_syntax_tree 
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

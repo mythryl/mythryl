@@ -1,0 +1,1132 @@
+## ttree.pkg
+
+
+
+
+# generic for producing tactic trees 
+
+
+
+generic package TTree (S:  TTREE_SUPPORT) : TTREE = 
+pkg 
+
+package s = S 
+exception EmptyTree 
+exception EventDoesNotAchieve
+exception IMPOSSIBLE
+
+enum format = Highlight | Plain | Special
+
+package ts = 
+    pkg 
+        enum display_info = 
+	   DisplayBlock of 
+              { goal :List( String ), 
+	       by_line:  List( String ), 
+	       global_range:  Int * Int, #  start, size 
+	       local_range:  Int,  #  size 
+	       elision_test:  Bool,
+	       elision_strings:  List( String ),
+	       elision_depth:  Int, #  if elision_depth > 0 then node is invisible 
+	       tree_depth:  Int,
+	       form:  format } 
+
+        enum goal_value = 
+            Incomplete of s::goal 
+	  | Complete of s::goal * String * s::validation
+
+	type node_value = goal_value * display_info 
+    end 
+
+package t = TreeFun (TS)
+
+use TS
+
+enum view_mode = Subtree | Node | Local
+
+type ttree = t::tree
+type ttree_node = t::node_id
+type ttree_state = Ref( ttree )  * Ref( view_mode )
+
+enum action = 
+      MoveToParent
+    | MoveToChild
+    | MoveToTop
+    | MoveLeft
+    | MoveRight
+    | MoveToNode of Int
+    | HighlightSubtree
+    | ApplyTacticToNode of Int
+    | Delete
+    | Display
+    | Elide 
+    | ApplyTactic of s::tactic * String 
+    | ChangeMode 
+
+type text_block = (List( String ) * format * (Int * Int)) 
+
+enum display_instruction = 
+      ClearFrom of Int
+    | Scroll of Int * Int
+    | InsertText of text_block
+    | DisplayText of text_block 
+    | DoNothing
+
+
+enum redraw_action =
+    CurrentNode of format 
+  | CurrentSubtree of format 
+  | DrawAboveNode of view_mode
+  | ChildrenOnly
+  | DrawElidedSubtree of view_mode
+  | BeneathSubtree of redraw_action #  redraw entire current subtree and beneath it 
+  | LeavingLocalView  /* redraw with current node highlighted, change all node except 
+	              root to have their format to be Plain.*/
+  | InsertByline
+  | DrawSubtree
+  | UnhighlightSubtree
+  | OptimizeHighlight of format
+
+
+enum modify_display_block =
+    ToggleElision of ttree 
+  | SetFormat of ttree_node * format
+  | SubtreeRemoved of ttree
+  | InitializeChildren of List( s::goal )
+                            # create start in global view, elision_depth, tree_depth, form 
+			    # for each subgoal in the list
+  | InsertTactic of ttree * String
+  | RelocateNode of ttree_node * Int     #  A new start position 
+
+    
+# ** MAGIC NUMBERS *
+visible = 0
+elided = TRUE
+top_level = 1
+top_of_screen = 0
+off_screen = -1
+empty_elision = []
+    
+# ********************************
+
+fun prettyprinter (display_string, tree_depth) = let 
+    fun border_maker size = 
+	if size == 0  then "" else s::indentation + (border_maker (size - 1))
+	
+    fun string_to_list str border = let
+	fun remove_newlines str [] = [str]
+	  | remove_newlines str (x . l) = if x == "\n" then str . (remove_newlines "" l)
+					 else  remove_newlines (str + x) l
+    in
+	map (fn s => border + s) 
+            (fold (op @) (map (remove_newlines "" ) (map explode str)) [])
+    end
+in
+    string_to_list [display_string] (border_maker tree_depth)
+end
+
+# *** DISPLAY FUNCTIONS   ****
+
+fun currentNodeElided tt = let
+    my (_, DisplayBlock { elision_test, ... } ) = t::current_node_value tt
+in
+    (elision_test = elided)
+end
+
+fun lineAtCurrentNode (current_node, line_num) = let
+    my (_, DisplayBlock { global_range=(start, size), ... } ) = t::get_value current_node
+in
+    (start <= line_num) and (line_num <= start+size - 1)
+end
+
+fun currentNodeVisible tt = let
+    my (_, DisplayBlock { elision_depth, ... } ) = t::current_node_value tt
+in
+    elision_depth = visible
+end
+
+fun nodeElided node = let
+    my (_, DisplayBlock { elision_test, ... } ) = t::get_value node
+in
+    elision_test = elided
+end
+
+fun changeDisplayValue (tt, display_bloc) = let
+    my  (goal_val, _) = t::current_node_value tt
+in
+    t::change_node_value (tt, (goal_val, display_bloc))
+end
+
+fun assignDisplayValue (node, display_bloc) = let 
+    my  (goal_val, _) = t::get_value node
+in
+    (t::get_value_ref node) := (goal_val, display_bloc)
+end
+
+fun desendantOf (tt, node) = let
+    my (_, DisplayBlock { global_range=(node_start, _), ... } ) = t::get_value node 
+
+    fun compareAncestor (REF t::Ground) = FALSE
+      | compareAncestor ancestor = let 
+	    my (_, DisplayBlock { global_range=(ancestor_start, _), ... } ) = t::get_value ancestor
+	in
+	    if node_start == ancestor_start 
+		then TRUE 
+	    else if node_start > ancestor_start # node is beneath ancestor 
+		     then FALSE
+		 else compareAncestor (t::get_parent ancestor)
+	end
+in
+    compareAncestor (t::current_subtree tt)
+end
+fun initializeRoot goal = let
+    goal_list = prettyprinter ((s::goal_to_string goal), top_level)
+    by_line = prettyprinter ((s::unrefined), top_level) 
+    size = length (goal_list @ by_line) 
+in
+    DisplayBlock { goal = goal_list, by_line = by_line, global_range = (top_of_screen, size), 
+		 local_range = size, elision_test = (not elided), elision_strings = empty_elision,
+		 elision_depth = visible, tree_depth = top_level,
+		 form = Highlight }
+end
+
+# ************** modifyDisplay (ToggleElision tt) *****************
+/* The current node is either elided or unelided. The elision depths of the nodes in the
+   current subtree are changed to reflect the elision operation. */
+
+fun modifyDisplay (ToggleElision tt) = let 
+    my (_, DisplayBlock { goal, by_line, global_range = (start, _), local_range, elision_test,
+			elision_strings, elision_depth, tree_depth, form } ) = t::current_node_value tt
+
+    elision_test = not elision_test 
+    my (elision_strings, delta) = if elision_test == elided 
+			      then (prettyprinter ((s::elision), tree_depth), 1) 
+			  else (empty_elision,-1)
+
+    global_size = local_range + (length elision_strings)
+
+    fun changeElisionDepth node = let
+	my (_, DisplayBlock { goal, by_line, global_range, local_range, elision_test, elision_strings,
+			elision_depth, tree_depth, form } ) = t::get_value node
+
+	disp_bloc = DisplayBlock { goal = goal, by_line = by_line, global_range = global_range,
+				      local_range = local_range, elision_test = elision_test, 
+				      elision_strings = elision_strings, 
+				      elision_depth = elision_depth + delta,
+				      tree_depth = tree_depth, form = form }
+    in
+	assignDisplayValue (node, disp_bloc)
+    end
+
+in
+    t::preorder tt (changeElisionDepth, (), t::get_children_list, fn (_, _) => ()) (t::get_children_list 
+								  (t::current_subtree tt)) ;
+
+    DisplayBlock { goal = goal, by_line = by_line, global_range = (start, global_size),
+		 local_range = local_range, elision_test = elision_test, 
+		 elision_strings = elision_strings, elision_depth = elision_depth,
+		 tree_depth = tree_depth, form = form }
+end
+	
+# *********** modifyDisplay (SubtreeRemoved tt) ***********
+/* Create a display block for the current node whose subtree has been deleted */ 
+
+  | modifyDisplay (SubtreeRemoved tt) = let
+	my (_, DisplayBlock { goal, global_range=(start, size), elision_test, elision_strings,
+			    elision_depth, tree_depth, form, ... } ) = t::current_node_value tt 
+
+	by_line = prettyprinter ((s::unrefined), tree_depth)
+	local_size = (length goal) + (length by_line)
+	global_size = local_size + (length elision_strings)
+
+    in
+	DisplayBlock { goal = goal, by_line = by_line, global_range = (start, global_size), 
+		     local_range = local_size, elision_test = elision_test, 
+		     elision_strings = elision_strings, elision_depth = elision_depth,
+		     tree_depth = tree_depth, form = form }
+    end
+
+# *****************************
+
+  | modifyDisplay (SetFormat (node, form)) = let
+	my (_, DisplayBlock { goal, by_line, global_range, local_range, elision_test, elision_strings,
+			    elision_depth, tree_depth, ... } ) = t::get_value node
+    in
+	DisplayBlock { goal = goal, by_line = by_line, global_range = global_range,
+		     local_range = local_range, elision_test = elision_test, 
+		     elision_strings = elision_strings, elision_depth = elision_depth,
+		     tree_depth = tree_depth, form = form }
+    end
+  
+# *****************************
+  
+# ******** modifyDisplay (InsertTactic (tt, tactic_str)) **********
+#   Create a by_line with tactic_str as the tactic 
+
+  | modifyDisplay (InsertTactic (tt, tactic_str)) = let 
+    my (_, DisplayBlock { goal, global_range=(start, _), elision_test, elision_strings, elision_depth,
+			tree_depth, form, ... } ) = t::current_node_value tt
+
+    by_line = prettyprinter ((s::refined + tactic_str), tree_depth)
+    local_size = (length by_line) + (length goal)
+    global_size = local_size + (length elision_strings)
+    in
+	DisplayBlock { goal = goal, by_line = by_line, global_range = (start, global_size), 
+			  local_range = local_size, elision_test = elision_test,
+			  elision_strings = elision_strings, elision_depth = elision_depth, 
+			  tree_depth = tree_depth, form = Plain }
+    end
+
+# ******** modifyDisplay (RelocateNode (node, new_start)) **********
+#   Change the start position of the node to new_start 
+
+  | modifyDisplay (RelocateNode (node, new_start)) = let
+	my (_, DisplayBlock { goal, by_line, global_range=(_, size), local_range, elision_test,
+			    elision_strings, elision_depth, tree_depth, form } ) = t::get_value node
+    in	   
+	DisplayBlock { goal=goal, by_line=by_line, global_range=(new_start, size),
+		     local_range=local_range, elision_test=elision_test,
+		     elision_strings=elision_strings, elision_depth=elision_depth,
+		     tree_depth=tree_depth, form=form }
+    end
+# ******************************************************************************************
+
+# ****** initializeChildren (node, subgoals)   ******
+
+/* Create a list of display blocks, one corresponding to each subgoal in subgoals.*/  
+
+fun initializeChildren (node, (subgoal . subgoals)) = let
+    my (_, DisplayBlock { global_range=(start, size), elision_test, tree_depth, elision_depth,
+			... } ) = t::get_value node
+	
+    new_elision_depth = if elision_test == elided
+				then elision_depth + 1   #  make child invisble, parent elided
+			    else elision_depth  /* child invisible if parent invisible */    
+				
+    new_tree_depth = tree_depth + 1
+
+    fun getChildren (subgoal . subgoal_list) new_start = let
+
+	goal_list = prettyprinter ((s::goal_to_string subgoal), new_tree_depth)
+	by_line = prettyprinter ((s::unrefined), new_tree_depth)
+	size = length (goal_list @ by_line)
+    in     
+	(DisplayBlock { goal = goal_list, by_line = by_line, global_range = (new_start, size), 
+		      local_range = size, elision_test = (not elided), elision_strings = empty_elision, 
+		      elision_depth = new_elision_depth, tree_depth = new_tree_depth,
+		      form = Plain } ) . (getChildren subgoal_list (new_start+size))
+    end
+      | getChildren [] _ = []
+in
+    getChildren (subgoal . subgoals) (start+size)
+end
+
+  | initializeChildren (_,[]) = []
+
+# *************************
+/* This function changes the starts of all the nodes in a subtree.  Only visible nodes are
+   changed.
+*/ 
+
+ fun updateSubtreeStarts [] _ = ()
+
+   | updateSubtreeStarts (node . rest) start = 
+
+      updateSubtreeStarts 
+            ((t::get_children_list node) @ rest)
+	    (let my  (_, DisplayBlock disp_bloc) = t::get_value node
+	    in 
+		 if disp_bloc.elision_depth > visible
+		     then start
+		 else 
+		     (assignDisplayValue (node, modifyDisplay (RelocateNode (node, start)));
+		     (#2 disp_bloc.global_range) + start)
+	    end)
+					    
+# *******
+/** This function traverses the subtree of a node's right sibling and the right siblings of
+    its ancestors.  The start position of each node is changed during a visit.  ****/
+# ***********
+   
+fun updateBeneathSubtree tt ((node as (REF (t::TreeNode m))), start) = let
+
+    fun visitNode (node, new_start) = let 
+	my (_, DisplayBlock { goal, by_line, elision_strings, global_range=(_, size), elision_depth, ... } ) =
+	                                                                    t::get_value node
+    in 
+	assignDisplayValue (node, modifyDisplay (RelocateNode (node, new_start)));
+	assignDisplayValue (node, modifyDisplay (SetFormat (node, Plain)));
+        new_start+size
+    end
+    fun updateSubtree ([], start) (REF t::Ground) = ()
+
+      | updateSubtree ([], start) next_subtree = 
+	             updateSubtree ([next_subtree], start) (t::get_ancestor_right_sibling next_subtree)
+
+      | updateSubtree ((node . rest), start) next_subtree  = 
+	   updateSubtree (((t::get_children_list node) @ rest), (visitNode (node, start))) next_subtree
+	
+    fun scrollInstr node = let
+	my (_, DisplayBlock { global_range = (node_start, _), ... } ) = t::get_value node
+    in
+	[Scroll (node_start, start - node_start)]
+    end
+	   
+    my (scroll_instr, _) = (scrollInstr node, updateSubtree ([node], start) (t::get_ancestor_right_sibling node))
+
+in
+    scroll_instr 
+end
+
+# ****  REDRAW   ****
+
+# *** redraw the current node highligted or unhighlighted. *****
+fun redraw tt (CurrentNode form) = let
+
+    current_node = t::current_subtree tt
+    my (_, DisplayBlock { goal, by_line, elision_strings, global_range=(start, size), elision_depth, ... } ) =
+	                                              t::current_node_value tt
+in
+    if elision_depth > visible 
+	then []
+    else 
+	(assignDisplayValue (current_node, modifyDisplay (SetFormat (current_node, form)));
+	[DisplayText (goal @ by_line @ elision_strings, form, (start, start+size))])
+end
+# *******************
+/*
+      If a tactic was applied and subgoals were produced, then the current node should be unhighlighted. Otherwise
+      it should be left highlighted, and the tactic string inserted in its display.  If the subtree was removed,
+      then the tactic string should be inserted.
+ */
+
+  | redraw tt InsertByline = let
+	my (_, DisplayBlock { by_line, goal, elision_strings, elision_test, global_range=(start, size), form, ... } ) = 
+	                                                                       t::current_node_value tt
+
+	fun childDisplayInstrList (child . child_list) = let
+	    my (_, DisplayBlock { by_line, goal, global_range=(start, size), ... } ) = t::get_value child
+	in
+	    (DisplayText (goal @ by_line, Plain, (start, start+size))) . (childDisplayInstrList child_list)
+	end
+	  | childDisplayInstrList [] = []
+
+in
+/* NOTE: If a tactic is applied to the current node which is elided then its children do not
+         have to be drawn. Therefore, only the by line has to be drawn.  However if a tactic is 
+	 applied by the middle mouse button to an elided node other than the current node, then 
+	 the node is not highlighted.  Therefore, that entire node has to be redrawn.
+*/
+
+    if elision_test == elided 
+	then 
+	    if form == Plain  
+		then [DisplayText (goal@by_line@elision_strings, Highlight, (start, start+size))]
+	    else [InsertText (by_line, Highlight, (start+(length goal), start+(length goal)+(length by_line)))]
+    else 
+	case (t::get_children_list (t::current_subtree tt))
+	    of [] =>
+
+		/* A tactic can be applied to the current node or some other node via the middle mouse button.  
+		   Checking the format of the node determines which node the tactic was applied.
+                */
+
+		if form == Plain
+		    then [DisplayText (goal@by_line@elision_strings, Highlight, (start, start+size))]
+		else [InsertText (by_line, Highlight, (start+(length goal), start+(length goal)+(length by_line)))]
+
+	     | child_list => 
+		   (DisplayText (goal@by_line, Plain, (start, start+size))) . (childDisplayInstrList child_list)
+end
+# ************************
+
+  | redraw tt UnhighlightSubtree = let 
+	fun displayNode node = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth,
+				 global_range = (start, size), ... } ) = t::get_value node
+	in 
+	    if elision_depth > visible
+		then DoNothing
+	    else
+		(assignDisplayValue (node, modifyDisplay (SetFormat (node, Plain)));
+		DisplayText (goal @ by_line @ elision_strings, Plain, (start, start+size)))
+	end
+
+	fun getChildren node = let 
+	    my (_, DisplayBlock { elision_depth, elision_test, goal, by_line, elision_strings,
+				global_range = (start, size), ... } ) = t::get_value node
+	    
+	in 
+	    if (elision_depth > visible) or (elision_test == elided)
+		then []
+	    else t::get_children_list node
+	end
+	children_list = (fn [] => [] | (x . l) => l) (t::get_children_list (t::current_subtree tt))
+							   
+    in
+	(displayNode (t::current_subtree tt)) . (t::preorder tt (displayNode,[], getChildren, op . ) children_list)
+    end
+ 
+  | redraw tt DrawSubtree = let 
+ 
+	fun displayNode node = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth,
+				 global_range = (start, size), ... } ) = t::get_value node
+	in 
+	    if elision_depth > visible
+		then DoNothing
+	    else
+		(assignDisplayValue (node, modifyDisplay (SetFormat (node, Plain)));
+		DisplayText (goal @ by_line @ elision_strings, Plain, (start, start+size)))
+	end
+
+	fun getChildren node = let 
+	    my (_, DisplayBlock { elision_depth, elision_test, goal, by_line, elision_strings,
+				global_range = (start, size), ... } ) = t::get_value node
+	    
+	in 
+	    if (elision_depth > visible) or (elision_test == elided)
+		then []
+	    else t::get_children_list node
+	end
+    in
+	(fn ((DisplayText (t, _, r)) . l) => (DisplayText (t, Highlight, r)) . l | _ => []) 
+	                           (t::preorder tt (displayNode,[], getChildren, op . ) [t::current_subtree tt])
+    end
+ 
+# *** redraw the current subtree highligted or unhighlighted. *****
+
+  | redraw tt (OptimizeHighlight new_form) = let
+/* If new_form = Special then make the current subtree Plain except for part of it which will be the new
+   current subtree.  Only at most one node will have format Special. When that node is encountered in this
+   function, its format is changed to Highlight.
+*/
+	fun displayNode node = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth, form,
+				 global_range = (start, size), ... } ) = t::get_value node
+	in 
+	    if (elision_depth > visible) or (form == Special)
+		then DoNothing
+	    else 
+		(assignDisplayValue (node, modifyDisplay (SetFormat (node, new_form)));
+		 DisplayText (goal @ by_line @ elision_strings, new_form, (start, start+size)))
+	end
+
+	fun getChildren node = let 
+	    my (_, DisplayBlock { elision_depth, elision_test, goal, by_line, elision_strings, form,
+				global_range = (start, size), ... } ) = t::get_value node
+	    
+	in 
+	    if form == Special
+		then (assignDisplayValue (node, modifyDisplay (SetFormat (node, Highlight)));[])
+	    else if (elision_depth > visible) or (elision_test == elided)
+		     then []
+		 else t::get_children_list node
+	end
+    in
+	t::preorder tt (displayNode,[], getChildren, op . ) [t::current_subtree tt]
+    end
+
+# *** redraw the current subtree highligted or unhighlighted. *****
+ 
+  | redraw tt (CurrentSubtree form ) = let 
+	fun displayNode node = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth,
+				 global_range = (start, size), ... } ) = t::get_value node
+	in 
+	    if elision_depth > visible
+		then DoNothing
+	    else
+		(assignDisplayValue (node, modifyDisplay (SetFormat (node, form)));
+		DisplayText (goal @ by_line @ elision_strings, form, (start, start+size)))
+	end
+
+	fun getChildren node = let 
+	    my (_, DisplayBlock { elision_depth, elision_test, goal, by_line, elision_strings,
+				global_range = (start, size), ... } ) = t::get_value node
+	    
+	in 
+	    if (elision_depth > visible) or (elision_test == elided)
+		then []
+	    else t::get_children_list node
+	end
+    in
+	t::preorder tt (displayNode,[], getChildren, op . ) [t::current_subtree tt]
+    end
+
+# ***  redraw current node with chidren--display routine for local view   **
+
+  | redraw tt ChildrenOnly = let
+	current_node = t::current_subtree tt 
+        num_of_indentations = .tree_depth 
+	                   ((fn (_, (DisplayBlock d)) => d) (t::current_node_value tt))
+
+	fun stripOffBorder ([], _) = []
+	  | stripOffBorder (str . str_list, num_of_indentations) = 
+		(implode (nthtail (explode str, (string::length s::indentation) 
+				 * num_of_indentations))) .
+		(stripOffBorder (str_list, num_of_indentations))
+ 
+
+	fun localViewDisplay [] _ = []
+
+	  | localViewDisplay (node . node_list) start = let
+
+	    my (_, DisplayBlock { goal, by_line, local_range, ... } ) = t::get_value node
+		
+	    in	
+		assignDisplayValue (node, modifyDisplay (SetFormat (node, Plain)));
+		(DisplayText (stripOffBorder (goal@by_line, num_of_indentations), Plain, 
+			     (start, start+local_range))) .
+		(localViewDisplay node_list (start + local_range))
+	    end    
+    in
+	[ClearFrom top_of_screen] @ (localViewDisplay ([current_node] @ 
+						  (t::get_children_list current_node)) top_of_screen)
+    end					     
+# *******************
+    
+/**** redraw nodes above current node--this requires moving some text
+      beneath the current subtree down  
+****/
+
+
+  | redraw tt (DrawAboveNode view) = let
+	fun currentNodeVisible tt = let  
+
+	    #  mark the left siblings as being off the screen 
+	    fun markLeftSiblings (REF t::Ground) = ()
+	      | markLeftSiblings node = 
+
+		(assignDisplayValue (node, modifyDisplay (RelocateNode (node, off_screen))); 
+		 markLeftSiblings (t::get_left_sibling node))
+		
+	    my (_, DisplayBlock { global_range=(start, _), ... } ) = t::current_node_value tt
+	in
+	   if (start == off_screen)
+	       then (markLeftSiblings (t::get_left_sibling (t::current_subtree tt)); FALSE)
+	   else TRUE
+	       
+	end   
+    in 
+	case ((currentNodeVisible tt), view)
+
+	    of (TRUE, Subtree) => redraw tt (OptimizeHighlight Highlight)
+		          
+	     | (TRUE, Node) => redraw tt (CurrentNode Highlight)
+
+	                  #  DON'T OPTIMIZE HIGHLIGHTING HERE 
+	     | (FALSE, Subtree) => (updateSubtreeStarts [t::current_subtree tt] top_of_screen;
+				   redraw tt (BeneathSubtree (CurrentSubtree Highlight)))
+		                  
+
+	     | (FALSE, Node) => (updateSubtreeStarts [t::current_subtree tt] top_of_screen;
+				redraw tt (BeneathSubtree DrawSubtree))
+
+    end
+# *******************
+
+
+/**** redraw nodes that are drawn beneath the current subtree.
+      The node beneath the current subtree are the subtrees of its right siblings and the
+       subtrees of the right siblings of its ancestors.  Also make sure that the format of 
+       each node is set to Plain.
+*****/
+
+  | redraw tt (BeneathSubtree redraw_action) = let
+	current_node = t::current_subtree tt
+
+/* find the new start of the first node beneath the current subtree.  The first node beneath the
+   current subtree is located after the bottom rightmost node of the current subtree. 
+*/
+
+	fun getStart node = let 
+
+	    my (_, DisplayBlock { elision_test, global_range = (start, size), ... } ) = t::get_value node
+
+	    fun rightMostChild [] = start + size
+	      | rightMostChild (node . []) = getStart node 
+	      | rightMostChild (x . y . rest) = getStart (hd (reverse (y . rest)))
+	                                                                  
+
+	in
+	    case (elision_test=elided)
+		of TRUE => start + size 
+		 | FALSE => rightMostChild (t::get_children_list node)
+	end 
+
+
+	start =  getStart current_node 
+    in
+/* Subtract the start of the first non empty right sibling of the 
+   ancestor closest to the current node from the 
+   start + size of the rightmost node in the current subtree. 
+*/ 
+/* debuggin stuff 
+       CIO::print ("updateBeneathSubtree: starting line number of node                  immediately following current subtree -> " +
+		   ( Integer::makestring start) + "\n");
+*/
+	if (t::at_top tt) /* deleting, applying or eliding */ 
+                         #  At the root will cause all nodes to be redrawn. 
+	    then [ClearFrom start] @ (redraw tt redraw_action)
+
+	else 
+/* right sibling or right sibling of an ancestor is the node immedietly 
+beneath the current subtree 
+*/
+	    (case (t::get_ancestor_right_sibling current_node)
+/* 
+		 of (REF t::Ground) =>(CIO::print("updateBeneathSubtree: all right siblings of ancestors or empty\n");
+				       [ClearFrom start])
+*/
+		 of (REF t::Ground) =>[ClearFrom start]
+	          | node => updateBeneathSubtree tt (node, start)) @ (redraw tt redraw_action)
+    end
+# *******************
+
+  | redraw tt (DrawElidedSubtree view_mode) = let
+	my (_, DisplayBlock { elision_test=root_elision_test, global_range, ... } ) = 
+	                  t::current_node_value tt
+        
+	fun updateStart (node, new_start) = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth, elision_test,
+				global_range=(_, size), ... } ) = t::get_value node
+	                                                                    
+	in 
+	    assignDisplayValue (node, modifyDisplay (RelocateNode (node, new_start)));
+
+	    if (root_elision_test==elided) or (elision_depth > visible) 
+	       	then new_start
+	    else new_start+size
+
+	end
+
+	fun updateSubtreeStarts [] _ = ()
+	  | updateSubtreeStarts (node . rest) start = 
+	    updateSubtreeStarts ((t::get_children_list node) @ rest) (updateStart (node, start))
+
+    in
+	updateSubtreeStarts [t::current_subtree tt] (#1 global_range) ;
+	case (view_mode, root_elision_test = elided)
+	    of (Node, TRUE) => redraw tt (BeneathSubtree (CurrentNode Highlight))
+	     | (Node, _) => redraw tt ((BeneathSubtree DrawSubtree))
+	     | (Subtree, TRUE) => redraw tt (BeneathSubtree (CurrentNode Highlight))
+	     | (Subtree, _)  => redraw tt (BeneathSubtree (CurrentSubtree Highlight))
+    end
+    
+# *** Redraw the entire tree starting from the root changing the start position of each node.***
+
+  | redraw tt LeavingLocalView = let
+        current_node = t::current_subtree tt
+	    
+	/* NOTE: The immediate left sibling and ancestors of a current node are marked as being off the screen
+	   if the current node is at the top of the screen.  When a marked node is redrawn, its left siblings are
+           marked. This occurs in redraw DrawAboveNode, since a marked node can only be redrawn in this function.
+	*/
+
+        fun setOffScreen (REF t::Ground) = ()
+	  | setOffScreen node = 
+		(assignDisplayValue (node, modifyDisplay (RelocateNode (node, off_screen))); 
+		 setOffScreen (t::get_parent node))
+
+	fun visitNode (node, new_start) = let 
+	    my (_, DisplayBlock { goal, by_line, elision_strings, global_range=(_, size), elision_depth, ... } ) =
+	                                                                    t::get_value node
+	in 
+	    assignDisplayValue (node, modifyDisplay (RelocateNode (node, new_start)));
+	    assignDisplayValue (node, modifyDisplay (SetFormat (node, Plain)));
+
+	    if (elision_depth > visible) 
+		then (DoNothing, new_start)
+	    else 
+		(DisplayText (goal @ by_line @ elision_strings, Plain, (new_start, new_start+size)),
+		 (new_start+size))
+	end
+
+	fun updateSubtree ([], start) (REF t::Ground) = []
+
+	  | updateSubtree ([], start) next_subtree = 
+	             updateSubtree ([next_subtree], start) (t::get_ancestor_right_sibling next_subtree)
+										     
+
+	  | updateSubtree ((node . rest), start) next_subtree  = 
+	    (fn (x, y) =>(x . (updateSubtree (((t::get_children_list node) @ rest), y) next_subtree)))
+	                 (visitNode (node, start))
+    in	
+	(case (t::get_left_sibling current_node)
+	    of (REF t::Ground) => setOffScreen (t::get_parent current_node)
+	     | left_sibling => setOffScreen (left_sibling));
+
+	#  updateSubtreeStarts [current_node] top_of_screen;
+	[ClearFrom top_of_screen] @ 
+	((fn (DisplayText (t, _, r)) . l => (DisplayText (t, Highlight, r)) . l  | _ => [])
+	         (updateSubtree ([current_node], top_of_screen) (t::get_ancestor_right_sibling current_node)))
+    end
+
+# **************************************************************************
+
+/* The following function creates display blocks for a list of subgoals. It returns
+   the subgoals with their display blocks.
+*/
+fun getChildrenNodeVal tt [] = []
+  | getChildrenNodeVal tt (subgoal_list) = let
+	fun combine ([],[]) = []
+	  | combine ((x . xs), (y . ys)) = (x, y) . (combine (xs, ys))
+    in
+	combine (subgoal_list, (initializeChildren ((t::current_subtree tt),
+								subgoal_list)))
+    end	    
+
+# ******************************************************
+/* returns the node which is drawn on the give line number. 
+*/
+
+fun findNode (current_node, Local, line_num) = let
+
+    fun testNode (node, position) = let
+	my (_, DisplayBlock { local_range, ... } ) = t::get_value node
+    in
+	if (position <= line_num) and (line_num <= position+local_range)
+	    then (THE node, position)
+	else (NULL, position+local_range)
+    end
+
+    fun search ((node . node_list), current_position) = 
+	(case (testNode (node, current_position))
+	    of (NULL, new_position) => search (node_list, new_position) 
+	     | (found_node, _) => found_node)
+
+      | search ([], _) = NULL
+in
+    search (current_node . (t::get_children_list current_node), top_of_screen)
+end
+
+  | findNode (current_node, _, line_num) = let
+	fun testNode line_num node = let
+	    my (_, DisplayBlock { global_range=(start, size), elision_depth, ... } ) = t::get_value node
+	in
+/* debugging stuff 
+	   (CIO::print ("findNode: line number of mouse pointer -> " + Integer::makestring (line_num) + 
+			" \n starting line  of current node ->" + Integer::makestring (start) + 
+			" \n last line of current node -> " + Integer::makestring (start+size) + "\n"));
+*/ 
+	   (elision_depth = visible) and (start > off_screen) and 
+	   ((start <= line_num) and (line_num < (start + size)))
+	end
+
+
+	fun getNextNode (REF t::Ground) = (REF t::Ground)
+	  | getNextNode node  = t::get_ancestor_right_sibling node
+
+	fun start_node node = let 
+	    my(_, DisplayBlock { global_range = (start, _), ... } ) = t::get_value node
+	in
+	    if line_num >= start 
+		then node 
+	    else start_node (t::get_parent node)
+	end
+	
+        fun search (REF t::Ground) = NULL
+	  | search node = 
+	         case (t::search_subtree node (testNode line_num))
+		     of NULL => search (getNextNode node)
+	              | found_node => found_node
+    in
+	search (start_node current_node)
+    end
+    
+
+fun delete_subtree tt = let
+    my (goal_val, disp_val) = case (t::current_node_value tt)
+                  of ((ts::Incomplete g), d) => (g, d)
+                   | ((ts::Complete (g, _, _), d)) => (g, d) 
+    new_tt = t::delete_children tt 			 
+in  
+    t::change_node_value (new_tt, ((ts::Incomplete goal_val),
+					   modifyDisplay (SubtreeRemoved new_tt)))
+end 
+
+
+fun apply_tactic (tt, tact, tact_str) = 
+      (let my (goal_val, disp_val) = case (t::current_node_value tt)
+                     of ((ts::Incomplete g), d) => (g, d) 
+                      | ((ts::Complete (g, _, _)), d) => (g, d)
+
+           my (subgoals, valid) = s::apply_tactic (tact, goal_val) 
+
+       in 
+	  t::change_node_value (tt, ((ts::Complete (goal_val, tact_str, valid)),
+					   (modifyDisplay (InsertTactic (tt, tact_str)))));
+	  t::change_children tt (map (fn (g, d) => ((ts::Incomplete g), d)) 
+				(getChildrenNodeVal tt subgoals))
+       end; 
+	tt)
+
+fun elide tt = changeDisplayValue (tt, modifyDisplay (ToggleElision tt))
+
+fun do_action ((tt, vm), MoveToChild) = 
+    (case *vm
+	 of Local => redraw (t::move_to_children *tt) ChildrenOnly
+          | Subtree => if (currentNodeElided *tt) or ((t::get_children_list (t::current_subtree *tt)) == []) 
+			   then []
+		       else 
+			   (redraw *tt UnhighlightSubtree) @ (t::move_to_children *tt; []) 
+
+          | Node => if (currentNodeElided *tt) or ((t::get_children_list (t::current_subtree *tt)) == []) 
+			then []
+		    else 			    
+			(redraw *tt (CurrentNode Plain)) @  
+			(redraw (t::move_to_children *tt) (CurrentNode Highlight)))
+    
+  | do_action ((tt, vm), MoveToTop) =
+    if t::at_top *tt
+	then []
+    else
+    (case *vm
+	 of Local => redraw (t::move_to_top *tt) ChildrenOnly
+          | Node  => (redraw *tt (CurrentNode Plain)) @ (redraw (t::move_to_top *tt) (DrawAboveNode Node))
+	  | Subtree => 
+		(changeDisplayValue (*tt, modifyDisplay (SetFormat (t::current_subtree (*tt), Special)));
+		redraw (t::move_to_top (*tt)) (DrawAboveNode Subtree)))
+
+  | do_action ((tt, vm), MoveToParent) = 
+    if t::is_null_tree (t::get_parent (t::current_subtree (*tt)))
+	then []
+    else
+    (case (*vm) 
+	 of Local => redraw (t::move_to_parent (*tt)) ChildrenOnly
+          | Node  => (redraw (*tt) (CurrentNode Plain)) @ (redraw (t::move_to_parent (*tt)) (DrawAboveNode Node))
+	  | Subtree => 
+		(changeDisplayValue ((*tt), modifyDisplay (SetFormat (t::current_subtree (*tt), Special)));
+		redraw (t::move_to_parent (*tt)) (DrawAboveNode Subtree)))	
+
+  | do_action ((tt, vm), MoveLeft) =
+    if t::is_null_tree (t::get_left_sibling (t::current_subtree (*tt)))
+	then []
+    else
+    (case (*vm) 
+	 of Local => redraw (t::move_to_left_sibling (*tt)) ChildrenOnly
+	 
+          | global => 
+		let disp_info = if global == Subtree 
+					then redraw (*tt) (CurrentSubtree Plain) 
+				    else redraw (*tt) (CurrentNode Plain)
+		in
+		    disp_info @ redraw (t::move_to_left_sibling (*tt)) (DrawAboveNode global)
+		end)
+
+  | do_action ((tt, vm), MoveRight) = 
+    if t::is_null_tree (t::get_right_sibling (t::current_subtree (*tt)))
+	then []
+    else
+    (case (*vm) 
+	 of Local => redraw (t::move_to_right_sibling (*tt)) ChildrenOnly
+
+	  | Subtree => (redraw (*tt) (CurrentSubtree Plain)) @  
+		       (redraw (t::move_to_right_sibling (*tt)) (CurrentSubtree Highlight))
+		         
+	  | Node  => (redraw (*tt) (CurrentNode Plain)) @  
+		     (redraw (t::move_to_right_sibling (*tt)) (CurrentNode Highlight)))
+
+  | do_action ((tt, vm), HighlightSubtree) = 
+    (case (*vm)
+
+	#   It is assumed that the entire current subtree is unhighlighted 
+
+	of Node => redraw (*tt) (CurrentNode Highlight)
+	 | Subtree => redraw (*tt) (CurrentSubtree Highlight)
+	 | _  => [])
+
+  | do_action ((tt, vm), (MoveToNode line_num)) = let
+	some_node = findNode (t::current_subtree (*tt), (*vm), line_num)
+
+	fun subtreeHighlighted node = let
+	    my (_, DisplayBlock { form, ... } ) = t::get_value node
+	in
+	    form = Highlight
+	end
+    in
+	(case ((*vm), some_node)
+	     of (Local, THE node) => redraw (t::move_to_subtree (*tt) node) ChildrenOnly
+
+	      | (Subtree, THE node) => 
+		    let current_node = t::current_subtree (*tt)
+		    in 
+			if (lineAtCurrentNode (current_node, line_num))
+			    then []
+
+    #  if node is highlighted then it is an ancestor of the current node 
+
+			else if (subtreeHighlighted node)  
+				 then 
+
+     /* Set the format of node found to Special so that its subtree remains highlighted
+	when unhighlighting current subtree. 
+     */
+				     (assignDisplayValue (node, modifyDisplay (SetFormat (node, Special)));
+				     (redraw (*tt) (OptimizeHighlight Plain)) @ (t::move_to_subtree (*tt) node;[]))
+			     else
+				 if (desendantOf(*tt, node)) 
+				     then 
+					 (changeDisplayValue (*tt, modifyDisplay (SetFormat (t::current_subtree (*tt), Special)));
+					  redraw (t::move_to_subtree (*tt) node) (OptimizeHighlight Highlight))
+				 else
+				     (redraw (*tt) (CurrentSubtree Plain)) @
+				     (redraw (t::move_to_subtree (*tt) node) (CurrentSubtree Highlight))
+		    end
+
+	      | (Node, THE node) => if (lineAtCurrentNode (t::current_subtree (*tt), line_num))
+					   then []
+				    else 
+					(redraw (*tt) (CurrentNode Plain)) @ 
+					(redraw (t::move_to_subtree (*tt) node) (CurrentNode Highlight)) 
+						  
+	     | (_, NULL) => [])
+    end
+
+#  Does the same thing as do_action MoveToNode but doesn't perform any highlighting 
+
+  | do_action ((tt, vm), (ApplyTacticToNode line_num)) = let 
+	some_node = findNode (t::current_subtree (*tt), (*vm), line_num)
+    in
+	(case ((*vm), some_node)
+	     of (Local, THE node) => redraw (t::move_to_subtree (*tt) node) ChildrenOnly
+	      | (Subtree, THE node) => if (lineAtCurrentNode (t::current_subtree (*tt), line_num))
+					then []
+				    else (redraw (*tt) (CurrentSubtree Plain)) @ (t::move_to_subtree (*tt) node; [])
+
+	      | (Node, THE node) => if (lineAtCurrentNode (t::current_subtree (*tt), line_num))
+					then []
+				    else (redraw (*tt) (CurrentNode Plain)) @ (t::move_to_subtree (*tt) node; [])
+	      | (_, NULL) => [])
+    end
+
+  | do_action ((tt, vm), Delete) = 
+    (case (*vm) 
+	 of Local => redraw (delete_subtree (*tt)) ChildrenOnly
+	  | _ => redraw (delete_subtree (*tt)) (BeneathSubtree InsertByline))
+
+  | do_action ((tt, vm), Elide) =
+    (case (*vm) 
+	 of Local => (elide (*tt); [])
+          | global  => redraw (elide (*tt)) (DrawElidedSubtree global)) 
+	 
+  | do_action ((tt, vm), ApplyTactic (tact, tactic_str)) = let
+	new_tt = apply_tactic ((*tt), tact, tactic_str)
+    in
+	case (*vm) 
+	    of Local => redraw new_tt ChildrenOnly
+	     | _  => (redraw new_tt (BeneathSubtree InsertByline)) @
+			(if not (currentNodeElided new_tt)
+			     then redraw (t::move_to_children new_tt) (CurrentNode Highlight)
+			 else [])
+
+    end
+
+  | do_action ((tt, vm), ChangeMode) =
+    (case (*vm) 
+	 of Local => (vm := Node ; 
+		      if currentNodeVisible (*tt) 
+			  then redraw (*tt) LeavingLocalView
+		      else redraw (t::move_to_top (*tt)) LeavingLocalView)
+
+	  | Subtree => (vm := Local ; redraw (*tt) ChildrenOnly)
+	  | Node => (vm := Subtree ; redraw (*tt) (CurrentSubtree Highlight)))
+
+  | do_action ((tt, vm), Display) = let
+	new_tt = t::move_to_top (*tt)
+    in
+	updateSubtreeStarts [t::current_subtree new_tt] top_of_screen;
+	(case (*vm) 
+	     of Local => redraw new_tt  ChildrenOnly
+	      | Subtree => redraw new_tt (CurrentSubtree Highlight)
+	      | Node => redraw new_tt DrawSubtree)
+    end
+
+fun goal_of_ttree tt = 
+    case (t::current_node_value tt) 
+      of (Incomplete g, _) => g
+       | (Complete (g, _, _), _) => g 
+
+fun synthesize_event (tt, vm) = 
+     let result_event = 
+           t::bottom_up((*tt),
+		  fn (ts::Complete(_, _, valid), _) => (s::apply_validation (valid,[])),
+		  fn ((ts::Complete(_, _, valid), _), event_list) => 
+		                              (s::apply_validation (valid, event_list)))
+     in if s::achieves (goal_of_ttree (*tt), result_event) 
+        then result_event 
+        else raise exception EventDoesNotAchieve 
+     end 
+
+fun synthesize_tactic_text (tt, vm) = 
+      t::bottom_up((*tt),
+		  (fn (ts::Complete(_, T, _), _) => T 
+                    |  (ts::Incomplete _, _) => s::id_tac_text), 
+		  (fn ((ts::Complete(_, T1, _), _), rl) => 
+                          (case rl 
+                                   of [T2] => if T2 == s::id_tac_text 
+				              then T1 
+					      else T1 + " " + s::then_text + " " + T2 
+                                    | _ => if (fold (fn (s, r) => 
+						      if (s == s::id_tac_text) and r 
+						      then TRUE else FALSE) 
+                                                    rl 
+						    TRUE)
+                                           then T1
+					   else T1 + " " 
+					      + s::thenl_text + "[" 
+					      + (fold (fn (s, r) => 
+						       if r == "" then s else s + ", " + r) 
+						      rl 
+						      "")
+					      + "]")))
+
+fun synthesize_text ((tt, vm), outfile) = let
+    out_stream = io::open_out outfile 
+    fun print_node node = let
+	my (_, DisplayBlock { goal, by_line, elision_strings, elision_depth, ... } ) = t::get_value node
+
+        output_strings = 
+	    if elision_depth==visible 
+		then (goal @ by_line @ elision_strings) 
+	    else []
+
+    in 
+	apply (fn y => io::output (out_stream, (y + "\n"))) output_strings
+    end
+in
+    t::preorder (*tt) (print_node, (), t::get_children_list, fn (_, _) => ()) [t::get_tree (*tt)];
+    io::close_out out_stream
+end
+
+
+fun mkTTree main_goal  = 
+         (REF (t::new_tree (ts::Incomplete main_goal, 
+			   initializeRoot main_goal)), 
+	  REF Node)
+				     
+end 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

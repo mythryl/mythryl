@@ -1,0 +1,377 @@
+# tactics.pkg
+#
+# COPYRIGHT (c) 1992 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+#
+# tactics for first-order arithmetic 
+
+api TACTICS =
+api
+
+package p:  FOLPROOFS
+
+type goal 
+type event 
+type validation 
+type tactic 
+
+my id_tac:  tactic
+
+my hypothesis:  tactic
+my and_intro: tactic
+my and_elim: string -> tactic
+my implies_intro: tactic
+my implies_elim: string -> tactic
+my not_intro: tactic
+my not_elim: string -> tactic
+my or_intro_left: tactic
+my or_intro_right: tactic
+my or_elim: string -> tactic
+my all_intro: tactic
+my all_elim: (string * string) -> tactic
+my induction:  tactic 
+my some_intro: string -> tactic
+my some_elim: string -> tactic
+
+my cut: string -> tactic
+my lemma: (string * p::theorem_t) -> tactic 
+
+my symmetry:  tactic
+my reflexivity:  tactic
+my transitivity:  string -> tactic
+my axiom: tactic
+my substitution: string * string * string * string -> tactic
+
+
+my THEN:  tactic * tactic -> tactic
+my THENL:  tactic * List( tactic ) -> tactic
+my OR:  tactic * tactic -> tactic
+my PROGRESS:  tactic -> tactic
+my COMPLETE:  tactic -> tactic
+my REPEAT:  tactic -> goal -> List( goal ) * validation
+
+my or_tactical:  tactic -> tactic
+my intro:  tactic 
+my intros:  tactic 
+my elim:  string -> tactic 
+
+end
+
+
+package Tactics =
+pkg 
+
+package p = FolProofs
+
+use Fol FolProofs FolParseString
+exception TacticFailure 
+type goal = sequent_t
+type event = theorem_t
+type validation = ( List( event ) -> event)
+type tactic = (goal -> List( goal ) * validation)
+
+fun first_n (0, _) = []
+  | first_n (n,[]) = raise TacticFailure 
+  | first_n (n, a . l) = a . (first_n (n - 1, l))
+			     
+fun smear_function_list (l,[]) = []
+  | smear_function_list (l, (gl, v) . tl) = 
+        let m = (length gl)
+        in (v (first_n (m, l))) . (smear_function_list (nthtail (l, m), tl)) end
+
+my id_tac :tactic = (fn g => ([g], (fn [t] => t | _ => raise TacticFailure)))
+    
+my THEN:  tactic*tactic -> tactic = 
+    fn (t1, t2) => (fn g => let my (gl1, v1) = (t1 g) 
+                           in if gl1 == [] then (gl1, v1) 
+			      else let rl = (map t2 gl1)
+			           in 
+				       (fold (fn ((gls, _), r) => (gls @ r )) rl [],
+					fn l => (v1 (smear_function_list (l, rl))))
+			           end
+			   end)
+
+fun apply_fun_list ([],[]) = [] 
+  | apply_fun_list (fl,[]) = raise TacticFailure
+  | apply_fun_list ([], al) = raise TacticFailure
+  | apply_fun_list (f . fl, a . al) = (f a) . (apply_fun_list (fl, al))
+
+my THENL:  tactic * List( tactic ) -> tactic = 
+    fn (t1, tl2) => (fn g => let my (gl1, v1) = (t1 g) 
+                           in if gl1 == [] then (gl1, v1) 
+			      else let rl = (apply_fun_list (tl2, gl1))
+			           in 
+				       (fold (fn ((gls, _), r) => (gls @ r )) rl [],
+					fn l => (v1 (smear_function_list (l, rl))))
+			           end
+			   end)
+		       
+my OR:  tactic*tactic -> tactic = 
+    fn (t1, t2) => (fn g => (t1 g) handle _ => (t2 g))
+
+my PROGRESS :tactic -> tactic =
+    fn t => (fn g => 
+	     let my (gl, v) = (t g) 
+	     in if [g] == gl then raise TacticFailure else (gl, v) 
+	     end)
+    
+my COMPLETE :tactic -> tactic =
+    fn t => (fn g => 
+	     let my (gl, v) = (t g) 
+	     in if [] == gl then ([], v) else raise TacticFailure
+	     end)
+    
+fun REPEAT t: tactic = (OR (THEN((PROGRESS t), (fn g => ((REPEAT t) g))), id_tac)) 
+
+fun Try t: tactic = OR (t, id_tac)  
+
+
+/* FOL TACTICS */ 
+
+my hypothesis:  tactic =
+  fn (Sequent (H, A)) => 
+     let s = string_of_formula_naming (A, H) 
+     in ([], fn l => (hyp (Sequent (H, A)))) end 
+
+my and_intro: tactic = 
+  fn (Sequent (H, Connection("&",[A, B]))) => 
+        ([Sequent (H, A), Sequent (H, B)],
+	 (fn [t1, t2] => (andintro (t1, t2)) | _ => raise TacticFailure))
+      | _ => raise TacticFailure  
+
+my and_elim: string -> tactic = 
+  fn s => (fn (Sequent (H, C)) => 
+              case lookup_formula_naming (s, H) of 
+	      (Connection("&",[A, B])) => 
+	         ([Sequent (add_formula (B, add_formula (A, H)), C)],
+		   fn [t] => (andelim (hyp (Sequent (H, And (A, B))), t))
+                      | _ => raise TacticFailure)
+	       |  _ => raise TacticFailure ) 
+  
+  
+my or_intro_left: tactic =
+  fn (Sequent (H, Connection("|",[A, B]))) => 
+         ([Sequent (H, A)], fn [t] => (orintroleft (B, t)) | _ => raise TacticFailure)
+     | _ => raise TacticFailure  
+			    
+my or_intro_right: tactic =
+  fn (Sequent (H, Connection("|",[A, B]))) => 
+         ([Sequent (H, B)], fn [t] => (orintroright (A, t)) | _ => raise TacticFailure)
+     | _ => raise TacticFailure  
+			    
+my or_elim: string -> tactic = 
+  fn s => (fn (Sequent (H, C)) => 
+              case lookup_formula_naming (s, H) of 
+	       (Connection("|",[A, B])) =>
+	         ([Sequent (add_formula (A, H), C), Sequent (add_formula (B, H), C)],
+		   fn [t1, t2] => (orelim (hyp (Sequent (H, Or (A, B))), t1, t2))
+                      | _ => raise TacticFailure)
+                | _ => raise TacticFailure) 
+  
+my implies_intro: tactic = 
+  fn (Sequent (H, Connection("->",[A, B]))) => 
+	      ([Sequent (add_formula (A, H), B)],
+		   fn [t] => (impliesintro (string_of_formula_naming (A,
+				     hyp_of_sequent (sequent_of_theorem t)), t))
+                      | _ => raise TacticFailure)
+      | _ => raise TacticFailure  
+
+my implies_elim: string -> tactic = 
+  fn s => (fn (Sequent (H, C)) => 
+              case lookup_formula_naming (s, H) of 
+	      (Connection("->",[A, B])) => 
+                  ([Sequent (H, A), Sequent (add_formula (B, H), C)],
+		   fn [t1, t2] => 
+		      (implieselim (impliesintro (string_of_formula_naming (B,
+				     hyp_of_sequent (sequent_of_theorem t2)), t2),
+				   implieselim (hyp (Sequent (H, Implies (A, B))), t1)))
+                      | _ => raise TacticFailure)
+                | _ => raise TacticFailure) 
+
+  
+my cut: string -> tactic = 
+  fn a => let A = read_formula a
+          in (fn (Sequent (H, C)) => 
+                 ([Sequent (H, A), Sequent (add_formula (A, H), C)],
+		   fn [t1, t2] => 
+                      (implieselim (impliesintro(
+                         string_of_formula_naming (A, hyp_of_sequent (sequent_of_theorem t2)), t2), t1))
+                      | _ => raise TacticFailure))
+           end  
+  
+
+my lemma: (string * theorem_t) -> tactic = 
+  fn (a, e) => let A = read_formula a
+              in (fn (Sequent (H, C)) => 
+                 ([Sequent (add_formula (A, H), C)],
+		   fn [t] => 
+                      (implieselim (impliesintro(
+                         string_of_formula_naming (A, hyp_of_sequent (sequent_of_theorem t)), t),
+				   weaken (H, e)))
+                      | _ => raise TacticFailure)) 
+	     end 
+
+my not_intro: tactic = 
+  fn (Sequent (H, Connection("~",[A]))) => 
+	      ([Sequent (add_formula (A, H), Connection("false",[]))],
+		   fn [t] => (notintro (string_of_formula_naming (A,
+				     hyp_of_sequent (sequent_of_theorem t)), t))
+                      | _ => raise TacticFailure)
+      | _ => raise TacticFailure  
+
+my not_elim: string -> tactic = 
+  fn s => (fn (Sequent (H, B)) => 
+              case lookup_formula_naming (s, H) of 
+	      (Connection("~",[A])) => 
+                  ([Sequent (H, A)],
+		   fn [t] => (notelim (B, hyp (Sequent (H, Not (A))), t))
+                      | _ => raise TacticFailure)
+                | _ => raise TacticFailure) 
+
+/* 
+my dn_elim: tactic = 
+  fn (Sequent (H, A)) => 
+        ([Sequent (H, Not (Not (A)))],
+         (fn [t] => (dnelim t) | _ => raise TacticFailure)) 
+*/ 
+
+my all_intro: tactic = 
+    fn (Sequent (H, Quant("forall",[(x, _)], A))) => 
+	  ([Sequent (H, A)], fn [th] => (allintro (x, th)) | _ => raise TacticFailure)
+     | _ => raise TacticFailure 
+
+my all_elim: (string * string) -> tactic = 
+  fn (s, ts) => 
+    let t = read_term ts 
+     in (fn (Sequent (H, C)) => 
+                    case lookup_formula_naming (s, H) of 
+	             (Quant("forall",[(x, _)], A)) => 
+                  let f = subst_in_formula (A,[(x, t)])
+		  in 
+	            ([Sequent (add_formula (f, H), C)],
+		     fn [th] => (implieselim (impliesintro (string_of_formula_naming (f,
+				           hyp_of_sequent (sequent_of_theorem th)), th),
+                                           allelim (t, hyp (Sequent (H, All([(x, IntType)], A))))))
+                      | _ => raise TacticFailure)
+		  end
+	         | _ => raise TacticFailure)
+          end  
+		    
+
+
+
+/* */   
+my some_intro: string -> tactic =
+  fn s => let t = read_term s 
+          in (fn (Sequent (H, Quant("exists",[(x, _)], A))) => 
+               ([Sequent (H, subst_in_formula (A,[(x, t)]))],
+                fn [th] => (someintro (t, Some([(x, IntType)], A), th)) | _ => raise TacticFailure)
+                 | _ => raise TacticFailure)
+           end  
+			    
+
+my some_elim: string -> tactic = 
+  fn s => (fn (Sequent (H, C)) => 
+              case lookup_formula_naming (s, H) of 
+	      (Quant("exists",[(x, ty)], A)) => 
+	         ([Sequent (add_formula (A, H), C)],
+		   fn [t] => (someelim (hyp (Sequent (H, Some([(x, ty)], A))), t))
+                      | _ => raise TacticFailure)
+	       |  _ => raise TacticFailure ) 
+  
+my reflexivity: tactic =
+  fn (Sequent (H, Pred("=",[a, b]))) => 
+         if a == b
+         then ([], fn []  => (reflexivity (H, a)) | _ => raise TacticFailure)
+         else raise TacticFailure 
+   | _ => raise TacticFailure  
+		     
+my symmetry: tactic =
+  fn (Sequent (H, Pred("=",[a, b]))) => 
+         ([Sequent (H, Equal (b, a))],
+           fn [th]  => (symmetry th) | _ => raise TacticFailure)
+   | _ => raise TacticFailure  
+
+my transitivity:  string -> tactic =
+  fn s => let b = read_term s 
+          in (fn (Sequent (H, Pred("=",[a, c]))) => 
+                ([Sequent (H, Equal (a, b)), Sequent (H, Equal (b, c))],
+                  fn [th1, th2]  => (transitivity (th1, th2)) | _ => raise TacticFailure)
+                  | _ => raise TacticFailure)
+           end  
+		     
+
+my axiom:  tactic = 
+    fn (Sequent (H, A as (Connection("~",[Pred("=",[IntTerm 0, Fun (Constant "+" ,[t, IntTerm 1])])]))))
+          => ([], fn [] => (peanoone (Sequent (H, A))) | _ => raise TacticFailure)
+     | (Sequent (H, A as (Pred("=",[Fun (Constant "+" ,[a, IntTerm 0]), b]))))
+          => if a == b
+             then ([], fn [] => (peanothree (Sequent (H, A))) | _ => raise TacticFailure)
+             else raise TacticFailure 
+     | (Sequent (H, A as (Pred("=",[Fun (Constant "+" ,[a, Fun (Constant "+" ,[b, IntTerm 1])]),
+				  Fun (Constant "+" ,[Fun (Constant "+" ,[c, d]), IntTerm 1])]))))
+          => if (a == c) and (b == d)
+             then([], fn [] => (peanofour (Sequent (H, A))) | _ => raise TacticFailure)
+             else raise TacticFailure
+     | (Sequent (H, A as (Pred("=",[Fun (Constant "*",[a, IntTerm 0]), IntTerm 0]))))
+          => ([], fn [] => (peanofive (Sequent (H, A))) | _ => raise TacticFailure)
+     | (Sequent (H, A as (Pred("=",[Fun (Constant "*",[a, Fun (Constant "+" ,[b, IntTerm 1])]),
+				  Fun (Constant "+" ,[Fun (Constant "*",[c, d]), e])]))))
+          => if (a == c) and (b == d) and (a == e) 
+             then ([], fn [] => (peanosix (Sequent (H, A))) | _ => raise TacticFailure)
+             else raise TacticFailure
+     | _ => raise TacticFailure 
+
+
+my induction: tactic = 
+    fn (Sequent (H, Quant("forall",[(x, _)], A))) => 
+	  ([Sequent (H, subst_in_formula (A,[(x, IntTerm 0)])),
+            Sequent (add_formula (A, H),
+		    subst_in_formula (A,[(x, Fun (Constant "+" ,[Var x, IntTerm 1]))]))],
+           fn [th1, th2] => (induction_pr (All([(x, IntType)], A), th1, th2)) 
+            | _ => raise TacticFailure)
+     | _ => raise TacticFailure 
+
+
+my substitution: string*string*string*string -> tactic = 
+    fn (f, x, t1, t2) => 
+     let A = read_formula f 
+         a = read_term t1
+         b = read_term t2
+     in (fn (Sequent (H, B)) => 
+          let my (C, D) = (subst_in_formula (A,[(x, a)]), subst_in_formula (A,[(x, b)]))
+          in 
+	    if B == D 
+	    then ([Sequent (H, Pred("=",[a, b])), Sequent (H, C)],
+                  fn [th1, th2] => substitution (A, x, th1, th2)
+			   | _ => raise TacticFailure)
+	    else raise TacticFailure
+	   end) 
+     end 
+		            
+/* derived tactics */ 
+
+intro = 
+      OR (and_intro,
+      OR (implies_intro,
+             all_intro)) 
+
+intros =  REPEAT intro  
+
+fun elim h = 
+      OR (and_elim h,
+      OR (implies_elim h,
+             or_elim h))  
+
+fun or_tactical tac  = 
+     OR (THEN (or_intro_right, tac), THEN (or_intro_left, tac))  
+
+fun immediate g =  
+        (REPEAT (OR (hypothesis,
+	       OR (implies_intro,
+	       OR (and_intro,
+               OR (not_intro,
+	       OR (all_intro, or_tactical (COMPLETE immediate)))))))) g
+                      
+    
+
+end 

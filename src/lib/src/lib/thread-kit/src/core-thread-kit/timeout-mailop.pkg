@@ -1,0 +1,274 @@
+## timeout-mailop.pkg
+
+# Compiled by:
+#     src/lib/std/stdlib.make6
+
+
+
+# Mail_Ops for synchronizing on timeouts.
+
+
+package timeout_mailop: (weak)  api {
+
+    include Timeout_Mailop;			# Timeout_Mailop		is from   src/lib/thread-kit/src/core-thread-kit/timeout-mailop.api
+
+    reset_sleep_queue_to_empty
+	:
+        Void -> Void;
+
+    wake_sleeping_threads_whose_time_has_come
+	:
+	Void -> Void;
+
+    time_until_next_sleeping_thread_wakes
+	:
+	Void -> Null_Or( time::Time );
+}
+
+{
+    package r = internal_threadkit_types;	# internal_threadkit_types	is from   src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
+    package s = thread_scheduler;		# thread_scheduler		is from   src/lib/thread-kit/src/core-thread-kit/thread-scheduler.pkg
+
+    Mailop(X) =  mailop::Mailop(X);
+
+    # The list of threads waiting for timeouts.
+    # It is sorted in increasing order
+    # of time value.
+    #
+    # NOTE: We may want to use some sort of
+    # balanced search package in the future.		XXX BUGGO FIXME
+    #
+    Item = ( time::Time,
+             Void -> Void,
+             Ref (r::Transaction_Id),
+             s::Fate( Void )
+           );
+    #
+    sleep_queue
+	=
+	REF ([]: List( Item ));
+
+
+    fun time_wait (t, f, id, k)
+        =
+	sleep_queue := insert *sleep_queue
+        where
+	    fun insert []
+                    =>
+                    [ (t, f, id, k) ];
+
+		insert ((_, _, REF r::CANCELLED_TRANSACTION_ID, _) ! rest)
+                    =>
+		    # Drop cancelled transaction in passing:
+		    #
+                    insert rest;
+
+		insert (list as ((item as (t', _, _, _)) ! rest))
+                   =>
+                   time::(<) (t', t)  ??  item ! insert rest
+                                      ::  (t, f, id, k) ! list;
+            end;
+	end;
+
+
+    # Drop all cancelled entries from itemlist.
+    # Return cleaned list:
+    #
+    fun drop_cancelled_queue_entries  itemlist
+	=
+	drop_them  itemlist
+	where
+	    fun drop_them ((_, _, REF r::CANCELLED_TRANSACTION_ID, _) ! rest)
+		    =>
+		    drop_them  rest;
+
+		drop_them (item ! rest)
+		    =>
+		    item  !  drop_them  rest;
+
+		drop_them [] => [];
+	    end;
+	end;
+
+
+    # Find all sleeping threads whose
+    # time has come and move them to
+    # run queue.
+    #
+    # Return list of still-sleeping threads.
+    #
+    fun wake_and_remove_sleeping_threads_whose_time_has_come  q
+        =
+	wake_them q
+        where
+            now = s::get_approximate_time ();
+
+	    fun wake_them ((_, _, REF r::CANCELLED_TRANSACTION_ID, _) ! rest)
+		    =>
+                    wake_them rest;
+
+	        wake_them (list as ((item as (t', f, transaction_id as REF (r::TRANSACTION_ID tid), k)) ! rest))
+		    =>
+		    if (time::(<=) (t', now))
+		       
+		       s::enqueue_thread (tid, k);
+		       f ();				# Cleanup function. 
+		       wake_them rest;
+		   else
+		       drop_cancelled_queue_entries  list;
+		   fi;
+
+               wake_them [] => [];
+	   end;
+	end;
+
+
+    fun time_until_next_sleeping_thread_wakes ()
+        =
+        case (drop_cancelled_queue_entries *sleep_queue)
+           
+	    []  =>  NULL;
+
+	    (q as ((t, _, _, _) ! _))
+		=>
+		{   now = s::get_approximate_time ();
+
+		    time::(<=) (t, now)
+			##
+			??   THE (time::zero_time)
+			::   THE (time::(-) (t, now));
+		};
+        esac;
+	
+
+    fun wake_sleeping_threads_whose_time_has_come ()
+        =
+        case *sleep_queue
+	    #
+	    []     =>   ();
+	    queue  =>   sleep_queue
+			    :=
+			    wake_and_remove_sleeping_threads_whose_time_has_come
+				queue;
+        esac;
+
+
+    fun reset_sleep_queue_to_empty ()
+        =
+        sleep_queue := [];
+
+
+    # NOTE: Unlike for most base mail_ops, the
+    # block functions of time-out mail_ops do not
+    # have to exit the critical section or execute
+    # the clean-up operation. This is done when
+    # they are removed from the waiting queue.
+    #
+    fun timeout_in'  sleep_duration
+        =
+	r::BASE_MAILOPS [ is_ready ]
+        where
+            fun wait_for { transaction_id, clean_up, next }					# Reppy calls this fn blockFn
+                =
+                {   now = s::get_approximate_time ();
+
+		    fate::call_with_current_fate
+			(fn fate
+			    =
+			    {   time_wait
+				    ( time::(+) (sleep_duration, now),
+                                      clean_up,
+                                      transaction_id,
+                                      fate
+                                    );
+
+			        next ();
+                            }
+                        );
+
+		    s::reenable_thread_switching ();
+		};
+
+	    fun is_ready ()									# Reppy calls this fn pollFn
+		=
+		if (sleep_duration == time::zero_time)
+
+		     r::MAILOP_READY
+                       { priority => -1,
+                         do_it    => s::reenable_thread_switching				# Reppyc alls this field doFn
+                       };
+		else
+                     r::MAILOP_UNREADY wait_for;
+                fi;
+
+	end;
+
+
+    fun sleep_for  sleep_duration
+	=
+	mailop::do_mailop  (timeout_in'  sleep_duration);
+
+
+    fun timeout_at'  wakeup_time
+        =
+	r::BASE_MAILOPS [ is_ready ]
+        where
+	    fun wait_for { transaction_id, clean_up, next }					# Reppy calls this fn blockFn
+                =
+                {   fate::call_with_current_fate
+			(
+                         fn fate
+                            =
+                            {   time_wait (wakeup_time, clean_up, transaction_id, fate);
+
+			        next();
+                            }
+                        );
+
+		    s::reenable_thread_switching ();
+                };
+
+	    fun is_ready ()									# Reppy calls this fn pollFn
+                =
+                if (time::(<=) (wakeup_time, s::get_approximate_time ()))
+
+		     r::MAILOP_READY
+                       { priority => -1,
+                         do_it    => s::reenable_thread_switching				# Reppy calls this field doFn
+                     };
+		else
+                     r::MAILOP_UNREADY wait_for;
+                fi;
+	end;
+
+
+    fun sleep_until  wakeup_time
+	=
+	mailop::do_mailop  (timeout_at'  wakeup_time);
+
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1989-1991 John H. Reppy
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

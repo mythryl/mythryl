@@ -1,0 +1,190 @@
+#
+# This module is responsible for generating new instructions from 
+# Codetree and inserting them into the SSA graph.  This is useful for
+# patching in new instructions as the SSA graph is being transformed.
+#
+# Special lowcode Magic (tm) for invoking the instruction selection 
+# module and ssa-ifying the output code are all hidden here.
+# 
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+###         "If you have a procedure with ten parameters,
+###          you probably missed some."
+###                                   -- Alan Perlis
+
+
+
+generic package SSAInstrGen (SSA:  SSA) : SSA_INSTRGEN =
+pkg
+
+   package ssa = SSA
+   package translate_codetree_to_target_machine = SSA::translate_codetree_to_target_machine
+   package rtl = SSA::RTL
+   package t   = translate_codetree_to_target_machine::T
+   package t'  = RTL::T
+   package s   = t::Stream
+   package sp  = SSA::SP
+   package p   = sp::RTLProps
+   package g   = graph
+   package r   = t::region
+   package a   = rw_vector
+   package w8a = rw_unt8_vector
+
+   fun error msg = lowcode_error_message::error("SSAInstrGen", msg)
+
+   exception Illegal
+
+   #  Translate RTL codetree into the normal SSA form 
+   fun translate SSA { defs, uses, rtl } = 
+   let fun defOf (x) = list::nth (defs, x)
+       const = SSA::const SSA
+       fun useOf (type, x) = 
+           let v = list::nth (uses, x)
+           in  if v < 0 then 
+                  (case const v of
+                     sp::ot::INT i => t::LITERAL i
+                   | sp::ot::INTINF i => t::LIInf i
+                   | sp::ot::OPERAND operand => error "useOf"
+                  )
+               else t::REG (type, v) 
+           end
+       fun /* statement (T'.MOVE_INT (type, x, e)) = t::MOVE_INT (type, defOf x, int_expression e)
+         | statement (T'.STORE (type, a, b, mem)) = t::STORE (type, int_expression a, int_expression b, r::memory) 
+         | */ statement (T'.RTL { e, ... } ) = statement e 
+         | statement s = error("statement: "$RTL::rtlToString s)
+       and /* int_expression (T'.REG (type, x)) = useOf (type, x)
+         | int_expression (T'.LITERAL i) = t::LITERAL i
+         | int_expression (T'.LI32 i) = t::LI32 i
+         | int_expression (T'.ADD (type, a, b)) = t::ADD (type, int_expression a, int_expression b)
+         | int_expression (T'.SUB (type, a, b)) = t::SUB (type, int_expression a, int_expression b)
+         | int_expression (T'.MULS (type, a, b)) = t::MULS (type, int_expression a, int_expression b)
+         | int_expression (T'.DIVS (type, a, b)) = t::DIVS (type, int_expression a, int_expression b)
+         | int_expression (T'.QUOTS (type, a, b)) = t::QUOTS (type, int_expression a, int_expression b)
+         | int_expression (T'.REMS (type, a, b)) = t::REMS (type, int_expression a, int_expression b)
+         | int_expression (T'.MULU (type, a, b)) = t::MULU (type, int_expression a, int_expression b)
+         | int_expression (T'.DIVU (type, a, b)) = t::DIVU (type, int_expression a, int_expression b)
+         | int_expression (T'.REMU (type, a, b)) = t::REMU (type, int_expression a, int_expression b)
+         | int_expression (T'.ADDT (type, a, b)) = t::ADDT (type, int_expression a, int_expression b)
+         | int_expression (T'.SUBT (type, a, b)) = t::SUBT (type, int_expression a, int_expression b)
+         | int_expression (T'.MULT (type, a, b)) = t::MULT (type, int_expression a, int_expression b)
+         | int_expression (T'.DIVT (type, a, b)) = t::DIVT (type, int_expression a, int_expression b)
+         | int_expression (T'.QUOTT (type, a, b)) = t::QUOTT (type, int_expression a, int_expression b)
+         | int_expression (T'.REMT (type, a, b)) = t::REMT (type, int_expression a, int_expression b)
+         | int_expression (T'.BITWISEAND (type, a, b)) = t::BITWISEAND (type, int_expression a, int_expression b)
+         | int_expression (T'.BITWISEOR (type, a, b))  = t::BITWISEOR (type, int_expression a, int_expression b)
+         | int_expression (T'.BITWISEXOR (type, a, b)) = t::BITWISEXOR (type, int_expression a, int_expression b)
+         | int_expression (T'.BITWISENOT (type, a)) = t::BITWISENOT (type, int_expression a)
+         | int_expression (T'.RIGHTSHIFT (type, a, b)) = t::RIGHTSHIFT (type, int_expression a, int_expression b)
+         | int_expression (T'.RIGHTSHIFTU (type, a, b)) = t::RIGHTSHIFTU (type, int_expression a, int_expression b)
+         | int_expression (T'.LEFTSHIFT (type, a, b)) = t::LEFTSHIFT (type, int_expression a, int_expression b)
+         | int_expression (T'.CVTI2I (type, ext, type', a)) = t::CVTI2I (type, ext, type', int_expression a)
+         | int_expression (T'.LOAD (type, a, mem)) = t::LOAD (type, int_expression a, r::memory) 
+         | */ int_expression e = error("int_expression: "$RTL::expToString e) 
+   in  statement rtl end
+
+   /* 
+    * Translate codetree into instructions
+    */
+   fun instrGen (SSA as g::GRAPH ssa) = 
+   let instrs = REF []
+       fun emit i = instrs := i . *instrs
+       fun can'tUse _ = raise exception Illegal
+       instruction_stream = 
+           s::STREAM
+           { begin_cluster = can'tUse,
+             end_cluster   = can'tUse,
+             emit         = emit,
+             pseudoOp     = can'tUse,
+             define_local_label  = can'tUse,
+             define_global_label   = can'tUse,
+             comment      = can'tUse,
+             annotation   = can'tUse,
+             end_procedure    = can'tUse
+           }
+
+       my s::STREAM { emit, ... } = translate_codetree_to_target_machine::select_instructions instruction_stream
+
+       #  Translate instructions into SSA form 
+       fun translate instrs = ()
+
+       #  Generate instructions 
+       fun gen codetree
+           =
+          (instrs := [];
+           emit codetree;
+           reverse *instrs
+          )
+
+   in  gen
+   end
+
+   /*
+    * Replace the instruction with a new codetree
+    */
+   fun replace (SSA as g::GRAPH ssa) =
+   let instrGen = instrGen SSA
+       ssaOpTable = SSA::ssaOpTable SSA
+       fun do_it { id, codetree } = 
+           case instrGen codetree of 
+              [i] => (a::update (ssaOpTable, id, i); TRUE)
+           | _ => FALSE
+   in  do_it
+   end
+
+   /* 
+    * Insert instructions into the SSA graph
+    */
+   fun insert (SSA as g::GRAPH ssa) = 
+   let getOperands =
+           p::defUse (sp::ot::makeNewValueNumbers (SSA::operandTable SSA))
+       pinnedUseTable = SSA::pinnedUseTable
+       pinnedDefTable = SSA::pinnedDefTable
+       fun isPinnedUse r = w8a::sub (pinnedUseTable, r) != 0w0 except _ => FALSE
+       fun isPinnedDef r = w8a::sub (pinnedDefTable, r) != 0w0 except _ => FALSE
+       fun hasPinnedUse [] = FALSE
+         | hasPinnedUse (r . rs) = isPinnedUse r or hasPinnedUse rs
+       fun hasPinnedDef [] = FALSE
+         | hasPinnedDef (r . rs) = isPinnedDef r or hasPinnedDef rs
+
+       fun isZero r = w8a::sub (SSA::zeroRegs, r) != 0w0 except _ => FALSE
+
+       renameVariable = SSA::newRenamedVariable SSA
+
+       exception Renaming
+       renameMap = int_hash_table::make_table (32, Renaming)
+       lookupRenaming = int_hash_table::lookup renameMap
+       addRenaming = int_hash_table::set renameMap
+
+       fun addInstrs (block, instrs) = 
+       let n = length instrs
+           m = ssa.capacity ()
+           SSA::reserve SSA (n+m)
+           newOp = SSA::newOp SSA
+
+           fun renameUse v = if v < 0 then v else lookupRenaming v
+           fun renameDef v = 
+           let v' = renameVariable v
+           in  if isZero v then v' 
+               else (addRenaming (v, v'); v')
+           end
+ 
+           fun scan ([], id, pos) = ()
+             | scan (instruction . rest, id, pos) = 
+               let my (defs, uses) = getOperands instruction
+                   rtl = p::rtl instruction
+                   rtl = if hasPinnedUse uses or
+                                hasPinnedDef defs then
+                             RTL::pin rtl else rtl
+                   uses = map renameUse uses
+                   defs = map renameDef defs
+               in  newOp { id=id, instruction=instr, pos=pos, rtl=rtl, 
+                         block=block, defs=defs, uses=uses };
+                   scan (rest, id+1, pos+128)
+               end
+       in  scan (instrs, m, 0 /* XXX */)
+       end
+   in  ()
+   end
+
+end

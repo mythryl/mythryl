@@ -1,0 +1,261 @@
+
+# Generate the <architecture>SSAProps generic.
+# This package extracts semantics and dependence 
+# information about the instruction set needed for SSA optimizations.
+
+
+
+###                 "Common sense is genius in homespun."
+###
+###                             -- Alfred North Whitehead
+
+
+
+generic package MDLGenSSAProps (RTLComp:  Mdl_Rtl_Comp) : Mdl_Gen_Module2 =
+pkg
+
+   package RTLComp = RTLComp
+   package Comp    = RTLComp::Comp
+   package raw_syntax     = Comp::raw_syntax
+   package Dictionary     = Comp::Dictionary
+   package rtl     = RTLComp::RTL
+   package t       = RTL::T
+   package c       = cells_basis
+   package m       = RTLComp::lowcode_types
+
+   use raw_syntax Comp::Util Comp::error
+
+     #  Insert copies 
+
+   fun copyFuns hasImpl = 
+   let my (implInit, implPattern, implCopy) = 
+              if hasImpl then
+                 ("impl=REF NULL, ", "impl, ", "impl=impl, ")
+              else 
+                 ("", "", "")
+   in
+    @@@["fun copies fps =",
+      "stipulate fun f ([], id, is, fd, fs) = (id, is, fd, fs)",
+      "      | f( { dst, src } . fps, id, is, fd, fs) =",
+      "        if c::sameColor (dst, src) then f (fps, id, is, fd, fs)",
+      "        else case c::cellkind dst of",
+      "             c::GP   => f (fps, dst . id, src . is, fd, fs)",
+      "          |  c::FP   => f (fps, id, is, dst . fd, src . fs)",
+      "          |  c::MEM  => f (fps, id, is, fd, fs)",
+      "          |  c::CTRL => f (fps, id, is, fd, fs)",
+      "          |  kind   => error(\"copies: \"$c::cellkindToString kind$",
+      "                             \" dst=\"$c::to_string dst$",
+      "                             \" src=\"$c::to_string src)",
+      " my (id, is, fd, fs) = f (fps,[],[],[],[])",
+      " icopy = case id of",
+      "               []  => []",
+      "             | [_] => [i::COPY { src=is, dst=id, "$implInit$"tmp=NULL } ]",
+      "             | _   => [i::COPY { src=is, dst=id, "$implInit,
+      "                              tmp=THE (i::DIRECT (c::new_reg())) } ]",
+      " fcopy = case fd of",
+      "               []  => []",
+      "             | [_] => [i::FCOPY { src=fs, dst=fd, "$implInit$"tmp=NULL } ]",
+      "             | _   => [i::FCOPY { src=fs, dst=fd, "$implInit,
+      "                               tmp=THE (i::FDIRECT (c::new_freg())) } ]",
+      "herein icopy @ fcopy end"
+     ]
+   end
+
+   #  Expressions building utilities 
+   fun consexp (x, LISTexp (a, b)) = LISTexp (x . a, b)
+     | consexp (x, y) = LISTexp([x], THE y)
+   nilexp = LISTexp([], NULL)
+   fun conspat (x, LISTpat (a, b)) = LISTpat (x . a, b)
+     | conspat (x, y) = LISTpat([x], THE y)
+   nilpat = LISTpat([], NULL)
+
+   fun gen compiled_rtls =
+   let #  The machine description 
+       md = RTLComp::md compiled_rtls
+
+       #  name of the package/api 
+       strName = Comp::strname md "SSAProps"  
+       sigName = "LOWCODE_SSA_PROPERTIES"
+ 
+       #  query function 
+       mkQuery = RTLComp::mkQuery compiled_rtls
+
+       fun In x = "in_"$x
+       fun Out x = "out_"$x
+
+
+       #  Function for extracting naming constraints from an RTL 
+       namingConstraints =
+       let 
+           fun body { instruction, rtl, const } = 
+           let fun ignore p = conspat (WILDCARD_PATTERN, p)
+               fun cell (k, r) = 
+                   const(
+                      APPLY_EXPRESSION (APPexp (IDexp (IDENT(["C"], "Reg")),
+                          IDexp (IDENT(["C"], c::cellkindToString k))),
+                          INT_CONSTANT_IN_EXPRESSION (integer::toInt r)))
+
+               fun addSrc (id, r, (d, u, C)) = 
+                     (d,
+                      conspat (IDpat (In id), u),
+                      APPLY("USE", RECORD_EXPRESSION[("var", ID (In id)), ("color", r)]) . C
+                     ) 
+
+               fun addDst (id, r, (d, u, C)) = 
+                     (conspat (IDpat (Out id), d),
+                      u,
+                      APPLY("DEF", RECORD_EXPRESSION[("var", ID (Out id)), ("color", r)]) . C
+                     ) 
+
+               fun addDstSrc (id, (d, u, C)) = 
+                     (conspat (IDpat (Out id), d),
+                      conspat (IDpat (In id), u),
+                      APPLY("SAME", RECORD_EXPRESSION[("x", ID (Out id)), ("y", ID (In id))]) .
+                          C
+                     )
+
+               fun ignoreUse (d, u, C) = (d, conspat (WILDCARD_PATTERN, u), C)
+
+               fun ignoreDef (d, u, C) = (conspat (WILDCARD_PATTERN, d), u, C)
+ 
+               fun f (id, type, T.@@@(_, k, t::LITERAL r), RTL::IN _, x) = 
+                      addSrc (id, cell (k, r), x)
+                 | f (id, type, T.@@@(_, k, t::LITERAL r), RTL::OUT _, x) = 
+                      addDst (id, cell (k, r), x)
+                 | f (id, type, _, RTL::IO _, x) = addDstSrc (id, x)
+                 | f (id, type, _, RTL::IN _, x) = ignoreUse x
+                 | f (id, type, _, RTL::OUT _, x) = ignoreDef x
+
+               fun g (id, type, x) = x
+
+               my (d, u, C) = 
+                 RTLComp::forallArgs
+                  { instruction=instr, rtl=rtl, rtlArg=f, nonRtlArg=g } (nilpat, nilpat,[])
+           in  { expression=LISTexp (C, NULL), casePats=[d, u] }
+           end
+    
+           decls=[RTLComp::complexErrorHandler "namingConstraints",
+                      @@@["dst_list = dst and src_list = src"]
+                     ]
+       in  mkQuery
+             { name           = "namingConstraints",   
+              namedArguments = TRUE,
+              args           = [["instruction", "src", "dst"]],
+              caseArgs       = ["dst_list", "src_list"],
+              decls          = decls,
+              body           = body
+             }
+       end
+
+       #  Function for rewriting the operands of an RTL 
+       substituteOperands =
+       let fun body { instruction, rtl, const } = 
+           let fun Ignore p = conspat (WILDCARD_PATTERN, p)
+
+               fun add (RTL::IN _, x, d, u)  = (d, conspat (IDpat (In x), u))
+                 | add (RTL::OUT _, x, d, u) = (conspat (IDpat (Out x), d), u)
+                 | add (RTL::IO _, x, d, u) = (conspat (IDpat (Out x), d), Ignore u)
+
+               fun nochange (d, u) = (Ignore d, Ignore u)
+
+               fun f (id, type, T.@@@(_, k, t::LITERAL r), pos, (d, u)) = nochange (d, u)
+                 | f (id, type, expression, pos, (d, u)) = add (pos, id, d, u)
+
+               fun g (id, type, (d, u)) = (Ignore d, Ignore u)
+
+               fun arg (T.@@@(_, k, _), name) = 
+                    if c::cellkindToString k == "CELLSET" then NULL
+                    else THE (ID name)
+                 | arg (t::ARG _, name) = THE (APPLY("get_operand", ID name))
+
+               fun f'(id, type, T.@@@(_, k, t::LITERAL r), pos) = NULL
+                 | f'(id, type, expression, RTL::IN _) = arg (expression, In id)
+                 | f'(id, type, expression, RTL::OUT _) = arg (expression, Out id)
+                 | f'(id, type, expression, RTL::IO _) = arg (expression, Out id)
+
+               fun g' _ = NULL
+
+               my (d, u) =
+                   RTLComp::forallArgs { instruction=instr, rtl=rtl, rtlArg=f, nonRtlArg=g }
+                     (nilpat, nilpat)
+               expression = 
+                  RTLComp::mapInstr { instruction=instr, rtl=rtl, rtlArg=f', nonRtlArg=g'} 
+           in  { expression=exp, casePats=[d, u] }
+           end
+                              
+           decls=[RTLComp::complexErrorHandler "substituteOperands",
+                      @@@["fun get_operand x = error \"get_operand\"",
+                        "dst_list = dst and src_list = src"
+                       ]
+                     ]
+       in  mkQuery
+             { name           = "substituteOperands",
+              namedArguments = TRUE,
+              args           = [["const"],["instruction", "dst", "src"]],
+              caseArgs       = ["dst_list", "src_list"],
+              decls          = decls,
+              body           = body
+             }
+       end
+
+       #  Arguments to the instruction generic 
+       args =
+           ["package instruction:  "$Comp::signame md "INSTR",
+            "package region_props:  REGION_PROPERTIES ",
+            "package gc_rtl_props:  RTL_PROPERTIES where I = Instr",
+            "package instruction_properties:  Instruction_Properties where I = Instr",
+            "package asm:  Instruction_Emitter where I = Instr", 
+            "package operand_table:  OPERAND_TABLE where I = Instr",
+            "  sharing RegionProps::Region = Instr::Region",
+            "my volatile:      Instr::C.cell List",
+            "my pinnedDef:     Instr::C.cell List",
+            "my pinnedUse:     Instr::C.cell List",
+            "my dedicatedDef:  Instr::C.cell List",
+            "my dedicatedUse:  Instr::C.cell List"
+           ]
+
+       #  The generic 
+       strBody = 
+           [@@@ ["package i         = Instr",
+               "package c         = i::C",
+               "package gc_rtl_props  = RTLProps",
+               "package instruction_properties = instruction_properties",
+               "package rtl       = RTLProps::RTL",
+               "package t         = RTL::T",
+               "package ot        = OperandTable",
+               "package rp        = RegionProps",
+               "",
+               "enum const = enum ot::const",
+               "enum constraint =",
+               "  DEF  of { var: c::cell, color: c::cell }",
+               "| USE  of { var: c::cell, color: c::cell }",
+               "| SAME of { x: c::cell, y: c::cell }",
+               ""
+              ],
+            Comp::errorHandler md "SSAProps",
+            RTLComp::complexErrorHandlerDef (),
+            @@@ ["",
+               "volatile = volatile",
+               "dedicatedDef = dedicatedDef",
+               "dedicatedUse = dedicatedUse",
+               "pinnedDef  = pinnedDef",
+               "pinnedUse  = pinnedUse",
+               "source = i::SOURCE {}",
+               "sink   = i::SINK {}",
+               "phi    = i::PHI {}",
+               ""
+              ],
+            namingConstraints,
+            substituteOperands,
+            copyFuns (Comp::hasCopyImpl md),
+            Comp::declOf md "SSA"
+           ]
+
+   in  Comp::codegen md "static-single-assignment/SSAProps"
+         [Comp::make_generic md "SSAProps" args sigName 
+              strBody
+             #  (map Comp::Trans::simplify_declaration strBody) 
+         ]
+   end
+
+end

@@ -1,0 +1,791 @@
+## simplify-ast.pkg
+
+
+
+###           "It is not enough to have a good mind;
+###            the main thing is to use it well."
+###
+###                           -- Rene Descartes
+
+
+
+# The simplify transformation normalizes the C code by:
+#  o getting rid of pre and post-increments
+#  o getting rid of op=S
+#  o getting rid of nested assignments w/in expressions
+#  o getting rid of comma expressions
+#  o getting rid of questioncolon expressions
+#  o getting rid of arrows
+#  o translating all breaks and continues into jumps
+#  o translating all do, whiles, and fors into conditional jumps
+#  o translating all Label (id, statement) into sequences Label (id, emptyStmt); statement
+#    which allows for a more unified expression of control flow.
+#  o translating all global/static variables without (or with only partial) 
+#    initializations into into explicit initializations to 0.
+#  o translating all local variable initializations into explicit assignments.
+# 
+# The transformation introduces new identifiers, expressions, and statements.
+# The pidtab and the aidtab are kept consistent but the opaidtab is not since it
+# shouldn't be needed after this transformation.  The tidtab is not affected by 
+# the transformation.
+#
+# The main transformation in the system is the simplicication of expressions into 
+# non-sideffecting forms.  All side effects (op====, pre/pos-increment, assignment)
+# expressions are lifted to statements.  The grammar of expressions after this
+# transformation is:
+#
+# expression ::= id
+#      |  constant
+#      |  primapp expression*  - where the primapp does not have a side-effect
+#      |  expression::exp
+#      |  expression->expression
+#      |  expression[exp]
+#      |  *expression
+#      |  &expression
+#      |  sizeof expression    - sizeof should have already been eliminated
+#      |  { expression*}
+#
+# within the context of statements, where assignments and function calls must
+# occur, top level expression have the following syntax:
+#
+# topExpression ::= expression                     - ie the new, restricted form of expressions
+#         |  expression (expression* )             - function calls
+#         |  expression :=  expression             - simple assignments
+#         |  expression :=  expression (expression* )     - assignments of function call values
+#
+#
+# Issues:
+# Consider the following code:
+#
+#    x->y->m += 12;
+#
+# This gets translated into:
+#
+#    x->y->m = x->y->m + 12;
+#
+# by copying the arbitraily complex expression (x->y->m).
+# The alternative is to introduce a temporary variable:
+#
+#   temp = x->y
+#   temp->m = temp->m + 12;
+#
+# but this transformation is subtle as you can't write:
+#
+#   temp = x->y->m
+#   temp = temp + 12;
+# 
+
+
+
+###                  "C is quirky, flawed and an enormous success."
+###
+###                                          -- Dennis Ritchie
+
+
+package SimplifyRawSyntaxTree:  SIMPLIFYAST =
+pkg 
+
+  package raw_syntax = raw_syntax
+  package Copy = CopyRawSyntaxTree
+  use raw_syntax 
+
+  exception simplifyExn
+
+  fun warn msg = print msg
+
+  fun fail msg = (print msg; raise exception simplifyExn)
+
+  strictlyPrintable = REF TRUE #  try to make it acceptable C code: see handling of casts 
+
+  sizeOf = Sizeof::byteSizeOf { warn=warn, err=fail, bug=fail } 
+
+  fun lookup looker id =
+      case looker id
+	  of NULL => fail "trying to lookup id"
+	   | THE v => v
+
+  fun simplifyRawSyntaxTree (edecls, tidtab, aidtab, opaidtab)
+    =
+    let 
+      esctab = Pidtab::uidtab () : Pidtab::uidtab(  Void )
+      getTid = lookup (fn tid => Tidtab::find (tidtab, tid))
+      getOpAid = lookup (fn aid => Aidtab::find (opaidtab, aid))
+
+      fun copyExpression expression =  Copy::copyExpr aidtab expression
+
+      fun newLabel name
+          = 
+	  { name=symbol::label name,
+	    uid = Pid::new (),
+	    location=source_map::UNKNOWN
+	  }
+
+      fun newId name ctype
+          = 
+	  { name=symbol::chunk name,
+            uid=Pid::new(),
+	    location=source_map::UNKNOWN,
+	    ctype=ctype,
+	    stIlk=raw_syntax::DEFAULT,
+	    global=FALSE,
+	    status=DECLARED,
+	    kind= if TypeUtil::isFunction tidtab ctype then raw_syntax::FUNCTION { hasFunctionDef=FALSE }
+	          else raw_syntax::NONFUN
+	  }
+
+      fun addEscape pid = 
+	  Pidtab::set (esctab, pid, ())
+
+      #  fix: this code is incomplete ...  XXX BUGGO FIXME
+      #  lval ::= id | id::field | expr[expr'] | expr->field | *expr 
+      fun escapes (EXPR (Id { uid=pid, ... }, _, _)) = addEscape pid
+	| escapes (EXPR (Member (expr, _))) = escapes expr
+        | escapes _ = ()
+
+      #  Generate a new aid, bind it to type in aidtab, and return it 
+      fun bindAid ctype = 
+	  let aid = Aid::new ()
+	  in Aidtab::set (aidtab, aid, ctype);
+	     aid
+	  end
+
+      fun id2ctype (id: raw_syntax::id) = id.ctype
+
+      fun isStaticOrGlobal ( { stIlk=raw_syntax::STATIC, ... }: raw_syntax::id) = TRUE
+	| isStaticOrGlobal { global=TRUE, ... } = TRUE
+        | isStaticOrGlobal _ = FALSE
+
+      fun aid2ctype aid = 
+	  case Aidtab::find (aidtab, aid)
+	    of NULL => ( print "unknown type for aid "
+		       ; print (Aid::to_string aid)
+		       ; print ", assuming its void\n"
+		       ;  raw_syntax::Void
+		       )
+	     | THE ctype => ctype
+
+      fun expression2ctype (EXPR (_, aid, _)) = aid2ctype aid
+
+      fun coreExpression2expression ctype coreExpression = EXPR (coreExpression, bindAid ctype, source_map::UNKNOWN)
+
+      fun coreStmt2stmt coreStmt = STMT (coreStmt, Aid::new (), source_map::UNKNOWN)
+
+      fun expression2stmt expression = coreStmt2stmt (Expr (THE expression))
+      
+      fun coreExpression2stmt ctype coreExpression = expression2stmt (coreExpression2expression ctype coreExpression)
+
+      fun mkId id = 
+	  coreExpression2expression (id2ctype id) (Id id)
+
+      fun label id =
+	  coreStmt2stmt (Labeled (id, coreStmt2stmt (Expr NULL)))
+
+      fun assign id expression = 
+	  let ctype = id2ctype id
+	  in coreExpression2stmt ctype (Assign (mkId id, expression)) end
+
+      #  Dpo: eqCtype this is potentially expensive, should we do this? 
+      fun cast ctype expression =  
+	  if CTypeEq::eqCType (ctype, (expression2ctype expression)) then expression
+	  else coreExpression2expression ctype (Cast (ctype, expression))
+
+      fun decl id = 
+	  let ctype = id2ctype id
+	  in VarDecl (id, NULL) end
+
+      fun compound decls stmts = 
+	  let fun filter [] = ([],[])
+		| filter (statement . stmts) =
+		  let my (decls, stmts) = filter stmts
+		  in case statement
+		       of STMT (Compound (cmpDecls, cmpStmts), _, _) => (cmpDecls@decls, cmpStmts@stmts)
+		        | STMT (Expr NULL, _, _) => (decls, stmts)
+		        | _ => (decls, statement . stmts)
+		  end
+	      my (decls', stmts') = filter stmts
+	  in Compound (decls@decls', stmts') end
+
+      fun noEffect (EXPR (coreExpr, _, _)) = 
+	  case coreExpr
+	    of IntConst _ => TRUE
+	     | RealConst _ => TRUE
+	     | StringConst _ => TRUE
+	     | Id _ => TRUE
+	     | _ => FALSE
+
+      fun stmts2stmt [] [statement] = statement
+	| stmts2stmt decls stmts = STMT (compound decls stmts, Aid::new (),
+					 source_map::UNKNOWN)
+
+      intCt = raw_syntax::Numeric (raw_syntax::NONSATURATE, raw_syntax::WHOLENUM, raw_syntax::SIGNED, raw_syntax::INT, raw_syntax::SIGNASSUMED)
+
+      charCt = raw_syntax::Numeric (raw_syntax::NONSATURATE, raw_syntax::WHOLENUM, raw_syntax::UNSIGNED, raw_syntax::CHAR, raw_syntax::SIGNASSUMED)
+
+      fun mkInt i = coreExpression2expression intCt (IntConst (i: large_int::Int))
+
+      fun mkChr c = coreExpression2expression charCt (IntConst (int32::from_int (ord c)))
+
+      fun simplifyExtDecls edecls =
+	      map simplifyExtDecl edecls
+
+      and simplifyExtDecl (DECL (coreExtDecl, aid, loc)) =
+	  DECL (simplifyCoreExtDecl coreExtDecl, aid, loc)
+
+      and simplifyCoreExtDecl coreExtDecl =
+	  case coreExtDecl
+	    of ExternalDecl decl => ExternalDecl decl
+	     | FunctionDef (id, ids, statement) =>
+		 (case simplifyStmt (NULL, NULL) statement
+	            of { decs=[], stmts=[statement] } => FunctionDef (id, ids, statement)
+	             | { decs, stmts } =>
+			  FunctionDef (id, ids, coreStmt2stmt (compound decs stmts)))
+	     | ExternalDeclExt ext => 
+		 SimplifyRawSyntaxTreeExt::simplifyExtDeclExt
+		   (tidtab, aidtab, opaidtab)
+		   (simplifyNestedExpression, simplifyStmt (NULL, NULL))
+		   ext
+
+      and simplify_declarations [] = { decs=[], stmts=[] }
+	| simplify_declarations (decl . decls) =
+	    let my { decs=decs0, stmts=stmts0 } = simplify_declaration decl
+		my { decs=decs1, stmts=stmts1 } = simplify_declarations decls
+	    in { decs=decs0@decs1, stmts=stmts0@stmts1 } end
+
+      and simplify_declaration decl =
+	  case decl
+            of TypeDecl tid => { decs=[decl], stmts=[] }
+	     | VarDecl (id, NULL) => { decs=[decl], stmts=[] }
+	     | VarDecl (id, THE initExpr) =>
+	       if isStaticOrGlobal id
+		   then { decs=[VarDecl (id, THE initExpr)], stmts=[] }
+	       else let ctype = id2ctype id
+			declaration = VarDecl (id, NULL)
+			my { decs, stmts } = simplifyAutoInit (mkId id) ctype initExpr
+		    in { decs=decs@[declaration], stmts=stmts } end
+
+    and simplifyStmts pair [] = { decs=[], stmts=[] }
+      | simplifyStmts pair (statement . stmts) =
+ 	  let my { decs=decs0, stmts=stmts0 } = simplifyStmt pair statement
+ 	      my { decs=decs1, stmts=stmts1 } = simplifyStmts pair stmts
+ 	  in { decs=decs0@decs1, stmts=stmts0@stmts1 } end
+
+
+      and simplifyStmt (pair as (contOpt, brkOpt))
+	               (statement as STMT (coreStmt, aid, loc)) =
+	let fun mkStmt coreStmt = STMT (coreStmt, aid, loc)
+	    fun cs2stmt coreStmt = STMT (coreStmt, Aid::new (), loc)
+	in case coreStmt
+	    of Expr expOpt => 
+		 let my { decs, pre, expOpt } = simplifyTopExpOpt expOpt
+		     statement = mkStmt (Expr expOpt)
+		 in { decs=decs, stmts=pre@[statement] } end
+ 	     | Compound (decls, stmts) => 
+		 let my { decs=decs0, stmts=stmts0 } = simplify_declarations decls
+		     my { decs=decs1, stmts=stmts1 } = simplifyStmts pair stmts
+		 in { decs=decs0@decs1, stmts=[mkStmt (compound [] (stmts0@stmts1))] } end
+
+	     # The translation of while minimizes the number of jumps
+             # in the body of the loop.
+	     #
+	     #  while (expression, statement) => 
+             #                    goto startLabel
+	     #          topLabel: statement
+	     #   start&contLabel: preExpression
+	     #                    if expression then goto topLabel
+	     #          brkLabel:
+	     #
+             # NOTE: the brk label is added only if is used.
+
+	     | While (expression, statement) =>
+		 let topLab = newLabel "whileTop"
+		     contLab = newLabel "whileCont"
+		     brkLab = newLabel "whileBrk"
+		     contUsed = REF TRUE
+		     brkUsed = REF FALSE
+		     pair = (THE (contUsed, contLab), THE (brkUsed, brkLab))
+		     my { decs=expDecs, pre=preExpression, expression=exp } = simplifyTopExpression expression
+		     my { decs=bodyDecs, stmts } = simplifyStmt pair statement
+		     stmts =   [cs2stmt (Goto contLab),
+				    label topLab
+				   ]
+				 @ stmts
+				 @ [label contLab]
+				 @ preExpression
+				 @ [mkStmt (IfThen (expression, cs2stmt (Goto topLab)))]
+				 @ (if *brkUsed then [label brkLab] else [])
+		 in { decs=expDecs@bodyDecs, stmts=stmts } end
+
+	     # The translation of do minimizes the number of jumps
+             # in the body of the loop.
+	     #
+	     #  do (expression, statement) => 
+	     #    topLabel:  statement
+	     #   contLabel:  preExpression
+	     #               if expression then goto topLabel
+	     #    brkLabel:
+	     #
+             # NOTE: fate and brk labels are added only if they are used.
+
+	     | Do (expression, statement) => 
+		 let topLab = newLabel "doTop"
+		     contLab = newLabel "doCont"
+		     brkLab = newLabel "doBrk"
+		     contUsed = REF FALSE
+		     brkUsed = REF FALSE
+		     pair = (THE (contUsed, contLab), THE (brkUsed, brkLab))
+		     my { decs=expDecs, pre=preExpression, expression } = simplifyTopExpression expression
+		     my { decs=bodyDecs, stmts } = simplifyStmt pair statement
+		     stmts =   [label topLab]
+				 @ stmts
+				 @ (if *contUsed then [label contLab] else [])
+				 @ preExpression
+				 @ [mkStmt (IfThen (expression, mkStmt (Goto topLab)))]
+				 @ (if *brkUsed then [label brkLab] else [])
+		 in { decs=expDecs@bodyDecs, stmts=stmts } end
+
+	     # The translation of for minimizes the number of jumps
+             # in the body of the loop.
+	     #
+	     #  for (e0, e1, e2, statement) => 
+	     #                    preE0
+             #                    e0
+             #                    goto startLabel
+	     #          topLabel: statement
+             #         contLabel: preE2
+	     #                    e2
+	     #        startLabel: preE1
+	     #                    if e1 then goto topLabel
+	     #          brkLabel:
+	     #
+             # NOTE: fate and brk labels are added only if they are used.
+
+	     | For (eOpt0, eOpt1, eOpt2, statement) => 
+		 let topLab = newLabel "forTop"
+		     startLab = newLabel "forStart"
+		     contLab = newLabel "forCont"
+		     brkLab = newLabel "forBrk"
+		     contUsed = REF FALSE
+		     brkUsed = REF FALSE
+		     pair = (THE (contUsed, contLab), THE (brkUsed, brkLab))
+		     my { decs=e0Decs, pre=preE0, expOpt=eOpt0 } = simplifyTopExpOpt eOpt0
+		     my { decs=e1Decs, pre=preE1, expOpt=eOpt1 } = simplifyTopExpOpt eOpt1
+		     my { decs=e2Decs, pre=preE2, expOpt=eOpt2 } = simplifyTopExpOpt eOpt2
+		     my { decs=bodyDecs, stmts } = simplifyStmt pair statement
+		     fun expOpt2stmt NULL = []
+		       | expOpt2stmt (THE expression) = 
+			 if noEffect expression then [] else [expression2stmt expression]
+
+		     stmts =   preE0
+				 @ expOpt2stmt eOpt0
+				 @ [cs2stmt (Goto startLab),
+				    label topLab
+				   ]
+				 @ stmts
+				 @ (if *contUsed then [label contLab] else [])
+				 @ preE2
+				 @ expOpt2stmt eOpt2
+				 @ [label startLab]
+				 @ preE1
+				 @ (case eOpt1 
+				      of THE e1 => [mkStmt (IfThen (e1, cs2stmt (Goto topLab)))]
+				       | NULL => [])
+				 @ (if *brkUsed then [label brkLab] else [])
+		 in { decs=e0Decs@e1Decs@e2Decs@bodyDecs, stmts=stmts } end
+	     | Labeled (label, statement) =>
+		 let my { decs, stmts } = simplifyStmt pair statement
+		     statement = mkStmt (Labeled (label, cs2stmt (Expr NULL)))
+		 in { decs=decs, stmts=statement . stmts } end
+	     | CaseLabel (li, statement) =>
+		 let my { decs, stmts } = simplifyStmt pair statement
+		 in { decs=decs, stmts=[mkStmt (CaseLabel (li, stmts2stmt [] stmts))] }
+		 end
+	     | DefaultLabel statement => 
+		 let my { decs, stmts } = simplifyStmt pair statement
+		 in { decs=decs, stmts=[mkStmt (DefaultLabel (stmts2stmt [] stmts))] }
+		 end
+	     | Goto label => { decs=[], stmts=[mkStmt (Goto label)] }
+	     | Break =>
+		 (case brkOpt
+		    of NULL => fail "invalid context for break"
+		     | THE (brkUsed, label) =>
+			 ( brkUsed := TRUE
+			 ; { decs=[], stmts=[mkStmt (Goto label)] }
+			 ))
+	     | Continue =>
+		 (case contOpt
+		    of NULL => fail "invalid context for continue"
+		     | THE (contUsed, label) =>
+			(contUsed := TRUE;
+			 { decs=[], stmts=[mkStmt (Goto label)] } ))
+	     | Return expOpt =>
+		 let my { decs, pre, expOpt } = simplifyTopExpOpt expOpt
+		 in { decs=decs, stmts=pre@[mkStmt (Return expOpt)] }
+		 end
+	     | IfThen (expression, statement) => 
+		 let my { decs=decs0, pre, expression } = simplifyTopExpression expression
+		     my { decs=decs1, stmts } = simplifyStmt pair statement
+		     stmts = pre@[mkStmt (IfThen (expression, stmts2stmt [] stmts))]
+		  in { decs=decs0@decs1, stmts=stmts }
+		 end
+	     | IfThenElse (expression, stmt0, stmt1) =>
+		 let my { decs, pre, expression } = simplifyTopExpression expression
+		     my { decs=decs0, stmts=stmts0 } = simplifyStmt pair stmt0
+		     my { decs=decs1, stmts=stmts1 } = simplifyStmt pair stmt1
+		     stmts =
+			 pre@[mkStmt (IfThenElse (expression, stmts2stmt [] stmts0,
+						stmts2stmt [] stmts1))]
+		 in { decs=decs@decs0@decs1, stmts=stmts } end
+	     | Switch (expression, statement) =>
+		 let my { decs=decs0, pre, expression } = simplifyTopExpression expression
+		     brkLab = newLabel "switchBrk"
+		     brkUsed = REF FALSE
+		     my { decs=decs1, stmts } =
+			 simplifyStmt (contOpt, THE (brkUsed, brkLab)) statement
+		     stmts =  pre
+				@ [mkStmt (Switch (expression, stmts2stmt [] stmts))]
+				@ (if *brkUsed then [label brkLab] else [])
+		  in { decs=decs0@decs1, stmts=stmts }
+		 end
+	     | ErrorStmt => { decs=NIL, stmts=[mkStmt ErrorStmt] }
+	     | StatExt ext => 
+		 let my { decs, coreStmt } =
+		         SimplifyRawSyntaxTreeExt::simplifyStmtExt 
+			   (tidtab, aidtab, opaidtab) 
+			   (simplifyNestedExpression, simplifyStmt (NULL, NULL))
+			   ext
+		  in { decs=decs, stmts=[mkStmt coreStmt] }
+		 end
+	end 
+
+
+      and simplifyAutoInit lhs ctype initExpression =
+	  case initExpression
+	    of (Aggregate initExps) => 
+		let my { stmts } = autoInit lhs ctype initExpression
+		in { decs=[], stmts=stmts } end
+	     | (Simple expression) => 
+		  let my { decs, pre, expression } = simplifyTopExpression expression
+		      statement = coreExpression2stmt ctype (Assign (lhs, expression))
+		  in { decs=decs, stmts=pre@[statement] } end
+
+      and autoInit lhs ctype initExpression =
+	  let fun feed initer (Aggregate initExps) = initer initExps
+		| feed initer _ = fail "bad form for initializer"
+
+	      fun arrInit lhs ctype i [] = { stmts=[] }
+		| arrInit lhs ctype i (initExpression . initExps) =
+		  let intConst = mkInt i
+		      arrLhs = coreExpression2expression ctype (Sub (lhs, intConst))
+		      my { stmts } = autoInit arrLhs ctype initExpression
+		      my { stmts=stmts'} = arrInit lhs ctype (i+1) initExps
+		  in { stmts=stmts@stmts'} end
+
+	      fun structInit lhs [] [] = { stmts=[] }
+		| structInit lhs [] initExps = fail "initializer too big"
+		| structInit lhs fields [] = fail "initializer too small"
+		| structInit lhs ((ctype, NULL, liOpt) . fields) initExps = 
+		  /* according to the standard, unnamed fields don't
+		   * get initialized.
+		   */
+		  structInit lhs fields initExps
+		| structInit lhs ((ctype, THE mem, liOpt) . fields) (initExpression . initExps) = 
+		  let memLhs = coreExpression2expression ctype (Member (lhs, mem))
+		      my { stmts } = autoInit memLhs ctype initExpression
+		      my { stmts=stmts'} = structInit lhs fields initExps
+		  in { stmts=stmts@stmts'} end
+
+	      fun unionInit lhs [] initExps = { stmts=[] }
+		| unionInit lhs ((ctype, mem) . _) ([initExpression]) =
+		  let lhs = coreExpression2expression ctype (Member (lhs, mem))
+		  in autoInit lhs ctype initExpression end
+		| unionInit lhs fields expression = fail "bad form for union"
+
+	      fun scalarInit lhs ctype (Simple expression) = 
+		  { stmts=[coreExpression2stmt ctype (Assign (lhs, expression))] }
+		| scalarInit lhs ctype _ = 
+		  fail "bad form for initializer"
+		  
+	  in case ctype 
+	       of raw_syntax::Qual (_, ctype) => autoInit lhs ctype initExpression
+	        | raw_syntax::TypeRef tid => 
+		    (case getTid tid 
+		       of { ntype=THE (Namings::Typedef (tid, ctype)), ... } => 
+			   autoInit lhs ctype initExpression
+		        | _ => fail "bad type for initializer")
+		| raw_syntax::Array (_, ctype) => feed (arrInit lhs ctype 0) initExpression
+		| raw_syntax::StructRef tid => 
+		    (case getTid tid 
+		       of { ntype=THE (Namings::Struct (tid, fields)), ... } =>
+			   feed (structInit lhs fields) initExpression
+			| _ => fail "bad type for initializer")
+		| raw_syntax::UnionRef tid => 
+		    (case getTid tid 
+		       of { ntype=THE (Namings::Union (tid, fields)), ... } =>
+			   feed (unionInit lhs fields) initExpression
+			| _ => fail "bad type for initializer")
+		| raw_syntax::Numeric _ => scalarInit lhs ctype initExpression
+		| raw_syntax::Pointer _ => scalarInit lhs ctype initExpression
+		| raw_syntax::Function _ => scalarInit lhs ctype initExpression
+		| raw_syntax::EnumRef _ => scalarInit lhs ctype initExpression
+		| _ => fail "bad type for initializer"
+	  end
+
+      and simplifyExps [] = { decs=[], pre=[], exps=[] }
+	| simplifyExps (expression . exps) =
+	  let my { decs, pre, expression } = simplify_expression { nested=TRUE } expression
+	      my { decs=decs', pre=pre', exps } = simplifyExps exps
+	  in { decs=decs@decs', pre=pre@pre', exps=expression . exps } end
+
+      and simplifyNestedExpression expression = simplify_expression { nested=TRUE } expression
+
+      and simplifyTopExpression expression = simplify_expression { nested=FALSE } expression
+
+      and simplifyTopExpOpt NULL = { decs=[], pre=[], expOpt=NULL }
+	| simplifyTopExpOpt (THE expression) =
+	  let my { decs, pre, expression } = simplifyTopExpression expression
+	  in { decs=decs, pre=pre, expOpt=THE expression } end
+
+
+      and simplify_expression { nested } (expression as EXPR (coreExpression, aid, loc)) =
+	let fun mkExpression coreExpression = EXPR (coreExpression, aid, loc)
+	    ctype = aid2ctype aid
+	in case coreExpression
+	     of IntConst _ => { decs=[], pre=[], expression=exp }
+	      | RealConst _ => { decs=[], pre=[], expression=exp }
+	      | StringConst _ => { decs=[], pre=[], expression=exp }
+	      | Call (expression, exps) =>
+		  let my { decs=decs0, pre=pre0, expression } = simplifyNestedExpression expression
+		      my { decs=decs1, pre=pre1, exps } = simplifyExps exps
+		      callExpression = mkExpression (Call (expression, exps))
+		  in if nested
+			 then let id = newId "call" ctype
+				  declaration = decl id
+				  statement = assign id callExpression
+				  expression = mkId id
+			      in { decs=declaration . decs0@decs1, pre=pre0@pre1@[statement], expression=exp } end
+		     else { decs=decs0@decs1, pre=pre0@pre1, expression=callExpression }
+		  end 
+	      | QuestionColon (expression0, expression1, expression2) =>
+		  let id = newId "quesCol" ctype
+		      declaration = decl id
+		      my { decs=decs0, pre=pre0, expression=exp0 } = simplifyNestedExpression expression0
+		      my { decs=decs1, pre=pre1, expression=exp1 } = simplifyTopExpression expression1
+		      my { decs=decs2, pre=pre2, expression=exp2 } = simplifyTopExpression expression2
+		      statement = coreStmt2stmt
+			             (IfThenElse
+			               ( expression0,
+				         stmts2stmt decs1 (pre1@[assign id expression1]),
+				         stmts2stmt decs2 (pre2@[assign id expression2])
+				       )
+				     )
+		      expression = mkId id
+		  in { decs=declaration . decs0, pre=pre0@[statement], expression=exp } end
+	      | Assign (expression0, expression1) =>
+		  let my { decs=decs0, pre=pre0, expression=exp0 } = simplifyNestedExpression expression0
+		      my { decs=decs1, pre=pre1, expression=exp1 } = simplifyNestedExpression expression1
+		      expression = mkExpression (Assign (expression0, expression1))
+		  in if nested
+			 then { decs=decs0@decs1, pre=pre0@pre1@[expression2stmt expression], expression=exp0 }
+		     else { decs=decs0@decs1, pre=pre0@pre1, expression=exp }
+		  end
+	      | Comma (expression0, expression1) =>
+		  let my { decs=decs0, pre=pre0, expression=exp0 } = simplifyNestedExpression expression0
+		      my { decs=decs1, pre=pre1, expression=exp1 } = simplifyNestedExpression expression1
+		      pre = if noEffect expression0 then pre0@pre1 else pre0@[expression2stmt expression0]@pre1
+		  in { decs=decs0@decs1, pre=pre, expression=exp1 } end
+	      | Sub (expression0, expression1) =>
+		  let my { decs=decs0, pre=pre0, expression=exp0 } = simplifyNestedExpression expression0
+		      my { decs=decs1, pre=pre1, expression=exp1 } = simplifyNestedExpression expression1
+		      expression = mkExpression (Sub (expression0, expression1))
+		  in { decs=decs0@decs1, pre=pre0@pre1, expression=exp } end
+	      | Member (expression, mem) =>
+		  let my { decs, pre, expression } = simplifyNestedExpression expression
+		      expression = mkExpression (Member (expression, mem))
+		  in { decs=decs, pre=pre, expression=exp } end
+	      | Arrow (expression, mem) =>
+		  (case expression2ctype expression
+		     of raw_syntax::Pointer ctype =>
+			  let my { decs, pre, expression } = simplifyNestedExpression expression
+			      expression = coreExpression2expression ctype (Deref expression)
+			      expression = mkExpression (Member (expression, mem))
+			  in { decs=decs, pre=pre, expression=exp } end
+		      | _ => fail "Arrow: type error")
+	      | Deref expression =>
+		  let my { decs, pre, expression } = simplifyNestedExpression expression
+		      expression = mkExpression (Deref expression)
+		  in { decs=decs, pre=pre, expression=exp } end
+/***
+	      | AddrOf expression => 
+		    let my { decs, pre, expression } = simplifyNestedExpression expression
+			expression = mkExpression (AddrOf expression)
+		    in (escapes expression; { decs=decs, pre=pre, expression=exp } ) end
+***/
+
+              # Notes on addrOf:
+	      #    s: effect of simplifyNestedExpression
+              #    a: effect of adrf
+              # 1. x =s=> x =a=> &x
+              # 2. x->field =s=> *(x+k) =a=> x+k  where k is offset of field
+              # 3. x::field =s=> *((&x)+k) =a=> &x+k where k is offset of field
+              # 4. e[i] =s=> *(e+i*k) =a=> e+i*k  where k is scaling for ( *e)
+              # 5. x[i] =s=> *(&x+i*k)
+              
+	      | AddrOf expression => 
+		    let
+		      my { decs, pre, expression } = simplifyNestedExpression expression
+		      fun adrf (expr as EXPR (coreExpr, aid, loc)) =
+			(case coreExpr of
+			   Id { uid=pid, ... } =>
+			     (addEscape pid;
+			      expression=EXPR (AddrOf expr, aid, loc))
+			 | Member (memExpr, field) =>
+			     let expr = adrf (memExpr)
+			       ctype = expression2ctype (memExpr)
+			       fun nullErr _ = ()
+			       errs = { err=nullErr, warn=nullErr, bug=nullErr } 
+			       fieldOffs = Sizeof::fieldOffsets errs tidtab ctype
+			       byteOffset = .bitOffset (Sizeof::getField errs (field, fieldOffs))
+			     in
+				EXPR (Binop (Plus (expression, byteOffset)), aid, loc)
+			     end
+			 | Deref expr => expr
+			 | (Sub _ | Arrow _) => fail "simplifyNestedExpression returned Sub or Arrow")
+#  x[4] -> *(x+16) -> x+16 
+		    in
+		      { decs=decs, pre=pre, expression=adrf expression }
+		    end
+
+		    let my { decs, pre, expression } = simplifyNestedExpression expression
+			expression = mkExpression (AddrOf expression)
+		    in (escapes expression; { decs=decs, pre=pre, expression=exp } ) end
+
+	      | Binop trip =>
+		  simplifyBinop mkExpression { nested=nested } ctype trip
+	      | Unop pair => 
+		  let my { decs, pre, coreExpression } = simplifyUnop { nested=nested } ctype pair
+		  in { decs=decs, pre=pre, expression=mkExpression coreExpression } end
+	      | Cast (ctype, expression) =>
+		    let my { decs, pre, expression } = simplifyNestedExpression expression
+		    in
+		      { decs=decs, pre=pre, expression= mkExpression (Cast (ctype, expression)) }
+		    end
+	      | Id _ => { decs=[], pre=[], expression=exp }
+	      | EnumId _ => { decs=[], pre=[], expression=exp }
+              | SizeOf _ => { decs=[], pre=[], expression=exp }  #  should not appear in compiler mode 
+	      | ExprExt ext => 
+		  let my { decs, pre, coreExpression } =
+		             SimplifyRawSyntaxTreeExt::simplifyExpExt 
+			         (tidtab, aidtab, opaidtab) 
+				 (simplifyNestedExpression, simplifyStmt (NULL, NULL))
+				 ext
+		  in { decs=decs, pre=pre, expression=mkExpression coreExpression }
+		  end
+	      | ErrorExpr => { decs=[], pre=[], expression=exp }
+	end
+
+      and scale ctype i = 
+	  case ctype
+	    of raw_syntax::Qual (_, ctype) => scale ctype i
+	     | raw_syntax::Pointer ctype => let my { bytes, ... } = sizeOf tidtab ctype
+			        in large_int::from_int (bytes * i) end 
+	     | _ => large_int::from_int i
+
+      and simplifyUnop { nested } ctype (unop, expression as EXPR (_, aid, _)) = 
+	  let my { decs, pre, expression } = simplifyNestedExpression expression
+	      fun mkUnop unop = { decs=decs, pre=pre, coreExpression=Unop (unop, expression) }
+	      fun mkAssign { prefixOp } binop =
+		  /* opArgType is type to which arg is converted
+		     e::g. e++ where e has type ctype and opArgType newType
+		     becomes e = (ctype)( (newType)e + (newType)1 )
+                     and if ctype is a pointer, then 1 gets scaled by sizeof( *ctype )
+		   */
+		  let id = newId (if prefixOp then "pref" else "post") ctype
+		      declaration = decl id
+		      newType = getOpAid aid
+		      argExpression = cast newType expression
+		      one = cast newType
+			          (coreExpression2expression intCt (IntConst (scale ctype 1)))
+		      binExpression = coreExpression2expression newType (Binop (binop, argExpression, one))
+		      incrStmt = coreExpression2stmt ctype
+			               (Assign (copyExpression expression, cast ctype binExpression))
+		      assignStmt = 
+			  coreExpression2stmt ctype (Assign (mkId id, copyExpression expression))
+		      pre = if prefixOp then pre@[incrStmt, assignStmt] 
+				else pre@[assignStmt, incrStmt]
+		  in { decs=declaration . decs, pre=pre, coreExpression=Id id }
+		  end
+	  in case unop
+	    /* the ++, --, cases are no longer dealt with in here;
+               there is now code in build-ast (which is
+               enabled when insert_explicit_coersions is set)
+               that simplifies ++ and -- */
+	       of PreInc  => mkAssign { prefixOp=TRUE } Plus
+	        | PreDec  => mkAssign { prefixOp=TRUE } Minus
+		| PostInc => mkAssign { prefixOp=FALSE } Plus
+		| PostDec => mkAssign { prefixOp=FALSE } Minus
+		| _ => mkUnop unop
+	  end
+	  
+      and simplifyBinop mkExpression { nested } ctype (binop, expression0 as EXPR (_, aid, _), expression1) = 
+	  let my { decs=decs0, pre=pre0, expression=exp0 } = simplifyNestedExpression expression0
+	      my { decs=decs1, pre=pre1, expression=exp1 } = simplifyNestedExpression expression1
+	      decs = decs0@decs1
+	      pre = pre0@pre1
+	      fun mkBinop binop =
+		  { decs=decs, pre=pre, expression=mkExpression (Binop (binop, expression0, expression1)) }
+	      fun mkAssign binop =
+		  # for e0 += e1, e0 -= e1 and their friends, opArgType specifies
+		  # the type that e0 must be converted to
+		  # e::g. e0 += e1 becomes e0 = (ctype (e0)) ( (opArgType e0) + e1 )
+
+		  let opArgType = getOpAid aid
+		      binExpression = coreExpression2expression opArgType
+			             (Binop (binop, cast opArgType expression0, expression1))
+		      assign = mkExpression (Assign (copyExpression expression0, cast ctype binExpression))
+		  in if nested
+		     then { decs=decs, pre=pre@[expression2stmt assign], expression=copyExpression expression0 }
+		     else { decs=decs, pre=pre, expression=assign }
+		  end 
+	  in case binop
+	    /* the +=, -=, etc., cases are no longer dealt with in here;
+               there is now code in build-ast (which is
+               enabled when insert_explicit_coersions is set)
+               that simplifies +=, -=, ... */
+	       of PlusAssign   => mkAssign Plus
+	        | MinusAssign  => mkAssign Minus
+		| TimesAssign  => mkAssign Times
+		| DivAssign    => mkAssign Divide
+		| ModAssign    => mkAssign Mod
+		| XorAssign    => mkAssign BitXor
+		| OrAssign     => mkAssign Or
+		| AndAssign    => mkAssign And
+		| LshiftAssign => mkAssign Lshift
+		| RshiftAssign => mkAssign Rshift
+		| _ => mkBinop binop
+	  end
+    in { raw_syntax_tree=simplifyExtDecls edecls, escapetab = esctab }
+    end
+end
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 1998 by Lucent Technologies 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

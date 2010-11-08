@@ -1,0 +1,704 @@
+## sparc-c-calls.pkg
+## author: Matthias Blume (blume@reseach.bell-labs.com)
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/sparc.make6
+
+
+
+
+# Comment: This is a first cut.  It might be quite sub-optimal for some cases.
+#          (For example, I make no attempt at using ldd/ldx for
+#           copying stuff around because this would require keeping
+#           more track of alignment issues.)
+#
+# C function calls for the Sparc
+#
+# Register conventions:
+#
+# ?
+#
+# Calling convention:
+#
+#    Return result:
+#	+ Integer and pointer results are returned in %o0
+#	+ 64-bit integers (long long) returned in %o1/%o1
+#	+ float results are returned in %f0; double in %f0/%f1
+#	+ Struct results are returned in space provided by the caller.
+#	  The address of this space is passed to the callee as a hidden
+#	  implicit argument on the stack (in the caller's frame).  It
+#        gets stored at [%sp+64] (from the caller's point of view).
+#        An UNIMP instruction must be placed after the call instruction,
+#        indicating how much space has been reserved for the return value.
+#      + long double results are returned like structs
+#
+#    Function arguments:
+#      + Arguments that are smaller than a word are promoted to word-size.
+#      + Up to six argument words (words 0-5) are passed in registers
+#        %o0...%o5.  This includes doubles and long longs.  Alignment for
+#        those types is NOT maintained, i.e., it is possible for an 8-byte
+#        quantity to end up in an odd-even register pair.
+#      * Arguments beyond 6 words are passed on the stack in the caller's
+#        frame.  For this, the caller must reserve space in its frame
+#        prior to the call.  Argument word 6 appears at [%sp+92], word 7
+#        at [%sp+96], ...
+#	+ struct arguments are passed as pointers to a copy of the struct.
+#        The copy itself is allocated by the caller in its stack frame.
+#      + long double arguments are passed like structs (i.e., via pointer
+#        to temp copy)
+#      + Space for argument words 0-5 is already allocated in the
+#        caller's frame.  This space might be used by the callee to
+#        save those arguments that must be addressable.  %o0 corresponds
+#        to [%sp+68], %o1 to [%sp+72], ...
+
+
+
+###               "But mathematics is the sister,
+###                as well as the servant, of the arts
+###                and is touched by the same madness and genius."
+###
+###                                    -- Marston Morse 
+
+
+
+# We get invoked from:
+#
+#     src/lib/compiler/codegen/sun/sparc-codegen.pkg
+
+generic package sparc_ccalls_g (
+
+    package codetree:  Codetree;					# Codetree		is from   src/lib/compiler/backend/lower/codetree/codetree.api
+
+    ix:  sparc_instr_ext::Sext (codetree::Statement, codetree::Int_Expression, codetree::Float_Expression, codetree::Bool_Expression)
+	 ->
+         codetree::Sext;
+)
+
+: (weak) Ansi_C_Calls							# Ansi_C_Calls		is from   src/lib/compiler/backend/lower/c-calls/c-calls.api
+
+{
+    package codetree = codetree;
+    package ctypes   = ctypes;
+
+    package c        = sparc_cells;					# sparc_cells		is from   src/lib/compiler/backend/lower/sun/instruction/sparc-cells.pkg
+    package ix       = sparc_instr_ext;					# sparc_instr_ext	is from   src/lib/compiler/backend/lower/sun/instruction/sparcinstr-ext.pkg
+    package t	     = codetree;
+
+    fun error msg = lowcode_error_message::error ("SparcCompCCalls", msg);
+
+    Ckit_Arg
+      =	ARG   t::Int_Expression	    
+      | FARG  t::Float_Expression
+      | ARGS  List( Ckit_Arg );
+
+    mem   = t::region::memory;
+    stack = t::region::memory;
+
+    max_reg_args = 6;
+    param_area_offset = 68;
+
+    fun li i
+        =
+        t::LITERAL (t::machine_int::from_int (32, i));
+
+    gp' = c::gpreg;
+    fp' = c::fpreg;
+
+    fun greg r =   gp' r;
+    fun oreg r =   gp' (r + 8);
+    fun ireg r =   gp' (r + 24);
+    fun freg r =   fp' r;
+
+    fun reg32  r =   t::REG (32, r);
+    fun freg64 r =   t::FREG (64, r);
+
+    sp = oreg 6;
+    spreg = reg32 sp;
+
+    fun addli (x, 0)
+            =>
+            x;
+
+	addli (x, d)
+	    =>
+	    {   d' = t::machine_int::from_int (32, d);
+
+		case x
+		  
+		    t::ADD (_, r, t::LITERAL d)
+			=>
+		        t::ADD (32, r, t::LITERAL (t::machine_int::add (32, d, d')));
+
+		    _ => t::ADD (32, x, t::LITERAL d');
+		esac;
+	    };
+    end;
+
+    fun argaddr n
+        =
+        addli (spreg, param_area_offset + 4*n);
+
+    tmpaddr = argaddr 1;		# temp location for transfers through memory 
+
+    fun roundup (i, a)
+        =
+        a * ((i + a - 1) / a);
+
+    #  Calculate size and alignment for a C type 
+    #
+    fun szal (ctypes::C_VOID | ctypes::C_FLOAT | ctypes::C_PTR |
+	      ctypes::C_SIGNED (ctypes::I_INT | ctypes::I_LONG) |
+	      ctypes::C_UNSIGNED (ctypes::I_INT | ctypes::I_LONG)) => (4, 4);
+	szal (ctypes::C_DOUBLE |
+	       ctypes::C_SIGNED ctypes::I_LONG_LONG |
+	       ctypes::C_UNSIGNED ctypes::I_LONG_LONG) => (8, 8);
+	szal (ctypes::C_LONG_DOUBLE) => (16, 8);
+	szal (ctypes::C_SIGNED ctypes::I_CHAR | ctypes::C_UNSIGNED ctypes::I_CHAR) => (1, 1);
+	szal (ctypes::C_SIGNED ctypes::I_SHORT | ctypes::C_UNSIGNED ctypes::I_SHORT) => (2, 2);
+	szal (ctypes::C_ARRAY (t, n)) => { my (s, a) = szal t;  (n * s, a); };
+
+	szal (ctypes::C_STRUCT l)
+            =>
+	    pack (0, 1, l)
+	    where 
+
+		# i: next free memory address (relative to struct start);
+		# a: current total alignment,
+		# l: List of struct member types */
+
+		fun pack (i, a, [])
+			=>
+			# When we are done with all elements, the total size
+			# of the struct must be padded out to its own alignment
+			(roundup (i, a), a);
+
+		    pack (i, a, t ! tl)
+                        =>
+                        {   my (ts, ta)
+                                =
+                                szal t;		#  size and alignment for member 
+
+			    # member must be aligned according to its own
+			    # alignment requirement; the next free position
+			    # is then at "aligned member-address plus member-size";
+			    # new total alignment is max of current alignment
+			    # and member alignment (assuming all alignments are
+			    # powers of 2)
+
+			    pack (roundup (i, ta) + ts, int::max (a, ta), tl);
+		        };
+                end;
+
+	    end;
+
+	szal (ctypes::C_UNION l)
+	    =>
+	    overlay (0, 1, l)
+            where 
+
+	        # m: current max size
+		# a: current total alignment
+
+		fun overlay (m, a, [])
+                        =>
+                        (roundup (m, a), a);
+
+		    overlay (m, a, t ! tl)
+			=>
+			{   my (ts, ta) = szal t;
+
+			    overlay (int::max (m, ts), int::max (a, ta), tl);
+			};
+                end;
+	    end;
+    end;
+
+# *** START NEW CODE ***
+
+  #  shorts and chars are promoted to 32-bits 
+    natural_int_size = 32;
+
+  # the location of arguments/parameters; offsets are given with respect to the
+  # low end of the parameter area (see paramAreaOffset above).
+
+     Arg_Location
+      = REG   (t::Some_Type, t::Reg, Null_Or( t::machine_int::Machine_Int ))	#  integer/pointer argument in register 
+      | FREG  (t::Fty, t::Reg, Null_Or( t::machine_int::Machine_Int ))  		#  floating-point argument in register 
+      | STK   (t::Some_Type, t::machine_int::Machine_Int)				#  integer/pointer argument in parameter area 
+      | FSTK  (t::Fty, t::machine_int::Machine_Int)				#  floating-point argument in parameter area 
+      | ARG_LOCS  List( Arg_Location );
+
+    fun layout { calling_convention, return_type, parameter_types }
+        =
+	raise exception FAIL "layout not implemented yet";
+
+
+    #  C callee-save registers 
+    callee_save_regs = #  %l0-%l7 and %i0-%i7 
+	  list::tabulate (16, fn r => gp' (r+16); end );
+    callee_save_fregs = [];
+
+# *** END NEW CODE ***
+
+    fun gen_call
+        { name,
+          fn_prototype,
+          param_alloc,
+          struct_ret,
+          save_restore_dedicated,
+	  call_comment,
+          args
+        }
+        = 
+        {
+	    fn_prototype
+                ->
+                { calling_convention, return_type, parameter_types };
+
+	    case calling_convention
+			   ("" | "unix_convention") => ();
+		       _ => error (cat ["unknown calling convention \"",
+					    string::to_string calling_convention, "\""]);
+            esac;
+
+	    res_szal
+		=
+		case return_type
+
+		    (ctypes::C_LONG_DOUBLE | ctypes::C_STRUCT _ | ctypes::C_UNION _)
+			=>
+			THE (szal return_type);
+
+		    _ => NULL;
+		esac;
+
+	    nargwords
+		=
+		loop (parameter_types, 0)
+		where 
+
+		    fun loop ([], n)
+			    =>
+			    n;
+
+			loop (t ! tl, n)
+			    =>
+			    loop (   tl,
+
+				     case t
+
+					 ( ctypes::C_DOUBLE
+					 | ctypes::C_SIGNED   ctypes::I_LONG_LONG
+					 | ctypes::C_UNSIGNED ctypes::I_LONG_LONG
+					 )  => 2;
+					  _ => 1;
+				     esac
+				     + n
+			  );
+		    end;
+		end;
+
+	    regargwords   =   int::min (nargwords, max_reg_args);
+	    stackargwords =   int::max (nargwords, max_reg_args) - max_reg_args;
+
+	    stackargsstart =   param_area_offset + 4 * max_reg_args;
+	    scratchstart   =   stackargsstart + 4 * stackargwords;
+
+	    # Copy struct or part thereof to designated area on the stack.
+	    # An already properly aligned address (relative to %sp) is
+	    # in to_off.
+
+	    fun struct_copy (size, al, ARG a, t, to_off, cpc)
+		=>
+		# Two main cases here:
+		#   1. t is C_STRUCT _ or C_UNION _;
+		#      in this case "a" computes the address
+		#      of the struct to be copied.
+		#   2. t is some other non-floating type; "a" computes the
+		#      the corresponding value (i.e., not its address).
+
+		{   fun ldst type
+			=
+			t::STORE (type, addli (spreg, to_off), a, stack) ! cpc;
+
+		    case t
+
+			( ctypes::C_VOID
+			| ctypes::C_PTR
+			| ctypes::C_SIGNED   (ctypes::I_INT | ctypes::I_LONG)
+			| ctypes::C_UNSIGNED (ctypes::I_INT | ctypes::I_LONG)) => ldst 32;
+
+			( ctypes::C_SIGNED   ctypes::I_CHAR
+			| ctypes::C_UNSIGNED ctypes::I_CHAR) => ldst 8;
+
+			( ctypes::C_SIGNED   ctypes::I_SHORT
+			| ctypes::C_UNSIGNED ctypes::I_SHORT) => ldst 16;
+
+			( ctypes::C_SIGNED   ctypes::I_LONG_LONG
+			| ctypes::C_UNSIGNED ctypes::I_LONG_LONG) => ldst 64;
+
+			( ctypes::C_ARRAY _) =>   error "ARRAY within gather/scatter struct";
+
+			( ctypes::C_STRUCT _ | ctypes::C_UNION _)
+			    =>
+			    #  Here we have to do the equivalent of a "memcpy". 
+			    { from = a; #  Argument is address of struct 
+				fun cp (type, incr) = {
+				    fun load_from from_off =
+					t::LOAD (32, addli (from, from_off), mem);
+				    /* from_off is relative to from,
+				     * to_off is relative to %sp */
+				    fun loop (i, from_off, to_off, cpc) =
+					if (i <= 0 ) cpc;
+					else loop (i - incr,
+						   from_off + incr, to_off + incr,
+						   t::STORE (type, addli (spreg, to_off),
+							    load_from from_off,
+							    stack)
+						   ! cpc);fi;
+
+				    loop (size, 0, to_off, cpc);
+				};
+
+				case al   
+				    1 => cp (8, 1);
+				    2 => cp (16, 2);
+				    _ => /* 4 or more */ cp (32, 4);
+                                esac;
+			    };
+
+			( ctypes::C_FLOAT
+			| ctypes::C_DOUBLE
+			| ctypes::C_LONG_DOUBLE) => error "floating point type does not match ARG";
+		    esac;
+		};
+    /*
+	      | struct_copy (_, _, ARGS args, ctypes::C_STRUCT tl, to_off, cpc) =
+		#  gather/scatter case 
+		let fun loop ([], [], _, cpc) = cpc
+		      | loop (t ! tl, a ! al, to_off, cpc) = let
+			    my (tsz, tal) = szal t
+			    to_off' = roundup (to_off, tal)
+			    cpc' = struct_copy (tsz, tal, a, t, to_off', cpc)
+			in
+			    loop (tl, al, to_off' + tsz, cpc')
+			end
+		      | loop _ =
+			error "number of types does not match number of arguments"
+		in
+		    loop (tl, args, to_off, cpc)
+		end
+    */
+	       struct_copy (_, _, ARGS _, _, _, _) =>
+		  error "gather/scatter (ARGS) not supported (obsolete)";
+
+	       struct_copy (size, al, FARG a, t, to_off, cpc)
+		   =>
+		   { fun fldst type =
+			  t::FSTORE (type, addli (spreg, to_off), a, stack) ! cpc;
+
+		       case t
+
+			  ctypes::C_FLOAT       =>   fldst  32;
+			  ctypes::C_DOUBLE      =>   fldst  64;
+			  ctypes::C_LONG_DOUBLE =>   fldst 128;
+
+			  _ => error "non-floating-point type does not match FARG";
+		       esac;
+		};
+	    end;
+
+	    my (stackdelta, argsetupcode, copycode)
+		=
+		loop (parameter_types, args, 0, scratchstart, [], [])
+		where 
+
+		    fun loop ([], [], _, ss, asc, cpc)
+			    =>
+			    (roundup (int::max (0, ss - stackargsstart), 8), asc, cpc);
+
+			loop (t ! tl, a ! al, n, ss, asc, cpc)
+			    =>
+			    {
+				fun wordassign a
+				    =
+				    if   (n < 6 )
+
+					 t::MOVE_INT (32, oreg n, a);
+				    else
+					 t::STORE (32, argaddr n, a, stack);
+				    fi;
+
+				fun wordarg (a, cpc, ss)
+				    =
+				    loop (tl, al, n + 1, ss, wordassign a ! asc, cpc);
+
+				fun dwordmemarg (address, region, tmpstore)
+				    =
+				    {   fun toreg (n, address)
+					    =
+					    t::MOVE_INT (32, oreg n, t::LOAD (32, address, region));
+
+					fun tomem (n, address)
+					    =
+					    t::STORE (32,
+						     argaddr n,
+						     t::LOAD (32, address, region),
+						     stack);
+
+					fun toany (n, address)
+					    =
+					    if   (n < 6)
+
+						 toreg (n, address);
+					    else
+						 tomem (n, address);
+					    fi;
+
+					# if n < 6 and n div 2 == 0 then
+					#     use ldd here once lowcode gets its usage right   XXX BUGGO FIXME
+					# else
+					#   ...        
+
+					loop (tl, al, n+2, ss,
+					      tmpstore @
+					      toany (n, address)
+					      ! toany (n+1, addli (address, 4))
+					      ! asc,
+					      cpc);
+				    };
+
+				fun dwordarg mkstore
+				    =
+				    if (n > 6 and n / 2 == 1)
+
+					#  8-byte aligned memory 
+					loop (tl, al, n+2, ss,
+					      mkstore (argaddr n) ! asc,
+					      cpc);
+				    else
+					 dwordmemarg (tmpaddr, stack, [mkstore tmpaddr]);
+				    fi;
+
+				case (t, a)
+
+				    ((ctypes::C_VOID | ctypes::C_PTR | ctypes::C_ARRAY _ |
+				      ctypes::C_UNSIGNED (ctypes::I_INT | ctypes::I_LONG) |
+				      ctypes::C_SIGNED (ctypes::I_INT | ctypes::I_LONG)), ARG a)
+					=>
+					wordarg (a, cpc, ss);
+
+				   (ctypes::C_SIGNED ctypes::I_CHAR, ARG a)
+				       =>
+				       wordarg (t::SIGNEXTEND (32, 8, a), cpc, ss);
+
+				   (ctypes::C_UNSIGNED ctypes::I_CHAR, ARG a)
+				       =>
+				       wordarg (t::ZEROEXTEND (32, 8, a), cpc, ss);
+
+				   (ctypes::C_SIGNED ctypes::I_SHORT, ARG a)
+				       =>
+				       wordarg (t::SIGNEXTEND (32, 16, a), cpc, ss);
+
+				   (ctypes::C_UNSIGNED ctypes::I_SHORT, ARG a)
+				       =>
+				       wordarg (t::ZEROEXTEND (32, 16, a), cpc, ss);
+
+				   ( ( ctypes::C_SIGNED ctypes::I_LONG_LONG
+				     | ctypes::C_UNSIGNED ctypes::I_LONG_LONG
+				     ),
+				     ARG a
+				   )
+					=>
+					case a
+
+					     t::LOAD (_, address, region)
+						 =>
+						 dwordmemarg (address, region, []);
+
+					    _    =>
+						 dwordarg
+						     (fn address =  t::STORE (64, address, a, stack));
+					esac;
+
+				   (ctypes::C_FLOAT, FARG a)
+				       =>
+				       # we use the stack region reserved for storing
+				       # %o0-%o5 as temporary storage for transferring
+				       # floating point values
+				       case a   
+					    t::FLOAD (_, address, region) =>
+					    wordarg (t::LOAD (32, address, region), cpc, ss);
+					   _ =>
+					    if (n < 6 )
+						ld = t::MOVE_INT (32, oreg n,
+							       t::LOAD (32, tmpaddr, stack));
+						cp = t::FSTORE (32, tmpaddr, a, stack);
+
+						loop (tl, al, n + 1, ss, cp ! ld ! asc, cpc);
+
+					    else loop (tl, al, n + 1, ss,
+						       t::FSTORE (32, argaddr n, a, stack)
+						       ! asc,
+						       cpc);
+                                            fi;
+                                       esac;
+
+				   (ctypes::C_DOUBLE, FARG a)
+				       =>
+				       case a
+
+					    t::FLOAD (_, address, region)
+						=>
+						dwordmemarg (address, region, []);
+
+					    _ => dwordarg (fn address =  t::FSTORE (64, address, a, stack));
+				       esac;
+
+				   (ctypes::C_LONG_DOUBLE, FARG a)
+					=>
+					{   # Copy 128-bit floating point value (16 bytes)
+					    # into scratch space (aligned at 8-byte boundary).
+					    # The address of the scratch copy is then
+					    # passed as a regular 32-bit argument.
+
+					    ss' = roundup (ss, 8);
+					    ssaddr = addli (spreg, ss');
+
+					    wordarg (ssaddr,
+						     t::FSTORE (128, ssaddr, a, stack) ! cpc,
+						     ss' + 16);
+					};
+
+				   (t as (ctypes::C_STRUCT _ | ctypes::C_UNION _), a)
+				       =>
+				       {   # copy entire struct into scratch space
+					   # (aligned according to struct's alignment
+					   # requirements).  The address of the scratch
+					   # copy is then passed as a regular 32-bit
+					   # argument.
+
+					   my (size, al) = szal t;
+					   ss' = roundup (ss, al);
+					   ssaddr = addli (spreg, ss');
+					   cpc' = struct_copy (size, al, a, t, ss', cpc);
+
+					   wordarg (ssaddr, cpc', ss' + size);
+				       };
+
+				   _ =>   error "argument/type mismatch";
+                                esac;
+			    };
+
+			loop _ => error "wrong number of arguments";
+		    end;
+		end;
+
+	    my (defs, uses) = {
+		gp = t::INT_EXPRESSION o reg32;
+		fp = t::FLOAT_EXPRESSION o freg64;
+		g_regs = map (gp o greg) [1, 2, 3, 4, 5, 6, 7];
+		a_regs = map (gp o oreg) [0, 1, 2, 3, 4, 5];
+		l_reg = gp (oreg 7);
+		f_regs = map (fp o freg)
+				 [0, 2, 4, 6, 8, 10, 12, 14,
+				  16, 18, 20, 22, 24, 26, 28, 30];
+		# a call instruction defines all caller-save registers:
+		#   - %g1 - %g7
+		#   - %o0 - %o5 (argument registers)
+		#   - %o7       (link register)
+		#   - all fp registers
+
+		defs = g_regs @ a_regs @ l_reg ! f_regs;
+		#  A call instruction "uses" just the argument registers. 
+		uses = list::take (a_regs, regargwords);
+
+		(defs, uses);
+	    };
+
+	    result
+		=
+		case return_type
+
+		    ctypes::C_FLOAT       =>   [t::FLOAT_EXPRESSION (t::FREG (32, fp' 0))];
+		    ctypes::C_DOUBLE      =>   [t::FLOAT_EXPRESSION (t::FREG (64, fp' 0))]; #  %f0/%f1 
+		    ctypes::C_LONG_DOUBLE =>   [];
+
+		    (ctypes::C_STRUCT _ | ctypes::C_UNION _) =>   [];
+		    ctypes::C_ARRAY _                        =>   error "array return type";
+
+		    (ctypes::C_PTR | ctypes::C_VOID |
+		     ctypes::C_SIGNED   (ctypes::I_INT | ctypes::I_LONG) |
+		     ctypes::C_UNSIGNED (ctypes::I_INT | ctypes::I_LONG))
+			=>
+			[t::INT_EXPRESSION (t::REG (32, oreg 0))];
+
+		    ( ctypes::C_SIGNED   ctypes::I_CHAR
+		    | ctypes::C_UNSIGNED ctypes::I_CHAR
+		    )
+			=>
+			[t::INT_EXPRESSION (t::REG (8, oreg 0))];
+
+		    ( ctypes::C_SIGNED   ctypes::I_SHORT
+		    | ctypes::C_UNSIGNED ctypes::I_SHORT
+		    )
+			=>
+			[t::INT_EXPRESSION (t::REG (16, oreg 0))];
+
+		    ( ctypes::C_SIGNED   ctypes::I_LONG_LONG
+		    | ctypes::C_UNSIGNED ctypes::I_LONG_LONG)
+			=>
+			[t::INT_EXPRESSION (t::REG (64, oreg 0))];
+		esac;
+
+	    my { save, restore } = save_restore_dedicated defs;
+
+	    my (sretsetup, srethandshake) =
+		case res_szal   
+		    NULL => ([], []);
+		   THE (size, al) => {
+			address = struct_ret { szb => size, align => al };
+
+			([t::STORE (32, addli (spreg, 64), address, stack)],
+			 [t::EXT (ix (ix::UNIMP size))]);
+		    }; esac;
+
+	    call = t::CALL { funct => name, targets => [],
+				defs, uses,
+				region => mem, pops => 0 };
+
+	    call =
+		case call_comment
+
+		     NULL  =>   call;
+		     THE c =>   t::NOTE (call, lowcode_notes::comment.create c);
+		esac;
+
+	    my (sp_sub, sp_add)
+		=
+		if   (stackdelta ==  0)                               ([], []);
+		elif (param_alloc { szb => stackdelta, align => 4 } ) ([], []);
+		else ([t::MOVE_INT (32, sp, t::SUB (32, spreg, li stackdelta))],
+		      [t::MOVE_INT (32, sp, addli (spreg, stackdelta))]);
+		fi;
+
+	    callseq =
+		list::cat [sp_sub,
+			     copycode,
+			     argsetupcode,
+			     sretsetup,
+			     save,
+			     [call],
+			     srethandshake,
+			     restore,
+			     sp_add];
+
+
+	    { callseq, result };
+	};
+};
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

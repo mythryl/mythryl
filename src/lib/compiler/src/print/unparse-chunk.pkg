@@ -1,0 +1,1119 @@
+# unparse-chunk.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# We get invoked only from
+#
+#     src/lib/compiler/src/print/unparse-interactive-deep-syntax-declaration.pkg
+
+
+api Unparse_Chunk {
+
+    Chunk;
+
+    unparse_chunk:  symbol_table::Symbol_Table
+		     -> prettyprint::Stream
+		     -> (Chunk, types::Type, Int)
+		     -> Void;
+
+    debugging:  Ref(  Bool );
+};
+
+
+package unparse_chunk: (weak)  Unparse_Chunk {			# Unparse_Chunk	is from   src/lib/compiler/src/print/unparse-chunk.pkg
+
+    package pp    = prettyprint;	# prettyprint		is from   src/lib/prettyprint/src/prettyprint.pkg
+    package v     = vector;		# vector		is from   src/lib/std/src/vector.pkg
+    package a     = var_home;		# var_home		is from   src/lib/compiler/frontend/typecheck-stuff/basics/var-home.pkg
+    package t     = types;		# types			is from   src/lib/compiler/frontend/typecheck-stuff/types/types.pkg
+    package tu    = type_stuff;		# type_stuff		is from   src/lib/compiler/frontend/typecheck-stuff/types/type-stuff.pkg
+    package bt    = type_types;		# type_types		is from   src/lib/compiler/frontend/typechecker/types/type-types.pkg
+    package f     = fixity;		# fixity		is from   src/lib/compiler/frontend/basics/mlcomp/fixity.pkg
+
+    package unsafe_chunk
+        =
+        unsafe::unsafe_chunk;		# unsafe		is from   src/lib/std/src/unsafe/unsafe.pkg
+
+    include prettyprint;
+    include unparse_stuff;
+
+    # Debugging:
+    #
+    say = controls::print::say;
+    debugging = REF FALSE;
+
+    fun if_debugging_say (msg: String)
+        =
+	if *debugging
+             say msg;
+             say "\n";
+        fi;
+
+    fun bug msg
+        =
+        error_message::impossible("PrettyprintChunk: " + msg);
+
+
+    Chunk = unsafe_chunk::Chunk;
+
+    fun gettag chunk
+        =
+        unsafe_chunk::to_int (unsafe_chunk::nth (chunk, 0));
+
+    exception SWITCH;
+
+    fun switch (chunk, dcons)
+        =
+	try dcons
+        where
+
+	    fun check (f, tag:  Int)
+                =
+		f chunk == tag
+                except
+                    unsafe_chunk::REPRESENTATION = FALSE;
+
+	    fun try ((d as { name, representation, domain } ) ! r)
+		    =>
+		    case representation
+		      
+			 a::TAGGED i    =>  if (check (gettag, i) ) d; else try r;fi;
+			 a::CONSTANT i  =>  if (check (unsafe_chunk::to_int, i) ) d; else try r;fi;
+			 a::TRANSPARENT =>  d;
+			 a::UNTAGGED    =>  if (unsafe_chunk::boxed chunk ) d; else try r; fi;
+			 a::REF_REP     =>  d;
+			 a::LISTCONS    =>  if (unsafe_chunk::boxed chunk ) d; else try r; fi;
+			 a::LISTNIL     =>  if (check (unsafe_chunk::to_int, 0) ) d; else try r;fi;
+			 a::SUSP _      =>  d;  /* LAZY */           
+			 _              =>  bug "switch: funny Constructor";
+		    esac;
+
+	        try []
+                    =>
+                    bug "switch: none of the datacons matched";
+            end;
+	end;
+
+    # A temporary hack for printing UNTAGGEDREC chunks:
+    #
+    fun is_rec_type (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE t) } )
+            =>
+            is_rec_type t;
+
+        is_rec_type (t::CONSTRUCTOR_TYPE (t::RECORD_TYPE_CONSTRUCTOR _, _ ! _))
+            =>
+            TRUE;
+
+        is_rec_type _
+            =>
+            FALSE;
+    end;
+
+    fun is_ubx_type (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE t) } )
+            =>
+            is_ubx_type t;
+
+        is_ubx_type (t::CONSTRUCTOR_TYPE (tc as t::PRIMITIVE_TYPE_CONSTRUCTOR _, []))
+            =>
+	    (tu::type_constructors_are_equal (tc, bt::int32tycon)) or 
+	    (tu::type_constructors_are_equal (tc, bt::word32tycon));
+
+        is_ubx_type _ => FALSE;
+    end;
+
+    fun decon (chunk, { representation, name, domain } )
+        =
+        case representation
+          
+	    a::UNTAGGED
+		=> 
+		case domain 
+		  
+		     THE t
+			 => 
+			 if   (is_rec_type t   or   is_ubx_type t)
+			      chunk;
+			 else
+			      unsafe_chunk::nth (chunk, 0)
+			      except
+				  e = raise exception e;
+			 fi;
+
+		    _ => bug "decon -- unexpected Constructor_Form-domain";
+		esac;
+
+	  a::TAGGED _ => (unsafe_chunk::nth (chunk, 1) except e => raise exception e; end );
+
+    /*    a::TAGGEDREC _ =>
+	       {   #  skip first element, i.e. discard tag 
+		   a = tuple chunk;
+		   fun f i =
+		       if i < v::length a
+		       then v::sub (a, i) ! f (i+1);
+		       else []; fi;
+		   u::cast (v::from_list (f (1)));
+	       }
+    */
+	    a::CONSTANT _  =>  unsafe_chunk::to_chunk ();
+	    a::TRANSPARENT =>  chunk;
+	    a::REF_REP     =>  *(unsafe_chunk::to_ref chunk);
+	    a::EXCEPTION _       =>  (unsafe_chunk::nth (chunk, 0) except e => raise exception e; end );
+	    a::LISTCONS    =>  chunk; 
+	    a::LISTNIL     =>  bug "decon - constant Constructor in decon";
+	    a::SUSP _      =>  chunk;
+        esac;
+
+
+    noparen = f::INFIX (0, 0);
+
+    stipulate
+
+	fun dcons_of (   t::PRIMITIVE_TYPE_CONSTRUCTOR {
+			    kind => t::DATATYPE {
+				       family => {   members => #[ { constructor_list, ... } ],
+                                                    ...
+                                                },
+				       ...
+                                   },
+			    ...
+                        }
+            )
+		=>
+		constructor_list;
+
+	    dcons_of _
+                =>
+                bug "(u)listDcons";
+        end;
+    herein
+	list_dcons  =  dcons_of bt::list_tycon;
+	ulist_dcons =  dcons_of bt::ulist_tycon;
+    end;
+
+    stipulate
+
+	# Counter to generate identifier:
+	cpt = REF 0;
+
+	# test membership in an association list and gives back 
+	# the second element
+        #
+	fun mem (a: Ref( Void ))
+            =
+	    {   fun m []           =>   NULL; 
+                    m ((x, r) ! l) =>   if   (a == x   )   THE r;
+                                                      else   m l;   fi;
+                end;
+
+	        m;
+	    };
+
+	# verifies if an chunk has been seen and if yes, gives back its
+	# identification number, creating a new one if necessary
+        #
+	fun is_seen chunk l
+            =
+	    {   chunk' = unsafe::cast chunk:  Ref( Void );
+
+	        case (mem chunk' l)
+                   
+		     NULL => (FALSE, 0);
+
+		     THE (r as REF NULL)
+			 =>
+			 {   id = *cpt;
+			     cpt := id+1;
+			     r := THE id;
+			     (TRUE, id);
+			 };
+
+		     THE (REF (THE id))
+                         =>
+                         (TRUE, id);
+                esac;
+	    };
+
+    herein
+
+	# Reset the identifier counter:
+	# 
+	fun init_cpt ()
+            =
+            cpt := 0;
+
+	# Print with sharing if necessary.
+        # The "printer" already knows the  ppstream.
+        #
+	fun print_with_sharing stream (chunk, accu, printer)
+            = 
+	    if *controls::print::print_loop
+
+		 my (seen, nb)
+                     =
+                     is_seen  chunk  accu;
+
+		 if seen
+		      pp::string stream "%";
+		      pp::string stream (int::to_string nb);
+		 else
+		      modif = REF NULL;
+		      nl_accu = (unsafe::cast chunk:  Ref( Void ), modif) ! accu;
+		      printer (chunk, nl_accu);
+
+		      case *modif 
+		        
+			   NULL => (); 
+
+			   THE i
+			       =>
+			       {   pp::string stream " as %";
+				   pp::string stream (int::to_string i);
+			       };
+		      esac;
+		 fi;
+	    else
+                 printer (chunk, accu);
+            fi;
+
+    end;			#  use_priave_defs
+
+    fun interp_args (tys, NULL)
+             =>
+             tys;
+
+        interp_args (tys, THE (members, free_type_constructors))
+	    => 
+	    map subst tys
+            where
+	        fun subst (t::CONSTRUCTOR_TYPE (t::RECURSIVE_TYPE n, args))
+			=>
+			{   type_constructor'
+				=
+				list::nth (members, n)
+				except
+				    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = bug "interpArgs 1";
+
+			    t::CONSTRUCTOR_TYPE (type_constructor', map subst args);
+			};
+
+		    subst (t::CONSTRUCTOR_TYPE (t::FREE_TYPE n, args))
+                        =>
+		        {   type_constructor'
+                                =
+                                list::nth (free_type_constructors, n)
+				except
+                                    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = bug "interpArgs 2";
+
+			    t::CONSTRUCTOR_TYPE (type_constructor', map subst args);
+		        };
+
+		   subst (t::CONSTRUCTOR_TYPE (type_constructor, args))
+                       =>
+                       t::CONSTRUCTOR_TYPE (type_constructor, map subst args);
+
+		   subst (t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE type) } )
+                       =>
+                       subst type;
+
+		   subst type
+                       =>
+                       type;
+                end;
+	    end;
+    end;
+
+    fun trans_members
+            (
+              stamps:                    Vector( stamp::Stamp ), 
+	      free_type_constructors:    List( t::Type_Constructor ),
+              root,
+	      family as { members, ... }:  t::Datatype_Family
+            )
+	= 
+	{   fun dtmember_to_tycon
+                    (
+                      n,
+                      { type_constructor_name,
+                        arity,
+                        constructor_list,
+                        eq,
+                        an_api,
+                        is_lazy
+                      },
+                      l
+                    )
+		=
+		t::PRIMITIVE_TYPE_CONSTRUCTOR
+                    {
+		      stub  =>  NULL,
+                      stamp =>  vector::get (stamps, n),
+                      arity,
+                      eq    =>  REF (t::YES),
+		      path  =>  inverse_path::INVERSE_PATH [ type_constructor_name ], 
+		      kind  =>  t::DATATYPE
+                                    {
+                                      index  =>  n,
+				      stamps,
+				      root,
+                                      family,
+                                      free_type_constructors
+                                    }
+                    } ! l;
+	 
+	     (vector::keyed_fold_right dtmember_to_tycon NIL members, free_type_constructors);
+	};
+
+
+    # main function:
+    #     unparse_chunk
+    #         :
+    #         Symbol_Table
+    #         -> ppstream
+    #         -> (Chunk, Some_Type, Int)
+    #         -> Void 
+    #
+    fun unparse_chunk symbol_table stream
+	=
+	unparse_value
+        where
+	    fun unparse_value (chunk: Chunk, type: t::Type, depth: Int) : Void
+                =
+		unparse_val' (chunk, type, NULL, depth, noparen, noparen, [])
+
+	    also
+	    fun unparse_val_share ( chunk: Chunk,
+
+                                        type: t::Type,
+
+                                        members_op: Null_Or( ( List( t::Type_Constructor ),
+                                                               List( t::Type_Constructor )
+                                                             )
+                                                           ),
+			                depth: Int,
+
+                                        accu
+                                      )
+                =
+		unparse_val' (chunk, type, members_op, depth, noparen, noparen, accu)
+
+	    also
+	    fun unparse_val' (_, _, _, 0, _, _, _)
+		    =>
+		    pp::string stream  "#";
+
+		unparse_val' (chunk: Chunk, type: t::Type, members_op: Null_Or( (List( t::Type_Constructor ), List( t::Type_Constructor )) ), 
+			depth: Int, l: f::Fixity, r: f::Fixity, accu) : Void
+		    =>
+		    case type
+                      
+
+			 t::TYPE_VARIABLE_REF { id, ref_typevar => REF (t::RESOLVED_TYPE_VARIABLE t) }
+			     =>
+			     unparse_val'(chunk, t, members_op, depth, r, l, accu);
+
+			 t::TYPE_SCHEME_TYPE { type_scheme=>t::TYPE_SCHEME { body, arity }, ... }
+			     =>
+			     if (arity == 0)
+				 unparse_val'(chunk, body, members_op, depth, l, r, accu);
+			     else
+				 args = unsafe_chunk::make_tuple (list::tabulate (arity, fn i => unsafe_chunk::to_chunk 0; end ));
+
+				 my tchunk:  Chunk -> Chunk   = unsafe::cast chunk;
+
+				 result = tchunk args;
+
+				 unparse_val'(result, body, members_op, depth, l, r, accu);
+
+			     fi;
+
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::PRIMITIVE_TYPE_CONSTRUCTOR { kind, stamp, eq, ... }, argtys)
+			     =>
+			     case (kind, *eq)
+			       
+				  (t::PRIMITIVE _, _)
+				      =>
+				      {   fun unparse_word s
+					      =
+					      pp::string stream ("0wx" + s);
+
+					  if   (tu::type_constructors_are_equal (type_constructor, bt::int_tycon))    pp::string stream (int::to_string (unsafe_chunk::to_int chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::int32tycon))   pp::string stream (int32::to_string (unsafe_chunk::to_int32 chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::intinf_tycon)) unparse_stuff::unparse_integer stream (unsafe::cast chunk);
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::word_tycon))   unparse_word (unt::to_string (unsafe_chunk::to_word chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::word8tycon))   unparse_word (unt8::to_string (unsafe_chunk::to_word8 chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::word32tycon))  unparse_word (unt32::to_string (unsafe_chunk::to_word32 chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::real_tycon))   pp::string stream (float::to_string (unsafe_chunk::to_float chunk));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::string_tycon)) unparse_stuff::unparse_mlstring stream (unsafe_chunk::to_string chunk);
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::char_tycon))   unparse_stuff::unparse_mlstring' stream (string::from_char (char::from_int (unsafe_chunk::to_int chunk)));
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::arrow_tycon))  pp::string stream  "fn";
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::exn_tycon))    {   name = exceptions::exception_name (unsafe_chunk::to_exn chunk);
+															  pp::string stream name;
+															  pp::string stream "(-)";
+														      };
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::fate_type))  pp::string stream  "cont";
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::vector_tycon)) unparse_vector (unsafe_chunk::to_vector chunk, head argtys, members_op, depth, *controls::print::print_length, accu)   except unsafe_chunk::REPRESENTATION =  pp::string stream  "prim?";
+					  elif (tu::type_constructors_are_equal (type_constructor, bt::array_tycon))
+					      (   print_with_sharing stream
+						  (   chunk,
+						      accu,
+
+						      fn (chunk, accu)
+							  =>
+							  case (unsafe_chunk::rep chunk)   
+
+							      unsafe_chunk::POLY_ARRAY
+								  =>
+								  unparse_array (unsafe_chunk::to_array chunk, head argtys,
+									  members_op, depth,
+									  *controls::print::print_length, accu);
+
+							     unsafe_chunk::FLOAT_ARRAY
+								  =>
+								  unparse_real_array (unsafe_chunk::to_real_array chunk,
+									      *controls::print::print_length);
+
+							     _    => bug "rw_vector (neither Float nor Poly)";
+							  esac; end 
+						  )
+						  except
+						      unsafe_chunk::REPRESENTATION
+							 =
+							 pp::string stream  "prim?"
+					      );
+
+					  else pp::string stream  "prim?";
+                                          fi;
+				      };
+
+				  (t::DATATYPE _, t::EQ_ABSTRACT)
+				      =>
+				      unparse_table::pp_chunk stream stamp chunk 
+				      except
+                                          pp_not_installed = pp::string stream  "-";
+
+				  (t::DATATYPE { index, stamps,
+					      family as { members, ... }, free_type_constructors, root }, _)
+				      =>
+				      if   (tu::type_constructors_are_equal (type_constructor, bt::ulist_tycon))
+                                          
+					   unparse_ur_list (chunk, head argtys, members_op, depth,
+						   *controls::print::print_length, accu);
+				      elif (tu::type_constructors_are_equal (type_constructor, bt::susp_tycon) ) 
+					  pp::string stream  "@@";  #  LAZY 
+
+				      elif (tu::type_constructors_are_equal (type_constructor, bt::list_tycon) )
+					  unparse_list (chunk, head argtys, members_op, depth,
+						 *controls::print::print_length, accu);
+
+				      elif (tu::type_constructors_are_equal (type_constructor, bt::ref_tycon) )
+					  (print_with_sharing stream
+					   (chunk, accu,
+					    { argtys' = interp_args (argtys, members_op);
+					     fn (chunk, accu) =>
+						  unparse_dcon (chunk,
+							 (vector::get (stamps, index),
+							  vector::get (members, index)),
+							 THE([bt::ref_tycon],[]), argtys',
+							 depth, l, r, accu); end ;
+					    }));
+				      else
+                                           argtys' = interp_args (argtys, members_op);
+
+					   unparse_dcon (chunk, (vector::get (stamps, index),
+						       vector::get (members, index)),
+						  THE (trans_members (stamps, free_type_constructors, 
+								     root, family)),
+						  argtys', depth, l, r, accu);
+				      fi;
+
+				  (t::ABSTRACT _, _)
+				      =>
+				      if   (tu::type_constructors_are_equal (type_constructor, bt::int64tycon))
+                                          
+														# inline_t		is from   src/lib/core/init/built-in.pkg	
+					   case (unsafe_chunk::to_tuple chunk)
+                                               #
+					       [hi, lo]
+						   =>
+						   {   i = inline_t::int64::intern (unsafe_chunk::to_word32 hi, unsafe_chunk::to_word32 lo);
+						       pp::string stream (int64::to_string i);
+						   };
+					       _ => pp::string stream "<int64?>";
+                                           esac;
+
+				      elif (tu::type_constructors_are_equal (type_constructor, bt::word64tycon) )
+
+					  case (unsafe_chunk::to_tuple chunk)
+					      #
+					      [hi, lo]
+						  =>
+						  {   w = inline_t::unt64::intern (unsafe_chunk::to_word32 hi, unsafe_chunk::to_word32 lo);
+						      pp::string stream ("0wx" + unt64::to_string w);
+						  };
+
+					     _ => pp::string stream "<word64?>";
+					  esac;
+
+				      else
+                                          pp::string stream "-";
+                                      fi;
+
+				  _ => pp::string stream "-";
+			     esac;
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::RECORD_TYPE_CONSTRUCTOR [], _)
+                             =>
+                             pp::string stream  "()";
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::RECORD_TYPE_CONSTRUCTOR labels, argtys)
+                            =>
+			    if (tuples::is_tuple_type_constructor type_constructor)
+			         unparse_tuple (unsafe_chunk::to_tuple chunk, argtys, members_op, depth, accu);
+			    else unparse_record (unsafe_chunk::to_tuple chunk, labels, argtys, members_op, depth, accu);
+                            fi;
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::DEFINED_TYPE_CONSTRUCTOR _, _)
+                            => 
+			    unparse_val'(chunk, tu::reduce_type type, members_op, depth, l, r, accu);
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::RECURSIVE_TYPE i, argtys)
+                            =>
+			    case members_op
+			      
+                                 THE (member_tycs, _)
+				     => 
+				     {   type_constructor'
+                                             =
+					     list::nth (member_tycs, i)
+					     except
+                                                 (SUBSCRIPT|INDEX_OUT_OF_BOUNDS)
+                                                     =
+						     {   flush_stream stream;
+							 print "#prettyprintVal':  ";
+							 print (int::to_string i);
+							 print " "; print (int::to_string (length member_tycs));
+							 print "\n";
+							 bug "prettyprintVal': bad index for RECURSIVE_TYPE";
+                                                     };
+
+				         case type_constructor'
+					   
+                                              t::PRIMITIVE_TYPE_CONSTRUCTOR
+                                                  { kind => t::DATATYPE
+                                                                { index,
+                                                                  stamps,
+								  family =>  { members, ... },
+                                                                  ...
+                                                                },
+						    ...
+                                                  }
+						  =>
+						  unparse_dcon (chunk, (vector::get (stamps, index),
+							      vector::get (members, index)),
+							 members_op, argtys,
+							 depth, l, r, accu);
+
+					      _ => bug "prettyprintVal': bad type_constructor in members";
+                                         esac;
+				     };
+
+				  NULL =>  bug "prettyprintVal': RECURSIVE_TYPE with no members";
+                             esac;
+
+			 t::CONSTRUCTOR_TYPE (type_constructor as t::FREE_TYPE i, argtys)
+                             =>
+			     case members_op
+			       
+                                  THE (_, free_tycs)
+				      => 
+				      {   type_constructor'
+                                              =
+					      list::nth (free_tycs, i)
+					      except
+                                                  (SUBSCRIPT|INDEX_OUT_OF_BOUNDS)
+                                                      =
+						      {	  flush_stream stream;
+							  print "#prettyprintVal':  ";
+							  print (int::to_string i);
+							  print " "; 
+							  print (int::to_string (length free_tycs));
+							  print "\n";
+							  bug "prettyprintVal': bad index for FREE_TYPE";
+                                                      };
+
+					  unparse_val'
+                                              (
+                                                chunk,
+                                                t::CONSTRUCTOR_TYPE (type_constructor', argtys),
+                                                members_op, 
+						depth,
+                                                l,
+                                                r,
+                                                accu
+                                              );
+				      };
+
+				  NULL => bug "prettyprintVal': RECURSIVE_TYPE with no members";
+                             esac;
+
+		     _ => pp::string stream  "-";
+                esac
+		except e = raise exception e;
+            end 
+
+	    also
+	    fun unparse_dcon (_, _, _, _, 0, _, _, _)
+                    =>
+                    pp::string stream  "#";
+
+	        unparse_dcon (   chunk: Chunk,
+				    (   stamp,
+					{   type_constructor_name,
+					    constructor_list,
+					    ...
+					}
+				    ),
+				    members_op:  Null_Or( (List( t::Type_Constructor ), List( t::Type_Constructor )) ),
+				    argtys,
+				    depth: Int,
+				    l: f::Fixity,
+				    r: f::Fixity,
+				    accu
+		)
+		    =>
+		    unparse_table::pp_chunk stream stamp chunk
+			   #  Attempt to find and apply user-defined prettyprint on chunk 
+		    except
+                        pp_not_installed
+			    =
+			    if   (length constructor_list == 0)
+			        
+				 pp::string stream "-";
+			    else
+				 my dcon as { name, domain, ... }
+                                     =
+                                     switch (chunk, constructor_list);
+
+				 dname = symbol::name name;
+
+
+				 case domain
+				   
+				      NULL => pp::string stream dname;
+
+				      THE dom
+					  =>
+					  {   fixity
+                                                  = 
+						  find_in_symbol_table::find_fixity_by_symbol
+                                                      ( symbol_table,
+                                                        symbol::make_fixity_symbol  dname
+                                                      );
+
+					      #  (??) may be inaccurate  XXX BUGGO FIXME
+
+					      dom = tu::apply_type_scheme (t::TYPE_SCHEME { arity=>length argtys, body=>dom },
+								  argtys);
+
+					      dom = tu::head_reduce_type dom; #  unnecessary 
+
+					      fun prdcon ()
+						  =
+						  case (fixity, dom)
+						    
+						       (f::INFIX _, t::CONSTRUCTOR_TYPE (dom_type_constructor as t::RECORD_TYPE_CONSTRUCTOR _, [ty_l, ty_r]))
+							   =>
+							   {   my (a, b)
+								   =
+								   case (unsafe_chunk::to_tuple (decon (chunk, dcon)))
+                                                                     
+								        [a, b] => (a, b);
+								        _      => bug "prettyprintDcon [a, b]";
+                                                                   esac;
+
+							       if   (tuples::is_tuple_type_constructor  dom_type_constructor)
+							           
+								    begin_wrap_box stream;
+								    unparse_val'(a, ty_l,
+									   members_op,
+									   depth - 1, f::NONFIX, fixity, accu);
+								    break stream { spaces=>1, indent_on_wrap=>0 };
+								    pp::string stream  dname;
+								    break stream { spaces=>1, indent_on_wrap=>0 };
+								    unparse_val'(b, ty_r,
+									   members_op,
+									   depth - 1, fixity, f::NONFIX, accu);
+								    end_box stream;
+
+							       else
+                                                                    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 2);
+								    pp::string stream  dname;
+								    break stream { spaces=>1, indent_on_wrap=>0 };
+								    unparse_val'(decon (chunk, dcon), dom,
+									    members_op, depth - 1,
+									    f::NONFIX, f::NONFIX, accu);
+								    end_box stream;
+                                                               fi;
+							   };
+
+						       _   =>
+                                                           {   begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 2);
+							       pp::string stream  dname; break stream { spaces=>1, indent_on_wrap=>0 };
+							       unparse_val'(decon (chunk, dcon), dom, members_op, depth - 1,
+								    f::NONFIX, f::NONFIX, accu);
+							       end_box stream;
+                                                           };
+						  esac;
+
+					      fun prpardcon ()
+						  =
+						  {   begin_wrap_box stream;
+						      pp::string stream  "(";
+						      prdcon();
+						      pp::string stream  ")";
+						      end_box stream;
+						  };
+
+					      case (l, r, fixity)
+					        
+						   (f::NONFIX,  f::NONFIX,  _) =>  prpardcon();
+						   (f::INFIX _, f::INFIX _, _) =>  prdcon();
+						     #  special case: only on first iteration, for no parens 
+
+						   (_, _, f::NONFIX) => prdcon();
+
+						   (f::INFIX(_, p1), _, f::INFIX (p2, _))
+						       =>
+						       if (p1 >= p2 ) prpardcon();
+								   else prdcon   (); fi;
+
+						   (_, f::INFIX (p1, _), f::INFIX(_, p2))
+						       =>
+						       if (p1 > p2 ) prpardcon();
+								  else prdcon   ();fi;
+					      esac;
+				      };
+                                esac;
+			   fi;
+            end 
+
+	    also
+	    fun unparse_list (chunk: Chunk, type: t::Type, members_op, depth: Int, length: Int, accu)
+                =
+		{   fun list_case p
+                        =
+			case (switch (p, list_dcons))
+			  
+                             { domain=>NULL, ... }
+                                 =>
+                                 NULL;
+
+			     dcon
+                                 =>
+                                 case (unsafe_chunk::to_tuple (decon (p, dcon)))
+                                   
+				      [a, b] =>  THE (a, b);
+				      _      =>  bug "prettyprintList [a, b]";
+                                 esac;
+                        esac;
+
+		    fun unparse_tail (p, len)
+			=
+			case (list_case p)
+			  
+			     NULL => ();
+
+			     THE (hd, tl)
+				 => 
+				 if   (len <= 0)
+				     
+				      pp::string stream  "...";
+				 else
+				      case (list_case tl)
+				        
+					   NULL
+					       => 
+					       unparse_val_share (hd, type, members_op, depth - 1, accu);
+
+					   _   =>
+					       {   unparse_val_share (hd, type, members_op, depth - 1, accu);
+						   pp::string stream  ", ";
+						   break stream { spaces=>0, indent_on_wrap=>0 };
+						   unparse_tail (tl, len - 1);
+					       };
+				      esac;
+				 fi;
+			esac;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream  "["; 
+		    unparse_tail (chunk, length);
+		    pp::string stream  "]";
+		    end_box stream;
+		}
+
+	    also
+	    fun unparse_ur_list (chunk: Chunk, type: t::Type, members_op, depth: Int, length: Int, accu)
+                =
+		{   fun list_case p
+                        =
+			case (switch (p, ulist_dcons))
+			  
+                             { domain => NULL, ... }
+                                 =>
+                                 NULL;
+
+			     dcon
+                                 =>
+                                 case (unsafe_chunk::to_tuple (decon (p, dcon)))
+                                   
+				      [a, b] =>  THE (a, b);
+				      _      =>  bug "prettyprintUrList [a, b]";
+                                 esac;
+                        esac;
+
+		    fun unparse_tail (p, len)
+                        =
+		        case (list_case p)
+			  
+                             NULL => ();
+
+			     THE (hd, tl)
+				 => 
+				 if   (len <= 0)
+                                     
+                                      pp::string stream  "...";
+				 else 
+                                      case (list_case tl)
+				        
+                                           NULL
+                                               => 
+					       unparse_val_share (hd, type, members_op, depth - 1, accu);
+
+					   _   =>
+					       {   unparse_val_share (hd, type, members_op, depth - 1, accu);
+					           pp::string stream  ", ";
+					           break stream { spaces=>0, indent_on_wrap=>0 };
+					           unparse_tail (tl, len - 1);
+                                               };
+                                      esac;
+                                 fi;
+                        esac;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream  "[ unrolled list "; 
+		    #  prettyprintTail (chunk, length); 
+		    pp::string stream  "]";
+		    end_box stream;
+		}
+
+	    also
+	    fun unparse_tuple (chunks: List( Chunk ), tys: List( t::Type ), members_op, depth: Int, accu) : Void
+                =
+		{   fun unparse_fields ([f],[type])
+                            =>
+                            unparse_val_share (f, type, members_op, depth - 1, accu);
+
+		        unparse_fields (f ! restf, type ! restty)
+                            => 
+			    {   unparse_val_share (f, type, members_op, depth - 1, accu);
+			        pp::string stream (", ");
+			        break stream { spaces=>0, indent_on_wrap=>0 };
+			        unparse_fields (restf, restty);
+                            };
+
+		        unparse_fields ([], [])
+                            =>
+                            ();
+
+		        unparse_fields _
+                            =>
+                            bug "prettyprintFields in ppval.sml";
+                    end;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream ("("); 
+		    unparse_fields (chunks, tys); 
+		    pp::string stream (")");
+		    end_box stream;
+		}
+
+	    also
+	    fun unparse_record (chunks: List( Chunk ), labels: List( t::Label ),
+			 tys: List( t::Type ), members_op, depth: Int, accu)
+                =
+		{   fun unparse_fields ([f],[l],[type])
+			    => 
+			    {   begin_indented_horizontal_else_vertical_box stream (pp::CURSOR_RELATIVE 2);
+				pp::string stream (symbol::name l); 
+				pp::string stream ("="); 
+				unparse_val_share (f, type, members_op, depth - 1, accu);
+				end_box stream;
+			    };
+
+		        unparse_fields (f ! restf, l ! restl, type ! restty)
+                            => 
+			    {   begin_indented_horizontal_else_vertical_box stream (pp::CURSOR_RELATIVE 2);
+				pp::string stream (symbol::name l); 
+				pp::string stream ("="); 
+				unparse_val_share (f, type, members_op, depth - 1, accu);
+				end_box stream;
+				pp::string stream (", "); 
+				break stream { spaces=>0, indent_on_wrap=>0 };
+				unparse_fields (restf, restl, restty);
+                            };
+
+		        unparse_fields([],[],[])
+                            =>
+                            ();
+
+		        unparse_fields _
+                            =>
+                            bug "prettyprintFields in ppval.sml";
+                    end;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream ("{ "); 
+		    unparse_fields (chunks, labels, tys); 
+		    pp::string stream (" }");
+		    end_box stream;
+		}
+
+	    also
+	    fun unparse_vector (chunks: Vector( Chunk ), type: t::Type, members_op, depth: Int, length, accu)
+		=
+		{   vector_length  = v::length chunks;
+
+		    my (len, closing)
+                        = 
+			if   (length >= vector_length)
+                             
+			     (vector_length, fn _ = pp::string stream "]");
+			else
+                             (length, fn sep = { pp::string stream sep; 
+						    pp::string stream "...]";});
+                        fi;
+
+		    fun print_rest (sep, breaker, index)
+			=
+			if   (index >= len)
+			    
+			     closing sep;
+			else
+			     pp::string stream  sep; breaker ();
+			     unparse_val_share (v::get (chunks, index), type, members_op,
+					  depth - 1, accu);
+			     print_rest (", ", fn () => break stream { spaces=>0, indent_on_wrap=>0 }; end, index + 1);
+			fi;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream "#["; print_rest("", fn () => (); end, 0);
+		    end_box stream;
+		}
+
+	    also
+	    fun unparse_array (chunks: Rw_Vector( Chunk ), type: t::Type, members_op, depth: Int, length, accu)
+		=
+		{   vector_length  = rw_vector::length chunks;
+
+		    my (len, closing)
+                        = 
+			if   (length >= vector_length)
+                             
+			     (vector_length, fn _ = pp::string stream "|]");
+			else
+                             (length, fn sep => { pp::string stream sep; 
+						    pp::string stream "...|]";}; end );
+                        fi;
+
+		    fun print_rest (sep, breaker, index)
+                        =
+			if   (index >= len)
+                            
+                             closing sep;
+			else
+			     pp::string stream  sep;
+                             breaker ();
+			     unparse_val_share (rw_vector::get (chunks, index), type, members_op,
+					 depth - 1, accu);
+			     print_rest (", ", fn () = break stream { spaces=>0, indent_on_wrap=>0 }, index + 1);
+                        fi;
+
+		    begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		    pp::string stream "[|";
+                    print_rest("", fn () = (), 0);
+		    end_box stream;
+		  }
+
+	    also
+	    fun unparse_real_array (chunks:  rw_float64_vector::Rw_Vector, length: Int)
+		  =
+		  {   vector_length
+                          =
+                          rw_float64_vector::length chunks;
+
+		      my (len, closing)
+                          = 
+			  if   (length >= vector_length)
+                               
+			       ( vector_length,
+                                 fn _ = pp::string stream "|]"
+                               );
+			  else
+                               ( length,
+                                 fn sep = {   pp::string stream sep; 
+					      pp::string stream "...|]";
+                                          }
+                               );
+                          fi;
+
+		      fun print_rest (sep, breaker, index)
+			  =
+			  if    (index >= len)
+			      
+				closing sep;
+			  else
+				pp::string stream  sep; breaker ();
+				pp::string stream (float::to_string (rw_float64_vector::get (chunks, index)));
+				print_rest (", ", fn () =  break stream { spaces=>0, indent_on_wrap=>0 }, index + 1);
+			  fi;
+
+		      begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		      pp::string stream "[|";
+                      print_rest("", fn () = (), 0);
+		      end_box stream;
+		  };
+
+	end;				# fun unparse_chunk
+
+};					# package unparse_chunk
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# COPYRIGHT (c) 1989 by AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

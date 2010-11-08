@@ -1,0 +1,643 @@
+## flatten-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.make6
+
+
+
+# This file implements one of the fate-passing-style transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/backend/upper/highcode/highcode.api
+
+
+
+#    "Argument flattening.  As mentioned earlier,
+#     the earlier phases of the compiler use languages
+#     where functions take and return single values:
+#     When multiple values are needed, they are
+#     bundled into a tuple.
+#
+#    "This phase optimizes the code so that such
+#     bundles are opened up and passed directly in
+#     registers as multiple arguments or multiple
+#     return values."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+#
+#     (See also the discussion on page 16-18, ibid.)
+
+
+
+
+###               "The traditional mathematics professor of the popular legend is absentminded.
+###                He usually appears in public with a lost umbrella in each hand.
+###                He prefers to face the blackboard and to turn his back to the class.
+###                He writes a, he says b, he means c; but it should be d.
+###                
+###                Some of his sayings are handed down from generation to generation:
+###                
+###               "In order to solve this differential equation
+###                you look at it till a solution occurs to you.
+###                
+###               "This principle is so perfectly general that
+###                no particular application of it is possible.
+###                
+###               "Geometry is the science of correct reasoning on incorrect figures.
+###                
+###               "My method to overcome a difficulty is to go round it.
+###                
+###               "What is the difference between method and device?
+###                A method is a device which you used twice.
+###                
+###               "The first rule of discovery is to have brains and good luck.
+###               "The second rule of discovery is to sit tight and wait
+###                till you get a bright idea."
+###                
+###                                   -- George Pólya, "How to solve it", 1945.
+
+
+
+
+
+api Flatten {
+
+    flatten
+        :
+        { function:  fate_passing_style::Function,
+          table:     int_hash_table::Hash_Table( highcode_type::Highcode_Type ),
+          click:     String -> Void
+        }
+        ->
+        fate_passing_style::Function;
+};
+
+# We are invoked by:
+#
+#     src/lib/compiler/backend/upper/fps-optimize/fps-optional-optimizations-g.pkg
+							# Machine_Properties	is from   src/lib/compiler/codegen/main/machine-properties.api
+generic package flatten_g (
+
+    machine_properties:  Machine_Properties	# Typically 			  src/lib/compiler/codegen/x86/x86-machine-properties.pkg
+
+)
+: (weak) Flatten					# Flatten		is from   src/lib/compiler/backend/upper/fps-optimize/flatten-g.pkg
+
+{
+
+stipulate
+    include fate_passing_style;
+
+    package lt = highcode;				# highcode		is from   src/lib/compiler/backend/upper/highcode/highcode.pkg
+    package lv = highcode_var;				# highcode_var		is from   src/lib/compiler/backend/upper/highcode/highcode-var.pkg
+    package cg = controls::cg;				# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+
+herein 
+
+    say = controls::print::say;
+    fun bug s = error_message::impossible ("Flatten: " + s);
+
+    Arity = BOT 
+		   | UNK  #  An arg seen that isn't a known record 
+		   | COUNT  (Int, Bool) /* int is # of record fields;
+					    Bool is whether any arguments 
+					    were unknown records */
+		   | TOP;
+
+    Info = FNINFO  { arity: Ref(  List(  Arity ) ), 
+			       alias: Ref(  Null_Or(  Highcode_Variable ) ),
+			       escape: Ref( Bool )
+			  }
+		  | ARGINFO  Ref( Int )		# The highest-numbered field selected 
+		  | RECINFO  Int			# Number of fields 
+		  | MISCINFO;
+
+    fun flatten { function=>(fkind, fvar, fargs, ctyl, cexp), table, click }
+	=
+	{   clicks = REF 0;
+
+	    maxfree = machine_properties::num_regs;
+
+	    debug   = *controls::cg::debugcps;			#  FALSE 
+
+	    fun debugprint s = if debug  controls::print::say (s); fi;
+	    fun debugflush () = if debug  controls::print::flush(); fi;
+
+	    rep_flag = machine_properties::representations;
+	    type_flag = *cg::checkcps1 and *cg::checkcps2 and rep_flag;
+
+	    select_lty
+		= 
+		(fn (lt, i) =  if type_flag  lt::lt_select (lt, i); else lt::ltc_void;fi);
+
+	    exception NFLATTEN;
+
+	    fun getty v
+		=
+		if type_flag 
+
+		    (int_hash_table::get  table  v)
+                    except
+                        _ =  { controls::print::say ("NFLATTEN: Can't find the variable " +
+				    (int::to_string v) + " in the table ***** \n");
+			       raise exception NFLATTEN;
+                             };
+		else
+                    lt::ltc_void;
+                fi;
+
+	    addty = if type_flag  int_hash_table::set table;
+                    else          (fn _ = ());
+                    fi;
+
+	    fun newty (f, t)
+		=
+		if type_flag
+
+		    ignore (int_hash_table::remove table f)   except _ = ();
+		    addty (f, t);
+		fi;
+
+	    fun make_var (t)
+		=
+		{   v = lv::make_highcode_variable();
+		    addty (v, t);
+		    v;
+		};
+
+	    fun grabty u
+		=
+		{   fun g (VAR    v) =>   getty v;
+			g (INT    _) =>   lt::ltc_int;
+			g (REAL   _) =>   lt::ltc_real;
+			g (STRING _) =>   lt::ltc_void;
+			g (LABEL  v) =>   getty v;
+			g _          =>   lt::ltc_void;
+		    end;
+
+		    if type_flag
+
+			 g u;
+		    else
+			 lt::ltc_void;
+		    fi;
+		};
+
+	    fun arg_lty [] => lt::ltc_int;
+
+		arg_lty [t]
+                    => 
+		    lt::ltw_tuple
+                        ( t, 
+
+			  fn xs as (_ ! _) => length xs < machine_properties::max_rep_regs
+				              ??  lt::ltc_tuple [t]
+                                              ::  t;
+			     _ => t;
+                          end,
+
+			 fn t => 
+			    lt::ltw_str
+                                ( t, 
+
+				  fn xs as (_ ! _) =>  length (xs) < machine_properties::max_rep_regs
+							??  lt::ltc_tuple [t]
+							::  t;
+				     _ => t;
+				  end,
+
+			          fn t = t
+                                );
+                         end
+                        );
+
+		arg_lty r => lt::ltc_str r;		#  this is INCORRECT !!!!!!!  XXX BUGGO FIXME
+	    end;
+
+	    fun ltc_fun (x, y)
+		= 
+		if   (lt::ltp_tyc x  and  lt::ltp_tyc y)
+
+		     lt::ltc_parrow (x, y);
+		else lt::ltc_pfct   (x, y);
+		fi;
+
+	    fun make_fn_lty (_, _, NIL)
+                    =>
+                    bug "make_fn_lty in nflatten";
+
+		make_fn_lty (k, cntt ! _, x ! r)
+		    => 
+		    lt::ltw_iscont
+                      (
+                        x,
+
+                        fn [t2] => (k, ltc_fun (arg_lty r, t2));
+			    _   => bug "unexpected mkfnLty";
+                        end, 
+
+			fn [t2] => (k, ltc_fun (arg_lty r, lt::ltc_tyc t2));
+			     _  => bug "unexpected mkfnLty";
+                        end, 
+
+			fn x =  (k, ltc_fun (arg_lty r, x))
+                    );
+
+	        make_fn_lty (k, _, r)
+                    =>
+                    (k, lt::ltc_cont([arg_lty r]));
+	    end;
+
+	    # Note that maxfree has already been reduced by 1 (in CPScomp)
+	    # on most machines to allow for an arithtemp:
+	    #	
+	    maxregs = maxfree - machine_properties::num_callee_saves;
+
+	    stipulate
+
+		exception USAGE_MAP;
+
+		my m: int_hash_table::Hash_Table( Info )
+		    = int_hash_table::make_table (128, USAGE_MAP);
+
+		umap = int_hash_table::get  m;
+
+	    herein  
+
+		fun get i
+		    =
+		    umap i
+		    except
+			USAGE_MAP = MISCINFO;
+
+		enter = int_hash_table::set m;
+	    end;
+
+	    fun select (VAR v, i)
+                    =>
+		    case (get v)
+		         ARGINFO (biggest_sel as REF j) => biggest_sel := int::max (i, j);
+			_ => ();
+                    esac;
+
+	        select (LABEL v, i) => select (VAR v, i);
+	        select _ => ();
+            end;
+
+	    fun escape (VAR v)
+                    =>
+                    case (get v)
+			FNINFO { escape=>r, ... } =>  r := TRUE;
+			_                       =>  ();
+		    esac;
+
+	        escape (LABEL v)
+                    =>
+                    escape (VAR v);
+
+	        escape _ => ();
+            end;
+
+	    fun field' (v, SELP (i, _)) =>  select (v, i);
+	        field' (v, _)           =>  escape v;
+            end;
+
+	    botlist = if *cg::flattenargs  map (fn _ = BOT);
+		      else                 map (fn _ = TOP);
+                      fi;
+
+	    fun enter_fn (_, f, vl, _, cexp)
+                =
+		  {   enter (f, FNINFO { arity=>REF (botlist vl), alias=>REF NULL, escape=>REF FALSE } );
+		      apply (fn v = enter (v, ARGINFO (REF -1))) vl;
+                  };
+
+	    stipulate
+
+                exception FOUND;
+
+	    herein 
+
+		fun find_fetch (v, k) body
+		    =
+	    	    # Find whether field k
+                    # of variable v is
+                    # guaranteed to exist:
+                    # 
+		    ( f body
+                      except FOUND = TRUE
+                    )
+		    where
+			fun f (RECORD(_, fields, _, e)) => { apply g fields; f e;};
+			    f (SELECT (i, VAR v', w, _, e))
+				=> 
+				if (v==v' and i==k ) raise exception FOUND; else f e;fi;
+			    f (SELECT(_, _, _, _, e)) => f e;
+			    f (OFFSET(_, _, _, e)) => f e;
+			    f (MUTUALLY_RECURSIVE_FNS(_, e)) => f e;
+			    f (BRANCH(_, _, _, e1, e2)) => find_fetch (v, k) e1 and find_fetch (v, k) e2;
+			    f (LOOKER(_, _, _, _, e)) => f e;
+			    f (SETTER(_, _, e)) => f e;
+			    f (ARITH(_, _, _, _, e)) => f e;
+			    f (PURE(_, _, _, _, e)) => f e;
+			    f (RAW_C_CALL(_, _, _, _, _, e)) => f e;
+			    f (SWITCH(_, _, el)) => not (list::exists (not o find_fetch (v, k)) el);
+			    f _ => FALSE;
+			end 
+
+			also
+			fun g (VAR v', SELP (i, _)) => if (v==v' and i==k ) raise exception FOUND; fi;
+			    g _  => ();
+			end;
+		    end;
+	    end;
+
+	    fun check_flatten (_, f, vl, _, body)
+                =
+	        case (get f)
+
+	            FNINFO { arity as REF al, alias, escape }
+                        =>
+	                {   fun loop (v ! vl, a ! al, headroom)
+				    =>
+				    case (a, get v)
+
+					 ( COUNT (c, some_non_record_actual),
+                                           ARGINFO (REF j)
+                                         )
+					     =>
+					     if (   j > -1				#  exists a select of the formal parameter 
+						and headroom-(c - 1) >= 0
+						and (  not (some_non_record_actual or *escape)
+						    or *cg::extraflatten 
+							and j==c - 1 and find_fetch (v, j) body)
+						)
+
+						  a   ! loop (vl, al, headroom-(c - 1));
+					     else TOP ! loop (vl, al, headroom        );
+					     fi;
+
+					_ => TOP ! loop (vl, al, headroom);
+				    esac;
+
+		                loop _ => NIL;
+                            end;
+
+	                    a' = loop (vl, al, maxregs - 1-length (al));
+
+	                    arity := a';
+
+			    if (list::exists (fn COUNT _ => TRUE;  _ => FALSE; end ) a')
+
+				alias := THE (lv::copy_highcode_variable f);
+				click "F";
+				clicks := *clicks+1;
+			    fi;
+	                };
+
+		    _ => ();		# Impossible.
+                esac; 
+
+
+	    # ************************************************************************
+	    #  pass1: gather usage information on the variables within a fps expression.  
+	    # ************************************************************************
+	    recursive val pass1
+                =
+		fn RECORD(_, vl, w, e) => { enter (w, RECINFO (length vl)); apply field' vl; pass1 e;};
+		   SELECT (i, v, w, _, e) => { select (v, i); pass1 e;};
+		   OFFSET (i, v, w, e) => { escape v; pass1 e;};
+		   SWITCH (v, c, el) => { escape v; apply pass1 el;};
+		   BRANCH (i, vl, c, e1, e2) => { apply escape vl; pass1 e1; pass1 e2;};
+		   SETTER (i, vl, e) => { apply escape vl; pass1 e;};
+		   LOOKER (i, vl, w, _, e) => { apply escape vl; pass1 e;};
+		   ARITH (i, vl, w, _, e) => { apply escape vl; pass1 e;};
+		   PURE (i, vl, w, _, e) => { apply escape vl; pass1 e;};
+		   RAW_C_CALL(_, _, _, vl, wtl, e) => { apply escape vl; pass1 e;};
+
+		   APPLY (VAR f, vl)
+                       =>
+		       {   fun loop (t ! r, vl0 as (VAR v) ! vl, n)
+                                   =>
+				   case (t, get v)
+
+				       (BOT, RECINFO size)
+					   =>
+					   loop (COUNT (size, FALSE) ! r, vl0, n);
+
+				       (BOT, _)
+					   =>
+					   UNK ! loop (r, vl, n+1);
+
+				       (UNK, RECINFO size)
+					   => 
+					   loop (COUNT (size, TRUE) ! r, vl0, n);
+
+				       (UNK, _)
+					   =>
+					   UNK ! loop (r, vl, n+1);
+
+				       (COUNT (a, _), RECINFO size)
+					   => 
+					   a == size   ??    t ! loop (r, vl, n+1)
+						       ::  TOP ! loop (r, vl, n+1);
+
+				       (COUNT (a, _), _)
+					   => 
+					   COUNT (a, TRUE) ! loop (r, vl, n+1);
+
+				       _ => TOP ! loop (r, vl, n+1);
+                                   esac;
+
+			       loop (_ ! r, _ ! vl, n)
+                                   =>
+                                   TOP ! loop (r, vl, n+1);
+
+			       loop _
+                                   =>
+                                   NIL;
+                           end;
+
+			   apply escape vl; 
+
+			   case (get f)
+				FNINFO { arity as REF al, ... } => arity := loop (al, vl, 0);
+			       _ => ();
+                           esac;
+		       };
+
+		   APPLY (f, vl) => apply escape vl;
+
+		   MUTUALLY_RECURSIVE_FNS (l, e)
+                       =>
+                       {   apply enter_fn l;
+			   apply  (fn (_, _, _, _, body) =  pass1 body)  l;
+			   pass1 e;
+			   apply check_flatten l;
+                       };
+               end ;
+
+	    recursive val reduce
+                =
+		fn RECORD (k, vl, w, e) => RECORD (k, vl, w, reduce e);
+		   SELECT (i, v, w, t, e) => SELECT (i, v, w, t, reduce e);
+		   OFFSET (i, v, w, e) => OFFSET (i, v, w, reduce e);
+		   SWITCH (v, c, el) => SWITCH (v, c, map reduce el);
+		   LOOKER (i, vl, w, t, e) => LOOKER (i, vl, w, t, reduce e);
+		   SETTER (i, vl, e) => SETTER (i, vl, reduce e);
+		   ARITH (i, vl, w, t, e) => ARITH (i, vl, w, t, reduce e);
+		   PURE (i, vl, w, t, e) => PURE (i, vl, w, t, reduce e);
+		   RAW_C_CALL (k, l, p, vl, wtl, e) => RAW_C_CALL (k, l, p, vl, wtl, reduce e);
+		   BRANCH (i, vl, c, e1, e2) => BRANCH (i, vl, c, reduce e1, reduce e2);
+
+		   APPLY (f as VAR fv, vl)
+                       =>
+		       case (get fv)
+
+			    FNINFO { arity=>REF al, alias=>REF (THE f'), ... }
+                                => 
+			        loop (al, vl, NIL)
+                                where
+			            fun loop (COUNT (count, _) ! r, v ! vl, args)
+                                            =>
+					    g (0, args)
+                                            where
+					        lt = grabty v;
+
+						fun g (i, args)
+						    = 
+						    if (i==count ) loop (r, vl, args);
+						    else tt = select_lty (lt, i);
+							     z = make_var (tt);
+							  SELECT (i, v, z, ctype (tt), g (i+1, (VAR z) ! args));
+						    fi;
+					    end;
+
+					loop(_ ! r, v ! vl, args) => loop (r, vl, v ! args);
+					loop(_, _, args) => APPLY (VAR f', reverse args);
+                                    end;
+			        end;
+
+			   _ => APPLY (f, vl);
+                       esac;
+
+		   APPLY (f, vl)
+                       =>
+                       APPLY (f, vl);
+
+		   MUTUALLY_RECURSIVE_FNS (l, e)
+                       =>
+		       {   fun vars (0, _, l, l')
+                                   =>
+                                   (l, l');
+
+			       vars (i, lt, l, l')
+                                   => 
+				   {   tt = select_lty (lt, i - 1);
+				       vars (i - 1, lt, (make_var (tt)) ! l, (ctype (tt)) ! l');
+				   };
+                           end;
+
+			   fun newargs (COUNT (j, _) ! r, v ! vl, _ ! cl)
+                                   =>
+				   {   lt = getty v;
+				       my (new, ncl) = vars (j, lt, NIL, NIL);
+				       my (vl', cl', bt') = newargs (r, vl, cl);
+
+				       fun bodytransform body
+                                           =
+					   RECORD (RK_RECORD,
+						     map (fn x =>(VAR x, OFFP 0); end ) new,
+						     v, body);
+
+				       (new @ vl', ncl @ cl', bodytransform o bt');
+				   };
+
+			       newargs(_ ! r, v ! vl, ct ! cl)
+                                   => 
+				   {   my (vl', cl', bt') = newargs (r, vl, cl);
+				       (v ! vl', ct ! cl', bt');
+				   };
+
+			       newargs _
+                                   =>
+                                   ([],[], fn b=b);
+                           end;
+
+
+			   fun process_args ((fdef as (fk, f, vl, cl, body)) ! rest)
+                                   =>
+			           case (get f)   
+
+				       FNINFO { arity=>REF al, alias=>REF (THE f'), ... }
+                                           =>
+				           {   my (nargs, ncl, bt) = newargs (al, vl, cl);
+					       my (fk', lt) = make_fn_lty (fk, ncl, map getty nargs);
+					       newty (f', lt);
+					       wl = map lv::copy_highcode_variable vl;
+
+					       (fk, f, wl, cl, APPLY (VAR f, map VAR wl))
+                                               !
+					       (fk', f', nargs, ncl, bt body) ! process_args rest;
+				           };
+
+				       _ => fdef ! process_args rest;
+                                   esac;
+
+			       process_args NIL
+                                   =>
+                                   NIL;
+                           end;
+
+			   fun reduce_body (fk, f, vl, cl, body)
+                               =
+                               (fk, f, vl, cl, reduce body);
+
+			   MUTUALLY_RECURSIVE_FNS (map reduce_body (process_args l), reduce e);
+		     };
+	       end;
+
+	    fun fprint (function, s:  String)
+		 = 
+		 {   say "\n"; say s; say "\n \n";
+		     prettyprint_fps::print_fps_function function;
+		 };
+
+	    debugprint "Flatten: ";
+	    debugflush();
+
+	    if debug
+                 fprint ((fkind, fvar, fargs, ctyl, cexp), "Before flatten:");
+	    fi;
+
+	    pass1 cexp;
+
+	    cexp' =   *clicks > 0   ??   reduce cexp
+		                    ::   cexp;
+
+	    if debug
+		 if (*clicks > 0)    fprint ((fkind, fvar, fargs, ctyl, cexp'), "After flatten:");
+		 else                say "No flattening this time.\n";
+                 fi;
+	    fi;
+
+	    debugprint "\n";
+
+	    ( fkind,
+	      fvar,
+	      fargs,
+	      ctyl,
+	      cexp'
+	    );
+	};
+
+end;		#  toplevel stipulate 
+};		#  generic package flatten_g 
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

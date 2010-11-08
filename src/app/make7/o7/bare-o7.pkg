@@ -1,0 +1,1365 @@
+## bare-o7.pkg
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+#            MOTIVATION AND OVERVIEW
+#
+# Unlike most contemporary compilers, the Mythryl
+# compiler treats parsing and compiling as separate
+# operations, performed at different times by different
+# code for different reasons.  Accordingly, a Mythryl
+# source file may exist in three principal states:
+#
+#   1) Not yet parsed or compiled.
+#   2) Parsed but not yet compiled.
+#   3) Both parsed and compiled.
+#
+# Compiling a "foo.pkg" source file produces a
+# "foo.pkg.o7" objectcode file.  This .o7 file may
+# then either be left bare on disk, or combined
+# with other .o7 files in a library -- a "freezefile".
+#
+# The
+#
+#     Bare_O7
+#
+# records we implement in this file serve as our
+# primary representation for source files at any
+# stage of compilation.  By design, thus, they
+# can be created before we have parsed or compiled
+# the sourcefile in question.
+#
+# The parsetree, once obtained, is added to the
+# bare_o7 record by setting a reference
+# cell, 'parsetree'.
+#
+# Most other information is recorded in by setting
+# up datastructures with Bare_O7 records as
+# keys and other information as matching values.
+# 
+# In particular, the 'object_code_cache' map in
+# src/app/make7/compile/compile-treewalk-g.pkg
+# uses Bare_O7 records as keys to represent
+# what we know about a sourcefile before compilation,
+# and Object_Code_Cache_Entry values to represent
+# what we learn about a sourcefile by compiling it.
+#
+#
+# FROZEN libraries present a special case, since we
+# never recompile their contents, and we do not assume
+# that the corresponding source code is still available.
+# This makes Bare_O7 records inappropriate for
+# representing the .o7 files within them, so we instead
+# use the alternate
+#
+#     Iced_O7
+#
+# records implemented in
+#
+#     src/app/make7/freezefile/iced-o7.pkg
+#
+# Consequently, just about all code dealing with .o7
+# files has two cases, one to handle Bare_O7
+# records and one to handle Iced_O7 records.
+#
+# Together, these two record types form the prime
+# objects of interest for the dependency graphs which
+# drive our 'make7' functionality, since we understand
+# all code dependencies ultimately in terms of dependency
+# edges between these two types of records.
+#
+# Our small- and inter-library dependency graphs are defined in
+#
+#     src/app/make7/depend/intra-library-dependency-graph.pkg
+#     src/app/make7/depend/inter-library-dependency-graph.pkg
+#
+# respectively.
+#
+# Bare_O7 records contain only information that does
+# not require running the machine-dependent part of the
+# compiler, and consequently are platform-agnostic:  They
+# may be shared by all our backends.
+#
+#
+# 'setup'
+#     is a hack to support the make7 'tool' subsystem.
+#     It consists of two (optional) literal strings of
+#     Mythryl code to be compiled and run immediately before
+#     the main module code.
+#
+#     The idea is that these scraps of code may be used
+#     for such things as:
+#         o Turning on special debug checks,
+#         o Turning off obnoxious compiler diagnostics, or
+#         o Setting the code-optimizer specially for a particular file.
+#
+#
+# 'controller'
+#     This stuff seems to be support for some make7 'tool'
+#     hack letting one specifically change some controller
+#     settings for the duration of the compile of a particular
+#     .o7 file. ("controllers" are what we use to implement
+#     Unix commandline switches and such.)
+#
+#     This (apparently undocumented) mechanism is a lot
+#     like the various emacs "save-excursion" constructs
+#     in that it:
+#         o Saves the current value of some controller.
+#         o Sets a new value for that controller.
+#         o Compiles the .o7 file in question.
+#         o Restores the original value of that controller.
+#
+# 'extra_static_compile_dictionary':
+#     This is a bootstrapping hack used in
+#         src/app/make7/make-compiler/primordial-make7file.pkg
+#     to give selected packages (namely those flagged "primitive" in
+#         src/lib/core/init/init.cmi
+#     access to 
+#         primitives_symbol_table::primitives_symbol_table
+#     from
+#         src/lib/compiler/frontend/semantic/symbol-table/primitives-symbol-table.pkg
+#     This field will be NULL for all vanilla packages.
+
+api Bare_O7 {
+
+							# error_message		is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+							# raw_syntax		is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+							# source_map		is from   src/lib/compiler/frontend/basics/source/source-map.pkg
+							# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+							# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+    Bare_O7;
+    Key = Bare_O7;
+
+    Plaint_Sink
+        =
+        error_message::Plaint_Sink;
+
+    Raw_Syntax_Tree
+        =
+        raw_syntax::Declaration;
+
+    Source_Code_Region
+         =
+         source_map::Source_Code_Region;
+
+    Source
+        =
+        source_code_source::Input_Source;
+
+    Inlining_Request
+         =
+         controls::inline::Localsetting;
+
+    Sourcefile_Syntax
+        =
+        MYTHRYL | NADA;
+
+    Attributes						# Except for "inlining", these are all deep magic used internally for bootstrapping.
+         =
+         {   cross_module_inlining:  Inlining_Request,
+	     is_runtime_system:      Bool,			# Is this the runtime system, requiring a special hack?
+	     noguid:                 Bool,
+
+	     explicit_core_symbol:             Null_Or( symbol::Symbol ),		# Deep bootstrap magic for the "Core" / "_Core" package.
+	     extra_static_compile_dictionary:  Null_Or( symbol_table::Symbol_Table )	# See top-of-file comments.
+	 };
+
+							# symbol	is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+							# symbol_table	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+
+    Controller
+         =
+         { save'restore:  Void -> Void -> Void,
+           set:           Void -> Void
+         };
+
+    Info_Args						# Argument to the make and make' calls which create Bare_O7 instances.
+         =
+         { sourcepath:  anchor_dictionary::File,	#  File containing source code which compiles to produce .o7 in question.	
+
+	   library:    ( anchor_dictionary::File,
+                         Source_Code_Region
+                       ),
+
+	   setup:      (Null_Or( String  ), Null_Or( String )),	#  Literal source code to compile+run before/after compiling .o7 file in question 
+	   local:       Bool,
+	   controllers: List( Controller ),			#  Save/set/restore some controller settings for duration of compiling this .o7.
+
+	   sharing_request
+               :
+               sharing_mode::Request
+         };
+
+							# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+							# sharing_mode		is from   src/app/make7/semant/sharing.pkg
+
+    eq:       (Bare_O7, Bare_O7) -> Bool;	#  Compare sourcepaths for equality. 
+    compare:  (Bare_O7, Bare_O7) -> Order;	#  Compare sourcepaths for ordering. 
+
+
+
+    # The idea behind "new_generation" is the following:
+    #
+    # Before parsing .make6 files (on behalf of make7::make/compile or make_compiler::make etc.)
+    # we start a new generation.
+    #
+    #  While parsing, when we encounter a new sourcefile we re-use existing
+    # information and bump its generation to "now".
+    #
+    # After we are done with one library we can safely evict
+    # all info records for files in this library if their generation
+    # is not "now".
+    #
+    # Moreover, if we encounter an entry that has a different owner library,
+    # we can either signal an error (if the generation is "now" which means
+    # that the file was found in another library during the same parse) or
+    # issue a "switched libraries" warning (if the generation is not
+    # 'now' which means that the file used to be in another library):
+    #
+    new_generation
+        :
+        Void -> Void;
+
+    make
+        :
+        (Inlining_Request, Bool)
+	->
+	make7_state::Make7_State			# make7_state	is from   src/app/make7/main/make7-state.pkg
+	->
+	Info_Args
+	->
+	Bare_O7;
+
+    make'
+        :
+        Attributes
+        ->
+        make7_state::Make7_State
+        ->
+        Info_Args
+        ->
+        Bare_O7;
+
+    error:         make7_state::Make7_State -> Bare_O7 -> Plaint_Sink;
+    exports:       make7_state::Make7_State -> Bare_O7 -> Null_Or( symbol_set::Set );
+    module_dependencies_summary:      make7_state::Make7_State -> Bare_O7 -> Null_Or( module_dependencies_summary::Decl );
+#   parsetree:     make7_state::Make7_State -> Bare_O7 -> Null_Or( (Raw_Syntax_Tree, Source))
+
+
+							# symbol_set				is from   src/app/make7/util/symbol-set.pkg
+							# module_dependencies_summary		is from   src/app/make7/o7/module-dependencies-summary.pkg
+							# symbol_table				is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table.pkg
+							# source_code_source			is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+							# prettyprint				is from   src/lib/prettyprint/src/prettyprint.pkg
+							# raw_syntax				is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+    parsetree
+        :
+        make7_state::Make7_State
+        ->
+        # Prettyprint symbol table and function:
+        Null_Or (
+          ( symbol_table::Symbol_Table,
+            (
+	      ( symbol_table::Symbol_Table,
+	        Null_Or( source_code_source::Input_Source )
+              )
+              ->
+	      prettyprint::Stream
+              ->
+	      ( raw_syntax::Declaration,
+	        Int
+              )
+	      ->
+              Void
+          ) )
+        )
+        ->
+        Bare_O7
+        ->
+        Null_Or( (Raw_Syntax_Tree, Source) );
+
+
+							# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+							# time_stamp		is from   src/app/make7/paths/timestamp.pkg
+							# sharing_mode		is from   src/app/make7/semant/sharing.pkg
+
+    set_version:       (Bare_O7, String) -> Void;
+
+    version:           Bare_O7 -> String;
+    sourcepath:        Bare_O7 -> anchor_dictionary::File;
+    module_dependencies_summaryfile_name: Bare_O7 -> String;
+    sourcefile_syntax: Bare_O7 -> Sourcefile_Syntax;
+
+    oh7_file_name:     Bare_O7 -> String;
+    group:             Bare_O7 -> anchor_dictionary::File;
+    attributes:        Bare_O7 -> Attributes;
+
+    last_sourcefile_modification_time_seen:
+                       Bare_O7 -> time_stamp::Time_Stamp;
+
+    setup:             Bare_O7 -> (Null_Or( String ), Null_Or( String ));
+    controllers:       Bare_O7 -> List( Controller );
+
+    is_local:          Bare_O7 -> Bool;
+    sharing_request:   Bare_O7 -> sharing_mode::Request;
+    sharing_mode:      Bare_O7 -> sharing_mode::Mode;
+
+    set_sharing_mode:  (Bare_O7, sharing_mode::Mode) -> Void;
+
+    # Forget a parse tree that we are done with: 
+    #
+    forget_parsetree:  Bare_O7 -> Void;
+
+
+    # Evict all elements that belong to a given library but which
+    # are not of the current generation. "clean_library" should be
+    # called right after finishing to parse the library file.
+    # If the boolean flag ("now_built") is set to TRUE, then all
+    # members of the library are dismissed regardless of their
+    # generation. This is used to get rid of the information for
+    # members of now-built libraries.
+    #
+    clean_library:  	Bool -> anchor_dictionary::File -> Void;
+
+    #  See if a given piece of info is (still) known here: 
+    #
+    is_known:           Bare_O7 -> Bool;
+
+    #  Delete all known info: 
+    #
+    reset:              Void -> Void;
+
+    #  Different ways of describing a mythryl file using library and source: 
+    #
+    describe:  Bare_O7 -> String;		#  sname 
+
+    error_location:     make7_state::Make7_State -> Bare_O7 -> String;
+};
+
+package bare_o7: Bare_O7 {				# Bare_O7		is from   src/app/make7/o7/bare-o7.pkg
+
+    package  source_code_sourc
+        =
+        source_code_source;				# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+
+    package ad =  anchor_dictionary;			# anchor_dictionary	is from   src/app/make7/paths/anchor-dictionary.pkg
+    package pm =  parse_mythryl;			# parse_mythryl		is from   src/lib/compiler/frontend/parse/main/parse-mythryl.pkg
+    package pn =  parse_nada;				# parse_nada		is from   src/lib/compiler/frontend/parse/main/parse-nada.pkg
+    package em =  error_message;			# error_message		is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+    package fp =  filename_policy;			# filename_policy	is from   src/app/make7/main/filename-policy.pkg
+							# raw_syntax		is from   src/lib/compiler/frontend/parse/raw-syntax/raw-syntax.pkg
+							# source_map		is from   src/lib/compiler/frontend/basics/source/source-map.pkg
+							# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+
+    Source
+        =
+        source_code_source::Input_Source;
+
+
+    Raw_Syntax_Tree
+        =
+        raw_syntax::Declaration;
+
+
+    Source_Code_Region
+         =
+         source_map::Source_Code_Region;
+
+
+    Inlining_Request
+         =
+         controls::inline::Localsetting;
+
+    Plaint_Sink
+        =
+        em::Plaint_Sink;
+
+    Attributes
+         =
+         { cross_module_inlining:           Inlining_Request,
+	   is_runtime_system:               Bool,					# Special kludge supporting access to the C-coded runtime code.
+	   noguid:                          Bool,
+
+	   explicit_core_symbol:            Null_Or( symbol::Symbol ),			# Deep bootstrap magic for special "_Core"/"Core" package.
+	   extra_static_compile_dictionary: Null_Or( symbol_table::Symbol_Table )	# See top-of-file comments.
+	 };
+
+    Controller
+        =
+        { save'restore:  Void -> Void -> Void,
+	  set:           Void -> Void
+        };
+
+    Info_Args							# Argument to the make and make' calls which create Bare_O7 instances.
+        =
+        { sourcepath:      ad::File,				#  File containing source code which compiles to produce .o7 in question.	
+	  library:        (ad::File, Source_Code_Region),
+	  sharing_request: sharing_mode::Request,
+	  setup:          (Null_Or( String ), Null_Or( String )),
+	  local:           Bool,
+	  controllers:     List( Controller )
+        };
+
+     Sourcefile_Syntax
+         =
+         MYTHRYL | NADA;
+
+     Generation
+         =
+         Ref( Void );
+
+
+     # 2007-08-20 CrT:
+     # You'd think from the name that we must
+     # store Persistent_Info records on disk
+     # somewhere, but I find no evidence of this.
+     # I think its name comes from the fact that
+     # it is what our 'known_info' in-memory index
+     # stores on a per-file basis.
+     #
+     Persistent_Info
+        =
+	PERSISTENT_INFO  {
+
+	  library:    (ad::File, Source_Code_Region),
+	  generation: Ref( Generation ),
+
+	  last_sourcefile_modification_time_seen
+              :
+              Ref( time_stamp::Time_Stamp ),				# time_stamp	is from   src/app/make7/paths/timestamp.pkg
+
+	  parsetree: Ref( Null_Or( (Raw_Syntax_Tree, Source)) ),
+	  module_dependencies_summary:  Ref( Null_Or(     module_dependencies_summary::Decl ) ),		# module_dependencies_summary	is from   src/app/make7/o7/module-dependencies-summary.pkg
+
+	  # The sharing_mode is an elaboration of sharing_request.
+	  # It must be persistent and gets properly recomputed
+	  # when there is a new sharing_request:
+
+	  sharing_mode:    Ref( sharing_mode::Mode ),			# sharing_mode	is from   src/app/make7/semant/sharing.pkg
+	  set_version:     String -> Void,
+	  version:         Void -> String,
+
+	  sourcefile_syntax: Sourcefile_Syntax		#  XXX BUGGO FIXME Do we need to be saving and restoring this in some pickling code somewhere? 
+	};
+
+    Bare_O7					# XXX BUGGO FIXME Rename from Bare_O7 to Source_File_Info.
+        =
+        BARE_O7  {
+
+            sourcepath:             ad::File,				# File containing source code which compiles to produce us.	
+	    make_module_dependencies_summaryfile_name: Void -> String,			# File in which we cache a brief summary of the source code.	
+	    make_oh7_file_name:     Void -> String,			# File to which we should write the generated .o7 binary.	
+
+	    persistent_info:        Persistent_Info,
+	    sharing_request:        sharing_mode::Request,
+	    attributes:             Attributes,
+
+	    setup:                 (Null_Or (String ), Null_Or( String )),	#  'tool' support: Mythryl source code to execute before/after compile. 
+	    local:                  Bool,
+	    controllers:            List( Controller )
+	};
+
+    Key =  Bare_O7;
+
+    stipulate
+	generation = REF (REF ());        # XXX BUGGO FIXME More buried global state preventing multithreading :(
+    herein
+	fun now ()
+            =
+            *generation;
+	#
+	fun new_generation ()
+            =
+            generation := REF ();
+    end;
+    #
+    fun sourcepath        (BARE_O7 { sourcepath             => sp,  ... } ) =  sp;
+    fun module_dependencies_summaryfile_name (BARE_O7 { make_module_dependencies_summaryfile_name => msn, ... } ) =  msn ();
+    fun oh7_file_name     (BARE_O7 { make_oh7_file_name     => mbn, ... } ) =  mbn ();
+    fun sharing_request   (BARE_O7 { sharing_request        => s,   ... } ) =  s;
+    fun attributes        (BARE_O7 { attributes             => a,   ... } ) =  a;
+    fun setup             (BARE_O7 { setup                  => s,   ... } ) =  s;
+    fun controllers       (BARE_O7 { controllers            => c,   ... } ) =  c;
+    fun is_local          (BARE_O7 { local                  => l,   ... } ) =  l;
+
+    #
+    fun sharing_mode       (BARE_O7 { persistent_info => PERSISTENT_INFO { sharing_mode => REF m, ... }, ... } )
+        =
+        m;
+
+    #
+    fun set_sharing_mode   (BARE_O7 { persistent_info => PERSISTENT_INFO { sharing_mode,          ... }, ... },   m)
+        =
+	sharing_mode := m;
+
+    #
+    fun sourcefile_syntax  (BARE_O7 { persistent_info => PERSISTENT_INFO { sourcefile_syntax,    ... }, ... } )
+        =
+        sourcefile_syntax;
+
+    #
+    fun gerror (make7_state: make7_state::Make7_State)
+        =
+        library_source_index::error make7_state.library_source_index;
+
+    #
+    fun error make7_state (BARE_O7 { persistent_info => PERSISTENT_INFO { library, ... }, ... } )
+        =
+	gerror make7_state library;
+
+    #
+    fun group (BARE_O7 { persistent_info => PERSISTENT_INFO { library => (g, _), ... }, ... } )
+        =
+        g;
+
+    #
+    fun compare (BARE_O7 { sourcepath => p, ... }, BARE_O7 { sourcepath => p', ... } )
+        =
+	ad::compare (p, p');
+
+    #
+    fun eq (i, i')
+        =
+        compare (i, i') == EQUAL;
+
+    #
+    fun last_sourcefile_modification_time_seen
+            (BARE_O7 { persistent_info => PERSISTENT_INFO { last_sourcefile_modification_time_seen, ... }, ... } )
+        =
+        *last_sourcefile_modification_time_seen;
+
+
+    # XXX BUGGO FIXME more thread-unsafe mutable global state:
+
+    known_info						# XXX BUGGO FIXME There's got to be a more perspicuous name for than this. :(
+        =
+        REF (source_path_map::empty: source_path_map::Map( Persistent_Info ));
+
+    #
+    fun is_known (BARE_O7 { sourcepath, ... } )
+        =
+	not_null (source_path_map::get (*known_info, sourcepath));
+
+    #
+    fun count_parse_trees ()
+        =
+        {   fun one (PERSISTENT_INFO { parsetree => REF (THE _), ... }, i)
+                    =>
+                    i + 1;
+
+	        one (_, i)
+                    =>
+                    i;
+            end;
+
+	    source_path_map::fold_left
+                one
+                0
+                *known_info;
+	};
+
+    #
+    fun forget_parsetree (BARE_O7 { persistent_info => PERSISTENT_INFO { parsetree, ... }, ... } )
+        =
+	parsetree := NULL;
+
+    #
+    fun clean_library  now_built  g
+        =
+        {   n =   now ();
+	    #
+	    fun is_current (PERSISTENT_INFO { generation => REF gen, library => (g', _), ... } )
+                =
+		((not now_built) and gen == n)
+		or
+                ad::compare (g, g') != EQUAL;
+
+	    known_info :=  source_path_map::filter  is_current  *known_info;
+	};
+
+    #
+    fun reset ()
+        =
+        known_info :=  source_path_map::empty;
+
+
+
+    # Check timestamp and throw away any invalid cache:
+    #
+    fun validate (sourcepath, PERSISTENT_INFO persistent_info)
+        =
+        {   # We avoid using  the "..." pattern here
+            # so as to have the compiler flag additions
+	    # to the type via a compile error message:
+	    #
+            persistent_info
+                ->
+	       { library,
+                 last_sourcefile_modification_time_seen,
+                 parsetree,
+                 module_dependencies_summary,
+		 sharing_mode,
+                 generation,
+                 version,
+                 set_version,
+                 sourcefile_syntax
+                };
+
+	    timestamp =   *last_sourcefile_modification_time_seen;
+
+	    new_timestamp =   ad::time_stamp sourcepath;
+
+	    if  (time_stamp::needs_update {
+                     source => new_timestamp,
+                     target => timestamp
+                 }
+	    )
+		 last_sourcefile_modification_time_seen
+                     :=
+                     new_timestamp;
+
+		 generation := now ();
+		 parsetree  := NULL;
+		 module_dependencies_summary   := NULL;
+	    fi;
+	};
+						# time_stamp		is from   src/app/make7/paths/timestamp.pkg
+
+
+    # Construct and return a BARE_O7 record
+    # for a given .api or .pkg file.  (This record
+    # is our primary internal representative for
+    # a file which is being -- or has been -- compiled.)
+    #
+    # This function is called directly from "fun sml" in
+    #     src/app/make7/make-compiler/primordial-make7file.pkg
+    # We also get called via our below "fun make" wrapper from
+    # fun smlfile_collections in
+    #     src/app/make7/semant/source-file-collection.pkg
+    #
+    fun make'
+            attributes
+            (make7_state: make7_state::Make7_State)
+            arg
+        =
+	BARE_O7 {
+	    sourcepath,				# File containing source code which compiles to produce .o7 in question.	
+	    make_module_dependencies_summaryfile_name,
+	    make_oh7_file_name,
+
+	    persistent_info       => persistent_info (),
+	    sharing_request,
+
+	    attributes,
+	    setup,				# Random code to execute before and/or after compiling this file.
+	    local,
+
+	    controllers
+	}
+        where
+            arg ->
+                { library => gr as (library, source_code_region),
+                  sourcepath,			# File containing source code which compiles to produce .o7 in question.	
+                  sharing_request,
+                  setup,			# Random code to execute before and/or after compiling this file.
+		  local,
+                  controllers
+                };
+
+	    policy =   make7_state.make7_session.filename_policy;
+	    #
+	    fun make_module_dependencies_summaryfile_name () =   fp::make_module_dependencies_summaryfile_name  policy  sourcepath;
+	    fun make_oh7_file_name     () =   fp::make_oh7_file_name      policy  sourcepath;
+	    fun make_versionfile_name  () =   fp::make_versionfile_name   policy  sourcepath;
+
+# print ("src/app/make7/o7/bare-o7.pkg::make': oh7_file_name = " + (make_oh7_file_name ()) + "\n");
+	    library_source_index
+                =
+                make7_state.library_source_index;
+
+
+
+            # NB:  The 'noguid' attribute appears to default to FALSE
+            #      and to be set to TRUE by c-glue-maker, and to be
+            #      almost entirely undocumented.  The below 'if' appears
+            #      to be the only place it is tested and used:
+	    #
+	    my (get_version, set_version)
+                =
+		if attributes.noguid
+
+		     ( fn () =  "",
+                       fn _  =  ()
+                     );
+		else
+		     (get_version, set_version)
+                     where 
+
+                         version_cache =   REF NULL;
+
+			 #
+			 fun version_string_from_o7_file ()
+			     =
+			     # Return NULL immediately if file is unreadable.
+			     # This isn't strictly necessary, but avoids
+			     # generating background failed-to-open-file
+			     # errors that can be distracting when debugging:
+			     #
+                             {   filename =  make_oh7_file_name ();
+
+				 if   (not (winix::file::access (filename, [winix::file::MAY_READ])))
+				     
+				      NULL;
+				 else
+				     safely::do
+					 {
+					   open_it  =>  .{ binary_io::open_for_read  filename; },
+					   close_it =>  binary_io::close_input,
+					   cleanup  =>  fn _ = ()
+					 }
+					 (THE o oh7_file::read_version)
+				     except
+					 io_exceptions::IO _ =  NULL;
+				 fi;
+			     };
+
+								# oh7_file	is from   src/lib/compiler/execution/o7-file/oh7-file.pkg
+								# binary_io	is from   src/lib/std/src/unix/posix-binary-io.pkg
+								# io_exceptions	is from   src/lib/std/src/io/io-exceptions.pkg
+								# winix		is from   src/lib/std/winix.pkg
+			 #
+			 fun version_string_from_version_file ()
+			     =
+			     {   filename =   make_versionfile_name ();
+
+				 # Return NULL immediately if file is unreadable.
+				 # This isn't strictly necessary, but avoids
+				 # generating background failed-to-open-file
+				 # errors that can be distracting when debugging:
+				 #
+				 if   (not (winix::file::access (filename, [winix::file::MAY_READ])))
+				     
+				      NULL;
+				 else
+				      safely::do
+					  {
+					    open_it  =>  .{ file::open_for_read filename; },
+					    close_it =>  file::close_input,
+					    cleanup  =>  fn _ = ()
+					  }
+					  (THE o file::read_all)
+				      except			# file	is from   src/lib/std/src/unix/file.pkg
+					  io_exceptions::IO _ =  NULL;
+				 fi;
+			     };	
+
+			 #
+			 fun set_version  version_string
+                             =
+                             {   version_cache :=  THE version_string;
+# print ("src/app/make7/o7/bare-o7.pkg::make'::set_version versionfile_name = " + (make_versionfile_name ()) + " version_string = '" + version_string + "\n");
+                                 write_to_versionfile  version_string
+                                 where
+				     fun write_to_versionfile  version_string		# Say, "version-$ROOT/src/app/make7/(make7-lib.make6):o7/bare-o7.pkg-1187780741.285"
+					 =
+					 {   version_filename		# For            src/app/make7/o7/bare-o7.pkg
+						 =				# this will be   src/app/make7/o7/bare-o7.pkg.version
+						 make_versionfile_name ();
+
+					     safely::do
+						 {
+						   open_it  =>  .{ autodir::open_text_output  version_filename; },
+						   close_it =>  file::close_output,
+						   cleanup  =>  fn _ =  winix::file::remove_file  version_filename
+						 }
+						 .{ file::write (#s, version_string); };
+					 };
+                                 end;
+                             };
+
+			 #
+			 fun save_version  version_string
+                             =
+                             {
+# print ("src/app/make7/o7/bare-o7.pkg::make'::save_version versionfile_name = " + (make_versionfile_name ()) + " version_string = '" + version_string + "\n");
+                                 set_version  version_string;
+                                 version_string;
+                             };
+
+
+                         # Try successively up to four ways of obtaining
+                         # the version string for our .o7 file:
+                         #  o Cached in our version_cache variable;
+                         #  o Stored in the .o7 file itself;
+                         #  o Stored in the .version file;
+                         #  o Create a new one from scratch.  
+			 #
+	# XXX BUGGO DELETEME This 'version' game is not worth the code complexity candle -- it should all be ripped out. 2007-11-03 CrT
+			 fun get_version ()
+			     =
+			     {	 # Create a version string.  This will look like
+				 #     "version-$ROOT/src/app/make7/(make7-lib.make6):o7/bare-o7.pkg-1187780741.285"
+
+				 # XXX BUGGO FIXME This should probably be in a separate version-string.pkg or such.
+                                 # XXX BUGGO FIXME We apparently just assume no two compiles of the same source
+                                 #                 can complete at the same millisecond.  With parallel compiles
+                                 #                 in different processes on on multicore machines and such, this
+                                 #                 may not be true -- some sort of explicit file locking or such is probably needed.
+				 #
+			         fun make_version_string ()	# XXX BUGGO DELETEME This 'version' game is not worth the code complexity candle -- it should all be ripped out. 2007-11-03 CrT
+				     =
+				     cat [     "version-",
+#					       ad::describe sourcepath,		# sourcepath was in "fun make'"'s 'arg' argument, above.
+#					       "-",
+#					       time_stamp::to_string(	ad::time_stamp sourcepath ),
+#					       time::to_string (time::now ()),  # Matthias had this, which screws up 'make fixpoint', so I substituted the above. I don't understand what the point of all this is, however, so that might be bad. XXX BUGGO FIXME
+					       "\n"
+					    ];
+
+								# time	is from   src/lib/std/time.pkg
+				 case *version_cache
+				   
+				      THE version_string
+                                          =>
+                                          version_string;
+
+				      NULL
+                                          =>
+                                          case (version_string_from_o7_file ())
+					    
+					       THE version_string
+                                                   =>
+                                                   save_version  version_string;
+
+					       NULL
+                                                   =>
+                                                   case (version_string_from_version_file ())
+						     
+							THE version_string
+							    =>
+							    version_string;
+
+							NULL
+							    =>
+							    save_version (make_version_string ());
+						   esac;
+					  esac;
+				 esac;
+			     };
+		     end;
+                fi;
+
+
+
+	    # Our syntactic scope at this point is within the     fun make'   definition code block.
+
+
+	    #
+	    fun new_persistent_info ()
+		=
+		persistent_info
+                where 
+
+		    timestamp =   ad::time_stamp  sourcepath;		# sourcepath was in "fun make'"'s 'arg' argument, above.
+                    filename  =   ad::os_string'  sourcepath; 
+
+                    sourcefile_syntax
+                        = 
+                        if       (string::is_suffix ".pkg7" filename  ) NADA;
+                        else if  (string::is_suffix ".api7" filename  ) NADA;
+                        else                                              MYTHRYL;   fi;  fi;
+
+									# string	is from   src/lib/std/string.pkg
+
+		    persistent_info
+			=
+			PERSISTENT_INFO {
+
+                            last_sourcefile_modification_time_seen   =>   REF timestamp,
+
+			    library      =>  gr,
+			    parsetree    =>  REF NULL,
+			    module_dependencies_summary     =>  REF NULL,
+
+			    sharing_mode =>  REF (sharing_mode::SHARE FALSE),
+			    generation   =>  REF (now ()),
+
+			    set_version,
+			    version      =>  get_version,
+
+			    sourcefile_syntax
+			};
+
+
+		    known_info
+                        :=
+                        source_path_map::set
+                            (*known_info, sourcepath, persistent_info);
+		end;
+
+	    #
+	    fun persistent_info ()
+		=
+		case (source_path_map::get  (*known_info,  sourcepath))
+		  
+		     NULL
+                         =>
+                         new_persistent_info ();
+
+		     THE (persistent_info as PERSISTENT_INFO { library => gr' as (g, r), generation, ... } )
+			 =>
+			 if   (ad::compare (library, g) == EQUAL)
+			     
+			      validate (sourcepath, persistent_info);
+			      persistent_info;
+			 else
+			      n =   ad::describe sourcepath;
+
+			      if  (*generation == now ())
+			          
+				   gerror make7_state gr em::ERROR
+				      (cat ["Source file ", n,
+					       " appears in more than one library"])
+				      em::null_error_body;
+
+				   gerror make7_state gr' em::ERROR
+				      (cat ["(previous occurence of ", n, ")"])
+				      em::null_error_body;
+
+			      else
+				   gerror make7_state gr em::WARNING
+				      (cat ["Source file ", n,
+					       " has switched libraries"])
+				      em::null_error_body;
+			      fi;
+
+			      new_persistent_info ();
+
+			 fi;
+                esac;
+	end;                              #  fun make' 
+
+
+    # This function seems to mainly be called from
+    # fun smlfile_collections in
+    #   src/app/make7/semant/source-file-collection.pkg
+    #
+    fun make (cross_module_inlining, noguid)
+        =
+	make' {
+
+	    extra_static_compile_dictionary =>  NULL,
+	    is_runtime_system               =>  FALSE,
+	    explicit_core_symbol            =>  NULL,
+            cross_module_inlining,
+	    noguid
+	};
+
+
+
+    # The following functions are only
+    # concerned with getting the data,
+    # not with checking time stamps:
+    #
+    fun get_parsetree
+            make7_state
+            ( bare_o7   as   BARE_O7 info_record,		# XXX BUGGO FIXME this should be a record not a tuple, for readiability
+              quiet,
+              unparse_info
+            )
+        = 
+        {   info_record
+                ->
+                { persistent_info => PERSISTENT_INFO { parsetree, sourcefile_syntax, ... },
+                  sourcepath,
+		  controllers,
+                  ...
+                };
+	    #
+	    fun err m
+                =
+                error  make7_state  bare_o7  em::ERROR  m  em::null_error_body;
+	    #
+	    case *parsetree
+	      
+	         THE parse_tree
+		     =>
+		     THE parse_tree;
+
+ 	         NULL
+		     =>
+		     {   original_settings
+			     =
+			     map
+                                 (fn controller =  controller.save'restore ())
+				 controllers;
+			 #
+			 fun parse_sourcefile stream
+			     =
+			     {   if   (not quiet)
+				      
+                                      file::vsay [
+					  "            src/app/make7/o7/bare-o7.pkg:   Parsing   source file   ",
+					  ad::os_string' sourcepath,
+					  "\n"
+				      ];
+                                 fi;
+
+							# mythryl_parser	is from   src/lib/compiler/frontend/parse/main/mythryl-parser.pkg
+							# source_code_source	is from   src/lib/compiler/frontend/basics/source/source-code-source.pkg
+
+				 # XXX BUGGO DELETEME this is temporary codebase conversion infrastructure
+				 #
+				 if *mythryl_parser::log_edit_requests
+
+				      filename
+					  =
+					  cat [  ad::os_string'  sourcepath,
+                                                  ".EDIT_REQUESTS"
+                                               ];
+
+				      stream
+					  =
+					  file::open_for_write  filename;
+
+				      mythryl_parser::edit_request_stream
+					  :=
+					  THE stream;
+				 fi;
+
+				 source
+				     =
+				     source_code_source::make_source (
+					 ad::os_string'  sourcepath,
+					 1,
+					 stream,
+					 FALSE,
+					 make7_state.plaint_sink
+				     );
+
+
+				 apply
+                                     (fn c =  c.set ())
+                                     controllers;
+
+
+				 # If unparse_info is not NULL, we also
+				 # prettyprint the parsetree to a diskfile:
+				 #
+				 case unparse_info
+				   
+				      NULL
+					  =>
+					  (
+                                               case sourcefile_syntax
+						    MYTHRYL =>  pm::parse_complete_mythryl_file  source;
+						    NADA    =>  pn::parse_complete_nada_file     source;
+                                               esac,
+
+					       source
+					  )
+					  before
+					      apply
+						  (fn r =  r ())
+						  original_settings;
+
+				      (THE (symbol_table, unparse_generic))
+					  =>
+					  result
+					  where 
+					      result
+						  =
+						  (    case sourcefile_syntax
+						         
+							    MYTHRYL =>  pm::parse_complete_mythryl_file  source;
+							    NADA    =>  pn::parse_complete_nada_file     source;
+						       esac,
+
+						       source
+						  )
+						  before
+						      apply
+							  (fn r =  r ())
+							  original_settings;
+
+
+					      raw_syntax_tree
+						  =
+						  #1 result;
+
+
+					      unparse_filename
+						  =
+						  cat [ ad::os_string'  sourcepath,   ".PRETTY_PRINT" ];
+
+
+					      unparse_textstream
+						  =
+						  file::open_for_write  unparse_filename; 
+
+
+					      unparse_device
+						  =
+						  {   consumer  =>  (fn string =  file::write  (unparse_textstream,  string)),
+						      linewidth =>  2000,        # Arbitrary large number.
+						      flush     =>  .{ file::flush  unparse_textstream; }
+						  };
+
+
+					      unparse_stream
+						  =
+						  prettyprint::open_stream  unparse_device;
+
+
+					      unparse_generic
+						  (symbol_table, NULL)
+						  unparse_stream
+						  (    raw_syntax_tree,
+						       1000                  # Arbitrary large output device width
+						  );
+
+					      file::flush         unparse_textstream;
+
+					      file::close_output  unparse_textstream;
+					  end;
+				 esac
+
+				 # XXX BUGGO DELETEME this is temporary codebase conversion infrastructure
+				 before
+				     case *mythryl_parser::edit_request_stream
+				       
+					  NULL => ();
+
+					  THE stream
+					      =>
+					      {   file::flush         stream;
+						  file::close_output  stream;
+
+						  mythryl_parser::edit_request_stream
+						      :=
+						      NULL;
+					      };
+				     esac;
+
+
+			     };
+			 #
+			 fun open_it ()
+			     =
+			     file::open_for_read  (ad::os_string  sourcepath);
+			 #
+			 fun cleanup _
+			     =
+			     apply  (fn r =  r ())  original_settings;
+
+			 optional_parsetree
+			     =
+			     THE (
+                                 safely::do {
+                                   open_it,
+				   cleanup,
+				   close_it =>  file::close_input
+				 }
+				 parse_sourcefile
+			     );
+
+			 # Counting the trees explicitly may be a bit slow,
+			 # but maintaining an accurate count is difficult, so
+			 # this method should be robust.  (I don't think that
+			 # the overhead of counting will make a noticeable
+			 # difference.)
+
+			 ntrees =     count_parse_trees ();
+
+			 treelimit =  make7_defaults::parse_caching.get ();	# make7_defaults	is from   src/app/make7/util/make7-defaults.pkg
+
+			 if   (ntrees < treelimit)
+			     
+                              parsetree :=  optional_parsetree;
+			 fi;
+
+			 optional_parsetree;
+
+		     }
+		     except
+			 exn as io_exceptions::IO _
+			     =>
+			     {   err (exceptions::exception_message  exn);
+                                 NULL;
+                             };
+
+			compilation_exception::COMPILE msg
+			    =>
+			    {   err  msg;
+                                NULL;
+                            };
+                     end;
+               esac;
+	};                                             #  fun get_parsetree 
+    #
+    fun module_dependencies_summary make7_state (i as BARE_O7 info_record)
+        =
+        {   info_record
+                ->
+                { sourcepath,
+                  make_module_dependencies_summaryfile_name,
+                  persistent_info => PERSISTENT_INFO  persistent_info_record,
+                  ...
+                };
+                
+
+            persistent_info_record
+                ->
+	        { module_dependencies_summary,
+                  last_sourcefile_modification_time_seen,
+                  ...
+                };
+
+	    #
+	    case *module_dependencies_summary
+	      
+	         THE module_dependencies_summary
+		     =>
+		     THE module_dependencies_summary;
+
+	         NULL
+		     =>
+		     {   module_dependencies_summaryfile_name
+                             =
+                             make_module_dependencies_summaryfile_name ();
+
+			 			# module_dependencies_summary_io	is from   src/app/make7/o7/module-dependencies-summary-io.pkg
+			 #
+			 case (module_dependencies_summary_io::read  (module_dependencies_summaryfile_name,  *last_sourcefile_modification_time_seen))
+			   
+			      THE module_dependencies_summary'
+				  =>
+				  {   module_dependencies_summary := THE module_dependencies_summary';
+				      THE module_dependencies_summary';
+				  };
+
+			      NULL
+				  =>
+				  case (get_parsetree make7_state (i, /*quiet:*/ FALSE, /* unparse_info:*/ NULL))
+				    
+				       NULL => NULL;
+
+				       THE (tree, source)
+					   =>
+					   {   fun err  sv  source_code_region  s
+						   =
+						   em::error  source  source_code_region  sv  s  em::null_error_body;
+
+					       my  {   module_dependencies_summary => module_dependencies_summary',
+						       complain
+						   }
+						   =
+						   raw_syntax_to_module_dependencies_summary::convert {
+
+						       tree,
+						       err
+						   };
+
+									# raw_syntax_to_module_dependencies_summary	is from   src/app/make7/o7/raw-syntax-to-module-dependencies-summary.pkg
+									# module_dependencies_summary_io			is from   src/app/make7/o7/module-dependencies-summary-io.pkg
+
+					       complain ();
+
+					       if   (em::any_errors  (em::errors  source))
+					           
+						    error make7_state  i  em::ERROR
+							 "error (s) in source file"
+							 em::null_error_body;
+					       else
+						    module_dependencies_summary_io::write
+                                                        (module_dependencies_summaryfile_name,  module_dependencies_summary',  *last_sourcefile_modification_time_seen);
+
+						    module_dependencies_summary := THE module_dependencies_summary';
+					       fi;
+
+					       THE module_dependencies_summary';
+					   };
+				  esac;
+                         esac;
+		     };
+             esac;
+	};
+
+
+
+    #  We only complain at the time of getting the exports: 
+    #
+    fun exports  make7_state  i
+        =
+        null_or::map
+            get_toplevel_module_dependencies_summary_exports::get_toplevel_module_dependencies_summary_exports
+            (module_dependencies_summary make7_state  i);
+
+								# null_or						is from   src/lib/std/src/null-or.pkg
+								# get_toplevel_module_dependencies_summary_exports	is from   src/app/make7/o7/get-toplevel-module-dependencies-summary-exports.pkg
+
+    # Return the raw parsetree for this file.
+    # We get it from in-memory cache if possible,
+    # otherwise we read and parse the source file.
+    #
+    # This appears to be called only from
+    #
+    #     ROOT/src/app/make7/compile/compile-treewalk-g.pkg
+    #
+    fun parsetree
+            make7_state
+            unparse_info	# NULL or top-level compiler symbol table plus prettyprint fn.
+            bare_o7		# Has all info on the file, including sourcefile name.
+        =
+        get_parsetree   make7_state   (bare_o7, /* quiet:*/ TRUE, unparse_info);
+
+    #
+    fun describe (BARE_O7 { sourcepath, ... } )
+	    =
+	    ad::describe sourcepath;
+
+    #
+    fun error_location (make7_state: make7_state::Make7_State) (BARE_O7 info)
+        =
+        {   info
+                ->
+                { persistent_info => PERSISTENT_INFO { library => (library, reg), ... }, ... };
+
+	    em::match_error_string
+                (library_source_index::lookup  make7_state.library_source_index  library)
+                reg;
+	};
+
+    #
+    fun version (BARE_O7 { persistent_info => PERSISTENT_INFO { version => version_thunk, ... }, ... } )
+        =
+        version_thunk ();
+
+    #
+    fun set_version (BARE_O7 { persistent_info => PERSISTENT_INFO { set_version, ... }, ... }, version)
+        =
+        set_version  version;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

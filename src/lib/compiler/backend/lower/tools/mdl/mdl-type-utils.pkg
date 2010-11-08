@@ -1,0 +1,222 @@
+
+# Utilities for manipulating types
+
+
+
+###                   "We think in generalities, but we live in detail."
+###
+###                                       -- Alfred North Whitehead 
+
+
+
+generic package mdl_type_utilities (RawSyntaxTreePP:  MDL_AST_PRETTY_PRINTER) : Mdl_Type_Utilities =
+pkg
+
+   package error = mdl_error
+   package RawSyntaxTreePP = RawSyntaxTreePP
+   package raw_syntax   = RawSyntaxTreePP::raw_syntax
+
+   use raw_syntax
+
+   type level = Int
+
+   counter = REF 0
+   fun genVariable k level = (counter := *counter + 1;
+                         TYPE_VARIABLE_TYPE (k,*counter, REF level, REF NULL))
+   newIVar = genVariable INTkind
+   newVariable = genVariable TYPEkind
+
+   exception OccursCheck 
+   exception UNIFY_TYPES 
+
+   fun init () = counter := 0
+  
+   fun bug msg = lowcode_error_message::error("MDTyping", msg)
+
+   fun pr type = pp::text (RawSyntaxTreePP::type aType)
+
+   fun deref (TYPE_VARIABLE_TYPE(_, _, _, REF (THE t))) = deref t
+     | deref t = t
+
+   fun tupleType [t] = t
+     | tupleType ts  = TUPLEty ts
+
+   fun copy (TYPE_VARIABLE_TYPE(_, _, _, REF (THE t))) = copy t
+     | copy (t as TYPE_VARIABLE_TYPE _) = t
+     | copy (t as TYVARty _) = t
+     | copy (t as CELLty _) = t
+     | copy (t as IDty _) = t
+     | copy (t as INTVARty _) = t
+     | copy (TYPE_SCHEME_TYPE _) = bug "copy: poly"
+     | copy (TUPLEty ts) = TUPLEty (map copy ts)
+     | copy (RECORDty ts) = RECORDty (map (fn (l, t) => (l, copy t)) ts)
+     | copy (FUNty (a, b)) = FUNty (copy a, copy b)
+     | copy (APPty (f, tys)) = APPty (f, map copy tys)
+     | copy (LAMBDAty _) = bug "copy: lambda"
+
+   iboundvars = list::filter (fn TYPE_VARIABLE_TYPE (INTkind, _, _, _) => TRUE | _ => FALSE)
+
+   fun inst lvl (e, TYPE_SCHEME_TYPE (tvs, type))
+       = 
+       let tvs' = map (fn TYPE_VARIABLE_TYPE (k, _, _, x) => 
+                           let v = genVariable k lvl
+                           in  x := THE v; v end) tvs
+           type = copy type 
+           apply (fn TYPE_VARIABLE_TYPE(_, _, _, x) => x := NULL) tvs
+           ivars = iboundvars tvs'
+       in  case ivars of 
+             [] => (e, type)
+           | _ => (APPLY_EXPRESSION (e, TUPLEexp (map TYPEexp ivars)), type)
+       end
+     | inst lvl (e, t) = (e, t)
+
+   fun gen lvl (e, type) =
+   let mark = *counter
+       bvs = REF []
+       trail = REF []
+       fun f (TYPE_VARIABLE_TYPE(_, _, _, REF (THE t))) = f t
+         | f (t as TYPE_VARIABLE_TYPE (k, i, REF l, r)) =
+               if i > mark or l < lvl then t 
+               else let v = genVariable k 0
+                    in  r := THE v; 
+                        bvs := (v, t) . *bvs; trail := r . *trail; v 
+                    end
+         | f (t as TYVARty _) = t
+         | f (t as CELLty _) = t
+         | f (t as IDty _) = t
+         | f (t as INTVARty _) = t
+         | f (FUNty (a, b)) = FUNty (f a, f b)
+         | f (TUPLEty ts) = TUPLEty (map f ts)
+         | f (RECORDty lts) = RECORDty (map (fn (l, t) => (l, f t)) lts)
+         | f (APPty (a, ts)) = APPty (a, map f ts)
+         | f (TYPE_SCHEME_TYPE _) = bug "gen: poly"
+         | f (LAMBDAty _) = bug "gen: lambda"
+       t = f type
+       fun arityRaise (bvs, e) =
+           case iboundvars bvs of
+             []  => e
+           | bvs => let xs = 
+                            map (fn TYPE_VARIABLE_TYPE(_, n, _, _) => "T"$int::to_string n) bvs
+                        args = map IDpat xs
+                    in  case e of
+                          LAMBDAexp cs =>
+                           LAMBDAexp (map (fn CLAUSE (cs, g, e) =>
+                                           CLAUSE (TUPLEpat args . cs, g, e)) cs)
+                        | _ => LAMBDAexp[CLAUSE([TUPLEpat args], NULL, e)]
+                    end
+   in  apply (fn r => r := NULL) *trail;
+       case *bvs of
+          []  => (e, type)
+       |  bvs => let bvs = reverse bvs #  Boundvars are listed in reverse 
+                 in  (arityRaise (map #2 bvs, e), TYPE_SCHEME_TYPE (map #1 bvs, t)) end
+   end
+
+   fun lambda level type =
+        case gen level (LITexp (INTlit 0), type) of
+          (_, TYPE_SCHEME_TYPE (bvs, t)) => LAMBDAty (bvs, t)
+        | (_, t) => t
+
+   fun unify (msg, x, y) =
+   let fun errorOccursCheck (t1, t2) =
+           error::error("occurs check failed in unifying "$pr t1$" and "
+                       $pr t2$msg())
+       fun errorUnify (t1, t2) =
+           error::error("can't unify "$pr t1$" and "$pr t2$msg())
+
+       fun f (TYPE_VARIABLE_TYPE(_, _, _, REF (THE x)), y) = f (x, y)
+         | f (x, TYPE_VARIABLE_TYPE(_, _, _, REF (THE y))) = f (x, y)
+         | f (x as TYPE_VARIABLE_TYPE (k1, _, m, u), y as TYPE_VARIABLE_TYPE (k2, _, n, v)) = 
+               if u == v then ()
+               else if k1 == INTkind then 
+                       (v := THE x; m := int::max(*m,*n))
+                    else
+                       (u := THE y; n := int::max(*m,*n))
+         | f (TYPE_VARIABLE_TYPE x, e) = upd x e
+         | f (e, TYPE_VARIABLE_TYPE x) = upd x e
+         | f (IDty x, IDty y) = if x == y then () else raise exception UNIFY_TYPES
+         | f (TYVARty x, TYVARty y) = if x == y then () else raise exception UNIFY_TYPES
+         | f (TUPLEty x, TUPLEty y) = g (x, y)
+         | f (TUPLEty[x], y) = f (x, y)
+         | f (x, TUPLEty[y]) = f (x, y)
+         | f (RECORDty x, RECORDty y) = h (x, y)
+         | f (CELLty x, CELLty y) = if x == y then () else raise exception UNIFY_TYPES
+         | f (FUNty (a, b), FUNty (c, d)) = (f (a, c); f (b, d))
+         | f (APPty (a, b), APPty (c, d)) = if a == c then g (b, d) else raise exception UNIFY_TYPES
+         | f (INTVARty i, INTVARty j) = if i == j then () else raise exception UNIFY_TYPES
+         | f _ = raise exception UNIFY_TYPES
+
+       and g([],[]) = ()
+         | g (a . b, c . d) = (f (a, c); g (b, d))
+         | g _ = raise exception UNIFY_TYPES
+
+       and h (ltys1, ltys2) =
+           let sort = list_mergesort::sort (fn ((a, _), (b, _)) => a > b) 
+               ltys1 = sort ltys1
+               ltys2 = sort ltys2
+               fun merge ((x, t) . m, (y, u) . n) =
+                   if x == y then (f (t, u); merge (m, n))
+                   else raise exception UNIFY_TYPES
+                 | merge([],[]) = ()
+                 | merge _ = raise exception UNIFY_TYPES
+           in merge (ltys1, ltys2) end
+
+       and upd (t1 as (k, name, lvl, v)) t2 =
+           let fun g (TYPE_VARIABLE_TYPE(_, _, _, REF (THE t))) = g t
+                 | g (TYPE_VARIABLE_TYPE (k', n, l, y)) = 
+                     if y == v then raise exception OccursCheck 
+                     else (l := int::max(*lvl,*l))
+                 | g (TUPLEty ts) = apply g ts
+                 | g (RECORDty lts) = apply (fn (_, t) => g t) lts
+                 | g (CELLty _) = ()
+                 | g (TYVARty t) = ()
+                 | g (FUNty (a, b)) = (g a; g b)
+                 | g (IDty _) = ()
+                 | g (INTVARty _) = ()
+                 | g (APPty(_, b)) = apply g b
+                 | g (TYPE_SCHEME_TYPE _) = bug "unify: poly"
+                 | g (LAMBDAty _) = bug "unify: lambda"
+           in  g t2 except UNIFY_TYPES => errorUnify (TYPE_VARIABLE_TYPE t1, t2)
+                         | OccursCheck => errorOccursCheck (TYPE_VARIABLE_TYPE t1, t2);
+               v := THE t2
+           end
+
+   in  f (x, y) except UNIFY_TYPES => errorUnify (x, y)
+   end
+
+   fun apply (msg, TYPE_VARIABLE_TYPE(_, _, _, REF (THE t)), args) = apply (msg, t, args)
+     | apply (msg, f as LAMBDAty (tvs, body), args) = 
+        let arity1 = length tvs
+            arity2 = length args
+        in  if arity1 != arity2 then
+               error::error(
+                 "arity mismatch between "$pr f$" and "$pr (TUPLEty args)$msg)
+            
+            paired_lists::apply (fn (x, y) =>
+               case (deref x, deref y) of
+                 (TYPE_VARIABLE_TYPE (TYPEkind, _, _, x), y) => x := THE y
+               | (x, TYPE_VARIABLE_TYPE (TYPEkind, _, _, y)) => y := THE x
+               | (TYPE_VARIABLE_TYPE (INTkind, _, _, x), y as INTVARty _) => x := THE y
+               | (TYPE_VARIABLE_TYPE (INTkind, _, _, x), y as TYPE_VARIABLE_TYPE (INTkind, _, _, _)) => x := THE y
+               | (TYPE_VARIABLE_TYPE (INTkind, _, _, x), y) =>
+                 error::error(
+                   "kind mismatch in application between "$pr f$
+                   " and "$pr (TUPLEty args)$msg)
+             ) (tvs, args);
+            copy body before apply (fn TYPE_VARIABLE_TYPE(_, _, _, x) => x := NULL) tvs
+        end
+     | apply (msg, t, args) =
+        (error::error("type "$pr t$" is not a type constructor" + msg); newVariable 0)
+ 
+   fun poly ([], t) = t
+     | poly (tvs, t) = TYPE_SCHEME_TYPE (tvs, t)
+         
+   fun newType (DATATYPEbind { id, type_variables, ... } ) = 
+       let type = IDty (IDENT([], id))
+       in  case type_variables of
+              [] => ([], type)
+           | type_variables => let vs = map (fn _ => newVariable 0) type_variables
+                       in  (vs, type) end
+       end
+end
+
+

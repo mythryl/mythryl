@@ -1,0 +1,388 @@
+## find-reachable-sml-nodes.pkg
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/make7/Make7.make6
+
+
+
+# Get the set of reachable SML_NODEs in a given dependency graph.
+
+
+
+###                "Ah, but a man's grasp should exceed his reach,
+###                 Or what's a heaven for?"
+###
+###                                    -- Robert Browning
+
+
+
+api Reachable {
+
+    # These two functions simply give you the set of (non-frozen)
+    # .o7s reachable from some root and the fringe of frozen
+    # .o7s that surrounds the non-frozen portion.
+    #
+    reachable'
+        :
+        List( intra_library_dependency_graph::Bare_Or_Iced_O7 )
+        ->
+        ( bare_o7_set::Set,
+          iced_o7_set::Set
+        );
+
+    reachable
+        :
+        inter_library_dependency_graph::Library
+        ->
+        ( bare_o7_set::Set,
+          iced_o7_set::Set
+        );
+
+
+
+    # "snode_map" gives us handles at arbitrary points within
+    # the (non-frozen) portion of a dependency graph.
+    # This is used by "slave" mode compiler.
+    #
+    snode_map:  inter_library_dependency_graph::Library
+                ->
+                source_path_map::Map( intra_library_dependency_graph::Bare_O7 );
+
+
+
+    # Given a library g, "groupsOf g" gets the set of
+    # sublibraries (but not sub-freezefiles) of that library.
+    # The result will include the argument itself:
+    #
+    groups_of:  inter_library_dependency_graph::Library
+                 ->
+                 source_path_set::Set;
+
+
+
+    # Given an arbitrary library graph rooted at library g, "freezefiles_of g"
+    # gets the set of stable libraries reachable from g.
+    #
+    freezefiles_of:  inter_library_dependency_graph::Library
+                      ->
+                      source_path_map::Map( inter_library_dependency_graph::Library );
+
+
+
+    # Given a "closed" subset of (non-stable) nodes in a dependency graph,
+    # "frontier" gives you the set of frontier nodes of that set.  The
+    # closed set is given by its indicator function (first argument).
+    # ("closed" means that if a node's ancestors are all in
+    # the set, then so is the node itself.  A frontier node is a node that
+    # is in the set but either not all of its ancestors are or the node
+    # is an export node.)
+
+    frontier:  (iced_o7::Iced_O7 -> Bool)
+               ->
+               inter_library_dependency_graph::Library
+               ->
+               iced_o7_set::Set;
+};
+
+
+
+package reachable: Reachable {					# Reachable	is from   src/app/make7/depend/find-reachable-sml-nodes.pkg
+
+    package sg =  intra_library_dependency_graph;		# intra_library_dependency_graph	is from   src/app/make7/depend/intra-library-dependency-graph.pkg
+    package lg =  inter_library_dependency_graph;		# inter_library_dependency_graph	is from   src/app/make7/depend/inter-library-dependency-graph.pkg
+
+    stipulate
+
+	fun reach { add, member, empty }
+                  (export_node: List( sg::Bare_Or_Iced_O7 ))
+            =
+            {   fun bare_o7node (   node as sg::BARE_O7 { bare_o7, near_imports, far_imports },
+                                    (known, stabfringe)
+                                )
+                    =
+		    if   (member (known, bare_o7))
+		        
+			 (known, stabfringe);
+		    else
+			 fold_left far_o7node
+				 (   fold_left
+					 bare_o7node
+					 (add (known, bare_o7, node), stabfringe)
+					 near_imports
+				 )
+				 far_imports;
+                    fi
+
+		also
+		fun far_o7node ((_, node), known_and_fringe)
+                    =
+                    o7node (node, known_and_fringe)
+
+
+		also
+		fun o7node (sg::O7_IS_ICED (sg::ICED_O7 node, _, _), (known, stabfringe))
+			=>
+			(known, iced_o7_set::add (stabfringe, node.iced_o7));
+
+		    o7node (sg::O7_IS_BARE node, known_and_fringe)
+			=>
+			bare_o7node (node, known_and_fringe);
+                end;
+	    
+		fold_left
+                    o7node
+                    (empty,  iced_o7_set::empty)
+                    export_node;
+
+	    };
+
+	fun force f
+            =
+            f ();
+
+	fun snode_map' (exports: symbol_map::Map( lg::Oh7_View ), acc)
+            =
+            {   fun add (m, i, x) =   source_path_map::set          (m, bare_o7::sourcepath i, x);
+		fun member (m, i) =   source_path_map::contains_key (m, bare_o7::sourcepath i);
+
+		#1 (reach { add, member, empty => acc }
+			  (map (#2 o force o #1)
+                               (symbol_map::vals_list exports)));
+	    };
+    herein
+	reachable'
+            =
+	    reach { add    =>  fn (s, i, _) =  bare_o7_set::add (s, i),
+		    member =>  bare_o7_set::member,
+		    empty  =>  bare_o7_set::empty
+                  };
+
+	fun reachable (lg::LIBRARY { o7_views_by_name, ... } )
+		=>
+		reachable'
+                    (map (#2 o force o #1)
+			 (symbol_map::vals_list  o7_views_by_name)
+                    );
+
+	    reachable lg::ERROR_LIBRARY
+		=>
+		(   bare_o7_set::empty,
+		    iced_o7_set::empty
+		);
+        end;
+
+	fun snode_map g			# "snode_map" is should probably be "bare_o7_map" these days...?
+            =
+            {
+                fun snm (lg::ERROR_LIBRARY, x)		# "snm" is probably a contraction of "snode_map"
+                        =>
+                        x;
+
+		    snm (g as lg::LIBRARY library, (a, seen))
+			=>
+			{
+                            library ->  { o7_views_by_name, sublibraries, library_path, ... };
+
+			    if   (source_path_set::member (seen, library_path))
+			        
+				 (a, seen);
+			    else
+				 fold_left
+                                     (fn ((_, g
+                                               , _	# MUSTDIE
+                                               ), x) =  snm (g (), x))
+				     (snode_map' (o7_views_by_name, a),
+				     source_path_set::add (seen, library_path))
+				     sublibraries;
+                            fi;
+			};
+                end;
+	    
+		#1 (snm (g, (source_path_map::empty, source_path_set::empty)));
+	    };
+
+
+	fun groups_of g
+            =
+            {   fun sublibraries (lg::LIBRARY { real_or_virtual => lg::VIRTUAL x, ... } )
+                        =>
+                        x.sublibraries;
+
+		    sublibraries (lg::LIBRARY { real_or_virtual => lg::REAL { frozen_or_thawed => lg::THAWED x,
+							  ... },
+					  ... } )
+                        =>
+                        x.sublibraries;
+
+		    sublibraries _ => [];
+                end;
+
+
+		fun go (lg::ERROR_LIBRARY, a)
+                        =>
+                        a;
+
+		    go (g as lg::LIBRARY { library_path, ... }, a)
+			=>
+			{   sgl =  sublibraries g;
+
+			    fun sl ((p, library_thunk
+                                                     , _	# MUSTDIE
+                                                     ), a)
+				=
+				case (library_thunk ())
+				  
+				     g as lg::LIBRARY { real_or_virtual => lg::VIRTUAL _, ... }
+					 =>
+					 if     (source_path_set::member (a, p))
+					        a;
+					 else   go (g, a);  fi;
+
+				     _   =>
+                                         a;
+                                esac;
+
+			    source_path_set::add (fold_left sl a sgl, library_path);
+			};
+                end;
+	    
+		go (g, source_path_set::empty);
+	    };
+
+
+	fun freezefiles_of lg::ERROR_LIBRARY
+                =>
+                source_path_map::empty;
+
+	    freezefiles_of (g as lg::LIBRARY { library_path, ... } )
+		=>
+		{   fun slo' ((_, lg::ERROR_LIBRARY), x)
+                            =>
+                            x;
+
+			slo' ((p, g as lg::LIBRARY library), (seen, result))
+			    =>
+			    {   library ->  { real_or_virtual, sublibraries, ... };
+
+				if   (source_path_set::member (seen, p))
+				    
+				     (seen, result);
+				else
+				     my (seen, result)
+					 =
+					 fold_left
+					     slo
+					     (seen, result)
+					     sublibraries;
+
+				     seen = source_path_set::add (seen, p);
+
+				     case real_or_virtual
+				       
+				          lg::REAL { frozen_or_thawed => lg::FROZEN _, ... }
+					      =>
+					      ( seen,
+						source_path_map::set (result, p, g)
+					      );
+
+					  _   =>
+                                              (seen, result);
+                                     esac;
+
+                                fi;
+			    };
+                    end 
+
+		    also
+		    fun slo ((p, library_thunk
+                                              , _	# MUSTDIE
+                                              ), x)
+			=
+			slo' ((p, library_thunk ()), x);
+
+
+		    #2 (slo' ( (library_path, g),
+			       ( source_path_set::empty,
+                                 source_path_map::empty
+                               )
+                             )
+                       );
+		};
+        end;
+
+
+	fun frontier _ lg::ERROR_LIBRARY
+                =>
+                iced_o7_set::empty;
+
+	    frontier in_set (lg::LIBRARY { o7_views_by_name, ... } )
+		=>
+		{   fun bnode (sg::ICED_O7 n, (iced_o7s_seen, f))
+			=
+			{   iced_o7 =  n.iced_o7;
+			    near_imports    =  n.near_imports;
+
+			    if   (iced_o7_set::member (iced_o7s_seen, iced_o7))
+			        
+				 (iced_o7s_seen, f);
+			    else
+				 iced_o7s_seen =  iced_o7_set::add (iced_o7s_seen, iced_o7);
+
+				 if   (in_set iced_o7)
+				      
+				      (iced_o7s_seen, iced_o7_set::add (f, iced_o7));
+				 else 
+				      fold_left bnode (iced_o7s_seen, f) near_imports;
+				 fi;
+                            fi;
+			};
+
+
+		    fun get_bn ((o7_thunk, _, _), bnl)
+			=
+			case (o7_thunk ())
+			  
+			     (_, sg::O7_IS_ICED (n, _, _))
+				 =>
+				 n ! bnl;
+
+			     _   =>
+                                 bnl;
+                        esac;
+
+
+		    bnl =
+                       symbol_map::fold_left
+                           get_bn
+                           []
+                           o7_views_by_name;
+
+		    #2 (fold_left
+                           bnode
+                           (iced_o7_set::empty, iced_o7_set::empty)
+                           bnl
+                       );
+		};
+        end;
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

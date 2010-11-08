@@ -1,0 +1,77 @@
+#
+# This module inserts preheaders
+#
+# -- Allen Leung
+
+
+
+generic package InsertPreheaders
+  (package ir:         LOWCODE_IR
+   package instruction_properties:  Instruction_Properties
+     sharing ir::control_flow_graph::I = instruction_properties::I
+  ) : LOWCODE_IR_OPTIMIZATION 
+{
+
+   package ir   = IR
+   package control_flow_graph  = ir::control_flow_graph
+   package loop = ir::Loop
+   package util = ir::Util
+   package w    = control_flow_graph::W
+   package g    = graph
+
+   type flowgraph = ir::IR 
+
+   preheaders = LowCodeControl::getCounter "preheaders-inserted"
+
+   name = "InsertPreheaders"
+
+   fun error msg = lowcode_error_message::error (name, msg)
+
+   fun run IR =
+   let  my CFG as g::GRAPH cfg = IR
+        my g::GRAPH loop = ir::loop IR
+
+        fun is_falls_thru (_, _, control_flow_graph::EDGE { k=control_flow_graph::BRANCH FALSE, ... } ) = TRUE
+          | is_falls_thru(_, _, control_flow_graph::EDGE { k=control_flow_graph::FALLSTHRU, ... } ) = TRUE
+          | is_falls_thru(_, _, _) = FALSE
+
+        changed = REF FALSE
+
+        fun process_loop (_, Loop::LOOP { backedges=[], ... } ) = ()
+          | process_loop(_, Loop::LOOP { header, backedges, ... } ) =
+        let fun find_entries ([], entries, freq) = (entries, freq)
+              | find_entries((e as (i, j, control_flow_graph::EDGE { k=control_flow_graph::ENTRY, ... } )) . es, _, _) = 
+                 error "insert_preheaders"
+              | find_entries((e as (i, j, control_flow_graph::EDGE { w, k, ... } )) . es, entries, freq) = 
+                 if list::exists (fn (i', j', _) => i==i' and j==j') backedges
+                 then find_entries (es, entries, freq)
+                 else find_entries (es, e . entries,*w + freq)
+            my (entries, w) = find_entries (cfg.in_edges header,[], 0)
+            header_node = cfg.node_info header
+            preheader   = cfg.new_id ()
+            my preheader_node as control_flow_graph::BLOCK { freq, annotations, instructions, ... } =
+                 control_flow_graph::newBlock (preheader, REF w)
+            no_jump = list::exists is_falls_thru entries
+            new_edge = control_flow_graph::EDGE { k=if no_jump then control_flow_graph::FALLSTHRU 
+                                      else control_flow_graph::JUMP, w=REF w, a=REF [] }
+        in  changed := TRUE;
+            preheaders := *preheaders + 1;
+            cfg.add_node (preheader, preheader_node);
+            cfg.add_edge (preheader, header, new_edge);
+            if no_jump then () 
+               else instructions := [instruction_properties::jump (control_flow_graph::define_local_label header_node)];
+            apply (fn (i, _, _) => 
+                let fun edge (i, j, e) = 
+                         (i, if j == header then preheader else j, e)
+                in  cfg.set_out_edges (i, map edge (cfg.out_edges i));
+                    Util::updateJumpLabel CFG i
+                end) entries
+        end 
+   in   
+        loop.forall_nodes process_loop;
+        if *changed then ir::changed IR 
+        IR
+   end
+
+
+

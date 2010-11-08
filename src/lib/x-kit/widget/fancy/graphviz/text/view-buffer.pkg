@@ -1,0 +1,655 @@
+# view-buffer.pkg
+#
+# This is the buffer (text-pool) for the viewer.
+
+# Compiled by:
+#     src/lib/x-kit/tut/show-graph/show-graph-app.make6
+
+# 2009-12-26 CrT: Commented out because it is nowhere referenced, and
+#                 right now I'm just trying to get things to compile.
+#                 This is presumably useful for interactive debugging
+#		  if understood...
+#
+# package Vdebug {
+# 
+#     stipulate
+# 
+# 	include tracing;
+# 
+#     herein
+# 
+# 	tracing = make_trace_tree_leaf (xtracing::xkit_tracing, "view_buffer::tracing");
+# 
+# 	fun pr s
+# 	    =
+# 	    print_if tracing .{ s; };
+# 
+# 	fun prf (s, fmt)
+# 	    =
+# 	    print_if tracing .{ cat [format::format s fmt]; };
+# 
+#     end;
+# };
+
+stipulate
+    package xc =  xclient;				# xclient	is from   src/lib/x-kit/xclient/xclient.pkg
+    package xg =  xgeometry;				# xgeometry	is from   src/lib/std/2d/xgeometry.pkg
+
+#    package text_canvas = text_canvas;			# text_canvas	is from   src/lib/x-kit/widget/fancy/graphviz/text/text-canvas.pkg
+
+    package tc =  text_canvas;				# text_canvas	is from   src/lib/x-kit/widget/fancy/graphviz/text/text-canvas.pkg
+    package tw =  text_widget;				# text_widget	is from   src/lib/x-kit/widget/text/text-widget.pkg
+herein
+
+    package view_buffer {
+
+	Typeball = tc::Typeball;
+
+	# The different kinds of displayed chunks:
+	# 
+	Token_Kind
+	  = COMMENT
+	  | KEYWORD
+	  | SYMBOL
+	  | IDENT
+	  ;
+
+	Line = LINE
+		 {
+		   len:    Int,
+		   elems:  List { space: Int,
+                                  kind:  Token_Kind,
+                                  text:  String
+                                }
+		 };
+
+	Text_Pool
+	    =
+	    TEXT_POOL
+	      {
+		lines:  vector::Vector( Line ),
+
+		view:  Ref {
+			   start:  Int,		# First visible line.
+			   stop:   Int,		# Last  visible line.
+			   ht:     Int,		# Height of the view area in lines; 
+						# (start+ht-1) >= stop. 
+			   max_cols:  Int	# Widest visible line.
+			 },
+
+		char_width:  Int,
+		ascent:      Int,
+		descent:     Int,
+		line_high:   Int,
+
+		font:        xc::Font,
+
+		fill_tb:     Typeball,
+		comment_tb:  Typeball,
+		keyword_tb:  Typeball,
+		symbol_tb:   Typeball,
+		ident_tb:    Typeball
+	    };
+
+	# Establish the view parameters:
+	#
+	fun make_view
+	    ( lines,
+	      start,
+	      nrows
+	    )
+	    =
+	    {   n_lines = vector::length  lines;
+
+		start = if   (start < 0      )  0;
+			elif (start < n_lines)  start;
+			else                    n_lines - 1;
+			fi;
+
+		max_row = min (n_lines, start + nrows);
+
+		fun max_wid (i, m)
+		    =
+		    if (i >= max_row)
+			#
+			m;
+		    else
+			my LINE { len, ... }
+			    =
+			    vector::get (lines, i);
+
+			 max_wid
+			   ( i+1,
+			     m < len  ??  len  ::  m
+			   );
+		    fi;
+
+		{ start,
+		  stop     =>  max_row - 1,
+		  ht       =>  nrows,
+		  max_cols =>  max_wid (start, 0)
+		};
+	    };
+
+	# Return the size of the viewed buffer
+	# and the current view:
+	#
+	fun get_view (TEXT_POOL { lines, view => REF { start, ht, ... }, ... } )
+	    =
+	    { view_start =>  start,
+	      view_ht    =>  ht,
+	      nlines     =>  vector::length  lines
+	    };
+
+	# Set the top of the view:
+	#
+	fun set_view_top (TEXT_POOL { lines, view as REF { start, ht, ... }, ... }, new_top)
+	    =
+	    view :=  make_view  (lines, new_top, ht);
+
+
+	fun make_view_buffer
+	    {
+	      src, nrows, font, char_width, ascent, descent, line_high,
+	      fill_tb, comment_tb, keyword_tb, symbol_tb, ident_tb
+	    }
+	    =
+	    {   fun make_ln l
+		    =
+		    {   fun len ([], n)
+				=>
+				n;
+
+			    len ( { space, kind, text } ! r, n)
+				=>
+				len (r, n+space + (size text));
+			end;
+
+
+			LINE { elems => l,
+			       len   => len (l, 0)
+			     };
+		    };
+
+		lines = vector::from_list
+			    (map  make_ln  src);
+
+		TEXT_POOL
+		  {
+		    lines,
+		    view => REF (make_view (lines, 0, nrows)),
+		    font,
+		    char_width,
+		    ascent,
+		    descent,
+		    line_high,
+		    fill_tb,
+		    comment_tb,
+		    keyword_tb,
+		    symbol_tb,
+		    ident_tb
+		  };
+	    };
+
+
+	fun get_line (TEXT_POOL { lines, view => REF { start, ht, ... }, ... }, n)
+	    =
+	    {   # VDebug::prf("get_line: n = %d\n", [format::INT n])
+
+		my (LINE { elems, ... } )
+		    =
+		    vector::get (lines, n + start);
+
+		elems;
+	    }
+	    except _ = [];
+
+
+	fun make_fill (TEXT_POOL { char_width, fill_tb, ... }, n_chars)
+	    =
+	    tc::FILL { tb=>fill_tb, chr_wid=>n_chars, pix_wid=>(n_chars*char_width) };
+
+
+	fun text_width { space, kind, text }
+	    =
+	    space  +  size text;
+
+	fun pix_wid (TEXT_POOL { char_width, font, ... }, { space, kind, text } )
+	    =
+	    space * char_width
+	    +
+	    xc::text_width  font  text;
+
+	# Extract the appropriate typeball from a textpool 
+	#
+	fun get_typeball (TEXT_POOL { comment_tb, ... }, COMMENT) =>  comment_tb;
+	    get_typeball (TEXT_POOL { keyword_tb, ... }, KEYWORD) =>  keyword_tb;
+	    get_typeball (TEXT_POOL { symbol_tb,  ... }, SYMBOL ) =>  symbol_tb;
+	    get_typeball (TEXT_POOL { ident_tb,   ... }, IDENT  ) =>  ident_tb;
+	end;
+
+	# Resize the view:
+	#
+	fun resize (TEXT_POOL { lines, line_high, view as REF { start, ... }, ... }, xg::SIZE { high, ... } )
+	    =
+	    view := make_view (lines, start, high / line_high);
+
+	# Return the number of rows:
+	#
+	fun num_rows (TEXT_POOL { view => REF { ht, ... }, ... } )
+	    =
+	    ht;
+
+	# Return the maximum number of
+	# displayed columns in any row:
+	#
+	fun max_cols (TEXT_POOL { view => REF { max_cols, ... }, ... } )
+	    =
+	    max_cols;
+
+
+	# Return the text of a given row:
+	#
+	fun get_row
+	      (tp as TEXT_POOL { lines, char_width, fill_tb, line_high, ascent, ... } )
+	      n
+	    =
+	    {   fun mk ([], l)
+			=>
+			reverse l;
+
+		    mk ( { space=>0, kind, text } ! r, l)
+			=>
+			mk (r, tc::TEXT { tb=>get_typeball (tp, kind), text } ! l);
+
+		    mk ( { space, kind, text } ! r, l)
+			=>
+			mk (r, tc::TEXT { tb=>get_typeball (tp, kind), text }
+			!
+			make_fill (tp, space) ! l);
+		end;
+
+
+		{ at    =>  xg::POINT { col =>  0,
+				       row =>  n*line_high + ascent
+				     },
+
+		  elems =>  mk (get_line (tp, n), [])
+		};
+	    };
+
+
+	# Return the text elements in the given row between the start and
+	# stop character positions (inclusive), along with the origin of
+	# the first element.
+	#
+	fun get_text
+
+		(tp as TEXT_POOL { char_width, ascent, line_high, font, ... } )
+
+		{ row, start, stop }
+	    =
+	    {   n_chars = (stop - start) + 1;
+
+		# scan1 finds the start of the interval:
+		# 
+		fun scan1 ([], col, x)
+			=>
+			(x, []);
+
+		    scan1 ((item as { space, kind, text } ) ! r, col, x)
+			=>
+			{   w = text_width item;
+
+			    if (w <= col)   scan1 (r, col - w, x + pix_wid (tp, item));
+			    else            scan2 (item, r, col, x);
+			    fi;
+			};
+		end
+
+		# scan2 returns the list of text elements
+		# that comprise the interval:
+		# 
+		also
+		fun scan2 ( { space, kind, text }, elems, col, x)
+		    =
+		    {   fun mk (_, 0, l)
+				=>
+				l;
+
+			    mk ([], n, l)
+				=>
+				make_fill (tp, n) ! l;
+
+			    mk ( { space, kind, text } ! r, n, l)
+				=>
+				if (space >= n)
+				    #
+				    make_fill (tp, n) ! l;
+				else
+
+				    my (l, n) = if (space == 0)   (l, n);
+						else              (make_fill (tp, space) ! l,  n-space);
+						fi;
+
+				    len = size text;
+
+				    tb = get_typeball (tp, kind);
+
+				    if (len < n)   mk (r, n - len, tc::TEXT { tb, text } ! l);
+				    else           tc::TEXT { tb, text=>substring (text, 0, n) } ! l;
+				    fi;
+				fi;
+			end;
+
+
+			my (col, x, n_chars, fill)
+			    =
+			    if (space > col)
+
+				n_spaces = space-col;
+
+				( 0,
+				  x+char_width*col,
+				  n_chars-n_spaces,
+				  [ make_fill (tp, n_spaces) ]
+				);
+
+			    else
+				( col-space,
+				  x+char_width*space,
+				  n_chars,
+				  []
+				);
+			    fi;
+
+
+			my (x, item)
+			    =
+			    if (col > 0)
+
+				w = xc::substr_width font (text, 0, col);
+
+				( x+w,
+				  { space => 0,
+				    kind,
+				    text => substring (text, col, (size text) - col)
+				  }
+				);
+
+			    else
+				( x,
+				  { space => 0, kind, text }
+				);
+			    fi;
+
+			(x, mk (item ! elems, n_chars, fill));
+		    };
+
+		my (x, text_elems)
+		    =
+		    scan1 (get_line (tp, row), start, 0);
+
+
+											    /* +DEBUG **
+											    { fun pr_element (tc::TEXT { text, ... } ) => vdebug::pr["T<", text, ">"]
+												    pr_element (tc::FILL { chrWid, ... } ) =>
+												      vdebug::pr["F<", makestring::pad_left("", chr_wid), ">"];
+
+											      vdebug::prf("get_text(%2d) [%d..%d] = \"", [
+												  format::INT row, format::INT start, format::INT stop
+												]);
+											      revapp pr_element text_elems;
+											      vdebug::prf("\" @ (%d, %d)\n", [format::INT x, format::INT (row*line_high + ascent)])
+											    };
+											    ** -DEBUG */
+
+		{ at    =>  xg::POINT { col=>x, row => row*line_high + ascent },
+		  elems =>  reverse text_elems
+		};
+
+	    };				# fun get_text
+
+	# Return the height of the given row:
+	#
+	fun get_row_ht (TEXT_POOL { line_high, ... }, _)
+	    =
+	    line_high;
+
+	# Return the ascent and descent
+	# of the given row:
+	#
+	fun get_row_scent (TEXT_POOL { ascent, descent, ... }, _)
+	    =
+	    { ascent, descent };
+
+	# Return the y-coordinate of a row's baseline.
+	# This is the same as the y-coordinate (row_to_y)
+	# plus the ascent:
+	#
+	fun baseline_of_row
+	    (TEXT_POOL { ascent, line_high, ... }, row)
+	    =
+	    row * line_high  +  ascent;
+
+	# Return the y-coordinate
+	# of the top of a row:
+	#
+	fun row_to_y (TEXT_POOL { line_high, ... }, row)
+	    =
+	    row * line_high;
+
+	# Return the x-coordinate of
+	# a character coordinate:
+	#
+	fun coord_to_x (tp as TEXT_POOL { char_width, font, ... }, tw::CHAR_COORD { row, col } )
+	    =
+	    find_col (get_line (tp, row), col, 0)
+	    where
+
+		text_width =  xc::text_width  font;
+
+		fun find_col ([], _, x)
+			=>
+			x;							#  ?? 
+
+		    find_col ( { space, kind, text } ! r, col, x)
+			=>
+			if (col <= space)
+			    #
+			    x  +  char_width * col;
+			else
+			    #
+			    col = col -  space;
+			    x   = x   +  char_width * space;
+
+			    n = size text;
+
+			    if (col < n)   x + (xc::substr_width font (text, 0, col));
+			    else           find_col (r, col-n, x + text_width text);
+			    fi;
+			fi;
+		end;
+	    end;
+
+	# Map a character coordinate to
+	# the pixel origin of the
+	# specified character cell.
+	#
+	fun coord_to_pt (arg as (TEXT_POOL { line_high, ... }, tw::CHAR_COORD { row, ... } ))
+	    =
+	    xg::POINT { col => coord_to_x arg,
+		       row => row * line_high
+		     };
+
+	# Map a character coordinate into
+	# a rectangle bounding its contents:
+	#
+	fun coord_to_box (tp as TEXT_POOL { font, char_width, line_high, ... }, tw::CHAR_COORD { row, col } )
+	    =
+	    {   text_width =  xc::text_width  font;
+
+		substr_wid =  xc::substr_width font;
+
+
+		fun find_col ([], _, x)
+			=>
+			(x, 0);						 #  ?? 
+
+		    find_col ( { space, kind, text } ! r, col, x)
+			=>
+			if (col < space)
+			    (x + char_width*col, char_width);
+			else
+			    col = col - space;
+			    x   = x + char_width*space;
+			    n   = size text;
+
+			    if (col < n)
+				#
+				( x + (substr_wid (text, 0, col)),
+				  substr_wid (text, col, 1)
+				);
+			    else
+				find_col (r, col-n, x + text_width text);
+			    fi;
+			fi;
+		end;
+
+
+		my (x, w)
+		    =
+		    find_col (get_line (tp, row), col, 0);
+
+		xg::BOX { col=>x, row=>(row*line_high), high=>line_high, wide=>w };
+	    };
+
+	# Map a character coordinate onto
+	# the corresponding single-character 
+	# typeballed type element.
+	#
+	fun coord_to_element (tp, tw::CHAR_COORD { row, col } )
+	    =
+	    scan (get_line (tp, row), col)
+	    where
+		fun scan ([], _)
+			=>
+			make_fill (tp, 1);
+
+		    scan ( { space, kind, text } ! r, i)
+			=>
+			if   (i < space)       make_fill (tp, 1);
+			elif (i < size text)   tc::TEXT { tb=>get_typeball (tp, kind), text=>substring (text, i, 1) };
+			else                   scan (r, i - size text);
+			fi;
+		end;
+	    end;
+
+
+	# Given a row and x-coordinate
+	# return the full character coordinate:
+	#
+	fun x_pos_to_coord (tp as TEXT_POOL { char_width, font, ... }, row, x)
+	    =
+	    tw::CHAR_COORD { row, col=>findex (get_line (tp, row), 0, x) }
+	    where
+		text_width
+		    =
+		    xc::text_width  font;
+
+		fun findex ([], col, _)
+			=>
+			col;
+
+		    findex ( { space, kind, text } ! r, col, x)
+			=>
+			scan_space (space, col, x)
+			where
+			    fun scan_text (col, x)
+				=
+				{   wid =  text_width  text;
+
+
+				    fun scan ([], _)
+					    =>
+					    xgripe::impossible "viewer::x_pos_to_coord";
+
+					scan (w ! r, col)
+					    =>
+					    if (x < w)   col;
+					    else         scan (r, col+1);
+					    fi;
+				    end;
+
+
+				    if (x < wid)   scan (tail (xc::char_positions font text), col);
+				    else           findex (r, col + size text, x - wid);
+				    fi;
+				};
+
+			    fun scan_space (0, col, x)
+				    =>
+				    scan_text (col, x);
+
+				scan_space (space, col, x)
+				    =>
+				    if (x < char_width)   col;
+				    else                  scan_space (space - 1, col+1, x-char_width);
+				    fi;
+			    end;
+			end;
+		end;
+	    end;
+
+	# Given an inclusive range of pixels
+	# in the y-dimension, return the
+	# minimum inclusive range of rows
+	# covered by the pixel range:
+	#
+	fun pixel_rng_to_row_rng (TEXT_POOL { line_high, view => REF { ht, ... }, ... }, y1, y2)
+	    =
+	    (y1 % line_high, min (ht - 1, y2 % line_high));
+
+	# Given a row and an inclusive range
+	# of pixels in the x-dimension,
+	# return the minimum inclusive range
+	# of columns covered in the row
+	# by the pixel range:
+	#
+	# ==>  This should be made more efficient.   <==  XXX BUGGO FIXME
+	#
+	fun pixel_rng_to_col_rng (tp, row, x1, x2)
+	    =
+	    {   my tw::CHAR_COORD { col=>c1, ... } =  x_pos_to_coord (tp, row, x1);
+		my tw::CHAR_COORD { col=>c2, ... } =  x_pos_to_coord (tp, row, x2);
+
+		(c1, c2);
+	    };
+
+	# Map a point to a character coordinate:
+	#
+	fun pt_to_coord (tp as TEXT_POOL { line_high, ... }, xg::POINT { col, row } )
+	    =
+	    x_pos_to_coord (tp, row / line_high, col);
+
+    };				# package view_buffer 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

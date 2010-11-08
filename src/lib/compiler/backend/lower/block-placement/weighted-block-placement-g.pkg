@@ -1,0 +1,651 @@
+## weighted-block-placement-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+
+# This generic implements the bottom-up block-placement algorithm of
+# Pettis and Hansen (PLDI 1990).
+#
+# TODO
+#	remove low-weight nodes to break cycles in chain graph XXX BUGGO FIXME
+
+# We are invoked from:
+#
+#     src/lib/compiler/backend/lower/block-placement/block-placement-g.pkg
+
+
+generic package weighted_block_placement_g (
+
+    package control_flow_graph:      Control_Flow_Graph;		# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+
+    package instruction_properties
+	:
+	Instruction_Properties						# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+        where instruction_set
+	      ==
+	      control_flow_graph::instruction_set;
+
+  )
+
+: (weak) Block_Placement						# Block_Placement		is from   src/lib/compiler/backend/lower/block-placement/block-placement.api
+
+{
+    package control_flow_graph = control_flow_graph;
+
+    package ip     =  instruction_properties;
+    package g      =  graph;						# graph				is from   src/lib/graph/graph.pkg
+    package itable =  int_hash_table;					# int_hash_table		is from   src/lib/src/int-hash-table.pkg
+
+    package pq
+        =
+        leftist_heap_priority_queue_g (
+	    package {
+	        Priority =  control_flow_graph::Weight;
+	        Item     =  control_flow_graph::Edge;
+
+	        compare  =  float::compare;
+
+	        fun priority (_, _, control_flow_graph::EDGE { weight, ... } )
+                    =
+                    *weight;
+	    }
+        );
+
+    # Flags:
+ 
+    dump_control_flow_graph_block_list
+        =
+        low_code_control::make_bool (
+	  "dump_control_flow_graph_block_list",
+	  "whether block list is shown"
+        );
+
+    dump_control_flow_graph_after_block_placement
+        =
+        low_code_control::make_bool (
+	  "dump_control_flow_graph_after_block_placement",
+	  "whether control_flow_graph is shown after block placement");
+
+    dump_strm
+        =
+        low_code_control::debug_stream;
+
+    # Sequences with constant-time
+    # concatenation:
+    #
+    Seq X
+      = ONE  X
+      | SEQ  ((Seq( X ), Seq( X )) );
+
+    # A chain of blocks that
+    # should be placed in order 
+    #
+    Chain = CHAIN  {
+	blocks:  Seq( control_flow_graph::Node ),
+	hd:  control_flow_graph::Node,
+	tl:  control_flow_graph::Node
+      };
+
+    fun head (CHAIN { hd, ... } ) =  #1 hd;
+    fun tail (CHAIN { tl, ... } ) =  #1 tl;
+    fun id   (CHAIN { hd, ... } ) =  #1 hd;		# Use node ID of head to identify chains 
+
+
+    fun same_chain (CHAIN { hd=>h1, ... }, CHAIN { hd=>h2, ... } )
+        =
+        #1 h1  ==  #1 h2;
+
+
+    fun block_to_string (id', control_flow_graph::BLOCK { id, ... } )
+        =
+	cat ["<", int::to_string id', ":", int::to_string id, ">"];
+
+
+    fun chain_to_string (CHAIN { hd, blocks, ... } )
+        =
+	cat ("CHAIN { " ! block_to_string hd ! ",[" ! seq (blocks, ["] }"]))
+        where
+            fun seq (ONE blk,      l) =>  block_to_string blk ! l;
+	        seq (SEQ (s1, s2), l) =>  seq (s1, ", " ! seq (s2, l));
+            end;
+	end;
+
+
+    # Join two chains 
+    #
+    fun join_chains
+        (
+          CHAIN { blocks=>b1, hd, ... },
+          CHAIN { blocks=>b2, tl, ... }
+        )
+        =
+	CHAIN { blocks=>SEQ (b1, b2), hd, tl };
+
+
+    unify_chain_ptrs = union_find::unify join_chains;
+
+
+    # Chain pointers provide a
+    # union-find package for chains:
+    #
+    Chain_Ptr =  union_find::Union_Find( Chain );
+    #
+    Block_Chain_Table = itable::Hash_Table( Chain_Ptr );
+
+    # A directed graph representing the placement ordering on chains.
+    # An edge from chain c1 to c2 means that we should place c1 before c2.
+    # The graph may be cyclic, so we weight the edges
+    # and remove the low-cost edge on any cycle.
+    #
+    Node = NODE {
+	    chain:  Chain,
+	    mark:  Ref( Bool ),
+	    kids:  Ref(  List(  Edge ) )
+	  }
+    also
+    Edge = EDGE  {
+	     w:  control_flow_graph::Weight,
+	     dst:  Node,
+	     ign:  Ref( Bool )		#  if set, then ignore this edge.  We use this 
+				     #  flag to break cycles. 
+	   };
+
+    fun make_node c
+        =
+        NODE { chain => c, mark => REF FALSE, kids => REF [] };
+
+    fun make_edge (w, dst)
+        =
+        EDGE { w, dst, ign => REF FALSE };
+
+    # Given a table that maps block IDs to chain pointers,
+    # construct a table that maps block IDs to their
+    # chain-placement graph nodes.
+    #
+    fun make_chain_placement_graph (table:  Block_Chain_Table)
+        =
+	( itable::foldi block_to_nd [] table,
+          g_table
+        )
+        where
+            g_table =  itable::make_table (itable::vals_count table, FAIL "graph table");
+
+	    find   =  itable::find g_table;
+	    insert =  itable::set g_table;
+
+	    # Given a block ID and the chain pointer
+            # corresponding to the block, add the
+            # chain node to the graph table.
+	    #
+            # This may involve creating the node
+            # if it doesn't already exist:
+	    #
+	    fun block_to_nd (blk_id, cptr, nodes)
+		=
+		{   chain    =  union_find::(!!) cptr;
+		    chain_id =  id chain;
+
+		    case (find chain_id)
+		      
+		         NULL
+                             =>
+                             {   nd = make_node chain;
+
+			         insert (chain_id, nd);
+
+			         if   (blk_id != chain_id)
+			             
+                                      insert (blk_id, nd);
+			         fi;
+
+			         nd ! nodes;
+			     };
+
+		         THE nd
+                             =>
+                             {   insert (blk_id, nd);
+                                 nodes;
+                             };
+                    esac;
+		};
+	end;
+
+
+    fun block_placement (cfg as g::GRAPH graph)
+	=
+	{   # A map from block IDs to their chain 
+	    #
+	    my block_table:  itable::Hash_Table( Chain_Ptr )
+                =
+		table
+                where
+                    table  =  itable::make_table (graph.size (), FAIL "blkTable");
+		    insert =  itable::set table;
+
+		    fun ins (b:  control_flow_graph::Node)
+                        =
+                        insert (
+                            #1 b,
+			    union_find::u_ref (CHAIN { blocks => ONE b, hd => b, tl => b } )
+                        );
+
+		    graph.forall_nodes ins;
+		end;
+
+	    lookup_chain =  itable::get  block_table;
+
+
+
+	    exit_id	    # The unique exit node.
+                =
+                control_flow_graph::exit_id cfg;
+
+
+	    # Given an edge that connects two blocks,
+            # attempt to merge their chains.
+            # 
+	    # Return TRUE if a merge occurred.
+            # 
+            # We do not join exit edges so that the exit
+	    # and entry nodes end up in distinct chains.
+	    #
+	    fun join (src, dst, _)
+                =
+                if   (dst == exit_id)
+		    
+                     FALSE;
+		else
+		     cptr1 =  lookup_chain src;     chain1 =  union_find::(!!) cptr1;
+		     cptr2 =  lookup_chain dst;	    chain2 =  union_find::(!!) cptr2;
+
+		     if   ( (src == tail chain1)   and 
+                            (dst == head chain2)   and not
+		            (same_chain (chain1, chain2))
+		          )
+			  # The source block is the tail of its chain and the
+			  # destination block is the head of its chain, 
+			  # so we can join the chains.
+			  #
+			  ignore (unify_chain_ptrs (cptr1, cptr2));
+			  TRUE;
+		     else
+                          FALSE;	# We cannot join these chains.
+                     fi;
+                fi;
+
+
+	    # Merge chains until all of the edges have been examined;
+	    # the remaining edges cannot be fall-through.
+	    #
+	    fun loop (pq, edges)
+                =
+                case (pq::next pq)
+		  
+                     THE (edge, pq)
+                         =>
+                        if   (join edge)
+			     loop (pq, edges);
+			else loop (pq, edge ! edges);
+                        fi;
+
+		     NULL => edges;
+                esac;
+
+	    edges =  loop (pq::from_list (graph.edges ()), []);
+
+	    # Construct a chain placement graph:
+	    #
+	    my (chain_nodes, gr_table)
+                =
+                make_chain_placement_graph block_table;
+
+	    lookup_nd =  itable::get  gr_table;
+
+	    fun add_cfgedge (src, dst, control_flow_graph::EDGE { kind, weight, ... } )
+                =
+                case kind						#  NOTE: there may be icache benefits to including SWITCH edges. 
+		     control_flow_graph::SWITCH _ =>  ();
+		     control_flow_graph::FLOWSTO  =>  ();
+
+		     _   =>
+                         {   my NODE           { chain=>c1, kids, ... } =   lookup_nd  src;
+			     my dst_nd as NODE { chain=>c2, ...      } =   lookup_nd  dst;
+
+			     if   (not (same_chain (c1, c2)))
+			         
+				  kids :=  make_edge (*weight, dst_nd) ! *kids;
+			     fi;
+			 };
+                esac;
+
+	    list::apply  add_cfgedge  edges;
+
+
+	    #  XXX BUGGO FIXME: we should remove low-weight nodes to break cycles 
+
+	    # Construct an ordering on the chains by
+	    # doing a depth-first search on the chain graph.
+	    #	
+	    fun dfs (NODE { mark => REF TRUE, ... }, l)			# "dfs" == "depth-first search"
+                    =>
+                    l;
+
+	        dfs (NODE { mark, chain, kids, ... }, l)
+                    =>
+                    {   fun add_kid (EDGE { ign => REF TRUE, ... }, l)
+                                =>
+                                l;
+
+		            add_kid (EDGE { dst, ... }, l)
+                                =>
+                                dfs (dst, l);
+                        end;
+
+		        mark :=  TRUE;
+
+		        list::fold_left  add_kid  (chain ! l)  *kids;
+		    };
+            end;
+
+	    # Mark the exit node, since it should be last.
+            #
+	    # Note that we ensured above that the exit
+	    # and entry nodes are in distinct chains:
+	    #
+	    exit_chain
+                =
+	        chain
+                where
+                    my NODE { chain, mark, ... }
+                        =
+                        lookup_nd (control_flow_graph::exit_id cfg);
+
+		    mark := TRUE;
+
+		end;
+
+
+	    # Start with the entry node:
+	    # 
+	    chains
+                =
+                dfs (lookup_nd (control_flow_graph::entry_id cfg), []);
+
+
+	    # Place the rest of the nodes and add the exit node: 
+	    #
+	    chains =  list::fold_left  dfs  chains  chain_nodes;
+	    chains =  exit_chain ! chains;
+
+
+	    # Extract the list of blocks from the chains list;
+	    # the chains list is in reverse order.
+            # The resulting list of blocks is in order.
+	    #
+	    fun add_chain (CHAIN { blocks, ... }, blks)
+                =
+		add_seq (blocks, blks)
+                where
+		    fun add_seq (ONE b, blks)
+                            =>
+                            b ! blks;
+
+		        add_seq (SEQ (s1, s2), blks)
+                            =>
+                            add_seq (s1, add_seq (s2, blks));
+                    end;
+		end;
+
+	    blocks
+                =
+                list::fold_left add_chain [] chains;
+
+
+	    fun upd_edge (control_flow_graph::EDGE { weight, notes, ... }, kind)
+                =
+                control_flow_graph::EDGE { weight, notes, kind };
+
+
+	    fun upd_jmp f (instructions as REF (i ! r))
+                    =>
+                    instructions := f i ! r;
+
+	        upd_jmp _ (REF [])
+                    =>
+		    raise exception FAIL "weighted_block_placement_g: updJmp: empty instructions";
+            end;
+
+
+	    fun flip_jmp (instructions, lab)
+                =
+		upd_jmp
+                    (fn i =  ip::negate_conditional (i, lab))
+                    instructions;
+
+
+	    # Set to TRUE if we change anything:
+	    #
+	    changed = REF FALSE;
+
+	    set_edges
+                =
+		fn arg =  { changed := TRUE; set arg;}
+                where
+		    set = graph.set_out_edges;
+                end;
+
+
+	    # Map a block ID to a label:
+	    # 
+	    label_of =  control_flow_graph::label_of  cfg;
+
+
+
+	    # Patch the blocks so that unconditional jumps
+            # to the immediate successor are replaced by
+            # fall-through edges and conditional jumps
+            # to the immediate successor are negated.
+	    #
+            # Remember that we cannot fall through
+	    # to the exit block!
+	    #
+	    fun patch ( nd as (blk_id, control_flow_graph::BLOCK { kind=>control_flow_graph::NORMAL, instructions, freq, ... } ),
+		        (next as (next_id, _)) ! rest,
+		        l
+		      )
+                    =>
+                    {    fun continue ()
+                             =
+                             patch (next, rest, nd ! l);
+
+			 case (graph.out_edges blk_id)
+			   
+			      [(_, dst, e as control_flow_graph::EDGE { kind, weight, notes } )]
+                                  =>
+                                  {   case (dst == next_id, kind)
+				        
+				           (FALSE, control_flow_graph::FALLSTHRU)
+                                               =>
+                                               {   # Rewrite edge as JUMP and add jump instruction 
+						   #
+					           set_edges (blk_id, [(blk_id, dst, upd_edge (e, control_flow_graph::JUMP))]);
+					           instructions := ip::jump (label_of dst) ! *instructions;
+                                               };
+
+					   (TRUE, control_flow_graph::JUMP)
+					       =>
+					       if    (next_id != exit_id)
+					           
+						     # Rewrite edge as FALLSTHRU and remove jump instruction 
+						     #
+						     set_edges (
+                                                         blk_id,
+						         [(blk_id, dst, upd_edge (e, control_flow_graph::FALLSTHRU))]
+                                                     );
+						     instructions :=  list::tail *instructions;
+					       fi;					# Do not rewrite jumps to STOP block 
+
+					   _   => ();
+                                      esac;
+
+				      continue();
+                                  };
+
+			     [ (_, dst1, e1 as control_flow_graph::EDGE { kind =>control_flow_graph::BRANCH b, ... } ),
+			       (_, dst2, e2)
+			     ]
+                                 =>
+                                 case ( dst1 == next_id,
+                                        dst2 == next_id,
+                                        b
+                                      )
+				   
+				      (FALSE, FALSE, _)
+                                          =>
+                                          {   # Here we have to introduce a new block that
+					      # jumps to the FALSE target.
+
+					      fun rewrite (true_id, true_e, false_id, false_e)
+                                                  =
+                                                  {   my control_flow_graph::EDGE { weight, notes, ... }
+                                                          =
+                                                          false_e;
+
+						      my nd' as (id, control_flow_graph::BLOCK { instructions=>i, ... } )
+                                                          =
+							  control_flow_graph::new_node cfg *weight;
+
+
+						      # Initialize the new block:
+						      #	
+						      i :=  [ip::jump (label_of false_id)];
+						      #	
+						      set_edges
+                                                        ( id,
+                                                          [ ( id,
+                                                              false_id,
+                                                              control_flow_graph::EDGE
+                                                                {
+                                                                  weight =>  REF *weight,
+                                                                  notes  =>  REF [],
+                                                                  kind   =>  control_flow_graph::JUMP
+                                                                }
+                                                            )
+							  ]
+                                                        );
+
+
+
+						      # Rewrite the out edges of the old block:
+						      #
+						      set_edges
+                                                        ( blk_id,
+                                                          [
+							    ( blk_id,
+                                                              true_id,
+                                                              true_e
+                                                            ),
+							    ( blk_id,
+                                                              id,
+                                                              control_flow_graph::EDGE
+                                                                {
+								  kind => control_flow_graph::BRANCH FALSE,
+                                                                  weight,
+                                                                  notes
+							       } )
+							  ]
+                                                        );
+
+
+						      # Rewrite the old jump instruction:
+						      #
+						      upd_jmp
+                                                          (fn i
+                                                              =
+							      ip::set_branch_targets
+                                                                { i,
+                                                                  t => label_of true_id,
+                                                                  f => label_of id
+                                                                }
+							  )
+                                                          instructions;
+
+						      patch (next, rest, nd' ! nd ! l);
+						  };
+
+					      b  ??  rewrite (dst1, e1, dst2, e2)
+					         ::  rewrite (dst2, e2, dst1, e1);
+					  };
+
+				      (TRUE, _, TRUE)
+					  =>
+					  {   set_edges (blk_id, [
+						  (blk_id, dst1, upd_edge (e1, control_flow_graph::BRANCH FALSE)),
+						  (blk_id, dst2, upd_edge (e2, control_flow_graph::BRANCH TRUE))
+					      ]);
+
+					      flip_jmp (instructions, label_of dst2);
+
+					      continue();
+					  };
+
+				      (FALSE, _, FALSE)
+                                          =>
+                                          {   set_edges (blk_id, [
+						  (blk_id, dst1, upd_edge (e1, control_flow_graph::BRANCH TRUE)),
+						  (blk_id, dst2, upd_edge (e2, control_flow_graph::BRANCH FALSE))
+						]);
+
+					      flip_jmp (instructions, label_of dst1);
+
+					      continue ();
+                                          };
+
+				      _ => continue ();
+				 esac;
+
+			     _ => continue ();
+			 esac;
+		   };
+
+	       patch (nd, next ! rest, l) =>   patch (next, rest, nd ! l);
+	       patch (nd,          [], l) =>   list::reverse (nd ! l);
+	   end;
+
+	   blocks =   patch (list::head blocks, list::tail blocks, []);
+
+	   if *changed
+		control_flow_graph::mark_as_changed cfg; 
+	   fi;
+
+	   if *dump_control_flow_graph_block_list
+
+		fun say s
+                    =
+                    file::write (*dump_strm, s);
+
+		say "Block placement order:\n";
+
+		list::apply
+		    (fn b =  say (cat ["  ", block_to_string b, "\n"]))
+		    blocks;
+	   fi;
+
+	   if *dump_control_flow_graph_after_block_placement
+
+		pr_block =  control_flow_graph::dump_block (*dump_strm, cfg);
+
+		file::write (*dump_strm, "[ after block placement ]\n");
+		list::apply  pr_block blocks;
+	   fi;
+
+	   (cfg, blocks);
+      };			# fun block_placement
+};
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

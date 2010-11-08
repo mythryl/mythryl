@@ -1,0 +1,324 @@
+## jump-chain-elimination-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+
+# Collapse jumps to jumps.
+#
+# TODO:
+#	check for jumps to the next block.
+#	jump tables (SWITCH edges).	XXX BUGGO FIXME
+
+
+
+###          "He jumped so high..."
+###              -- Jerry Jeff Walker, "Mr. Bojangles"
+
+# We are invoked by:
+#
+#     src/lib/compiler/codegen/main/codegen-g.pkg
+
+
+generic package jump_chain_elimination_g (
+
+    package control_flow_graph:  Control_Flow_Graph;			# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+    package instruction_properties
+	:
+	Instruction_Properties						# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+        where instruction_set == control_flow_graph::instruction_set;
+
+    # Control flag that when set TRUE allows jumps to labels outside
+    # of the control_flow_graph to be chained.  Set this FALSE when there are many
+    # short jumps to a long jump that exits the control_flow_graph.
+    #
+    chain_escapes:  Ref( Bool );
+
+    # Control flag that when set TRUE allows the direction (forward or
+    # backward) of conditional jumps to be changed.  Set this FALSE
+    # when the direction of conditional branches is used to predict
+    # the branch.
+    #
+    reverse_direction:  Ref( Bool );
+
+)
+
+: (weak) api {
+
+    package control_flow_graph:  Control_Flow_Graph;		# Control_Flow_Graph	is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+
+    run:  ((control_flow_graph::Control_Flow_Graph, List( control_flow_graph::Node )) )
+          ->
+          ((control_flow_graph::Control_Flow_Graph, List( control_flow_graph::Node )) );
+
+}
+{
+    package control_flow_graph = control_flow_graph;
+    package ip = instruction_properties;
+    package g= graph;						# graph	is from   src/lib/graph/graph.pkg
+
+    # Flags:
+    #
+    disable_jump_chain_elimination
+        =
+        low_code_control::make_bool (
+	  "disable_jump_chain_elimination",
+	  "whether jump chain elimination is disabled");
+
+    dump_control_flow_graph_after_jump_chain_elimination
+        =
+        low_code_control::make_bool (
+	  "dump_control_flow_graph_after_jump_chain_elimination",
+	  "whether flow graph is shown after jump chain elimination"
+        );
+
+    dump_strm = low_code_control::debug_stream;
+
+
+    fun error msg
+        =
+        lowcode_error_message::error("jump_chain_elimination_g", msg);
+
+
+    fun run (cfg, blocks)
+        =
+	(cfg, blocks)
+        where
+
+            cfg
+                ->
+                g::GRAPH {
+		  node_info, out_edges, set_out_edges, in_edges,
+		  forall_nodes, remove_node, ...
+		};
+
+	    chain_escapes     =  *chain_escapes;
+	    reverse_direction =  *reverse_direction;
+
+	    # This flag is set to note that
+            # we need to filter out unreachable
+	    # blocks after jump chaining.
+	    #	
+	    need_filter =  REF FALSE;
+
+	    # The exit block:
+	    # 
+	    exit = control_flow_graph::exit_id cfg;
+
+
+
+	    fun label_of blk_id			# Map a block ID to a label 
+                =
+                case (node_info blk_id)
+		  
+		     control_flow_graph::BLOCK { labels=>REF (lab ! _), ... }
+                         =>
+                         lab;
+
+		     control_flow_graph::BLOCK { labels, ... }
+                         =>
+                         {   lab = label::make_anonymous_label ();
+
+			     labels := [lab];
+			     lab;
+			 };
+                esac;
+
+
+	    fun jump_label_of instruction
+                =
+		case (ip::branch_targets instruction)
+		  
+		     [ip::LABELLED lab]
+                         =>
+                         lab;
+
+		     _   =>
+                         error ("jumpLabelOf");
+                esac;
+
+
+	    # Given a destination block ID,
+            # check to see if it is a block that
+	    # consists a single jump instruction.
+            #
+            # If so, return the block ID and label
+	    # of the block at the end of the jump chain;
+            # otherwise return NULL.
+	    #
+	    fun follow_chain blk_id
+                =
+                case (node_info blk_id)
+		  
+		     control_flow_graph::BLOCK { instructions as REF [i], kind=>control_flow_graph::NORMAL, ... }
+                         =>
+
+		         #  A normal block with one instruction 
+
+			 case (out_edges blk_id)
+			   
+			      [e as (_, dst, control_flow_graph::EDGE { kind=>control_flow_graph::JUMP, weight, notes } )]
+                                  =>
+			          if   (dst != exit   or   chain_escapes)
+				      
+				       # The instruction must be a jump so
+                                       # transitively follow it to get the target,
+				       # but be careful to avoid infinite loops.
+
+				       set_out_edges (blk_id, []);
+
+				       case (follow_chain dst)
+				         
+				            NULL
+                                                =>
+                                                {   set_out_edges (blk_id, [e]);
+					            THE (dst, jump_label_of i);
+                                                };
+
+				            (some_lab as THE (dst', lab))
+                                                =>
+                                                {   instructions := [ip::jump lab];
+
+					            set_out_edges (
+                                                        blk_id,
+					                [(blk_id, dst', control_flow_graph::EDGE { kind => control_flow_graph::JUMP, weight, notes } )]
+                                                    );
+
+					            some_lab;
+                                                };
+                                       esac;
+
+				  else
+                                       NULL;
+                                  fi;
+
+			      _ => NULL;
+                         esac;
+
+		     _ => NULL;
+                esac;				    # fun follow_chain
+
+	    # For each normal block,
+            # check the outgoing edges
+	    # to see if they can be redirected:
+	    #
+	    fun do_block (blk_id, control_flow_graph::BLOCK { instructions, kind=>control_flow_graph::NORMAL, ... } )
+                    =>
+                    {   fun set_targets labs
+                            =
+                            {   my (jmp, r)
+                                    =
+				    case *instructions
+                                      
+				         jmp ! r =>  (jmp, r);
+				         []      =>  error "setTargets: empty instructions";
+                                    esac;
+
+			        new_jmp
+                                    = 
+				    case labs
+				      
+				         [lab]        =>  ip::set_jump_target (jmp, lab);
+				         [lab1, lab2] =>  ip::set_branch_targets { i=>jmp, f=>lab1, t=>lab2 };
+				         _            =>   error "setTargets";
+                                    esac;
+
+
+				need_filter :=  TRUE;
+				instructions       :=  new_jmp ! r;
+			    };
+
+			case (out_edges blk_id)
+			  
+			     [ (_, dst, info as control_flow_graph::EDGE { kind => control_flow_graph::JUMP, ... } ) ]
+                                 =>
+				 case (follow_chain dst)
+				   
+				      THE (dst', lab)
+                                          =>
+                                          {   set_targets [lab];
+				              set_out_edges (blk_id, [(blk_id, dst', info)]);
+                                          };
+
+				      NULL
+                                          =>
+                                          ();
+                                 esac;
+
+			     [ (_, dst1, info as control_flow_graph::EDGE { kind => control_flow_graph::BRANCH TRUE, ... } ), e2 ]
+                                 =>
+				 case (follow_chain dst1)
+				   
+				      THE (dst', lab)
+                                          =>
+                                          {   set_targets [label_of(#2 e2), lab];
+				              set_out_edges (blk_id, [(blk_id, dst', info), e2]);
+                                          };
+
+				      NULL =>  ();
+                                 esac;
+
+			     [ e1, (_, dst2, info as control_flow_graph::EDGE { kind => control_flow_graph::BRANCH TRUE, ... } ) ]
+                                 =>
+				 case (follow_chain dst2)
+				   
+				      THE (dst', lab)
+                                      	  =>
+                                          {   set_targets [label_of(#2 e1), lab];
+				              set_out_edges (blk_id, [e1, (blk_id, dst', info)]);
+                                          };
+
+				      NULL => ();
+                                 esac;
+
+			     _ => ();
+                        esac;
+		    };
+
+	        do_block _
+                    =>
+                    ();
+            end;
+
+	    entry = control_flow_graph::entry_id cfg;
+
+	    fun keep_block (blk_id, _)
+                =
+		if   (null (in_edges blk_id) and (blk_id != entry))
+		    
+                     remove_node blk_id;
+                     FALSE;
+		else
+                     TRUE;
+                fi;
+
+	    blocks
+                =
+                if *disable_jump_chain_elimination
+
+                     blocks;
+		else 
+		     forall_nodes do_block;
+
+		     if *need_filter   list::filter  keep_block  blocks;
+                     else                                        blocks;   fi;
+                fi;
+
+	    if *dump_control_flow_graph_after_jump_chain_elimination
+
+		  pr_block
+                      =
+                      control_flow_graph::dump_block (*dump_strm, cfg);
+
+		  file::write (*dump_strm, "[ after jump-chain elimination ]\n");
+
+		  list::apply pr_block blocks;
+	    fi;
+
+	end;
+};
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

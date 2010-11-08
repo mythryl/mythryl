@@ -1,0 +1,1665 @@
+## prettyprint-deep-syntax.pkg
+
+# Compiled by:
+#     src/lib/compiler/frontend/typechecker/typecheck.make6
+
+# Nomenclature:
+#     In these libraries we distinguish "unparsing" from "prettyprinting":
+#
+#       o The purpose of "unparsing" is to regenerate something close
+#         to the language surface syntax, for example to issue syntax
+#         error diagnostic messages to user.
+#
+#       o The purpose of "prettyprinting" is to accurately display
+#         the actual internal datastructure in question, typically
+#         for purposes of compiler debugging.
+#
+#     Both are useful, so we implement both
+#     for both raw and deep syntax trees.
+
+# 2009-05-13 CrT: Created  from unparse-deep-syntax.pkg.
+#                 This is a really quick and dirty hack at present.
+
+api Prettyprint_Deep_Syntax {
+
+    prettyprint_pattern
+        :
+        symbol_table::Symbol_Table
+        -> prettyprint::Stream 
+	-> (deep_syntax::Case_Pattern,  Int)
+        -> Void;
+
+    prettyprint_expression
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+        -> prettyprint::Stream
+        -> (deep_syntax::Deep_Expression,  Int)
+        -> Void;
+
+    prettyprint_declaration
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+	-> prettyprint::Stream
+        -> (deep_syntax::Declaration,  Int)
+        -> Void;
+
+    prettyprint_rule
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+        -> prettyprint::Stream
+        -> (deep_syntax::Case_Rule,  Int)
+        -> Void;
+
+    prettyprint_named_value
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+        -> prettyprint::Stream
+        -> (deep_syntax::Named_Value,  Int)
+        -> Void;
+
+    prettyprint_recursively_named_value
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+	-> prettyprint::Stream
+        -> (deep_syntax::Named_Recursive_Values,  Int)
+        -> Void;
+
+
+    prettyprint_package_expression
+        :
+        (symbol_table::Symbol_Table,  Null_Or( source_code_source::Input_Source ))
+	-> prettyprint::Stream
+        -> (deep_syntax::Package_Expression,  Int)
+        -> Void;
+
+    lineprint:  Ref(  Bool );
+
+    debugging:  Ref(  Bool );
+
+}; #  Api Prettyprint_Deep_Syntax 
+
+
+package prettyprint_deep_syntax: (weak)  Prettyprint_Deep_Syntax {		# Prettyprint_Deep_Syntax	is from   src/lib/compiler/frontend/typechecker/print/prettyprint-deep-syntax.pkg
+
+    stipulate
+
+        package em = error_message;		# error_message		is from   src/lib/compiler/frontend/basics/errormsg/error-message.pkg
+	package m  = module;			# module		is from   src/lib/compiler/frontend/typecheck-stuff/modules/module.pkg
+	package b  = symbol_table_entry;	# symbol_table_entry	is from   src/lib/compiler/frontend/typecheck-stuff/symbol-table/symbol-table-entry.pkg
+	package s  = symbol;			# symbol		is from   src/lib/compiler/frontend/basics/mlcomp/symbol.pkg
+	package pp = prettyprint;		# prettyprint		is from   src/lib/prettyprint/src/prettyprint.pkg
+
+	include deep_syntax;
+        include tuples;
+        include fixity;
+        include variables_and_constructors;
+        include types;
+        include prettyprint;
+        include unparse_stuff;
+        include prettyprint_type;
+        include unparse_value;
+
+    herein
+
+	#  Debugging 
+	say = control_print::say;
+	debugging = REF FALSE;
+
+#	unparse_typevar_ref = unparse_type::unparse_typevar_ref         symbol_table::empty;
+
+
+
+	fun bug msg
+            =
+            error_message::impossible("unparse_deep_syntax: " + msg);
+
+	internals = typechecking_control::internals;
+
+	lineprint = REF FALSE;
+
+	fun if_debugging_say (msg: String)
+            =
+	    if   *debugging   say msg;   say "\n";   fi;
+
+	fun if_debugging_unparse_typevar_ref  (msg, typevar_ref)
+	    = 
+	    if *debugging
+
+                unparse_typevar_ref = unparse_type::unparse_typevar_ref         symbol_table::empty;
+
+		typechecking_debugging::with_internals
+		    (fn () =  typechecking_debugging::debug_print debugging (msg, unparse_typevar_ref, typevar_ref));
+	    fi;
+
+
+	fun by f x y
+            =
+            f y x;
+
+	null_fix = INFIX (0, 0);
+	inf_fix  = INFIX (1000000, 100000);
+
+	fun stronger_l (INFIX(_, m), INFIX (n, _)) => m >= n;
+	    stronger_l _ => FALSE;			#  should not matter 
+        end;
+
+	fun stronger_r (INFIX(_, m), INFIX (n, _)) => n > m;
+	    stronger_r _ => TRUE;			#  should not matter 
+         end; 
+
+	fun prpos ( stream:  prettyprint::Stream,
+		   source:  source_code_source::Input_Source,
+                   charpos: Int
+                 )
+            =
+	    if *lineprint
+
+	         my (file: String, line: Int, pos: Int)
+                     =
+                     source_code_source::filepos source charpos;
+	      
+                 pp::string stream (int::to_string line);
+		 pp::string stream ".";
+		 pp::string stream (int::to_string pos);
+
+	    else
+                 pp::string stream (int::to_string charpos);
+            fi;
+
+
+	fun checkpat (n, NIL)
+                =>
+                TRUE;
+
+	    checkpat (n, (symbol, _) ! fields)
+		=> 
+		s::eq (symbol, number_to_label n) and checkpat (n+1, fields);
+        end;
+
+	fun checkexp (n, NIL)
+                =>
+                TRUE;
+	    checkexp (n, (NUMBERED_LABEL { name=>symbol, ... }, _) ! fields)
+		=> 
+		s::eq (symbol, number_to_label n) and checkexp (n+1, fields);
+        end;
+
+	fun is_tuplepat (RECORD_PATTERN { fields => [_],                  ... } ) =>  FALSE;
+	    is_tuplepat (RECORD_PATTERN { is_incomplete => FALSE, fields, ... } ) =>  checkpat (1, fields);
+	    is_tuplepat _ => FALSE;
+        end;
+
+	fun is_tupleexp (RECORD_EXPRESSION [_]) => FALSE;
+ 	    is_tupleexp (RECORD_EXPRESSION fields) => checkexp (1, fields);
+	    is_tupleexp (SOURCE_CODE_REGION_FOR_EXPRESSION (a, _)) => is_tupleexp a;
+	    is_tupleexp _ => FALSE;
+        end;
+
+	fun get_fix (symbol_table, symbol)
+            =
+	    find_in_symbol_table::find_fixity_by_symbol
+                (
+                  symbol_table,
+                  s::make_fixity_symbol (s::name symbol)
+                );
+
+	fun strip_source_code_region_info (SOURCE_CODE_REGION_FOR_EXPRESSION (a, _)) => strip_source_code_region_info a;
+	    strip_source_code_region_info x => x;
+        end;
+
+	fun prettyprint_pattern symbol_table stream
+            =
+	    {   ppsay = pp::string stream;
+
+		fun prettyprint_pattern' (_,          0)
+                        =>
+                        ppsay "<pattern>";
+
+		    prettyprint_pattern' (VARIABLE_IN_PATTERN v,   _)
+                        =>
+                        {   ppsay "VARIABLE_IN_PATTERN ";
+#                           unparse_var stream v;
+                            unparse_variable stream (symbol_table, v);	# More verbose version of previous line.
+                            ppsay " ";
+                        };
+
+		    prettyprint_pattern' (WILDCARD_PATTERN,    _)
+                        =>
+                        ppsay "WILDCARD_PATTERN ";
+
+		    prettyprint_pattern' (INT_CONSTANT_IN_PATTERN (i, t), _)
+                        =>
+                        {   ppsay "INT_CONSTANT_IN_PATTERN ";  
+                            ppsay (integer::to_string i);
+                            ppsay " ";
+                        };
+
+	/*	     (begin_block stream INCONSISTENT 2;
+		      ppsay "("; ppsay (integer::to_string i);
+		      ppsay " :"; break stream { spaces=1, indent_on_wrap=1 };
+		      unparse_type symbol_table stream t; ppsay ")";
+		      end_block stream)
+         */
+
+		    prettyprint_pattern' (UNT_CONSTANT_IN_PATTERN (w, t), _)
+                        =>
+                        {   ppsay "UNT_CONSTANT_IN_PATTERN ";  
+                            ppsay (integer::to_string w);
+                            ppsay " ";
+                        };
+
+
+	/*	     (open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 2);
+		      ppsay "("; ppsay (integer::to_string w);
+		      ppsay " :"; break stream { spaces=1, indent_on_wrap=1 };
+		      unparse_type symbol_table stream t; ppsay ")";
+		      end_box stream)
+         */
+
+		    prettyprint_pattern' (FLOAT_CONSTANT_IN_PATTERN  r, _)
+                        =>
+                        {   ppsay "FLOAT_CONSTANT_IN_PATTERN ";  
+                            ppsay r;
+                            ppsay " ";
+                        };
+
+		    prettyprint_pattern' (STRING_CONSTANT_IN_PATTERN s, _)
+                        =>
+                        {   ppsay "STRING_CONSTANT_IN_PATTERN ";  
+                            unparse_mlstring  stream s;
+                            ppsay " ";
+                        };
+
+		    prettyprint_pattern' (CHAR_CONSTANT_IN_PATTERN   s, _)
+                        =>
+                        {   ppsay "STRING_CONSTANT_IN_PATTERN ";  
+                            unparse_mlstring' stream s;
+                            ppsay " ";
+                        };
+
+		    prettyprint_pattern' (AS_PATTERN (v, p), d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+                            ppsay "AS_PATTERN ";  
+			    prettyprint_pattern'(v, d);
+                            ppsay " as ";
+                            prettyprint_pattern'(p, d - 1);
+			    end_box stream;
+			};
+			    #  Handle 0 length case specially to avoid {, ... }: 
+
+		    prettyprint_pattern' (RECORD_PATTERN { fields => [], is_incomplete, ... }, _)
+			=>
+			{   ppsay "RECORD_PATTERN ";  
+			    if is_incomplete      ppsay "{... }";
+			    else                  ppsay "()";
+			    fi;
+			};
+
+		    prettyprint_pattern' (r as RECORD_PATTERN { fields, is_incomplete, ... }, d)
+			=>
+			{   ppsay "RECORD_PATTERN ";  
+
+			    if   (is_tuplepat r)
+
+				 unparse_closed_sequence stream
+				   { front=>(by pp::string "("),
+				     sep=>(fn stream = { pp::string stream ", ";
+							 break stream { spaces=>0, indent_on_wrap=>0 };
+						       }
+					  ),
+				     back=>(by pp::string ")"),
+				     pr=>(fn _ = fn (symbol, pattern) = prettyprint_pattern'(pattern, d - 1) ),
+				     style=>INCONSISTENT
+				   }
+				   fields;
+			    else
+				 unparse_closed_sequence stream
+				   { front=>(by pp::string "{ "),
+				     sep =>(fn stream =  { pp::string stream ", ";
+							   break stream { spaces=>0, indent_on_wrap=>0 };
+							 }
+					   ),
+				     back=>(fn stream =  if is_incomplete  pp::string stream ", ... }";
+							 else pp::string stream "}";
+							 fi
+					   ),
+				     pr=>(fn stream =  fn (symbol, pattern) =
+					   { unparse_symbol stream symbol; pp::string stream "=";
+					     prettyprint_pattern'(pattern, d - 1);
+					   }
+					 ),
+				     style=>INCONSISTENT
+				   }
+				   fields;
+			    fi;
+			};
+
+		    prettyprint_pattern' (VECTOR_PATTERN (NIL, _), d)
+                        =>
+			{   ppsay "VECTOR_PATTERN ";  
+                            ppsay "#[]";
+                        };
+
+		    prettyprint_pattern' (VECTOR_PATTERN (pats, _), d)
+			=> 
+			{   ppsay "VECTOR_PATTERN ";  
+
+			    fun pr _ pattern
+				=
+				prettyprint_pattern'(pattern, d - 1);
+
+			    unparse_closed_sequence stream
+			      {   front => (by pp::string "#["),
+				  sep   => (fn stream => { pp::string stream ", ";
+						  break stream { spaces=>0, indent_on_wrap=>0 } ;}; end ),
+				  back  => (by pp::string "]"),
+				  pr,
+				  style => INCONSISTENT
+			      }
+			      pats;
+			};
+
+		    prettyprint_pattern' (pattern as (OR_PATTERN _), d)
+			=>
+			{   ppsay "OR_PATTERN ";  
+
+			    fun make_list (OR_PATTERN (hd, tl)) => hd ! make_list tl;
+			        make_list p => [p];
+                            end;
+
+			    fun pr _ pattern
+                                =
+                                prettyprint_pattern' (pattern, d - 1);
+
+			    unparse_closed_sequence stream
+                              {
+				front => (by pp::string "("),
+				sep   => fn stream => { break stream { spaces=>1, indent_on_wrap=>0 };
+						    pp::string stream "| ";}; end ,
+				back  => (by pp::string ")"),
+				pr,
+				style => INCONSISTENT
+
+			      } (make_list pattern);
+			};
+
+		    prettyprint_pattern' (CONSTRUCTOR_PATTERN (e, _), _)
+                        =>
+			{   ppsay "CONSTRUCTOR_PATTERN ";  
+                            unparse_dcon stream e;
+			};
+
+		    prettyprint_pattern' (p as APPLY_PATTERN _, d)
+			=>
+			{   ppsay "APPLY_PATTERN ";  
+			    prettyprint_dcon_pattern (symbol_table, stream) (p, null_fix, null_fix, d);
+			};
+
+		    prettyprint_pattern' (TYPE_CONSTRAINT_PATTERN (p, t), d)
+			=>
+			{   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "TYPE_CONSTRAINT_PATTERN ";  
+			    prettyprint_pattern'(p, d - 1); ppsay " :";
+			    break stream { spaces=>1, indent_on_wrap=>2 };
+			    prettyprint_type  symbol_table  stream  t;
+			    end_box stream;
+			};
+
+		    prettyprint_pattern' _ => bug "prettyprint_pattern'";
+                end;
+	    
+                prettyprint_pattern';
+	    }
+
+	also
+	fun prettyprint_dcon_pattern (symbol_table, stream)
+            = 
+	    {   ppsay = pp::string stream;
+
+		fun lpcond (atom) = if atom  ppsay "("; fi;
+		fun rpcond (atom) = if atom  ppsay ")"; fi;
+
+		fun prettyprint_dcon_pattern'(_, _, _, 0) => ppsay "<pattern>";
+
+		    prettyprint_dcon_pattern' (CONSTRUCTOR_PATTERN (ENUM_CONSTRUCTOR { symbol, ... }, _), l: Fixity, r: Fixity, _)
+			=>
+			{   ppsay "CONSTRUCTOR_PATTERN (ENUM_CONSTRUCTOR { ";
+			    unparse_symbol  stream  symbol;
+			    ppsay " } ) ";
+                        };
+
+		    prettyprint_dcon_pattern'(TYPE_CONSTRAINT_PATTERN (p, t), l, r, d)
+			=>
+			{   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "TYPE_CONSTRAINT_PATTERN (";
+                            prettyprint_pattern symbol_table stream (p, d - 1);
+                            ppsay " :";
+			    break stream { spaces=>1, indent_on_wrap=>2 };
+			    prettyprint_type  symbol_table  stream t;
+                            ppsay ")";
+			    end_box stream;
+                        };
+
+		    prettyprint_dcon_pattern'(AS_PATTERN (v, p), l, r, d)
+			=>
+			{   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "AS_PATTERN (";
+                            prettyprint_pattern symbol_table stream (v, d);
+                            break stream { spaces=>1, indent_on_wrap=>2 };
+			    ppsay " as ";
+                            prettyprint_pattern symbol_table stream (p, d - 1);
+                            ppsay ")";
+			    end_box stream;
+			};
+
+		    prettyprint_dcon_pattern' (APPLY_PATTERN (ENUM_CONSTRUCTOR { symbol, ... }, _, p), l, r, d)
+			=>
+			{   name = s::name symbol; 
+				#  should really have original path, like for VARIABLE_IN_EXPRESSION  XXX BUGGO FIXME
+
+			    this_fix =  get_fix (symbol_table, symbol);
+			    eff_fix  =  case this_fix    NONFIX => inf_fix;  x => x; esac;
+			    atom     =  stronger_r (eff_fix, r) or stronger_l (l, eff_fix);
+
+			    open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 2);
+
+			    ppsay "APPLY_PATTERN (ENUM_CONSTRUCTOR { ";
+
+			    lpcond (atom);
+
+			    case (this_fix, p)
+			      
+                                 (INFIX _, RECORD_PATTERN { fields => [(_, pl), (_, pr)], ... } )
+				     =>
+				     {   my (left, right)
+                                             =
+					     if atom      (null_fix, null_fix);
+					               else   (       l,        r);   fi;
+				         prettyprint_dcon_pattern' (pl, left, this_fix, d - 1);
+					 break stream { spaces=>1, indent_on_wrap=>0 };
+					 ppsay name;
+					 break stream { spaces=>1, indent_on_wrap=>0 };
+					 prettyprint_dcon_pattern' (pr, this_fix, right, d - 1);
+				     };
+				 _ =>
+				     {   ppsay name;
+                                         break stream { spaces=>1, indent_on_wrap=>0 };
+				         prettyprint_dcon_pattern'(p, inf_fix, inf_fix, d - 1);
+                                     };
+                            esac;
+
+			    rpcond atom;
+
+			    ppsay " } ) ";
+
+			    end_box  stream;
+			};
+
+		    prettyprint_dcon_pattern' (p, _, _, d)
+                        =>
+                        prettyprint_pattern symbol_table stream (p, d);
+                end;
+
+	    
+                prettyprint_dcon_pattern';
+	    };
+
+	fun trim [x] => [];
+	    trim (a ! b) => a ! trim b;
+	    trim [] => [];
+        end;
+
+	fun prettyprint_expression (context as (symbol_table, source_opt)) stream
+            =
+	    {   ppsay = pp::string stream;
+
+#	        my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+#                    =
+#                    en_pp stream;
+
+		fun lparen () = ppsay "(";
+		fun rparen () = ppsay ")";
+
+		fun lpcond (atom) = if atom  ppsay "(";  fi;
+		fun rpcond (atom) = if atom  ppsay ")";  fi;
+
+		fun prettyprint_expression' (_, _, 0) => ppsay "<expression>";
+
+		    prettyprint_expression' (CONSTRUCTOR_EXPRESSION (con, _),       _, _)
+                        =>
+                        {   ppsay "CONSTRUCTOR_EXPRESSION ";
+                            unparse_dcon stream con;
+                        };
+#		    prettyprint_expression' (       VARIABLE_IN_EXPRESSION (REF var, _),   _, _) =>  unparse_var stream var;
+
+		    prettyprint_expression' (       VARIABLE_IN_EXPRESSION (REF var, _),   _, _)
+                        =>
+                        {   ppsay "VARIABLE_IN_EXPRESSION (REF ";
+#                           unparse_var      stream                var ;
+                            unparse_variable stream (symbol_table, var);	# More verbose version of previous line.
+                            ppsay ", _) ";
+                        };
+
+		    prettyprint_expression' (   INT_CONSTANT_IN_EXPRESSION (i, t), _, _)
+                        =>
+                        {   ppsay "INT_CONSTANT_IN_EXPRESSION ";
+                            ppsay (integer::to_string i);
+                            ppsay " ";
+                        };
+
+		    prettyprint_expression' (   UNT_CONSTANT_IN_EXPRESSION (u, t),    _, _)
+                        =>
+                        {   ppsay "UNT_CONSTANT_IN_EXPRESSION ";
+                            ppsay (integer::to_string u);
+                            ppsay " ";
+                        };
+
+		    prettyprint_expression' ( FLOAT_CONSTANT_IN_EXPRESSION r,         _, _)
+                        =>
+                        {   ppsay "FLOAT_CONSTANT_IN_EXPRESSION ";
+                            ppsay r;
+                            ppsay " ";
+                        };
+
+		    prettyprint_expression' (STRING_CONSTANT_IN_EXPRESSION s,       _, _)
+                        =>
+                        {   ppsay "STRING_CONSTANT_IN_EXPRESSION ";
+                            unparse_mlstring  stream s;
+                            ppsay " ";
+                        };
+
+		    prettyprint_expression' (  CHAR_CONSTANT_IN_EXPRESSION s,    _, _)
+                        =>
+                        {   ppsay "CHAR_CONSTANT_IN_EXPRESSION ";
+                            unparse_mlstring'  stream s;
+                            ppsay " ";
+                        };
+
+		    prettyprint_expression' (r as RECORD_EXPRESSION fields, _, d)
+			=>
+			{   ppsay "RECORD_EXPRESSION ";
+
+			    if (is_tupleexp r)
+
+				 unparse_closed_sequence stream
+				   { front=>(by pp::string "("),
+				    sep=>(fn stream => { pp::string stream ", ";
+						       break stream { spaces=>0, indent_on_wrap=>0 } ;}; end ),
+				    back=>(by pp::string ")"),
+				    pr=>(fn _ => fn (_, expression) => prettyprint_expression'(expression, FALSE, d - 1); end; end ),
+				    style=>INCONSISTENT }
+				   fields;
+
+			    else
+                                 unparse_closed_sequence stream
+				   { front=>(by pp::string "{ "),
+				    sep=>(fn stream => { pp::string stream ", ";
+						       break stream { spaces=>0, indent_on_wrap=>0 } ;}; end ),
+				    back=>(by pp::string "}"),
+				    pr=>(fn stream => fn (NUMBERED_LABEL { name, ... }, expression) =>
+					{ unparse_symbol stream name; ppsay "=";
+					 prettyprint_expression'(expression, FALSE, d);}; end;  end ),
+				    style=>INCONSISTENT }
+				   fields;
+			    fi;
+			};
+
+		    prettyprint_expression' (RECORD_SELECTOR_EXPRESSION (NUMBERED_LABEL { name, ... }, expression), atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+                            ppsay "RECORD_SELECTOR_EXPRESSION (NUMBERED_LABEL { ";
+			    ppsay "#"; unparse_symbol stream name;
+                            ppsay ", ... }, ";
+			    lpcond (atom);
+			    prettyprint_expression'(expression, TRUE, d - 1); ppsay ">";
+			    rpcond (atom);
+                            ppsay " ) ";
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(VECTOR_EXPRESSION (NIL, _), _, d)
+                        =>
+                        ppsay "VECTOR_EXPRESSION #[]";
+
+		    prettyprint_expression'(VECTOR_EXPRESSION (exps, _), _, d)
+			=>
+			{   fun pr _ expression
+                                =
+                                prettyprint_expression'(expression, FALSE, d - 1);
+
+                            ppsay "VECTOR_EXPRESSION ";
+
+			    unparse_closed_sequence stream
+			      {  front => (by pp::string "#["),
+				 sep   => (fn stream => { pp::string stream ", ";
+						  break stream { spaces=>1, indent_on_wrap=>0 } ;}; end ),
+				 back  => (by pp::string "]"),
+				 pr,
+				 style => INCONSISTENT
+			      }
+			      exps;
+			};
+
+		    prettyprint_expression'(PACK_EXPRESSION (e, t, tcs), atom, d)
+			=> 
+			{
+			     open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     ppsay "<PACK_EXPRESSION: ";
+                             prettyprint_expression'(e, FALSE, d);
+                             ppsay "; ";
+			     break stream { spaces=>1, indent_on_wrap=>2 };
+			     prettyprint_type  symbol_table  stream  t;
+                             ppsay ">";
+			     end_box stream;
+			};
+
+		    prettyprint_expression'(SEQUENTIAL_EXPRESSIONS exps, _, d)
+			=>
+			{   ppsay "SEQUENTIAL_EXPRESSIONS ";
+			    unparse_closed_sequence stream
+			      {   front => (by pp::string "("),
+				  sep   => (fn stream => { pp::string stream ";";
+						  break stream { spaces=>1, indent_on_wrap=>0 } ;}; end ),
+				  back  => (by pp::string ")"),
+				  pr    => (fn _ => fn expression => prettyprint_expression'(expression, FALSE, d - 1); end; end ),
+				  style => INCONSISTENT
+			      }
+			      exps;
+			};
+
+		    prettyprint_expression'(e as APPLY_EXPRESSION _, atom, d)
+			=>
+			{   infix0 = INFIX (0, 0);
+
+			    ppsay "APPLY_EXPRESSION ";
+			    lpcond (atom);
+			    prettyprint_app_expression (e, null_fix, null_fix, d);
+			    rpcond (atom);
+			};
+
+		    prettyprint_expression'(TYPE_CONSTRAINT_EXPRESSION (e, t), atom, d)
+			=>
+			{   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "TYPE_CONSTRAINT_EXPRESSION ";
+			    lpcond (atom);
+			    prettyprint_expression'(e, FALSE, d); ppsay ":";
+			    break stream { spaces=>1, indent_on_wrap=>2 };
+			    prettyprint_type  symbol_table  stream  t;
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(EXCEPT_EXPRESSION (expression, (rules, _)), atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "EXCEPT_EXPRESSION ";
+			    lpcond (atom);
+			    prettyprint_expression'(expression, atom, d - 1); newline stream; ppsay "except ";
+			    newline_indent stream 2;
+			    ppvlist stream ("  ", "| ",
+			       (fn stream => fn r => prettyprint_rule context stream (r, d - 1); end; end ), rules);
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(RAISE_EXPRESSION (expression, _), atom, d)
+			=> 
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "RAISE_EXPRESSION ";
+			    lpcond (atom);
+			    ppsay "raise exception "; prettyprint_expression'(expression, TRUE, d - 1);
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(LET_EXPRESSION (declaration, expression), _, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "LET_EXPRESSION ";
+			    ppsay "stipulate ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    prettyprint_declaration context stream (declaration, d - 1); 
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=>0 };
+			    ppsay "herein ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     prettyprint_expression'(expression, FALSE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=>0 };
+			    ppsay "end;";
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(CASE_EXPRESSION (expression, rules, _), _, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "CASE_EXPRESSION ";
+			    ppsay "case ("; prettyprint_expression'(expression, TRUE, d - 1); newline_indent stream 2;
+			    ppvlist stream (") ", ";",
+			      (fn stream =  fn r =  prettyprint_rule context stream (r, d - 1)), 
+			       trim rules);
+			    rparen();
+			    ppsay "esac";
+			    end_box stream;
+			};
+
+		    prettyprint_expression' (IF_EXPRESSION { test_case, then_case, else_case }, atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "IF_EXPRESSION ";
+			    lpcond (atom);
+			    ppsay "if ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     prettyprint_expression' (test_case, FALSE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=> 0 };
+			    ppsay "then ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     prettyprint_expression' (then_case, FALSE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=> 0 };
+			    ppsay "else ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     prettyprint_expression' (else_case, FALSE, d - 1);
+			    end_box stream;
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression' (AND_EXPRESSION (e1, e2), atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "AND_EXPRESSION ";
+			    lpcond (atom);
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    prettyprint_expression' (e1, TRUE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=> 0 };
+			    ppsay "and ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    prettyprint_expression' (e2, TRUE, d - 1);
+			    end_box stream;
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression' (OR_EXPRESSION (e1, e2), atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "OR_EXPRESSION ";
+			    lpcond (atom);
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    prettyprint_expression' (e1, TRUE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=> 0 };
+			    ppsay "or ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    prettyprint_expression' (e2, TRUE, d - 1);
+			    end_box stream;
+			    rpcond (atom);
+			    end_box stream;
+			};
+
+		    prettyprint_expression' (WHILE_EXPRESSION { test, expression }, atom, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "WHILE_EXPRESSION ";
+			    ppsay "while ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			     prettyprint_expression'(test, FALSE, d - 1);
+			    end_box stream;
+			    break stream { spaces=>1, indent_on_wrap=> 0 };
+			    ppsay "do ";
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			      prettyprint_expression'(expression, FALSE, d - 1);
+			    end_box stream;
+			    end_box stream;
+			};
+
+		    prettyprint_expression'(FN_EXPRESSION (rules, _), _, d)
+			=>
+			{   begin_horizontal_else_vertical_box stream;
+			    ppsay "FN_EXPRESSION ";
+			    ppvlist stream ("(fn ", "  | ",
+					    (fn stream => fn r =>
+					       prettyprint_rule context stream (r, d - 1); end; end ),
+					    trim rules);
+			    rparen();
+			    end_box stream;
+			};
+
+		    prettyprint_expression' (SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), atom, d)
+			=>
+			case source_opt
+			  
+			     NULL
+				 =>
+				 prettyprint_expression'(expression, atom, d);
+
+			     THE source
+				 =>
+				 {
+
+				      ppsay "<SOURCE_CODE_REGION_FOR_EXPRESSION(";
+				      prpos (stream, source, s);
+                                      ppsay ", ";
+				      prpos (stream, source, e);
+                                      ppsay "): ";
+				      prettyprint_expression'(expression, FALSE, d);
+                                      ppsay ">";
+				 };
+			esac;
+                end 
+
+		also
+		fun prettyprint_app_expression (_, _, _, 0)
+                        =>
+                        pp::string stream "<expression>";
+
+		    prettyprint_app_expression arg
+			=>
+			{   ppsay = pp::string stream;
+
+			    fun fixitypp (symbol, operand, left_fix, right_fix, d)
+				=
+				{   name
+                                        =
+                                        symbol_path::to_string
+                                            (symbol_path::SYMBOL_PATH symbol);
+
+				    this_fix
+                                        =
+                                        case symbol
+                                          
+					     [symbol] =>  get_fix (symbol_table, symbol);
+					     _        =>  NONFIX;
+                                        esac;
+
+				    fun pr_non expression
+					=
+					{   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 2);
+					    ppsay name; break stream { spaces=>1, indent_on_wrap=>0 };
+					    prettyprint_expression'(expression, TRUE, d - 1);
+					    end_box stream;
+                                        };
+
+				    case this_fix
+				      
+				         INFIX _
+					 =>
+					 case (strip_source_code_region_info operand)
+					   
+					      RECORD_EXPRESSION [(_, pl), (_, pr)]
+						  =>
+						  {   atom =  stronger_l (left_fix, this_fix)
+							   or stronger_r (this_fix, right_fix);
+
+						      my (left, right)
+							  =
+							  atom   ??   (null_fix, null_fix )
+							         ::   (left_fix, right_fix);
+
+						      open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 2);
+                                                      ppsay "RECORD_EXPRESSION ";
+						      lpcond (atom);
+						      prettyprint_app_expression (pl, left, this_fix, d - 1);
+						      break stream { spaces=>1, indent_on_wrap=>0 };
+						      ppsay name;
+						      break stream { spaces=>1, indent_on_wrap=>0 };
+						      prettyprint_app_expression (pr, this_fix, right, d - 1);
+						      rpcond (atom);
+						      end_box stream;
+						  };
+
+					      e' => pr_non e';
+                                         esac;
+
+
+					 NONFIX => pr_non operand;
+                                    esac;
+				};
+
+			    fun apply_print (_, _, _, 0)
+                                    =>
+                                    ppsay "#";
+
+			        apply_print (APPLY_EXPRESSION (operator, operand), l, r, d)
+				    =>
+				    case (strip_source_code_region_info operator)
+				      
+				         CONSTRUCTOR_EXPRESSION (ENUM_CONSTRUCTOR { symbol, ... }, _)
+					     =>
+					     fixitypp ([symbol], operand, l, r, d);
+
+					 VARIABLE_IN_EXPRESSION (v, _)
+					     =>
+					     {   path
+						     = 
+						     case *v
+						       
+                                                          ORDINARY_VARIABLE { path=>symbol_path::SYMBOL_PATH path', ... } => path';
+							  OVERLOADED_IDENTIFIER { name, ... } => [name];
+							  errorvar => [s::make_value_symbol "<errorvar>"];
+                                                     esac;
+
+						 fixitypp (path, operand, l, r, d);
+					     };
+
+					 operator
+					     =>
+					     {   open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 2);
+						 prettyprint_expression'(operator, TRUE, d - 1);   break stream { spaces=>1, indent_on_wrap=>2 };
+						 prettyprint_expression'(operand,  TRUE, d - 1);
+						 end_box stream;
+                                             };
+				    esac;
+
+			        apply_print (SOURCE_CODE_REGION_FOR_EXPRESSION (expression, (s, e)), l, r, d)
+				    =>
+				    case source_opt
+				      
+					 NULL
+                                             =>
+                                             apply_print (expression, l, r, d);
+
+				         THE source
+					     =>
+					     if *internals
+
+						  ppsay "<MARK(";
+						  prpos (stream, source, s); ppsay ", ";
+						  prpos (stream, source, e); ppsay "): ";
+						  prettyprint_expression'(expression, FALSE, d); ppsay ">";
+					     else
+						  apply_print (expression, l, r, d);
+                                             fi;
+                                    esac;
+
+
+			        apply_print (e, _, _, d)
+                                    =>
+                                    prettyprint_expression'(e, TRUE, d);
+                            end;
+
+			    apply_print arg;
+			};
+                end;
+	    
+                (fn (expression, depth)
+                    =
+                    prettyprint_expression' (expression, FALSE, depth));
+	    }
+
+	also
+	fun prettyprint_rule (context as (symbol_table, source_opt)) stream (CASE_RULE (pattern, expression), d)
+            =
+	    if   (d > 0)
+	        
+                 open_style_box  CONSISTENT  stream  (pp::CURSOR_RELATIVE 0);
+		 pp::string  stream  "CASE_RULE ";
+		 prettyprint_pattern  symbol_table  stream  (pattern, d - 1);
+		 pp::string  stream  " =>";
+                 break stream { spaces=>1,  indent_on_wrap=>2 };
+		 prettyprint_expression  context  stream  (expression, d - 1);
+		 end_box  stream;
+	    else
+                 pp::string stream "<rule>";
+            fi
+
+	also
+	fun prettyprint_named_value (context as (symbol_table, source_opt)) stream (NAMED_VALUE { pattern, expression, bound_typevar_refs, ... }, d)
+            =
+	    if   (d > 0)
+	        
+                 open_style_box  CONSISTENT  stream  (pp::CURSOR_RELATIVE 0);
+                 pp::string  stream  "NAMED_VALUE { ";
+
+		 pp::string  stream (sprintf "bound_typevar_refs => %d-entry list: "  (length  bound_typevar_refs));
+		 apply unparse bound_typevar_refs
+		 where
+		     fun unparse  typevar_ref
+			 =
+	                 prettyprint_type::prettyprint_typevar_ref
+                             symbol_table
+                             stream
+                             typevar_ref;
+
+#			 if_debugging_unparse_typevar_ref  ("", typevar_ref);
+		 end;
+		 pp::string  stream ",";
+		 break stream { spaces=>1,  indent_on_wrap=>2 };
+
+                 pp::string  stream  " pattern => ";
+		 prettyprint_pattern  symbol_table  stream  (pattern, d - 1);
+                 pp::string  stream  ",";
+		 break stream { spaces=>1,  indent_on_wrap=>2 };
+                 pp::string  stream  " expression => ";
+                 prettyprint_expression  context  stream  (expression, d - 1);
+		 end_box  stream;
+	    else
+                 pp::string stream "<naming>";
+            fi
+
+	also
+	fun prettyprint_recursively_named_value context stream (NAMED_RECURSIVE_VALUES { variable=>var, expression, ... }, d)
+            = 
+	    if   (d > 0)
+	        
+                 open_style_box INCONSISTENT stream (pp::CURSOR_RELATIVE 0);
+		 unparse_var stream var; pp::string stream " =";
+		 break stream { spaces=>1, indent_on_wrap=>2 };
+                 prettyprint_expression context stream (expression, d - 1);
+		 end_box stream;
+	    else
+                 pp::string stream "<rec naming>";
+            fi
+
+
+        # NB: The original 1992 deep syntax unparser still exists, in
+        #
+        #     src/lib/compiler/src/print/unparse-interactive-deep-syntax-declaration.pkg
+        #
+        # It gets called only by
+        #
+	#     src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+	#  
+	# which uses it to display the results of interactive expression evaluation. 
+	#  
+        # The more recent version here gets used for everything else.
+        # It gets called from:
+	#  
+        #     src/lib/compiler/frontend/typechecker/typecheck/typecheck-core-language.pkg
+        #     src/lib/compiler/toplevel/main/compile-g.pkg
+        #     src/lib/compiler/toplevel/main/print-hooks.pkg
+        #
+	also
+	fun prettyprint_declaration (context as (symbol_table, source_opt)) stream
+            =
+	    {   ppsay = pp::string stream;
+
+		fun prettyprint_declaration' (_, 0)
+                        =>
+                        ppsay "<declaration>";
+
+		    prettyprint_declaration' (VALUE_DECLARATIONS vbs, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    ppvlist stream ("my ", "also ",
+				(fn stream =  fn named_value =  prettyprint_named_value context stream (named_value, d - 1)), vbs);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (RECURSIVE_VALUE_DECLARATIONS rvbs, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppvlist stream ("my rec ", "also ",
+				(fn stream =  fn named_recursive_values =  prettyprint_recursively_named_value context stream (named_recursive_values, d - 1)), rvbs);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (TYPE_DECLARATIONS tycs, d)
+			=>
+			{   fun f stream (DEFINED_TYPE_CONSTRUCTOR { path, type_scheme=>TYPE_SCHEME { arity, body }, ... } )
+				    =>
+				    {   case arity
+					  
+					     0 => ();
+					     1 => ppsay "'a ";
+					     n => {   unparse_tuple stream pp::string (type_formals n); 
+						      ppsay " ";
+                                                  };
+					esac;
+
+					unparse_symbol
+                                            stream
+                                            (inverse_path::last path);
+
+					ppsay " = ";
+
+					prettyprint_type
+                                            symbol_table
+                                            stream
+                                            body;
+				    };
+
+				f _ _
+				    =>
+				    bug "prettyprint_declaration' (TYPE_DECLARATIONS)";
+			    end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    ppvlist stream (
+                                "",			# was "type "
+                                " also ",
+                                f,
+                                tycs
+                            );
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (ENUM_DECLARATIONS { datatype_constructors, with_type_constructors }, d)
+			=>
+			{   fun prettyprint_data stream (PRIMITIVE_TYPE_CONSTRUCTOR { path, arity, kind, ... } )
+				    =>
+				    case kind
+				      
+					 DATATYPE(_)
+					     =>
+					     {   case arity
+						   
+						      0 => ();
+						      1 => (ppsay "'a ");
+						      n => { unparse_tuple stream pp::string (type_formals n); 
+							     ppsay " ";
+							   };
+						  esac;
+
+						  unparse_symbol stream (inverse_path::last path); ppsay " = ...";
+					     /* 
+
+						  unparse_sequence
+						      stream
+						      {   sep = (fn stream => (pp::string stream " |";
+								      break stream { spaces=1, indent_on_wrap=0 } )),
+
+							  pr  = (fn stream =>
+								 fn (ENUM_CONSTRUCTOR { symbol, ... } ) =>  
+								       unparse_symbol stream  symbol),
+
+							  style = INCONSISTENT
+						      }
+						      dcons;
+					      */
+					     };
+
+					 _   =>
+					     bug "prettyprint_declaration'(ENUM_DECLARATIONS) 1.1";
+				   esac;
+
+			       prettyprint_data _ _
+				   =>
+				   bug "prettyprint_declaration'(ENUM_DECLARATIONS) 1.2";
+			    end;
+
+			    fun prettyprint_with  stream  (DEFINED_TYPE_CONSTRUCTOR { path, type_scheme=>TYPE_SCHEME { arity, body }, ... } )
+				    =>
+				    {   case arity   
+					    0 => ();
+					    1 => (ppsay "'a ");
+					    n => { unparse_tuple stream pp::string (type_formals n); 
+						   ppsay " ";};
+					esac;
+
+					unparse_symbol stream (inverse_path::last path);
+
+					ppsay " = ";
+
+					prettyprint_type  symbol_table  stream  body;
+				    };
+
+				prettyprint_with _ _
+				    =>
+				    bug "prettyprint_declaration'(ENUM_DECLARATIONS) 2";
+			    end;
+
+			    #  Could call PPDec::prettyprint_declaration here: 
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppvlist stream (
+                                "",			# Was "enum "
+                                "also ",
+                                prettyprint_data,
+                                datatype_constructors
+                            );
+			    newline stream;
+			    ppvlist stream ("withtype ", "also ", prettyprint_with, with_type_constructors);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (ABSTRACT_TYPE_DECLARATION _, d)
+			=>
+			ppsay "abstype";
+
+		    prettyprint_declaration' (EXCEPTION_DECLARATIONS ebs, d)
+			=>
+			{   fun f stream (   NAMED_EXCEPTION {
+						 exception_constructor => ENUM_CONSTRUCTOR { symbol, ... },
+						 exception_type        => etype,
+						 ...
+					     }
+					 )
+				    =>
+				    {   unparse_symbol  stream  symbol;
+
+					case etype
+                                          
+					     NULL => ();
+
+					     THE type'
+						 =>
+						 {
+#                                                    ppsay " of ";
+						     prettyprint_type  symbol_table  stream  type';
+						 };
+					esac;
+				    };
+
+				f stream (DUPLICATE_NAMED_EXCEPTION { exception_constructor  => ENUM_CONSTRUCTOR { symbol, ... },
+								       equal_to               => ENUM_CONSTRUCTOR { symbol=>symbol', ... }
+								     }
+					 )
+				    =>
+				    {   unparse_symbol stream symbol;
+					ppsay "=";
+					unparse_symbol stream symbol';
+				    };
+			    end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppvlist stream ("exception ", "also ", f, ebs);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (PACKAGE_DECLARATIONS sbs, d)
+			=>
+			{   fun f stream (NAMED_PACKAGE { name_symbol=>name, a_package=>m::A_PACKAGE { var_home, ... }, definition=>def } )
+				    =>
+				    {   unparse_symbol stream name;
+					unparse_var_home stream var_home;
+					ppsay " = ";
+					break stream { spaces=>1, indent_on_wrap=>2 };
+					prettyprint_package_expression context stream (def, d - 1);
+				    };
+
+				f _ _
+				    =>
+				    bug "prettyprint_declaration: PACKAGE_DECLARATION: NAMED_PACKAGE";
+			    end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppvlist stream ("package ", "also ", f, sbs);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (GENERIC_DECLARATIONS fbs, d)
+			=>
+			{   fun f stream (NAMED_GENERIC { name_symbol=>fname, a_generic => m::GENERIC { var_home, ... }, definition=>def } )
+				    =>
+				    {   unparse_symbol stream fname;
+					unparse_var_home stream var_home;
+					ppsay " = "; 
+					break stream { spaces=>1, indent_on_wrap=> 2 };
+					prettyprint_generic_expression context stream (def, d - 1);
+				    };
+
+				f _ _
+				    =>
+				    bug "prettyprint_declaration': GENERIC_DECLARATION";
+			    end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppvlist stream ("generic package ", "also ", f, fbs);
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (API_DECLARATIONS sigvars, d)
+			=>
+			{   fun f stream (m::API { name, ... } )
+				    =>
+				    {   ppsay "api "; 
+
+					case name
+                                          
+					     THE s =>  unparse_symbol stream s;
+					     NULL  =>  ppsay "ANONYMOUS";
+					esac;
+				    };
+
+			        f _ _
+				    =>
+				    bug "prettyprint_declaration': API_DECLARATIONS";
+                            end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    unparse_sequence
+				stream
+				{   sep   => newline,
+				    pr    => f,
+				    style => CONSISTENT
+				}
+				sigvars;
+
+			    end_box stream;
+			};
+
+		    prettyprint_declaration'(GENERIC_API_DECLARATIONS sigvars, d)
+			=>
+			{   fun f stream (m::GENERIC_API { kind, ... } )
+				=>
+				{   ppsay "funsig "; 
+
+				    case kind   
+					THE s => unparse_symbol stream s;
+					NULL => ppsay "ANONYMOUS";
+				    esac;
+				};
+
+			       f _ _
+				=>
+				bug "prettyprint_declaration': GENERIC_API_DECLARATIONS"; end;
+
+			    open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    unparse_sequence
+				stream
+				{   sep   => newline,
+				    pr    => f,
+				    style => CONSISTENT
+				}
+				sigvars;
+
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (LOCAL_DECLARATIONS (inner, outer), d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "with";
+                            newline_indent stream 2;
+			    prettyprint_declaration'(inner, d - 1);
+                            newline stream;
+			    ppsay "do";
+                            newline stream;
+			    prettyprint_declaration'(outer, d - 1);
+                            newline stream;
+			    ppsay "end;";
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (SEQUENTIAL_DECLARATIONS decs, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    unparse_sequence
+				stream
+				{   sep   => newline,
+				    pr    => (fn stream => fn declaration => prettyprint_declaration'(declaration, d); end; end ),
+				    style => CONSISTENT
+				}
+				decs;
+
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (FIXITY_DECLARATION { fixity, ops }, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+
+			    case fixity
+                              
+				 NONFIX => ppsay "nonfix ";
+
+				 INFIX (i, _)
+				     => 
+				     {   if   (i % 2 == 0   )   ppsay "infix ";
+							   else   ppsay "infixr ";   fi;
+
+					 if   (i / 2 > 0    )    ppsay (int::to_string (i / 2));
+								   ppsay " ";                  fi;
+				     };
+			    esac;
+
+			    unparse_sequence
+			       stream
+			       {   sep   => (fn stream =  break stream { spaces=>1, indent_on_wrap=>0 }),
+				   pr    => unparse_symbol,
+				   style => INCONSISTENT
+			       }
+			       ops;
+
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (OVERLOADED_VARIABLE_DECLARATION overloaded_variable, d)
+			=>
+			{   ppsay "overloaded val ";
+			    unparse_var  stream  overloaded_variable;
+			};
+
+		    prettyprint_declaration' (INCLUDE_DECLARATIONS named_packages, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "use ";
+			    unparse_sequence
+				stream
+				{   sep   => (fn stream =  break stream { spaces=>1, indent_on_wrap=>0 }  ),
+				    pr    => (fn stream =  fn (sp, _) =  ppsay (symbol_path::to_string sp)),
+				    style => INCONSISTENT
+				}
+				named_packages;
+
+			    end_box stream;
+			};
+
+		    prettyprint_declaration' (SOURCE_CODE_REGION_FOR_DECLARATION (declaration, (s, e)), d)
+			=> 
+			case source_opt
+			  
+			     NULL
+                                 =>
+                                 prettyprint_declaration'(declaration, d);
+
+			     THE source
+				 =>
+				 {
+#				     2007-09-14CrT: Source region stuff commented out because it clutters the printout horribly:
+#                                    ppsay "SOURCE_CODE_REGION_FOR_DECLARATION(";
+
+				     prettyprint_declaration'(declaration, d);
+
+#                                    ppsay ", ";
+#				     prpos (stream, source, s);		# "s" for "start"
+#                                    ppsay ", ";
+#				     prpos (stream, source, e);		# "e" for "end"
+#                                    ppsay ")";
+				 };
+			esac;
+                  end;
+
+	      
+                  prettyprint_declaration';
+	      }
+
+	also
+	fun prettyprint_package_expression (context as (_, source_opt)) stream
+            =
+	    {    ppsay   =   pp::string stream;
+
+		fun prettyprint_package_expression' (_, 0)
+			=>
+			ppsay "<package_expression>";
+
+		    prettyprint_package_expression' (PACKAGE_BY_NAME (m::A_PACKAGE { var_home, ... } ), d)
+			=>
+			unparse_var_home stream var_home;
+
+		    prettyprint_package_expression'
+			(
+			    COMPUTED_PACKAGE {
+				a_generic        => m::GENERIC   { var_home => fa, ... },
+				generic_argument => m::A_PACKAGE { var_home => sa, ... },
+				...
+			    },
+			    d
+			)
+			=>
+			{   unparse_var_home stream fa;
+			    ppsay"(";
+			    unparse_var_home stream sa;
+			    ppsay")";
+			};
+
+		    prettyprint_package_expression' (PACKAGE_DEFINITION namings, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "pkg"; newline_indent stream 2;
+			    ppsay "...";
+			    #  unparse_naming not yet undefined 
+			    /*
+			       unparse_sequence stream
+				 { sep=newline,
+				  pr=(fn stream => fn b => unparse_naming context stream (b, d - 1)),
+				  style=CONSISTENT }
+			       namings;
+			     */
+			    ppsay "end";
+			    end_box stream;
+			};
+
+		    prettyprint_package_expression' (PACKAGE_LET { declaration, expression }, d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "stipulate ";
+			    newline stream;
+                            prettyprint_declaration context stream (declaration, d - 1); 
+			    newline stream;
+			    ppsay "herein";
+                            newline stream;
+                            prettyprint_package_expression'(expression, d - 1);
+                            newline stream;
+			    ppsay "end;";
+			    end_box stream;
+			};
+
+		    prettyprint_package_expression' (SOURCE_CODE_REGION_FOR_PACKAGE (body, (s, e)), d)
+			=>
+			case source_opt
+			  
+			     THE source
+				 =>
+				 {
+#				     2007-09-14CrT: Source region stuff commented out because it clutters the printout horribly:
+#                                    ppsay "SOURCE_CODE_REGION_FOR_PACKAGE(";
+
+				     prettyprint_package_expression'(body, d);
+
+#				     ppsay ", ";
+#				     prpos (stream, source, s);			# "s" for "start"
+#				     ppsay ", ";
+#				     prpos (stream, source, e);			# "e" for "end"
+#				     ppsay ")";
+				 };
+
+			     NULL
+				 =>
+				 prettyprint_package_expression'(body, d);
+			esac;
+
+		    prettyprint_package_expression' _
+			=>
+			bug "unexpected package expression in prettyprintStrexp'";
+                end;
+
+	    
+                prettyprint_package_expression';
+	    }
+
+	also
+	fun prettyprint_generic_expression (context as (_, source_opt)) stream
+            = 
+            prettyprint_generic_expression'
+            where
+	        ppsay   =   pp::string stream;
+
+		fun prettyprint_generic_expression' (_, 0)
+			=>
+			ppsay "<generic_expression>";
+
+		    prettyprint_generic_expression' (GENERIC_BY_NAME (m::GENERIC { var_home, ... } ), d)
+			=>
+			unparse_var_home stream var_home;
+
+		    prettyprint_generic_expression' (GENERIC_DEFINITION { parameter=>m::A_PACKAGE { var_home, ... }, definition=>def, ... }, d)
+			=>
+			{   ppsay " GENERIC("; 
+			    unparse_var_home  stream  var_home;
+			    ppsay ") => "; newline stream;
+			    prettyprint_package_expression context stream (def, d - 1);
+			};
+
+		    prettyprint_generic_expression' (GENERIC_LET (declaration, body), d)
+			=>
+			{   open_style_box CONSISTENT stream (pp::CURSOR_RELATIVE 0);
+			    ppsay "stipulate ";
+                            prettyprint_declaration context stream (declaration, d - 1); 
+			    newline stream;
+			    ppsay "herein";
+			    newline stream;
+                            prettyprint_generic_expression'(body, d - 1);
+                            newline stream;
+			    ppsay "end;";
+			    end_box stream;
+			};
+
+		    prettyprint_generic_expression' (SOURCE_CODE_REGION_FOR_GENERIC (body, (s, e)), d)
+			=>
+			case source_opt
+			  
+			     THE source
+				 =>
+				 {
+#				     2007-09-14CrT: Source region stuff commented out because it clutters the printout horribly:
+#				     ppsay "SOURCE_CODE_REGION_FOR_GENERIC(";
+
+				     prettyprint_generic_expression'(body, d); ppsay ", ";
+
+#				     prpos (stream, source, s); ppsay ", ";
+#				     prpos (stream, source, e); ppsay ")";
+				 };
+
+			     NULL
+				 =>
+				 prettyprint_generic_expression'(body, d);
+			esac;
+
+		    prettyprint_generic_expression' _
+			=>
+			bug "unexpected generic package expression in prettyprint_generic_expression'";
+                end;
+	    end;
+    end;				#  top-level local 
+};					#  package unparse_deep_syntax 
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1992 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

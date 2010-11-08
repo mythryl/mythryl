@@ -1,0 +1,281 @@
+## xevent-mail-router.pkg
+#
+# Generic X-event mail routers. 
+
+# Compiled by:
+#     src/lib/x-kit/widget/xkit-widget.make6
+
+
+
+###                  "angelheaded hipsters burning for
+###                   the ancient heavenly connection
+###                   to the starry dynamo in the
+###                   machinery of night"
+###
+###                                -- Alen Ginsberg
+
+
+stipulate
+    include threadkit;						# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package xc =  xclient;					# xclient		is from   src/lib/x-kit/xclient/src/api/xkit-lib-external-interface.pkg
+herein
+
+    package xevent_mail_router: (weak)  Xevent_Mail_Router {	# Xevent_Mail_Router	is from   src/lib/x-kit/widget/basic/xevent-mail-router.api
+
+	exception NOT_FOUND;
+
+	Plea_Mail
+	  = ADD_CHILD (xc::Window, xc::Momplug)
+	  | DEL_CHILD  xc::Window
+	  | GET_CHILD  xc::Window
+	  ;
+
+	Xevent_Mail_Router
+	    =
+	    XEVENT_MAIL_ROUTER
+	      { plea_slot:    Mailslot( Plea_Mail ),
+		reply_slot:   Mailslot( Null_Or( xc::Momplug ))
+	      };
+
+	# make a buffer-handler; ddeboer, fall 2004. 
+	# Try to synchronize on inev, queueing value v; or
+	# Try to synchronize on outev v if queue is nonempty, where v is head of queue.
+	# bufferEvt:  (X addr_msg -> Mailop(Void)) -> (X addr_msg -> Mailop(Void))
+
+	# Note: Should use wrapQueue where possible. 
+	#
+	fun buffer_mailop out_statement:  ( xc::Envelope(X) ->  Mailop( Void ) )
+	    =
+	    in_mailop
+	    where 
+		in_slot = make_mailslot ();
+
+		fun loop ([], [])   => loop ([ take in_slot ], []);
+		    loop ([], rear) => loop (reverse rear,[]);
+
+		    loop (front as (msg_out ! r), rear)
+			=>
+			select [
+
+			    out_statement  msg_out
+				==>
+				.{  loop (r, rear);  },
+
+			    take'  in_slot
+				==>
+				(fn msg =  loop (front, msg ! rear))
+			];
+		end;
+
+		fun in_mailop msg
+		    =
+		    give' (in_slot, msg);
+
+		make_thread "router" .{
+		    loop ([],[]);
+		};
+	    end;
+
+	#  end addition 
+
+	# The router is constructed with a widget cable for a
+	# composite widget and an initial distribution
+	# list. The router listens mail on the kidplug,
+	# resolves the envelope address to a momplug
+	# and forwards the message.
+	#
+	fun make_xevent_mail_router (xc::KIDPLUG { from_mouse', from_keyboard', from_other', ... }, my_out, out_list)
+	    =
+	    {   route_plea_slot  =  make_mailslot ();
+		route_reply_slot =  make_mailslot ();
+
+		window_map =  xc::make_map ();
+		find       =  xc::get window_map;
+
+		#  findMsg = addrLookup winMap 
+
+		fun find_msg envelope
+		    =
+		    xc::next_stop_for_envelope_via_hashtable  window_map  envelope;
+
+		insert = xc::set window_map;
+		remove = xc::remove window_map;
+
+		fun m_mailop  (xc::MOMPLUG { mouse_sink,    ... } ) =  mouse_sink;
+		fun k_mailop  (xc::MOMPLUG { keyboard_sink, ... } ) =  keyboard_sink;
+		fun ci_mailop (xc::MOMPLUG { other_sink,    ... } ) =  other_sink;
+
+		my_out = case my_out
+			     #
+			     xc::MOMPLUG { mouse_sink, keyboard_sink, other_sink, from_kid' }
+				 => 
+				 xc::MOMPLUG { mouse_sink    =>  buffer_mailop  mouse_sink,
+					       keyboard_sink =>  buffer_mailop  keyboard_sink,
+					       other_sink    =>  buffer_mailop  other_sink,
+					       from_kid'
+					     };
+			 esac;
+
+		fun do_plea (ADD_CHILD (w, xc::MOMPLUG { mouse_sink, keyboard_sink, other_sink, from_kid' } ))
+			=> 
+			insert
+			  ( w,
+			    xc::MOMPLUG { mouse_sink    =>  buffer_mailop  mouse_sink,
+				          keyboard_sink =>  buffer_mailop  keyboard_sink,
+				          other_sink    =>  buffer_mailop  other_sink,
+				          from_kid'
+				        }
+			  ); 
+
+		    do_plea (DEL_CHILD w) =>  ({ remove w; ();} except _ = ());
+		    do_plea (GET_CHILD w) =>  give (route_reply_slot, (THE (find w)) except _ = NULL);
+		end;
+
+		fun handle_mailop proj envelope
+		    =
+		    case (xc::route_envelope  envelope)
+			#
+			xc::TO_SELF _
+			    =>
+			    select [
+
+				proj my_out envelope,
+
+				take'  route_plea_slot
+				    ==>
+				    (fn req = {   do_plea  req;
+
+						  handle_mailop  proj  envelope;
+					      }
+				    )
+			    ];
+
+			xc::TO_CHILD msg'
+			    =>
+			    do_mailop (proj (find_msg msg') msg');
+		    esac;
+
+		mailop
+		    =
+		    choose [
+			take' route_plea_slot  ==>  do_plea,
+			from_mouse'            ==>  handle_mailop  m_mailop,
+			from_keyboard'         ==>  handle_mailop  k_mailop,
+			from_other'            ==>  handle_mailop ci_mailop
+		    ];
+
+		fun loop ()
+		    =
+		    {   do_mailop mailop;
+			loop ();
+		    };
+
+
+		fun init (item ! rest)
+			=>
+			{   insert item;
+			    init rest;
+			};
+
+		    init []
+			=>
+			();
+		end;
+
+
+		init out_list;
+
+		xtracing::make_thread  "Router"  loop;
+
+		XEVENT_MAIL_ROUTER
+		  { plea_slot   => route_plea_slot,
+		    reply_slot => route_reply_slot
+		  };
+	    };
+
+	fun add_child (XEVENT_MAIL_ROUTER { plea_slot, ... } ) arg =  give (plea_slot, ADD_CHILD arg);
+	fun del_child (XEVENT_MAIL_ROUTER { plea_slot, ... } ) arg =  give (plea_slot, DEL_CHILD arg);
+
+	fun get_momplug (XEVENT_MAIL_ROUTER { plea_slot, reply_slot } ) arg
+	    =
+	    {   give (plea_slot, GET_CHILD arg);
+
+		case (take  reply_slot)
+		    #
+		    NULL  =>  raise exception  NOT_FOUND;
+		    THE e =>  e;
+		esac;
+	    };
+
+	# Simple router for a composite widget
+	# with a single child:
+	#
+	fun route_pair (xc::KIDPLUG { from_mouse', from_keyboard', from_other', ... }, parent_out, child_out)
+	    =
+	    {
+	        fun m_mailop  (xc::MOMPLUG { mouse_sink,    ... } ) =  mouse_sink;		#  mouse_msg addr_msg -> Mailop(Void)
+		fun k_mailop  (xc::MOMPLUG { keyboard_sink, ... } ) =  keyboard_sink;
+		fun ci_mailop (xc::MOMPLUG { other_sink,    ... } ) =  other_sink;
+
+		child_out
+		    = 
+		    case child_out
+			#
+			xc::MOMPLUG { mouse_sink, keyboard_sink, other_sink, from_kid' }
+			    => 
+			    xc::MOMPLUG
+			      { mouse_sink    =>  buffer_mailop  mouse_sink,
+				keyboard_sink =>  buffer_mailop  keyboard_sink,
+				other_sink    =>  buffer_mailop  other_sink,
+				from_kid'
+			      };
+		    esac;
+
+		fun handle_mailop proj envelope
+		    =
+		    case (xc::route_envelope  envelope)   
+			#
+			xc::TO_SELF _          =>  do_mailop (proj parent_out envelope );
+			xc::TO_CHILD envelope' =>  do_mailop (proj child_out  envelope');
+		    esac;
+
+		fun loop ()
+		    =
+		    loop (do_mailop (choose [ from_mouse'    ==>   handle_mailop   m_mailop,
+					      from_keyboard' ==>   handle_mailop   k_mailop,
+					      from_other'    ==>   handle_mailop  ci_mailop
+				       ]
+			 )     );
+
+
+		xtracing::make_thread  "Router2"  loop;
+
+		();
+	    };
+
+    };						# package xevent_mail_router
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1991 by AT&T Bell Laboratories  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.

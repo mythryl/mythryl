@@ -1,0 +1,396 @@
+## x86-span-dependency-resolution-g.pkg -- variable length back patching. 
+
+# Compiled by:
+#     src/lib/compiler/backend/lower/make7/lowcode.make6
+
+# This is an x86-specific replacement for the general
+#     src/lib/compiler/backend/lower/span/span-dependency-resolution-g.pkg
+# module which we use on other archetectures.
+#
+# See src/lib/compiler/backend/lower/doc/latex/span-dep.tex
+#
+# NOTE on max_variable_length_backpatch_iterations:
+# 
+# max_variable_length_backpatch_iterations is the
+#       number of times a span-dependent instruction
+#	is allowed to expand in a non-monotonic way. 
+#
+# This table shows the number of span-dependent instructions
+# whose size was over-estimated as a function of id, for the
+# file src/lib/compiler/frontend/parse/yacc/mythryl.grammar.sml:
+#
+#      max		# of instructions:
+#      ---              ------------------
+#	10			687
+#	20			438
+#	30			198
+#       40			  0
+#
+# In compiling the compiler, there is no significant difference in
+# compilation speed between max=10 and max=40. 
+# Indeed 96% of the  files in the compiler reach a fix point within
+# 13 iterations.
+
+# We are invoked from:
+# 
+#     src/lib/compiler/codegen/x86/x86-codegen-g.pkg
+
+generic package  x86_span_dependency_resolution_g (
+
+    package code_string:  Code_String;				# Code_String			is from   src/lib/compiler/backend/lower/emit/code-string.api
+
+    package jumps:       Span_Dependent_Jumps; 			# Span_Dependent_Jumps		is from   src/lib/compiler/backend/lower/span/span-dependent-jumps.api
+
+    package instruction_properties
+	:
+        Instruction_Properties					# Instruction_Properties	is from   src/lib/compiler/backend/lower/instruction/instruction-properties.api
+	where instruction_set == jumps::instruction_set;
+
+    package emitter
+	:
+	Machine_Code_Emitter					# Machine_Code_Emitter		is from   src/lib/compiler/backend/lower/emit/machine-code-emitter.api
+	where instruction_set == instruction_properties::instruction_set;
+
+    package control_flow_graph
+	:
+        Control_Flow_Graph					# Control_Flow_Graph		is from   src/lib/compiler/backend/lower/flowgraph/control-flow-graph.api
+	where instruction_set == emitter::instruction_set;
+
+    package asm
+	:
+        Instruction_Emitter					# Instruction_Emitter		is from   src/lib/compiler/backend/lower/emit/instruction-emitter.api
+	where instruction_set == control_flow_graph::instruction_set;
+)
+{
+    package control_flow_graph = control_flow_graph;
+    package instruction_set    = jumps::instruction_set;
+    package cells              = instruction_set::cells;
+
+    package i   = instruction_set;
+    package c   = cells;
+    package p   = control_flow_graph::pseudo_op;
+    package g   = graph;					# graph				is from   src/lib/graph/graph.pkg
+    package w8v = unt8_vector;					# unt8_vector			is from   src/lib/std/src/unt8-vector.pkg
+
+    Desc
+	= BYTES   (w8v::Vector,     Desc) 
+	| PSEUDO  (p::Pseudo_Op,    Desc)
+	| SDI     (i::Instruction,  Ref( Int ), Desc)		# "sdi" == "span dependent instruction" -- a variable-length jump.
+	| LABEL   (label::Label,    Desc)
+	| NIL;
+
+    Cluster
+        =
+        CLUSTER { cluster: Desc };
+
+    max_variable_length_backpatch_iterations
+        =
+        low_code_control::make_int (
+	    "max_variable_length_backpatch_iterations",
+	    "number of variable-length backpath iterations"
+        );
+
+								    my _ = 
+    max_variable_length_backpatch_iterations :=  40;
+
+    fun error msg
+	=
+	lowcode_error_message::error("vlBackPatch", msg);
+
+    my cluster_list:  Ref( List( Cluster      ) ) =   REF [];
+    my data_list:     Ref( List( p::Pseudo_Op ) ) =   REF [];
+
+    fun clean_up ()
+	=
+	{   cluster_list :=  [];
+	    data_list    :=  [];
+	};
+
+    fun bbsched (g::GRAPH { graph_info=>control_flow_graph::INFO { data, ... }, ... }, blocks)
+	=
+	{  fun bytes ([],  p) =>  p;
+	       bytes ([s], p) =>  BYTES (s, p);
+	       bytes (s,   p) =>  BYTES (w8v::cat s, p);
+            end;
+
+	    fun f ((_, control_flow_graph::BLOCK { align, labels, instructions, ... } ) ! rest)
+		    =>
+		    {   fun instrs ([], b)
+				=>
+				bytes (reverse b, f rest);
+
+			    instrs (i ! rest, b)
+				=> 
+				if   (jumps::is_sdi i)
+				     
+				     bytes (reverse b, SDI (i, REF (jumps::min_size i), instrs (rest, [])));
+				else
+				     instrs (rest, emitter::emit_instruction (i) ! b);
+				fi;
+			end;
+
+
+			fun do_labels (lab ! rest)
+				=>
+				LABEL (lab, do_labels rest);
+
+			    do_labels []
+				=>
+				instrs (reverse *instructions, []);
+			end;
+
+			fun align_it (NULL)  =>  do_labels *labels;
+			    align_it (THE p) =>  PSEUDO (p, align_it (NULL));
+			end;
+
+			align_it *align;
+		    };
+
+	        f []
+                    =>
+                    NIL;
+            end;
+
+	    cluster_list
+		:= 
+		CLUSTER { cluster=>f blocks } ! *cluster_list;
+
+	    data_list :=   *data @ *data_list;
+	};						# fun bbsched
+
+
+    fun finish ()
+	=
+	{   iter =   REF 0;		#  iteration count 
+
+	    fun labels (BYTES (s, rest), pos, chgd)
+		    =>
+		    labels (rest, pos+w8v::length s, chgd);
+
+	        labels (SDI (instruction, r as REF size, rest), pos, chgd)
+		    => 
+		    {   s =   jumps::sdi_size (instruction, label::addr_of, pos);
+
+			# Allow contraction in the first two passes;
+			# after which only allows expansion to ensure termination.
+
+			if  ((*iter <= *max_variable_length_backpatch_iterations
+                              and s != size
+                             )
+                        or   s > size
+			)
+			     r := s;
+                             labels (rest, pos + s, TRUE);
+			else
+			     labels (rest, pos + size, chgd);
+                        fi;
+		    };
+
+	       labels (LABEL (l, rest), pos, changed)
+		    => 
+		    if   (label::addr_of (l) == pos)
+		        
+                         labels (rest, pos, changed);
+		    else
+                         label::set_addr (l, pos);
+                         labels (rest, pos, TRUE);
+                    fi;
+
+	       labels (PSEUDO (p_op, rest), pos, chgd)
+		    =>
+		    {   old_size =   p::size_of (p_op, pos);
+			new_size =   { p::adjust_labels (p_op, pos); p::size_of (p_op, pos);};
+
+			labels (rest, pos + new_size, chgd or new_size!=old_size);		#  XXXX???? 
+		    };
+
+	       labels (NIL, pos, chgd)
+		    =>
+		    (pos, chgd);
+            end;
+
+	    fun cluster_labels clusters
+		=
+		list::fold_left  f  (0, FALSE)  clusters
+                where
+		    fun f (CLUSTER { cluster, ... }, (pos, chgd))
+			=
+			labels (cluster, pos, chgd);
+		end;
+
+	    nop =   instruction_properties::nop ();
+
+	    loc =   REF 0;
+
+	    fun output v
+		= 
+		w8v::apply
+
+		    (fn v =  {   code_string::update (*loc, v);
+				 loc:= *loc+1;
+			     }
+		    )
+
+		    v;
+
+
+	    fun chunk (pos, [])
+                    =>
+                    ();
+
+	       chunk (pos, CLUSTER { cluster } ! rest)
+		    =>
+		    {   fun output_instr i
+			    =
+			    output (emitter::emit_instruction (nop));
+
+			fun nops 0 => ();
+			    nops n => {   output_instr (nop);
+                                          nops (n - 1);
+                                      };
+                        end;
+
+			fun f (pos, BYTES (s, r))
+				=>
+				{   output s;
+				    f (pos + w8v::length s, r);
+				};
+
+			    f (pos, SDI (instruction, REF size, r))
+				=>
+				{   emit_instrs =   map (fn i =  emitter::emit_instruction i);
+				    instrs =   emit_instrs (jumps::expand (instruction, size, pos));
+				    sum =   list::fold_left  (fn (a, b) =  (w8v::length a + b))  0;
+				    n =   size - sum instrs;
+
+				    /*
+				    if n > 0 then 
+				      print ("\t\t\t Inserting " + int::to_string n + "nops\n");
+				      emit instruction;
+				    fi;
+				    */
+
+				    apply output instrs;
+				    nops n;
+				    f (pos + size, r);
+				};
+
+			    f (pos, LABEL (lab, rest))
+				=> 
+				if   (pos == label::addr_of lab)
+				     f (pos, rest);
+				else error "chunk: LABEL"; fi;
+
+			    f (pos, PSEUDO (p_op, rest))
+				=>
+				{   my s:  Ref( List( unt8::Unt ) )
+                                        =  REF [];
+
+				    p::emit_value {
+                                      p_op,
+                                      loc  => pos, 
+				      emit => (fn w =  s :=  w ! *s)
+                                    };
+
+				    output (w8v::from_list (reverse *s));
+
+				    f (pos + p::size_of (p_op, pos), rest);
+				};
+
+			    f (pos, NIL)
+                                =>
+                                chunk (pos, rest);
+                        end;
+
+			f (pos, cluster);
+		    };
+            end;
+
+	    fun fix clusters
+		=
+		{   my (pos, changed)
+			=
+			cluster_labels clusters;
+
+		    if changed
+                         iter := *iter + 1;
+			 fix clusters;
+		    else
+                         pos;
+                    fi;
+		};
+
+
+	    # Initialize labels so that they have 
+	    # some reasonable value to begin with.
+
+	    fun init_labels (clusters)
+		=
+		{   fun init (BYTES (bytes, rest), loc)
+			    =>
+			    init (rest, loc + w8v::length bytes);
+
+		        init (PSEUDO (p_op, rest), loc)
+			    => 
+			    {   p::adjust_labels (p_op, loc);
+                                init (rest, loc + p::size_of (p_op, loc));
+                            };
+
+		        init (SDI (sdi, size, rest), loc)
+			    =>
+			    init (rest, loc + *size);
+
+		        init (LABEL (lab, rest), loc)
+			    => 
+			    {   label::set_addr (lab, loc);
+                                init (rest, loc);
+                            };
+
+		        init (NIL, loc)
+                            =>
+                            loc;
+                    end;
+
+		    list::fold_left
+		        (fn (CLUSTER { cluster, ... }, loc) =  init (cluster, loc))
+                        0
+                        clusters;
+		};
+
+	    # The data_list is in reverse order,
+            # and the entries in each
+	    # are also in reverse:
+	    #
+	    fun comp_unit (d ! dl, cl, acc)
+		    =>
+		    comp_unit (dl, cl, PSEUDO (d, acc));
+
+	        comp_unit([], cl, acc)
+		    =>
+		    rev_cl (cl, [CLUSTER { cluster=>acc } ])
+                    where 
+		        fun rev_cl (c ! cl, acc) =>  rev_cl (cl, c ! acc);
+			    rev_cl ([],     acc) =>  acc;
+                        end;
+		    end;
+            end;
+
+	    compressed
+		 =
+		 comp_unit (*data_list, *cluster_list, NIL)
+                 before
+                     clean_up ();
+
+	     init_labels  compressed;
+	     code_string::init (fix compressed);
+	     loc := 0;
+	     chunk (0, compressed); 
+
+	};					# fun finish 
+
+};	#  generic package  x86_span_dependency_resolution_g
+
+
+## Copyright 1999 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## released under Gnu Public Licence version 3.
