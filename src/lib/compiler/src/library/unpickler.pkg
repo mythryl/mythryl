@@ -1,0 +1,763 @@
+# unpickler.pkg
+
+# Compiled by:
+#     src/lib/compiler/src/library/pickle.lib
+
+
+
+# This is the new "generic" unpickle facility.
+#
+# It replaces Andrew Appel's original "shareread" module.
+#
+# The main difference is that instead of using a "universal"
+# type together with numerous injections and projections
+# it uses separate maps.
+#
+# This approach proves to be a lot more lightweight.
+#
+# The benefits are:
+#
+#   - No projections, hence no "match nonexhaustive" warnings and...
+#
+#   - No additional run-time overhead (all checking is done during
+#     the map membership test which is common to both implementations)
+#
+#   - No necessity for those many tiny "fn"-functions that litter the
+#        original code, resulting in...
+#
+#   - A more "natural" style for writing the actual unpickling code
+#        that makes for shorter source code
+#
+#   - A lot less generated machine code (less than 50% of the original
+#        version)
+#
+#   - Slightly faster operation (around 15% speedup)
+#        (My guess is that it is a combination of fewer projections and
+#         fewer generated thunks that make the code run faster.)
+#
+# July 1999, Matthias Blume
+#
+# We now use the high bit in char codes of shareable nodes to indicate
+# that actual sharing has occurred.  If the high bit is not set, we
+# no longer bother to insert the node into its sharing map.  This
+# improves unpickling speed (e.g., for autoloading) by about 25% and
+# saves tons of memory.
+#
+# October 2000, Matthias Blume
+
+
+
+###                          "If we wish to count lines of code,
+###                           we should not regard them as lines
+###                           *produced* but as lines *spent*."
+###
+###                                        -- Edsger J Dijkstra
+
+
+
+
+api Unpickler {
+
+    exception FORMAT;
+
+    Sharemap( V );		# One for each type. THIS IS MUTABLE STATE!
+    Unpickler;			# Encapsulates unpickling state.
+
+    # Make a type-specific sharing map using "make_map".
+    #
+    # Be sure to create such maps only locally, otherwise you have a
+    # space leak.
+    #
+    # The Mythryl type system will prevent you from accidentially using the
+    # same map for different types, so don't worry.  But using TOO MANY
+    # maps (i.e., more than one map for the same type) will likely
+    # cause problems because the unpickler might try to get for a
+    # back reference that is in a different map than the one where the
+    # value is actually registered.
+    #
+    # By the way, this warning is not unique to the many-maps approach.
+    # The same thing would happen with the original "universal domain"
+    # unpickler if you declare two different constructors for the
+    # same type.  Given that there are about 100 types (and thus
+    # 100 constructors or maps) in the Mythryl dictionary pickler,
+    # the possibility for such a mistake is not to be dismissed.
+
+    make_sharemap:  Void -> Sharemap(V);
+
+    Pickle_Reader(V)
+        =
+        Void -> V;
+
+    # A "charstream" is the mechanism that gets actual characters from
+    # the pickle.  For ordinary pickles, the unpickler will never call
+    # "seek".  Moreover, the same is true if you read the pickles created
+    # by pickleN sequentially from the first to the last (i.e., not
+    # "out-of-order"). "currentPosition" determines the current position
+    # and must be implemented.
+
+    Charstream
+        =
+	{ getchar:   Void -> Char,	# Read and return next char, advancing charstream cursor.
+	  peekchar:  Int  -> Char,	# Read ith-next char, leaving charstream cursor unchanged.
+          seek:      Int  -> Void,	# Set charstream cursor to given value.
+          tell:      Void -> Int	# Return charstream cursor.
+        };
+
+    # Construct a Charstream which on successive calls
+    # returns successive chars from given string:
+    #
+    make_charstream_for_string
+        :
+        String -> Charstream;    #  The string is the pickle string. 
+
+
+    # make_enhanced_charstream_for_string  is a souped-up version of make_charstream_for_string:
+    #  It takes a function to produce (and re-produce) the pickle string
+    #  on demand and returns the actual charstream together with a
+    #  "deleter" -- a function to let go of the pickle string.
+    #  When suspended unpickling resumes after the string got deleted,
+    #  the charstream will automatically re-fetch the pickle string
+    #  using the function provided:
+
+    make_enhanced_charstream_for_string
+        :
+        ( Null_Or( String ),
+          (Void -> String)
+        )
+        ->
+        { charstream:          Charstream,
+          clear_pickle_cache:  Void -> Void
+        };
+
+
+
+    # Open the unpickling session - everything is parameterized by this;
+    # the charstream provides the bytes of the pickle:
+
+    make_unpickler
+        :
+        Charstream -> Unpickler;
+
+
+
+    # The typical style is to write a "read_<my_type>" function for each type.
+    # 
+    # The read function uses a local read_value_of_my_type function which takes the
+    # first character of a pickle (this is usually the discriminator that
+    # was given to @@@ or % in the pickler) and returns the unpickled
+    # value.  The function recursively calls other "reader" functions.
+    # 
+    # To actually get the value from the pickle, pass the read_value_of_my_type
+    # to 'read_sharable_value' -- together with the current unpickler and the
+    # type-appropriate sharemap.  'read_sharable_value' will take care of
+    # back-references (using the sharemap) and pass the first character to your read_value_of_my_type
+    # when necessary.  The standard pattern for writing a "read_<my_type>"
+    # therefore is:
+    #
+    #     unpickler = unpickler::make_unpickler pickle
+    #
+    #     fun read_sharable_value   sharemap   read_value
+    #         =
+    #         unpickler::read_sharable_value   unpickler   sharemap   read_value
+    #     
+    #     <my_type>_sharemap = unpickler::make_sharemap ()
+    #     
+    #     fun read_<my_type> ()
+    #	      =
+    #         read_sharable_value   <my_type>_sharemap   read_<my_type>'
+    #         where
+    #             fun read_<my_type>' 'a' => ... #  Case a 
+    #                 read_<my_type>' 'b' => ... #  Case b 
+    #               ...
+    #                 _ => raise unpickler::FORMAT
+    #             end;
+    #        end;  
+    # 
+
+    read_sharable_value
+	:
+	Unpickler -> Sharemap(V) -> (Char -> V) -> V;
+
+
+
+    # If you know that you don't need a map because there can be no
+    # sharing, then you can use "read_unsharable_value" instead of "read_sharable_value".
+
+    read_unsharable_value
+        :
+        Unpickler -> (Char -> V) -> V;
+
+
+    # Making readers for some common types: 
+
+    read_int:      Unpickler -> Pickle_Reader( Int         );
+    read_int32:    Unpickler -> Pickle_Reader( int32::Int  );
+    read_unt:      Unpickler -> Pickle_Reader( Unt        );
+    read_unt32:    Unpickler -> Pickle_Reader( unt32::Unt );
+    read_bool:     Unpickler -> Pickle_Reader( Bool        );
+    read_string:   Unpickler -> Pickle_Reader( String      );
+
+
+
+    # Readers for parametric types need their own map:
+    #
+    read_list:    Unpickler -> Sharemap( List(    V ) )  -> Pickle_Reader(V)                     -> Pickle_Reader( List( V )  );
+    read_null_or: Unpickler -> Sharemap( Null_Or( V ) )  -> Pickle_Reader(V)                     -> Pickle_Reader( Null_Or( V ) );
+    read_pair:    Unpickler -> Sharemap( (X, Y) )        -> (Pickle_Reader(X), Pickle_Reader(Y)) -> Pickle_Reader( (X, Y) );
+
+
+    # The laziness generated here is in the unpickling.
+    # In other words unpickling state is not discarded
+    # until the last lazy value has been forced.
+
+    read_lazy:    Unpickler  ->  Pickle_Reader(X)  ->  Pickle_Reader(Void -> X);
+};
+
+
+
+stipulate
+    package im  =   int_red_black_map;					# int_red_black_map	is from   src/lib/src/int-red-black-map.pkg
+herein
+
+    package   unpickler
+    :         Unpickler							# Unpickler	is from   src/lib/compiler/src/library/unpickler.pkg
+    {
+	exception FORMAT;
+
+
+	Sharemap( V )
+	    =
+	    Ref( im::Map( (V, Int) ) );
+
+
+	Pickle_Reader(V) =   Void -> V;
+
+
+	Charstream
+	  =
+	  { getchar:  Void -> Char,
+	    peekchar: Int  -> Char,
+	    seek:     Int  -> Void,
+	    tell:     Void -> Int
+	  };
+
+
+	Unpickler
+	  =
+	  { string_sharemap:	Sharemap( String ),
+	    charstream:	Charstream
+	  };
+
+	#
+	fun make_sharemap ()
+	    =
+	    REF im::empty;
+
+	#
+	fun make_charstream_for_string  pickle_string
+	    =
+	    # Construct a Charstream which on successive calls
+	    # returns successive chars from given string:
+	    #
+	    { getchar, peekchar, seek, tell }
+	    where
+	        position = REF 0;
+		#
+		fun getchar ()
+		    =
+		    {   old_position =  *position;
+
+			position :=  old_position + 1;
+
+			string::get (pickle_string, old_position)
+			except
+			    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = raise exception FORMAT;
+		    };
+		#
+		fun peekchar i
+		    =
+		    string::get (pickle_string, *position + i)
+		    except
+			(SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = raise exception FORMAT;
+
+
+		#
+		fun seek  new_position
+		    =
+		    position :=  new_position;
+
+		#
+		fun tell ()
+		    =
+		    *position;
+	    end;
+
+	#
+	fun make_enhanced_charstream_for_string				# This fn is called (only) from:     src/app/makelib/freezefile/freezefile-g.pkg
+	      ( initial_pickle,
+		fetch_string
+	      )
+	    =
+	    { clear_pickle_cache,
+	      #
+	      charstream => { getchar, peekchar, seek, tell }
+	    }
+	    where
+	        position =   REF 0;					# Tracks next char to read within initial_pickle.
+
+		pickle_string_ref
+		    =
+		    REF  initial_pickle;
+
+		#
+		fun grab_string ()
+		    =
+		    case *pickle_string_ref
+			#
+			THE string => string;
+			#
+			NULL =>
+			    {   string = fetch_string ();
+				pickle_string_ref := THE string;
+				string;
+			    };
+		    esac;
+
+		#
+		fun clear_pickle_cache ()
+		    =
+		    pickle_string_ref := NULL;
+
+		#
+		fun getchar ()
+		    =
+		    {   s =  grab_string ();
+			p =  *position;
+
+			position :=  p + 1;
+
+			string::get (s, p)
+			except
+			    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS)
+			    =
+			    raise exception FORMAT;
+		    };
+		#
+		fun peekchar i
+		    =
+		    {   s =  grab_string ();
+			p =  *position;
+
+			string::get (s, p+i)
+			except
+			    (SUBSCRIPT|INDEX_OUT_OF_BOUNDS)
+			    =
+			    raise exception FORMAT;
+		    };
+		#
+		fun seek  new_position
+		    =
+		    position :=  new_position;
+
+		#
+		fun tell ()
+		    =
+		    *position;
+	    end;							# fun make_enhanced_charstream_for_string
+
+	stipulate
+
+	    fun from_any_int  byte_source  ()
+		#
+		# Read from byte_source an int encoded
+		# in our indefinite-precision expanding-opcode
+		# style bytestream encoding.  The basic idea
+		# here is:
+		#
+		#  o The high bit is 1 on all bytes except the last.
+		#  o On the last byte the second-highest bit gives the sign.
+		#  o The remaining bits all get spliced together in sequence
+		#    to generate the int result, last byte holding lowest bits.
+		=
+		loop 0u0
+		where
+		    & =  unt8::bitwise_and;
+		    #
+		    infix val  & ;
+
+		    to_large = unt8::to_large_unt;
+
+								    # unt8	is from   src/lib/std/unt8.pkg
+								    # byte	is from   src/lib/std/src/byte.pkg
+		    #
+		    fun loop n
+			=
+			{   w8 =  byte::char_to_byte (byte_source ());
+			    #
+			    if ((w8 & 0u128) == 0u0)         (n *  0u64 + to_large (w8 & 0u63), (w8 & 0u64) != 0u0);
+			    else			loop (n * 0u128 + to_large (w8 & 0u127));
+			    fi;
+			};
+		end;
+
+	    #
+	    fun from_large_unt  convert  byte_source  ()
+		=
+		case (from_any_int byte_source ())
+		    #
+		    (w, FALSE) =>   convert w        except _ = raise exception FORMAT;
+		    _          =>   raise exception FORMAT;
+		esac;
+
+	    #
+	    fun from_large_int  convert  byte_source  ()
+		=
+		{   my (wpos, negative)
+			=
+			from_any_int  byte_source  ();
+
+		    # Negation must be done in unsigned domain
+		    # to prevent overflow on min_int.
+		    #
+		    # For the same reason we must
+		    # then use to_int_x.
+
+		    w =    negative   ??   0u0 - wpos
+				      ::   wpos;
+
+		    i =  large_unt::to_large_int_x  w;
+
+		    convert i         except _ = raise exception FORMAT;
+		};
+	herein
+
+	    from_int    =  from_large_int     int::from_large;
+	    from_int32  =  from_large_int   int32::from_large;
+	    from_unt    =  from_large_unt     unt::from_large_unt;
+	    from_unt32  =  from_large_unt   unt32::from_large_unt;
+
+	end;
+
+	#
+	fun make_unpickler  charstream
+	    =
+	    { string_sharemap =>  make_sharemap (),
+	      charstream
+	    }
+	    : Unpickler;
+
+
+	#
+	fun read_sharable_value
+               (unpickler:   Unpickler)
+		shared_values_of_my_type
+		read_value_of_my_type
+	    =
+	    # The main duty of 'read_sharable_value' is to factor
+	    # off from the rest of the unpickling code the job
+	    # of dealing with references to shared values
+	    # -- values referenced by more than one pointer
+	    # in the pickled datastructure.
+	    #
+	    # Such shared values are flagged in the pickle
+	    # bytestream by a 0xFF byte (255 decimal)
+	    # followed by an integer backreference to the
+	    # offset in the pickle at which the actual
+	    # value may be found.
+	    #
+	    # The first time we unpickle such a shared value,
+	    # we salt it away in our shared_values_of_my_type.
+	    #
+	    # When we encounter subsequent backreferences to
+	    # that particular value, we can then just fish
+	    # the previously-unpickled value out of our
+	    # shared_values_of_my_type and return it, thus
+	    # re-establishing the desired value sharing.
+	    #
+	    {   fun first_time (position, c)
+		    =
+		    # Caller guarantees that character 'c'
+		    # has the high bit set:
+		    #
+		    {   v =  read_value_of_my_type  (char::from_int (char::to_int c - 128));
+
+			position' =   unpickler.charstream.tell ();
+
+			shared_values_of_my_type
+			    :=
+			    im::set (*shared_values_of_my_type, position, (v, position'));
+
+			v;
+		    };
+
+		c =  unpickler.charstream.getchar ();
+
+		if (char::to_int c  <  128)
+		    #
+		    # High-bit is not set, so this is not a shared node.
+		    # Therefore, it can't possibly be in the map, and
+		    # we can call read_value_of_my_type directly.
+
+		    read_value_of_my_type c;
+		else
+		    if (c == '\255')
+			#
+			position =  from_int  unpickler.charstream.getchar  ();
+
+			case (im::get  (*shared_values_of_my_type,  position))
+			    #
+			    THE (v, _) => v;
+			    #
+			    NULL
+				=>
+				{   here =  unpickler.charstream.tell ();
+
+				    unpickler.charstream.seek  position;
+
+				    # It is ok to use "getchar" here because
+				    # there won't be back-references that jump
+				    # to other back-references.
+				    # (Since we are jumping to something that
+				    # was shared, it has the high-bit set, so
+				    # calling "firstTime" is ok.)
+
+				    first_time (position, unpickler.charstream.getchar())
+				    before
+					unpickler.charstream.seek  here;
+				};
+			esac;
+
+		    else
+			position =  unpickler.charstream.tell () - 1;			# Must subtract one to get back in front of c. 
+
+			case (im::get (*shared_values_of_my_type, position))
+			    #
+			    THE (v, position')
+				=>
+				{   unpickler.charstream.seek  position';
+				    v;
+				};
+
+			    NULL =>   first_time (position, c);
+			esac;
+		    fi;
+		fi;
+	    };
+
+	# "read_unsharable_value" gets around backref detection.  Certain integer
+	# encodings may otherwise be mis-identified as back references.
+	# Moreover, unlike in the case of "read_sharable_value" we don't need a map
+	# for "read_unsharable_value".  This could be used as an optimization for
+	# types that are known to never be shared anyway (Bool, etc.).
+	#
+	fun read_unsharable_value  (unpickler: Unpickler)  f
+	    =
+	    f (unpickler.charstream.getchar ());
+
+	stipulate
+	    fun f2r  from_x  (unpickler: Unpickler)		# "f2r" is probably "from_to_read" (converts a 'from_x' fn to 'read_x' fn).
+		=
+		from_x  unpickler.charstream.getchar;
+	herein
+	    read_int    =  f2r  from_int;
+	    read_int32  =  f2r  from_int32;
+	    read_unt    =  f2r  from_unt;
+	    read_unt32  =  f2r  from_unt32;
+	end;
+
+
+	# read_lazy advances 'currentPosition' as though it
+	# had read the next value, but does not actually
+	# do so.  Instead, it returns a memoized thunk
+	# which will do so at need:
+	#
+	fun read_lazy unpickler read_value_of_my_type ()
+	    =
+	    {   memo =   REF  (fn () =  raise exception FAIL "unpickler::readLazy");
+
+		unpickler ->   { charstream => { tell, seek, ... }, ... };
+		    
+
+		# The size may have leading 0s because of padding,
+		# so loop reading integers until we get a nonzero 
+		# value to return:
+		#
+		fun get_size ()
+		    =
+		    {   size = read_int unpickler ();
+
+			if (size == 0   )   get_size ();
+				       else   size;    fi;
+		    };
+
+
+		# Read size of value to
+		# read lazily:
+
+		size = get_size ();			#  size of v 
+
+
+
+		# Remember position at which
+		# lazily read value starts,
+		# so we can come back later
+		# and actually read it:
+
+		start = tell ();			#  start of v 
+
+
+
+		# Construct a thunk to do the real
+		# (lazily delayed) read of the
+		# value, when it comes time to do so.
+		#
+		# To do this we need to 'seek' back to
+		# the proper position in the stream,
+		# but to maintain sanity (since this
+		# will happen at an unpredictable
+		# time) we write it to save and
+		# restore the 'tell' ('current_position') value
+		# in force at the time of thunk
+		# invocation.
+		#
+		# We also memo-ize our thunk to cache
+		# the value lazily read, so that on
+		# second and subsequent thunk invocations,
+		# we can immediately return the cached
+		# value rather than actually having to
+		# do the complete read again. 
+		#
+		fun thunk ()
+		    =
+		    {   initial_position = tell ();	#  Remember prevailing stream position.             
+			seek start;			#  Reset stream to start of our lazily-read value.  
+			v = read_value_of_my_type ();	#  Do the actual read of lazily-read value.         
+			#
+			seek initial_position;		#  Restore prevailing stream position.              
+			memo :=  (fn () =  v);		#  Set memo to return cached value instead of re-reading. 
+			v;                              #  Return lazily read value.                        
+		    };
+
+		memo := thunk;				#  Set up lazy read of value on initial thunk invocation.  
+		seek (start + size);			#  Advance stream position if though we had read the value 
+		.{ *memo (); };				#  Return thunk that will do the lazy read on request.     
+	    };
+
+	#
+	fun read_list  unpickler  sharemap_for_my_type  read_value_of_my_type  ()
+	    =
+	    read_sharable_value  unpickler  sharemap_for_my_type  readlist
+	    where
+		fun read_chops ()
+		    =
+		    read_sharable_value   unpickler   sharemap_for_my_type   readchopslist
+		    where
+			fun readchopslist 'N' => [];
+			    readchopslist 'C' => read_value_of_my_type ()
+					       ! read_value_of_my_type ()
+					       ! read_value_of_my_type ()
+					       ! read_value_of_my_type ()
+					       ! read_value_of_my_type ()
+					       ! read_chops ();
+			    readchopslist _ => raise exception FORMAT;
+			end;
+		    end;
+		#
+		fun readlist '0' =>  [];
+		    readlist '1' =>  [read_value_of_my_type ()];
+		    readlist '2' =>  [read_value_of_my_type (), read_value_of_my_type ()];
+		    readlist '3' =>  [read_value_of_my_type (), read_value_of_my_type (), read_value_of_my_type ()];
+		    readlist '4' =>  [read_value_of_my_type (), read_value_of_my_type (), read_value_of_my_type (), read_value_of_my_type ()];
+		    readlist '5' =>  read_chops ();
+		    readlist '6' =>  read_value_of_my_type () ! read_chops ();
+		    readlist '7' =>  read_value_of_my_type () ! read_value_of_my_type () ! read_chops ();
+		    readlist '8' =>  read_value_of_my_type () ! read_value_of_my_type () ! read_value_of_my_type () ! read_chops ();
+		    readlist '9' =>  read_value_of_my_type () ! read_value_of_my_type () ! read_value_of_my_type () ! read_value_of_my_type () ! read_chops ();
+		    readlist _   =>  raise exception FORMAT;
+		end;
+	    end;
+	#
+	fun read_null_or  unpickler  sharemap_for_my_type  read_value_of_my_type  ()
+	    =
+	    read_sharable_value  unpickler  sharemap_for_my_type  read_null_or'
+	    where
+	        fun read_null_or' 'n' =>  NULL;
+		    read_null_or' 's' =>  THE (read_value_of_my_type ());
+		    read_null_or' _   =>  raise exception FORMAT;
+		end;
+	    end;
+	#
+	fun read_pair  unpickler  sharemap_for_my_type  (read_a, read_b) ()
+	    =
+	    read_sharable_value  unpickler  sharemap_for_my_type  read_pair'
+	    where
+	        fun read_pair' 'p'   =>   (read_a (), read_b ());
+		    read_pair'  _    =>   raise exception FORMAT;
+		end;
+	    end;
+	#
+	fun read_bool unpickler ()
+	    =
+	    read_unsharable_value  unpickler  read_bool'
+	    where	
+	        fun read_bool' 't' =>  TRUE;
+		    read_bool' 'f' =>  FALSE;
+		    read_bool' _   =>  raise exception FORMAT;
+		end;
+	    end;
+	#
+	fun read_string  unpickler  ()
+	    =
+	    read_sharable_value  unpickler  string_sharemap  read_string'
+	    where
+	        unpickler
+		    ->
+		    { string_sharemap,
+		      charstream =>  { getchar, ... }
+		    };
+
+		#
+		fun read_string' '"'
+		    =>
+		    loop ([], getchar ())
+		    where
+			fun loop (l, '"')   =>   string::implode (reverse l);
+			    loop (l, '\\')  =>   loop (getchar () ! l, getchar ());
+			    loop (l, c)     =>   loop (c ! l, getchar ());
+			end;
+			# This is a bloody st00pid way to un/pickle strings!  The '\' stuff is
+			# fine for human-readable/human-editable sourcecode, but for mechanical
+			# processing it is much better to just put a length up front and then
+		        # read that many bytes at one go.  XXX BUGGO FIXME.  -- 2011-01-18 CrT
+		    end;
+
+		   read_string' _
+		       =>
+		       raise exception FORMAT;
+		end;
+	    end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# Copyright (C) 1999, 2000 Matthias Blume
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

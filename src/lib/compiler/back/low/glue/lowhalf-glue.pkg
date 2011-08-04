@@ -1,0 +1,156 @@
+/*
+ * Simple module for building the IR etc.  Doesn't do any real optimizations.
+ *
+ * -- Allen Leung
+ */
+
+###      "All programmers are optimists."
+###         -- Frederick P Brooks, Jr
+###
+
+generic package LOWHALFGlue
+   (package asm_emitter:        Instruction_Emitter
+    package flowgraph:  FLOWGRAPH
+    package machcode_universals:  Machcode_Universals
+    package frequency_properties:  Instruction_Frequency_Properties
+       sharing machcode_universals::I = asm_emitter::I = flowgraph::I = frequency_properties::I
+       sharing flowgraph::P = asm_emitter::P 
+   ) : LOWHALF_GLUE 
+{
+
+   package f = flowgraph
+   package i = f::I
+ 
+   lowhalf  = LowhalfControl::getFlag       "lowhalf"
+   phases  = LowhalfControl::getStringList "lowhalf-phases"
+   view_IR = LowhalfControl::getFlag       "view-IR"
+   verbose = LowhalfControl::getFlag       "verbose"
+
+   fun error msg = lowhalf_error_message::error("LOWHALFGlue", msg)
+
+   package graph_viewer = graph_viewer_g (AllDisplays)
+
+   package format_instruction = format_instruction_g (asm_emitter)
+
+   package machcode_controlflow_graph
+	=
+	machcode_controlflow_graph_g (
+	    package mc  = I
+#	    package pop = f::P
+	    package meg = digraph_by_adjacency_list										# digraph_by_adjacency_list		is from   src/lib/graph/digraph-by-adjacency-list.pkg
+	    package mu  = machcode_universals
+	    package ae  = asm_emitter
+	)
+
+   package util = local_machcode_controlflow_graph_transformations_g
+      (package machcode_controlflow_graph       = machcode_controlflow_graph
+       package machcode_universals = machcode_universals
+      )
+
+   package cfg_to_cluster = CFG2Cluster
+      (package machcode_controlflow_graph       = machcode_controlflow_graph
+       package util      = Util
+       package flowgraph = flowgraph
+      )
+
+   package cluster_to_cfg = Cluster2CFG
+      (package machcode_controlflow_graph       = machcode_controlflow_graph
+       package util      = Util
+       package flowgraph = flowgraph
+       package machcode_universals = machcode_universals
+      )
+       
+   package dom
+       =
+       dominator_tree (digraph_by_adjacency_list)
+
+   package cdg = ControlDependenceGraph
+      (package dom = Dom
+       package meg = digraph_by_adjacency_list									# digraph_by_adjacency_list	is from   src/lib/graph/digraph-by-adjacency-list.pkg
+      )
+
+   package loop = loop_structure
+      (package dom = Dom
+       package meg = digraph_by_adjacency_list										# digraph_by_adjacency_list	is from   src/lib/graph/digraph-by-adjacency-list.pkg
+      )
+
+   package ir = LOWHALF_IR
+      (package machcode_controlflow_graph         = machcode_controlflow_graph
+       package cdg         = CDG
+       package loop        = Loop
+       package graph_viewer = graph_viewer
+       package util        = Util
+      )
+
+   package guess = StaticBranchPrediction
+      (package ir        = IR
+       package machcode_universals = machcode_universals
+       package frequency_properties = frequency_properties
+       loopMultiplier=10
+      )
+      
+   package liveness = LivenessAnalysis (machcode_controlflow_graph)
+
+   package reshape = ReshapeBranches
+     (package ir        = IR
+      package machcode_universals = machcode_universals
+     )
+
+   package branch_chaining = branch_chaining
+     (package ir        = IR
+      package machcode_universals = machcode_universals
+     )
+
+   package cpr = CriticalPathReduction
+     (package ir        = IR
+      package machcode_universals = machcode_universals
+     )
+
+   package cluster_graph = cluster_graph_g (flowgraph)
+
+   package cluster_viewer = cluster_viewer_g
+     (package graph_viewer = graph_viewer
+      package cluster_graph = cluster_graph
+      package asm_emitter   = asm_emitter
+     )
+
+   fun view phase ir = if *view_IR then ir::view phase ir else ()
+   fun view' cluster = if *view_IR then 
+      cluster_viewer::view (cluster_graph::clusterGraph cluster) else ()
+
+   fun optimize cluster
+       =
+       {   enum rep = IR of ir::IR
+			| CLUSTER of f::cluster;
+
+	   fun do_phase "cluster->mcg" (CLUSTER c) = IR (Cluster2CFG::cluster2cfg c)
+	     | do_phase "mcg->cluster" (IR mcg) = 
+		CLUSTER (CFG2Cluster::cfg2cluster { mcg=cfg, relayout=FALSE } )
+	     | do_phase "guess" (r as IR ir) = (Guess::run ir; r)
+	     | do_phase "reshape"   (r as IR ir) = (Reshape::run ir; r)
+	     | do_phase "branch-chaining" (r as IR ir) = (branch_chaining::run ir; r)
+	     | do_phase "cpr"   (r as IR ir) = (cpr::run ir; r)
+	     | do_phase "view-mcg"  (r as IR ir) = (view "mcg" ir; r)
+	     | do_phase "view-dom"  (r as IR ir) = (view "dom" ir; r)
+	     | do_phase "view-pdom" (r as IR ir) = (view "pdom" ir; r)
+	     | do_phase "view-doms" (r as IR ir) = (view "doms" ir; r)
+	     | do_phase "view-cdg"  (r as IR ir) = (view "cdg" ir; r)
+	     | do_phase "view-loop" (r as IR ir) = (view "loop" ir; r)
+	     | do_phase "view-cluster" (r as CLUSTER c) = (view' c; r)
+	     | do_phase phase _ = error (phase);
+
+	   fun do_phases [] (CLUSTER c) = c
+	     | do_phases [] _ = error "cluster needed"
+	     | do_phases (phase . phases) ir = 
+		(if *verbose then print("["$phase$"]\n")  
+		 do_phases phases (do_phase phase ir));
+
+           do_phases *phases (CLUSTER cluster);
+       }
+
+   fun coder cluster
+       =
+       if *lowhalf   then optimize cluster
+                     else cluster
+
+}

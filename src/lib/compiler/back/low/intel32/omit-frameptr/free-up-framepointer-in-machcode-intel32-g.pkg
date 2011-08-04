@@ -1,0 +1,638 @@
+## free-up-framepointer-in-machcode-intel32-g.pkg
+#
+# This transform frees up the ebp register by in essence
+# replacing each read ebp[n] with esp[n+d] for an appropriate d.
+#
+# See additional comments in:
+#
+#     src/lib/compiler/back/low/omit-frameptr/free-up-framepointer-in-machcode.api
+#
+# Invariants: fp = sp + delta
+#         &&  stack grows from high to low
+#	  &&  fp >= sp
+#
+# Assumptions: At the entry node fp = sp + initial_fp_to_sp_delta
+#
+# The tricky business is to recognize that things that
+# look like registers may really be memory registers.
+#
+# -> Lal George's To-do list notes that gcc clearly does not use a
+#    separate pass to implement this, as we do, with the implication
+#    that maybe we shouldn't either. :-) XXX SUCKO FIXME
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+
+stipulate
+    package odg =  oop_digraph;							# oop_digraph				is from   src/lib/graph/oop-digraph.pkg
+    package iht =  int_hashtable;						# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhn =  lowhalf_notes;						# lowhalf_notes				is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk			is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   free_up_framepointer_in_machcode_intel32_g  (
+	#             =========================================
+	#
+	package mcf: Machcode_Intel32;						# Machcode_Intel32			is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+	package mcg: Machcode_Controlflow_Graph					# Machcode_Controlflow_Graph		is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		     where
+			 mcf == mcf;						# "mcf" == "machcode_form" (abstract machine code).
+
+	package mem: Machcode_Address_Of_Ramreg_Intel32				# Machcode_Address_Of_Ramreg_Intel32	is from   src/lib/compiler/back/low/intel32/code/machcode-address-of-ramreg-intel32.api
+		     where
+			 mcf == mcf;						# "mcf" == "machcode_form" (abstract machine code).
+
+	ramreg_base:  Null_Or( rkj::Codetemp_Info );
+    )
+    : (weak) Free_Up_Framepointer_In_Machcode					# Free_Up_Framepointer_In_Machcode	is from   src/lib/compiler/back/low/omit-frameptr/free-up-framepointer-in-machcode.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;							# "mcf" == "machcode_form" (abstract machine code).
+	package mcg =  mcg;							# "mcg" == "machcode_controlflow_graph".
+
+	stipulate
+	    package rgk =  mcf::rgk;						# "rgk" == "registerkinds".
+	herein
+
+	    sp = rgk::esp;
+
+	    dump_machcode_controlflow_graph_after_omit_framepointer_phase	# Unused?
+		=
+		lowhalf_control::make_bool (
+		    "dump_machcode_controlflow_graph_after_omit_framepointer_phase",
+		    "whether machcode_controlflow_graph is shown after omit-framepointer phase"
+		);
+
+	    fun error msg
+		=
+		lem::error("free_up_framepointer_in_machcode_intel32_g", msg);
+
+
+	    # Our actual runtime invocation is from
+	    #
+	    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	    #
+	    fun replace_framepointer_uses_with_stackpointer_in_machcode_controflow_graph
+		{
+		  virtual_framepointer:		rkj::Codetemp_Info,
+		  initial_fp_to_sp_delta:	Null_Or( int32::Int ),
+		  machcode_controlflow_graph as odg::DIGRAPH graph
+		}
+		=
+		{   # Rewrite a list of instructions where
+		    # the gap between fp and sp is delta:
+		    #
+		    fun rewrite (instrs, initial_fp_to_sp_delta)
+			=
+			{   #  What kind of register? 
+			    Which = SP | FP | OTHER;
+
+			    fun is_sp   cell =  rkj::codetemps_are_same_color (cell, sp);
+			    fun is_vfp  cell =  rkj::codetemps_are_same_color (cell, virtual_framepointer);
+
+			    fun which  cell
+				=
+				if      (is_sp  cell)  SP;
+				else if (is_vfp cell)  FP;
+				else                   OTHER;  fi; fi;
+
+			    fun either cell
+				=
+				is_sp  cell   or
+				is_vfp cell; 
+
+
+			    # Has the instruction been rewritten?
+			    # 
+			    changed_flag = REF FALSE;		
+
+
+			    # Rewrite a single instruction assuming gap (fp=sp+delta).
+			    # Returns NULL is instruction is deleted and THE (instruction) otherwise.
+			    #
+			    fun do_instr (instruction, delta: Null_Or( int32::Int ))
+				=
+				{
+				    # If a delta exists then add to it, 
+				    # otherwise maintain that there is no delta:
+				    #
+				    fun add_to_delta i
+					= 
+					case delta 
+
+					     THE d =>  THE (i+d);
+					     NULL  =>  NULL;
+					esac;
+
+
+				    fun inc_offset i
+					= 
+					case delta
+
+					     THE k =>  k+i;
+					     NULL  =>  error "incOffset";
+					esac;
+
+
+				    fun inc_disp (mcf::IMMED i) =>  mcf::IMMED (inc_offset (i));
+					inc_disp _            =>  error "incDisp";	#  CONSTANTS?
+				    end;
+
+				    fun do_operand (operand as mcf::DISPLACE { base, disp, ramregion } )
+					    => 
+					    if (is_vfp  base)
+						#
+						changed_flag := TRUE;
+						mcf::DISPLACE { base=>sp, ramregion, disp=>inc_disp (disp) } ;
+					    else
+						operand;
+					    fi;
+
+					do_operand (operand as mcf::INDEXED { base, index, scale, disp, ramregion } )
+					    => 
+					    if (is_vfp  index)
+						#				         
+						error "operand: frame pointer used in index";
+					    else
+						case base
+						    #
+						    NULL => operand;
+
+						    THE b =>    if (is_vfp b)
+								    #
+								    changed_flag := TRUE;
+
+								    mcf::INDEXED { base=>THE (sp), index, scale, ramregion, disp=>inc_disp (disp) };
+								else
+								    operand;
+								fi;
+						esac;
+					     fi;
+
+					do_operand (operand as mcf::RAMREG _)
+					    => 
+					    do_operand (mem::ramreg { reg=>operand, base=>null_or::the ramreg_base } );
+
+					do_operand (operand as mcf::FDIRECT _)
+					    => 
+					    do_operand (mem::ramreg { reg=>operand, base=>null_or::the ramreg_base } );
+
+					do_operand (operand) => operand;
+				    end;
+
+
+				    fun annotate  (op,  k: Null_Or( int32::Int ))
+					=
+					{   op  = 
+						if (not *changed_flag)
+						    #
+						    op;
+						else
+						    changed_flag := FALSE;
+
+						    case k 
+							#					       
+							NULL  => op;
+
+							THE d =>    if (d == 0)
+									#
+									op;
+								    else
+									cmt  =  "offset adjusted to " + int32::to_string d;
+									note =  lhn::comment.x_to_note  cmt;
+									mcf::NOTE { op, note };
+								    fi;
+						    esac;
+
+						fi;
+
+					   (THE op, k);
+					};
+
+				    fun unchanged (i: mcf::Base_Op) =  annotate (mcf::BASE_OP i, delta);  
+				    fun changedto (i, k)           =  annotate (mcf::BASE_OP i, k);
+
+				    fun compare (test, lsrc, rsrc)
+					=
+					unchanged (test { lsrc=>do_operand (lsrc), rsrc=>do_operand (rsrc) } );
+
+				    fun float (op, operand)
+					=
+					unchanged (op (do_operand (operand)));
+
+				    fun do_intel32instr (instruction: mcf::Base_Op)
+					=
+					case instruction
+					    #
+					    mcf::JMP (operand, labs) => unchanged (mcf::JMP (do_operand operand, labs));
+
+					    mcf::JCC { cond: mcf::Cond, operand: mcf::Operand }
+						=> 
+						unchanged (mcf::JCC { cond, operand=>do_operand (operand) } );
+
+					    mcf::CALL { operand, defs, uses, cuts_to, ramregion, return, pops=>0 }
+						=> 
+						unchanged (mcf::CALL { operand=>do_operand (operand), defs, uses,
+							       cuts_to, ramregion, pops=>0,
+							       return } );
+
+					    mcf::CALL { operand, defs, uses, cuts_to, ramregion, return, pops }
+						=>
+						changedto (mcf::CALL { operand=>do_operand (operand), defs, uses,
+							      cuts_to, ramregion, pops,
+							      return },
+						       add_to_delta(-pops));
+
+					    mcf::ENTER { src1=>mcf::IMMED i1, src2=>mcf::IMMED i2 } => changedto (instruction,  add_to_delta (i1 + i2*4));
+					    mcf::LEAVE => (THE (mcf::BASE_OP instruction), NULL);
+					    mcf::RET operand => (THE (mcf::BASE_OP instruction), NULL);
+
+					    mcf::MOVE { mv_op: mcf::Move, src=>mcf::DIRECT s, dst=>mcf::DIRECT d }
+						=>
+						case (which d, which s)
+
+						    (FP, SP) => (NULL, THE 0);
+
+						    (SP, FP) => case delta
+								    NULL => error "MOVE: (SP, FP)";
+
+								    THE 0 => (NULL, THE 0);
+
+								    THE n =>
+									{   address = mcf::DISPLACE { base=>sp, disp=>mcf::IMMED (n), ramregion=>mcf::rgn::stack };
+
+									    (THE (mcf::lea { r32=>sp, address } ), THE 0);
+									};
+								esac;
+
+						    (OTHER, OTHER) => unchanged (instruction);
+						    (FP, FP) => (NULL, delta);
+						    (SP, SP) => (NULL, delta);
+						    (FP, _) => error "MOVE: to FP";
+						    (SP, _) => error "MOVE: to SP";
+						    (OTHER, SP) => unchanged (instruction);
+						    (OTHER, FP) => error "MOVE: FP to OTHER";	#  D:=sp+delta; lazy!
+						esac;
+
+					    mcf::MOVE { mv_op, src, dst as mcf::DIRECT d }
+						=>
+						if (either (d) ) error "MOVE: assignment to FP/SP";
+						else unchanged (mcf::MOVE { mv_op, src=>do_operand (src), dst } );
+						fi;
+
+					    mcf::MOVE { mv_op, src, dst }
+						=> 
+						unchanged (mcf::MOVE { mv_op, src=>do_operand (src), dst=>do_operand (dst) } );
+
+					    mcf::LEA { r32: rkj::Codetemp_Info, address as mcf::DISPLACE { base, disp=>mcf::IMMED d, ... } }
+						=> 
+						case (which r32, which base) 
+						    #
+						    (SP, SP)
+							=> 
+							# We assume the stack grows from high to low. 
+							#
+							# If sp is incremented by a positive delta,
+							# then the gap is reduced by delta-d;
+							#
+							# If sp is decremented, the the gap
+							# is increased and d is negative:
+							#
+							changedto (instruction, add_to_delta(-d));
+
+						    (SP, FP)
+							=> 
+							#    sp = fp + d 
+							# or sp = sp + delta + d
+							#
+							changedto (mcf::LEA { r32, address=>do_operand (address) }, THE (inc_offset (d)));
+
+						    (FP, FP)
+							=> 
+							# fp = fp + d
+							# if d is positive, then the gap is increased to delta+d,
+							# if d is negative, then the gap is reduced.
+							#
+							(NULL, THE (inc_offset (d)));
+
+						    (FP, SP) => (NULL, add_to_delta (d));
+
+						    (SP, OTHER) => error "LEA: sp changed by non-immed";
+						    (FP, OTHER) => error "LEA: fp changed by non-immed";
+
+						    _ => unchanged (instruction);
+					      esac;
+
+					    mcf::LEA { r32, address }
+						=> 
+						if (either r32)  error "LEA: SP/FP changed by non-immed";
+						else             unchanged (mcf::LEA { r32, address=>do_operand (address) } );
+						fi;
+
+					    mcf::CMPL { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::CMPL, lsrc, rsrc);
+					    mcf::CMPW { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::CMPW, lsrc, rsrc);
+					    mcf::CMPB { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::CMPB, lsrc, rsrc);
+					    mcf::TESTL { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::TESTL, lsrc, rsrc);
+					    mcf::TESTW { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::TESTW, lsrc, rsrc);
+					    mcf::TESTB { lsrc: mcf::Operand, rsrc: mcf::Operand } => compare (mcf::TESTB, lsrc, rsrc);
+
+					    mcf::BITOP { bit_op: mcf::Bit_Op, lsrc: mcf::Operand, rsrc: mcf::Operand }
+						=>
+						unchanged (mcf::BITOP { bit_op, lsrc=>do_operand (lsrc), rsrc=>do_operand (rsrc) } );
+
+					    mcf::BINARY { bin_op=>mcf::ADDL, src=>mcf::IMMED (k), dst=>mcf::DIRECT (d) }
+						=> 
+						case (which d)
+						   SP    => changedto (instruction, add_to_delta(-k));
+						   FP    => (NULL, THE (inc_offset (k)));
+						   OTHER => unchanged (instruction);
+						esac;
+
+					    mcf::BINARY { bin_op=>mcf::SUBL, src=>mcf::IMMED (k), dst=>mcf::DIRECT (d) }
+						=> 
+						case (which d)
+						    SP    => changedto (instruction, add_to_delta (k));
+						    FP    => (NULL, THE (inc_offset(-k)));
+						    OTHER => unchanged (instruction);
+						esac;
+
+					    mcf::BINARY { bin_op, dst as mcf::DIRECT (d), src }
+						=>
+						if (either (d))  error "binary: assignment to SP | FP";
+						else             unchanged (mcf::BINARY { bin_op, src=>do_operand (src), dst } );
+						fi;
+
+					    mcf::BINARY { bin_op, src, dst }
+						=>
+						unchanged (mcf::BINARY { bin_op, src=>do_operand (src), dst=>do_operand (dst) } );
+
+					    mcf::CMPXCHG { lock: Bool, size: mcf::Isize, src: mcf::Operand, dst: mcf::Operand }
+						=>
+						unchanged (mcf::CMPXCHG { lock, size, src=>do_operand (src), dst=>do_operand (dst) } );
+
+					    mcf::MULTDIV { mult_div_op: mcf::Mult_Div_Op, src: mcf::Operand }
+						=>
+						unchanged (mcf::MULTDIV { mult_div_op, src=>do_operand (src) } );
+
+					    mcf::MUL3 { dst: rkj::Codetemp_Info, src2: int32::Int, src1: mcf::Operand }
+						=> 
+						if (either (dst))  error "MUL3: assignment to FP/SP";
+						else               unchanged (mcf::MUL3 { dst, src2, src1=>do_operand (src1) } );
+						fi;
+
+					    mcf::UNARY { un_op=>mcf::INCL, operand as mcf::DIRECT (r) }
+						=>
+						case (which r)
+						    SP    => changedto (instruction, add_to_delta(-1));
+						    FP    => (NULL, THE (inc_offset (1)));
+						    OTHER => unchanged (mcf::UNARY { un_op=>mcf::INCL, operand } );
+						esac;
+
+					    mcf::UNARY { un_op=>mcf::DECL, operand as mcf::DIRECT (r) }
+						=> 
+						case (which r)
+						    SP    => changedto (instruction, add_to_delta (1));
+						    FP    => (NULL, THE (inc_offset(-1)));
+						    OTHER => unchanged (mcf::UNARY { un_op=>mcf::DECL, operand } );
+					      esac;
+
+					    mcf::UNARY { un_op, operand } => unchanged (mcf::UNARY { un_op, operand=>do_operand (operand) } );
+
+					    mcf::SET { cond: mcf::Cond, operand: mcf::Operand }
+						=> 
+						unchanged (mcf::SET { cond, operand=>do_operand (operand) } );
+
+					    mcf::CMOV {  cond: mcf::Cond,  src as mcf::DIRECT(s),  dst: rkj::Codetemp_Info  }
+						=>
+						if (either (s) or either (dst))  error "CMOV: FP/SP in conditional move";
+						else                             unchanged (mcf::CMOV { cond, src=>do_operand (src), dst } );
+						fi;
+
+					    mcf::PUSHL operand => changedto (mcf::PUSHL (do_operand (operand)), add_to_delta (4));
+					    mcf::PUSHW operand => changedto (mcf::PUSHW (do_operand (operand)), add_to_delta (2));
+					    mcf::PUSHB operand => changedto (mcf::PUSHB (do_operand (operand)), add_to_delta (1));
+					    mcf::POP operand => changedto (mcf::POP (do_operand (operand)), add_to_delta(-4));
+
+					    mcf::FBINARY { bin_op: mcf::Fbin_Op, src: mcf::Operand, dst: mcf::Operand }
+						=>
+						unchanged (mcf::FBINARY { bin_op, src=>do_operand (src), dst=>do_operand (dst) } );
+
+					    mcf::FIBINARY { bin_op: mcf::Fibin_Op, src: mcf::Operand }
+						=>
+						unchanged (mcf::FIBINARY { bin_op, src=>do_operand (src) } );
+
+					    mcf::FUCOM operand => unchanged (mcf::FUCOM (do_operand operand));
+					    mcf::FUCOMP operand => unchanged (mcf::FUCOMP (do_operand (operand)));
+					    mcf::FCOMI operand => unchanged (mcf::FCOMI (do_operand operand));
+					    mcf::FCOMIP operand => unchanged (mcf::FCOMIP (do_operand (operand)));
+					    mcf::FUCOMI operand => unchanged (mcf::FUCOMI (do_operand operand));
+					    mcf::FUCOMIP operand => unchanged (mcf::FUCOMIP (do_operand (operand)));
+
+					    mcf::FSTPL operand => float (mcf::FSTPL, operand);
+					    mcf::FSTPS operand => float (mcf::FSTPS, operand);
+					    mcf::FSTPT operand  => float (mcf::FSTPT, operand);
+					    mcf::FSTL operand => float (mcf::FSTL, operand);
+					    mcf::FSTS operand => float (mcf::FSTS, operand);
+					    mcf::FLDL operand => float (mcf::FLDL, operand);
+					    mcf::FLDS operand => float (mcf::FLDS, operand);
+					    mcf::FLDT operand => float (mcf::FLDT, operand);
+					    mcf::FILD operand => float (mcf::FILD, operand);
+					    mcf::FILDL operand => float (mcf::FILDLL, operand);
+					    mcf::FILDLL operand => float (mcf::FILDLL, operand);
+
+					    mcf::FENV { fenv_op: mcf::Fenv_Op, operand: mcf::Operand }
+						=>
+						unchanged (mcf::FENV { fenv_op, operand=>do_operand (operand) } );
+
+					    mcf::FMOVE { fsize: mcf::Fsize, src: mcf::Operand, dst: mcf::Operand }
+						=>
+						unchanged (mcf::FMOVE { fsize, src=>do_operand (src), dst=>do_operand (dst) } );
+
+					    mcf::FILOAD { isize: mcf::Isize, ea: mcf::Operand, dst: mcf::Operand }
+						=>
+						unchanged (mcf::FILOAD { isize, ea=>do_operand (ea), dst=>do_operand (dst) } );
+
+					    mcf::FBINOP { fsize, bin_op, lsrc, rsrc, dst }
+						=>
+						unchanged (mcf::FBINOP { fsize, bin_op, lsrc=>do_operand (lsrc), 
+								  rsrc=>do_operand (rsrc), dst=>do_operand (dst) } );
+
+					    mcf::FIBINOP { isize, bin_op, lsrc, rsrc, dst }
+						=>
+						unchanged (mcf::FIBINOP { isize, bin_op, lsrc=>do_operand (lsrc), 
+								  rsrc=>do_operand (rsrc), dst=>do_operand (dst) } );
+
+					    mcf::FUNOP { fsize: mcf::Fsize, un_op: mcf::Fun_Op, src: mcf::Operand, dst: mcf::Operand }
+						=>
+						unchanged (mcf::FUNOP { fsize, un_op, src=>do_operand (src), 
+								 dst=>do_operand (dst) } );
+
+					    mcf::FCMP { i, fsize: mcf::Fsize, lsrc: mcf::Operand, rsrc: mcf::Operand }
+						=>
+						unchanged (mcf::FCMP { i, fsize, lsrc=>do_operand (lsrc), rsrc=>do_operand (rsrc) } );
+
+					    _ => unchanged (instruction);
+					esac;
+
+
+					case instruction
+					    #
+					    mcf::NOTE { op, note }
+						=>
+						{
+						    (do_instr (op, delta)) ->   (op, delta);
+
+						    case op
+							#
+						        NULL => (NULL, delta);
+						        THE op => annotate (mcf::NOTE { op, note }, delta);
+						    esac;
+						};	       
+
+					    mcf::COPY { kind => rkj::INT_REGISTER, dst, src, ... }
+						=>
+						{
+						    # The situation where SP <- FP is somewhat complicated.
+						    # The copy must be extracted, and a lea generated.
+						    # Should it be before or after the parallel copy?
+						    # Depends on if SP is used. 
+						    # However, will such a thing ever exist in a parallel copy!?
+
+						    fun okay (s, d, acc)
+							= 
+							case (which s, which d) 
+							    (FP, SP) => TRUE;
+							    (SP, FP) => error "COPY: SP<-FP; lazy!";
+							    (SP, OTHER) => error "COPY: SP<-OTHER";
+							    (FP, OTHER) => error "COPY: FP<-OTHER";
+							    (OTHER, SP) => error "COPY: OTHER<-SP";
+							    (OTHER, FP)  => error "COPY: OTHER<-FP";
+							    _ => acc;
+						       esac;
+
+						     annotate
+						       ( instruction,
+							 (paired_lists::fold_left okay FALSE (dst, src))
+							     ??  THE 0
+							     ::  delta
+						       );
+						 };
+
+					    mcf::BASE_OP instruction
+						=>
+						do_intel32instr instruction;
+
+					    _   => annotate (instruction, delta);			#  unchanged 
+					esac;
+				};				# do_instr
+
+			    # Rewrite instructions:
+			    #	
+			    fun do_instrs ([], instrs, delta)
+				    =>
+				    (instrs, delta);
+
+				do_instrs (instruction ! rest, acc, delta)
+				    =>
+				    {   my (instruction, delta2)
+					    =
+					    do_instr (instruction, delta);
+
+					case instruction
+					    #
+					    NULL   =>  do_instrs (rest, acc, delta2);
+					    THE  i =>  do_instrs (rest, i ! acc, delta2);
+					esac;
+				    };
+			    end;
+
+
+			    do_instrs (instrs, [], initial_fp_to_sp_delta);
+			};					 # fun rewrite 
+
+
+
+
+		    # Rewrite blocks using a
+		    # depth first traversal
+		    # of the blocks:
+		    #
+		    my info:  iht::Hashtable { visited: Bool, delta: Null_Or( int32::Int ) }
+			   =  iht::make_hashtable  { size_hint => 32,  not_found_exception => exceptions::FAIL "omit-frameptr-intel32: Not Found" };
+
+		    no_info = { visited=>FALSE, delta=>NULL };
+
+		    fun dfs (nid, delta)
+			=
+			{
+			    fun do_succ  delta
+				= 
+				apply (fn snid = dfs (snid, delta))
+				      (graph.next nid);
+
+			    (graph.node_info  nid) ->   mcg::BBLOCK { ops, kind, ... };
+
+			    case kind
+				#
+				mcg::STOP => ();
+				mcg::START => do_succ  delta;
+				#
+				mcg::NORMAL
+				    =>
+				    {
+					my { visited, delta=>d }
+					    =
+					    null_or::the_else (iht::find info nid, no_info);
+
+					fun same_delta (NULL, NULL) => TRUE;
+					    same_delta (THE i1: Null_Or( int32::Int ), THE i2)   =>   i1 == i2;
+					    same_delta _ => FALSE;
+					end;
+
+					if visited
+					    #
+					    if (not (same_delta (d, delta)))  error "dfs";  fi;
+					else 
+					    my (ops', delta2)
+						=
+						rewrite (reverse *ops, delta);
+
+					    ops := ops';
+					    iht::set info (nid, { visited=>TRUE, delta } );
+					    do_succ delta2;
+					fi;
+				    };
+			    esac;
+
+			  };
+
+		    virtual_framepointer
+			->
+			rkj::CODETEMP_INFO { color, ... };
+
+		    # Check that virtual frame pointer
+		    # is a pseudo register or aliased
+		    # to the stack pointer:
+		    #
+		    case *color
+			#
+			rkj::CODETEMP =>  apply (fn nid = dfs (nid, initial_fp_to_sp_delta)) (graph.entries ());
+			#
+			_             =>  error "virtual frame pointer not a pseudo register";
+		    esac;
+
+		    #  output cluster  
+		    #    if *dumpCfg then 
+		    #    pc::printCluster file::stdout "after omit frame pointer"  cl
+		    #    else ()
+		};
+	end;
+    };
+end;

@@ -1,0 +1,158 @@
+## compile-register-moves-g.pkg -- Implements parallel copy instructions as sequences of moves. 
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+# We are invoked by:
+#
+#     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+#     src/lib/compiler/back/low/pwrpc32/code/compile-register-moves-pwrpc32-g.pkg
+#     src/lib/compiler/back/low/sparc32/code/compile-register-moves-sparc32-g.pkg
+#     src/lib/compiler/back/low/intel32/code/compile-register-moves-intel32-g.pkg
+
+stipulate
+    package rkj =  registerkinds_junk;						# registerkinds_junk	is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package  compile_register_moves_g   (
+	#            ========================
+	#
+	mcf:  Machcode_Form							# Machcode_Form		is from   src/lib/compiler/back/low/code/machcode-form.api
+    )
+    : (weak)  api {
+
+	compile_int_register_moves
+	    :  
+	    { mv_instr:  { dst: mcf::Effective_Address,
+			   src: mcf::Effective_Address
+			 }
+			 -> List( mcf::Machine_Op ),
+
+	      ea:	 rkj::Codetemp_Info -> mcf::Effective_Address
+	    } 
+	    ->
+	    { tmp:  Null_Or( mcf::Effective_Address ),
+	      dst:  List( rkj::Codetemp_Info ),
+	      src:  List( rkj::Codetemp_Info )
+	    } 
+	    ->
+	    List( mcf::Machine_Op );
+    }
+    {
+	stipulate
+	    package rgk = mcf::rgk;						# "rgk" == "registerkinds".
+	herein
+
+	    Register = TEMP | REGISTER  rkj::Codetemp_Info;
+
+	    fun same_color (r1, r2)
+		=
+		rkj::codetemps_are_same_color (r1, r2);
+
+	    fun same_register (TEMP, TEMP)     => TRUE;
+		same_register (REGISTER u, REGISTER v) => same_color (u, v);
+		same_register _		     => FALSE;
+	    end;
+
+	    fun compile_int_register_moves { mv_instr, ea } { tmp, dst, src }
+		=
+		reverse (cycle (rmv_coalesced (dst, src), []))
+		where
+
+		    fun mv { dst, src, instrs }
+			=
+			list::reverse_and_prepend (mv_instr { dst, src }, instrs);
+
+
+		    fun operand dst
+			=
+			case dst
+			    #
+			    TEMP     =>  null_or::the  tmp; 
+			    REGISTER dst =>  ea dst;
+			esac;
+
+
+		    # Do unconstrained moves:
+		    #
+		    fun loop
+			  ( (p as (rd, rs)) ! rest,		# "rd, rs" may be "destination-register, source-register".
+			    changed,
+			    used,
+			    done,
+			    instrs
+			  )
+			    => 
+			    if  (list::exists
+				     (fn r =  same_register (r, rd))
+				     used
+			    )
+				loop (rest, changed, used, p ! done, instrs);
+			    else
+				loop (rest, TRUE, used, done, mv { dst=>operand rd, src=>operand rs, instrs } );
+			    fi;
+
+			loop ([], changed, _, done, instrs)
+			    =>
+			    (changed, done, instrs);
+		    end;
+
+
+		    fun cycle ([], instrs)
+			    =>
+			    instrs;
+
+			cycle (moves, instrs)
+			    =>
+			    case (loop (moves, FALSE, map #2 moves, [], instrs))
+				#
+				(_, [], instrs)
+				    =>
+				    instrs;
+
+				(TRUE, acc, instrs)						# "TRUE" is 'changed' (i.e., progress-made).
+				    =>								# "acc" may be (result) "accumulator".
+				    cycle (acc, instrs);
+
+				(FALSE, (rd, rs) ! acc, instrs)					# No progress, do triagular copy via tmp register if necessary.
+				    =>
+				    {   fun rename (p as (a, b))
+					    =
+					    if (same_register (rd, b))   (a, TEMP);
+					    else		  	         p;
+					    fi;
+
+					acc' = (rd, rs) ! map rename acc;
+
+					instrs' = mv { dst=>null_or::the tmp, src=>operand rd, instrs };
+
+					my (_, acc'', instrs'')
+					    = 
+					    loop (acc', FALSE, map #2 acc', [], instrs');
+
+					cycle (acc'', instrs'');
+				    };
+			    esac;
+		    end;
+
+		    # Remove moves that have been coalesced. 
+		    #
+		    rmv_coalesced
+			=
+			paired_lists::fold_left
+			    (fn (rd, rs, moves)
+				=
+				if (same_color (rd, rs))                               moves;
+				else		          (REGISTER rd, REGISTER rs) ! moves;
+				fi)
+			    [];
+
+		end;			# fun compile_int_register_moves
+	end;				# stipulate
+    };					# generic package  compile_register_moves_g
+end;					# stipulate
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

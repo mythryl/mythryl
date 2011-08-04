@@ -1,0 +1,197 @@
+## register-spilling-per-improved-chaitin-heuristic-g.pkg
+#
+# This module implements the Chaitin heuristic (but weighted by
+# priorities).  This version also takes into account of savings in
+# coalescing if a virtual is not spilled.  You should use this version
+# if your program uses direct style and makes use of calleesave registers.
+#
+# See also:
+#     src/lib/compiler/back/low/regor/register-spilling-per-chaitin-heuristic.pkg
+#     src/lib/compiler/back/low/regor/register-spilling-per-chow-hennessy-heuristic.pkg
+#     src/lib/compiler/back/low/regor/register-spilling-per-improved-chow-hennessy-heuristic-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/register-spilling.lib
+
+
+
+stipulate
+    package cig =  codetemp_interference_graph;					# codetemp_interference_graph		is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    package irc =  iterated_register_coalescing;				# iterated_register_coalescing		is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+herein
+
+    generic package   register_spilling_per_improved_chaitin_heuristic_g  ( 	# This is nowhere invoked.
+	#             ==================================================
+	#
+	move_ratio:  Float;							#  Cost of move compared to load/store; should be <= 1.0 
+    )
+    : (weak) Register_Spilling_Per_Xxx_Heuristic				# Register_Spilling_Per_Xxx_Heuristic	is from   src/lib/compiler/back/low/regor/register-spilling-per-xxx-heuristic.api
+    {
+	exception NO_CANDIDATE;
+
+	mode = irc::no_optimization;
+
+	fun init () =   ();
+
+
+	# Potential spill phase.
+	# Find a cheap node to spill according to Chaitin's heuristic.
+
+	fun choose_spill_node
+	      {
+		codetemp_interference_graph,
+		has_been_spilled,
+		spill_worklist
+	      }
+	    = 
+	    {   fun chase (cig::NODE { color=>REF (cig::ALIASED n), ... } ) =>   chase n;
+		    chase n						    =>         n;
+		end;
+
+		infinite_cost = 123456789.0;
+		don't_use     = 223456789.0;
+
+		#  Savings due to coalescing when a node is not spilled 
+		#
+		fun move_savings (cig::NODE { movecnt=>REF 0, ... } )
+			=>
+			0.0;
+
+		   move_savings (cig::NODE { movelist, ... } )
+			=> 
+			loop (*movelist, [])
+			where
+			    fun loop ([], savings)
+				    => 
+				    fold_right
+					(fn ((_, a), b) = float::max (a, b))
+					0.0
+					savings;
+
+			       loop (cig::MOVE_INT { status=>REF (cig::WORKLIST | cig::GEORGE_MOVE | cig::BRIGGS_MOVE), dst_reg, src_reg, cost, ... } ! mvs, savings)
+				    => 
+				    {   fun add (c,[])
+						=>
+						[(c, cost)];
+
+					    add (c, (x as (c': Int, s)) ! savings)
+						=>
+						if (c == c')
+						     (c', s+cost) ! savings; 
+						else
+						     x ! add (c, savings);
+						fi;
+					end;
+
+					savings
+					    =
+					    case (chase dst_reg)
+						#
+						cig::NODE { color=>REF (cig::COLORED c), ... }
+						    =>
+						    add (c, savings);
+
+						_   =>
+						    case (chase src_reg)
+							#
+							cig::NODE { color=>REF (cig::COLORED c), ... }
+							    =>
+							    add (c, savings);
+
+							_   => savings;
+						    esac;
+					    esac;
+
+				       loop (mvs, savings);
+				   };
+
+			       loop(_ ! mvs, savings)
+				    =>
+				    loop (mvs, savings);
+			    end;
+			end;
+		end;
+
+
+		# The spill worklist is maintained only lazily.  So we have
+		# to prune away those nodes that are already removed from the
+		# interference graph.  After pruning the spillWkl, 
+		# it may be the case that there aren't anything to be 
+		# spilled after all.
+		#
+		# Choose node with the lowest cost and have the maximal degree
+		#
+		fun chaitin ([], best, lowest_cost, spill_worklist)
+			=> 
+			(best, lowest_cost, spill_worklist);
+
+		    chaitin (node ! rest, best, lowest_cost, spill_worklist)
+			=> 
+			case (chase node)
+			    #
+			    node as cig::NODE { id, priority, defs, uses, degree=>REF deg, color=>REF cig::CODETEMP, ... }
+				=> 
+				{   fun cost ()
+					= 
+					{   move_savings =   move_ratio * move_savings (node);
+					    #
+					    (*priority + move_savings) // real deg;
+					};
+
+				    cost =  case (*defs, *uses)
+						#
+						(_, [])				#  Defs but no use 
+						    =>
+						    -1.0 - real deg;
+
+					       ([d], [u])				# defs after use; don't use
+						    =>
+						    {   fun plus ( { block, op }, n)
+							    =
+							    {   block,   op => op + n   };
+
+							if  (d == plus (u, 1)
+							or   d == plus (u, 2))
+							    #
+							    don't_use;
+							else
+							    cost ();
+							fi;
+						    };
+
+					       _ => cost ();
+					    esac;
+
+				    if (cost < lowest_cost
+				    and not (has_been_spilled  id))
+					#
+					case best
+					    NULL =>     chaitin (rest, THE node, cost,        spill_worklist);
+					    THE best => chaitin (rest, THE node, cost, best ! spill_worklist);
+					esac;
+				    else
+					chaitin (rest, best, lowest_cost, node ! spill_worklist);
+				    fi;
+				};
+
+			    _   =>   chaitin (rest, best, lowest_cost, spill_worklist);					# Discard node.
+			esac;
+		    end;
+
+															#  print("["$int::to_string (length spillWkl)$"]") 
+		(chaitin (spill_worklist, NULL, infinite_cost, []))
+		    ->
+		    (potential_spill_node, cost, new_spill_worklist);
+
+
+		case (potential_spill_node, new_spill_worklist)
+		    #
+		    (THE node, spill_worklist) =>  { node => THE node, cost, spill_worklist       };
+		    (NULL,     []            ) =>  { node => NULL,     cost, spill_worklist => [] };
+		    #
+		    (NULL, _)  =>  raise exception NO_CANDIDATE;
+
+		esac;
+	    };
+    };
+end;

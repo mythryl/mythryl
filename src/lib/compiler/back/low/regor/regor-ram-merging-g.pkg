@@ -1,0 +1,716 @@
+## regor-ram-merging-g.pkg				"regor" is a contraction of "register allocator"
+#
+# This module implements memory coalescing
+# for the register allocator.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+###       "To the man who only has a hammer in the toolkit,
+###        every problem looks like a nail."
+###
+###                            -- Abraham Maslow
+
+
+
+
+stipulate
+    package geh =  graph_by_edge_hashtable;			# graph_by_edge_hashtable		is from   src/lib/std/src/graph-by-edge-hashtable.pkg
+    package iht =  int_hashtable;				# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+    package irc =  iterated_register_coalescing;		# iterated_register_coalescing		is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+    package lcc =  lowhalf_control;				# lowhalf_control			is from   src/lib/compiler/back/low/control/lowhalf-control.pkg
+    package lem =  lowhalf_error_message;			# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package cig =  codetemp_interference_graph;			# codetemp_interference_graph		is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    package rwv =  rw_vector;					# rw_vector				is from   src/lib/std/src/rw-vector.pkg
+    package w   =  unt;						# unt					is from   src/lib/std/unt.pkg
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+    #
+    generic package   regor_ram_merging_g   (
+	#             ===================
+	#
+	rva:  Regor_View_Of_Machcode_Controlflow_Graph		# Regor_View_Of_Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/regor/regor-view-of-machcode-controlflow-graph.api
+    )
+    : (weak) Regor_View_Of_Machcode_Controlflow_Graph		# Regor_View_Of_Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/regor/regor-view-of-machcode-controlflow-graph.api
+    {
+	# Exported to client packages:
+	#
+	package mcf = rva::mcf;
+	package rgk = rva::rgk;
+	package cig = rva::cig;
+	package spl = rva::spl;
+	#
+	Machcode_Controlflow_Graph =  rva::Machcode_Controlflow_Graph;
+	#
+	mode                      =  rva::mode;
+	dump_flowgraph            =  rva::dump_flowgraph;
+	get_global_graph_notes	  =  rva::get_global_graph_notes;	# Get global notes for graph.
+
+
+	stipulate
+	    debug = FALSE;
+	herein
+
+
+	    ra_spill_coalescing
+		=
+		lcc::make_counter
+		    ("ra_spill_coalescing", "RA spill coalesce count");
+
+	    ra_spill_propagation
+		=
+		lcc::make_counter
+		    ("ra_spill_propagation", "RA spill propagation count");
+
+	    stipulate
+
+		fun error msg
+		    =
+		    lem::error("iterated_register_coalescing", msg);
+
+		fun cat ([],    b) =>  b;
+		    cat (x ! a, b) =>  cat (a, x ! b);
+		end;
+
+		fun chase (cig::NODE { color=>REF (cig::ALIASED n), ... } ) =>  chase n;
+		    chase n                                       =>  n;
+		end;
+
+	    herein
+
+		fun is_on (flag, mask)
+		    =
+		    unt::bitwise_and (flag, mask) != 0u0;
+
+
+		fun is_mem_loc (cig::SPILLED    ) =>  TRUE;
+		    is_mem_loc (cig::SPILL_LOC _) =>  TRUE;
+		    is_mem_loc (cig::RAMREG    _) =>  TRUE;
+		    is_mem_loc _             =>  FALSE;
+		end;
+
+
+		# Spill coalescing.
+		# Coalesce non-interfering moves between spilled nodes, 
+		# in non-increasing order of move cost.
+		#
+		fun spill_coalesce (cig::CODETEMP_INTERFERENCE_GRAPH { edge_hashtable, ... } )
+		    =
+		    {   edge_exists =  geh::edge_exists  *edge_hashtable;
+			insert_edge =  geh::insert_edge  *edge_hashtable;
+
+			fn nodes_to_spill
+			    =
+			    coalesce_moves (collect_moves (nodes_to_spill, irc::mv::EMPTY))
+			    where
+
+				# Find moves between two spilled nodes:
+				# 
+				fun collect_moves ([], mv')
+					=>
+					mv';
+
+				    collect_moves (cig::NODE { movelist, color, ... } ! ns, mv')
+					=>
+					{   fun ins ([], mv')
+						    =>
+						    collect_moves (ns, mv');
+
+						ins (cig::MOVE_INT { status=>REF (cig::COALESCED | cig::CONSTRAINED), ... } ! mvs, mv')
+						    => 
+						    ins (mvs, mv');
+
+						ins((mv as cig::MOVE_INT { dst_reg, src_reg, ... } ) ! mvs, mv')
+						    =>
+						    {
+							(chase dst_reg) ->   cig::NODE { color=>REF cd, id=>nd, ... };
+							(chase src_reg) ->   cig::NODE { color=>REF cs, id=>ns, ... };
+
+							if (nd==ns)
+							    #
+							    ins (mvs, mv');
+							else 
+							    case (cd, cs)
+								#
+								(cig::RAMREG _, cig::RAMREG _)
+								    =>
+								    ins (mvs, mv');
+
+								_ =>    if (is_mem_loc cd and is_mem_loc cs)    ins (mvs, irc::mv::add (mv, mv'));
+									else					ins (mvs, mv');
+									fi;
+							    esac;
+							fi;
+						    };
+					    end;
+
+					    if (is_mem_loc  *color)   ins (*movelist, mv');
+					    else                      collect_moves (ns, mv');
+					    fi;
+					};
+				end;
+
+				# Coalesce moves between two spilled nodes:
+				#
+				fun coalesce_moves (irc::mv::EMPTY)
+					=>
+					();
+
+				    coalesce_moves (irc::mv::TREE (cig::MOVE_INT { dst_reg, src_reg, cost, ... }, _, l, r))
+					=>
+					{   (chase dst_reg) ->  dst as cig::NODE { color=>color_dst, ... };
+					    (chase src_reg) ->  src;
+
+					    # Make sure that dst has not
+					    # been assigned a spill location:
+					    # 
+					    my (dst, src)
+						=
+						case *color_dst    cig::SPILLED => (dst, src);
+								   _       => (src, dst);
+						esac;
+
+					    dst ->  dst as cig::NODE { id=>d, color=>color_dst, interferes_with=>adj_dst, defs=>defs_dst, uses=>uses_dst, ... };	# "adj" == "adjacent"
+					    src ->  src as cig::NODE { id=>s, color=>color_src, interferes_with=>adj_src, defs=>defs_src, uses=>uses_src, ... };
+
+					    # Combine adjacency lists:
+					    #
+					    fun union ([], adj_src)
+						    =>
+						    adj_src;
+
+						union((n as cig::NODE { color, interferes_with=>adj_t, id=>t, ... } ) ! adj_dst, adj_src)
+						    => 
+						    case *color   
+							#
+							(cig::SPILLED | cig::RAMREG _ | cig::SPILL_LOC _ | cig::CODETEMP)
+							    =>
+							    if (insert_edge (s, t) ) 
+								 adj_t := src ! *adj_t;
+								 union (adj_dst, n ! adj_src);
+							    else union (adj_dst, adj_src);
+							    fi;
+
+							cig::COLORED _
+							    =>
+							    if (insert_edge (s, t))  union (adj_dst, n ! adj_src); 
+							    else                     union (adj_dst,     adj_src);
+							    fi;
+
+							_   => union (adj_dst, adj_src);
+						    esac;
+					    end;
+
+					    mvs = irc::mv::merge (l, r);
+
+					    fun f ()
+						= 
+						{   #  print (int::to_string d + "<->" + int::to_string s + "\n");
+						    ra_spill_coalescing := *ra_spill_coalescing + 1;
+						     #  unify 
+						    color_dst := cig::ALIASED src; 
+						    adj_src := union(*adj_dst, *adj_src);
+						    defs_src := cat(*defs_dst, *defs_src);
+						    uses_src := cat(*uses_dst, *uses_src);
+						    coalesce_moves mvs;
+						};
+
+					    if (d == s)
+						#
+						coalesce_moves mvs;
+					    else 
+						case *color_dst 
+						    #
+						    cig::RAMREG _      =>  coalesce_moves mvs;
+						    #
+						    cig::SPILLED       =>  if (edge_exists(d, s))  coalesce_moves  mvs;   else f();  fi;
+						    cig::SPILL_LOC loc =>  if (edge_exists(d, s))  coalesce_moves  mvs;   else f();  fi;
+						    #
+						    _                  =>  error "coalesce_moves";
+						esac;
+					    fi;		      
+					};
+				end;			# fun coalesce_moves
+			    end;			# where (fn fn nodes_to_spill)
+		    };					# fun spill_coalesce
+
+
+		# Spill propagation.
+		# This one uses a simple local lookahead algorithm.
+		#
+		fun spill_propagation'
+			#
+		        (cig as cig::CODETEMP_INTERFERENCE_GRAPH { edge_hashtable, ramregs, ... } )
+			#
+			nodes_to_spill
+		    =
+		    {   spill_coalesce =  spill_coalesce  cig;
+
+			exception SPILL_PROPAGATION;
+
+			visited =  iht::make_hashtable  { size_hint => 32,  not_found_exception => SPILL_PROPAGATION }
+				:  iht::Hashtable(  Bool );
+
+			has_been_visited
+			    =
+			    iht::find visited;
+
+			has_been_visited
+			    =
+			    fn r =  case (has_been_visited r)
+
+					 NULL  => FALSE;
+					 THE _ => TRUE;
+				    esac;
+
+			mark_as_visited
+			    =
+			    iht::set  visited;
+
+			edge_exists =   geh::edge_exists  *edge_hashtable;  
+
+			# compute savings due to spill coalescing.
+			# The move list must be associated with a colorable node.
+			# The pinned flag is to prevent the spill node from coalescing
+			# two different fixed memory registers.
+			#
+			fun coalescing_savings
+			     (node as cig::NODE { id=>me, movelist, priority=>REF spillcost, ... } )
+			    =
+			    {   fun interferes (x,[])
+					=>
+					FALSE;
+
+				    interferes (x, cig::NODE { id=>y, ... } ! ns)
+					=> 
+					x == y             or
+					edge_exists(x, y)  or
+					interferes (x, ns);
+				end;
+
+				fun move_savings ([], pinned, total)
+					=>
+					(pinned, total+total);
+
+				    move_savings (cig::MOVE_INT { status=>REF (cig::CONSTRAINED | cig::COALESCED), ... } ! mvs, pinned, total)
+					=> 
+					move_savings (mvs, pinned, total);
+
+				    move_savings (cig::MOVE_INT { dst_reg, src_reg, cost, ... } ! mvs, pinned, total)
+					=>
+					{   (chase dst_reg) ->  cig::NODE { id=>d, color=>dst_col, ... };
+					    (chase src_reg) ->  cig::NODE { id=>s, color=>src_col, ... };
+
+					    # How much can be saved by coalescing
+					    # with the memory  location x.
+					    #
+					    fun savings x
+						=
+						if (edge_exists(d, s))						if debug  print "interfere\n"; fi; 
+						    # 
+						    move_savings (mvs, pinned, total);
+
+						elif (x == -1 ) 						if debug  print (float::to_string cost + "\n"); fi;
+
+						    move_savings (mvs, pinned, total+cost);
+
+						elif (pinned >= 0 and pinned != x ) 				if debug  print "pinned\n"; fi;
+
+						   move_savings (mvs, pinned, total);				# Already coalesced with another mem reg 
+
+					       else								if debug  print (float::to_string cost + "\n"); fi;
+
+						   move_savings (mvs, x, total+cost);
+					       fi;
+
+														if debug  print("Savings " + int::to_string d + " <-> "  + int::to_string s  +  "=");  fi;
+
+					    if (d == s)								if debug  print "0 (trivial)\n"; fi;
+						move_savings (mvs, pinned, total);
+					    else
+						case (*dst_col, *src_col)
+						    #
+						    (cig::SPILLED,       cig::CODETEMP)        => savings  -1;
+						    (cig::RAMREG (m, _), cig::CODETEMP)        => savings   m;
+						    (cig::SPILL_LOC s,   cig::CODETEMP)        => savings  -s;
+						    (cig::CODETEMP,        cig::SPILLED)       => savings  -1;
+						    (cig::CODETEMP,        cig::RAMREG (m, _)) => savings   m;
+						    (cig::CODETEMP,        cig::SPILL_LOC s)   => savings  -s;
+						    _ => { 							if debug  print "0 (other)\n"; fi;
+							   move_savings (mvs, pinned, total);
+							 };
+						esac;
+					    fi;
+					};
+				end;
+
+				# Find initial budget:
+				#
+														if debug print("Trying to propagate " + int::to_string me  + " spill cost=" + float::to_string spillcost + "\n"); fi;
+
+				(move_savings (*movelist, -1, 0.0))
+				    ->
+				    (pinned, savings);
+				    
+
+				budget = spillcost - savings;
+				sss    = [node];
+
+				# Find lookahead nodes:
+				# 
+				fun lookaheads ([], l)
+					=>
+					l;
+
+				    lookaheads (cig::MOVE_INT { cost, dst_reg, src_reg, ... } ! mvs, l)
+					=>
+					{   (chase dst_reg) ->  dst as cig::NODE { id=>d, ... };
+					    (chase src_reg) ->  src as cig::NODE { id=>s, ... };
+
+					    fun check (n, node as cig::NODE { color=>REF cig::CODETEMP, ... } )
+						    => 
+						    if (n == me or edge_exists(n, me))   lookaheads (mvs, l);       
+						    else 				 add (n, node, l, []);
+						    fi; 
+						check _
+						    =>
+						    lookaheads (mvs, l);
+					    end 
+
+					    also
+					    fun add (x, x', (lll as (c, n' as cig::NODE { id=>y, ... } )) ! l, l')
+						    =>
+						    if (x == y)   lookaheads (mvs, (cost+c, n') ! list::reverse_and_prepend (l', l));
+						    else          add (x, x', l, lll ! l');
+						    fi;
+
+						add (x, x', [], l')
+						    => 
+						    lookaheads (mvs, (cost, x') ! l');
+					    end;
+
+					    if (d == me)   check (s, src);
+					    else           check (d, dst);
+					    fi;
+					};
+				end;
+
+				# Now try to improve it by also
+				# propagating the lookahead nodes:
+				# 
+				fun improve ([], pinned, budget, sss)
+					=>
+					(budget, sss);
+
+				    improve((cost, node as cig::NODE { id=>n, movelist, priority, ... } ) ! l, pinned, budget, sss)
+					=> 
+					if (interferes (n, sss) )
+					    if debug  
+						print ("Excluding " + int::to_string n + " (interferes)\n");
+					    fi;
+					    improve (l, pinned, budget, sss);
+					else
+					    my (pinned', savings)
+						=
+						move_savings (*movelist, pinned, 0.0);
+
+					    def_use_savings =  cost + cost;
+					    spillcost       =  *priority;
+
+					    budget' =  budget - savings - def_use_savings + spillcost;
+
+					    if (budget' <= budget)						if debug  print ("Including " + int::to_string n + "\n"); fi;
+						#
+						improve (l, pinned', budget', node ! sss);
+					    else								if debug  print ("Excluding " + int::to_string n + "\n"); fi;
+						improve (l, pinned, budget, sss);
+					    fi;
+					fi;
+				end;
+
+				if (budget <= 0.0)   (budget, sss);
+				else                 improve (lookaheads(*movelist, []), pinned, budget, sss);
+				fi;
+			    };
+
+			#  Insert all spillable neighbors onto the worklist 
+			#
+			fun insert ([], worklist)
+				=>
+				worklist;
+
+			    insert((node as cig::NODE { color=>REF cig::CODETEMP, id, ... } ) ! interferes_with, worklist)
+				=>
+				if (has_been_visited  id)
+				    # 
+				    insert (interferes_with, worklist);
+				else
+				    mark_as_visited (id, TRUE);
+				    insert (interferes_with, node ! worklist);
+				fi;
+
+			    insert(_ ! interferes_with, worklist)
+				=>
+				insert (interferes_with, worklist);
+			end;
+
+			fun insert_all ([], worklist)
+				=>
+				worklist;
+
+			    insert_all (cig::NODE { interferes_with, ... } ! nodes, worklist)
+				=> 
+				insert_all (nodes, insert(*interferes_with, worklist));
+			end;
+
+			marker = cig::SPILLED;
+
+			#  Process all nodes from the worklist 
+			#
+			fun propagate ([], spilled)
+				=>
+				spilled;
+
+			    propagate((node as cig::NODE { color=>REF cig::CODETEMP, ... } ) ! worklist, 
+				      spilled)
+				=>
+				{   (coalescing_savings node) ->   (budget, sss);
+
+				    fun spill_nodes ([])
+					    =>
+					    ();
+
+					spill_nodes (cig::NODE { color, ... } ! nodes)
+					    => 
+					    { ra_spill_propagation := *ra_spill_propagation + 1;
+					     color := marker; #  spill the node 
+					     spill_nodes nodes;
+					    };
+				    end;
+
+				    if (budget <= 0.0)
+
+					#  propagate spill 
+					if debug 
+					   print("Propagating ");
+					   apply (fn cig::NODE { id=>x, ... } =  print (int::to_string x + " "))
+					       sss;
+					   print "\n";
+					fi;
+
+					spill_nodes sss;
+
+					#  run spill coalescing 
+					spill_coalesce sss;
+					propagate (insert_all (sss, worklist), list::reverse_and_prepend (sss, spilled));
+				    else
+					propagate (worklist, spilled);
+				    fi;
+				};
+
+			   propagate (_ ! worklist, spilled)
+			       => 
+			       propagate (worklist, spilled);
+			end;
+
+			# Initialize worklist:
+			#
+			fun init ([], worklist)
+				=>
+				worklist;
+
+			    init (cig::NODE { interferes_with, color=>REF (c), ... } ! rest, worklist)
+				=>
+				if (is_mem_loc (c))   init (rest, insert (*interferes_with, worklist));
+				else                  init (rest,                           worklist);
+				fi;
+			end;
+
+
+			# Iterate between spill coalescing and propagation 
+			#
+			fun iterate (spill_work_list, spilled)
+			    = 
+			    {
+				spill_coalesce spill_work_list;					# Run one round of coalescing first.
+
+				propagation_work_list = init (spill_work_list, []); 
+
+				spilled = propagate (propagation_work_list, spilled);		# Iterate on our own spill nodes.
+				spilled = propagate(*ramregs, spilled);				# Try the memory registers too. 
+
+				spilled;
+			    };
+
+			iterate (nodes_to_spill, nodes_to_spill);
+		    };
+
+
+
+		# Spill coloring.
+		# Assign logical spill locations to all the spill nodes.
+		#
+		# IMPORTANT BUG FIX:
+		#    Spilled copy temporaries are assigned its own set of colors and
+		# cannot share with another other nodes.   They can share colors with 
+		# themselves however.
+		#
+		# spill_loc is the first available (logical) spill location.
+		#
+		fun color_spills (cig::CODETEMP_INTERFERENCE_GRAPH { spill_loc, copy_tmps, mode, ... } ) nodes_to_spill
+		    =
+		    {   prohibitions = rwv::make_rw_vector (length nodes_to_spill, -1);
+
+			first_color  = *spill_loc;
+
+			fun color_copy_tmps (tmps)
+			    =
+			    {   fun spill_tmp (cig::NODE { color as REF (cig::SPILLED), ... }, found)
+					=> 
+					{   color := cig::SPILL_LOC (first_color);
+					    TRUE;
+					};
+
+				    spill_tmp(_, found)
+					=>
+					found;
+				end;
+
+				if   (list::fold_left spill_tmp FALSE tmps)
+
+				     spill_loc := *spill_loc + 1;
+				     first_color + 1;
+				else
+				     first_color;
+				fi;
+			    };
+
+			# Color the copy temporaries first:
+			#
+			first_color
+			    = 
+			    if (is_on (mode, irc::has_parallel_copies))
+				#
+				color_copy_tmps *copy_tmps; 
+			    else
+				first_color;
+			    fi;
+
+			fun select_color ([], _, last_loc)
+				=>
+				spill_loc := last_loc;
+
+			    select_color (cig::NODE { color as REF (cig::SPILLED), id, interferes_with, ... } ! nodes, curr_loc, last_loc)
+				=> 
+				{   fun neighbors (cig::NODE { color=>REF (cig::SPILL_LOC s), ... } )
+					    => 
+					    rwv::set (prohibitions, s - first_color, id);
+
+					neighbors (cig::NODE { color=>REF (cig::ALIASED n), ... } ) => neighbors n;
+					neighbors _ => ();
+				    end;
+
+				    apply neighbors *interferes_with;
+
+				    fun find_color (loc, starting_pt)
+					=
+					if   (loc == last_loc )                                  find_color (first_color, starting_pt);
+					elif (rwv::get (prohibitions, loc-first_color) != id)    (loc, last_loc);
+					elif (loc  == starting_pt )                              (last_loc, last_loc+1);
+					else                                                     find_color (loc+1, starting_pt);
+					fi;
+
+				    my (loc, last_loc)
+					=
+					find_color (curr_loc + 1, curr_loc);
+
+
+				    color := cig::SPILL_LOC (loc); #  mark with color 
+				    select_color (nodes, loc, last_loc);
+				};
+
+			    select_color(_ ! nodes, curr_loc, last_loc)
+				=> 
+				select_color (nodes, curr_loc, last_loc);
+			end;
+
+			# Color the rest of the spilled nodes:
+			# 
+			select_color (nodes_to_spill, first_color, *spill_loc + 1);     
+
+		    };			# fun color_spills
+
+		end;			# stipulate
+
+
+		spill_coalescing     = 0ux100;
+		spill_coloring       = 0ux200;
+		spill_propagation    = 0ux400;
+
+
+		# New services that also perform memory allocation 
+		#
+		fun services f
+		    =
+		    {   (rva::services f)
+			    ->
+			    { build, spill=>spill_method, block_num, instr_num, program_point };
+
+			# Mark nodes that are immediately aliased to ramregs;
+			# These are nodes that need also to be spilled
+			#
+			fun mark_ramregs []
+				=>
+				();
+
+			    mark_ramregs (cig::NODE { id=>r, 
+					     color as REF (cig::ALIASED
+							  (cig::NODE { color=>REF (col), ... } )), ... } ! ns)
+				=>
+				{   case col
+					cig::RAMREG _ =>   color := col;
+					_        =>   ();
+				    esac;
+
+				    mark_ramregs (ns);
+				};
+
+			    mark_ramregs(_ ! ns)
+				=>
+				mark_ramregs  ns;
+			end;
+
+
+			# Actual spill phase.  
+			#   Perform the memory coalescing phases first, before doing an 
+			#   actual spill.
+
+			fun spill { graph => graph as cig::CODETEMP_INTERFERENCE_GRAPH { mode, ... },
+                                    nodes,
+				    copy_instr, spill, spill_src, spill_copy_tmp,
+				    reload, reload_dst, rename_src, registerkind
+                                  }
+			    =
+			    {   nodes = if (is_on (mode, spill_propagation) )   
+						spill_propagation' graph nodes; else nodes;fi;
+
+				if (is_on (mode, spill_coalescing))   spill_coalesce graph nodes;   fi;
+				if (is_on (mode, spill_coloring  ))   color_spills   graph nodes;   fi;
+				if (is_on (mode, spill_coalescing
+					      + spill_propagation))   mark_ramregs         nodes;   fi;
+
+				spill_method
+				  { graph, nodes, copy_instr, spill, spill_src, spill_copy_tmp,
+				    reload, reload_dst, rename_src, registerkind
+				  }; 
+			    };
+
+		       { build, spill, program_point, block_num, instr_num };
+		  };
+	end;
+    }; 									# generic package regor_ram_merging_g
+end;

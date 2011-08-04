@@ -1,0 +1,101 @@
+
+# This is a generic module for performing (forward) dataflow 
+# analysis on the SSA graph.  It behavior is somewhat parameterizable.
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+
+###           "It is impossible to retrofit quality,
+###            maintainability and reliability."
+###
+###                          -- A M Davis
+
+
+
+generic package SSADataflow (SSA:  SSA) : SSA_DATAFLOW_ANALYSIS =
+pkg
+
+   package ssa = SSA
+   package rtl = SSA::RTL
+   package c   = SSA::C
+   package t   = RTL::T
+   package g   = graph
+   package a   = rw_vector
+   package w8a = rw_unt8_vector
+
+   fun error msg = lowhalf_error_message::error("SSADataflowAnalysis", msg)
+
+   fun dataflowAnalysis
+       { ssa=SSA as g::GRAPH ssa, meet, bot, top, ====, transfer, const } = 
+   let M          = ssa.capacity ()
+       values     = a::rw_vector (M, bot) #  flow values 
+       onWorkList = w8a::rw_vector (M, 0w1) #  initially everything in on WL 
+       defsTable    = SSA::defsTable SSA
+       usesTable    = SSA::usesTable SSA
+       rtlTable     = SSA::rtlTable SSA
+       succTable    = SSA::succTable SSA
+       defSiteTable = SSA::defSiteTable SSA
+
+       fun valueOf v = if v < 0 then const v else a::sub (values, v)
+
+       zeroR = case c::zeroReg c::GP of THE r => r | NULL => -1
+
+       fun iterate [] = () #  Done 
+         | iterate (i . WL) =  
+           let w8a::update (onWorkList, i, 0w0)
+               uses = a::sub (usesTable, i)
+               defs = a::sub (defsTable, i)
+               rtl  = a::sub (rtlTable, i)
+               inputs = map valueOf uses
+           in  case rtl of
+                 t::PHI _ => phi (i, inputs, defs, WL)
+               | t::SOURCE { liveIn, ... } => source (i, defs, liveIn, WL)
+               | t::SINK _ => iterate WL
+               |  _ =>
+                 let outputs = transfer { rtl=rtl, inputs=inputs, defs=defs }
+                 in  process (i, defs, outputs, WL, FALSE) 
+                 end
+           end
+
+       and phi (i, inputs, [t], WL) = 
+           let old = a::sub (values, t)
+               new = meet inputs
+           in  if ====(old, new) then iterate WL
+               else (a::update (values, t, new); propagate (i, WL))
+           end
+         | phi _ = error "phi"
+
+       and source (i, [], [], WL) = propagate (i, WL)
+         | source (i, v . vs, r . rs, WL) =
+           (a::update (values, v, if r == zeroR then const -1 else top);   
+                #  XXX 
+            source (i, vs, rs, WL)
+           )
+         | source _ = error "source"
+
+       and process (i, [], [], WL, affected) = 
+             if affected then propagate (i, WL) else iterate WL
+         | process (i, v . vs, d . ds, WL, affected) =
+           let old = a::sub (values, v)
+           in  if ====(old, d) then process (i, vs, ds, WL, affected)
+               else (a::update (values, v, d);
+                     process (i, vs, ds, WL, TRUE)
+                    )
+           end
+         | process _ = error "process"
+
+       and propagate (i, WL) = insert (a::sub (succTable, i), WL)
+
+       and insert([], WL) = iterate WL
+         | insert((_, j, _) . es, WL) = 
+             if w8a::sub (onWorkList, j) != 0w0 then insert (es, WL)
+             else (w8a::update (onWorkList, j, 0w1); insert (es, j . WL))
+   
+       ops = map #1 (ssa.nodes ())
+
+   in  iterate ops;
+       values        
+   end
+
+end

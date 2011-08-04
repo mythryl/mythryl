@@ -1,0 +1,260 @@
+## win32-binary-base-io.pkg
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+
+
+
+# This implements the Win32 version of the OS specific binary primitive
+# IO package.  The Text IO version is implemented by a trivial translation
+# of these operations (see nt-text-base-io.sml).
+
+
+
+package Win32BinPrimIO:  Os_Base_Io {
+
+    package md = maildrop
+
+    package base_io = threadkit_binary_base_io
+	
+    package W32FS = Win32::file_system
+    package W32IO = Win32::IO
+    package W32G = Win32::general
+
+    package v = unt8_vector
+	
+    type File_Descriptor = W32G::hndl
+	
+    pfi = file_position::from_int
+    pti = file_position::toInt
+    pfw = file_position::from_int o W32G::unt::toInt
+    ptw = W32G::unt::from_int o file_position::toInt
+	    
+    say = W32G::logMsg
+
+    bufferSzB = 4096
+
+    seek = pfw o W32IO::setFilePointer'
+
+    fun posFns iod = 
+	  if (winix::io::kind iod == winix::io::Kind::file)
+	    then let
+	      my pos:  Ref(   file_position::Int ) = REF (pfi 0)
+	      fun getPos () : file_position::Int = *pos
+	      fun setPos p = 
+		    pos := seek (W32FS::IODToHndl iod, ptw p, W32IO::FILE_BEGIN)
+	      fun endPos () : file_position::Int = (
+		    case W32FS::getLowFileSize (W32FS::IODToHndl iod)
+		     of THE w => pfw w
+		      | _ => raise exception winix::RUNTIME_EXCEPTION("endPos: no file size", NULL)
+		    )		# end case
+	      fun verifyPos () = (
+		    pos := seek (W32FS::IODToHndl iod, 0wx0, W32IO::FILE_CURRENT);
+		    *pos)
+	      in
+		ignore (verifyPos());
+		{ pos=pos,
+		  getPos=THE getPos,
+		  setPos=THE setPos,
+		  endPos=THE endPos,
+		  verifyPos=THE verifyPos
+		}
+	      end
+	    else {
+		pos=REF (pfi 0),
+		getPos=NULL, setPos=NULL, endPos=NULL, verifyPos=NULL
+	      }
+		
+    fun addCheck f (THE g) = THE (f g)
+      | addCheck _ NULL = NULL
+
+    fun mkReader { fd, name } = let
+	  iod = W32FS::hndlToIOD fd
+	  lockMV = md::mVarInit()
+	  fun withLock f x = (
+		md::mTake lockMV;
+		(Syscall::doSyscall f x) before md::mPut (lockMV, ()))
+		  except ex => (md::mPut (lockMV, ()); raise exception ex)
+	  fun withLock' NULL = NULL
+	    | withLock' (THE f) = THE (withLock f)
+	  closed = REF FALSE
+          my { pos, getPos, setPos, endPos, verifyPos } = posFns iod
+	  fun incPos k = pos := position.+(*pos, pfi k)
+	  fun blockWrap f x = (
+		if *closed then raise exception io::CLOSED_IO_STREAM 
+		f x)
+	  readEvt =
+		IOManager::ioEvt (winix::io::pollIn (null_or::the (winix::io::pollDesc iod)))
+	  fun eventWrap f x = threadkit::withNack (fn nack => (
+		if *closed then raise exception io::CLOSED_IO_STREAM 
+		case (md::mTakePoll lockMV)
+		 of NULL => let
+		      replV = md::iVariable()
+		      in
+			threadkit::make_thread "binary_base_io" (fn () => threadkit::select [
+			    threadkit::wrap (readEvt, fn _ => md::iPut (replV, ())),
+			    nack
+			  ]);
+			threadkit::wrap (md::iGetEvt replV, fn _ => f x)
+		      end
+		  | (THE _) => threadkit::wrap (readEvt,
+			fn _ => (md::mPut (lockMV, ()); f x))
+		/* end case */))
+	  fun readVec n = let
+		threadkit::sync readEvt
+		v = W32IO::readVec (W32FS::IODToHndl iod, n)
+		in
+		  incPos (v::length v); v
+		end
+	  fun readArr arg = let
+		threadkit::sync readEvt
+		k = W32IO::readArr (W32FS::IODToHndl iod, arg)
+		in
+		  incPos k; k
+		end
+	  fun close () = if *closed
+		then ()
+		else (closed:=TRUE; W32IO::close (W32FS::IODToHndl iod))
+	  fun avail () = if *closed
+		then THE 0
+		else (case W32FS::getLowFileSize (W32FS::IODToHndl iod)
+		   of THE w => THE (position.-(pfw w,*pos))
+		    | NULL => NULL
+		  )		# end case
+	  in
+	    threadkit_binary_base_io::RD {
+		name		= name,
+		chunkSize	= bufferSzB,
+		readVec		= withLock (blockWrap readVec),
+		readArr		= withLock (blockWrap readArr),
+		readVecEvt	= eventWrap readVec,
+		readArrEvt	= eventWrap readArr,
+		avail		= withLock avail,
+		getPos		= withLock' getPos,
+		setPos		= withLock' setPos,
+		endPos		= withLock' endPos,
+		verifyPos	= withLock' verifyPos,
+		close		= withLock close,
+		ioDesc		= THE iod
+	      }
+	  end
+
+
+    shareAll = W32G::unt::bitwise_or (W32IO::FILE_SHARE_READ, W32IO::FILE_SHARE_WRITE)
+
+    fun checkHndl name h = if W32G::isValidHandle h
+	  then h
+	  else raise exception winix::RUNTIME_EXCEPTION("win32-binary-base-io: checkHndl: "$name$": failed", NULL)
+
+    fun openRd name = mkReader {
+	    fd = checkHndl "openRd" (W32IO::createFile {
+		name=name,
+		access=W32IO::GENERIC_READ,
+		share=shareAll,
+		mode=W32IO::OPEN_EXISTING,
+		attributes=0wx0
+	      } ),
+	    name = name
+	  }
+
+    fun mkWriter { fd, name, appendMode, chunkSize } = let
+	  iod = W32FS::hndlToIOD fd
+	  lockMV = md::mVarInit()
+	  fun withLock f x = (
+		md::mTake lockMV;
+		(Syscall::doSyscall f x) before md::mPut (lockMV, ()))
+		  except ex => (md::mPut (lockMV, ()); raise exception ex)
+	  fun withLock' NULL = NULL
+	    | withLock' (THE f) = THE (withLock f)
+	  closed = REF FALSE
+	  fun ensureOpen () = if *closed then raise exception io::CLOSED_IO_STREAM else ()
+	  fun putV x = W32IO::writeVec x
+	  fun putA x = W32IO::writeArr x
+	  fun write put arg = (ensureOpen(); put (W32FS::IODToHndl iod, arg))
+	  writeEvt =
+		IOManager::ioEvt (winix::io::pollOut (null_or::the (winix::io::pollDesc iod)))
+	  fun eventWrap f x = threadkit::withNack (fn nack => (
+		if *closed then raise exception io::CLOSED_IO_STREAM 
+		case (md::mTakePoll lockMV)
+		 of NULL => let
+		      replV = md::iVariable()
+		      in
+			threadkit::make_thread "binary_base_io writer" (fn () => threadkit::select [
+			    threadkit::wrap (writeEvt, fn _ => md::iPut (replV, ())),
+			    nack
+			  ]);
+			threadkit::wrap (md::iGetEvt replV, fn _ => f x)
+		      end
+		  | (THE _) => threadkit::wrap (writeEvt,
+			fn _ => (md::mPut (lockMV, ()); f x))
+		/* end case */))
+	  fun close () = if *closed
+		then ()
+		else (closed:=TRUE; W32IO::close (W32FS::IODToHndl iod))
+          my { pos, getPos, setPos, endPos, verifyPos } = posFns (iod)
+	  in
+	    threadkit_binary_base_io::WR {
+		name		= name,
+		chunkSize	= chunkSize,
+		writeVec	= withLock (write putV),
+		writeArr	= withLock (write putA),
+		writeVecEvt	= eventWrap (write putV),
+		writeArrEvt	= eventWrap (write putA),
+		getPos		= withLock' getPos,
+		setPos		= withLock' setPos,
+		endPos		= withLock' endPos,
+		verifyPos	= withLock' verifyPos,
+		close		= withLock close,
+		ioDesc		= THE iod
+	      }
+	  end
+
+    fun openWr name = mkWriter {
+	    fd = checkHndl "openWr" (W32IO::createFile {
+		name=name,
+		access=W32IO::GENERIC_WRITE,
+		share=shareAll,
+		mode=W32IO::CREATE_ALWAYS,
+		attributes=W32FS::FILE_ATTRIBUTE_NORMAL
+	      } ),
+	    name = name,
+	    appendMode = FALSE,
+	    chunkSize = bufferSzB
+	  }
+
+    fun openApp name = let
+	  h = checkHndl "openApp" (W32IO::createFile {
+		  name=name,
+		  access=W32IO::GENERIC_WRITE,
+		  share=shareAll,
+		  mode=W32IO::OPEN_EXISTING,
+		  attributes=W32FS::FILE_ATTRIBUTE_NORMAL
+		} )
+	  W32IO::setFilePointer' (h, 0wx0, W32IO::FILE_END)
+	  in
+	    mkWriter { fd = h, name = name, appendMode = TRUE, chunkSize = bufferSzB }
+	  end
+
+};		#  Win32BinPrimIO 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,3671 @@
+## generics-expansion-junk-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+###      "I invented the term Object-Oriented,
+###       and I can tell you I did not have
+###       C++ in mind."
+###
+###                       -- Alan Kay 
+
+
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+# It calls us to do specialized generic expansion stuff.
+
+
+# This function constructs a dummy package which satisfies all sharing
+# constraints (explicit or induced) of a given api.  The resulting
+# package is used as the dummy parameter of a generic while typechecking
+# and abstracting the generic body.
+#
+# The process of constructing the package is essentially a unification
+# problem.  The algorithm used here is based on the Linear Unification
+# algorithm first presented in [1] which was subsequently corrected
+# and cleaned up in [2].
+#
+# The basic algorithm makes 2 passes.
+# 
+# The first pass builds a DAG in a quasi-top down fashion which
+# corresponds to the minimal package  needed to match the api.
+#
+# The second pass takes the DAG and constructs the actual dummy
+# package in a bottom-up fashion.
+#
+# Pass 1 has a fairly complicated control package.
+
+# The major invariant is that no node in the graph
+# is expanded unless all of its ancestors have been
+# expanded.  This insures that all sharing constraints
+# (explicit or derived) have reached the node at the
+# time of its expansion.
+#
+# The second major invariant is that no node is
+# finalized until all members in its equivalence
+# class have been found.
+#
+# [1] Paterson, m::S., and Wegman, m::N., "Linear Unification", 
+#     J. Comp. Sys. Sci. 16, 2 (April 1978), pp. 158-167.
+#
+# [2] de Champeaux, D., "About the Paterson-Wegman Linear Unification
+#     Algorithm", J. of Comp. Sys. Sci. 32, 1986, pp. 79-88.
+
+
+# This module (and a few others that depend on it) are parameterized
+# over certain backend-specifics (highcode) to avoid dependencies.
+# This api describes the parameter:
+
+stipulate
+    package di  =  debruijn_index;				# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ii  =  inlining_information;			# inlining_information		is from   src/lib/compiler/front/typer-stuff/basics/inlining-information.pkg
+    package mld =  module_level_declarations;			# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package sap =  stamppath;					# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package ty  =  types;					# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+herein
+
+    api Generics_Expansion_Junk_Parameter {
+	#
+	Highcode_Kind;
+
+	make_n_arg_typ_fun_uniqkind:  Int -> Highcode_Kind;						#  rename to "intToTypekind"    ? 
+	make_kindfun_uniqkind:  (List( Highcode_Kind ),  Highcode_Kind) -> Highcode_Kind;	#  rename to "typekindFunction" ? 
+	make_kindseq_uniqkind:  List(  Highcode_Kind ) -> Highcode_Kind;            		#  rename to "typekindSequence" ? 
+
+	api_bound_generic_evaluation_paths:  mld::Api_Record
+					 ->  Null_Or( List( (sap::Stamppath, Highcode_Kind) ) );
+
+	set_api_bound_generic_evaluation_paths:  ( mld::Api_Record,
+						   Null_Or( List( (sap::Stamppath, Highcode_Kind) ) )
+						 )
+						-> Void;
+
+	tvi_exception:  { debruijn_depth:	di::Debruijn_Depth,
+			  num:			Int,
+			  kind:			Highcode_Kind
+			}
+			-> Exception;
+
+	inlining_info_to_my_type:  ii::Inlining_Information
+			           -> Null_Or( ty::Type );
+    };
+end;
+
+
+stipulate
+    package di  =  debruijn_index;				# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ii  =  inlining_information;			# inlining_information		is from   src/lib/compiler/front/typer-stuff/basics/inlining-information.pkg
+    package ip  =  inverse_path;				# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lnd =  line_number_db;				# line_number_db		is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package mld =  module_level_declarations;			# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package sap =  stamppath;					# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package trj =  typer_junk;					# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package ty  =  types;					# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+herein
+
+    api Generics_Expansion_Junk {
+
+	package param:  Generics_Expansion_Junk_Parameter;		# Generics_Expansion_Junk_Parameter	is from   src/lib/compiler/front/typer/modules/generics-expansion-junk-g.pkg
+
+
+
+	#  Typechecking of generic parameter apis: 
+
+	 do_generic_parameter_api
+	    :
+	    {   an_api:			mld::Api,
+		typerstore:		mld::Typerstore,
+		debruijn_depth:		di::Debruijn_Depth,	        # of enclosing generic abstractions    # rename "genericNestingDepth"? 
+		inverse_path:           ip::Inverse_Path,
+		source_code_region:     lnd::Source_Code_Region,
+		per_compile_info:       trj::Per_Compile_Info
+	    }
+	 -> { typechecked_package:	mld::Typechecked_Package,
+	      typ_paths:		List( ty::Typ_Path )
+	    };
+
+
+
+	#  Typechecking of formal generic body apis: 
+
+	 macro_expand_formal_generic_body_api
+	    : 
+	    {   an_api:			mld::Api,
+		typerstore:		mld::Typerstore,
+		typ_path:		ty::Typ_Path,
+		inverse_path:		ip::Inverse_Path,
+		source_code_region:	lnd::Source_Code_Region,
+		per_compile_info:	trj::Per_Compile_Info
+	   }
+	-> {    typechecked_package:	mld::Typechecked_Package,
+		abstract_typs:	List( ty::Typ ),
+		typ_stamppaths:	List( sap::Stamppath )
+	   };
+
+
+
+	 #  Typechecking of package abstractions: 
+	 #
+	 instantiate_package_abstractions
+	    : 
+	    {   an_api:				mld::Api,
+		typerstore:			mld::Typerstore,
+		source_typechecked_package:	mld::Typechecked_Package, 
+		inverse_path:			ip::Inverse_Path,
+		source_code_region:		lnd::Source_Code_Region,
+		per_compile_info:		trj::Per_Compile_Info
+	    }
+	 -> {   typechecked_package:		mld::Typechecked_Package,
+		abstract_typs:		List( ty::Typ ),
+		typ_stamppaths:		List( sap::Stamppath )
+	    };
+
+
+
+	 # Fetching the list of typeConstructorPaths
+	 # for a particular package:
+	 #
+	 get_packages_typ_paths
+	    :
+	    {   an_api:				mld::Api,
+		typechecked_package:		mld::Typechecked_Package,
+		typerstore:			mld::Typerstore,
+		per_compile_info:		trj::Per_Compile_Info
+	    }
+	    ->
+	    List( ty::Typ_Path );
+
+
+
+	 debugging:  Ref(  Bool );
+
+    }; #  Api Generics_Expansion_Junk 
+end;
+
+
+
+
+
+#  We use a generic to to factor out dependencies on highcode: 
+
+stipulate
+    package di  =  debruijn_index;			# debruijn_index			is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ed  =  typer_debugging;			# typer_debugging			is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+    package em  =  error_message;			# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package eu  =  typer_junk;				# typer_junk				is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package ii  =  inlining_information;		# inlining_information			is from   src/lib/compiler/front/typer-stuff/basics/inlining-information.pkg
+    package ip  =  inverse_path;			# inverse_path				is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lnd =  line_number_db;			# line_number_db			is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package mj  =  module_junk;				# module_junk				is from   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+    package mld =  module_level_declarations;		# module_level_declarations		is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package sap =  stamppath;				# stamppath				is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package pu  =  print_utilities;			# print_utilities			is from   src/lib/compiler/front/basics/print/printutil.pkg
+    package sy  =  symbol;				# symbol				is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;				# symbol_path				is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package sta =  stamp;				# stamp					is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package tro =  typerstore;				# typerstore				is from   src/lib/compiler/front/typer-stuff/modules/typerstore.pkg
+    package tu  =  type_junk;				# type_junk				is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package ty  =  types;				# types					is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package vh  =  varhome;				# varhome				is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+    #
+    include module_level_declarations;
+    include types;
+herein 
+
+    generic package  macro_generics_expansion_junk_g   (
+	#            ================================
+	#
+	param: Generics_Expansion_Junk_Parameter	# Generics_Expansion_Junk_Parameter	is from   src/lib/compiler/front/typer/modules/generics-expansion-junk-g.pkg
+    )
+    : (weak)  Generics_Expansion_Junk			# Generics_Expansion_Junk		is from   src/lib/compiler/front/typer/modules/generics-expansion-junk-g.pkg
+    {
+
+	package param = param;
+
+	#  ----------------------- utility functions ----------------------------- 
+
+	#  Debugging 
+
+	say         =   control_print::say;
+	debugging   =   typer_control::generics_expansion_junk_debugging;		#  REF FALSE 
+	#
+	fun if_debugging_say (msg: String)
+            =
+            if *debugging 
+                say msg;
+                say "\n";
+            fi;
+	#
+	fun bug s
+            =
+            em::impossible ("MacroExpand: " + s);
+	#
+	fun wrap function_name f arg
+	    =
+	    if *debugging
+		#
+		say (">> " + function_name + "\n");
+
+		result = f arg;
+
+		say ("<< " + function_name + "\n");
+		result;
+	    else
+		f arg;
+            fi;
+	#
+	fun debug_type (msg: String, typ: ty::Typ)
+	    =
+	    ed::with_internals
+		(fn ()
+		    =
+		    ed::debug_print
+			debugging
+			( msg,
+                          unparse_type::unparse_typ  symbolmapstack::empty,
+                          typ
+                        )
+                );
+
+
+	#  error state 
+
+	error_found   =   REF FALSE;
+
+	infinity = 1000000; #  A big integer 
+	#
+	fun push (r, x)
+            =
+            r :=  x ! *r;
+	#
+	fun path_name (path: ip::Inverse_Path)
+            :
+            String
+	    = 
+	    syp::to_string (invert_path::invert_ipath path);
+
+	eq_origin   =   mj::eq_origin;
+	apis_equal  =   mj::apis_equal;
+
+
+	#
+	fun same_package_identifier (
+
+                A_PACKAGE {
+
+                    an_api => sg1,
+		    typechecked_package => { stamp => s1, ... },
+		    ...
+	        },
+
+		A_PACKAGE {
+
+                    an_api => sg2,
+		    typechecked_package => { stamp => s2, ... },
+		    ... 
+		}
+	    )
+		=>
+		apis_equal (sg1, sg2)
+		and
+		sta::same_stamp (s1, s2);
+
+	    same_package_identifier _ => FALSE;
+        end;
+	#
+	fun api_name (API { name, ... } )  =>   the_else (null_or::map sy::name name, "Anonymous");
+	    api_name ERRONEOUS_API         =>   "ERRONEOUS_API";
+        end;
+
+
+
+
+
+	#  -------------------- important data structures ------------------------ 
+
+
+
+	# The different kinds of typechecked_packages: 
+
+	Typechecked_Package_Kind 
+	  = ABSTRACT_GENERIC_EVALUATION           mld::Typechecked_Package
+	  | FORMAL_BODY_GENERIC_EVALUATION        ty::Typ_Path
+	  | GENERIC_PARAMETER_GENERIC_EVALUATION  di::Debruijn_Depth
+          ;
+
+
+
+	# enum stampInfo 
+	# encodes an instruction about how to get a stamp for a new typechecked_package
+
+	Stamp_Info
+	  = STAMP  sta::Stamp             #  Here is the stamp 
+	  | PATH   sap::Stamppath	 #  Get the stamp of the typechecked_package designated by the path 
+	  | GENERATE_STAMP              #  Generate a new stamp (using the make_fresh_stamp parameter) 
+	  ;
+
+
+	# enum typechecked_package_info
+	#
+	# The contents of the finalMacroExpansion field of the FULLY_EXPLORED_PACKAGE inst variant.
+	# Defined in finalize (in build_package_equivalence_class), used in instanceToPackageMacroExpansion to
+	# determine how to find or build the typechecked_package.
+	# 
+	# The bool argument of GENERATE_GENERIC_EVALUATION is normally TRUE when there was
+	# a VARIABLE_PACKAGE_DEFINITION applying to the package spec with a different api
+	# than the spec. This means that the spec api should be considered
+	# as open, despite what it's "closed" field might say.  This was introduced
+	# to fix bug 1238.  [dbm, 8/13/97]
+
+	Typechecked_Package_Info
+	  = CONSTANT_GENERIC_EVALUATION  mld::Typechecked_Package	   # Here it is 
+	  | PATH_GENERIC_EVALUATION      sap::Stamppath 	   # Find it via this Stamppath 
+	  | GENERATE_GENERIC_EVALUATION  Bool			   # Generate a new one 
+	  ;
+
+
+	Typechecked_Typ
+	  = ALREADY_MACRO_EXPANDED    Typ
+	  | NEEDS_GENERIC_EVALUATION  Typ
+	  ;
+
+
+
+	# This enum represents the continually
+        # changing DAG that is being constructed by
+        # 'macroExpand'.
+        #
+        # We start off with just an Initial node.  
+        #
+	# It is expanded into a Partial node whose
+        # children are initialized to Initial nodes.
+        #
+        # When all of the members of the nodes
+	# equivalence class have been found and
+        # converted to Partial nodes, the node
+        # is converted to a FULLY_EXPLORED_PACKAGE.
+	#
+        # Finally we recurse on the children of
+        # the node.  
+	#
+	# Invariants:
+	#
+	#    The parent node is in a singleton equivalence class.
+	#
+	#    All nodes that are about to be explored
+        #    are either Initial or Partial.
+	#    (Exploring a Final node implies circularity.)
+	#
+	#    If a Final node's 'expanded' field is TRUE,
+        #    then all of its children are Final with
+        #    'expanded' field set 'TRUE'.
+
+	Typechecked_Package_Dag_Node
+
+	    #  package instances 
+            
+	  = #  Nodes whose equivalence class is fully explored 
+
+            FULLY_EXPLORED_PACKAGE  {
+
+                an_api:   mld::Api,
+		stamp:    Ref( Stamp_Info ),
+	        #
+		slot_dictionary:            Slot_Dictionary,
+		final_typechecked_package:  Ref( Typechecked_Package_Info ),
+		expanded:                   Ref( Bool )
+	    }
+
+	  | #  Nodes whose equivalence class we are currently exploring: 
+
+            PARTIALLY_EXPLORED_PACKAGE  {
+
+	        an_api:               mld::Api,
+		path:                 ip::Inverse_Path,
+		#
+		slot_dictionary:      Slot_Dictionary,
+		components:           List( (sy::Symbol, Slot) ), #  sorted by symbol 
+		#
+		depth:                Int,
+		final_representation:  Ref(  Null_Or(  Typechecked_Package_Dag_Node ) )
+	    }
+
+	  | #  Nodes whose equivalence class we have not yet started to explore 
+
+            UNEXPLORED_PACKAGE  { 
+
+	        an_api:       mld::Api,
+	        api_depth:         Int,
+	        path:             ip::Inverse_Path,
+	        stamppath:  sap::Stamppath,
+	        slot_dictionary:         Slot_Dictionary,
+	        inherited:        Ref(  List(  Constraint ) )
+            }
+
+	  | NULL_PACKAGE
+	  | ERROR_PACKAGE
+
+	    #  typ instances 
+
+	  | FINAL_TYP  Ref( Typechecked_Typ )
+
+	  | PARTIAL_TYP  {
+
+	        typ:  Typ, 
+	        path:              ip::Inverse_Path, 
+	        stamppath:       sap::Stamppath
+            }
+
+	  | INITIAL_TYP  {
+
+	        typ: Typ, 
+	        path:             ip::Inverse_Path, 
+	        stamppath:      sap::Stamppath,
+	        inherited:        Ref(  List(  Constraint ) )
+            }
+
+	  | NULL_TYP
+	  | ERROR_TYP
+
+	    #  generic instances 
+
+	  | FINAL_GENERIC  {
+
+	        an_api:       mld::Generic_Api,
+	        def:          Ref(  Null_Or(  mld::Generic ) ),
+	        path:         ip::Inverse_Path,
+	        stamppath:  sap::Stamppath
+            }
+
+	  | NULL_GENERIC
+
+	# A constraint is essentially a directed arc
+	# indicating that two nodes are to be identified.
+        #
+        # The constraint is always interpreted
+	# relative to a package typechecked_package node.
+        #
+        # The my_path field is a symbolic
+	# path (in regular order) indicating which
+        # subcomponent of the local typechecked_package is
+        # participating in the sharing.
+        #
+        # The other component is accessed
+	# by first finding the typechecked_package node in the
+        # itsAncestor slot, and then following
+	# the symbolic path itsPath to the node.
+        #
+        # By going through the ancestor, we are able
+        # to insure that the ancestor is explored
+	# before the actual component is, so that
+        # its inherited constraints are propagated
+        # downward properly.
+
+	also
+        Constraint
+          = SHARE
+              { my_path:       syp::Symbol_Path,  #  regular symbolic path 
+		its_ancestor:  Slot,
+		its_path:      syp::Symbol_Path,  #  regular symbolic path 
+		depth:         Int		 #  Api nesting depth of base constraint 
+              }
+
+          | DEFINE_PACKAGE                 (Package_Definition,           Int)		# Int is api nesting depth of defn.
+	  | DEFINE_TYP_ENTRY  (Typechecked_Typ, Int)		# Int is api nesting depth of defn.
+
+	withtype
+            Slot = Ref( Typechecked_Package_Dag_Node )	# slot: a node in the graph (maybe "node" would be a better name?) 
+
+	# slot_dictionary: association list mapping macroExpansionVars to slots 
+	also
+        Slot_Dictionary = List( (sta::Stamp, Slot) );
+
+
+	#  Debugging 
+	fun typechecked_package_dag_node_to_string typechecked_package_dag_node
+            =
+	    case typechecked_package_dag_node
+		#	      
+		FULLY_EXPLORED_PACKAGE { an_api, stamp, slot_dictionary, final_typechecked_package, expanded }
+		    =>
+		    "FULLY_EXPLORED_PACKAGE(" + api_name (an_api) + ")";
+
+		PARTIALLY_EXPLORED_PACKAGE { an_api, path, slot_dictionary, components, depth, final_representation }
+		    =>
+		    "PARTIALLY_EXPLORED_PACKAGE(" + ip::to_string path + ")";
+
+		UNEXPLORED_PACKAGE { an_api, api_depth, path, slot_dictionary, inherited, stamppath }
+		    =>
+		    "UNEXPLORED_PACKAGE(" + ip::to_string path + ")";
+
+		FINAL_TYP (REF (ALREADY_MACRO_EXPANDED typ))
+		    =>
+		    "FINAL_TYP::ALREADY_MACRO_EXPANDED(" + (sy::name (tu::typ_name typ)) + ")";
+
+		FINAL_TYP (REF (NEEDS_GENERIC_EVALUATION typ))
+		    =>
+		    "FINAL_TYP::NEEDS_GENERIC_EVALUATION(" + (sy::name (tu::typ_name typ)) + ")";
+
+		PARTIAL_TYP { typ, path, ... }
+		    =>
+		    "PARTIAL_TYP(" + ip::to_string path + ")";
+
+		INITIAL_TYP { typ, path, ... }
+		    => 
+		    "INITIAL_TYP(" + ip::to_string path + ")";
+
+		FINAL_GENERIC { path, ... }
+		    =>
+		    "FINAL_GENERIC(" + ip::to_string path + ")";
+
+		NULL_TYP  =>  "NULL_TYP";
+		NULL_PACKAGE         =>  "NULL_PACKAGE";
+		NULL_GENERIC           =>  "NULL_GENERIC";
+		ERROR_PACKAGE        =>  "ERROR_PACKAGE";
+		ERROR_TYP =>  "ERROR_TYP";
+            esac;
+
+	#
+	fun get_slot ((ev, slot) ! rest,   ev')
+		=>
+		if (sap::same_module_stamp (ev, ev'))
+                    slot;
+	        else
+                    get_slot (rest, ev');
+                fi;
+
+	    get_slot (NIL, _)   =>   bug "lookUpSlot";
+        end;
+
+
+	# Get slot for api element (typ or package) --- 
+	# Look up symbol in an_api, get Module_Stamp, lookup this Module_Stamp in slotDict 
+	#
+	fun get_elem_slot (symbol, API { api_elements, ... }, slot_dictionary)   :   Slot
+		=>
+		case (mj::get_api_element_variable  (mj::get_api_element  (api_elements,  symbol)))
+		    #
+		    THE v => get_slot (slot_dictionary, v);
+		    NULL   => bug "getElemSlot (1)";
+		esac;
+
+
+	    get_elem_slot _ => bug "getElemSlot (2)";
+        end;
+
+	#
+	fun get_elem_slots ( API { api_elements, ... }, slot_dictionary)   :   List( (sy::Symbol, Slot) )
+		=>
+	        list::map_maybe_null_fn  f  api_elements
+		where
+		    fun f (symbol, spec)
+			= 
+			case (mj::get_api_element_variable  spec)
+			    #
+			    THE v => THE (symbol, get_slot (slot_dictionary, v));
+			    NULL   => NULL;
+                        esac;
+		end;
+
+	    get_elem_slots _ => bug "getElemSlots";
+        end;
+
+	# Retrieve all [formal] subpackage components from an api:
+	#
+	fun get_sub_sigs (API { api_elements, ... } )
+		=>
+		list::map_maybe_null_fn
+		    #
+		    fn (symbol, PACKAGE_IN_API { an_api, module_stamp, ... } )
+		       =>
+		       THE (symbol, module_stamp, an_api);
+
+		      _ => NULL;
+		    end 
+		    #
+		    api_elements;
+
+	   get_sub_sigs _
+               =>
+               [];
+        end;
+
+
+	#  Translate a typ to a Typechecked_Typ 
+	#
+	fun ext_typ_to_tyc_inst typ
+            =
+	    case typ
+
+	        (ty::DEFINED_TYP _ | ty::TYP_BY_STAMPPATH _)
+		    =>
+		    NEEDS_GENERIC_EVALUATION typ;
+
+		# May need typechecked_package -- could check
+		# first whether body of DEFINED_TYP contains any
+		# PATHtyps -- see bug 1200.
+
+	        _ => ALREADY_MACRO_EXPANDED typ;
+            esac;
+
+		 #  PLAIN_TYP -- won't need typechecked_package 
+
+	# getElementDefinitions:  Package_Definition * (Void -> stamp) * Int -> (sy::Symbol * constraint) List
+	#   returns the definition constraints for components of a Package_Definition,
+	#   sorted by the component name in ascending order
+	#
+	fun get_element_definitions (package_definition, make_fresh_stamp, depth)   :   List( (sy::Symbol, Constraint) )
+	    =
+	    {   components
+		    = 
+		    case package_definition
+			#		      
+			CONSTANT_PACKAGE_DEFINITION (
+			    A_PACKAGE { an_api => API { api_elements, ... },
+					typechecked_package as { typerstore, ... },
+					...
+				      }
+			)
+			    =>
+			    list::map_maybe_null_fn   fff   api_elements
+			    where
+				fun fff (symbol, PACKAGE_IN_API { an_api, module_stamp, definition, slot } )
+				        =>
+					{   if_debugging_say (">>getElementDefinitions::C: PACKAGE_IN_API " + symbol::name symbol);
+					    #
+					    THE (
+						symbol,
+						DEFINE_PACKAGE (
+						    CONSTANT_PACKAGE_DEFINITION (
+							A_PACKAGE { an_api,
+								    typechecked_package =>  tro::find_package_by_module_stamp (typerstore, module_stamp),
+								    varhome             =>  vh::null_varhome,
+								    inlining_info       =>  ii::NULL
+								  }
+						    ),
+						    depth
+						)
+					    )
+					    before if_debugging_say ("<<getElementDefinitions::C: PACKAGE_IN_API " + symbol::name symbol);
+				       };
+
+				    fff (symbol, TYP_IN_API { typ, module_stamp, is_a_replica, scope } )
+				        =>
+				        {   if_debugging_say (">>getElementDefinitions::C: TYP_IN_API " + symbol::name symbol);
+
+					    {   typ'            =   tro::find_typ_by_module_stamp (typerstore, module_stamp);
+					        typechecked_typ =   ext_typ_to_tyc_inst typ';
+
+						debug_type ("#getElementDefinitions: TYP_IN_API", typ');
+
+						THE (symbol, DEFINE_TYP_ENTRY (typechecked_typ, depth));
+					    };
+				       };
+
+				   fff _ =>   NULL;
+				end;
+			    end;
+
+			VARIABLE_PACKAGE_DEFINITION ( API { api_elements, ... }, stamppath)
+			    =>
+			    list::map_maybe_null_fn   fff   api_elements
+			    where
+				fun fff (symbol, PACKAGE_IN_API { an_api, module_stamp, definition, slot } )
+				       =>
+				       {   if_debugging_say (
+					       ">>get_element_definitions::V: PACKAGE_IN_API "
+					     + symbol::name symbol
+					     + ", stamppath: "
+					     + sap::stamppath_to_string stamppath
+					     + ", module_stamp: "
+					     + sap::module_stamp_to_string module_stamp
+					   );
+
+					   THE (
+					       symbol,
+					       DEFINE_PACKAGE (
+						   VARIABLE_PACKAGE_DEFINITION (
+						       an_api,
+						       stamppath @ [module_stamp]
+						   ),
+						   depth
+					       )
+					   );
+				       };
+
+				  fff (symbol,   TYP_IN_API { typ, module_stamp, is_a_replica, scope })
+				       =>
+				       {    if_debugging_say (
+						">>getElementDefinitions::V: TYP_IN_API "
+					      + symbol::name symbol
+					      + ", stamppath: "
+					      + sap::stamppath_to_string stamppath
+					      + ", module_stamp: "
+					      + sap::module_stamp_to_string module_stamp
+					    );
+
+					    THE (
+						symbol,
+						DEFINE_TYP_ENTRY (
+						    NEEDS_GENERIC_EVALUATION (
+							TYP_BY_STAMPPATH {
+							    arity      => tu::typ_arity typ,
+							    stamppath => stamppath @ [module_stamp],
+							    path       => tu::typ_path typ
+							}
+						    ),
+						    depth
+						)
+					    );
+					};
+
+				  fff _ =>   NULL;
+			       end;
+			    end;
+
+
+		       CONSTANT_PACKAGE_DEFINITION ERRONEOUS_PACKAGE => NIL;
+		       _ => bug "getElementDefinitions";
+                 esac;
+
+
+
+		 list_mergesort::sort
+		     (fn((s1, _), (s2, _)) =  sy::symbol_gt (s1, s2))
+		     components;
+	     };
+
+
+	# make_element_slots:  Api
+	#                  * slot_dictionary
+	#                  * ip::Inverse_Path
+	#                  * Stamppath
+	#                  * Int
+	#                 -> slot_dictionary
+	#                  * List( sy::Symbol * slot )
+	#
+	#   Create slots with initial insts for the components of the api
+	#   for a package spec.  slots are associated with element names and
+	#   sorted in ascending order by element name.  the slots are also 
+	#   added to the inherited slot_dictionary, bound the corresponding element's
+	#   module_stamp, and the augmented slot_dictionary is returned
+	#
+	fun make_element_slots (API { api_elements, ... }, slot_dictionary, inverse_path, epath, api_depth)
+		=>
+	        make_slots (api_elements, slot_dictionary, NIL)
+                where
+		    fun make_slot ((symbol, PACKAGE_IN_API { an_api as API { closed, ... },
+								 module_stamp,
+								 definition,
+								 ...
+							       }
+				 ), slot_dictionary)
+			    => 
+			    # A definitional package spec is
+			    # translated into a DEFINE_PACKAGE
+			    # constraint:
+			    {   constraints
+				    =
+				    case definition
+					 NULL => [];
+					THE (package_definition, scope) => [DEFINE_PACKAGE (package_definition, api_depth-scope)]; esac;
+
+				THE (
+				    module_stamp,
+				    REF (
+					UNEXPLORED_PACKAGE {
+					    an_api,
+					    api_depth,
+					    path        => ip::extend (inverse_path, symbol),
+
+					    slot_dictionary   => if   closed      NIL;
+							   else             slot_dictionary;
+							   fi,
+
+					    stamppath => epath @ [module_stamp],
+					    inherited       => REF constraints
+					}
+				    )
+				);
+			    };
+
+		        make_slot (   (   symbol,
+					 PACKAGE_IN_API {   an_api as ERRONEOUS_API,
+								    module_stamp,
+								    ...
+								}
+				     ),
+				     slot_dictionary
+				 )
+			    => 
+			    THE (module_stamp, REF (ERROR_PACKAGE));
+
+			make_slot (   (   symbol,
+					 TYP_IN_API {   typ,
+									   module_stamp,
+									   is_a_replica,
+									   scope
+								       }
+				     ),
+				     slot_dictionary
+				 )
+			    => 
+			    case typ
+
+				  #  translate a DEFINED_TYP spec into a DEFINE_TYP_ENTRY constraint 
+
+				  DEFINED_TYP {   stamp,
+							       path,
+							       type_scheme => TYPE_SCHEME { arity, ... },
+							       ...
+							   }
+				  => 
+
+
+				  {   typ' = PLAIN_TYP {
+							      stamp,
+							      arity,
+							      path,
+							      eq    => REF (INDETERMINATE),
+							      kind  => FORMAL,
+							      stub  => NULL
+							  };
+
+				      THE (
+					  module_stamp,
+
+					  REF (   INITIAL_TYP {
+						      typ => typ',
+						      path            => ip::extend (inverse_path, symbol),
+						      stamppath => epath @ [module_stamp],
+						      inherited       => REF [   DEFINE_TYP_ENTRY (
+										    NEEDS_GENERIC_EVALUATION typ,
+										    api_depth - scope
+										)
+									    ]
+						  }
+					      )
+				      );
+				  };
+
+				 _
+				  => 
+				  THE (
+				      module_stamp,
+				      REF (
+					  INITIAL_TYP {
+					      typ,
+					      path            => ip::extend (inverse_path, symbol),
+					      stamppath => epath @ [module_stamp],
+					      inherited       => REF []
+					  }
+				      )
+				  );
+			    esac;
+
+
+			make_slot (   (   symbol,
+					 GENERIC_IN_API { a_generic_api,
+							  module_stamp,
+							  ...
+							}
+				     ),
+				     slot_dictionary
+				 )
+			    => 
+			    THE (
+				module_stamp,
+				REF (
+				    FINAL_GENERIC {  an_api          => a_generic_api,
+						     def             => REF NULL, 
+						     stamppath => epath @ [module_stamp],
+						     path            => ip::extend (inverse_path, symbol)
+						 }
+				)
+			    );
+
+			make_slot _
+			    =>
+			    NULL;		  #  value element 
+		    end;
+		    #
+		    fun make_slots (NIL, slot_dictionary, slots)
+			    =>
+			    ( slot_dictionary,
+			      list_mergesort::sort
+                              (fn((s1, _), (s2, _)) = sy::symbol_gt (s1, s2))
+			      slots
+			    );
+
+			make_slots ( (element as (symbol, _)) ! rest,   slot_dictionary,   slots)
+			    =>
+			    case (make_slot (element, slot_dictionary))
+				#
+				THE (binder as (_, slot))
+				    =>
+				    make_slots (rest,   binder ! slot_dictionary,   (symbol, slot) ! slots);
+
+				NULL =>   make_slots (rest, slot_dictionary, slots);
+			    esac;
+		    end;
+		end;
+
+	    make_element_slots _
+		=>
+		bug "make_element_slots";
+        end;
+
+
+	# debugging wrappers
+	# getSubSigs = wrap "getSubSigs" getSubSigs
+	# getElementDefinitions = wrap "getElementDefinitions" getElementDefinitions
+	# makeElementSlots = wrap "makeElementSlots" makeElementSlots
+
+
+	# propagateDefinitionConstraints:  List (symbol * slot)  * List (symbol * constraint)  -> Void
+	#
+	#   Propagate definition constraints down
+        #   to the components of a package node
+        #   that has a definition constraint.
+        #
+        #   Called only in constrain in build_Package_equivalence_class,
+        #   i.e. when propagating constraints to children of
+        #   a node.
+	#
+	# NOTE: Does not check that each element in the first list has
+	# an associated constraint in the second list.
+	# 
+	# ASSERT: Doth arguments of propagateDefinitionConstraints
+        #         are sorted in assending order by the symbol component
+        #         (the arguments are supplied by makeElementSlots and
+	#         getElementDefinitions, respectively).
+	#
+	# ASSERT: All constraints in the second argument are
+        #         DEFINE_PACKAGE or DEFINE_TYP_ENTRY, as appropriate.
+	#
+	fun propagate_definition_constraints (NIL, _)   =>   ();
+	    propagate_definition_constraints (_, NIL)   =>   ();
+
+	    propagate_definition_constraints (   a1 as (symbol1, sl) ! rest1,
+                                               a2 as (symbol2, def) ! rest2
+                                           )
+		=>
+		if   (sy::symbol_gt (symbol1, symbol2)   )   propagate_definition_constraints (a1, rest2);
+		elif (sy::symbol_gt (symbol2, symbol1)   )   propagate_definition_constraints (rest1, a2);
+		else
+		     case *sl
+
+			 UNEXPLORED_PACKAGE     { inherited, ... }   =>   push (inherited, def);
+			 INITIAL_TYP { inherited, ... }   =>   push (inherited, def);
+
+			 ERROR_PACKAGE                               => (error_found := TRUE);
+			 ERROR_TYP                        => ();
+
+			 _                                             => bug "propagateDefinitionConstraints";
+		     esac;
+
+		     propagate_definition_constraints (rest1, rest2);
+		fi;
+        end;
+
+
+	# propagateSharingConstraints:  List( sy::Symbol * slot ) * List( sy::symbol * slot ) -> Void
+	#
+	#   Propagates inherited sharing constraints (SHARE) to the matching
+	#   elements of two package nodes.  Called only in addInst in
+	#   build_package_equivalence_class, i.e. when adding a new instance to an
+	#   equivalence class.
+	# 
+	# ASSERT: both arguments of propagateSharingConstraints are sorted in assending order by the
+	# symbol component.
+	# 
+	# ASSERT: matching slots are either both UNEXPLORED_PACKAGE, both INITIAL_TYP,
+	# or one is ERROR_PACKAGE or ERROR_TYP.
+	#
+	fun propagate_sharing_constraints (NIL, _, _) => ();
+	    propagate_sharing_constraints (_, NIL, _) => ();
+	    propagate_sharing_constraints ( a1 as (symbol1, slot1) ! rest1,
+			                  a2 as (symbol2, slot2) ! rest2,
+			                  depth
+                                        )
+            =>
+	    if   (sy::symbol_gt (symbol1, symbol2) ) propagate_sharing_constraints (a1, rest2, depth);
+	    elif (sy::symbol_gt (symbol2, symbol1) ) propagate_sharing_constraints (rest1, a2, depth);
+	    else
+		case (*slot1, *slot2)
+
+		     (   UNEXPLORED_PACKAGE { inherited=>inherited1, ... },
+			 UNEXPLORED_PACKAGE { inherited=>inherited2, ... }
+		     )
+			 =>
+			 {   push (
+				 inherited1,
+				 SHARE {
+				     my_path      => syp::empty,
+				     its_ancestor => slot2,
+				     its_path     => syp::empty,
+				     depth
+				 }
+			     );
+
+			     push (
+				 inherited2,
+				 SHARE {
+				     my_path      => syp::empty,
+				     its_ancestor => slot1,
+				     its_path     => syp::empty,
+				     depth
+				 }
+			     );
+			 };
+
+		     (   INITIAL_TYP { inherited => inherited1, ... }, 
+			 INITIAL_TYP { inherited => inherited2, ... }
+		     )
+			 =>
+			 {   push (
+				 inherited1,
+				 SHARE {
+				     my_path      => syp::empty,
+				     its_ancestor => slot2,
+				     its_path     => syp::empty,
+				     depth
+				 }
+			     );
+
+			     push (
+				 inherited2,
+				 SHARE {
+				     my_path      => syp::empty,
+				     its_ancestor => slot1,
+				     its_path     => syp::empty,
+				     depth
+				 }
+			     );
+			 };
+
+		    (ERROR_PACKAGE, _)          =>   ();
+		    (_, ERROR_PACKAGE)          =>   ();
+
+		    (ERROR_TYP, _)   =>  ();
+		    (_, ERROR_TYP)   =>   ();
+
+		    _ => bug "propagateSharingConstraints";
+		esac;
+
+		propagate_sharing_constraints (rest1, rest2, depth);
+            fi;
+	end;
+
+
+	# debugging wrappers
+	# propagateSharingConstraints = wrap "propagateSharingConstraints" propagateSharingConstraints
+
+
+
+	# *************************************************************************
+	# propagatePackageSharingConstraints:  Api
+        #                                      * slot_dictionary
+        #                                      * Typerstore
+        #                                      * Int
+        #                                     -> Void                            *
+	#                                                                        *
+	# This function distributes the package
+        # sharing constraints of a api to
+        # the children of a corresponding node.
+	#                                                                        *
+        # Note that this only deals with the explicit
+        # constraints.  Implied and inherited constraints
+        # are propagated by propagateSharingConstraints
+        # and the constraint functions  build_package_equivalence_class
+        # and build_typ_equvalence_class.                                    *
+	# **************************************************************************
+	exception PROPAGATE_PACKAGE_SHARING_CONSTRAINTS;
+	#
+	fun propagate_package_sharing_constraints
+                (
+                  an_api as API { package_sharing, ... },
+		  slot_dictionary,
+		  typerstore,
+		  api_depth
+	        )
+            =>
+	    {   fun step_path (syp::SYMBOL_PATH (symbol ! path))
+			=>
+			{   slot = get_elem_slot (symbol, an_api, slot_dictionary);
+
+			    case *slot
+			      
+				 UNEXPLORED_PACKAGE { inherited, ... }
+				     =>
+				     (syp::SYMBOL_PATH path, inherited, slot);
+
+				 ERROR_PACKAGE => raise exception PROPAGATE_PACKAGE_SHARING_CONSTRAINTS;
+				 _               => bug "propagatePackageSharingConstraints::stepPath 1";
+			    esac;
+			};
+
+		    step_path (syp::SYMBOL_PATH [])
+			=>
+			bug "propagate_package_sharing_constraints::stepPath 2";
+                 end;
+		#
+		fun dist_share (p ! rest)
+			 =>
+			 {   my (p1, h1, slot1) = step_path p;
+			     #	
+			     fun add_constraints (p2, h2, slot2)
+				 =
+				 {    push (
+					  h1,
+					  SHARE {
+					      my_path      => p1,
+					      its_path     => p2,
+					      its_ancestor => slot2,
+					      depth       => api_depth
+					  }
+				      );
+				      push (
+					  h2,
+					  SHARE {
+					      my_path      => p2,
+					      its_path     => p1,
+					      its_ancestor => slot1,
+					      depth       => api_depth
+					  }
+				      )
+				 ;};
+
+			     apply (fn p' => add_constraints (step_path p'); end ) rest;
+			 };
+
+		     dist_share []
+			 =>
+			 ();
+                 end;
+
+
+                 apply  dist_share  package_sharing
+                 except
+                     PROPAGATE_PACKAGE_SHARING_CONSTRAINTS
+			 =
+			 ();
+	     };
+
+	    propagate_package_sharing_constraints _
+		=>
+		();
+	end; 
+
+
+	# ***************************************************************************
+	# propagateTypeSharingConstraints:  Api                               *
+	#                                 * slot_dictionary                               *
+	#                                 * Typerstore              *
+	#                                 * (Void->stamp)                           *
+	#                                 * Int                                     *
+	#                               -> Void                                     *
+	#                                                                           *
+	# This function distributes the type sharing constraints that a api         *
+	# has to the children of the corresponding node.                            *
+	# ***************************************************************************
+	exception PROPAGATE_TYPE_SHARING_CONSTRAINTS;
+	#
+	fun propagate_type_sharing_constraints (   an_api as API { type_sharing, ... },
+						slot_dictionary,
+						typerstore,
+						make_fresh_stamp,
+						api_depth
+					    )
+		=>
+		{   fun step_path ( syp::SYMBOL_PATH [symbol])
+			    =>
+			    {   slot = get_elem_slot (symbol, an_api, slot_dictionary);
+
+				case *slot
+
+				    INITIAL_TYP { inherited, ... }
+					=>
+					(syp::SYMBOL_PATH [], inherited, slot);
+
+				    ERROR_TYP   =>   raise exception PROPAGATE_TYPE_SHARING_CONSTRAINTS;
+				    _                        =>   bug "propagateTypeSharingConstraints: stepPath 1";
+				esac;
+			    };
+
+			step_path (syp::SYMBOL_PATH (symbol ! path))
+			    =>
+			    {   slot = get_elem_slot (symbol, an_api, slot_dictionary);
+
+				case *slot
+
+				     UNEXPLORED_PACKAGE { inherited, ... }
+				     =>
+				     (syp::SYMBOL_PATH path, inherited, slot);
+
+				    ERROR_PACKAGE   =>   raise exception PROPAGATE_TYPE_SHARING_CONSTRAINTS;
+				    _                 =>   bug "propagateTypeSharingConstraints: stepPath 2";
+				esac;
+			    };
+
+			step_path _
+			    =>
+			    bug "propagateTypeSharingConstraints: stepPath 3";
+		    end;
+		    #
+		    fun dist_share (p ! rest)
+			    => 
+			    {   my (p1, h1, slot1)
+				    =
+				    step_path p;
+
+					# step_path might raise mj::UNBOUND if there were errors
+					# in the api (testing/modules/tests/101.sml)
+				#
+				fun g (p2, h2, slot2)
+				    =
+				    {   push (
+					    h1,
+					    SHARE {   my_path      => p1,
+						      its_path     => p2,
+						      its_ancestor => slot2,
+						      depth       => api_depth
+						  }
+					);
+
+					push (
+					    h2,
+					    SHARE {   my_path      => p2,
+						      its_path     => p1,
+						      its_ancestor => slot1,
+						      depth       => api_depth
+						  }
+					);
+				    };
+
+				 apply  (fn p' = g (step_path p')) rest;
+			     };
+
+			dist_share []
+			    =>
+			    ();
+		    end;
+
+
+		    apply dist_share type_sharing
+		    except
+			PROPAGATE_TYPE_SHARING_CONSTRAINTS
+			    =
+			    ();
+		};
+
+	    propagate_type_sharing_constraints _
+		=>
+		();
+        end; 
+
+	# debugging wrappers
+#	propagatePackageSharingConstraints = wrap "propagatePackageSharingConstraints" propagatePackageSharingConstraints
+#	propagateTypeSharingConstraints = wrap "propagateTypeSharingConstraints" propagateTypeSharingConstraints
+
+
+	exception EXPLORE_INST  ip::Inverse_Path;
+
+
+	#  THIS COMMENT OBSOLETE 
+	# **************************************************************************
+	# build_package_equivalence_class:  slot
+        #                     * Int
+        #                     * Typerstore
+        #                     * (Void -> stamp)
+        #                     * em::Plaint_Sink
+	#                    -> Void                          
+	#
+	# The slot argument is assumed to contain an UNEXPLORED_PACKAGE.
+	#
+	# This function computes the equivalence class
+	# of the package  element associated with the slot.
+	#
+        # It proceeds as follows:
+	# 
+	# 1. New slots are created for the elements of the api.
+	# 
+	# 2. The UNEXPLORED_PACKAGE is replaced by a PARTIALLY_EXPLORED_PACKAGE.
+	# 
+	# 3. The api's explicit type and package sharing
+	#    constraints are propagated to the member elements using
+        #    propagatePackageSharingConstraints and
+        #    propagateTypeSharingConstraints.
+	# 
+	# 4. This node's inherited constraints are processed.  If they apply
+	#    to this node, the equivalence class is enlarged (using addInst) or 
+	#    a definition is set (equivalence_class_def).  If a constraint applies to children
+	#    of this node, they are propagated to the children.  Processing a 
+	#    sharing constraint may require that an ancestor of the other node
+	#    in the constraint first be explored by build_package_equivalence_class.
+	# 
+	#    Once constrain is complete, equivalence class contains a list of equivalent
+        #    PARTIALLY_EXPLORED_PACKAGE nodes that constitute the sharing
+        #    equivalence class of the original node (thisSlot).
+	# 
+	# 5. finalize is applied to the members of the equivalence class to
+	#    turn them into FinalStrs.  The FinalStrs are memoized in the 
+        #    PARTIALLY_EXPLORED_PACKAGE nodes to insure that
+        #    equivalent nodes that have the same api
+	#    will contain the same FULLY_EXPLORED_PACKAGE value.
+	# 
+	# If two slots in the equivalence class have nodes that share the same api,
+	# then the slots are made to point to only one of the nodes.  Of course,
+	# the sharing constraints for both must be propagated to the descendants.  
+	# 
+	# Also, the "typerstore" argument here is strictly used for interpreting the
+	# sharing constraints only. (ZHONG)
+	# **************************************************************************
+
+	#  ASSERT: this_slot is an UNEXPLORED_PACKAGE 
+	fun build_package_equivalence_class (   this_slot: Slot,
+                                    equivalence_class_depth: Int, 
+			            typerstore: mld::Typerstore,
+                                    make_fresh_stamp,
+                                    err: em::Plaint_Sink
+                                )
+            :
+            Void
+            =
+	    {   equivalence_class = REF ([this_slot] : List( Slot ));      #  The equivalence class
+
+		equivalence_class_def = REF (NULL:  Null_Or( (Package_Definition, Int) ) );
+
+		min_depth = REF infinity;
+		    #
+		    # Minimum api nesting depth of the sharing constraints
+		    # used in the construction of the equivalence class.
+
+		#  Tor error messages 
+		this_path
+                    = 
+		    case *this_slot
+		        UNEXPLORED_PACKAGE { path, ... }   =>   invert_path::invert_ipath path;
+		        _ => bug "build_typ_equvalence_class: this_slot not INITIAL_TYP";
+                    esac;
+
+		# add_inst (old, new, depth);
+                #
+		# (1) Add new to the current equivalence class in response
+		#     to a sharing constraint relating old to new.
+                #
+		# (2) Convert the new node from UNEXPLORED_PACKAGE to
+                #     PARTIALLY_EXPLORED_PACKAGE.  Propagate sharing
+		#     to the respective common components.  Propagate
+                #     downward the sharing constraints in new's api,
+                #     then apply constrain to each of the inherited constraints.
+                #
+		# depth is the api nesting depth of this sharing constraint.
+		#
+		fun add_inst
+                    ( old: Slot,
+                      new: Slot,
+                      depth: Int
+                    )
+                    :
+                    Void
+                    =
+		    {   min_depth := int::min(*min_depth, depth);
+
+			case *new
+			    #			  
+			    ERROR_PACKAGE => ();
+
+			    PARTIALLY_EXPLORED_PACKAGE { depth, path, ... }
+				=>
+				if (depth != equivalence_class_depth)
+				     raise exception EXPLORE_INST path;   #  Member of pending equivalence class.
+				fi;
+
+			    UNEXPLORED_PACKAGE { an_api, api_depth, path, slot_dictionary, inherited, stamppath }
+				=>
+				case *old
+				    #
+				    (p as (PARTIALLY_EXPLORED_PACKAGE {   an_api => an_api',
+									    slot_dictionary     => slot_dictionary',
+									    components   => old_components,
+									    ...
+									}
+					  )
+				    )
+					=>
+					if (apis_equal (an_api, an_api'))
+
+					    #  same an_api 
+					    new := p;                 #  Share the old instance 
+					    push (equivalence_class, new);        #  Add new slot to equivalence class.
+
+					    constrain (new, *inherited, an_api, slot_dictionary', path);
+
+					    #  may be new inherited constraints 
+					else
+					    #  Different an_api 
+					    {   api_depth' = api_depth + 1;
+
+						my (slot_dictionary', new_components)
+						    =
+						    make_element_slots (
+							an_api,
+							slot_dictionary,
+							path,
+							stamppath,
+							api_depth'
+						    );
+
+						new := PARTIALLY_EXPLORED_PACKAGE {
+
+							   an_api,
+							   path,
+							   slot_dictionary            => slot_dictionary',
+							   components          => new_components,
+							   final_representation => REF NULL,
+							   depth               => equivalence_class_depth
+						       };
+
+						push (equivalence_class, new);
+
+						propagate_sharing_constraints (old_components, new_components, depth);
+
+						propagate_package_sharing_constraints (an_api, slot_dictionary', typerstore,                   api_depth');
+						propagate_type_sharing_constraints    (an_api, slot_dictionary', typerstore, make_fresh_stamp, api_depth');
+
+						constrain (new, *inherited, an_api, slot_dictionary', path);
+					    }
+					    except (mj::UNBOUND _)
+						   =                             #  Bad sharing paths 
+						   {   error_found := TRUE;
+						       new := ERROR_PACKAGE;
+						   };
+					fi;
+
+				    ERROR_PACKAGE
+					=>
+					();           # Could do more in this case  -- all the above	XXX BUGGO FIXME
+						      # except for propagate_sharing_constraints.
+
+				    _ => bug "addInst 1";
+				esac;
+
+
+			   _ => if *error_found
+                                    new := ERROR_PACKAGE;
+				else
+                                    bug "addInst.2";
+                                fi;
+                         esac;
+                    }
+
+		also
+		fun constrain (old_slot, inherited, an_api, slot_dictionary, path)
+                    =
+		    #  Equivalence class shares with some external package 
+		    #	
+                    apply constrain1 (reverse inherited)
+		    where
+		        fun constrain1 constraint
+                            =
+			    case constraint
+
+			        (DEFINE_PACKAGE (package_definition, depth))
+				    =>
+				    {   if_debugging_say "constrain: DEFINE_PACKAGE";
+
+					case *equivalence_class_def
+					    #
+					    THE _
+						=>
+						#  Already defined -- ignore secondary definitions 
+						#
+						if *typer_control::mult_def_warn
+						    #
+						    err
+							em::WARNING
+							(   "multiple defs at package spec: "
+							  + syp::to_string (invert_path::invert_ipath path)
+							  + "\n    (secondary definitions ignored)"
+							)
+							em::null_error_body;
+						fi;
+
+
+					    NULL
+						=>
+						{   components = case *old_slot
+
+									  PARTIALLY_EXPLORED_PACKAGE x
+									  =>
+									  x.components;
+
+									 _
+									  =>
+									  bug "constrain: PARTIALLY_EXPLORED_PACKAGE";
+								 esac;
+
+						    equivalence_class_def := THE (package_definition, depth);
+
+						    propagate_definition_constraints (
+							components,
+							get_element_definitions (
+							    package_definition,
+							    make_fresh_stamp,
+							    depth
+							)
+						    );
+						};
+					esac;
+				    };
+
+			        # Equivalence class shares with the package in slot -- explore it 
+				#
+			        SHARE { my_path       =>  syp::SYMBOL_PATH [],
+					its_ancestor =>  new_slot,
+					its_path     =>  syp::SYMBOL_PATH [],
+					depth
+                                 }
+				     =>
+				     {   if_debugging_say "<calling addInst to add member to this equivalence class>";
+
+					 add_inst (old_slot, new_slot, depth)
+					 except
+					     (EXPLORE_INST path')
+					      =
+					      {   err
+						      em::ERROR
+						      "sharing package with a descendent subpackage"
+						      em::null_error_body;
+
+						  new_slot := ERROR_PACKAGE;
+					      };
+				     };
+
+			        # Equivalence class shares with another package.
+                                #
+                                # Make sure its ancestor has been explored,
+                                # then push the constraint down a level.
+				#
+			        SHARE {   my_path      => syp::SYMBOL_PATH [],
+                                           its_ancestor => slot,
+				           its_path     => syp::SYMBOL_PATH (symbol ! rest),
+                                           depth
+				}
+				    =>
+				    {   case *slot
+					    #
+					    UNEXPLORED_PACKAGE _
+						=> 
+						{   if_debugging_say "<Having to call build_package_equivalence_class on an ancestor \
+							     \of a node I'm equivalent to.>";
+
+						     build_package_equivalence_class (
+							 slot,
+							 (equivalence_class_depth+1),
+							 typerstore,
+							 make_fresh_stamp,
+							 err
+						     )
+						     except
+							 (EXPLORE_INST _)
+							 =
+							 bug "build_package_equivalence_class.4";
+					       };
+
+					    ERROR_PACKAGE   =>   ();
+					    _                 =>   ();
+					esac;
+
+					if_debugging_say "<finished exploring his ancestor>";
+
+					case *slot
+					    #
+					    FULLY_EXPLORED_PACKAGE { an_api => an_api',   slot_dictionary => slot_dictionary', ... }
+						=>
+						{   if_debugging_say "<calling constrain recursively>";
+
+						    constrain (
+							old_slot,
+							[ SHARE {   my_path      => syp::SYMBOL_PATH [],
+								    its_path     => syp::SYMBOL_PATH rest,
+								    its_ancestor => get_elem_slot (symbol, an_api', slot_dictionary'),
+								    depth
+								}
+							],
+							an_api,
+							slot_dictionary,
+							path
+						    );
+						};
+
+					    PARTIALLY_EXPLORED_PACKAGE _   #  Do we need to check depth? 
+						=>
+						{   err
+							em::ERROR
+							"Sharing package with a descendent subpackage"
+							em::null_error_body;
+
+						    slot := ERROR_PACKAGE;
+						};
+
+					    ERROR_PACKAGE   =>   ();
+					    _               =>   bug "build_package_equivalence_class.5";
+					esac;
+				    };
+
+			       # One of the node's children shares with someone.
+                               # 
+                               # Now that this node is explored,
+                               # push the constraint down to the child.
+
+			        SHARE {   my_path => syp::SYMBOL_PATH (symbol ! rest),
+				           its_ancestor,
+                                           its_path,
+                                           depth
+                                }
+				    =>
+				    {   my { api_elements, ... }
+					    =
+					    case an_api
+						API s => s;
+						_     => bug "macroExpand: constrain: API";
+					    esac;
+
+
+					case (mj::get_api_element (api_elements, symbol))
+					    #
+					    TYP_IN_API { typ,
+							     module_stamp,
+							     is_a_replica,
+							     scope
+							  }
+						=> 
+						#  ASSERT: rest = NIL
+						#
+						case *(get_slot (slot_dictionary, module_stamp))
+						    #
+						    INITIAL_TYP { inherited, ... }
+							=>
+							push (
+							    inherited,
+							    SHARE {   my_path      => syp::SYMBOL_PATH [], 
+								      its_ancestor, 
+								      its_path,
+								      depth
+							    }
+							);
+
+						    _ => bug "build_package_equivalence_class.6";
+						esac;
+
+
+					    PACKAGE_IN_API { module_stamp, ... }
+						=>
+						case *(get_slot (slot_dictionary, module_stamp))
+						    #
+						    UNEXPLORED_PACKAGE { inherited, ... }
+							=>
+							push (
+							    inherited,
+							    SHARE {   my_path      => syp::SYMBOL_PATH rest, 
+								      its_ancestor, 
+								      its_path,
+								      depth
+								  }
+							);
+
+						    _ => bug "build_package_equivalence_class.7";
+						esac;
+
+					    _ => bug "build_package_equivalence_class.8";
+					esac;
+				    };
+
+			        _ => bug "build_package_equivalence_class.9";
+                        esac;
+		    end;
+
+		# Convert all of the nodes in the equivalence class
+                # (which should be PARTIALLY_EXPLORED_PACKAGE)
+		# to Final nodes.
+                #
+                # Note that nodes which share the same api
+		# should share the same FULLY_EXPLORED_PACKAGE nodes.
+                # So, they are memoized using the finalRepresentation
+                # field of the PARTIALLY_EXPLORED_PACKAGE node.
+		#
+		fun finalize (stamp_info_ref: Ref( Stamp_Info )) slot
+                    =
+		    case *slot
+			#		      
+		        ERROR_PACKAGE => ();
+
+		        PARTIALLY_EXPLORED_PACKAGE { an_api, path, slot_dictionary, final_representation, ... }
+                            =>
+			    case *final_representation
+				#			      
+				THE typechecked_package_dag_node
+				    =>
+				    slot := typechecked_package_dag_node;
+
+				NULL
+				    =>
+				    {   final_typechecked_package
+					    =
+					    case *equivalence_class_def
+						#
+						THE (
+						    CONSTANT_PACKAGE_DEFINITION (
+							A_PACKAGE { an_api => an_api',
+								    typechecked_package,
+									...
+							}
+						    ),
+						    _
+						)
+						    =>
+						    if   (apis_equal (an_api, an_api'))   CONSTANT_GENERIC_EVALUATION  typechecked_package;
+						    else                                  GENERATE_GENERIC_EVALUATION TRUE;
+						    fi;
+
+						THE (
+						    VARIABLE_PACKAGE_DEFINITION ( an_api', stamppath),
+						    _
+						)
+						    =>
+						    # If eqSig (an_api, sign') then PATH_GENERIC_EVALUATION (stamppath)
+						    # else ...
+						    # David B MacQueen: removed to fix bug 1445.
+						    # Even when the apis are equal, a free entvar
+						    # reverence can be propagated by the package
+						    # declaration.  See bug1445.1.sml.
+						    #
+						    GENERATE_GENERIC_EVALUATION FALSE;
+
+						THE (CONSTANT_PACKAGE_DEFINITION (ERRONEOUS_PACKAGE), _)
+						    => 
+						    CONSTANT_GENERIC_EVALUATION bogus_typechecked_package;
+
+						NULL   =>   GENERATE_GENERIC_EVALUATION TRUE;
+						_      =>   bug "build_package_equivalence_class::finalize 1";
+					    esac;
+
+					typechecked_package_dag_node
+					    =
+					    FULLY_EXPLORED_PACKAGE {   an_api,
+									 stamp        => stamp_info_ref,
+									 slot_dictionary,
+									 final_typechecked_package  => REF final_typechecked_package,
+									 expanded     => REF FALSE
+								     };
+
+					final_representation :=   THE typechecked_package_dag_node;  #  memoize 
+					slot                 :=   typechecked_package_dag_node;
+				    };
+                             esac;
+
+
+		        _ => bug "build_package_equivalence_class::finalize 2";
+                    esac;
+
+		# Should find everyone in the equiv. class and convert them to 
+		# PARTIALLY_EXPLORED_PACKAGE nodes.  
+
+
+                # Explore equivalence class, filling the equivalence class REF with
+		# a  list of PARTIALLY_EXPLORED_PACKAGE insts
+
+		case *this_slot    #  Verify that this_slot is UNEXPLORED_PACKAGE 
+		    #		  
+		    (UNEXPLORED_PACKAGE { an_api, api_depth, path, slot_dictionary, inherited, stamppath } )
+			=>
+			{   api_depth' = api_depth + 1;
+
+			    my (slot_dictionary', new_components)
+				=
+				make_element_slots (an_api, slot_dictionary, path, stamppath, api_depth');
+
+			    this_slot
+				:= 
+				PARTIALLY_EXPLORED_PACKAGE {   an_api,
+								 path,
+								 slot_dictionary            => slot_dictionary',
+								 components          => new_components,
+								 final_representation => REF NULL,
+								 depth               => equivalence_class_depth
+							     };
+
+			    propagate_package_sharing_constraints (an_api, slot_dictionary', typerstore,                   api_depth');
+			    propagate_type_sharing_constraints    (an_api, slot_dictionary', typerstore, make_fresh_stamp, api_depth');
+
+			    constrain (this_slot, *inherited, an_api, slot_dictionary', path);
+			}
+			except
+			    (mj::UNBOUND _)
+				=   #  Bad sharing paths 
+				{   error_found := TRUE;
+				    this_slot := ERROR_PACKAGE;
+				};
+
+
+		    _ => bug "build_package_equivalence_class.10"; #  not UNEXPLORED_PACKAGE
+                esac;
+
+		#  BUG: needs fixing. David B MacQueen   XXX BUGGO FIXME 
+
+		# verify that any equivalence class definition
+                # is defined outside of the outermost sharing
+                # constraint:
+		#
+		case *equivalence_class_def
+		    #		   
+		    NULL => ();					#  no definition - ok 
+
+		    THE (_, depth)
+			=>
+			if (*min_depth <= depth)
+			    #
+			    if *typer_control::share_def_error
+				#
+				equivalence_class_def := THE (CONSTANT_PACKAGE_DEFINITION ERRONEOUS_PACKAGE, 0);
+			    fi;
+
+			    err (*typer_control::share_def_error  ??  em::ERROR
+									 ::  em::WARNING)
+				("package definition spec inside of sharing at: " + symbol_path::to_string this_path)
+				em::null_error_body;
+
+			fi;
+
+                esac;
+
+		{   equivalence_class_stamp_info
+                        = 
+			REF (   case *equivalence_class_def
+				     THE (CONSTANT_PACKAGE_DEFINITION str,            _) => STAMP (mj::get_package_stamp str);
+				    THE (VARIABLE_PACKAGE_DEFINITION (_, stamppath), _) => PATH  (stamppath);
+				    NULL => GENERATE_STAMP; esac
+                        );
+
+                    apply (finalize  equivalence_class_stamp_info) *equivalence_class;
+		};
+
+	    };		#  build_package_equivalence_class
+
+	# debugging wrappers
+
+#	build_package_equivalence_class = wrap "build_package_equivalence_class" build_package_equivalence_class
+
+
+	exception INCONSISTENT_EQ;
+
+	  # raised if typs with both YES and NO eqprops are found in an
+	  # equivalence class
+
+	# ************************************************************************
+	# build_typ_equvalence_class:  Int
+        #                           * slot
+        #                           * Typerstore
+        #                           * typechecked_package_kind
+        #                           * inverse_path
+        #                           * (Void->stamp)
+	#                           * em::Plaint_Sink
+        #                          -> Void
+	#
+	# This function deals with exploration of type nodes in the instance
+	# graph.  It is similar to the build_package_equivalence_class function above, but it is
+	# simpler since it doesn't have to worry about "children" of
+	# type nodes.  However, we must check that the arities of equivalenced
+	# types are the same.  Also, if they have constructors, we must check
+	# to see that they have the same constructor names.  We don't know how
+	# to check that the types of the constructors are satisfiable -- this
+	# involves a limited form of second-order unification. 
+	#
+	# But then, probably we should only allow two datatypes to be shared if their
+	# types are completely equivalent; otherwise, the behavior of the elaboration
+	# would be rather odd sometimes. (ZHONG)
+	#
+	# Also, the "typerstore" argument here is strictly used for interpreting the
+	# sharing constraints only. (ZHONG)
+	#
+	# ************************************************************************
+
+	#  ASSERT: this_slot is an InitialTyp 
+	#
+	fun build_typ_equivalence_class (count, this_slot, typerstore, typechecked_package_kind, inverse_path, make_fresh_stamp, err)
+            =
+	    {   equivalence_class     = REF ([] : List( Slot ));
+		equivalence_class_def = REF (NULL:  Null_Or ((Typechecked_Typ, Int)) );
+
+		min_depth = REF infinity;
+		    #
+		    # Minimum api nesting depth of the sharing constraints used
+		    # in the construction of the equivalence class.
+
+		#  for error messages 
+
+		this_path
+                    = 
+		    case *this_slot
+			#
+		        INITIAL_TYP { path, ... }
+                            =>
+                            invert_path::invert_ipath path;
+
+		        _ => bug "build_typ_equvalence_class: thisSlot not INITIAL_TYP";
+                    esac;
+
+		new_typ_kind
+                    = 
+		    case typechecked_package_kind
+			#
+		        ABSTRACT_GENERIC_EVALUATION { typerstore, ... }
+			    =>
+			    (fn (ep, _) = ty::ABSTRACT ( tro::find_typ_via_stamppath (typerstore, ep)));
+
+		        GENERIC_PARAMETER_GENERIC_EVALUATION  debruijn_depth
+			    => 
+			    (fn (ep, tk)
+				=
+				ty::FLEXIBLE_TYP (			# "Definition of SML" calls typcons from apis "flexible" an all others "rigid".
+				    ty::TYPPATH_VARIABLE (
+					param::tvi_exception
+                                          { debruijn_depth,
+					    num   => count,
+					    kind  => tk
+					  }
+				    )
+				)
+                             );
+
+		         FORMAL_BODY_GENERIC_EVALUATION tp
+			      =>
+			     (fn (ep, _)
+				 =
+				 ty::FLEXIBLE_TYP (
+				     ty::TYPPATH_SELECT (tp, count)
+				 )
+			     );
+                    esac;
+		#
+		fun add_inst (slot, depth)
+                    =
+		    {   min_depth := int::min(*min_depth, depth);
+
+			case *slot
+
+			    INITIAL_TYP { typ, path, stamppath, inherited }
+				=>
+				{   if_debugging_say "<setting INITIAL_TYP to PARTIAL_TYP>";
+
+				    slot := PARTIAL_TYP {   typ,
+									 path,
+									 stamppath
+								     };
+				    push (equivalence_class, slot);
+				    apply constrain (reverse *inherited);
+                                };
+
+			    PARTIAL_TYP _   =>   ();
+			    ERROR_TYP       =>   ();
+			    _                            =>   bug "build_typ_equvalence_class::addInst";
+                        esac;
+                    }
+
+		also
+		fun constrain (def as DEFINE_TYP_ENTRY (d as (typechecked_typ2, depth)))
+                        =>
+		        case *equivalence_class_def
+			    #
+			    THE _
+				=>
+				#  Already defined -- ignore secondary definitions 
+				if (*typer_control::mult_def_warn)
+
+				     err em::WARNING
+					 (   "multiple defs at typ spec: "
+					   + syp::to_string (invert_path::invert_ipath inverse_path)
+					   + "\n    (secondary definitions ignored)"
+					 )
+					 em::null_error_body;
+				fi;
+
+			    NULL
+				=>
+				equivalence_class_def := THE d;
+                        esac;
+
+		    constrain (SHARE {   my_path      =>  syp::SYMBOL_PATH [],
+                                         its_ancestor =>  slot,
+				         its_path     =>  syp::SYMBOL_PATH [],
+                                         depth
+                                     }
+                                )
+			=>
+			add_inst (slot, depth);
+
+		    constrain (SHARE {   my_path      =>  syp::SYMBOL_PATH [],
+                                         its_ancestor =>  slot,
+				         its_path     =>  syp::SYMBOL_PATH (symbol ! rest),
+                                         depth
+                                     }
+                              )
+                        =>
+		        {   case *slot
+				#
+				UNEXPLORED_PACKAGE _
+				    =>
+				    (   build_package_equivalence_class (slot, 0, typerstore, make_fresh_stamp, err)
+					except
+					       EXPLORE_INST _
+					       =
+					       bug "build_typ_equvalence_class.2"
+				    );
+
+				_ => ();
+			    esac;
+
+			    case *slot
+				#			      
+				FULLY_EXPLORED_PACKAGE { an_api, slot_dictionary, ... }
+				    =>
+				    constrain (SHARE {   my_path      => syp::SYMBOL_PATH [],
+							 its_path     => syp::SYMBOL_PATH rest,
+							 its_ancestor => get_elem_slot (symbol, an_api, slot_dictionary),
+							 depth
+						     }
+					      );
+
+				ERROR_PACKAGE   =>   ();
+				_               =>   bug "build_typ_equvalence_class.3";
+			    esac;
+			};
+
+
+		    constrain _
+			=>
+			bug "build_typ_equvalence_class: constrain.4";
+                end;
+
+		#
+		fun check_arity (ar1, ar2, path1: ip::Inverse_Path, path2: ip::Inverse_Path)
+                    =
+		    if (ar1 == ar2)
+                        TRUE;
+		    else
+			err em::ERROR 
+			    (   "inconsistent arities in type sharing "
+			      + (path_name path1)
+			      + " = "
+			      + (path_name path2)
+			      + " : "
+			      + (path_name path1)
+			      + " has arity "
+			      + (int::to_string ar1)
+			      + " and "
+			      + (path_name path2)
+			      + " has arity "
+			      + (int::to_string ar2)
+			      + "."
+			    )
+			    em::null_error_body;
+
+			FALSE;
+                    fi;
+
+		sort_d
+                    =
+                    list_mergesort::sort
+		       (   fn ( { name => name1,   representation => _,   domain => _ },
+			        { name => name2,   representation => _,   domain => _ }
+			   )
+			   =
+			   sy::symbol_gt (name1, name2)
+		       );
+		#
+		fun eq_data_cons ( { name => name1,   representation => _,   domain => _ },
+                                   { name => name2,   representation => _,   domain => _ }
+                               )
+                    =
+		    sy::eq (name1, name2);
+
+		#
+		fun compare_d ([], [])
+			=>
+			TRUE;
+
+		    compare_d (d1 ! r1, d2 ! r2)
+			=> 
+			eq_data_cons (d1, d2)   and
+			compare_d    (r1, r2);
+
+		    compare_d _ => FALSE;
+                end;
+
+		# Eta-reduce type abbreviation typs.
+                #
+                # Makes sure that DEFINED_TYP is not
+		# just an eta-expansion of another typ. 
+		#
+		fun simplify (typ0 as DEFINED_TYP { type_scheme => TYPE_SCHEME { arity, body }, ... } )
+			=>
+			case body
+			    #
+			    TYPCON_TYPE (RECORD_TYP _, args)
+				=>
+				typ0;
+
+			    TYPCON_TYPE (typ, args)
+				=>
+				{   fun isvars (TYPE_SCHEME_ARG_I n ! rest, m)
+					    =>
+					    if (n == m)   isvars (rest, m+1);
+					    else          FALSE;
+					    fi;
+
+					isvars (NIL, _)  =>  TRUE;
+					isvars _        =>  bug "simplify: isvars";
+				    end;
+
+				    if (   length args == arity
+				       and isvars (map tu::prune args, 0)
+				       )
+
+					simplify typ;
+				    else 
+					typ0;
+				    fi;
+				};
+
+			    _ => typ0;
+			esac;
+
+
+		    simplify typ
+			=>
+			typ;
+                end;
+
+		# Potential BUG on equality properties: when selecting the
+		# candidate from a set of FORMAL typs, the equality property
+		# should be merged ... but this is not done right now (ZHONG) XXX BUGGO FIXME
+		#
+		fun eq_max ((NO, CHUNK) | (NO, YES) | (YES, NO) | (CHUNK, NO))
+			=>
+			raise exception INCONSISTENT_EQ;
+
+		    eq_max (_,  YES  ) =>  YES;
+		    eq_max (_,  CHUNK) =>  YES;
+		    eq_max (ep, _    ) =>  ep;
+                end;
+
+		# scanForRepresentative scans the typs in the equivalence class,
+                #  selecting a representative
+		# according to the following rule:
+                #
+		#   * if there is a enum in the equivalence class, select the first one
+                #
+		#   * otherwise, if there is a DEFINED_TYP, select last of these
+		#      (this case should go away in SML96)
+                #
+		#   * otherwise, all the typs are FORMAL, select last of these
+                #
+		# creates a representative typ for the equivalence class, giving
+		# it a new stamp if it is a enum or formal.
+		#
+		fun scan_for_representative tyc_eps
+                    =
+		    {   fun loop (ERRONEOUS_TYP, epath, arity, equality_property, (typ, ep) ! rest)
+                                =>
+			        #  initialization 
+			        case typ
+				    #
+				    PLAIN_TYP { arity, eq, ... }
+					=>
+					loop (typ, ep, arity, *eq, rest);
+
+				    ERRONEOUS_TYP
+					=>
+					loop (typ, ep, 0, INDETERMINATE, rest);
+
+				    DEFINED_TYP { type_scheme => TYPE_SCHEME { arity, ... }, path, ... }
+					=>
+					bug "scanForRepresentative 0";
+
+				    _ => bug "scanForRepresentative 1";
+                                esac;
+
+
+			   loop (   typ as PLAIN_TYP { kind, path, ... },
+				     epath,
+                                     arity,
+                                     equality_property,
+                                     (typ', epath') ! rest
+                                 )
+                                =>
+			        case kind
+				    #
+				    DATATYPE _
+					=>
+					case typ'
+					    #
+					    PLAIN_TYP { kind, arity=>arity', eq, path=>path', ... }
+						=>
+						{   check_arity (arity, arity', path, path');
+
+						    loop (typ, epath, arity, eq_max (equality_property, *eq), rest);
+						};
+
+					    ERRONEOUS_TYP
+						=>
+						loop (typ, epath, arity, equality_property, rest);
+
+					    DEFINED_TYP {   type_scheme => TYPE_SCHEME { arity => arity', ... },
+									 path         => path',
+									 ...
+								     }
+						=>
+						bug "scanForRepresentative 2";
+
+					    _ => bug "scanForRepresentative 2.1";
+					esac;
+
+
+				    FORMAL
+					=>
+					case typ'
+					    #
+					    PLAIN_TYP { kind, arity=>arity', eq, path=>path', ... }
+						=>
+						{   check_arity (arity, arity', path, path');
+
+						    case kind
+							#
+							DATATYPE _
+							    =>
+							    loop (typ', epath', arity, eq_max (equality_property,*eq), rest);
+
+							_ => loop (typ, epath, arity, eq_max (equality_property,*eq), rest);
+						    esac;
+						};
+
+					    ERRONEOUS_TYP
+						=>
+					        loop (typ, epath, arity, equality_property, rest);
+
+					    DEFINED_TYP {   type_scheme => TYPE_SCHEME { arity => arity', ... },
+									 path         => path',
+									 ...
+								     }
+						=>
+						bug "scanForRepresentative 3";
+
+					    _ => bug "scanForRepresentative 3.1";
+					esac;
+
+				    _ => bug "scanForRepresentative 8";
+                                esac;
+
+			    loop (typ, epath, arity, eprop, NIL)
+				=>
+				(typ, epath, eprop);
+
+			    loop _
+				=>
+				bug "scanForRepresentative 4";
+                        end;
+
+			my (reptyc, epath, equality_property)
+                            =
+			    case tyc_eps
+				#			      
+				[ (typ, epath) ]
+				    => 
+				    {   equality_property
+					    =
+					    case typ
+						#
+						PLAIN_TYP { eq, ... }
+						    =>
+						    *eq;
+
+						DEFINED_TYP { type_scheme => TYPE_SCHEME { arity, ... }, ... }
+						    =>
+						    INDETERMINATE;
+
+						ERRONEOUS_TYP
+						    =>
+						    INDETERMINATE;
+
+						_ => bug "scanForRepresentative 5";
+					    esac;
+
+					(typ, epath, equality_property);
+				    };
+
+			        _ => loop (ERRONEOUS_TYP, NIL, 0, INDETERMINATE, tyc_eps);
+                            esac;
+
+			case reptyc
+			    #
+			    PLAIN_TYP { kind, arity, eq, path, ... }
+				=>
+				case kind
+				    #
+				    FORMAL
+					=>
+					{   tk =  param::make_n_arg_typ_fun_uniqkind   arity;
+
+					    knd = new_typ_kind (epath, tk);
+
+					    typ
+						=
+						PLAIN_TYP
+						  {
+						    stamp => make_fresh_stamp(),
+						    arity,
+						    path  => ip::append (inverse_path, path),
+						    kind  => knd,
+						    eq    => REF (equality_property),
+						    stub  => NULL
+						  };
+
+					    ( FINAL_TYP (REF (ALREADY_MACRO_EXPANDED typ)),
+					      THE (typ, (epath, tk))
+					    );
+					};
+
+				    DATATYPE _
+					=>
+					{   typ
+						=
+						PLAIN_TYP { stamp => make_fresh_stamp (),
+								   kind,
+								   arity,
+								   stub  => NULL,
+								   eq    => REF equality_property,
+								   path
+							       };
+
+					    (  FINAL_TYP (REF (NEEDS_GENERIC_EVALUATION typ)),
+					       NULL
+					    );
+
+					    #  Domains of valconstructors will be macro
+					    #  expanded in instanceToTypeConstructor
+					};
+
+				    _ => bug "scanForRepresentative 9";
+			    esac;
+
+
+			    ERRONEOUS_TYP
+				=>
+				( FINAL_TYP (REF (ALREADY_MACRO_EXPANDED ERRONEOUS_TYP)),
+				  NULL
+				);
+
+			    DEFINED_TYP _
+				=>
+				bug "scanForRepresentative 6";
+
+			    _ => bug "scanForRepresentative 7";
+                        esac;
+		    };
+		#
+		fun get_slot_ep slot
+                    =
+		    case *slot
+		      	#
+			PARTIAL_TYP { typ, stamppath, ... }
+			    =>
+			    (typ, stamppath);
+
+			ERROR_TYP
+			    =>
+			    (   ERRONEOUS_TYP,
+				NIL: sap::Stamppath
+			    );
+
+		        _ => bug "getSlotEp";
+                    esac;
+		#
+		fun finalize (def_op, slots)
+                    =
+		    tc_op
+		    where	
+		        my (final_inst, tc_op)
+                            = 
+			    case def_op
+			      	#
+				THE (typechecked_typ, _)
+				    =>
+				    ( FINAL_TYP (REF (typechecked_typ)),
+				      NULL
+				    );
+
+			         NULL => 
+				     scan_for_representative (map get_slot_ep slots)
+				     except
+                                         INCONSISTENT_EQ
+					     =
+					     {   err em::ERROR
+						     "inconsistent equality properties in type sharing"
+						     em::null_error_body;
+
+						 (ERROR_TYP, NULL);
+					     };
+                            esac;
+
+                        apply   (fn sl =  sl := final_inst)   slots;
+		    end;
+
+		add_inst (this_slot, infinity);
+
+		#  David B MacQueen: needs fixing (like the similar case in build_package_equivalence_class) XXX BUGGO FIXME 
+
+		# Verify that any equivalence class definition is defined
+		# outside of the outermost sharing constraint:
+		#
+		case *equivalence_class_def
+		    #		  
+		    NULL => (); #  no definition - ok 
+
+		    THE (_, depth)
+			=>
+			if (*min_depth <= depth)
+			    #
+			    if *typer_control::share_def_error
+				#
+				equivalence_class_def := THE (ALREADY_MACRO_EXPANDED (ERRONEOUS_TYP), 0);
+			    fi;
+
+			    err if   *typer_control::share_def_error      em::ERROR;
+				else                                             em::WARNING;
+				fi
+
+				(   "type definition spec inside of sharing at: "
+				+   symbol_path::to_string this_path
+				)
+				em::null_error_body;
+			fi;
+                esac;
+
+                finalize (*equivalence_class_def, *equivalence_class);
+	    };                                #  Build_Typ_Equvalence_Class 
+
+	# debugging wrapper
+#	build_typ_equvalence_class = wrap "build_typ_equvalence_class" build_typ_equvalence_class
+
+	#
+	fun sig_to_inst (ERRONEOUS_API, typerstore, typechecked_package_kind, inverse_path, err, per_compile_info)
+		=> 
+		(ERROR_PACKAGE, [], [], 0);
+
+	    sig_to_inst ( an_api,
+                          typerstore,
+                          typechecked_package_kind,
+                          inverse_path,
+                          err,
+		          per_compile_info as { make_fresh_stamp, ... }: eu::Per_Compile_Info
+                      )
+		=> 
+		{   my flextyps:     Ref( List( ty::Typ ) )                     =   REF [];
+		    my flexeps:      Ref( List( (sap::Stamppath, param::Highcode_Kind) ) ) =   REF [];
+
+		    count = REF 0;
+		    #
+		    fun addbt NULL   =>   ();
+
+			addbt (THE (tc, ep))
+			    => 
+			    {   flextyps :=  tc ! *flextyps;
+				flexeps  :=  ep ! *flexeps;
+				count      :=  *count + 1;
+			    };
+		    end;
+		    #
+		    fun expand ERROR_PACKAGE                                           =>   ();
+		        expand (FULLY_EXPLORED_PACKAGE { expanded => REF TRUE, ... } )   =>   ();
+
+		        expand (FULLY_EXPLORED_PACKAGE { an_api, slot_dictionary, expanded, ... } )
+			    => 
+			    # We must expand the FULLY_EXPLORED_PACKAGE macroExpansionDagNode
+			    # in a top-down fashion, so we iterate through the namings and
+			    # as we encounter package or type element, we recursively expand it. 
+			    #
+			    {   fun expand_inst (symbol, slot)
+				    =
+				    {   if_debugging_say("<Expanding element " + sy::symbol_to_string symbol + ">");
+
+					case *slot
+					    #
+					    UNEXPLORED_PACKAGE _
+						=>
+						{   if_debugging_say("--expandInst: exploring UNEXPLORED_PACKAGE " + sy::name symbol);
+
+						    build_package_equivalence_class (slot, 0, typerstore, make_fresh_stamp, err)
+						    except
+							EXPLORE_INST _
+							=
+							bug "expandInst 1";
+
+						    case *slot
+							#
+							(typechecked_package_dag_node as (FULLY_EXPLORED_PACKAGE _))
+							    =>
+							    {   if_debugging_say ("--expandInst: expanding new FULLY_EXPLORED_PACKAGE " + sy::name symbol);
+
+								expand typechecked_package_dag_node;
+							    };
+
+							ERROR_PACKAGE   =>   ();
+							_                 =>   bug "expand_substr 2";
+						    esac;
+						};
+
+					    PARTIALLY_EXPLORED_PACKAGE { path, ... }
+						=>
+						bug ("expandInst: PARTIALLY_EXPLORED_PACKAGE " + ip::to_string path);
+
+					    typechecked_package_dag_node as FULLY_EXPLORED_PACKAGE _
+						=>
+						{   if_debugging_say("--expandInst: expanding old FULLY_EXPLORED_PACKAGE " + sy::name symbol);
+						    #
+						    expand typechecked_package_dag_node;
+						};
+
+					    INITIAL_TYP _
+						=>
+						addbt (
+						    build_typ_equivalence_class (
+							*count,
+							slot,
+							typerstore,
+							typechecked_package_kind, 
+							inverse_path,
+							make_fresh_stamp,
+							err
+						    )
+						);
+
+					     _ => ();
+                                         esac;
+				     };
+
+
+				if_debugging_say ">>expand";
+
+				expanded := TRUE;
+
+				apply expand_inst (get_elem_slots (an_api, slot_dictionary));
+
+				if_debugging_say "<<expand";
+			    };
+
+		        expand _ => bug "expand";
+                    end;
+
+		    base_slot = REF (UNEXPLORED_PACKAGE {   an_api,
+							    api_depth       =>  1,
+							    path            =>  inverse_path,
+
+							    stamppath       =>  [],
+							    inherited       =>  REF [],
+							    slot_dictionary =>  NIL
+							}
+				    );
+
+		       #  Correct initial value for sigDepth? 
+
+		    build_package_equivalence_class ( base_slot, 0, typerstore, make_fresh_stamp, err )
+		    except
+			(EXPLORE_INST _)
+			    =
+			    bug "sigToInst 2";
+
+		    str_inst = *base_slot;
+
+		    expand str_inst;
+
+
+		    (str_inst, *flextyps, *flexeps, *count);
+		};
+	end;                                              #  fun sigToInst 
+
+	exception GET_ORIGIN;  #  who is going to catch it? 
+	#
+	fun get_stamp_info instance
+	    =
+	    case instance
+		#	      
+	        FULLY_EXPLORED_PACKAGE { stamp, ... } =>   stamp;
+	        ERROR_PACKAGE                         =>   raise exception GET_ORIGIN;
+	        _                                     =>   bug "getStampInfo";
+            esac;
+
+	#
+	fun instance_to_generics_expansion (
+		instance,
+		typerstore,
+		typechecked_package_kind,
+		count,
+		add_res,
+		inverse_path: ip::Inverse_Path,
+		err,
+		per_compile_info as { make_fresh_stamp, ... }: eu::Per_Compile_Info
+	    )
+	    :
+            mld::Typechecked_Package
+	    =
+	    {   fun instance_to_generics_expansion' (
+
+                        instance as (FULLY_EXPLORED_PACKAGE
+                                       {
+					 an_api as API { closed, api_elements, ... },
+					 slot_dictionary,
+					 final_typechecked_package,
+					 stamp,
+					 ...
+				       }
+				    ),
+			typerstore,
+			inverse_path: ip::Inverse_Path,
+			failures_so_far: Int
+		    )
+		    :
+                    (mld::Typechecked_Package, Int)
+			=>
+			{   if_debugging_say (">>instance_to_generics_expansion': " + ip::to_string inverse_path);
+
+			    case *final_typechecked_package
+				#
+				CONSTANT_GENERIC_EVALUATION typechecked_package
+				    =>
+				    (typechecked_package, failures_so_far);         #  Already visited. 
+
+				PATH_GENERIC_EVALUATION ep
+				    =>
+				    (   {   typechecked_package   =   tro::find_package_via_stamppath (typerstore, ep);
+
+					    final_typechecked_package := CONSTANT_GENERIC_EVALUATION typechecked_package;
+
+					    (typechecked_package, failures_so_far);
+					}
+					except
+					    tro::UNBOUND
+					    =
+					    {   if_debugging_say ("instanceToPackageMacroExpansion': PATH_GENERIC_EVALUATION failed: " + sap::stamppath_to_string ep);
+						raise exception tro::UNBOUND;
+					    }
+				    );
+
+				GENERATE_GENERIC_EVALUATION closed_def
+				    =>
+				    {   # Get the stamp of an instance -- 
+					# generate one if  one is not
+					# already built:
+					#
+					fun get_stamp instance:  sta::Stamp
+					    = 
+					    {   stamp = get_stamp_info instance;
+
+						case *stamp
+						    #
+						    STAMP s   =>   { if_debugging_say "getStamp: STAMP"; s;};
+
+						    PATH ep
+							=>
+							{   if_debugging_say ("getStamp: PATH " + sap::stamppath_to_string ep);
+
+							    {   my  { stamp => s, ... }
+								    =
+								    tro::find_package_via_stamppath (typerstore, ep);
+
+								stamp := STAMP s;
+
+								s;
+							    }
+							    except tro::UNBOUND = {   if_debugging_say "getStamp: PATH failed";
+										      raise exception tro::UNBOUND;
+										 };
+
+							};
+
+						    GENERATE_STAMP
+							=>
+							{   s = make_fresh_stamp();
+
+							    if_debugging_say "getStamp: GENERATE_STAMP";
+
+							    stamp := STAMP s;
+
+							    s;
+							};
+					      esac;
+					   };
+
+				        new_generic_body
+					    = 
+					    case typechecked_package_kind
+						#
+						ABSTRACT_GENERIC_EVALUATION { typerstore, ... }
+						    =>
+						    f
+						    where
+							fun f (an_api as GENERIC_API { parameter_variable, body_api, ... }, ep, _, _)
+								=>
+								{   typechecked_generic = tro::find_generic_via_stamppath (typerstore, ep);
+
+								    body_expression
+									= 
+									mld::ABSTRACT_PACKAGE (
+									    body_api,
+									    APPLY (
+										CONSTANT_GENERIC typechecked_generic, 
+										VARIABLE_PACKAGE [parameter_variable]
+									    )
+									);
+
+								    (body_expression, NULL);
+								};
+
+							   f _   =>   bug "newGenericBody: ABSTRACT_GENERIC_EVALUATION";
+						       end;
+						    end;
+
+						FORMAL_BODY_GENERIC_EVALUATION tps
+						    =>
+						    (   fn (an_api, _, _, _)
+							   =
+							   {   i        =   count();
+							       result   =   ty::TYPPATH_SELECT (tps, i);
+
+							       add_res (NULL, result);
+
+							       ( mld::FORMAL_PACKAGE an_api,
+
+								 THE result
+							       );
+							   }
+						    );
+
+						GENERIC_PARAMETER_GENERIC_EVALUATION  debruijn_depth
+						    => 
+						    fn (an_api, ep, rp, nenv)
+						       =
+						       {   tk = get_typ_kind_for_generic_api {
+
+								    an_api,
+								    typerstore  => nenv,
+								    inverse_path       => rp,
+								    per_compile_info
+								};
+
+							   result = ty::TYPPATH_VARIABLE (
+									 param::tvi_exception
+                                                                           { debruijn_depth,
+									     num   => count (),
+									     kind  => tk
+									   }
+								     );
+
+							   add_res (THE (ep, tk), result);
+
+							   ( mld::FORMAL_PACKAGE an_api,
+							     THE result
+							   );
+						       };
+
+					    esac;
+
+					#
+					fun instance_to_typ (REF (ALREADY_MACRO_EXPANDED typ), _)
+						=>
+						typ; 
+
+					    instance_to_typ (r as REF (NEEDS_GENERIC_EVALUATION typ), typerstore)
+						=>
+						{
+						    fun badtyp ()    #  Bogus typ 
+							=
+							{   debug_type ("#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/bogus)", typ);
+
+							    r := ALREADY_MACRO_EXPANDED ERRONEOUS_TYP;
+
+							    ERRONEOUS_TYP;
+							};
+
+						    case typ
+							#
+							ty::DEFINED_TYP {   type_scheme => ty::TYPE_SCHEME { arity, body },
+										       strict,
+										       stamp,
+										       path
+										   }
+							    =>
+							    #  DEFINED_TYP body gets macro expanded here 
+							    #  Debugging version 
+							    #
+							    {   tc  =
+								    # if isAReplica 
+								    # then #  eta reduce wrapped enum 
+								    #     {   ty::TYPCON_TYPE (typ, _) = body;
+								    #         mj::translateTypeConstructor typerstore typ;
+								    #     }
+								    # else
+
+								    {   tf = ty::TYPE_SCHEME {   arity, 
+												  body  => mj::translate_type typerstore body
+											      };
+
+									ty::DEFINED_TYP {
+
+									    type_scheme => tf,
+									    strict, 
+									    stamp        => make_fresh_stamp(),
+									    path         => ip::append (inverse_path, path)
+									};
+								    };
+
+
+								debug_type ("#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/DEFINED_TYP)", tc);
+
+								r := ALREADY_MACRO_EXPANDED tc;
+								tc;
+							    }
+							    except
+								tro::UNBOUND
+								=
+								{   if_debugging_say "#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/DEFINED_TYP) failed";
+								    raise exception tro::UNBOUND;
+								};
+
+
+							ty::PLAIN_TYP { stamp, arity, eq, path, kind, ... }
+							    =>
+							    case kind
+								#
+								z as ty::DATATYPE { index, free_typs, stamps, family, root }
+								    =>
+								    (	{
+									    # No coordination of stamps between mutually
+									    # recursive families of datatypes?             XXX BUGGO FIXME
+
+									    nstamps
+										= 
+										case root
+										    #
+										    NULL =>								#  This is the lead dt of family 
+											vector::map
+											    (fn _ = make_fresh_stamp())
+											    stamps;
+
+										    THE rootev
+											=>
+											# This is a secondary dt of a family.
+											# Find the stamp vector for the root
+											# dt of the family, which should already
+											# have been macro expanded:
+											#
+											case (tro::find_typ_by_module_stamp (typerstore, rootev))
+											    #
+											    ty::PLAIN_TYP {
+												kind => ty::DATATYPE { stamps, ... },
+												...
+											    }
+												=>
+												stamps;
+
+											    ty::ERRONEOUS_TYP
+												=> 
+												vector::map
+												    (fn _ = make_fresh_stamp())
+												    stamps;
+
+											    _   =>   bug "unexpected DATATYPE 354";
+												     #  oops, the root typechecked_package     
+												     #  is not a enum (see bug 1414) 
+
+											esac;
+										esac;
+
+
+									    stamp = vector::get (nstamps, index);
+
+									    nfreetyps
+										= 
+										map (mj::translate_typ typerstore) free_typs;
+
+									    nkind
+										=
+										ty::DATATYPE {
+										    index,
+										    family,
+										    stamps       =>  nstamps,
+										    free_typs =>  nfreetyps,
+										    root         =>  NULL
+										};
+										#  root ??? 
+
+									    tc = ty::PLAIN_TYP { stamp,
+												  arity,
+												  eq,
+												  path  => ip::append (inverse_path, path),
+												  kind  => nkind,
+												  stub  => NULL
+												};
+
+
+									     r := ALREADY_MACRO_EXPANDED tc;
+
+									     tc;
+									 }
+									 except
+									     tro::UNBOUND
+									     =
+									     {   if_debugging_say "#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/DATA) failed";
+										 raise exception tro::UNBOUND;
+									     }
+								    );
+
+								 _ => badtyp ();
+							     esac;
+
+
+							 TYP_BY_STAMPPATH { stamppath, ... }
+							     =>
+							     (   {
+								     if_debugging_say
+									 (   "#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/TYP_BY_STAMPPATH): "
+									 +   sap::stamppath_to_string stamppath
+									 );
+
+								     typ
+									 =
+									 tro::find_typ_via_stamppath (typerstore, stamppath);
+
+								     r := ALREADY_MACRO_EXPANDED typ;
+
+								     typ;
+								 }
+								 except
+								     tro::UNBOUND
+									 =
+									 {   if_debugging_say "#instanceToTypeConstructor (NEEDS_GENERIC_EVALUATION/TYP_BY_STAMPPATH) failed";
+									     raise exception tro::UNBOUND;
+									 }
+							     );
+
+							_ => badtyp ();
+						    esac;
+						};
+				        end;
+
+					# Creates a typechecked_package from the instance node found 
+					# in the given slot. 
+					#
+					fun instance_to_typechecked_package (symbol, slot, typerstore, failures_so_far: Int)
+					    :
+					    (mld::Typerstore_Entry, Int)
+					    =
+					    {   if_debugging_say ("instanceToMacroExpansion: " + symbol::name symbol + " " + int::to_string failures_so_far);
+
+						case *slot
+						    #
+						    (typechecked_package_dag_node as (FULLY_EXPLORED_PACKAGE _))
+							=>
+							{   my (typechecked_package, n)
+								=
+								instance_to_generics_expansion' (
+								    typechecked_package_dag_node,
+								    typerstore,
+								    ip::extend (inverse_path, symbol),
+								    failures_so_far
+								);
+
+							    ( PACKAGE_ENTRY typechecked_package,
+							      n
+							    );
+							};
+
+						    FINAL_TYP r
+							=>
+							( TYP_ENTRY (instance_to_typ (r, typerstore)),
+							  failures_so_far
+							);
+
+						    FINAL_GENERIC { an_api as GENERIC_API { parameter_variable, ... }, def, stamppath, path }
+							=>
+							(generic_entry, failures_so_far)
+							where
+							    generic_entry
+								=
+								case *def
+								    #
+								    THE (GENERIC { typechecked_generic, ... } )
+									=>
+									GENERIC_ENTRY  typechecked_generic;       # Will this case ever occur ???
+
+								    NULL =>
+									{   stamp = make_fresh_stamp();
+
+									    my (body_expression, tp_op)
+										=
+										new_generic_body (an_api, stamppath, path, typerstore);
+
+									    cl = GENERIC_CLOSURE {   parameter_module_stamp    => parameter_variable,
+												     body_package_expression => body_expression,
+												     typerstore
+												 };
+
+									    GENERIC_ENTRY { stamp,
+													 inverse_path    => path,
+													 generic_closure => cl,
+													 property_list   => property_list::make_property_list (),
+													 stub            => NULL,
+													 typ_path => tp_op
+												    };
+									};
+
+								   _ => bug "unexpected generic def in instanceToPackageMacroExpansion";
+							       esac;
+
+							end;
+						   ERROR_PACKAGE        => (ERRONEOUS_ENTRY, failures_so_far);
+						   ERROR_TYP => (ERRONEOUS_ENTRY, failures_so_far);
+						   typechecked_package_dag_node     => {   say("bad macroExpansionDagNode: " + typechecked_package_dag_node_to_string typechecked_package_dag_node + "\n");
+										  (ERRONEOUS_ENTRY, failures_so_far);
+									      };
+						esac;
+					    };
+
+					# A DEFINED_TYP realizing a enum spec
+					# (an explicit or implicit enum replication spec), must
+					# be unwrapped, so that the typechecked_package is a enum.
+					# This replaces the unwrapping that was formerly done
+					# in checkTypeConstructorNaming in api_match.
+					# Fixes bugs 1364 and 1432. [David B MacQueen]
+					#
+					fun fix_up_typechecked_typ (
+
+						TYP_IN_API {
+
+						    typ => PLAIN_TYP { kind => DATATYPE _, ... },
+						    ...
+						},
+						TYP_ENTRY ( typ )
+					    )
+						=>
+						#  possible indirect enum replicate.  See bug1432.7.sml 
+						TYP_ENTRY ( tu::unwrap_definition_star typ );
+
+					    fix_up_typechecked_typ (
+						TYP_IN_API { is_a_replica => TRUE, ... },
+						TYP_ENTRY (typ)
+					    )
+						=>
+						# direct or indirect enum replication.
+						#  Original spec was a enum spec.
+						#  See bug1432.1.sml
+						#
+						TYP_ENTRY (tu::unwrap_definition_star typ);
+
+					    fix_up_typechecked_typ (_, ent)
+						=>
+						ent;
+					end;
+					#
+					fun make_typerstore (base_typechecked_package_c)
+					    = 
+					    fold_left  fff   base_typechecked_package_c   api_elements
+					    where	
+						fun fff ((symbol, spec), (dictionary, fail_count))
+						    =
+						    {   if_debugging_say ("makeMacroExpansionDictionary: " + symbol::name symbol);
+
+							case (mj::get_api_element_variable spec)
+							    #
+							    THE v
+								=> 
+								{   s = get_slot (slot_dictionary, v);
+
+								    my (e, failures)
+									=
+									instance_to_typechecked_package (symbol, s, dictionary, fail_count);
+
+								    e = fix_up_typechecked_typ (spec, e);
+
+								    if_debugging_say ("ok: " + sap::module_stamp_to_string v);
+								    (   tro::set (dictionary, v, e),
+									failures
+								    );
+								}
+								except
+								    tro::UNBOUND    #  typ macroExpansionDagNode 
+								    =
+								    {   if_debugging_say ("failed at: " + sy::name symbol);
+									(dictionary, fail_count+1);
+								    };
+
+							    NULL => (dictionary, fail_count);
+							esac;
+						    };
+					       end;
+
+				        my (typerstore', fail_count)
+					    = 
+					    if (closed and closed_def)
+						#
+						if_debugging_say "make_typerstore: closed";
+
+						my (ee, fc) = make_typerstore (tro::empty, 0);
+
+						(ee, fc+failures_so_far);
+
+
+					    else
+						if_debugging_say "make_typerstore: not closed";
+
+						base_typechecked_package_c
+						    = 
+						    (   MARKED_TYPERSTORE { stamp => make_fresh_stamp(),
+										  stub  => NULL,
+										  typerstore
+										},
+							failures_so_far
+						    );
+
+						my (ee, fc)
+						    =
+						    make_typerstore (base_typechecked_package_c);
+
+						(ee, fc);
+					    fi;
+
+
+					typechecked_package
+					    =
+					    { stamp		=> get_stamp instance,
+					      inverse_path,
+					      typerstore	=> typerstore',
+					      property_list	=> property_list::make_property_list (),
+					      stub		=> NULL
+					    };
+
+					if_debugging_say (string::cat [ "--instanceToPackageMacroExpansion': failuresSoFar = ",
+									   int::to_string failures_so_far,
+									   ", failCount = ",
+									   int::to_string fail_count
+									 ]
+							 );
+
+
+					if (fail_count == 0)
+					    #
+					    final_typechecked_package := CONSTANT_GENERIC_EVALUATION typechecked_package;
+					fi;
+
+					ed::with_internals (
+					    fn () =  ed::debug_print
+							 debugging
+							 (   ("<<instanceToPackageMacroExpansion':" + ip::to_string inverse_path + ":"),
+							     (   fn stream = fn ent = unparse_package_language::unparse_typechecked_package stream (ent, symbolmapstack::empty, 20)),
+							     mld::PACKAGE_ENTRY typechecked_package
+							 )
+					);
+
+					(typechecked_package, fail_count);
+				    };
+			    esac;
+			};
+
+		    instance_to_generics_expansion' (ERROR_PACKAGE, _, _, failures_so_far)
+			=> 
+			( bogus_typechecked_package,
+			  failures_so_far
+			);
+
+		    instance_to_generics_expansion' _ => bug "instance_to_generics_expansion - instance not FULLY_EXPLORED_PACKAGE";
+                end;
+		#
+		fun loop (typechecked_package, failures)
+		    =
+		    {   if_debugging_say ("instance_to_generics_expansion': failures = " + int::to_string failures);
+
+			if (failures == 0)
+			    #			    
+			    typechecked_package;
+			else
+			    my (typechecked_package', failures')
+				=
+				instance_to_generics_expansion'(instance, typerstore, inverse_path, 0);
+
+			    if (failures' < failures)
+				#
+				loop (typechecked_package', failures');
+			    else
+				err em::ERROR "dependency cycle in macroExpand" em::null_error_body;
+				typechecked_package';
+			    fi;
+                        fi;
+		    };
+
+		loop (instance_to_generics_expansion' (instance, typerstore, inverse_path, 0) );
+
+	    }   #  fun instance_to_generics_expansion 
+
+
+
+	# Fetch the TypeConstructorKind for a particular generic api
+
+	also
+	fun get_typ_kind_for_generic_api {
+
+                an_api as mld::GENERIC_API { parameter_variable, parameter_api, body_api, ... },
+		typerstore,
+		inverse_path,
+		per_compile_info as { make_fresh_stamp, ... } : eu::Per_Compile_Info
+	    }
+		=> 
+		{   my (arg_eps, res_eps)
+			=
+			case (parameter_api, body_api)  
+			    #
+			    (API psg, API bsg)
+				=>
+				case (param::api_bound_generic_evaluation_paths psg, param::api_bound_generic_evaluation_paths bsg)
+				    #
+				    (THE x, THE y)
+					=>
+					(x, y);
+
+				    (_, z)
+					=> 
+					{   source_code_region = lnd::null_region;
+
+					    my (typechecked_package, _, _, args, _)
+						= 
+						typechecked_generic {   an_api      => parameter_api,
+									  typerstore,
+									  inverse_path, 
+									  typechecked_package_kind => GENERIC_PARAMETER_GENERIC_EVALUATION di::top, 
+									  source_code_region,
+									  per_compile_info
+								      };
+
+							# We use di::top temporarily,
+							# the Typ_Path result is discarded 
+							# anyway. (ZHONG)
+
+
+
+						case z 
+						    #
+						    THE u => (args, u);
+						    #
+						    NULL  =>
+							{   typerstore'
+								= 
+								tro::mark ( make_fresh_stamp, 
+									   tro::set (typerstore, parameter_variable, PACKAGE_ENTRY typechecked_package)
+									 );
+
+							    my (_, _, _, result, _)
+								= 
+								typechecked_generic {   an_api      => body_api,
+											typerstore => typerstore', 
+											typechecked_package_kind => GENERIC_PARAMETER_GENERIC_EVALUATION di::top, 
+											inverse_path,
+											source_code_region,
+											per_compile_info
+										     };
+
+								# We use di::top temporarily,
+								# the Typ_Path result is discarded 
+								# anyway. (ZHONG)
+
+							    (args, result);
+							};
+						esac;
+
+					};
+				esac;
+
+			    _ => ([], []);
+			esac;
+
+		    arg_tks   =   map #2 arg_eps;
+		    res_tks   =   map #2 res_eps;
+
+		    param::make_kindfun_uniqkind (   arg_tks,
+				       param::make_kindseq_uniqkind res_tks
+				   );
+		};
+
+	    get_typ_kind_for_generic_api _
+		=>
+		param::make_kindfun_uniqkind ([], param::make_kindseq_uniqkind []);
+        end 
+
+
+
+	#  The generic typechecked_package function: 
+        #
+	also
+	fun typechecked_generic {
+
+                an_api,
+		typerstore,
+		typechecked_package_kind,
+		inverse_path,
+		source_code_region, 
+		per_compile_info as { make_fresh_stamp, error_fn, ... } : eu::Per_Compile_Info
+	    }
+	    =
+	    {   if_debugging_say (">>macroExpand: " + api_name an_api);
+
+                error_found := FALSE;
+		#
+		fun err severity msg
+                    =
+                    {   error_found := TRUE;
+                        error_fn  source_code_region  severity  msg;
+                    };
+
+		base_stamp = make_fresh_stamp();
+
+		my (typechecked_package_dag_node, abstract_typs, typ_stamppaths, count)
+		    = 
+		    sig_to_inst (an_api, typerstore, typechecked_package_kind, inverse_path, err, per_compile_info);
+
+		counter = REF count;
+		#
+		fun cntf x
+		    = 
+		    {   k = *counter;
+
+			counter := k + 1;
+
+			k;
+		    };
+
+		alleps = REF (typ_stamppaths);
+
+		my alltps:   Ref( List( ty::Typ_Path ) )
+                           = REF [];
+		#
+		fun add_res (NULL,   tp)
+                        =>
+                        alltps :=  tp ! *alltps;
+
+		    add_res (THE z, tp)
+			=> 
+			{   alleps := ( z ! *alleps);
+			    alltps :=  tp ! *alltps;
+			};
+                end;
+
+		typechecked_package
+		    = 
+		    instance_to_generics_expansion (
+
+		      typechecked_package_dag_node,
+		      typerstore,
+		      typechecked_package_kind,
+		      cntf,
+		      add_res,
+		      inverse_path,
+		      err,
+		      per_compile_info
+                    );
+
+		my (abs_typs, generic_tps, all_eps)
+		    = 
+		    ( reverse abstract_typs,
+		      reverse *alltps,
+		      reverse *alleps
+		    );
+
+		# Memoize the resulting boundeps list:
+		#
+		case an_api 
+		    #
+		    mld::API an_api
+			=>
+			case (param::api_bound_generic_evaluation_paths  an_api)
+			    #
+			    NULL =>  param::set_api_bound_generic_evaluation_paths (an_api, THE all_eps);
+			    _    =>  ();
+			esac;
+
+		    _ => ();
+                esac;
+
+
+		if_debugging_say "<<macroExpand";
+
+		(typechecked_package, abs_typs, generic_tps, all_eps, reverse typ_stamppaths);
+	    };
+
+	# debugging wrappers
+#	sigToInst                   =   wrap "sigToInst" sigToInst
+#	instance_to_generics_expansion   =   wrap "instanceToPackageMacroExpansion" instanceToPackageMacroExpansion
+#	genericMacroExpansion        =   wrap "macroExpand" genericMacroExpansion
+
+
+
+
+	# Typechecking of the formal generic body apis
+	#
+	fun macro_expand_formal_generic_body_api {
+
+                an_api,
+                typerstore,
+                typ_path,
+                inverse_path,
+                source_code_region,
+                per_compile_info
+            }
+	    =
+	    {   my (typechecked_package, typs, _, _, typ_stamppaths)
+		    =
+		    typechecked_generic
+		      {
+			an_api,
+			typerstore,
+			typechecked_package_kind       =>  FORMAL_BODY_GENERIC_EVALUATION typ_path,
+			inverse_path,
+			source_code_region,
+			per_compile_info
+		      };
+
+		{ typechecked_package,
+		  abstract_typs    => typs,
+		  typ_stamppaths => map #1 typ_stamppaths
+		};
+	    };
+
+	# Typechecking of the package abstractions
+	#
+	fun instantiate_package_abstractions { an_api, typerstore, source_typechecked_package, inverse_path, source_code_region, per_compile_info }
+            =
+	    {   my (typechecked_package, typs, _, _, typ_stamppaths)
+		    =
+		    typechecked_generic
+		      { an_api,
+			typerstore,
+			typechecked_package_kind   =>  ABSTRACT_GENERIC_EVALUATION source_typechecked_package,
+			inverse_path,
+			source_code_region,
+			per_compile_info
+		      };
+
+		{ typechecked_package,
+		  abstract_typs       =>  typs,
+		  typ_stamppaths    =>  map #1 typ_stamppaths
+		};
+	    };
+
+	# Typechecking of the generic parameter apis:
+        #
+	fun do_generic_parameter_api { an_api, typerstore, debruijn_depth, inverse_path, source_code_region, per_compile_info }
+	    =
+	    {   my (typechecked_package, typs, fcttps, _, _) 
+		    =
+		    typechecked_generic { an_api,
+					  typerstore,
+					  typechecked_package_kind => GENERIC_PARAMETER_GENERIC_EVALUATION  debruijn_depth,
+					  inverse_path,
+					  source_code_region,
+					  per_compile_info
+					};
+		#
+		fun h1 (ty::PLAIN_TYP { kind => ty::FLEXIBLE_TYP flex_typecon, ... } )
+                        =>
+                        flex_typecon;
+
+		    h1 _
+                        =>
+                        bug "unexpected h1 in doPkgFunParameterApi";
+                end;
+
+		tps = (map h1 typs) @ fcttps;
+
+		{ typechecked_package,
+		  typ_paths => tps
+		};
+	    };
+
+
+
+	# Fetch the list of typ_paths
+        # for a particular package:
+	#
+	fun get_packages_typ_paths
+                { an_api as mld::API sr,
+		  typechecked_package:                 mld::Typechecked_Package,
+		  typerstore,
+		  per_compile_info as { error_fn, ... }:   eu::Per_Compile_Info
+		}
+		=>
+		map  get_typ_path  stamppath_list
+		where
+		    typechecked_package ->  { typerstore, ... };
+
+		    stamppath_list
+			= 
+			case (param::api_bound_generic_evaluation_paths sr)
+			    #
+			    THE x =>   x;
+			    #
+			    NULL  => 
+				{   my (_, _, _, all_stamppaths, _)
+					= 
+					typechecked_generic {   an_api,
+								 typerstore, 
+								 inverse_path       => ip::INVERSE_PATH [],
+								 per_compile_info,
+								 typechecked_package_kind => GENERIC_PARAMETER_GENERIC_EVALUATION di::top, 
+								 source_code_region       => lnd::null_region
+							     };
+						     # We use di::top temporarily,
+						     # the Typ_Path result is discarded 
+						     # anyway. (ZHONG)
+
+
+				    all_stamppaths;
+				};
+                       esac;
+		    #
+		    fun get_typ_path (stamppath, _)
+		       = 
+		       {   typechecked_package = tro::find_entry_via_stamppath (typerstore, stamppath);
+
+			   case typechecked_package
+			       #	
+			       mld::TYP_ENTRY (ty::PLAIN_TYP { kind => ty::FLEXIBLE_TYP tp, ... } )
+				   =>
+				   tp;
+
+			       mld::TYP_ENTRY typ
+				   =>
+				   ty::TYPPATH_TYP typ;
+
+			       mld::GENERIC_ENTRY { typ_path => THE tp, ... }
+				   =>
+				   tp;
+
+			       mld::ERRONEOUS_ENTRY
+				   =>
+				   ty::TYPPATH_TYP  ty::ERRONEOUS_TYP;
+
+			       _ => bug "unexpected typerstore in getTypeConstructorPath";
+			   esac;
+		       };
+	        end;
+
+	   get_packages_typ_paths _
+               =>
+               [];
+        end;
+
+
+	do_generic_parameter_api
+            = 
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 032 instparam") do_generic_parameter_api;
+
+
+#	my macro_expand_formal_generic_body_api
+#            = 
+#	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 032 2-macro_expand_formal_generic_body_api")
+#            macro_expand_formal_generic_body_api
+#
+#	my instantiate_package_abstractions
+#            = 
+#	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 032 3-instantiate_package_abstractions")
+#            instantiate_package_abstractions
+#
+#	my get_packages_typ_paths
+#            = 
+#	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 032 4-get_packages_typ_paths")
+#            get_packages_typ_paths
+
+
+
+    };											# package macro_generics_expansion_junk_g
+end;											# stipulate
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

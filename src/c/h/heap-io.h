@@ -1,0 +1,26 @@
+// heap-io.h
+//
+// Interface to heap-io library.
+
+
+#ifndef HEAP_IO_H
+#define HEAP_IO_H
+
+#include <stdio.h>
+
+extern Status   export_heap_image	(Task* task,  FILE* file);						// export_heap_image		def in   src/c/cleaner/export-heap.c
+extern Status   export_fn_image		(Task* task,  Val funct,  FILE* file);					// export_fn_image		def in   src/c/cleaner/export-heap.c
+
+extern Task*    import_heap_image	(const char* fname,  Cleaner_Args* cleaner_args);		// import_heap_image		def in   src/c/cleaner/import-heap.c
+
+extern Val	pickle_datastructure	(Task* task,  Val chunk);						// pickle_datastructure	def in   src/c/cleaner/datastructure-pickler.c
+extern Val	unpickle_datastructure	(Task* task,  Unt8* data,  long len,  Bool* seen_error);		// unpickle_datastructure	def in   src/c/cleaner/datastructure-unpickler.c
+
+#endif // HEAP_IO_H
+
+
+// COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// released under Gnu Public Licence version 3.
+
+

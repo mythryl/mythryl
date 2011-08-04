@@ -1,14 +1,13 @@
-/*
- * The runtime system spawns a pthread and run the main level loop on that
- * thread. 
- *
- * NOTE: The code is slightly complex, because signal handler 
- *       can be called from everywhere, including outside of 
- *       the main event loop, or within a signal handler itself.
- *
- * Allen Leung (leunga@{cs.nyu.edu,dorsai.org})
- *
- */
+//
+// The runtime system spawns a pthread and run the main level loop on that
+// thread. 
+//
+// NOTE: The code is slightly complex, because signal handler 
+//       can be called from everywhere, including outside of 
+//       the main event loop, or within a signal handler itself.
+//
+// Allen Leung (leunga@{cs.nyu.edu,dorsai.org})
+
 
 /* #define DEBUG */
 #define SANITY_CHECK 1
@@ -50,9 +49,8 @@ static void smlgtk_error(const char * fmt, ...)
 }
 
 
-/*
- * A queue for user signals
- */
+// A queue for user signals
+//
 typedef struct signal_queue signal_queue;
 struct signal_queue
 {  void * object;
@@ -71,25 +69,21 @@ static void signal_queue_clear()
    first = last = NULL;
 }
 
-/*
- * A package for communicating between SML and the event loop thread.
- * All accesses to this data package should be made into critical sections.
- */
+// A package for communicating between Mythryl and the event loop thread.
+// All accesses to this data package should be made into critical sections.
+//
 struct smlgtk_event smlgtk_event;
 
-/*
- * The current runtime thread.
- */
+// The current runtime thread.
+//
 static pthread_t runtime_thread;
 
-/*
- * Is the thread running?
- */
+// Is the thread running?
+//
 static gboolean thread_is_running = FALSE; 
 
-/*
- * A condition variable for communication between C and ML.
- */
+// A condition variable for communication between C and Mythryl.
+//
 typedef struct 
 {  GMutex * mutex;
    GCond  * cond;

@@ -1,0 +1,709 @@
+## polyequal.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+###            "Those whose work and pleasures are one
+###              are fortune's favorite children."
+###
+###                         -- Sir Winston Churchill
+
+
+stipulate
+    package hcf =  highcode_form;		# highcode_form			is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hut =  highcode_uniq_types;		# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package lcf =  lambdacode_form;		# lambdacode_form		is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+    package syx =  symbolmapstack;		# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package ty  =  types;			# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+herein
+
+    api Polyequal {
+
+	 To_Tc_Lt =   ( ty::Type -> hut::Uniqtyp,
+                        ty::Type -> hut::Uniqtype
+                      );
+
+	# Constructing generic equality functions; the current version will
+	# use runtime polyequal function to deal with abstract types. (ZHONG)
+
+	equal:  ( { get_string_eq:   Void -> lcf::Lambdacode_Expression, 
+		    get_integer_eq:  Void -> lcf::Lambdacode_Expression,
+		    get_poly_eq:     Void -> lcf::Lambdacode_Expression
+		  },
+		  syx::Symbolmapstack
+		) 
+		->
+		(ty::Type, ty::Type, To_Tc_Lt)
+		->
+		lcf::Lambdacode_Expression;
+
+	debugging:  Ref(  Bool );     
+
+    };
+end;
+
+
+stipulate
+    package bt  =  type_types;			# type_types			is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package em  =  error_message;		# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package hbo =  highcode_baseops;		# highcode_baseops		is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;		# highcode_form			is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hcv =  highcode_var;		# highcode_var			is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package hut =  highcode_uniq_types;		# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package lcf =  lambdacode_form;		# lambdacode_form		is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+    package pp  =  prettyprint;			# prettyprint			is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    package ty  =  types;			# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package tyj =  type_junk;			# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package vh  =  varhome;			# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+    package   polyequal
+    : (weak)  Polyequal				# Polyequal		is from   src/lib/compiler/back/top/translate/polyequal.pkg
+    {
+	debugging = REF FALSE;
+
+	fun bug msg =   em::impossible("Equal: " + msg);
+
+	say = controls::print::say;
+
+	To_Tc_Lt =  ( ty::Type -> hut::Uniqtyp,
+                      ty::Type -> hut::Uniqtype
+                    );
+
+	my --> = bt::(-->);
+
+	infix val  --> ;
+
+
+	# MAJOR CLEANUP REQUIRED ! The function make_var is currently directly taken 
+	# from the highcode_var module; I think it should be taken from the 
+	# "comp_info". Similarly, should we replace all make_lambda_variable in the backend
+	# with the make_var in "comp_info" ? (ZHONG)   XXX BUGGO FIXME
+	#
+	make_var
+            =
+            hcv::make_highcode_variable;
+
+	# Translating the type field in VALCON
+	# into Uniqtype; constant valcons 
+	# will take void_uniqtype as the argument
+	#
+	fun to_dcon_lty (to_typ, to_lambda_type) type
+	    =
+	    case type 
+		#
+		ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties=>an_api, type_scheme=>ty::TYPE_SCHEME { arity, body }}
+		  =>
+		  if   (bt::is_arrow_type body)
+		       to_lambda_type type;
+		  else to_lambda_type (ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties => an_api, 
+						 type_scheme                         => ty::TYPE_SCHEME { arity,
+													body  => bt::(-->) (bt::void_type, body) }
+					       }
+			     );
+		  fi;
+
+		_ => if (bt::is_arrow_type type)  to_lambda_type type;
+		     else                           to_lambda_type (bt::(-->)(bt::void_type, type));
+		     fi; 
+            esac;
+
+
+	# Is tyj::datatyp_to_type necessary, or could a variant of transTyLty that 
+	# just takes Type and domain be used in transDcon??? 
+	#
+	fun trans_dcon (typ, { name, form, domain }, to_tc_lt)
+                =
+	        (name, form, to_dcon_lty to_tc_lt (tyj::datatyp_to_type (typ, domain)));
+
+	my (true_dcon', false_dcon')
+	    = 
+	    ( h bt::true_dcon,
+	      h bt::false_dcon
+	    )
+	    where
+	        lt =   hcf::make_lambdacode_arrow_uniqtype (hcf::void_uniqtype, hcf::bool_uniqtype);		# Highcode type "Void -> Bool".
+		#
+		fun h (ty::VALCON { name, form, ... } )
+		    =
+		    (name, form, lt);
+	    end;
+	#
+	fun cond (a, b, c)
+            =
+	    lcf::SWITCH
+              (
+                a,
+                bt::bool_signature,
+                [ (lcf::VAL_CASETAG (true_dcon',  [], make_var()), b),
+		  (lcf::VAL_CASETAG (false_dcon', [], make_var()), c)
+                ],
+                NULL
+              );
+
+	my  (true_lexp, false_lexp)
+            =
+	    {   unit_lexp =  lcf::RECORD [];
+
+	       ( lcf::CONSTRUCTOR (true_dcon',  [], unit_lexp),
+                 lcf::CONSTRUCTOR (false_dcon', [], unit_lexp)
+               );
+	    };
+	#
+	fun arg_type (domain, [])
+                =>
+                domain;
+
+	   arg_type (domain, args)
+                =>
+	        tyj::apply_type_scheme (ty::TYPE_SCHEME { arity=>length args, body=>domain }, args);
+        end;
+
+	#
+	fun reduce_type type
+            =
+	    case (tyj::head_reduce_type type)
+		#
+	        ty::TYPE_SCHEME_TYPE { type_scheme => ty::TYPE_SCHEME { body, ... }, ... }   =>   reduce_type body;
+		#
+	        other =>   other;
+            esac;
+
+	# Given a list of data constructors; return its api and a list
+	# of value-carrying data constructors
+	#
+	fun get_csig  dcons
+	    = 
+	    {   fun is_const (vh::CONSTANT _) =>  TRUE;
+		    is_const (vh::LISTNIL)    =>  TRUE;
+		    is_const _                =>  FALSE;
+                end;
+
+	        h (dcons, 0, 0, [])
+		where
+		    fun h ([], c, v, rds)
+			    =>
+			    (vh::CONSTRUCTOR_SIGNATURE (v, c), reverse rds);
+
+			h ((dc as { form=>a, domain, name } ) ! r, c, v, rds)
+			     => 
+			     if (is_const a)  h (r, c+1, v, rds);
+			     else             h (r, c, v+1, dc ! rds);
+			     fi;
+                    end;
+                end;
+
+	    };
+	#
+	fun expand_rec (family as { members: Vector( ty::Datatype_Member ), ... }, stamps, free_typs)
+	    =
+	    f
+            where
+	        fun g (ty::RECURSIVE_TYPE i)
+		        => 
+			{   my  { typ_name, constructor_list, arity, eq, is_lazy, an_api }
+				=
+				vector::get (members, i);
+
+			    s =   vector::get (stamps, i);
+
+			    ty::PLAIN_TYP {
+
+                                stamp=> s,
+                                arity,
+                                eq   => REF( ty::YES ), 
+			        path => inverse_path::INVERSE_PATH [ typ_name ],
+				stub => NULL,
+				kind => ty::DATATYPE {
+
+                                           index => i,
+                                           family,
+                                           root  => NULL,
+					   stamps,
+                                           free_typs
+                                       }
+                            };
+			};
+
+		    g (ty::FREE_TYPE i)
+                        =>
+                        list::nth (free_typs, i);
+
+		    g x => x;
+                end;
+
+		#
+		fun f (ty::TYPCON_TYPE (typ, tyl))
+                        =>
+                        ty::TYPCON_TYPE (g typ, map f tyl);
+
+		    f (x as ty::TYPE_SCHEME_ARG_I _)
+                        =>
+                        x;
+
+		    f _ => bug "unexpected type in expandREC";
+                end;
+	    end;
+
+	exception POLY;
+	#
+	fun equiv_type (type, type')
+	    =
+	    eq (tyj::prune type, tyj::prune type')
+            where
+	        fun eq (type as ty::TYPCON_TYPE (typ, args), type' as ty::TYPCON_TYPE (typ', args'))
+                        =>
+			(   if   (tyj::typs_are_equal (typ, typ'))
+			        
+                                 paired_lists::all equiv_type (args, args'); 
+			    else
+				 equiv_type (tyj::reduce_type type, type')
+				 except
+				     bad_type_reduction
+					 =
+					 (   equiv_type (type, tyj::reduce_type type')
+					     except
+						 bad_type_reduction = FALSE
+					 );
+                            fi
+                       );
+
+		   eq(ty::TYPE_VARIABLE_REF _, _) =>   raise exception POLY;
+		   eq(_, ty::TYPE_VARIABLE_REF _) =>   raise exception POLY;
+		   eq(ty::TYPE_SCHEME_TYPE _,  _) =>   raise exception POLY;
+		   eq(_,  ty::TYPE_SCHEME_TYPE _) =>   raise exception POLY;
+		   eq _ => FALSE;
+                end;
+	    end;
+
+	/****************************************************************************
+	 *                   Commonly-used Lambda Types                             *
+	 ****************************************************************************/
+
+	boolty = hcf::bool_uniqtype;
+	fun eq_lty lt = hcf::make_lambdacode_arrow_uniqtype (hcf::make_tuple_uniqtype [lt, lt], boolty);
+	inteqty = eq_lty (hcf::int_uniqtype);
+	int32eqty = eq_lty (hcf::int32_uniqtype);
+	booleqty = eq_lty (hcf::bool_uniqtype);
+	realeqty = eq_lty (hcf::float64_uniqtype);
+
+	exception NOT_FOUND;
+
+	/****************************************************************************
+	 *              equal --- the equality function generator                   *
+	 ****************************************************************************/
+	fun equal ( { get_string_eq, get_integer_eq, get_poly_eq }, symbolmapstack) 
+		  (poly_eq_type:  ty::Type, concrete_type:  ty::Type, to_tc_lc as (to_typ, to_lambda_type))
+	    =
+	    {   my cache:   Ref( List ((ty::Type, lcf::Lambdacode_Expression, Ref( lcf::Lambdacode_Expression )) ) )
+			=   REF NIL;
+		#
+		fun enter type
+		    =
+		    {   v =   lcf::VAR (make_var());
+			r =   REF v;
+
+			if *debugging 
+			    #
+			    pp::with_prettyprint_device (em::default_plaint_sink())
+
+			    (fn stream
+				=
+				{   pp::string stream "enter: ";
+				    unparse_type::reset_unparse_type();
+				    unparse_type::unparse_type  symbolmapstack  stream  type;
+				}
+			    );
+			fi;
+
+			cache :=  (type, v, r) ! *cache;
+
+                        (v, r);
+		    };
+		#
+		fun find type
+		    =
+		    {   fun f ((t, v, e) ! r)
+				=>
+				if (equiv_type (type, t)  )  v;
+							   else  f r;   fi;
+
+			    f [] => {   if *debugging
+					    say "equal.pkg-find-notfound\n";
+                                        fi;
+
+					raise exception NOT_FOUND;
+				    };
+			end;
+
+			if *debugging 
+
+			     pp::with_prettyprint_device
+				 (em::default_plaint_sink())
+				 (fn stream
+				     =
+				     {   pp::string stream "find: ";
+					 unparse_type::reset_unparse_type ();
+					 unparse_type::unparse_type  symbolmapstack  stream  type;
+				     }
+				 );
+			fi;
+
+			f *cache;
+		    };
+		#
+		fun eq_type type     =   eq_lty (to_lambda_type type);
+		fun ptr_eq (p, type) =   lcf::BASEOP (p, eq_type type, []);
+		fun prim (p, lt)     =   lcf::BASEOP (p, lt, []);
+		#
+		fun atomeq (typ, type)
+		    =
+		    if   (tyj::typ_equality (typ, bt::int_typ    ))  prim (hbo::ieql, inteqty);
+		    elif (tyj::typ_equality (typ, bt::int32_typ  ))  prim (hbo::ieql, int32eqty);
+		    elif (tyj::typ_equality (typ, bt::unt_typ    ))  prim (hbo::ieql, inteqty);
+		    elif (tyj::typ_equality (typ, bt::unt8_typ   ))  prim (hbo::ieql, inteqty);
+		    elif (tyj::typ_equality (typ, bt::char_typ   ))  prim (hbo::ieql, inteqty);
+		    elif (tyj::typ_equality (typ, bt::unt32_typ  ))  prim (hbo::ieql, int32eqty);
+		    elif (tyj::typ_equality (typ, bt::bool_typ   ))  prim (hbo::ieql, booleqty); 
+		    elif (tyj::typ_equality (typ, bt::float64_typ))  prim (hbo::feqld, realeqty);
+		    elif (tyj::typ_equality (typ, bt::string_typ ))  get_string_eq();
+		    elif (tyj::typ_equality (typ, bt::integer_typ))  get_integer_eq();
+		    elif (tyj::typ_equality (typ, bt::ref_typ    ))  ptr_eq (hbo::PTR_EQL, type);
+		  /**********************
+		   * For arrays under the new rw_vector representation, we need to compare
+		   * the data pointers for equality.  polyequal does this comparison
+		   * correctly, so use it as the fallback. (John H Reppy)
+		   *
+		    else if tyj::typ_equality (typ, bt::arrayTyp) then ptrEq (hbo::PTR_EQL, type)
+		    else if tyj::typ_equality (typ, bt::word8arrayTyp) then ptrEq (hbo::PTR_EQL, type)
+		    else if tyj::typ_equality (typ, bt::real64arrayTyp) then ptrEq (hbo::PTR_EQL, type)
+		  **********************/
+		    else raise exception POLY;
+                    fi;
+		#
+		fun test (type, 0)
+			=>
+			raise exception POLY;
+
+		    test (type, depth)
+			=>
+			{   if *debugging
+			        #
+				pp::with_prettyprint_device (em::default_plaint_sink ())
+				(fn stream
+				    =
+				    {   pp::string stream "test: ";
+					unparse_type::reset_unparse_type ();
+					unparse_type::unparse_type  symbolmapstack  stream  type;
+				    }
+				);
+			    fi;
+
+			    case type
+				#			      
+				ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE t) }
+				    =>
+				    test (t, depth);
+
+				ty::TYPCON_TYPE (ty::DEFINED_TYP _, _)
+				    =>
+				    test (tyj::reduce_type type, depth);
+
+				ty::TYPCON_TYPE (ty::RECORD_TYP _, tyl)
+				    =>
+				    find type
+				    except
+					notfound
+					    =
+					    {   v = make_var();
+						x = make_var();
+						y = make_var();
+
+						my (eqv, patch) = enter type;
+						#
+						fun loop (n, [type])
+							=> 
+							lcf::APPLY (test (type, depth), lcf::RECORD [lcf::SELECT (n, lcf::VAR x),
+										 lcf::SELECT (n, lcf::VAR y)]);
+						    loop (n, type ! r)
+							=> 
+							cond (loop (n,[type]), loop (n+1, r), false_lexp);
+
+						    loop(_, NIL)
+							=>
+							true_lexp;
+						end;
+
+						lt = to_lambda_type type;
+
+						patch := lcf::FN (v, hcf::make_tuple_uniqtype [lt, lt],
+							  lcf::LET (x, lcf::SELECT (0, lcf::VAR v),
+							    lcf::LET (y, lcf::SELECT (1, lcf::VAR v), 
+								 loop (0, tyl))));
+						eqv;
+					    };
+
+				ty::TYPCON_TYPE (typ as ty::PLAIN_TYP { kind, eq, stamp, arity, path, ... }, tyl)
+				    =>
+				    case (*eq, kind)   
+					#
+					(ty::YES, ty::BASE _)
+					    =>
+					    atomeq (typ, type);
+
+					(ty::YES, ty::ABSTRACT typ')
+					    =>
+					    test (ty::TYPCON_TYPE (typ', tyl), depth);
+
+					(ty::EQ_ABSTRACT, _)
+					    =>
+					    test
+					      ( tyj::make_constructor_type
+						  ( ty::PLAIN_TYP
+						      { eq => REF ty::YES,
+							stamp,
+							arity,
+							kind,
+							path,
+							stub => NULL
+						      },
+
+						    tyl
+						  ),
+						depth
+					      );
+
+					# Assume that an equality enum has been converted
+					# to an abstract type in an abstype declaration:
+					#
+					( _,
+
+					  ty::DATATYPE { index,
+							family as { members, ... },
+							free_typs,
+							stamps,
+							...
+						      }
+					)
+					    =>
+					    {   my  { constructor_list => dcons0, ... }
+						    =
+						    vector::get (members, index);
+						#
+						fun expand_recdcon { domain=>THE x, form, name }
+							=> 
+							{ domain => THE (expand_rec (family, stamps, free_typs) x),
+							  form,
+							  name
+							};
+
+						    expand_recdcon z
+							=>
+							z;
+						end;
+
+
+						case (map expand_recdcon dcons0)
+						    #
+						    [ { form => ref_rep, ... } ]
+							=>
+							atomeq (typ, type);
+
+						    dcons
+							=>                          
+							find type
+							except
+							    notfound
+								=>
+								{   v =   make_var ();
+								    x =   make_var ();
+								    y =   make_var ();
+
+								    my  (eqv, patch)
+									=
+									enter type;
+								    #
+								    fun inside ( { name, form, domain }, ww, uu)
+									= 
+									case domain
+									    #
+									    NULL => true_lexp;
+									    #
+									    THE dom
+										=> 
+										case (reduce_type dom)
+										    #
+										     ty::TYPCON_TYPE (ty::RECORD_TYP [], _)
+											 =>
+											 true_lexp;
+
+										     _   =>
+											 {   argt =  arg_type (dom, tyl);
+
+											     lcf::APPLY (test (argt, depth - 1),
+													lcf::RECORD [ lcf::VAR ww, lcf::VAR uu ]
+												   );
+											 };
+										esac;
+									esac;
+
+								    lt    =   to_lambda_type type;
+
+								    argty =   hcf::make_tuple_uniqtype [lt, lt];
+
+								    pty   =   hcf::make_lambdacode_arrow_uniqtype (argty, boolty);
+
+								    body = 
+									case dcons
+									    #	
+									    [] => bug "empty data types";
+
+									#    [dcon] => inside dcon;
+
+									    _   =>
+										{   my (an_api, ndcons)
+											=
+											get_csig dcons;
+										    #
+										    fun concase dcon
+											= 
+											{   tcs =   map to_typ tyl;
+
+											    ww  =   make_var ();
+											    uu  =   make_var ();
+
+											    dc  =   trans_dcon (typ, dcon, to_tc_lc);
+
+											    dconx =   lcf::VAL_CASETAG (dc, tcs, ww);
+											    dcony =   lcf::VAL_CASETAG (dc, tcs, uu);
+
+											    ( dconx,
+											      #	
+											      lcf::SWITCH (   lcf::VAR y,
+													      an_api, 
+													      [   (   dcony,
+														      inside (dcon, ww, uu)
+														  )
+													      ],
+													      THE (false_lexp)
+													  )
+											    );
+											};
+
+
+										    case an_api 
+											#
+											vh::CONSTRUCTOR_SIGNATURE (0, _)
+											    =>
+											    false_lexp;
+
+											vh::CONSTRUCTOR_SIGNATURE (_, 0)
+											    => 
+											    lcf::SWITCH ( lcf::VAR x,
+													  an_api, 
+													  map concase ndcons,
+													  NULL
+													);
+											_   => 
+											    lcf::SWITCH ( lcf::VAR x,
+													  an_api, 
+													  map concase ndcons, 
+													  THE false_lexp
+													);
+										     esac;
+										 };
+									esac;
+
+								    root =   lcf::APPLY ( lcf::BASEOP (hbo::PTR_EQL, pty, []), 
+										          lcf::RECORD [lcf::VAR x, lcf::VAR y]
+									                );
+
+								    nbody = cond (root, true_lexp, body);
+
+								    patch :=    lcf::FN (v, argty,
+										    lcf::LET (x, lcf::SELECT (0, lcf::VAR v),
+										        lcf::LET (y, lcf::SELECT (1, lcf::VAR v), nbody)));
+
+								    eqv;
+								};
+							  end; 
+
+						   esac;
+					    };
+					_ => raise exception POLY;
+				    esac;
+
+				_ => raise exception POLY;
+                           esac;
+		       };
+		end;					# fun test
+
+		body =   test (concrete_type, 10);
+
+		fl   =   *cache;
+
+		case fl 
+		    #
+		    [] => body;
+
+		    _  =>
+		        {   fun g ((type, lcf::VAR v, e), (vs, ts, es))
+				   => 
+				   ( v                ! vs,
+				     (eq_type type) ! ts,
+				     *e               ! es
+				   );
+
+			        g _ => bug "unexpected equality cache value";
+			    end;
+
+			    my  (vs, ts, es)
+			        =
+			        fold_right g ([], [], []) fl;
+
+			    lcf::MUTUALLY_RECURSIVE_FNS (vs, ts, es, body);
+		       };
+		esac;
+	    }					# fun equal
+	    except
+		POLY =
+		    lcf::GENOP
+                      ( { default => get_poly_eq (),
+
+			  table => [ ( [ hcf::string_uniqtyp ],			# Might want to include integer in this table,
+				       get_string_eq ()				# although we need an integer_uniqtyp for that... 
+				     )
+				   ]
+			}, 
+			hbo::POLY_EQL,
+			to_lambda_type poly_eq_type, 
+			[ to_typ concrete_type ]
+		    );
+
+    };										# package equal 
+end;										# toplevel stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,1286 @@
+(* 32bit intel32 (x86) architecture.
+ *
+ *                 NOTE: If you update this file, run
+ *                
+ *                     sh/make-sourcecode-for-backend-intel32
+ *                
+ *                 manually from the root-directory linux commandline to
+ *                 rebuild the generated files.  This should be handled
+ *                 automatically by the
+ *                
+ *                     : shell (source: ../intel32/intel32.architecture-description options:shared sh/make-sourcecode-for-backend-intel32)
+ *                
+ *                 qualifiers in
+ *                
+ *                     src/lib/compiler/back/low/lib/intel32.lib
+ *                
+ *                 but that makelib functionality is broken at present,
+ *                 hence commented out.  When it gets fixed, the
+ *                
+ *                     @find . -type f -name '*.codemade.*' -print | xargs rm -f;
+ *                
+ *                 line in the main Makefile should be uncommented.
+ *                
+ *                     -- 2011-05-18 CrT 
+ *
+ *
+ *
+ *
+ * Here we describe to our machine-independent machinery
+ * the important (to us) machine-dependent characteristics of
+ * the intel32 computer architecture, in particular:
+ *
+ *    o How many register sets are there, and how many registers in each set.
+ *
+ *    o What machine instructions are available, with what fields on each instruction.
+ *
+ *    o How to generate assembly code from our constructor-based instruction representations.
+ *
+ *    o How to generate machine  code from our constructor-based instruction representations.
+ *
+ * The syntax for this file is a variant of SML in which datatype constructor
+ * syntax has been heavily extended to facilitate describing machine instructions.
+ *
+ * We describe each instruction as a constructor, and instruction fields as
+ * fields in the record value for that constructor, for example
+ *
+ *           JCC  {cond: Cond, operand: Operand}
+ *
+ * describes a jump-if-condition-code-is-set instruction with two fields.
+ *
+ * We support extending such a constructor declaration with extra fields
+ * specifying (for example) the textual assembly-language encoding for that
+ * instruction.  The extended version of the above example is
+ *
+ *      | JCC of {cond: Cond, operand: Operand}
+ *	   asm: ``j<cond>\t<gas_hack operand>''
+ *	   rtl: ``J<cond>''
+ *
+ * Here the "asm:" clause specifies the assembly syntax as a string
+ * with embedded <expressions> which may refer to the instruction fields
+ * (in this case "cond" and "operand").
+ *
+ * The "rtl:" field is intended to specify the instruction semantics in terms
+ * of a standard cross-platform Register Transfer Language;  this functionality
+ * appears to be non-functional. :-)
+ *
+ * The parser for this file is generated from
+ *
+ *     src/lib/compiler/back/low/tools/parser/architecture-description-language.lex
+ *     src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar
+ *
+ * The result of parsing this file is a raw-syntax parsetree defined by
+ *
+ *     src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.api
+ *
+ * which is then boiled down to a more useful Architecture_Description, defined by
+ *
+ *     src/lib/compiler/back/low/tools/arch/architecture-description.api
+ *
+ * This architecture description provides the input used by the machine-independent packages
+ *
+ *     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-registerkinds-xxx-package.pkg
+ *     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-machcode-xxx-package.pkg
+ *     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-translate-machcode-to-asmcode-xxx-g-package.pkg
+ *
+ * to generate the corresponding machine-dependent packages
+ *
+ *     src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+ *     src/lib/compiler/back/low/intel32/code/machcode-intel32-g.codemade.pkg
+ *     src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+ *     src/lib/compiler/back/low/intel32/emit/translate-machcode-to-asmcode-intel32-g.codemade.pkg
+ *
+ * which then get compiled into the compiler proper.  This compilation process is managed by
+ *
+ *     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-intel32.pkg
+ *
+ * Compare this file to:
+ *     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description
+ *     src/lib/compiler/back/low/sparc32/sparc32.architecture-description
+ *
+ *
+ * Note that much of the information in this file is duplicated in (e.g.)		# machine_properties_intel32		is from   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+ * machine_properties_intel32 and platform_register_info_intel32.			# platform_register_info_intel32	is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+ *
+ * The duplication is for historical rather thant technical reasons; those
+ * files derive from the original 1990 SML/NJ compiler, whereas this file
+ * derives from the later and separate MLRISC compiler, which is incompletely
+ * integrated.                                               XXX SUCKO FIXME.
+ *
+ *
+ *         Notes by Allen Leung (leunga@cs.nyu.edu):
+ *
+ *          1. Segmentation registers and other weird stuff are not modelled.
+ *          2. The instruction set that I model is 32-bit oriented.
+ *             I don't try to fit that 16-bit mode stuff in.
+ *          3. BCD arithmetic is missing
+ *          4. Multi-precision stuff is incomplete
+ *          5. No MMX (maybe we'll add this in later)
+ *          6. Slegdehammer extensions from AMD (more later)
+ * 
+ * 
+ *
+ * 2011-03-14 CrT: The central Intel architecture reference URL seems to be:
+ *                      http://www.intel.com/products/processor/manuals/index.htm
+ *                 In particular 
+ *                 Vol 1,  Basic Architecture:   http://www.intel.com/Assets/PDF/manual/253665.pdf
+ *                 Vol 2A: Instruction Ref A-M:  http://www.intel.com/Assets/PDF/manual/253666.pdf
+ *                 Vol 2B: Instruction Ref N-Z:  http://www.intel.com/Assets/PDF/manual/253667.pdf
+ *                 Vol 3A: System Programming 1: http://www.intel.com/Assets/PDF/manual/253668.pdf
+ *                 Vol 3B: System Programming 2: http://www.intel.com/Assets/PDF/manual/253669.pdf
+ *                 Vol 4:  Optimization:         http://www.intel.com/Assets/PDF/manual/248966.pdf
+ *
+ * This file contains:
+ *
+ *   1) Two little flags:  big vs little endian,  uppercase vs lowercase assembly output.
+ *
+ *   2) Register stuff:  Register sets, register names, register aliases.
+ *
+ *   3) Opcode stuff:  Unary op, binary op, bitwise ops, move ops...
+ *      Also operands, in particular the Intel effective address structure.
+ *
+ *   4) Instruction semantics: For each opcode above, an expression in RTL. ("Register Transfer Language".) 
+ *      This stuff is never used; apparently the MLRISC project was shut down
+ *      before code using it could be completed.  I believe the idea was
+ *      basically to autogenerate the currently-handcoded files
+ *
+ *          src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+ *          src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+ *          src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+ *
+ *      The apparently-stillborn code to do this includes
+ *
+ *          src/lib/compiler/back/low/treecode/treecode-rtl-g.pkg
+ *          src/lib/compiler/back/low/treecode/build-rtl.pkg
+ *          src/lib/compiler/back/low/treecode/rtl-build-g.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-rtl.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-rtl-tools-g.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-rtl-comp.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-rtl-tools.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-gen-rtlprops.pkg
+ *          src/lib/compiler/back/low/tools/arch/adl-rtl-comp-g.pkg
+ *)
+architecture intel32 = 
+struct
+
+    little endian        (* little endian architecture *)
+
+    lowercase assembly   (* print assembly in lower case *)
+
+   (*------------------------------------------------------------------------
+    * Note: While the intel32 has only 8 integer and 8 floating point registers,
+    * the compiler fakes it by assuming that it has 32 integer
+    * and 32 floating point registers.  That's why we have 32 integer
+    * and 32 floating point registers in this description.
+    * Probably pseudo memory registers should understood directly by 
+    * the md tool.
+    *
+    *------------------------------------------------------------------------*)
+
+    storage
+       INT_REGISTER   = $r[32] of 32 bits 							(* "INT_REGISTER" == "General Purpose" registers. *)
+		 asm: (fn (0,8)  => "%al" | (0,16) => "%ax" | (0,32) => "%eax"		(* How to prettyprint a register in assembly code, given (register_number, bitwidth). *)
+			| (1,8)  => "%cl" | (1,16) => "%cx" | (1,32) => "%ecx"
+			| (2,8)  => "%dl" | (2,16) => "%dx" | (2,32) => "%edx"
+			| (3,8)  => "%bl" | (3,16) => "%bx" | (3,32) => "%ebx"
+			| (4,16) => "%sp" | (4,32) => "%esp" 
+			| (5,16) => "%bp" | (5,32) => "%ebp" 
+			| (6,16) => "%si" | (6,32) => "%esi"
+			| (7,16) => "%di" | (7,32) => "%edi"
+			| (r,_) => "%" + int.to_string r
+		       )
+    |  FLOAT_REGISTER   = $f[32] of 64 bits								(* "FLOAT_REGISTER" == "Floating Point" registers. *)
+		  asm: (fn (f,_) => 							(* How to prettyprint a register in assembly code, given (register_number, bitwidth). *)
+			   if f < 8 then "%st(" + int.to_string f + ")"
+				    else "%f" + int.to_string f (* pseudo register *)
+		       )
+    |  FLAGS_REGISTER     = $cc[] of 32 bits aliasing INT_REGISTER asm: "cc"			(* "CC" == "Condition Code" register. We treat this as part of the INT_REGISTER register-set. *)
+    |  RAM_BYTE    = $m[]    of 8 aggregable bits asm: "mem" 				(* Main memory is made of 8-bit bytes. *)
+    |  CONTROL_DEPENDENCY   = $ctrl[] asm: "ctrl"							(* For technical reasons we treat control dependencies as a kind of register. *)
+    (*
+     * The above five are the standard registersets
+     * as defined by   predefined_registerkinds   in
+     *
+     *     src/lib/compiler/back/low/tools/arch/adl-raw-syntax-predicates-g.pkg   
+     * 
+     * They need to be defined in every architecture;
+     * the compiler has hardwired dependencies upon them.
+     * (The number and length of registers in each set
+     * may however vary by architecture.)
+     *
+     * The following register sets are architecture-specific -- they exist only on intel32:
+     *)
+    |  EFLAGS = $eflags[1] of 32 bits asm: "$eflags"					(* The intel32 EFLAGS register is the 32-bit extension of the original 16-bit FLAGS register. http://en.wikipedia.org/wiki/FLAGS_register_(computing) *)
+    |  FFLAGS = $fflags[1] of 32 bits asm: "$fflags"					(* Dunno. Doesnt appear to be ever used. *)
+
+
+    (* Declare registers of special significance.  
+     * On RISC machines this is mostly the stackpointer;
+     * on intel32 just about every register is special in
+     * the context of one instruction or another:
+     *)
+    locations
+	eax        = $r[0]
+    and ecx        = $r[1]
+    and edx        = $r[2]
+    and ebx        = $r[3]
+    and esp        = $r[4]
+    and ebp        = $r[5]
+    and esi        = $r[6]
+    and edi        = $r[7]
+    and stackptr_r = $r[4]    (* "assembler temporary register"(?) -- not used on intel32 *)
+    and st(x)      = $f[x]
+    and st0        = $f[0]
+    and asm_tmp_r  = $r[0]    (* "assembler temporary register" -- not used on intel32 *)
+    and fasm_tmp   = $f[0]    (* "assembler temporary floating point register" -- not used on intel32 *)
+    and eflags     = $eflags[0]
+
+   (*------------------------------------------------------------------------
+    * 
+    * Representation for various opcodes.
+    * 
+    *------------------------------------------------------------------------*)
+    structure Instruction = 
+    struct
+	(* An effective address can be any combination of
+	 *  base + index*scale + disp 
+	 *   or
+	 *   B + I*SCALE + DISP
+	 *
+	 * where any component is optional. The operand datatype captures
+	 * all these combinations.
+	 *
+	 *  DISP 	         == Immed | ImmedLabel | Const
+	 *  B		 == Displace{base=B, disp=0}
+	 *  B+DISP	 == Displace{base=B, disp=DISP}
+	 *  I*SCALE+DISP   == Indexed{base=NULL,index=I,scale=SCALE,disp=D}
+	 *  B+I*SCALE+DISP == Indexed{base=THE B,index=I,scale=SCALE,disp=DISP}
+	 * Note1: The index register cannot be EBP.
+	 *        The disp field must be one of Immed, ImmedLabel,  or Const.
+	 *)
+
+	(* Note: 'Relative' is only generated after span-dependent-instruction ("sdi") resolution *)
+	datatype Operand =
+	   Immed       of Int32.int				rtl: int
+	 | Immed_Label of tcf.label_expression			rtl: labexp
+	 | Relative   of int		  			(* no semantics given *)
+	 | Label_EA   of tcf.label_expression                   rtl: labexp		(* XXX *)
+	 | Direct     of $INT_REGISTER				rtl: $r[INT_REGISTER]   
+	 | FDirect    of $FLOAT_REGISTER			rtl: $f[FLOAT_REGISTER]          (* pseudo memory register for floating point *)
+	 | FPR        of $FLOAT_REGISTER			rtl: $f[FLOAT_REGISTER]          (* virtual floating point register *)
+	 | ST         of $FLOAT_REGISTER			rtl: $f[FLOAT_REGISTER]
+	 | Ramreg     of $INT_REGISTER				rtl: $r[INT_REGISTER]            (* pseudo memory register *)
+
+	 | Displace   of { base:      $INT_REGISTER,
+                           disp:      Operand,
+                           ramregion: rgn.Ramregion
+                         }					rtl: $m[$r[base] + disp : ramregion]
+
+	 | Indexed    of { base:      $INT_REGISTER option,
+                           index:     $INT_REGISTER,
+                           scale:     int, 
+			   disp:      Operand,
+                           ramregion: rgn.Ramregion
+                         }
+								rtl: $m[$r[base] + $r[index] << scale + disp : ramregion]
+
+	type Addressing_Mode = Operand
+	type Effective_Address = Operand
+
+	datatype cond! = 										(* The '!' is a hack triggering autogeneration of assembly output -- "EQ" as "eq" etc. *)
+	    EQ "e" 0w4 | NE                0w5 | LT "l" 0w12 | LE 0w14 | GT "g" 0w15 | GE 0w13  	(* BB AA CC PP OO were originally B A C P O, changed to avoid conflict with *)
+	  | BB "b" 0w2 | BE (* below    *) 0w6 | AA "a" 0w7  | AE (* above *) 0w3			(* the Mythryl convention that single uppercase char is a type-variable. *)
+	  | CC "c" 0w2 | NC (* if carry *) 0w3 | PP "p" 0wxa | NP (* if parity *) 0wxb
+	  | OO "o" 0w0 | NO (* overflow *) 0w1
+
+	    (* LOCK can only be used in front of
+	     *                      (Intel ordering, not gasm ordering)
+	     * ADC, ADD, AND, BT   mem, reg/imm
+	     * BTS, BTR, BTC, OR   mem, reg/imm
+	     * SBB, SUB, XOR       mem, reg/imm
+	     * XCHG                reg, mem
+	     * XCHG                mem, reg
+	     * DEC, INC, NEG, NOT  mem
+	     *)
+
+	datatype binary_op!  								(* The '!' is a hack triggering autogeneration of assembly output -- "ADDL" as "addl" etc. *)
+	 = ADDL	 (* 32-bit ADDition    			http://www.intel.com/Assets/PDF/manual/253666.pdf p3-34  *)
+         | SUBL	 (* 32-bit SUBtraction 			http://www.intel.com/Assets/PDF/manual/253667.pdf p4-424 *)
+         | ANDL	 (* 32-bit AND       			http://www.intel.com/Assets/PDF/manual/253666.pdf p3-63  *)
+         | ORL	 (* 32-bit OR        			http://www.intel.com/Assets/PDF/manual/253667.pdf p4-16  *)
+         | XORL	 (* 32-bit XOR        			http://www.intel.com/Assets/PDF/manual/253667.pdf p4-517 *)
+         | SHLL	 (* 32-bit SHift Left 			http://www.intel.com/Assets/PDF/manual/253667.pdf p4-355 *)
+         | SARL	 (* 32-bit Shift Right, sign -> highbit								 *)
+         | SHRL	 (* 32-bit SHift Right, 0-> highbit								 *)
+         | MULL	 (* 32-bit unsigned MULtiply		http://www.intel.com/Assets/PDF/manual/253666.pdf p3-746 *)
+         | IMULL (* 32-bit sIgned MULtiply		http://www.intel.com/Assets/PDF/manual/253666.pdf p3-494 *)
+	 | ADCL  (* 32-bit ADd with Carry		http://www.intel.com/Assets/PDF/manual/253666.pdf p3-31  *)
+         | SBBL  (* 32-bit int SuBtract with Borrow	http://www.intel.com/Assets/PDF/manual/253667.pdf p4-361 *)
+	 | ADDW  (* 16-bit addition *)
+         | SUBW	 (* 16-bit subtraction *)
+         | ANDW  (* 16-bit AND *)
+         | ORW	 (* 16-bit OR *)
+         | XORW  (* 16-bit XOR *)
+         | SHLW  (* 16-bit left-shift *)
+         | SARW  (* 16-bit right-shift, replicating sign bit in high bits. *)
+         | SHRW  (* 16-bit right-shift, shifting zeros into high bits. *)
+         | MULW  (* 16-bit unsigned multiply. *)
+         | IMULW (* 16-bit signed multiplyde. *)
+	 | ADDB  (*  8-bit addition. *)
+         | SUBB  (*  8-bit subtraction. *)
+         | ANDB  (*  8-bit AND. *)
+         | ORB   (*  8-bit OR. *)
+         | XORB  (*  8-bit XOR. *)
+         | SHLB  (*  8-bit shift-left *)
+         | SARB  (*  8-bit shift-right arithmetic (sign extension) *)
+         | SHRB  (*  8-bit shift-right, shifting zeros into high bits *)
+         | MULB  (*  8-bit unsigned multiply *)
+         | IMULB (*  8-bit   signed multiply *)
+	 | BTSW  (* 16-bit bit test-and-set		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-109 *) 
+         | BTCW  (* 16-bit bit test-and-complement	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-103 *) 
+         | BTRW	 (* 16-bit bit test-and-reset		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-105 *) 
+         | BTSL  (* 32-bit bit test-and-set.									  *)
+         | BTCL  (* 32-bit bit test-and-complement.								  *)
+         | BTRL  (* 32-bit bit test-and-reset.									  *)
+	 | ROLW	 (* 16-bit rotate left ...? *)
+         | RORW  (* 16-bit rotate right...? *)
+         | ROLL	 (* 32-bit rotate left ...? *)
+         | RORL  (* 32-bit rotate right...? *)
+	 | XCHGB (*  8-bit exchange reg/mem with reg	http://www.intel.com/Assets/PDF/manual/253667.pdf p 4-510 *)
+         | XCHGW (* 16-bit exchange reg/mem with reg *)
+         | XCHGL (* 32-bit exchange reg/mem with reg *)
+
+	   (* Same as above, but using the LOCK prefix byte
+	    * that makes the instruction indivisible, hence
+            * useful for multicore synchronization etc.
+            * I believe XCHG -always- locks, which is why it
+            * it absent from this list -- and why it is too
+            * bloody slow to use for anything but synchronization. -- 2011-05-23 CrT
+            *)
+	   (* Moby need these but I'm not going to handle them in the improver
+	    * until Moby starts generating these things -- Allen Leung
+	    *)
+	 | LOCK_ADCW "lock\n\tadcw"
+	 | LOCK_ADCL "lock\n\tadcl"
+	 | LOCK_ADDW "lock\n\taddw"
+	 | LOCK_ADDL "lock\n\taddl"
+	 | LOCK_ANDW "lock\n\tandw"
+	 | LOCK_ANDL "lock\n\tandl"
+	 | LOCK_BTSW "lock\n\tbtsw"
+	 | LOCK_BTSL "lock\n\tbtsl"
+	 | LOCK_BTRW "lock\n\tbtrw"
+	 | LOCK_BTRL "lock\n\tbtrl"
+	 | LOCK_BTCW "lock\n\tbtcw"
+	 | LOCK_BTCL "lock\n\tbtcl"
+	 | LOCK_ORW  "lock\n\torw"
+	 | LOCK_ORL  "lock\n\torl"
+	 | LOCK_SBBW "lock\n\tsbbw"
+	 | LOCK_SBBL "lock\n\tsbbl"
+	 | LOCK_SUBW "lock\n\tsubw"
+	 | LOCK_SUBL "lock\n\tsubl"
+	 | LOCK_XORW "lock\n\txorw"
+	 | LOCK_XORL "lock\n\txorl"
+	 | LOCK_XADDB "lock\n\txaddb"
+	 | LOCK_XADDW "lock\n\txaddw"
+	 | LOCK_XADDL "lock\n\txaddl"
+
+	(* One operand opcodes -- the second operand
+         * is implicitly the AX/EAX/RAX register:
+         *)  
+	datatype mult_div_op!
+         = IMULL1 "imull" (* 32-bit   signed multiply http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-494 *)
+         | MULL1 "mull"	  (* 32-bit unsigned multiply http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-746 *)
+         | IDIVL1 "idivl" (* 32-bit   signed divide   http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-490 *)
+         | DIVL1 "divl"   (* 32-bit unsigned divide   http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-299 *)
+
+	datatype unary_op!							(* The '!' is a hack triggering autogeneration of assembly output -- "DECL" as "decl" etc. *)
+         = DECL   (* 32-bit decrement		      http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-296 *)
+         | INCL   (* 32-bit increment		      http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-501 *)
+         | NEGL   (* 32-bit two's-complement negation http://www.intel.com/Assets/PDF/manual/253667.pdf p 4-9   *)
+         | NOTL   (* 32-bit one's-complement negation http://www.intel.com/Assets/PDF/manual/253667.pdf p 4-14  *)
+	 | DECW   (* 16-bit decrement *)
+         | INCW   (* 16-bit increment *)
+         | NEGW   (* 16-bit two's-complement negation *)
+         | NOTW   (* 16-bit one's-complement negation *)
+	 | DECB   (*  8-bit decrement *)
+         | INCB   (*  8-bit increment *)
+         | NEGB   (*  8-bit two's-complement negation *)
+         | NOTB   (*  8-bit one's-complement negation *)
+	 | LOCK_DECL "lock\n\tdecl"
+	 | LOCK_INCL "lock\n\tincl"
+	 | LOCK_NEGL "lock\n\tnegl"
+	 | LOCK_NOTL "lock\n\tnotl"
+
+	datatype shift_op! 								(* The '!' is a hack triggering autogeneration of assembly output -- "SHLDL" as "shldl" etc. *)
+         = SHLDL  (* 64-bit (or more) left  shift     http://www.intel.com/Assets/PDF/manual/253667.pdf p 4-379 *) 
+         | SHRDL  (* 64-bit (or more) right shift     http://www.intel.com/Assets/PDF/manual/253667.pdf p 4-383 *) 
+
+	datatype bit_op!										(* The '!' is a hack triggering autogeneration of assembly output -- "BTW" as "btw" etc. *)
+         = BTW    (* 16-bit bit test		      http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-100 *)
+	 | BTL    (* 32-bit bit test		      http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-100 *)
+	 | LOCK_BTW "lock\n\tbtw"
+	 | LOCK_BTL "lock\n\tbtl"
+
+	datatype move!										(* The '!' is a hack triggering autogeneration of assembly output -- "MOVL" as "movl" etc. *) 
+         = MOVL    (* 32-bit move                     http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-643 *)
+         | MOVB    (*  8-bit move *)
+	 | MOVW    (* 16-bit move *)         
+	 | MOVSWL  (* move 16-bit to 32-bits, sign extended *)
+	 | MOVZWL  (* move 16-bit to 32-bits, zero extended *)
+	 | MOVSBL  (* move  8-bit to 32-bits, sign extended *)
+	 | MOVZBL  (* move  8-bit to 32-bits, zero extended *)
+
+       (* "The Intel manual is incorrect on the description of FDIV and FDIVR" -- Allen Leung *)
+	datatype fbin_op! 										(* The '!' is a hack triggering autogeneration of assembly output -- "FADDP" as "faddp" etc. *) 
+         = FADDP  (* ST(0) += somefloat; pop	?	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-329 *)
+         | FADDS  (* ST(0) += somefloat		?	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-329 *)
+	 | FMULP  (* multiply				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-390 *)  
+         | FMULS  (* multiply				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-390 *)  
+	 | FCOMS  (* compare				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-344 *)  
+	 | FCOMPS (* ... and pop. *)   
+	 | FSUBP  (* ST(1) := ST-ST(1); pop		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)  
+         | FSUBS  (* ST(1) := ST-ST(1);			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)  
+	 | FSUBRP (* ST(1) := ST(1)-ST; pop		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)  
+         | FSUBRS (* ST(1) := ST(1)-ST;			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)
+	 | FDIVP  (* ST(1) := ST/ST(1); pop		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-355 *)
+         | FDIVS  (* ST(1) := ST/ST(1);			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-355 *)
+	 | FDIVRP (* ST(1) := ST(1)/ST; pop		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-355 *)
+         | FDIVRS (* ST(1) := ST(1)/ST;			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-355 *)
+	 | FADDL  (* ST(0) += somefloat		?	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-329 *)
+	 | FMULL  (* multiply				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-390 *)  
+	 | FCOML  (* compare				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-344 *)  
+	 | FCOMPL (* compare; pop   			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-344 *)  
+	 | FSUBL  (* ST(1) := ST-ST(1); [pop]		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)
+	 | FSUBRL (* ST(1) := ST(1)-ST; [pop]		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-441 *)
+	 | FDIVL  (* ST(1) := ST/ST(1); [pop]		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-355 *)
+	 | FDIVRL (* ST(1) := ST(1)/ST; [pop]		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-359 *)
+
+	(* Multiply (etc) a float by an integer, producing a float:
+        *)
+	datatype fibin_op!  										(* The '!' is a hack triggering autogeneration of assembly output -- "FIADDS" as "fiadds" etc. *) 
+	  = FIADDS  (0wxde,0) (* ST(0) += some_int; 	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-643 *)
+          | FIMULS  (0wxde,1) (* multiply by int16	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-390 *)  
+	  | FICOMS  (0wxde,2) (* Compare to int.	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-364 *)
+          | FICOMPS (0wxde,3) (* Compare to int + pop	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-364 *)
+	  | FISUBS  (0wxde,4) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)
+          | FISUBRS (0wxde,5) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-441 *)
+	  | FIDIVS  (0wxde,6) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-359 *)
+          | FIDIVRS (0wxde,7) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-359 *)
+	  | FIADDL  (0wxda,0) (* ST(0) += somefloat ?	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-329 *)
+          | FIMULL  (0wxda,1) (* multiply by int32	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-390 *)  
+	  | FICOML  (0wxda,2) (* Compare to int + pop	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-364 *)
+          | FICOMPL (0wxda,3) (* Compare to int + pop	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-364 *)
+	  | FISUBL  (0wxda,4) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)
+          | FISUBRL (0wxda,5) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-437 *)
+	  | FIDIVL  (0wxda,6) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-359 *)
+          | FIDIVRL (0wxda,7) (* ST(1):=?; [pop]	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-359 *)
+
+	(* Unary op on a float:
+        *)
+	datatype fun_op! =   										(* The '!' is a hack triggering autogeneration of assembly output -- "FCHS" as "fchs" etc. *) 
+	   (* the first byte is always d9; the second byte is listed *)
+	   FCHS     0wxe0 (* Change sign.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-338 *)
+	 | FABS     0wxe1 (* Absolute value of ST(0)	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-327 *)
+	 | FTST     0wxe4 (* Test			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-445 *)
+	 | FXAM     0wxe5 (* Set C0,C2,C2 per  ST(0)	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-450 *)
+	 | FPTAN    0wxf2 (* Partial    tangent         http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-404 *)
+	 | FPATAN   0wxf3 (* Partial arctangent		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-395 *)
+	 | FXTRACT  0wxf4 (* Get exponent + mantissa	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-468 *)
+	 | FPREM1   0wxf5 (* Partial remainder		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-401 *)
+	 | FDECSTP  0wxf6 (* ++ tos ptr -- rotate stack	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-353 *)
+	 | FINCSTP  0wxf7 (* -- tos ptr -- rotate stack	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-369 *)
+	 | FPREM    0wxf8 (* Partial remainder		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-398 *)
+	 | FYL2XP1  0wxf9 (*  y*log2(x+1) (annuities)	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-470 *)
+	 | FSQRT    0wxfa (* square root.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-423 *)
+	 | FSINCOS  0wxfb (* sine and cosine.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-420 *)
+	 | FRNDINT  0wxfc (* Round to int		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-407 *)
+	 | FSCALE   0wxfd (* Fast mul/div by 2**n	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-416 *)
+	 | FSIN     0wxfe (* Float   sine.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-418 *)
+	 | FCOS     0wxff (* float cosine.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-351 *)
+
+	(* Load/store/... the floating point unit environment.
+         * This includes the FPU control word, status word, tag word,
+         * instruction pointer, data pointer, and last opcode.
+         *)
+	datatype fenv_Op! 					(* The '!' is a hack triggering autogeneration of assembly output -- "FLDENV" as "fldenv" etc. *) 
+	 = FLDENV  (* Load intel32 FPU environment.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-387 *)
+         | FNLDENV (* Same, no pending-interrupt check.	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-387 *)
+         | FSTENV  (* Store intel32 FPU environment.	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-431 *)
+         | FNSTENV (* Same, no pending-interrupt check.	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-431 *)
+
+	(* Intel floating point precision *)
+	datatype fsize = FP32 "s" | FP64 "l" | FP80 "t"
+
+	(* Intel integer precision *)
+	datatype isize = INT8 "8" | INT16 "16" | INT32 "32" | INT64 "64" 
+
+    end (* Instruction *)
+
+    (*------------------------------------------------------------------------
+     *
+     * Here, I'm going to define the semantics of the instructions
+     *
+     *------------------------------------------------------------------------*)
+    structure RTL =
+    struct
+
+	 (* Get the basis *)
+    (*    include "Tools/basis.adl" *)
+	include "src/lib/compiler/back/low/tools/basis.adl"	
+	open Basis
+	infix 1 ||  (* parallel effects *)
+	infix 2 :=  (* assignment *)
+
+	(* Some type abbreviations:
+        *)
+	fun byte x = (x : #8 bits)
+	fun word x = (x : #16 bits)
+	fun long x = (x : #32 bits)
+	fun float x = (x : #32 bits)
+	fun double x = (x : #64 bits)
+	fun real80 x = (x : #80 bits)
+
+	(* Intel register abbreviations:
+        *)
+	val eax = $r[0]
+        and ecx = $r[1]
+        and edx = $r[2]
+        and ebx = $r[3]
+	and esp = $r[4]
+        and ebp = $r[5]
+        and esi = $r[6]
+        and edi = $r[7]
+
+	(* Condition codes bits in eflag.  
+	 * Let's give symbolic name for each bit as per the Intel doc.
+	 *)
+	rtl setFlag : #n bits -> #n bits
+	fun flag b = andb($eflags[0] >> b, 1)
+	val CF = flag 0
+        and PF = flag 2  
+	and ZF = flag 6
+        and SF = flag 7
+        and OF = flag 11
+
+	(* Now gets use the bits to express the conditions.  Again from Intel. *)
+	(* conditions *)                   (* aliases *)
+	val B   = CF == 1                  val C = B and NAE = B 
+	val BE  = CF == 1 orelse ZF == 1   val NA = BE          
+	val E   = ZF == 1                  val Z = E
+	val L   = SF <> OF                 val NGE = L
+	val LE  = SF <> OF orelse ZF == 1  val NG = LE
+	val NB  = CF == 0                  val AE = NB and NC = NB
+	val NBE = CF == 0 andalso ZF == 0  val A  = NBE
+	val NE  = ZF == 0                  val NZ = NE
+	val NL  = SF == OF                 val GE = NL
+	val NLE = ZF == 0 andalso SF == OF val G = NLE
+	val NO  = OF == 0 
+	val NP  = PF == 0                  val PO = NP
+	val NS  = SF == 0
+	val O   = OF == 1
+	val P   = PF == 1                  val PE = P
+	val S   = SF == 1
+
+	rtl NOP {} = ()
+	rtl LEA {addr, r32} =    $r[r32] := addr		(* this is completely wrong! XXX BUGGO FIXME *)
+
+	(* Moves with type conversion:
+        *)
+	rtl MOVL{src,dst} = dst := long src
+	rtl MOVW{src,dst} = dst := word src
+	rtl MOVB{src,dst} = dst := byte src
+	rtl MOVSWL{src,dst} = dst := long(sx(word src))
+	rtl MOVZWL{src,dst} = dst := long(zx(word src))
+	rtl MOVSBL{src,dst} = dst := long(sx(byte src))
+	rtl MOVZBL{src,dst} = dst := long(zx(byte src))
+
+	(* Semantics of integer arithmetic.
+	 * All instructions set the condition code:
+	 *)
+	fun binop typ oper {dst,src} =   dst  := typ(oper(dst,src))
+	fun arith typ oper {dst,src} =   dst  := typ(oper(dst,src))    || $eflags[0] := ??? (* XXX *)
+	fun unary typ oper {opnd}    =   opnd := typ(oper opnd)
+
+	fun inc x =  x + 1
+	fun dec x =  x - 1
+
+	(* I'm too lazy to specify the semantics of these for now *)
+	rtl adc sbb bts btc btr rol ror xchg xadd cmpxchg
+	     : #n bits * #n bits -> #n bits
+
+	rtl [ADD,SUB,AND,OR,XOR]^^B = map (arith byte) [(+),(-),andb,orb,xorb]
+	rtl [ADD,SUB,AND,OR,XOR]^^W = map (arith word) [(+),(-),andb,orb,xorb]
+	rtl [ADD,SUB,AND,OR,XOR]^^L = map (arith long) [(+),(-),andb,orb,xorb]
+	rtl [SHR,SHL,SAR]^^B = map (binop byte) [(>>),(<<),(~>>)]
+	rtl [SHR,SHL,SAR]^^W = map (binop word) [(>>),(<<),(~>>)]
+	rtl [SHR,SHL,SAR]^^L = map (binop long) [(>>),(<<),(~>>)]
+	rtl [NEG,NOT,INC,DEC]^^B = map (unary byte) [(~),notb,inc,dec]
+	rtl [NEG,NOT,INC,DEC]^^W = map (unary word) [(~),notb,inc,dec]
+	rtl [NEG,NOT,INC,DEC]^^L = map (unary long) [(~),notb,inc,dec]
+
+
+	rtl [ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^B =   map (arith byte) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+	rtl [ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^W =   map (arith word) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+	rtl [ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^L =   map (arith long) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+
+	fun lockarith typ oper {src,dst}= 
+		dst := typ(oper(dst,src)) 
+	     || Kill $eflags[0] (* XXX *)
+	fun lockunary typ oper {opnd} = 
+		opnd := typ(oper(opnd)) 
+	     || Kill $eflags[0] (* XXX *)
+
+	rtl LOCK_^^[ADD,SUB,AND,OR,XOR,XADD]^^B =   map (lockarith byte) [(+),(-),andb,orb,xorb,xadd]
+	rtl LOCK_^^[ADD,SUB,AND,OR,XOR,XADD]^^W =   map (lockarith word) [(+),(-),andb,orb,xorb,xadd]
+	rtl LOCK_^^[ADD,SUB,AND,OR,XOR,XADD]^^L =   map (lockarith long) [(+),(-),andb,orb,xorb,xadd]
+
+	rtl LOCK_^^[ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^B =   map (lockarith byte) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+	rtl LOCK_^^[ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^W =   map (lockarith word) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+	rtl LOCK_^^[ADC,SBB,BTS,BTC,BTR,ROL,ROR,XCHG]^^L =   map (lockarith long) [adc,sbb,bts,btc,btr,rol,ror,xchg]
+
+	rtl LOCK_^^[DEC,INC,NEG,NOT]^^L =   map (lockunary long) [dec,inc,(~),notb]
+
+	rtl LOCK_^^[CMPXCHG]^^B =   map (lockarith byte) [cmpxchg]
+	rtl LOCK_^^[CMPXCHG]^^W =   map (lockarith word) [cmpxchg]
+	rtl LOCK_^^[CMPXCHG]^^L =   map (lockarith long) [cmpxchg]
+
+	(* Multiplication/division
+        *)
+	rtl upperMultiply : #n bits * #n bits -> #n bits
+	rtl MULL1{src}  = eax        := muls(eax, src) ||
+			  edx        := upperMultiply(eax, src) ||
+			  $eflags[0] := ???
+	rtl IDIVL1{src} = eax := divs(eax, src) ||
+			  edx := rems(eax, src) ||
+			  $eflags[0] := ???
+	rtl DIVL1{src}  = edx := divu(eax, src) ||
+			  edx := remu(eax, src) ||
+			  $eflags[0] := ???
+
+	(* test[b,w,l] *)
+	rtl TESTB {lsrc,rsrc} = $eflags[0] := setFlag(andb(byte lsrc, rsrc))
+	rtl TESTW {lsrc,rsrc} = $eflags[0] := setFlag(andb(word lsrc, rsrc))
+	rtl TESTL {lsrc,rsrc} = $eflags[0] := setFlag(andb(long lsrc, rsrc))
+
+	(* setcc *)
+	fun set cc {opnd} = opnd := byte(cond(cc, 0xff, 0x0))
+	rtl SET^^   [EQ,NE,LT,LE,GT,GE,B,BE,A,AE,C,NC,P,NP,O,NO] = 
+	    map set [E ,NE,L, LE,G ,GE,B,BE,A,AE,C,NC,P,NP,O,NO] 
+
+	(* conditional move *)
+	fun cmov cc {src,dst} = if cc then $r[dst] := long src else ()
+	rtl CMOV^^   [EQ,NE,LT,LE,GT,GE,B,BE,A,AE,C,NC,P,NP,O,NO] = 
+	    map cmov [E ,NE,L, LE,G ,GE,B,BE,A,AE,C,NC,P,NP,O,NO] 
+
+	(* push and pops *)
+	rtl PUSHL {operand} = $m[esp - 4] := long(operand) || esp := esp - 4
+	rtl PUSHW {operand} = $m[esp - 2] := word(operand) || esp := esp - 2
+	rtl PUSHB {operand} = $m[esp - 1] := byte(operand) || esp := esp - 1
+	rtl POP  {operand} = operand := long($m[esp]) || esp := esp + 4
+
+	(* semantics of branches and jumps *)
+	rtl JMP{operand} = Jmp(long operand)
+	fun jcc cc {opnd} = if cc then Jmp(long opnd) else ()
+	rtl J^^     [EQ,NE,LT,LE,GT,GE,B,BE,A,AE,C,NC,P,NP,O,NO] = 
+	    map jcc [E ,NE,L, LE,G ,GE,B,BE,A,AE,C,NC,P,NP,O,NO] 
+	rtl CALL{opnd,defs,uses} =
+	    Call(long opnd) ||
+	    Kill $registerset[defs] || 
+	    Use $registerset[uses] 
+
+	(* semantics of floating point operators
+	 * The 3-address fake operators first. 
+	 *)
+	fun fbinop typ oper {lsrc, rsrc, dst} = dst := typ(oper(lsrc, rsrc))
+	fun funary typ oper {src, dst} = dst := typ(oper src)
+	rtl F^^[ADD,SUB,MUL,DIV]^^L = map (fbinop double) f^^[add,sub,mul,div] 
+	rtl F^^[ADD,SUB,MUL,DIV]^^S = map (fbinop float)  f^^[add,sub,mul,div] 
+	rtl F^^[ADD,SUB,MUL,DIV]^^T = map (fbinop real80) f^^[add,sub,mul,div] 
+
+	 (* semantics of trig/transendental functions are abstract *)
+	rtl fsqrt fsin fcos ftan fasin facos fatan fln fexp : #n bits -> #n bits
+	rtl F^^[CHS,ABS,SQRT,SIN,COS,TAN,ASIN,ACOS,ATAN,LN,EXP] =
+	    map (funary real80) 
+	    f^^[neg,abs,sqrt,sin,cos,tan,asin,acos,atan,ln,exp]
+     end (* RTL *)
+
+    (*------------------------------------------------------------------------
+     * Machine Instruction encoding on the intel32.
+     * Because of variable width instructions
+     * we decompose each byte field into a
+     * seperate format first, then combine
+     * them to form the real instructions
+     *------------------------------------------------------------------------*)
+    instruction formats 8 bits 
+      modrm{mod:2, reg:3, rm:3} 
+    | reg{opc:5, reg:3}
+    | sib{ss:2, index:3, base:3}  
+    | immed8{imm:8}
+
+    instruction formats 32 bits
+      immed32{imm:32}
+
+    (*
+     * Variable format instructions
+     *)
+    instruction formats 
+      immedOpnd{opnd} =
+	(case opnd of
+	   mcf.Immed i32 => i32
+	 | mcf.ImmedLabel le => lexp le
+	 | mcf.LabelEA le => lexp le
+	 | _ => error "immedOpnd"
+	)
+    | extension{opc, opnd} = (* generate an extension *)
+	(case opnd of 
+	  mcf.Direct r => modrm{mod=3, reg=opc, rm=r}
+	| mcf.Ramreg _ => extension{opc,opnd=ramreg opnd}
+	| mcf.FDirect _ => extension{opc,opnd=ramreg opnd}
+	| mcf.Displace{base, disp, ...} =>
+	  let val immed = immedOpnd{opnd=disp}
+	  in  () (* XXX *)
+	  end
+	| mcf.Indexed{base=NULL, index, scale, disp, ...} => ()
+	| mcf.Indexed{base=THE b, index, scale, disp, ...} => ()
+	| _ => error "immedExt"
+	)
+
+     instruction formats 16 bits
+       encodeST{prefix:8, opc:5, st: $FLOAT_REGISTER 3}
+
+     instruction formats 
+       encodeReg{prefix:8, reg: $INT_REGISTER 3, opnd} =
+	(emit prefix; immedExt{opc=reg, opnd=opnd})
+     | arith{opc1,opc2,src,dst} =
+	(case (src, dst) of
+	  (mcf.ImmedLabel le, dst) => arith{opc1,opc2,src=mcf.Immed(lexp le),dst} 
+	| (mcf.LabelEA le, dst) => arith{opc1,opc2,src=mcf.Immed(lexp le),dst}
+	| (mcf.Immed i,dst) => ()
+	| (src, mcf.Direct r) => encodeReg{prefix=opc1+op3,reg,opnd=src}
+	| (mcf.Direct r,dst) => encodeReg{prefix=opc1+0w1,reg,opnd=dst}
+	| _ => error "arith"
+	)
+
+    (*------------------------------------------------------------------------
+     * A bunch of routines for emitting assembly on the intel32.
+     * This is a headache because the syntax is quite non-orthorgonal.
+     * So we have to write some code to help out the md tool
+     * 'assembly' note:
+     * Note: we are using the AT&T syntax (for Linux) and not the intel syntax
+     * memory operands have the form:
+     *       section:disp(base, index, scale)
+     * Most of the complication is actually in emitting the correct
+     * operand syntax.
+     *------------------------------------------------------------------------*)
+
+    functor Assembly (
+    
+        structure ramregs: Machcode_Address_Of_Ramreg_Intel32 where mcf = mcf
+
+	val ramreg_base: rkj.Codetemp_Info option
+    )
+    =
+    struct
+       fun ramreg r = ramregs.ramreg {reg=r, base=null_or.the ramreg_base}
+
+       fun emit_int32 i
+	   = 
+	   let val s = int32.to_string i
+	       val s = if i >= 0 then s else "-" ^ string.substring(s,1,size s - 1)
+	   in  emit s
+           end
+
+       val {min_register_id=stoffset, ...} = rgk.get_id_range_for_physical_register_kind rkj.FLOAT_REGISTER
+
+       fun emit_scale 0 = emit "1"
+	 | emit_scale 1 = emit "2"
+	 | emit_scale 2 = emit "4"
+	 | emit_scale 3 = emit "8"
+	 | emit_scale _ = error "emit_scale"
+
+       and e_immed (mcf.IMMED (i)) = emit_int32 i
+	 | e_immed (mcf.IMMED_LABEL lambda_expression) = emit_label_expression  lambda_expression
+	 | e_immed _ = error "e_immed"
+
+
+       and emit_operand opn =
+	   case opn of
+	   mcf.IMMED i => (emit "$"; emit_int32 i)
+	 | mcf.IMMED_LABEL lambda_expression => (emit "$"; emit_label_expression lambda_expression)
+	 | mcf.LABEL_EA le => emit_label_expression le
+	 | mcf.RELATIVE _ => error "emit_operand"
+	 | mcf.DIRECT r => emit_register r
+	 | mcf.RAMREG r => emit_operand(ramreg opn)
+	 | mcf.ST f => emit_register f
+	 | mcf.FPR float_register => (emit "%f"; emit(int.to_string(rkj.intrakind_register_id_of float_register)))
+	 | mcf.FDIRECT f => emit_operand(ramreg opn)
+	 | mcf.DISPLACE{base,disp,ramregion,...} => 
+	     (emit_disp disp; emit "("; emit_register base; emit ")"; 
+	      emit_ramregion ramregion)
+	 | mcf.INDEXED { base, index, scale, disp, ramregion,...} =>
+	    (emit_disp disp; emit "("; 
+	     case base of
+	       NULL => ()
+	     | THE base => emit_register base;
+	     comma();
+	     emit_register index;
+             comma(); 
+	     emit_scale scale;
+             emit ")";
+             emit_ramregion ramregion)
+
+	and emit_operand8(mcf.DIRECT my_register) = emit(rkj.register_to_string' { my_register, size_in_bits=8 })
+	  | emit_operand8 opn = emit_operand opn
+
+	and emit_disp(mcf.Immed 0) = ()
+	  | emit_disp(mcf.Immed i) = emit_int32 i
+	  | emit_disp(mcf.Immed_Label label_expression) = emit_label_expression label_expression
+	  | emit_disp _ = error "emit_disp"
+
+       (* The gas assembler does not like the "$" prefix for immediate
+	* labels in certain instructions. 
+	*)
+	fun gas_hack(mcf.Immed_Label label_expression) = emit_label_expression label_expression
+	  | gas_hack operand = (emit "*"; emit_operand operand)
+
+       (* Display the floating point binary opcode *)
+	fun is_mem_operand(mcf.RAMREG _) = true
+	  | is_mem_operand(mcf.FDIRECT f) = true
+	  | is_mem_operand(mcf.LABEL_EA _) = true
+	  | is_mem_operand(mcf.DISPLACE _) = true
+	  | is_mem_operand(mcf.INDEXED _) = true
+	  | is_mem_operand _ = false
+	fun chop fbin_op =
+	    let val n = size fbin_op
+	    in  case Char.to_lower(string.get(fbin_op, n - 1)) of
+		  (#"s" | #"l") => string.substring(fbin_op, 0, n - 1)
+		| _ => fbin_op
+	    end
+
+	fun is_st0 (mcf.ST reg) = rkj.intrakind_register_id_of reg = 0 
+	  | is_st0 _ = false
+
+	(* Special syntax for binary operators *)
+	fun emit_fbinary_op(bin_op,src,dst) =
+	    if is_mem_operand src then 
+		(emit_fbin_op bin_op; emit "\t"; emit_operand src)
+	    else (emit(chop(asm_fbin_op bin_op)); emit "\t";
+		  case (is_st0 src, is_st0 dst) of
+		    (_, true) => (emit_operand src; emit ", %st")
+		  | (true, _) => (emit "%st, "; emit_operand dst)
+		  | _ => error "emit_fbinary_op"
+		 ) 
+
+	val emit_dst      =  emit_operand
+	val emit_src      =  emit_operand
+	val emit_operand  =  emit_operand
+	val emit_operand8 =  emit_operand8
+	val emit_rsrc     =  emit_operand
+	val emit_lsrc     =  emit_operand
+	val emit_address  =  emit_operand
+	val emit_src1     =  emit_operand
+	val emit_ea       =  emit_operand
+	val emit_count    =  emit_operand
+    end (* Assembly *)
+
+
+    (*------------------------------------------------------------------------
+     *
+     * Reservation tables and pipeline definitions for scheduling.
+     * Faked for now as I don't have to time to look up the definitions
+     * from the Intel doc.
+     *
+     *------------------------------------------------------------------------*)
+
+     (* Function units *)
+     resource issue and mem and alu and falu and fmul and fdiv and branch
+
+     (* Different implementations of cpus *)
+     cpu default				(* CPU name. *)	
+         2					(* Max simultaneous instruction issues. *)
+         [ 2 issue,
+           2 mem,
+           1 alu,
+           1 falu,
+           1 fmul
+        ]
+
+     (* Definitions of various reservation tables *) 
+     pipeline NOP _    = [issue] 
+      and     ARITH _  = [issue^^alu]
+      and     LOAD _   = [issue^^mem]
+      and     STORE _  = [issue^^mem,mem,mem] 
+      and     FARITH _ = [issue^^falu]
+      and     FMUL _   = [issue^^fmul,fmul]
+      and     FDIV _   = [issue^^fdiv,fdiv*50]
+      and     BRANCH _ = [issue^^branch]
+
+    (*------------------------------------------------------------------------
+     *
+     * Compiler representation of the instruction set.
+     *
+     *------------------------------------------------------------------------*)
+    base_op
+	NOP
+	  asm: ``nop''
+	  rtl: ``NOP''
+
+      | JMP of operand * lbl.codelabel list
+	  asm: ``jmp\t<gas_hack operand>''
+	  rtl: ``JMP''
+
+      | JCC of { cond: Cond, operand: Operand }
+	  asm: ``j<cond>\t<gas_hack operand>''
+	  rtl: ``J<cond>''
+
+      | CALL of { operand:   Operand,
+                  defs:      $registerset,
+                  uses:      $registerset,
+		  return:    $registerset,
+                  cuts_to:   lbl.codelabel list,
+                  ramregion: rgn.Ramregion,
+		  pops:      Int32.int
+                }
+	  asm: ``call\t<gas_hack operand><emit_ramregion ramregion><
+		  emit_defs(defs)><
+		  emit_uses(uses)><
+		  emit_registerset("return",return)><
+		  emit_cuts_to cuts_to>''
+	  rtl: ``CALL''
+
+      | ENTER of {src1: Operand, src2: Operand} 
+	  asm: ``enter\t<emit_operand src1>, <emit_operand src2>''
+
+      | LEAVE
+	  asm: ``leave''
+
+      | RET of Operand option
+	  asm: ``ret<case option of NULL => () 
+				  | THE e => (emit "\t"; emit_operand e)>''
+
+     (* integer *)
+      | MOVE of {mv_op:move, src: Operand, dst: Operand}
+	  asm: ``<mv_op>\t<src>, <dst>''
+	  rtl: ``<mv_op>'' 
+
+      | LEA of {r32: $INT_REGISTER, address: Operand}
+	  asm: ``leal\t<address>, <r32>''
+	  rtl: ``LEA'' 
+
+      | CMPL of {lsrc: Operand, rsrc: Operand}
+	  asm: ``cmpl\t<rsrc>, <lsrc>''
+
+      | CMPW of {lsrc: Operand, rsrc: Operand}
+	  ``cmpb\t<rsrc>, <lsrc>''
+
+      | CMPB of {lsrc: Operand, rsrc: Operand}
+	  ``cmpb\t<rsrc>, <lsrc>''
+
+      | TESTL of {lsrc: Operand, rsrc: Operand}
+	  asm: ``testl\t<rsrc>, <lsrc>''
+	  rtl: ``TESTL''
+
+      | TESTW of {lsrc: Operand, rsrc: Operand}
+	  asm: ``testw\t<rsrc>, <lsrc>''
+	  rtl: ``TESTW''
+
+      | TESTB of {lsrc: Operand, rsrc: Operand}
+	  asm: ``testb\t<rsrc>, <lsrc>''
+	  rtl: ``TESTB''
+
+      | BITOP of {bit_op:bit_op, lsrc: Operand, rsrc: Operand}
+	  ``<bit_op>\t<rsrc>, <lsrc>''
+
+      | BINARY of {bin_op:binary_op, src: Operand, dst: Operand}
+	  asm: (case (src,bin_op) of
+		 (mcf.Direct _,  (* tricky business here for shifts *)
+		 (mcf.SARL | mcf.SHRL | mcf.SHLL |
+		  mcf.SARW | mcf.SHRW | mcf.SHLW |
+		  mcf.SARB | mcf.SHRB | mcf.SHLB)) => ``<bin_op>\t%cl, <dst>''
+	       | _ => ``<bin_op>\t<src>, <dst>''
+	       )
+	  (*rtl: ``<bin_op>''*)
+      | SHIFT of {shift_op:shift_op, src: Operand, dst: Operand, count: Operand}
+	  asm: (case count of (* must be %ecx if it is a register *)
+		  mcf.Direct ecx => ``<shift_op>\t<src>, <dst>''
+		| _            => ``<shift_op>\t<src>, <count>, <dst>''
+	       )
+
+      | CMPXCHG of {lock:bool, size:isize, src: Operand, dst: Operand}
+	  asm: (if lock then ``lock\n\t'' else ();
+		``cmpxchg'';
+		case size of
+		  mcf.INT8 => ``b''
+		| mcf.INT16 => ``w''
+		| mcf.INT32 => ``l''
+		| mcf.INT64 => error "CMPXCHG: I64";
+		``\t<src>, <dst>''
+	       )
+
+      | MULTDIV of {mult_div_op: mult_div_op, src: Operand}
+	  asm: ``<mult_div_op>\t<src>''
+
+      | MUL3 of {dst: $INT_REGISTER, src2: Int32.int, src1: Operand}
+	  (* Fermin: constant operand must go first *)
+	  asm: ``imull\t$<emit_int32 src2>, <src1>, <dst>''
+
+      | UNARY of {un_op: unary_op, operand: Operand}
+	  asm: ``<un_op>\t<operand>''
+	  rtl: ``<un_op>''
+
+	(* set byte on condition code; note that
+	 * this only sets the low order byte, so it also
+	 * uses its operand.
+	 *)
+      | SET of {cond: Cond, operand: Operand}
+	  asm: ``set<cond>\t<emit_operand8 operand>''
+	  rtl: ``SET<cond>''
+
+	  (* conditional move; Pentium Pro or higher only 
+	   * Destination must be a register. 
+	   *)
+      | CMOV of {cond: Cond,  src: Operand,  dst: $INT_REGISTER} 
+	  asm: ``cmov<cond>\t<src>, <dst>''
+	  rtl: ``CMOV<cond>''
+
+      | PUSHL of operand
+	  asm: ``pushl\t<operand>''
+	  rtl: ``PUSHL''
+
+      | PUSHW of operand
+	  asm: ``pushw\t<operand>''
+	  rtl: ``PUSHW''
+
+      | PUSHB of operand
+	  asm: ``pushb\t<operand>''
+	  rtl: ``PUSHB''
+
+      | PUSHFD     (* push $eflags onto stack *)
+	  ``pushfd''
+
+      | POPFD	(* pop $eflags onto stack *)
+	  ``popfd''
+
+      | POP of operand
+	  asm: ``popl\t<operand>''
+	  rtl: ``POP''
+
+      | CDQ		(* "Convert Double to Quad" -- sign-extend EAX to EDX:EAX *)
+	  ``cdq''
+
+      | INTO
+	  ``into''
+
+      (* floating *)
+      | FBINARY of { bin_op: fbin_op,  src: Operand,  dst: Operand }
+	  asm: (emit_fbinary_op(bin_op,src,dst))
+
+      | FIBINARY of { bin_op: fibin_op,  src: Operand }
+	  asm: ``<bin_op>\t<src>'' (* the implied destination is %ST(0) *)
+
+      | FUNARY of fun_op
+	  ``<fun_op>''
+
+      | FUCOM of operand	(* unordered float compare. *)
+	  ``fucom\t<operand>''	(*			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-447 *)
+
+      | FUCOMP of operand	(* unordered float compare, pop arg. *)
+	  ``fucomp\t<operand>''	(*			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-447 *)
+
+      | FUCOMPP		(* unordered float compare, pop both args. *)
+	  ``fucompp''	(*				http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-447 *)
+
+      | FCOMPP		(* float compare, pop both ops	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-344 *)
+	  ``fcompp''
+
+      | FCOMI of operand		(* float compare of ST(0), ST(i) *)
+	  ``fcomi\t<operand>, %st''	(* 		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-348 *)
+
+      | FCOMIP of operand		(* float compare of ST(0), ST(i), pop *)
+	  ``fcomip\t<operand>, %st''	(* 		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-348 *)
+
+      | FUCOMI of operand		(* unordered float compare of ST(0), ST(i) *)
+	  ``fucomi\t<operand>, %st''	(* 		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-348 *)
+
+      | FUCOMIP of operand		(* unordered float compare of ST(0), ST(i), pop *)
+	  ``fucomip\t<operand>, %st''	(* 		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-348 *)
+
+      | FXCH of {operand: $FLOAT_REGISTER}	(* Exchange ST<->ST(i)	*)
+	  ``fxch\t<operand>''			(*	http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-452 *)
+
+      | FSTPL of operand
+	  asm: (case operand of 
+		 mcf.ST _ => ``fstp\t<operand>''
+	       | _ => ``fstpl\t<operand>''
+	       )
+
+      | FSTPS of operand
+	  ``fstps\t<operand>''
+
+      | FSTPT of operand
+	  ``fstps\t<operand>''
+
+      | FSTL of operand	(* store float			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-425 *)
+	  asm: (case operand of
+		  mcf.ST _ => ``fst\t<operand>''
+		| _      => ``fstl\t<operand>''
+	       )
+
+      | FSTS of operand
+	  ``fsts\t<operand>''
+
+      | FLD1		(* Push 1.0			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fld1''
+
+      | FLDL2E		(* Push log2(e)			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldl2e''
+
+      | FLDL2T		(* Push log2(10)		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldl2t''
+
+      | FLDLG2		(* Push log10(2)		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldlg2''
+
+      | FLDLN2		(* Push ln(2)			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldln2''
+
+      | FLDPI		(* Push pi			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldpi''
+
+      | FLDZ		(* Push +0.0			http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-383 *)
+	  ``fldz''
+
+      | FLDL of operand
+	  asm: (case operand of
+		 mcf.ST _ => ``fld\t<operand>'' 
+	       | _ => ``fldl\t<operand>'' 
+	       ) 
+
+      | FLDS of operand
+	  ``flds\t<operand>'' 
+
+      | FLDT of operand
+	  ``fldt\t<operand>'' 
+
+      | FILD of operand		(* Load int.		http://www.intel.com/Assets/PDF/manual/253666.pdf p 3-367 *)
+	  ``fild\t<operand>''
+
+      | FILDL of operand
+	  ``fildl\t<operand>''
+
+      | FILDLL of operand
+	  ``fildll\t<operand>''
+
+      | FNSTSW
+	  ``fnstsw''
+
+      | FENV of { fenv_op: fenv_op,  operand: Operand }        (* load/store environment *)
+	  ``<fenv_op>\t<operand>''
+
+	(* pseudo floating ops *)
+      | FMOVE of { fsize: fsize, src: Operand, dst: Operand}
+	  ``fmove<fsize>\t<src>, <dst>''
+
+      | FILOAD of { isize: isize,  ea: Operand,  dst: Operand }
+	  ``fiload<isize>\t<ea>, <dst>''
+
+      | FBINOP of { fsize:  fsize, 
+		    bin_op: fbin_op,
+                    lsrc:   Operand,
+                    rsrc:   Operand,
+                    dst:    Operand
+                  }
+	  ``<bin_op><fsize>\t<lsrc>, <rsrc>, <dst>''
+	  (* rtl: ``<bin_op><fsize>'' *)
+
+      | FIBINOP of { isize: isize, 
+		     bin_op: fibin_op,
+                     lsrc: Operand,
+                     rsrc: Operand,
+                     dst: Operand
+                   }
+	  ``<bin_op><isize>\t<lsrc>, <rsrc>, <dst>''
+	  (* rtl: ``<bin_op><isize>'' *)
+
+      | FUNOP of { fsize: fsize, un_op: fun_op, src: Operand, dst: Operand }
+	  ``<un_op><fsize>\t<src>, <dst>''
+	  (* rtl: [[un_op fsize]] *)
+
+      | FCMP of { i: bool, fsize: fsize, lsrc: Operand, rsrc: Operand }
+	  asm: (if i then ``fcmpi'' else ``fcmp''; ``<fsize>\t<lsrc>, <rsrc>'')
+	  (* rtl: [["FCMP" fsize]] *)
+
+     (* misc *)
+      | SAHF        (* %flags -> %ah *)
+	  ``sahf''
+
+      | LAHF	  (* %ah -> %flags *)
+	  ``lahf''
+
+      | SOURCE of {}
+	  asm: ``source''
+	  mc:  ()
+
+      | SINK of {}
+	  asm: ``sink''
+	  mc:  ()
+
+      | PHI of {}
+	  asm: ``phi''
+	  mc:  ()
+
+    (*------------------------------------------------------------------------
+     * Some helper routines for the SSA optimizer.
+     * These should go away soon.
+     *------------------------------------------------------------------------*)
+      structure SSA =
+      struct
+	 fun operand(ty, mcf.Immed i) = T.LI(T.mcf.fromInt32(32,i))
+	   (*| operand(ty, mcf.ImmedLabel le) = T.LABEL le*)
+	   | operand(ty, mcf.Direct r) = T.REG(ty, r)
+	   | operand _ = error "operand"
+      end
+    (*------------------------------------------------------------------------
+     * Some helper routines for the rewriting module.
+     * These should go away soon.
+     *------------------------------------------------------------------------*)
+      structure Rewrite =
+      struct
+	  fun rewriteOperandUse (rs,rt,opnd) =
+	  (case opnd
+	   of mcf.Direct r => if C.sameColor(r,rs) then mcf.Direct rt else opnd
+	    | mcf.Displace{base, disp, ramregion} =>
+		if C.sameColor(base,rs) 
+		then mcf.Displace{base=rt, disp=disp, ramregion=ramregion}
+		else opnd
+	    | mcf.Indexed{base as THE b, index, scale, disp, ramregion} => let
+		val base'= if C.sameColor(b,rs) then THE rt else base
+		val index'=if C.sameColor(index,rs) then rt else index
+	      in mcf.Indexed{base=base', index=index', scale=scale, 
+			   disp=disp, ramregion=ramregion}
+	      end
+	    | mcf.Indexed{base, index, scale, disp, ramregion=ramregion}  =>
+	      if C.sameColor(index,rs) then
+		mcf.Indexed{base=base, index=rt, scale=scale, disp=disp, ramregion=ramregion}
+	      else opnd
+	    | _ => opnd
+	  (*esac*))
+
+	  fun rewriteOperandDef (rs,rt,opnd as mcf.Direct r) = 
+	       if C.sameColor(r,rs) then mcf.Direct rt else opnd
+
+	  fun frewriteOperandDef(fs,ft,opnd as mcf.FDirect f) = 
+		 if C.sameColor(f,fs) then mcf.FDirect ft else opnd
+	    | frewriteOperandDef(fs,ft,opnd as mcf.FPR f) = 
+		 if C.sameColor(f,fs) then mcf.FPR ft else opnd
+	    | frewriteOperandDef opnd = opnd
+
+	  fun frewriteOperandUse(fs,ft,opnd as mcf.FDirect r) =
+	       if C.sameColor(r,fs) then mcf.FDirect ft else opnd
+	    | frewriteOperandUse(fs,ft,opnd as mcf.FPR r) =
+	       if C.sameColor(r,fs) then mcf.FPR ft else opnd
+	    | frewriteOperandUse(fs,ft, opnd) = opnd
+    end
+
+end
+

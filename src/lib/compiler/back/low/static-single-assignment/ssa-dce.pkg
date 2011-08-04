@@ -1,0 +1,161 @@
+# 
+# Dead code elimination
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+
+###               "There is always an easy solution
+###                to every ... problem -- neat,
+###                plausible, and wrong."
+###
+###                             -- H L Mencken
+
+
+
+generic package ssa_dce (SSA:  SSA) : SSA_OPTIMIZATION =
+pkg
+   package ssa  = SSA
+   package sp   = SSA::SP
+   package rtl  = SSA::RTL
+   package t    = RTL::T
+   package g    = graph 
+   package w8a  = rw_unt8_vector
+   package a    = rw_vector
+  
+   type flowgraph = SSA::ssa
+
+   fun error msg = lowhalf_error_message::error("ssa_dce", msg)
+
+   codeRemoved   = LowhalfControl::getCounter "ssa-dead-instructions-removed"
+   copiesRemoved = LowhalfControl::getCounter "ssa-dead-copies-removed"
+
+   name = "Dead Code Elimination"
+
+   fun run (SSA as g::GRAPH ssa) = 
+   let my CFG as g::GRAPH mcg = SSA::mcg SSA
+       live      = w8a::rw_vector (ssa.capacity (), 0w0) /* live instruction? */ 
+       liveBlock = w8a::rw_vector (mcg.capacity (), 0w0) #  live block? 
+       liveVariable   = w8a::rw_vector (SSA::maxVariable SSA, 0w0)   #  live variable? 
+
+       defSiteTable= SSA::defSiteTable SSA
+       defsTable   = SSA::defsTable SSA
+       usesTable   = SSA::usesTable SSA
+       rtlTable    = SSA::rtlTable SSA
+       blockTable  = SSA::blockTable SSA
+
+       showOp    = SSA::showOp SSA
+       oldCode   = *codeRemoved
+       oldCopies = *copiesRemoved
+
+           #  mark all reachable blocks 
+       fun markBlock (b) =
+           if w8a::sub (liveBlock, b) != 0w0 then ()
+           else (w8a::update (liveBlock, b, 0w1);
+                 apply (fn (_, b, _) => markBlock b) (mcg.out_edges b))
+
+       apply markBlock (mcg.entries ())
+
+           /* Mark ssa op i as live.
+            * The instruction is live only if it is in a block that is live.
+            */
+       fun mark i = 
+           if w8a::sub (live, i) != 0w0 then () 
+           else if w8a::sub (liveBlock, a::sub (blockTable, i)) != 0w0 then 
+              (w8a::update (live, i, 0w1); markSrcs (a::sub (usesTable, i)))
+           else ()
+
+           #  Mark all registers as live 
+       and markSrcs [] = ()
+         | markSrcs (r . rs) = (markSrc r; markSrcs rs)
+
+           #  Mark register r as live 
+       and markSrc r =
+           if r < 0 or w8a::sub (liveVariable, r) != 0w0 then () else
+           let w8a::update (liveVariable, r, 0w1)
+               i   = a::sub (defSiteTable, r)  #  r is defined in i 
+               rtl = a::sub (rtlTable, i)
+           in  markDependents (i, r, rtl) end
+
+           /* Mark all dependents in instruction i (which defines r) 
+            * For copies, only register s in parallel copy r <- s in live
+            * For other instructions, every input is live
+            */
+       and markDependents (i, r, t::MOVE_INT_REGISTERS _) = 
+           let fun find (t . ts, s . ss) = 
+                   if r == t then markSrc s else find (ts, ss)
+                 | find _ = error "markDependents"
+               b = a::sub (blockTable, i)
+               s = a::sub (usesTable, i)
+               t = a::sub (defsTable, i)
+           in  if w8a::sub (liveBlock, b) != 0w0 then 
+                  (w8a::update (live, i, 0w1); find (t, s)) else ()
+           end
+         | markDependents (i, r, _) = mark i
+
+           /* 
+            * All control flow instructions, and stores are not removed 
+            * for now, since memory dependence analysis is flaky.
+            */
+       fun findRoots() =
+           let fun markRoot i = 
+                   if RTL::can'tBeRemoved (a::sub (rtlTable, i)) then 
+                       (/* print("Root: "$showOp i$"\n"); */ mark i)
+                   else ()
+           in  SSA::forallNodes SSA markRoot end
+
+      fun removeDeadCode() =
+      let fun kill n = 
+              (codeRemoved := *codeRemoved +1; 
+               #  print("SSA DCE: removing "$showOp n$"\n"); 
+               ssa.remove_node n 
+              )
+      in  SSA::forallNodes SSA 
+          (fn n => 
+           if w8a::sub (live, n) != 0w0 then 
+               /*
+              (case a::sub (rtlTable, n) of
+                 #  simplify partially-dead parallel copies 
+                 t::MOVE_INT_REGISTERS,
+                 let fun simplify (t . ts, s . ss, d . ds, u . us,
+                                  ts', ss', ds', us', ch) =
+                         if w8a::sub (liveVariable, t) != 0w0 then 
+                            simplify (ts, ss, ds, us,
+                                     t . ts', s . ss', d . ds', u . us', TRUE)
+                         else
+                            (copiesRemoved := *copiesRemoved + 1;
+                             simplify (ts, ss, ds, us, ts', ss', ds', us', ch))
+                       | simplify([],[],[],[], ts', ss', ds', us', ch) = 
+                               (ts', ss', ds', us', ch) 
+                       | simplify _ = error "simplify"
+                     my (defs, uses) = getOperands i
+                     t = a::sub (defsTable, i)
+                     s = a::sub (usesTable, i)
+                     my (t, s, dst, src, ch) = simplify (t, s, defs, uses,
+                                                   [],[],[],[], FALSE)
+                 in  case t of
+                        [] => kill n
+                     |  _  => 
+                     if ch then
+                     let #  i = sp::copy { instruction=i, dst=dst, src=src } 
+                         ssa_op = SSA::OP { e=RTL::COPY, i=i, s=s, t=t, p=p, b=b }
+                     in ssa.add_node (n, ssa_op) end
+                     else ()
+                 end
+               |  _ => ()
+              ) */ ()
+           else kill n)
+      end
+
+      findRoots()
+      removeDeadCode()
+   in if *codeRemoved != oldCode or
+         *copiesRemoved != oldCopies then 
+         (ssa.set_exits (list::filter ssa.has_node (ssa.exits ()));
+          SSA::changed SSA
+         )
+      
+      SSA
+   end
+end
+ 

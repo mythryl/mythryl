@@ -1,0 +1,296 @@
+## operand-table-g.pkg -- derived from  ~/src/sml/nj/smlnj-110.58/new/new/src/MLRISC/mltree/operand-table.sml
+#
+# A table for storing operands for a compilation unit.
+# We give each distinct operand a unique (negative) value number.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/rtl.lib
+
+stipulate
+    package rkj =  registerkinds_junk;							# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package iht =  int_hashtable;							# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package  ht =  hashtable;								# hashtable			is from   src/lib/src/hashtable.pkg
+herein
+
+    # This generic is nowhere invoked, but see the "operand_table" refs in:
+    #
+    #     src/lib/compiler/back/low/tools/arch/adl-gen-ssaprops.pkg:			"package operand_table:  OPERAND_TABLE where I = Instr",
+    #     src/lib/compiler/back/low/tools/arch/adl-gen-rtlprops.pkg:			"package operand_table:  OPERAND_TABLE where I = Instr",
+    #
+    generic package   operand_table_g  (						# Nowhere invoked. _g added.
+	#             ===============
+	#
+	mu:  Machcode_Universals
+    )
+    : (weak)   Operand_Table
+    {
+	# Exported to client packages:
+	#
+	package mcf = mu::mcf;
+
+	Value_Number = rkj::Codetemp_Info;
+
+	Const
+	  = INT     Int			# Small integer operands.
+	  | INTINF  integer::Int	# Large integer operands.
+	  | OPERAND mcf::Operand		# Other operand.
+	  ;
+
+	package intinf_map
+	    =
+	    red_black_map_g (
+		#
+		Key = integer::Int;
+		#	
+		compare = integer::compare;
+	    );
+
+	Operand_Table
+	    =
+	    TABLE
+	      {  int_table:		iht::Hashtable( Value_Number ),
+		 mi_table:		Ref(  intinf_map::Map( Value_Number ) ),
+		 opn_table:		ht::Hashtable( mcf::Operand, Value_Number ),		# "opn" == "operand", most likely.
+		 next_value_number: Ref( Int )
+	      };
+
+	Value_Number_Methods
+	    =
+	    VALUE_NUMBERING
+	      { int:      Int          -> Value_Number,
+		unt:      Unt          -> Value_Number,
+		int32:    int32::Int   -> Value_Number,
+		unt32:    unt32::Unt   -> Value_Number,
+		intinf:   integer::Int -> Value_Number,
+		operand:  mcf::Operand   -> Value_Number
+	      };
+
+	exception NO_OPERAND;
+	exception NO_CONST;
+	exception NO_INT;
+	exception NO_INT_INF;
+
+	gp =  mcf::rgk::info_for_registerkind  rkj::INT_REGISTER;				# info_for_registerkind		def in    src/lib/compiler/back/low/code/registerkinds-g.pkg
+
+	exception CONST Const;
+
+	fun mk_const (vn, const)
+	    = 
+	    rkj::CODETEMP_INFO
+	      { id      =>  vn,
+		notes   =>  REF [CONST const],
+		color   =>  REF rkj::CODETEMP,
+		subkind =>  gp
+	      };
+
+	bot      = rkj::CODETEMP_INFO { id=> -9999999, notes=>REF [], color=>REF rkj::CODETEMP, subkind=>gp };
+	top      = rkj::CODETEMP_INFO { id=> -9999998, notes=>REF [], color=>REF rkj::CODETEMP, subkind=>gp };
+	volatile = rkj::CODETEMP_INFO { id=> -9999997, notes=>REF [], color=>REF rkj::CODETEMP, subkind=>gp };
+
+	fun create  next_value_number
+	    =
+	    {   opn_table =   ht::make_hashtable (mu::hash_opn, mu::eq_opn) (32, NO_OPERAND);		# "opn" == "operand", most likely.
+		int_table =   iht::make_hashtable (32, NO_INT);
+		mi_table  =   REF intinf_map::empty;
+
+		fun new_int i
+		    =
+		    {   vn =   *next_value_number;			#  value number 
+
+			next_value_number := vn - 1;
+
+			v  = mk_const (vn, INT i);
+
+			iht::set int_table (i, v);
+		    };
+
+		fun init (n, 0) =>  ();
+		    init (n, m) =>  { new_int n;  init (n+1, m - 1);  };
+		end;
+
+		init (0, 2);
+
+		TABLE {  int_table,  mi_table, opn_table, next_value_number  };
+	    };
+
+	fun word_to_int_inf   w =  integer::from_int (unt::to_int_x w);
+	fun word32_to_int_inf w =  unt32::to_large_int_x  w;
+	#
+	fun word_to_int       w =  unt::to_int_x   w;
+	fun word32_to_int     w =  unt32::to_int_x w;
+	#
+	fun int_inf_to_int    i =  integer::to_int   i;
+	fun int_inf_to_int32  i =  int32::from_large i;
+	fun int_to_int_inf    i =  integer::from_int i;
+	#
+	fun int_to_int32     i  =  int32::from_int i;
+	fun int32_to_int_inf i  =  int32::to_large i;
+	fun int32_to_int     i  =  int32::to_int   i;
+
+	#  Look up the value number of a constant 
+
+	fun int (TABLE { int_table, ... } )
+	    =
+	    iht::get int_table;
+
+	fun unt (TABLE { int_table, ... } ) w
+	    =
+	    iht::get int_table (word_to_int w);
+
+	fun unt32 (TABLE { int_table, mi_table, ... } ) w 
+	    = 
+	    iht::get  int_table  (word32_to_int  w)
+	    except
+		OVERFLOW
+		    =
+		    case (intinf_map::get (*mi_table, word32_to_int_inf w))
+			#
+			THE v =>   v;
+			NULL  =>   raise exception NO_INT_INF;
+		    esac;
+
+	fun int32 (TABLE { int_table, mi_table, ... } ) w
+	    = 
+	    iht::get  int_table  (int32_to_int  w)
+	    except
+		OVERFLOW
+		    =
+		    case (intinf_map::get (*mi_table, int32_to_int_inf w))
+			#
+			THE v =>   v;
+			NULL  =>   raise exception NO_INT_INF;
+		    esac;
+
+	fun intinf (TABLE { int_table, mi_table, ... } ) i
+	    = 
+	    iht::get int_table (int_inf_to_int i)
+	    except
+		OVERFLOW
+		    =
+		    case (intinf_map::get (*mi_table, i))
+			#
+			THE v =>  v;
+			NULL  =>  raise exception NO_INT_INF;
+		    esac;
+
+	fun operand (TABLE { opn_table, ... } )
+	    =
+	    ht::lookup  opn_table;
+
+	fun lookup_value_numbers table
+	    =
+	    VALUE_NUMBERING
+	      { int     =>  int     table,
+		unt     =>  unt     table,
+		unt32   =>  unt32   table,
+		int32   =>  int32   table,
+		intinf  =>  intinf  table,
+		operand =>  operand table
+	      };
+
+	#  Create new value numbers:
+	#
+	fun make_new_value_numbers
+	      #
+	      (TABLE { opn_table, next_value_number, int_table, mi_table, ... } )
+	    =
+	    {   find_opn   =   ht::find   opn_table;
+		find_int   =  iht::find   int_table;
+		#
+		insert_opn =   ht::set  opn_table;
+		insert_int =  iht::set  int_table;
+
+		fun new_const  const
+		    = 
+		    {   vn =   *next_value_number;
+			#
+			next_value_number :=  vn - 1;
+			#
+			mk_const (vn, const);
+		    };
+
+		fun mk_opn  opn						# "opn" == "operand", most likely.
+		    = 
+		    case (find_opn opn)
+			#
+			THE v =>    v;
+			NULL  =>    {   v =  new_const (OPERAND opn);
+					insert_opn (opn, v);
+					v;
+				    };
+		    esac;
+
+		fun mk_int  i
+		    =
+		    case (find_int i)
+			#
+			THE v =>    v;
+			#
+			NULL  =>    {   v =   new_const (INT i);
+					insert_int (i, v);
+					v;
+				    };
+		    esac;
+
+		fun insert_int_inf (i, v)
+		    =
+		    mi_table :=   intinf_map::set (*mi_table, i, v);
+
+		fun mk_int_inf' i
+		    =
+		    case (intinf_map::get (*mi_table, i))
+			#
+			THE v =>    v;
+			#
+			NULL  =>    {   v =   new_const (INTINF i);
+					insert_int_inf (i, v);
+					v;
+				    };
+		    esac;
+
+		fun mk_int_inf i
+		    =
+		    mk_int (int_inf_to_int i)
+		    except
+			_ = mk_int_inf'  i;
+
+		fun mk_word w
+		    =
+		    mk_int (word_to_int w);
+
+		fun mk_int32 i
+		    =
+		    mk_int (int32_to_int i)
+		    except
+			_ =  mk_int_inf' (int32_to_int_inf  i);
+
+		fun mk_word32 w
+		    =
+		    mk_int (word32_to_int w)
+		    except
+			_ = mk_int_inf' (word32_to_int_inf w);
+
+		VALUE_NUMBERING
+		  {
+		    int     =>  mk_int,
+		    unt     =>  mk_word,
+		    unt32   =>  mk_word32,
+		    int32   =>  mk_int32,
+		    intinf  =>  mk_int_inf,
+		    operand =>  mk_opn
+		  };
+	    };							# fun make_new_value_numbers
+
+	# value number -> const 
+
+	fun const (rkj::CODETEMP_INFO { notes, ... } )
+	    = 
+	    find *notes
+	    where
+		fun find (CONST c ! _) =>   c;
+		    find(_ ! an)       =>   find an;
+		    find []            =>   raise exception NO_CONST;
+		end;
+	    end;
+    };
+end;

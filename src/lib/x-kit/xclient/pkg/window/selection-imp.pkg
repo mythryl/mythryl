@@ -1,0 +1,663 @@
+## selection-imp.pkg
+#
+# See also:
+#     src/lib/x-kit/xclient/pkg/window/selection.pkg
+
+# Compiled by:
+#     src/lib/x-kit/xclient/xclient-internals.sublib
+
+
+
+# A per-display imp to handle the ICCCM selection protocol.
+#
+# NOTES:
+#  - What about incremental transfers?
+#  - Currently these operations take a window as an argument, since the
+#    protocol requires one.  The selection imp could allocate an unmapped
+#    window to serve as the source of ids, which would make selections
+#    independent of specific windows.  Let's see how the higher-level interfaces
+#    work out first.
+#
+# This mechanism must deal with a complicated protocol, and a bunch of different
+# kinds of X events and requests.  Here is a summary:
+#
+# REQUESTS:
+#    GetSelectionOwner	-- used by owner after a SetSelectionOwner to test if the
+#			   selection was acquired.
+#    SetSelectionOwner -- used by owner to acquire the selection.
+#    ConvertSelection  -- used by requestor to request that the selection value
+#			   be put into some property.
+#    GetProperty	-- used by the requestor to get the selection value.
+#    ChangeProperty	-- used by the owner to put the requested selection in
+#			   the requested property.  And used by the requestor to
+#			   delete the property, once it gets the value.
+#    SendEvent		-- used by the owner send a SelectionNotify event to the
+#			   requester.
+#
+# EVENTS:
+#    SelectionRequest	-- received by the owner as a result of the requestor
+#			   sending a ConvertSelection request.
+#    SelectionNotify	-- sent by the owner to the requestor, once the selection
+#			   has been put into the requested property.
+#    SelectionClear	-- received by the owner, when it loses the selection.
+#    PropertyNotify	-- received by the owner, once the requestor has deleted
+#			   the property.
+
+
+# This stuff is likely based on Dusty Deboer's
+# thesis work: See Chapter 5 (pp46) in:
+#     http:://mythryl.org/pub/exene/dusty-thesis.pdf
+
+stipulate
+    include threadkit;					# threadkit		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit.pkg
+    #
+    package aht = atom_table;				# atom_table		is from   src/lib/x-kit/xclient/pkg/iccc/atom-table.pkg
+    package dy  = display;				# display		is from   src/lib/x-kit/xclient/pkg/wire/display.pkg
+    package e2s = xerror_to_string;			# xerror_to_string	is from   src/lib/x-kit/xclient/pkg/to-string/xerror-to-string.pkg
+    package et  = event_types;				# event_types		is from   src/lib/x-kit/xclient/pkg/wire/event-types.pkg
+    package s2w = sendevent_to_wire;			# sendevent_to_wire	is from   src/lib/x-kit/xclient/pkg/wire/sendevent-to-wire.pkg
+    package ts  = xserver_timestamp;			# xserver_timestamp	is from   src/lib/x-kit/xclient/pkg/wire/xserver-timestamp.pkg
+    package xt  = xtypes;				# xtypes		is from   src/lib/x-kit/xclient/pkg/wire/xtypes.pkg
+    package v2w = value_to_wire;			# value_to_wire		is from   src/lib/x-kit/xclient/pkg/wire/value-to-wire.pkg
+    package w2v = wire_to_value;			# wire_to_value		is from   src/lib/x-kit/xclient/pkg/wire/wire-to-value.pkg
+    package xok = xsocket;				# xsocket		is from   src/lib/x-kit/xclient/pkg/wire/xsocket.pkg
+herein
+
+
+    package   selection_imp
+    : (weak)  Selection_Imp				# Selection_Imp		is from   src/lib/x-kit/xclient/pkg/window/selection-imp.api
+    {
+
+	Atom = xt::Atom;
+
+	Xserver_Timestamp = ts::Xserver_Timestamp;
+
+    #  +DEBUG 
+	fun print_if f = xtracing::print_if xtracing::selection_tracing f;
+    #  -DEBUG 
+
+	# Given message encode and
+	# reply decode functions,
+	# send and receive a query:
+	#
+	fun query (encode, decode) connection
+	    =
+	    ask
+	    where
+		send_xrequest_and_read_reply
+		    =
+		    xok::send_xrequest_and_read_reply  connection;
+
+		fun ask msg
+		    =
+		    (decode (do_mailop (send_xrequest_and_read_reply (encode msg))))
+		    except
+			xok::LOST_REPLY      =>  raise exception (xgripe::XERROR "[reply lost]");
+			xok::ERROR_REPLY err =>  raise exception (xgripe::XERROR (e2s::xerror_to_string err));
+		    end;
+	    end;
+
+	# Various protocol requests that we need:
+	#
+	get_selection_owner
+	    =
+	    query
+	      ( v2w::encode_get_selection_owner,
+		w2v::decode_get_selection_owner_reply
+	      );
+
+
+	fun set_selection_owner connection arg
+	    =
+	    xok::send_xrequest
+		connection
+		(v2w::encode_set_selection_owner  arg);
+
+
+	fun convert_selection connection arg
+	    =
+	    xok::send_xrequest connection (v2w::encode_convert_selection arg);
+
+
+	fun selection_notify connection { requesting_window_id, selection, target, property, timestamp }
+	    =
+	    xok::send_xrequest
+		connection
+		(s2w::encode_send_selectionnotify_xevent
+		  {
+		    requesting_window_id,
+		    selection,
+		    target,
+		    timestamp,
+		    property,
+
+		    send_event_to =>  xt::SEND_EVENT_TO_WINDOW requesting_window_id,
+		    propagate     =>  FALSE,
+
+		    event_mask    =>  xt::EVENT_MASK 0u0
+		  }
+		);
+
+
+	req_get_property
+	    =
+	    query
+	      ( v2w::encode_get_property,
+		w2v::decode_get_property_reply
+	      );
+
+
+	fun change_property connection arg
+	    =
+	    xok::send_xrequest connection (v2w::encode_change_property arg);
+
+
+	# Get a property value, which may require several requests 
+	#
+	fun get_property connection (window_id, property)
+	    =
+	    get_prop ()
+	    where 
+
+		fun size_of (xt::RAW_DATA { data, ... } )
+		    =
+		    (unt8_vector::length data / 4);
+
+
+		fun get_chunk words_so_far
+		    =
+		    req_get_property connection
+		      {
+			window_id,
+                        property,
+			type   => NULL,			#  AnyPropertyType 
+			offset => words_so_far,
+			len    => 1024,
+			delete => FALSE
+		      };
+
+
+		fun delete_prop ()
+		    =
+		    req_get_property  connection
+		      {
+			window_id,
+			property,
+			type   => NULL,			#  AnyPropertyType 
+			offset => 0,
+			len    => 0,
+			delete => TRUE
+		      };
+
+
+		fun extend_data (data', xt::RAW_DATA { data, ... } )
+		    =
+		    data ! data';
+
+
+		fun flatten_data (data', xt::RAW_DATA { format, data } )
+		    =
+		    xt::RAW_DATA {
+			  format,
+			  data=>unt8_vector::cat (reverse (data ! data'))
+			};
+
+
+		fun get_prop ()
+		    =
+		    case (get_chunk 0)
+			#		  
+			NULL => NULL;
+
+			THE { type, bytes_after, value as xt::RAW_DATA { data, ... } }
+			    =>
+			    if (bytes_after == 0)
+				#				    
+				delete_prop();
+				THE (xt::PROPERTY_VALUE { type, value } );
+			    else
+				get_rest (size_of value, [data]);
+			    fi;
+		    esac
+
+
+		also
+		fun get_rest (words_so_far, data')
+		    =
+		    case (get_chunk words_so_far)
+			#
+			NULL => NULL;
+
+			THE { type, bytes_after, value }
+			    =>
+			    if (bytes_after == 0)
+				#
+				delete_prop();
+				THE (xt::PROPERTY_VALUE { type, value=>flatten_data (data', value) } );
+			    else
+				get_rest(
+				    words_so_far + size_of value,
+				    extend_data (data', value)
+				);
+			    fi;
+		     esac;
+	    end;
+
+
+	# The return result of
+	# a PLEA_REQUEST_SELECTION: 
+	#
+	Request_Result
+	    =
+	    Mailop( Null_Or( xt::Property_Value ) );
+
+	# The request for a selection
+	# that gets sent to the owner:
+	#
+	Selection_Plea
+	    =
+	    { target:      Atom,
+	      timestamp:   Null_Or( Xserver_Timestamp ),
+	      reply:       Null_Or( xt::Property_Value ) -> Void
+	    };
+
+	# An abstract handle on a selection 
+	#
+	Selection_Handle
+	    =
+	    SELECTION_HANDLE {
+	      selection:   Atom,
+	      timestamp:   Xserver_Timestamp,
+	      plea':       Mailop( Selection_Plea ),
+	      release':    Mailop( Void ),
+	      release:     Void -> Void
+	    };
+
+	Plea_Mail
+	  = PLEA_ACQUIRE_SELECTION  {		#  Acquire a selection 
+	      window:     xt::Window_Id,
+	      selection:  Atom,
+	      timestamp:  Xserver_Timestamp,
+	      ack:        Oneshot_Maildrop(  Null_Or(  Selection_Handle ) )
+	    }
+	  | PLEA_RELEASE_SELECTION  Atom		#  release a selection 
+	  | PLEA_REQUEST_SELECTION  {		#  request the value of a selection 
+	      window:    xt::Window_Id,
+	      selection: Atom,
+	      target:    Atom, 
+	      property:  Atom,
+	      timestamp: Xserver_Timestamp,
+	      ack:       Oneshot_Maildrop( Request_Result )
+	    }
+	  ;
+
+	# Info about held selections:
+	#
+	Selection_Info
+	    =
+	    { owner:          xt::Window_Id,
+	      plea_slot:      Mailslot( Selection_Plea ),
+	      release_1shot:  Oneshot_Maildrop( Void ),
+	      timestamp:      Xserver_Timestamp
+	    };
+
+	# Info about outstanding selection requests:
+	#
+	Request_Info
+	    =
+	    Oneshot_Maildrop( Null_Or( xt::Property_Value ) );
+
+	# The representation of the selection imp connection 
+	#
+	Selection_Imp
+	    =
+	    SELECTION_IMP  Mailslot( Plea_Mail );
+
+	fun make_selection_imp (xdpy as dy::XDISPLAY { xsocket, ... } )
+	    =
+	    {   # Table of held selections 
+		#
+		my selection_table:  aht::Hashtable( Selection_Info )
+		   =
+		   aht::make_hashtable  { size_hint => 32,  not_found_exception => FAIL "SelectionTable" };
+
+		insert_selection =  aht::set     selection_table;
+		find_selection   =  aht::find    selection_table;
+		remove_selection =  aht::remove  selection_table;
+
+		# The table of pending selection requests:
+		#
+		my plea_table:  aht::Hashtable( Request_Info )
+		    =
+		    aht::make_hashtable  { size_hint => 32,  not_found_exception => FAIL "RequestTable" };
+
+		insert_plea =  aht::set    plea_table;
+		find_plea   =  aht::find   plea_table;
+		remove_plea =  aht::remove plea_table;
+
+		# The X-event and request channels:
+		#
+		xevent_slot =  make_mailslot ();
+		plea_slot   =  make_mailslot ();
+
+		# Handle a selection related X-event:
+		#	 
+		fun handle_xevent (et::x::SELECTION_REQUEST xevent)
+			=>
+			{   fun reject_req ()
+				=
+				selection_notify  xsocket
+				  {
+				    requesting_window_id =>  xevent.requesting_window_id,
+				    selection            =>  xevent.selection,
+				    target               =>  xevent.target,
+				    #
+				    property  => NULL,
+				    timestamp => xevent.timestamp
+				  };
+
+			    print_if .{ "SelectionRequestXEvt"; };
+
+			    case (find_selection xevent.selection, xevent.timestamp)
+
+				  (NULL, _) => #  we don't hold this selection, return NULL 
+	    { print_if .{ "  SelectionRequestXEvt rejected: no selection"; };
+				    reject_req ();
+	    };
+
+				 (THE { plea_slot, ... }, timestamp)
+				     =>
+				     {   opt_timestamp
+					     =
+					     case timestamp
+						 #
+						 xt::CURRENT_TIME         => NULL;
+						 xt::TIMESTAMP timestamp => THE timestamp;
+					     esac;
+
+					 # Propagate the request to
+					 # the holder of the selection:
+
+					 prop = case xevent.property
+						   NULL  => xevent.target;		#  obsolete client 
+						   THE p => p;
+						esac;
+
+					 c_1shot = make_oneshot_maildrop ();
+
+					 fun reply_thread ()
+					     =
+					     {
+						 give
+						   (
+						     plea_slot,
+						     #
+						     { target    =>  xevent.target,
+						       timestamp =>  opt_timestamp,
+						       reply     =>  (fn x = set (c_1shot, x))
+						     }
+						   );
+
+						 case (get c_1shot)
+
+						     NULL => reject_req();
+
+						     THE prop_val
+							 =>
+							 {   # Write out the property value:
+
+							     change_property xsocket
+                                                               {
+								 window_id =>  xevent.requesting_window_id,
+								 name      =>  prop,
+								 mode      =>  xt::REPLACE_PROPERTY,
+								 property  =>  prop_val
+							       };
+
+							     selection_notify xsocket
+                                                               {
+								 requesting_window_id =>  xevent.requesting_window_id,
+								 selection            =>  xevent.selection,
+								 target               =>  xevent.target,
+								 property             =>  xevent.property,
+								 timestamp
+							       };
+							 };
+						 esac;
+					     };
+
+					 make_thread "selection imp replay"  reply_thread;
+
+					 ();
+				     };
+			    esac;
+
+			};				#  handleEvt SelectionRequestXEvt 
+
+		    handle_xevent (et::x::SELECTION_CLEAR { selection, ... } )
+			=>
+			{   print_if .{ "SelectionClearXEvt"; };
+
+			    case (find_selection selection)
+
+				NULL => ();  #  error ??? 
+
+				THE { release_1shot, ... } 
+				    =>
+				    {   remove_selection selection;
+					set (release_1shot, ());
+				    };
+			    esac;
+			};
+
+		    handle_xevent (et::x::SELECTION_NOTIFY xevent)
+			=>
+			{   print_if .{ "SelectionNotifyXEvt"; };
+
+			    case (find_plea xevent.selection, xevent.property)
+				#
+				(NULL, _) => ();  #  error ?? 
+
+				(THE reply_1shot, NULL)
+				    =>
+				    {   remove_plea xevent.selection;
+					set (reply_1shot, NULL);
+				    };
+
+				(THE reply_1shot, THE property)
+				    =>
+				    {   prop_val = get_property xsocket (xevent.requesting_window_id, property);
+
+					remove_plea xevent.selection;
+
+					set (reply_1shot, prop_val);
+				    };
+			    esac;
+			};
+
+		    handle_xevent xevent
+			=>
+			xgripe::impossible "selection_imp::make_server::handle_xevent";
+		end;
+
+		# Handle a request 
+		#
+		fun do_plea (PLEA_ACQUIRE_SELECTION { window, selection, timestamp, ack } )
+			=>
+			{   print_if .{ "PLEA_AcquireSel"; };
+
+			    set_selection_owner  xsocket
+			      {
+				selection,
+				window_id =>  THE window,
+				timestamp =>  xt::TIMESTAMP timestamp
+			      };
+
+			    print_if .{ "PLEA_AcquireSel: check owner"; };
+
+			    case (get_selection_owner xsocket { selection } )
+				#
+				NULL   => set (ack, NULL);
+
+				THE id
+				    =>
+				    if (id != window)
+
+					set (ack, NULL);
+
+				    else
+
+					selection_plea_slot
+					    =
+					    make_mailslot ();
+
+					release_1shot =  make_oneshot_maildrop ();
+
+					result = SELECTION_HANDLE
+						   {
+						     selection,
+						     timestamp,
+						     plea'    =>  take'  selection_plea_slot,
+						     release' =>  get' release_1shot,
+						     release  => .{   give  (plea_slot,  PLEA_RELEASE_SELECTION selection);   }
+						   };
+
+					insert_selection (selection, { owner=>window, plea_slot=>selection_plea_slot, release_1shot, timestamp } );
+
+					set (ack, THE result);
+				    fi;
+			    esac;
+			};
+
+		    do_plea (PLEA_RELEASE_SELECTION selection)
+			=>
+			{
+			    print_if .{ "PLEA_ReleaseSel"; };
+
+			    remove_selection selection;
+
+			    set_selection_owner  xsocket
+			      {
+				selection,
+				window_id => NULL,
+				timestamp => xt::CURRENT_TIME #  ??? 
+			      };
+
+			    xok::flush xsocket;
+			};
+
+		    do_plea (PLEA_REQUEST_SELECTION req)
+			=>
+			{
+			    reply_1shot = make_oneshot_maildrop ();
+
+			    print_if .{ "PLEA_RequestSel"; };
+
+			    insert_plea (req.selection, reply_1shot);
+
+			    convert_selection  xsocket
+			      {
+				selection => req.selection,
+				target    => req.target,
+				property  => THE req.property,
+				requestor => req.window,
+				timestamp => xt::TIMESTAMP req.timestamp
+			      };
+
+			    set (req.ack, get' reply_1shot);
+			};
+		end;
+
+		mailop
+		    =
+		    choose [
+			take'  xevent_slot   ==>  handle_xevent,
+			take'  plea_slot  ==>  do_plea
+		    ];
+
+		fun loop ()
+		    =
+		    for (;;) {
+			#
+			do_mailop  mailop;
+		    };
+
+		xtracing::make_thread  "selection_imp"  loop;
+
+		(xevent_slot, SELECTION_IMP plea_slot);
+
+	    };				# fun make_selection_imp
+
+
+	fun acquire_selection (SELECTION_IMP plea_slot) (window, selection, timestamp)
+	    =
+	    {   reply_1shot =   make_oneshot_maildrop ();
+
+		give
+		  ( plea_slot,
+		    PLEA_ACQUIRE_SELECTION
+		      { window, selection, timestamp, ack => reply_1shot }
+		  );
+
+		get reply_1shot;
+	    };
+
+	fun selection_of      (SELECTION_HANDLE { selection, ... } ) =   selection;
+	fun timestamp_of      (SELECTION_HANDLE { timestamp, ... } ) =   timestamp;
+	fun plea_mailop       (SELECTION_HANDLE { plea',     ... } ) =   plea';
+	fun release_mailop    (SELECTION_HANDLE { release',  ... } ) =   release';
+	fun release_selection (SELECTION_HANDLE { release,   ... } ) =   release ();
+
+	fun request_selection (SELECTION_IMP plea_slot)
+	    {
+	      window,
+	      selection,
+	      target,
+	      property,
+	      timestamp
+	    }
+	    =
+	    {   reply_1shot = make_oneshot_maildrop ();
+
+		give
+		  ( plea_slot,
+		    #
+		    PLEA_REQUEST_SELECTION
+		      { window,
+			selection,
+			target,
+			property,
+			timestamp,
+			ack => reply_1shot
+		      }
+		  );
+
+		get reply_1shot;
+	    };
+
+    };		# package selection_imp 
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1994 by AT&T Bell Laboratories.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

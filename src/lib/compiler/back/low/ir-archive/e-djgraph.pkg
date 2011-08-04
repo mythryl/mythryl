@@ -1,0 +1,206 @@
+
+# This is my E-compressed DJ-graph data package
+# --Allen
+
+
+###               "Controlling complexity
+###                is the essence of
+###                computer programming."
+###
+###                      -- Brian Kernigan
+
+
+generic package E_DJGraph (dom:  Dominator_Tree) : DJ_GRAPH
+{
+
+   package g       = graph
+   package dom     = dom
+   package a       = rw_vector
+
+   fun error msg = lowhalf_error_message::error("E-DJGraph", msg)
+
+   stats          = FALSE #  Collect statistics? 
+   visitCount     = LowhalfControl::getCounter "dj-visit-count"
+   idfCount       = LowhalfControl::getCounter "dj-IDF-count"
+   idfSize        = LowhalfControl::getCounter "dj-IDF-size"
+   liveVisitCount = LowhalfControl::getCounter "dj-live-visit-count"
+
+   enum tree = NODE of   Int * List( tree )
+
+   enum Dj_Graph (N,E,G) = 
+      DJGRAPH of
+        { dom:      dom::dominator_tree( N, E, G ),
+          trees:   a::Rw_Vector(  Null_Or(  tree ) ),
+          jedges:  a::Rw_Vector(  List(  Int ) )
+        }
+
+   fun dj (dom as g::GRAPH dom)
+   = 
+   let my g::GRAPH mcg = dom::mcg dom
+       lll           = dom::max_levels dom
+       nnn           = dom.capacity ()
+       levelsMap   = dom::levelsMap dom
+       rank_J      = a::rw_vector (nnn, 0)
+       trees       = a::rw_vector (nnn, NULL)
+       jedges      = a::rw_vector (nnn, [])
+       buckets     = a::rw_vector (lll, [])
+
+       fun ExitTrees a =   
+       let fun foreachDedge [] = ()
+             | foreachDedge((_, b, _) . es) = (ExitTrees b; foreachDedge es)
+           foreachDedge (dom.out_edges a)
+           lvl_a = a::sub (levelsMap, a)
+           fun foreachJedge([], rank) = a::update (rank_J, a, rank)
+             | foreachJedge((a, b, _) . es, rank) = 
+               let lvl_b = a::sub (levelsMap, b)  
+               in  if lvl_b <= lvl_a then 
+                      foreachJedge (es, if lvl_b < rank then lvl_b else rank)
+                   else 
+                      foreachJedge (es, rank)
+               end
+           foreachJedge (mcg.out_edges a, lll+1)
+           fun buildTree([], next) = NODE (a, next)
+             | buildTree((_, b, _) . es, next) = 
+               (case a::sub (trees, b) of
+                  NULL   => buildTree (es, next)
+                | THE t => buildTree (es, t . next)
+               )
+           t_a = buildTree (dom.out_edges a, []) 
+       in  a::update (trees, a, pruneTree (a::sub (levelsMap, a), t_a))
+       end
+
+       and pruneTree (lvl_a, NODE (x, next)) =
+           let fun foreachSucc([], subtrees) = subtrees
+                 | foreachSucc (t . ts, subtrees) = 
+                     foreachSucc (ts, 
+                        case pruneTree (lvl_a, t) of 
+                           NULL => subtrees 
+                         | THE t => t . subtrees
+                     )
+               subtrees = foreachSucc (next, []) 
+           in  case (a::sub (rank_J, x) <= lvl_a, subtrees) of
+                 (FALSE,[])  => NULL
+               | (FALSE,[t]) => THE t
+               | (_, ts)      => THE (NODE (x, ts))
+           end
+
+       fun fillJedges l =
+           if l < 0 then () else
+           let fun fill [] = ()
+                 | fill ((a, b) . es) = 
+                    (a::update (jedges, a, b . a::sub (jedges, a)); fill es)   
+           in  fill (a::sub (buckets, l));
+               fillJedges (l - 1)
+           end
+
+       my [ENTRY] = dom.entries ()
+   in  ExitTrees ENTRY;
+       fillJedges (lll - 1); 
+       DJGRAPH { dom=dom, trees=trees, jedges=jedges }
+   end
+
+   #  Compute dominance frontier 
+   fun df _ = error "DF"
+
+   #  Compute iterated dominance frontier 
+   fun idfs _ = error "IDFs"
+
+   #  Compute iterated dominance frontier with liveness 
+   fun LiveIDFs (DJGRAPH { dom=dom as g::GRAPH dom, jedges, trees } ) = 
+   let my g::GRAPH mcg = dom::mcg dom
+       lll           = dom::max_levels dom
+       nnn           = dom.capacity ()
+       levels      = dom::levelsMap dom
+       in_phi      = a::rw_vector (nnn, 0)  #  has appeared in the DF set? 
+       liveIn      = a::rw_vector (nnn, 0)
+       stamp       = REF 0
+       fun new_stamp () = let s = *stamp + 1 in stamp := s; s end
+
+       in_alpha  = a::rw_vector (nnn, 0)  #  has appeared in N_alpha? 
+       visited   = a::rw_vector (nnn, 0)  #  has it been visited 
+       piggybank = a::rw_vector (lll,[]) #  nodes in the piggy bank 
+
+       fun LiveIDFs { defs=xs, localLiveIn=[] } = []
+         | LiveIDFs { defs=xs, localLiveIn } =
+       let stamp = new_stamp()
+           if stats then idfCount := *idfCount + 1 else ()
+           fun init ([], l) = l
+             | init (x . xs, l) = 
+               let l_x = a::sub (levels, x)
+               in  a::update (in_alpha, x, stamp);
+                   a::update (piggybank, l_x, x . a::sub (piggybank, l_x));
+                   init (xs, if l < l_x then l_x else l)
+               end 
+
+           fun markLiveIn (b) =
+           let fun markPred [] = ()
+                 | markPred((j, _, _) . es) =
+                    (if a::sub (liveIn, j) != stamp and
+                        a::sub (in_alpha, j) != stamp then
+                       markLiveIn j
+                     
+                     markPred es
+                    )
+           in  a::update (liveIn, b, stamp);
+               if stats then liveVisitCount := *liveVisitCount + 1 
+               markPred (mcg.in_edges b)
+           end
+
+           fun initLiveIn [] = ()
+             | initLiveIn (x . xs) = (markLiveIn x; initLiveIn xs)
+
+           fun isLive b = a::sub (liveIn, b) = stamp 
+
+           fun visit (x, S) = 
+               case a::sub (trees, x) of
+                 NULL => S
+               | THE t => walk (t, a::sub (levels, x), S)
+
+           and walk (NODE (y, succ_y), level_x, S) = 
+           if a::sub (visited, y) != stamp then
+           let a::update (visited, y, stamp)
+               fun foreachJedge([], S) = S
+                 | foreachJedge (z . zs, S) =
+                   let level_z = a::sub (levels, z)
+                   in  if level_z <= level_x then 
+                          if isLive z and a::sub (in_phi, z) != stamp 
+                           /* z is a new IDF$+ candidate; 
+                            * make sure it is live.
+                            */
+                          then (a::update (in_phi, z, stamp);
+                                if a::sub (in_alpha, z) != stamp
+                                then a::update (piggybank, level_z,
+                                              z . a::sub (piggybank, level_z))
+                                
+                                foreachJedge (zs, z . S)
+                               )
+                          else foreachJedge (zs, S)
+                       else S
+                   end
+               fun foreachEedge([], S) = S
+                 | foreachEedge((t as NODE (z, _)) . ts, S) = 
+                     foreachEedge (ts, if isLive z then walk (t, level_x, S) else S)
+
+               if stats then visitCount := *visitCount + 1 
+           in  foreachEedge (succ_y, foreachJedge (a::sub (jedges, y), S))
+           end
+           else S
+
+           fun visitAll(-1, S) = S
+             | visitAll (l, S) =
+               case a::sub (piggybank, l) of
+                 [] => visitAll (l - 1, S)
+               | x . xs => (a::update (piggybank, l, xs);
+                           visitAll (l, visit (x, S)))
+
+           lll   = init (xs,-1) 
+           initLiveIn localLiveIn
+           idf = visitAll (lll,[])
+       in  if stats then idfSize := *idfSize + length idf 
+           idf
+       end
+
+   in  LiveIDFs
+   end
+
+}

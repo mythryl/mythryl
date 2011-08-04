@@ -1,0 +1,150 @@
+## linkage-dlopen.pkg
+## Author: Matthias Blume (blume@tti-c.org)
+
+# Compiled by:
+#     src/lib/c-glue-lib/ram/memory.lib
+
+# This module implements a high-level interface for dlopen.
+#   While addresses (those obtained by applying function "address" below
+#   or addresses derived from those) will not remain valid across
+#   (fork|spawn)_to_disk/restart, handles *will* stay valid.
+#
+package dynamic_linkage : Dynamic_Linkage {		# Dynamic_Linkage	is from   src/lib/c-glue-lib/ram/linkage.api
+
+    exception DYNAMIC_LINK_ERROR  String;
+
+    stipulate
+	Era = Ref( Void );
+	Addr = unt32::Unt;
+
+
+
+	# A handle remembers an address and the era of its creation as
+	# well as a function to re-create the address when necessary:
+
+	Handle = (Ref( (Addr, Era) ), (Void -> Addr));
+    herein
+        Lib_Handle = Handle;
+	Addr_Handle = Handle;
+    end;
+
+    stipulate
+	package ci= unsafe::mythryl_callable_c_library_interface;		# unsafe	is from   src/lib/std/src/unsafe/unsafe.pkg
+
+
+	# Low-level linkage via dlopen/dlsym 
+
+	my dlopen:   (Null_Or( String ), Bool, Bool) -> unt32::Unt  =  ci::find_c_function { lib_name => "dynamic_loading", fun_name => "dlopen"  };
+	my dlsym:              (unt32::Unt, String) -> unt32::Unt   =  ci::find_c_function { lib_name => "dynamic_loading", fun_name => "dlsym"   };
+	my dlerror:                      Void ->  Null_Or( String ) =  ci::find_c_function { lib_name => "dynamic_loading", fun_name => "dlerror" };
+	my dlclose:                             unt32::Unt -> Void  =  ci::find_c_function { lib_name => "dynamic_loading", fun_name => "dlclose" };
+
+	#  Label used for clean up:
+	label = "DynLinkNewEra";
+
+	# Generate a new "era" indicator:
+	fun new_era () = REF ();
+
+	# The current era:
+	now = REF (new_era ());
+
+	# Make a handle, remember era of creation of its current value 
+	fun make_handle f
+            =
+            (REF (f (), *now), f);
+
+
+
+	# Fetch from a handle.
+        #   
+        # Use the stored address if it was created
+	# in the current era, otherwise regenerate the address:
+
+	fun get (r as REF (a, e), f)
+            =
+	    if   (e == *now)
+                
+                 a;
+	    else
+                 a = f ();
+		 r := (a, *now);
+                 a;
+	    fi;
+
+
+
+	#  Call a dl-function and check for errors:
+
+	fun checked dlf x
+            =
+            {   r = dlf x;
+
+		case (dlerror ())
+		  
+                    NULL  =>   r;
+		    THE s =>   raise exception DYNAMIC_LINK_ERROR s;
+                esac;
+            };
+
+
+	# Add a cleanup handler that causes a new era to start
+	# every time the runtime system is started anew:
+	#
+	include runtime_internals::at;			# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+
+	my _ =   schedule (
+		     label,				# Arbitrary string.
+		     [STARTUP, APP_STARTUP],		# When to run the function.
+		     fn _ =   now := new_era ()		# Function to run.
+		 );
+    herein
+
+        main_lib
+            =
+            make_handle   (fn () =  checked dlopen (NULL, TRUE, TRUE) );
+
+	fun open_lib' { name, lazy, global, dependencies }
+            =
+	    make_handle (fn () =  {   apply (ignore o get) dependencies;
+				    checked dlopen (THE name, lazy, global);
+                                }
+                      );
+
+	fun open_lib { name, lazy, global }
+            =
+	    open_lib' { name, lazy, global, dependencies => [] };
+
+	fun lib_symbol (lh, s)
+            =
+            make_handle   (fn () =   checked dlsym (get lh, s) );
+
+	address = get;
+
+	fun close_lib lh
+            =
+            dlclose (get lh);
+    end;
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 2004 by The Fellowship of SML/NJ
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

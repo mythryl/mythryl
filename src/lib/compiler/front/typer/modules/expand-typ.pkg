@@ -1,0 +1,227 @@
+## expand-typ.pkg
+#
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+#
+# It calls src/lib/compiler/front/typer/main/type-api.pkg
+# which calls us, and we in turn offload much of our work
+# to module_junk: translateTypeConstructor
+# in src/lib/compiler/front/typer-stuff/modules/module-junk.api
+#    src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+
+
+stipulate
+    package mld =  module_level_declarations;					# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package tys =  types;							# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package tro =  typerstore;							# typerstore			is from   src/lib/compiler/front/typer-stuff/modules/typerstore.pkg
+herein
+
+    api Expand_Typ {
+	#
+	Api_Context = List( mld::Api_Elements );
+	#
+	expand_typ:  (tys::Typ,
+				   Api_Context,
+				   tro::Typerstore)
+				-> tys::Typ;
+
+	debugging:  Ref(  Bool );
+    };
+end;
+
+
+stipulate
+    package em  =  error_message;						# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package tys =  types;							# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package tyj =  type_junk;							# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package sp  =  stamppath;							# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package mld =  module_level_declarations;					# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package mj  =  module_junk;							# module_junk			is from   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+herein
+
+
+    package   expand_typ
+    : (weak)  Expand_Typ							# Expand_Typ			is from   src/lib/compiler/front/typer/modules/expand-typ.pkg
+    {
+	#  Debug hooks: 
+	say         =   control_print::say;
+	debugging   =   REF FALSE;
+
+	fun if_debugging_say (msg: String)
+            =
+	    if *debugging
+	       say msg;
+               say "\n";
+	    fi;
+
+	fun bug s =   em::impossible ("expand_typ: " + s);
+
+	Api_Context =   List( mld::Api_Elements );
+
+	exception OUTER;
+
+
+
+	# Search a list of typechecked_package stamp namings.
+        # We ignore GENERIC_IN_API --
+        # we won't find any types there:
+        #
+	fun get_typechecked_package_variable (   module_stamp,
+                                     (   _,
+                                         s as ( mld::TYP_IN_API  { module_stamp => module_stamp', ... }
+                                              | mld::PACKAGE_IN_API { module_stamp => module_stamp', ... }
+                                              )
+                                     ) ! rest
+                                 )
+		=>
+		if (sp::same_module_stamp (module_stamp, module_stamp'))   THE s;
+		else                                                       get_typechecked_package_variable (module_stamp, rest);
+		fi;
+
+	    get_typechecked_package_variable (module_stamp, _ ! rest)   =>   get_typechecked_package_variable (module_stamp, rest);
+	    get_typechecked_package_variable (module_stamp, NIL     )   =>   NULL;
+        end;
+
+
+
+	fun find_in_api_context (   module_stamp,   api_context as elements0 ! outer_context   )
+		=>
+		case (get_typechecked_package_variable (module_stamp, elements0))
+		    #
+		    THE (mld::PACKAGE_IN_API { an_api as mld::API { api_elements, ... }, ... } )
+			 =>
+			 api_elements ! api_context;
+
+		    NULL
+			 =>
+			 find_in_api_context (module_stamp, outer_context);
+
+			_ => bug "find_in_api_context - bad element";
+		esac;
+
+
+	    find_in_api_context (module_stamp, NIL)
+		=>
+		raise exception OUTER;
+	end;
+
+
+
+	fun expand_typ (typ, api_context, typerstore)
+            =
+	    {   fun expand_typ_variable (   module_stamp,   api_context as elements ! outer_context   )
+                    :
+                    tys::Typ
+                        =>
+		        case (get_typechecked_package_variable (module_stamp, elements))
+			    #
+			    THE (mld::TYP_IN_API { typ, ... } )
+				=>
+				case typ
+				    #
+				    tys::PLAIN_TYP _ => typ;
+
+				    tys::DEFINED_TYP { stamp, strict, path, type_scheme }
+					=>
+					tys::DEFINED_TYP {
+					    stamp,
+					    strict,
+					    path,
+
+					    type_scheme => expand_type_scheme (type_scheme, api_context)
+					};
+
+				    _ => bug "expand_typ 2";
+				esac;
+
+			    NULL
+				=>
+				expand_typ_variable (module_stamp,  outer_context);       #  Try outer context 
+
+			    _ => bug "expandTypeConstructor 1";
+                        esac;
+
+		   expand_typ_variable (module_stamp, NIL)
+                       =>
+                       raise exception OUTER;
+                end 
+
+
+
+		also
+		fun expand_typ api_context
+                    = 
+		    fn (typ as tys::TYP_BY_STAMPPATH { stamppath, ... } )
+			   =>
+			   (   expand_path (stamppath, api_context)
+			       except
+				   OUTER                                      #  Path outside current api context 
+				       =
+				       mj::translate_typ typerstore typ
+			   );
+
+		       typ => typ;
+                    end 
+
+
+
+		also
+		fun expand_type_scheme (tys::TYPE_SCHEME { arity, body }, api_context)
+                    = 
+		    tys::TYPE_SCHEME {   arity,
+			                body  => tyj::map_constructor_type_dot_typ   (expand_typ api_context)   body
+                                    }
+
+
+
+		also
+		fun expand_path (stamppath, api_context)
+                    =
+		    case stamppath
+		      
+			 NIL => bug "expandPath 1";
+
+			 module_stamp ! NIL								# typ! 
+			     =>
+			     expand_typ_variable (module_stamp, api_context);
+
+			 module_stamp ! rest								# Subpackage.
+			     =>
+			     expand_path (rest, find_in_api_context (module_stamp, api_context));
+		    esac;
+
+                expand_typ api_context typ;
+	    };
+    };													# package expand_typ 
+end;													# stipulate
+
+## (C) 2001 Lucent Technologies, Bell Labs
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+

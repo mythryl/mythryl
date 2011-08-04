@@ -1,0 +1,441 @@
+## inline-fatecode-buckpass-calls.pkg 
+#
+# A function call like
+#
+#     fun f x =  g x;
+#
+# does nothing useful; it simply passes the
+# buck to 'g'.  Consequently we can replace
+# (f x) by (g x) everywhere in the code
+# and save the overhead of one function call.
+#
+# Doing that (properly!) is our job here.
+#
+# In the lambda calculus this is called "eta conversion".
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the fatecode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+#    "Elimination of eta-redexes:  Replaces all expressions of the form
+#     \x.fx with f.  Because this tends to undo the work of etasplit and
+#     because it is rarely beneficial, this phase is used only at the
+#     very beginning to clean up the output of the fatecode conversion,
+#     and at the end when eta-redexes are not beneficial any more."
+#
+#     [...]
+#
+#    "It seemed easy and harmless to move eta-elimination into
+#     'fcontract', and with similar benefits as above.  In retrospect,
+#     it took a long time to debug, which, I later learned, was the
+#     main reason why it was a separate phase [...]"
+#
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+
+
+
+# *********************************************************************
+#
+#   The function eta is an eta reducer for fatecode expressions.  It is
+#   guaranteed to reach an eta normal form in at most two passes.  A
+#   high-level description of the algorithm follows.
+#
+#   eta essentially takes two arguments, a fatecode expression and an
+#   dictionary mapping variables to values.  (In practice, the
+#   dictionary is a global variable.)  The dictionary is used to
+#   keep track of the eta reductions performed.  The algorithm can be
+#   explained by the two key clauses below (written in pseudo-fatecode
+#   notation):
+#
+#   [MUTUALLY_RECURSIVE_FNS]   eta (dictionary, *let* f[x1, ..., xN] = M1
+#                    *in*  M2)
+#
+#         --> let M1' = eta (dictionary, M1)
+#             in  if M1' == g[x1, ..., xN]
+#                 then eta (dictionary[f := g], M2)
+#                 else *let* f[x1, ..., xN] = M1'
+#                      *in*  eta (dictionary, M2)
+#             end
+#
+#   [APPLY]   eta (dictionary, f[v1, ..., vN])
+#
+#         --> dictionary (f)[dictionary (v1), ..., dictionary (vN)]
+# 
+#   In the [MUTUALLY_RECURSIVE_FNS] case of function definition, we first eta reduce the
+#   body M1 of the function f, then see if f is itself an eta
+#   redex f[x1, ..., xN] = g[x1, ..., xN].  If so, we will use g for f
+#   elsewhere in the fatecode expression.
+#
+#   The [APPLY] case shows where we must rename variables.
+#
+#   This would get all eta redexes in one pass, except for the
+#   following problem.  Consider the fatecode code below:
+#
+#          *let* f[x1, ..., xN] = M1
+#          *and* g[y1, ..., yN] = f[x1, ..., xN]
+#          *in*  M2
+#
+#   Suppose M1 does not reduce to an application h[x1, ..., xN].
+#   If we naively reduce the expression as above, first reducing
+#   the body M1 of f, then the body of g, then M2, we would get:
+#
+#        let M1' = eta (dictionary, M1)
+#        in  *let* f[x1, ..., xN] = M1'
+#            *in*  eta (dictionary[g := f], M2)
+#        end
+#
+#   The problem with this is that M1 might have contained occurrences
+#   of g.  Thus g may appear in M1'.  There are a number of ways to
+#   handle this:
+# 
+#    1) Once we perform an eta reduction on any function in a
+#       MUTUALLY_RECURSIVE_FNS, we  must go back and re-reduce
+#       any other functions of the MUTUALLY_RECURSIVE_FNS
+#       that we previously reduced;
+#    2) We do not go back to other functions in the
+#       MUTUALLY_RECURSIVE_FNS, but instead make a second pass over the output of eta.
+#
+#   As (1) can lead to quadratic behaviour, we implemented (2).
+#
+#
+#   A final note: we recognize more than just
+#         f[x1, ..., xN] = g[x1, ..., xN]
+#   as an eta reduction.  We regard the function definition
+#         f[x1, ..., xN] = SELECT[1, v, g, g[x1, ..., xN]]
+#   as an eta redex as well, and so we reduce
+#      eta (dictionary,*let* f[x1, ..., xN] = SELECT[i, v, g, g[x1, ..., xN]]
+#              *in*  M1)
+#      --> SELECT (i, v, g, eta (dictionary[f := g], M1))
+#   This is implemented with the selectapp function below.
+#
+# *********************************************************************
+
+stipulate
+    package fcf =  fatecode_form;			# fatecode_form			is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+herein
+
+    api Inline_Fatecode_Buckpass_Calls {
+	#
+	inline_fatecode_buckpass_calls
+	    :
+	    { function: fcf::Function,
+	      click:    String -> Void
+	    }
+	    ->
+	    fcf::Function;
+    };
+end;
+
+
+
+stipulate
+    package fcf =  fatecode_form;			# fatecode_form			is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+    package hcv =  highcode_var;			# highcode_var			is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package iht =  int_hashtable;			# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+
+    package intset {
+
+	Intset = Ref( int_red_black_set::Set );
+
+	fun new () = REF int_red_black_set::empty;
+
+	fun add set i =  set := int_red_black_set::add (*set, i);
+	fun mem set i =  int_red_black_set::member(*set, i);
+	fun rmv set i =  set := int_red_black_set::delete(*set, i);
+    };
+herein
+
+
+    package  inline_fatecode_buckpass_calls
+    : (weak) Inline_Fatecode_Buckpass_Calls			# Inline_Fatecode_Buckpass_Calls		is from   src/lib/compiler/back/top/improve-fatecode/inline-fatecode-buckpass-calls.pkg
+    {
+
+	fun inline_fatecode_buckpass_calls
+	      {
+                function => (fkind, fvar, fargs, ctyl, cexp),
+		click
+	      }
+	    = 
+	    {
+
+		debug = *controls::cg::debugfatecode; #  FALSE 
+
+		fun debugprint s  = if  debug    controls::print::say s;    fi;
+		fun debugflush () = if  debug    controls::print::flush();  fi;
+
+		fun map1 f (a, b)
+		    =
+		    (f a, b); 
+
+		fun member (i:  Int, a ! b) =>   i == a or member (i, b);
+		    member (i,[])           =>   FALSE;
+		end;
+
+		fun same (v ! vl, (fcf::VAR w) ! wl) =>   v == w and same (vl, wl);
+		    same (NIL, NIL)                  =>   TRUE;
+		    same _                           =>   FALSE;
+		end;
+
+		fun share_name (x, fcf::VAR y)   =>  hcv::share_name (x, y); 
+		    share_name (x, fcf::LABEL y) =>  hcv::share_name (x, y); 
+		    share_name _                 =>  ();
+		end;
+
+		exception M_TWO;
+
+		my m:  iht::Hashtable( fcf::Value )
+		    =
+		    iht::make_hashtable  { size_hint => 32,  not_found_exception => M_TWO };
+
+		name = iht::get  m;
+
+		fun rename (v0 as fcf::VAR v)   => (rename (name v) except M_TWO = v0);
+		    rename (v0 as fcf::LABEL v) => (rename (name v) except M_TWO = v0);
+		    rename x => x;
+		end;
+
+		fun newname x
+		    =
+		    {   share_name x;
+			iht::set m x;
+		    };
+
+		stipulate
+
+		    my km:  intset::Intset
+                        =
+                        intset::new ();
+
+		herein
+
+		    fun addvt (v, fcf::type::FATE) =>  intset::add  km  v;
+			addvt _                   =>  ();
+		    end;
+
+		    fun addft (fcf::FATE, v, _, _, _) =>   intset::add km v;
+			addft _                       =>   ();
+		    end;
+
+		    fun is_cont  v
+			=
+			intset::mem  km  v;
+		end;
+
+		id = (fn x = x);
+
+		do_again =  REF FALSE;
+
+		recursive val pass2
+		    = 
+		    fn  fcf::DEFINE_RECORD { kind, name, fields,                             fate               }
+                     => fcf::DEFINE_RECORD { kind, name, fields => map (map1 rename) fields, fate => pass2 fate };
+			#
+			fcf::GET_FIELD_I   { i, record, name, type, fate               }
+                     => fcf::GET_FIELD_I   { i, record, name, type, fate => pass2 fate };
+			#
+			fcf::GET_ADDRESS_OF_FIELD_I { i, record, name,       fate               }
+                     => fcf::GET_ADDRESS_OF_FIELD_I { i, record, name,       fate => pass2 fate };
+			#
+			fcf::MATH   { op, args, name, type, fate } =>  fcf::MATH   { op,  args => map rename args,  name, type,  fate => pass2 fate  };
+			fcf::PURE   { op, args, name, type, fate } =>  fcf::PURE   { op,  args => map rename args,  name, type,  fate => pass2 fate  };
+			#
+			fcf::FETCH_FROM_RAM { op, args, name, type, fate } =>  fcf::FETCH_FROM_RAM { op, args => map rename args, name, type, fate => pass2 fate };
+			fcf::STORE_TO_RAM   { op, args,             fate } =>  fcf::STORE_TO_RAM   { op, args => map rename args,             fate => pass2 fate };
+			#	
+			fcf::TAIL_CALL { func, args }         =>  fcf::TAIL_CALL {  func => rename func,   args => map rename args };
+			fcf::JUMPTABLE { i, xvar, fates }     =>  fcf::JUMPTABLE { i, xvar, fates =>  map pass2 fates };
+			#
+			fcf::IF_THEN_ELSE { op, args,                    xvar, thenfate,                   elsefate                   }
+		     => fcf::IF_THEN_ELSE { op, args => map rename args, xvar, thenfate => pass2 thenfate, elsefate => pass2 elsefate };
+			#
+			fcf::RAW_C_CALL { kind, cfun_name, cfun_type,  args,                     results,  fate               }
+                     => fcf::RAW_C_CALL { kind, cfun_name, cfun_type,  args => map rename args,  results,  fate => pass2 fate };
+			#
+			fcf::DEFINE_FUNS { funs, fate }
+			    =>
+			    fcf::DEFINE_FUNS  { funs =>  map   (fn (fk, f, vl, cl, body) = (fk, f, vl, cl, pass2 body))   funs,
+						fate =>  pass2 fate
+			                      };
+		     end;
+
+		recursive val reduce
+		    = 
+		    fn  fcf::DEFINE_RECORD { kind, name,  fields,                              fate                }
+                     => fcf::DEFINE_RECORD { kind, name,  fields => map (map1 rename) fields,  fate => reduce fate };
+			#
+			fcf::GET_FIELD_I   { i, record, name, type, fate } => { addvt (name, type);   fcf::GET_FIELD_I { i, record, name, type, fate => reduce fate };};
+			#
+			fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, fate                }
+                     => fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, fate => reduce fate };
+			#
+			fcf::MATH   { op, args, name, type, fate } => { addvt (name, type);  fcf::MATH   { op,  args => map rename args,  name, type,  fate => reduce fate  }; };
+			fcf::PURE   { op, args, name, type, fate } => { addvt (name, type);  fcf::PURE   { op,  args => map rename args,  name, type,  fate => reduce fate  }; };
+			#
+			fcf::FETCH_FROM_RAM { op, args, name, type, fate } => { addvt (name, type);  fcf::FETCH_FROM_RAM { op, args => map rename args, name, type, fate => reduce fate }; };
+			fcf::STORE_TO_RAM   { op, args,             fate } =>                        fcf::STORE_TO_RAM   { op, args => map rename args,             fate => reduce fate };
+			#
+			fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, fate }
+                            => 
+			    {   apply addvt results;
+				#
+                                fcf::RAW_C_CALL { kind, cfun_name, cfun_type,  args => map rename args,  results,  fate => reduce fate  };
+                            };
+			#
+			fcf::TAIL_CALL { func, args }     =>  fcf::TAIL_CALL { func => rename func,  args => map rename args };
+			fcf::JUMPTABLE { i, xvar, fates } =>  fcf::JUMPTABLE { i, xvar, fates => map reduce fates };
+			#
+			fcf::IF_THEN_ELSE { op, args, xvar, thenfate, elsefate }
+			    =>
+			    fcf::IF_THEN_ELSE
+                              { op,
+                                args => map rename args,
+                                xvar,
+                                thenfate => reduce thenfate,
+				elsefate => reduce elsefate
+			      };
+			#
+			fcf::DEFINE_FUNS { funs, fate }
+			    =>
+			    case (eta_elim  funs) 
+				#
+				([],   h, _) => h  (reduce fate);
+				(funs, h, _) => h  (fcf::DEFINE_FUNS { funs, fate => reduce fate });
+			    esac
+                            where
+
+			        apply addft  funs;
+
+				fun eta_elim  NIL
+					=>
+					(NIL, id, FALSE);
+
+				    eta_elim((fk as fcf::NO_INLINE_INTO, f, vl, cl, body) ! r)
+					=> 
+					{   my (r', h, leftover) = eta_elim r;
+					    body' = reduce body;
+					    ((fk, f, vl, cl, body') ! r', h, TRUE);
+					};
+
+				    eta_elim((fk, f, vl, cl, body) ! r)
+					=>
+					{   my (r', h, leftover) = eta_elim r;
+
+					    fun right_kind (fcf::VAR v | fcf::LABEL v)
+						    => 
+						    ((fk == fcf::FATE) == (is_cont v));
+
+						right_kind _
+                                                     =>
+                                                     FALSE;
+					    end;
+
+					    fun selectapp (fcf::GET_FIELD_I { i, record => fcf::VAR w, name => v, type => t, fate => e })
+						    =>
+						    case (selectapp e )
+							#
+							NULL => NULL;
+
+							THE (h', u)
+							    =>
+							    if (not (member (w, f ! vl)))    THE (fn ce = fcf::GET_FIELD_I { i, record => fcf::VAR w, name => v, type => t, fate => h' ce }, u);
+							    else                             NULL;
+							    fi;
+						    esac;
+
+						selectapp (fcf::TAIL_CALL { func => g, args => wl })
+						    =>
+						    {   g' = rename g;
+
+							z  =  case g'   fcf::VAR   x =>  member (x, f ! vl);
+									fcf::LABEL x =>  member (x, f ! vl);
+									_            =>  FALSE;
+                                                              esac;
+
+						        if (((not z) and (same (vl, wl)))
+								    and (right_kind g'))     
+
+							     THE  (fn ce = ce,  g');
+							else NULL;
+                                                        fi;
+						    };
+
+						selectapp _ => NULL;
+					    end;
+
+					    paired_lists::apply addvt (vl, cl);
+					    body' = reduce body;
+
+					    case (selectapp  body')
+						#
+						NULL => ((fk, f, vl, cl, body') ! r', h, TRUE);
+
+						THE (h', u)
+						    =>
+						    {   if leftover  do_again := TRUE;   fi;
+
+							click "e";
+							newname (f, u);
+							(r', h' o h, leftover);
+						    };
+					    esac;
+					};
+				end;					# fun eta_elim
+			    end;
+		    end;
+
+		    # Body of eta:
+		    #	
+		    debugprint "Eta: ";
+		    debugflush();
+		    cexp' = reduce cexp;
+		    debugprint "\n";
+
+		    debugflush ();
+
+		    if (not *do_again)
+			#
+			(fkind, fvar, fargs, ctyl, cexp');
+		    else
+			debugprint "Eta: needed second pass\n";
+			debugflush ();
+			(fkind, fvar, fargs, ctyl, pass2 cexp');
+		    fi;
+
+	    };			# fun     inline_fatecode_buckpass_calls
+    };				# package inline_fatecode_buckpass_calls
+end;				# toplevel stipulate 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

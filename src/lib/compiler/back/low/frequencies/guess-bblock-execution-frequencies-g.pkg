@@ -1,0 +1,384 @@
+## guess-bblock-execution-frequencies-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+# Compute block and edge weights (frequencies) from edge probabilities.
+# This algorithm uses symbolic simplification of the frequency equations.
+# It handles unstructured loops.
+
+stipulate
+    package odg =  oop_digraph;						# oop_digraph				is from   src/lib/graph/oop-digraph.pkg
+#   package prb =  probability;						# probability				is from   src/lib/compiler/back/low/library/probability.pkg
+
+    package sfp =  sfprintf;						# sfprintf				is from   src/lib/src/sfprintf.pkg
+herein
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+    #
+    generic package   guess_bblock_execution_frequencies_g   (
+	#             =============================
+	#
+	package mcg: Machcode_Controlflow_Graph;				# Machcode_Controlflow_Graph		is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+
+    )
+    : (weak) Guess_Bblock_Execution_Frequencies				# Guess_Bblock_Execution_Frequencies		is from   src/lib/compiler/back/low/frequencies/guess-bblock-execution-frequencies.api
+    {
+	# Export to client packages:
+	#
+	package mcg = mcg;
+
+
+
+	# Flags:
+
+	dump_block_and_edge_frequencies
+	    =
+	    lowhalf_control::make_bool (
+	      "dump_block_and_edge_frequencies",
+	      "TRUE to dump block and edge frequencies"
+	    );
+
+	dump_machcode_controlflow_graph_after_frequency_computation
+	    =
+	    lowhalf_control::make_bool (
+	      "dump_machcode_controlflow_graph_after_frequency_computation",
+	      "TRUE to dump machcode_controlflow_graph after frequency computation"
+	    );
+
+	fun pr s
+	    =
+	    file::write(*lowhalf_control::debug_stream, s);
+
+	fun prf (fmt, items)
+	    =
+	    pr (sfp::sprintf' fmt items);
+
+	# Complete edge probabilities; we use the edge weights to store this
+	# information.
+
+	package complete_probs
+	    =
+	    complete_branch_probabilities_g (
+		#
+		package mcg = mcg;						# "mcg" == "machcode_controlflow_graph".
+
+		fun record_probability (mcg::EDGE_INFO { execution_frequency, ... }, probability)
+		    =
+		    execution_frequency := probability;
+	    );
+
+	fun get_prob (mcg::EDGE_INFO { execution_frequency, ... } )
+	    =
+	    *execution_frequency;
+
+	# Fudge factor for infinite loops:
+	#
+	epsilon = 1.0e-6;
+
+	# Representation of equations:
+	#
+	Var = odg::Node_Id;
+
+	Def = UNKNOWN
+	    | SUM  Sum
+	withtype Term = ((Float, Var))
+	     also Sum = { terms:  List( Term ), c:  Float };
+
+	zero = { c => 0.0, terms => [] };
+	one  = { c => 1.0, terms => [] };
+
+	# Multiply a term by a scalar:
+	#
+	fun scale (coeff:  Float) (a, x)
+	    =
+	    (coeff*a, x);
+
+	# We get called (only) from:    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	#
+	fun guess_bblock_execution_frequencies  (mcg  as  odg::DIGRAPH methods)
+	    =
+	    {   methods
+		    ->
+		    { in_edges, out_edges, node_info, capacity, ... };
+
+		defs = rw_vector::make_rw_vector (capacity(), UNKNOWN);
+
+		fun get_variable id = rw_vector::get (defs, id);
+		fun set_variable (id, s) = rw_vector::set (defs, id, s);
+
+		# If a node has been visited
+		# then it has a definition:
+		# 
+		fun visited id
+		    =
+		    case (rw_vector::get (defs, id))
+			UNKNOWN => FALSE;
+			_       => TRUE;
+		    esac;
+
+		# Computations on sums
+
+		# if a variable is defined, compute
+		# the normal form of its definition
+		# and return it.  If the variable is
+		# unknown or its definition is already
+		# in normal form, then return NULL.
+		#
+		fun normalize_variable v
+		    =
+		    case (get_variable v)
+
+			UNKNOWN => UNKNOWN;
+
+			SUM s
+			    =>
+			    case (normalize_sum s)
+
+				NULL   => SUM s;
+
+				THE s' => {   sum = SUM s';
+					      set_variable (v, sum);
+					      sum;
+					  };
+			    esac;
+		    esac
+
+
+		# Normalize a sum of scaled variables.
+		# If the sum is already normalized,
+		# then return NULL.
+		#
+		also
+		fun normalize_sum ({ terms, c } : Sum)
+		    =
+		    extract (terms, [], [])
+		    where
+			fun extract ((t as (b, y)) ! r, ts, todo:  List( (Float, Sum) ) )
+				=>
+				case (normalize_variable y)
+				    UNKNOWN => extract (r, t ! ts,          todo);
+				    SUM s   => extract (r,     ts, (b, s) ! todo);
+				esac;
+
+			    extract ([], _, [])
+				=>
+				NULL;
+
+			    extract ([], ts, todo)
+				=>
+				THE (add_defs ( { terms=>list::reverse ts, c }, todo));
+			end 
+			also
+			fun add_defs (acc, [])
+				=>
+				acc;
+
+			    add_defs (acc, (coeff, sum) ! r)
+				=>
+				add_defs (add_scaled (acc, coeff, sum), r);
+			end;
+		    end
+
+		# Compute r1 + coeff*r2, where r1 and r2 are normalized; the result
+		# is normalized.
+		#
+		also
+		fun add_scaled (r1:  Sum, coeff:  Float, r2:  Sum)
+		    =
+		    {
+			fun combine ([], ts) => list::map (scale coeff) ts;
+			    combine (ts, []) => ts;
+
+			    combine (ts1 as (t1 ! r1), ts2 as (t2 ! r2))
+			       =>
+			       if (#2 t1 < #2 t2)
+				    t1 ! combine (r1, ts2);
+			       elif (#2 t1 == #2 t2)
+				      (#1 t1 + (coeff * #1 t2), #2 t1) ! combine (r1, r2);
+			       else
+				    (scale coeff t2) ! combine (ts1, r2);
+			       fi;
+			end;
+
+			{ c     =>  r1.c + coeff * r2.c,
+			  terms =>  combine (r1.terms, r2.terms)
+			};
+		      };
+
+		# Add the term (a*x)
+		# to a normalized term;
+		# we assume that x is Undefined. 
+		#
+		fun add_scaled_variable ( { c, terms }, a:  Float, x)
+		    =
+		    {
+			fun insert []
+				=>
+				[(a, x)];
+
+			    insert ((t as (b, y)) ! r)
+				=>
+				if   (y <  x)  t ! insert r;
+				elif (y == x)  (a+b, x) ! r;
+				else           (a, x) ! t ! r;
+				fi;
+			end;
+
+			{ c, terms => insert terms };
+		      };
+
+		# Given a list of incoming edges,
+		# create the rhs sum. 
+		#
+		fun make_rhs preds
+		    =
+		    list::fold_left f zero preds
+		    where
+			fun f ((src, _, e), acc)
+			    =
+			    {   prob = get_prob e;
+
+				case (normalize_variable src)
+				    UNKNOWN =>  add_scaled_variable (acc, prob, src);
+				    SUM sum =>  add_scaled (acc, prob, sum);
+				esac;
+			    };
+		    end;
+
+		# Simplify the equation "x = rhs" by checking for x in rhs.  We assume that
+		# x is undefined and that the rhs is normaized.  We return the simplified
+		# rhs.
+		#
+		fun simplify (x, rhs as { terms, c } )
+		    =
+		    remove_x (terms, [])
+		    where
+
+			fun remove_x ([], _)
+				=>
+				rhs;
+
+			    remove_x ((t as (a, y)) ! r, ts)
+				=>
+				if (x < y)
+
+				    rhs;
+
+				elif (x == y)
+
+				    s = 1.0 // float::max (1.0 - a, epsilon);
+				    terms = list::reverse_and_prepend (ts, r);
+
+				    { c => s*c, terms => list::map (scale s) terms };
+
+				else
+				    remove_x (r, t ! ts);
+				fi;
+			  end;
+
+		    end;
+
+		# INVARIANT: the variables corresponding
+		# to marked nodes are not UNKNOWN
+		# in the rhs of any equation.
+		#
+		fun dfs id
+		    =
+		    if (not (visited id))
+
+			rhs = make_rhs (in_edges id);
+			rhs = simplify (id, rhs);
+
+			set_variable (id, SUM rhs);
+			follow_edges (out_edges id);
+		    fi
+
+		also
+		fun follow_edges [] => ();
+		    follow_edges ((_, dst, _) ! r) => { dfs dst; follow_edges r;};
+		end;
+
+		root = case (methods.entries ())   
+			   [root] => root;
+			  _ => raise exception FAIL "guess_bblock_execution_frequencies_g: root";
+		       esac;
+
+
+		# Initialize edge probabilities:
+		#	 
+		complete_probs::complete_probs mcg;
+
+		# Initialize the root:
+		#
+		set_variable (root, SUM one);
+
+		# Traverse the successors of the root:
+		#
+		follow_edges (out_edges root);
+
+		# Record block and edge frequencies
+		# in machcode_controlflow_graph
+		#
+		methods.forall_nodes
+		    (   fn (id, mcg::BBLOCK { execution_frequency, ... } )
+			    =
+			    case (normalize_variable id)
+				#
+				UNKNOWN                =>   execution_frequency :=  0.0;
+				SUM { c, terms => [] } =>   execution_frequency :=  c;
+				_                      =>   raise exception FAIL (cat [ "block ", int::to_string id, " unresolved" ]);
+			    esac
+		    );
+
+		methods.forall_edges
+		    (fn (src, _, mcg::EDGE_INFO { execution_frequency, ... } )
+			=
+			{   (node_info  src) ->   mcg::BBLOCK { execution_frequency => bblock_execution_frequency, ... };
+
+			    execution_frequency :=  *execution_frequency  *  *bblock_execution_frequency;
+			}
+		    );
+
+		if *dump_block_and_edge_frequencies
+		    #
+		    fun bfreq (id, mcg::BBLOCK { kind, execution_frequency, ... } )
+			=
+			 prf("\tbfreq(%s %d) = %f\n", [
+			     sfp::STRING (mcg::bblock_kind_to_string kind), sfp::INT id, sfp::FLOAT *execution_frequency
+			   ]);
+
+		    fun freq (src, dst, edge_info as mcg::EDGE_INFO { execution_frequency, ... } )
+			=
+			 prf("\tfreq(%d->%d:%s) = %f\n", [
+			     sfp::INT src,  sfp::INT dst,  sfp::STRING (mcg::show_edge_info  edge_info),
+			     sfp::FLOAT *execution_frequency
+			   ]);
+
+		    pr "[ computed frequencies ]\n";
+
+		    methods.forall_nodes  bfreq;
+		    methods.forall_edges  freq;
+
+		fi;
+
+		if *dump_machcode_controlflow_graph_after_frequency_computation
+		    #
+		    mcg::dump
+		      (
+			*lowhalf_control::debug_stream,
+			"after frequency computation",
+			mcg
+		      );
+		fi;
+	    };
+    };
+end;
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

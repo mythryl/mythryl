@@ -1,0 +1,239 @@
+## error.pkg
+
+# Compiled by:
+#     src/lib/c-kit/src/parser/c-parser.sublib
+
+###                         "Finally I'm becoming stupider no more."
+###
+###                                              -- Paul Erdos 
+
+
+
+
+package   error
+: (weak)  Error					# Error			is from   src/lib/c-kit/src/parser/stuff/error.api
+{
+    package f  =  sfprintf;			# sfprintf		is from   src/lib/src/sfprintf.pkg
+    package pp =  old_prettyprint;		# old_prettyprint	is from   src/lib/c-kit/src/parser/stuff/old-pp.pkg
+    package sm =  line_number_db;		# line_number_db	is from   src/lib/c-kit/src/parser/stuff/line-number-db.pkg
+
+    Error_State
+        =
+        ES 
+	  { out_strm:          file::Output_Stream,
+	    num_errors:        Ref( Int ),
+	    num_warnings:      Ref( Int ),
+	    warnings_enabled:  Ref( Bool ),
+	    errors_enabled:    Ref( Bool ),
+	    errors_limit:      Int,
+	    warnings_limit:    Int
+          };
+
+    # Global error and warning count limits:
+    #
+    errors_limit   = REF 10;  #  flag for suppressing error messages 
+    warnings_limit = REF 10;  #  flag for suppressing warning messages 
+
+    # make an error state.  src is the source file name, dst is the
+    # output state to report errors on, lnum and lpos are references
+    # used to keep track of the current line number and starting
+    # character positions of the scanned lines.
+    #
+    fun make_error_state (dst: file::Output_Stream)
+        =
+	ES { out_strm         =>  dst,
+	     num_errors       =>  REF 0,
+	     num_warnings     =>  REF 0,
+	     warnings_enabled =>  REF TRUE,
+	     errors_enabled   =>  REF TRUE,
+	     errors_limit     =>  *errors_limit,
+	     warnings_limit   =>  *warnings_limit
+	   };
+
+    fun inc (i: Ref( Int )) = { i := *i + 1; ();};
+    fun dec (i: Ref( Int )) = { i := *i - 1; ();};
+
+    # Curried version of file::write:
+    # 
+    fun outputc outstrm strng
+        =
+        file::write (outstrm, strng);
+
+    # For reporting internal bugs:
+    # 
+    fun bug (ES { out_strm, ... } ) (msg: String) : Void
+	=
+	file::write (out_strm, ("Compiler bug: " + msg + "\n"));
+
+    # Print a warning/error message with location info:
+    #
+    fun say_error (es as ES { out_strm, ... }, loc, kind, msg)
+        =
+	f::fnprintf'  (outputc out_strm)  "%s: %s%s\n"  [
+	    f::STRING (sm::loc_to_string loc), f::STRING kind, f::STRING msg
+	];
+
+    # Print a formatted warning/error message with location info:
+    #
+    fun fmt_error (es as ES { out_strm, ... }, loc, kind, fmt, items)
+        =
+	f::fnprintf'  (outputc out_strm)  ("%s: %s" + fmt + "\n")
+	     ((f::STRING (sm::loc_to_string loc)) ! (f::STRING kind) ! items);
+
+    # Print warning messages to the error stream:
+    #
+    fun warning (es as ES { num_warnings, warnings_limit, warnings_enabled, ... }, loc, msg)
+	=
+	if *warnings_enabled
+
+	     say_error (es, loc, "warning: ", msg);
+	     inc num_warnings;
+
+	     if   (*num_warnings > warnings_limit)
+                 
+	          warnings_enabled := FALSE;
+		  say_error (es, loc, "warning: ", "additional warnings suppressed");
+	     fi;
+	fi;
+
+    fun warningf (es as ES { num_warnings, warnings_limit, warnings_enabled, ... },
+		  loc, fmt, items)
+	= 
+	if   (*warnings_enabled)
+	    
+	     fmt_error (es, loc, "warning: ", fmt, items);
+	     inc num_warnings;
+
+	     if   (*num_warnings > warnings_limit)
+                 
+	          warnings_enabled := FALSE;
+		  say_error (es, loc, "warning: ", "additional warnings suppressed");
+	     fi;
+	fi;
+
+    fun no_more_warnings (es as ES { warnings_enabled, ... } )
+        = 
+        {   warnings_enabled := FALSE;
+            say_error (es, sm::UNKNOWN, "warning: ", "additional warnings suppressed.");
+        };
+
+    # hints - heuristic help for error messages;
+    # Note: must be called before error call is generated.
+    last_hint = REF (NULL:  Null_Or( String ));
+    fun hint s = (last_hint := THE s);
+
+    # Print error messages to the error stream:
+    #
+    fun error (es as ES { num_errors, errors_limit, errors_enabled, ... }, loc, msg)
+        =
+	if (*errors_enabled)
+            
+	     case *last_hint
+               
+	          THE s => { say_error (es, loc, "error: ", msg + "\n" + s);
+			  last_hint := NULL;};
+
+	          NULL => say_error (es, loc, "error: ", msg);
+             esac;
+
+	     inc num_errors;
+
+	     if   (*num_errors > errors_limit)
+                 
+		  errors_enabled := FALSE;
+		  say_error (es, loc, "warning: ", "additional errors suppressed.");
+	     fi;
+	fi;
+
+    fun errorf (es as ES { num_errors, errors_limit, errors_enabled, ... }, loc, fmt, items)
+        =
+	if *errors_enabled
+
+	     fmt_error (es, loc, "error: ", fmt, items);
+	     inc num_errors;
+
+	     if   (*num_errors > errors_limit)
+	         
+		  errors_enabled := FALSE;
+		  say_error (es, loc, "warning: ", "additional errors suppressed.");
+	     fi;
+	fi;
+
+    fun no_more_errors (es as ES { errors_enabled, ... } )
+	=
+	{   errors_enabled := FALSE;
+	    say_error (es, sm::UNKNOWN, "warning: ", "additional errors suppressed.");
+	};
+
+    # Pretty-print an error message on the error stream:
+    #
+    fun prettyprint_error (es as ES { out_strm, num_errors, ... }, loc, prettyprint)
+	=
+	{   prettyprint_stream
+                =
+                pp::mk_ppstream
+		    {
+		      consumer  =>  outputc out_strm,
+		      flush     =>  fn () = file::flush out_strm,
+		      linewidth =>  80
+		    };
+
+	    inc num_errors;
+	    pp::begin_block prettyprint_stream pp::INCONSISTENT 0;
+	    pp::add_string prettyprint_stream
+		(f::sprintf' "Error %s: " [f::STRING (sm::loc_to_string loc)]);
+	    prettyprint prettyprint_stream;
+	    pp::add_newline prettyprint_stream;
+	    pp::end_block prettyprint_stream;
+	    pp::flush_ppstream prettyprint_stream;
+	};
+
+    fun err_stream (ES { out_strm, ... } )
+        =
+        out_strm;
+
+    # Return count of errors reported on the state (since last reset):
+    # 
+    fun error_count (ES { num_errors, ... } )
+        =
+	*num_errors;
+
+    # Return count of warnings reported on the state (since last reset):
+    # 
+    fun warning_count (ES { num_warnings, ... } )
+        =
+	*num_warnings;
+
+    # Clear the error and warning counts, so that errorCount and
+    # warningCount will return 0:
+    #
+    fun reset (ES { num_errors, num_warnings, ... } )
+        =
+	{   num_errors   := 0;
+            num_warnings := 0;
+        };
+
+};		#  error 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1992 AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,261 @@
+## hash-util.pkg
+## COPYRIGHT 1989 by AT&T Bell Laboratories
+
+
+
+
+# These are generic routines for supporting hashtables of various
+# kinds in the CX system.  Since the hashtables use mutable state, they
+# should be isolated inside server threads.  Some of this code was
+# lifted from lib7.
+
+
+
+api HASH_UTIL =
+  api
+
+    exception NOT_FOUND
+
+    #  A generic hashtable mapping unique integer keys to values 
+    type int_map_t( X )
+
+    #  Create a new table 
+    my newIntMap:  Void -> int_map_t( $1a )
+
+    #  insert an item 
+    my insertInt:   int_map_t( $2a ) -> (Int * $2a) -> Void
+
+    #  find an item, the exception NOT_FOUND is raised if the item doesn't exist 
+    my findInt:   int_map_t( X ) -> Int -> X
+
+    #  remove an item, returning the item 
+    my removeInt:   int_map_t( X ) -> Int -> X
+
+    #  return a list of the items in the table 
+    my listInts:   int_map_t( X ) ->  List( X )
+
+    #  A generic hashtable mapping string keys to values 
+    type name_map_t( X )
+
+    #  Create a new table 
+    my newNameMap:  Void -> name_map_t( $1a )
+
+    #  insert an item 
+    my insertName:   name_map_t( $2a ) -> (String * $2a) -> Void
+
+    #  find an item, the exception NOT_FOUND is raised if the item doesn't exist 
+    my findName:   name_map_t( X ) -> String -> X
+
+    #  remove an item 
+    my removeName:   name_map_t( X ) -> String -> X
+
+    #  return a list of the items in the table 
+    my listNames:   name_map_t( X ) -> List( X )
+
+  end #  Api HASH_UTIL 
+
+package HashUtil:  HASH_UTIL {
+
+
+    exception NOT_FOUND
+
+    local
+    #  A string hash function 
+      fun hash_string str = let
+	    prime = 8388593 #  largest prime less than 2^23 
+	    base = 128
+	    l = string::size str
+	    in
+	      case l
+	       of 0 => 0
+		| 1 => ord str
+		| 2 => ordof (str, 0) + base * ordof (str, 1)
+		| 3 => ordof (str, 0) + base * (ordof (str, 1) + base * ordof (str, 2))
+		| _ => let
+		    fun loop (0, n) = n
+		      | loop (i, n) = let
+			  i = i - 1
+			  n' = (base * n + ordof (str, i)) 
+			  in
+			    loop (i, (n' - prime * (n' quot prime)))
+			  end
+		    in
+		      loop (l, 0)
+		    end
+	    end #  hash_string 
+
+      enum Bucket_Type (X, Y)
+        = NIL
+        | B of (Y * X * Bucket_Type( X, Y ))
+
+      type map_t (X, Y) = {
+	  table:  Ref( Rw_Vector( Bucket_Type( X, Y ) ) ),
+	  elems:  Ref( Int )
+        }
+
+      #  generic routines on maps 
+      fun newMap () = { table = REF (rw_vector::rw_vector (32, NIL)), elems = REF 0 }
+      fun hash (i, size) = Bits::bitwise_and (i, size - 1)
+
+      #  Conditionally grow a map 
+      fun mapGrow (keyIndex, { table, elems } ) = let
+	    arr = *table
+	    size = rw_vector::length arr
+	    newSz = size+size
+	    newArr = rw_vector::rw_vector (newSz, NIL)
+	    fun copy NIL = ()
+	      | copy (B (key, v, rest)) = let
+		  index = hash (keyIndex key, newSz)
+		  in
+		    rw_vector::set (newArr, index, B (key, v, rw_vector::get (newArr, index)));
+		    copy rest
+		  end
+	    fun bucket n = (copy (rw_vector::get (arr, n)); bucket (n+1))
+	    in
+	      if (*elems >= size)
+		then (
+		  (bucket 0) except (rw_vector::SUBSCRIPT|rw_vector::INDEX_OUT_OF_BOUNDS) => ();
+		  table := newArr)
+		else ()
+	    end
+
+      #  insert a (key, value) pair into a map (assuming size is okay) 
+      fun mapInsert (mkKey, keyIndex, keyEq) = let
+	    fun insert ( { table, elems }, realKey, v) = let
+		  key = mkKey realKey
+		  arr = *table
+		  size = rw_vector::length arr
+		  index = hash (keyIndex key, size)
+		  fun get NIL = (
+			rw_vector::set (arr, index, B (key, v, rw_vector::get (arr, index)));
+			elems := *elems + 1)
+		    | get (B (k, _, r)) = if keyEq (key, k) then () else get r
+		  in
+		    get (rw_vector::get (arr, index))
+		  end
+	    in
+	      insert
+	    end
+
+      fun mapRemove (mkKey, keyIndex, keyEq) = let
+	    fun remove { table, elems } key = let
+		  key = mkKey key
+		  fun get NIL = raise exception NOT_FOUND
+		    | get (B (k, v, r)) = if keyEq (key, k)
+			  then (v, r)
+			  else let my (removedVal, rest) = get r
+			    in
+			      (removedVal, B (k, v, rest))
+			    end
+		  arr = *table
+		  index = hash (keyIndex key, rw_vector::length arr)
+		  my (removedVal, rest) = get (rw_vector::get (arr, index))
+		  in
+		    rw_vector::set (arr, index, rest);
+		    elems := *elems - 1;
+		    removedVal
+		  end
+	    in
+	      remove
+	    end #  mapRemove 
+
+      fun mapList { table = REF table, elems } = let
+	    fun f (_, l, 0) = l
+	      | f (-1, l, _) = l
+	      | f (i, l, n) = let
+		  fun g (NIL, l, n) = f (i - 1, l, n)
+		    | g (B(_, x, r), l, n) = g (r, x . l, n - 1)
+		  in
+		    g (rw_vector::get (table, i), l, n)
+		  end
+	    in
+	      f ((rw_vector::length table) - 1, [], *elems)
+	    end #  list 
+
+      fun f o g = (fn x => f (g x))  #  for inlining 
+
+      fun intTableIndex i = i
+      intTableEq = ((op =) : (Int * Int) -> Bool)
+      mkIntKey = intTableIndex
+
+      fun nameTableIndex (i, _) = i
+      fun nameTableEq ((i1: Int, s1: String), (i2, s2)) = ((i1 = i2) and (s1 = s2))
+      fun mkNameKey s = (hash_string s, s)
+    in
+
+    enum int_map_t  X   = INT_MAP  of map_t (X, Int)
+    enum name_map_t X   = NAME_MAP of map_t (X, (Int * String))
+
+    fun projIntMap (INT_MAP table) = table
+    fun projNameMap (NAME_MAP table) = table
+
+    fun newIntMap () = INT_MAP (newMap())
+    fun newNameMap () = NAME_MAP (newMap())
+
+    insertInt = let
+	  insert = mapInsert (mkIntKey, intTableIndex, intTableEq)
+	  fun do_it (INT_MAP table) (key, v) = (
+		mapGrow (intTableIndex, table); insert (table, key, v))
+	  in
+	    do_it
+	  end
+    insertName = let
+	  insert = mapInsert (mkNameKey, nameTableIndex, nameTableEq)
+	  fun do_it (NAME_MAP table) (key, v) = (
+		mapGrow (nameTableIndex, table); insert (table, key, v))
+	  in
+	    do_it
+	  end
+
+    removeInt = (mapRemove (mkIntKey, intTableIndex, intTableEq)) o projIntMap
+    removeName = (mapRemove (mkNameKey, nameTableIndex, nameTableEq)) o projNameMap
+
+    fun listInts (INT_MAP m) = mapList m
+    fun listNames (NAME_MAP m) = mapList m
+
+   /** The find functions could also be generic, but they are the most used, so it
+    ** is good to make them fast (instead of trusting in the optimizer).
+    **/
+    fun findInt (INT_MAP { table, elems } ) key = let
+	  fun get NIL = raise exception NOT_FOUND
+	    | get (B (i, v, rest)) = if (key != i) then (get rest) else v
+	  arr = *table
+	  in
+	    get (rw_vector::get (arr, hash (key, rw_vector::length arr)))
+	  end #  find 
+
+    fun findName (NAME_MAP { table, elems } ) key = let
+	  h = hash_string key
+	  fun get NIL = raise exception NOT_FOUND
+	    | get (B((i, s), v, rest)) =
+		if ((h != i) or (key != s)) then (get rest) else v
+	  arr = *table
+	  in
+	    get (rw_vector::get (arr, hash (h, rw_vector::length arr)))
+	  end #  find 
+
+    end #  local 
+};		#  package HashUtil 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1990, 1991 by John H. Reppy.  See COPYRIGHT file for details.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

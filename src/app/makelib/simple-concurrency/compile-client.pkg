@@ -1,0 +1,778 @@
+## compile-client.pkg
+
+# Compiled by:
+#     src/app/makelib/simple-concurrency/simple-concurrency.sublib
+
+
+
+# This is a simple facility to allow spreading
+# the work of a complete 'make' across multiple
+# processors on one machine, or even across
+# multiple machines sharing a common filesystem,
+# using Unix processes connected by pipes and ssh
+# connections and such.
+#
+# Compile servers are unix processes running the
+# Mythryl compiler.  We identify compile servers
+# using small integer ids issued by next_id(), and
+# maintain a global table
+#     all_compile_servers
+# mapping ids to Server records.
+#
+# Basically all we do in this module is to 
+# spawn compile server subprocesses on request,
+# track currently live subprocesses, and pass
+# compile requests to them.
+#
+# This whole facility is still rather crude and
+# not very robust.
+#
+# In this file we implement the client side of
+# the protocol;  the server side is implemented in
+#
+#     src/app/makelib/main/compile-server.pkg
+#
+#
+# We are invoked (only) from
+#
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#     src/app/makelib/main/makelib-g.pkg
+#
+# which use us to implement parallel compiles during
+# a make, to take advantage of multiple CPUs, multiple
+# cores, and/or multiple workstations.
+#
+# For additional discussion, see
+#
+#     src/app/makelib/doc/13-parallel.tex
+
+
+# We must (alas!) use transparent sealing here;
+# otherwise the hack in
+#     $ROOT/src/lib/core/makelib/makelib.lib
+# fails.
+
+
+stipulate
+    package px  =  posix_1003_1b;					# posix_1003_1b		is from   src/lib/std/src/posix-1003.1b/posix-1003-1b.pkg
+    package rs  =  runtime_signals;					# runtime_signals	is from   src/lib/std/src/nj/runtime-signals.pkg
+    package sit =  simple_thread;					# simple_thread		is from   src/app/makelib/simple-concurrency/simple-thread.pkg
+herein
+
+    package   compile_client
+    : (weak)  Compile_Client						# Compile_Client	is from   src/app/makelib/simple-concurrency/compile-client.api
+    {
+	# To allow compiling test versions &tc in a
+	# different filetree than the default, we
+	# we allow optional rewriting of absolute
+	# pathnames.  (We presume relative pathnames
+	# will stay ok, and that anchored pathnames
+	# will be handled by resetting the anchors.)	XXX BUGGO FIXME I'm phasing this stuff out -- 2011-01-07 CrT
+	#
+	Path_Translator
+	    =
+	    Null_Or( String -> String ); 
+
+									# spawn			is from   src/lib/std/src/posix/spawn.pkg
+									# file			is from   src/lib/std/src/posix/file.pkg
+	# This is our internal compile server representation.
+	# First two fields are identical to Compile_Server (above):
+	# 
+	Compile_Server
+	    =
+	    { id:      Int,						# A small integer uniquely identifying the server. Ids are generated sequentially by next_id().
+	      name:    String,						# An arbitrary server name. This is used purely human-interface purposes; code operation in no way depends upon it.
+	      #
+	      process: spawn::Process( file::Input_Stream,		# Our link to the actual unix-level subprocess.
+				       file::Output_Stream
+				     ),
+	      #
+	      path_translator: Path_Translator,				# See "Path_Translator" comment above. 
+	      priority:        Int,					# If more than one server is idle (rare), we'll use the numerically highest priority one.
+	      alive:           Ref( Bool )				# Is underlying unix process still alive and responsive?  Starts FALSE, set to TRUE by shutdown().
+	    };
+
+
+	fun compile_server_name (server: Compile_Server)
+	    =
+	    server.name;
+
+
+	fun mark_as_dead  (server: Compile_Server)
+	    =
+	    server.alive := FALSE;
+
+
+
+	fun server_input_stream  (server: Compile_Server) =   (spawn::streams_of server.process).from_stream;
+	fun server_output_stream (server: Compile_Server) =   (spawn::streams_of server.process).to_stream;
+
+
+
+	# A function which returns successive integers
+	# on successive calls.
+	#
+	# We use this to assign unique ids to our
+	# compile servers:
+	#
+	stipulate
+	    next =  REF 0;
+	herein
+	    fun next_id ()
+		=
+		{   result =  *next;
+		    next  :=   result + 1;
+		    result;
+		};
+	end;
+
+	enabled              =  REF FALSE;
+	idle_compile_servers =  REF ([]:  List(Compile_Server));
+	some_idle            =  REF (sit::spawn_virtual_thread ());
+
+	stipulate
+	    # Here we track all live compile servers,
+	    # as a map from server.id values to Server records:
+	    #
+	    all_compile_servers = REF (int_map::empty:  int_map::Map(Compile_Server));
+
+	    fun nservers ()
+		=
+		int_map::vals_count  *all_compile_servers;
+	herein
+
+	    fun all_idle ()    =   length (*idle_compile_servers) == nservers ();
+	    fun no_servers ()  =   nservers () == 0;
+	    fun all_servers () =   int_map::vals_list *all_compile_servers;
+
+	    fun note_server  server
+		=
+		{   ns   =  nservers ();				# WTF does this accomplish?
+		    #
+		    all_compile_servers :=  int_map::set (*all_compile_servers, server.id, server);
+		};
+
+	    fun drop_server  (server: Compile_Server)
+		=
+		{   all_compile_servers :=   #1 (int_map::drop (*all_compile_servers, server.id));
+
+		    # If this was the last server, then we need to wake up
+		    # everyone who is currently waiting to grab a server.
+		    # The "grab"-loop will then gracefully fail and
+		    # not cause a deadlock.
+		    #
+		    if (no_servers ())
+			#
+			file::dsay ["No more servers -> back to sequential mode.\n"];
+			#
+			sit::terminate_virtual_thread   *some_idle;
+		    fi;
+		};
+	end;
+									# say			is from   src/lib/std/src/io/say.pkg
+									# thread		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+									# int_map		is from   src/app/makelib/stuff/int-map.pkg
+									# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
+									# posix_signals		is from   src/lib/std/src/posix/posix-signals.pkg
+									# runtime_signals	is from   src/lib/std/src/nj/runtime-signals.pkg
+
+
+	# Translate absolute pathname encoding;
+	# relative and anchored paths stay unchanged:
+	#
+	fun maybe_translate_filename (filename, server: Compile_Server)
+	    =
+	    case server.path_translator
+		#	  
+		NULL          =>    filename;
+		#	  
+		THE translate =>    if (anchor_dictionary::encoding_is_absolute  filename)
+					#
+				        translate filename;
+				    else          filename;
+				    fi;
+	    esac;
+
+									# posix_signals		is from   src/lib/std/src/posix/posix-signals.pkg
+									# runtime_signals	is from   src/lib/std/src/nj/runtime-signals.pkg
+									# safely		is from   src/lib/std/safely.pkg
+									# file			is from   src/lib/std/src/posix/file.pkg
+	#  Protect some code segments from sigPIPE signals... 
+	#
+	fun protect_from_sigpipe  work
+	    =
+	    {   pipe =  posix_signals::sig_pipe;
+
+		fun disable ()  =          rs::set_signal_handler (pipe, rs::IGNORE);
+		fun reenable sa =  ignore( rs::set_signal_handler (pipe, sa));
+
+		safely::do
+		    { open_it  => disable,
+		      close_it => reenable,
+		      cleanup  => fn _ = ()
+		    }
+		    (fn _ = work ());
+	    };
+
+
+	#  Send a message to a server. This must be sigPIPE-protected. 
+	#
+	fun send (server: Compile_Server, msg)
+	    =
+	    {   output_stream =  server_output_stream  server;
+
+		file::dsay ["-> ", server.name, " : ", msg];
+
+		protect_from_sigpipe (  fn () =  {  file::write (output_stream, msg);
+						    file::flush output_stream;
+						 }
+						 except _ = ()
+				     );
+	    };
+
+	fun show_idle ()
+	    =
+	    file::dsay ("Idle:" ! fold_right (fn (server', l) =  " " ! server'.name ! l)
+					    ["\n"]
+					    *idle_compile_servers
+		      );
+
+
+
+	# Mark a server idle;
+	# signal all those who are
+	# currently waiting for that:
+	#
+	fun mark_idle  (server: Compile_Server)
+	    =
+	    {  idle_compile_servers   :=   server ! *idle_compile_servers;
+
+	       sit::terminate_virtual_thread  *some_idle;
+
+	       file::dsay ["Scheduler: server ", server.name, " has become idle.\n"];
+	       show_idle ();
+	    };
+
+
+
+									    # say		is from   src/lib/std/src/io/say.pkg
+									    # thread		is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+	# Grab an idle server;
+	# wait if necessary;
+	# reinitialize condition if taking the only server:
+	#
+	fun grab ()
+	    =
+
+	    # We need to check the following every time (at least the
+	    # "no_servers" part) because it might be that all servers
+	    # have meanwhile gone away for some reason (crashed, etc.).
+
+    # WE APPEAR TO HAVE AN INFINITE LOOP RUNNING THROUGH HERE :(
+	    if (not *enabled  or  no_servers ())
+		#
+		NULL;
+	    else
+		case *idle_compile_servers
+		    #
+		    []  =>
+			{
+			    sit::wait_for_thread_result  *some_idle;
+
+			    # 2007-10-03 CrT: The below grab() call results in
+			    # a tight spinloop when all servers
+			    # are busy -- which will frequently
+			    # be the case in practice!
+			    # This whole design sucks, obviously :(                             XXX BUGGO FIXME
+			    #
+			    # Also, one second is an awfully long
+			    # time to sleep, but we apparently don't
+			    # currently have a library call capable
+			    # of waiting for less than a second
+			    # (e.g., I can't find Mythryl-level access to
+			    # select().                             XXX BUGGO FIXME
+			    #
+			    px::sleep (time::from_seconds (large_int::from_int 1));	# A quick hack to ameliorate a spinwait loop.
+			    grab ();
+			};
+
+		    [only_server]
+			=>
+			{   file::dsay ["Scheduler: taking last idle server (",  only_server.name,  ").\n"];
+			    idle_compile_servers := [];
+			    some_idle := sit::spawn_virtual_thread ();
+			    THE only_server;
+			};
+
+		    first ! rest
+			=>
+			{   fun find_best_server (best_yet, [], tried)
+				    =>
+				    (best_yet, tried);
+
+				find_best_server (best_yet: Compile_Server, (this_try: Compile_Server) ! untried, tried)
+				    =>
+				    if (this_try.priority > best_yet.priority)   find_best_server (this_try, untried, best_yet ! tried);
+				    else                                         find_best_server (best_yet, untried, this_try ! tried);
+				    fi;
+			    end;
+
+			    my (best_server, rest)
+				=
+				find_best_server (first, rest, []);
+
+			    file::dsay ["Scheduler: taking idle server (", best_server.name, ").\n"];
+			    idle_compile_servers := rest;
+			    show_idle ();
+			    THE best_server;
+			};
+		esac;
+	    fi;
+
+	fun wait_status { server, echo }
+	    =
+	    {
+		name = server.name;
+
+		input_stream
+		    =
+		    server_input_stream  server;
+
+		fun unexpected l
+		    =
+		    {   fun word (w, l)
+			    =
+			    " " ! w ! l;
+
+			file::say ("! Unexpected response from server " ! name ! ":" ! fold_right word ["\n"] l);
+		    };
+
+		fun server_exit ()
+		    =
+		    {   what =  if  (protect_from_sigpipe
+					 (fn () =  spawn::reap server.process)   ==   winix::process::success
+				)
+                                     "shut down";
+				else "crashed";
+                                fi;
+							    # spawn	is from   src/lib/std/src/posix/spawn.pkg
+
+			mark_as_dead  server;
+			file::say ["[!Server ", name, " has ", what, ".]\n"];
+			drop_server server;
+		    };
+
+		show =  if echo   fn report =  file::say (reverse report);
+			else      fn _      =  ();
+                        fi;
+
+		fun loop report
+		    =
+		    if (not *server.alive)
+			#
+			FALSE;
+		    else
+			sit::wait_for_thread_result
+			    #
+			    (sit::spawn_stream_proxy_thread
+				input_stream
+			    );
+
+			case (file::read_line  input_stream)
+			    #
+			    NULL => {   server_exit ();
+					FALSE;
+				    };
+
+			    THE line
+				=>
+				{   file::dsay ["<- ", name, ": ", line];
+
+				    case (string::tokens  char::is_space  line)
+					#
+					["SLAVE:", "ok"   ]
+					    =>
+					    {   mark_idle server;
+						show report;
+						TRUE;
+					    };
+
+					["SLAVE:", "error"]
+					    =>
+					    {   mark_idle server;
+						FALSE;			# Suppress error message because it will be re-enacted locally.
+					    };
+
+					"SLAVE:" ! l
+					    =>
+					    {   unexpected l;
+						loop report;
+					    };
+
+					_   =>
+					    {
+						loop (line ! report);
+					    };
+				    esac;
+				};
+			esac;
+		    fi;
+
+		loop [];
+	    };
+
+
+
+	# Send a "ping" to all servers and wait for the "pong" responses.
+	# 
+	# This should work for all servers, busy or no.  Busy servers will
+	# take longer to respond because they first need to finish what
+	# they are doing.
+	#
+	# We use wait_all after we receive an interrupt signal.
+	#
+	# The ping-pong protocol does not suffer from
+	# the race condition that we would have if we wanted
+	# to only wait for "ok"s from currently busy servers.
+	#
+	# The race would happen when an interrupt occurs between receiving
+	# "ok" and marking the corresponding server idle).
+	#
+	fun wait_all  narrate_to_stdout
+	    =
+	    {   all =  all_servers ();
+
+		fun ping server
+		    =
+		    {   name =  server.name;
+
+			input_stream
+			    =
+			    server_input_stream  server;
+
+
+								    # thread	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
+								    # file		is from   src/lib/std/src/posix/file.pkg
+								    # say		is from   src/lib/std/src/io/say.pkg
+								    # string	is from   src/lib/std/string.pkg
+								    # list		is from   src/lib/std/src/list.pkg
+
+
+			fun loop ()
+			    =
+			    if *server.alive
+				#
+				sit::wait_for_thread_result
+				    #
+				    (sit::spawn_stream_proxy_thread
+					input_stream
+				    );
+
+				case (file::read_line  input_stream)
+				    #
+				    NULL
+					=>
+					file::dsay ["<-(EOF) ", name, "\n"];     #  server has gone away -> no pong 
+
+				    THE line
+					=>
+					{   file::dsay ["<- ", name, ": ", line];
+
+					    case (string::tokens  char::is_space  line)
+						#
+						["SLAVE:", "pong"] =>  ();
+						_                  =>  loop ();
+					    esac;
+					};
+				esac;
+			    fi;
+
+			send (server, "ping\n");
+			loop ();
+		    };
+
+		some_servers_idle
+		    =
+		    sit::spawn_virtual_thread ();
+
+		if (not (list::null all))
+
+		    sit::terminate_virtual_thread
+			some_servers_idle;
+
+		    if narrate_to_stdout
+			file::say ["Waiting for attached servers to become idle...\n"];
+		    fi;
+		fi;
+
+		apply ping all;
+
+		idle_compile_servers :=  all;
+		some_idle            :=  some_servers_idle;
+	    };
+
+	fun shutdown (server, method')
+	    =
+	    if *server.alive
+		#
+		method' ();
+		#
+		wait_for_exit ()
+		where
+		    fun unidle ()
+			=
+			idle_compile_servers
+			    :=
+			    #2 (   list::partition 
+				       (fn s' =   s'.id == server.id)
+				       *idle_compile_servers
+			       );
+
+		    fun wait_for_exit ()
+			=
+			{   unidle ();
+			    ignore (wait_status { server, echo => FALSE });
+
+			    if *server.alive
+				#		        
+				wait_for_exit ();
+			    fi;
+			};
+		end;
+	    fi;
+
+					###################################################################
+					#                         "If any question why we died,
+					#                          Tell them, because our fathers lied."
+					#
+					#                                           -- Rudyard Kipling
+					###################################################################
+
+
+							    # spawn	is from   src/lib/std/src/posix/spawn.pkg
+
+	fun stop_compile_server server   =   shutdown (server, fn () =  send (server, "shutdown\n"));
+	fun kill_compile_server server   =   shutdown (server, fn () =  spawn::kill (server.process, px::signal::term));
+
+
+	# This function is (only) invoked
+	# by   start_a_compile_server
+        # and  start_compile_servers
+	# in
+	#     src/app/makelib/main/makelib-g.pkg
+	# 
+	# A typical invocation would be
+	# 
+	#    makelib::compile_server::start_a_compile_server
+	#        {
+	#          name            =>  "A",
+	#          path_translator =>  NULL,
+	#          priority        =>  0,
+	#          cmd             =>  ("/path/to/bin/mythryld", ["--compile-server"])
+	#        };
+	# 
+	fun start_compile_server
+	    { name,			# String name for server.  Arbitrary, used to label server output for human consumption.
+	      cmd,			# E.g. ("/usr/bin/foo", ["-x", "this", "that"])  --  command passed to spawn::execute.
+	      path_translator,		# Usually NULL, used to translate filenames on remote compile servers with different directory trees.
+	      priority			# Integer priority affecting which compile server to use if more than one is idle (rare).
+	    }
+	    =
+	    {   process =  spawn::process  cmd;
+		id      =  next_id ();
+
+		server  =  { id,
+			     name,
+			     process,
+			     #
+			     path_translator,
+			     priority,
+			     #
+			     alive => REF TRUE
+			   };
+
+		if (wait_status { server, echo => FALSE })
+		    #                
+		    note_server server;
+		    THE server;
+		else
+		    NULL;
+		fi;
+	    };
+
+
+	fun compile_api_or_pkg_file  (sourcefile_name:  String)					# Full path for   foo.api   or   foo.pkg   file to compile.
+	    =
+	    case (grab ())
+		#	  
+		NULL =>   FALSE;
+		#
+		THE server
+		    =>
+		    {   filename =  maybe_translate_filename (sourcefile_name, server);
+printf "compile-client.pkg: compile: 'sourcefile_name' = '%s'\n" sourcefile_name;
+			file::vsay ["[(", server.name, "): compiling ", filename, "]\n"];
+			send (server, cat ["compile ", filename, "\n"]);
+			wait_status { server, echo => TRUE };
+		    };
+	    esac;										# say		is from   src/lib/std/src/io/say.pkg
+
+
+	fun reset_compile_server  narrate_to_stdout
+	    =
+	    {   sit::reset_thread_manager ();
+		wait_all  narrate_to_stdout;
+	    };
+
+
+	fun start_all_compile_servers  start_fn
+	    =
+	    {   servers =  *idle_compile_servers;
+
+		idle_compile_servers := [];
+
+		server_threads
+		    =
+		    map
+			(fn server =  sit::make_simple_thread .{ start_fn server;})
+			servers;
+
+		safely::do									# safely	is from   src/lib/std/safely.pkg
+                  {
+		    open_it  =>  fn () = (),
+		    close_it =>  fn () = (),
+		    cleanup  =>  reset_compile_server
+		  } .{
+		    apply  sit::wait_for_thread_result  server_threads;
+                  };
+	    };
+
+
+	# Handle changes in current working directory:
+	#
+	fun cd  directory				# "cd" == "change directory"
+	    =
+	    start_all_compile_servers  st
+	    where
+		fun st server
+		    =
+		    {   directory' =  maybe_translate_filename (directory, server);
+
+			send (server, cat ["cd ", directory', "\n"]);
+
+			ignore (wait_status { server, echo => FALSE });
+		    };
+	    end;
+
+
+	# This is called from makelib_g in
+	#
+	#     src/app/makelib/main/makelib-g.pkg
+	#
+	# as part of set-up for doing makes:
+	#
+	fun set_up_all_compile_servers_for_new_make
+	    {
+	      platform: String,			#  "intel32-linux" or such.                         
+	      libfile:  String			#  Sourcefile path for the project .lib file. 
+	    }
+	    =
+	    start_all_compile_servers  st
+	    where
+		fun st server
+		    =
+		    {   localized_libfile_name   =   maybe_translate_filename (libfile, server);
+
+			send (server, cat ["cm ", platform, " ", localized_libfile_name, "\n"]);
+
+			ignore  (wait_status { server, echo => FALSE });
+		    };
+	    end;
+
+
+	fun make_compiler
+              { generated_filename_infix,	# Normally "";   if this is (e.g.) ".pwrpc32-macos", instead of "foo.pkg.compiled" we'll generate "foo.pkg.pwrpc32-macos.compiled".
+		platform,			#  "intel32-linux" or such -- architecture+OS.
+	        root				# Always "src/etc/mythryl-compiler-root.lib", root .lib file for the complete compiler.
+	      }
+	    =
+	    start_all_compile_servers  st
+	    where
+		fun st server
+		    =
+		    {   send (server, cat ["cmb ", generated_filename_infix, " ", platform, " ", root, "\n"]);
+
+			ignore (wait_status { server, echo => FALSE });
+		    };
+
+	    end;
+
+
+	fun make_compiler_reset {
+		platform				#  "intel32-linux" or such. 
+	    }
+	    =
+	    start_all_compile_servers  st
+	    where
+		fun st server
+		    =
+		    {   send (server, cat ["cmb_reset ", platform, "\n"]);
+			ignore (wait_status { server, echo => FALSE });
+		    };
+
+	    end;
+
+	fun enable  ()   =   enabled := TRUE;
+	fun disable ()   =   enabled := FALSE;
+
+	fun with_servers (function: Void -> X)
+	    =
+	    safely::do				# safely	is from   src/lib/std/safely.pkg
+		{
+		  open_it  =>  enable,
+		  close_it =>  disable,
+		  cleanup  =>  reset_compile_server
+		}
+		function;
+
+
+
+	#                           "Too much work and too much energy
+	#                            kill a man just as effectively as
+	#                            too much assorted vice or too much drink."
+	#
+	#                                           -- Rudyard Kipling
+
+
+
+								# null_or		is from   src/lib/std/src/null-or.pkg
+								# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
+
+	my _ = anchor_dictionary::add_cwd_watcher  cd;		# "cwd" == "current working directory"
+
+
+    };
+end;
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

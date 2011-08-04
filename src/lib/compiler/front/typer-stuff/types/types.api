@@ -1,0 +1,421 @@
+## types.api
+## (C) 2001 Lucent Technologies, Bell Labs
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+
+# Datastructures describing type declarations.
+#
+# In particular, the datatype
+#
+#     Typ
+#
+# provides the value type bound by the symbol table
+# for that namespace -- see OVERVIEW section in
+#
+#     compiler/typer-stuff/symbolmapstack/symbolmapstack.sml
+
+
+
+stipulate
+    package ip  =  inverse_path;			# inverse_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package mp  =  stamppath;				# stamppath	is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package ph  =  picklehash;				# picklehash	is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package pl  =  property_list;			# property_list	is from   src/lib/src/property-list.pkg
+    package sta =  stamp;				# stamp		is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sy  =  symbol;				# symbol	is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package vh  =  varhome;				# varhome	is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+    api Types {
+	#
+	#
+
+	#  Not quite abstract types... 
+	#
+	Label;					#  = sy::Symbol 
+	Type_Scheme_Arg_Eq_Properties;		#  = List( Bool )
+
+
+
+	# Mythryl semantics distinguish types whose values
+	# may be compared for equality (e.g., integers),
+	# which get declared 'eqtype', from those which may not.
+	#
+	# This distinction dates from the original Definition of
+	# Standard ML. The distinction complicates the semantics
+	# greatly and is nowadays regarded as a design flaw.
+	#
+	# The latest type-theoretical treatments of ML semantics
+	# infer equality test support for a type silently without
+	# explicit user declarations, but for the moment at least
+	# the Mythryl compiler still follows the old semantics.
+	# 
+	# The following type lets us record what we know about the
+	# equality properties of a type during the type inference
+	# process.  YES and NO represent definite knowledge and
+	# INDETERMINATE means we haven't yet learned anything
+	# one way or the other.  The remainder cover various
+	# special cases.
+	# 
+	Equality_Property
+	    = YES
+	    | NO
+	    | INDETERMINATE					# This was "IND", which I'm guessing is cryptic for "INDETERMINATE" -- 2009-03-21 CrT
+	    | CHUNK
+	    | DATA
+	    | EQ_ABSTRACT					# Used to implement "abstype" declarations.
+	    | UNDEF;
+
+	Literal_Kind
+	    =
+	    INT | UNT | FLOAT | CHAR | STRING;
+
+
+	# The following variable types are core to the
+	# Mythryl Hindley-Milner type deduction logic
+	# implemented by code centered in the vicinity of
+	# 
+	#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+	#     src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+	#     src/lib/compiler/front/typer/types/unify-types.pkg
+	#     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+	# 
+	# The canonical type inference progression is
+	#     USER_TYPE_VARIABLE -> META_TYPE_VARIABLE -> RESOLVED_TYPE_VARIABLE.
+	# 
+	# Type variables supplied by the user like the X in
+	#     my (foo: X) = ... ;
+	# start out represented as USER_TYPE_VARIABLE records.
+	#
+	# When permitted by the "value restriction" (see is_value in type-junk.pkg),
+	# they get generalized to typeagnostic ("polymorphic") META_TYPE_VARIABLE records.
+	#
+	# INCOMPLETE_RECORD_TYPE_VARIABLE records are used to track incompletely specified
+	# records, canonically those declared using "..." ellipses.
+	#
+	# When we infer a type for a META_TYPE_VARIABLE record we replace it by a RESOLVED_TYPE_VARIABLE record.
+	#
+	# LITERAL_TYPE_VARIABLE records are used in inferring the types of literals like '0',
+	# which may resolve to any one of several different arithmetic types.
+	#
+	# OVERLOADED_TYPE_VARIABLE is used in resolving the types of + and other overloaded operators.
+	# The Bool value is TRUE iff it must resolve to an equality type.
+	#
+
+
+									    # symbol	is from   src/lib/compiler/front/basics/map/symbol.pkg
+	Type_Variable
+	    #
+	    #
+	    = USER_TYPE_VARIABLE {
+		name:        sy::Symbol,					# X or such.  Construct via  sy::make_type_variable_symbol.
+		eq:          Bool,						# Must it resolve to an 'equality type'?
+		fn_nesting:  Int						# Outermost fun/fn lexical context mentioning/using us.
+	      }									#   fn_nesting = infinity for type variables like X.
+	      #									#   fn_nesting < infinity for fun/fn arguments.
+	      # A user type variable like 'X' which
+	      # has not been generalized into a
+	      # META_TYPE_VARIABLE
+	      # variable, either because generalization
+	      # has not yet been done or because the
+	      # type_junk::is_value() "value restruction"
+	      # forbade doing so:
+
+	    
+	    | META_TYPE_VARIABLE {						# A typeagnostic ("polymorphic") type variable.
+		eq:          Bool,						# Must it resolve to an 'equality type'?
+		fn_nesting:  Int						# Outermost fun/fn lexical context mentioning/using us.
+	      }
+
+	    | INCOMPLETE_RECORD_TYPE_VARIABLE {					# An incompletely specified record type -- one specified using "..." 
+		known_fields: List( (Label, Type) ),
+		eq:           Bool,						# Must it resolve to an 'equality type'?
+		fn_nesting:   Int						# Outermost fun/fn lexical context mentioning/using us.
+	      }
+
+	    | RESOLVED_TYPE_VARIABLE  Type					# When we resolve a META_TYPE_VARIABLE to a concrete type, we replace it by this.
+
+	    | LITERAL_TYPE_VARIABLE {						# Literals like '0' may be any of (Int, Unt, Integer, ...). We use this until the type resolves.
+		kind:               Literal_Kind,
+		source_code_region: line_number_db::Source_Code_Region		# line_number_db	is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+	      }
+
+	    | OVERLOADED_TYPE_VARIABLE  Bool
+		#
+		# Deducing the type of overloaded operators
+		# like '+' is a separate kludge from regular
+		# Hindley-Milner type inference.  This represents
+		# an overloaded operator not yet resolved to a
+		# specific type.  The Boolean argument records
+		# whether it must resolve to an equality type:
+
+	    | TYPE_VARIABLE_MARK  Int
+		#
+		# For marking a type variable so that it can be easily identified
+		#
+		# A type variable's REF cell provides an identity already, but
+		# since REF cells are unordered, this is not enough for efficient
+		# data package lookups (binary trees...).
+		#
+		# TYPE_VARIABLE_MARK is really a hack for the benefit of
+		# later translation phases, specifically:
+		#     src/lib/compiler/back/top/translate/translate-deep-syntax-types-to-lambdacode.pkg
+		#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+		#
+		# In any case, we should figure out how to get rid of it altogether. XXX BUGGO FIXME
+
+
+	also
+	Typ_Path
+	    = TYPPATH_VARIABLE          Exception
+	    | TYPPATH_TYP  Typ
+	    | TYPPATH_GENERIC           (List( Typ_Path ), List( Typ_Path ))
+	    | TYPPATH_APPLY             (Typ_Path, List( Typ_Path ))
+	    | TYPPATH_SELECT            (Typ_Path, Int)
+
+	also
+	Typ_Kind
+	    = BASE  Int			# base kinds are abstractly numbered 
+	    | ABSTRACT  Typ
+	    | DATATYPE  {
+		index:			Int,
+		stamps:			Vector(  sta::Stamp ),
+		root:			Null_Or( sta::Stamp ),
+		free_typs:		List( Typ ),
+		family:			Datatype_Family
+	      }
+	    | FLEXIBLE_TYP		Typ_Path				# "Definition of SML" calls typcons from apis "flexible" an all others "rigid".
+	    | FORMAL
+	    | TEMP
+
+	also
+	Typ
+	    = PLAIN_TYP  Plain_Typ_Record					# Seems to be mainly (only?) used for prim types like char/string/int/float/...
+
+	    | DEFINED_TYP  {
+		stamp:          sta::Stamp,					# stamp		is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+		type_scheme:     Type_Scheme,
+		strict:         List( Bool ),
+		path:           ip::Inverse_Path				# inverse_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+	      }
+
+	    | TYP_BY_STAMPPATH  {
+		arity:          Int,
+		stamppath:      mp::Stamppath,					# stamppath	is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+		path:           ip::Inverse_Path				# inverse_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+	      }
+
+	    | RECORD_TYP  List( Label )
+	    | RECURSIVE_TYPE  Int		# Used only in domain type of Constructor_Description 
+	    | FREE_TYPE       Int		# Used only in domain type of Constructor_Description 
+	    | ERRONEOUS_TYP
+
+
+	also
+	Type
+	    = TYPE_VARIABLE_REF  Typevar_Ref
+	    | WILDCARD_TYPE
+	    | TYPCON_TYPE  (Typ, List( Type ))
+	    | TYPE_SCHEME_TYPE  {
+		type_scheme:                    Type_Scheme,
+		type_scheme_arg_eq_properties:  Type_Scheme_Arg_Eq_Properties	# Records which Type_Scheme args need to resolve to equality types.
+	      }
+	    | TYPE_SCHEME_ARG_I       Int						# i-th argument to a Type_Scheme (qv)
+	    | UNDEFINED_TYPE
+	    #
+	    #
+	    # Core types:
+	    #
+	    #  o TYPE_VARIABLE_REF
+	    #    This marks the reference cells which get
+	    #    updated by the 'unify' operation during
+	    #    Hindley-Milner type inference.  Once type
+	    #    inference is complete these are deadwood
+	    #    and we remove them at the first opportunity.
+	    #
+	    #  o WILDCARD_TYPE
+	    #    This matches anything during type inference.
+	    #
+	    #    We use it, for example, for the return type
+	    #    of 'raise MY_EXCEPTION' statements:  Since
+	    #    'raise' in fact never returns it is ok to
+	    #    treat it as though it had whatever type the
+	    #    local context requires, possibly a different type
+	    #    each place it appears in the code.
+	    #
+	    #    We also use it in error recovery.   When a type
+	    #    has syntax errors we set it to WILDCARD_TYPE
+	    #    after issuing diagnostics, so that we can compile
+	    #    the rest of the file without generating spurious
+	    #    additional error messages.
+	    #
+	    #  o TYPCON_TYPE
+	    #    This represents a type constructor like List
+	    #    which takes one or more types as arguments
+	    #    and returns a new type:  List(Int) and List(Float)
+	    #    are different types generated this way, for example.
+	    #
+	    #  o TYPE_SCHEME_TYPE
+	    #    See comments below at Type_Scheme.
+	    #
+	    #  o TYPE_SCHEME_ARG_I
+	    #    This represents the i-th type argument to a type scheme.
+	    #    It will only appear within the body of a type scheme.
+	    #
+	    #  o UNDEFINED_TYPE
+	    #    This represents a type which we need to know but do not
+	    #    currently know.  It is a compile error if we do not find
+	    #    a user definition of this type by the end of type inference.
+
+
+	also
+	Type_Scheme
+	    =
+	    TYPE_SCHEME  {
+	      arity:  Int,		# Number of arguments
+	      body:   Type		# Contains TYPE_SCHEME_ARG_I values marking where fresh META type variables get inserted.
+	    }
+	    #
+	    # Mythryl supports "don't-care" type polymorphism.
+	    # "Polymorphic" literally means "many-shapes".
+	    # A type-polymorphic function acts as though it
+	    # has many types. (I prefer to call them "typeagnostic".)
+	    #
+	    # Type-agnosticism is what lets list::length()
+	    # compute the length of a list of any type of value
+	    # without triggering complaints from the typechecker.
+	    # It is also called "parametric polymorphism" and
+	    # "let-polymorphism".
+	    #
+	    # Type schemes implement typeagnostic types.
+	    # The idea is that instead of assigning a typeagnostic
+	    # function like list::length() a regular type,
+	    # we assign it a "type scheme", which is essentially
+	    # a type macro which we will expand into an actual
+	    # type at each place in the code where the function
+	    # is used.  Since we can expand the "type scheme"
+	    # macro with different type arguments each time,
+	    # the function can behave as though it had a different
+	    # type every time it is called.
+	    # 
+	    # Our type schemes are essentially templates for producing
+	    # regular types by plugging fresh META type variables into
+	    # slots marked by TYPE_SCHEME_ARG_I values, a procedure
+	    # implemented by
+	    #
+	    #     instantiate_if_type_scheme()
+	    #
+	    # from
+	    #
+	    #     src/lib/compiler/front/typer-stuff/types/type-junk.pkg 
+	    #
+	    # For more background see the discussion near the top of
+	    #
+	    #     src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+
+
+	withtype
+	Constructor_Description								# Used in Datatype_Member.
+	    =
+	    { name:             sy::Symbol,
+	      form:		vh::Valcon_Form,
+	      domain:           Null_Or( Type )
+	    }
+
+
+	also
+	Datatype_Member									# Member of a family of (potentially) mutually recursive datatypes.
+	  =
+	  { typ_name:		sy::Symbol,
+	    arity:			Int,
+	    eq:				Ref( Equality_Property ),
+	    #
+	    is_lazy:			Bool,
+	    constructor_list:		List( Constructor_Description ),
+	    an_api:			vh::Valcon_Signature
+	  }
+
+	also
+	Datatype_Family
+	    =
+	    { mkey:			sta::Stamp,
+	      members:			Vector( Datatype_Member ),
+	      property_list:		pl::Property_List
+	    }
+
+
+	also
+	Stub_Info
+	    =
+	    { owner:			ph::Picklehash,
+	      is_lib:			Bool
+	    }
+
+	also
+	Plain_Typ_Record
+	    =
+	    { stamp:  sta::Stamp,
+	      arity:  Int,
+	      eq:     Ref( Equality_Property ),
+	      kind:   Typ_Kind,
+	      path:   ip::Inverse_Path,					# inverse_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+	      stub:   Null_Or( Stub_Info )
+	    }
+	    #	
+	    # The "stub" field will be set for any
+	    # Plain_Typ that comes 
+	    # out of the unpickler.
+	    #
+	    # The stub owner picklehash is the picklehash
+	    # of the compilation unit on whose behalf this
+	    # Plain_Typ was pickled.
+	    #
+	    # Normally, this is expected to be the same as
+	    # the picklehash in the (global) "stamp", but there are
+	    # odd cases related to recursive types where this
+	    # assumption breaks.
+	    # (Is there a way of fixing this? -- David MacQueen.) XXX BUGGO FIXME
+
+
+	also
+	Typevar_Ref
+	    =
+	    { ref_typevar:  Ref( Type_Variable ),				
+	      id:           Int							# Purely for debuggging printout purposes.
+	    };
+	    # 
+	    # The 'ref_typevar' above is the core hook for doing
+	    # type inference via unification:  Unification
+	    # proceeds by re/setting these variables.  The
+	    # core unification code is in
+	    # 
+	    #   src/lib/compiler/front/typer/types/unify-types.pkg
+
+
+	infinity:                 Int;
+	copy_type_variable_ref:   Typevar_Ref            -> Typevar_Ref;
+	make_type_variable_ref:   (    Type_Variable , List(String)) -> Typevar_Ref;
+	make_type_variable_ref':  (Ref(Type_Variable), List(String)) -> Typevar_Ref;
+
+    #    next_type_variable_id: Void -> Int; 
+
+			    #  Data constructors 
+
+	Valcon									# Valcon" == "Value Constructor" -- "FOO' in   "Foo = FOO".
+	    =
+	    VALCON  {								# The first three fields are the only ones that really matter:
+	      name:		sy::Symbol,					# Name of valcon -- "FOO" value-symbol.
+	      type:		Type,
+	      form:		vh::Valcon_Form,				# Runtime form for constructor -- can be int31 or exception or all sorts of other stuff.
+	      #
+	      is_constant:	Bool,    					# TRUE iff constructor takes no arguments -- e.g., TRUE, FALSE, NULL.   (This field is redundant, could be determined from type.) 
+	      signature:	vh::Valcon_Signature,				# (Redundant, could be determined from type.) 
+	      #
+	      is_lazy:		Bool						# Does valcon belong to a lazy datatype? (Nonstandard undocumented extension.)
+	    };
+
+    };										# api Types 
+end;										# stipulate

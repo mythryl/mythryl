@@ -1,9 +1,9 @@
 #ifndef _SMLGTK_H_
 #define _SMLGTK_H_
 
-/*
- * This package contains data for communicating between SML and C.
- */
+// This package contains data for
+// communicating between Mythryl and C.
+//
 struct smlgtk_event 
 {
   void * object;        /* Gtk object */

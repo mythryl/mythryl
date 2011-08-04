@@ -1,0 +1,254 @@
+## big-endian-pseudo-ops-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+# Subset of pseudo-ops functions that are little endian sensitive
+
+# We get invoked from:
+#
+#     src/lib/compiler/back/low/pwrpc32/mcg/pseudo-ops-pwrpc32-osx-g.pkg
+#     src/lib/compiler/back/low/pwrpc32/mcg/gas-pseudo-ops-pwrpc32-g.pkg
+#     src/lib/compiler/back/low/sparc32/mcg/gas-pseudo-ops-sparc32-g.pkg
+
+stipulate
+    package lbl =  codelabel;						# codelabel		is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;				# lowhalf_error_message	is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package unt =  unt;							# unt			is from   src/lib/std/unt.pkg
+herein
+
+    # This generic is invoked in:
+    #
+    #     src/lib/compiler/back/low/pwrpc32/mcg/gas-pseudo-ops-pwrpc32-g.pkg
+    #     src/lib/compiler/back/low/pwrpc32/mcg/pseudo-ops-pwrpc32-osx-g.pkg
+    #     src/lib/compiler/back/low/sparc32/mcg/gas-pseudo-ops-sparc32-g.pkg
+    #
+    generic package   big_endian_pseudo_op_g   (
+	#             ======================
+	#
+	package tcf:  Treecode_Form;					# Treecode_Form		is from   src/lib/compiler/back/low/treecode/treecode-form.api
+
+	package tce:  Treecode_Eval					# Treecode_Eval		is from   src/lib/compiler/back/low/treecode/treecode-eval.api
+		      where
+			  tcf == tcf;					# "tcf" == "treecode_form".
+
+	icache_alignment:  Int;						# Cache line size 
+	max_alignment:     Null_Or( Int );				# Maximum alignment for internal labels 
+
+	nop: { size: Int, en: unt32::Unt };				# Encoding for noop 
+    )
+    : (weak) Endian_Pseudo_Ops						# Endian_Pseudo_Ops	is from   src/lib/compiler/back/low/mcg/pseudo-op-endian.api
+    {
+	# Export to client packages:
+	#
+	package tcf =  tcf;						# Export generic arg for client packages.
+
+	stipulate
+	    package lac =  tcf::lac;					# "lac" == "late_constant"
+	    package pb  =  pseudo_op_basis_type;			# pseudo_op_basis_type	is from   src/lib/compiler/back/low/mcg/pseudo-op-basis-type.pkg
+	herein
+
+	    Pseudo_Op(X)
+		=
+		pb::Pseudo_Op( tcf::Label_Expression, X ); 
+
+	    fun error msg =   lem::error ("big_endian_pseudo_ops.", msg);
+
+	    my (>>)  =  unt::(>>);
+	    my (>>>) =  unt::(>>>);
+	    my (&)   =  unt::bitwise_and;
+
+	    infix val  >>  >>>  & ;
+
+	    # Return loc aligned at boundary:
+	    # 
+	    fun align (loc, boundary)
+		=
+		{
+		    mask = unt::from_int boundary - 0u1;
+		    unt::to_int_x (unt::bitwise_and (unt::from_int loc + mask, unt::bitwise_not mask));
+		};
+
+	    # Bytes of padding required:
+	    #
+	    fun padding (loc, boundary)
+		=
+		align (loc, boundary) - loc;
+
+	    fun pow2 (x, 0) => x;
+		pow2 (x, n) => pow2 (x * 2, n - 1);
+	    end;
+
+	    fun bytes_in size
+		=
+		int::quot (size, 8);
+
+
+	    fun current_pseudo_op_size_in_bytes (pseudo_op, loc)
+		= 
+		case pseudo_op
+		    #
+		    pb::ALIGN_SIZE n => padding (loc, pow2 (1, n));
+		    pb::ALIGN_ENTRY => padding (loc, icache_alignment);
+
+		    pb::ALIGN_LABEL
+			=>
+			{
+			    pad = padding (loc, icache_alignment);
+
+			    case max_alignment 
+				NULL  =>   pad;
+				THE m =>   pad <= m  ??  pad
+						     ::   0;
+			    esac;
+		     };
+
+		    pb::INT { size, i }
+			=>
+			length i  *  bytes_in size;
+
+		    pb::ASCII s  => string::length s; 
+		    pb::ASCIIZ s => string::length s + 1;
+
+		    pb::SPACE (size)  => size;
+
+		    pb::FLOAT { size, f } => length (f) * bytes_in size;
+
+		    pb::EXT _ => error "sizeOf: EXT";
+		    _ => 0;
+	       esac;
+
+
+
+	    fun emit_pseudo_op { pseudo_op, loc, emit_byte }
+		=
+		{
+		    itow   =  unt::from_int;
+
+		    tount8 =  unt8::from_large_unt
+			   o  unt::to_large_unt
+			   o  itow;
+
+		    fun emit_byte' n						# Can 'emit' be just 'put'? XXX BUGGO FIXME
+			=
+			emit_byte (unt8::from_large_unt (unt::to_large_unt n));
+
+		    fun emit_unt w
+			=
+			{   emit_byte' ((w >> 0u8) & 0u255);
+			    emit_byte' (w & 0u255);
+			};
+
+		    fun emit_long_x n
+			=
+			{   w = itow n;
+			    emit_unt (w >>> 0u16);
+			    emit_unt (w & 0u65535);
+			};
+
+		    stipulate 
+
+			my { size, en } = nop;
+			to_unt = unt::from_large_int o unt32::to_large_int_x; 
+
+		    herein
+			fun emit_nop ()
+			  = 
+			  case size
+			      1 => emit_byte' (to_unt en);
+			      2 => emit_unt (to_unt en);
+			      4 => {   emit_unt (to_unt (unt32::bitwise_and (en, 0u65535))); 
+				       emit_unt (to_unt (unt32::(>>) (en, 0u16)));
+				   };
+			      n => error ("emit_nop:  size = " + int::to_string n);
+			  esac;
+
+			fun insert_nops 0
+				=>
+				();
+
+			    insert_nops n
+				=> 
+				if (n >= size)
+				    #
+				    emit_nop ();
+				    insert_nops (n-size);
+				else
+				    error "insert_nops";
+				fi;
+			end;
+		    end;
+
+		    fun align (loc, boundary)
+			=
+			{
+			    boundary =  unt::from_int boundary;
+			    mask     =  boundary - 0u1;
+
+			    case (unt::bitwise_and (itow (loc), mask))
+				#
+				0u0 => ();
+
+				w   => {   pad_size = (boundary - w);
+					   insert_nops (unt::to_int pad_size);
+				       };
+			    esac;
+			};
+
+		   (tce::make_evaluation_functions
+			{
+			  late_constant_to_integer =>  integer::from_int o lac::late_constant_to_int, 
+			  label_to_int             =>  lbl::get_codelabel_address
+			})
+			->
+			{ evaluate_int_expression, ... };
+
+
+		    case pseudo_op
+			#
+			pb::ALIGN_SIZE n =>  insert_nops (current_pseudo_op_size_in_bytes (pseudo_op, loc));
+			pb::ALIGN_ENTRY  =>  insert_nops (current_pseudo_op_size_in_bytes (pseudo_op, loc));
+			pb::ALIGN_LABEL  =>  insert_nops (current_pseudo_op_size_in_bytes (pseudo_op, loc));
+
+			pb::INT { size, i }
+			    =>
+			    {   ints =   map   (integer::to_int o evaluate_int_expression)   i;
+
+				case size
+				    #		       
+				    8 =>  apply (emit_byte' o itow)  ints;
+				   16 =>  apply (emit_unt o itow)    ints;
+				   32 =>  apply  emit_long_x         ints;
+				    #
+				    _ =>  error "emit_pseudo_op: INT 64";
+				esac;
+			    };
+
+			pb::ASCII  s
+			    =>
+			    apply
+				(emit_byte o unt8::from_int o char::to_int)
+				(string::explode s);
+
+			pb::ASCIIZ s
+			    =>
+			    {   emit_pseudo_op { pseudo_op=>pb::ASCII s, loc, emit_byte };
+				emit_byte 0u0;
+			    };
+
+			pb::FLOAT { size, f } =>  error "emit_pseudo_op: FLOAT - not implemented";
+			pb::EXT _             =>  error "emit_pseudo_op: EXT";
+			pb::SPACE _           =>  error "emit_pseudo_op: SPACE";
+
+			_ => ();
+		    esac;
+		};										# fun emit_pseudo_op
+	end;											# stipulate
+    };												# generic package big_endian_pseudo_op_g
+end;												# stipulate
+
+## COPYRIGHT (c) 2001 Lucent Technologies, Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

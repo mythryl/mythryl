@@ -1,0 +1,544 @@
+## translate-raw-syntax-to-deep-syntax-g.pkg
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format) is the second backend code representation, and the first used for optimization.
+#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# Our task here is converting from the first to the second form.
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# This module is the external entrypoint
+# to the typechecker as a whole:
+#
+#     typecheck   in   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+#
+# calls our translate_raw_syntax_to_deep_syntax function.
+#
+#
+#
+# We accept a raw syntax tree 
+#
+#     src/lib/compiler/front/parser/raw-syntax/raw-syntax.api
+#     src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+#
+# produced by the parser
+#
+#     src/lib/compiler/front/parser/yacc/mythryl.grammar
+#
+# and return a fully-typechecked deep syntax tree
+#
+#     src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.api
+#     src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+#
+# which then gets translated into intermediate code in
+#
+#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+#
+# and fed into the rest of the compiler via
+#
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+#
+# to produce actual executable object code.
+
+
+
+###                           The Talking Frog
+###
+###        A boy was crossing a road one day when a frog called out
+###        to him and said, "If you kiss me, I'll turn into a
+###        beautiful princess." He bent over, picked up the frog
+###        and put it in his pocket.
+###
+###        The frog spoke up again and said, "If you kiss me and turn
+###        me back into a beautiful princess, I will stay with you for
+###        one week." The boy took the frog out of his pocket, smiled
+###        at it and returned it to the pocket.
+###
+###        The frog then cried out, "If you kiss me and turn me back
+###        into a princess, I'll stay with you and do anything you want."
+###        Again the boy took the frog out, smiled at it and put it
+###        back into his pocket.
+###
+###        Finally the frog asked, "What is it? I've told you I'm a
+###        beautiful princess, that I'll stay with you for a week
+###        and do anything you want. Why won't you kiss me?"
+###
+###        The boy said, "Look, I'm a computer programmer.
+###        I don't have time for girlfriends, but a talking frog
+###        is really cool." 
+
+
+
+				
+stipulate
+    package ds  =  deep_syntax;						# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package raw =  raw_syntax;						# raw_syntax			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package syx =  symbolmapstack;					# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package trj =  typer_junk;						# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+herein 
+
+    api Translate_Raw_Syntax_To_Deep_Syntax {
+	#
+	translate_raw_syntax_to_deep_syntax
+	    :
+	    ( raw::Declaration,						# Actual raw syntax to compile.
+	      syx::Symbolmapstack,					# Symbol table containing info from all .compiled files we on which depend.
+	      trj::Per_Compile_Info
+	    )
+	    ->
+	    ( ds::Declaration,						# Typechecked version of  raw_syntax_declaration.
+	      syx::Symbolmapstack					# Contains (only) stuff from raw_syntax_declaration.
+	    );
+
+	debugging:  Ref(Bool);
+
+    };
+end;
+									# Translate_Raw_Syntax_To_Deep_Syntax	is from   src/lib/compiler/front/typer/main/translate-raw-syntax-to-deep-syntax-g.pkg
+									# Type_Package_Language	is from   src/lib/compiler/front/typer/main/type-package-language.api
+#  We use a generic to factor out dependencies on highcode:
+
+stipulate
+    package ds  =  deep_syntax;						# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package fst =  find_in_symbolmapstack;				# find_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/find-in-symbolmapstack.pkg
+    package ip  =  inverse_path;					# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package mld =  module_level_declarations;				# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package spc =  stamppath_context;					# stamppath_context		is from   src/lib/compiler/front/typer-stuff/modules/stamppath-context.pkg
+    package mj  =  module_junk;						# module_junk			is from   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+    package pp  =  prettyprint;						# prettyprint			is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    package raw =  raw_syntax;						# raw_syntax			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package sy  =  symbol;						# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;						# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;					# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tro =  typerstore;						# typerstore			is from   src/lib/compiler/front/typer-stuff/modules/typerstore.pkg
+    package ty  =  types;						# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package trj =  typer_junk;						# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package vac =  variables_and_constructors;				# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;						# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein 
+
+    # This generic is invoked (only) in:
+    #
+    #     src/lib/compiler/front/semantic/typecheck/translate-raw-syntax-to-deep-syntax.pkg
+    #
+    generic package  translate_raw_syntax_to_deep_syntax_g   (
+	#            =====================================
+	#
+	package type_package_language:  Type_Package_Language;
+    )
+    : (weak)  Translate_Raw_Syntax_To_Deep_Syntax
+    {
+	# This generic is expanded (only) in:
+	#
+	#     src/lib/compiler/front/semantic/typecheck/translate-raw-syntax-to-deep-syntax.pkg
+
+	#  Debugging 
+	say = control_print::say;
+	debugging = REF FALSE;
+
+	fun if_debugging_say (msg: String)
+            =
+	    if *debugging      { say msg;   say "\n";};	fi;
+
+	debug_print = (fn x => typer_debugging::debug_print debugging x; end );
+
+	local_package_name					# Used in make_included_declarations to build redeclaration of components 
+            =
+            sy::make_package_symbol "<a funny package>";
+
+	fun bug msg
+            =
+            error_message::impossible("translate_raw_syntax_to_deep_syntax: " + msg);
+
+	fun make_included_declarations (a_package, symbol_path)
+            =
+	    # This fun is a hack; it was written to make
+	    # sure that the backend will generate the
+	    # right dynamic code for all package components.
+	    #
+	    # Once the symbol mapstack and the linking mapstack are merged
+	    # this code should become obsolete. (ZHONG)				XXX BUGGO FIXME
+	    #
+	    {   nodes =   fold_right  build  []  (mj::get_package_symbols  a_package);
+		#
+                raw::LOCAL_DECLARATIONS (
+		    #
+                    raw::PACKAGE_DECLARATIONS [
+			#
+                        raw::NAMED_PACKAGE
+			  {
+                            name_symbol =>  local_package_name,
+                            definition  =>  raw::PACKAGE_BY_NAME  symbol_path,
+			    constraint  =>  raw::NO_PACKAGE_CAST,
+			    kind        =>  raw::PLAIN_PACKAGE
+                          }
+                    ],
+		    raw::SEQUENTIAL_DECLARATIONS  nodes			# <=========
+                );
+	    }
+	    where
+	        fun build (symbol, resultlist)
+                    = 
+		    case (sy::name_space  symbol)
+			#		      
+			sy::PACKAGE_NAMESPACE
+			    =>
+			    raw::PACKAGE_DECLARATIONS [
+				raw::NAMED_PACKAGE {
+				    name_symbol =>  symbol,
+				    definition  =>  raw::PACKAGE_BY_NAME ( [ local_package_name, symbol ] ),
+				    constraint  =>  raw::NO_PACKAGE_CAST,
+				    kind        =>  raw::PLAIN_PACKAGE
+				}
+			    ] ! resultlist;
+
+			sy::GENERIC_NAMESPACE
+			    =>
+			    raw::GENERIC_DECLARATIONS [
+				raw::NAMED_GENERIC {
+				    name_symbol =>  symbol,
+				    definition  =>  raw::GENERIC_BY_NAME (
+							#
+							[ local_package_name, symbol ],
+							raw::NO_PACKAGE_CAST
+						    )
+				}
+			    ] ! resultlist;
+
+			sy::VALUE_NAMESPACE
+			    =>
+			    {   v = mj::get_value_via_path (
+					a_package,
+					syp::SYMBOL_PATH [symbol],
+					syp::SYMBOL_PATH (symbol_path @ [symbol] )
+				    );
+
+				case v
+				    #
+				    vac::VARIABLE (vac::ORDINARY_VARIABLE _)
+					=> 
+					raw::VALUE_DECLARATIONS (
+					    [ raw::NAMED_VALUE {
+						  pattern    =>  raw::VARIABLE_IN_PATTERN [symbol],
+						  expression =>  raw::VARIABLE_IN_EXPRESSION ( [local_package_name, symbol] ),
+						  is_lazy    =>  FALSE
+					      }
+					    ],
+					    NIL
+					)
+					! resultlist;
+
+				    # Here is the source of bug 788.
+				    # If 'symbol' is bound to a constructor in the top
+				    # level dictionary, then this will not have the
+				    # desired effect of renaming 'symbol', but will
+				    # probably result in a type error. Possible fix
+				    # would be to narrow down the symbol table.			XXX BUGGO FIXME
+				    #
+				    vac::CONSTRUCTOR (ty::VALCON { form => vh::EXCEPTION _, ... } )
+					=> 
+					raw::EXCEPTION_DECLARATIONS
+					  [
+					    raw::DUPLICATE_NAMED_EXCEPTION
+					      {
+						exception_symbol =>  symbol,
+					        equal_to         =>  [local_package_name, symbol]
+                                              }
+                                          ]
+                                        ! resultlist;
+
+				    _   => resultlist;
+
+				esac;
+			    };
+
+			_   => resultlist;
+
+		    esac;
+	    end;
+
+	# The main purpose of having a separate
+        # layer of translate_raw_syntax_to_deep_syntax above
+        # type_declaration is to deal with the
+        # top-level 'include' declarations.
+        #
+        # Once Symbolmapstack and Linking_Mapstack
+	# are merged, there should be no special
+        # treatment for 'include' declarations, and 
+        # translate_raw_syntax_to_deep_syntax can probably
+        # be dramatically simplified. (ZHONG)  XXX BUGGO FIXME
+	#
+	# We get invoked (only) from
+	#
+        #     fun typecheck_raw_syntax_declaration
+        # in
+	#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+	fun translate_raw_syntax_to_deep_syntax
+            ( declaration,									# Actual raw syntax to compile.
+              given_symbolmapstack,								# Symbol table containing info from all .compiled files we depend on.
+              per_compile_info as { error_fn, ... }: trj::Per_Compile_Info
+            )
+	    :
+	    ( ds::Declaration,									# Typechecked version of  raw_syntax_declaration.
+	      syx::Symbolmapstack								# Contains (only) stuff from raw_syntax_declaration.
+	    )
+            =
+	    {   if_debugging_say ">>translate_raw_syntax_to_deep_syntax";
+
+		fun type_declaration (raw::SEQUENTIAL_DECLARATIONS decs, symbolmapstack0, top, source_code_region)
+			=>
+			{   fun h (declaration, (abdecls, symbolmapstack))
+				= 
+				{   my (abdecl, symbolmapstack')
+					=
+					type_declaration (
+                                            declaration,
+                                            syx::atop (symbolmapstack, symbolmapstack0),		# Is this ordering a bug or subtlety? XXX BUGGO FIXME
+                                            top,
+                                            source_code_region
+                                        );
+
+				    ( abdecl ! abdecls,
+				      syx::atop (symbolmapstack', symbolmapstack)
+				    );
+				};
+
+			    my (abdecls, symbolmapstack')
+                                =
+                                fold_left
+                                    h
+                                    ([], syx::empty)
+                                    decs;
+
+			    ( ds::SEQUENTIAL_DECLARATIONS (reverse abdecls),			# Typechecked version of  raw_syntax_declaration.
+                              symbolmapstack'							# Contains (only) stuff from raw_syntax_declaration.
+                            );
+			};
+
+		    type_declaration (raw::LOCAL_DECLARATIONS (decl_in, decl_out), symbolmapstack0, top, source_code_region)
+			=>
+			{   top_in   =   trj::has_modules decl_in   or
+                                         trj::has_modules decl_out;
+
+			    my   (adec_in,  symbolmapstack1)  =   type_declaration (decl_in,                           symbolmapstack0,  top_in, source_code_region);
+			    my   (adec_out, symbolmapstack2)  =   type_declaration (decl_out, syx::atop (symbolmapstack1, symbolmapstack0), top,    source_code_region);
+
+			    ( ds::LOCAL_DECLARATIONS (adec_in, adec_out),			# Typechecked version of  raw_syntax_declaration.
+                              symbolmapstack2							# Contains (only) stuff from raw_syntax_declaration.
+                            );
+			};
+
+		    type_declaration (raw::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, source_code_region'), symbolmapstack, top, source_code_region)
+			=> 
+			{   my (deep_syntax, symbolmapstack)
+				=
+				type_declaration (declaration, symbolmapstack, top, source_code_region');
+
+			    deep_syntax
+				=
+                                *typer_control::mark_deep_syntax_tree
+				    ??  ds::SOURCE_CODE_REGION_FOR_DECLARATION (deep_syntax, source_code_region')
+				    ::  deep_syntax;
+
+			    ( deep_syntax,							# Typechecked version of  raw_syntax_declaration.
+                              symbolmapstack							# Contains (only) stuff from raw_syntax_declaration.
+			    );
+			};
+
+		    type_declaration (raw::INCLUDE_DECLARATIONS paths, symbolmapstack, top, source_code_region)
+			=> 
+			{   debug_print (
+				"top level use: ",
+				(   fn pps   =
+				    fn paths = unparse_junk::unparse_sequence
+						    pps
+						    {   sep   => (fn pps = pp::string pps ", "),
+							pr    => unparse_junk::unparse_symbol_path,
+							style => unparse_junk::INCONSISTENT
+						    }
+						    (list::map symbol_path::SYMBOL_PATH paths)
+				),
+				paths
+			    );
+
+			    err =   error_fn  source_code_region;
+
+
+
+			    #  Look up the package variables 
+			    #
+			    pkgs =  map (fn p =  fst::find_package_via_symbol_path (symbolmapstack, syp::SYMBOL_PATH p, err))
+				        paths;
+
+
+
+			    #  Open their dictionaries to add datatypes, etc. 
+			    #
+			    fun h (mld::ERRONEOUS_PACKAGE, symbolmapstack)   =>   symbolmapstack;
+			        h (pkg,                    symbolmapstack)   =>   mj::include_package (symbolmapstack, pkg);
+                            end;
+
+			    open_symbolmapstack
+                                =
+                                fold_left  h  syx::empty  pkgs;
+
+			    fun g ((mld::ERRONEOUS_PACKAGE, symbol_path), declarations)
+                                    =>
+                                    declarations;
+
+			        g ((a_package, symbol_path), declarations)
+				    => 
+				    {   new_declaration
+                                            =
+                                            make_included_declarations
+                                                (a_package, symbol_path);
+
+					new_declaration ! declarations;
+				    };
+                            end;
+
+
+			    new_decs
+                                =
+                                fold_right
+                                    g
+                                    []
+                                    (paired_lists::zip (pkgs, paths));
+
+
+
+			    # Hack to fix bugs 788, 847:
+			    # Narrow the symbol table used to typecheck new_decs
+			    # to one only naming the initial symbols of the paths.
+			    #
+			    # Doesn't hurt if more than one path has same head symbol.
+			    #
+			    minimal_symbolmapstack
+				=
+				fold_left
+                                    fold_fn
+				    syx::empty
+				    paths
+
+                                    where
+				        fun fold_fn (path, minimal_symbolmapstack)
+					    =
+					    {   path_head =  case path   x ! _ =>  x;
+							                 []    =>  bug "unexpected case INCLUDE_DECLARATIONS";
+                                                             esac;
+
+						fun err' _ _ _ = (); 		   #  To suppress duplicate error messages. 
+
+						pkg = fst::find_package_via_symbol_path
+                                                          (
+                                                            symbolmapstack,
+                                                            syp::SYMBOL_PATH [ path_head ],
+                                                            err'
+                                                          );
+
+						syx::bind (
+                                                    path_head,
+                                                    symbolmapstack_entry::NAMED_PACKAGE  pkg,
+                                                    minimal_symbolmapstack
+                                                );
+					    };
+                                    end;
+
+												# type_package_language	is from   src/lib/compiler/front/semantic/typecheck/type-package-language.pkg
+
+			    my  { deep_syntax_declaration,					# Typechecked version of  new_decs.
+                                  symbolmapstack							# Contains (only) stuff from new_decs.
+                                }
+				=
+				type_package_language::type_declaration
+                                  {
+				    level => top,
+				    path  => ip::INVERSE_PATH [],
+
+				    raw_syntax_declaration          =>  (raw::SEQUENTIAL_DECLARATIONS  new_decs),
+				    symbolmapstack                  =>  minimal_symbolmapstack,
+				    syntactic_typechecking_context  =>  trj::AT_TOPLEVEL,
+
+				    typerstore =>  tro::empty,
+				    stamppath_context    =>  spc::init_context, 
+
+				    source_code_region,
+				    per_compile_info
+				  };
+
+			    new_symbolmapstack
+				=
+				syx::consolidate (syx::atop (symbolmapstack, open_symbolmapstack));
+
+			    pkgs'
+				=
+				paired_lists::zip   (map   syp::SYMBOL_PATH paths,   pkgs);
+
+			    ( ds::SEQUENTIAL_DECLARATIONS
+                                [ ds::INCLUDE_DECLARATIONS pkgs',
+                                  deep_syntax_declaration
+                                ],								# Typechecked version of  raw_syntax_declaration.
+			      new_symbolmapstack							# Contains (only) stuff from raw_syntax_declaration.
+			    );
+			};
+
+		    type_declaration (raw_syntax_declaration, symbolmapstack, top, source_code_region)
+			=>
+			{   if_debugging_say "--translate_raw_syntax_to_deep_syntax::typecheck[declaration]: calling type_package_language::type_declaration";
+
+			    my  { deep_syntax_declaration,					# Typechecked version of  raw_syntax_declaration.
+                                  symbolmapstack							# Contains (only) stuff from raw_syntax_declaration.
+                                }
+				= 
+				type_package_language::type_declaration
+				  {
+				    path    => ip::INVERSE_PATH [],
+				    level   => top, 
+				    syntactic_typechecking_context => trj::AT_TOPLEVEL,
+
+				    raw_syntax_declaration,
+				    symbolmapstack,
+
+				    typerstore         =>  tro::empty,
+				    stamppath_context =>  spc::init_context,
+
+				    source_code_region,
+				    per_compile_info
+				  };
+
+			    ( deep_syntax_declaration,						# Typechecked version of  raw_syntax_declaration.
+                              symbolmapstack							# Contains (only) stuff from raw_syntax_declaration.
+                            );
+			};
+                end;
+
+
+		type_declaration (
+		  declaration,									# Actual raw syntax to typecheck.
+		  given_symbolmapstack,								# Symbol table containing info from all .compiled files we depend on.
+		  TRUE,										# Currently at syntactic top level.
+		  line_number_db::null_region
+		)
+                before
+                    if_debugging_say "<<translate_raw_syntax_to_deep_syntax";
+	    };
+
+    };				# generic package translate_raw_syntax_to_deep_syntax_g 
+end;				# stipulate 
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

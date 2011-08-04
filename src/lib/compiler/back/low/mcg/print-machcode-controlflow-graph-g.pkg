@@ -1,0 +1,301 @@
+## print-machcode-controlflow-graph-g.pkg -- print flowgraph of target machine instructions. 
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+api Print_Machcode_Controlflow_Graph {							# Used only within this file.
+    #
+    package ae: Instruction_Emitter;							# Instruction_Emitter		is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+
+
+    package mcg: Machcode_Controlflow_Graph						# Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		 where
+		      mcf == ae::mcf							# "mcf" == "machcode_form" (abstract machine code).
+		 also pop == ae::cst::pop;						# "pop" == "psuedo_op".
+
+
+    print_machcode_controlflow_graph
+        :
+        file::Output_Stream
+        ->
+        String
+        ->
+        mcg::Machcode_Controlflow_Graph
+        ->
+        Void;
+
+
+    prettyprint_machcode_controlflow_graph
+        :
+        prettyprinter::Prettyprinter 
+        ->
+        String
+        ->
+        mcg::Machcode_Controlflow_Graph
+        ->
+        Void;
+};
+
+
+stipulate
+    package odg =  oop_digraph;								# oop_digraph				is from   src/lib/graph/oop-digraph.pkg
+    package ptf =  sfprintf;								# sfprintf				is from   src/lib/src/sfprintf.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk			is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    # This generic is invoked in:
+    #
+    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+    #     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+    #
+    generic package   print_machcode_controlflow_graph_g   (
+	#             =================================
+	#
+	package ae:   Instruction_Emitter;						# Instruction_Emitter			is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+
+	package mcg:  Machcode_Controlflow_Graph					# Machcode_Controlflow_Graph		is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		      where
+			   mcf == ae::mcf						# "mcf" == "machcode_form" (abstract machine code).
+		      also pop == ae::cst::pop;						# "pop" == "pseudo_op".
+    )
+    : (weak)  Print_Machcode_Controlflow_Graph						# Print_Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/mcg/print-machcode-controlflow-graph-g.pkg
+    {
+	# Export to client packages:
+	#	
+	package ae  = ae;
+	package mcg = mcg;
+
+	stipulate
+	    i2s = int::to_string;
+
+	    fun print_list stream list
+		=
+		iter list
+		where
+		    fun pr str
+			=
+			file::write (stream, str);
+
+		    fun iter []      => ();
+			iter [i]     => pr i;
+			iter (h ! t) => { pr (h + ", "); iter t;};
+		    end;
+		end;
+	herein
+
+
+	    fun print_machcode_controlflow_graph stream title (mcg' as odg::DIGRAPH mcg)
+		= 
+		{   fun pr string			# "pr" == "print"
+			=
+			file::write (stream, string);
+
+		    pr_list = print_list stream;
+
+		    global_graph_notes   = *(mcg::get_global_graph_notes mcg');
+
+		    (asm_stream::with_stream  stream  ae::make_stream  global_graph_notes)
+			->
+		        { emit_op, emit_pseudo_op, define_local_label, put_bblock_note, ... };
+
+		    fun show_freq (REF w)
+			=
+			ptf::sprintf' "[%f]" [ptf::FLOAT w]; 
+
+		    fun show_edge (blknum, e)
+			= 
+			ptf::sprintf' "%d:%s" [ptf::INT blknum, ptf::STRING (mcg::show_edge_info e)];
+
+		    fun show_succ (_, x, e) =  show_edge (x, e);
+		    fun show_pred (x, _, e) =  show_edge (x, e); 
+
+		    fun show_succs b
+			=
+			{   pr "\tsucc:     "; 
+			    pr_list (map show_succ (mcg.out_edges b)); 
+			    pr "\n";
+			};
+
+		    fun show_preds b
+			=
+			{   pr "\tpred:     "; 
+			    pr_list (map show_pred (mcg.in_edges b)); 
+			    pr "\n";
+			};
+
+		    fun print_block (_, mcg::BBLOCK { kind => mcg::START, id, execution_frequency, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "ENTRY %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+				show_succs id;
+			    };
+
+			print_block(_, mcg::BBLOCK { kind=>mcg::STOP, id, execution_frequency, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "EXIT %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+				show_preds id;
+			    };
+
+			print_block(_, mcg::BBLOCK { id, alignment_pseudo_op, execution_frequency, ops, notes, labels, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "BLOCK %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+
+				case *alignment_pseudo_op
+				    #
+				    THE p =>  pr (mcg::pop::pseudo_op_to_string p + "\n");
+				    NULL  =>  ();
+				esac;
+
+				apply put_bblock_note *notes;
+				apply define_local_label *labels;
+
+				# pr ("\tlive in:  " + rkj::cls::register_to_string *liveIn  + "\n");
+				# pr ("\tlive out: " + rkj::cls::register_to_string *liveOut + "\n");
+
+				show_succs id;
+				show_preds id;
+				apply emit_op (reverse *ops);
+			    };
+		    end;
+
+		    fun print_data ()
+			=
+			{   mcg.graph_info ->   mcg::GRAPH_INFO { dataseg_pseudo_ops, ... };
+			    #
+			    list::apply
+				(pr o mcg::pop::pseudo_op_to_string)
+				(reverse *dataseg_pseudo_ops);
+			};
+
+		    pr (ptf::sprintf' "[ %s ]\n" [ptf::STRING title]);
+		    apply  put_bblock_note  global_graph_notes;
+		    #  print_block entry; 
+		    asm_stream::with_stream stream mcg.forall_nodes print_block;
+		    #  print_block exit; 
+		    asm_stream::with_stream stream print_data ();
+		    file::flush stream;
+		};					# fun print_machcode_controlflow_graph
+
+
+	    fun prettyprint_machcode_controlflow_graph  (pp: prettyprinter::Prettyprinter)  title  (mcg' as odg::DIGRAPH mcg)
+		= 
+		{
+		    fun pr str
+			=
+			pp.put str;
+
+		    fun pr_list list
+			=
+			iter list
+			where
+			    fun iter []      => ();
+				iter [i]     => pr i;
+				iter (h ! t) => { pr (h + ", "); iter t;};
+			    end;
+			end;
+
+
+		    global_graph_notes = *(mcg::get_global_graph_notes mcg');
+
+		    pp ->  { text_stream, ... };
+
+		    stream
+			=
+			case text_stream
+			    #
+			    NULL       =>   file::stdout; 
+			    THE stream =>   stream;
+			esac;
+
+		    pp.flush (); 
+
+		    (asm_stream::with_stream  stream  ae::make_stream  global_graph_notes)
+			->
+			{ emit_op, emit_pseudo_op, define_local_label, put_bblock_note, ... };
+
+		    file::flush stream;
+
+		    fun show_freq (REF w)
+			=
+			ptf::sprintf' "[%f]" [ptf::FLOAT w]; 
+
+		    fun show_edge (blknum, e)
+			= 
+			ptf::sprintf' "%d:%s" [ptf::INT blknum, ptf::STRING (mcg::show_edge_info e)];
+
+		    fun show_succ (_, x, e) =  show_edge (x, e);
+		    fun show_pred (x, _, e) =  show_edge (x, e); 
+
+		    fun show_succs b
+			=
+			{   pr "\tsucc:     "; 
+			    pr_list (map show_succ (mcg.out_edges b)); 
+			    pr "\n";
+			};
+
+		    fun show_preds b
+			=
+			{   pr "\tpred:     "; 
+			    pr_list (map show_pred (mcg.in_edges b)); 
+			    pr "\n";
+			};
+
+		    fun print_block (_, mcg::BBLOCK { kind=>mcg::START, id, execution_frequency, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "ENTRY %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+				show_succs id;
+			    };
+			print_block(_, mcg::BBLOCK { kind=>mcg::STOP, id, execution_frequency, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "EXIT %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+				show_preds id;
+			    };
+
+			print_block(_, mcg::BBLOCK { id, alignment_pseudo_op, execution_frequency, ops, notes, labels, ... } )
+			    => 
+			    {   pr (ptf::sprintf' "BLOCK %d %s\n" [ptf::INT id, ptf::STRING (show_freq execution_frequency)]);
+
+				case *alignment_pseudo_op
+				    #
+				    THE p =>  pr (mcg::pop::pseudo_op_to_string p + "\n");
+				    NULL  =>  ();
+				esac;
+
+				apply  put_bblock_note          *notes;
+				apply define_local_label *labels;
+
+				# pr ("\tlive in:  " + rkj::cls::register_to_string *live_in  + "\n");
+				# pr ("\tlive out: " + rkj::cls::register_to_string *live_out + "\n");
+
+				show_succs id;
+				show_preds id;
+				apply emit_op (reverse *ops);
+			    };
+		    end;
+
+		    fun print_data ()
+			=
+			{   mcg.graph_info ->   mcg::GRAPH_INFO { dataseg_pseudo_ops, ... };
+			    #
+			    list::apply
+				(pr o mcg::pop::pseudo_op_to_string)
+				(reverse *dataseg_pseudo_ops);
+			};
+
+		    pr (ptf::sprintf' "[ %s ]\n" [ptf::STRING title]);
+		    apply  put_bblock_note  global_graph_notes;
+#		    print_block entry; 
+		    asm_stream::with_stream stream mcg.forall_nodes print_block;
+#		    print_block exit; 
+		    asm_stream::with_stream stream print_data ();
+		    file::flush stream;
+		};					# fun print_machcode_controlflow_graph
+	end;
+    };
+end;
+
+
+## Copyright (c) 1997 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

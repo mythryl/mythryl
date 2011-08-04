@@ -1,0 +1,1156 @@
+# This is the implementation of the private interface to makelib's tools
+# mechanism.  It lacks certain public features implemented by tools_g
+# but provides other, non-public routines such as "expand".
+#
+#   (C) 2000 Lucent Technologies, Bell Laboratories
+#
+# Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+
+###             "Klingon software is not "released".
+###              It escapes, leaving behind a bloody
+###              trail of QA people."
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;							# anchor_dictionary		is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package mvi =  makelib_version_intlist;						# makelib_version_intlist	is from   src/app/makelib/stuff/makelib-version-intlist.pkg
+herein
+
+    package   private_makelib_tools
+    : (weak)  Private_Makelib_Tools							# Private_Makelib_Tools		is from   src/app/makelib/tools/main/private-makelib-tools.api
+    {
+	Ilk = String;
+
+	File_Path =  ad::File;
+	Dir_Path  =  ad::Dir_Path;
+	Renamings =  ad::Renamings;	# MUSTDIE
+
+	native_spec     =  ad::os_string_relative;
+	native_pre_spec =  ad::os_string_basename_relative;
+
+	srcpath = ad::file;
+	augment = ad::extend;
+
+	exception TOOL_ERROR  { tool: String,
+				msg:  String
+			      };
+
+	Pathmaker =  Void -> Dir_Path;
+
+	Fnspec
+	  =
+	  { name:       String,
+	    make_path:  Pathmaker
+	  };
+
+	Tool_Option
+	    = STRING  Fnspec
+	    | SUBOPTS  { name: String, opts: Tool_Options }
+	    withtype Tool_Options = List Tool_Option;
+
+	Tooloptcvt
+	    =
+	    Null_Or( Tool_Options ) -> Null_Or( Tool_Options );
+
+	Spec = { name:       String,
+		 make_path:  Pathmaker,
+		 ilk:        Null_Or( Ilk ),
+		 opts:       Null_Or( Tool_Options ),
+		 derived:    Bool
+	       };
+
+
+	Setup = ( Null_Or( String ),
+		  Null_Or( String )
+		);
+
+	Inlining
+	    =
+	    Null_Or( Null_Or( Int ) );
+
+	Controller
+	    =
+	    { save'restore: Void -> Void -> Void,
+	      set: Void -> Void
+	    };
+
+	Ml_Parameters
+	     =
+	     { share:        sharing_mode::Request,
+	       setup:        Setup,
+	       split:        Inlining,
+	       noguid:       Bool,
+	       is_local:     Bool,
+	       controllers:  List( Controller )
+	     };
+
+	Makelib_Parameters
+	     =
+	     { version:   Null_Or( mvi::Makelib_Version_Intlist )
+	    ,   renamings: Renamings			# MUSTDIE
+	     };
+
+	Expansion
+	     =
+	     { source_files:  List( (File_Path, Ml_Parameters) ),
+	       makelib_files:   List( (File_Path, Makelib_Parameters)  ),
+	       sources:       List( (File_Path, { ilk: String, derived: Bool }) )
+	     };
+
+	Partial_Expansion
+	     =
+	     (Expansion, List( Spec ));
+
+	Rulefn
+	    =
+	    Void -> Partial_Expansion;
+
+	Rulecontext
+	     =
+	     Rulefn -> Partial_Expansion;
+
+	Rule
+	    =
+	    { spec:              Spec,
+	      context:           Rulecontext,
+	      native2pathmaker:  String -> Pathmaker,
+	      default_ilk_of:    Fnspec -> Null_Or( Ilk ),
+
+	      sysinfo: { get_makelib_preprocessor_symbol_value:   String -> Null_Or( Int ),
+			 platform:                                String
+		       }
+	    }
+	    ->
+	    Partial_Expansion;
+
+	Gcarg
+	     =
+	     { name:          String,
+	       make_filename: Void -> String
+	     };
+
+	Index
+	     =
+	     { ilks:  Ref(  string_map::Map(  Rule ) ),
+			    filename_suffix_classifiers:  Ref( String -> Null_Or( Ilk ) ) ,
+			    general_filename_classifiers: Ref( Gcarg  -> Null_Or( Ilk ) )
+	     };
+
+	fun layer (get1, get2) s
+	    =
+	    case (get1 s)
+		#
+		NULL =>  get2 s;
+		x    =>  x;
+	    esac;
+
+	fun make_index ()
+	    =
+	    { ilks                         =>  REF string_map::empty,
+	      filename_suffix_classifiers  =>  REF (fn _ = NULL),
+	      general_filename_classifiers =>  REF (fn _ = NULL)
+	    }
+	    :
+	    Index;
+
+
+
+	# Three indices:
+	#
+	#  1. global: Where globally available tools are noted and found.
+	#
+	#  2. local:  Where locally available tools are found;
+	#             the local index is set anew every time "expand"
+	#             is being called; each instance of a local registry belongs
+	#             to one description file that is being processed.
+	#
+	#  3. plugin indices:
+	#             Mapping from tool implementations (indexed
+	#             by their respective description files) to that tool's
+	#             index. This is where local tools register themselves;
+	#             the rule for the "tool" ilk causes the tool to register
+	#             itself if it has not already done so and then merges
+	#             the contents of the tool's index into the current
+	#             local index.
+	#
+	# These complications exist because tools
+	# register themselves via side-effects.
+	#
+	global_index
+	    =
+	    make_index ();
+
+
+	my local_index:   Ref( Index )
+	    =
+	    REF (make_index ());
+
+
+	my plugin_indices:  Ref( source_path_map::Map( Index ) )
+	    =
+	    REF source_path_map::empty;
+
+
+	my current_plugin:  Ref( Null_Or( ad::File ) )
+	    =
+	    REF NULL;
+
+
+	stipulate
+
+	    fun index select convert s
+		=
+		{   get =  convert o (*_) o select;
+
+		    layer (get *local_index, get global_index) s;
+		};
+
+	    fun curry f x y
+		=
+		f (x, y);
+	herein
+	    ilks                         =  index .ilks (curry string_map::get);
+	    filename_suffix_classifiers  =  index .filename_suffix_classifiers   (fn x = x);
+	    general_filename_classifiers =  index .general_filename_classifiers  (fn x = x);
+	end;
+
+	Filename_Classifier
+	    = FILENAME_SUFFIX_CLASSIFIER   String -> Null_Or( Ilk )
+	    | GENERAL_FILENAME_CLASSIFIER  Gcarg  -> Null_Or( Ilk );
+
+
+	fun standard_filename_suffix_classifier { suffix, ilk }
+	    =
+	    FILENAME_SUFFIX_CLASSIFIER
+		(fn e
+		    =
+		    if   (suffix == e   )   THE ilk;
+				       else   NULL;      fi
+		);
+
+
+	stipulate
+
+	    fun upd select augment
+		=
+		{   rf = select case *current_plugin
+				    #			   
+				    NULL
+					=>
+					global_index;
+
+				    THE p
+					=>
+					case (source_path_map::get (*plugin_indices, p))
+					    #
+					    THE r =>  r;
+					    #
+					    NULL  =>
+						{   r = make_index ();
+
+						    plugin_indices
+							:=
+							source_path_map::set (*plugin_indices, p, r);
+						    r;
+						};
+					esac;
+				esac;
+
+		    rf :=  augment *rf;
+		};
+
+	herein
+
+	    fun note_ilk (ilk, rule)
+		=
+		upd .ilks (fn m =  string_map::set (m, ilk, rule));
+
+
+	    fun note_filename_classifier (FILENAME_SUFFIX_CLASSIFIER c)
+		    =>
+		    upd .filename_suffix_classifiers (fn c' =  layer (c, c'));
+
+	       note_filename_classifier (GENERAL_FILENAME_CLASSIFIER c)
+		    =>
+		    upd .general_filename_classifiers (fn c' =  layer (c, c'));
+	    end;
+
+
+	    fun transfer_local p
+		=
+		{   lr =  *local_index;
+
+		    case (source_path_map::get (*plugin_indices, p))
+
+			 NULL
+			     =>
+			     ();
+
+			 THE pr
+			     =>
+			     {   fun upd select join
+				     =
+				     select lr := join (*(select pr), *(select lr));
+
+				 upd .ilks (string_map::union_with #1);
+				 upd .filename_suffix_classifiers  layer;
+				 upd .general_filename_classifiers layer;
+			     };
+		    esac;
+		};
+
+	    fun with_plugin p thunk
+		=
+		safely::do
+		    {
+		      open_it    =>   .{   *current_plugin
+					   before
+					       current_plugin :=  THE p;
+				       },
+
+		      close_it   =>   fn prev = {   transfer_local p;
+						    current_plugin := prev;
+						},
+
+		      cleanup    =>   fn _ = ()
+		    }
+		    (fn _ = thunk ());
+	end;
+
+
+	Extension_Style
+	  = EXTEND   List( (String, Null_Or(Ilk), Tooloptcvt))
+	  | REPLACE (List(String),  List ((String, Null_Or(Ilk), Tooloptcvt)))
+	  ;
+
+
+	fun extend_filename (EXTEND l) (f, too)
+		=>
+		map
+		    (fn (s, co, toc) =  (cat [f, ".", s], co, toc too))
+		    l;
+
+	    extend_filename (REPLACE (ol, nl)) (f, too)
+		=>
+		{   my { base, ext }
+			=
+			winix::path::split_base_ext  f;
+
+
+		    fun join b (e, co, toc)
+			=
+			(winix::path::join_base_ext { base => b, ext => THE e }, co, toc too);
+
+
+		    fun gen b
+			=
+			map (join b) nl;
+
+
+		    fun same_ext (e1: String) (e2: String)
+			=
+			e1 == e2;
+
+
+		    case ext
+			#			  
+			NULL
+			    =>
+			    gen base;
+
+			THE e
+			    =>
+			    if   (list::exists (same_ext e) ol)
+				 gen base;
+			    else gen f;
+			    fi;
+		    esac;
+		};
+	end;
+
+	stipulate
+
+	    fun timex f
+		=
+		(winix::file::last_file_modification_time f, TRUE)
+		except
+		    _ =  (time::zero_time, FALSE);
+
+	    my (<) =  time::(<);
+
+
+	    fun older_than t f
+		=
+		winix::file::last_file_modification_time  f  <  t;
+
+
+	    fun cannot_access tool f
+		=
+		raise exception TOOL_ERROR { tool, msg => "cannot access " + f };
+
+	herein
+
+	    fun outdated tool (l, f)
+		=
+		{   my (ftime, fexists)
+			=
+			timex f;
+
+		    (list::exists (older_than ftime) l)
+		    except
+			_ =  if   fexists      TRUE;
+					    else   cannot_access tool f;  fi;
+		};
+
+	    fun outdated' tool { source_file_name, timestamp_file_name, target_file_name }
+		=
+		{   my (source_t, source_e) =  timex  source_file_name;
+		    my (target_t, target_e) =  timex  target_file_name;
+
+		    if (not source_e)
+			#                    
+			if target_e  FALSE; else cannot_access tool source_file_name;fi;
+		    else 
+			if target_e
+			    #
+			    my (timestamp_t, timestamp_e)
+				=
+				timex  timestamp_file_name;
+
+			    if  timestamp_e    timestamp_t < source_t;
+			    else               target_t    < source_t;
+			    fi;
+			else
+			    TRUE;
+			fi;
+		    fi;
+		};
+	end;
+
+
+	open_text_output
+	    =
+	    autodir::open_text_output;
+
+
+	make_all_directories_on_path
+	    =
+	    autodir::make_all_directories_on_path;
+
+
+	fun globally load_plugin arg
+	    =
+	    safely::do
+		{
+		  open_it  =>  .{   *current_plugin
+				     before
+					current_plugin := NULL;
+				},
+		  close_it =>   fn prev =  current_plugin := prev,
+		  cleanup  =>   fn _ =  ()
+		}
+		(fn _ =  load_plugin arg);
+
+
+	# Query default ilk 
+	#
+	fun default_ilk_of  load_plugin  (s: Fnspec)
+	    =
+	    {   p =  s.name;
+
+		make_filename =   ad::os_string_basename  o  .make_path  s;
+
+		gcarg =   { name => p,   make_filename };
+
+
+		fun filename_suffix_gen_check  e
+		    =
+		    case (filename_suffix_classifiers  e)
+			#		  
+			THE c =>  THE c;
+			NULL  =>  general_filename_classifiers  gcarg;
+		    esac;
+
+
+		case (winix::path::ext p)
+		    #	      
+		    THE e
+			=>
+			case (filename_suffix_gen_check e)
+			    #
+			    THE c =>  THE c;
+			    #
+			    NULL
+				=>
+				{   plugin = cat ["$/", e, "-ext.lib"];
+
+				    if (globally load_plugin plugin)   filename_suffix_gen_check  e;
+				    else                               NULL;
+				    fi;
+				};
+			esac;
+
+
+		    NULL
+			=>
+			general_filename_classifiers  gcarg;
+		esac;
+	    };
+
+
+	fun parse_options { tool, keywords, options }
+	    =
+	    loop (options, string_map::empty, [])
+	    where
+		fun err m
+		    =
+		    raise exception TOOL_ERROR { tool, msg => m };
+
+
+		fun is_kw kw
+		    =
+		    list::exists
+			(fn kw' =  kw == kw')
+			keywords;
+
+
+		fun loop ([], m, ro)
+			=>
+			{ matches           =>  fn kw =  string_map::get (m, kw),
+			  remaining_options =>  reverse ro
+			};
+
+		    loop (STRING { name, ... } ! t, m, ro)
+			=>
+			loop (t, m, name ! ro);
+
+		    loop (SUBOPTS { name, opts } ! t, m, ro)
+			=>
+			if (not (is_kw name))
+			    #                        
+			    raise exception err (cat ["keyword option `", name, "' not recognized"]);
+			else
+			    case (string_map::get (m, name))
+				#
+				THE _ =>  err (cat ["keyword option `", name,
+						  "' specified more than once"]);
+
+				NULL  =>  loop (t, string_map::set (m, name, opts), ro);
+			    esac;
+			fi;
+		end;
+	    end;
+
+
+	fun ml_rule enforce_lazy
+	      {
+		spec,
+		context,
+		native2pathmaker,
+		default_ilk_of,
+		sysinfo
+	      }
+	    =
+	    {   spec -> { name, make_path, opts => oto, derived, ... } : Spec;
+
+		tool = "pkg";
+
+		fun err  s =  raise exception TOOL_ERROR { tool, msg => s };
+		fun fail s =  raise exception FAIL ("(SML Tool) " + s);
+
+
+		kw_setup       = "setup";
+		kw_with        = "with";
+		kw_lambdasplit = "lambdasplit";
+		kw_noguid      = "noguid";
+		kw_local       = "local";
+		kw_lazy        = "lazy";
+		use_default    = NULL;
+		suggest        = THE;
+
+
+		lazy_controller
+		    =
+		    { save'restore
+			  =>
+			  .{   orig =  *controls::lazy_is_a_keyword;
+
+			       .{ controls::lazy_is_a_keyword := orig; };
+			   },
+
+		      set =>
+			  .{   controls::lazy_is_a_keyword := TRUE;   }
+		   };
+
+
+		my (srq, setup, inlining, noguid, is_local, controllers)
+		    =
+		    case oto
+			#		  
+			NULL => ( sharing_mode::DONT_CARE,
+				  (NULL, NULL),
+				  use_default,
+				  FALSE,
+				  FALSE,
+				  if enforce_lazy      [lazy_controller];
+						    else   [];  fi
+				);
+			THE to
+			    =>
+			    {   my { matches, remaining_options }
+				    =
+				    parse_options
+					{
+					  tool,
+					  keywords => [ kw_setup,
+							kw_with,
+							kw_lambdasplit ],
+					  options => to
+					};
+
+				fun is_sharing_specification "shared"  =>  TRUE;
+				    is_sharing_specification "private" =>  TRUE;
+				    is_sharing_specification _         =>  FALSE;
+				end;
+
+				my (sh_options, remaining_options)
+				    =
+				    list::partition
+					is_sharing_specification
+					remaining_options;
+
+				srq =   case sh_options
+					    #
+					    []          =>  sharing_mode::DONT_CARE;
+					    ["shared"]  =>  sharing_mode::SHARED;
+					    ["private"] =>  sharing_mode::PRIVATE;
+					    _           =>  err "invalid option (s)";
+					esac;
+
+
+				fun is_kw kw s
+				    = 
+				    string::compare (kw, s)   ==   EQUAL;
+
+
+				my (locals, remaining_options)
+				    =
+				    list::partition (is_kw kw_local) remaining_options;
+
+
+				my (noguids, remaining_options)
+				    =
+				    list::partition (is_kw kw_noguid) remaining_options;
+
+
+				my (lazies, remaining_options)
+				    =
+				    list::partition (is_kw kw_lazy) remaining_options;
+
+
+				is_local =  not (list::null locals);
+				noguid   =  not (list::null noguids);
+
+				lazy_is_a_keyword
+				    =
+				    enforce_lazy or not (list::null lazies);
+
+
+				if (not (list::null remaining_options))
+				    #
+				    err (cat
+					     ( "invalid option (s): "
+					       !
+					       fold_right
+						   (fn (x, l) =  " " ! x ! l)
+						   []
+						   remaining_options
+					     )
+					);
+				fi;
+
+				setup = case (matches kw_setup)
+					    #
+					    NULL           =>  (NULL,       NULL);
+					    THE []         =>  (NULL,       NULL);
+					    THE [STRING s] =>  (THE s.name, NULL);
+
+
+					    THE [ SUBOPTS { name => "pre",  opts => [STRING pre ] } ] =>   (THE pre.name,         NULL);
+					    THE [ SUBOPTS { name => "post", opts => [STRING post] } ] =>   (NULL,        THE post.name);
+
+
+					    ( THE [ SUBOPTS { name => "pre",  opts => [STRING pre ] },
+						    SUBOPTS { name => "post", opts => [STRING post] } ]
+					    | THE [ SUBOPTS { name => "post", opts => [STRING post] },
+						    SUBOPTS { name => "pre",  opts => [STRING pre ] } ]
+					    )
+						=>
+						(THE pre.name, THE post.name);
+
+					    _   => err "invalid setup spec";
+					esac;
+
+				controllers
+				    =
+				    case (matches kw_with)
+					#
+					NULL
+					    =>
+					    [];
+
+					THE subopts
+					    =>
+					    loop (subopts, [])
+					    where
+
+						fun fields c s
+						    =
+						    string::fields
+							(fn c' =  c == c')
+							s;
+
+
+						fun set (c, v)
+						    =
+						    control::set' (c, v)
+						    except
+							control::BAD_VALUE_SYNTAX vse
+							    =
+							    fail (cat ["error setting \
+									 \ controller: \
+									 \unable to parse \
+									 \value `",
+									 vse.value,        "' for ",
+									 vse.control_name, " : ",
+									 vse.type_name
+								      ] );
+
+						fun mk (n, v)
+						    =
+						    case (control_index::find_control
+							     basic_control::top_index
+							     (fields '.' n))
+							#
+							NULL
+							    =>
+							    err ("no such control: " + n);
+
+							THE c
+							    =>
+							    { save'restore
+								  =>
+								  .{ control::save'restore c; },
+							      set => set (c, v)
+							    };
+						    esac;
+
+
+						fun loop ([], a)
+							=>
+							a;
+
+						    loop (STRING nv ! r, a)
+							=>
+							case (fields '=' nv.name)
+
+							     [n, v] =>  loop (r, mk (n, v) ! a);
+							     [n]    =>  loop (r, mk (n, "true") ! a);
+							     _      =>  err "invalid controller spec";
+							esac;
+
+						    loop (SUBOPTS { name => "name",
+								    opts => [STRING n] } !
+							  SUBOPTS { name => "value",
+								    opts => [STRING v] } ! r,
+							  a)
+							=>
+							loop (r, mk (n.name, v.name) ! a);
+
+						    loop (SUBOPTS { name => "name",
+								    opts => [STRING n] } ! r,
+							  a)
+							=>
+							loop (r, mk (n.name, "true") ! a);
+
+						    loop _
+							=>
+							err "invalid controller spec";
+						end;
+
+					    end;
+				    esac;
+
+				inlining
+				    =
+				    {   fun invalid ()
+					    =
+					    err "invalid lambdasplit spec";
+
+					fun spec (s: Fnspec)
+					    =
+					    case (lsplit_arg::arg s.name)
+						#
+						THE ls =>  ls;
+						NULL   =>  invalid ();
+					    esac;
+
+					case (matches kw_lambdasplit)
+					    #
+					    NULL           =>  use_default;
+					    THE []         =>  suggest (THE 0);        #  == "on" 
+					    THE [STRING x] =>  spec x;
+					    _              =>  invalid ();
+					esac;
+				    };
+
+				controllers
+				    =
+				    if lazy_is_a_keyword   lazy_controller ! controllers;
+				    else                                     controllers;
+				    fi;
+
+				(srq, setup, inlining, noguid, is_local, controllers);
+			    };
+		    esac;
+
+		p =  srcpath (make_path ());
+
+		sparam
+		    =
+		    { share  => srq,
+		      split  => inlining,
+		      setup,
+		      noguid,
+		      is_local,
+		      controllers
+		    };
+
+		( { source_files => [(p, sparam)],
+		    sources  => [(p, { ilk => "sml", derived } )],
+		    makelib_files  => []
+		  },
+		  []
+		);
+	    };
+
+
+	fun makelib_rule { spec, context, native2pathmaker, default_ilk_of, sysinfo }
+	    =
+	    {   my { name, make_path, opts => oto, derived, ... }
+		    :
+		    Spec
+		    =
+		    spec;
+
+
+		fun err m
+		    =
+		    raise exception TOOL_ERROR { tool => "cm", msg => m };
+
+
+		fun process_options (rb, vrq, [])
+			=>
+			(rb, vrq);
+
+		    process_options (_, _, STRING _ ! _)
+			=>
+			err "ill-formed option";
+
+		    process_options (rb, vrq, SUBOPTS { name => "version", opts } ! r)
+			=>
+			{   fun ill ()
+				=
+				err "ill-formed version specification";
+
+			    case (vrq, opts)
+				#			  
+				(THE _, _)
+				    =>
+				    err "version cannot be specified more than once";
+				#
+				(NULL, [STRING { name, ... } ])
+				    =>
+				    case (mvi::from_string name)
+					#
+					NULL  =>  ill ();
+					THE v =>  process_options (rb, THE v, r);
+				    esac;
+
+				_ => ill ();
+			    esac;
+			};
+
+		    process_options (rb, vrq, SUBOPTS { name => "bind", opts } ! r)
+			=>
+			case opts
+			    #		      
+			    [ SUBOPTS { name => "anchor", opts => [STRING { name, ... } ] },
+			      SUBOPTS { name => "value", opts => [STRING v] }
+			    ]
+				=>
+				process_options ( { anchor => name, value => v.make_path () }
+					! rb,
+				       vrq, r);
+
+			    _   =>
+				err "ill-formed bind specification";
+			esac;
+
+
+		    process_options (_, _, SUBOPTS { name, ... } ! _)
+			=>
+			err ("unknown option: " + name);
+		end;
+
+		my (rb, vrq)	# XXX BUGGO KILLME 'rb' is old anchor rebindings which can die.
+		    =
+		    case oto
+			#		  
+			NULL  =>  ([], NULL);
+			THE l =>   process_options ([], NULL, l);
+		    esac;
+
+		p = srcpath (make_path ());
+
+		cparams
+		    =
+		    { version => vrq
+		      , renamings => reverse rb	# MUSTDIE
+		    };
+
+		( { source_files => [],
+		    sources => [(p, { ilk => "cm", derived } )],
+		    makelib_files => [(p, cparams)]
+		  },
+
+		  []
+		);
+	    };
+
+
+	fun expand
+	      {
+		error:           String -> Void,
+		local_index => lr,
+		spec:            Spec,
+		path_root:       ad::Path_Root,
+		load_plugin:     ad::Path_Root -> String -> Bool,
+		sysinfo
+	      }
+	    =
+	    {   dummy
+		    =
+		    ( { source_files =>  [],
+			makelib_files  =>  [],
+			sources      =>  []
+		      },
+		      []
+		    );
+
+
+		fun norule _
+		    =
+		    dummy;
+
+
+		fun native2pathmaker file_path ()
+		    =
+		    ad::from_native
+			{ plaint_sink => error }
+			{ path_root,   file_path };
+
+
+		fun ilk2rule ilk
+		    =
+		    case (ilks ilk)
+			#		  
+			THE rule
+			    =>
+			    rule;
+
+			NULL
+			    =>
+			    {   base   =  cat ["$/", ilk, "-tool"];
+
+				plugin
+				    =
+				    winix::path::join_base_ext
+					{
+					  base,
+					  ext  =>  THE "lib"
+					};
+
+				fun complain ()
+				    =
+				    {   error (cat ["unknown ilk: ", ilk]);
+					norule;
+				    };
+
+				if (globally  (load_plugin  path_root)  plugin)
+				    #
+				    case (ilks ilk)
+					#
+					THE rule =>  rule;
+					NULL     =>  complain ();
+				    esac;
+				else
+				    complain ();
+				fi;
+			    };
+		    esac;
+
+		fun expand1 (spec as { name, make_path, ilk => co, ... } )
+		    =
+		    {   fns = { name, make_path };
+
+			rule
+			    =
+			    case co
+				#			  
+				THE c0
+				    =>
+				    ilk2rule (string::map char::to_lower c0);
+
+				NULL
+				    =>
+				    case (default_ilk_of  (load_plugin  path_root)  fns)
+					#
+					THE c =>    ilk2rule c;
+					#
+					NULL  =>    {   error (cat ["unable to classify: ", name]);
+							norule;
+						    };
+				    esac;
+			    esac;
+
+			fun rcontext rf		# "rf" might be "rule function"
+			    =
+			    {   dir =  ad::os_string_dir  path_root;
+				cwd =  winix::file::current_directory ();
+
+				safely::do
+				    {
+				      open_it  =>  .{ winix::file::change_directory  dir; },
+				      close_it =>  .{ winix::file::change_directory  cwd; },
+				      cleanup  =>  fn _ = ()
+				    }
+				    rf;
+			    };
+
+			rule {
+			  spec,
+			  sysinfo,
+			  native2pathmaker,
+			  context        =>  rcontext,
+			  default_ilk_of =>  default_ilk_of  (load_plugin  path_root)
+			}
+			except
+			    TOOL_ERROR { tool, msg }
+				=
+				{   error (cat ["tool \"", tool, "\" failed: ", msg]);
+				    dummy;
+				};
+		    };
+
+
+		fun loop ([],   expansion)
+			=>
+			expansion;
+
+		    loop (item ! items,   { source_files, makelib_files, sources })
+			=>
+			{   (expand1 item)
+				->
+				( { source_files =>  source_files',
+				    makelib_files  =>  makelib_files',
+				    sources      =>  sources'
+				  },
+				  il
+				);
+
+
+			    loop ( il @ items,
+
+				   { source_files =>  source_files @ source_files',
+				     makelib_files  =>  makelib_files  @ makelib_files',
+				     sources      =>  sources      @ sources'
+				   }
+				 );
+			};
+		end;
+
+		safely::do
+		    {
+		      open_it  =>  .{    *local_index
+					 before
+					     local_index := lr;
+				    },
+
+		      close_it =>  .{ local_index := #prev; },
+
+		      cleanup  =>  fn _ = ()
+		    }
+		    (fn _
+			=
+			loop (
+
+			    [spec],
+
+			    { source_files =>  [],
+			      makelib_files  =>  [],
+			      sources      =>  []
+			    }
+			)
+		    );
+	    };			# fun expand
+
+	stipulate
+
+	    fun suffix (suffix, ilk)
+		=
+		note_filename_classifier
+
+		    (standard_filename_suffix_classifier { suffix, ilk } );
+	herein
+										    my _ = 
+	    note_ilk ("sml",     	    ml_rule FALSE);				my _ =
+	    note_ilk ("lazy-mythryl",   ml_rule TRUE);				my _ =
+	    note_ilk ("cm",		    makelib_rule);				my _ =
+	    note_ilk ("makelib", 	    makelib_rule);				my _ =
+
+	    suffix ("lib",   	"makelib");					my _ =	           	# foo.lib	files contain Mythryl library definitions.
+	    suffix ("sublib",   	"makelib");					my _ =	           	# foo.sublib	files contain Mythryl sublibrary definitions.
+	    suffix ("api",   	"sml");						my _ =			# foo.api	files contain Mythryl sourcecode.
+	    suffix ("pkg",   	"sml");						my _ =			# foo.pkg	files contain Mythryl sourcecode.
+	    suffix ("class",   	"sml");						my _ =			# foo.class	files contain Mythryl sourcecode.
+	    suffix ("lazy-api",	"lazy-mythryl");				my _ = 			# foo.lazy-api	files contain Mythryl sourcecode with laziness support.  (Unsupported, undocumented functionality.)
+	    suffix ("lazy-pkg",	"lazy-mythryl");				my _ = 			# foo.lazy-pkg	files contain Mythryl sourcecode with laziness support.  (Unsupported, undocumented functionality.)
+	    suffix ("make6",	"makelib");								# foo.make6	is a deprecated synonym for foo.lib -- don't use in new code!
+	end;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

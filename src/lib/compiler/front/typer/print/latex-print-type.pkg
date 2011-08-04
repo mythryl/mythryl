@@ -1,0 +1,1031 @@
+## latex-print-type.pkg 
+## Copyright 2003 by The SML/NJ Fellowship 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+#  modified to use Lib7 Lib pp. [dbm, 7/30/03]) 
+
+api Latex_Print_Type {
+
+     type_formals
+         :
+         Int
+      -> List( String );
+
+     typevar_ref_printname
+         :
+         types::Typevar_Ref
+      -> String;
+
+     latex_print_type
+         :
+         symbolmapstack::Symbolmapstack
+      -> prettyprint::Stream 
+      -> types::Typ
+      -> Void;
+
+     latex_print_type_scheme
+         :
+         symbolmapstack::Symbolmapstack
+      -> prettyprint::Stream 
+      -> types::Type_Scheme
+      -> Void; 
+
+     latex_print_some_type
+         :
+         symbolmapstack::Symbolmapstack
+      -> prettyprint::Stream 
+      -> types::Type
+      -> Void;
+
+     latex_print_enum_constructor_domain
+         :
+         ((Vector( types::Datatype_Member ), List( types::Typ )) )
+      -> symbolmapstack::Symbolmapstack 
+      -> prettyprint::Stream
+      -> types::Type
+      -> Void;
+
+     latex_print_enum_constructor_types
+         :
+         symbolmapstack::Symbolmapstack
+      -> prettyprint::Stream 
+      -> types::Typ
+      -> Void;
+
+     reset_latex_print_type
+         :
+         Void -> Void;
+
+     latex_print_formals
+         :
+         prettyprint::Stream
+      -> Int
+      -> Void;
+
+     debugging:  Ref(  Bool );
+     unalias:    Ref(  Bool );
+
+};
+
+
+
+
+stipulate 
+    package sp = symbol_path;	# symbol_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package ip = inverse_path;	# inverse_path	is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package bt = type_types;	# type_types	is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package t  = types;		# types		is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package tu = type_junk;	# type_junk	is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package pp = prettyprint;	# prettyprint	is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    #
+    include types;
+    include unparse_junk; 
+herein
+
+    package   latex_print_type
+    : (weak)  Latex_Print_Type
+    {
+	debugging = REF FALSE;
+	unalias = REF TRUE;
+	#
+	fun bug s
+            =
+            error_message::impossible ("latex_print_type: " + s);
+
+	pps = pp::string;
+	#
+	fun by f x y
+	    =
+	    f y x;
+
+	internals
+            =
+            typer_control::internals;
+
+	unit_path
+            =
+            ip::extend
+                (
+                  ip::empty,
+                  symbol::make_type_symbol "Void"
+                );
+	#
+	fun bound_type_variable_name k
+	    =
+	    {   a =   char::to_int 'a';
+
+		if   (k < 26)
+		    
+		     string::from_char (char::from_int (k+a));
+		else
+		      implode [ char::from_int (int::(/) (k, 26) + a), 
+				char::from_int (int::(%) (k, 26) + a)
+			      ];
+                fi;
+	    };
+	#
+	fun meta_tyvar_name' k
+	    =
+	    {   a =  char::to_int 'Z';	#  use reverse order for meta vars 
+
+		if   (k < 26)
+		    
+		     string::from_char (char::from_int (a - k));
+		else 
+		     implode [ char::from_int (a - (int::(/) (k, 26))), 
+			       char::from_int (a - (int::(%) (k, 26)))
+			     ];
+                fi;
+	    };
+	#
+	fun type_formals n
+	    =
+	    {   fun loop i
+		    =
+		    if   (i>=n)
+		        
+			 [];
+		    else 
+			 (bound_type_variable_name i)  !  loop (i + 1);fi;
+
+		loop 0;
+	    };
+	#
+	fun literal_kind_printname (lk: t::Literal_Kind)
+	    =
+	    case lk
+		#	      
+		t::INT    => "Int";	# or "INT" 
+		t::UNT    => "Unt";	# or "UNT" 
+		t::FLOAT  => "Float";	# or "FLOAT" 
+		t::CHAR   => "Char";	# or "CHAR" 
+		t::STRING => "String";	# or "STRING" 
+            esac;
+
+	stipulate  #  WARNING -- compiler global variables 
+
+	    count = REF (-1);  
+
+	    meta_tyvars = REF([]: List( Typevar_Ref ));
+
+	herein
+
+	    fun meta_tyvar_name ((tv as { id, ref_typevar }): Typevar_Ref)
+		=
+		meta_tyvar_name' (find (*meta_tyvars, 0))
+                where
+		    fun find ([], _)
+			    =>
+			    {   meta_tyvars := tv ! *meta_tyvars;
+			        count := *count+1;
+			       *count;
+                            };
+
+		        find ((tv' as { id, ref_typevar => ref_typevar' }) ! rest, k)
+			    =>
+			    ref_typevar == ref_typevar'  ??  *count - k
+			                                 ::   find (rest, k+1);
+                    end;
+		end;
+
+	    #
+	    fun reset_latex_print_type ()
+		=
+		{   count := -1;
+		    meta_tyvars := [];
+		};
+	end;
+
+        # This function used to add a "'" prefix to vanilla type variables
+        # and a "''" prefix to equality type variables, producing the forms
+        # 'a 'b ... and ''a ''b ... respectively.
+        # Our current convention is to use X Y Z ... for vanilla type variables
+        # (and to try to ignore equality type variables...):
+	#
+	fun decorated_type_variable_name (eq, base)
+	    =
+#	    if   eq    "''";  
+#	    else        "'";
+#            fi
+#	    +
+#	    base;
+            if eq     "''" + base;
+            else
+                case base
+                "a" => "X";
+                "b" => "Y";
+                "c" => "Z";
+                "d" => "A";
+                "e" => "B";
+                "f" => "C";
+                "g" => "D";
+                "h" => "E";
+                "i" => "F";
+                "j" => "G";
+                "k" => "H";
+                "l" => "I";
+                "m" => "J";
+                "n" => "K";
+                "o" => "L";
+                "p" => "M";
+                "q" => "N";
+                "r" => "O";
+                "s" => "P";
+                "t" => "Q";
+                "u" => "R";
+                "v" => "S";
+                "w" => "T";
+                "x" => "U";
+                "y" => "V";
+                "z" => "W";
+                 x  =>  "A_" + x;
+                esac;
+            fi;
+	#
+	fun annotate (name, annotation, depth_op)
+	    =
+	    if *internals
+
+		 cat (  name
+			 ! "."
+			 ! annotation
+			 ! case depth_op
+
+				THE depth =>  ["[", (int::to_string depth), "]"];
+				NULL      =>  NIL;
+			   esac
+			);
+	    else
+		 name;
+            fi;
+	#
+	fun typevar_ref_printname  (tv as { id, ref_typevar })
+	    =
+	    pr_kind  *ref_typevar
+            where
+	        fun pr_kind info
+		    =
+		    case info
+		      
+			 RESOLVED_TYPE_VARIABLE (TYPE_VARIABLE_REF (tv as { id, ref_typevar => _ }) )
+                             =>
+                             typevar_ref_printname  tv
+#                             +
+#                             (sprintf "[id%d]" id)			# We probably don't want this for latex printing...?
+                             ;
+
+			 RESOLVED_TYPE_VARIABLE _
+                             =>
+                             "<RESOLVED_TYPE_VARIABLE ?>";
+
+			 META_TYPE_VARIABLE { fn_nesting, eq }
+			      =>
+			      decorated_type_variable_name (eq, annotate ( meta_tyvar_name tv,
+							"META",
+						      THE fn_nesting
+                                                    )
+                                      );
+
+			 INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }	
+			      =>
+			      decorated_type_variable_name (eq, annotate ( meta_tyvar_name   tv,
+							"INCOMPLETE_RECORD",
+						      THE fn_nesting
+                                                    )
+                                      );
+
+			 USER_TYPE_VARIABLE { name, fn_nesting, eq }
+			      =>
+			      decorated_type_variable_name (eq, annotate (symbol::name name, "USER", THE fn_nesting));
+
+			 LITERAL_TYPE_VARIABLE { kind, ... }
+			      =>
+			      annotate (literal_kind_printname kind, "L", NULL);
+
+			 OVERLOADED_TYPE_VARIABLE eq
+			      =>
+			      decorated_type_variable_name (eq, annotate (meta_tyvar_name  tv, "OVERLOADED", NULL));
+
+			 TYPE_VARIABLE_MARK _ => "<TYPE_VARIABLE_MARK ?>";
+                    esac;
+	    end;
+
+	/*
+	fun ppkind stream kind
+            =
+	    pps stream
+	      (case kind
+		 of BASE _ => "BASE" | FORMAL => "FORMAL"
+		  | FLEXIBLE_TYP _ => "FLEXIBLE_TYP" | ABSTRACT _ => "ABSTYC"
+		  | DATATYPE _ => "DATATYPE" | TEMP => "TEMP")
+	*/
+	#
+	fun ppkind stream kind
+	    =
+	    pps stream
+		#
+		case kind
+		    # 
+		    BASE _            =>  "P";
+		    FORMAL            =>  "F";
+		    FLEXIBLE_TYP _ =>  "X";
+		    ABSTRACT _        =>  "A";
+		    DATATYPE _        =>  "D";
+		    TEMP              =>  "T";
+		esac;
+	#
+	fun effective_path (path, typ, symbolmapstack) : String
+	    =
+	    {   fun typ_path ( PLAIN_TYP { path, ... }
+                                | DEFINED_TYP { path, ... }
+                                | TYP_BY_STAMPPATH { path, ... }
+                                )
+			=>
+			THE path;
+
+		    typ_path _
+			=>
+			NULL;
+                end;
+		#
+		fun find (path, typ)
+		    =
+		    (find_path (path,
+			(fn typ' = tu::typ_equality (typ', typ)),
+			(fn x = find_in_symbolmapstack::find_typ_via_symbol_path (symbolmapstack, x,
+						(fn _ = raise exception symbolmapstack::UNBOUND))))
+                    );
+		#
+		fun search (path, typ)
+		    =
+		    {   my (suffix, found)
+                            =
+                            find (path, typ);
+
+			if found
+			    (suffix, TRUE);
+			else
+			    if (not *unalias)
+				#
+				(suffix, FALSE);
+			    else
+				case (tu::unwrap_definition_1  typ)
+				    #
+				    THE typ'
+					=>
+					case (typ_path  typ')
+					    #
+					    THE path'
+						=>
+						{   my x as (suffix', found')
+							=
+							search (path', typ');
+
+						    if found'    x;
+						    else         (suffix, FALSE);
+                                                    fi;
+						};
+
+					    NULL => (suffix, FALSE);
+					esac;
+
+				    NULL => (suffix, FALSE);
+				esac;
+			    fi;
+                        fi;
+		    };
+
+		my (suffix, found)
+                    =
+                    search (path, typ);
+
+		name =   sp::to_string (sp::SYMBOL_PATH suffix);
+
+		if found         name;
+		else      "?." + name;
+                fi;
+	    };
+
+	arrow_stamp = bt::arrow_stamp;
+	#
+	fun strength (type)
+	    =
+	    case type
+		#	      
+		TYPE_VARIABLE_REF { id, ref_typevar => REF (RESOLVED_TYPE_VARIABLE  type') }
+		    =>
+		    strength (type');
+
+		TYPCON_TYPE (typ, args)
+		    =>
+		    case typ
+			#
+			PLAIN_TYP { stamp, kind => BASE _, ... }
+			    =>
+			    if (stamp::same_stamp (stamp, arrow_stamp))   0;
+                            else                                          2;
+                            fi;
+
+			RECORD_TYP (_ ! _)   #  excepting type Void
+			    => 
+			    if (tuples::is_tuple_typ (typ))   1;
+			    else                                    2;
+			    fi;
+
+			_   => 2;
+		    esac;
+
+	        _ => 2;
+            esac;
+	#
+	fun prettyprint_eq_prop stream p
+	    =
+	    {   a =     case p
+			    #		         
+			    NO            => "NO";
+			    YES           => "YES";
+			    INDETERMINATE => "INDETERMINATE";
+			    CHUNK         => "CHUNK";
+			    DATA          => "DATA";
+			    EQ_ABSTRACT   => "EQ_ABSTRACT";
+			    UNDEF         => "UNDEF";
+                        esac;
+
+		pps stream a;
+	    };
+
+	#
+	fun prettyprint_inverse_path ppstream (inverse_path::INVERSE_PATH inverse_path: inverse_path::Inverse_Path)
+	    = 
+	    pp::string ppstream (symbol_path::to_string (symbol_path::SYMBOL_PATH (reverse inverse_path)));
+
+	#
+	fun latex_print_type' symbolmapstack stream members_op
+	    =
+	    latex_print_type''
+            where
+
+	        my  { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+		#
+		fun latex_print_type'' (typ as PLAIN_TYP { path, stamp, eq, kind, ... } )
+			=>
+			if *internals
+
+			     begin_wrap_box 1;
+			     prettyprint_inverse_path stream path;
+			     pps "[";
+			     pps "G"; ppkind stream kind; pps ";"; 
+			     pps (stamp::to_short_string stamp);
+			     pps ";";
+			     prettyprint_eq_prop stream *eq;
+			     pps "]";
+			     end_box ();
+			else
+			     pps (effective_path (path, typ, symbolmapstack));
+			fi;
+
+		    latex_print_type'' (typ as DEFINED_TYP { path, type_scheme => TYPE_SCHEME { body, ... }, ... } )
+			=>
+			if *internals
+
+			     begin_wrap_box 1;
+			     prettyprint_inverse_path stream path;
+			     pps "["; pps "D;"; 
+			     latex_print_some_type  symbolmapstack  stream  body;
+			     pps "]";
+			     end_box();
+			else
+			     pps (effective_path (path, typ, symbolmapstack));
+                        fi;
+
+		    latex_print_type'' (RECORD_TYP labels)
+			=>
+                        {
+			    unparse_closed_sequence
+				stream
+
+				{   front=> by pp::string "{",
+				    sep  => fn stream =  {   pp::string stream ", "; 
+							     pp::break stream { spaces=>0, indent_on_wrap=>0 };
+							 },
+				    back => by pp::string "}",
+				    style=> INCONSISTENT,
+				    pr   => unparse_symbol
+				}
+
+				labels;
+
+			};
+
+		    latex_print_type'' (RECURSIVE_TYPE n)
+			=>
+                        {
+			    case members_op
+			      
+				 THE (members, _)
+				     => 
+				     {   my { typ_name, constructor_list, ... }
+					     =
+					     vector::get (members, n);
+
+					 unparse_symbol stream typ_name;
+				     };
+
+				 NULL
+				     =>
+				     pps (string::cat ["<RECURSIVE_TYPE ", int::to_string n, ">"]);
+			    esac;
+
+			};
+
+		    latex_print_type'' (FREE_TYPE n)
+			=>
+			case members_op
+			  
+			     THE (_, free_typs)
+				 => 
+				 {   typ
+					 =
+					 (   list::nth (free_typs, n)
+					     except _
+						 =
+						 bug "unexpected free_typs in prettyprintTypeConstructor"
+					 );
+
+				      latex_print_type'' typ;
+				 };
+
+			     NULL
+				 => 
+				 pps (string::cat ["<FREE_TYPE ", int::to_string n, ">"]);
+                        esac;
+
+		    latex_print_type'' (typ as TYP_BY_STAMPPATH { arity, stamppath, path } )
+			=>
+			if *internals
+
+                             begin_wrap_box 1;
+			     prettyprint_inverse_path stream path; pps "[P;"; 
+			     pps (stamppath::stamppath_to_string stamppath);
+			     pps "]";
+			     end_box ();
+			else
+                             prettyprint_inverse_path stream path;
+                        fi;
+
+		    latex_print_type'' ERRONEOUS_TYP
+                        =>
+                        pps "[E]";
+                end;
+
+	    end
+
+
+	also
+	fun latex_print_some_type1
+                symbolmapstack
+                stream
+                (   type:      Type,
+		    an_api:      t::Type_Scheme_Arg_Eq_Properties, 
+		    members_op:  Null_Or( (Vector( t::Datatype_Member ), List( t::Typ )) )
+		)
+		: Void
+	    =
+	    {   my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, newline }
+                    =
+                    en_pp stream;
+		#
+		fun prty type
+		    =
+		    case type
+			#		      
+			TYPE_VARIABLE_REF { id, ref_typevar => REF (RESOLVED_TYPE_VARIABLE type') }
+			    =>
+			    prty  type';
+
+			TYPE_VARIABLE_REF  tv
+			    =>
+			    latex_print_type_variable tv;
+
+			TYPE_SCHEME_ARG_I n
+			    =>
+			    {   eq =   list::nth (an_api, n) 
+				       except
+					   (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = FALSE;
+
+				pps (decorated_type_variable_name (eq, (bound_type_variable_name n)));
+			    };
+
+			TYPCON_TYPE (typ, args)
+			    =>
+			    {   fun otherwise ()
+				    =
+				    {   begin_wrap_box 2;
+					latex_print_type' symbolmapstack stream members_op typ;
+
+					case args
+					    #
+					    [] => ();
+					    _  => {   pps "(";
+						      break { spaces=>0, indent_on_wrap=>0 };
+						      latex_print_type_args args; 
+						      pps ")";
+						  };
+					esac;
+
+					end_box();
+				    };
+
+				case typ
+				    #
+				    PLAIN_TYP { stamp, kind, ... }
+					=>
+					case kind
+					    #					    
+					    BASE _ 
+						=>
+						if (stamp::same_stamp (stamp, arrow_stamp))
+						    #
+						    case args
+							#
+							[domain, range]
+							    =>
+							    {   begin_horizontal_else_vertical_box 0;
+
+								if (strength domain == 0)
+								    #	
+								    begin_horizontal_else_vertical_box 1;
+								    pps "(";
+								    prty domain;
+								    pps ")";
+								    end_box();
+								else
+								    prty domain;
+								fi;
+
+								break { spaces=>1, indent_on_wrap=>0 };
+								pps "-> ";
+								prty range;
+								end_box();
+							    };
+
+							_   => bug "TYPCON_TYPE: arity";
+						    esac;
+						else
+						    begin_wrap_box 2;
+						    latex_print_type'  symbolmapstack  stream  members_op  typ;
+
+						    case args
+							#
+							[] => ();
+
+							 _ => {   pps "(";
+								  break { spaces=>0, indent_on_wrap=>0 };
+								  latex_print_type_args args;
+								  pps ")";
+							      };
+						    esac;
+
+						    end_box();
+						fi;
+
+					    _   => otherwise ();
+					esac;
+
+				    RECORD_TYP labels
+					=>
+					if (tuples::is_tuple_typ  typ)   prettyprint_tuplety args;
+					else                                   prettyprint_recordty (labels, args);
+					fi;
+
+				    _ => otherwise ();
+				esac;
+			    };
+
+			TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties => an_api,
+					   type_scheme => TYPE_SCHEME { arity, body }
+					 }
+			    => 
+			    latex_print_some_type1 symbolmapstack stream (body, an_api, members_op);
+
+			WILDCARD_TYPE
+			    =>
+			    pps "_";
+
+			UNDEFINED_TYPE
+			    =>
+			    pps "undef";
+                    esac
+
+		also
+		fun latex_print_type_args []
+                        =>
+                        ();
+
+		    latex_print_type_args [type]
+		        => 
+		        {   if   (strength type <= 1)
+		                
+                                 begin_wrap_box 1;
+			         pps "("; 
+			         prty type; 
+			         pps ")";
+			         end_box();
+		            else
+                                 prty type;
+                            fi;
+
+		            break { spaces=>1, indent_on_wrap=>0 };
+                        };
+
+		    latex_print_type_args tys
+			=>
+			unparse_closed_sequence
+			    stream 
+			    {   front =>  by pp::string "(",
+				sep   =>  fn stream =  {   pp::string stream ", ";
+					                   pp::break stream { spaces=>0, indent_on_wrap=>0 };
+                                                       },
+				back  =>  by pp::string ") ",
+				style =>  INCONSISTENT, 
+				pr    =>  fn _ =  fn type =  prty type
+			    }
+			    tys;
+                end 
+
+		also
+		fun prettyprint_tuplety []
+                        =>
+                        pps (effective_path (unit_path, RECORD_TYP [], symbolmapstack));
+
+		    prettyprint_tuplety tys
+			=>
+                        {   pps "(";
+
+			    unparse_sequence
+			       stream
+			       {   sep   => fn stream =  {   pp::break stream { spaces=>1, indent_on_wrap=>0 };
+							     pp::string stream ", ";	# Was "* "
+							 },
+				   style => INCONSISTENT,
+				   pr    => (fn _ =  fn type = if   (strength type <= 1)
+								      begin_wrap_box 1;
+								      pps "(";
+								      prty type; 
+								      pps ")";
+								      end_box ();
+								 else
+								      prty type;
+								 fi
+					   )
+			       }
+			       tys;
+
+			       pps ")";
+		        };
+                end 
+
+		also
+		fun prettyprint_field (lab, type)
+		    =
+		    {   begin_horizontal_else_vertical_box 0;
+			unparse_symbol stream lab; 
+			pps ":";
+			prty type;
+			end_box ();
+		    }
+
+		also
+		fun prettyprint_recordty ([],[])
+			=>
+			pps (effective_path (unit_path, RECORD_TYP [], symbolmapstack));
+			  #  this case should not occur 
+
+		    prettyprint_recordty (lab ! labels, arg ! args)
+			=>
+			{   begin_wrap_box 1;
+			    pps "{";
+			    prettyprint_field (lab, arg);
+
+			    paired_lists::apply 
+				(fn field'
+				    =
+				    {   pps ", ";
+					break { spaces=>1, indent_on_wrap=>0 };
+					prettyprint_field field';
+				    }
+				)
+				(labels, args);
+
+			    pps "}";
+			    end_box ();
+			};
+
+		    prettyprint_recordty _
+			=>
+			bug "latex_print_type::prettyprintRECORDty";
+                end 
+
+		also
+		fun latex_print_type_variable (tv as { id, ref_typevar => (ref_info as REF info) }:Typevar_Ref) :Void
+		    =
+		    {   printname =   typevar_ref_printname tv;
+
+			case info
+			  
+			     INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields }
+				 =>
+				  case known_fields
+
+				       []  =>
+					   {   pps "{";
+					       pps printname;
+					       pps "}";
+					   };
+
+				       field' ! fields
+					   =>
+					   {   begin_wrap_box 1;
+					       pps "{";
+					       prettyprint_field field';
+					       apply (fn x =  {   pps ", ";
+								  break { spaces=>1, indent_on_wrap=>0 };
+								  prettyprint_field x;
+							      }
+						     )
+						    fields;
+					       pps ";";
+					       break { spaces=>1, indent_on_wrap=>0 };
+					       pps printname;
+					       pps "}";
+					       end_box ();
+					   };
+				  esac;
+
+			     _  => pps printname;
+
+                        esac;
+		    };
+
+		prty type;
+	    }				#  prettyprintType1 
+
+	also
+	fun latex_print_some_type (symbolmapstack: symbolmapstack::Symbolmapstack) stream (type:  Type) : Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		latex_print_some_type1 symbolmapstack stream (type,[], NULL);
+		pp::end_box stream;
+	    };
+	#
+	fun latex_print_enum_constructor_domain members (symbolmapstack: symbolmapstack::Symbolmapstack) stream (type:  Type)
+	    : Void
+	    = 
+	    {   pp::begin_indented_wrap_box stream (pp::CURSOR_RELATIVE 1);
+		latex_print_some_type1 symbolmapstack stream (type,[], THE members);
+		pp::end_box stream;
+	    };
+
+	#
+	fun latex_print_type  symbolmapstack stream      typ
+	    =
+	    latex_print_type' symbolmapstack stream NULL typ;
+
+	#
+	fun latex_print_type_scheme symbolmapstack stream (TYPE_SCHEME { arity, body } )
+	    =
+	    {   my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+                    =
+                    en_pp stream;
+
+		begin_wrap_box 2;
+		pps "TYPE_SCHEME( { arity="; 
+		unparse_int stream arity;  unparse_comma stream;
+		break { spaces=>0, indent_on_wrap=>0 };
+		pps "body="; 
+		latex_print_some_type  symbolmapstack  stream  body; 
+		pps "} )";
+		end_box();
+	    };
+	#
+	fun latex_print_formals stream
+	    =
+	    {   fun prettyprint_f 0 => ();
+		    prettyprint_f 1 => pps stream "X";
+		    prettyprint_f n
+                        =>
+                        {    unparse_tuple
+                                 stream
+                                 (fn stream =  fn s =  pps stream (tweak s))
+				 (type_formals n)
+                             where
+				 fun tweak "a" => "X";
+				     tweak "b" => "Y";
+				     tweak "c" => "Z";
+				     tweak "d" => "A";
+				     tweak "e" => "B";
+				     tweak "f" => "C";
+				     tweak "g" => "D";
+				     tweak "h" => "E";
+				     tweak "i" => "F";
+				     tweak "j" => "G";
+				     tweak "k" => "H";
+				     tweak "l" => "I";
+				     tweak "m" => "J";
+				     tweak "n" => "K";
+				     tweak "o" => "L";
+				     tweak "p" => "M";
+				     tweak "q" => "N";
+				     tweak "r" => "O";
+				     tweak "s" => "P";
+				     tweak "t" => "Q";
+				     tweak "u" => "R";
+				     tweak "v" => "S";
+				     tweak "w" => "T";
+				     tweak "x" => "U";
+				     tweak "y" => "V";
+				     tweak "z" => "W";
+				     tweak  x  =>  x;
+				 end;
+                             end;
+                        };
+                end;
+
+		prettyprint_f;
+	    };
+
+	#
+	fun latex_print_enum_constructor_types symbolmapstack stream (PLAIN_TYP { kind => DATATYPE dt, ... } )
+		=>
+		{   my { index, free_typs, family=> { members, ... }, ... }
+			=
+			dt;
+
+		    my { begin_horizontal_else_vertical_box, begin_wrap_box, end_box, pps, break, ... }
+			=
+			en_pp stream;
+
+		    my { constructor_list, ... }
+			=
+			vector::get (members, index);
+
+		    begin_horizontal_else_vertical_box 0;
+
+		    apply
+                        (fn { name, domain, ... }
+                            =
+			    {   pps (symbol::name name);
+                                pps ":";
+
+			        case domain
+			          
+			             THE type
+                                         =>
+				         latex_print_some_type1 symbolmapstack stream (type,[], THE (members, free_typs));
+
+				     NULL
+                                         =>
+                                         pps "CONST";
+                                esac;
+
+			        break { spaces=>1, indent_on_wrap=>0 };
+                            }
+			)
+			constructor_list;
+
+		    end_box ();
+		};
+
+	    latex_print_enum_constructor_types symbolmapstack stream _
+		=>
+		bug "latex_print_enum_constructor_types";
+       end;
+    };				#  package latex_print_type 
+end;				#  toplevel "stipulate"
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1991 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

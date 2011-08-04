@@ -1,0 +1,279 @@
+## liveness-g.pkg -- Compute live variables.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+# I've moved the parameters of the generic to the function arguments 
+# so that it is more flexible.
+#
+# -- Allen Leung 4/28/00
+
+
+# TODO: The liveness module should take a 
+#  int_hashtable::Hashtable( List( c::Registerset ) )
+
+
+
+stipulate
+    package odg =  oop_digraph;								# oop_digraph			is from   src/lib/graph/oop-digraph.pkg
+    package iht =  int_hashtable;							# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    # This generic is invoked in:
+    # 
+    #     src/lib/compiler/back/low/main/fatecode/check-heapcleaner-calls-g.pkg
+    #     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+    #
+    generic package   liveness_g   (
+	#	      ==========
+	#
+	mcg:  Machcode_Controlflow_Graph							# Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+    )
+    : (weak)  Liveness									# Liveness			is from   src/lib/compiler/back/low/regor/liveness.api
+    {
+	# Export to our client packages:
+	#
+	package mcg = mcg;								# "mcg" == "machcode_controlflow_graph".
+
+	stipulate
+	    package cos =  rkj::cos;							# "cos" == "colorset".
+
+	    fun error msg
+		=
+		lem::error("liveness", msg);
+	herein
+
+	    Liveness_Table = iht::Hashtable( cos::Colorset );				# Exported to client packages.
+
+	    Du = ( List(rkj::Codetemp_Info),						# Exported to client packages.
+		   List(rkj::Codetemp_Info)
+		 );
+
+
+	    not_found = exceptions::FAIL("liveness: Not Found");			# exception 
+
+	    fun pr_list (l, msg: String)
+		=
+		{   fun pr ([]) => print "\n";
+			pr (x ! xs) => { print (int::to_string x + " "); pr xs;};
+		    end;
+
+		    print msg;
+		    pr l;
+	       };
+
+	    fun du_step def_use (op, (def, uses))
+		=
+		{   (def_use  op) ->   (d, u);
+		    #
+		    d0   = cos::make_colorset d;
+		    def' = cos::union_of_colorsets (d0, def);													# def' = d - def;
+		    use  = cos::union_of_colorsets (cos::make_colorset u, cos::difference_of_colorsets (uses, d0));		# use  = u + (uses-d);
+
+		    (def', use);
+		};
+
+	    fun live_step  def_use  (op, liveout)
+		=
+		{   (def_use op) ->   (d, u);
+		    #
+		    cos::union_of_colorsets (cos::make_colorset u, cos::difference_of_colorsets (liveout, cos::make_colorset d));	# u + (liveout - d);
+		};
+
+	    fun liveness { def_use, get_codetemps_of_our_kind }
+		=
+		dataflow
+		where
+
+		    get_codetemps_of_our_kind_as_colorset
+			=
+			cos::make_colorset
+			o
+			get_codetemps_of_our_kind;
+
+		    fun dataflow (mcg as odg::DIGRAPH graph)
+			=
+			{
+			    blocks  =  graph.nodes ();
+			    n_nodes =  graph.order ();
+
+			    my live_in:   iht::Hashtable( cos::Colorset ) =  iht::make_hashtable  { size_hint => n_nodes,  not_found_exception => not_found };
+			    my live_out:  iht::Hashtable( cos::Colorset ) =  iht::make_hashtable  { size_hint => n_nodes,  not_found_exception => not_found };
+
+			    my uses:      iht::Hashtable( cos::Colorset ) =  iht::make_hashtable  { size_hint => n_nodes,  not_found_exception => not_found };
+			    my defs:      iht::Hashtable( cos::Colorset ) =  iht::make_hashtable  { size_hint => n_nodes,  not_found_exception => not_found };
+
+			    # Compute block aggregate definition use:
+			    #
+			    fun init_def_use (nid, mcg::BBLOCK { ops, ... } )		# "nid" might be "node id" (== basic block id).
+				=
+				{   my (def, a_use)
+					=
+					fold_left
+					    #
+					    (du_step def_use)
+					    #
+					    ( cos::empty_colorset,
+					      cos::empty_colorset
+					    )
+					    #
+					    *ops;
+
+				    iht::set uses (nid, a_use);
+				    iht::set defs (nid, def);
+				};
+
+
+			    # Gather the live-out information: 
+			    #
+			    fun init_live_out (nid, mcg::BBLOCK { notes, ... } )
+				= 
+				case (mcg::liveout.get *notes)
+				    #
+				    THE cs =>   iht::set live_out (nid, get_codetemps_of_our_kind_as_colorset  cs);
+				    #
+				    NULL   =>   iht::set live_out (nid, cos::empty_colorset);
+				esac;
+
+
+			    fun init_live_in ()
+				= 
+				graph.forall_nodes
+				    #
+				    (fn (nid, _) =  iht::set  live_in  (nid, cos::empty_colorset));
+
+
+			    fun init ()
+				=
+				{   graph.forall_nodes init_def_use;  
+				    graph.forall_nodes init_live_out;
+				    init_live_in();
+				};
+
+			    fun in_b  nid
+				=
+				changed
+				where
+				    a_use    =  iht::get  uses      nid; 
+				    def      =  iht::get  defs      nid;
+				    live_out =  iht::get  live_out  nid;
+
+				    livein   =  cos::union_of_colorsets					# a_use + (live_out - def)
+						  ( a_use,
+						    cos::difference_of_colorsets (live_out, def)
+                                                  );
+
+				    changed  =  cos::not_same_colorset (iht::get  live_in  nid, livein);
+
+				    iht::set live_in (nid, livein);
+				end;
+
+
+			    fun out_b (nid, mcg::BBLOCK { notes, ... } )
+				=
+				{   fun in_succ (nid ! ns, acc) =>   in_succ (ns, cos::union_of_colorsets (iht::get  live_in  nid, acc));
+					in_succ (      [], acc) =>   acc;
+				    end;
+
+				    old_live_out =   iht::get  live_out  nid; 
+				    new_live_out =   in_succ (graph.next nid, cos::empty_colorset);
+
+				    iht::set live_out (nid, new_live_out);
+				    cos::not_same_colorset (old_live_out, new_live_out);
+				};
+
+			    fun bottomup ()
+				=
+				{   my visited_table:  iht::Hashtable( Bool )
+					=
+					iht::make_hashtable  { size_hint => n_nodes,  not_found_exception => not_found };
+
+				    fun is_visited nid
+					= 
+					case (iht::find visited_table nid)
+					    #
+					    NULL =>   FALSE;
+					    _    =>   TRUE;
+					esac;
+
+				    fun visit (nid, changed)
+					=
+					{   fun visit_succ ([], changed')
+						    =>
+						    changed';
+
+						visit_succ (nid ! ns, changed')
+						    =>
+						    {   (graph.node_info  nid) ->   mcg::BBLOCK { kind, ... };
+
+							case kind
+							    #
+							    mcg::STOP =>   visit_succ (ns, changed');
+							    #
+							    mcg::NORMAL
+								=>
+								if (is_visited nid)   visit_succ (ns, changed');
+								else                  visit_succ (ns, visit (nid, changed'));
+								fi;
+
+							    _ => error "visit::visitSucc";
+							esac;
+						    };
+					    end;
+
+					   iht::set visited_table (nid, TRUE);
+
+					   changed' =   visit_succ (graph.next nid, changed);
+					   block    =   graph.node_info nid;
+
+					   change1  =   out_b (nid, block);
+					   change2  =   in_b (nid);
+
+					   changed' or change1 or change2;
+					 };
+
+				     fun forall ([], changed)
+					     =>
+					     changed;
+
+					 forall((nid, block) ! rest, changed)
+					     => 
+					     if   (is_visited  nid)
+
+						  forall (rest, changed);
+					     else
+						  forall (rest, visit (nid, changed));
+					     fi;
+				     end;
+
+				     forall (blocks, FALSE);
+			      }; 
+
+			    fun repeat n
+				=
+				if   (bottomup ())
+
+				     repeat  (n+1);
+				else
+				     n+1;
+				fi;
+
+
+			    init();
+			    repeat 0;
+
+			    { live_in, live_out };
+			  };  
+
+		  end;
+	end;
+    };
+end;
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

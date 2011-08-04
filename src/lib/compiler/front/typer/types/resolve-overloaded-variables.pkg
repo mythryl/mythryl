@@ -1,0 +1,473 @@
+## resolve-overloaded-variables.pkg 
+#
+# Here we handle resolution of overloaded variables (operators) like
+#
+#     + - / *
+#
+# These variables are originally defined by
+#
+#     overloaded val ...
+#
+# statements, e.g. as found in   src/lib/core/init/pervasive.pkg
+#
+# Note that overloading of literals is a separate mechanism, handled in
+#
+#     src/lib/compiler/front/typer/types/resolve-overloaded-literals.pkg
+#
+# Overloading of variables is an ad hoc kludge;  it does not
+# fit well with the design of the language, but it is needed
+# if use of arithmetic operatiors is not to be unbearably clumsy.
+# (Although Ocaml manages without overloading.)
+#
+# At runtime we get invoked (only) from:
+#
+#     src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+#
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# Our protocol model here is that the client
+# first one by one passes us all overloaded
+# variables to be resolved, which we hold
+# unresolved in an internal list, and then
+# calls us to resolve all of them in batch
+# mode.   Consequently we need internal state
+# to track the accumulating list.
+#
+# We implement this by exporting a 'new' function
+# which returns a pair of functions which internally
+# share a fresh, empty list reference cell in which
+# to do the required overloaded variable accumulation:
+#
+api Resolve_Overloaded_Variables {
+
+    new:
+        Void
+	->
+        {   note_overloaded_variable:
+                ( Ref( variables_and_constructors::Variable ),
+                  error_message::Plaint_Sink
+                )
+                ->
+                types::Type,
+
+    	    resolve_all_overloaded_variables
+                :
+                symbolmapstack::Symbolmapstack
+                ->
+                Void
+        };
+
+};
+
+
+
+stipulate 
+    package em  =  error_message;		# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package bt  =  type_types;			# type_types			is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package ts  =  type_junk;			# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package ed  =  typer_debugging;		# typer_debugging	is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+    #
+    include variables_and_constructors;
+    include types;
+herein
+
+
+
+    package   resolve_overloaded_variables
+    : (weak)  Resolve_Overloaded_Variables
+    {
+	fun bug msg
+            =
+            em::impossible("Overload: " + msg);
+
+
+        # To see if a given overloaded variable can be
+        # matched to a given base variable, we check to
+        # see if their types can be unified.
+        #
+        # Since our unification algorithm proceeds by
+        # setting reference variables in the relevant
+        # types, if the unification fails we need to
+        # have a way to back out the changes introduced
+        # by the failed attempt.
+        #
+        # Here we implement the machinery for doing that.
+        #
+        # We define a 'Substitution' to be a mapping from
+        # type variable references to type variables.
+        #
+        # By recording in a Substitution the pre-existing values
+        # of all type variable references which we change
+        # during attempted unification, and then implementing
+        # a function to restore all modified references to
+        # their pre-existing values by applying that Substitution,
+        # we can undo the mess created by a failed unification
+        # attempt:
+
+	Substitution
+            =
+            List( (Ref( Type_Variable ), Type_Variable) );
+
+	exception SOFT_UNIFY;
+
+	# Restore the pre-existing values
+        # of a set of typevar refs by
+        # applying an accumulated substitution.
+        #
+	fun roll_back (((typevar_ref as REF type), oldtype) ! rest)
+		=>
+		{   typevar_ref := oldtype;
+		    roll_back  rest;
+		};
+
+	    roll_back NIL
+		=>
+		();
+	end;
+
+
+        # Attempt unification of type1 with type2.
+        #
+        # If anything goes wrong, roll back all
+        # changes made.
+        #
+        # Return TRUE if the two unified successfully,
+        # otherwise FALSE.
+        #
+	fun soft_unify
+            ( type1: Type,
+              type2: Type
+            )
+            : Bool
+            =
+	    {	{   unify (type1, type2);
+		    TRUE;
+		}
+		except
+		    SOFT_UNIFY
+			=
+			{   roll_back *substitution;
+			    FALSE;
+			};
+	    }
+            where
+	        # Initialize a Substution in which to
+                # record all changes made during unification
+                # for possible rollback:
+                #
+                my substitution: Ref( Substitution )
+                    =
+                    REF NIL;
+
+
+		# Set given typevar ref to given type,
+                # saving its pre-existing value in the
+                # above substituion for possible rollback.
+                #
+                # We also perform the standard unification
+                # 'occur' check as we do so, and raise
+                # 'SOFT_UNIFY' if we fail:
+                #
+		fun set_typevar_undoably
+                    ( tv as { id, ref_typevar as REF typevar }:  Typevar_Ref,
+                      type: Type
+                    )
+                    : Void
+                    =
+		    case typevar
+			#
+			( OVERLOADED_TYPE_VARIABLE eq
+			| META_TYPE_VARIABLE { eq, ... }
+			)
+			    =>
+			    {   scan eq type;
+				substitution := (ref_typevar, typevar) ! *substitution;
+				ref_typevar := RESOLVED_TYPE_VARIABLE type;
+			    }
+			    where
+			        fun scan eq (type: Type): Void				# Simple occurrence check 
+				    =
+				    case type
+					#
+					TYPE_VARIABLE_REF (tv' as { id => id', ref_typevar => ref_typevar' })
+					    => 
+					    if (ts::typevar_refs_are_equal (tv, tv'))
+						 #
+						 raise exception SOFT_UNIFY;
+					    else
+						 case ref_typevar'
+
+						      REF (INCOMPLETE_RECORD_TYPE_VARIABLE { known_fields, ... } )
+							  =>
+							  #  David B MacQueen: can this happen? 
+							  apply   (fn (_, type') = scan eq type')   known_fields;
+
+						      _   => ();
+
+						 esac;
+					    fi;
+
+					TYPCON_TYPE (typ, args)
+					    =>
+					    # Check equality property if necessary 
+					    #
+					    if (not eq)
+						#
+						apply (scan eq) args;
+					    else
+						case typ
+						    #
+						    DEFINED_TYP _
+							=> 
+							scan eq (ts::head_reduce_type type);
+
+						    PLAIN_TYP gt
+							=>
+							case *gt.eq
+							    #
+							    YES   =>  apply (scan eq) args;
+							    CHUNK =>  apply (scan FALSE) args;
+							    _     =>  raise exception SOFT_UNIFY;		# Won't happen 
+							esac;
+
+						   _ => raise exception SOFT_UNIFY;				# Won't happen?
+						esac;
+
+					    fi;
+
+				       type => ();     #  propagate error
+
+				   esac;
+			    end;
+
+			_ => raise exception SOFT_UNIFY;
+		    esac;
+
+
+
+
+		  fun unify
+                      ( type1: Type,
+                        type2: Type
+                      )
+                      : Void
+                      =
+		      {   type1 = ts::prune type1;
+			  type2 = ts::prune type2;
+
+                          case (type1, type2)
+			    
+			       (WILDCARD_TYPE, _) => ();		# Wildcards unify with anything.
+			       (_, WILDCARD_TYPE) => ();		# Wildcards unify with anything.
+
+			       (TYPE_VARIABLE_REF (tv1), TYPE_VARIABLE_REF (tv2))
+				   =>
+				   if (not (ts::typevar_refs_are_equal (tv1, tv2)))
+				       set_typevar_undoably (tv1, type2);
+                                   fi;
+
+			       (TYPE_VARIABLE_REF (tv1), _) => set_typevar_undoably (tv1, type2);
+
+			       (_, TYPE_VARIABLE_REF (tv2)) => set_typevar_undoably (tv2, type1);
+
+			       (TYPCON_TYPE (typ1, args1), TYPCON_TYPE (typ2, args2))
+				   =>
+				   if ( ts::typs_are_equal
+                                            (typ1, typ2)
+                                      )
+
+                                        unify_lists (args1, args2);
+				   else
+					unify (ts::reduce_type type1, type2)
+					except
+					    ts::BAD_TYPE_REDUCTION
+						=> 
+						unify (type1, ts::reduce_type type2)
+						except
+						    ts::BAD_TYPE_REDUCTION
+							=>
+							raise exception SOFT_UNIFY;
+						end;
+					end;
+				   fi;
+
+			      _ => raise exception SOFT_UNIFY;
+                           esac;
+		      }
+
+		  also
+		  fun unify_lists ([],[])
+                          =>
+                          ();
+
+		      unify_lists
+                          ( type1 ! rest1,
+                            type2 ! rest2
+                          )
+			  => 
+			  {   unify (type1, type2);
+                              unify_lists (rest1, rest2);
+                          };
+
+		      unify_lists  _
+                          =>
+                          raise exception SOFT_UNIFY;
+                  end;
+	      end;								# fun soft_unify
+
+	# We get invoked (only) from:
+	#
+	#     src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+	#
+	fun new ()
+	    =
+	    { note_overloaded_variable,
+              resolve_all_overloaded_variables
+            }
+            where
+
+	        all_overloaded_variables
+                    =
+                    REF (NIL: List( (Ref( Variable ), error_message::Plaint_Sink, Type)) );
+
+
+		fun note_overloaded_variable (refvar as REF (OVERLOADED_IDENTIFIER { alternatives, type_scheme, ... } ), err)
+			=> 
+			{   my (type_scheme, type)
+                                =
+                                copy_type_scheme  type_scheme
+                                where
+				    fun copy_type_scheme (type_scheme as TYPE_SCHEME { arity, ... } ) : (Type, Type)
+					=
+					{   typevars =  make_type_args arity
+                                                        where
+							    fun make_type_args  n
+								=
+								n > 0   ??   ts::make_overloaded_type_variable_and_type ["copy_type_scheme  from  overloader.pkg"] ! make_type_args (n - 1)
+									::   [];
+                                                        end;
+
+					    ( ts::apply_type_scheme (type_scheme, typevars),
+
+					      arity > 1
+						  ??   bt::tuple_type  typevars
+						  ::   head            typevars					# We don't make length-one tuples.
+					    );
+					};
+                                end;
+
+
+			    all_overloaded_variables
+                                := 
+                                (refvar, err, type)
+                                !
+                                *all_overloaded_variables;
+
+			    type_scheme;
+			};
+
+		    note_overloaded_variable _
+                        =>
+                        bug "note_overloaded_variable.1";
+                end;
+
+		# We implement defaulting behavior:
+                # if more than one variant matches the
+                # context type, the first one matching
+		# (which will always be the first variant)
+                # is used as the default:
+		#
+		fun resolve_all_overloaded_variables  symbolmapstack
+                    =
+		    apply
+                        resolve_overloaded_variable
+                        *all_overloaded_variables
+		    where
+		        fun resolve_overloaded_variable
+                                ( var_ref as REF (OVERLOADED_IDENTIFIER { name, alternatives, ... } ),
+                                  err,
+                                  context
+                                )
+				=>
+				first_match  *alternatives
+                                where
+
+				    fun first_match ( { indicator, variant } ! rest)
+					    =>
+					    {   (ts::instantiate_if_type_scheme  indicator)
+                                                    ->
+                                                    (plain_type, _);
+
+						soft_unify (plain_type, context)
+						    ??  var_ref := variant			# Overload successfully resolved.
+						    ::  first_match rest;   			# Iterate through remaining variants.
+					    };
+
+					first_match  NIL
+					    =>
+					    {   err em::ERROR "overloaded variable not defined at type"
+						  (fn stream
+						      =
+						      {   unparse_type::reset_unparse_type ();
+
+							  prettyprint::newline    stream;
+							  prettyprint::string     stream "symbol: "; 
+
+							  unparse_junk::unparse_symbol  stream name;
+							  prettyprint::newline    stream;
+							  prettyprint::string     stream "type: ";
+
+							  unparse_type::unparse_type  symbolmapstack  stream  context;
+						      }
+						  );
+
+						();
+					    };
+				    end;
+				end;
+
+			    resolve_overloaded_variable _
+                                =>
+                                bug "overload.2";
+                        end;
+		    end;
+	    end;			# fun new 
+    };					# package overload 
+end;					# stipulate
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT 1996 AT&T Bell Laboratories. 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

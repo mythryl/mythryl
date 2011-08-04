@@ -1,0 +1,3493 @@
+## expand-oop-syntax2.pkg
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# An alternate try at Mythryl OOP support.
+#
+# Bernard Berthomeiu's A2.3.2 approach seems too limited
+# to be really useful due to lack of object arguments varying
+# in type from the message recipient.
+#
+# Bernard Berthomeiu's A2.3.3 approach looks too hairy for my
+# taste.
+#
+# I'm hoping here to take advantage of the fact that we can
+# tweak the compiler to substantially simplify things and
+# also move toward a more traditional operational implementation
+# where objects are a single tuple pointing to a method vector
+# which is also a single tuple.
+#
+# The plan of attack here is:
+#
+#  o Establish this duplicate oop implementation parallel to the first.
+#    (I'm not sure this is going to work, so I'm happier keeping the
+#    at least somewhat working first approach in place until the second
+#    one proves out.)
+#  DONE.
+#
+#  o Switch to using tuples instead of records for the two halves of
+#    object state (fields and methods) in preparation for the next,
+#    since tuples are (I hope!) definitely ordered constructs, whereas
+#    the compiler may well feel free to re-order fields in a record.
+#  DONE.
+#
+#  o Switch to keeping objects as single vectors.  One point of this
+#    is that pack and unpack become operationally no-ops which can
+#    be implemented by the identity function.  We may have to implement
+#    an internal typecast node in raw and maybe deep syntax to make
+#    this work. 
+#
+#  o Tweak the type checker so that upcasts are silently allowed.
+#    This should be a very simple, conservative extension to the
+#    typechecking algorithm:  Just find where it issues a type
+#    error when an upcast is attempted and tweak it to check for
+#    both args being objects in an upcast relationship.  This
+#    may require declaring types explicitly a lot to ensure that
+#    the error is detected at the upcast point and not somewhere
+#    else.
+#
+#  o Implement explicit downcasts.  These have to do runtime checking
+#    ala Berthomieu's unfolding logic and issue a similar exception
+#    if a non-permitted (irrational) downcast is attempted.
+#
+# The result will be a very traditional oop implementation where
+# field and method access is O(1) and where there is no invisible
+# method invocation overhead beyond method lookup -- even when
+# implicit upcasts are needed, they at runtime are identity
+# functions which can be inlined away.  Object types will be then
+# be vanilla typelocked types without type variables or related
+# hair.
+# 
+
+package   expand_oop_syntax2
+:         Expand_Oop_Syntax2							# Expand_Oop_Syntax2			is from   src/lib/compiler/front/typer/main/expand-oop-syntax2.api
+{
+    package em  = error_message;						# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package bug = typer_debugging;						# typer_debugging		is from   src/lib/compiler/front/typer/main/typer-debugging.pkg
+
+										# typer_control			is from   src/lib/compiler/front/typer/basics/typer-control.pkg
+    # Debugging: 
+    #
+    say         =   control_print::say;
+    debugging   =   typer_control::expand_oop_syntax_debugging;		#  eval:   set_control "typechecker::expand_oop_syntax_debugging" "TRUE";
+    #
+    fun if_debugging_say (msg: String)
+	=
+	if *debugging 
+	    say msg;
+	    say "\n";
+	fi;
+
+										# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    #
+    fun bug msg
+	=
+	error_message::impossible("type_package_language: " + msg);
+
+
+    debug_print
+	=
+	fn x =  bug::debug_print  debugging  x;
+
+
+										# raw_syntax				is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+										# symbolmapstack				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+										# prettyprinter				is from   src/lib/prettyprint/big/src/prettyprinter.pkg
+									 	# unparse_raw_syntax			is from   src/lib/compiler/front/typer/print/unparse-raw-syntax.pkg
+    fun unparse_raw_declaration
+	(
+	  msg:          String,
+	  declaration:  raw_syntax::Declaration,
+	  symbolmapstack: symbolmapstack::Symbolmapstack
+	)
+	=
+	if *debugging
+	    print "\n";
+	    print msg;
+	    pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+	    pps = pp.stream;
+
+	    unparse_raw_syntax::unparse_declaration
+		(symbolmapstack, NULL)
+		pps
+		(declaration, 100);
+
+	    pp.flush ();
+	    pp.close ();
+	    print "\n";
+	fi;
+    #
+    fun prettyprint_raw_declaration
+	(
+	  msg:          String,
+	  declaration:  raw_syntax::Declaration,
+	  symbolmapstack: symbolmapstack::Symbolmapstack
+	)
+	=
+	if *debugging
+	    print "\n";
+	    print msg;
+	    pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+	    pps = pp.stream;
+
+	    prettyprint_raw_syntax::prettyprint_declaration
+		(symbolmapstack, NULL)
+		pps
+		(declaration, 100);
+
+	    pp.flush ();
+	    pp.close ();
+	    print "\n";
+	fi;
+
+										# prettyprint_raw_syntax		is from   src/lib/compiler/front/typer/print/prettyprint-raw-syntax.pkg
+    fun prettyprint_named_function
+	(
+	  msg:          String,
+	  function:     raw_syntax::Named_Function,
+	  symbolmapstack: symbolmapstack::Symbolmapstack
+	)
+	=
+	if *debugging
+	    print "\n";
+	    print msg;
+	    pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+	    pps = pp.stream;
+
+	    prettyprint_raw_syntax::prettyprint_named_function
+		(symbolmapstack, NULL)
+		pps
+                "method/message"
+		(function, 100);
+
+	    pp.flush ();
+	    pp.close ();
+	    print "\n";
+	fi;
+
+    include fast_symbol;							# fast_symbol				is from   src/lib/compiler/front/basics/map/fast-symbol.pkg
+    include raw_syntax;								# raw_syntax				is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    include raw_syntax_junk;							# raw_syntax_junk			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax-junk.pkg
+
+    package eos = expand_oop_syntax_junk;					# expand_oop_syntax_junk		is from   src/lib/compiler/front/typer/main/expand-oop-syntax-junk.pkg
+
+    typevar_x =  TYPE_VARIABLE (symbol::make_type_variable_symbol "X");
+
+										# line_number_db			is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+										# typer_junk				is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+										# oop_collect_methods_and_fields	is from   src/lib/compiler/front/typer/main/oop-collect-methods-and-fields.pkg
+										# oop_rewrite_declaration		is from   src/lib/compiler/front/typer/main/oop-rewrite-declaration.pkg
+    oop_collect_methods_and_fields
+	=
+	oop_collect_methods_and_fields::collect_methods_and_fields;
+
+    oop_rewrite_declaration
+	=
+	oop_rewrite_declaration::rewrite_declaration;
+
+    #
+    fun expand_oop_syntax_in_declaration
+        ( class_name:   	symbol::Symbol,
+          declaration:   	raw_syntax::Declaration,
+          symbolmapstack:         symbolmapstack::Symbolmapstack,
+	  source_code_region:   line_number_db::Source_Code_Region,
+          per_compile_info as
+            {
+              error_fn,
+              ...
+            }:			typer_junk::Per_Compile_Info
+        )
+	=
+	{
+	    (oop_collect_methods_and_fields  (declaration, symbolmapstack, source_code_region, per_compile_info))
+                ->
+                { fields,
+                  methods_and_messages,						# Definitions of 'method' and 'message' methods.
+                  null_or_superclass,						# First 'class super = ...' declaration found, else NULL.
+		  syntax_errors
+                }; 
+
+	    # We're now using tuples to hold fields,
+	    # and there are no length-0 or length-1
+	    # tuples in Mythryl, so pad 'fields' to
+            # at least length 2:
+	    #
+	    fields
+		=
+		case fields
+
+		    []        => [ NAMED_FIELD { name => symbol::make_value_symbol "__dummy1__", type => TYP_TYPE ([symbol::make_type_symbol "String"],[]), init => THE (STRING_CONSTANT_IN_EXPRESSION "") },
+                                   NAMED_FIELD { name => symbol::make_value_symbol "__dummy2__", type => TYP_TYPE ([symbol::make_type_symbol "String"],[]), init => THE (STRING_CONSTANT_IN_EXPRESSION "") }
+                                 ];
+
+		    [ field ] => [ field,
+                                   NAMED_FIELD { name => symbol::make_value_symbol "__dummy1__", type => TYP_TYPE ([symbol::make_type_symbol "String"],[]), init => THE (STRING_CONSTANT_IN_EXPRESSION "") }
+                                 ];
+
+                    _         => fields;
+
+		esac;
+
+	    fun field_to_offset field_name
+		=
+		field_to_offset' (fields, 0)
+                where 
+		    fun field_to_offset' ([], field_num)
+			    =>
+			    raise exception FAIL
+			      ( sprintf	
+                                "expand-oop-syntax.pkg: field_to_offset': error: Class %s has no field %s"
+                                (symbol::name class_name)
+                                (symbol::name field_name)
+                              );
+
+		        field_to_offset' (field ! rest, field_num)
+			    =>
+			    if (symbol::eq (get_fieldname field,  field_name))
+                                 field_num;
+			    else
+                                 field_to_offset' (rest, field_num + 1);
+			    fi
+                            where
+				fun get_fieldname (NAMED_FIELD { name, ... })
+                                        =>
+                                        name;
+ 
+				    get_fieldname (SOURCE_CODE_REGION_FOR_NAMED_FIELD ( named_field, _ ))
+                                        =>
+                                        get_fieldname  named_field;
+                                end;
+                            end;
+		    end;
+		end;
+
+# printf "class %s fields:\n" (symbol::name class_name);
+# apply print_field_name fields
+# where
+#     fun print_field_name (NAMED_FIELD { name, type, init })
+# 	    =>
+# 	    printf "    %s (%d)\n" (symbol::name name) (field_to_offset name);
+# 
+#         print_field_name (SOURCE_CODE_REGION_FOR_NAMED_FIELD  (named_field, source_code_region))
+# 	    =>
+# 	    print_field_name  named_field;
+#     end;
+# end;
+	    if *debugging
+		printf "expand_oop_syntax_in_declaration/TOP: methods_and_messages\n";
+		count = REF 0;
+		apply  print_it  methods_and_messages
+		where
+		    fun print_it  method_or_message
+			=
+			{   prettyprint_named_function
+			      (  sprintf "method/message #%d: " *count,
+				 method_or_message,
+				 symbolmapstack
+			      );
+
+			      count := *count + 1;
+			};
+		end;
+	    fi;
+
+	    initializer_fields					# Fields which have no initial value, hence need to be supplied via initializer record.
+		=
+		list::filter  filter_fn  fields
+		where
+		    fun filter_fn (NAMED_FIELD { name, type, init => NULL })
+			    =>
+			    TRUE;
+
+			filter_fn _
+			    =>
+			    FALSE;
+		    end;
+		end;
+
+
+	    message_definitions					# Definitions of new messages.
+		=
+		list::filter  filter_fn  methods_and_messages
+		where
+		    fun filter_fn (NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type })
+			    =>
+			    kind == MESSAGE_FUN;
+
+			filter_fn _
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: Internal compiler error.";
+		    end;
+		end;
+# XXX BUGGO FIXME  Need to pad this to at least length 2 in
+#                  general because Object__Methods is now a
+#                  tuple and we don't have length-0 or length-1 tuples.
+
+
+	    method_overrides					# Definitions which override an inherited method.
+		=
+		list::filter  filter_fn  methods_and_messages
+		where
+		    fun filter_fn (NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type })
+			    =>
+			    kind == METHOD_FUN;
+
+			filter_fn _
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: Internal compiler error.";
+		    end;
+		end;
+
+
+	    methods_and_messages
+		=
+		map  convert_to_normal_function  methods_and_messages
+		where
+		    fun convert_to_normal_function (NAMED_FUNCTION { pattern_clauses, is_lazy, kind, null_or_type })
+			    =>
+			    NAMED_FUNCTION { pattern_clauses, is_lazy, kind => PLAIN_FUN, null_or_type => NULL };
+
+			convert_to_normal_function _
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: convert_to_normal_function: Internal compiler error.";
+		    end;
+		end;	
+
+
+	    # If the user did not declare an explicit superclass,
+	    # default to using 'object2' as our superclass:
+	    #
+	    superclass
+		=
+		case (null_or_superclass)
+
+		    THE superclass => superclass;
+
+		    NULL
+			=>
+			NAMED_PACKAGE
+			  { name_symbol =>  symbol::make_package_symbol "super",
+			    definition  =>  PACKAGE_BY_NAME [ symbol::make_package_symbol "object2" ],
+			    constraint  =>  NO_PACKAGE_CAST,
+			    kind        =>  PLAIN_PACKAGE
+			  };
+		esac;
+
+
+	    parent_path
+		= 
+		REF [];
+
+	    #
+	    case superclass
+		(NAMED_PACKAGE { name_symbol, definition, constraint, kind })
+		    =>
+		    {   if *debugging  printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: supers[0].name_symbol is %s\n" (symbol::name name_symbol); fi;
+
+			case definition
+			    ((PACKAGE_BY_NAME path) | (SOURCE_CODE_REGION_FOR_PACKAGE (PACKAGE_BY_NAME path,_)))
+				=>
+				{
+				    parent_path
+					:=
+					path;
+
+				    if *debugging
+
+					printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: 'super' defined by name as: '";
+
+					print_path path
+					where
+					    fun print_path [] => ();
+						print_path [ symbol ] => { print (symbol::name symbol); };
+						print_path (symbol ! more) => { printf "%s::" (symbol::name symbol); print_path more; };
+					    end;
+					end; 
+
+					print "'\n";
+
+					printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: superclass chain length of %s is %d\n" (eos::path_to_string *parent_path) (eos::compute_superclass_chain_length (symbolmapstack, *parent_path));
+				    fi;
+
+
+				    ();
+				};
+			    _ => ();
+			esac;
+			();
+		    };
+		_ => ();
+	    esac;
+
+
+	    message_count =  length message_definitions;
+	    method_count  =  length method_overrides;
+	    field_count   =  length fields;
+
+
+	    if *debugging
+
+		printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: %d method definitions found <=============================================\n"  message_count;
+
+		printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: %d method overrides found <=============================================\n"  method_count;
+
+		printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: %d fields found  <=============================================\n"  field_count;
+
+		printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: %d syntax errors found  <=============================================\n"  syntax_errors;
+	    fi;
+
+	    # How deep are we in the inheritance hierarchy?
+	    # We need to know this because our argument
+	    # initialization record tuple will have one
+	    # entry for each superclass, plus us:
+	    #
+	    inheritance_hierarchy_depth
+		=
+		eos::compute_superclass_chain_length
+		  (symbolmapstack, *parent_path);
+
+
+	    if *debugging
+
+		printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: inheritance_hierarchy_depth d=%d\n" inheritance_hierarchy_depth;
+	    fi;
+
+
+	    if (syntax_errors > 0)
+
+		# User declared 'super' twice
+		# or specified a non-existent
+		# superclass or some sort so just
+		# return a dummy package.  This
+		# avoids generating downstream errors
+		# from, for example, field declarations
+		# not removed from the original code
+		# because we didn't do full normal
+		# oop code expansion:
+		#
+		PACKAGE_DEFINITION (EXCEPTION_DECLARATIONS []);
+
+	    elif (message_count == 0
+	    and   method_count  == 0
+	    and   field_count   == 0)
+
+		# No OOP constructs present,
+		# so nothing to do -- just
+		# return original declaration:
+		#
+		PACKAGE_DEFINITION declaration;
+
+            elif (inheritance_hierarchy_depth < 2)
+
+		error_fn
+		    source_code_region
+		    em::ERROR
+		    (sprintf "Class ``%s'': Invalid superclass %s (hierarchy depth %d < 2).)"
+			 (symbol::name class_name)
+			 (eos::path_to_string *parent_path)
+			 inheritance_hierarchy_depth
+		    )
+		    em::null_error_body;
+
+		PACKAGE_DEFINITION (EXCEPTION_DECLARATIONS []);
+
+	    else
+
+		# We do have methods and/or fields, so at this
+		# point we need to expand them into vanilla
+		# Mythryl, thus converting the class definition
+		# into a vanilla package definition so far as
+		# downstream logic is concerned.
+		#
+		# First we compute a few useful values.
+		# Then we define functions to generate the various
+		# pieces of raw syntax which we will need.
+		# (Defining those functions nested here allows
+		# them to see our 'methods' 'fields' &tc values
+		# without having to constantly pass them around
+		# as explicit arguments.)  Finally we put it all
+		# together as a rewritten raw syntax tree.
+
+
+		# Now comes a good stretch of
+		# raw-syntax synthesis code:
+
+		#
+		fun make_object_fields_type_declaration (
+			fields:   List( Named_Field )			# List of fields found in input class body.
+		    )
+		    :   Any_Type
+		    =
+		    {   # Our  input is a list of values like     NAMED_FIELD        (Symbol, Any_Type)
+			# Our output is a tuple  declaration      TULPE_TYPE   List (         Any_Type )
+			#
+			TUPLE_TYPE  (map  extract_type  fields)
+			where
+			    fun extract_type (NAMED_FIELD { name, type, init })
+				    =>
+				    type;
+
+				extract_type (SOURCE_CODE_REGION_FOR_NAMED_FIELD (named_field, _))
+				    =>
+				    extract_type  named_field;
+			    end;
+			end;
+		    };
+
+		#
+		fun make_init_fields_type_declaration (
+			fields:   List( Named_Field )			# List of fields found in input class body.
+		    )
+		    :   Any_Type
+		    =
+		    {   # Our  input is a list of values like     NAMED_FIELD        (Symbol, Any_Type)
+			# Our output is a record declaration      RECORD_TYPE  List ((Symbol, Any_Type))
+			#
+			# The symbols are in both cases label_symbols,
+			# so we can use the input pairs as-is in our result:
+			#
+			RECORD_TYPE  (map  extract_symbol_and_type  fields)
+			where
+			    fun extract_symbol_and_type (NAMED_FIELD { name, type, init })
+				    =>
+				    (name, type);
+
+				extract_symbol_and_type (SOURCE_CODE_REGION_FOR_NAMED_FIELD (named_field, _))
+				    =>
+				    extract_symbol_and_type  named_field;
+			    end;
+			end;
+		    };
+
+
+		# Fishing the name of the method out of
+		# the raw syntax tree is a pain.  Here we
+		# look at the first clause and take the
+		# first variable in it at top level.
+		#
+		# This won't work if the user tries to
+		# define an infix method. XXX BUGGO FIXME
+		#
+		# Anyhow, the following functions do recursive
+		# descent down the raw syntax tree, innermost
+		# function first: 
+		# 
+		stipulate 
+
+		    #
+		    fun extract_name_of_symbol_from_path  [ symbol ]
+			    =>
+			    {   # We need to make up a new symbol because the existing
+				# one from the pattern will be a value symbol but we
+				# need a label symbol:
+				#
+				symbol::name  symbol;
+			    };
+
+			extract_name_of_symbol_from_path  _
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: extract_name_of_symbol_from_path: Internal compiler error";	# XXX BUGGO FIXME what's the correct error protocol?
+		    end;
+
+		    #	
+		    fun extract_name_of_symbol_from_patterns
+			    ( { item => VARIABLE_IN_PATTERN path,  fixity => _,  source_code_region => _ }
+			      !
+			      more_patterns
+			    )
+			    =>
+			    extract_name_of_symbol_from_path  path;
+
+			extract_name_of_symbol_from_patterns  (_ ! more_patterns)
+			    =>
+			    extract_name_of_symbol_from_patterns  more_patterns;
+
+			extract_name_of_symbol_from_patterns  []
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: extract_name_of_symbol_from_patterns: Internal compiler error";	# XXX BUGGO FIXME what's the correct error protocol?
+		    end;
+
+		    #
+		    fun extract_name_of_symbol_from_fun_clause (PATTERN_CLAUSE { patterns, result_type, expression } )
+			=
+			extract_name_of_symbol_from_patterns  patterns;
+
+
+		    #
+		    fun extract_name_of_symbol_from_fun_clauses (fun_clause ! fun_clauses)
+			    =>
+			    extract_name_of_symbol_from_fun_clause  fun_clause;
+
+			extract_name_of_symbol_from_fun_clauses _
+			    =>
+			    raise exception FAIL "expand-oop-syntax.pkg: extract_name_of_symbol_from_fun_clauses:  Internal compiler error";			# XXX BUGGO FIXME what's the correct error protocol?
+		    end; 
+
+		herein
+
+		    #
+		    fun	name_string_of_mythryl_named_method (SOURCE_CODE_REGION_FOR_NAMED_FUNCTION (ff, _))
+			    =>
+			    name_string_of_mythryl_named_method  ff;
+
+			name_string_of_mythryl_named_method (NAMED_FUNCTION  { pattern_clauses, is_lazy, kind, null_or_type })
+			    =>
+			    extract_name_of_symbol_from_fun_clauses  pattern_clauses;
+		    end;
+		end;
+
+		# To help map message names message tuple slots,
+                # make a list of all messages defined by this sub/class:
+		#
+		message_names
+		    =
+		    map  name_string_of_mythryl_named_method  message_definitions;
+
+		fun message_to_offset  message_name
+		    =
+		    message_to_offset' (message_names, 0)
+		    where 
+			fun message_to_offset' ([], message_num)
+				=>
+				# We store a subclass_id: Ref(String)
+				# value at the end of the Object__Methods
+				# tuple, which means a special case somewhere.
+				# This seems as good as place as any:
+				# 
+				if (message_name == "subclass_id")
+                                    message_count;
+                                else
+				    raise exception FAIL
+				      ( sprintf	
+					"expand-oop-syntax.pkg: message_to_offset': error: Class %s defines no message %s"
+					(symbol::name class_name)
+					message_name
+				      );
+				fi;
+
+			    message_to_offset' (message ! rest, message_num)
+				=>
+				if (message == message_name)
+				     message_num;
+				else
+				     message_to_offset' (rest, message_num + 1);
+				fi;
+			end;
+		    end;
+
+# printf "class %s messages:\n" (symbol::name class_name);
+# apply print_message_name message_names
+# where
+#     fun print_message_name name
+# 	    =
+# 	    printf "    %s (%d)\n" name (message_to_offset name);
+# end;
+
+
+		stipulate
+		    # A convenience function shared
+		    # by the next two functions:
+		    #
+		    fun	extract_type (SOURCE_CODE_REGION_FOR_NAMED_FUNCTION (f, _))
+			    =>
+			    extract_type f;
+
+			extract_type (NAMED_FUNCTION  { null_or_type, ... } )
+			    =>
+			    case null_or_type
+				 THE type => type;
+				 NULL     => raise exception FAIL "expand-oop-syntax.pkg: extract type:  Internal compiler errore";	# XXX BUGGO FIXME what's the correct error protocol?
+			    esac;
+		    end; 
+
+		herein
+
+		    # Generate declaration of 'Object__Methods' tuple for subpackage.
+		    #
+		    fun make_methods_type_declaration (
+			    methods:  List( Named_Function )		# List of methods found in input class body.
+			)
+			:   Any_Type
+			=
+			{   # Our  input is a list of values like      NAMED_FUNCTION { pattern_clauses: List( Pattern_Clause ), is_lazy: Bool, kind: Fun_Kind, null_or_type: Null_Or(Any_Type))
+			    #
+			    # Our output is a tuple declaration        TUPLE_TYPE     (List Any_Type)
+			    # of all our methods followed by our
+			    # subclass_id slot.
+			    #
+# printf "make_methods_type_declaration/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			    TUPLE_TYPE
+                              ( (map  extract_type  methods)									# Methods.
+				@
+				[ TYP_TYPE										# subclass_id slot.
+                                    ( [ symbol::make_type_symbol "Ref" ],
+                                      [ TYP_TYPE ( [ symbol::make_type_symbol "Int" ], [] )
+                                      ]
+                                    )
+                                ]
+                              );
+			};
+
+		    # This is almost identical to the above,
+		    # but generates method function declarations
+		    # for the API instead of a Object__Methods record
+		    # declaration for the package:
+		    #
+		    fun make_methods_type_declarations (
+			    methods:  List( Named_Function )		# List of methods found in input class body.
+			)
+			:   List( Api_Element )
+			=
+			{   # Our  input is a list of values like      NAMED_FUNCTION { pattern_clauses: List( Pattern_Clause ), is_lazy: Bool, kind: Fun_Kind, null_or_type: Null_Or(Any_Type))
+			    # Our output is a declaration:             VALUES_IN_API           (List ((Symbol, Any_Type)))
+			    #
+# printf "make_methods_type_declarations/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			    map  make_method_type_declaration  methods
+			    where
+				fun make_method_type_declaration  method
+				    =
+				    VALUES_IN_API [ extract_symbol_and_type  method ]
+				    where
+					#
+					fun extract_symbol_and_type  mythryl_named_method
+					    =
+					    ( symbol::make_value_symbol  (name_string_of_mythryl_named_method  mythryl_named_method),
+					      extract_type                                                     mythryl_named_method
+					    );
+				    end;
+			    end;
+			};
+		end;						# stipulate
+
+		#
+		fun make_methods_record
+			(methods:   List( Named_Function ))
+		    :   Declaration
+		    =
+		    {   # Here we make the
+			#
+			#     object__methods
+			#         =
+			#         ( get_string_method,
+			#           get_int_method,
+			#           oop::no_subclass
+			#         );
+			#
+			# methods record definition statement,
+			# mutatis mutandis per actual methods declared:
+			#
+# printf "make_methods_record/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUE_DECLARATIONS (
+			  [												# List( Named_Value )
+			    NAMED_VALUE {
+
+			      pattern											# Case_Pattern
+				  =>
+				  VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__methods" ],
+
+			      expression										# Raw_Expression
+				  =>
+				  TUPLE_EXPRESSION 									# List( (Symbol, Raw_Expression) )
+				    ( (map  method_to_tuple_entry  methods)						# Methods proper.
+				      @
+				      [	VARIABLE_IN_EXPRESSION								# Our subclass_id value -- 'oop::no_subclass' for now.
+					  [ symbol::make_package_symbol "oop",	
+					    symbol::make_value_symbol "no_subclass"
+					  ]
+				      ]	
+                                    ),
+
+			      is_lazy => FALSE
+			    }
+			  ],
+			  []												# List( Typevar_Ref )
+			)
+			where
+			    fun method_to_tuple_entry  mythryl_named_method
+				=
+				{   name_string
+					=
+					name_string_of_mythryl_named_method
+						       mythryl_named_method;
+
+				    VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol  name_string  ];
+				};
+			end;
+		    };
+
+		#
+		stipulate
+		    fun make_get_fields_or_get_methods_function
+			( function_name,				# "get__fields" or "get__methods"
+			  return_value					# "object__fields" or "object__methods"
+			)
+			:   Declaration
+			=
+			{   # Here we make a function to extract just
+			    # our object__fields or object__methods record:
+			    #
+			    #     fun get__fields (self: Self(X))
+			    #         =
+			    #         {   (super::get__substate  self)
+			    #                 ->
+			    #                 (OBJECT__STATE { object__methods, object__fields }, substate);
+			    #
+			    #             object__fields;
+			    #         };
+			    #
+			    # or
+			    #
+			    #     fun get__methods (self: Self(X))
+			    #         =
+			    #         {   (super::get__substate  self)
+			    #                 ->
+			    #                 (OBJECT__STATE { object__methods, object__fields }, substate);
+			    #
+			    #             object__methods;
+			    #         };
+			    #
+			    #
+# printf "make_get_fields_or_get_methods_function(%s,%s)/TOP (class %s/AAA)...\n" function_name return_value (symbol::name class_name);
+
+			    FUNCTION_DECLARATIONS 
+			      (
+				[ get_fields ],
+				[]												# List( Typevar_Ref )
+			      )
+			      where
+				  get_fields
+				      =
+				      NAMED_FUNCTION
+					{
+					  kind    => PLAIN_FUN,
+					  is_lazy => FALSE,
+
+					  null_or_type => NULL,
+
+					  pattern_clauses
+					      =>
+					      [											# List( Pattern_Clause )
+						PATTERN_CLAUSE
+						  { patterns
+							=>
+							[ { fixity => NULL,
+							    source_code_region => (0,0),
+							    item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol function_name ]
+							  },
+							  { fixity => NULL,
+							    source_code_region => (0,0),
+							    item => TYPE_CONSTRAINT_PATTERN
+									{ pattern						# Case_Pattern
+									      =>
+									      VARIABLE_IN_PATTERN
+										[ symbol::make_value_symbol "self" ],
+
+									  type_constraint					# Any_Type
+									      =>	
+									      TYP_TYPE
+										( [ symbol::make_type_symbol "Self" ],
+										  [ TYPE_VARIABLE_TYPE typevar_x ]		# anytype'
+										)
+									}
+							  }
+							],
+
+						    result_type 
+							=>
+							NULL, 
+
+						    expression
+							=>
+							LET_EXPRESSION {
+
+							  declaration								# Declaration
+							    =>
+							    SEQUENTIAL_DECLARATIONS [
+							      VALUE_DECLARATIONS (
+								[ NAMED_VALUE {							# List( Named_Value )
+
+								    is_lazy => FALSE,
+
+								    pattern							# Case_Pattern
+									=>	
+									TUPLE_PATTERN [						# List( Case_Pattern )
+
+									  APPLY_PATTERN
+									    {
+									      constructor					# Case_Pattern
+										  =>
+										  VARIABLE_IN_PATTERN
+										    [ symbol::make_value_symbol "OBJECT__STATE" ],
+
+									      argument					# Case_Pattern
+										  =>
+										  RECORD_PATTERN
+										    {
+										      is_incomplete => FALSE,			# No "..."
+
+										      definition				# List( (Symbol, Case_Pattern) )
+											  =>
+											  [ (                       symbol::make_label_symbol "object__methods",
+											      VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__methods" ]
+											    ),
+											    (                       symbol::make_label_symbol "object__fields",
+											      VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__fields" ]
+											    )
+											  ]
+										    }
+									    },
+
+									  VARIABLE_IN_PATTERN
+									    [ symbol::make_value_symbol "substate" ]		# We don't use the value this binds.
+									],
+
+								    expression							# Raw_Expression
+									=>
+									APPLY_EXPRESSION
+									  {
+									    function						# Raw_Expression
+									      =>
+									      VARIABLE_IN_EXPRESSION
+										[ symbol::make_package_symbol "super",
+										  symbol::make_value_symbol "get__substate"
+										],
+
+									    argument						# Raw_Expression
+									      =>
+									      VARIABLE_IN_EXPRESSION
+										[ symbol::make_value_symbol "self" ]
+									  }
+								  }
+								],
+								[]									# List( Typevar_Ref )
+							      )									# VALUE_DECLARATIONS
+							    ],									# SEQUENTIAL_DECLARATIONS
+
+							  expression								# Raw_Expression
+							    =>
+							    VARIABLE_IN_EXPRESSION
+							      [ symbol::make_value_symbol  return_value ]
+							}										# LET_EXPRESSION
+						  }
+					      ]
+					};
+			      end;
+			};
+		herein
+		    fun make_function_get_fields  () =  make_get_fields_or_get_methods_function ("get__fields",  "object__fields" );
+		    fun make_function_get_methods () =  make_get_fields_or_get_methods_function ("get__methods", "object__methods");
+		end;
+
+		#
+		fun make_method_dispatch_functions
+		    (methods:    List( Named_Function ))
+		    :   Declaration
+		    =
+		    {   # Here we make for each method a wrapper
+			# function which merely finds and invokes
+			# the appropriate method function.  For
+			# example for a method 'get_string' we
+			# would synthesize:
+			#
+			#     fun get_string (self: Self(X))
+			#         =
+			#         {   object__methods = get__methods self;
+			#
+			#             (#1 object__methods)  self;
+			#         };
+			#
+			# This provides dynamic dispatch because different
+			# subclasses of us may have stored different functions
+			# in their copy of the methods vector.
+# printf "make_method_dispatch_functions/TOP (class %s/AAA)...\n" (symbol::name class_name);
+
+			method_names
+			    =
+			    map  name_string_of_mythryl_named_method
+				 methods;
+
+			SEQUENTIAL_DECLARATIONS 
+			  (
+			    map  make_method_dispatch_function
+				 method_names
+			  )
+			  where
+			      fun make_method_dispatch_function  method_name
+				  =
+				  FUNCTION_DECLARATIONS
+				    (
+				      [
+					NAMED_FUNCTION
+					  {
+					    kind    => PLAIN_FUN,
+					    is_lazy => FALSE,
+
+					    null_or_type => NULL,
+
+					    pattern_clauses
+						=>
+						[											# List( Pattern_Clause )
+						  PATTERN_CLAUSE
+						    { patterns
+							  =>
+							  [ { fixity => NULL,
+							      source_code_region => (0,0),
+							      item => VARIABLE_IN_PATTERN
+									[ symbol::make_value_symbol method_name ]			# First place  method_name  is used.
+							    },
+							    { fixity => NULL,
+							      source_code_region => (0,0),
+							      item => TYPE_CONSTRAINT_PATTERN
+									  { pattern						# Case_Pattern
+										=>
+										VARIABLE_IN_PATTERN
+										  [ symbol::make_value_symbol "self" ],
+
+									    type_constraint					# Any_Type
+										=>	
+										TYP_TYPE
+										  ( [ symbol::make_type_symbol "Self" ],
+										    [ TYPE_VARIABLE_TYPE typevar_x ]		# anytype'
+										  )
+									  }
+							    }
+							  ],
+
+						      result_type 
+							  =>
+							  NULL, 
+
+						      expression
+							  =>
+							  LET_EXPRESSION {
+
+							    declaration								# Declaration
+							      =>
+							      SEQUENTIAL_DECLARATIONS [
+								VALUE_DECLARATIONS (
+								  [ NAMED_VALUE {							# List( Named_Value )
+
+								      is_lazy => FALSE,
+
+								      pattern							# Case_Pattern
+									  =>	
+									  VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__methods" ],
+
+								      expression							# Raw_Expression
+									  =>
+									  APPLY_EXPRESSION
+									    {
+									      function						# Raw_Expression
+										=>
+										VARIABLE_IN_EXPRESSION
+										  [ symbol::make_value_symbol "get__methods" ],
+
+									      argument						# Raw_Expression
+										=>
+										VARIABLE_IN_EXPRESSION
+										  [ symbol::make_value_symbol "self" ]
+									    }
+								    }
+								  ],
+								  []									# List( Typevar_Ref )
+								)									# VALUE_DECLARATIONS
+							      ],									# SEQUENTIAL_DECLARATIONS
+
+							    expression								# Raw_Expression
+							      =>
+							      APPLY_EXPRESSION
+								{
+								  function								# Raw_Expression
+								    =>
+								    APPLY_EXPRESSION
+								      {
+									function							# Raw_Expression
+									  =>
+									  RECORD_SELECTOR_EXPRESSION
+									    (symbol::make_label_symbol  (int::to_string ((message_to_offset method_name) + 1))),			# Second (and last) place method_name gets used.
+
+									argument							# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_value_symbol "object__methods" ]
+								      },
+
+								  argument								# Raw_Expression
+								    =>
+								    VARIABLE_IN_EXPRESSION
+								      [ symbol::make_value_symbol "self" ]
+								}
+							  }										# LET_EXPRESSION
+						    }
+						]
+					  }
+				      ],
+
+				      []												# List( Typevar_Ref )
+				    );
+			  end;														# where
+		    };															# fun make_method_dispatch_functions
+
+		#
+		fun wrap_method_and_message_functions
+		    (methods_and_messages:    List( Named_Function ))
+		    :   Declaration
+		    =
+		    SEQUENTIAL_DECLARATIONS
+			(map  wrap  methods_and_messages)
+			where
+			    fun wrap  method_or_message
+				=
+				FUNCTION_DECLARATIONS
+				  (
+				    [ method_or_message ],
+				    []
+				  );
+			end;
+
+		#
+		fun make_method_override_calls
+		    ( methods:    List( Named_Function )
+		    )
+		    :   List( Declaration )
+		    =
+		    {   # Here we make for each overridden method
+			# a call to go in 'make__object' of the form
+			#     self  =  super::override__get  replacement_get  self;
+			# where 'get' is replaced by the appropriate
+			# method name and there may be any number of
+			# "super::" prefixes on the override function:
+# printf "make_method_override_calls/TOP (class %s/AAA)...\n" (symbol::name class_name);
+
+			parent_path
+			    =
+			    eos::path_for_parent_class  superclass;
+
+			if *debugging  print ("make_method_override_calls: path to parent is " + (eos::path_to_string  parent_path) + "\n"); fi;
+
+
+			loop (methods, []) 
+			where 
+			    fun loop ([], results)
+				    =>
+				    reverse  results; 									# List( Declaration )
+
+				loop (method ! remaining_methods, results)
+				    =>
+				    {
+					method_name
+					    =
+					    name_string_of_mythryl_named_method
+						 method;
+
+					override_function_symbol
+					    =
+					    symbol::make_value_symbol
+						("override__" + method_name);
+
+					case (eos::find_path_defining_method
+					       ( symbolmapstack,
+						 parent_path,
+						 method_name
+					     ) )
+
+					    THE method_path
+						=>
+						{
+						    if *debugging
+							printf "make_method_override_calls: Method %s is defined in %s\n"     method_name (eos::path_to_string method_path);
+							printf "make_method_override_calls: Override function for %s is %s\n" method_name (eos::path_to_string (method_path @ [ override_function_symbol ]));
+						    fi;
+
+						    declaration
+							=
+							# Synthesize
+							#     self  =  super::override__get get self;
+							#		
+							VALUE_DECLARATIONS (
+							  [
+							    NAMED_VALUE {
+
+							      is_lazy => FALSE,
+
+							      pattern								# Case_Pattern
+								  =>
+								  VARIABLE_IN_PATTERN
+								    [ symbol::make_value_symbol "self" ],
+
+							      expression							# Raw_Expression
+								  =>
+								  APPLY_EXPRESSION {
+
+								    function							# Raw_Expression
+								      =>
+								      APPLY_EXPRESSION {
+
+									function						# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    ( method_path
+									      @
+									      [ override_function_symbol ]
+									    ),
+
+									argument						# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_value_symbol method_name ]
+								      },	
+
+								    argument							# Raw_Expression
+								      =>
+								      VARIABLE_IN_EXPRESSION
+									[ symbol::make_value_symbol "self" ]
+								  }
+							    }
+							  ],
+
+							  []									# Type variables.
+							); 
+
+						    if *debugging  print ("Now generating override call for method '" + method_name + "'\n"); fi;
+
+						    loop (remaining_methods, declaration ! results);
+						};
+
+					    NULL
+						=>
+						{    raise exception FAIL ("make_method_override_calls:  Did not find path defining method " + method_name + "\n");
+						};
+					esac;
+
+				    };	
+			    end;
+			end;
+		    };						# fun make_method_override_calls
+
+
+		#
+		fun declare_method_override_functions
+		    ( methods:    List( Named_Function ),
+		      results:    List( Api_Element    )
+		    )
+		    :   List( Api_Element )
+		    =
+		    case methods
+
+			[] =>  reverse results;
+
+			method ! remaining_methods
+			    =>
+			    {
+				# The method type will be something like
+				#     Self(X) -> String
+				# Call that Method.
+				#
+				# The replacement method will be of type
+				#     Method -> Method
+				# because it receives the old method as its
+				# first argument.  (It may need the old method,
+				# and has no other easy way of getting access
+				# to it.)
+				# Call that Replacement.
+				#
+				# The method override function has type
+				#     Replacement -> Self(X) -> Self(X)
+				# because it accepts first the replacement
+				# function, then the object to be modified,
+				# and returns the modified object.
+
+				method_type
+				    =
+				    case method
+					NAMED_FUNCTION { null_or_type => THE type, ... }
+					    =>
+					    type;
+
+					_   => raise exception FAIL  "oop-expand-syntax.pkg: declare_method_override_functions: Internal compiler error";
+				    esac;
+
+				method_name
+				    =
+				    name_string_of_mythryl_named_method
+					method;
+
+				replacement_type
+				    =
+				    TYP_TYPE
+				      ( [ symbol::make_type_symbol "->" ],
+					[ method_type,
+					  method_type
+					]
+				      );
+
+				#
+				method_override_fun_type
+				    =
+				    TYP_TYPE
+				      ( [ symbol::make_type_symbol "->" ],
+					[ replacement_type,
+					  TYP_TYPE
+					    ( [ symbol::make_type_symbol "->" ],
+					      [ TYP_TYPE
+						  ( [ symbol::make_type_symbol "Self" ],
+						    [ TYPE_VARIABLE_TYPE typevar_x ]
+						  ),
+						TYP_TYPE
+						  ( [ symbol::make_type_symbol "Self" ],
+						    [ TYPE_VARIABLE_TYPE typevar_x ]
+						  )
+					      ]
+					    )
+					]
+				      );
+
+				declaration
+				    =
+				    ( symbol::make_value_symbol  ("override__" + method_name),
+				      method_override_fun_type
+				    );
+
+				declare_method_override_functions
+				  (
+				    remaining_methods,
+				    (VALUES_IN_API [ declaration ]) ! results
+				  );
+			    };
+		    esac;
+
+															# oop			is from   src/lib/src/oop.pkg
+		#
+		fun make_method_override_functions
+		    (methods:    List( Named_Function ))
+		    :   Declaration
+		    =
+		    {   # Here we make for each method a function
+			# which overrides that method in the methods record
+			# by synthesizing a complete new object otherwise
+			# identical to the prototype object 'me'.
+			#
+			# For a method 'get_int' in a class with only
+			# 'get_int' and 'get_string' methods this will
+			# look like:
+			#
+			#	  fun override__get_int  new_method  me
+			#	      =
+			#	      oop::repack_object
+			#		  (fn (OBJECT__STATE { object__fields, object__methods })
+			#                     =
+			#                     OBJECT__STATE
+			#                       { object__fields,
+			#                         object__methods
+			#                             =>
+			#                             (             (#1 object__methods),  # get_string
+			#                               (new_method (#2 object__methods)   # get_int
+			#                                           (#3 object__methods)   # subclass_id slot
+			#                             )
+			#                       }
+			#                 )
+			# 		  (super::unpack__object  me);
+			#
+# printf "make_method_override_functions/TOP (class %s/AAA)...\n" (symbol::name class_name);
+
+			method_names
+			    =
+			    map  name_string_of_mythryl_named_method
+				 methods;
+
+			SEQUENTIAL_DECLARATIONS
+			    (map  make_named_function
+				  method_names
+			    )
+			where
+			    fun make_named_function
+				    method_name
+				=
+				FUNCTION_DECLARATIONS
+				  ( 
+				    [
+				      NAMED_FUNCTION
+					{
+					  kind    => PLAIN_FUN,
+					  is_lazy => FALSE,
+
+					  null_or_type => NULL,
+
+					  pattern_clauses
+					      =>
+					      [ 											# List( Pattern_Clause )
+						PATTERN_CLAUSE
+						  {
+						    result_type									# Null_Or( Any_Type )
+						      =>
+						      NULL,
+
+						    patterns									# List( Fixity_Item( Case_Pattern ) )
+						      =>	
+						      [
+							{ fixity => NULL,
+							  source_code_region => (0,0),
+							  item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol ("override__" + method_name) ]
+							},
+							{ fixity => NULL,
+							  source_code_region => (0,0),
+							  item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "new_method" ]
+							},
+							{ fixity => NULL,
+							  source_code_region => (0,0),
+							  item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "me" ]
+							}
+						      ],
+
+						    expression									# Raw_Expression
+						      =>	
+						      APPLY_EXPRESSION {
+
+							function									# Raw_Expression
+							  =>
+							  APPLY_EXPRESSION {
+
+							    function								# Raw_Expression
+							      =>
+							      VARIABLE_IN_EXPRESSION
+								[ symbol::make_package_symbol "oop",
+								  symbol::make_value_symbol   "repack_object"
+								],
+
+							    argument								# Raw_Expression
+							      =>
+							      FN_EXPRESSION
+								[									# List( Case_Rule );
+								  CASE_RULE {
+								    pattern							# Case_Pattern
+								      =>
+								      APPLY_PATTERN {
+
+									constructor						# Case_Pattern
+									  =>
+									  VARIABLE_IN_PATTERN
+									    [ symbol::make_value_symbol "OBJECT__STATE" ],
+
+									argument							# Case_Pattern
+									  =>
+									  RECORD_PATTERN {
+
+									    is_incomplete => FALSE,				# No "..."
+
+									    definition						# List( (Symbol, Case_Pattern) )
+									      =>
+									      [ (                       symbol::make_label_symbol "object__methods",
+										  VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__methods" ]
+										),
+										(                       symbol::make_label_symbol "object__fields",
+										  VARIABLE_IN_PATTERN [ symbol::make_value_symbol "object__fields" ]
+										)
+									      ]
+									  }
+								      },
+								    expression							# Raw_Expression
+								      =>
+								      APPLY_EXPRESSION {
+
+									function							# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_value_symbol "OBJECT__STATE" ],
+
+									argument							# Raw_Expression
+									  =>
+									  RECORD_IN_EXPRESSION [					# List( (Symbol, Raw_Expression) )
+
+									    (                          symbol::make_label_symbol "object__fields",
+									      VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol "object__fields" ]
+									    ),
+
+									    ( symbol::make_label_symbol "object__methods",
+									      TUPLE_EXPRESSION 					# List( Raw_Expression)
+									       (map  make_tuple_entry  (method_names @ ["subclass_id"]))
+										where
+										    fun make_tuple_entry  name
+											=
+											if (name == method_name)
+
+											    # Replace overridden method by
+											    #     (new_method object__methods.method_name):
+											    #
+											    APPLY_EXPRESSION {
+
+											      function								# Raw_Expression
+												=>
+												VARIABLE_IN_EXPRESSION
+												  [ symbol::make_value_symbol "new_method" ],
+
+											      argument								# Raw_Expression
+												=>
+												  APPLY_EXPRESSION
+												    {
+												      function							# Raw_Expression
+													=>
+													RECORD_SELECTOR_EXPRESSION
+													  (symbol::make_label_symbol  (int::to_string ((message_to_offset name) + 1))),
+
+												      argument							# Raw_Expression
+													=>
+													VARIABLE_IN_EXPRESSION
+													  [ symbol::make_value_symbol "object__methods" ]
+												    }
+											    };
+											else
+											    # Non-overridden methods just get copied over:
+											    #
+											    APPLY_EXPRESSION
+											      {
+												function							# Raw_Expression
+												  =>
+												  RECORD_SELECTOR_EXPRESSION
+												    (symbol::make_label_symbol  (int::to_string ((message_to_offset name) + 1))),
+
+												argument							# Raw_Expression
+												  =>
+												  VARIABLE_IN_EXPRESSION
+												    [ symbol::make_value_symbol "object__methods" ]
+											      };
+											fi;
+										end
+									    )
+									  ]
+								      }
+								  }
+								]
+							  },
+
+							argument									# Raw_Expression
+							  =>
+							  APPLY_EXPRESSION {
+
+							    function								# Raw_Expression
+							      =>
+							      VARIABLE_IN_EXPRESSION
+								[ symbol::make_package_symbol "super",
+								  symbol::make_value_symbol "unpack__object"
+								],
+
+							    argument								# Raw_Expression
+							      =>
+							      VARIABLE_IN_EXPRESSION
+								[ symbol::make_value_symbol "me" ]
+							  }
+						    }
+						  }
+					      ]
+
+					}
+				    ],
+
+				    []											# Type variables
+				  );
+															# NAMED_FUNCTION
+			end;												# 'where'
+		    };
+
+															# oop			is from   src/lib/src/oop.pkg
+		#
+		fun make_function_make_object_fields ()
+		    :   Declaration
+		    =
+		    {   # Here we make a function which given an
+			# Initializer__Fields record 'init' creates an
+			# Object__Fields tuple:
+			#
+			#	  fun make_object__fields (init: Initializer__Fields)
+			#	      =
+			#	      ( init.field1,		# No initializer given  in 'field val Foo field1;' so initialize from 'init'.
+			#               0			# Initializer specified in 'field val Int field2 = 0;' statement.
+			#	      );	
+			#
+# printf "make_function_make_object_fields/TOP (class %s/AAA)...\n" (symbol::name class_name);
+
+			FUNCTION_DECLARATIONS ( 
+
+			  [ make_fun () ],										# List( Named_Function )
+
+			  []												# List( Typevar_Ref )
+			)
+			where
+			    fun make_fun ()
+				=
+				NAMED_FUNCTION
+				  {
+				    kind    => PLAIN_FUN,
+				    is_lazy => FALSE,
+
+				    null_or_type => NULL,
+
+				    pattern_clauses
+					=>
+					[ 										# List( Pattern_Clause )
+					  PATTERN_CLAUSE
+					    {
+					      result_type								# Null_Or( Any_Type )
+						=>
+						NULL,
+
+					      patterns									# List( Fixity_Item( Case_Pattern ) )
+						=>	
+						[
+						  { fixity => NULL,
+						    source_code_region => (0,0),
+						    item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "make_object__fields" ]
+						  },
+						  { fixity => NULL,
+						    source_code_region => (0,0),
+						    item => TYPE_CONSTRAINT_PATTERN
+								{ pattern						# Case_Pattern
+								      =>
+								      VARIABLE_IN_PATTERN
+									[ symbol::make_value_symbol "init" ],
+
+								  type_constraint					# Any_Type
+								      =>	
+								      TYP_TYPE
+									( [ symbol::make_type_symbol "Initializer__Fields" ],
+									  [ TYPE_VARIABLE_TYPE typevar_x ]						# anytype'
+									)
+								}
+						  }
+						],
+
+					      expression									# Raw_Expression
+						=>	
+						TUPLE_EXPRESSION
+						   (map  make_tuple_entry fields)
+						   where
+						       fun make_tuple_entry (NAMED_FIELD { name, type, init => NULL } )
+							       =>
+							       # User's
+							       #     field val String foo;
+							       # statement provided no default value,
+							       # so copy one over from initializer record:
+							       #
+							       APPLY_EXPRESSION
+								 {
+								   function							# Raw_Expression
+								     =>
+								     RECORD_SELECTOR_EXPRESSION
+								       (symbol::make_label_symbol  (symbol::name name)),
+
+								   argument							# Raw_Expression
+								     =>
+								     VARIABLE_IN_EXPRESSION
+								       [ symbol::make_value_symbol "init" ]
+								 };
+
+							   make_tuple_entry (NAMED_FIELD { name, type, init => THE expression } )
+							       =>
+							       # Set field to default value provided
+							       # by user in
+							       #     field val String foo = "whatever";
+							       #
+							       expression;
+
+							   make_tuple_entry _
+							       =>
+							       raise exception FAIL "expand-oop-syntax.pkg: make_function_make_object_fields: Internal compiler error";
+						       end;								# fun make_record_entry
+						   end									# where
+					    }
+					]
+				  };											# NAMED_FUNCTION
+			end;												# 'where'
+		    };
+
+															# oop			is from   src/lib/src/oop.pkg
+		#
+		fun make_function_get_substate ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     fun get__substate me
+			#         =
+			#         {   my (state, substate) =  super::get__substate  me;
+			#             substate;
+			#	  }; 
+			#
+			# This could be abbreviated to just   
+			#
+			#         fun get__substate me =   #2 (super::get__substate me);
+			#
+			# but we're not APL programmers!
+			#
+# printf "make_function_get_substate/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			FUNCTION_DECLARATIONS 
+			    ( [ NAMED_FUNCTION
+				    {
+				      kind    => PLAIN_FUN,
+				      is_lazy => FALSE,
+
+				      null_or_type => NULL,
+
+				      pattern_clauses
+					  =>
+					  [ PATTERN_CLAUSE
+					      { patterns
+						    =>
+						    [ { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "get__substate" ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "me" ]
+						      }
+						    ],
+
+						result_type 
+						    =>
+						    NULL, 
+
+						expression
+						    =>
+						    LET_EXPRESSION {
+
+						      declaration								# Declaration
+							=>
+							SEQUENTIAL_DECLARATIONS [
+							  VALUE_DECLARATIONS (
+							    [ NAMED_VALUE {							# List( Named_Value )
+
+								is_lazy => FALSE,
+
+								pattern							# Case_Pattern
+								    =>	
+								    TUPLE_PATTERN [						# List( Case_Pattern )
+
+								      VARIABLE_IN_PATTERN
+									[ symbol::make_value_symbol "state" ],		# We don't use the value this binds.
+
+
+								      VARIABLE_IN_PATTERN
+									[ symbol::make_value_symbol "substate" ]
+								    ],
+
+								expression							# Raw_Expression
+								    =>
+								    APPLY_EXPRESSION
+								      {
+									function								# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_package_symbol "super",
+									      symbol::make_value_symbol   "get__substate"
+									    ],
+
+									argument								# Raw_Expression
+									  =>
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_value_symbol "me" ]
+								      }
+							      }
+							    ],
+							    []									# List( Typevar_Ref )
+							  )									# VALUE_DECLARATIONS
+							],									# SEQUENTIAL_DECLARATIONS
+
+						      expression								# Raw_Expression
+							=>
+							VARIABLE_IN_EXPRESSION
+							    [ symbol::make_value_symbol "substate" ]
+
+						    }										# LET_EXPRESSION
+					      }
+					  ]
+				    }
+			      ],
+			      [					# Type variables
+			      ]
+			    ); 
+		    };
+
+		#
+		fun make_function_unpack_object ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     fun unpack__object  me
+			#         =
+			#         oop::unpack_object  (super::unpack__object me); 
+			#
+			# This fun will yield the usual
+			#
+			#     (repack, (state, substate))
+			#
+			# where
+			#     (repack (state, substate))
+			# will recreate 'me' by re-wrapping it with the states for
+			# all our superlcasses and
+			#     state
+			# is our own (STATE { object__fields, object__methods }) and
+			#     substate
+			# is oop::OOP_NULL or else the (state', substate')
+			# tuple for our subclass.
+			#
+# printf "make_function_unpack_object/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			FUNCTION_DECLARATIONS 
+			    ( [ NAMED_FUNCTION
+				    {
+				      kind    => PLAIN_FUN,
+				      is_lazy => FALSE,
+
+				      null_or_type => NULL,
+
+				      pattern_clauses
+					  =>
+					  [ PATTERN_CLAUSE
+					      { patterns
+						    =>
+						    [ { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "unpack__object" ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "me" ]
+						      }
+						    ],
+
+						result_type 
+						    =>
+						    NULL, 
+
+						expression
+						    =>
+						    PRE_FIXITY_EXPRESSION [
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_EXPRESSION [ symbol::make_package_symbol "oop",
+											 symbol::make_value_symbol   "unpack_object"
+										       ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => PRE_FIXITY_EXPRESSION  [
+								  { fixity => NULL,
+								    source_code_region => (0,0),
+								    item => VARIABLE_IN_EXPRESSION [ symbol::make_package_symbol "super",
+												     symbol::make_value_symbol   "unpack__object"
+												   ]
+								  },
+								  { fixity => NULL,
+								    source_code_region => (0,0),
+								    item => VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol   "me" ]
+								  }
+								]
+						      }
+						    ]
+					      }
+					  ]
+				    }
+			      ],
+			      [					# Type variables
+			      ]
+			    ); 
+		    };
+
+		#
+		fun make_function_pack_object ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     fun pack__object (fields_1, fields_0) substate
+			#         =
+			#         {   object__fields = make_object__fields fields_1;
+			#
+			#             self = super::pack__object  fields_0  (OBJECT__STATE { object__methods, object__fields }, substate);
+			#
+			#             self = super::override__get replacement_get self;	# One of these for each overridden method.
+			#
+			#             self;
+			#         };
+			#
+			# If we are five deep in the inheritance hierarchy
+			# this will look like
+			#
+			#     fun pack__object (fields_4, fields_3, fields_2, fields_1, fields_0) substate
+			#         =
+			#         {   object__fields = make_object__fields fields_4;
+			#
+			#             self = super::pack__object (fields_3, fields_2, fields_1, fields_0) (OBJECT__STATE { object__methods, object__fields }, substate);
+			#
+			#             self = super::override__get replacement_get self;	# One of these for each overridden method.
+			#
+			#	      self;
+			#         }; 	
+			#
+# printf "make_function_pack_object/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			FUNCTION_DECLARATIONS 
+			    ( [ NAMED_FUNCTION
+				    {
+				      kind    => PLAIN_FUN,
+				      is_lazy => FALSE,
+
+				      null_or_type => NULL,
+
+				      pattern_clauses
+					  =>	
+					  [ PATTERN_CLAUSE
+					      { patterns
+						    =>
+						    [ { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "pack__object" ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item
+							    =>
+							    TUPLE_PATTERN
+								( loop (inheritance_hierarchy_depth, [])
+								  where
+								      fun loop (0, result_list)
+									      =>
+									      reverse  result_list;
+
+									  loop (i, result_list)
+									      =>
+									      loop
+										( i - 1,
+										  (VARIABLE_IN_PATTERN [ (symbol::make_value_symbol (sprintf "fields_%d" (i - 1))) ])
+										  !
+										  result_list
+										);
+								      end;
+								  end
+								)
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "substate" ]
+						      }
+						    ],
+
+						result_type 
+						    =>
+						    NULL, 
+
+
+						expression
+						    =>
+						    LET_EXPRESSION {
+
+						      declaration								# Declaration
+							=>
+							SEQUENTIAL_DECLARATIONS ([
+
+							  # Synthesize
+							  #		
+							  #     our_fields = make_object__fields  fields_1;	# or fields_3 or whatever.
+							  #		
+							  VALUE_DECLARATIONS (
+							    [ 									# List( Named_Value )
+							      NAMED_VALUE
+								{
+								  is_lazy => FALSE,
+
+								  pattern							# Case_Pattern
+								      =>
+								      VARIABLE_IN_PATTERN
+									[ symbol::make_value_symbol "object__fields" ],
+
+								  expression							# Raw_Expression
+								      =>
+								      APPLY_EXPRESSION
+									{
+									  function						# Raw_Expression
+									    =>
+									    VARIABLE_IN_EXPRESSION
+									      [ symbol::make_value_symbol "make_object__fields" ],
+
+									  argument						# Raw_Expression
+									    =>
+									    VARIABLE_IN_EXPRESSION
+									      [ symbol::make_value_symbol (sprintf "fields_%d" (inheritance_hierarchy_depth - 1)) ]
+									}
+								}
+							    ],
+
+							    []									# List( Typevar_Ref )
+							  ),
+
+							  VALUE_DECLARATIONS (
+							    [ 									# List( Named_Value )
+
+							      # Synthesize
+							      #     self = super::pack__object  fields_0  (OBJECT__STATE { object__methods, object__fields => our_fields }, substate);
+							      #		
+							      NAMED_VALUE {
+
+								is_lazy => FALSE,
+
+								pattern								# Case_Pattern
+								    =>
+								    VARIABLE_IN_PATTERN
+								      [ symbol::make_value_symbol "self" ],
+
+								expression							# Raw_Expression
+								    =>
+								    APPLY_EXPRESSION {
+
+								      function								# Raw_Expression
+									=>
+									APPLY_EXPRESSION {
+
+									  function								# Raw_Expression
+									    =>
+									    VARIABLE_IN_EXPRESSION
+									      [ symbol::make_package_symbol "super",
+										symbol::make_value_symbol "pack__object"
+									      ],
+
+									  argument								# Raw_Expression
+									    =>
+									    TUPLE_EXPRESSION 						# List( (Symbol, Raw_Expression) )
+										if (inheritance_hierarchy_depth == 2)
+										    [];							# List( (Symbol, Raw_Expression) )
+										else
+										    loop (inheritance_hierarchy_depth - 1, [])
+										    where
+											fun loop (0, results)
+												=>
+												reverse results;
+
+											    loop (i, results)
+												=>
+												loop ( i - 1,
+												       (VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol (sprintf "fields_%d" (i - 1)) ])
+												       !
+												       results
+												     );
+											end; 
+										    end;
+										fi 
+									},
+
+								      argument									# Raw_Expression
+									=>
+									TUPLE_EXPRESSION [							# List( Raw_Expression )
+									  APPLY_EXPRESSION {
+
+									    function								# Raw_Expression
+									      =>
+									      VARIABLE_IN_EXPRESSION
+										[ symbol::make_value_symbol "OBJECT__STATE" ],
+
+									    argument								# Raw_Expression
+									      =>
+									      RECORD_IN_EXPRESSION [						# List( (Symbol, Raw_Expression) )
+
+										(                          symbol::make_label_symbol "object__fields",
+										  VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol "object__fields" ]
+										),
+
+										(                          symbol::make_label_symbol "object__methods",
+										  VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol "object__methods" ]
+										)
+									      ]
+									  },
+
+									  VARIABLE_IN_EXPRESSION
+									    [ symbol::make_value_symbol "substate" ]
+									]
+								    }
+							      }
+							    ],
+
+							    []							# Type variables
+							  )
+							]
+							@
+							(make_method_override_calls
+							   (  
+							     method_overrides
+							   )
+							)),							# SEQUENTIAL_DECLARATIONS
+
+
+						      # Finally our return value from block:
+						      #     self;
+						      #	
+						      expression						# Raw_Expression
+							=>
+							VARIABLE_IN_EXPRESSION
+							    [ symbol::make_value_symbol "self" ]
+						    }								# LET_EXPRESSION
+					      }
+					  ]
+				    }
+			      ],
+			      [					# Type variables
+			      ]
+			    ); 
+		    };						# fun make_function_pack_object
+
+		#
+		fun make_function_make_object ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     fun make__object fields_tuple
+			#         =
+			#         {   self  =  pack__object  fields_tuple  oop::OOP_NULL;
+			#             self;
+			#         };
+			#
+# printf "make_function_make_object/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			FUNCTION_DECLARATIONS 
+			    ( [ NAMED_FUNCTION
+				    {
+				      kind    => PLAIN_FUN,
+				      is_lazy => FALSE,
+
+				      null_or_type => NULL,
+
+				      pattern_clauses
+					  =>
+					  [ PATTERN_CLAUSE
+					      { patterns
+						    =>
+						    [ { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "make__object" ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "fields_tuple" ]
+						      }
+						    ],
+
+						result_type 
+						    =>
+						    NULL, 
+
+						expression
+						    =>
+						    LET_EXPRESSION {
+
+						      declaration									# Declaration
+							=>
+							SEQUENTIAL_DECLARATIONS ([
+							  VALUE_DECLARATIONS (
+							    [ 										# List( Named_Value )
+
+							      # Synthesize
+							      #     self  =  pack__object  fields_tuple  oop::OOP_NULL;
+							      #		
+							      NAMED_VALUE {
+
+								is_lazy => FALSE,
+
+								pattern									# Case_Pattern
+								    =>
+								    VARIABLE_IN_PATTERN
+								      [ symbol::make_value_symbol "self" ],
+
+								expression								# Raw_Expression
+								    =>
+								    APPLY_EXPRESSION {
+
+								      function								# Raw_Expression
+									=>
+									APPLY_EXPRESSION {
+
+									  function							# Raw_Expression
+									    =>
+									    VARIABLE_IN_EXPRESSION
+									      [ symbol::make_value_symbol "pack__object"
+									      ],
+
+									  argument							# Raw_Expression
+									    =>
+									    VARIABLE_IN_EXPRESSION
+									      [ symbol::make_value_symbol "fields_tuple"
+									      ]
+									},
+
+								      argument								# Raw_Expression
+									=>
+									VARIABLE_IN_EXPRESSION [ symbol::make_package_symbol "oop",
+												 symbol::make_value_symbol   "OOP_NULL"
+											       ]
+								    }
+							      }
+							      #	
+							      # end of
+							      #     self  =  pack__object  fields_tuple  oop::OOP_NULL;
+							      #	synthesis.	
+							    ],
+
+							    []										# List( Typevar_Ref )
+							  )										# VALUE_DECLARATIONS
+
+							]										# SEQUENTIAL_DECLARATIONS
+							),
+
+						      # Finally our return value from block:
+						      #     self;
+						      #	
+						      expression									# Raw_Expression
+							=>
+							VARIABLE_IN_EXPRESSION
+							    [ symbol::make_value_symbol "self" ]
+						    }											# LET_EXPRESSION
+					      }
+					  ]
+				    }
+			      ],
+			      [														# Type variables
+			      ]
+			    ); 
+
+		    };															# fun make_function_make_object
+
+		# See comments at   make_make_object_ref ()
+		#
+		fun make_function_make_object_ii ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     fun make__object arg
+			#         =
+			#         (the (*make__object__ref)) arg;
+			#
+# printf "make_function_make_object_ii/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			FUNCTION_DECLARATIONS 
+			    ( [ NAMED_FUNCTION
+				    {
+				      kind    => PLAIN_FUN,
+				      is_lazy => FALSE,
+
+				      null_or_type => NULL,
+
+				      pattern_clauses
+					  =>
+					  [ PATTERN_CLAUSE
+					      { patterns
+						    =>
+						    [ { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "make__object" ]
+						      },
+						      { fixity => NULL,
+							source_code_region => (0,0),
+							item => VARIABLE_IN_PATTERN [ symbol::make_value_symbol "arg" ]
+						      }
+						    ],
+
+						result_type 
+						    =>
+						    NULL, 
+
+						expression
+						    =>
+						    APPLY_EXPRESSION {
+
+						      function										# Raw_Expression
+							=>
+							APPLY_EXPRESSION {
+
+							  function									# Raw_Expression
+							    =>
+							    VARIABLE_IN_EXPRESSION
+							      [ symbol::make_value_symbol "the" ],
+
+							  argument									# Raw_Expression
+							    =>
+							    APPLY_EXPRESSION {
+
+							      function									# Raw_Expression
+								=>
+								VARIABLE_IN_EXPRESSION
+								  [ symbol::make_value_symbol "*_" ],
+
+							      argument									# Raw_Expression
+								=>
+								VARIABLE_IN_EXPRESSION
+								  [ symbol::make_value_symbol "make__object__ref" ]
+							    }
+							},
+
+						      argument										# Raw_Expression
+							=>
+							VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol "arg" ]
+						    }
+					      }
+					    ]
+				    }
+			      ],
+
+			      []
+			    );
+		    };
+
+		# See comments at   make_make_object_ref ()
+		#
+		fun make_make_object_backpatch ()
+		    :   Declaration
+		    =
+		    {   # Here we make
+			#
+			#     my _
+			#         =
+			#         make__object__ref := THE make__object;
+			#
+# printf "make_make_object_backpatch/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUE_DECLARATIONS 
+			    ( [ NAMED_VALUE
+				  {
+				    pattern
+					=>
+					WILDCARD_PATTERN,
+
+				    expression
+					=>
+					APPLY_EXPRESSION
+					  {
+					    function
+						=>
+						VARIABLE_IN_EXPRESSION
+						    [ symbol::make_value_symbol ":=" ],
+
+					    argument
+						=>
+						TUPLE_EXPRESSION
+						  [
+						    VARIABLE_IN_EXPRESSION
+							[ symbol::make_value_symbol "make__object__ref" ],
+
+							APPLY_EXPRESSION
+							  {
+							    function
+								=>
+								VARIABLE_IN_EXPRESSION
+								    [ symbol::make_value_symbol "THE" ],
+
+							    argument
+								=>
+								VARIABLE_IN_EXPRESSION
+								    [ symbol::make_value_symbol "make__object" ]
+							  }
+						  ]
+					  },
+
+
+				    is_lazy => FALSE
+				  }
+			      ],
+
+			      []
+			    );
+		    };								# fun make_make_object_backpatch
+
+		stipulate
+
+		    # A little fun to prepend 'n' "super"
+		    # components to a given list, yielding
+		    # a list like
+		    #     [ symbol::make_package_symbol "super",
+		    #       symbol::make_package_symbol "super",
+		    #       symbol::make_type_symbol "Initializer__Fields"
+		    #     ]
+		    #
+		    fun prepend_n_supers (0, list) => list;
+			prepend_n_supers (i, list) => prepend_n_supers (i - 1, (symbol::make_package_symbol "super") ! list);
+		    end;
+
+		    # A little fun to build raw syntax for
+		    #     super::super::Initializer__Fields(X)
+		    # for 'n' "supers":
+		    #
+		    fun build_super_super_fields_x n
+			=
+			TYP_TYPE
+			  ( prepend_n_supers (n, [ symbol::make_type_symbol "Initializer__Fields" ]),
+			    [ TYPE_VARIABLE_TYPE typevar_x ]						# anytype'
+			  );
+
+		    # A little fun to build up the
+		    #     (Initializer__Fields(X), super::Initializer__Fields(X), super::super::Initializer__Fields(X), Void)
+		    # tuple list by prepending ...Object__Fields(X) components:
+		    #
+		    fun prepend_fields_to_tuple_list (1, list_so_far)
+			    =>
+			    list_so_far;
+
+			prepend_fields_to_tuple_list (chain_length, list_so_far)
+			    =>
+			    prepend_fields_to_tuple_list
+			      ( chain_length - 1,
+				(build_super_super_fields_x (chain_length - 2)) ! list_so_far
+			      );
+		    end;
+
+		    # A little fun to build raw syntax for a complete tuple
+		    #     (Initializer__Fields(X), super::Initializer__Fields(X), super::super::Initializer__Fields(X), ... Void)
+		    # for a given chain length:
+		    #
+		    fun build_tuple  chain_length
+			=
+			{
+# printf "build_tuple (chain_length %d)/TOP (class %s/AAA)...\n" chain_length (symbol::name class_name); result =
+			    TUPLE_TYPE (
+				prepend_fields_to_tuple_list
+				  ( chain_length,
+				    [ TYP_TYPE
+					([ symbol::make_type_symbol "Void" ], [])
+				    ]
+				  )
+			    );
+# printf "build_tuple/BOT (class %s/AAA)...\n" (symbol::name class_name); result;
+			};
+
+		herein
+
+		    #
+		    fun declare_function_pack_object_in_api ()
+			:   Api_Element
+			=
+			{   # Here we make a declaration depending
+			    # on our superclass chain length:
+			    #
+			    #    chain length 2:   pack__object: (Initializer__Fields(X),                                                                      Void) -> X -> Self(X);
+			    #    chain length 3:   pack__object: (Initializer__Fields(X), super::Initializer__Fields(X),                                       Void) -> X -> Self(X);
+			    #    chain length 4:   pack__object: (Initializer__Fields(X), super::Initializer__Fields(X), super::super::Initializer__Fields(X), Void) -> X -> Self(X);
+			    #
+			    # and so forth.
+
+# printf "declare_function_pack_object_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name); result =
+			    VALUES_IN_API
+			      [
+				( symbol::make_value_symbol "pack__object",
+				  TYP_TYPE
+				    ( [ symbol::make_type_symbol "->" ],
+				      [ build_tuple  inheritance_hierarchy_depth,		# The "(Object__Fields(X), Void)" tuple or similar.
+					TYP_TYPE
+					  ( [ symbol::make_type_symbol "->" ],
+					    [ TYPE_VARIABLE_TYPE typevar_x,
+					      TYP_TYPE
+						( [ symbol::make_type_symbol "Self" ],
+						  [ TYPE_VARIABLE_TYPE typevar_x ]
+						)
+					    ]
+					  )
+				      ]
+				    )
+				)
+			      ];
+# printf "declare_function_pack_object_in_api/BOT (class %s/AAA)...\n" (symbol::name class_name); result;
+			};
+
+		    #
+		    fun declare_function_make_object_in_api ()
+			:   Api_Element
+			=
+			{   # Here we make a declaration depending
+			    # on our superclass chain length:
+			    #
+			    #    chain length 2:   make__object: (Object__Fields(X),                                                            Void) -> Myself;
+			    #    chain length 3:   make__object: (Object__Fields(X), super::Object__Fields(X),                                  Void) -> Myself;
+			    #    chain length 4:   make__object: (Object__Fields(X), super::Object__Fields(X), super::super::Object__Fields(X), Void) -> Myself;
+			    #
+			    # and so forth.
+# printf "declare_function_make_object_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+
+			    VALUES_IN_API
+			      [
+				( symbol::make_value_symbol "make__object",
+				  TYP_TYPE
+				    ( [ symbol::make_type_symbol "->" ],
+				      [ build_tuple  inheritance_hierarchy_depth,		# The "(Object__Fields(X), Void)" tuple or similar.
+					TYP_TYPE
+					  ( [ symbol::make_type_symbol "Myself" ],
+					    []
+					  )
+				      ]
+				    )
+				)
+			      ];
+			};
+
+		#
+		fun make_make_object_ref ()
+		    :   Declaration
+		    =
+		    {   # There's a problem in that make__object has
+			# to be defined after the user-supplied method
+			# functions because it needs to have them in scope,
+			# but we'd like to call make__object from within
+			# user-supplied methods. 
+			#
+			# We can get around that by putting a ref
+			# upfront and a function which calls it, and
+			# then later backpatching the reference to
+			# point to make__object:
+			#
+			#     make__object__ref = (REF NULL): Ref (Null_Or( <type of make__object> ));
+			#     fun make__object arg = (the (*make__object__ref)) arg;
+			#
+			#     <user-supplied-methods> 
+			#     fun make__object ...
+			#     make__object__ref := THE make__object;
+			#
+			# Here we handle just the
+			#
+			#     make__object__ref = (REF NULL): Ref (Null_Or( <type of make__object> ));
+			#
+			# part:
+			#
+# printf "make_make_object_ref/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUE_DECLARATIONS (
+			  [
+			    NAMED_VALUE
+			      {
+				pattern
+				    => 
+				    VARIABLE_IN_PATTERN
+				      [ symbol::make_value_symbol "make__object__ref" ],
+
+				expression							# Raw_Expression
+				    =>
+				    TYPE_CONSTRAINT_EXPRESSION
+				      {
+					expression
+					    =>
+					    APPLY_EXPRESSION
+					      {
+						function
+						    =>
+						    VARIABLE_IN_EXPRESSION
+							[ symbol::make_value_symbol "REF" ],
+
+						argument
+						    =>
+						    VARIABLE_IN_EXPRESSION
+							[ symbol::make_value_symbol "NULL" ]
+					      },
+
+					constraint
+					    =>
+					    TYP_TYPE
+					      ( [ symbol::make_type_symbol "Ref" ],
+						[
+						  TYP_TYPE
+						    ( [ symbol::make_type_symbol "Null_Or" ],
+						      [	
+							TYP_TYPE
+							  ( [ symbol::make_type_symbol "->" ],
+							    [ build_tuple  inheritance_hierarchy_depth,		# The "(Object__Fields(X), Void)" tuple or similar.
+							      TYP_TYPE
+								( [ symbol::make_type_symbol "Myself" ],
+								  []
+								)
+							    ]
+							  )
+						      ]
+						    )
+						]
+					      )
+
+				      },
+
+				is_lazy => FALSE
+			      }
+			  ],
+
+			  []
+			);
+		    };
+		end;				# stipulate
+
+	    # A function similar to the above, producing
+	    #
+	    #     name = REF value;
+	    #
+	    # declarations:
+	    #
+	    fun make_ref_string_declaration (name, value)
+		:   Declaration
+		=
+		VALUE_DECLARATIONS (
+		  [
+		    NAMED_VALUE
+		      {
+			pattern
+			    => 
+			    VARIABLE_IN_PATTERN
+			      [ symbol::make_value_symbol name ],
+
+			expression							# Raw_Expression
+			    =>
+			    APPLY_EXPRESSION
+			      {
+				function
+				    =>
+				    VARIABLE_IN_EXPRESSION
+					[ symbol::make_value_symbol "REF" ],
+
+				argument
+				    =>
+				    STRING_CONSTANT_IN_EXPRESSION  value
+			      }, 
+
+			is_lazy => FALSE
+		      }
+		  ],
+
+		  []
+		);
+
+		#
+		fun declare_function_unpack_object_in_api ()
+		    :   Api_Element
+		    =
+		    {   # Here we make a declaration
+			#
+			#    	    unpack__object:      Self(X) -> (X -> Self(X), X);
+			#
+# printf "declare_function_unpack_object_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUES_IN_API
+			  [
+			    ( symbol::make_value_symbol "unpack__object",
+			      TYP_TYPE
+				( [ symbol::make_type_symbol "->" ],
+				  [ TYP_TYPE
+				      ( [ symbol::make_type_symbol "Self" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]
+				      ),
+				    TUPLE_TYPE
+				      [
+					TYP_TYPE
+					  ( [ symbol::make_type_symbol "->" ],
+					    [ TYPE_VARIABLE_TYPE typevar_x,
+					      TYP_TYPE
+						( [ symbol::make_type_symbol "Self" ],
+						  [ TYPE_VARIABLE_TYPE typevar_x ]
+						)
+					    ]
+					  ),
+					TYPE_VARIABLE_TYPE  typevar_x
+				      ]
+				  ]
+				)
+			    )
+			  ];
+		    };
+
+		#
+		fun declare_function_get_substate_in_api ()
+		    :   Api_Element
+		    =
+		    {   # Here we make a declaration
+			#
+			#    	    get__substate:      Self(X) -> X;
+			#
+# printf "declare_function_get_substate_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUES_IN_API
+			  [
+			    ( symbol::make_value_symbol "get__substate",
+			      TYP_TYPE
+				( [ symbol::make_type_symbol "->" ],
+				  [ TYP_TYPE
+				      ( [ symbol::make_type_symbol "Self" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]
+				      ),
+				    TYPE_VARIABLE_TYPE typevar_x
+				  ]
+				)
+			    )
+			  ];
+		    };
+
+		#
+		fun declare_function_get_fields_in_api ()
+		    :   Api_Element
+		    =
+		    {   # Here we make a declaration
+			#
+			#    	    get__fields:      Self(X) -> Object__Fields(X);
+			#
+# printf "declare_function_get_fields_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUES_IN_API
+			  [
+			    ( symbol::make_value_symbol "get__fields",
+			      TYP_TYPE
+				( [ symbol::make_type_symbol "->" ],
+				  [ TYP_TYPE
+				      ( [ symbol::make_type_symbol "Self" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]
+				      ),
+				    TYP_TYPE
+				      ( [ symbol::make_type_symbol "Object__Fields" ],
+					[ TYPE_VARIABLE_TYPE typevar_x  ]				# anytype'
+				      )
+				  ]
+				)
+			    )
+			  ];
+		    };
+
+		#
+		fun declare_function_get_methods_in_api ()
+		    :   Api_Element
+		    =
+		    {   # Here we make a declaration
+			#
+			#    	    get__methods:      Self(X) -> Object__Methods(X);
+			#
+# printf "declare_function_get_methods_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUES_IN_API
+			  [
+			    ( symbol::make_value_symbol "get__methods",
+			      TYP_TYPE
+				( [ symbol::make_type_symbol "->" ],
+				  [ TYP_TYPE
+				      ( [ symbol::make_type_symbol "Self" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]
+				      ),
+				    TYP_TYPE
+				      ( [ symbol::make_type_symbol "Object__Methods" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]				# anytype'
+				      )
+				  ]
+				)
+			    )
+			  ];
+		    };
+
+		#
+		fun declare_function_make_object_fields_in_api ()
+		    :   Api_Element
+		    =
+		    {   # Here we make a declaration
+			#
+			#    	    make_object__fields:      Initializer__Fields(X) -> Object__Fields(X);
+			#
+# printf "declare_function_make_object_fields_in_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			VALUES_IN_API
+			  [
+			    ( symbol::make_value_symbol "make_object__fields",
+			      TYP_TYPE
+				( [ symbol::make_type_symbol "->" ],
+				  [ TYP_TYPE
+				      ( [ symbol::make_type_symbol "Initializer__Fields" ],
+					[ TYPE_VARIABLE_TYPE typevar_x ]
+				      ),
+				    TYP_TYPE
+				      ( [ symbol::make_type_symbol "Object__Fields" ],
+					[ TYPE_VARIABLE_TYPE typevar_x  ]				# anytype'
+				      )
+				  ]
+				)
+			    )
+			  ];
+		    };
+
+		#
+		fun make_big_type_declaration_for_package {
+			fields:   List( Named_Field            ),		# List of fields found in input class body.
+			methods:  List( Named_Function )		# List of methods found in input class body.
+		    }
+		    :   Declaration
+		    =
+		    {   # Here we make the big type declaration
+			# cluster for the class package proper.
+			# In source form e.g., src/app/tut/oop-crib/oop-crib.pkg
+			#
+			# this looks like
+			# 
+			#    Object__State(X)
+			#        =
+			#        OBJECT__STATE
+			#          { object__methods: Object__Methods(X),
+			#            object__fields:  Object__Fields(X)
+			#          }
+			#    withtype
+			#        Full__State(X) = (Object__State(X), X)			# Our state record plus those of our subclass chain, if any.
+			#    also
+			#        Self(X) = super::Self( Full__State(X) )
+			#    also
+			#        Object__Methods(X)
+                        #            =
+                        #            ( Self(X) -> String,   # get_string
+			#	       Self(X) -> Int       # get_int
+			#	     )
+			#    also
+			#	 Object__Fields(X)  = ( String,  # self_string.
+			#		                Int      # self_int.
+			#		              )
+			#    ;
+			#
+			# where the specific fields and methods will of course vary.
+			#
+			#
+# printf "make_big_type_declaration_for_package/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			ENUM_DECLARATIONS
+			  {
+			    datatyps									# List( Named_Datatype )
+				=>
+				[  NAMED_ENUM
+				       {
+					 typ								# Symbol
+					     =>
+					     symbol::make_type_symbol "Object__State",					# Type name for "Object__State(X) = ..."
+
+					 type_variables									# List( Typevar_Ref ),
+					     =>
+					     [ typevar_x ],								# Type variable X for "Object__State(X) = ..."
+
+					 is_lazy									# Bool
+					     =>
+					     FALSE,
+
+					 right_hand_side								# Named_Datatype_Right_Hand_Side,
+					     =>
+					     VALCONS [
+					       ( symbol::make_value_symbol "OBJECT__STATE",				# Constructor name OBJECT__STATE
+						 THE (
+						     RECORD_TYPE [
+						       ( symbol::make_label_symbol "object__fields",			# Tuple field name "object__fields".
+							 TYP_TYPE
+							   ( [ symbol::make_type_symbol "Object__Fields" ],
+							     [ TYPE_VARIABLE_TYPE typevar_x  ]				# anytype'
+							   )
+						       ),
+						       ( symbol::make_label_symbol "object__methods",			# Tuple field name "object__methods".
+							 TYP_TYPE
+							   ( [ symbol::make_type_symbol "Object__Methods" ],
+							     [ TYPE_VARIABLE_TYPE typevar_x ]				# anytype'
+							   )
+						       )
+						    ]
+						 )
+					       )
+					     ]
+				       }
+				],
+
+			    with_typs									# List( Named_Type )
+				=>
+				[
+				  # Full__State(X) = (Object__State(X), X):
+				  #	
+				  NAMED_TYPE
+				   {
+				      typ									# Symbol
+					  =>
+					  symbol::make_type_symbol "Full__State",
+
+				      type_variables									# List( Typevar_Ref )
+					  =>
+					  [ typevar_x ],
+
+				      definition									# Any_Type
+					  =>
+					  TUPLE_TYPE [
+					    TYP_TYPE (
+					      [ symbol::make_type_symbol "Object__State" ],
+					      [ TYPE_VARIABLE_TYPE typevar_x ]						# anytype'
+					    ),
+					    TYPE_VARIABLE_TYPE typevar_x
+					  ] 
+				    },
+
+				  # Self(X) = super::Self( Full__State(X) ):
+				  #	
+				  NAMED_TYPE
+				    {
+				      typ									# Symbol
+					  =>
+					  symbol::make_type_symbol "Self",
+
+				      type_variables									# List( Typevar_Ref )
+					  =>
+					  [ typevar_x ],
+
+				      definition									# Any_Type
+					  =>
+					  TYP_TYPE
+					      (  [ symbol::make_package_symbol "super",
+						   symbol::make_type_symbol "Self"
+						 ],
+						 [ TYP_TYPE
+						       ( [ symbol::make_type_symbol "Full__State"
+							 ],
+							 [ TYPE_VARIABLE_TYPE typevar_x ]				# anytype'
+						       )
+						 ] 
+					      )
+				    },
+
+				  # Myself = Self( oop::Oop_Null ):
+				  #	
+				  NAMED_TYPE
+				      {
+					typ				# Symbol
+					    =>
+					    symbol::make_type_symbol "Myself",
+
+					type_variables					# List( Typevar_Ref )
+					    =>
+					    [],
+
+					definition					# Any_Type
+					    =>
+					    TYP_TYPE
+						(  [ symbol::make_type_symbol "Self" ],
+						   [ TYP_TYPE
+							 ( [ symbol::make_package_symbol "oop",
+							     symbol::make_type_symbol "Oop_Null"
+							   ],
+							   []
+							 )
+						   ] 
+						) 
+				      },
+
+				  # Object__Methods(X) = ...
+				  #
+				  NAMED_TYPE
+				    {
+				      typ									# Symbol
+					  =>
+					  symbol::make_type_symbol "Object__Methods",
+
+				      type_variables									# List( Typevar_Ref )
+					  =>
+					  [ typevar_x ],
+
+				      definition									# Any_Type
+					  =>
+					  make_methods_type_declaration  methods
+				    },
+
+				  # Object__Fields(X) = ...
+				  #
+				  NAMED_TYPE
+				    {
+				      typ									# Symbol
+					  =>
+					  symbol::make_type_symbol "Object__Fields",
+
+				      type_variables									# List( Typevar_Ref )
+					  =>
+					  [ typevar_x ],
+
+				      definition									# Any_Type
+					  =>
+					  make_object_fields_type_declaration  fields
+				    },
+
+				  # Initializer__Fields(X) = ...
+				  #
+				  NAMED_TYPE
+				    {
+				      typ									# Symbol
+					  =>
+					  symbol::make_type_symbol "Initializer__Fields",
+
+				      type_variables									# List( Typevar_Ref )
+					  =>
+					  [ typevar_x ],
+
+				      definition									# Any_Type
+					  =>
+					  make_init_fields_type_declaration  initializer_fields
+				    }
+				]
+			  };
+		    };
+
+
+		#
+		fun make_big_type_declaration_for_api {
+			fields:   List( Named_Field    ),		# List of fields found in input class body.
+			methods:  List( Named_Function )		# List of method definitions found in input class body.
+		    }
+		    :   List( Api_Element )
+		    =
+		    {   # Here we make the big type declaration
+			# cluster for the class api.  In source form
+			# e.g., src/app/tut/oop-crib/oop-crib.pkg
+			#
+			# this looks like
+			# 
+			#   Full__State(X);
+			#   Self(X)  = super::Self( Full__State( X ) );
+			#   Myself   = Self( oop::Oop_Null );			# Used only for the return type of 'make__object', everywhere else is Self(X).
+			#
+			#   Object__Fields(X)  = ( String,  # self_string.
+			#		           Int      # self_int.
+			#		         );
+			#
+			#   Initializer__Fields(X) = { self_string: String,
+			#		               self_int:    Int
+			#		             };
+			#
+			#   Object__Methods(X) = ( Self(X) -> String,   # get_string
+			#		           Self(X) -> Int,      # get_int
+			#                          Ref(String)		# subclass_id slot
+			#		         };
+			#
+			#   get_string: Self(X) -> String;
+			#   get_int:    Self(X) -> Int;
+			#
+			# where the specific fields and methods will of course vary.
+			#
+# printf "make_big_type_declaration_for_api/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			api_elements
+			    =
+			    [
+			      # Full__State(X);
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Full__State",
+				      [ typevar_x ],
+				      NULL
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				),
+
+			      # Self(X)  = super::Self( Full__State( X ) );
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Self",
+				      [ typevar_x ],
+				      THE
+					( TYP_TYPE
+					    ( [ symbol::make_package_symbol "super",
+						symbol::make_type_symbol    "Self"
+					      ],
+					      [ TYP_TYPE
+						  ( [ symbol::make_type_symbol"Full__State" ],
+						    [ TYPE_VARIABLE_TYPE typevar_x ]
+						  )
+					      ]
+					    )
+					 )
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				),
+
+			      # Myself = Self( oop::Oop_Null );
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Myself",
+				      [],
+				      THE
+					( TYP_TYPE
+					    ( [ symbol::make_type_symbol "Self" ],
+					      [ TYP_TYPE
+						  ( [ symbol::make_package_symbol "oop",
+						      symbol::make_type_symbol    "Oop_Null"
+						    ],
+						    []
+						  )
+					      ]
+					    )
+					)
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				),
+
+			      # Object__Fields(X) = ( String, # self_string.
+			      #		              Int     # self_int.
+			      #		            );
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Object__Fields",
+				      [ typevar_x ],
+				      THE
+					(make_object_fields_type_declaration  fields)
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				),
+
+			      # Initializer__Fields(X) = { self_string: String,
+			      #		                   self_int:    Int
+			      #		                 };
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Initializer__Fields",
+				      [ typevar_x ],
+				      THE
+					(make_init_fields_type_declaration  initializer_fields)
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				),
+
+			      #   Object__Methods(X)
+                              #       =
+                              #       ( Self(X) -> String,   # get_string
+			      #		Self(X) -> Int,      # get_int
+			      #         Ref(String)	     # subclass_id slot.		
+			      #	      );
+			      #
+			      TYPS_IN_API
+				(
+				  [ ( symbol::make_type_symbol "Object__Methods",
+				      [ typevar_x ],
+				      THE
+					(make_methods_type_declaration  methods)
+				    )
+				  ],
+				  FALSE		# Not an equality type
+				)
+			    ]
+			    @
+			    # Here we synthesize the API declarations	
+			    #	
+			    #   get_string: Self(X) -> String;
+			    #   get_int:    Self(X) -> Int;
+			    #	
+			    make_methods_type_declarations  methods;
+
+			api_elements;
+		    };
+
+
+		# We now have in hand all needed raw-syntax
+		# synthesis support code.  In the following
+		# function we pull it all together to do
+		# the actual class-definition rewrite into
+		# a vanilla Mythryl package definition in
+		# raw syntax form:
+		#
+		fun make_new_class_declaration (
+			user_code:	List( Declaration )									# The original list of top-level statements in the class body.
+		    )
+		    =
+		    {
+# printf "make_new_class_declaration/TOP (class %s/AAA)...\n" (symbol::name class_name);
+			# We start by duplicating "class super = ...;" at the
+			# start of what will be the added code at start of
+			# class body.  This ensures that 'super' will be in
+			# scope for all the following code we generate.
+			#
+			# NB: If the user did not provide a 'class super = ...'
+			#     declaration, this will be the only one present,
+			#     our synthesized "class super = object;":
+			#
+			new_body
+			    =
+			    [ PACKAGE_DECLARATIONS [ superclass ] ];
+
+
+			# Construct the raw syntax tree for our
+			# synthesized code implementing all the
+			# OOP stuff for the package.
+			#
+			# This goes in a subpackage which gets strong-sealed
+			# with a matching API to make Full__State(X)
+			# is abstract (which is essential for
+			# proper method invocation in the presence of
+			# subclasses -- see Bernard Berthomieu's paper)
+			# and then 'included' back into the code.
+			#
+			synthesized_code
+			    =
+			    SEQUENTIAL_DECLARATIONS [
+
+			      # We need some way of distinguishing all objects
+			      # of this class from all objects of other classes.
+			      #
+			      # References have the pleasant property of being
+			      # equal to themself and unequal to any other ref,
+			      # so making a private ref of our own and including
+			      # it in all our objects fits the bill perfectly.
+			      #
+			      # We never actually set this REF to anything or
+			      # care about its value;  we set the value to
+			      # our class name as debug support:
+			      #
+			      make_ref_string_declaration ("class__id", (symbol::name  class_name)),
+
+			      PACKAGE_DECLARATIONS
+				[
+
+				  NAMED_PACKAGE
+				    {
+				      name_symbol
+					  =>
+					  symbol::make_package_symbol "oop__internal",
+
+				      constraint
+					  =>
+					  STRONG_PACKAGE_CAST (
+					      API_DEFINITION (
+						  (make_big_type_declaration_for_api { fields, methods => message_definitions })
+						  @
+						  [
+						    declare_function_pack_object_in_api        (),
+						    declare_function_make_object_in_api        (),
+						    declare_function_unpack_object_in_api      (),
+						    declare_function_get_substate_in_api       (),
+						    declare_function_get_fields_in_api         (),
+						    declare_function_get_methods_in_api        (),
+						    declare_function_make_object_fields_in_api ()
+						  ]
+						  @
+						  declare_method_override_functions (message_definitions, [])
+					      )
+					  ),
+
+				      definition
+					  =>
+					  PACKAGE_DEFINITION (
+					     SEQUENTIAL_DECLARATIONS
+					       [ make_big_type_declaration_for_package { fields, methods => message_definitions },
+
+						 make_function_get_fields     (),
+						 make_function_get_methods    (),
+
+						 make_make_object_ref         (),
+						 make_function_make_object_ii (),
+
+						 wrap_method_and_message_functions  methods_and_messages,
+						 make_methods_record                message_definitions,
+						 make_method_dispatch_functions     message_definitions,
+
+						 make_function_make_object_fields (),
+						 make_function_pack_object        (),
+						 make_function_make_object        (),
+
+						 make_function_unpack_object      (),
+						 make_function_get_substate       (),
+
+						 make_method_override_functions   message_definitions,
+						 make_make_object_backpatch       ()
+					       ]
+					  ),
+
+				      kind => PLAIN_PACKAGE
+				    }
+				],
+
+			      INCLUDE_DECLARATIONS [ [ symbol::make_package_symbol "oop__internal" ] ]		# List of paths, each path a list of symbols.
+			    ];
+
+
+			user_code
+			    =
+			    case (oop_rewrite_declaration
+				    { original_declaration => SEQUENTIAL_DECLARATIONS user_code,
+				      synthesized_code,
+				      field_to_offset
+				    }
+				 )
+
+				SEQUENTIAL_DECLARATIONS user_code
+				    =>
+				    user_code;
+
+				_   => raise exception FAIL "expand-oop-syntax.pkg: make_new_class_declaration: Internal compiler error.";
+			    esac;
+
+			# Drop in the user-supplied package body.
+			# This contains the user method functions,
+			# now mutated to be vanilla user functions:
+			#
+			new_body @= user_code;
+
+			if *debugging
+
+			    prettyprint_raw_declaration
+			      (
+				"expand-oop-syntax.pkg:  make_new_class_declaration:  Final rewritten class: ",
+				SEQUENTIAL_DECLARATIONS  new_body,
+				symbolmapstack
+			      );
+
+			    unparse_raw_declaration
+			      (
+				"expand-oop-syntax.pkg:  make_new_class_declaration:  Final rewritten class: ",
+				SEQUENTIAL_DECLARATIONS  new_body,
+				symbolmapstack
+			      );
+			fi;
+
+			SEQUENTIAL_DECLARATIONS  new_body;
+
+		    };				# fun make_new_class_declaration
+
+
+		# Take apart the given raw syntax tree
+		# to find the parts we need:
+		#
+		case declaration
+
+		    SEQUENTIAL_DECLARATIONS list
+			=>
+			PACKAGE_DEFINITION (make_new_class_declaration list);
+
+		    ( VALUE_DECLARATIONS _
+		    | FIELD_DECLARATIONS _
+		    | EXCEPTION_DECLARATIONS _
+		    | TYPE_DECLARATIONS        _
+		    | GENERIC_DECLARATIONS     _
+		    | API_DECLARATIONS         _
+		    | GENERIC_API_DECLARATIONS _
+		    | LOCAL_DECLARATIONS      _
+		    | INCLUDE_DECLARATIONS  _
+		    | OVERLOADED_VARIABLE_DECLARATION _
+		    | FIXITY_DECLARATIONS _
+		    | FUNCTION_DECLARATIONS _
+		    | NADA_FUNCTION_DECLARATIONS _
+		    | RECURSIVE_VALUE_DECLARATIONS _
+		    | ENUM_DECLARATIONS _
+		    | ABSTRACT_TYPE_DECLARATIONS _
+		    | SOURCE_CODE_REGION_FOR_DECLARATION _
+		    | PACKAGE_DECLARATIONS _
+		    )   =>
+		       {   # XXX BUGGO FIXME put a proper compiler error message here.
+			   printf "src/lib/compiler/front/typer/main/expand-oop-syntax.pkg: Internal compiler error, unsupported oop raw syntax tree, %d messages, %d methods and %d fields ignored\n"  message_count  method_count  field_count;
+			   PACKAGE_DEFINITION declaration;
+		       };
+		esac;  
+	    fi; 
+	};								# fun expand_oop_syntax_in_declaration
+
+
+    #
+    fun expand_oop_syntax_in_package_expression
+        ( package_name:         symbol::Symbol,
+          package_expression:   raw_syntax::Package_Expression,
+          symbolmapstack:         symbolmapstack::Symbolmapstack,
+	  source_code_region:   line_number_db::Source_Code_Region,
+          per_compile_info:         typer_junk::Per_Compile_Info
+	)
+	: raw_syntax::Package_Expression
+	=
+	{
+	    case   package_expression
+
+		PACKAGE_BY_NAME          _ =>  package_expression;
+		CALL_OF_GENERIC          _ =>  package_expression;
+		INTERNAL_CALL_OF_GENERIC _ =>  package_expression;
+		LET_IN_PACKAGE           _ =>  package_expression;
+		PACKAGE_CAST             _ =>  package_expression;
+
+		SOURCE_CODE_REGION_FOR_PACKAGE
+		    (package_expression, source_code_region')
+		    =>
+		    expand_oop_syntax_in_package_expression
+		      (
+			package_name,
+			package_expression,
+			symbolmapstack,
+			source_code_region',
+			per_compile_info
+		      );
+
+		PACKAGE_DEFINITION  declaration
+		    =>
+		    expand_oop_syntax_in_declaration
+		      (
+			package_name,
+			declaration,
+			symbolmapstack,
+			source_code_region,
+			per_compile_info
+		      );		
+	    esac;
+	};
+};
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Code by Jeff Prothero: Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
+
+
+# 2009-09-01 Code attic -- delete if not used within a few months:
+#
+#  case (eos::null_or_value_in_package (*parent_path, symbol::make_value_symbol "field__count", symbolmapstack))
+#      NULL      => print "Did NOT find parent::field__count -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#      THE value
+#          =>
+#          {   print "FOUND parent::field__count -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#              case value
+#                   variables_and_constructors::CONSTRUCTOR _ => print "parent::field__count is a CONSTRUCTOR  -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#                   variables_and_constructors::VARIABLE v
+#                       =>
+#                       {    print "parent::field__count is a VARIABLE     -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#                            case v
+#                                 variables_and_constructors::ERRORVAR                => print "parent::field__count is an ERRORVAR              -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#                                 variables_and_constructors::OVERLOADED_IDENTIFIER _ => print "parent::field__count is an OVERLOADED_IDENTIFIER -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+#                                 variables_and_constructors::ORDINARY_VARIABLE { varhome, ... }
+#                                     =>
+#                                     {   print "parent::field__count is an ORDINARY_VARIABLE     -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 					case varhome
+# 					     varhome::HIGHCODE_VARIABLE v => print "parent::field__count is a HIGHCODE_VARIABLE  -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 					     varhome::EXTERN p            => print "parent::field__count is an EXTERN            -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 					     varhome::NO_VARHOME         => print "parent::field__count is a NO_VARHOME        -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 					     varhome::PATH (v,i)
+#                                                  =>
+#                                                  {   printf "parent::field__count is a PATH (v,%d)         -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n" i;
+# 						     case v
+# 							  varhome::EXTERN p            => print "PATH.v is an EXTERN            -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 							  varhome::NO_VARHOME         => print "PATH.v is a NO_VARHOME        -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 							  varhome::PATH (v,i)
+# 							      =>
+# 							      {   printf "PATH.v is a PATH (v,%d)         -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n" i;
+# 							      };
+# 							  varhome::HIGHCODE_VARIABLE v
+#                                                               =>
+#                                                               {   print "PATH.v is a HIGHCODE_VARIABLE  -- src/lib/compiler/front/typer/main/expand-oop-syntax.pkg\n";
+# 
+#                                                               };
+# 						     esac;
+# 						 };
+# 					esac;
+# 				    };
+#                            esac;
+#                       } ;
+#              esac;
+#          };
+#  esac;
+# 

@@ -1,0 +1,351 @@
+## freemap-unused.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+stipulate
+    package fcf =  fatecode_form;						# fatecode_form		is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+herein
+
+    api Freemap {
+
+	freevars:  fcf::Expression
+		   -> List( fcf::Lambda_Variable );
+
+	freemap:  ((fcf::Lambda_Variable,  List( fcf::Lambda_Variable )) -> Void)
+		  -> (fcf::Expression ->  List( fcf::Lambda_Variable ) );
+
+	cexp_freevars:  (fcf::Lambda_Variable ->  List( fcf::Lambda_Variable ) )
+			-> fcf::Expression
+			-> List( fcf::Lambda_Variable );
+
+	freemap_close:  fcf::Expression
+		       ->  ( (fcf::Lambda_Variable ->   List( fcf::Lambda_Variable ) ),
+			     (fcf::Lambda_Variable -> Bool),
+			     (fcf::Lambda_Variable -> Bool)
+                           );
+    };
+end;
+
+
+
+stipulate
+    package fcf =  fatecode_form;						# fatecode_form		is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+herein
+
+
+    package   freemap_unused
+    : (weak)  Freemap								# Freemap		is from   src/lib/compiler/back/top/closures/freemap-unused.pkg
+    {
+	stipulate
+
+	    include fc;
+	    include sorted_list;
+
+	    package intset {
+		#
+		fun new ()       =    REF int_red_black_set::empty;
+		fun add set i   = set := int_red_black_set::add    (*set, i);
+		fun mem set i   =        int_red_black_set::member (*set, i);
+		fun rmv set i   = set := int_red_black_set::delete (*set, i);
+	    };
+
+	herein 
+
+	fun clean l
+	    = 
+	    {   fun vars (l, VAR x . rest) =>  vars (x . l, rest);
+		    vars (l,     _ . rest) =>  vars (   l, rest);
+		    vars (l,          NIL) =>    uniq l;
+                end;
+
+		vars (NIL, l);
+	    };
+
+	enter   =   fn (VAR x, y)  =>  enter (x, y);
+		       (    _, y)  =>  y;
+                    end ;
+
+	error   =   error_message::impossible;
+
+
+	# freevars 
+	#    -- Given a fatecode expression, the function "freevars" does a top-down 
+	#       traverse on the fatecode expression and returns the set of free variables
+	#       in the fatecode expression. 
+
+	recursive val freevars
+	    =
+	    fn APPLY (v, args) => enter (v, clean args);
+	       SWITCH (v, c, l) => enter (v, foldmerge (map freevars l));
+	       RECORD(_, l, w, ce) => merge (clean (map #1 l), rmv (w, freevars ce));
+	       SELECT(_, v, w, _, ce) => enter (v, rmv (w, freevars ce));
+	       OFFSET(_, v, w, ce) => enter (v, rmv (w, freevars ce));
+	       SETTER(_, vl, e) => merge (clean vl, freevars e);
+	      (LOOKER(_, vl, w, _, e) |
+	       MATH(_, vl, w, _, e) |
+	       PURE(_, vl, w, _, e) |
+	       RCC(_, vl, w, _, e)) => merge (clean vl, rmv (w, freevars e));
+	       BRANCH(_, vl, c, e1, e2) => merge (clean vl, merge (freevars e1, freevars e2));
+	       FIX (fl, e)
+		   =>
+		   {   fun g (_, f, vl, _, ce) = difference (freevars ce, uniq vl);
+		       difference (foldmerge (freevars e . map g fl), uniq (map #2 fl));
+		   };
+	    end ;
+
+	# freemap 
+	#    -- This function is used only in those post-globalfix phases.
+	#       For each   newly bound Lambda_Variable in the fatecode expression,
+	#       a set of lambda_variabless which live beyond this Lambda_Variable
+	#       are identified. A function is applied to this pair then. 
+	#
+	fun freemap add
+	    =
+	    freevars
+	    where
+		# Doesn't apply "add" to the rebound variables of a branch 
+		#
+		fun setvars (w, free)
+		    =
+		    {   g = rmv (w, free);
+			add (w, g); g;
+		    };
+
+		recursive val freevars
+		    =
+		     fn APPLY (v, args) => enter (v, clean args);
+			SWITCH (v, c, l) => enter (v, foldmerge (map freevars l));
+			RECORD(_, l, w, ce) => merge (clean (map #1 l), setvars (w, freevars ce));
+			SELECT(_, v, w, _, ce) => enter (v, setvars (w, freevars ce));
+			OFFSET(_, v, w, ce) => enter (v, setvars (w, freevars ce));
+			SETTER(_, vl, e) => merge (clean vl, freevars e);
+		       (LOOKER(_, vl, w, _, e) |
+			MATH(_, vl, w, _, e) |
+			PURE(_, vl, w, _, e) |
+			RCC(_, vl, w, _, e)) => merge (clean vl, setvars (w, freevars e));
+
+			BRANCH(_, vl, c, e1, e2)
+			    => 
+			    {   s = merge (clean vl, merge (freevars e1, freevars e2));
+				add (c, s); s;
+			    };
+		       FIX _ => error "FIX in Freemap::freemap";
+		     end;
+	    end;
+
+	# 
+	# cexp_freevars
+	#	-- To be used in conjunction with FreeMap::freemap.
+	#	   Consequently, raises an exception for FIX. Only used 
+	#         in those post-globalfix phases.
+
+	fun cexp_freevars lookup cexp
+	    =
+	    f cexp
+	    where
+		recursive val f
+		    = 
+		    fn RECORD(_, vl, w, _) => merge (clean (map #1 vl), lookup w);
+		       SELECT(_, v, w, _, _) => enter (v, lookup w);
+		       OFFSET(_, v, w, _) => enter (v, lookup w);
+		       APPLY (f, vl) =>  clean (f . vl);
+		       FIX _ => error "FIX in Freemap::cexp_freevars";
+		       SWITCH (v, c, cl) => 
+			    enter (v, foldmerge (map f cl));
+		       SETTER(_, vl, e) => merge (clean vl, f e);
+		       LOOKER(_, vl, w, _, e) => merge (clean vl, lookup w);
+		       MATH(_, vl, w, _, e) => merge (clean vl, lookup w);
+		       PURE(_, vl, w, _, e) => merge (clean vl, lookup w);
+		       RCC(_, vl, w, _, e) => merge (clean vl, lookup w);
+		       BRANCH(_, vl, c, e1, e2) => merge (clean vl, merge (f e1, f e2));
+		end;
+	    end;
+
+
+	# freemapClose 
+	#    -- Produces a free variable mapping at each function naming.
+	#       The mapping includes the functions bound at the FIX, but
+	#       not the arguments of the function. 
+	#       Only used in the closure phase.
+
+
+	fun freemap_close ce
+	    =
+	    { exception FREEMAP;
+
+		my vars:  int_hashtable::Hashtable( List( Lambda_Variable ) )
+		    =
+		    int_hashtable::make_hashtable (32, FREEMAP);
+
+		escapes  = intset::new();
+		escapes_p = intset::mem escapes;
+
+		fun escapes_m (VAR v)   =>   intset::add escapes v;
+		    escapes_m _         =>   ();
+		end;
+
+		known   =  intset::new ();
+		known_m  =  intset::add known;
+
+		recursive val freevars
+		    =
+		    fn FIX (l, ce)
+			   =>
+			   {   functions = uniq (map #2 l);
+
+			       #  MUST be done in this order due to side-effects 
+
+			       freeb = freevars ce;
+
+			       freel
+				   =
+				   fold_right
+				       (   fn ((_, v, args, _, body), freel)
+					   =
+					   (   { l   =   remove (uniq args, freevars body);
+
+						   int_hashtable::set vars (v, l);
+
+						   l . freel;
+					       }
+					   )
+				       )
+				       []
+				       l;
+
+
+			       apply
+				   (   fn v =    if (escapes_p v)   ();
+						 else               known_m v;
+						 fi
+				   )
+				   functions;
+
+			       remove (functions, foldmerge (freeb . freel));
+			   };
+
+		       APPLY (v, args)
+			   =>
+			   {   apply escapes_m args;
+			       enter (v, clean args);
+			   };
+
+		       SWITCH (v, c, l)
+			   =>
+			   foldmerge (clean [v] . (map freevars l));
+
+		       RECORD (_, l, w, ce)
+			   =>
+			   {   apply (escapes_m o #1) l;
+			       merge
+				   (   clean (map #1 l),
+				       rmv (w, freevars ce)
+				   );
+			   };
+
+		       SELECT (_, v, w, _, ce)
+			   =>
+			   enter (v, rmv (w, freevars ce));
+
+		       OFFSET (_, v, w, ce)
+			   =>
+			   enter (v, rmv (w, freevars ce));
+
+		       LOOKER (_, vl, w, _, ce)
+			   =>
+			   {   apply escapes_m vl; 
+			       merge
+				  (   clean vl,
+				      rmv (w, freevars ce)
+				  );
+			   };
+
+		       MATH (_, vl, w, _, ce)
+			   =>
+			   {   apply escapes_m vl;
+			       merge
+				  (   clean vl,
+				      rmv (w, freevars ce)
+				  );
+			   };
+
+		       PURE (_, vl, w, _, ce)
+			   =>
+			   {   apply escapes_m vl;
+			       merge
+				  (   clean vl,
+				      rmv (w, freevars ce)
+				  );
+			   };
+
+		       SETTER (_, vl, ce)
+			   =>
+			   {   apply escapes_m vl;
+			       merge
+				  (   clean vl,
+				      freevars ce
+				  );
+			   };
+
+		       RCC (_, vl, w, _, ce)
+			   =>
+			   {   apply escapes_m vl;
+			       merge
+				  (   clean vl,
+				      rmv (w, freevars ce)
+				  );
+			   };
+
+		       BRANCH (_, vl, c, e1, e2)
+			   =>
+			   {   apply escapes_m vl; 
+			       merge
+				  (   clean vl,
+				      merge (freevars e1, freevars e2)
+				  );
+			   };
+		    end;
+
+		freevars ce;
+
+		(   int_hashtable::lookup vars,
+		    intset::mem escapes,
+		    intset::mem known
+		);
+	    };
+
+	/* Temporary, for debugging 
+	phase = compile_statistics::do_phase (compile_statistics::makephase "Compiler 078 Freemap")
+	freemap = phase freemap
+	freemapClose = phase freemapClose
+	freevars = phase freevars
+	*/
+
+	end;				# local 
+    };					# package free_map 
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1989 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

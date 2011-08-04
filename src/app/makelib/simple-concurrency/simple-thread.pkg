@@ -1,0 +1,732 @@
+## simple-thread.pkg
+
+# Compiled by:
+#     src/app/makelib/simple-concurrency/simple-concurrency.sublib
+
+
+
+# OVERVIEW
+# ========
+#
+# This is a very simple thread package used by
+#
+#     src/app/makelib/compile/compile-treewalk-g.pkg
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#
+# when running multiple copies of the compiler in
+# parallel as unix subprocesses so as to save wall-clock
+# time when compiling on multi-core machines.
+#
+# This package does nothing that thread-kit doesn't do better;
+# is it here only so we can do parallel compiles even when
+# thread-kit isn't installed.
+#
+#
+#
+#         NB: Throughout this file, 'thread' refers to lightweight
+#             application-specific threads, not heavyweight threads
+#             managed by the OS kernel.  In other words, we are here
+#             concerned at the in-process level with multiprogramming,
+#             not multiprocessing.  (Our unix subprocesses do give
+#             us multiprocessing, of course.)
+#
+#
+#
+# We create threads using a 'make_thread' command
+# which takes a thread name and function to compute
+# and returns a 'thread' object to the compiler:
+#
+#     thread = thread::make_thread "foo_imp" .{ something_to_compute (); };
+#
+# We also supply a 'wait_for_thread_result' function which may be applied
+# to such thread objects, and which yields the final result
+# computed by the thread:
+#
+#     result =  thread::wait_for_thread_result  my_thread;
+#
+# Calling 'wait_for_thread_result' on a thread T which has not yet
+# completed its computation blocks the caller until T terminates.
+#
+# Thus, a thread exists in one of two states:
+#
+#   o RUNNING, when it is associated with a queue of blocked
+#     threads waiting to read its result value, and
+#
+#   o DONE, when it is associated with its return value.
+#
+# 
+# 
+# 
+# Virtual Threads
+# ---------------
+# 
+# "Virtual threads" essentially make our thread wait queues
+# available without the bother of having an actual thread.
+#
+# A virtual thread is created via
+#
+#      my_virtual_thread = spawn_virtual_thread ();
+#
+# Note that no actual function to compute is specified,
+# and none ever exists.  But threads which do
+#
+#     thread::wait_for_thread_result  my_virtual_thread;
+#
+# block just as though it was a regular running thread.
+#
+# Since there is no actual code running, by default these
+# threads would block forever. Consequently, we provide a
+#
+#     thread::terminate_virtual_thread
+#         my_virtual_thread;
+#
+# call which simulates terminate of the virtual thread
+# and unblocks all threads waiting on its result
+# (which is always Void).
+#
+# Thus, virtual threads facilitate simple kinds of
+# manual thread scheduling without having to sink
+# all the way to the callcc level.
+# 
+#
+# 
+# 
+# Stream Proxy Threads
+# --------------------
+# 
+# Since the main purpose of this package is to support
+# compiler interaction with multiple compiler subprocesses,
+# we need to have have a way for a thread to block
+# until input becomes available from a given unix pipe.
+# Stream proxy threads answer this need.
+#
+# A stream proxy thread is created by doing
+#
+#     my_proxy_thread
+#         =
+#         thread::spawn_stream_proxy_thread
+#             (stream: file::Input_Stream);
+#
+# where the stream in question is a pipe from
+# a fork()ed unix subprocess.   Any thread which
+# reads the "result" of such a proxy thread via
+#
+#     thread::wait_for_thread_result  my_proxy_thread;
+#
+# will then block until input is available from
+# that unix subprocess.
+#
+# Underneath, this is implemented using a unix
+# select() / poll() call;  stream proxy threads
+# are essentially a graceful way providing
+# thread access to select() / poll() functionality.
+# 
+# 
+# 
+# Priorities
+# ----------
+# 
+# To provide some minimal control over scheduling
+# of runnable threads, we allow threads to specify
+# integer priorities by calling
+# 
+#     thread::wait_for_thread_result_at_priority  some_priority  some_thread;
+# 
+# instead of just
+# 
+#     thread::waith_for_thread_result                  some_thread;
+# 
+# priority.  When multiple threads are ready to run,
+# the thread with the highest priority is selected:
+#
+#     low_priority  = 1;
+#     high_priority = 999;
+#
+#     starting_gun =  thread::spawn_virtual_thread ();
+#
+#     goes_first  = thread::make_thread "foo" .{ thread::wait_for_thread_result_at_priority high_priority starting_gun;  print "I went first!\n"; };
+#     goes_second = thread::make_thread "bar" .{ thread::wait_for_thread_result_at_priority low_priority  starting_gun;  print "I went second.\n"; };
+#
+#     thread::terminate_virtual_thread  starting_gun;
+# 
+# The above will result in 'goes_first' and 'goes_second'
+# executing in the obvious order.
+
+
+
+# IMPLEMENTATION NOTES
+# ====================
+#
+# Since the point of this package is to provide an
+# extremely lightweight alternative to the full
+# thread-kit package, we keep things simple by
+# providing bare-minumum functionality:
+#
+#    o We do no pre-emption.  The only way
+#      for a thread to give up control of
+#      the processor is to terminate or
+#      call thread::wait_for_thread_result on another thread.
+#
+#    o We do select() / poll() calls to check
+#      for input from subprocesses only when
+#      thread::wait_for_thread_result is called
+#      and there are no runnable threads.
+#      
+#    o For a priority queue we use a simple
+#      list maintained using O(N**2) insertion
+#      sort.  
+#      
+# These simplifications work fine for 
+#      
+#     src/app/makelib/compile/compile-treewalk-g.pkg
+#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#      
+# which are written with them in mind, but may
+# easily cause problems in general.  For example,
+# spewing commands to the subprocesses without
+# pausing to read return results from them will
+# quickly produce deadlock.
+#
+# So, in general -- use thread-kit. :)
+
+
+
+api Simple_Thread {
+
+    # "Thread_Void" is essentially the same as "Void".
+    # We use it to make sure that only
+    # "spawn_virtual_thread"-generated
+    # threads are going to be explicitly
+    # terminated via 'terminate_virtual_thread':
+    #
+    Thread_Void;
+
+
+    # Externally visible
+    # type of a thread:
+    #
+    Simple_Thread(X);					# X is the thread result type.
+
+    make_simple_thread
+	:
+        (Void -> X)
+        ->
+	Simple_Thread( X );
+
+
+    # Read result of given thread, if
+    # necessary first waiting for it
+    # to terminate:
+    #
+    wait_for_thread_result:                     Simple_Thread( X ) -> X;		# Waits with low priority. 
+    wait_for_thread_result_at_priority:  Int -> Simple_Thread( X ) -> X;		# Waits with given priority.
+	#
+	# Priority when using               wait_for_thread_result_at_priority
+	# is always higher than when using  wait_for_thread_result
+
+
+    # Create a "thread" which will
+    # "terminate" when the given
+    # input stream has input ready
+    # to be read:
+    #
+    spawn_stream_proxy_thread
+        :
+        file::Input_Stream -> Simple_Thread( Void );
+
+    # Create a "thread" which will
+    # (only) "terminate" when 
+    #     terminate_virtual_thread
+    # is called:
+    #
+    spawn_virtual_thread
+        :
+        Void -> Simple_Thread( Thread_Void );
+
+    terminate_virtual_thread
+        :
+        Simple_Thread( Thread_Void )	# Termminate a virtual thread.
+	->				# This moves to the run queue
+	Void				# all threads waiting to read
+        ;                               # its result.
+
+    reset_thread_manager:     Void -> Void;		#  Forget all threads and threads waiting on them.
+    no_runnable_threads:      Void -> Bool;		#  Check whether there are any (other) runnable threads.
+};
+
+
+package   simple_thread
+:         Simple_Thread
+{
+    Thread_Void = Void;
+
+    # Type for (thread, priority) pairs in our priority queues: 
+    #
+    Priority_Queue_Entry
+	=
+        (fate::Fate( Void ), Int);
+
+
+    # Type to hold thread state.
+    # State is initially RUNNING, carrying a list of
+    # threads waiting for the result of this thread.
+    # Once the thread result value is known,
+    # we change the state to DONE(result), and move all
+    # the previously waiting threads to the run queue:
+    #
+    Thread_State(X)
+      = DONE  X						#  Value of thread. 
+      | RUNNING  List( Priority_Queue_Entry )		#  Threads waiting for thread value to be computed. 
+      ;
+
+    Simple_Thread(X)
+        =
+        Ref( Thread_State(X) );
+
+
+    #  Type for simple, brain-dead priority queue. 
+    #  Entries are (thread, priority) pairs: 
+    #
+    Thread_Priority_Queue
+        =
+        Ref( List( Priority_Queue_Entry ) );
+
+
+    # Insert (value, priority) pair x
+    # into priority queue 'qr' via side-effect,
+    # keeping the latter sorted by priority.
+    # 'xu' == "x urgency".
+    #
+    fun enqueue
+            (x as (_, xu), queue_ref as REF queue)
+        =
+	queue_ref
+            :=
+            insert queue
+        where
+            fun insert []
+                    =>
+                    [x];
+
+	        insert ((h as (_, hu)) ! r)		#  'hu' == 'h urgency' 
+                    =>
+
+		    # ">=" is important here. If we had used ">", then
+		    # the code in mythryl-compiler-compiler-g.pkg would not
+		    # perform as desired.  In particular, the parser
+		    # thread would end up being scheduled first,
+		    # effectively preventing the "cmb" message
+		    # from being sent to the slaves. (With preemption
+		    # this would not be a problem.)
+		    #
+		    if (xu >= hu)   x ! h ! r;
+                    else                h ! insert r;
+                    fi;
+            end;
+	end;
+
+    # Pop first entry off priority queue
+    # via side-effect, and return the
+    # popped entry:
+    #
+    fun dequeue (REF [])
+            =>
+            NULL;
+
+        dequeue (queue_ref as REF (first ! rest))
+            =>
+            {   queue_ref := rest;
+                THE first;
+            };
+    end;
+
+    # Create our priority queue of ready-to-run
+    # (thread, priority) pairs, initialized to empty:
+    #
+    my runnable_threads_priority_queue		# XXX BUGGO FIXME more thread-hostile global state :(
+        :
+        Thread_Priority_Queue
+        =
+        REF [];
+
+    # Create our list of unix pipe input file descriptors
+    # to watch.  Each entry pairs a file descriptor with
+    # a proxy Thread which we will "terminate" once there
+    # is input available to read from that pipe, and which
+    # in the meantime holds the list of threads waiting
+    # to read from that pipe:
+    #
+    unix_pipes_to_watch				# XXX BUGGO FIXME more thread-hostile global state :(
+        =
+        REF ( []:   List( ( Simple_Thread( Void ),
+                            winix::io::Poll_Request
+                        ) )
+            );
+
+    # Reset all state managed by this package:
+    #
+    fun reset_thread_manager ()
+        =
+        {    runnable_threads_priority_queue :=  [];
+             unix_pipes_to_watch             :=  [];
+        };
+    #
+    fun no_runnable_threads ()
+        =
+        list::null *runnable_threads_priority_queue;
+
+
+    # A thread has terminated, returning 'result'.
+    #
+    # The thread record 'r' holds the list of threads
+    # waiting for this thread to terminate.
+    #
+    # Change the thread state from RUNNING to DONE (v)
+    # via side-effect, and move the waiting threads
+    # to the run queue:
+    #
+    fun wakeup (REF (DONE _), _)
+            =>
+            {   file::say ["woken up twice!\n"];
+                raise exception FAIL "thread";
+            };
+
+        wakeup (thread_ref as REF (RUNNING thread_state_list), result)
+            =>
+	    {   thread_ref := DONE result;
+
+                apply
+                    (fn thread_state =  enqueue (thread_state, runnable_threads_priority_queue))
+                    thread_state_list;
+            };
+    end;
+
+    #
+    fun spawn_virtual_thread ()
+        =
+        (REF (RUNNING [])): Simple_Thread( Thread_Void );
+
+    #
+    fun terminate_virtual_thread (REF (DONE ()))
+             =>
+             ();
+
+        terminate_virtual_thread  waiting_threads
+            =>
+            wakeup (waiting_threads, ());
+    end;
+
+    #
+    fun select_on_input_file_descriptors ()
+        =
+	case *unix_pipes_to_watch
+	  
+	     []  =>
+                 {   file::say ["deadlock!\n"];
+                     raise exception FAIL "thread";
+                 };
+
+	     subprocesses
+		 =>
+		 {    # Get a poll list of unix descriptors
+		      # corresponding to our unix subprocesses: 
+		      #	
+		      file_descriptor_list
+                          =
+                          map #2 subprocesses;
+
+
+						# winix			is from   src/lib/std/winix.pkg
+						# winix::io		is from   src/lib/std/src/posix/winix-io.pkg
+
+		      # Do a Unix-level poll on our child-pid list.
+		      # Since there is nothing else to do (we are only
+		      # called if 'runnable_threads_priority_queue' is empty),
+		      # we can afford to block at the unix process level
+		      # until at  least one child has exited:
+		      #	
+		      poll_results_list
+                          =
+                          winix::io::poll (file_descriptor_list, NULL);
+
+		      # Partition our input list into two
+		      # lists not/ready of those which have/not
+		      # completed execution:
+		      #
+		      fun is_ready (_, poll_request: winix::io::Poll_Request)
+			  =
+			  {   fun same_io_descriptor  (poll_result: winix::io::Poll_Result)
+				  =
+				  winix::io::compare
+				      (
+					poll_request.iod,
+					poll_result.iod
+				      )
+				      ==
+                                      EQUAL;
+
+			      list::exists
+                                  same_io_descriptor
+                                  poll_results_list;
+			  };
+
+		      my (ready, not_ready)
+			  =
+			  list::partition
+                              is_ready
+                              subprocesses;
+
+
+		      # Schedule the 'not_ready' pids
+		      # to be checked again next time around:
+		      #	
+		      unix_pipes_to_watch
+                          :=
+                          not_ready;
+
+		      # For each 'ready' list entry (which represents
+		      # a unix subprocess pipe stream which now has
+		      # output available for us to read) mark the matching
+		      # proxy thread as terminated, which moves to the
+		      # run queue any threads waiting to read its result:
+		      #
+		      apply
+			  (fn (proxy_thread, _) =  wakeup (proxy_thread, ()))
+			  ready;
+
+		      # There should now be a ready-to-run
+		      # thread in the run queue, since:
+		      #
+		      # (1) The above poll doesn't return until a
+		      #     subprocess has something to read;
+		      #
+		      # (2) We then set the thread corresponding
+		      #     to that subprocess to DONE, which moves all
+		      #     threads waiting on it to the run queue;
+		      #
+		      # (3) There should be at least one such thread
+		      #     -- that which spawned that unix subprocess.
+		      #
+		      # So -- switch to the highest-priority thread in
+                      #     runnable_threads_priority_queue:
+		      #
+		      case (dequeue  runnable_threads_priority_queue)
+		        
+			   NULL
+			       =>
+			       {   file::say ["src/app/makelib/simple-concurrency/simple-thread.pkg: select_on_input_file_descriptors failed to wake anybody up!\n"];
+				   raise exception FAIL "thread";
+			       };
+
+			   THE (thread_state, _)
+			       =>
+			       fate::resume_fate thread_state ();
+		      esac;
+		 };
+        esac;
+
+
+    # Pick next thread to run, and run it. 
+    # If we have more than one local ready-to-run
+    # thread, we run the highest-priority one of them.
+    # Otherwise, we wait for input from one of our
+    # forked unix subprocesses:
+    #
+    fun run_highest_priority_runnable_thread_else_select_on_input_file_descriptors ()
+        =
+	case (dequeue runnable_threads_priority_queue)
+	  
+	     NULL
+                 =>
+                 select_on_input_file_descriptors ();			#  Wait for Unix-level input. 
+
+	     THE (thread_state, _)
+                 =>
+                 fate::resume_fate thread_state ();				#  Run local fate. 
+        esac;
+
+
+    # If thread is DONE, just return its result.
+    # Otherwise, add ourself to thread's wait queue
+    # and schedule some other thread to run:
+    #
+    fun wait_for_thread_result' _ (REF (DONE x))
+            =>
+            x;
+
+         wait_for_thread_result' u (c as REF (RUNNING thread_state_list))      #  'u' == 'urgency', 'c' == 'condition'
+             => 
+	     {
+                 fate::call_with_current_fate
+                     (fn ts
+                         =
+                         {   c := RUNNING ((ts, u) ! thread_state_list);
+
+			     run_highest_priority_runnable_thread_else_select_on_input_file_descriptors ();
+                         }
+                     );
+
+	         wait_for_thread_result' u c;
+             };
+    end;
+
+    #
+    fun wait_for_thread_result condition
+        =
+        wait_for_thread_result' 0 condition;
+
+
+    # Read thread result, with given priority.
+    #
+    # This suspends execution of the current
+    # thread until thread is fixed.
+    #
+    # A threads priority has no effect while
+    # it is waiting, but becomes its scheduling
+    # priority once it's ready to run -- when
+    # a thread with multiple waiting threads
+    # is fixed, the highest-priority thread
+    # runs first.
+    #
+    # When we do finally run again, the value
+    # of the thread becomes the return value
+    # of the result call:
+    #
+    fun wait_for_thread_result_at_priority  priority  thread
+        =
+        wait_for_thread_result' (priority + 1) thread;
+
+    # Fire off an internal thread. 
+    #
+    # 'worker' is the thunk to be
+    # evaluated by the new thread.
+    #
+    # Return the matching Thread.
+    #
+    fun make_simple_thread thunk
+        =
+        {   thread = REF (RUNNING []);        # The value we return to caller.
+	
+	    # We capture two fates here in succession:
+	    # o   'return', which is the thread which will return from the 'make_thread' call;
+	    # o   'thread state' which is the make_thread()ed thread, which will
+	    #	    1) Evaluate thunk ()
+	    #	    2) Store thunk()'s result into the returned condition 'c',
+	    #	       waking any threads waiting on it.
+	    #	    3) Terminate the thread by calling
+            #          run_highest_priority_runnable_thread_else_select_on_input_file_descriptors ().
+	    # We put 'thread_fate' in the run queue and then
+            # have 'make_thread' return 'thread':
+	    #
+	    fate::call_with_current_fate
+                (fn return_fate
+                    =
+	            {   fate::call_with_current_fate
+                            (fn thread_fate
+                                =
+                                {   enqueue ((thread_fate, -1), runnable_threads_priority_queue);
+				    fate::resume_fate return_fate thread;
+                                }
+                            );
+
+	                wakeup (thread, thunk ());
+	                run_highest_priority_runnable_thread_else_select_on_input_file_descriptors ();
+                    }
+                );
+	};
+
+
+						# lib7			is from   src/lib/std/lib7.pkg
+						# fate			is from   src/lib/std/src/nj/fate.pkg
+						# file			is from   src/lib/std/src/posix/file.pkg
+						# file::pure_io		def in    src/lib/std/src/io/file-g.pkg
+						# text_base_io		is from   src/lib/std/src/io/text-base-io.pkg
+						# winix			is from   src/lib/std/winix.pkg
+						# winix::io		is from   src/lib/std/src/posix/winix-io.pkg
+
+    # Construct and return a "thread"
+    # which will "terminate" when the
+    # given (unix pipe) input stream
+    # has data to be read.
+    #
+    # As a side effect, we add the returned
+    # thread plus the Unix poll descriptor
+    # to our unix_pipes_to_watch.
+    #
+    # We implement the required functionality by
+    # polling this list for pending input whenever
+    # we have nothing else to do:
+    #
+    fun spawn_stream_proxy_thread
+            input_stream
+        =
+        {   file_input_stream
+                =
+                file::get_instream  input_stream;
+
+	    fun bad ()
+                =
+                {   file::say ["spawn_stream_proxy_thread: bad stream\n"];
+		    raise exception FAIL "concur";
+                };
+
+	    reader_and_vector
+                =
+                file::pure_io::get_reader
+                    file_input_stream;
+
+	    thread
+                =
+                case reader_and_vector
+	          
+	             (text_base_io::READER { io_descriptor => THE iod, ... }, "")
+			 =>
+			 {   thread  =  REF (RUNNING []);
+			     request =	{ iod, readable => TRUE, writable => FALSE, oobdable => FALSE };
+
+			     unix_pipes_to_watch :=   (thread, request) ! *unix_pipes_to_watch;
+
+			     thread;
+			 };
+
+	             (_, "")   =>   bad ();
+
+	             reader_and_vector
+		         =>
+                         REF (DONE ());
+                esac;
+	
+	    file::set_instream
+                (
+                  input_stream,
+                  file::pure_io::make_instream
+                  reader_and_vector
+                );
+
+	    thread;
+
+	};			# fun spawn_stream_proxy_thread
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

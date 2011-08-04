@@ -1,0 +1,208 @@
+## code-segment.pkg
+
+# Compiled by:
+#     src/lib/compiler/execution/execute.sublib
+
+
+
+# An interface for manipulating code chunks.
+
+
+
+###         "The Analytical Engine is not merely adapted
+###          for tabulating the results of one particular
+###          function and of no other, but for developing
+###          and tabulating any function whatever."
+###
+###                           -- Ada Lovelace, 1842
+
+
+
+stipulate
+    package bio =  binary_io;								# binary_io				is from   src/lib/std/src/posix/binary-io.pkg
+    package bv  =  unt8_vector;		# "bv" == "bytevector"				# unt8_vector				is from   src/lib/std/src/unt8-vector.pkg
+    package wbv =  rw_unt8_vector;	# "wbv" == "writable bytevector"		# rw_unt8_vector			is from   src/lib/std/src/rw-unt8-vector.pkg
+    package un  =  unsafe;								# unsafe				is from   src/lib/std/src/unsafe/unsafe.pkg
+    package uc  =  unsafe::unsafe_chunk;						# unsafe_chunk				is from   src/lib/std/src/unsafe/unsafe-chunk.pkg
+    package ci	=  unsafe::mythryl_callable_c_library_interface;			# mythryl_callable_c_library_interface	is from   src/lib/std/src/unsafe/mythryl-callable-c-library-interface.pkg
+
+herein
+
+    package   code_segment
+    :         Code_Segment								# Code_Segment				is from   src/lib/compiler/execution/code-segments/code-segment.api
+    {
+	Chunk =   uc::Chunk;
+
+	Code_Segment
+	    =
+	    CODE_SEGMENT  {
+		entrypoint:	Ref( Int ),
+		machinecode_bytevector:	wbv::Rw_Vector
+	    };
+
+	Code_And_Data_Segments
+	    =
+	    {   code_segment:					Code_Segment,		# The code segment for this compiled file.
+		bytecodes_to_regenerate_literals_vector:	bv::Vector		# Re/generates our literals via		src/c/cleaner/make-package-literals-via-bytecode-interpreter.c
+	    };										# This gets done in			src/lib/compiler/execution/main/link-and-run-package.pkg
+
+	Package_Closure									# Package ready to link.
+	    =
+	    Chunk -> Chunk;								# Input argument includes importtree and linkermapstack of loaded packages; return value is exports from now-ready-to-be-called package.
+
+	exception FORMAT_ERROR;								# Raised by input when there are insufficient bytes.
+
+	my alloc_code:  Int -> wbv::Rw_Vector
+	    =
+	    ci::find_c_function
+	      {
+		lib_name => "heap",
+		fun_name => "allocate_codechunk"					# "allocate_codechunk"						def in    src/c/lib/heap/allocate-codechunk.c
+	      };	
+
+	my make_package_literals_via_bytecode_interpreter:  bv::Vector -> Chunk
+	    =
+	    ci::find_c_function
+	      {
+		lib_name => "heap",
+		fun_name => "make_package_literals_via_bytecode_interpreter"		# "make_package_literals_via_bytecode_interpreter"		def in    src/c/lib/heap/make-package-literals-via-bytecode-interpreter.c
+	      };									#  make_package_literals_via_bytecode_interpreter		def in    src/c/cleaner/make-package-literals-via-bytecode-interpreter.c
+
+	my make_codechunk_executable:  (wbv::Rw_Vector, Int) -> Package_Closure		# Int is entrypoint.
+	    =
+	    ci::find_c_function
+	      {
+		lib_name => "heap",
+		fun_name => "make_codechunk_executable"					# "make_codechunk_executable"					def in    src/c/lib/heap/make-codechunk-executable.c
+	      };
+
+
+
+	fun  make_code_segment_of_bytesize  n						# Allocate an uninitialized code segment.
+	    =
+	    {   if (n <= 0)      raise exception SIZE;    fi;
+		#
+		CODE_SEGMENT {
+		  entrypoint   =>  REF 0,
+		  machinecode_bytevector =>  alloc_code n
+		};
+	    };
+
+	# Allocate a code segment of the given size and initialize it
+	# from the input stream.
+	# NOTE: someday, we might read the data directly into the code
+	# segment, but this will require hacking around with the reader.		# XXX SUCKO FIXME
+	# This fun is called (only) from:
+	#
+	#     src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	# 
+	fun read_machinecode_bytevector (instream, bytesize)
+	    =
+	    {   (make_code_segment_of_bytesize  bytesize)
+		    ->
+		    (co as CODE_SEGMENT { machinecode_bytevector, ... } );
+		    
+
+		data =  bio::read_n (instream, bytesize);
+
+		if (bv::length data < bytesize)
+		    #
+		    control_print::say (cat [
+		       ".compiled file format error: expected ", int::to_string bytesize,
+		       " bytes, but only found ", int::to_string (bv::length data)
+		     ]);
+
+		    raise exception FORMAT_ERROR;
+		fi;
+
+		wbv::copy_vec { from=>data, to=>machinecode_bytevector, di=>0 };
+
+		co;
+	    };
+
+
+
+
+	# This fun is called (only) from:
+	#
+	#     src/lib/compiler/execution/compiledfile/compiledfile.pkg
+	# 
+	fun write_machinecode_bytevector_and_flush (outstream, CODE_SEGMENT { machinecode_bytevector, ... } )				# Write code segment to given output stream.
+	    =
+	    {   bio::write (outstream, un::cast machinecode_bytevector);
+		#
+		bio::flush  outstream;
+	    };
+
+
+
+	
+	# This fun is called (only) from:
+	#
+	#     src/lib/compiler/execution/code-segments/code-segment-buffer.pkg
+	#     src/lib/compiler/execution/code-segments/unparse-code-and-data-segments.pkg
+	#
+	#
+	fun get_machinecode_bytevector (CODE_SEGMENT { machinecode_bytevector, ... } )							# View the code segment as an updatable rw_vector of bytes.
+	    =
+	    machinecode_bytevector;
+
+
+
+	# Build a 1-slot Package_Closure record pointing to given machinecode bytevector.
+	# This has the side-effect of flushing the instruction cache.									# Which is a no-op on Intel32.
+	#
+	# This function is called (only) from:
+	#
+	#     src/lib/compiler/execution/main/link-and-run-package.pkg
+	#
+	fun make_package_closure (CODE_SEGMENT { machinecode_bytevector, entrypoint => REF entrypoint } )
+	    =
+	    make_codechunk_executable													# "make_codechunk_executable"					def in    src/c/lib/heap/make-codechunk-executable.c
+	      (
+		machinecode_bytevector,
+		entrypoint														# This is currently always zero.
+	      );
+
+
+
+
+	fun get_machinecode_bytevector_size_in_bytes   (CODE_SEGMENT { machinecode_bytevector, ... } )
+	    =
+	    wbv::length  machinecode_bytevector;
+
+
+	fun get_entrypoint (CODE_SEGMENT c)
+	    =
+	    *(c.entrypoint);
+
+
+	fun set_entrypoint (CODE_SEGMENT c,  entrypoint)
+	    =
+	    c.entrypoint :=  entrypoint;
+
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

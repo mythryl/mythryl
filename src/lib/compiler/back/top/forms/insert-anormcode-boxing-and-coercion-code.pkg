@@ -1,0 +1,644 @@
+## insert-anormcode-boxing-and-coercion-code.pkg
+#
+# This is one of the anormcode ("A-Normal Form") compiler passes --
+# for context see the comments in
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+
+
+
+#   "This phase implements the core of the representation analysis [Sha97a],
+#    deciding which values need to be boxed, which need to use coercions [Ler92]
+#    and which ones type passing [HM95].  It also introduces the coercions
+#    where necessary.
+#
+#    Zhong Shao, Flexible Representation Analysis, 1997 25p 
+#    http://flint.cs.yale.edu/flint/publications/flex-tr.ps.gz
+#    
+
+
+
+###                "The only problem with seeing too much
+###                 is that it makes you insane."
+###
+###                                    -- Phaedrus
+
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Insert_Anormcode_Boxing_And_Coercion_Code {
+	#
+	insert_anormcode_boxing_and_coercion_code:  acf::Function -> acf::Function;
+	#
+    };
+end;
+
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package di  =  debruijn_index;					# debruijn_index				is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package em  =  error_message;					# error_message					is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package hbo =  highcode_baseops;					# highcode_baseops				is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;					# highcode_form					is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hcv =  highcode_var;					# highcode_var					is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package hut =  highcode_uniq_types;					# highcode_uniq_types				is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package mac =  make_anormcode_coercion_fn;				# make_anormcode_coercion_fn			is from   src/lib/compiler/back/top/forms/make-anormcode-coercion-fn.pkg
+    package mae =  make_anormcode_equality_fn;				# make_anormcode_equality_fn			is from   src/lib/compiler/back/top/forms/make-anormcode-equality-fn.pkg
+    package rat =  recover_anormcode_type_info;				# recover_anormcode_type_info			is from   src/lib/compiler/back/top/improve/recover-anormcode-type-info.pkg
+herein
+
+    package   insert_anormcode_boxing_and_coercion_code
+    : (weak)  Insert_Anormcode_Boxing_And_Coercion_Code			# Insert_Anormcode_Boxing_And_Coercion_Code	is from   src/lib/compiler/back/top/forms/insert-anormcode-boxing-and-coercion-code.pkg
+    {
+	#
+	#
+	fun bug s =   em::impossible ("Wrapping: " + s);
+
+	say = control_print::say;
+
+	fun make_var _ =  hcv::make_highcode_variable();
+
+	fkfun = { loop_info         =>  NULL,
+                  all_callers_known =>  FALSE,
+                  inlining_hint     =>  acf::INLINE_WHENEVER_POSSIBLE,
+                  call_as           =>  acf::CALL_AS_FUNCTION  hcf::fixed_calling_convention
+                };
+
+	ident =  fn le = le;
+
+	fun option f NULL => NULL;
+	    option f (THE x) => THE (f x);
+        end;
+
+	##############################################################################
+	#                   MISC UTILITY FUNCTIONS
+	##############################################################################
+	stipulate
+
+	    lt_upd
+                = 
+		{   x = hcf::make_rw_vector_uniqtype (hcf::make_typevar_i_uniqtype 0);
+		
+		    hcf::make_typeagnostic_uniqtype
+		      (
+			[ hcf::plaintype_uniqkind ], 
+			#
+			[ hcf::make_arrow_uniqtype
+			    (
+			      hcf::rawraw_variable_calling_convention,
+			      [ x,  hcf::int_uniqtype,  hcf::make_typevar_i_uniqtype 0  ],
+			      [ hcf::void_uniqtype ]
+			    )
+		        ]
+		      );
+		};
+
+	    lt_sub
+                = 
+		{   x = hcf::make_rw_vector_uniqtype (hcf::make_typevar_i_uniqtype 0);
+		
+                    hcf::make_typeagnostic_uniqtype
+		      (	
+			[ hcf::plaintype_uniqkind ], 
+			#
+			[ hcf::make_arrow_uniqtype 
+                            (
+			      hcf::rawraw_variable_calling_convention,
+			      [x, hcf::int_uniqtype],
+			      [hcf::make_typevar_i_uniqtype 0]
+			    )
+			]
+		      );
+		};
+	herein 
+
+	    fun is_array_sub t =   hcf::same_uniqtype (t, lt_sub);
+	    fun is_array_upd t =   hcf::same_uniqtype (t, lt_upd);
+
+	    f64sub = hbo::NUMSUBSCRIPT { kindbits=>hbo::FLOAT 64, checked=>FALSE, immutable=>FALSE }; 
+	    f64upd = hbo::NUMUPDATE    { kindbits=>hbo::FLOAT 64, checked=>FALSE };
+
+	    # Function classify_baseop:  baseop -> baseop * Bool * Bool
+	    # Takes a baseop and classifies it by kind.
+	    # Returns a new baseop, a flag indicating
+	    # if this baseop has been specialized, and another flag that indicates
+	    # whether this baseop is dependent on runtime type information. (ZHONG)
+	    #
+	    fun classify_baseop (px as (d, p, lt, ts))
+                =  
+		case (p, ts)
+		    #
+		    ((hbo::NUMSUBSCRIPT _ | hbo::NUMUPDATE _), _)	#  overloaded baseops 
+			=>
+			((d, p, hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts), []), TRUE, FALSE);
+
+		    (hbo::SUBSCRIPT, [tc])                        #  special 
+			=>
+			if (is_array_sub lt)
+			    #
+			    if (hcf::same_uniqtyp (tc, hcf::float64_uniqtyp))
+				 ((d, f64sub, hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts), []), TRUE, FALSE);
+			    else (px, FALSE, TRUE);
+			    fi;
+			else
+			    (px, FALSE, FALSE);
+			fi;
+
+		    (hbo::ASSIGN, [tc]) 			      #  special 
+			=> 
+			if (hcf::tc_upd_prim tc == hbo::UNBOXED_SET)
+			    #
+			    ((d, hbo::SET_INT_REFCELL, lt, ts), FALSE, FALSE);
+			else
+			    ((d, p, lt, ts), FALSE, FALSE);
+			fi;
+
+		    (hbo::UPDATE, [tc])                           #  special 
+			=>
+			if (is_array_upd lt)
+			    #
+			    if (hcf::same_uniqtyp (tc, hcf::float64_uniqtyp))
+				 #
+				 ((d, f64upd, hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts), []), TRUE, FALSE);
+			    else ((d, hcf::tc_upd_prim tc, lt, ts), FALSE, TRUE);
+			    fi;
+			else
+			    ((d, hcf::tc_upd_prim tc, lt, ts), FALSE, FALSE);
+			fi;
+
+		   _ => (px, FALSE, FALSE);
+               esac;
+
+	    argbase = fn vs = (vs, ident);
+	    resbase = fn v  = (v,  ident);
+
+	end; #  utility functions 
+
+
+	fun insert_anormcode_boxing_and_coercion_code  fdec
+            = 
+	    # Here we do the following:
+	    #
+	    #   (1) Representation (form) coercions are inserted at APPLY_TYPEFUN, BRANCH, BASEOP,
+	    #       CON, SWITCH, and RECORD (RK_VECTOR _, _). Where CON and SWITCH
+	    #       only wrap/unwrap the arguments of a enum constuctor while
+	    #       RK_VECTOR just wraps the vector elements only.
+	    #   (2) All baseops in PRIM are given type-specific meanings;
+	    #   (3) All conreps in CON and SWITCH are given type-specific meanings ??
+	    #
+	    {   # In pass1, we calculate the old type of each variable in the highcode
+		# expression. We do this for the sake of having simpler wrapping code.
+		#
+		(rat::recover_anormcode_type_info (fdec, FALSE))
+		    ->
+		    { get_lty=>getlty, clean_up, ... };
+                    
+
+		# Generate a set of new wrappers:
+		#
+                (hcf::twrap_fn  TRUE)
+		    ->
+		    (tc_wrap, lt_wrap, tcf, ltf, cleanup2);
+
+		fun fix_dcon_type lt
+                    = 
+		    if (hcf::uniqtype_is_lambdacode_typeagnostic lt)
+                        #
+			my (ks, t) = hcf::unpack_lambdacode_typeagnostic_uniqtype lt;
+			hcf::make_lambdacode_typeagnostic_uniqtype (ks, lt_wrap t);
+		    else
+                        lt_wrap lt;
+                    fi;
+
+		# transform:  (mac::wpDict, di::depth) -> (Lambda_Expression -> Lambda_Expression) 
+		#
+		fun transform (wenv, d)
+                    = 
+                    loop
+		    where
+			fun lpfd ( { loop_info, all_callers_known, inlining_hint, call_as }, v, vts, e)
+                            = 
+			    {   nisrec = case loop_info
+                                             #
+                                             THE (ts, l) => THE (map ltf ts, l);
+					     NULL        => NULL;
+                                         esac;
+
+				ncconv = case call_as
+					     #
+                                             acf::CALL_AS_FUNCTION fixed  =>  acf::CALL_AS_FUNCTION  hcf::fixed_calling_convention;
+					     acf::CALL_AS_GENERIC_PACKAGE =>  call_as;
+                                         esac;
+
+				( { loop_info =>  nisrec,
+				    call_as   =>  ncconv,
+                                    #
+                                    all_callers_known,
+                                    inlining_hint
+                                  },
+				  v, 
+				  map  (fn (x, t) = (x, ltf t))
+                                       vts, 
+				  loop e
+                                );
+			    }
+
+			# lpdc:  dcon * Type List * value * Bool -> 
+			# (dcon * Type List * (Lambda_Expression -> Lambda_Expression) * value)
+                        #
+			also
+			fun lpdc
+                            ( dc as (name, representation, lt),		# "dc" may be "data constructor" or "deconstruct/construct"
+                              ts,					# "ts" is probably "type <mumble>"
+                              u,					# user value being un/boxed...?
+                              wflag					# TRUE to construct, FALSE to deconstruct.
+                            )
+                            = 
+			    {   # Fixing the potential mismatch in the type:
+				# 
+			        ndc = (name, representation, fix_dcon_type lt);
+
+			        aty = case (hcf::unpack_arrow_uniqtype (hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts)))
+					  #
+					  (_, [x], _) =>  x;
+					   _          =>  bug "unexpected case in lpdc";
+                                      esac;
+
+				naty =  lt_wrap  aty;
+				oaty =  ltf      aty;
+
+				header = if wflag  mac::wrap_op   (wenv,[naty],[oaty], d); 
+					 else      mac::unwrap_op (wenv,[naty],[oaty], d);
+                                         fi; 
+
+
+				nts = map tc_wrap ts;
+
+				case header
+				    #
+				    NULL => (ndc, nts, ident, u);
+				    #
+				    THE hhh
+					=> 
+					{   z = make_var();
+					    nu = acf::VAR z;
+
+					    if wflag		# CONSTRUCT 
+						#
+						( ndc,
+						  nts,
+						  fn xe = acf::LET([z], hhh([u]), xe),
+						  nu
+						);
+					    else		# DECONSTRUCT 
+						x = case u
+						        #
+							acf::VAR q =>  q;
+							_          =>  bug "unexpected case in lpdc";
+						    esac;
+
+						( ndc,
+						  nts, 
+						  fn xe =  acf::LET([x], hhh([nu]), xe),
+						  nu
+						);
+					    fi;
+				       };
+                                esac; 
+			    }			# fun lpdc 
+
+			also
+			fun lpsw (acf::VAL_CASETAG (dc, ts, v), e)			#  lpsw:  (con, Lambda_Expression) -> (con, Lambda_Expression)
+                                => 							# is "lpsw" something like "loop (over) switch"...?
+			        {   (lpdc (dc, ts, acf::VAR v, FALSE))
+					->
+					(ndc, nts, header, u);
+
+			            case u
+					#				       
+				        acf::VAR nv =>   (acf::VAL_CASETAG (ndc, nts, nv), header (loop e));
+				        _           =>   bug "unexpected case in lpsw";
+                                    esac;
+			        };
+
+			     lpsw (c, e)
+                                 =>
+                                 (c, loop e);
+                        end 
+
+
+			# lprim:  baseop
+                        #      -> (  baseop
+                        #         *  (  value List
+                        #            -> value List
+                        #            *  (Lambda_Expression -> Lambda_Expression)
+                        #            )
+			#            (   Variable
+                        #            ->  Variable
+                        #            *  (Lambda_Expression -> Lambda_Expression)
+                        #            )
+                        #         ) 
+
+			also
+			fun lprim (dictionary, p, lt, [])
+				=> 
+				((dictionary, p, ltf lt, []), argbase, resbase);
+
+			     lprim px
+				=> 
+				{   (classify_baseop  px)
+					->
+					((dictionary, np, lt, ts), is_specialized, is_dyn);
+                                         
+
+				    nlt =  ltf  lt; 
+				    wts =  map  tc_wrap  ts;
+
+				    if is_specialized
+					#
+					# baseop has been specialized:
+					#
+					((dictionary, np, nlt, wts), argbase, resbase);
+				    else
+					#  still a typeagnostic baseop 
+
+					nt = hcf::apply_typeagnostic_type_to_arglist_with_single_result (nlt, wts);
+
+					my (_, nta, ntr) = hcf::unpack_arrow_uniqtype nt;
+
+					ot = ltf (hcf::apply_typeagnostic_type_to_arglist_with_single_result (lt, ts));
+
+					my (_, ota, otr) = hcf::unpack_arrow_uniqtype ot;
+
+					arghdr = 
+					     case (mac::wrap_op (wenv, nta, ota, d))
+						 #
+						 NULL =>  argbase;
+
+						 THE hhh => 
+						  (fn vs = 
+						    { nvs = map make_var vs;
+						      (map acf::VAR nvs, 
+							 fn le = acf::LET (nvs, hhh (vs), le));
+						    });
+					     esac;
+
+					reshdr = 
+					    case (mac::unwrap_op (wenv, ntr, otr, d))
+						#  
+						NULL => resbase;
+
+						THE hhh
+						    => 
+						    fn v = {   nv = make_var();
+							       ( nv, 
+								 fn le = acf::LET([v], hhh([acf::VAR nv]), le)
+							       );
+							   };
+					    esac;
+
+					npx' =    is_dyn   ??  (dictionary, np, nlt, wts)
+							   ::  (dictionary, np, nt,  [] );
+
+					(npx', arghdr, reshdr);
+				    fi;
+				};
+                        end				# fun lprim 
+
+			also
+			fun loop le
+                            = 
+			    case le
+				#
+			        acf::RET _ =>   le;
+
+			        acf::LET (vs, e1, e2)
+                                    =>
+                                    acf::LET (vs, loop e1, loop e2);
+
+			        acf::MUTUALLY_RECURSIVE_FNS (fdecs, e)
+                                    =>
+                                    acf::MUTUALLY_RECURSIVE_FNS (map lpfd fdecs, loop e);
+
+			        acf::APPLY _ =>   le;
+
+			        acf::TYPEFUN ((tfk, v, tvks, e1), e2)		# Put down all wrappers.
+				    =>
+				    {   nwenv = mac::wp_new (wenv, d);
+				        ne1 = transform (nwenv, di::next d) e1;
+				        acf::TYPEFUN ((tfk, v, tvks, mac::wp_build (nwenv, ne1)), loop e2);
+				    };
+
+			        acf::APPLY_TYPEFUN (v, ts)
+				    => 
+				    {   olt  = getlty v;
+					nts  = map tc_wrap ts;
+
+					nlts =          hcf::apply_typeagnostic_type_to_arglist (ltf olt, nts);
+					olts = map ltf (hcf::apply_typeagnostic_type_to_arglist (olt, ts));
+
+					header  = mac::unwrap_op (wenv, nlts, olts, d);
+
+					case header 
+					    #					  
+					    NULL => acf::APPLY_TYPEFUN (v, nts);
+					    #
+					    THE hhh
+						=>
+						{   nvs = map make_var nlts;
+
+						    acf::LET (nvs, acf::APPLY_TYPEFUN (v, nts), hhh (map acf::VAR nvs));
+						};
+					esac;
+				    };
+
+			        acf::CONSTRUCTOR (dc, ts, u, v, e)
+                                    => 
+				    {   my (ndc, nts, header, nu)
+                                            =
+                                            lpdc (dc, ts, u, TRUE);
+
+				        header (acf::CONSTRUCTOR (ndc, nts, nu, v, loop e));
+				    };
+
+			        acf::SWITCH (v, csig, cases, opp)
+                                    => 
+				    acf::SWITCH (v, csig, map lpsw cases, option loop opp);
+
+			        acf::RECORD (acf::RK_VECTOR t, vs, v, e)
+				    =>
+				    {   my (otc, ntc) = (tcf t, tc_wrap t);
+
+					ot = hcf::make_typ_uniqtype  otc;
+					nt = hcf::make_typ_uniqtype  ntc;
+
+					case (mac::wrap_op (wenv, [nt], [ot], d) )
+					    #
+					    NULL =>   acf::RECORD (acf::RK_VECTOR ntc, vs, v, loop e);
+
+					    THE hhh
+                                                =>
+						pass (vs, [], mh)
+                                                where 
+
+						    f = make_var();
+						    x = make_var();
+
+						    fun mh xe
+							= 
+							acf::MUTUALLY_RECURSIVE_FNS ([(fkfun, f,[(x, ot)], hhh([acf::VAR x]))], xe);
+
+						    fun pass([], nvs, h)
+							    => 
+							    h (acf::RECORD (acf::RK_VECTOR ntc, 
+								      reverse nvs, v, loop e));
+
+							pass (u ! r, nvs, h)
+							    => 
+							    {   z = make_var();
+
+								fun h0 xe
+								    = 
+								    acf::LET([z],  acf::APPLY (acf::VAR f, [u]), xe);
+
+								pass (r, (acf::VAR z) ! nvs, h o h0);
+							    };
+						    end;
+						end;
+                                        esac;
+				    };
+
+			        acf::RECORD (rk, vs, v, e)
+                                    =>
+                                    acf::RECORD (rk, vs, v, loop e);
+
+			        acf::SELECT (u, i, v, e)
+                                    =>
+                                    acf::SELECT (u, i, v, loop e);
+
+			        acf::RAISE (u, lts)
+                                    =>
+                                    acf::RAISE (u, map ltf lts);
+
+			        acf::EXCEPT (e, v)
+                                    =>
+                                    acf::EXCEPT (loop e, v);
+
+			        # Resolving the typeagnostic equality in a special way:
+				#
+			        acf::BRANCH (p as (_, hbo::POLY_EQL, _, _), vs, e1, e2)
+                                    =>
+				    loop (mae::make_equal_branch_fn (p, vs, e1, e2));
+
+			        acf::BASEOP (p as (_, hbo::POLY_EQL, _, _), vs, v, e)
+                                    =>
+				    bug "unexpected case in wrapping";
+
+			        # Resolving the typeagnostic mkarray:
+				# 
+				acf::BASEOP ((dictionary, po as hbo::MAKE_RW_VECTOR_MACRO, lt, ts), vs, v, e)
+                                    =>
+				    {   nlt =  ltf lt;
+				        nts =  map tcf ts;
+
+					case (dictionary, nts)
+					    #
+					    (THE { default=>pv, table => [(_, sv)] }, [tc])
+						=>
+						if (hcf::same_uniqtyp (tc, hcf::float64_uniqtyp) )
+						    #
+						    acf::LET([v], acf::APPLY (acf::VAR sv, vs), loop e);
+						else
+						    if (hut::uniqtyp_is_unknown  tc)
+							#
+							acf::BASEOP((dictionary, po, nlt, nts), vs, v, loop e);
+						    else 
+							z = make_var();
+							acf::LET([z], loop (acf::APPLY_TYPEFUN (acf::VAR pv, ts)),
+							acf::LET([v], acf::APPLY (acf::VAR z, vs), loop e));
+						    fi;
+						fi;
+
+					    _ => bug "unexpected case for inlmkarray";
+					esac;
+				   };
+
+			        # Resolving the usual baseops 
+				#
+			        acf::BRANCH (p, vs, e1, e2)
+				    => 
+				    {   (lprim p) ->   (np, hg, _);
+					(hg vs)   ->   (nvs, nh);
+					#
+					nh (acf::BRANCH (np, nvs, loop e1, loop e2));
+				    };
+
+			        acf::BASEOP (p, vs, v, e)
+				    => 
+				    {   (lprim p) ->   (np, hg1, hg2);
+					(hg1 vs)  ->   (nvs, nh1);
+					(hg2 v)   ->   (nv, nh2);
+					#
+					nh1 (acf::BASEOP (np, nvs, nv, nh2 (loop e)));
+				    };
+                       esac;
+		    
+		    end;		# fun transform 
+
+		fdec -> (fk, f, vts, e);
+                
+
+		nvts = map (fn (v, t) = (v, ltf t))
+                           vts;
+
+		wenv =  mac::empty_wrapper_dictionary();
+
+		ne = transform (wenv, di::top) e;
+	    
+		( fk,
+                  f,
+                  nvts,
+                  mac::wp_build (wenv, ne)
+                )
+                before {
+                           cleanup2();
+                           clean_up();
+                       };
+
+	    };					# fun wrapping 
+    };						# package wrapping 
+end;						# toplevel stipulate 
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

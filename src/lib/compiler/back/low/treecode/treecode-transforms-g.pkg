@@ -1,0 +1,488 @@
+## treecode-transforms-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+# This is a generic module for transforming Treecodeexpressions:
+#   (1) expressions involving non-standard type widths are promoted when
+#       necessary.
+#   (2) operators that cannot be directly handled are expanded into 
+#       more complex instruction sequences when necessary.
+# 
+# -- Allen Leung
+
+
+
+###              "A mind all logic is like a knife all blade.
+###               It makes the hand bleed that uses it."
+###
+###                             -- Rabindranath Tagore
+
+
+# We are invoked by:
+#
+#     src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+#     src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+#     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+
+
+stipulate
+    package lbl =  codelabel;							# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package tcp =  treecode_pith;						# treecode_pith			is from   src/lib/compiler/back/low/treecode/treecode-pith.pkg
+herein
+
+    generic package   treecode_transforms_g   (
+	#             =====================
+	#
+	package tcf:	Treecode_Form;						# Treecode_Form			is from   src/lib/compiler/back/low/treecode/treecode-form.api
+	package rgk:	Registerkinds;						# Registerkinds			is from   src/lib/compiler/back/low/code/registerkinds.api
+
+	int_bitsize:	tcf::Int_Bitsize;					# Size of integer word 
+
+	# This is a list of possible data widths to promote to.
+	# The list must be in increasing sizes.  
+	# We'll try to promote to the next largest size.
+	#
+	natural_widths:  List( tcf::Int_Bitsize );  
+
+
+	# Are integers of widths less than the size of integer word.
+	# automatically sign extended, zero extended, or neither.
+	# When in doubt, choose neither since it is conservative.
+	#
+	Rep = SE | ZE | NEITHER;
+
+	rep:  Rep;
+    )
+    : (weak) Treecode_Tranforms							# Treecode_Tranforms		is from   src/lib/compiler/back/low/treecode/treecode-transforms.api
+    {
+	# Exported to client packages:
+	#
+	package tcf           = tcf;
+	package tsz								# Not referenced in this package.
+	    =
+	    treecode_bitsize_g (						# treecode_bitsize_g		is from   src/lib/compiler/back/low/treecode/treecode-bitsize-g.pkg
+		#
+		package tcf = tcf;
+		#
+		int_bitsize = int_bitsize;
+	    );
+
+
+	fun error msg
+	    =
+	    lem::error("treecode_transforms_g", msg);
+
+	fun unsupported what
+	    =
+	    error ("unsupported: " + what);
+
+	zero_t =   tcf::LITERAL 0;
+
+	fun li i
+	    =
+	    tcf::LITERAL (tcf::mi::from_int (int_bitsize, i));
+
+	fun cond_of (tcf::CC (cc, _)) => cc;
+	    cond_of (tcf::CMP(_, cc, _, _)) => cc;
+	    cond_of (tcf::CCNOTE (cc, _)) => cond_of cc;
+	    cond_of _ => error "condOf";
+	end;
+
+	fun fcond_of (tcf::FCC (fcc, _)) => fcc;
+	    fcond_of (tcf::FCMP(_, fcc, _, _)) => fcc;
+	    fcond_of (tcf::CCNOTE (cc, _)) => fcond_of cc;
+	    fcond_of _ => error "fcondOf";
+	end;
+
+	www =   int_bitsize;
+
+	# To compute f::type (a, b) 
+	#
+	# let r1 <- a << (intType - type)
+	#     r2 <- b << (intType - type)
+	#     r3 <- f (a, b) 
+	# in
+	#     r3 >>> (intType - type)
+	# end
+	# 
+	# Lal showed me this neat trick!
+	#
+	fun arith (right_shift, f, type, a, b)
+	    = 
+	    {   shift =   li (www-type);
+
+		right_shift (www, f (www, tcf::LEFT_SHIFT (www, a, shift), tcf::LEFT_SHIFT (www, b, shift)), shift);
+	    };
+
+	fun promote_type  type
+	    =
+	    loop  natural_widths
+	    where
+		fun loop ([])
+			=> 
+			unsupported("Cannot promote integer width " + int::to_string type);
+
+		    loop (t ! ts)
+			=>
+			t > type   ??    t
+				     ::    loop ts;
+		end;
+	    end;
+
+	fun promotable right_shift (e, f, type, a, b)
+	    =
+	    case natural_widths
+
+		 [] =>  arith (right_shift, f, type, a, b); 
+		 _  =>  f (promote_type type, a, b);
+	    esac;
+
+	fun is_natural w
+	    =
+	    loop natural_widths
+	    where
+		fun loop []
+			=>
+			FALSE;
+
+		    loop (h ! t)
+			=>
+			h == w            or
+			w >  h  and  loop t;
+		end;
+	    end;
+
+
+	# Implement division with round-to-negative-infinity in terms
+	# of division with round-to-zero.
+	# The logic is as follows:
+	#    - if q > 0, then we are done since any rounding was
+	#      at the same time TO_ZERO and TO_NEGINF
+	#      (This is the fast path that does not require calculating the remainder.)
+	#    - otherwise we calculate r and see if it is zero; if so, no adjustment
+	#    - finally if r and b have the same sign (i.e., r XOR b >= 0)
+	#      we still don't need adjustment
+	#    - otherwise adjust
+	#
+	# Instruction selection for machines (e.g., intel32) where the hardware returns both
+	# q and r anyway should implement this logic directly.
+	#
+	fun divinf (xdiv, type, aexp, bexp)
+	    =
+	    {   a =   rgk::make_int_codetemp ();
+		b =   rgk::make_int_codetemp ();
+		q =   rgk::make_int_codetemp ();
+		r =   rgk::make_int_codetemp ();
+
+		zero =   tcf::LITERAL 0;
+		one  =   tcf::LITERAL 1;
+
+		tcf::LET
+		 (tcf::SEQ
+		  [tcf::LOAD_INT_REGISTER (type, a, aexp),
+		   tcf::LOAD_INT_REGISTER (type, b, bexp),
+		   tcf::LOAD_INT_REGISTER (type, q, xdiv (tcf::d::ROUND_TO_ZERO, type, tcf::REG (type, a), tcf::REG (type, b))),
+		   tcf::IF (tcf::CMP (type, tcp::GT, tcf::REG (type, q), zero),
+			  tcf::SEQ [],
+			  tcf::SEQ
+			  [tcf::LOAD_INT_REGISTER (type, r, tcf::SUB (type, tcf::REG (type, a),
+						   tcf::MULS (type, tcf::REG (type, b),
+							       tcf::REG (type, q)))),
+			   tcf::IF (tcf::CMP (type, tcp::EQ, tcf::REG (type, r), zero),
+				 tcf::SEQ [],
+				 tcf::IF (tcf::CMP (type, tcp::GE,
+					      tcf::BITWISE_XOR (type, tcf::REG (type, b), tcf::REG (type, r)),
+					      zero),
+				       tcf::SEQ [],
+				       tcf::LOAD_INT_REGISTER (type, q, tcf::SUB (type, tcf::REG (type, q),
+							       one))))])],
+		  tcf::REG (type, q));
+	    };
+
+	# Same for rem when rounding to negative infinity.
+	# Since we have to return (and therefore calculate) the remainder anyway,
+	# we can skip the q > 0 test because it will be caught by the samesign (r, b)
+	# test.
+	#
+	# The odd case is when a = MININT and b = -1 in which case the DIVS op
+	# will overflow and trap on some machines.  On others the result
+	# will be bogus.  Should we fix that?
+	#
+	fun reminf (type, aexp, bexp)
+	    =
+	    {   a =   rgk::make_int_codetemp ();
+		b =   rgk::make_int_codetemp ();
+		q =   rgk::make_int_codetemp ();
+		r =   rgk::make_int_codetemp ();
+
+		zero =   tcf::LITERAL 0;
+
+		tcf::LET
+		 (tcf::SEQ
+		  [tcf::LOAD_INT_REGISTER (type, a, aexp),
+		   tcf::LOAD_INT_REGISTER (type, b, bexp),
+		   tcf::LOAD_INT_REGISTER (type, q, tcf::DIVS (tcf::d::ROUND_TO_ZERO, type, tcf::REG (type, a),
+							   tcf::REG (type, b))),
+		   tcf::LOAD_INT_REGISTER (type, r, tcf::SUB (type, tcf::REG (type, a),
+					   tcf::MULS (type, tcf::REG (type, q),
+						       tcf::REG (type, b)))),
+		   tcf::IF (tcf::CMP (type, tcp::EQ, tcf::REG (type, r), zero),
+			 tcf::SEQ [],
+			 tcf::IF (tcf::CMP (type, tcp::GE,
+					  tcf::BITWISE_XOR (type, tcf::REG (type, b), tcf::REG (type, r)),
+					  zero),
+			       tcf::SEQ [],
+			       tcf::LOAD_INT_REGISTER (type, r, tcf::ADD (type, tcf::REG (type, r), tcf::REG (type, b)))))],
+		  tcf::REG (type, r));
+	    };
+
+	# Same for rem when rounding to zero. 
+	#
+	fun remzero (xdiv, xmul, type, aexp, bexp)
+	    =
+	    {   a =   rgk::make_int_codetemp ();
+		b =   rgk::make_int_codetemp ();
+
+		tcf::LET (tcf::SEQ [tcf::LOAD_INT_REGISTER (type, a, aexp),
+			      tcf::LOAD_INT_REGISTER (type, b, bexp)],
+		       tcf::SUB (type, tcf::REG (type, a),
+				  xmul (type, tcf::REG (type, b),
+					    xdiv (tcf::d::ROUND_TO_ZERO, type, tcf::REG (type, a),
+								     tcf::REG (type, b)))));
+	    };
+
+
+	# Translate integer expressions of unknown types into the appropriate
+	# term.
+	#
+	fun divremz d (type, a, b)
+	    =
+	    d (tcf::d::ROUND_TO_ZERO, type, a, b);
+
+	fun compile_int_expression  expression
+	    = 
+	    case expression
+
+		tcf::LATE_CONSTANT c => tcf::LABEL_EXPRESSION expression;
+
+		# Non-overflow trapping ops 
+
+		tcf::NEG (type, a)    => tcf::SUB (type, zero_t, a);
+		tcf::ADD (type, a, b)  => promotable tcf::RIGHT_SHIFT (expression, tcf::ADD, type, a, b);
+		tcf::SUB (type, a, b)  => promotable tcf::RIGHT_SHIFT (expression, tcf::SUB, type, a, b);
+		tcf::MULS (type, a, b) => promotable tcf::RIGHT_SHIFT (expression, tcf::MULS, type, a, b);
+
+		tcf::DIVS (tcf::d::ROUND_TO_ZERO, type, a, b)
+		    =>
+		    promotable tcf::RIGHT_SHIFT (expression, divremz tcf::DIVS, type, a, b);
+
+		tcf::DIVS (tcf::d::ROUND_TO_NEGINF, type, a, b)
+		    =>
+		    divinf (tcf::DIVS, type, a, b);
+
+		tcf::REMS (tcf::d::ROUND_TO_ZERO, type, a, b)
+		    =>
+		    if (is_natural type)  remzero (tcf::DIVS, tcf::MULS, type, a, b);
+		    else                    promotable tcf::RIGHT_SHIFT (expression, divremz tcf::REMS, type, a, b);
+		    fi;
+
+		tcf::REMS (tcf::d::ROUND_TO_NEGINF, type, a, b) => reminf (type, a, b);
+		tcf::MULU (type, a, b) => promotable tcf::RIGHT_SHIFT_U (expression, tcf::MULU, type, a, b);
+		tcf::DIVU (type, a, b) => promotable tcf::RIGHT_SHIFT_U (expression, tcf::DIVU, type, a, b);
+
+		tcf::REMU (type, a, b)
+		     =>
+		     if   (is_natural type)
+
+			  remzero (fn (_, type, a, b) => tcf::DIVU (type, a, b); end, tcf::MULU, type, a, b);
+		     else
+			  promotable tcf::RIGHT_SHIFT_U (expression, tcf::REMU, type, a, b);
+		     fi;
+
+		# For overflow trapping ops; we have to do the simulation 
+		#
+		tcf::NEGT (type, a)   => tcf::SUBT (type, zero_t, a);
+		tcf::ADDT (type, a, b) => arith (tcf::RIGHT_SHIFT, tcf::ADDT, type, a, b);
+		tcf::SUBT (type, a, b) => arith (tcf::RIGHT_SHIFT, tcf::SUBT, type, a, b);
+		tcf::MULT (type, a, b) => arith (tcf::RIGHT_SHIFT, tcf::MULT, type, a, b);
+		tcf::DIVT (tcf::d::ROUND_TO_ZERO, type, a, b) => arith (tcf::RIGHT_SHIFT, divremz tcf::DIVT, type, a, b);
+		tcf::DIVT (tcf::d::ROUND_TO_NEGINF, type, a, b) => divinf (tcf::DIVT, type, a, b);
+
+		 #  Conditional evaluation rules 
+	/*** XXX: Seems wrong.
+	       | tcf::COND (type, tcf::CC (cond, r), x, y)
+		     =>
+		     tcf::COND (type, tcf::CMP (type, cond, tcf::REG (type, r), zeroT), x, y)
+	***/
+		tcf::COND (type, tcf::CCNOTE (cc, a), x, y) => tcf::RNOTE (tcf::COND (type, cc, x, y), a);
+	/*** XXX: TODO
+	       | tcf::COND (type, tcf::CMP (t, cc, e1, e2), x as (tcf::LITERAL 0 | tcf::LI32 0w0), y)
+		     => 
+		     tcf::COND (type, tcf::CMP (t, tcp::negateCond cc, e1, e2), y, tcf::LITERAL 0)
+		     #  we'll let others strength reduce the multiply 
+	***/
+		tcf::COND (type, cc as tcf::FCMP _, yes, no)
+		     =>
+		     {   tmp =   rgk::make_int_codetemp ();
+
+			 tcf::LET(
+			   tcf::SEQ [tcf::LOAD_INT_REGISTER (type, tmp, no), tcf::IF (cc, tcf::LOAD_INT_REGISTER (type, tmp, yes), tcf::SEQ [])],
+			   tcf::REG (type, tmp));
+		     };
+	/*** XXX: TODO
+	       | tcf::COND (type, cc, e1, (tcf::LITERAL 0 | tcf::LI32 0w0))
+		     => 
+		     tcf::MULU (type, tcf::COND (type, cc, tcf::LITERAL 1, tcf::LITERAL 0), e1)
+
+	       | tcf::COND (type, cc, tcf::LITERAL m, tcf::LITERAL n)
+		     =>
+		     tcf::ADD (type, tcf::MULU (type, tcf::COND (type, cc, tcf::LITERAL 1, tcf::LITERAL 0), tcf::LITERAL (m-n)), tcf::LITERAL n)
+	***/
+
+		tcf::COND (type, cc, e1, e2)
+		     => 
+		     tcf::ADD (type, tcf::MULU (type, tcf::COND (type, cc, tcf::LITERAL 1, zero_t), tcf::SUB (type, e1, e2)), e2);
+
+		# ones-complement.
+		# WARNING: we are assuming two's complement architectures here.
+		# Are there any architectures in use nowadays that doesn't use 
+		# two's complement for integer arithmetic?
+		#
+		tcf::BITWISE_NOT (type, e)
+		    =>
+		    tcf::BITWISE_XOR (type, e, tcf::LITERAL -1);
+
+
+		# Default ways of converting integers to integers
+		#
+		tcf::SIGN_EXTEND (type, from_type, e)
+		    => 
+		    if (from_type == type)
+			e;
+		    else
+			if (rep == SE           and
+			    from_type < type  and
+			    from_type >= head natural_widths
+			   )
+			   e; 
+			else
+			    shift =   tcf::LITERAL (tcf::mi::from_int (int_bitsize, www - from_type));
+
+			    tcf::RIGHT_SHIFT (www, tcf::LEFT_SHIFT (www, e, shift), shift);
+			fi;
+		    fi;
+
+		tcf::ZERO_EXTEND (type, from_type, e)
+		    => 
+		    if (from_type <= type )
+			e;
+		    else 
+			case type    #  A_type < fromType 
+			    #
+			    8 =>  tcf::BITWISE_AND (type, e, tcf::LITERAL 0xff); 
+			   16 =>  tcf::BITWISE_AND (type, e, tcf::LITERAL 0xffff);
+			   32 =>  tcf::BITWISE_AND (type, e, tcf::LITERAL 0xffffffff);
+			   64 =>  e;
+			   _  =>  unsupported("unknown expression");
+			 esac;
+		    fi;
+
+
+		# Converting floating point to integers.
+		# The following rule handles the case when type is not
+		# one of the naturally supported widths on the machine.
+		#
+		tcf::CONVERT_FLOAT_TO_INT (type, round, fty, e)
+		     => 
+		     {   type'   = promote_type (type);
+
+			 tcf::SIGN_EXTEND (type, type', tcf::CONVERT_FLOAT_TO_INT (type', round, fty, e));
+		     };
+
+		# Promote to higher width and zero high bits:
+		# 
+		tcf::LEFT_SHIFT (type, data, shift)
+		     => 
+		     {   type' =   promote_type (type);
+
+			 tcf::ZERO_EXTEND (type, type', tcf::LEFT_SHIFT (type', data, shift));
+		     };
+
+		expression => unsupported("unknown expression");
+	    esac;
+
+
+	fun compile_float_expression float_expression
+	    =
+	    unsupported("unknown expression");
+
+
+	fun mark (s, [])     =>   s;
+	    mark (s, a ! an) =>   mark (tcf::NOTE (s, a), an);
+	end;
+
+
+	fun compile_void_expression (tcf::SEQ s)
+		=>
+		s;
+
+	    compile_void_expression (tcf::IF (cond, tcf::GOTO (tcf::LABEL l, _), tcf::SEQ []))
+		=> 
+		[ tcf::IF_GOTO (cond, l) ];
+
+	    compile_void_expression (tcf::IF (cond, yes, no))
+		=> 
+		{   label1 =   lbl::make_anonymous_codelabel ();
+		    label2 =   lbl::make_anonymous_codelabel ();
+
+		    [tcf::IF_GOTO (cond, label1),
+		     no,
+		     tcf::GOTO (tcf::LABEL label2,[]),
+		     tcf::DEFINE label1,
+		     yes,
+		     tcf::DEFINE label2
+		    ];
+		};
+
+	    compile_void_expression stm
+		=>
+		error "compile_void_expression";
+	end;
+
+
+	# This function translations conditional expressions into a 
+	# branch sequence.  
+	# Note: we'll actually take advantage of the fact that 
+	# e1 and e2 are allowed to be eagerly evaluated. 
+	#
+	fun compile_cond { expression=>(type, bool_expression, e1, e2), rd, notes }
+	    =
+	    {   label1 =   lbl::make_anonymous_codelabel ();
+
+		[ tcf::LOAD_INT_REGISTER (type, rd, e1),
+		  mark (tcf::IF_GOTO (bool_expression, label1), notes),
+		  tcf::LOAD_INT_REGISTER (type, rd, e2),
+		  tcf::DEFINE label1
+		];
+	    };
+
+	fun compile_fcond { expression=>(fty, bool_expression, e1, e2), fd, notes }
+	    =
+	    {   label1 =   lbl::make_anonymous_codelabel ();
+
+		[ tcf::LOAD_FLOAT_REGISTER (fty, fd, e1),
+		  mark (tcf::IF_GOTO (bool_expression, label1), notes),
+		  tcf::LOAD_FLOAT_REGISTER (fty, fd, e2),
+		  tcf::DEFINE label1
+		];
+	    };
+    };
+end;
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

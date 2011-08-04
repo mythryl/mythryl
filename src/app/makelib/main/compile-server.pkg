@@ -1,0 +1,343 @@
+## compile-server.pkg
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+# This module implements the server side of our
+# compile-server protocol for parallel/distributed
+# Mythryl compiles. The client end is implemented in
+#
+#     src/app/makelib/simple-concurrency/compile-client.pkg
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;						# anchor_dictionary				is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package frn =  find_reachable_sml_nodes;					# find_reachable_sml_nodes			is from   src/app/makelib/depend/find-reachable-sml-nodes.pkg
+    package mcc =  mythryl_compiler_compiler_configuration;			# mythryl_compiler_compiler_configuration	is from   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-configuration.pkg
+    package rs  =  runtime_signals;						# runtime_signals				is from   src/lib/std/src/nj/runtime-signals.pkg
+    package sg  =  intra_library_dependency_graph;				# intra_library_dependency_graph		is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+herein
+    package compile_server {
+										# libfile_parser_g				is from   src/app/makelib/parse/libfile-parser-g.pkg
+	# This function is invoked (only) from the
+        #     "--compile-server"
+        # case in
+        #     run_commandline ()
+        # in
+	#     src/app/makelib/main/makelib-g.pkg
+	#
+	fun enter_compile_server_loop
+	      { anchor_dictionary,						# Defines (only) $ROOT, root of the Mythryl distribution sourcecode directory tree.
+		platform,							# 'platform' string gives architecture+OS: "intel32-linux" or such. 
+		parse_libfile_tree_and_return_interlibrary_dependency_graph,	# A pre-configured call of parse_libfile_tree_and_return_interlibrary_dependency_graph from   src/app/makelib/parse/libfile-parser-g.pkg.
+		make_compile_treewalker,					# compile_treewalk::make_intra_library_dependency_graph_walker
+		make								# 'make' is the makelib_g::make entrypoint invokable from commandline. 
+	      }
+	    =
+	    {
+                generated_filename_infix					# Normally "";   if this is (e.g.) ".pwrpc32-macos", instead of "foo.pkg.compiled" we'll generate "foo.pkg.pwrpc32-macos.compiled".
+		    =
+                    REF  mcc::default_generated_filename_infix;			# ""
+
+		fun shutdown ()
+                    =
+                    winix::process::exit 0;					# winix						is from   src/lib/std/winix.pkg
+
+		fun say_ok    ()  =  file::say ["SLAVE: ok\n"   ];		# say						is from   src/lib/std/src/io/say.pkg
+		fun say_error (m) =  file::say ["SLAVE: error: '" + m + "'\n"];
+		fun say_pong  ()  =  file::say ["SLAVE: pong\n" ];
+
+
+		fun path (s, anchor_dictionary)
+                    =
+                    ad::decode  anchor_dictionary  s;
+
+
+		fun change_directory dir
+                    =
+		    winix::file::change_directory (
+
+                         ad::os_string (
+
+			     path (dir, anchor_dictionary)
+                         )
+                    );
+
+										# winix				is from   src/lib/std/winix.pkg
+										# null_or			is from   src/lib/std/src/null-or.pkg
+										# string			is from   src/lib/std/string.pkg
+										# char				is from   src/lib/std/char.pkg
+										# file				is from   src/lib/std/src/posix/file.pkg
+
+		fun get_line_tokens  stream
+                    =
+		    null_or::map
+                        (string::tokens  char::is_space)
+                        (file::read_line  stream);
+
+
+		# As a server, our purpose is to execute
+		# compile commands, but we can only do so
+		# within the context of a specified makefile,
+		# so we implement two modes:
+                #
+                #     1) Waiting for a makefile to be specified
+                #        via 'cm' or 'cmb' command.
+                #
+		#     2) Executing 'compile' commands for current makefile.
+                #
+                # In this loop we implement mode (1), the other being
+                # implemented below by fun compile_loop:
+		#
+		fun wait_for_cm_or_cmb_command ()
+                    =
+                    {   fun loop ()
+                            =
+			    case (get_line_tokens  file::stdin)
+
+				NULL                            =>   shutdown ();
+
+				THE ["cd", d]                   =>  {   change_directory d;
+									say_ok ();
+									wait_for_cm_or_cmb_command ();
+								    };
+
+				THE ["cm", platform, file]      =>  {   do_cm (platform, file);
+								    };
+
+				THE ["cmb", infix, platform, file] =>  {   generated_filename_infix :=  infix;
+									   do_cmb (platform, file);
+								       };
+
+				THE ["cmb_reset", platform]     =>   reset_cmb platform;
+
+				THE ["ping"]                    =>   {   say_pong ();
+									 wait_for_cm_or_cmb_command ();
+								     };
+
+				THE ["finish"]                  =>   {   say_ok ();
+									 wait_for_cm_or_cmb_command ();
+								     };
+
+				THE ["shutdown"]                =>   {   shutdown ();
+								     };
+
+				THE other                       =>   { say_error ("Unrecognized pipe input: ``" + (string::join " " other) + "''");   wait_for_cm_or_cmb_command (); };
+                            esac;
+
+			loop ()
+                        except
+                            _ = {   say_error ("Uncaught exception!");
+                                    wait_for_cm_or_cmb_command ();
+                                };
+		    }
+
+		also
+		fun reset_cmb  platform							# 'platform' string is architecture plus OS, e.g. "intel32-linux" 
+                    =
+                    {   ignore (
+			    backend_per_platform::invoke				# backend_per_platform	is from   src/app/makelib/mythryl-compiler-compiler/backend-per-platform.pkg
+				    make						# This is the standard 'make' entrypoint into src/app/makelib/main/makelib-g.pkg
+				    platform						# 'platform' string is architecture plus OS, e.g. "intel32-linux" 
+				    NULL						#  Causes reset. 
+			);
+
+			say_ok ();
+			wait_for_cm_or_cmb_command ();
+		    }
+
+		also									# "cmb" is "compile manager/bootstrap"
+		fun do_cmb ( platform,							# 'platform' string is architecture plus OS, e.g. "intel32-linux" 
+                             makefile							# 'makefile' string is .lib file to compile, say "src/etc/mythryl-compiler-root.lib" or "$ROOT/src/etc/mythryl-compiler-root.lib".
+                           )
+                    =
+		    # We are invoked only by wait_for_cm_or_cmb_command ()   (above)
+		    #
+		    case (backend_per_platform::invoke					# backend_per_platform	is from   src/app/makelib/mythryl-compiler-compiler/backend-per-platform.pkg
+			    make							# This is the standard 'make' entrypoint into src/app/makelib/main/makelib-g.pkg		
+			    platform							# 'platform' string is architecture plus OS, e.g. "intel32-linux" 
+			   (THE (*generated_filename_infix, makefile)))			# See Backend_Request comments in  src/app/makelib/mythryl-compiler-compiler/backend-index.pkg
+			    #
+			    # The essential call sequence here is:
+			    #     compile_server::do_cmb                calls		# compile_server	is from   src/app/makelib/main/compile-server.pkg
+			    #     backend_per_platform::invoke    which calls		# backend_per_platform	is from   src/app/makelib/mythryl-compiler-compiler/backend-per-platform.pkg
+			    #     backend_index::invoke           which calls		#
+			    #     mythryl_compiler_compiler_g::make_mythryl_compiler	# mythryl_compiler_compiler_g	is from   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+		      
+			NULL
+			    =>
+			    {   say_error ("Backend returned NULL!");
+				wait_for_cm_or_cmb_command ();
+			    };
+
+			THE (g, treewalker, cmb_penv)					#  penv == pervasive environment...? 
+			    =>
+			    {   say_ok ();
+				index =  frn::snode_map  g;			# reachable	is from   src/app/makelib/depend/find-reachable-sml-nodes.pkg
+
+				compile_loop (index, treewalker, cmb_penv);
+			    };
+		    esac
+                    except
+                        x  =  {   say_error ("do_cmb: Uncaught exception: " + (exceptions::exception_message x));
+                                  wait_for_cm_or_cmb_command ();
+                              }
+
+		also
+		fun do_cm (my_platform, libfile)
+                    =
+		    if (my_platform != platform)
+			#		        
+			say_error ("do_cm: Wrong platform!");
+			wait_for_cm_or_cmb_command ();
+		    else
+			{   makelib_file_to_read
+				=
+				path (libfile, anchor_dictionary);
+
+			    case (parse_libfile_tree_and_return_interlibrary_dependency_graph  makelib_file_to_read)
+				#
+				NULL
+				    =>
+				    {   say_error ("do_cm: parse_libfile_tree_and_return_interlibrary_dependency_graph returned NULL!");
+					wait_for_cm_or_cmb_command ();
+				    };
+
+										      # reachable		is from   src/app/makelib/depend/find-reachable-sml-nodes.pkg
+										      # compile_treewalk_g	def in    src/app/makelib/compile/compile-treewalk-g.pkg
+				THE (libfile_dependency_graph, makelib_state)
+				    =>
+				    {   say_ok ();
+
+					index
+					    =
+					    frn::snode_map  libfile_dependency_graph;
+
+					treewalker =  make_compile_treewalker ();	# This is a call to compile_treewalk::make_intra_library_dependency_graph_walker
+
+					fun treewalker' compiledfile
+					    =
+					    not_null (treewalker  compiledfile  makelib_state);
+
+					compile_loop (index, treewalker', anchor_dictionary);
+				    };
+			    esac;
+			}
+			except
+			    x  =   {   say_error ("do_cmb: Uncaught exception: " + (exceptions::exception_message x));
+				       wait_for_cm_or_cmb_command ();
+				   };
+                    fi
+
+		also
+		fun compile_loop (index, treewalker, anchor_dictionary)
+                    =
+                    {
+		        (  loop ()
+			   except
+			       _  =
+				  {   say_error ("compile_loop: Uncaught exception!");
+				      compile_loop (index, treewalker, anchor_dictionary);
+				  }
+			)
+                        where
+			    fun loop ()
+				=
+				case (get_line_tokens  file::stdin)			# file	is from   src/lib/std/src/posix/file.pkg
+				    #
+				    NULL =>   shutdown ();
+				    #
+				    THE ["cd", d]
+					=>
+					{   change_directory d;
+					    say_ok ();
+					    loop ();
+					};
+				    #
+				    THE ["compile", file]
+					=>
+					{
+					    sourcefile_path
+						=
+						path (file, anchor_dictionary);
+											   # source_path_map	is from   src/app/makelib/paths/source-path-map.pkg
+					    case (source_path_map::get (index, sourcefile_path))
+						#
+						NULL
+						   =>
+						   {   say_error ("compile_loop/compile: sourcefile_path not found in index!");
+						       loop ();
+						   };
+
+						THE sn
+						   =>
+						   {   compiledfile =   sg::TOME_IN_THAWEDLIB sn;
+
+						       if  (treewalker compiledfile)   say_ok    ();							# treewalker is  do_compiledfile_treewalk	from   src/app/makelib/compile/compile-treewalk-g.pkg
+						       else		               say_error ("compile_loop/compile: treewalker returned FALSE!");
+						       fi;
+
+						       loop ();
+						   };
+					    esac;
+					};
+				    #
+				    THE ["cm",          platform, file] =>   do_cm (platform, file);
+				    THE ["cmb", infix,  platform, file] =>   { generated_filename_infix := infix;   do_cmb (platform, file); };
+				    THE ["cmb_reset",   platform      ] =>   reset_cmb  platform;
+				    #
+				    THE ["finish"  ]   =>   { say_ok ();   wait_for_cm_or_cmb_command ();};
+				    THE ["ping"    ]   =>   { say_pong (); loop ();};
+				    THE ["shutdown"]   =>   shutdown ();
+				    #
+				    THE other => {   say_error ("compile_loop: unrecognized command: " + (string::join " " other));
+						      loop ();
+						  };
+				esac;
+			end;						# where
+		    };							# fun compile_loop
+	    
+
+
+
+		rs::set_signal_handler  (rs::interrupt_signal, rs::IGNORE);
+
+		say_ok ();		#  Announce readiness 
+
+		wait_for_cm_or_cmb_command ()
+                except
+                    _ = ();
+
+                winix::process::exit 1;
+	    };
+    };
+end;
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## author: Matthias Blume (blume@cs.princeton.edu)
+## Copyright (c) 1999 by Lucent Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

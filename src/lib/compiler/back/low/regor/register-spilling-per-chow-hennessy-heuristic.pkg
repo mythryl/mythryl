@@ -1,0 +1,243 @@
+# register-spilling-per-chow-hennessy-heuristic.pkg
+#
+# This module implements a Chow-Hennessy-style spill heuristic 
+#
+# This is the register-spill heuristic used on intel32 (== x86) -- see
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#
+# The original paper here is not available on the open internet:
+#
+#     Register allocation by priority-based coloring
+#     Chow + Hennessy 1984 Sigplan Notices
+#     http://portal.acm.org/citation.cfm?id=502896
+#
+# But here is a nice recent paper which explains the heuristic, shows
+# how to optimize it, and compares to the (dominant) chaitin-briggs heuristic.
+# This paper also points to recent results in (e.g.) adaptive inlining.
+#
+#     Chow and Hennessy vs. Chaitin-Briggs Register Allocation:   Using Adaptive Compilation to Fairly Compare Algorithms
+#     Keith D. Cooper, Timothy J. Harvey, David M. Peixotto       Rice University {keith,harv,dmp}@rice.ed
+#     15p, 2008, 
+#     http://www.cs.rice.edu/~dmp4866/PDF/2008.smart-adaptive-allocation.pdf
+#
+# See also:
+#     src/lib/compiler/back/low/regor/register-spilling-per-chaitin-heuristic.pkg
+#     src/lib/compiler/back/low/regor/register-spilling-per-improved-chaitin-heuristic-g.pkg
+#     src/lib/compiler/back/low/regor/register-spilling-per-improved-chow-hennessy-heuristic-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+
+###               "You need the willingness to fail all the time.
+###                You have to generate many ideas and then you
+###                have to work very hard only to discover that
+###                they don't work. And you keep doing that over
+###                and over until you find one that does work."
+###
+###                                         -- John Backus
+
+
+
+
+stipulate
+    package hpq =  heap_priority_queue;							# heap_priority_queue			is from   src/lib/src/heap-priority-queue.pkg
+    package iht =  int_hashtable;							# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+    package irc =  iterated_register_coalescing;					# iterated_register_coalescing		is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+    package cig =  codetemp_interference_graph;						# codetemp_interference_graph		is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    #
+    the         =  null_or::the;
+herein
+
+    # This package is referenced (only) in:
+    #
+    #     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+    #
+    package  register_spilling_per_chow_hennessy_heuristic
+    : (weak) Register_Spilling_Per_Xxx_Heuristic					# Register_Spilling_Per_Xxx_Heuristic	is from   src/lib/compiler/back/low/regor/register-spilling-per-xxx-heuristic.api
+    {
+	exception NO_CANDIDATE;
+
+	mode = irc::compute_span;
+
+	cache =  REF  NULL
+              :  Ref( Null_Or( hpq::Priority_Queue( (cig::Node, Float) ) ) );		# More icky thread-hostile mutable global state. XXX SUCKO FIXME
+
+	fun init ()
+	    =
+	    cache := NULL;
+
+
+	# Potential spill phase.
+	# Find a cheap node to spill according to Chow Hennessy's heuristic.
+	#
+	fun choose_spill_node
+	    { codetemp_interference_graph as cig::CODETEMP_INTERFERENCE_GRAPH { span, ... },
+	      has_been_spilled,
+	      spill_worklist
+	    }
+	    =
+	    {   fun chase (cig::NODE { color=>REF (cig::ALIASED n), ... } ) =>  chase n;				# Follow ALIASED list to end, return result.
+		    chase n                                                 =>        n;
+		end;
+
+		# The spill worklist is maintained only lazily.  So we have
+		# to prune away those nodes that are already removed from the
+		# interference graph.  After pruning the spillWkl, 
+		# it may be the case that there aren't anything to be 
+		# spilled after all.
+		#
+		fun chow_hennessy spills
+		    =
+		    loop (spills, [], TRUE)
+		    where
+
+			spill_savings =  irc::move_savings   codetemp_interference_graph;				# Compute savings due to moves.
+
+			lookup_span   =  iht::find (the *span);
+
+			lookup_span
+			    = 
+			    fn r =  case (lookup_span r)
+
+					 THE s =>  s;
+					 NULL  =>  0.0;
+				    esac;
+
+			span := NULL;
+
+			fun loop ([], l, pruned)
+				=>
+				(l, pruned);
+
+			    loop (node ! rest, l, pruned)
+				=> 
+				case (chase node)   
+				    #
+				    node as cig::NODE { id, priority, defs, uses, degree=>REF deg, color=>REF cig::CODETEMP, ... }
+					=> 
+					if (has_been_spilled  id) 
+					    #
+					    loop (rest, l, FALSE);
+					else
+					    fun newnode ()
+						=
+						{   span    =  lookup_span    id;
+						    savings =  spill_savings  id;
+						    #	
+						    spill_cost = *priority;
+						    total_cost = spill_cost - savings;
+						    #
+						    rank = (total_cost + 0.5) // (span + real deg);				# rank = ((real totalCost)+0.01) / real (span)
+						    #
+						    loop (rest, (node, rank) ! l, FALSE);
+						};
+
+					    case (*defs, *uses)
+						#
+						(_, [])										# One def, no use.
+						    =>
+						    loop (rest, (node, -1.0 - real (deg)) ! l, FALSE);
+
+						([d], [u])									# Defs after use; don't use.
+						    =>
+						    {   fun plus ( { block, op }, n)
+							    =
+							    { block, op => op + n };
+
+							 if (d == plus (u, 1)
+							 or  d == plus (u, 2))   loop (rest, l, FALSE);
+							 else 			 newnode ();
+							 fi;
+						    };
+
+					       _ => newnode();
+					    esac; 
+					fi; 
+
+				    _ => loop (rest, l, pruned);								# Discard node.
+				esac;
+			end;													# fun loop.
+		    end;													# fun chow_hennessy.
+
+		fun choose_node heap
+		    =
+		    {   fun loop ()
+			    = 
+			    {   my (node, cost) = hpq::delete_min heap;
+
+				case (chase node)
+				    #
+				    node as cig::NODE { color=>REF cig::CODETEMP, ... }
+					=>
+					{ node => THE node,  cost,  spill_worklist };
+
+				    _ => loop();
+				esac;    
+			    };
+
+			loop();
+		    }
+		    except
+			_ = { node=>NULL, cost=>0.0, spill_worklist => [] };
+
+		case *cache
+		    #
+		    THE heap =>  choose_node  heap;
+		    #
+		    NULL => 
+			{   (chow_hennessy  spill_worklist)
+				->
+				(l, pruned);
+
+			    if pruned												# Done.
+				#
+				{ node => NULL,
+				  cost => 0.0,
+				  spill_worklist => []
+				};
+			    else
+				case l
+				    #
+				    [] => raise exception NO_CANDIDATE;
+
+				    _  =>   {   fun rank ((_, x), (_, y))
+						    =
+						    float::(<) (x, y);
+
+						heap = hpq::from_list rank l;
+						cache := THE heap; 
+						choose_node heap;
+					    };
+				 esac;
+			    fi;
+			};
+	       esac;
+	    };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

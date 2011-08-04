@@ -1,0 +1,201 @@
+# architecture-description-language-parser-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/tools/architecture-parser.lib
+
+
+
+stipulate
+    package err =  adl_error;								# adl_error					is from   src/lib/compiler/back/low/tools/line-number-db/adl-error.pkg
+    package raw =  adl_raw_syntax_form;							# adl_raw_syntax_form				is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.pkg
+    #
+    max_error   =  30;
+herein
+
+    # This generic is invoked (only) in:
+    #
+    #     src/lib/compiler/back/low/tools/nowhere/nowhere.pkg
+    #     src/lib/compiler/back/low/tools/arch/architecture-description-language-parser.pkg
+    #
+    #     src/lib/c-glue/ml-grinder/ml-grinder.pkg (broken)
+    #     src/lib/compiler/back/low/tools/rewrite-generator/glue.pkg (broken)
+    #
+    generic package   architecture_description_language_parser_g   (
+        #             ==========================================
+	#										# adl_raw_syntax_unparser			is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.pkg
+	package rsu:	    Adl_Raw_Syntax_Unparser;					# Adl_Raw_Syntax_Unparser			is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.api
+	adl_mode:	    Bool;
+	extra_cells:	    List( raw::Register_Set );
+    )
+    : (weak)   Architecture_Description_Language_Parser					# Architecture_Description_Language_Parser	is from   src/lib/compiler/back/low/tools/parser/architecture-description-language-parser.api
+    {
+
+	stipulate
+	    package lr_vals
+		=
+		adl_parser_g (								# adl_parser_g					is from   src/lib/compiler/back/low/tools/parser/architecture-description-language.grammar.pkg
+		    #
+		    package token =   lr_parser::token;
+		    #
+		    package raw_syntax_unparser =   rsu;				# "rsu" == "raw_syntax_unparser".
+		);
+
+	    package lex
+		=
+		adl_lex_g (
+		    #
+		    lr_vals::tokens
+		);
+
+	    package parser
+		=
+		make_complete_yacc_parser_with_custom_argument_g (
+		    #
+		    package parser_data =  lr_vals::parser_data;
+		    package lex         =  lex;
+		    package lr_parser   =  lr_parser;
+		);
+
+	    include precedence_parser;
+	herein
+
+	    default_prec
+		= 
+		fold_right
+
+		    (fn ((id, fixity), sss) =  declare (sss, id, fixity))
+
+		    empty
+
+		    [ ("+",   INFIX 60),
+		      ("-",   INFIX 60),
+		      ("*",   INFIX 70),
+		      ("div", INFIX 70),
+		      ("mod", INFIX 70),
+		      ("=",   INFIX 40),
+		      ("==",  INFIX 40),
+		      (">",   INFIX 40),
+		      ("<",   INFIX 40),
+		      ("<=",  INFIX 40),
+		      (">=",  INFIX 40),
+		      ("<>",  INFIX 40),
+		      ("<<",  INFIX 50),
+		      (">>",  INFIX 50),
+		      (">>>", INFIX 50),
+		      ("&&",  INFIX 60),
+		      ("^^",  INFIX 60),
+		      ("^",   INFIX 60),
+		      ("||",  INFIX 50),
+		      (":=",  INFIX 30),
+		      ("and", INFIX 20),
+		      ("or",  INFIX 10),
+		      ("::",  INFIXR 60),
+		      ("@",   INFIXR 60)
+		    ];
+
+	    exception PARSE_ERROR;
+
+	    fun parse_it
+		    (silent:	Bool)							# Narration-verbosity control -- typically FALSE.
+		    (
+		      (filename:	String),					# 'filename' is typically something like "src/lib/compiler/back/low/intel32/int32.architecture-description" -- path to an architecture description file.
+		      (stream:	file::Input_Stream)					# Input stream on 'filename'.
+		    )
+		=
+		{   lex::user_declarations::init ();
+		    #
+		    line_number_db =  line_number_database::newmap { src_file=>filename };
+		    err_count      =  REF 0;
+		    #
+		    fun err (a, b, msg)
+			= 
+			if silent
+			    #
+			    raise exception PARSE_ERROR; 
+			else
+			    loc =  line_number_database::location  line_number_db  (a, b);
+
+			    err::set_loc  loc; 
+			    err::error  msg;
+
+			    err_count := *err_count + 1;
+
+			    if (*err_count > max_error)
+				#
+				raise exception PARSE_ERROR;
+			    fi;
+			fi;
+
+		    fun input n
+			=
+			file::read_n (stream, n);
+
+		    lex_arg =  { line_number_db, err, adl_mode };
+		    lexer   =  parser::stream::streamify (lex::make_lexer input lex_arg);
+
+
+		    fun parse_error (msg, a, b)
+			=
+			err (a, b, msg);
+
+
+		    fun err_pos msg
+			=
+			if  silent    raise exception PARSE_ERROR;
+			else	      err::error_pos  msg;
+			fi;
+
+
+		    fun an_import (loc, filename)
+			=
+			{   err::set_loc loc;
+			    load_it silent filename;
+			};
+
+		    my (result, lexer)
+			= 
+			parser::parse (15, lexer, parse_error,
+			    (line_number_db, err_pos, an_import, REF default_prec, extra_cells));
+
+		    if (*err::error_count > 0)   raise exception PARSE_ERROR;
+		    else			    result;
+		    fi;
+		 }
+
+	    also
+	    fun load_it
+		    (silent:	Bool)
+		    (filename:	String)							# 'filename' is something like "src/lib/compiler/back/low/intel32/int32.architecture-description" -- path to an architecture description file.
+		=
+		{   stream =  file::open_for_read  filename;
+		    #
+		    parse_it  silent  (filename, stream)
+		    before
+			file::close_input  stream 
+		    except
+			e = {   file::close_input stream;
+				raise exception e;
+			    };
+		}
+		except
+		    io_exceptions::IO { function, name, cause, ... }
+			=
+			{   err::error (function + " failed in \"" + name + "\" (" + exception_name cause + ")");
+			    #
+			    raise exception PARSE_ERROR;
+			};
+
+
+	    fun parse' silent readfile =  {   err::init ();   parse_it  silent  readfile;   };
+	    fun load'  silent filename =  {   err::init ();   load_it   silent  filename;   };
+
+	    fun parse_string' silent s
+		=
+		parse' silent ("???", file::open_string s);
+
+	    parse        =   parse'        FALSE;
+	    load         =   load'         FALSE;			# This is the entrypoint actually used by make_sourcecode_for_backend_packages) in   src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages-g.pkg
+	    parse_string =   parse_string' FALSE;
+	end;								# stipulate
+    };									# generic package   architecture_description_language_parser_g
+end;									# stipulate

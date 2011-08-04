@@ -1,0 +1,754 @@
+## ccalls-intel32-per-unix-system-v-abi-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+
+
+
+# C function calls for Intel32 using the System V ABI
+#
+# Register conventions:
+#
+#    %eax	return value		(caller save)
+#    %ebx	global offset for PIC	(callee save)		# PIC == "position-independent code", likely.
+#    %ecx	scratch			(caller save)
+#    %edx	extra return/scratch	(caller save)
+#    %ebp	optional frame pointer	(callee save)
+#    %esp	stack pointer		(callee save)
+#    %esi	locals			(callee save)
+#    %edi	locals			(callee save)
+#
+#    %st (0)	top of FP stack; FP return value
+#    %st (1..7)	FP stack; must be empty on entry and return
+#
+# Calling convention:
+#
+#    Return result:
+#	+ Integer and pointer results are returned in %eax.  Small
+#	  integer results are not promoted.
+#	+ 64-bit integers (long long) returned in %eax/%edx
+#	+ Floating point results are returned in %st (0) (all types).
+#	+ Struct results are returned in space provided by the caller.
+#	  The address of this space is passed to the callee as an
+#	  implicit 0th argument, and on return %eax contains this
+#	  address.  The called function is responsible for removing
+#	  this argument from the stack using a "ret $4" instruction.
+#	  NOTE: the MacOS X ABI returns small structs in %eax/%edx.
+#
+#    Function arguments:
+#	+ Arguments are pushed on the stack right to left.
+#	+ Integral and pointer arguments take one word on the stack.
+#	+ float arguments take one word on the stack.
+#	+ double arguments take two words on the stack.  The i386 ABI does
+#	  not require double word alignment for these arguments.
+#	+ long double arguments take three words on the stack.
+#	+ struct arguments are padded out to word length.
+#
+# Questions:
+#    - what about stack frame alignment?
+
+
+
+###                "Walking has a very good effect in that
+###                 you're in this state of relaxation,
+###                 but at the same time you're allowing
+###                 the sub-conscious to work on you."
+###
+###                              -- Andrew Wiles 
+
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+
+stipulate
+    package cty =  ctypes;							# ctypes				is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package ix  =  treecode_extension_sext_intel32;				# treecode_extension_sext_intel32	is from   src/lib/compiler/back/low/intel32/code/treecode-extension-sext-intel32.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhn =  lowhalf_notes;						# lowhalf_notes				is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+    package rgk =  registerkinds_intel32;					# registerkinds_intel32		is from   src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+herein
+
+    generic package   ccalls_intel32_per_unix_system_v_abi_g   (
+	#             ==================================
+	#
+	package tcf:  Treecode_Form;						# Treecode_Form				is from   src/lib/compiler/back/low/treecode/treecode-form.api
+
+	ix:  treecode_extension_sext_intel32::Sext(				# treecode_extension_sext_intel32	is from   src/lib/compiler/back/low/intel32/code/treecode-extension-sext-intel32.pkg
+		#
+		tcf::Void_Expression,
+		tcf::Int_Expression,
+		tcf::Float_Expression,
+		tcf::Flag_Expression						# Flag expressions handle zero/parity/overflow/... flag stuff.
+	      )
+	      ->
+	      tcf::Sext;
+
+	# Note that the fast_loating_point flag
+	# must match the one passed to the code generator module.  XXX BUGGO FIXME this should be mechanically enforced.
+
+	fast_floating_point:  Ref( Bool );
+
+	frame_alignment:  Int;							# Alignment requirement for stack frames.
+										# Should be a power of two that is at least four.
+
+	return_small_structs_in_registers:  Bool;				#  Should small structs/unions be returned in %eax/%edx? (Yes on OSX, no otherwise.)
+    )
+    : (weak) Ccalls								# Ccalls				is from   src/lib/compiler/back/low/ccalls/ccalls.api
+    {
+	# Export to client packages:
+	#
+	package tcf = tcf;
+
+
+	fun error msg
+	    =
+	    lem::error ("ccalls_intel32_per_unix_system_v_abi_g", msg);
+
+	Ckit_Arg 
+	  = ARG   tcf::Int_Expression	    
+	  | FARG  tcf::Float_Expression
+	  | ARGS  List( Ckit_Arg )
+          ;
+
+	mem   =   tcf::rgn::memory;
+	stack =   tcf::rgn::stack;
+
+	# lowhalf types 
+	#
+	unt_type = 32;
+	flt_type  = 32;
+	dbl_type  = 64;
+	xdbl_type = 80;
+
+	# shorts and chars are promoted to 32-bits 
+	#
+	natural_int_size = unt_type;
+
+	param_area_offset = 0; #  stack offset to parameter area 
+
+	# This annotation is used to indicate
+	# that a call returns a fp value  in %st (0) 
+	#
+	fp_return_value_in_st0
+	    =
+	    lhn::return_arg.x_to_note  rgk::st0;
+
+	sp  = rgk::esp;
+	sp_r = tcf::REG (unt_type, sp);
+
+	fun fpr (size, f) = tcf::FLOAT_EXPRESSION (tcf::FREG (size, f));
+	fun gpr (size, r) = tcf::INT_EXPRESSION (tcf::REG (size, r));
+	eax = rgk::eax;
+	st0 = rgk::st (0);
+
+	# The C calling convention requires that
+	# the FP stack be empty on function entry.
+	# We add the fpStk list to the defs when
+	# the fast_floating_point flag is set.
+	#
+	fp_stk =   list::tabulate (8, fn i =  fpr (xdbl_type, rgk::st i));
+
+	# Note that the caller saves includes the result register (%eax) 
+
+	caller_saves =   [gpr (unt_type, eax), gpr (unt_type, rgk::ecx), gpr (unt_type, rgk::edx)];
+
+	# C callee-save registers 
+	#
+	callee_save_regs  =   [rgk::ebx, rgk::esi, rgk::edi];	#  C callee-save registers 
+	callee_save_fregs =   [];				#  C callee-save floating-point registers 
+
+	# Align the address to the given alignment,
+	# which must be a power of 2: 
+	#
+	fun align_addr (address, align)
+	    =
+	    {   mask =   unt::from_int (align - 1);
+
+		unt::to_int_x (unt::bitwise_and (unt::from_int address + mask, unt::bitwise_not mask));
+	    };
+
+	fun align4 address
+	    =
+	    unt::to_int_x (unt::bitwise_and (unt::from_int address + 0u3, unt::bitwise_not 0u3));
+
+	# Size and natural alignment for integer types. 
+	#
+	fun size_of_int cty::CHAR      => { type =>  8, size => 1, align => 1 };
+	    size_of_int cty::SHORT     => { type => 16, size => 2, align => 2 };
+	    size_of_int cty::INT       => { type => 32, size => 4, align => 4 };
+	    size_of_int cty::LONG      => { type => 32, size => 4, align => 4 };
+	    size_of_int cty::LONG_LONG => { type => 64, size => 8, align => 4 };
+	end;
+
+	# Sizes of other C types 
+	#
+	size_of_ptr =   { type => 32, size => 4, align => 4 };
+
+	# Compute the size and alignment information for a struct.
+	# tys is the list of member types.
+	# The total size is padded to agree with the struct's alignment.
+	#
+	fun size_of_struct tys
+	    =
+	    ssz (tys, 1, 0)
+	    where 
+
+		fun ssz ([], max_align, offset)
+			=>
+			{ size => align_addr (offset, max_align), align => max_align };
+
+		    ssz (type ! tys, max_align, offset)
+			=>
+			{   my { size, align } = size_of_type type;
+			    offset = align_addr (offset, align);
+
+			    ssz (tys, int::max (max_align, align), offset+size);
+			};
+		end;
+	    end
+
+	# The size alignment of a union type is the
+	# maximum of the sizes and alignments of the
+	# members.  The final size is padded to agree
+	# with the alignment.
+	#
+	also
+	fun size_of_union  types
+	    =
+	    usz (types, 1, 0)
+	    where
+		fun usz ([], max_align, max_size)
+			=>
+			{ size => align_addr (max_size, max_align), align => max_align };
+
+		    usz (type ! types, max_align, max_size)
+			=>
+			{   my { size, align } = size_of_type type;
+
+			    usz (types, int::max (max_align, align), int::max (size, max_size));
+			};
+		end;
+	    end
+
+	also
+	fun size_of_type  cty::VOID        =>   error "unexpected void argument type";
+	    size_of_type  cty::FLOAT       =>   { size =>  4, align => 4 };
+	    size_of_type  cty::DOUBLE      =>   { size =>  8, align => 4 };
+	    size_of_type  cty::LONG_DOUBLE =>   { size => 12, align => 4 };
+	    size_of_type  cty::PTR         =>   { size =>  4, align => 4 };
+
+	    size_of_type (cty::STRUCT types) =>   size_of_struct types;
+	    size_of_type (cty::UNION  types) =>   size_of_union  types;
+
+	    size_of_type (cty::UNSIGNED isz)
+		=>
+		{
+		    my { size, align, ... } = size_of_int isz;
+
+		    { size, align };
+		};
+
+	    size_of_type (cty::SIGNED isz)
+		=>
+		{   my { size, align, ... }
+			=
+			size_of_int isz;
+
+		    { size, align };
+		};
+
+	    size_of_type (cty::ARRAY (type, n))
+	       =>
+	       {   my { size, align }
+		       =
+		       size_of_type type;
+
+		   { size => n*size,  align };
+	       };
+	end;
+
+	# The location of arguments/parameters;
+	# offsets are given with respect to the
+	# low end of the parameter area (see
+	# param_area_offset above).
+	#
+	Arg_Location
+	  = REG   (tcf::Int_Bitsize,	tcf::Register, Null_Or( tcf::mi::Machine_Int ))		# Integer/pointer argument in register.
+	  | FREG  (tcf::Float_Bitsize,	tcf::Register, Null_Or( tcf::mi::Machine_Int ))		# Floating-point argument in register.
+	  | STK   (tcf::Int_Bitsize,	tcf::mi::Machine_Int)					# Integer/pointer argument in parameter area.
+	  | FSTK  (tcf::Float_Bitsize,	tcf::mi::Machine_Int)					# Floating-point argument in parameter area.
+	  | ARG_LOCS  List( Arg_Location )
+	  ;
+
+	fun int_result i_type
+	    =
+	    case ((size_of_int i_type).type)
+		#
+		64     =>   raise exception FAIL "register pair result";
+		type =>   (THE (REG (type, eax, NULL)), NULL, 0);
+	    esac;
+
+
+	fun layout { calling_convention, return_type, parameter_types }
+	    =
+	    {   # Get the location of the result (result_loc)
+		# and the offset of the first parameter/argument.
+		#
+		# If the result is a struct or union,
+		# then we also compute the size and alignment
+		# of the result type (struct_ret_loc):
+		#
+		my (result_loc, struct_ret_loc, arg_offset)
+		    =
+		    case return_type
+			#
+			cty::VOID           => (NULL, NULL, 0);
+			cty::FLOAT          => (THE (FREG (flt_type, st0, NULL)), NULL, 0);
+			cty::DOUBLE         => (THE (FREG (dbl_type, st0, NULL)), NULL, 0);
+			cty::LONG_DOUBLE    => (THE (FREG (xdbl_type, st0, NULL)), NULL, 0);
+			cty::UNSIGNED i_type => int_result i_type;
+			cty::SIGNED i_type   => int_result i_type;
+			cty::PTR            => (THE (REG (unt_type, eax, NULL)), NULL, 0);
+			cty::ARRAY _        => error "array return type";
+
+			cty::STRUCT tys
+			    =>
+			    {   my { size, align }
+				    =
+				    size_of_struct tys;
+
+				if (size > 8  or  not return_small_structs_in_registers)
+				    #
+				    (THE (REG (unt_type, eax, NULL)), THE { szb=>size, align }, 4);
+				else
+				    raise exception FAIL "small struct return not implemented yet";	# OSX issue. XXX BUGGO FIXME.
+				fi;
+			   };
+
+			cty::UNION tys
+			    =>
+			    {   my { size, align }
+				    =
+				    size_of_union tys;
+
+				if (size > 8  or  not return_small_structs_in_registers)
+				    #
+				    (THE (REG (unt_type, eax, NULL)), THE { szb=>size, align }, 4);
+				else
+				    raise exception FAIL "small union return not implemented yet";          # OSX wants them in eax/edx.  XXXX BUGGO FIXME
+				fi;
+			   };
+		    esac;
+
+
+
+		fun assign ([], offset, locs)
+			=>
+			(list::reverse locs, align4 offset);
+
+		    assign (param_type ! parameters, offset, locs)
+			=>
+			{   fun next { type, align, size }
+				=
+				{   offset =   align_addr (offset, align);
+
+				    assign (parameters, offset+size, STK (type, integer::from_int offset) ! locs);
+				};
+
+			    fun next_flt (type, szb)
+				=
+				{   offset = align_addr (offset, 4);
+
+				    assign (parameters, offset+szb, FSTK (type, integer::from_int offset) ! locs);
+				};
+
+			    fun assign_mem { size, align }
+				=
+				f (size, offset, [])
+				where 
+
+				    fun f (nb, offset, locs')
+					=
+					if   (nb >= 4)
+
+					     f (nb - 4, offset+4, STK (unt_type, integer::from_int offset) ! locs');
+
+					elif (nb >= 2)
+
+					     f (nb - 2, offset+2, STK (16, integer::from_int offset) ! locs');
+
+					elif (nb == 1)
+
+					     f (nb, offset+1, STK (8, integer::from_int offset) ! locs');
+					else
+					     assign (parameters, align4 offset, ARG_LOCS (list::reverse locs') ! locs);
+					fi;
+
+
+				  end;
+
+			    case param_type
+				#
+				cty::VOID		=>  error "void argument type";
+				cty::FLOAT		=>  next_flt (flt_type, 4);
+				cty::DOUBLE		=>  next_flt (dbl_type, 8);
+				cty::LONG_DOUBLE	=>  next_flt (xdbl_type, 12);
+				cty::UNSIGNED i_type	=>  next (size_of_int i_type);
+				cty::SIGNED i_type	=>  next (size_of_int i_type);
+				cty::PTR		=>  next size_of_ptr;
+				cty::ARRAY _		=>  next size_of_ptr;
+				cty::STRUCT types	=>  assign_mem (size_of_struct types);
+				cty::UNION  types	=>  assign_mem (size_of_union types);
+			    esac;
+			};
+		end;										# fun assign
+
+		my (arg_locs, arg_size) =   assign (parameter_types, arg_offset, []);
+
+		arg_mem = { szb   =>  align_addr (arg_size, frame_alignment),
+			    align =>  frame_alignment
+			  };
+
+		{ arg_locs, arg_mem, result_loc, struct_ret_loc };
+	    };											# fun layout
+
+	# List of registers defined by a C Call
+	# with the given return type. This list
+	# is the result registers plus the
+	# caller-save registers:
+	#
+	fun defined_regs result_type
+	    =
+	    if *fast_floating_point
+
+		defs = caller_saves @ fp_stk;
+
+		case  result_type
+		    #	
+		    (cty::UNSIGNED (cty::LONG_LONG)) =>   gpr (unt_type, rgk::edx) ! defs;
+		    (cty::SIGNED   (cty::LONG_LONG)) =>   gpr (unt_type, rgk::edx) ! defs;
+		    _                                    =>   defs;
+		esac;
+	    else
+		case result_type
+		    #
+		   (cty::FLOAT)       =>   fpr (flt_type, st0) ! caller_saves;
+		   (cty::DOUBLE)      =>   fpr (dbl_type, st0) ! caller_saves;
+		   (cty::LONG_DOUBLE) =>   fpr (xdbl_type, st0) ! caller_saves;
+
+		   (cty::UNSIGNED (cty::LONG_LONG)) =>   gpr (unt_type, rgk::edx) ! caller_saves;
+		   (cty::SIGNED   (cty::LONG_LONG)) =>   gpr (unt_type, rgk::edx) ! caller_saves;
+
+		   _ => caller_saves;
+		esac;
+	    fi;
+
+	fun fstp (32,   f) => tcf::EXT (ix (ix::FSTPS (f)));
+	    fstp (64,   f) => tcf::EXT (ix (ix::FSTPL (f)));
+	    fstp (80,   f) => tcf::EXT (ix (ix::FSTPT (f)));
+	    fstp (size, f) => error ("fstp(" + int::to_string size + ", _)");
+	end;
+
+	# See comments in    src/lib/compiler/back/low/ccalls/ccalls.api
+	#
+	# We get called (only) from:
+	#
+	#     src/lib/compiler/back/low/main/fatecode/fatecode-ccalls-g.pkg
+	#
+	fun make_inline_c_call
+	      {
+		name,
+		fn_prototype,
+		param_alloc,
+		struct_ret,
+		save_restore_global_registers,
+		call_comment,
+		args
+	      }
+	    =
+	    { callseq =>  call_seq,
+	      result  =>  result_regs
+	    }
+	    where 
+
+		(layout  fn_prototype)
+		    ->
+		    { arg_locs, arg_mem, result_loc, struct_ret_loc };
+
+		# Instruction to allocate space for arguments 
+		#
+		arg_alloc
+		   =
+		   if (arg_mem.szb == 0    or  param_alloc arg_mem)
+			[];
+		   else
+			[tcf::LOAD_INT_REGISTER (unt_type, sp, tcf::SUB (unt_type, sp_r, tcf::LITERAL (integer::from_int arg_mem.szb)))];
+		   fi;
+
+		# For functions that return a struct/union, pass the location as an
+		# implicit first argument.  Because the callee removes this implicit
+		# argument from the stack, we must also keep track of the size of the
+		# explicit arguments.
+		#
+		my (args, arg_locs, explicit_arg_size_b)
+		    =
+		    case struct_ret_loc
+			#
+			THE pos =>   (ARG (struct_ret pos) ! args, STK (unt_type, 0) ! arg_locs, arg_mem.szb - 4);
+			NULL    =>   (args, arg_locs, arg_mem.szb);
+		    esac;
+
+		# Generate instructions to copy arguments
+		# into argument area using %esp to address
+		# the argument area:
+		#
+		copy_args
+		    =
+		    f (args, arg_locs, [])
+		    where
+
+			fun off_sp 0      =>   sp_r;
+			    off_sp offset =>   tcf::ADD (unt_type, sp_r, tcf::LITERAL offset);
+			end;
+
+			fun f ([], [], statements)
+				=>
+				list::reverse statements;
+
+			    f (arg ! args, loc ! locs, statements)
+				=>
+				f (args, locs, statements)
+				where 
+
+				    statements
+					=
+					case (arg, loc)
+					    #
+					    (ARG (int_expression as tcf::REG _), STK (mty, offset))
+						=>
+						tcf::STORE_INT (mty, off_sp offset, int_expression, stack)
+						!
+						statements;
+
+					    (ARG int_expression, STK (mty, offset))
+						=>
+						{
+						    tmp = rgk::make_int_codetemp ();
+
+						    tcf::STORE_INT (unt_type, off_sp offset, tcf::REG (unt_type, tmp), stack)
+						    ! tcf::LOAD_INT_REGISTER (unt_type, tmp, int_expression)
+						    ! statements;
+						};
+
+					    (ARG int_expression, ARG_LOCS mem_locs)
+						=>
+						copy (mem_locs, load_addr @ statements)
+						where 
+
+						    # addr_r is used to address the source of the memory chunk
+						    # being passed to the memLocs.  loadAddr is the code to
+						    # initialize addr_r.
+
+						    my (load_addr, addr_r)
+							=
+							case int_expression
+							    #	
+							    tcf::REG _
+								=>
+								([], int_expression);
+
+							     _  =>
+								{   r = rgk::make_int_codetemp ();
+
+								    ([tcf::LOAD_INT_REGISTER (unt_type, r, int_expression)], tcf::REG (unt_type, r));
+								};
+							esac;
+
+
+						    fun address 0 => addr_r;
+							address offset => tcf::ADD (unt_type, addr_r, tcf::LITERAL offset);
+						    end;
+
+						    base_offset		#  stack offset of first destination word 
+							=
+							case mem_locs
+
+							    STK (type, offset) ! _ =>   offset;
+							     _                       =>   error "bogus Args";
+							esac;
+
+						    fun copy ([], statements) => statements;
+
+							copy (STK (type, offset) ! locs, statements)
+							    =>
+							    {   tmp = rgk::make_int_codetemp ();
+
+								statements
+								    =
+								    tcf::STORE_INT (type, off_sp offset, tcf::REG (type, tmp), stack)
+								      ! tcf::LOAD_INT_REGISTER (type, tmp, tcf::LOAD (type, address (offset - base_offset), mem))
+								      ! statements;
+
+								copy (locs, statements);
+							   };
+
+							copy _ =>   error "bogus memory location";
+						    end;
+
+						end;
+
+					    (FARG (float_expression as tcf::FREG _), FSTK (type, offset))
+						=>
+						tcf::STORE_FLOAT (type, off_sp offset, float_expression, stack) ! statements;
+
+					    (FARG float_expression, FSTK (type, offset))
+						=>
+						{   tmp = rgk::make_float_codetemp();
+
+						    tcf::STORE_FLOAT (type, off_sp offset, tcf::FREG (type, tmp), stack)
+						     ! tcf::LOAD_FLOAT_REGISTER (type, tmp, float_expression)
+						     ! statements;
+						};
+
+					    (ARGS _, _) => raise exception FAIL "ARGS obsolete";
+
+					    _ => error "impossible location";
+					esac;
+
+
+				end;
+
+			      f _ => error "argument arity error";
+			  end;
+
+		      end;								# where
+
+		# The SVID specifies that the caller pops arguments, but the callee
+		# pops the arguments in a stdcall on Windows.  I'm not sure what other
+		# differences there might be between the SVID and Windows ABIs. (John H Reppy)
+		#
+		callee_pops
+		    =
+		    case fn_prototype.calling_convention
+			#
+			("" | "unix_convention") =>   FALSE;
+			"stdcall"                =>   TRUE;
+
+			calling_convention
+			    =>
+			    error (cat [
+			     "unknown calling convention \"", string::to_string calling_convention, "\""	# Calling convention should be a datatype not string type. XXX SUCKO FIXME.
+			   ]);
+		    esac;
+
+		defs =  defined_regs  fn_prototype.return_type;
+
+
+		(save_restore_global_registers  defs)
+		    ->
+		    { save, restore };
+		    
+
+		call_statement
+		    =
+		    tcf::CALL {
+			funct=>name, targets => [], defs, uses => [], 
+			region => mem,
+			pops => callee_pops
+				 ?? int32::from_int arg_mem.szb
+				 :: int32::from_int (arg_mem.szb - explicit_arg_size_b)
+		    };
+
+		call_statement
+		    =
+		    case call_comment
+			#
+			NULL  =>  call_statement;
+			THE c =>  tcf::NOTE  (call_statement,  lhn::comment.x_to_note  c);
+		    esac;
+
+
+		# If return type is floating point then add an annotation RETURN_ARG 
+		# This is currently a hack.  Eventually Treecode *should* support
+		# return arguments for CALLs.           XXX BUGGO FIXME
+		# --- Allen Leung
+		#
+		call_statement
+		    =
+		    if (*fast_floating_point
+		    and ((fn_prototype.return_type == cty::FLOAT)
+		      or (fn_prototype.return_type == cty::DOUBLE)
+		      or (fn_prototype.return_type == cty::LONG_DOUBLE))
+		    ) 
+			tcf::NOTE (call_statement, fp_return_value_in_st0);
+		    else
+			call_statement;
+                    fi;
+
+		#  Code to pop the arguments from the stack 
+		#
+		pop_args
+		    =
+		    (callee_pops or (explicit_arg_size_b == 0))
+		     ?? []
+		     :: [tcf::LOAD_INT_REGISTER (unt_type, sp, tcf::ADD (unt_type, sp_r, tcf::LITERAL (integer::from_int explicit_arg_size_b)))];
+
+		# Code to copy the result
+		# into fresh pseudo registers:
+		#
+		my (result_regs, copy_result)
+		    =
+		    case result_loc
+			#
+			NULL =>   ([], []);
+
+			THE (REG (type, r, _))
+			    =>
+			    {   result_reg = rgk::make_int_codetemp ();
+				#
+				( [tcf::INT_EXPRESSION (tcf::REG (type, result_reg))],
+				  [tcf::MOVE_INT_REGISTERS (type, [result_reg], [r])]
+				);
+			    };
+
+			THE (FREG (type, r, _))
+			    =>
+			    {   result_reg =   rgk::make_float_codetemp ();
+				#
+				result     =   [tcf::FLOAT_EXPRESSION (tcf::FREG (type, result_reg))];
+
+				# "If we are using fast floating point mode
+				#  then do NOT  generate FSTP."
+				#                          -- Allen Leung 
+				#
+				*fast_floating_point
+				  ?? (result, [tcf::MOVE_FLOAT_REGISTERS (type, [result_reg], [r])])
+				  :: (result, [fstp (type, tcf::FREG (type, result_reg))]);
+			     };
+
+			_ => error "bogus result location";
+		    esac;
+
+
+		# Assemble the call sequence to return: 
+		#
+		call_seq =   arg_alloc
+			 @   copy_args
+			 @   save
+			 @   [call_statement]
+			 @   restore
+			 @   pop_args
+			 @   copy_result
+			 ;
+	    end;
+
+    };
+end;
+
+
+## COPYRIGHT (c) 2000 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

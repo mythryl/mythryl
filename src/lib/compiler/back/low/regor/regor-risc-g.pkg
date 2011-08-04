@@ -1,0 +1,663 @@
+## regor-risc-g.pkg							"regor" is a contraction of "register allocator"
+#
+# This generic factors out the machine independent part of the register
+# allocator.  It performs integer and floating register allocation.
+#
+# This works well for RISC machines; but is not applicable to intel32.
+# On Intel32 we instead use:
+#
+#     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+###             "We are going to set up a great computer program.
+###              We are going to introduce the many variables now
+###              known to be operative in the world around industrial
+###              economics. We will store all the basic data in the
+###              machine's memory bank; where and how much of each
+###              class of the physical resources; where are the people,
+###              where are the trendings and important needs of world man?"
+###
+###                             -- Buckminster Fuller, 1965
+
+
+
+stipulate
+    package lem =  lowhalf_error_message;					# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhc =  lowhalf_control;						# lowhalf_control				is from   src/lib/compiler/back/low/control/lowhalf-control.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;							# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+    package sma =  supported_architectures;					# supported_architectures			is from   src/lib/compiler/front/basics/main/supported-architectures.pkg
+herein
+
+    # This generic is invoked from:
+    #
+    #     src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+    #     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+    #
+    generic package   regor_risc_g   (
+	#             ============
+	#
+	package mcf: Machcode_Form;						# Machcode_Form					is from   src/lib/compiler/back/low/code/machcode-form.api
+
+	package ae:  Instruction_Emitter					# Instruction_Emitter				is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+		     where
+			 mcf == mcf; 						# "mcf"  == "machcode_form" (abstract machine code).
+
+	package mcg: Machcode_Controlflow_Graph					# Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		     where
+			  mcf == mcf						# "mcf"  == "machcode_form" (abstract machine code).
+		     also pop == ae::cst::pop;					# "pop" == "pseudo_op".
+
+	package mu:  Machcode_Universals					# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+		     where
+			 mcf == mcf;						# "mcf"  == "machcode_form" (abstract machine code).
+
+	package rmi: Rewrite_Machine_Instructions				# Rewrite_Machine_Instructions			is from   src/lib/compiler/back/low/code/rewrite-machine-instructions.api
+		     where
+			 mcf == mcf;						# "mcf"  == "machcode_form" (abstract machine code).
+
+	package asi: Architecture_Specific_Spill_Instructions			# Architecture_Specific_Spill_Instructions	is from   src/lib/compiler/back/low/regor/arch-spill-instruction.api
+		     where
+			 mcf == mcf;						# "mcf"  == "machcode_form" (abstract machine code).
+
+	    # Spilling heuristics determines which node should be spilled.
+	    # Currently we use Chaitin:						# register_spilling_per_chaitin_heuristic	is from   src/lib/compiler/back/low/regor/register-spilling-per-chaitin-heuristic.pkg
+	    # Available alternatives include
+	    #
+	    #     src/lib/compiler/back/low/regor/register-spilling-per-chow-hennessy-heuristic.pkg
+	    #     src/lib/compiler/back/low/regor/register-spilling-per-improved-chaitin-heuristic-g.pkg
+	    #     src/lib/compiler/back/low/regor/register-spilling-per-improved-chow-hennessy-heuristic-g.pkg
+	    #									# 
+	package rsp: Register_Spilling_Per_Xxx_Heuristic;			# Register_Spilling_Per_Xxx_Heuristic		is from   src/lib/compiler/back/low/regor/register-spilling-per-xxx-heuristic.api
+
+	package spl: Register_Spilling						# Register_Spilling				is from   src/lib/compiler/back/low/regor/register-spilling.api
+		     where
+			 mcf == mcf;						# "mcf"  == "machcode_form" (abstract machine code).
+	    #
+	    # The Spill module figures out the strategies for inserting
+	    # spill code.  We currently usd register_spilling_g:		# register_spilling_g				is from   src/lib/compiler/back/low/regor/register-spilling-g.pkg
+	    # An alternative is register_spilling_with_renaming_g:		# register_spilling_with_renaming_g		is from   src/lib/compiler/back/low/regor/register-spilling-with-renaming-g.pkg
+
+	machine_architecture:  sma::Supported_Architectures;			# PWRPC32/SPARC32/INTEL32.
+
+	# Is this a pure instruction?
+	# 
+	pure:  mcf::Machine_Op -> Bool;
+
+
+	Spill_Operand_Kind = SPILL_LOC | CONST_VAL;
+	Spill_Info;								# User-defined abstract type 
+
+	# Called before register allocation begins:
+	#
+	before_ra:  mcg::Machcode_Controlflow_Graph -> Spill_Info;
+
+	# Integer register allocation parameters:
+	#
+	package rap
+	    :
+	    api {
+		locally_allocated_hardware_registers:      List( rkj::Codetemp_Info );				# List of registers available for allocation.
+		globally_allocated_hardware_registers:  List( rkj::Codetemp_Info );					# List of registers that are allocated manually, statically and globally -- e.g. the stackpointer.
+
+		spill_loc
+		    :
+		    { info:	Spill_Info,
+		      an:		Ref( note::Notes ),
+		      register:	rkj::Codetemp_Info,						#  spilled register 
+		      id:		codetemp_interference_graph::Logical_Spill_Id
+		    } 
+		    ->
+		    { operand:  mcf::Effective_Address,
+		      kind:  Spill_Operand_Kind
+		    };
+
+	       #  Mode for RA optimizations 
+		mode:  codetemp_interference_graph::Mode;
+	    };
+
+	# Floating point register allocation parameters:
+	#
+	package fap
+	    :
+	    api {
+		 locally_allocated_hardware_registers:	List( rkj::Codetemp_Info );	# List of hardware registers available for local allocation by register allocator.
+		 globally_allocated_hardware_registers:	List( rkj::Codetemp_Info );	# List of hardware registers allocated globally, statically and manually -- like the stackpointer -- and thus not available to register allocator.
+
+		 spill_loc
+		     :   
+		     ( Spill_Info, Ref( note::Notes ), codetemp_interference_graph::Logical_Spill_Id) 
+		     ->
+		     mcf::Effective_Address;
+
+		#  Mode for RA optimizations 
+		 mode:  codetemp_interference_graph::Mode;
+	     };
+    )
+    : (weak)  Register_Allocator							# Register_Allocator						is from   src/lib/compiler/back/low/regor/register-allocator.api
+    {
+	# Export to client packages:
+	#
+	package mcg =  mcg;								# "mcg" == "machcode_controlflow_graph".
+
+	stipulate
+	    package mcf =  mcg::mcf;							# "mcf" == "machcode_form" (abstract machine code).
+	    package rgk =  mcf::rgk;							# "rgk" == "registerkinds".
+
+	    # The generic register allocator:
+	    #
+	    package ra
+		=
+		solve_register_allocation_problems_by_iterated_coalescing_g		# solve_register_allocation_problems_by_iterated_coalescing_g	is from   src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+		( rsp ) 								# "rsp" == "register_spilling_per_xxx_heuristic".
+		 # ( register_spilling_per_chow_hennessy_heuristic ) 
+		 (cluster_regor_g (							# cluster_regor_g						is from   src/lib/compiler/back/low/regor/cluster-regor-g.pkg
+		    package mcg = mcg;							# "mcg" == "machcode_controlflow_graph".
+		    package ae  = ae;							# "ae"  == "asmcode_emitter".
+		    package mu  = mu;							# "mu"  == "machcode_universals".
+		    package spl = spl;
+		   )
+		 );
+	herein
+
+	    #  Counters for register allocation:
+	    # 
+	    ra_int_spills_count    = lhc::make_counter ("ra_int_spills_count",    "RA int spill count");
+	    ra_int_reloads_count   = lhc::make_counter ("ra_int_reloads_count",   "RA int reload count");
+	    ra_int_renames_count   = lhc::make_counter ("ra_int_renames_count",   "RA int rename count");
+	    ra_float_spills_count  = lhc::make_counter ("ra_float_spills_count",  "RA float spill count");
+	    ra_float_reloads_count = lhc::make_counter ("ra_float_reloads_count", "RA float reload count");
+	    ra_float_renames_count = lhc::make_counter ("ra_float_renames_count", "RA float rename count");
+
+	    fun inc c
+		=
+		c :=  *c + 1;
+
+	    fun error msg
+		=
+		lem::error("RISC RA " + (sma::architecture_name machine_architecture), msg);
+
+
+	    # Make arithmetic non-overflow trapping.
+	    # This makes sure that if we happen to run the compiler for a long
+	    # period of time overflowing counters will not crash the compiler. 
+	    #
+	    fun x + y =  unt::to_int_x (unt::(+) (unt::from_int x, unt::from_int y));
+	    fun x - y =  unt::to_int_x (unt::(-) (unt::from_int x, unt::from_int y));
+
+	    fun is_globally_allocated_hardware_register_or_codetemp (len, arr, others) r
+		= 
+		(r < len and rwv::get (arr, r))							# It is a globally allocated hardware register.  On intel32, this means ESP or EDI.
+		or
+		list::exists									# It is a globally allocated codetemp.  On intel32 this means virtual_framepointer; never happens on other architectures.
+		   (fn d =  r == d)
+		   others;
+
+
+	    fun mark (arr, _, [], others)
+		    =>
+		    others;
+
+		mark (arr, len, r ! rs, others)
+		    =>
+		    {   r =  rkj::interkind_register_id_of  r;
+
+			if (r >= len)
+			    #
+			    mark (arr, len, rs, r ! others);
+			else
+			    rwv::set (arr, r, TRUE);
+			    mark (arr, len, rs, others);
+			fi;
+		    };
+	    end;
+
+
+	    fun annotate ([], op)
+		    =>
+		    op;
+
+		annotate (note ! notes, op)
+		    =>
+		    annotate (notes, mcf::NOTE { note, op } );
+	    end;
+
+
+	    stipulate
+		(rgk::get_id_range_for_physical_register_kind rkj::INT_REGISTER)
+		    ->	
+		    { min_register_id, max_register_id };
+
+		arr = rwv::make_rw_vector (max_register_id+1, FALSE);
+
+		others = mark (arr, max_register_id+1, rap::globally_allocated_hardware_registers, []);
+	    herein
+
+		package gr
+		    =
+		    pick_available_hardware_register_by_round_robin_g (					# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+			#
+			first_register =  min_register_id;						# Round-robin allocation will start at this number.
+			register_count =  max_register_id - min_register_id + 1;			# Round-robin allocation will start over at first_register after checking this many registers.
+			# 
+			locally_allocated_hardware_registers						# Round-robin allocation will only return one of these registers. (As opposed to globally allocated registers like the stackpointer.)
+			    =										# All numbers on this list must be in the range first_register -> first_register+register_count-1 inclusive.
+			    map rkj::interkind_register_id_of
+				#
+				rap::locally_allocated_hardware_registers;	
+		    );
+
+		is_globally_allocated_int_register_or_codetemp
+		    =
+		    is_globally_allocated_hardware_register_or_codetemp (max_register_id+1, arr, others);
+	    end;
+
+
+	    fun get_reg_loc (s, an, register, ra::SPILL_TO_FRESH_FRAME_SLOT loc)
+		    => 
+		    rap::spill_loc { info=>s, an, register, id=>loc };
+
+		get_reg_loc _
+		    =>
+		    error "getRegLoc";
+	    end;
+
+	    fun copy ((rds as [d], rss as [s]), mcf::COPY { size_in_bits, ... } )
+		    => 
+		    if (rkj::codetemps_are_same_color (d, s) ) []; 
+		    else [mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits, dst=>rds, src=>rss, tmp=>NULL } ];
+		    fi;
+
+		copy((rds, rss), mcf::COPY { tmp, size_in_bits, ... } )
+		    => 
+		    [mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits, dst=>rds, src=>rss, tmp } ];
+
+		copy _ => error "copy: COPY?";
+	    end;
+
+
+	    fun spill_r s { notes, kill=>TRUE, reg, spill_loc, instruction }
+		    => 
+		    if (pure instruction )
+			 { code => [], prohibitions => [], make_reg=>NULL };
+		    else
+			 spill_r s { notes, kill=>FALSE,
+				     spill_loc,
+				     reg, instruction
+				    };
+		    fi;
+
+		spill_r s { notes=>an, kill, reg, spill_loc, instruction }
+		    =>
+		    spill ([], instruction)
+		    where
+
+			fun annotate ([], op)
+				=>
+				op;
+
+			    annotate (note ! notes, op)
+				=>
+				annotate (notes, mcf::NOTE { note, op } );
+			end;
+
+			# Preserve annotation on instruction:
+			#	
+			fun spill (instr_an, mcf::NOTE { note, op } )
+				=>
+				spill (note ! instr_an, op);
+
+			    spill (instr_an, mcf::DEAD { regs, spilled } )
+				=> 
+				{ code => [annotate
+				  (instr_an, 
+				   mcf::DEAD { regs=>rgk::drop_codetemp_from_codetemplists (reg, regs), 
+					   spilled=>rgk::add_codetemp_to_appropriate_kindlist (reg, spilled) } )],
+				  prohibitions => [], 
+				  make_reg=>NULL
+				};
+
+			    spill (instr_an, mcf::LIVE _) => error "spillR: LIVE";
+			    spill (_, mcf::COPY _) => error "spillR: COPY";
+
+			    spill (instr_an, mcf::BASE_OP _)
+				=>
+				{   my { operand=>spill_loc: mcf::Effective_Address, kind } = get_reg_loc (s, an, reg, spill_loc);
+
+				    inc ra_int_spills_count;
+				    asi::spill rkj::INT_REGISTER (instruction, reg, spill_loc);
+				};
+			end;
+		    end;
+	    end; 
+
+	    # Spill src at the spill location for reg i.e. spill_loc:
+	    #
+	    fun spill_reg s { notes=>an, src, reg, spill_loc }
+		=
+		{   inc ra_int_spills_count;
+		    .code (asi::spill_to_ea rkj::INT_REGISTER (src, .operand (get_reg_loc (s, an, reg, spill_loc))));
+		};
+
+
+	    # Spill the temporary associated with a copy:
+	    #
+	    fun spill_tmp s { notes=>an, reg, copy=>mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits, tmp, dst, src }, spill_loc }
+		=>
+		{
+		   loc = .operand (get_reg_loc (s, an, reg, spill_loc));
+
+		    inc ra_int_spills_count;
+		    mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits, tmp=>THE loc, dst, src };
+		};
+
+		spill_tmp _ _
+		    =>
+		    error "spillTmp";
+	    end;
+
+	    # Rename integer register:
+	    #
+	    fun rename_r { from_src, to_src, instruction }
+		= 
+		{   inc ra_int_renames_count;
+		    instruction' = rmi::rewrite_use (instruction, from_src, to_src);
+		    { code => [instruction'], prohibitions => [], make_reg => THE to_src };
+		};
+
+	    # Reload integer register:
+	    #
+	    fun reload_r s { notes=>an, reg, spill_loc, instruction }
+		=
+		reload ([], instruction)
+		where
+		    fun reload (instr_an, mcf::NOTE { note, op } )
+			    =>
+			    reload (note ! instr_an, op);
+
+			reload (instr_an, mcf::LIVE { regs, spilled } )
+			    => 
+			    { code => [mcf::LIVE { regs    => rgk::drop_codetemp_from_codetemplists (reg, regs),
+						  spilled => rgk::add_codetemp_to_appropriate_kindlist (reg, spilled)
+                                                }
+                                      ],
+			      prohibitions => [],
+			      make_reg=>NULL
+			    };
+
+		       reload (_, mcf::DEAD _) => error "reloadR: DEAD";
+		       reload (_, mcf::COPY _) => error "reloadR: COPY";
+
+		       reload (instr_an, instruction as mcf::BASE_OP _)
+			   =>
+			   {
+			       spill_loc = .operand (get_reg_loc (s, an, reg, spill_loc));
+
+			       inc ra_int_reloads_count;
+			       asi::reload rkj::INT_REGISTER (instruction, reg, spill_loc);
+			   };
+		    end;
+		end;
+
+	    # Reload the register dst from the spill
+	    # location for reg, i.e. spill_loc:
+	    #
+	    fun reload_reg s { notes=>an, reg, dst, spill_loc }
+		= 
+		{   inc ra_int_reloads_count;
+		    .code (asi::reload_from_ea rkj::INT_REGISTER (dst, .operand (get_reg_loc (s, an, reg, spill_loc))));
+		};
+
+
+	   # -------------------------------------------------------------
+	    stipulate 
+
+		(rgk::get_id_range_for_physical_register_kind  rkj::FLOAT_REGISTER)
+		    ->
+		    { min_register_id,
+                      max_register_id
+                    };
+
+		arr = rwv::make_rw_vector (max_register_id+1, FALSE);
+
+		others = mark (arr, max_register_id+1, fap::globally_allocated_hardware_registers, []);
+	    herein
+
+		package fr
+		    =
+		    pick_available_hardware_register_by_round_robin_g (				# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+			#
+			first_register =  min_register_id;					# Round-robin allocation will start at this number.
+			register_count =  max_register_id - min_register_id + 1;		# Round-robin allocation will start over at first_register after checking this many registers.
+			#	
+			locally_allocated_hardware_registers					# Round-robin allocation will only return one of these numbers.
+			    =									# All numbers on this list must be in the range first_register -> first_register+register_count-1 inclusive.
+			    map  rkj::interkind_register_id_of  fap::locally_allocated_hardware_registers;
+		    );
+
+		is_globally_allocated_float_register_or_codetemp
+		    =
+		    is_globally_allocated_hardware_register_or_codetemp (max_register_id+1, arr, others);
+	    end;
+
+	    fun get_freg_loc (s, an, ra::SPILL_TO_FRESH_FRAME_SLOT loc) => fap::spill_loc (s, an, loc);
+		get_freg_loc _ => error "getFregLoc";
+	    end;
+
+	    fun fcopy ((rds as [d], rss as [s]), mcf::COPY { size_in_bits, ... } )
+		    => 
+		    if (rkj::codetemps_are_same_color (d, s))  []; 
+		    else                        [mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits, dst=>rds, src=>rss, tmp=>NULL } ];
+		    fi;
+
+		fcopy((rds, rss), mcf::COPY { tmp, size_in_bits, ... } )
+		    => 
+		    [mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits, dst=>rds, src=>rss, tmp } ];
+
+		fcopy _
+		    =>
+		    error "fcopy: COPY?";
+	    end;
+
+	    # Spill floating point register:
+	    #
+	    fun spill_f s { notes, kill=>TRUE, reg, spill_loc, instruction }
+		    => 
+		    if (pure instruction)
+			 { code => [], prohibitions => [], make_reg => NULL };
+		    else spill_f s { notes, kill=>FALSE,
+				 spill_loc, reg, instruction };
+		    fi;
+
+		spill_f s { notes=>an, kill, reg, spill_loc, instruction }
+		    =>
+		    spill ([], instruction)
+		    where
+
+			# Preserve annotation on instruction:
+			#
+			fun spill (instr_an, mcf::NOTE { note, op } )
+				=>
+				spill (note ! instr_an, op);
+
+			    spill (instr_an, mcf::DEAD { regs, spilled } )
+				=> 
+				{ code=> [ annotate
+					   (instr_an, 
+					    mcf::DEAD { regs=>rgk::drop_codetemp_from_codetemplists (reg, regs), 
+						    spilled=>rgk::add_codetemp_to_appropriate_kindlist (reg, spilled) } )
+					 ],
+				  prohibitions => [], 
+				  make_reg=>NULL
+				};
+
+			    spill (instr_an, mcf::LIVE _) => error "spillF: LIVE";
+			    spill(        _, mcf::COPY _) => error "spillF: COPY";
+
+			    spill (instr_an, mcf::BASE_OP _)
+				=> 
+				{   inc ra_float_spills_count;
+				    asi::spill rkj::FLOAT_REGISTER (instruction, reg, get_freg_loc (s, an, spill_loc));
+				};
+			end;
+		    end;
+	    end;
+
+	    # Spill src at the spill location  for reg, i.e. spill_loc:
+	    #
+	    fun spill_freg s { notes=>an, reg, src, spill_loc }
+		= 
+		{   inc ra_float_spills_count;
+
+		    .code (asi::spill_to_ea rkj::FLOAT_REGISTER (src, get_freg_loc (s, an, spill_loc)));
+		};
+
+	    # Spill the temporary associated with a copy:
+	    #
+	    fun spill_ftmp s { notes=>an, reg, copy=>mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits, tmp, dst, src }, spill_loc }
+		    =>
+		    {   loc = get_freg_loc (s, an, spill_loc);
+
+			inc ra_float_spills_count;
+
+			mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits, tmp=>THE loc, dst, src };
+		    };
+
+		spill_ftmp _ _
+		    =>
+		    error "spillFtmp";
+	    end;
+
+
+	    # Rename floating point register:
+	    #
+	    fun rename_f { from_src, to_src, instruction }
+		=
+		{   inc ra_float_renames_count;
+		    instruction' = rmi::frewrite_use (instruction, from_src, to_src);
+
+		    { code => [instruction'], prohibitions => [], make_reg=>THE to_src };
+		};
+
+	    # Reload floating point register:
+	    #
+	    fun reload_f s { notes=>an, reg, spill_loc, instruction }
+		=
+		reload([], instruction)
+		where
+		    fun reload (instr_an, mcf::NOTE { note, op } )
+			    =>
+			    reload (note ! instr_an, op);
+
+			reload (instr_an, mcf::LIVE { regs, spilled } )
+			    => 
+			    { code => [mcf::LIVE { regs    => rgk::drop_codetemp_from_codetemplists (reg, regs),
+                                                  spilled => rgk::add_codetemp_to_appropriate_kindlist (reg, spilled)
+                                                }
+                                      ],
+			      prohibitions => [],
+			      make_reg=>NULL
+			    };
+
+			reload (_, mcf::DEAD _) =>  error "reloadF: DEAD";
+			reload (_, mcf::COPY _) =>  error "reloadF: COPY";
+
+			reload (instr_an, instruction as mcf::BASE_OP _)
+			    => 
+			    {   inc ra_float_reloads_count;
+				asi::reload rkj::FLOAT_REGISTER (instruction, reg, get_freg_loc (s, an, spill_loc));
+			    };
+		    end;
+		end;
+
+	    # Reload register dst from the
+	    # spill location for reg, i.e. spill_loc 
+	    #
+	    fun reload_freg s { notes=>an, reg, dst, spill_loc }
+		=
+		{   inc ra_float_reloads_count;
+		    #
+		    (asi::reload_from_ea rkj::FLOAT_REGISTER (dst, get_freg_loc (s, an, spill_loc))).code;
+		};
+
+	    kr = length rap::locally_allocated_hardware_registers;
+	    kf = length fap::locally_allocated_hardware_registers;
+
+	    fun make_register_allocation_problems   sss
+		=
+		[ { registerkind	=> rkj::INT_REGISTER,
+		    pick_available_hardware_register=> gr::pick_available_hardware_register,	# Select among free hardware registers.
+		    #										# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+		    spill		=> spill_r sss,
+		    spill_src		=> spill_reg sss,
+		    spill_copy_tmp	=> spill_tmp sss,
+		    #
+		    reload		=> reload_r sss,
+		    reload_dst		=> reload_reg sss,
+		    #
+		    rename_src		=> rename_r,
+		    hardware_registers_we_may_use => kr,
+		    #
+		    is_globally_allocated_register_or_codetemp => is_globally_allocated_int_register_or_codetemp,		# Prevents register allocator from trying to put stuff in (on intel32) the globally allocated esp and edi registers.
+		    copy_instr		=> copy,
+		    #
+		    spill_prohibitions	=> [],
+		    ramregs		=> [],
+		    #
+		    mode		=> rap::mode
+
+		  }:				ra::Register_Allocation_Problem,
+
+		  { registerkind	=> rkj::FLOAT_REGISTER,
+		    pick_available_hardware_register=> fr::pick_available_hardware_register,	# Select among free hardware registers.
+		    #										# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+		    spill		=> spill_f sss,
+		    spill_src		=> spill_freg sss,
+		    spill_copy_tmp	=> spill_ftmp sss,
+		    #
+		    reload		=> reload_f sss,
+		    reload_dst		=> reload_freg sss,
+		    #
+		    rename_src		=> rename_f,
+		    hardware_registers_we_may_use => kf,
+		    #
+		    is_globally_allocated_register_or_codetemp => is_globally_allocated_float_register_or_codetemp,
+		    copy_instr		=> fcopy,
+		    #
+		    spill_prohibitions	=> [],
+		    ramregs		=> [],
+		    #
+		    mode		=> fap::mode
+
+		  } :					ra::Register_Allocation_Problem
+
+		] : 				List    ra::Register_Allocation_Problem;
+
+
+	    # The main register allocation routine.
+	    # This is (only) invoked as ra::allocate_registers in
+	    #
+	    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+	    #
+	    fun allocate_registers  cluster
+		=
+		{   sss = before_ra cluster;
+
+		    gr::reset_register_picker_state ();
+		    fr::reset_register_picker_state ();
+
+		    ra::solve_register_allocation_problems
+			#
+			(make_register_allocation_problems  sss)
+			#
+			cluster;
+		};
+
+	end;
+    };
+end;

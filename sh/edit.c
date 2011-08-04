@@ -1,44 +1,43 @@
-/* edit.c -- apply edits from foo.EDITS edits to a file foo
- * 2007-04-07 CrT: Created.
- *
- * gcc edit.c -o edit
- *
- * Invocation is usually via "sh/do-edits" at the toplevel.
- */
+// edit.c -- apply edits from foo.EDITS edits to a file foo
+// 2007-04-07 CrT: Created.
+//
+// gcc -std=c99 edit.c -o edit
+//
+// Invocation is usually via "sh/do-edits" at the toplevel.
 
-/* Input to this program is two files, one a regular
- * source file (SML/NJ / Mythryl, not that it matters
- * to this program) and the other an edit file looking
- * like
- *
- *    ...
- *    3947: `let` -> `{`
- *    4127: `` -> `;`
- *    5867: `` -> `;`
- *    6116: `` -> `;`
- *    6479: `` -> `;`
- *    6724: `` -> `;`
- *    6755: `` -> `;`
- *    6759: `in` -> ``
- *    6794: `` -> `;`
- *    6798: `end` -> `}`
- *    ...
- *
- * The salient features here are that:
- *
- *  o  There is one edit command per line.
- *
- *  o  The first field is the character offset
- *     in the input file at which to apply the
- *     edit.  We assume they are sorted into
- *     ascending order.
- *
- *  o  Our job is to replace the first string
- *     given by the second.  This could be a
- *     replacement, insertion or deletion,
- *     depending on which of the given strings
- *     is empty, if any.
- */
+// Input to this program is two files, one a regular
+// source file (SML/NJ / Mythryl, not that it matters
+// to this program) and the other an edit file looking
+// like
+//
+//    ...
+//    3947: `let` -> `{`
+//    4127: `` -> `;`
+//    5867: `` -> `;`
+//    6116: `` -> `;`
+//    6479: `` -> `;`
+//    6724: `` -> `;`
+//    6755: `` -> `;`
+//    6759: `in` -> ``
+//    6794: `` -> `;`
+//    6798: `end` -> `}`
+//    ...
+//
+// The salient features here are that:
+//
+//  o  There is one edit command per line.
+//
+//  o  The first field is the character offset
+//     in the input file at which to apply the
+//     edit.  We assume they are sorted into
+//     ascending order.
+//
+//  o  Our job is to replace the first string
+//     given by the second.  This could be a
+//     replacement, insertion or deletion,
+//     depending on which of the given strings
+//     is empty, if any.
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -125,14 +124,14 @@ void require_string( char* string ) {
 }
 
 int read_edit_spec(void) {
-
-    /* I wanted to do just
-     *
-     *     int count = fscanf( edits, "%d: `%[^`]` -> `%[^`]`\n", &edit_offset, from_string, to_string );
-     *
-     * but fscanf has some weird prohibition against accepting
-     * zero-length fields :( so we just do it by hand:
-     */
+    //
+    // I wanted to do just
+    //
+    //     int count = fscanf( edits, "%d: `%[^`]` -> `%[^`]`\n", &edit_offset, from_string, to_string );
+    //
+    // but fscanf has some weird prohibition against accepting
+    // zero-length fields :( so we just do it by hand:
+    ///
     char buf[ 4096 ];
     char* p = buf;
     int   i = fgetc( edits );
@@ -181,16 +180,19 @@ int edit(char* filename) {
     int c;
     int edits_done = 0;
 
-    /* Over all edits to be done: */
+    // Over all edits to be done:
+    //
     while (read_edit_spec()) {
 
-        /* Copy forward through file to read edit point: */
+        // Copy forward through file to read edit point:
+        //
         while (offset_in_text < edit_offset) {
             fputc( file_getc( text ), edited );
             ++offset_in_text;
         }
 
-        /* Verify that expected text is found at that point: */
+        // Verify that expected text is found at that point:
+	//
         {   char* to_match = from_string;
             while (*to_match) {
                 c = file_getc( text );
@@ -212,7 +214,8 @@ int edit(char* filename) {
             }
         }
 
-        /* Replace it per edit specification: */
+        // Replace it per edit specification:
+        //
         {   char* to_write = to_string;
             while (*to_write) {
 	      fputc( *to_write, edited);
@@ -223,7 +226,8 @@ int edit(char* filename) {
         ++edits_done;
     }
 
-    /* Copy remaining input file to edited: */
+    // Copy remaining input file to edited:
+    //
     while ((c = fgetc( text )) != EOF) {
         fputc( c, edited );
     }

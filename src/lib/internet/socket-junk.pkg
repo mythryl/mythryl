@@ -1,0 +1,297 @@
+## socket-junk.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# Various utility functions for programming with sockets.
+
+stipulate
+    package c   =  char;					# char			is from   src/lib/std/char.pkg
+    package pc  =  parser_combinator;				# parser_combinator	is from   src/lib/src/parser-combinator.pkg
+    package sok =  socket;					# socket		is from   src/lib/std/socket.pkg
+    package is  =  internet_socket;				# internet_socket	is from   src/lib/std/src/socket/internet-socket.pkg
+    package tr  =  tracing;					# tracing		is from   src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+herein
+
+    package   socket_junk
+    : (weak)  Socket_Junk					# Socket_Junk		is from   src/lib/internet/socket-junk.api
+    {
+	Port = PORT_NUMBER  Int
+	     | SERV_NAME    String
+	     ;
+	     #
+	     # A port can be identified by number, or by the name of a service.
+
+	Hostname = HOST_NAME     String
+		 | HOST_ADDRESS  dns_host_lookup::Internet_Address
+		 ;
+
+        socket_tracing = tr::make_trace_tree_leaf { parent => tr::all_tracing, name => "socket_tracing" };
+	trace =  tr::print_if  socket_tracing;			# Conditionally write strings to tracing.log or whatever.
+
+	# This belongs in a null_or package:   XXX BUGGO FIXME
+	#
+	fun filter_partial predicate  NULL   =>  NULL;
+
+	    filter_partial predicate (THE x) =>  if (predicate x)  THE x;
+						 else              NULL;
+						 fi;
+	end;
+
+	fun scan_name getc stream
+	    =
+	    {   fun is_name_chr ('.', _) =>  TRUE;
+		    is_name_chr ('-', _) =>  TRUE;
+		    is_name_chr ( c,  _) =>  c::is_alphanumeric  c;
+		end;
+
+		fun get_name (stream, cl)
+		    =
+		    case (filter_partial is_name_chr (getc stream))
+			#
+			THE (c, stream') =>  get_name (stream', c ! cl);
+			NULL             =>  THE (implode (reverse cl), stream);
+		    esac;
+
+
+		case (filter_partial (c::is_alpha o #1) (getc stream))
+		    #
+		    THE (c, stream) =>  get_name (stream, [c]);
+		    NULL            =>  NULL;
+		esac;
+	    };
+
+	# Scan an address, which has the form
+	#   address [ ":" port ]
+	# where the address may be either numeric
+	# or symbolic host name and the port is
+	# either a service name or a decimal number.
+	#
+	# Legal host names must begin with a letter,
+	# and may contain any alphanumeric character,
+	# the minus sign (-) and period (.), where
+	# the period is used as a domain separator.  
+	#
+	fun scan_addr getc stream
+	    =
+	    pc::seq_with
+	      (fn (host, port) =  { host, port })
+	      ( pc::or_op
+		  ( pc::wrap (scan_name, HOST_NAME),
+		    pc::wrap (dns_host_lookup::scan, HOST_ADDRESS)
+		  ),
+		pc::option
+		  ( pc::seq_with
+		      #2
+		      ( pc::eat_char (fn c =  (c == ':')),
+			pc::or_op
+			  ( pc::wrap (scan_name, SERV_NAME),
+			    pc::wrap (int::scan number_string::DECIMAL, PORT_NUMBER)
+			  )
+		      )
+		  )
+	      )
+	      getc
+	      stream;
+
+	addr_from_string
+	   =
+	   number_string::scan_string scan_addr;
+
+	exception BAD_ADDRESS  String;
+
+	fun resolve_addr { host, port }
+	    =
+	    {   fun err (a, b)
+		    =
+		    raise exception BAD_ADDRESS (cat [a, " \"", b, "\" not found"]);
+
+		my (name, address)
+		    =
+		    case host
+
+			HOST_NAME s
+			    =>
+			    case (dns_host_lookup::get_by_name s)
+				#
+				NULL      =>  err ("hostname", s);
+				THE entry =>  (s, dns_host_lookup::address entry);
+			    esac;
+
+			HOST_ADDRESS address
+			    =>
+			    case (dns_host_lookup::get_by_address address)
+				#
+				NULL      =>  err ("host address", dns_host_lookup::to_string address);
+				THE entry =>  (dns_host_lookup::name entry, address);
+			    esac;
+		    esac;
+
+
+		port =  case port
+
+			    THE (PORT_NUMBER n)
+				=>
+				THE n;
+
+			    THE (SERV_NAME s)
+				=>
+				case (net_service_db::get_by_name (s, NULL))
+
+				     THE entry =>  THE (net_service_db::port entry);
+				     NULL      =>  err("service", s);
+				esac;
+
+			    NULL => NULL;
+
+			esac;
+
+
+		{ host => name, address, port };
+	    };
+
+	Stream_Socket(X)
+	    =
+	    sok::Socket (X,  sok::Stream( sok::Active ));
+
+
+	# Establish a client-side connection
+	# to a INET domain stream socket:
+	#
+	fun connect_client_to_internet_domain_stream_socket { address, port }
+	    =
+	    socket
+	    where
+		socket =  is::tcp::socket ();
+
+		sok::connect (socket, is::to_address (address, port));
+	    end;
+
+
+
+	# Read exactly n bytes from a stream socket:
+	#
+	# If the server closes the connection cleanly
+	# we get 0 bytes back (as opposed to an error).
+	#
+	# (I've seen the X server silently close the
+	# socket when we provide no authentication info.)
+	#
+	fun receive_vector (socket, n)
+	    =
+	    {   fun get (0, data)
+			=>
+			{
+			    unt8_vector::cat (reverse data);
+			};
+
+		    get (n, data)
+			=>
+			{
+			    v = sok::receive_vector (socket, n);
+
+			    if (unt8_vector::length v == 0)
+				#
+				raise exception winix::RUNTIME_EXCEPTION("closed socket", NULL);
+			    else
+				get (n - unt8_vector::length v, v ! data);
+			    fi;
+			};
+		end;
+
+		if (n < 0)   raise exception SIZE;
+		else         get(n, []);
+		fi;
+	    };
+
+	fun receive_string  arg
+	    =
+	    byte::bytes_to_string
+		(receive_vector  arg);
+
+
+
+	# Send the complete contents of a vector:
+	#
+	fun send_vector (socket, vec)
+	    =
+	    put 0
+	    where
+		len =   unt8_vector::length vec;
+
+		fun send i
+		    =
+		    sok::send_vector
+		      ( socket,
+			unt8_vector_slice::make_slice
+			    (vec, i, NULL)
+		      );
+
+		fun put i
+		    =
+		    if (i < len)
+			 put (i + send i);
+		    fi;
+	    end;
+
+	fun send_string (socket, string)
+	    =
+	    send_vector
+	      ( socket,
+		byte::string_to_bytes  string
+	      );
+
+
+
+	# Send the complete contents of an rw_vector:
+	#
+	fun send_rw_vector (socket, rw_vector)
+	    =
+	    put 0
+	    where
+		len = rw_unt8_vector::length  rw_vector;
+
+		fun send i
+		    =
+		    sok::send_rw_vector
+		      ( socket,
+			rw_unt8_vector_slice::make_slice
+			   (rw_vector, i, NULL)
+		      );
+
+		fun put i
+		    =
+		    if (i < len)
+			 put (i + send i);
+		    fi;
+	    end;
+    };
+
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 AT&T Research.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

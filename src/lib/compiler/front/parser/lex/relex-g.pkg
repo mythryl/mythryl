@@ -1,0 +1,1040 @@
+# relex-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/front/parser/parser.sublib
+
+# THIS FILE IS AN EARLY IDEA THAT WAS ABANDONED.
+# THIS CODE IS NOT USED. (Except by src/lib/compiler/front/parser/main/nada-parser-guts.pkg
+# which is part of the unused nada parser.)
+#
+# Originally I had assumed that something like
+# this would be needed to implement Mythryl's
+# significant-whitespace syntax.  In the event
+# it turned out that clever use of existing
+# lex and yacc functionality suffices, so the
+# approach in this file was mothballed.
+#
+# I'm keeping all this nada stuff around on
+# the off-chance that I'll wind up repurposing
+# it at some point to implement something like
+# an alternative input syntax -- say lisp
+# or prolog style syntax.
+#                 -- 2009-10-30 CrT
+
+# Compiled by:
+#     src/lib/compiler/front/parser/parser.sublib
+
+
+
+
+###           "The more original a discovery, the
+###            more obvious it seems afterwards."
+###
+###                      -- Arthur Koestler
+
+
+# For mythryl7, we need to distinguish between
+# prefix, infix and suffix operators, for
+# example between
+#
+#    a! b         # Suffix unary operator '!' -- factorial
+#    a !b         # Prefix unary operator '!'  -- logical negation.
+#    a!b          # Binary  infix operator '!' -- tight naming
+#    a ! b        # Binary  infix operator '!' -- loose naming
+#
+# This inherently requires lookahead, which
+# the current lexer generator doesn't provide,
+# so instead we do a second re-tokening pass
+# after the main lexer runs to do peephole
+# analysis and clean-up of the token stream.
+#
+# That's our job in this file.  We sit between
+# the generated primary lexer and the parser,
+# watching the token stream go by and adding
+# prefix/suffix/infix information to the
+# operator tokens we see, based on an
+# effective three-token peephole window:
+#
+#   one token of lookbehind;
+#   the current token
+#   one token of lookahead. 
+#
+# It follows that we must implement the standard
+# ARG_LEXER api in order to be a drop-in replacement
+# for the regular lexer, and we must also access
+# the regular lexer via the same api in order to
+# get our input token stream.
+
+
+###          Real Programmers always confuse Christmas
+###          and Halloween because Oct (31) == Dec (25)."
+###
+###                         -- Andrew Rutherford
+
+
+
+generic package
+relex_g (   package parser_data:  Parser_Data;		# Parser_Data	is from   src/app/yacc/lib/base.api
+	    package tokens:       Nada_Tokens;		# Nada_Tokens	is from   src/lib/compiler/front/parser/yacc/nada.grammar.api
+	    package lex:          Arg_Lexer; 		# Arg_Lexer	is from   src/app/yacc/lib/base.api
+
+	    sharing lex::user_declarations::Semantic_Value == parser_data::Semantic_Value;
+	    sharing lex::user_declarations::Source_Position    == parser_data::Source_Position;
+	    sharing lex::user_declarations::Token  == parser_data::token::Token;
+
+	    sharing tokens::Semantic_Value       == parser_data::Semantic_Value;
+	    sharing tokens::Token                == parser_data::token::Token;
+
+
+
+)
+=
+package {
+
+    package em= error_message;	# error_message	is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+
+    package user_declarations = lex::user_declarations;
+
+    package lr_table = lr_table;
+
+
+     Arg              =         lex::user_declarations::Arg;
+     Semantic_Value   =         lex::user_declarations::Semantic_Value;
+     Source_Position  =         lex::user_declarations::Source_Position;
+     Token (X,Y)    = parser_data::token::Token( X, Y );
+
+
+     # Extract the token id numbers we need.
+     # It would be nice if this were done statically
+     # at compile time, but at present mythryl-yacc
+     # doesn't seem to export the information in that
+     # form. :(   XXX BUGGO FIXME
+     #
+     # All this stuff is ultimately derived from
+     # src/lib/compiler/front/parser/lex/nada.grammar and defined in
+     # src/lib/compiler/front/parser/lex/nada.grammar.pkg, the latter
+     # being generated from the former by mythryl-yacc.
+     # 
+     # It gets to us via src/lib/compiler/front/parser/main/nada-parser-guts.pkg
+     # which is what actually invokes us as a generic.
+     #
+    fun token_to_integer a_token
+        =
+        {   a_token ->   parser_data::token::TOKEN (parser_data::lr_table::TERM an_integer, _);
+        
+            an_integer;
+        };
+
+    fun token_position a_token
+        =
+        {   a_token ->  parser_data::token::TOKEN (parser_data::lr_table::TERM an_integer, (svalue, left_pos, right_pos));
+        
+            (left_pos, right_pos);
+        };
+
+    stipulate
+
+        # The lexer passes us whitespace because
+        # we need it to classify operators according
+        # to the presence/absence of adjacent whitespace.
+        #
+        # We must not, however, pass any whitespace on
+        # to the parser, because that would choke its
+        # LALR (1) lookahead:
+        #
+	whitespace_token  = tokens::raw_whitespace  (0, 0);
+
+	eof_token      = tokens::eof    (0, 0);
+
+	rparen_token   = tokens::rparen (0, 0);
+	lparen_token   = tokens::lparen (0, 0);
+
+
+	also_token     = tokens::also_t(0, 0);
+	and_token      = tokens::and_t (0, 0);
+	or_token       = tokens::or_t  (0, 0);
+
+	do_token       = tokens::do_t  (0, 0);
+	if_token       = tokens::if_t  (0, 0);
+	then_token     = tokens::then_t(0, 0);
+	else_token     = tokens::else_t(0, 0);
+	fi_token       = tokens::fi_t  (0, 0);
+	case_token     = tokens::case_t(0, 0);
+	of_token       = tokens::of_t  (0, 0);
+
+	fn_token       = tokens::fn_t  (0, 0);
+	fun_token      = tokens::fun_t (0, 0);
+	begin_token    = tokens::begin_t (0, 0);
+	raise_token    = tokens::raise_t (0, 0);
+	while_token    = tokens::while_t (0, 0);
+
+        # The following tokens are generated by the
+        # lexer but must not be passed on to the parser.
+        # Instead, they must be converted to one of
+        #     tokens::tight_infix_op
+        #     tokens::loose_infix_op
+        #     tokens::prefix_op
+        #     tokens::suffix_op
+        #
+	langle_token    = tokens::raw_langle    (0, 0);
+	rangle_token    = tokens::raw_rangle    (0, 0);
+	lbrace_token    = tokens::raw_lbrace    (0, 0);
+	rbrace_token    = tokens::raw_rbrace    (0, 0);
+	lbracket_token  = tokens::raw_lbracket  (0, 0);
+	rbracket_token  = tokens::raw_rbracket  (0, 0);
+
+	ampersand_token = tokens::raw_ampersand (0, 0);
+	underbar_token  = tokens::raw_underbar  (0, 0);
+	dollar_token    = tokens::raw_dollar    (0, 0);
+	sharp_token     = tokens::raw_sharp     (0, 0);
+	bang_token      = tokens::raw_bang      (0, 0);
+	tilda_token     = tokens::raw_tilda     (0, 0);
+	dash_token      = tokens::raw_dash      (0, 0);
+	plus_token      = tokens::raw_plus      (0, 0);
+	star_token      = tokens::raw_star      (0, 0);
+	slash_token     = tokens::raw_slash     (0, 0);
+	percent_token   = tokens::raw_percent   (0, 0);
+	colon_token     = tokens::raw_colon     (0, 0);
+	equal_token     = tokens::raw_equal     (0, 0);
+	question_token  = tokens::raw_question  (0, 0);
+	atsign_token    = tokens::raw_atsign    (0, 0);
+	caret_token     = tokens::raw_caret     (0, 0);
+	bar_token       = tokens::raw_bar       (0, 0);
+	backslash_token = tokens::raw_backslash (0, 0);
+	semi_token      = tokens::raw_semi      (0, 0);
+	dot_token       = tokens::raw_dot       (0, 0);
+	comma_token     = tokens::raw_comma     (0, 0);
+
+	constructor_id_token   = tokens::constructor_id (fast_symbol::raw_symbol (hash_string::hash_string "dummy", "dummy"), 0, 0);
+
+    herein
+
+	rparen_integer        = token_to_integer rparen_token;
+	lparen_integer        = token_to_integer lparen_token;
+
+	rbrace_integer        = token_to_integer rbrace_token;
+	lbrace_integer        = token_to_integer lbrace_token;
+
+	rbracket_integer      = token_to_integer rbracket_token;
+	lbracket_integer      = token_to_integer lbracket_token;
+
+	whitespace_integer    = token_to_integer whitespace_token;
+	eof_integer           = token_to_integer eof_token;
+
+	also_integer          = token_to_integer also_token;
+	and_integer           = token_to_integer and_token;
+	or_integer            = token_to_integer or_token;
+
+	do_integer            = token_to_integer do_token;
+	if_integer            = token_to_integer if_token;
+	then_integer          = token_to_integer then_token;
+	else_integer          = token_to_integer else_token;
+	fi_integer            = token_to_integer fi_token;
+	case_integer          = token_to_integer case_token;
+	of_integer            = token_to_integer of_token;
+
+	fn_integer            = token_to_integer fn_token;
+	fun_integer           = token_to_integer fun_token;
+	begin_integer         = token_to_integer begin_token;
+	raise_integer         = token_to_integer raise_token;
+	while_integer         = token_to_integer while_token;
+
+	ampersand_integer     = token_to_integer ampersand_token;
+	underbar_integer      = token_to_integer underbar_token;
+	dollar_integer        = token_to_integer dollar_token;
+	sharp_integer         = token_to_integer sharp_token;
+	bang_integer          = token_to_integer bang_token;
+	tilda_integer         = token_to_integer tilda_token;
+	dash_integer          = token_to_integer dash_token;
+	plus_integer          = token_to_integer plus_token;
+	star_integer          = token_to_integer star_token;
+	slash_integer         = token_to_integer slash_token;
+	percent_integer       = token_to_integer percent_token;
+	colon_integer         = token_to_integer colon_token;
+	langle_integer        = token_to_integer langle_token;
+	rangle_integer        = token_to_integer rangle_token;
+	equal_integer         = token_to_integer equal_token;
+	question_integer      = token_to_integer question_token;
+	atsign_integer        = token_to_integer atsign_token;
+	caret_integer         = token_to_integer caret_token;
+	bar_integer           = token_to_integer bar_token;
+	backslash_integer     = token_to_integer backslash_token;
+	semi_integer          = token_to_integer semi_token;
+	dot_integer           = token_to_integer dot_token;
+	comma_integer         = token_to_integer comma_token;
+
+	constructor_id_integer = token_to_integer constructor_id_token;
+    end; 
+
+    # Infix operators are composed from
+    #      _ & $ # ! ~ - + * / % : < = > ? @ ^ | \ ; . ,
+    #
+    operator_constituent_list
+        =
+        # NB: If you add something to this list,
+        # be sure to update 'integer_to_string'!
+        #
+        [ ampersand_integer,
+	  underbar_integer,
+	  dollar_integer,
+	  sharp_integer,
+	  bang_integer,
+	  tilda_integer,
+	  dash_integer,
+	  plus_integer,
+	  star_integer,
+	  slash_integer,
+	  percent_integer,
+	  colon_integer,
+	  langle_integer,
+	  rangle_integer,
+	  lbrace_integer,
+	  rbrace_integer,
+	  lbracket_integer,
+	  rbracket_integer,
+	  equal_integer,
+	  question_integer,
+	  atsign_integer,
+	  caret_integer,
+	  bar_integer,
+	  backslash_integer,
+	  semi_integer,
+	  dot_integer,
+	  comma_integer
+        ];
+
+    # We're interested in classifying operators
+    # like * ** @!%$ &tc according to whether they
+    # "have whitespace" on left and/or right side.
+    #
+    # In practice, however, we'd like to count
+    # various things like parentheses as being
+    # effectively "whitespace" for this purpose.
+    # 
+    # So here we list all the tokens which we
+    # will consider to be "whitespace" when
+    # found to the left of an operator:
+    #
+    counts_as_leftside_whitespace_list
+        =
+        [ whitespace_integer,
+	  lparen_integer,
+	  lbrace_integer,
+	  lbracket_integer,
+	  also_integer,
+	  and_integer,
+	  or_integer,
+	  do_integer,
+	  if_integer,
+	  then_integer,
+	  else_integer,
+	  case_integer,
+	  fun_integer,
+	  begin_integer,
+	  raise_integer,
+	  while_integer,
+	  constructor_id_integer
+        ];   
+
+    # Exactly as above, but on the right side:
+    #
+    counts_as_rightside_whitespace_list
+        =
+        [ whitespace_integer,
+	  eof_integer,
+	  rparen_integer,
+	  rbrace_integer,
+	  rbracket_integer,
+	  also_integer,
+	  and_integer,
+	  or_integer,
+	  do_integer,
+	  fi_integer,
+	  then_integer,
+	  else_integer,
+	  of_integer,
+	  raise_integer,
+	  while_integer
+        ];   
+
+    # Now some little functions to test
+    # for membership in the above lists:
+
+    fun is_operator_constituent this_token
+        =
+        {   this_integer = token_to_integer this_token;
+        
+	    list::exists
+		(fn i  =  i == this_integer)
+		operator_constituent_list;
+        };
+
+    fun counts_as_leftside_whitespace this_token
+        =
+        {   this_integer = token_to_integer this_token;
+        
+	    list::exists
+		(fn i  =  i == this_integer)
+		counts_as_leftside_whitespace_list;
+        };
+
+    fun counts_as_rightside_whitespace this_token
+        =
+        {   this_integer = token_to_integer this_token;
+        
+	    list::exists
+		(fn i  =>  i == this_integer; end )
+		counts_as_rightside_whitespace_list;
+        };
+
+    # If you need the text for a token, here's how to do it:
+    # rparenString = parser_data::error_recovery::show_terminal rparenTerminal
+
+
+    # Convert infix constituents to corresponding strings:
+    #
+    fun integer_to_string i
+        =
+        # This is unpleasant but I don't see a much
+        # better solution without hacking mythryl-yacc:     :-/
+        #
+        if   (i == ampersand_integer  ) "&";
+        elif (i == underbar_integer   ) "_";
+        elif (i == dollar_integer     ) "$";
+        elif (i == sharp_integer      ) "#";
+        elif (i == bang_integer       ) "!";
+        elif (i == tilda_integer      ) "-_";
+        elif (i == dash_integer       ) "-";
+        elif (i == plus_integer       ) "+";
+        elif (i == star_integer       ) "*";
+        elif (i == slash_integer      ) "/";
+        elif (i == percent_integer    ) "%";
+        elif (i == colon_integer      ) ":";
+        elif (i == equal_integer      ) "==";
+        elif (i == langle_integer     ) "<";
+        elif (i == rangle_integer     ) ">";
+        elif (i == lbrace_integer     ) "{";
+        elif (i == rbrace_integer     ) "}";
+        elif (i == lbracket_integer   ) "[";
+        elif (i == rbracket_integer   ) "]";
+        elif (i == question_integer   ) "?";
+        elif (i == atsign_integer     ) "@";
+        elif (i == caret_integer      ) "^";
+        elif (i == bar_integer        ) "|";
+        elif (i == backslash_integer  ) "\\";
+        elif (i == semi_integer       ) ";";
+        elif (i == dot_integer        ) ".";
+        elif (i == comma_integer      ) ", ";
+        else	    
+             em::impossible "relex-g.pkg: integerToString";
+        fi;
+
+    fun concatenate_operator_names token_list
+        =
+        {   integer_list
+                =
+                map token_to_integer token_list;
+
+            string_list
+                = 
+                map integer_to_string integer_list;
+            
+                cat string_list;
+            };
+                    
+
+    # Given a name and source region, construct
+    # an appropriate TIGHT_INFIX_OP token,
+    # except that various names like ":" must
+    # be made into special-case tokens so that
+    # the parser can respond specially to them:
+    #
+    fun make_tight_infix_token (this_name, left_pos, right_pos)
+	=
+        case this_name
+          
+	     ":"   => tokens::tight_infix_colon (left_pos, right_pos);
+	     "."   => tokens::tight_infix_dot   (left_pos, right_pos);
+	     "="   => tokens::infix_equal       (left_pos, right_pos);
+	     "_"   => tokens::underbar          (left_pos, right_pos);
+	     "!!"  => tokens::infix_bangbang    (left_pos, right_pos);
+	     "??"  => tokens::infix_qmarkqmark  (left_pos, right_pos);
+	     "..." => tokens::infix_dotdotdot   (left_pos, right_pos);
+	      _
+	      =>
+	      {   this_hash   = hash_string::hash_string this_name;
+		  this_symbol = fast_symbol::raw_symbol( this_hash, this_name );
+		  this_token  = tokens::tight_infix_op  (this_symbol, left_pos, right_pos);
+
+		  this_token;
+	      };
+    esac;
+
+    # As above, but for loose-infix:
+
+    fun make_loose_infix_token (this_name, left_pos, right_pos)
+	=
+        case this_name
+	    "="  => tokens::infix_equal          (left_pos, right_pos);
+	    "_"   => tokens::underbar             (left_pos, right_pos);
+	   "#["   => tokens::loose_infix_lvector  (left_pos, right_pos);
+	    "["   => tokens::loose_infix_lbracket (left_pos, right_pos);
+	    "]"   => tokens::loose_infix_rbracket (left_pos, right_pos);
+	    "{"   => tokens::loose_infix_lbrace   (left_pos, right_pos);
+	    "}"   => tokens::loose_infix_rbrace   (left_pos, right_pos);
+	    "->"  => tokens::infix_arrow          (left_pos, right_pos);
+	    "=>"  => tokens::infix_darrow         (left_pos, right_pos);
+	    "!!"  => tokens::infix_bangbang       (left_pos, right_pos);
+	    "??"  => tokens::infix_qmarkqmark     (left_pos, right_pos);
+	    "..." => tokens::infix_dotdotdot      (left_pos, right_pos);
+	     _
+		  =>
+		  {   this_hash   = hash_string::hash_string this_name;
+		      this_symbol = fast_symbol::raw_symbol( this_hash, this_name );
+		      this_token  = tokens::loose_infix_op  (this_symbol, left_pos, right_pos);
+
+		      this_token;
+		  };
+        esac;
+
+    # As above, but for prefix:
+
+    fun make_prefix_token (this_name, left_pos, right_pos)
+	=
+        case this_name
+          
+            "|"   => tokens::prefix_bar        (left_pos, right_pos);
+            "."   => tokens::prefix_dot        (left_pos, right_pos);
+            "<"   => tokens::prefix_langle     (left_pos, right_pos);
+            "{"   => tokens::prefix_lbrace     (left_pos, right_pos);
+            "["   => tokens::prefix_lbracket   (left_pos, right_pos);
+            "/"   => tokens::prefix_slash      (left_pos, right_pos);
+            "_"   => tokens::underbar          (left_pos, right_pos);
+             _
+		  =>
+		  {   this_hash   = hash_string::hash_string this_name;
+		      this_symbol = fast_symbol::raw_symbol( this_hash, this_name );
+		      this_token  = tokens::prefix_op  (this_symbol, left_pos, right_pos);
+
+		      this_token;
+		  };
+        esac;
+
+    # As above, but for suffix:
+
+    fun make_suffix_token (this_name, left_pos, right_pos)
+	=
+        case this_name
+          
+	    "|"   => tokens::suffix_bar      (left_pos, right_pos);
+	    ", "   => tokens::suffix_comma    (left_pos, right_pos);
+	    ":"   => tokens::suffix_colon    (left_pos, right_pos);
+	    ";"   => tokens::suffix_semi     (left_pos, right_pos);
+	    "."   => tokens::suffix_dot      (left_pos, right_pos);
+	    ">"   => tokens::suffix_rangle   (left_pos, right_pos);
+	    "}"   => tokens::suffix_rbrace   (left_pos, right_pos);
+	    "]"   => tokens::suffix_rbracket (left_pos, right_pos);
+	    "/"   => tokens::suffix_slash    (left_pos, right_pos);
+	    "_"   => tokens::underbar        (left_pos, right_pos);
+	     _
+		  =>
+		  {   this_hash   = hash_string::hash_string this_name;
+		      this_symbol = fast_symbol::raw_symbol( this_hash, this_name );
+		      this_token  = tokens::suffix_op  (this_symbol, left_pos, right_pos);
+
+		      this_token;
+		  };
+        esac;
+
+    fun raw_token_to_prefix_token a_token
+	=
+	{   a_token ->  parser_data::token::TOKEN (parser_data::lr_table::TERM an_integer, (svalue, left_pos, right_pos));
+
+	    string_name = integer_to_string an_integer;
+	
+	    make_prefix_token (string_name, left_pos, right_pos);
+	};
+
+    fun raw_token_to_suffix_token a_token
+	=
+	{   a_token ->  parser_data::token::TOKEN (parser_data::lr_table::TERM an_integer, (svalue, left_pos, right_pos));
+
+	    string_name = integer_to_string an_integer;
+	
+	    make_suffix_token (string_name, left_pos, right_pos);
+	};
+
+    fun make_prefix_operators token_list
+        =
+        map raw_token_to_prefix_token token_list;
+                    
+    fun make_suffix_operators token_list
+        =
+        map raw_token_to_suffix_token token_list;
+
+    fun is_whitespace_token this_token
+        =
+        (token_to_integer this_token) == whitespace_integer;
+
+    my make_lexer
+        :
+        (Int -> String) -> Arg -> Void -> Token( Semantic_Value, Source_Position )
+        =
+        # We accept two arguments to pass to the lexer proper.
+        # The first is the function to obtain raw text input,
+        # the second is the 'Lex_Arg' state record defined in
+        # src/lib/compiler/front/parser/lex/nada.lex:
+
+        fn get_chars
+            =>
+            fn arg
+                => 
+		{   # With the above two arguments in hand,
+                    # we can initialize the lexer and get
+                    # in return our token-reading function:
+                    #
+                    get_next_token = lex::make_lexer get_chars arg;
+
+                    #  Set up our initial state: 
+                    first_token = get_next_token ();
+                    stipulate
+                        # I can't figure out how to inject
+                        # values into the 'pos' type here,
+                        # so we steal some existing ones:
+
+                        my (left_pos, right_pos)
+                            =
+                            token_position first_token;
+
+                        # Create a fictional whitespace token
+                        # before the first token in the file,
+                        # to provide a valid boundary condition
+                        # for our logic:
+                        #
+                        before_first_token = tokens::raw_whitespace (left_pos, right_pos);
+                    herein
+			state = REF (before_first_token, [first_token]);
+                    end;
+
+                    # Move tokens from pending_tokens
+                    # to constituent_tokens until we
+                    # get to one which isn't an
+                    # operator constituent.
+                    #
+                    # If we run out of pending_tokens,
+                    # read more from input stream:
+                    #
+                    fun build_constituent_list (rev_constituent_tokens, pending_tokens)
+                        =
+                        case pending_tokens
+
+			    []  =>
+				build_constituent_list (rev_constituent_tokens, [ get_next_token () ]);
+
+			    a_token ! more_tokens
+				=>
+				if   (is_operator_constituent a_token)
+
+				     build_constituent_list (a_token ! rev_constituent_tokens, more_tokens);
+				else
+				     (rev_constituent_tokens, pending_tokens);
+				fi;
+                        esac;
+
+                    # Here is our state transition function.
+                    #
+                    # We accept a state, which consists of
+                    # a lookback token and a list of pending
+                    # tokens, and we return a new state.
+                    #
+                    # In the new state returned, the lookback
+                    # token must be the next token to return
+                    # to our client, which means that it may
+                    # not be whitespace.
+                    #
+                    # (We need the lexer to pass us whitespace
+                    # in order to do our operator classification,
+                    # but we must not return whitespace to the
+                    # parser because that would defeat its
+                    # LALR (1) lookahead.)
+                    #
+                    fun next_state state
+                        =
+                        case state
+
+			    (last_token, [])
+				=>
+				# We have no pending tokens,
+				# so read one from input and
+				# continue processing recursively:
+				#
+				next_state (last_token, [ get_next_token () ]);
+
+			   (last_token, [this_token])
+				=>
+				# We have a single pending token.
+				#
+				# If it is an operator constituent,
+				# which is to say one of
+				#     & $ # ! ~ - + * / % : < = > ? @ ^ | \ ; . ,
+				# then we need to read in a lookahead token.
+				#
+				# Otherwise if it is not whitespace
+				# then we can just return it:
+				#
+				if   (is_operator_constituent this_token)
+
+				    next_state (last_token, [ this_token, get_next_token () ]);
+
+				elif (is_whitespace_token this_token)
+
+				    next_state (this_token, []);
+				else
+				    (this_token, []);
+				fi;
+
+			   (last_token, this_token ! next_token ! rest)
+			       =>
+			       # We have (at least) a three-token window
+			       # of lookback, current and lookahead tokens:
+			       #
+			       # If the current token isn't an
+			       # operator constituent or whitespace,
+			       # then we can just return it:
+			       #
+			       if   (not (is_operator_constituent this_token))
+
+				   if   (is_whitespace_token this_token)
+					next_state (this_token, next_token ! rest);
+				   else           (this_token, next_token ! rest);
+				   fi;
+			       else
+				   # 'this_token' is an operator constituent.
+				   #
+				   # We need to read ahead until we get to a 
+				   # token which isn't in order to make our
+				   # classification based on adjacent 
+				   # non/white space.
+				   #
+				   # We collect 'this_token' plus all following
+				   # operator constituents into 'constituentList',
+				   # leaving next_token a guaranteed non-constituent.
+				   #
+				   # Note that constituentList is only guaranteed
+				   # to hold at least one token:
+				   #
+				   {   my (rev_constituent_list, pending_tokens)
+					   =
+					   build_constituent_list ([this_token], next_token ! rest);
+
+				       constituent_list = reverse rev_constituent_list;
+
+				       # build_constituent_list will never return
+				       # an empty pending_tokens list, but the
+				       # type system can't see that, so we humor it:
+
+				       case pending_tokens
+
+					   [] => em::impossible "relex-g.pkg: nextState";
+
+					   next_token ! rest
+					      => 
+
+					      # Both constituentList and revConstituentList
+					      # are guaranteed non-empty, but I doubt the
+					      # type system can see that, so humor it again:
+
+					      case (constituent_list, rev_constituent_list)
+
+						  ([], _) => em::impossible "relex-g.pkg: nextState"; 
+
+						  (_,[]) => em::impossible "relex-g.pkg: nextState"; 
+
+						  (first_constituent_token ! _, last_constituent_token ! _)
+						      =>
+						      # We finally have in hand everything 
+						      # we need to actually classify constituent_list
+						      # as an infix prefix or suffix operator based
+						      # on presence/absence of adjacent whitespace.
+						      #
+						      # We require prefix and suffix operators to be
+						      # single-character, so in those cases constituentList
+						      # stays a sequence of tokens.
+						      #
+						      # In the tight-infix case we allow multi-character operators,
+						      # so in that case we collapse constituentList into a
+						      # single token.
+						      #
+						      # The loose-infix case is exactly the same as the tight-infix
+						      # case, but at lower naming precedence in the grammar:
+						      #
+						      {   my (left_pos, _)  = token_position first_constituent_token;
+							  my (_, right_pos) = token_position  last_constituent_token;
+
+							  whitespace_on_left  = counts_as_leftside_whitespace  last_token;
+							  whitespace_on_right = counts_as_rightside_whitespace next_token;
+
+							  case (whitespace_on_left, whitespace_on_right)
+
+							      (TRUE, TRUE ) =>  {  this_name   = concatenate_operator_names constituent_list;
+										   this_token  = make_loose_infix_token( this_name, left_pos, right_pos);
+
+										    (this_token, next_token ! rest);
+										}; 
+
+							     (FALSE, FALSE) =>  {   this_name   = concatenate_operator_names constituent_list;
+										    this_token  = make_tight_infix_token( this_name, left_pos, right_pos);
+
+										    (this_token, next_token ! rest);
+										}; 
+
+							     (TRUE, FALSE) =>   {   prefix_operator_list = make_prefix_operators constituent_list;
+
+										    next_state (last_token, prefix_operator_list @ (next_token ! rest));
+										}; 
+
+							     (FALSE, TRUE ) =>  {   suffix_operator_list = make_suffix_operators constituent_list;
+
+										    next_state (last_token, suffix_operator_list @ (next_token ! rest));
+										};
+							  esac; 
+						      };
+                                              esac;
+                                       esac;
+				   };
+                               fi;
+                        esac;
+
+		    fun tokenizer ()
+			=
+                        {   state := next_state *state;
+			    #1 *state
+                        ;};
+		
+		    tokenizer;
+		};
+       end;
+    end;
+
+    make_lexer = make_lexer;
+};
+
+
+
+
+
+
+/* **********************************************
+                 CRIB NOTES
+ */
+/*   At any given time we need at most a
+     three-token window, since all we really
+     care about is whether a given operator
+     has whitespace fore and/or aft.
+
+     I think our state should probably we
+
+     o A just_saw_whitespace boolean.
+
+     o a token-buffer list of tokens
+       read from input but not yet
+       returned to caller, oldest at
+       start of list.
+
+     Our algorith when called can then
+     be something like:
+
+     eradicate greed.
+
+     for (;;) {
+
+        if list is empty then
+            read a token into it.
+            continue.
+        fi.
+
+        If first element on list is not
+	   an unclassified operator
+        then
+            remove it from list.
+            If it is not whitespace then
+                return it.
+            fi.
+            continue.
+        fi.
+ 
+        #  head of list is an unclassified operator
+
+        If list is only one token long
+        then
+	    read another token into it.
+            continue.
+        fi.
+
+	# At this point, we have an unclassified
+	# operator at the top of the list and
+	# Another token next on the list:
+
+        if the top-of-list token has whitespace
+           equivalent on both or neither sides
+        then
+            mark it infix.
+            continue.
+        fi.
+
+        remove token from list,
+        explode it into one-char
+        tokens marked prefix
+        or suffix as appropriate,
+        and put them back on the
+        buffer list.
+    }
+
+
+
+The yacc-generated file contains the 'tokens'
+package which defines token creation functions
+for use by the lexer.
+
+src/lib/compiler/front/parser/yacc/nada.grammar.pkg
+    package tokens:  Nada__Tokens
+    =
+    pkg
+	type Semantic_Value = parser_data::Semantic_Value
+	type Token (X,Y) = token::Token (X,Y)
+        ...
+	fun tight_infix_op  (i, p1, p2) = token::TOKEN (parser_data::lr_table::TERM 13, (parser_data::mly_value::TIGHT_INFIX_OP (fn () => i), p1, p2))
+	fun loose_infix_op  (i, p1, p2) = token::TOKEN (parser_data::lr_table::TERM 14, (parser_data::mly_value::LOOSE_INFIX_OP (fn () => i), p1, p2))
+	fun prefix_op       (i, p1, p2) = token::TOKEN (parser_data::lr_table::TERM 15, (parser_data::mly_value::PREFIX_OP      (fn () => i), p1, p2))
+	fun suffix_op       (i, p1, p2) = token::TOKEN (parser_data::lr_table::TERM 16, (parser_data::mly_value::SUFFIX_OP      (fn () => i), p1, p2))
+        ...
+	fun rparen       (p1, p2) = token::TOKEN (parser_data::lr_table::TERM 68, (parser_data::mly_value::VOID, p1, p2))
+	fun semi         (p1, p2) = token::TOKEN (parser_data::lr_table::TERM 69, (parser_data::mly_value::VOID, p1, p2))
+        ...
+    end
+
+    local
+        use header
+    in
+	type Source_Position = Int
+	type Arg = Source_Position * Source_Position -> error_message::Plaint_Sink
+	package mly_value
+	= 
+	pkg
+	    enum Semantic_Value
+		= VOID
+		...
+		| SUFFIX_OP       of Void ->  (fast_symbol::Raw_Symbol)
+		| PREFIX_OP       of Void ->  (fast_symbol::Raw_Symbol)
+		| LOOSE_INFIX_OP  of Void ->  (fast_symbol::Raw_Symbol)
+		| TIGHT_INFIX_OP  of Void ->  (fast_symbol::Raw_Symbol)
+	end
+    end
+
+Most of the critical interfaces are
+defined in base.api.  Some extracts:
+src/app/yacc/lib/base.api
+
+    api TOKEN =
+	api
+	    package lr_table:  LR_TABLE
+	    enum Token (X,Y) = TOKEN of lr_table::term * (X * Y * Y)
+	    my sameToken:  token( X, Y )  * token( X, Y ) -> Bool
+	end
+
+    api LR_TABLE =
+	api
+	    enum Pairlist (X,Y) = EMPTY
+                                  | PAIR of X * Y * pairlist (X,Y)
+
+	    enum State = STATE of Int
+	    enum Term = TERM of Int
+	    enum Nonterm = NT of Int
+	    enum Action = SHIFT of state
+			    | REDUCE of Int
+			    | ACCEPT
+			    | ERROR
+	    type Table
+
+	    my state_count:  Table -> Int
+	    my rule_count:  Table -> Int
+	    my describe_actions:  Table -> State ->
+				    Pairlist( Term, Action ) * Action
+	    my describe_goto:  Table -> State -> Pairlist( Nonterm, State ) 
+	    my action:         Table -> State * Term -> Action
+	    my goto:           Table -> State * Nonterm -> State
+	    my initial_state:   Table -> State
+
+	    exception Goto of State * Nonterm
+
+	    my make_lr_table:  { actions:  Rw_Vector( Pairlist( Term, Action )  * Action),
+			     gotos:  Rw_Vector( Pairlist( Nonterm, State ) ),
+			     state_count:  Int, rule_count:  Int,
+			     initial_state:  State } -> Table
+	end
+
+    api ARG_LEXER =
+       api
+	   package user_declarations :
+	       api
+		    type Token (X,Y)
+		    type Source_Position
+		    type Semantic_Value
+		    type Arg
+	       end
+	    my make_lexer:  (Int -> String) -> user_declarations::Arg -> Void -> 
+	     user_declarations::Token( user_declarations::Semantic_Value, user_declarations::Source_Position ) 
+       end
+
+
+The following two are respectively the
+vanilla and error-correcting versions of
+the parsing engine proper:
+src/app/yacc/lib/parser1.pkg
+src/app/yacc/lib/parser2.pkg
+
+    package LrParser :> LR_PARSER
+    =
+    pkg
+       package lr_table = lr_table
+       package stream = Stream
+
+       fun eqT (lr_table::TERM i, lr_table::TERM i')
+           =
+           i == i'
+
+       package token:  TOKEN =
+	 pkg
+	     package lr_table = lr_table
+	     enum Token (X,Y) = TOKEN of lr_table::term * (X * Y * Y)
+	     sameToken = fn (TOKEN (t, _), TOKEN (t', _)) => eqT (t, t')
+	 end
+
+
+
+
+ */
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+# Copyright 1989 by AT&T Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

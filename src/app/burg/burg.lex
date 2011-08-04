@@ -1,10 +1,10 @@
 # burg-lex
 #
 # COPYRIGHT (c) 1995 AT&T Bell Laboratories.
-## Subsequent changes by Jeff Prothero Copyright (c) 2010,
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
 ## released under Gnu Public Licence version 3.
 #
-# Mythryl-Lex specification for ML-burg.
+# Mythryl-Lex specification for mythryl-burg.
 
 
 

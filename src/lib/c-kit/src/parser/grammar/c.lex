@@ -26,7 +26,7 @@ Err_Warn = { err:  (Source_Position, Source_Position, String) -> Void,
            };
 
 Lex_Arg =  { comment_nesting_depth : Ref Int, 
-             source_map : source_map::Sourcemap,
+             line_number_db : line_number_db::Sourcemap,
 	     charlist : Ref List String,
 	     stringstart : Ref Int,  #  start of current string or comment
 	     err_warn: Err_Warn
@@ -51,8 +51,8 @@ fun hd [] => {   print "c.lex: hd of empty\n";
     hd (h ! l) => h;
 end;
 
-eof = fn ({ comment_nesting_depth,err_warn,source_map,stringstart,charlist}: Lex_Arg) =
-	    { pos = int::max(*stringstart+2, source_map::curr_pos source_map);
+eof = fn ({ comment_nesting_depth,err_warn,line_number_db,stringstart,charlist}: Lex_Arg) =
+	    { pos = int::max(*stringstart+2, line_number_db::curr_pos line_number_db);
 
 	      if (*comment_nesting_depth > 0 )
                   err_warn.err ( *stringstart, pos, "unclosed comment" );
@@ -200,7 +200,7 @@ fun special_char (c,fst,last,err_warn: Err_Warn)
 			 package tok_table : Token_Table;
 			 sharing tok_table::tokens == tokens;));
 
-%arg ({ comment_nesting_depth,err_warn,source_map,charlist,stringstart });
+%arg ({ comment_nesting_depth,err_warn,line_number_db,charlist,stringstart });
 %s ccc sss; 
 
 
@@ -220,9 +220,9 @@ directive = #(.)*\n;
 
 %%
 
-<initial,ccc>^{ws}{directive}     => (source_map::parse_directive source_map 
+<initial,ccc>^{ws}{directive}     => (line_number_db::parse_directive line_number_db 
                          (yypos,yytext); continue());
-<initial,ccc>\n		=> (source_map::newline source_map yypos; continue());
+<initial,ccc>\n		=> (line_number_db::newline line_number_db yypos; continue());
 <initial,ccc>{ws}		=> (continue()); 
 
 
@@ -234,10 +234,10 @@ directive = #(.)*\n;
 <initial>\"		=> (charlist := [""]; stringstart := yypos; yybegin sss; continue());
 <sss>\"	        => (yybegin initial;tokens::string_constant(make_string charlist,*stringstart,yypos+1));
 <sss>\n		=> (err_warn.err (*stringstart,yypos,"unclosed string");
-		    source_map::newline source_map yypos;
+		    line_number_db::newline line_number_db yypos;
 		    yybegin initial; tokens::string_constant(make_string charlist,*stringstart,yypos));
 <sss>[^"\\\n]*	=> (add_string(charlist,yytext); continue());
-<sss>\\\n	       	=> (source_map::newline source_map yypos; continue());
+<sss>\\\n	       	=> (line_number_db::newline line_number_db yypos; continue());
 <sss>\\0		 => (add_string(charlist,chr 0);continue());
 <sss>\\{octdigit}{3} => (add_string(charlist, chr(make_oct_char(substring(yytext, 1, size(yytext) - 1), yypos, yypos+size(yytext), err_warn))); continue());
 <sss>\\x{hexdigit}+ => (add_string(charlist, chr(make_hex_char(substring(yytext, 2, size(yytext) - 2), yypos, yypos+size(yytext), err_warn))); continue());

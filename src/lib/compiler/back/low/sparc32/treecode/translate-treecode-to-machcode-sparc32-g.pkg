@@ -1,0 +1,1291 @@
+## translate-treecode-to-machcode-sparc32-g.pkg
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format)  is the second backend code representation, and the first used for optimization.
+#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# This module implements conversion from Treecode to
+# abstract Sparc machine instructions.  This is essentially
+# an instruction selection task.
+#
+# Our runtime invocation is from
+#
+#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/sparc32/backend-sparc32.lib
+
+
+
+# This is a new instruction selection module for Sparc, 
+# using the new instruction representation and the new
+# Treecode representation. Support for V9 has been added.
+#
+# The cc bit in arithmetic op are now embedded within the arithmetic
+# opcode.  This should save some space.
+#
+# -- Allen Leung
+
+
+
+###                  "Though I had success in my research
+###                   both when I was mad and when I was not,
+###                   eventually I felt that my work would
+###                   be better respected if I thought
+###                   and acted like a 'normal' person."
+###
+###                                -- John Forbes Nash 
+
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+
+stipulate
+    package lem =  lowhalf_error_message;					# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lnt =  lowhalf_notes;						# lowhalf_notes			is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package tcp =  treecode_pith;						# treecode_pith			is from   src/lib/compiler/back/low/treecode/treecode-pith.pkg
+    package u32 =  unt32;							# unt32				is from   src/lib/std/unt32.pkg
+herein
+
+    generic package   translate_treecode_to_machcode_sparc32_g   (
+	#             ========================================
+	#
+	package mcf: Machcode_Sparc32;						# Machcode_Sparc32		is from   src/lib/compiler/back/low/sparc32/code/machcode-sparc32.codemade.api
+
+	package psi: Pseudo_Instruction_Sparc32					# Pseudo_Instruction_Sparc32	is from   src/lib/compiler/back/low/sparc32/treecode/pseudo-instructions-sparc32.api
+		     where
+			 mcf == mcf;						# "mcf" == "machcode_form" (abstract machine code).
+
+	package txc: Treecode_Extension_Compiler				# Treecode_Extension_Compiler	is from   src/lib/compiler/back/low/treecode/treecode-extension-compiler.api
+		     where
+			  mcf == mcf						# "mcf" == "machcode_form" (abstract machine code).
+		     also tcf == mcf::tcf;					# "tcf" == "treecode_form".
+
+
+	# The client should also specify these parameters.
+	# These are the estimated cost of these instructions.
+	# The code generator will use alternative sequences that are
+	# cheaper when their costs are lower.
+	#
+	mulu_cost:  Ref( Int );		# Cost of unsigned multiplication in cycles 
+	divu_cost:  Ref( Int );		# Cost of unsigned division in cycles 
+	mult_cost:  Ref( Int );		# Cost of trapping/signed multiplication in cycles 
+	divt_cost:  Ref( Int );		# Cost of trapping/signed division in cycles 
+
+	# If you don't want to use register
+	# windows at all, set this to FALSE:
+	#
+	registerwindow:  Ref( Bool );	# Should we use register windows? 
+
+	v9:  Bool;				# Should we use v9 instruction set? 
+
+	use_br:  Ref( Bool );		# Should we use the BR instruction (when in v9)?
+					    # (I think it is a good idea to use it.)
+    )
+    : (weak)  Translate_Treecode_To_Machcode					# Translate_Treecode_To_Machcode			is from   src/lib/compiler/back/low/treecode/translate-treecode-to-machcode.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;							# "mcf" == "machcode_form" (abstract machine code).
+	package tcs =  txc::tcs;						# "tcs" == "treecode_stream".
+	package mcg =  txc::mcg;						# "mcg" == "machcode_controlflow_graph".
+
+	stipulate
+	    package tcf =  mcf::tcf;						# "tcf" == "treecode_form".
+	#   package rgn =  tcf::region;
+	    package rgk =  mcf::rgk;						# "rgk" == "registerkinds".
+	herein
+
+	    Codestream = tcs::Treecode_Stream( mcf::Machine_Op, rgk::Codetemplists,		mcg::Machcode_Controlflow_Graph );
+	    Treecode_Stream    = tcs::Treecode_Stream( tcf::Void_Expression,    List( tcf::Expression ),	mcg::Machcode_Controlflow_Graph );
+
+	    fun to_int n = tcf::mi::to_int (32, n);
+	    fun li i = tcf::LITERAL (tcf::mi::from_int (32, i));
+
+	    fun lt (n, m) =   tcf::mi::lt (32, n, m);
+	    fun le (n, m) =   tcf::mi::le (32, n, m);
+
+	    fun copy { dst, src, tmp }
+		= 
+		mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits => 32, dst, src, tmp };
+
+	    fun fcopy { dst, src, tmp }
+		= 
+		mcf::COPY { kind => rkj::FLOAT_REGISTER, size_in_bits => 64, dst, src, tmp };
+
+	    int_type = if v9  64; else 32;fi;
+
+	    package tct
+		=
+		treecode_transforms_g (								# treecode_transforms_g		is from   src/lib/compiler/back/low/treecode/treecode-transforms-g.pkg
+		    #
+		    package tcf =  tcf;						# "tcf" == "treecode_form".
+		    package rgk =  rgk;						# "rgk" == "registerkinds".
+		    #
+		    int_bitsize = int_type;
+
+		    natural_widths =    v9  ??  [32, 64]
+					    ::  [32    ];
+
+		    Rep = SE | ZE | NEITHER;
+		    rep = NEITHER; 
+		);
+
+	    generic package multiply32_g
+		=
+		stipulate
+		    package rkj =  registerkinds_junk;			# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+		herein
+		    treecode_mult_g (
+			#
+			package mcf =  mcf;					# "mcf" == "machcode_form" (abstract machine code).
+			package tcf =  tcf;					# "tcf" == "treecode_form".
+			#
+			Arg  = { r1: rkj::Codetemp_Info, r2: rkj::Codetemp_Info, d: rkj::Codetemp_Info };
+			Argi = { r: rkj::Codetemp_Info, i: Int, d: rkj::Codetemp_Info };
+
+			int_type = 32;    
+
+			fun mov { r, d }      = copy { dst => [d], src => [r], tmp=>NULL };
+
+			fun add { r1, r2, d } = mcf::arith { a=>mcf::ADD, r=>r1, i=>mcf::REG r2, d };
+
+			fun slli { r, i, d }  = [mcf::shift { s=>mcf::SLL, r, i=>mcf::IMMED i, d } ];
+			fun srli { r, i, d }  = [mcf::shift { s=>mcf::SRL, r, i=>mcf::IMMED i, d } ];
+			fun srai { r, i, d }  = [mcf::shift { s=>mcf::SRA, r, i=>mcf::IMMED i, d } ];
+		    )
+		end;
+
+	    generic package multiply64_g
+		=
+		stipulate
+		    package rkj             =  registerkinds_junk;
+		herein
+		    treecode_mult_g (
+			#
+			package mcf =  mcf;					# "mcf" == "machcode_form" (abstract machine code).
+			package tcf =  tcf;					# "tcf" == "treecode_form".
+			#
+			Arg  = { r1: rkj::Codetemp_Info, r2: rkj::Codetemp_Info, d: rkj::Codetemp_Info };
+			Argi = { r: rkj::Codetemp_Info, i: Int, d: rkj::Codetemp_Info };
+
+			int_type = 64;    
+
+			fun mov { r, d } = copy { dst => [d], src => [r], tmp=>NULL };
+
+			fun add { r1, r2, d } = mcf::arith { a=>mcf::ADD, r=>r1, i=>mcf::REG r2, d };
+			fun slli { r, i, d } = [mcf::shift { s=>mcf::SLLX, r, i=>mcf::IMMED i, d } ];
+			fun srli { r, i, d } = [mcf::shift { s=>mcf::SRLX, r, i=>mcf::IMMED i, d } ];
+			fun srai { r, i, d } = [mcf::shift { s=>mcf::SRAX, r, i=>mcf::IMMED i, d } ];
+		    )
+		end;
+
+	    # Signed, trapping version of multiply and divide 
+	    #
+	    package mult32
+		 =
+		multiply32_g (
+		    trapping = TRUE;
+		    mult_cost = mult_cost; 
+
+		    fun addv { r1, r2, d }
+			= 
+			mcf::arith { a=>mcf::ADDCC, r=>r1, i=>mcf::REG r2, d } ! psi::overflowtrap32; 
+
+		    fun subv { r1, r2, d }
+			= 
+			mcf::arith { a=>mcf::SUBCC, r=>r1, i=>mcf::REG r2, d } ! psi::overflowtrap32; 
+
+		    sh1addv = NULL; 
+		    sh2addv = NULL; 
+		    sh3addv = NULL; 
+		)
+		(
+		    signed = TRUE;
+		);
+
+	    # Unsigned, non-trapping version of multiply and divide 
+	    #
+	    generic package mul32_g
+		=
+		multiply32_g (
+		    trapping = FALSE;
+		    mult_cost = mulu_cost;
+		    fun addv { r1, r2, d } = [mcf::arith { a=>mcf::ADD, r=>r1, i=>mcf::REG r2, d } ];
+		    fun subv { r1, r2, d } = [mcf::arith { a=>mcf::SUB, r=>r1, i=>mcf::REG r2, d } ];
+		    sh1addv = NULL; 
+		    sh2addv = NULL; 
+		    sh3addv = NULL; 
+		);
+
+	    package mulu32 = mul32_g (signed = FALSE;);
+
+	    package muls32 = mul32_g (signed = TRUE;);
+
+	    # Signed, trapping version of multiply and divide 
+	    #
+	    package mult64
+		=
+		multiply64_g (
+		    trapping = TRUE;
+		    mult_cost = mult_cost; 
+
+		    fun addv { r1, r2, d }
+			= 
+			mcf::arith { a=>mcf::ADDCC, r=>r1, i=>mcf::REG r2, d } ! psi::overflowtrap64; 
+
+		    fun subv { r1, r2, d }
+			= 
+			mcf::arith { a=>mcf::SUBCC, r=>r1, i=>mcf::REG r2, d } ! psi::overflowtrap64; 
+
+		    sh1addv = NULL; 
+		    sh2addv = NULL; 
+		    sh3addv = NULL; 
+		)
+		(
+		    signed = TRUE;
+		);
+
+	    # Unsigned, non-trapping version of multiply and divide 
+	    #
+	    generic package mul64_g
+		=
+		multiply64_g (
+		    trapping = FALSE;
+		    mult_cost = mulu_cost;
+		    fun addv { r1, r2, d } = [mcf::arith { a=>mcf::ADD, r=>r1, i=>mcf::REG r2, d } ];
+		    fun subv { r1, r2, d } = [mcf::arith { a=>mcf::SUB, r=>r1, i=>mcf::REG r2, d } ];
+		    sh1addv = NULL; 
+		    sh2addv = NULL; 
+		    sh3addv = NULL; 
+		);
+
+	    package mulu64 = mul64_g (signed = FALSE;);
+	    package muls64 = mul64_g (signed = TRUE;);
+
+	     Commutative = COMMUTE | NOCOMMUTE;
+
+	     Cc = REG    #  write to register 
+		| CC     #  set condition code 
+		| CC_REG #  Do both 
+		;
+
+	    fun error msg
+		=
+		lem::error("Sparc", msg);
+
+
+
+	    fun translate_treecode_to_machcode  (codestream  as  { emit_op, define_local_label, define_global_label, emit_pseudo_op, put_bblock_note, get_notes, begin_connected_component, end_connected_component, end_procedure, emit_comment, ... })
+		=
+		{
+		    emit_op'		 = emit_op o mcf::BASE_OP;
+		    #  Flags 
+		    use_br          = *use_br;
+		    registerwindow = *registerwindow;
+
+		    trap32  = psi::overflowtrap32; 
+		    trap64  = psi::overflowtrap64; 
+
+		    zero_r   = rgk::r0;
+		    make_int_codetemp  = rgk::make_int_codetemp;
+		    make_float_codetemp = rgk::make_float_codetemp;
+
+		    fun immed13 n
+			=
+			le (-4096, n)   and
+			lt (n, 4096);
+
+		    fun immed13w w
+			=
+			{ x = u32::(>>>) (w, 0u12);
+
+			    x == 0u0 or (u32::bitwise_not x) == 0u0;
+			};
+
+		    fun splitw w
+			=
+			{   hi=>u32::to_int (u32::(>>) (w, 0u10)),
+			    lo=>u32::to_int (u32::bitwise_and (w, 0ux3ff))
+			};
+
+		    fun split n
+			=
+			splitw (tcf::mi::to_unt32 (32, n));
+
+
+		    zero_opn = mcf::REG zero_r; #  zero value operand 
+
+		    fun cond tcf::LT  => mcf::BL;
+			cond tcf::LTU => mcf::BCS;
+			cond tcf::LE  => mcf::BLE;
+			cond tcf::LEU => mcf::BLEU;
+			cond tcf::EQ  => mcf::BE;
+			cond tcf::NE  => mcf::BNE;
+			cond tcf::GE  => mcf::BGE;
+			cond tcf::GEU => mcf::BCC;
+			cond tcf::GT  => mcf::BG;
+			cond tcf::GTU => mcf::BGU;
+			cond _     => error "cond";
+		    end;
+
+		    fun rcond tcf::LT  => mcf::RLZ;
+			rcond tcf::LE  => mcf::RLEZ;
+			rcond tcf::EQ  => mcf::RZ;
+			rcond tcf::NE  => mcf::RNZ;
+			rcond tcf::GE  => mcf::RGEZ;
+			rcond tcf::GT  => mcf::RGZ;
+			rcond _ => error "rcond";
+		    end;
+
+		    fun signed_cmp (tcf::LT | tcf::LE | tcf::EQ | tcf::NE | tcf::GE | tcf::GT) => TRUE;
+			signed_cmp _ => FALSE;
+		    end;
+
+		    fun fcond tcf::FEQ  => mcf::FBE;
+			fcond tcf::FNEU => mcf::FBNE;
+			fcond tcf::FUO  => mcf::FBU;
+			fcond tcf::FGLE => mcf::FBO;
+			fcond tcf::FGT  => mcf::FBG;
+			fcond tcf::FGE  => mcf::FBGE;
+			fcond tcf::FGTU => mcf::FBUG;
+			fcond tcf::FGEU => mcf::FBUGE;
+			fcond tcf::FLT  => mcf::FBL;
+			fcond tcf::FLE  => mcf::FBLE;
+			fcond tcf::FLTU => mcf::FBUL;
+			fcond tcf::FLEU => mcf::FBULE;
+			fcond tcf::FNE  => mcf::FBLG;
+			fcond tcf::FEQU => mcf::FBUE;
+			fcond fc => error("fcond " + tcp::fcond_to_string fc);
+		    end;
+
+		    fun annotate (op,           []) =>   op;
+			annotate (op, note ! notes) =>   annotate (mcf::NOTE { op, note }, notes);
+		    end;
+
+		    fun mark'(i, notes) =   emit_op (annotate (i, notes)); 
+		    fun mark (i, notes) =   emit_op (annotate (mcf::BASE_OP i, notes)); 
+
+		    # Convert an operand into a register:
+		    #
+		    fun reduce_opn (mcf::REG   r) =>  r;
+			reduce_opn (mcf::IMMED 0) =>  zero_r;
+
+			reduce_opn i
+			    => 
+			    {   d = make_int_codetemp (); 
+				emit_op' (mcf::ARITH { a=>mcf::OR, r=>zero_r, i, d } );
+				d;
+			    };
+		    end;
+
+		    # Emit parallel copies:
+		    #
+		    fun copy' (dst, src, notes)
+			=
+			mark'( copy { dst, src,
+				      tmp => case dst    [_] => NULL;
+					       _ => THE (mcf::DIRECT (make_int_codetemp ()));
+					     esac
+				   },
+			       notes
+			     );
+
+		    fun fcopy' (dst, src, notes)
+			=
+			mark'
+			  ( fcopy
+			      { dst,
+				src,
+				tmp => case dst
+					   [_] => NULL;
+					    _  => THE (mcf::FDIRECT (make_float_codetemp()));
+				       esac
+			      },
+			    notes
+			  );
+
+		    # Move register s to register d 
+		    #
+		    fun move (s, d, notes)
+			=
+			if (not (rkj::codetemps_are_same_color (s, d)
+			or rkj::interkind_register_id_of d == 0))
+			    #
+			    mark'(copy { dst => [d], src => [s], tmp=>NULL }, notes);
+			fi;
+
+		    # Move floating point register s to register d
+		    #
+		    fun fmoved (s, d, notes)
+			=
+			if (not (rkj::codetemps_are_same_color (s, d)))
+			    #
+			    mark'(fcopy { dst => [d], src => [s], tmp=>NULL }, notes);
+			fi;
+
+		    fun fmoves (s, d, notes) =   fmoved (s, d, notes); #  error "fmoves" for now!!! XXX BUGGO FIXME
+		    fun fmoveq (s, d, notes) =   error "fmoveq"
+
+		    # Load immediate 
+		    # 
+		    also
+		    fun load_immed (n, d, cc, notes)
+			=
+			{   or_op = if (cc != REG ) mcf::ORCC; else mcf::OR;fi;
+
+			    if (immed13 n)
+				 mark (mcf::ARITH { a=>or_op, r=>zero_r, i=>mcf::IMMED (to_int n), d }, notes);
+			    else
+				 my { hi, lo } = split n;
+
+				 if (lo == 0) 
+				     mark (mcf::SETHI { i=>hi, d }, notes); gen_cmp0 (cc, d);
+				 else
+				     t = make_int_codetemp ();
+				     emit_op' (mcf::SETHI { i=>hi, d=>t } );
+				     mark (mcf::ARITH { a=>or_op, r=>t, i=>mcf::IMMED lo, d }, notes);
+				 fi;
+			    fi;
+			}
+
+		    # Load label expression 
+		    # 
+		    also
+		    fun load_label (lab, d, cc, notes)
+			= 
+			{   or_op = if (cc != REG ) mcf::ORCC; else mcf::OR;fi; 
+			    mark (mcf::ARITH { a=>or_op, r=>zero_r, i=>mcf::LAB lab, d }, notes);
+			}
+
+		    # Emit an arithmetic op:
+		    # 
+		    also
+		    fun arith (a, acc, e1, e2, d, cc, comm, trap, notes)
+			= 
+			{   my (a, d)
+				=
+				case cc   
+				    REG    => (a, d);
+				    CC     => (acc, zero_r);
+				    CC_REG => (acc, d);
+				esac;
+
+			    case (opn e1, opn e2, comm)   
+				(i, mcf::REG r, COMMUTE)=> mark (mcf::ARITH { a, r, i, d }, notes);
+				(mcf::REG r, i, _)      => mark (mcf::ARITH { a, r, i, d }, notes);
+				(r, i, _)             => mark (mcf::ARITH { a, r=>reduce_opn r, i, d }, notes);
+			    esac;
+
+			    case trap
+				[] => ();
+				_  => apply emit_op trap;
+			    esac; 
+			}   
+
+		    # Emit a shift op:
+		    # 
+		    also
+		    fun shift (s, e1, e2, d, cc, notes)
+			= 
+			{   mark (mcf::SHIFT { s, r=>expr e1, i=>opn e2, d }, notes);
+			    gen_cmp0 (cc, d);
+			}
+
+		    # Emit externally defined multiply
+		    # or division operation (V8): 
+		    # 
+		    also
+		    fun extarith (gen, gen_const, e1, e2, d, cc, comm)
+			=
+			{   fun nonconst (e1, e2)
+				= 
+				case (opn e1, opn e2, comm)   
+				    (i, mcf::REG r, COMMUTE) => gen( { r, i, d }, reduce_opn);
+				    (mcf::REG r, i, _)       => gen( { r, i, d }, reduce_opn);
+				    (r, i, _)              => gen( { r=>reduce_opn r, i, d }, reduce_opn);
+				esac;
+
+			    fun const (e, i)
+				= 
+				{   r = expr e;
+				    gen_const { r, i=>to_int i, d }
+				    except
+					_ = gen( { r, i=>opn (tcf::LITERAL i), d }, reduce_opn);
+			       };
+
+			    instrs = case (comm, e1, e2)   
+					 (_,       e1,           tcf::LITERAL i) => const (e1, i);
+					 (COMMUTE, tcf::LITERAL i, e2          ) => const (e2, i);
+					 _                                     => nonconst (e1, e2);
+				     esac;
+
+			    apply emit_op instrs; 
+
+			    gen_cmp0 (cc, d);
+			}
+
+		    # Emit 64-bit multiply or
+		    # division operation (v9):
+		    # 
+		    also
+		    fun muldiv64 (a, gen_const, e1, e2, d, cc, comm, notes)
+			=
+			{   fun nonconst (e1, e2)
+				= 
+				[ annotate
+				    ( 
+				      case (opn e1, opn e2, comm)   
+					  (i,        mcf::REG r, COMMUTE) => mcf::arith { a, r, i, d };
+					  (mcf::REG r, i,        _      ) => mcf::arith { a, r, i, d };
+					  (r,        i,        _      ) => mcf::arith { a, r=>reduce_opn r, i, d };
+				      esac,
+
+				      notes
+				    )
+			       ];
+
+			    fun const (e, i)
+				= 
+				{   r = expr e;
+				    gen_const { r, i=>to_int i, d }
+				    except
+					_ = [annotate (mcf::arith { a, r, i=>opn (tcf::LITERAL i), d }, notes)];
+				};
+
+			    instrs
+			       =
+			       case (comm, e1, e2)   
+				   (_,       e1,           tcf::LITERAL i) => const (e1, i);
+				   (COMMUTE, tcf::LITERAL i, e2          ) => const (e2, i);
+				   _                                     => nonconst (e1, e2);
+			       esac;
+
+			    apply emit_op instrs; 
+
+			    gen_cmp0 (cc, d);
+			}
+
+		    # Divisions:
+		    # 
+		    also fun divu32 x = mulu32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+		    also fun divs32 x = muls32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+		    also fun divt32 x = mult32::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+		    also fun divu64 x = mulu64::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+		    also fun divs64 x = muls64::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+		    also fun divt64 x = mult64::divide { mode=>tcf::ROUND_TO_ZERO, void_expression=>do_void_expression } x
+
+		    # Emit a unary floating point op:
+		    #
+		    also
+		    fun funary (a, e, d, notes)
+			=
+			mark (mcf::FPOP1 { a, r=>float_expression e, d }, notes)
+
+
+		    # Emit a binary floating point op: 
+		    # 
+		    also
+		    fun farith (a, e1, e2, d, notes)
+			= 
+			mark (mcf::FPOP2 { a, r1=>float_expression e1, r2=>float_expression e2, d }, notes)
+
+		    # Convert an expression into an addressing mode 
+		    # 
+		    also
+		    fun address ( tcf::ADD (type, (tcf::ADD (_, e, tcf::LITERAL n)
+			     | tcf::ADD (_, tcf::LITERAL n, e)), tcf::LITERAL n')
+			     )
+			     =>
+			     address (tcf::ADD (type, e, tcf::LITERAL (tcf::mi::add (type, n, n'))));
+
+			 address (tcf::ADD (type, tcf::SUB (_, e, tcf::LITERAL n), tcf::LITERAL n'))
+			     =>
+			     address (tcf::ADD (type, e, tcf::LITERAL (tcf::mi::sub (type, n', n))));
+
+			 address (tcf::ADD(_, e, tcf::LITERAL n))
+			     => 
+			     if (immed13 n)
+
+				  (expr e, mcf::IMMED (to_int n));
+			     else
+				  d = make_int_codetemp ();
+				  load_immed (n, d, REG,[]);
+				  (d, opn e);
+			     fi;
+
+			address (tcf::ADD(_, e, x as tcf::LATE_CONSTANT c))    => (expr e, mcf::LAB x);
+			address (tcf::ADD(_, e, x as tcf::LABEL l))    => (expr e, mcf::LAB x);
+			address (tcf::ADD(_, e, tcf::LABEL_EXPRESSION x))        => (expr e, mcf::LAB x);
+
+			address (tcf::ADD (type, i as tcf::LITERAL _, e)) => address (tcf::ADD (type, e, i));
+
+			address (tcf::ADD(_, x as tcf::LATE_CONSTANT c, e))    => (expr e, mcf::LAB x);
+			address (tcf::ADD(_, x as tcf::LABEL l, e))    => (expr e, mcf::LAB x);
+			address (tcf::ADD(_, tcf::LABEL_EXPRESSION x, e))        => (expr e, mcf::LAB x);
+
+			address (tcf::ADD(_, e1, e2))                => (expr e1, mcf::REG (expr e2));
+			address (tcf::SUB (type, e, tcf::LITERAL n))   => address (tcf::ADD (type, e, tcf::LITERAL (tcf::mi::neg (32, n))));
+
+			address (x as tcf::LABEL l)                  => (zero_r, mcf::LAB x);
+			address (tcf::LABEL_EXPRESSION x)                      => (zero_r, mcf::LAB x);
+			address a                                  => (expr a, zero_opn);
+		    end 
+
+		    # Emit an integer load:
+		    # 
+		    also
+		    fun load (l, a, d, ramregion, cc, notes)
+			= 
+			{   my (r, i) = address a;
+			    mark (mcf::LOAD { l, r, i, d, ramregion }, notes);
+			    gen_cmp0 (cc, d);
+			}
+
+		    # Emit an integer store:
+		    # 
+		    also
+		    fun store (s, a, d, ramregion, notes)
+			=
+			{   my (r, i) = address a;
+			    mark (mcf::STORE { s, r, i, d=>expr d, ramregion }, notes);
+			}
+
+		    # Emit a floating point load:
+		    # 
+		    also
+		    fun fload (l, a, d, ramregion, notes)
+			=
+			{   my (r, i) = address a;
+			    mark (mcf::FLOAD { l, r, i, d, ramregion }, notes);
+			}
+
+		    # Emit a floating point store:
+		    # 
+		    also
+		    fun fstore (s, a, d, ramregion, notes)
+			=
+			{   my (r, i) = address a;
+			    mark (mcf::FSTORE { s, r, i, d=>float_expression d, ramregion }, notes);
+			}
+
+		    # Emit a jump:
+		    # 
+		    also
+		    fun jmp (a, labs, notes)
+			=
+			{   my (r, i) = address a;
+			    mark (mcf::JMP { r, i, labs, nop=>TRUE }, notes);
+			}
+
+		    # Convert lowhalf to registerset:
+		    # 
+		    also
+		    fun registerset lowhalf
+			=
+			g (lowhalf, rgk::empty_codetemplists)
+			where
+			    fun g ([], set) => set;
+				g (tcf::INT_EXPRESSION (tcf::REG   (_,  r)) ! regs, set) =>  g (regs, rkj::cls::add_codetemp_to_appropriate_kindlist ( r, set));
+				g (tcf::FLOAT_EXPRESSION (tcf::FREG(_,  f)) ! regs, set) =>  g (regs, rkj::cls::add_codetemp_to_appropriate_kindlist ( f, set));
+				g (tcf::FLAG_EXPRESSION (tcf::CC   (_, cc)) ! regs, set) =>  g (regs, rkj::cls::add_codetemp_to_appropriate_kindlist (cc, set));
+				g(_ ! regs, set) => g (regs, set);
+			    end;
+			end
+
+		    # Emit a function call:
+		    #
+		    also
+		    fun call (a, flow, defs, uses, ramregion, cuts_to, notes, 0)
+			    =>
+			    {   my (r, i) = address a;
+				defs=registerset (defs);
+				uses=registerset (uses);
+
+				case (rkj::interkind_register_id_of r, i)   
+				    #
+				    (0, mcf::LAB (tcf::LABEL l))
+					=>
+					mark (mcf::CALL { label=>l, defs=>rgk::add_codetemp_to_appropriate_kindlist (rgk::link_reg, defs), uses, cuts_to, ramregion, nop=>TRUE }, notes);
+
+				   _ => mark (mcf::JMPL { r, i, d=>rgk::link_reg, defs, uses, cuts_to, ramregion, nop=>TRUE }, notes);
+				esac;
+			    };
+
+			call _ => error "pops<>0 not implemented";
+		    end 
+
+		    # Emit an integer branch instruction:
+		    # 
+		    also
+		    fun branch (tcf::CMP (type, cond, a, b), lab, notes)
+			    =>
+			    {   my (cond, a, b)
+				    =
+				    case a
+					#
+					(tcf::LITERAL _ | tcf::LATE_CONSTANT _ | tcf::LABEL _)
+					    => 
+					    (tcp::swap_cond cond, b, a);
+
+					_   => (cond, a, b);
+				    esac;
+
+				if v9 
+				    branch_v9 (cond, a, b, lab, notes);
+				else 
+				    do_expr (tcf::SUB (type, a, b), make_int_codetemp (), CC,[]);
+				    br (cond, lab, notes);
+				fi; 
+			    };
+
+			branch (tcf::CC (cond, r), lab, notes)
+			    => 
+			    if (rkj::codetemps_are_same_color (r, rgk::psr))
+				#
+				br (cond, lab, notes);
+			    else
+				gen_cmp0 (CC, r);
+				br (cond, lab, notes);
+			    fi;
+
+			branch (tcf::FCMP (fty, cond, a, b), lab, notes)
+			    =>
+			    {   cmp = case fty
+					  32 => mcf::FCMPS;
+					  64 => mcf::FCMPD;
+					  _  => error "fbranch";
+				     esac;
+
+				emit_op' (mcf::FCMP { cmp, r1=>float_expression a, r2=>float_expression b, nop=>TRUE } );
+				mark (mcf::FBFCC { b=>fcond cond, a=>FALSE, label=>lab, nop=>TRUE }, notes);
+			    };
+
+			branch _ => error "branch";
+		    end 
+
+		    also
+		    fun branch_v9 (cond, a, b, lab, notes)
+			=
+			{   size = tct::tsz::size a;
+
+			    if (use_br and signed_cmp cond) 
+				r = make_int_codetemp ();
+				do_expr (tcf::SUB (size, a, b), r, REG,[]); 
+				brcond (cond, r, lab, notes);
+			    else
+				cc = case size
+					 32 => mcf::ICC; 
+					 64 => mcf::XCC;
+					 _  => error "branchV9";
+				     esac;
+				do_expr (tcf::SUB (size, a, b), make_int_codetemp (), CC,[]); 
+				bp (cond, cc, lab, notes);
+			    fi;
+			}
+
+		    also
+		    fun br (c, lab, notes)
+			=
+			mark (mcf::BICC { b=>cond c, a=>TRUE, label=>lab, nop=>TRUE }, notes)
+
+		    also
+		    fun brcond (c, r, lab, notes)
+			= 
+			mark (mcf::BR { rcond => rcond c, r, p=>mcf::PT, a=>TRUE, label=>lab, nop=>TRUE }, notes)
+
+		    also
+		    fun bp (c, cc, lab, notes)
+			= 
+			mark (mcf::BP { b=>cond c, cc, p=>mcf::PT, a=>TRUE, label=>lab, nop=>TRUE }, notes)
+
+		    # Generate code for a statement:
+		    # 
+		    also
+		    fun void_expression (tcf::LOAD_INT_REGISTER(_, d, e), notes) => do_expr (e, d, REG, notes);
+			void_expression (tcf::LOAD_FLOAT_REGISTER(_, d, e), notes) => do_float_expression (e, d, notes);
+			void_expression (tcf::LOAD_INT_REGISTER_FROM_FLAGS_REGISTER (d, e), notes) => do_flag_expression (e, d, notes);
+			void_expression (tcf::MOVE_INT_REGISTERS(_, dst, src), notes) => copy' (dst, src, notes);
+			void_expression (tcf::MOVE_FLOAT_REGISTERS(_, dst, src), notes) => fcopy' (dst, src, notes);
+
+			void_expression (tcf::GOTO (tcf::LABEL l, _), notes)
+			    =>
+			    mark (mcf::BICC { b=>mcf::BA, a=>TRUE, label=>l, nop=>FALSE }, notes);
+
+			void_expression (tcf::GOTO (e, labs), notes) => jmp (e, labs, notes);
+
+			void_expression (tcf::CALL { funct, targets, defs, uses, region, pops, ... }, notes)
+			    => 
+			    call (funct, targets, defs, uses, region,[], notes, pops);
+
+			void_expression (tcf::FLOW_TO (tcf::CALL { funct, targets, defs, uses, region, pops, ... }, cuts_to), notes)
+			    =>
+			    call (funct, targets, defs, uses, region, cuts_to, notes, pops);
+
+			void_expression (tcf::RET _, notes) => mark (mcf::RET { leaf=>not registerwindow, nop=>TRUE }, notes);
+			void_expression (tcf::STORE_INT (8, a, d, ramregion), notes)   => store (mcf::STB, a, d, ramregion, notes);
+			void_expression (tcf::STORE_INT (16, a, d, ramregion), notes)  => store (mcf::STH, a, d, ramregion, notes);
+			void_expression (tcf::STORE_INT (32, a, d, ramregion), notes)  => store (mcf::ST, a, d, ramregion, notes);
+
+			void_expression (tcf::STORE_INT (64, a, d, ramregion), notes)
+			    => 
+			    store (if v9  mcf::STX; else mcf::STD;fi, a, d, ramregion, notes);
+
+			void_expression (tcf::STORE_FLOAT (32, a, d, ramregion), notes) => fstore (mcf::STF, a, d, ramregion, notes);
+			void_expression (tcf::STORE_FLOAT (64, a, d, ramregion), notes) => fstore (mcf::STDF, a, d, ramregion, notes);
+
+			void_expression (tcf::IF_GOTO (cc, lab), notes) => branch (cc, lab, notes);
+			void_expression (tcf::DEFINE l, _) => define_local_label l;
+			void_expression (tcf::NOTE (s, a), notes) => void_expression (s, a ! notes);
+			void_expression (tcf::EXT s, notes) => txc::compile_sext (reducer()) { void_expression=>s, notes };
+			void_expression (s, notes) => do_stmts (tct::compile_void_expression s);
+		    end 
+
+		    also
+		    fun do_void_expression s
+			=
+			void_expression (s,[])
+
+		    also
+		    fun do_stmts ss
+			=
+			apply do_void_expression ss
+
+		    # Convert an expression into a register:
+		    # 
+		    also
+		    fun expr e
+			=
+			case e
+			    tcf::REG(_, r) => r;
+			    tcf::LITERAL z =>  (z == 0)
+					       ?? zero_r
+					       :: comp();
+			    _            => comp();
+			esac
+			where
+			    fun comp ()
+				=
+				{   d = make_int_codetemp ();
+				    do_expr (e, d, REG, []); d; 
+				};
+			end
+
+		    # Compute an integer expression and
+		    # put the result in register d. 
+		    #
+		    # If cc is set then set the
+		    # condition code with the result.
+		    # 
+		    also
+		    fun do_expr (e, d, cc, notes)
+			=
+			case e   
+			    tcf::REG(_, r) => { move (r, d, notes); gen_cmp0 (cc, r);};
+			    tcf::LITERAL n => load_immed (n, d, cc, notes);
+			    tcf::LABEL l   => load_label (e, d, cc, notes);
+			    tcf::LATE_CONSTANT c   => load_label (e, d, cc, notes);
+			    tcf::LABEL_EXPRESSION x  => load_label (x, d, cc, notes);
+
+			    # Generic 32/64 bit support 
+			    #
+			    tcf::ADD(_, a, b)
+				=>
+				arith (mcf::ADD, mcf::ADDCC, a, b, d, cc, COMMUTE,[], notes);
+
+			    tcf::SUB(_, a, b)
+				=>
+				case b 
+				    tcf::LITERAL z =>   (z == 0) ?? do_expr (a, d, cc, notes)
+							       :: default ();
+				    _            =>   default ();
+				esac
+				where
+				    fun default ()
+					=
+					arith (mcf::SUB, mcf::SUBCC, a, b, d, cc, NOCOMMUTE,[], notes);
+				end;
+
+
+			    tcf::BITWISE_AND(_, a, tcf::BITWISE_NOT(_, b))
+				=> 
+				arith (mcf::ANDN, mcf::ANDNCC, a, b, d, cc, NOCOMMUTE,[], notes);
+
+			    tcf::BITWISE_OR(_, a, tcf::BITWISE_NOT(_, b))
+				=> 
+				arith (mcf::ORN, mcf::ORNCC, a, b, d, cc, NOCOMMUTE,[], notes);
+
+			    tcf::BITWISE_XOR(_, a, tcf::BITWISE_NOT(_, b))
+				=>
+				arith (mcf::XNOR, mcf::XNORCC, a, b, d, cc, COMMUTE,[], notes);
+
+			    tcf::BITWISE_AND(_, tcf::BITWISE_NOT(_, a), b)
+				=> 
+				arith (mcf::ANDN, mcf::ANDNCC, b, a, d, cc, NOCOMMUTE,[], notes);
+
+			    tcf::BITWISE_OR(_, tcf::BITWISE_NOT(_, a), b)
+				=> 
+				arith (mcf::ORN, mcf::ORNCC, b, a, d, cc, NOCOMMUTE,[], notes);
+
+			    tcf::BITWISE_XOR(_, tcf::BITWISE_NOT(_, a), b)
+				=>
+				arith (mcf::XNOR, mcf::XNORCC, b, a, d, cc, COMMUTE,[], notes);
+
+			    tcf::BITWISE_NOT(_, tcf::BITWISE_XOR(_, a, b))
+				=>
+				arith (mcf::XNOR, mcf::XNORCC, a, b, d, cc, COMMUTE,[], notes);
+
+			    tcf::BITWISE_AND(_, a, b) => arith (mcf::AND, mcf::ANDCC, a, b, d, cc, COMMUTE,[], notes);
+			    tcf::BITWISE_OR (_, a, b) => arith (mcf::OR, mcf::ORCC, a, b, d, cc, COMMUTE,[], notes);
+			    tcf::BITWISE_XOR(_, a, b) => arith (mcf::XOR, mcf::XORCC, a, b, d, cc, COMMUTE,[], notes);
+			    tcf::BITWISE_NOT(_, a)    => arith (mcf::XNOR, mcf::XNORCC, a, li 0, d, cc, COMMUTE,[], notes);
+
+
+
+			    # 32 bit support: 
+
+			    tcf::RIGHT_SHIFT (32, a, b) => shift (mcf::SRA, a, b, d, cc, notes);
+			    tcf::RIGHT_SHIFT_U (32, a, b) => shift (mcf::SRL, a, b, d, cc, notes);
+			    tcf::LEFT_SHIFT (32, a, b) => shift (mcf::SLL, a, b, d, cc, notes);
+
+			    tcf::ADDT (32, a, b)
+				=>
+				arith (mcf::ADDCC, mcf::ADDCC, a, b, d, CC_REG, COMMUTE, trap32, notes);
+
+			    tcf::SUBT (32, a, b)
+				=> 
+				arith (mcf::SUBCC, mcf::SUBCC, a, b, d, CC_REG, NOCOMMUTE, trap32, notes);
+
+			    tcf::MULU (32, a, b)
+				=>
+				extarith (psi::umul32, mulu32::multiply, a, b, d, cc, COMMUTE);
+
+			    tcf::MULS (32, a, b)
+				=>
+				extarith (psi::smul32, muls32::multiply, a, b, d, cc, COMMUTE);
+
+			    tcf::MULT (32, a, b)
+				=>
+				extarith (psi::smul32trap, mult32::multiply, a, b, d, cc, COMMUTE);
+
+			    tcf::DIVU (32, a, b)
+				=>
+				extarith (psi::udiv32, divu32, a, b, d, cc, NOCOMMUTE);
+
+			    tcf::DIVS (tcf::d::ROUND_TO_ZERO, 32, a, b)
+				=>
+				extarith (psi::sdiv32, divs32, a, b, d, cc, NOCOMMUTE);
+
+			    tcf::DIVT (tcf::d::ROUND_TO_ZERO, 32, a, b)
+				=>
+				extarith (psi::sdiv32trap, divt32, a, b, d, cc, NOCOMMUTE);
+
+
+
+			    # 64 bit support 
+			    #
+			    tcf::RIGHT_SHIFT (64, a, b) => shift (mcf::SRAX, a, b, d, cc, notes);
+			    tcf::RIGHT_SHIFT_U (64, a, b) => shift (mcf::SRLX, a, b, d, cc, notes);
+			    tcf::LEFT_SHIFT (64, a, b) => shift (mcf::SLLX, a, b, d, cc, notes);
+
+			    tcf::ADDT (64, a, b)
+				=>
+				arith (mcf::ADDCC, mcf::ADDCC, a, b, d, CC_REG, COMMUTE, trap64, notes);
+
+			    tcf::SUBT (64, a, b)
+				=>
+				arith (mcf::SUBCC, mcf::SUBCC, a, b, d, CC_REG, NOCOMMUTE, trap64, notes);
+
+			    tcf::MULU (64, a, b)
+				=> 
+				muldiv64 (mcf::MULX, mulu64::multiply, a, b, d, cc, COMMUTE, notes);
+
+			    tcf::MULS (64, a, b)
+				=> 
+				muldiv64 (mcf::MULX, muls64::multiply, a, b, d, cc, COMMUTE, notes);
+
+			    tcf::MULT (64, a, b)
+				=> 
+				{   muldiv64 (mcf::MULX, mult64::multiply, a, b, d, CC_REG, COMMUTE, notes);
+				    apply emit_op trap64;
+				};
+
+			    tcf::DIVU (64, a, b)
+				=>
+				muldiv64 (mcf::UDIVX, divu64, a, b, d, cc, NOCOMMUTE, notes);
+
+			    tcf::DIVS (tcf::d::ROUND_TO_ZERO, 64, a, b)
+				=>
+				muldiv64 (mcf::SDIVX, divs64, a, b, d, cc, NOCOMMUTE, notes);
+
+			    tcf::DIVT (tcf::d::ROUND_TO_ZERO, 64, a, b)
+				=>
+				muldiv64 (mcf::SDIVX, divt64, a, b, d, cc, NOCOMMUTE, notes);
+
+
+
+			    # Loads:
+			    #
+			    tcf::LOAD (8, a, ramregion) => load (mcf::LDUB, a, d, ramregion, cc, notes);
+			    tcf::SIGN_EXTEND(_, _, tcf::LOAD (8, a, ramregion)) => load (mcf::LDSB, a, d, ramregion, cc, notes);
+			    tcf::LOAD (16, a, ramregion) => load (mcf::LDUH, a, d, ramregion, cc, notes);
+			    tcf::SIGN_EXTEND(_, _, tcf::LOAD (16, a, ramregion)) => load (mcf::LDSH, a, d, ramregion, cc, notes);
+			    tcf::LOAD (32, a, ramregion) => load (mcf::LD, a, d, ramregion, cc, notes);
+			    tcf::LOAD (64, a, ramregion) => load (if v9  mcf::LDX; else mcf::LDD;fi, a, d, ramregion, cc, notes);
+
+			    # Conditional expression:
+			    # 
+			    tcf::COND expression => do_stmts (tct::compile_cond { expression, rd=>d, notes } );
+
+			    # Misc:
+			    # 
+			    tcf::LET (s, e) => { do_void_expression s; do_expr (e, d, cc, notes);};
+			    tcf::RNOTE (e, lnt::MARKREG f) => { f d; do_expr (e, d, cc, notes);};
+			    tcf::RNOTE (e, a) => do_expr (e, d, cc, a ! notes);
+			    tcf::PRED (e, c) => do_expr (e, d, cc, lnt::CONTROL_DEPENDENCY_USE c ! notes);
+			    tcf::REXT e => txc::compile_rext (reducer()) { e, rd=>d, notes };
+			    e => do_expr (tct::compile_int_expression e, d, cc, notes);
+			esac
+
+		    # Generate a comparison with zero:
+		    # 
+		    also
+		    fun gen_cmp0 (REG, _) => ();
+			gen_cmp0 (_,   d) => emit_op' (mcf::ARITH { a=>mcf::SUBCC, r=>d, i=>zero_opn, d=>zero_r } );
+		    end 
+
+		    # Convert an expression into
+		    # a floating point register:
+		    # 
+		    also
+		    fun float_expression (tcf::FREG(_, r)) =>   r;
+			#
+			float_expression e                 =>   {   d = make_float_codetemp ();
+								    #
+								    do_float_expression (e, d,[]);
+								    #
+								    d;
+								};
+		    end 
+
+		    # Compute a floating point expression
+		    # and put the result in d 
+		    # 
+		    also
+		    fun do_float_expression (e, d, notes)
+			=
+			case e
+			    #
+			    # Single precision:
+			    #
+			    tcf::FREG  (32, r)             => fmoves (r, d, notes);
+			    tcf::FLOAD (32, ea, ramregion) => fload (mcf::LDF, ea, d, ramregion, notes);
+			    tcf::FADD  (32, a, b)          => farith (mcf::FADDS, a, b, d, notes);
+			    tcf::FSUB  (32, a, b)          => farith (mcf::FSUBS, a, b, d, notes);
+			    tcf::FMUL  (32, a, b)          => farith (mcf::FMULS, a, b, d, notes);
+			    tcf::FDIV  (32, a, b)          => farith (mcf::FDIVS, a, b, d, notes);
+			    tcf::FABS  (32, a)             => funary (mcf::FABSS, a, d, notes);
+			    tcf::FNEG  (32, a)             => funary (mcf::FNEGS, a, d, notes);
+			    tcf::FSQRT (32, a)             => funary (mcf::FSQRTS, a, d, notes);
+
+			    # Double precision:
+			    #
+			    tcf::FREG  (64, r)             => fmoved (r, d, notes);
+			    tcf::FLOAD (64, ea, ramregion) => fload (mcf::LDDF, ea, d, ramregion, notes);
+			    tcf::FADD  (64, a, b)          => farith (mcf::FADDD, a, b, d, notes);
+			    tcf::FSUB  (64, a, b)          => farith (mcf::FSUBD, a, b, d, notes);
+			    tcf::FMUL  (64, a, b)          => farith (mcf::FMULD, a, b, d, notes);
+			    tcf::FDIV  (64, a, b)          => farith (mcf::FDIVD, a, b, d, notes);
+			    tcf::FABS  (64, a)             => funary (mcf::FABSD, a, d, notes);
+			    tcf::FNEG  (64, a)             => funary (mcf::FNEGD, a, d, notes);
+			    tcf::FSQRT (64, a)             => funary (mcf::FSQRTD, a, d, notes);
+
+			    # Quad precision:
+			    #
+			    tcf::FREG (128, r)    => fmoveq (r, d, notes);
+			    tcf::FADD (128, a, b) => farith (mcf::FADDQ, a, b, d, notes);
+			    tcf::FSUB (128, a, b) => farith (mcf::FSUBQ, a, b, d, notes);
+			    tcf::FMUL (128, a, b) => farith (mcf::FMULQ, a, b, d, notes);
+			    tcf::FDIV (128, a, b) => farith (mcf::FDIVQ, a, b, d, notes);
+			    tcf::FABS (128, a)    => funary (mcf::FABSQ, a, d, notes);
+			    tcf::FNEG (128, a)    => funary (mcf::FNEGQ, a, d, notes);
+			    tcf::FSQRT (128, a)   => funary (mcf::FSQRTQ, a, d, notes);
+
+			    # Floating point to floating point:
+			    #
+			    tcf::CONVERT_FLOAT_TO_FLOAT (type, type', e)
+				=>
+				case (type, type')
+				    #
+				    (32,   32) => do_float_expression (e, d, notes);
+				    (64,   32) => funary (mcf::FSTOD, e, d, notes);
+				    (128,  32) => funary (mcf::FSTOQ, e, d, notes);
+				    (32,   64) => funary (mcf::FDTOS, e, d, notes);
+				    (64,   64) => do_float_expression (e, d, notes);
+				    (128,  64) => funary (mcf::FDTOQ, e, d, notes);
+				    (32,  128) => funary (mcf::FQTOS, e, d, notes);
+				    (64,  128) => funary (mcf::FQTOD, e, d, notes);
+				    (128, 128) => do_float_expression (e, d, notes);
+				    _ => error "CONVERT_FLOAT_TO_FLOAT";
+				esac;
+
+			    # Integer to floating point:
+			    # 
+			    tcf::CONVERT_INT_TO_FLOAT ( 32, 32, e) =>   apply emit_op (psi::cvti2s( { i=>opn e, d }, reduce_opn));
+			    tcf::CONVERT_INT_TO_FLOAT ( 64, 32, e) =>   apply emit_op (psi::cvti2d( { i=>opn e, d }, reduce_opn));
+			    tcf::CONVERT_INT_TO_FLOAT (128, 32, e) =>   apply emit_op (psi::cvti2q( { i=>opn e, d }, reduce_opn));
+
+			    tcf::FNOTE (e, lnt::MARKREG f) => { f d; do_float_expression (e, d, notes);};
+			    tcf::FNOTE (e, a)            => do_float_expression (e, d, a ! notes);
+			    tcf::FPRED (e, c)            => do_float_expression (e, d, lnt::CONTROL_DEPENDENCY_USE c ! notes);
+			    tcf::FEXT e => txc::compile_fext (reducer()) { e, fd=>d, notes };
+			    e => do_float_expression (tct::compile_float_expression e, d, notes);
+			esac
+
+		    also
+		    fun do_flag_expression (tcf::CMP (type, cond, e1, e2), cc, notes)
+			     =>
+			     if (rkj::codetemps_are_same_color (cc, rgk::psr))
+				 #
+				 do_expr (tcf::SUB (type, e1, e2), make_int_codetemp (), CC, notes);
+			     else
+				 error "do_flag_expression";
+			     fi;
+
+			 do_flag_expression (tcf::CC(_, r), d, notes)
+			     => 
+			     if (rkj::codetemps_are_same_color (r, rgk::psr))
+				 #
+				 error "do_flag_expression";
+			     else
+				 move (r, d, notes);
+			     fi;
+
+			 do_flag_expression (tcf::CCNOTE (e, lnt::MARKREG f), d, notes) => { f d; do_flag_expression (e, d, notes);};
+			 do_flag_expression (tcf::CCNOTE (e, a), d, notes) => do_flag_expression (e, d, a ! notes);
+
+			 do_flag_expression (tcf::CCEXT e, d, notes)
+			     =>
+			     txc::compile_ccext (reducer()) { e, ccd=>d, notes };
+
+			 do_flag_expression e => error "do_flag_expression";
+		     end 
+
+		    also
+		    fun cc_expr e
+			=
+			{   d = make_int_codetemp ();
+			    #
+			    do_flag_expression (e, d,[]);
+			    #
+			    d;
+			}
+
+		    # Convert an expression into an operand:
+		    # 
+		    also
+		    fun opn (x as tcf::LATE_CONSTANT c   ) =>  mcf::LAB x;
+			opn (x as tcf::LABEL l           ) =>  mcf::LAB x;
+			opn (     tcf::LABEL_EXPRESSION x) =>  mcf::LAB x;
+
+			opn (e as tcf::LITERAL n)
+			    => 
+			    if (n == 0)
+
+				zero_opn;
+
+			    elif (immed13 n)
+
+				mcf::IMMED (to_int n);
+			    else
+				mcf::REG (expr e);
+			    fi;
+
+			opn e =>   mcf::REG (expr e);
+		    end 
+
+		    also
+		    fun reducer ()
+			=
+			tcs::REDUCER
+			  { reduce_int_expression   => expr,
+			    reduce_float_expression => float_expression,
+
+			    reduce_flag_expression =>  cc_expr,
+			    reduce_void_expression      =>  void_expression,
+
+			    operand        => opn,
+			    reduce_operand => reduce_opn,
+
+			    address_of     => address,
+			    emit_op        => emit_op o annotate,
+
+			    codestream,
+			    treecode_stream  => self()
+			  }
+
+		    also
+		    fun self ()
+			= 
+			{
+			  begin_connected_component,
+			  end_connected_component,
+			  emit_op           => do_void_expression,
+			  emit_pseudo_op,
+			  define_local_label,
+			  define_global_label,
+			  emit_comment,
+			  put_bblock_note,
+			  get_notes,
+			  end_procedure     => fn regs = end_procedure (registerset regs)
+			};
+
+		    self();
+		};
+	end;
+    };
+end;
+
+# Machine code generator for SPARC.
+#
+# The SPARC architecture has 32 general purpose registers (%g0 is always 0)
+# and 32 single precision floating point registers.  
+#
+# Some Ugliness: double precision floating point registers are 
+# register pairs.  There are no double precision moves, negation and absolute
+# values.  These require two single precision operations.  I've created
+# composite instructions FMOVd, FNEGd and FABSd to stand for these. 
+#
+# All integer arithmetic instructions can optionally set the condition 
+# code register.  We use this to simplify certain comparisons with zero.
+#
+# Integer multiplication, division and conversion from integer to floating
+# go thru the pseudo instruction interface, since older sparcs do not
+# implement these instructions in hardware.
+#
+# In addition, the trap instruction for detecting overflow is a parameter.
+# This allows different trap vectors to be used.
+#
+# -- Allen Leung
+
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

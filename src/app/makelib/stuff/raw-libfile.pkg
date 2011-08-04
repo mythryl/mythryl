@@ -1,0 +1,738 @@
+## raw-libfile.pkg
+#
+# The library representation used while actually parsing a file
+#
+#    foo.lib
+#
+# This is only used in
+#
+#     src/app/makelib/parse/libfile-grammar-actions.pkg
+#
+# This is an emphemeral form used while we are constructing the usual
+# library dependency graph representation defined in:
+#
+#     src/app/makelib/depend/inter-library-dependency-graph.pkg
+#     src/app/makelib/depend/intra-library-dependency-graph.pkg
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+
+# Involves:
+#     - running tools
+#     - fully analyzing sub-libraries and sub-freezefiles
+#     - parsing source files and getting their export lists
+
+
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;					# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package em  =  error_message;					# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package lg  =  inter_library_dependency_graph;			# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package lnd =  line_number_db;					# line_number_db			is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package lsi =  library_source_index;				# library_source_index			is from   src/app/makelib/stuff/library-source-index.pkg
+    package mdg =  make_dependency_graph;				# make_dependency_graph			is from   src/app/makelib/depend/make-dependency-graph.pkg
+    package ms  =  makelib_state;					# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+    package mvi =  makelib_version_intlist;				# makelib_version_intlist		is from   src/app/makelib/stuff/makelib-version-intlist.pkg
+    package pmt =  private_makelib_tools;				# private_makelib_tools			is from   src/app/makelib/tools/main/private-makelib-tools.pkg
+    package sg  =  intra_library_dependency_graph;			# intra_library_dependency_graph	is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package sm  =  symbol_map;						# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+    package spm =  source_path_map;					# source_path_map			is from   src/app/makelib/paths/source-path-map.pkg
+    package sts =  string_set;						# string_set				is from   src/lib/src/string-set.pkg
+    package sy  =  symbol;						# symbol				is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package sys =  symbol_set;						# symbol_set				is from   src/app/makelib/stuff/symbol-set.pkg
+    package tlt =  thawedlib_tome;					# thawedlib_tome			is from   src/app/makelib/compilable/thawedlib-tome.pkg
+    package tst =  tome_symbolmapstack;					# tome_symbolmapstack			is from   src/app/makelib/depend/tome-symbolmapstack.pkg
+    package wsf =  write_symbol_index_file;				# write_symbol_index_file		is from   src/app/makelib/depend/write-symbol-index-file.pkg
+herein
+
+
+    # We are referenced (only) in
+    #
+    #    src/app/makelib/parse/libfile-grammar-actions.pkg
+
+    package   raw_libfile
+    :         Raw_Libfile						# Raw_Libfile				is from   src/app/makelib/stuff/raw-libfile.api
+    {
+	Sublibraries
+	    =
+	    List( (
+		ad::File,
+		lg::Inter_Library_Dependency_Graph
+		, ad::Renamings	# MUSTDIE
+	    ) ); 
+
+
+	Libfile
+	  #
+	  = LIBFILE 
+              {
+		imports:               sm::Map( lg::Fat_Tome ),
+		masked_tomes:          List( (tlt::Thawedlib_Tome, sys::Set) ),			# (tome, exported_symbols_set) pairs.
+		localdefs:             sm::Map( tlt::Thawedlib_Tome ),
+		#
+		sublibraries:          Sublibraries,
+		sources:               spm::Map { ilk: String, derived: Bool }
+	      }
+	  #
+	  | ERROR_LIBFILE
+	  ;
+
+
+	fun empty sources
+	    =
+	    LIBFILE
+              {
+		imports      =>  sm::empty,
+		masked_tomes =>  [],			# (tome, exported_symbols_set) pairs.
+		localdefs    =>  sm::empty,
+		#
+		sublibraries => [],
+		sources
+	     };
+
+
+	empty_libfile
+	    =
+	    empty  spm::empty;
+
+
+	fun make_primordial_libfile   (makelib_state: ms::Makelib_State)   primordial_library
+	    =
+	    {   my { libfile => primordial_libfile, ... }
+		    =
+		    case primordial_library
+			#
+			lg::LIBRARY x     =>   x;
+			lg::BAD_LIBRARY =>   em::impossible "raw-libfile.pkg: implicit: bad init.cmi primordial library";
+		   esac;
+
+		sm = spm::singleton (primordial_libfile, { ilk => "cm", derived => FALSE } );
+
+		# This libfile is an implicit member
+		# of every library -- the "init" library
+		# which exports the pervasive dictionary:
+
+		LIBFILE
+		  {
+		    imports      =>  sm::empty,
+		    masked_tomes =>  [],			# (tome, exported_symbols_set) pairs.
+		    localdefs    =>  sm::empty,
+		    #
+		    sources             =>  sm,
+		    #
+		    sublibraries =>  [ ( primordial_libfile,
+					 primordial_library
+					 , []			# MUSTDIE
+					)
+				     ]
+		  };
+	    };
+
+
+	fun sequential ( LIBFILE c1,
+			 LIBFILE c2,
+			 error
+		       )
+		=>
+		{   fun describe_symbol (s, r)
+			=
+			{   ns = sy::name_space  s;
+
+			    sy::name_space_to_string ns ! " " ! sy::name s ! r;
+			};
+
+		    fun import_error
+			  ( s,
+			    x as { masked_tome_thunk,                       tome_symbolmapstack,                       exports_mask                  }: lg::Fat_Tome,
+			    y as { masked_tome_thunk => masked_tome_thunk', tome_symbolmapstack => tome_symbolmapstack', exports_mask => exports_mask' }: lg::Fat_Tome		# 'y' is unused, present only for symmetry with x.
+			  )
+			=
+			{   (masked_tome_thunk  ()) ->   { exports_mask => f,  tome => sbn  };
+			    (masked_tome_thunk' ()) ->   { exports_mask => f', tome => sbn' };
+
+			    fun gripe ()
+				=
+				error (cat (describe_symbol
+						   (s, [" imported from ",
+							sg::describe_tome sbn,
+							" and also from ",
+							sg::describe_tome sbn'])));
+
+			    fun union (NULL, _) =>  NULL;
+				union (_, NULL) =>  NULL;
+				#
+				union (THE f, THE f')
+				    =>
+				    THE (sys::union (f, f'));
+			    end;
+
+			    if (sg::same_tome (sbn, sbn'))
+				#			    
+				fsbn =  { exports_mask => union (f, f'),  tome => sbn };
+				#
+				{ masked_tome_thunk => .{ fsbn; }, 
+				  tome_symbolmapstack =>  tst::LAYER (tome_symbolmapstack, tome_symbolmapstack'),
+				  exports_mask	    =>  sys::union (exports_mask,      exports_mask')
+				}:										lg::Fat_Tome;
+			    else
+				gripe ();
+				x;
+			    fi;
+			};
+
+
+		    import_union
+			=
+			sm::keyed_union_with  import_error;
+
+
+		    fun local_def_error (s, f1, f2)
+			=
+			{   error (cat (describe_symbol
+					    (s, [" defined in ",  tlt::describe_thawedlib_tome f1,
+						 " and also in ", tlt::describe_thawedlib_tome f2])));
+			    f1;
+			};
+
+
+		    local_def_union
+			=
+			sm::keyed_union_with  local_def_error;
+
+
+		    source_path_union
+			=
+			spm::union_with  #1;
+
+
+		    LIBFILE
+		      {
+			imports      =>  import_union (c1.imports, c2.imports),
+			masked_tomes =>  c1.masked_tomes @ c2.masked_tomes,			# (tome, exported_symbols_set) pairs.
+			localdefs    =>  local_def_union (c1.localdefs, c2.localdefs),
+			#
+			sublibraries =>  c1.sublibraries @ c2.sublibraries,
+			sources      =>  source_path_union (c1.sources, c2.sources)
+		    };
+		};
+
+	    sequential (ERROR_LIBFILE, _, _) =>  ERROR_LIBFILE;
+	    sequential (_, ERROR_LIBFILE, _) =>  ERROR_LIBFILE;
+
+	end;			# fun sequential
+
+
+	# Generate a Libfile from something or another.
+	#
+	# We're called in just one place, member() in
+	#
+	#     ./libfile-grammar-actions.pkg
+	#
+	fun expand_one
+	      { makelib_state,
+		recursive_parse,
+		load_plugin
+	      }
+	      #	
+	      { name:		String,
+		make_path:	Void -> ad::Dir_Path,
+		library:	(ad::File, lnd::Source_Code_Region),
+		ilk:		Null_Or( String ),
+		tool_options:	Null_Or( pmt::Tool_Options ),
+		local_index:	pmt::Index,
+		path_root:	ad::Path_Root
+	      }
+	    =
+	    {   ilk =    null_or::map  (string::map  char::to_lower)   ilk;
+
+		error = lsi::error
+			    makelib_state.library_source_index
+			    library;
+
+		fun error0 s
+		    =
+		    error  em::ERROR  s  em::null_error_body;
+
+
+		fun warn0 s
+		    =
+		    error  em::WARNING  s  em::null_error_body;
+
+
+		my { source_files, makelib_files, sources }
+		    =
+		    private_makelib_tools::expand				# private_makelib_tools		is from   src/app/makelib/tools/main/private-makelib-tools.pkg
+		      {
+			local_index,
+			error => error0,
+			spec => { name,
+				  make_path,
+				  ilk,
+				  opts => tool_options,
+				  derived => FALSE
+				},
+			path_root,
+			load_plugin,
+			sysinfo => { get_makelib_preprocessor_symbol_value =>  fn string =  (makelib_state.makelib_session.find_makelib_preprocessor_symbol  string).get (),
+				     platform                              =>  makelib_state.makelib_session.platform
+				   }
+		      };
+
+		msources
+		    =
+		    fold_left
+			spm::set'
+			spm::empty
+			sources;
+
+
+		fun makefile_libfiles (p, { version   => v
+					       , renamings => rb	# MUSTDIE
+					     }
+					 )
+		    =
+		    case (recursive_parse
+			     ( p,
+			       v
+			       , rb	# MUSTDIE
+			     ))
+
+			g as lg::LIBRARY { catalog => i, sources, libfile, sublibraries, more }
+			    =>
+			    {   makelib_version_intlist						# Defined in    src/app/makelib/stuff/makelib-version-intlist.pkg
+				    =
+				    case more
+					#
+					lg::SUBLIBRARY   _ =>  NULL;
+					lg::MAIN_LIBRARY l =>  l.makelib_version_intlist;
+				    esac;
+
+case (v, makelib_version_intlist)
+(NULL,NULL) => (); # printf "src/app/makelib/stuff/raw-libfile.pkg: (NULL,NULL) case\n";
+(NULL,_   ) => printf "src/app/makelib/stuff/raw-libfile.pkg: (NULL,_   ) case\n";
+(_   ,NULL) => printf "src/app/makelib/stuff/raw-libfile.pkg: (_   ,NULL) case\n";
+(_   ,_   ) => printf "src/app/makelib/stuff/raw-libfile.pkg: (_   ,_   ) case\n";
+esac;
+				case (v, makelib_version_intlist)
+				    #
+				    (NULL, _) => ();
+				    #
+				    (THE vrq, NULL)
+					=>
+					error0 "library does not carry a version stamp";
+				    #
+				    (THE vrq, THE ver)
+					=>
+					case (mvi::compare (vrq, ver))
+					    #
+					    GREATER =>  error0 "library is older than expected";
+					    EQUAL   =>  ();
+					    LESS    =>  case (mvi::compare (mvi::next_major vrq, ver))
+							    #
+							    GREATER =>  warn0  "library is slightly newer than expected";
+							    _       =>  error0 "library is newer than expected";
+							esac;
+					esac;
+				esac;
+
+				LIBFILE
+                                  {
+				    imports      =>  i,
+				    masked_tomes =>  [],			# (tome, exported_symbols_set) pairs.
+				    localdefs    =>  sm::empty,
+				    #
+				    sublibraries       => [ ( p,
+							      g
+							    , rb	# MUSTDIE
+							    )
+							  ],
+				    sources            => spm::empty
+				  };
+			    };
+
+			lg::BAD_LIBRARY
+			    =>
+			    ERROR_LIBFILE;
+		    esac;
+
+
+		fun smlfile_libfiles (p, sparams)
+		    =
+		    {   sparams ->   { share, setup, split, noguid, is_local, controllers };
+
+			thawedlib_tome
+			    =
+			    tlt::make
+				(split, noguid)
+				makelib_state {
+				  sourcepath => p,
+				  library,
+				  sharing_request => share,
+				  setup,
+				  is_local,
+				  controllers
+				};
+
+			exports
+			    =
+			    case (tlt::exports  makelib_state  thawedlib_tome)
+				#
+				NULL   =>   sys::empty;
+				#
+				THE ex =>   ex
+					    where
+						if (sys::is_empty ex)
+						    #
+						    error0 ("no module exports from " + ad::describe p);
+						fi;
+					    end;
+			    esac;
+
+
+			fun add_ld (s, m)
+			    =
+			    sm::set (m, s, thawedlib_tome);
+
+
+			localdefs =   sys::fold_left  add_ld  sm::empty  exports;
+
+			if (sys::is_empty exports)
+			    #
+			    ERROR_LIBFILE;
+			else
+			    LIBFILE
+			      {
+				imports       => sm::empty,
+				masked_tomes  => [(thawedlib_tome, exports)],			# (tome, exported_symbols_set) pairs.
+				localdefs,
+				#
+				sublibraries        => [],
+				sources             => spm::empty
+			      };
+			fi;
+		    };
+
+		libfiles
+		    =
+		    map  makefile_libfiles  makelib_files
+		    @
+		    map  smlfile_libfiles   source_files;
+
+		fun combine (c1, c2)
+		    =
+		    sequential (c2, c1, error0);
+
+		fold_left  combine  (empty msources)  libfiles;
+	    };
+
+	# Invoked from:
+	#     make_sublibrary
+        #     make_main_library
+        # in
+	#     src/app/makelib/parse/libfile-grammar-actions.pkg
+	#
+	fun make_libfile
+		  (
+		    g:				ad::File,
+		    LIBFILE c,
+		    filter:			sys::Set,
+		    makelib_state:		ms::Makelib_State,
+		    pervasive_fsbnode:		sg::Masked_Tome
+		  )
+		=>
+		if (lsi::any_errors makelib_state.library_source_index g)
+		    #	        
+		    { exports             =>  sm::empty,
+		      imported_symbols    =>  sys::empty
+		    };
+		else
+		    mdg::make_dependency_graph (c, filter, makelib_state, pervasive_fsbnode);
+		fi;
+
+	    make_libfile (_, ERROR_LIBFILE, _, _, _)
+		=>
+		{ exports             =>  sm::empty,
+		  imported_symbols    =>  sys::empty
+		};
+	end;
+
+
+
+	fun make_index (makelib_state, libfile, LIBFILE c)
+		=>
+		wsf::write_symbol_index_file (makelib_state, libfile, c);
+
+	    make_index _
+		=>
+		();
+	end;
+
+
+
+	fun sublibraries (LIBFILE { sublibraries => sg, ... } )
+		=>
+		sg;
+
+	   sublibraries ERROR_LIBFILE
+		=>
+		[];
+	end;
+
+
+	fun sources (LIBFILE { sources => s, ... } )
+		=>
+		s;
+
+	    sources ERROR_LIBFILE
+		=>
+		spm::empty;
+	end;
+
+
+	stipulate
+	    fun get_hostprop  (makelib_state: ms::Makelib_State)  (lf: Libfile)  (symbol_name: String)
+		=
+		(makelib_state.makelib_session.find_makelib_preprocessor_symbol  symbol_name).get  ();
+	herein
+	    fun num_find  makelib_state  (libfile: Libfile)  (string: String)   =   the_else (get_hostprop  makelib_state  libfile  string, 0);
+	    fun is_defined_hostproperty   makelib_state  (libfile: Libfile)  (string: String)   =   not_null (get_hostprop  makelib_state  libfile  string);
+	end;
+
+
+
+	fun ml_find (LIBFILE { imports, localdefs, ... } ) s
+		=>
+		not_null (sm::get (imports, s))
+		or
+		not_null (sm::get (localdefs, s));
+
+	    ml_find ERROR_LIBFILE _
+		=>
+		TRUE;
+	end;
+
+
+
+
+	# Return symbol_set of all symbols exported
+	# by one or all .api and .pkg files in libfile:
+	#
+	fun api_or_pkg_exported_symbols (LIBFILE { masked_tomes, ... }, NULL, _)
+		=>
+		# Return set-union of exported symbols from all files
+		# in libfile which have   is_local   flag set FALSE:
+		#
+		fold_left
+		    (fn ((tome: tlt::Thawedlib_Tome, symbols), symbols')
+			  =
+			  if (tlt::is_local tome)   symbols'; 
+			  else                      sys::union (symbols, symbols');
+			  fi
+		    )
+		    sys::empty
+		    masked_tomes;			# (tome, exported_symbols_set) pairs.
+
+	    api_or_pkg_exported_symbols (LIBFILE { masked_tomes, ... }, THE (sourcefile: ad::File), error)
+		=>
+		# Return set of exported symbols from 'sourcefile':
+		#
+		case (list::find  same_tome  masked_tomes)
+		    #
+		    THE (_, exported_symbols) =>   exported_symbols;
+		    NULL                      => {   error ("no such source file: " + ad::describe sourcefile);   sys::empty;   };
+		esac
+		where
+		    fun same_tome (tome: tlt::Thawedlib_Tome,  exported_symbols: sys::Set)
+			=
+			ad::compare (tlt::sourcepath tome, sourcefile) == EQUAL;
+		end;
+
+	    api_or_pkg_exported_symbols (ERROR_LIBFILE, _, _)
+		=>
+		sys::empty;
+	end;
+
+
+	stipulate
+
+	    fun same_path_as  p  (p', _						# Compare ad::File values for equality.   (We need a curried version usable with list::find.)
+				       , _	# MUSTDIE
+				       )
+		=
+		ad::compare  (p, p')  ==  EQUAL;
+
+
+	    fun add_domain (symbol_map, symbol_set)				# Add keys from 'symbol_map' to 'symbol_set', return result.
+		=
+		sys::add_list (symbol_set,  sm::keys_list  symbol_map);
+
+
+	    fun domain_of  symbol_map						# Return keys of 'symbol_map' as a sys::Set.
+		=
+		add_domain (symbol_map, sys::empty);
+
+	herein
+
+	    # Return set of symbols exported by given_freezefile:
+	    #
+	    fun freezefile_exports (LIBFILE { sublibraries, ... },  given_freezefile: ad::File,  error,  hasoptions,  elab)
+		    =>
+		    {   fun err m
+			    =
+			    {   error m;
+				sys::empty;
+			    };
+
+			case (list::find   (same_path_as  given_freezefile)   sublibraries)
+			    #
+			    THE ( _,
+				  lg::LIBRARY { more => lg::MAIN_LIBRARY _, catalog, ... }
+				  , _	# MUSTDIE
+				)
+				=>
+				if hasoptions
+				    #
+				    err (ad::describe given_freezefile +
+					" cannot have options because it is already\
+					\ listed as a member");
+				else
+				    domain_of  catalog;
+				fi;
+
+			    THE _ =>
+				err (ad::describe given_freezefile +
+					  " is a thawed library, not a .frozen library.");
+
+			    NULL =>
+				case (elab ())
+				    #
+				    ERROR_LIBFILE => sys::empty;
+				    #
+				    LIBFILE
+					{
+					  masked_tomes  => [],			# (tome, exported_symbols_set) pairs.
+					  #
+					  sublibraries => [   (   _,
+
+								lg::LIBRARY {
+								  more => lg::MAIN_LIBRARY _,
+								  catalog,
+								  ...
+								}
+								, _	# MUSTDIE
+								)
+							],
+							...
+					}
+					=>
+					domain_of  catalog;
+
+				    LIBFILE { masked_tomes, sublibraries, ... }
+					=>
+					{   apply
+						(fn (given_freezefile, _
+							 , _	# MUSTDIE
+							 ) =  print (ad::describe given_freezefile + "\n"))
+						sublibraries;
+
+					    apply
+						(fn (tome, exported_symbols_set) =  print  (tlt::describe_thawedlib_tome tome  +  "\n"))
+						masked_tomes;									# (tome, exported_symbols_set) pairs.
+
+					    err "precisely one library must be named here";
+					};
+				esac;
+			esac;
+		    };
+
+
+		freezefile_exports (ERROR_LIBFILE, _, _, _, _)
+		    =>
+		    sys::empty;
+	    end;
+
+	    # Collect and return exported library symbols.
+	    # If second arg is   THE given_filepath   then
+	    # we process only the named sublibrary, otherwise
+	    # we process all sublibraries:
+	    #
+	    fun sublibrary_exported_symbols (LIBFILE { sublibraries, ... }, NULL, _)
+		    =>
+		    fold_left
+			note_symbols_exported_by_sublibrary	# Processing fn.
+			sys::empty				# Initial value.
+			sublibraries				# List to process.
+		    where
+		        fun note_symbols_exported_by_sublibrary ((_, lg::LIBRARY { more => lg::SUBLIBRARY _, catalog, ... }
+												  , _	# MUSTDIE
+												 ), result_symbolset)
+				=>
+				add_domain (catalog, result_symbolset);						# Add all keys in 'catalog' (sublibrary contents -- apis, pkgs etc) to result_symbolset
+
+			    note_symbols_exported_by_sublibrary (_, result_symbolset)				# Ignore libraries which are not sublibraries.
+				=>
+				result_symbolset;
+			end;
+		    end;
+
+		sublibrary_exported_symbols (LIBFILE { sublibraries, ... }, THE given_filepath, error)
+		    =>
+		    case (list::find (same_path_as given_filepath) sublibraries)
+			#
+			THE ( _,
+			      lg::LIBRARY { more => lg::SUBLIBRARY _, catalog, ... }
+			      , _	# MUSTDIE (?)
+			    )
+			    =>
+			    domain_of  catalog;
+
+			THE _ =>
+			    {   error (ad::describe given_filepath + " is a main library not a sublibrary.");
+				sys::empty;
+			    };
+
+			NULL =>
+			    {   error ("no such sublibrary: " + ad::describe given_filepath);
+				sys::empty;
+			    };
+		    esac;
+
+		sublibrary_exported_symbols (ERROR_LIBFILE, _, _)
+		    =>
+		    sys::empty;
+	    end;
+	end;
+
+	fun is_error_libfile ERROR_LIBFILE =>  TRUE;
+	    is_error_libfile (LIBFILE _)   =>  FALSE;
+	end;
+    };
+end;
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

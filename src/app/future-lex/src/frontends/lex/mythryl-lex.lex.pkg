@@ -1,0 +1,1738 @@
+# mythryl-lex.lex.pkg
+
+# Compiled by:
+#     src/app/future-lex/src/lexgen.lib
+
+generic package mllex_lex_g ( package tok: Ml_Lex_Tokens; )		# Ml_Lex_Tokens	is from   src/app/future-lex/src/frontends/lex/mythryl-lex.grammar.api
+=
+package {
+
+
+    package yy_input: (weak)  api {
+			     Stream;
+			     mk_stream:  (Int -> String) -> Stream;
+			     from_stream:  file::pure_io::Input_Stream -> Stream;
+			     getc:  Stream -> Null_Or ((char::Char, Stream));
+			     getpos:  Stream -> Int;
+			     getline_no:  Stream -> Int;
+			     subtract:  (Stream, Stream) -> String;
+			     eof:  Stream -> Bool;
+
+			}
+    =
+    package {
+
+        package tio= file;				# file			is from   src/lib/std/src/posix/file.pkg
+        package tsio = tio::pure_io;
+	package tpio= text_base_io;		# text_base_io	is from   src/lib/std/src/io/text-base-io.pkg
+
+         Stream = STREAM  {
+            stream:  tsio::Input_Stream,
+	    id:  Int,   # Track which streams originated 
+			# from the same stream
+	    pos:  Int,
+	    line_no:  Int
+        };
+
+	stipulate
+	    next = REF 0;
+	herein
+	    fun next_id ()
+                =
+                *next
+                before
+                    next := *next + 1;
+	end;
+
+	init_pos = 2; #  mythryl-lex bug compatibility 
+
+	fun mk_stream read_n
+            =
+	    STREAM { stream, id => next_id(), pos => init_pos, line_no => 1 }
+            where 
+
+                stream = tsio::make_instream 
+			   (tpio::READER {
+			        name => "lexgen",
+				chunk_size => 4096,
+				read_vector => THE read_n,
+				read_rw_vector => NULL,
+				read_vector_nonblocking => NULL,
+				read_rw_vector_nonblocking => NULL,
+				block => NULL,
+				can_read => NULL,
+				avail => (fn () => NULL; end ),
+				get_position => NULL,
+				set_position => NULL,
+				end_position => NULL,
+				verify_position => NULL,
+				close => (fn () => (); end ),
+				io_descriptor => NULL
+			      }, "");
+	       
+	    end;
+
+	fun from_stream stream
+            =
+            STREAM {
+		stream, id => next_id(), pos => init_pos, line_no => 1
+	    };
+
+	fun getc (STREAM { stream, pos, id, line_no } )
+            =
+            case (tsio::read_one stream)
+              
+                NULL => NULL;
+
+	        THE (c, stream')
+                    => 
+		    THE (c, STREAM {
+			        stream => stream', 
+				pos => pos+1, 
+				id,
+				line_no => line_no + 
+					 (if (c == '\n' ) 1; else 0;fi)
+			      } );
+            esac;
+
+	fun getpos (STREAM { pos, ... } )
+            =
+            pos;
+
+	fun getline_no (STREAM { line_no, ... } )
+            =
+            line_no;
+
+	fun subtract (new, old)
+            =
+	    diff
+            where 
+
+                my STREAM { stream, pos => old_pos, id => old_id, ... }
+                    =
+                    old;
+
+	        my STREAM { pos => new_pos, id => new_id, ... }
+                    =
+                    new;
+
+                my (diff, _)
+                    =
+                    if   (new_id == old_id and new_pos >= old_pos)
+		        
+                         tsio::read_n (stream, new_pos - old_pos);
+		    else
+                         raise exception FAIL "BUG: yyInput: attempted to subtract incompatible streams";
+                    fi;
+	       
+	      end;
+
+	fun eof (STREAM { stream, ... } )
+            =
+            tsio::end_of_stream stream;
+
+      };
+
+     Yymatch X 
+      = YY_NO_MATCH
+      | YY_MATCH  (yy_input::Stream, Action( X ), Yymatch( X ))
+    withtype Action X = (yy_input::Stream, Yymatch( X )) -> X;
+
+     Yystart_State = 
+RE | DEFS | RECB | STRING | CHARILK | LEXSTATES | ACTION | INITIAL;
+    package user_declarations = 
+      package {
+
+ Source_Position = Int;
+ Semantic_Value = tok::Semantic_Value;
+ Token( X, Y ) = tok::Token( X, Y );
+ Lex_Result = Token( Semantic_Value, Source_Position ); 
+
+include tok;
+
+eof = fn () => eofx(-1,-1); end ;
+error = /* fn (e, l:  Int, _) =>
+      output (std_out, "line " + (makestring l) +
+	     ": " + e + "\n") */
+     fn _ => (); end ;
+
+stipulate
+text = REF ([] : List( String ));
+herein
+fun clr_action () = (text := ["("]);
+fun upd_action (str) = (text := str ! *text);
+fun get_action () = (cat (reverse *text));
+end;
+
+#  what to do (i.e. switch start states) after recognizing an action 
+after_action = REF (fn () => (); end );
+
+#  paren counting for actions 
+pcount = REF 0;
+inquote = REF FALSE;
+fun inc r = if *inquote  (); else r := *r + 1;fi;
+fun dec r = if *inquote  (); else r := *r - 1;fi;
+
+package sis= regular_expression::symbol_set;	# regular_expression	is from   src/app/future-lex/src/regular-expression.pkg
+
+fun uni_char s = {
+      fun to_w32 (c:  char::Char) : unt32::Unt = 
+	(case c    '0' => 0u0;  '1' => 0u1;  '2' => 0u2;  '3' => 0u3;
+	 	  '4' => 0u4;  '5' => 0u5;  '6' => 0u6;  '7' => 0u7;
+	 	  '8' => 0u8;  '9' => 0u9;  'a' => 0u10;  'A' => 0u10;
+		  'b' => 0u11;  'B' => 0u11;  'c' => 0u12;  'C' => 0u12;
+		  'd' => 0u13;  'D' => 0u13;  'e' => 0u14;  'E' => 0u14;
+		  'f' => 0u15;  'F' => 0u15;
+		  _ => raise exception FAIL "invalid unicode escape sequence"; esac);
+      fun iter ('u' ! _, v) => v;
+         iter (c ! cs,   v) => iter (cs, 0u16*v + (to_w32 c));
+	 iter _ => raise exception FAIL "invalid unicode escape sequence"; end;
+      uni = iter (list::reverse (string::explode s), 0u0);
+       iter (list::reverse (string::explode s), 0u0);
+      };
+
+high_ascii = sis::interval (0u128, 0u255);
+
+
+
+      };
+
+    stipulate
+    fun mk yyins = {
+        #  Current start state 
+          yyss = REF INITIAL;
+	  fun yybegin ss = (yyss := ss);
+	#  Current input stream 
+          yystrm = REF yyins;
+	#  get one char of input 
+	  yygetc = yy_input::getc; 
+	#  Create yytext 
+	  fun yymktext (stream) = yy_input::subtract (stream, *yystrm);
+          include user_declarations;
+          fun lex 
+(yyarg as ()) = {
+            fun yystuck (YY_NO_MATCH) => raise exception FAIL "stuck state";
+	       yystuck (YY_MATCH (stream, action, old)) => 
+		  action (stream, old); end;
+	    yypos = yy_input::getpos *yystrm;
+	    fun continue () = 
+{
+fun yy_action0 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin DEFS; lexmark(*yylineno, *yylineno);};
+      };
+fun yy_action1 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (decls (yytext, *yylineno, *yylineno));
+      };
+fun yy_action2 (stream, last_match) = { yystrm := stream; (lex());};
+fun yy_action3 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; lexmark(*yylineno, *yylineno);};
+      };
+fun yy_action4 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin LEXSTATES; states(*yylineno, *yylineno);};
+      };
+fun yy_action5 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream;
+        { clr_action(); pcount := 1; inquote := FALSE; 
+	            yybegin ACTION;
+		    after_action := (fn () => yybegin DEFS; end );
+		    header(*yylineno, *yylineno);};
+      };
+fun yy_action6 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (structx(*yylineno, *yylineno));
+      };
+fun yy_action7 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream;
+        { clr_action(); pcount := 1; inquote := FALSE;
+                    yybegin ACTION;
+		    after_action := (fn () => yybegin DEFS; end );
+		    arg(*yylineno, *yylineno);};
+      };
+fun yy_action8 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (count(*yylineno, *yylineno));
+      };
+fun yy_action9 (stream, last_match) = {
+      old_strm = *(yystrm);
+      fun reject_fn () = { yystrm := old_strm; yystuck (last_match);};
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (rejecttok(*yylineno, *yylineno));
+      };
+fun yy_action10 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (unicode(*yylineno, *yylineno));
+      };
+fun yy_action11 (stream, last_match) = { yystrm := stream; (lex());};
+fun yy_action12 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (id (yytext, *yylineno, *yylineno));
+      };
+fun yy_action13 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; eq(*yylineno, *yylineno);};
+      };
+fun yy_action14 (stream, last_match) = { yystrm := stream; (lex());};
+fun yy_action15 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (qmark(*yylineno, *yylineno));
+      };
+fun yy_action16 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (star(*yylineno, *yylineno));
+      };
+fun yy_action17 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (plus(*yylineno, *yylineno));
+      };
+fun yy_action18 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (bar(*yylineno, *yylineno));
+      };
+fun yy_action19 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (lp(*yylineno, *yylineno));
+      };
+fun yy_action20 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (rp(*yylineno, *yylineno));
+      };
+fun yy_action21 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (dollar(*yylineno, *yylineno));
+      };
+fun yy_action22 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (slash(*yylineno, *yylineno));
+      };
+fun yy_action23 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (dot(*yylineno, *yylineno));
+      };
+fun yy_action24 (stream, last_match) = { yystrm := stream; { yybegin RECB; lex();};};
+fun yy_action25 (stream, last_match) = { yystrm := stream; { yybegin STRING; lex();};};
+fun yy_action26 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin CHARILK; lb(*yylineno, *yylineno);};
+      };
+fun yy_action27 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin LEXSTATES; lt(*yylineno, *yylineno);};
+      };
+fun yy_action28 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (gt(*yylineno, *yylineno));
+      };
+fun yy_action29 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream;
+        { clr_action(); pcount := 1; inquote := FALSE;
+                    yybegin ACTION;
+		    after_action := (fn () => yybegin RE; end );
+		    arrow(*yylineno, *yylineno);};
+      };
+fun yy_action30 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin DEFS; semi(*yylineno, *yylineno);};
+      };
+fun yy_action31 (stream, last_match) = { yystrm := stream; (lex());};
+fun yy_action32 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (id (yytext, *yylineno, *yylineno));
+      };
+fun yy_action33 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream;
+        (reps (the (int::from_string yytext), *yylineno, *yylineno));
+      };
+fun yy_action34 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (comma(*yylineno, *yylineno));
+      };
+fun yy_action35 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; rcb(*yylineno, *yylineno);};
+      };
+fun yy_action36 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; rbd(*yylineno, *yylineno);};
+      };
+fun yy_action37 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; rb(*yylineno, *yylineno);};
+      };
+fun yy_action38 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (dash(*yylineno, *yylineno));
+      };
+fun yy_action39 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (carat(*yylineno, *yylineno));
+      };
+fun yy_action40 (stream, last_match) = { yystrm := stream; { yybegin RE; lex();};};
+fun yy_action41 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream;
+        (char (the (string::from_string yytext), *yylineno, *yylineno));
+      };
+fun yy_action42 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (unichar (uni_char yytext, *yylineno, *yylineno));
+      };
+fun yy_action43 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream;
+        (char (string::substring (yytext, 1, 1), *yylineno, *yylineno));
+      };
+fun yy_action44 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (char (yytext, *yylineno, *yylineno));
+      };
+fun yy_action45 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      yytext = yymktext (stream);
+      
+        yystrm := stream; (lexstate (yytext, *yylineno, *yylineno));
+      };
+fun yy_action46 (stream, last_match) = { yystrm := stream; (lex());};
+fun yy_action47 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; (comma(*yylineno, *yylineno));
+      };
+fun yy_action48 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin RE; gt(*yylineno, *yylineno);};
+      };
+fun yy_action49 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream; { yybegin DEFS; semi(*yylineno, *yylineno);};
+      };
+fun yy_action50 (stream, last_match) = {
+      yylineno = REF (yy_input::getline_no(*(yystrm)));
+      
+        yystrm := stream;
+
+        if  (*pcount == 0)
+	    
+             (*after_action)();
+	     act (get_action(), *yylineno, *yylineno);
+	else
+             upd_action ";";
+             lex ();
+        fi;
+      };
+fun yy_action51 (stream, last_match) = { yystrm := stream;
+      { upd_action "("; inc pcount; lex();};};
+fun yy_action52 (stream, last_match) = { yystrm := stream;
+      { upd_action ")"; dec pcount; lex();};};
+fun yy_action53 (stream, last_match) = { yystrm := stream; { upd_action "\\\""; lex();};};
+fun yy_action54 (stream, last_match) = { yystrm := stream; { upd_action "\\\\"; lex();};};
+fun yy_action55 (stream, last_match) = { yystrm := stream; { upd_action "\\"; lex();};};
+fun yy_action56 (stream, last_match) = { yystrm := stream;
+      { upd_action "\""; inquote := not (*inquote); lex();};};
+fun yy_action57 (stream, last_match) = {
+      yytext = yymktext (stream);
+      
+        yystrm := stream; { upd_action yytext; lex();};
+      };
+fun yy_q110 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action1 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+            else if (inp < '&')
+                   if (inp == '%')
+                       yy_q114 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+                  else yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+              else yy_action1 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      )		# end case
+also fun yy_q114 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q113 (stream', last_match);
+            else if (inp < '&')
+                   if (inp == '%')
+                       yystuck (last_match);
+                  else yy_q113 (stream', last_match);fi;
+            else if (inp <= '\127')
+                   yy_q113 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi; esac
+      )		# end case
+also fun yy_q113 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action1 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+            else if (inp < '&')
+                   if (inp == '%')
+                       yy_q114 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+                  else yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+              else yy_action1 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      )		# end case
+also fun yy_q115 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action1 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+            else if (inp < '&')
+                   if (inp == '%')
+                       yy_q114 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+                  else yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q115 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+              else yy_action1 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      );		# end case
+fun yy_q112 (stream, last_match) = yy_action0 (stream, YY_NO_MATCH);
+fun yy_q111 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q113 (stream', last_match);
+            else if (inp < '&')
+                   if (inp == '%')
+                       yy_q112 (stream', last_match);
+                  else yy_q113 (stream', last_match);fi;
+            else if (inp <= '\127')
+                   yy_q113 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi; esac
+      );		# end case
+fun yy_q7 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yy_action1 (stream, YY_NO_MATCH);fi;
+         THE (inp, stream') =>
+            if (inp == '&')
+                   yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+            else if (inp < '&')
+                   if (inp == '%')
+                       yy_q111 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+                  else yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q110 (stream', YY_MATCH (stream, yy_action1, YY_NO_MATCH));
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yy_action1 (stream, YY_NO_MATCH);fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q102 (stream, last_match) = yy_action50 (stream, YY_NO_MATCH);
+fun yy_q103 (stream, last_match) = yy_action51 (stream, YY_NO_MATCH);
+fun yy_q104 (stream, last_match) = yy_action52 (stream, YY_NO_MATCH);
+fun yy_q105 (stream, last_match) = yy_action56 (stream, YY_NO_MATCH);
+fun yy_q106 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action57 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == ';')
+                   yy_action57 (stream, YY_NO_MATCH);
+            else if (inp < ';')
+                   if (inp == '#')
+                       yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                else if (inp < '#')
+                       if (inp == '"')
+                           yy_action57 (stream, YY_NO_MATCH);
+                      else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;
+                else if (inp == '(')
+                       yy_action57 (stream, YY_NO_MATCH);
+                else if (inp < '(')
+                       yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                else if (inp <= ')')
+                       yy_action57 (stream, YY_NO_MATCH);
+                  else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;fi;fi;fi;fi;
+            else if (inp == ']')
+                   yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+            else if (inp < ']')
+                   if (inp == '\\')
+                       yy_action57 (stream, YY_NO_MATCH);
+                  else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+              else yy_action57 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q108 (stream, last_match) = yy_action53 (stream, YY_NO_MATCH);
+fun yy_q109 (stream, last_match) = yy_action54 (stream, YY_NO_MATCH);
+fun yy_q107 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action55 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '#')
+                   yy_action55 (stream, YY_NO_MATCH);
+            else if (inp < '#')
+                   if (inp == '"')
+                       yy_q108 (stream', YY_MATCH (stream, yy_action55, YY_NO_MATCH));
+                  else yy_action55 (stream, YY_NO_MATCH);fi;
+            else if (inp == '\\')
+                   yy_q109 (stream', YY_MATCH (stream, yy_action55, YY_NO_MATCH));
+              else yy_action55 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      );		# end case
+fun yy_q6 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yy_action57 (stream, YY_NO_MATCH);fi;
+         THE (inp, stream') =>
+            if (inp == '*')
+                   yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+            else if (inp < '*')
+                   if (inp == '#')
+                       yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                else if (inp < '#')
+                       if (inp == '"')
+                           yy_q105 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                      else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;
+                else if (inp == '(')
+                       yy_q103 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                else if (inp == ')')
+                       yy_q104 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                  else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;fi;fi;fi;
+            else if (inp == '\\')
+                   yy_q107 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+            else if (inp < '\\')
+                   if (inp == ';')
+                       yy_q102 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+                  else yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q106 (stream', YY_MATCH (stream, yy_action57, YY_NO_MATCH));
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yy_action57 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q97 (stream, last_match) = yy_action46 (stream, YY_NO_MATCH);
+fun yy_q98 (stream, last_match) = yy_action47 (stream, YY_NO_MATCH);
+fun yy_q99 (stream, last_match) = yy_action48 (stream, YY_NO_MATCH);
+fun yy_q100 (stream, last_match) = yy_action49 (stream, YY_NO_MATCH);
+fun yy_q101 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action45 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+            else if (inp < 'A')
+                   if (inp == '(')
+                       yy_action45 (stream, YY_NO_MATCH);
+                else if (inp < '(')
+                       if (inp == '\'')
+                           yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+                      else yy_action45 (stream, YY_NO_MATCH);fi;
+                else if (inp == '0')
+                       yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+                else if (inp < '0')
+                       yy_action45 (stream, YY_NO_MATCH);
+                else if (inp <= '9')
+                       yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+                  else yy_action45 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi;
+            else if (inp == '`')
+                   yy_action45 (stream, YY_NO_MATCH);
+            else if (inp < '`')
+                   if (inp == '[')
+                       yy_action45 (stream, YY_NO_MATCH);
+                else if (inp < '[')
+                       yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+                else if (inp == '_')
+                       yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+                  else yy_action45 (stream, YY_NO_MATCH);fi;fi;fi;
+            else if (inp <= 'z')
+                   yy_q101 (stream', YY_MATCH (stream, yy_action45, YY_NO_MATCH));
+              else yy_action45 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q5 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == '-')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '-')
+                   if (inp == '\^N')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < '\^N')
+                       if (inp == '\v')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                    else if (inp < '\v')
+                           if (inp <= '\b')
+                               if (yy_input::eof (stream))
+                                   user_declarations::eof (yyarg);
+                              else yystuck (last_match);fi;
+                          else yy_q97 (stream', last_match);fi;
+                    else if (inp == '\r')
+                           yy_q97 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;fi;fi;
+                else if (inp == '!')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < '!')
+                       if (inp == ' ')
+                           yy_q97 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;
+                else if (inp == ',')
+                       yy_q98 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;fi;fi;fi;fi;
+            else if (inp == '?')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '?')
+                   if (inp == '<')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < '<')
+                       if (inp == ';')
+                           yy_q100 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;
+                else if (inp == '>')
+                       yy_q99 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;fi;fi;
+            else if (inp == '[')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '[')
+                   if (inp <= '@')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                  else yy_q101 (stream', last_match);fi;
+            else if (inp == 'a')
+                   yy_q101 (stream', last_match);
+            else if (inp < 'a')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp <= 'z')
+                   yy_q101 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q93 (stream, last_match) = yy_action37 (stream, YY_NO_MATCH);
+fun yy_q94 (stream, last_match) = yy_action39 (stream, YY_NO_MATCH);
+fun yy_q25 (stream, last_match) = yy_action44 (stream, YY_NO_MATCH);
+fun yy_q30 (stream, last_match) = yy_action41 (stream, YY_NO_MATCH);
+fun yy_q31 (stream, last_match) = yy_action43 (stream, YY_NO_MATCH);
+fun yy_q39 (stream, last_match) = yy_action42 (stream, YY_NO_MATCH);
+fun yy_q38 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q39 (stream', last_match);
+            else if (inp < 'A')
+                   if (inp == '0')
+                       yy_q39 (stream', last_match);
+                else if (inp < '0')
+                       yystuck (last_match);
+                else if (inp <= '9')
+                       yy_q39 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == 'a')
+                   yy_q39 (stream', last_match);
+            else if (inp < 'a')
+                   if (inp <= 'F')
+                       yy_q39 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp <= 'f')
+                   yy_q39 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q37 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q38 (stream', last_match);
+            else if (inp < 'A')
+                   if (inp == '0')
+                       yy_q38 (stream', last_match);
+                else if (inp < '0')
+                       yystuck (last_match);
+                else if (inp <= '9')
+                       yy_q38 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == 'a')
+                   yy_q38 (stream', last_match);
+            else if (inp < 'a')
+                   if (inp <= 'F')
+                       yy_q38 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp <= 'f')
+                   yy_q38 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q36 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q37 (stream', last_match);
+            else if (inp < 'A')
+                   if (inp == '0')
+                       yy_q37 (stream', last_match);
+                else if (inp < '0')
+                       yystuck (last_match);
+                else if (inp <= '9')
+                       yy_q37 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == 'a')
+                   yy_q37 (stream', last_match);
+            else if (inp < 'a')
+                   if (inp <= 'F')
+                       yy_q37 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp <= 'f')
+                   yy_q37 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q32 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action43 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+            else if (inp < 'A')
+                   if (inp == '0')
+                       yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+                else if (inp < '0')
+                       yy_action43 (stream, YY_NO_MATCH);
+                else if (inp <= '9')
+                       yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+                  else yy_action43 (stream, YY_NO_MATCH);fi;fi;fi;
+            else if (inp == 'a')
+                   yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+            else if (inp < 'a')
+                   if (inp <= 'F')
+                       yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+                  else yy_action43 (stream, YY_NO_MATCH);fi;
+            else if (inp <= 'f')
+                   yy_q36 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+              else yy_action43 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q35 (stream, last_match) = yy_action41 (stream, YY_NO_MATCH);
+fun yy_q34 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '0')
+                   yy_q35 (stream', last_match);
+            else if (inp < '0')
+                   yystuck (last_match);
+            else if (inp <= '9')
+                   yy_q35 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi; esac
+      );		# end case
+fun yy_q33 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action43 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '0')
+                   yy_q34 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+            else if (inp < '0')
+                   yy_action43 (stream, YY_NO_MATCH);
+            else if (inp <= '9')
+                   yy_q34 (stream', YY_MATCH (stream, yy_action43, YY_NO_MATCH));
+              else yy_action43 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      );		# end case
+fun yy_q26 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action44 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 'b')
+                   yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+            else if (inp < 'b')
+                   if (inp == '#')
+                       yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                else if (inp < '#')
+                       if (inp == '\v')
+                           yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                    else if (inp < '\v')
+                           if (inp == '\n')
+                               yy_action44 (stream, YY_NO_MATCH);
+                          else yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;
+                    else if (inp == '"')
+                           yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                      else yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;fi;fi;
+                else if (inp == ':')
+                       yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                else if (inp < ':')
+                       if (inp <= '/')
+                           yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                      else yy_q33 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;
+                else if (inp == '\\')
+                       yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                  else yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;fi;fi;fi;fi;
+            else if (inp == 's')
+                   yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+            else if (inp < 's')
+                   if (inp == 'o')
+                       yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                else if (inp < 'o')
+                       if (inp == 'n')
+                           yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                      else yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;
+                else if (inp == 'r')
+                       yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                  else yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;fi;fi;
+            else if (inp == 'v')
+                   yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+            else if (inp < 'v')
+                   if (inp == 't')
+                       yy_q30 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+                  else yy_q32 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));fi;
+            else if (inp <= '\127')
+                   yy_q31 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+              else yy_action44 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q96 (stream, last_match) = yy_action36 (stream, YY_NO_MATCH);
+fun yy_q95 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action38 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == ']')
+                   yy_q96 (stream', YY_MATCH (stream, yy_action38, YY_NO_MATCH));
+              else yy_action38 (stream, YY_NO_MATCH);fi; esac
+      );		# end case
+fun yy_q4 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == '\\')
+                   yy_q26 (stream', last_match);
+            else if (inp < '\\')
+                   if (inp == '\v')
+                       yy_q25 (stream', last_match);
+                else if (inp < '\v')
+                       if (inp == '\n')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                      else yy_q25 (stream', last_match);fi;
+                else if (inp == '-')
+                       yy_q95 (stream', last_match);
+                  else yy_q25 (stream', last_match);fi;fi;fi;
+            else if (inp == '_')
+                   yy_q25 (stream', last_match);
+            else if (inp < '_')
+                   if (inp == ']')
+                       yy_q93 (stream', last_match);
+                  else yy_q94 (stream', last_match);fi;
+            else if (inp <= '\127')
+                   yy_q25 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q92 (stream, last_match) = yy_action40 (stream, YY_NO_MATCH);
+fun yy_q3 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == '#')
+                   yy_q25 (stream', last_match);
+            else if (inp < '#')
+                   if (inp == '\v')
+                       yy_q25 (stream', last_match);
+                else if (inp < '\v')
+                       if (inp == '\n')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                      else yy_q25 (stream', last_match);fi;
+                else if (inp == '"')
+                       yy_q92 (stream', last_match);
+                  else yy_q25 (stream', last_match);fi;fi;fi;
+            else if (inp == ']')
+                   yy_q25 (stream', last_match);
+            else if (inp < ']')
+                   if (inp == '\\')
+                       yy_q26 (stream', last_match);
+                  else yy_q25 (stream', last_match);fi;
+            else if (inp <= '\127')
+                   yy_q25 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q87 (stream, last_match) = yy_action31 (stream, YY_NO_MATCH);
+fun yy_q88 (stream, last_match) = yy_action34 (stream, YY_NO_MATCH);
+fun yy_q89 (stream, last_match) = yy_action35 (stream, YY_NO_MATCH);
+fun yy_q90 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action33 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '0')
+                   yy_q90 (stream', YY_MATCH (stream, yy_action33, YY_NO_MATCH));
+            else if (inp < '0')
+                   yy_action33 (stream, YY_NO_MATCH);
+            else if (inp <= '9')
+                   yy_q90 (stream', YY_MATCH (stream, yy_action33, YY_NO_MATCH));
+              else yy_action33 (stream, YY_NO_MATCH);fi;fi;fi; esac
+      );		# end case
+fun yy_q91 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action32 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+            else if (inp < 'A')
+                   if (inp == '(')
+                       yy_action32 (stream, YY_NO_MATCH);
+                else if (inp < '(')
+                       if (inp == '\'')
+                           yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+                      else yy_action32 (stream, YY_NO_MATCH);fi;
+                else if (inp == '0')
+                       yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+                else if (inp < '0')
+                       yy_action32 (stream, YY_NO_MATCH);
+                else if (inp <= '9')
+                       yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+                  else yy_action32 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi;
+            else if (inp == '`')
+                   yy_action32 (stream, YY_NO_MATCH);
+            else if (inp < '`')
+                   if (inp == '[')
+                       yy_action32 (stream, YY_NO_MATCH);
+                else if (inp < '[')
+                       yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+                else if (inp == '_')
+                       yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+                  else yy_action32 (stream, YY_NO_MATCH);fi;fi;fi;
+            else if (inp <= 'z')
+                   yy_q91 (stream', YY_MATCH (stream, yy_action32, YY_NO_MATCH));
+              else yy_action32 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q2 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == '-')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '-')
+                   if (inp == '\^N')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < '\^N')
+                       if (inp == '\v')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                    else if (inp < '\v')
+                           if (inp <= '\b')
+                               if (yy_input::eof (stream))
+                                   user_declarations::eof (yyarg);
+                              else yystuck (last_match);fi;
+                          else yy_q87 (stream', last_match);fi;
+                    else if (inp == '\r')
+                           yy_q87 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;fi;fi;
+                else if (inp == '!')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < '!')
+                       if (inp == ' ')
+                           yy_q87 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;
+                else if (inp == ',')
+                       yy_q88 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;fi;fi;fi;fi;
+            else if (inp == '[')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '[')
+                   if (inp == ':')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                else if (inp < ':')
+                       if (inp <= '/')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                      else yy_q90 (stream', last_match);fi;
+                else if (inp <= '@')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                  else yy_q91 (stream', last_match);fi;fi;fi;
+            else if (inp == '{')
+                   if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;
+            else if (inp < '{')
+                   if (inp <= '`')
+                       if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;
+                  else yy_q91 (stream', last_match);fi;
+            else if (inp == '}')
+                   yy_q89 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q40 (stream, last_match) = yy_action2 (stream, YY_NO_MATCH);
+fun yy_q41 (stream, last_match) = yy_action13 (stream, YY_NO_MATCH);
+fun yy_q42 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action12 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 'A')
+                   yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+            else if (inp < 'A')
+                   if (inp == '(')
+                       yy_action12 (stream, YY_NO_MATCH);
+                else if (inp < '(')
+                       if (inp == '\'')
+                           yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+                      else yy_action12 (stream, YY_NO_MATCH);fi;
+                else if (inp == '0')
+                       yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+                else if (inp < '0')
+                       yy_action12 (stream, YY_NO_MATCH);
+                else if (inp <= '9')
+                       yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+                  else yy_action12 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi;
+            else if (inp == '`')
+                   yy_action12 (stream, YY_NO_MATCH);
+            else if (inp < '`')
+                   if (inp == '[')
+                       yy_action12 (stream, YY_NO_MATCH);
+                else if (inp < '[')
+                       yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+                else if (inp == '_')
+                       yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+                  else yy_action12 (stream, YY_NO_MATCH);fi;fi;fi;
+            else if (inp <= 'z')
+                   yy_q42 (stream', YY_MATCH (stream, yy_action12, YY_NO_MATCH));
+              else yy_action12 (stream, YY_NO_MATCH);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q44 (stream, last_match) = yy_action3 (stream, YY_NO_MATCH);
+fun yy_q86 (stream, last_match) = yy_action6 (stream, YY_NO_MATCH);
+fun yy_q85 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q86 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q84 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'r')
+                   yy_q85 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q83 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'u')
+                   yy_q84 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q82 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 't')
+                   yy_q83 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q81 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'c')
+                   yy_q82 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q80 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'u')
+                   yy_q81 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q79 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'r')
+                   yy_q80 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q45 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action4 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == 't')
+                   yy_q79 (stream', YY_MATCH (stream, yy_action4, YY_NO_MATCH));
+              else yy_action4 (stream, YY_NO_MATCH);fi; esac
+      );		# end case
+fun yy_q78 (stream, last_match) = yy_action11 (stream, YY_NO_MATCH);
+fun yy_q77 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'l')
+                   yy_q78 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q76 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'l')
+                   yy_q77 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q46 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'u')
+                   yy_q76 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q75 (stream, last_match) = yy_action10 (stream, YY_NO_MATCH);
+fun yy_q74 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q75 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q73 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'd')
+                   yy_q74 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q72 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'o')
+                   yy_q73 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q71 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'c')
+                   yy_q72 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q70 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'i')
+                   yy_q71 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q47 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'n')
+                   yy_q70 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q69 (stream, last_match) = yy_action9 (stream, last_match);
+fun yy_q68 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 't')
+                   yy_q69 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q67 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'c')
+                   yy_q68 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q66 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q67 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q65 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'j')
+                   yy_q66 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q48 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q65 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q64 (stream, last_match) = yy_action8 (stream, YY_NO_MATCH);
+fun yy_q63 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 't')
+                   yy_q64 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q62 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'n')
+                   yy_q63 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q61 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'u')
+                   yy_q62 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q49 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'o')
+                   yy_q61 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q60 (stream, last_match) = yy_action7 (stream, YY_NO_MATCH);
+fun yy_q59 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '\^N')
+                   yystuck (last_match);
+            else if (inp < '\^N')
+                   if (inp == '\v')
+                       yystuck (last_match);
+                else if (inp < '\v')
+                       if (inp <= '\b')
+                           yystuck (last_match);
+                      else yy_q59 (stream', last_match);fi;
+                else if (inp == '\r')
+                       yy_q59 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == '!')
+                   yystuck (last_match);
+            else if (inp < '!')
+                   if (inp == ' ')
+                       yy_q59 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp == '(')
+                   yy_q60 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q58 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'g')
+                   yy_q59 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q50 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'r')
+                   yy_q58 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q57 (stream, last_match) = yy_action5 (stream, YY_NO_MATCH);
+fun yy_q56 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '\^N')
+                   yystuck (last_match);
+            else if (inp < '\^N')
+                   if (inp == '\v')
+                       yystuck (last_match);
+                else if (inp < '\v')
+                       if (inp <= '\b')
+                           yystuck (last_match);
+                      else yy_q56 (stream', last_match);fi;
+                else if (inp == '\r')
+                       yy_q56 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == '!')
+                   yystuck (last_match);
+            else if (inp < '!')
+                   if (inp == ' ')
+                       yy_q56 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp == '(')
+                   yy_q57 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q55 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'r')
+                   yy_q56 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q54 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q55 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q53 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'd')
+                   yy_q54 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q52 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'a')
+                   yy_q53 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q51 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'e')
+                   yy_q52 (stream', last_match);
+              else yystuck (last_match);fi; esac
+      );		# end case
+fun yy_q43 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == 'g')
+                   yystuck (last_match);
+            else if (inp < 'g')
+                   if (inp == 'b')
+                       yystuck (last_match);
+                else if (inp < 'b')
+                       if (inp == '&')
+                           yystuck (last_match);
+                    else if (inp < '&')
+                           if (inp == '%')
+                               yy_q44 (stream', last_match);
+                          else yystuck (last_match);fi;
+                    else if (inp == 'a')
+                           yy_q50 (stream', last_match);
+                      else yystuck (last_match);fi;fi;fi;
+                else if (inp == 'd')
+                       yystuck (last_match);
+                else if (inp < 'd')
+                       yy_q49 (stream', last_match);
+                else if (inp == 'f')
+                       yy_q46 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;fi;fi;
+            else if (inp == 's')
+                   yy_q45 (stream', last_match);
+            else if (inp < 's')
+                   if (inp == 'i')
+                       yystuck (last_match);
+                else if (inp < 'i')
+                       yy_q51 (stream', last_match);
+                else if (inp == 'r')
+                       yy_q48 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == 'u')
+                   yy_q47 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q1 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == '%')
+                   yy_q43 (stream', last_match);
+            else if (inp < '%')
+                   if (inp == '\r')
+                       yy_q40 (stream', last_match);
+                else if (inp < '\r')
+                       if (inp == '\t')
+                           yy_q40 (stream', last_match);
+                    else if (inp < '\t')
+                           if (yy_input::eof (stream))
+                               user_declarations::eof (yyarg);
+                          else yystuck (last_match);fi;
+                    else if (inp <= '\n')
+                           yy_q40 (stream', last_match);
+                    else if (yy_input::eof (stream))
+                           user_declarations::eof (yyarg);
+                      else yystuck (last_match);fi;fi;fi;fi;
+                else if (inp == ' ')
+                       yy_q40 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;fi;fi;
+            else if (inp == 'A')
+                   yy_q42 (stream', last_match);
+            else if (inp < 'A')
+                   if (inp == '=')
+                       yy_q41 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;
+            else if (inp == 'a')
+                   yy_q42 (stream', last_match);
+            else if (inp < 'a')
+                   if (inp <= 'Z')
+                       yy_q42 (stream', last_match);
+                else if (yy_input::eof (stream))
+                       user_declarations::eof (yyarg);
+                  else yystuck (last_match);fi;fi;
+            else if (inp <= 'z')
+                   yy_q42 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q8 (stream, last_match) = yy_action14 (stream, YY_NO_MATCH);
+fun yy_q9 (stream, last_match) = yy_action14 (stream, YY_NO_MATCH);
+fun yy_q10 (stream, last_match) = yy_action15 (stream, YY_NO_MATCH);
+fun yy_q11 (stream, last_match) = yy_action16 (stream, YY_NO_MATCH);
+fun yy_q12 (stream, last_match) = yy_action17 (stream, YY_NO_MATCH);
+fun yy_q13 (stream, last_match) = yy_action18 (stream, YY_NO_MATCH);
+fun yy_q14 (stream, last_match) = yy_action19 (stream, YY_NO_MATCH);
+fun yy_q15 (stream, last_match) = yy_action20 (stream, YY_NO_MATCH);
+fun yy_q16 (stream, last_match) = yy_action21 (stream, YY_NO_MATCH);
+fun yy_q17 (stream, last_match) = yy_action22 (stream, YY_NO_MATCH);
+fun yy_q18 (stream, last_match) = yy_action23 (stream, YY_NO_MATCH);
+fun yy_q19 (stream, last_match) = yy_action24 (stream, YY_NO_MATCH);
+fun yy_q20 (stream, last_match) = yy_action25 (stream, YY_NO_MATCH);
+fun yy_q21 (stream, last_match) = yy_action26 (stream, YY_NO_MATCH);
+fun yy_q22 (stream, last_match) = yy_action27 (stream, YY_NO_MATCH);
+fun yy_q23 (stream, last_match) = yy_action28 (stream, YY_NO_MATCH);
+fun yy_q24 (stream, last_match) = yy_action30 (stream, YY_NO_MATCH);
+fun yy_q29 (stream, last_match) = yy_action29 (stream, YY_NO_MATCH);
+fun yy_q28 (stream, last_match) = (case (yygetc (stream))
+          NULL => yystuck (last_match);
+         THE (inp, stream') =>
+            if (inp == '\^N')
+                   yystuck (last_match);
+            else if (inp < '\^N')
+                   if (inp == '\v')
+                       yystuck (last_match);
+                else if (inp < '\v')
+                       if (inp <= '\b')
+                           yystuck (last_match);
+                      else yy_q28 (stream', last_match);fi;
+                else if (inp == '\r')
+                       yy_q28 (stream', last_match);
+                  else yystuck (last_match);fi;fi;fi;
+            else if (inp == '!')
+                   yystuck (last_match);
+            else if (inp < '!')
+                   if (inp == ' ')
+                       yy_q28 (stream', last_match);
+                  else yystuck (last_match);fi;
+            else if (inp == '(')
+                   yy_q29 (stream', last_match);
+              else yystuck (last_match);fi;fi;fi;fi;fi; esac
+      );		# end case
+fun yy_q27 (stream, last_match) = (case (yygetc (stream))
+          NULL => yy_action44 (stream, YY_NO_MATCH);
+         THE (inp, stream') =>
+            if (inp == '>')
+                   yy_q28 (stream', YY_MATCH (stream, yy_action44, YY_NO_MATCH));
+              else yy_action44 (stream, YY_NO_MATCH);fi; esac
+      );		# end case
+fun yy_q0 (stream, last_match) = (case (yygetc (stream))
+          NULL =>
+            if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;
+         THE (inp, stream') =>
+            if (inp == ',')
+                   yy_q25 (stream', last_match);
+            else if (inp < ',')
+                   if (inp == '"')
+                       yy_q20 (stream', last_match);
+                else if (inp < '"')
+                       if (inp == '\r')
+                           yy_q8 (stream', last_match);
+                    else if (inp < '\r')
+                           if (inp == '\n')
+                               yy_q9 (stream', last_match);
+                        else if (inp < '\n')
+                               if (inp == '\t')
+                                   yy_q8 (stream', last_match);
+                              else yy_q25 (stream', last_match);fi;
+                          else yy_q25 (stream', last_match);fi;fi;
+                    else if (inp == ' ')
+                           yy_q8 (stream', last_match);
+                      else yy_q25 (stream', last_match);fi;fi;fi;
+                else if (inp == '(')
+                       yy_q14 (stream', last_match);
+                else if (inp < '(')
+                       if (inp == '$')
+                           yy_q16 (stream', last_match);
+                      else yy_q25 (stream', last_match);fi;
+                else if (inp == '*')
+                       yy_q11 (stream', last_match);
+                else if (inp == ')')
+                       yy_q15 (stream', last_match);
+                  else yy_q12 (stream', last_match);fi;fi;fi;fi;fi;fi;
+            else if (inp == '?')
+                   yy_q10 (stream', last_match);
+            else if (inp < '?')
+                   if (inp == ';')
+                       yy_q24 (stream', last_match);
+                else if (inp < ';')
+                       if (inp == '/')
+                           yy_q17 (stream', last_match);
+                    else if (inp < '/')
+                           if (inp == '.')
+                               yy_q18 (stream', last_match);
+                          else yy_q25 (stream', last_match);fi;
+                      else yy_q25 (stream', last_match);fi;fi;
+                else if (inp == '=')
+                       yy_q27 (stream', last_match);
+                else if (inp == '<')
+                       yy_q22 (stream', last_match);
+                  else yy_q23 (stream', last_match);fi;fi;fi;fi;
+            else if (inp == '{')
+                   yy_q19 (stream', last_match);
+            else if (inp < '{')
+                   if (inp == '\\')
+                       yy_q26 (stream', last_match);
+                else if (inp < '\\')
+                       if (inp == '[')
+                           yy_q21 (stream', last_match);
+                      else yy_q25 (stream', last_match);fi;
+                  else yy_q25 (stream', last_match);fi;fi;
+            else if (inp == '}')
+                   yy_q25 (stream', last_match);
+            else if (inp < '}')
+                   yy_q13 (stream', last_match);
+            else if (inp <= '\127')
+                   yy_q25 (stream', last_match);
+            else if (yy_input::eof (stream))
+                   user_declarations::eof (yyarg);
+              else yystuck (last_match);fi;fi;fi;fi;fi;fi;fi;fi;fi;fi; esac
+      );		# end case
+
+  (case (*(yyss))
+      RE => yy_q0(*(yystrm), YY_NO_MATCH);
+     DEFS => yy_q1(*(yystrm), YY_NO_MATCH);
+     RECB => yy_q2(*(yystrm), YY_NO_MATCH);
+     STRING => yy_q3(*(yystrm), YY_NO_MATCH);
+     CHARILK => yy_q4(*(yystrm), YY_NO_MATCH);
+     LEXSTATES => yy_q5(*(yystrm), YY_NO_MATCH);
+     ACTION => yy_q6(*(yystrm), YY_NO_MATCH);
+     INITIAL => yy_q7(*(yystrm), YY_NO_MATCH); esac
+  );		# end case
+};
+	     continue(); };
+           
+            lex; 
+          };
+    herein
+	fun make_lexer yyinput_n =   mk (yy_input::mk_stream yyinput_n);
+	fun make_lexer' ins     =   mk (yy_input::mk_stream ins);
+    end;
+
+  };
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

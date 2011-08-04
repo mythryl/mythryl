@@ -1,0 +1,536 @@
+## machcode-controlflow-graph.api
+#
+#     "Once [code] trees have been generated, they are
+#      passed into a module that generates a flowgraph
+#      of target machine instructions. [...] all optimizations
+#      are performed on the flowgraph of target machine instructions [...]"
+#
+#                          -- http://www.cs.nyu.edu/leunga/MLRISC/Doc/html/backend-opt.html
+#
+# Nomenclature: "mcg" == "control flow graph".
+#               "bblock" == "basic block".     
+#
+# A "basic block" of machine instructions is a sequence of
+# instructions which will always execute in order, which is
+# to say, a sequence of instructions without jumps (except
+# optionally for the final instruction in the block).
+#
+# Our Machcode_Controlflow_Graph is a controlflow-centric
+# representation in which each node is a basic block and
+# each edge represents a (possibly conditional) jump from
+# the end of one bblock to the start of another.
+#
+# This is our primary representation for performing basic
+# optimizations in the Mythryl compiler backend lowhalf.
+#
+# Special cases:
+#
+#   o Each mcg contains a unique START node representing all
+#     control paths from external code into the graph. That
+#     is, any external entrypoint into the graph is represented
+#     as an edge from the START node to some other node.
+#
+#   o Each mcg contains a unique STOP node representing all
+#     controls paths from the graph to external code.  That
+#     is, and exit from the graph to external code is represented
+#     and an from some node to the STOP node.
+#
+#   o Edges to the STOP node are labelled BRANCH, JUMP or SWITCH when
+#     the target is a known label.  We use EXIT labels on edges to the
+#     STOP node where the target lable is unknown -- traps, returns and
+#     indirect jumps.
+#
+#   o A bblock may simply fall through to the next bblock,
+#     without any explicit jump machine instruction at all.
+#     We represent this with a FALLTHRU edge.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+stipulate
+    package lbl =  codelabel;											# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package nt  =  note;											# note				is from   src/lib/src/note.pkg
+    package odg =  oop_digraph;											# oop_digraph			is from   src/lib/graph/oop-digraph.pkg
+herein
+
+    # This api is implemented in:
+    #
+    #     src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+    #
+    api Machcode_Controlflow_Graph {
+	#
+	package pop:  Pseudo_Ops;										# Pseudo_Ops			is from   src/lib/compiler/back/low/mcg/pseudo-op.api
+	package mcf:  Machcode_Form;										# Machcode_Form			is from   src/lib/compiler/back/low/code/machcode-form.api
+
+	Execution_Frequency = Float;
+	    #
+	    # Used to represent (estimated) frequency of execution.
+	    # We use floats because some static prediction
+	    # methods produce such.
+
+
+	Bblock_Kind
+	  = START												# Entry  bblock -- external code might jump to this bblock.
+	  | STOP        											# Exit   bblock -- jumps to external code are represented as jumps to this bblock.
+	  | NORMAL      											# All other bblocks.
+
+
+	# NOTE 1: the instructions are listed in reverse order.
+	# This choice is for a few reasons:
+	#
+	# i)  Clusters represent instructions in reverse order,
+	#     so keeping this the same avoids having to do conversions.
+	#
+	# ii) This makes it easier to add instructions
+	#     at the end of the block, which is more common
+	#     than adding instructions to the front.
+	#
+	# iii) This also makes it easier to manipulate
+	#      the branch/jump instruction at the end
+	#      of the block.
+	#
+	# NOTE 2: 
+	#  Alignments always appear before labels in a block.
+
+														# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+														# note				is from   src/lib/src/note.pkg
+	also
+	Bblock
+	    = 
+	    BBLOCK 
+	      { id:			Int,									# Block id 
+		kind:			Bblock_Kind,								# Block kind 
+		execution_frequency:	Ref( Execution_Frequency ),						# Execution frequency.
+		labels:			Ref( List(  lbl::Codelabel ) ),						# Labels on blocks.
+		notes:			Ref( nt::Notes ),							# Annotations 
+
+		alignment_pseudo_op:	Ref(  Null_Or( pop::Pseudo_Op ) ),					# Alignment only.
+
+
+		ops:			Ref( List( mcf::Machine_Op ) )					# In reverse order.
+	      }
+
+
+	# We have the following invariants
+	# on blocks and out-edge kinds:
+	#
+	#    If the last instruction of the block
+	#    is an unconditional jump, then there
+	#    is one out edge labeled with JUMP.
+	#
+	#    If the last instruction of the block
+	#    is a conditional jump, then there are
+	#    two out edges.  The one corresponding
+	#    to the jump is labeled BRANCH (TRUE)
+	#    and the other is labeled BRANCH (FALSE).
+	#
+	#    If the last instruction of the block
+	#    is not a jump, then there is one out
+	#    edge labeled with FALLSTHRU.
+	#
+	#    If the block ends with a switch,
+	#    then the out edges are labeled
+	#    SWITCH.
+	#
+	#    If the block ends with a call that
+	#    has been wrapped with a FLOW_TO,
+	#    then there will be one FALLSTHRU
+	#    out edge and one or more FLOWSTO
+	#    out edges.
+	#
+	#    Control-flow to outside the
+	#    machcode_controlflow_graph is represented
+	#    by edges to the unique STOP node.
+	#
+	#    When such edges are to labels that
+	#    are defined outside the machcode_controlflow_graph,
+	#    JUMP, BRANCH, or SWITCH edges are used
+	#    (as appropriate).
+	#
+	#    When such edges are to unknown places
+	#    (e.g., traps, returns, and indirect jumps)
+	#    an EXIT edge is used.
+	#
+	#    There should never be a FALLSTHRU
+	#    or ENTRY edge to the STOP node.
+	#
+	also
+	Edge_Kind	    											# Edge kinds 
+	  = ENTRY												# Edge from START node
+	  | EXIT            											# Unlabeled edge to STOP node 
+	  | JUMP												# Basic block ends with unconditional jump -- single JUMP edge out.
+	  | FALLSTHRU												# Basic block ends with no jump -- just falls through to next block
+	  | BRANCH  Bool											# Basic block ends with conditional jump -- two BRANCH edges out.
+	  | SWITCH  Int												# Basic block ends with jump through table -- computed goto. 
+	  | FLOWSTO												# Basic block ends with call -- at least one FALLSTHRU edge out and at least one FLOWSTO edge out.
+
+	also
+	Edge_Info
+	    =
+	    EDGE_INFO  {
+	      kind:		    Edge_Kind,									# Edge kind.
+	      execution_frequency:  Ref( Execution_Frequency ),							# Edge execution frequency (estimated).
+	      notes:		    Ref( nt::Notes )								# Annotations.
+	    };
+
+	Edge =	odg::Edge( Edge_Info );
+	Node =	odg::Node( Bblock );
+
+	# Global information for the controlflow graph.
+	#
+	# We use the controlflow graph to collect in one place
+	# all information need to ultimately produce the
+	# foo.pkg.compiled file from a foo.pkg file.
+	#
+	# Final code generation may be via an assembler,
+	# and even if not (direct machine-code generation)
+	# we will need the same information, so our layout
+	# here is somewhat inspired by assembly-code layout
+	# tradition.
+	#
+	# In particular, a Unix assembly code file traditionally
+	# defines a number of "segments" (block of memory), of
+	# which the chief two are:
+	#
+	#	data segment:  Holds file-global constants and initialized variables.
+	#	text segment:  Holds the actual executable machine code.					# Yes, "text" is a weird name. No, nobody knows why it is called that.
+	#
+	# (We have no need for the other traditional segments,
+	# but for the record they are: 
+	#       bss   segment: Holds all-zero data, mostly uninitialized global variables.			# "bss" is "block started by symbol".  Mythryl compilation doesn't use this.
+	#	stack segment: Holds the stack.									# Mythryl uses a stackless implementation; the stack is basically used only to call C functions.
+	#       heap  segment: Holds dynamically allocated data.						# Mythryl has a heap, but doesn't use the segment technology to access it.
+	# Many other kinds of segments can be defined.)
+	#
+	# Stuff which will eventually go in the data segment,
+	# we accumulate on the dataseg_pseudo_ops list.								# Anything which is not a machine instruction is a "pseudo op",
+	# 													# and the data segment by definition contains no machine instructions,
+	# The text segment will be constructed from the code which						# so everything in the data segment is necessarily a pseudo-op.
+	# in this form consists of the 'ops' machine-instruction lists
+	# from all the basic blocks (== controlflow graph nodes).
+	# 
+	Graph_Info
+	    =
+	    GRAPH_INFO  
+	      { notes:			Ref( nt::Notes ),
+		first_block:		Ref( Int ),								# Id of first basic block (UNUSED?) 
+		reorder:		Ref( Bool ),								# Initially FALSE; set to TRUE (only) when note_changes(graph) is called.
+		dataseg_pseudo_ops:	Ref( List( pop::Pseudo_Op ) ),						# Stuff for the traditional assembly-code "data" segement (or machine-code equivalent).  In reverse order of generation.
+		decls:			Ref( List( pop::Pseudo_Op ) )						# pseudo-ops before first section.
+	      };
+
+	Machcode_Controlflow_Graph
+	    =
+	    odg::Digraph( Bblock, Edge_Info, Graph_Info );
+
+	# ========================================================================
+	#
+	#  Special local notekinds:
+	#
+	# ========================================================================
+
+	liveout:   nt::Notekind( mcf::rgk::Codetemplists );	    # Escaping live out information.
+ 
+	changed:   nt::Notekind( (String, (Void -> Void)));	    # Graph-global notes which will be called when
+								    # user calls our note_topology_changes fun.
+
+	# ========================================================================
+	#
+	#  Methods for manipulating basic blocks
+	#
+	# ========================================================================
+	make_bblock												# New empty block 
+	    :
+	    { id:			Int,
+	      execution_frequency:	Ref(Execution_Frequency)
+	    }
+	    -> Bblock;
+
+	make_node												# New empty block hooked into the mcg.
+	    :
+	    { digraph:			Machcode_Controlflow_Graph,
+	      execution_frequency:	Execution_Frequency
+	    }
+	    -> Node;
+	#
+	make_start_bblock											# START bblock.
+	    :
+	    { id:			Int,
+	      execution_frequency:	Ref( Execution_Frequency )
+	    }
+	    -> Bblock;
+
+	make_stop_bblock											# STOP bblock.
+	    :
+	    { id:			Int,
+	      execution_frequency:	Ref( Execution_Frequency )
+	    }
+	    -> Bblock;
+	#
+	clone_bblock												# Copy a bblock.
+	    :
+	    { new_id:			Int,
+	      bblock:			Bblock
+	    }
+	    -> Bblock;
+
+	define_local_label:		Bblock -> lbl::Codelabel;						# Define a label 
+	ops_of_bblock:			Bblock -> Ref( List( mcf::Machine_Op ) );
+	#
+	bblock_execution_frequency:	Bblock -> Ref( Execution_Frequency );
+	edge_execution_frequency:	Edge   -> Ref( Execution_Frequency );
+	#
+	sum_edge_execution_frequencies:	List(Edge) -> Execution_Frequency;
+	#
+#	bool_of_branch_edge:		Edge_Info -> Null_Or( Bool );						# Commented out 2011-06-10 CrT -- neither of these are used -- see direction_of_edge below.
+#	emit_bblock_as_assembly_code:   nt::Notes -> Bblock -> Void;						# Commented out 2011-06-10 CrT -- neither of these are used.
+
+	# ========================================================================
+	#
+	#  Methods for manipulating machcode_controlflow_graph
+	#
+	# ========================================================================
+	#
+	make_machcode_controlflow_graph:  Void       -> Machcode_Controlflow_Graph;				# Make a new mcg with default global info record.
+	make_machcode_controlflow_graph': Graph_Info -> Machcode_Controlflow_Graph;				# Make a new mcg with given   global info record.
+	#
+	add_start_node_and_stop_node_to_graph:	Machcode_Controlflow_Graph -> Void;				# Convenience function for initialization.  No-op if graph.entries() != [].
+        #
+	make_subgraph:  Machcode_Controlflow_Graph -> Machcode_Controlflow_Graph;	# Mark as subgraph 
+	    #
+	    # Never called; purpose unclear.
+	    # This does a pure-functional clear of graph.global_info.notes to REF []
+	    # by dint of copy-and-change of the root and info records.
+
+	note_topology_changes:   Machcode_Controlflow_Graph -> Void;
+	    #
+	    # Call all CHANGED_X notes on graph proper;
+	    # Set graph.info.reorder := TRUE.
+	    #
+	    # IMPORTANT note: you MUST call this function after
+	    # changing the topology of the machcode_controlflow_graph.  
+
+	get_global_graph_notes:		Machcode_Controlflow_Graph -> Ref( nt::Notes );				# Graph-global notes.
+	liveout_note_of_bblock:		Bblock -> mcf::rgk::Codetemplists;
+	#
+	falls_thru_from:	       (Machcode_Controlflow_Graph, odg::Node_Id) -> Null_Or( odg::Node_Id );	# Which bblock do we fall-thru to?
+	falls_thru_to:		       (Machcode_Controlflow_Graph, odg::Node_Id) -> Null_Or( odg::Node_Id );	# Which bblock falls-thru to us?
+	#
+	remove_edge:			Machcode_Controlflow_Graph -> Edge -> Void;
+	change_bblock_branch_to_jump:  (Machcode_Controlflow_Graph, odg::Node_Id, Bool) -> mcf::Machine_Op;
+	#
+#	direction_of_branch_edge:	odg::Edge( Edge_Info ) -> Null_Or( Bool );				# Commented out 2011-06-10 CrT because it is never used.
+	    #
+	    # Return THE(bool) if edge is of kind BRANCH, else NULL.
+	    # (The bool distinguishes a branch instruction's two out-edges.)
+
+	# Each machcode controlflow graph has
+	# one unique START node representing all external jumps into it, and
+	# one unique STOP  node representing all jumps out of it to external code.
+	#
+	# These functions fetch those Nodes and their Node_Ids:
+	#
+	entry_node_id_of_graph:  Machcode_Controlflow_Graph -> odg::Node_Id;	# Unique entry node ID 
+	exit_node_id_of_graph:   Machcode_Controlflow_Graph -> odg::Node_Id;	# Unique exit node ID 
+	entry_node_of_graph:     Machcode_Controlflow_Graph -> Node;		# Unique entry node 
+	exit_node_of_graph:      Machcode_Controlflow_Graph -> Node;		# Unique exit node 
+
+	# =======================================================================
+	#
+	#  More complex methods for manipulating machcode_controlflow_graph.
+	#  These methods will guarantee all machcode_controlflow_graph invariants
+	#  such as frequencies are preserved.
+	# 
+	# =======================================================================
+
+	# Get codelabel for block;
+	# generate one if none exists:
+	#
+	get_or_make_bblock_codelabel
+	    :
+	    Machcode_Controlflow_Graph
+            -> odg::Node_Id
+            -> lbl::Codelabel;
+
+
+	#  Update the label(s) of the jump/branch instruction in a block
+	#  to be consistent with the control flow edges.  
+	#  This is an NOP if the machcode_controlflow_graph is already consistent.
+	#  This is used internally after changing machcode_controlflow_graph edges, 
+	#  but it could also be useful for others.
+	#
+#	update_bblock_jump_or_branch_per_graph_edges							# Commented out 2011-06-13 CrT because it is nowhere invoked.
+#	    :
+#	    Machcode_Controlflow_Graph
+#	    ->
+#	    odg::Node_Id
+#	    ->
+#	    Void;
+
+
+	clone_edge_info:  Edge_Info -> Edge_Info;
+
+
+#	merge_basic_blocks:  Machcode_Controlflow_Graph -> Edge -> Bool;			# Commented out because never called -- 2011-06-13 CrT
+	    #
+	    # Given a controlflow edge (i,j) linking
+	    # basic blocks i, j, merge i, j in that order
+	    # into a single basic block with Node_Id i.
+	    #
+	    # Return TRUE on success, else FALSE.
+	    #
+	    # The merge is forbidden and FALSE returned if:
+	    #
+	    #  o i is the START node or j is the STOP node, or
+	    #    (equivalently) if the edge is of kind ENTRY or EXIT.
+	    #
+	    #  o If there are other edges out of i or into j.
+	    # 
+	    #  o If j is linked to i by a chain of one or more
+	    #    FALLS_THRU/(BRANCH FALSE) edges.
+	    # 
+	    #  o If j has an alignment pseudo_op set on BBLOCK.notes.
+	    #
+	    # NB: If both i and j have notes set then TRUE is returned
+	    #     but the bblocks are not actually merged;  instead
+	    #     the jump instruction is removed and the edge changed
+	    #     from a JUMP to a FALLS_THROUGH.
+
+#	merge_all_basic_blocks_possible:  Machcode_Controlflow_Graph -> Void;		# Commented out because never called -- 2011-06-13 CrT
+	    #
+	    # Sorts all edges by frequency and then calls
+	    # merge_basic_blocks on each.
+
+#	eliminate_jump:  Machcode_Controlflow_Graph -> odg::Node_Id -> Bool;		# Commented out because never called -- 2011-06-13 CrT
+#	insert_jump:     Machcode_Controlflow_Graph -> odg::Node_Id -> Bool;		# Commented out because never called -- 2011-06-13 CrT
+	    #
+	    #  Respectively remove or insert jump at end of given basic block.
+	    #  Return TRUE iff it is successful.
+
+
+	split_edges									# This is called (only) in gen_popping_code	from   src/lib/compiler/back/low/intel32/treecode/floating-point-code-intel32-g.pkg
+	    :
+	    Machcode_Controlflow_Graph
+	    ->
+	    { groups:   List( ( List( Edge ), 
+				List( mcf::Machine_Op )			# reverse order
+			      )
+			    ),  
+	      jump:  Bool
+	    }
+	    ->
+	    List ((Node, Edge));						#  k_i and k_i -> k_{ i+1 } 
+	    #	
+	    #
+	    #  Split n groups of control flow edges, all initially entering block j,
+	    #
+	    #     i_11 -> j,  i_12 -> j, ...         group 1
+	    #     i_21 -> j,  i_22 -> j, ...         group 2
+	    #             ....
+	    #     i_n1 -> j,  i_n2 -> j, ...         group n
+	    #  
+	    #  into 
+	    #
+	    #     i_11 -> k_1 
+	    #     i_12 -> k_1
+	    #        ...
+	    #     i_21 -> k_2
+	    #     i_22 -> k_2
+	    #        ...
+	    #     i_n1 -> k_n
+	    #     i_n2 -> k_n
+	    #        ...
+	    # 
+	    #  and the chain
+	    #      k_1 -> k_2
+	    #      k_2 -> k_3
+	    #        ...
+	    #      k_n -> j
+	    #
+	    #  where k_1, ..., k_n are new basic blocks.
+	    # 
+	    #  Return the new edges 
+	    #       k_1-> k_2, ..., k_n -> j 
+	    #
+	    #  and the new blocks 
+	    #       k_1, ..., k_n.
+	    #
+	    #  Each block k_1, ..., k_n can have ops (abstract machine instructions) placed in them.
+	    #
+	    #  If the jump flag is TRUE, then a jump is always placed in the 
+	    #  new block k_n; otherwise, we try to eliminate the jump when feasible.
+
+
+
+#	is_merge_node_id:  Machcode_Controlflow_Graph -> odg::Node_Id -> Bool;				# Commented out because never called -- 2011-06-13 CrT
+#	is_split_node_id:  Machcode_Controlflow_Graph -> odg::Node_Id -> Bool;				# Commented out because never called -- 2011-06-13 CrT
+#	is_critical_edge:  Machcode_Controlflow_Graph -> Edge -> Bool;					# Commented out because never called -- 2011-06-13 CrT
+	    #
+	    #  A node  is a "merge node" if it has > 1 incoming edges -- that is, if more than one basic block branches/jumps to it.
+	    #  A node  is a "split node" if it has > 1 outgoing edges -- that is, if it can branch to more than one other bblock.
+	    #  An edge is   "critical"   if it links a split node to a merge node -- that is, if it is both one of several outgoing edges and one of several incoming edges,
+	    #                            EXCEPT that ENTRY and EXIT edges are never considered to be "critical".
+
+
+	# Split all critical edges in the machcode_controlflow_graph.
+	# This may introduce extra jumps into the program.
+	#
+#	split_all_critical_edges:   Machcode_Controlflow_Graph -> Void;					# Commented out because never called -- 2011-06-13 CrT
+
+
+#	must_precede: Machcode_Controlflow_Graph -> (odg::Node_Id, odg::Node_Id) -> Bool;		# Commented out because never called -- 2011-06-13 CrT
+	    #
+	    # When we generate code, a basic block i which FALLSTHRU
+	    # to a bblock j is placed physically immediately before
+	    # j in memory;  consequence "i must_precede j".
+	    #
+	    # The same comment applies to a bblock i with a BRANCH FALSE
+	    # edge to a bblock j;  in this case the BRANCH TRUE will be
+	    # implemented by a conditional branch instruction, but the
+	    # BRANCH FALSE will be implemented just by falling through.
+	    #
+	    # More generally, bblock i must_precede bblock j if there is
+	    # any sequence of FALLSTHRU/(BRANCH FALSE) edges leading from
+	    # i to j.	
+
+
+
+	##########################################################################
+	#
+	#  For viewing
+	#
+    #
+    #    my viewStyle:       mcg ->  graph_layout::style (block, edge_info, graph_info)
+    #    my viewLayout:      mcg -> graph_layout::layout
+    #    my headerText:      block -> String
+    #    my footerText:      block -> String
+    #    my subgraphLayout:  { mcg:  mcg, subgraph:  mcg } -> graph_layout::layout
+
+
+
+	##########################################################################
+	#
+	#  For building a control-dependency graph.
+	#
+#	is_not_jump_or_fallsthru_edge:  Edge_Info -> Bool; 						# Commented out because never called -- 2011-06-13 CrT
+
+
+	##########################################################################
+	#
+	#  Methods for printing acgs
+
+	bblock_kind_to_string:  Bblock_Kind -> String;						
+	show_bblock:  		nt::Notes -> Bblock -> String; 
+	show_edge_info:		Edge_Info -> String; 
+	#
+	dump_node:		(file::Output_Stream, Machcode_Controlflow_Graph) -> Node -> Void;
+	dump:			(file::Output_Stream, String, Machcode_Controlflow_Graph) -> Void;
+
+    };
+end;
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

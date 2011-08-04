@@ -1,0 +1,3460 @@
+## unify-and-generalize-types-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+
+
+
+#                   "You get what you give:  Unloved code is ugly code."
+
+
+
+api Unify_And_Generalize_Types {
+                                                            
+    unify_and_generalize_types
+        :
+        { symbolmapstack:        symbolmapstack::Symbolmapstack,
+          declaration:         deep_syntax::Declaration,
+
+          outside_all_lets:    Bool,
+
+          error_function:      error_message::Error_Function,
+          source_code_region:  line_number_db::Source_Code_Region
+        }
+     -> deep_syntax::Declaration;
+
+     debugging:  Ref(  Bool );
+
+};
+
+
+#  Genericized to factor out dependencies on highcode... 
+
+stipulate
+    package ds  =  deep_syntax;				# deep_syntax				is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package em  =  error_message;			# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package pp  =  prettyprint;				# prettyprint				is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    package sta =  stamp;				# stamp					is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sy  =  symbol;				# symbol				is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package tyj =  type_junk;				# type_junk				is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package tt  =  type_types;				# type_types				is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package ty  =  types;				# types					is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package uds =  unparse_deep_syntax;			# unparse_deep_syntax			is from   src/lib/compiler/front/typer/print/unparse-deep-syntax.pkg
+    package uj  =  unparse_junk;			# unparse_junk				is from   src/lib/compiler/front/typer/print/unparse-junk.pkg
+    package uty =  unparse_type;			# unparse_type				is from   src/lib/compiler/front/typer/print/unparse-type.pkg
+    package uyt =  unify_types;				# unify_types				is from   src/lib/compiler/front/typer/types/unify-types.pkg
+    package vac =  variables_and_constructors;		# variables_and_constructors		is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    #
+#    include	 prettyprint;				# prettyprint				is from   src/lib/prettyprint/big/src/prettyprint.pkg
+herein
+
+    generic package unify_and_generalize_types_g (
+		 inlining_info_says_it_is_pure:  inlining_information::Inlining_Information -> Bool;
+		 inlining_info_to_my_type:       inlining_information::Inlining_Information -> Null_Or( types::Type );
+	    )
+
+    : (weak) Unify_And_Generalize_Types			# Unify_And_Generalize_Types		is from   src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+
+    {
+
+	stipulate
+
+	    Symbolmapstack   = symbolmapstack::Symbolmapstack;
+	    Error_Function = error_message::Error_Function;
+
+	    --> = tt::(-->);
+
+	    # The following is support for tracking the
+	    # lexical context in which type variables
+	    # appear.  We are interested in whether
+	    # type variables are free or bound and also
+	    # whether we are inside some let/stipulate
+	    # construct or at top level.
+	    #
+	    # The two critical things we track are:
+	    #
+	    #
+	    # outside_all_lets:
+	    #
+	    #     TRUE iff we are not lexicallly			# NB: A 'stipulate' statement is a 'let'
+	    #     within the scope of any "let"			# construct, also { ... } code blocks and
+	    #     construct.					# 'if'-statement 'then' and 'else' clauses.
+	    #
+	    #     We need this because (for example)
+	    #     it is an error not to generalize			# Generalization is discussed below.
+	    #     a type variable a top level but
+	    #     it is ok not to generalize one in
+	    #     a 'let' due to the "value restriction".
+	    #
+	    #
+	    # fn_nesting:
+	    #
+	    #     This is the number of fun/fn			# 'lambdas', in fp jargon.
+	    #     definitions lexically enclosing us.
+	    #     This numbering starts at 0.
+	    #     
+	    #     We need this to support type agnosticism -- "polymorphism".
+	    #     
+	    #     Mythryl (and ML generally) implement
+	    #     what is sometimes called "let-polymorphism",
+	    #     in which (canonically) functions defined
+	    #     in 'let' constructs have their type variables
+	    #     'generalized' to allow them to match different
+	    #     types in different invocations.  For example
+	    #         {
+	    #             ...
+	    #             fun swap (a, b) = (b, a);
+	    #             ...
+	    #             p0 = swap ( 1 ,  2 );
+	    #             p1 = swap ('1', '2');
+	    #             p2 = swap ("1", "2");
+	    #             ...
+	    #         };
+	    #     
+	    #     Here swap() is operating indifferently		# "Don't-care polymorphism" and
+	    #     upon pairs of ints, chars and strings.		# "parametric polymorphism" are two
+	    #     							# more names for this kind of
+	    #     Making this typecheck requires a special		# typeagnosticism.
+	    #     kludge.  Here's how it works:
+	    #     
+	    #       o Instead of assigning 'swap' a normal		# In fp jargon this is called a "type scheme".
+	    #	  type, we assign it a template for a		# We represent them using TYPE_SCHEME records and
+	    #         type, with holes where all the type		# we represent the 'holes' with TYPE_SCHEME_ARG_I,
+	    #	  variables should be.				# both from    src/lib/compiler/front/typer-stuff/types/types.pkg
+	    #     
+	    #       o Each time we come to a call to 'swap'		# This copy-and-complete is implemented by
+	    #         we generate a fresh type for it by		#     type_junk::instantiate_if_type_scheme()
+	    #	  making a copy of the template and		# from
+	    #	  filling in all the holes with fresh		#     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+	    #	  type variables.				#
+	    #     
+	    #     This way type inference is free to deduce
+	    #     a different type for each call to 'swap'.
+	    #     
+	    #     We refer to the process of replacing a
+	    #     type by such a type template as
+	    #     "type generalization".
+	    #
+	    #     We implement this below, in
+	    #
+	    #         generalize_pattern()
+	    #         generalize_type()
+	    #
+	    #     However when doing such type variable
+	    #     generalization we must NOT generalize
+	    #     any type variables inherited from			# For a more extended discussion
+	    #     enclosing scopes because the inherited		# see Benjamin C Pierce's
+	    #     type variables encode important type		# "Types and Programming Languages" 
+	    #     constraints which will be lost if we		# Chapter 22, in particular  
+	    #     generalize them, allowing incorrect		# page 333 rule 3.
+	    #     code to typecheck.	
+	    #
+	    #     We implement this restriction by
+	    #
+	    #      1) Tracking our current fn nesting level
+	    #         as we do syntactic treewalks.
+	    #
+	    #      2) Tagging every type variable with
+	    #         the outermost fn nesting level
+	    #         mentioning it.  (We refine this
+	    #	  during the type unification pass.)
+	    #
+	    #      3) Generalizing only those variables
+	    #	  defined at a deeper nesting level
+	    #	  than our current treewalk fn nesting
+	    #         level, which is to say variables
+	    #	  introduced by 'let' constructs
+	    #	  nested within the current fun/fn
+	    #	  (if any), rather than inherited from
+	    #	  scopes outside the 'let'.
+	    #
+	    #     Free type variables not declared by the user
+	    #     are in general given a lexical nesting depth
+	    #     of 'infinity', represented by an arbitrary	# E.g.:   tyj::make_meta_type_variable_and_type  ty::infinity;
+	    #     integer larger than any expected real lexical
+	    #     nesting depth.
+	    #
+	    #     USER_TYPE_VARIABLE type_variables
+	    #     are created with fn_nesting == infinity;		# By  make_user_type_variable()  in  src/lib/compiler/front/typer-stuff/types/type-junk.pkg 
+	    #     this nesting depth can be reduced
+	    #     via unification.
+	    #
+	    #     When we instantiate a typeagnostic
+	    #     type body we set all the META
+	    #     variables to fn_nesting == "infinity".		# "infinity" being a kilomyriad, which
+	    #							# is to say 10000000. See types.pkg. :-)
+	    #
+	    #
+	    # 8/18/92:
+	    #     Cleaned up syntax_treewalk_lexical_context
+	    #     "state machine" some and fixed bug #612.
+	    #
+
+	    Syntax_Treewalk_Lexical_Context
+		=
+		{
+		  fn_nesting:        Int,
+		  outside_all_lets:  Bool
+		};
+
+
+	    # When we start a typechecking a treewalk
+	    # at the root of a syntax tree, this is
+	    # our initial type variable context:
+	    #
+	    root_syntax_treewalk_lexical_context
+		=
+		{
+		  fn_nesting       => 0,
+		  outside_all_lets => TRUE
+		};
+
+
+	    # Note that we have entered the lexical scope
+	    # of a 'let' equivalent construct.
+	    # These include 'stipulate's, { ... } codeblocks and
+	    # if-statement 'then' and 'else' clauses:
+	    #
+	    fun enter_let_scope { fn_nesting, outside_all_lets }
+		=
+		{ 
+		  outside_all_lets => FALSE,
+		  fn_nesting
+		};
+
+
+	    # Note that we have entered the lexical scope
+	    # of a fun/fn or equivalent construct:
+	    #
+	    fun enter_fn_scope  { fn_nesting, outside_all_lets }
+		=
+		{
+										if *uty::debugging
+										printf "enter_fn_scope bumping fn_nesting from %d to %d\n" fn_nesting (fn_nesting + 1);
+										fi;
+		    {
+		      fn_nesting =>  fn_nesting + 1,
+		      outside_all_lets
+		    };
+		};
+
+	herein 
+
+	    #  Debug support: 
+
+	    say         =   control_print::say;
+	    debugging   =   typer_control::unify_and_generalize_types_g_debugging;		#  REF FALSE 
+
+	    generalize_mutually_recursive_functions
+		=
+		typer_control::generalize_mutually_recursive_functions;			#  REF FALSE
+
+	    fun if_debugging_say (msg: String)
+		=
+		if *debugging
+		    say msg;
+		    say "\n";
+		fi;
+
+	    debug_print   =   (fn x =  typer_debugging::debug_print debugging x);
+
+	    fun bug msg   =   error_message::impossible("TypeCheck: " + msg);
+
+	    fun print_callstack
+		(msg:    String)
+		(callstack:  List(String))
+		=
+		{   printf "%s:  callstack(%d) == " msg (list::length callstack);
+		    apply  .{ printf " -> %s" #string; }  (reverse callstack);
+		    printf "\n";
+		};
+
+	    is_value      =   tyj::is_value { inlining_info_says_it_is_pure };
+
+	    infix val 9  sub ;
+	    infix val    --> ;
+
+	    print_depth = control_print::print_depth;
+
+	    fun ref_new_dcon (ty::VALCON { name, is_constant, form, type, signature, is_lazy } )
+		= 
+		ty::VALCON
+		  {
+		    type => tt::ref_pattern_type,
+		    name,
+		    is_constant,
+		    form,
+		    signature,
+		    is_lazy
+		  };
+
+	    exception NOT_THERE;
+
+	    fun message (   msg,    mode: unify_types::Unify_Fail   )
+		=
+		string::cat [ msg, " [", unify_types::fail_message mode, "]" ];
+
+
+
+
+	    # Here is the heart of the compiler's type inference engine.
+	    #
+	    # This is also where we implement type agnosticism
+	    # by generalizing USER_TYPE_VARIABLE and META_TYPE_VARIABLE
+	    # types to TYPE_SCHEME_ARG_I types whenever permitted
+	    # by the "value restriction" as implemented by is_value() in
+	    #
+	    #     src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+	    #
+	    # We get called from two spots in typecheck_declaration'() in
+	    #
+	    #     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+	    #
+	    # We delegate actual type unification to unify_types() in
+	    #
+	    #     src/lib/compiler/front/typer/types/unify-types.pkg
+	    #
+	    # A light overview of Hindley-Milner type inference may be found here:
+	    #     http://en.wikipedia.org/wiki/Type_inference
+	    #
+	    # A more detailed treatment may be found in the
+	    #   Types and Programming Languages
+	    # text by Benjamin C Pierce, chapter 22.
+	    #
+	    fun unify_and_generalize_types
+		{
+		  declaration:         ds::Declaration,
+		  symbolmapstack:      Symbolmapstack,
+
+		  outside_all_lets:    Bool,
+		  error_function:      Error_Function,
+		  source_code_region:  ds::Source_Code_Region
+		}
+		: ds::Declaration
+		= 
+		{
+		    if_debugging_unparse_declaration     ("unify_and_generalize_types: MID, just before calling do_declaration: declaration unparse     is:\n", declaration);
+		    if_debugging_prettyprint_declaration ("unify_and_generalize_types: MID, just before calling do_declaration: declaration prettyprint is:\n", (declaration,100));
+
+		    declaration'
+			=
+			do_declaration (
+
+			    declaration,
+
+			    outside_all_lets  ??                   root_syntax_treewalk_lexical_context
+					      ::  enter_let_scope  root_syntax_treewalk_lexical_context,
+
+			    source_code_region,
+
+			    []
+			);
+
+		    resolve_all_overloaded_literals (); 
+		    resolve_all_overloaded_variables  symbolmapstack;
+
+		    if_debugging_unparse_declaration     ("unify_and_generalize_types: BOT. transformed declaration unparse     is:\n",  declaration');
+		    if_debugging_prettyprint_declaration ("unify_and_generalize_types: BOT. transformed declaration prettyprint is:\n", (declaration',100));
+		    if_debugging_say "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
+		    if_debugging_say   "============= unify_and_generalize_types/BOTTOM =============\n";
+
+		    declaration';
+		}
+		where
+
+													    # resolve_overloaded_literals	is from   src/lib/compiler/front/typer/types/resolve-overloaded-literals.pkg
+													    # resolve_overloaded_variables	is from   src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+
+		    (resolve_overloaded_literals::new  ()) -> { note_overloaded_literal,  resolve_all_overloaded_literals   };
+		    (resolve_overloaded_variables::new ()) -> { note_overloaded_variable, resolve_all_overloaded_variables  };
+
+		    prettyprint_declaration         = prettyprint_deep_syntax::prettyprint_declaration (symbolmapstack::empty, NULL);
+		    prettyprint_expression          = prettyprint_deep_syntax::prettyprint_expression  (symbolmapstack::empty, NULL);
+		    prettyprint_pattern             = prettyprint_deep_syntax::prettyprint_pattern      symbolmapstack::empty;
+
+		    unparse_type                    = unparse_type::unparse_type                            symbolmapstack;
+		    unparse_typevar_ref             = unparse_type::unparse_typevar_ref                     symbolmapstack;
+		    unparse_pattern                 = unparse_deep_syntax::unparse_pattern                  symbolmapstack;
+		    unparse_expression              = unparse_deep_syntax::unparse_expression              (symbolmapstack, NULL);
+		    unparse_rule                    = unparse_deep_syntax::unparse_rule                    (symbolmapstack, NULL);
+		    unparse_named_value             = unparse_deep_syntax::unparse_named_value             (symbolmapstack, NULL);
+		    unparse_recursively_named_value = unparse_deep_syntax::unparse_recursively_named_value (symbolmapstack, NULL);
+
+		    unparse_declaration
+			= 
+			(fn stream
+			    =
+			    fn d
+				=
+				unparse_deep_syntax::unparse_declaration
+					(symbolmapstack, NULL)
+					stream
+					(d, *print_depth)
+			);
+
+		    fun if_debugging_unparse_declaration (msg, declaration)
+			=
+			if *debugging
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, unparse_declaration, declaration));
+			fi;
+
+		    fun if_debugging_unparse_type (msg, type)
+			=
+			if *debugging
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, unparse_type, type));
+			fi;
+
+		    fun if_debugging_unparse_typevar_ref  (msg, typevar_ref)
+			= 
+			if *debugging		# Without this 'if' (and the matching one in unify_types), compiling the compiler takes 5X as long! :-)
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, unparse_typevar_ref, typevar_ref));
+			fi;
+
+		    fun if_debugging_unparse_pattern (msg, pattern)
+			=
+			if *debugging
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, unparse_pattern, pattern));
+			fi;
+
+		    fun if_debugging_unparse_expression (msg, expression)
+			=
+			if *debugging	
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, unparse_expression, expression));
+			fi;
+
+
+		    fun if_debugging_prettyprint_expression (msg, expression)
+			=
+			if *debugging	
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, prettyprint_expression, expression));
+			fi;
+
+		    fun if_debugging_prettyprint_pattern (msg, pattern)
+			=
+			if *debugging	
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, prettyprint_pattern, pattern));
+			fi;
+
+		    fun if_debugging_prettyprint_declaration (msg, declaration)
+			=
+			if *debugging	
+			    typer_debugging::with_internals
+				(fn () =  typer_debugging::debug_print debugging (msg, prettyprint_declaration, declaration));
+			fi;
+
+
+		    # This is a simple wrapper for unify_types(),
+		    # used all through this file.
+		    #
+		    # 'type1' and 'type2' are the only
+		    # arguments of consequence;  the rest
+		    # are just diagnostic printing support:
+		    #
+		    fun unify_types_and_handle_errors {
+
+			    type1, name1,			# type1: ty::Type,   name1:  String
+			    type2, name2,			# type2: ty::Type,   name2:  String
+
+			    message => m,
+			    source_code_region,
+
+			    unparse_phrase,			# prettyprint::String -> (X, Int) -> Void
+			    phrase_name,			# String
+			    phrase,				# X; X here and above is one of deep syntax Case_Pattern, Expression, ...
+			    callstack
+			}
+			=
+			{
+    # More annoying than helpful:
+    #			if *debugging
+    #                            printf "src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg:\
+    #                                   \ unify_types_and_handle_errors: calling unify_types name1 %s name2 %s message %s\n" name1 name2 m;
+    #                        fi;
+
+			    uyt::unify_types
+			      (
+				name1, name1,
+				type1, type2,
+				"unify_types_and_handle_errors" ! callstack
+			      );
+
+			    TRUE;
+			}
+			except
+			    uyt::UNIFY_TYPES (mode)
+				=
+				{   error_function source_code_region
+					em::ERROR
+					(message (m, mode))
+					(fn stream
+					    =
+					    {  unparse_type::reset_unparse_type();
+
+					       len1   = size name1;
+					       len2   = size name2;
+
+					       spaces = "                                   ";
+
+					       pad1   = substring (spaces, 0, int::max (0, len2-len1));
+					       pad2   = substring (spaces, 0, int::max (0, len2-len1));
+
+					       m = if   (m=="")
+							name1 + " and " + name2 + " don't agree";
+						   else m;
+						   fi;
+
+					       if (name1 != "")
+						    pp::newline stream; 
+						    pp::string stream (name1 + ": " + pad1);
+						    unparse_type stream type1;
+					       fi; 
+
+					       if  (name2 != "")
+						    pp::newline stream; 
+						    pp::string stream (name2 + ": " + pad2);
+						    unparse_type stream type2;
+					       fi;
+
+					       if  (phrase_name != "")
+						    pp::newline stream; pp::string stream("in " + phrase_name + ":");
+						    pp::break stream { spaces=>1, indent_on_wrap=>2 };
+						    unparse_phrase stream (phrase,*print_depth);
+					       fi;
+					    }
+					);
+				    FALSE;
+				};
+
+		    if_debugging_say "\n============= unify_and_generalize_types/TOP =============";
+		    if_debugging_say   "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+		    if_debugging_say ("unify_and_generalize_types: outside_all_lets = " + bool::to_string  outside_all_lets);
+		    if_debugging_unparse_declaration     ("unify_and_generalize_types/TOP: declaration unparse     = ", declaration);
+		    if_debugging_prettyprint_declaration ("unify_and_generalize_types/TOP: declaration prettyprint = ", (declaration,100));
+
+
+		    # This is the core routine responsible for marking
+		    # a pattern variable as typeagnostic.
+		    #
+		    # Our first argument below is the most important;
+		    # it is from a ds::VARIABLE_IN_PATTERN.
+		    # The critical part of it is the 'var_type' ref:
+		    # we will overwrite it with a generalized
+		    # version of itself -- a
+		    #     ty::TYPE_SCHEME_TYPE { ... }
+		    # record wrapping a type scheme -- and then return
+		    # the list of generalized type variables as our result.
+		    #
+		    # We get called frome exactly one place,
+		    # in generalize_pattern'() in generalize_pattern(). 
+		    #
+		    fun generalize_type
+			    (
+			      vac::ORDINARY_VARIABLE { var_type, path, ... }:   vac::Variable,
+			      user_typevar_refs:                 	           List( ty::Typevar_Ref ),		# *NAMED_VALUE.type_variables -- X, Y, Z ... from a function clause pattern or such.
+
+			      syntax_treewalk_lexical_context:                 Syntax_Treewalk_Lexical_Context,
+			      generalize:                                      Bool,				# Result of type_junk::is_value()
+			      source_code_region:                              ds::Source_Code_Region,
+			      callstack:                                       List(String)				# Debug support.
+			    )
+			    : List( ty::Typevar_Ref )			# These will actually always be ty::META_TYPE_VARIABLE or ty::USER_TYPE_VARIABLE.
+			    =>
+			    {
+				if *debugging
+				    print_callstack "\n=============  generalize_type/TOP =============" callstack;
+				    say (  "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n");
+				    say ("generalize_type: " + symbol_path::to_string path);
+				    say "\nuser_typevar_refs: ";
+				    apply  unparse_typevar_ref  user_typevar_refs
+				    where
+					fun unparse_typevar_ref  typevar_ref
+					    =
+					    if_debugging_unparse_typevar_ref ("", typevar_ref);
+				    end;
+				    printf "\ngeneralize is %s\n" (generalize ?? "TRUE" :: "FALSE");
+				    printf "lexical context: fn_nesting d= %d  outside_all_lets b= %s\n"  syntax_treewalk_lexical_context.fn_nesting  (syntax_treewalk_lexical_context.outside_all_lets ?? "TRUE" :: "FALSE");
+				fi;
+
+				failure =   REF FALSE;
+
+
+				# Function to create dummy-type generators
+				# used to resolve ungeneralizable free
+				# type variables in typechecking::generalize_type:
+				#
+				make_dummy =  {   syntax_treewalk_lexical_context.outside_all_lets  
+						      ??
+						      make_dummy_type_generator()
+						      ::
+						      make_dummy';		# Shouldn't be called.
+					      }
+					      where
+
+						  fun make_dummy' ()
+						      =
+						      type_types::void_type;
+
+																	      # stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+						  fun make_dummy_type_generator ()   :   Void -> ty::Type
+						      =
+						      {   count = REF 0;
+
+							  fun next ()
+							      =
+							      {   count := *count + 1;
+								  *count;
+							      };
+
+							  fun next_type ()
+							      =
+							      {   name = "X" + int::to_string (next ());
+
+								  ty::TYPCON_TYPE (
+								      #	
+								      ty::PLAIN_TYP
+									{
+									  stamp =>  sta::make_stale_stamp  name,
+									  path  =>  inverse_path::INVERSE_PATH [sy::make_type_symbol name],
+									  arity =>  0,
+									  eq    =>  REF ty::NO,
+									  kind  =>  ty::ABSTRACT core_type_types::bool_typ,
+									  stub  =>  NULL
+								        },
+
+								      []
+								  );
+							      };
+
+							  next_type;
+						      };
+					      end;
+
+
+				# Track number of type variables bound.
+				# This will wind up being the type_scheme
+				# arity:
+				#
+				type_scheme_arg_slots_allocated
+				    =
+				    REF 0;
+
+
+				fun allocate_type_scheme_arg_slot ()
+				    =
+				    {   slot =  *type_scheme_arg_slots_allocated;
+
+					type_scheme_arg_slots_allocated
+					    :=
+					    slot+1;
+
+					slot;
+				    };
+
+
+				# Check a type variable for membership
+				# in our 'user_typevar_refs' parameter:
+				#
+				fun is_local_function_typevar_ref  ref_typevar
+				    =
+				    is_member  user_typevar_refs
+				    where
+					fun is_member (user_typevar_ref ! rest)
+						=>
+						tyj::typevar_refs_are_equal (ref_typevar, user_typevar_ref)
+						or
+						is_member rest;
+
+					   is_member []
+					       =>
+					       FALSE;
+					end;
+				    end;
+
+
+				# Track which of the below type variables
+				# need to be of equality type.  This list
+				# will always be the same length as the
+				# next;  possibly they should be combined:
+				#
+				type_scheme_arg_eq_properties
+				    =
+				    REF ([]: ty::Type_Scheme_Arg_Eq_Properties);
+
+
+				# In this association list we track the
+				# ty::TYPE_SCHEME_ARG_I slots of variables
+				# we've already generalized, to avoid assigning
+				# two slots to one variable.
+				# 
+				# The keys in this list are USER_TYPE_VARIABLE
+				# and META_TYPE_VARIABLE
+				# type variables;  the corresponding values
+				# are the ty::TYPE_SCHEME_ARG_I types (slot numbers)
+				# we create for them.
+				#
+				# ASSERTION: There are no duplicate type_variables
+				#            in domain of generalized_type_variables.
+				#
+				generalized_typevar_ref_types
+				    =
+				    REF ([]:   List( ( ty::Typevar_Ref,		# This will be REF( ty::META_TYPE_VARIABLE | ty::USER_TYPE_VARIABLE )
+						       ty::Type			# This will actually always be a ty::TYPE_SCHEME_ARG_I. 
+					)          ) );
+
+				# Add an entry to above list:
+				#	
+				fun note_generalized_typevar_ref_type
+				    (
+				      typevar_ref:	ty::Typevar_Ref,		# This will reference a ty::META_TYPE_VARIABLE or ty::USER_TYPE_VARIABLE
+				      sometype:	ty::Type			# This will actually always be a ty::TYPE_SCHEME_ARG_I. 
+				    )
+				    =
+				    {
+    if *debugging
+	if_debugging_unparse_typevar_ref  ("note_generalized_typevar_ref_type adding typevar_ref: ", typevar_ref);
+	if_debugging_unparse_type         ("    with type", sometype);
+    fi;
+					generalized_typevar_ref_types
+					    :=
+					    (typevar_ref, sometype)
+					    !
+					    *generalized_typevar_ref_types;
+				    };
+
+				# Search above list.
+				# Return key's value if found,
+				# otherwise raise NOT_THERE.
+				#
+				fun find_generalized_typevar_ref_type  typevar_ref
+				    =
+				    search  *generalized_typevar_ref_types
+				    where
+					fun search []
+						=>
+						raise exception NOT_THERE;
+
+					    search ((typevar_ref', type_scheme_arg_i) ! rest)
+						=>
+						tyj::typevar_refs_are_equal (typevar_ref, typevar_ref')
+						    ?? 
+						    type_scheme_arg_i
+						    ::
+						    search rest;
+					end;
+				    end;
+
+
+				# Make a type typeagnostic.
+				# This mainly means replacing both of
+				#     META_TYPE_VARIABLE
+				#     USER_TYPE_VARIABLE
+				# by
+				#     ty::TYPE_SCHEME_ARG_I 
+				# wherever possible, e.g., where permitted
+				# by the "value restriction" as implemented
+				# by type_junk::is_value() and passed to us
+				# via the 'generalize' parameter.
+				#	
+				# We construct and return a Type
+				# result to replace our Type argument, but
+				# along the way we also side-effect various
+				# type_variables &tc in the expression, so
+				# this code is far from pure:
+				#
+				fun generalize_type'
+				    (type: ty::Type)
+				    :      ty::Type
+				    =     
+				    case type
+
+					ty::TYPE_VARIABLE_REF (typevar_ref as { id, ref_typevar as REF (ty::META_TYPE_VARIABLE { fn_nesting, eq }) })
+					    =>
+					    {
+						if *debugging
+						    printf "generalize_type'/META fn_nesting d=%d eq b=%s generalize b=%s\n" fn_nesting (eq ?? "TRUE" :: "FALSE")  (generalize ?? "TRUE" :: "FALSE");
+						fi;
+
+						# This is the focal case
+						# for this function. The
+						# remaining cases are mostly
+						# corner cases and recursive
+						# descent to reach this case:
+						#
+						result
+						    =
+						    if (fn_nesting  >  syntax_treewalk_lexical_context.fn_nesting)		# If type variable is not constrained by contexts outside this 'let'.
+
+							 if generalize							# If 'value restriction' permits generalization of this type variable.
+
+							     if_debugging_say ("generalize_type'/META_TYPE_VARIABLE:  converting META to TYPE_SCHEME_ARG_I\n");
+
+							     find_generalized_typevar_ref_type  typevar_ref				# If we've already assigned this META variable a TYPE_SCHEME_ARG_I slot, return that as our replacement for it.
+							     except
+								 NOT_THERE
+								     =
+								     {   # Assign a new type scheme slot
+									 # to this META type variable,
+									 # note it for future reference,
+									 # and return it as our replacement
+									 # for the META type variable.
+
+									 new_type_scheme_slot_arg
+									     =
+									     ty::TYPE_SCHEME_ARG_I( allocate_type_scheme_arg_slot() );
+
+									 if_debugging_say ("generalize_type'/META_TYPE_VARIABLE: converting META to TYPE_SCHEME_ARG_I by allocating new TYPE_SCHEME_ARG_I\n");
+
+									 # Remember whether this TYPE_SCHEME_ARG_I
+									 # type variable must resolve to an
+									 # equality type:
+									 #
+									 type_scheme_arg_eq_properties
+									     :=
+									     eq ! *type_scheme_arg_eq_properties;
+
+									 note_generalized_typevar_ref_type (typevar_ref, new_type_scheme_slot_arg); 
+
+									 new_type_scheme_slot_arg;
+								     };
+							 else
+							      if syntax_treewalk_lexical_context.outside_all_lets
+
+								  new = make_dummy ();
+								  failure := TRUE;
+								  ref_typevar := ty::RESOLVED_TYPE_VARIABLE new;
+								  if_debugging_say ("generalize_type'/META_TYPE_VARIABLE: generalize FALSE so converting META to RESOLVED_TYPE_VARIABLE dummy\n");
+								  new;
+
+							      else
+
+								  if *typer_control::value_restriction_local_warn
+
+								       error_function  source_code_region  em::WARNING
+									     ( "type variable not generalized in local decl (value restriction): "
+									       +
+									       (uty::typevar_ref_printname  typevar_ref)
+									     )
+									     em::null_error_body;
+								  fi;
+
+								   # Reset fn_nesting to prevent later
+								   # incorrect generalization inside
+								   # a fun/fn expression.  See typechecking
+								   # test.pkg
+								   #	
+								   ref_typevar
+								       :=
+								       ty::META_TYPE_VARIABLE { eq, fn_nesting => syntax_treewalk_lexical_context.fn_nesting };
+
+								   if_debugging_say ("generalize_type'/META_TYPE_VARIABLE:  generalize FALSE, resetting fn_nesting to prevent incorrect generalization\n");
+
+								   type;	# Return our (modified) input argument as our result.
+							       fi;
+							   fi;
+
+						    elif (fn_nesting == 0  and  syntax_treewalk_lexical_context.outside_all_lets)
+
+							# ASSERT: failed generalization at fn_nesting 0.
+							# see bug 1066.
+							if_debugging_say ("generalize_type'/META_TYPE_VARIABLE: generalize FALSE, fn_nesting==0, changing to RESOLVED_TYPE_VARIABLE dummy\n");
+
+							 find_generalized_typevar_ref_type  typevar_ref
+							 except
+							     NOT_THERE
+								=
+								{   new = make_dummy ();
+								    failure := TRUE;
+								    ref_typevar := ty::RESOLVED_TYPE_VARIABLE new;
+								    new;
+								};
+						    else
+							 type;
+						    fi;
+
+					       result;
+					   };
+
+					ty::TYPE_VARIABLE_REF (typevar_ref as { id, ref_typevar => REF (ty::INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields => [ (lab, _) ] } ) })
+					     =>
+					     if ( (       fn_nesting  >  syntax_treewalk_lexical_context.fn_nesting
+						  and   (generalize  or  syntax_treewalk_lexical_context.outside_all_lets)
+						  )
+						  or
+						  ( fn_nesting == 0
+						    and
+						    syntax_treewalk_lexical_context.outside_all_lets  
+						  )
+					     )
+						 error_function source_code_region em::ERROR
+						     (string::cat
+							 [ "unresolved flex record\n\
+							   \   (Don't know what fields it has beyond .",
+							   sy::name lab,
+							   ")"
+							 ]
+						     )
+						     em::null_error_body;
+
+						 if_debugging_say ("generalize_type': converting INCOMPLETE_RECORD_TYPE_VARIABLE to WILDCARD\n");
+						 ty::WILDCARD_TYPE;
+
+					     else
+						 if_debugging_say ("generalize_type': leaving INCOMPLETE_RECORD_TYPE_VARIABLE as-is\n");
+						 type;
+					     fi;
+
+					ty::TYPE_VARIABLE_REF (typevar_ref as { id, ref_typevar => REF (ty::INCOMPLETE_RECORD_TYPE_VARIABLE { fn_nesting, eq, known_fields } ) } )
+					     =>
+					     if ( (     fn_nesting > syntax_treewalk_lexical_context.fn_nesting  
+						  and (generalize or syntax_treewalk_lexical_context.outside_all_lets)
+						  )
+						or ( fn_nesting == 0
+						     and
+						     syntax_treewalk_lexical_context.outside_all_lets
+						   )
+						)
+
+						 error_function source_code_region em::ERROR 
+						    "unresolved flex record (need to know the \
+						    \names of ALL the fields\n in this context)"
+						    (fn stream
+							=
+							{   unparse_type::reset_unparse_type();
+							    pp::newline stream;
+							    pp::string stream "type: ";
+							    unparse_type stream type;
+							}
+						    );
+
+						ty::WILDCARD_TYPE;
+
+					     else
+						 type;
+					     fi;
+
+
+					ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) }
+					    =>
+					    {
+					   if_debugging_unparse_type ("generalize_type'/RESOLVED_TYPE_VARIABLE: generalizing resolved type variable of type:\n", type);
+						# Drop from the type the now-useless prefix
+						#     ty::TYPE_VARIABLE_REF (REF (ty::RESOLVED_TYPE_VARIABLE
+						# Process and return the remainder of the type:
+						#	
+						generalize_type' type;
+					    };
+
+					ty::TYPE_VARIABLE_REF (typevar_ref as { id, ref_typevar as REF (ty::USER_TYPE_VARIABLE { name, fn_nesting, eq } ) } )
+					    =>
+					    {   if *debugging  printf "generalize_type'/USER_TYPE_VARIABLE: %s fn_nesting==%d eq==%s\n" (sy::name name) fn_nesting (eq ?? "TRUE" :: "FALSE");
+						fi;
+
+						# We're looking at a type variable X or Y in an
+						# expression like  fun foo (x: X) = ... and
+						# wondering if it is ok to generalize.
+
+						# If it isn't on the list of type variables
+						# used in the current function's pattern
+						# clause(s) (parameter expressions), we have
+						# no business messing with it:
+						#	
+						if (not (is_local_function_typevar_ref  typevar_ref))
+
+						    if_debugging_say "is not local";
+
+						    # This USER_TYPE_VARIABLE does not belong
+						    # to us, so we cannot generalize it:
+						    #
+						    type;
+
+						else
+						    # This USER_TYPE_VARIABLE -does- belong
+						    # to us, so we can (maybe) generalize it:
+
+						    if_debugging_say " is local";
+
+						    # If this type variable is mentioned in an
+						    # enclosing lexical context (fun/fn), it
+						    # encodes type constraints that would be
+						    # lost if we generalized it, allowing
+						    # incorrect code to typecheck:
+						    # 
+						    if ( fn_nesting > syntax_treewalk_lexical_context.fn_nesting	# External scope references do not forbid generalization.
+							 and
+							 generalize						# "value restrIction" does not forbid generalization.
+						       )
+
+							# We're GO to generalizat this type variable.
+
+							if_debugging_say " is generalizable, replacing USER_TYPE_VARIABLE by TYPE_SCHEME_ARG_I";
+
+							find_generalized_typevar_ref_type  typevar_ref			# If we've already generalized it, use assigned type_scheme slot.
+							except
+							    NOT_THERE
+								=
+								{   # Need to assign a fresh type_scheme slot,
+								    # then note and return it:
+
+								    new_type_scheme_slot_arg
+									=
+									ty::TYPE_SCHEME_ARG_I (allocate_type_scheme_arg_slot());
+
+								    type_scheme_arg_eq_properties		# Remember whether this new type variable resolve to an equality type.
+									:=
+									eq ! *type_scheme_arg_eq_properties;
+
+								    note_generalized_typevar_ref_type (typevar_ref, new_type_scheme_slot_arg);
+
+								    new_type_scheme_slot_arg;
+								};
+
+						    else
+
+    printf "generalize_type'/USER_TYPE_VARIABLE: %s fn_nesting==%d syntax_treewalk_lexical_context.fn_nesting==%d\n" (sy::name name) fn_nesting   syntax_treewalk_lexical_context.fn_nesting;
+							error_function source_code_region em::ERROR
+							    (  "Explicit type variable cannot be generalized at its declaration point: "
+							       +
+							       (uty::typevar_ref_printname  typevar_ref)
+							    )
+							    em::null_error_body;
+
+							ref_typevar :=  ty::RESOLVED_TYPE_VARIABLE  ty::WILDCARD_TYPE;
+
+							ty::WILDCARD_TYPE;
+						    fi;
+
+						fi;
+					    };
+
+					( ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::LITERAL_TYPE_VARIABLE     _) }
+					| ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::OVERLOADED_TYPE_VARIABLE  _) }
+					)
+					    =>
+					    type;
+
+					ty::TYPCON_TYPE (typ, args)
+					    =>
+					    {   if_debugging_unparse_type ("generalize_type'/TYPCON_TYPE: generalizing constructor type:\n", type);
+
+						ty::TYPCON_TYPE (typ, map generalize_type' args);
+					    };
+
+					ty::WILDCARD_TYPE
+					    =>
+					    ty::WILDCARD_TYPE;
+
+					_ => bug "generalize_type -- bad arg";
+				    esac;							# fun generalize_type'
+
+
+				if_debugging_unparse_type (" generalize_type:  var_type as given to generalize_type': ", *var_type);
+
+				type_scheme_body =  generalize_type'  *var_type;
+
+				if_debugging_unparse_type (" generalize_type: var_type as converted by generalize_type': ", type_scheme_body);
+
+				generalized_typevar_refs
+				    =
+				    map #1 (reverse *generalized_typevar_ref_types);
+
+				# Turn user bound type_variables into ordinary META type_variables 
+				#
+				if_debugging_say ("generalize_type: running hack to eliminate user_bound variables.\n");
+				apply  eliminate_user_bound_type_variables
+				       generalized_typevar_refs
+				where
+				    #  A hack to eliminate all user bound type variables --zsh 
+				    #  ZHONG?: is this still necessary? [dbm] XXX BUGGO FIXME 
+				    #
+				    fun eliminate_user_bound_type_variables { id, ref_typevar as REF (ty::USER_TYPE_VARIABLE { fn_nesting, eq, ... } ) }
+					    => 
+					    {   if *debugging
+						    printf "generalize_type: eliminate_user_bound_type_variables: converting USER_TYPE_VARIABLE id%d to META_TYPE_VARIABLE.\n" id;
+						fi; 
+
+						ref_typevar := ty::META_TYPE_VARIABLE { fn_nesting, eq };
+					    };
+
+
+					eliminate_user_bound_type_variables _ 
+					    =>
+					    ();
+				    end;
+				end;
+
+				if *failure
+
+				    if_debugging_say ("generalize_type: type vars left ungeneralized because of value restriction.\n");
+
+				    if *typer_control::value_restriction_top_warn
+
+					error_function  source_code_region  em::WARNING
+					    "type vars not generalized because of\n\
+					     \   value restriction are macro expanded to dummy types (X1, X2, ...)"
+					    em::null_error_body;
+				    fi;
+				fi;
+
+				if_debugging_say "generalize_type:  returning";
+
+				# Set the type variable we're generalizing
+				# to the type scheme we've constructored:
+				#
+				var_type
+				    :=
+				    ty::TYPE_SCHEME_TYPE {
+
+				      type_scheme
+					=>
+					ty::TYPE_SCHEME { arity => *type_scheme_arg_slots_allocated,
+							  body  =>  type_scheme_body
+							},
+
+				      type_scheme_arg_eq_properties
+					=>
+					reverse  *type_scheme_arg_eq_properties
+				    };
+
+				if_debugging_unparse_type ("\ngeneralize_type: final value for *var_type: ", *var_type);
+
+				if *debugging
+				    printf "generalize_type returning %d type variables:           (src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg)\n" (list::length generalized_typevar_refs);
+				    apply  unparse_typevar_ref  generalized_typevar_refs
+				    where
+					fun unparse_typevar_ref  typevar_ref
+					    =
+					    if_debugging_unparse_typevar_ref ("", typevar_ref);
+				    end;
+				    say ("\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
+				    print_callstack "=============  generalize_type/BOTTOM ==========" callstack;
+				    say (  "\n");
+				fi; 
+
+				generalized_typevar_refs;	#  Return the type_variables that were generalized 
+			    };
+
+			generalize_type _ => bug "generalize_type - bad arg";
+		    end;								# fun generalize_type
+
+
+		    # Make 'pattern' as typeagnostistic ("polymorphic")
+		    # as possible by converting META_TYPE_VARIABLE
+		    # and USER_TYPE_VARIABLE
+		    # to ty::TYPE_SCHEME_ARG_I 
+		    # wherever possible, e.g., where permitted
+		    # by the "value restriction" as implemented
+		    # by type_junk::is_value() and passed to us
+		    # via the 'generalize' parameter.
+		    # 
+		    # The 'pattern' argument is updated by
+		    # side effects;  we return the list of
+		    # generalized type variables.
+		    # 
+		    # We have one call, from vb_type() in
+		    # do_declaration/VALUE_DECLARATIONS:
+		    #
+		    fun generalize_pattern
+			(
+			  given_pattern:                    ds::Case_Pattern,				# Left-hand-side of a "fun foo ... = ..." or "my ... = ..." statement or such.
+			  userbound:                        List( ty::Typevar_Ref ),			# List of type variables from 'pattern'.
+
+			  syntax_treewalk_lexical_context:  Syntax_Treewalk_Lexical_Context, 
+			  generalize:                       Bool,
+			  source_code_region:               ds::Source_Code_Region,
+			  callstack:                        List(String)				# Debug support.
+			)
+			: List( ty::Typevar_Ref )				# These will actually always be ty::META_TYPE_VARIABLE or ty::USER_TYPE_VARIABLE
+			=
+			{
+																									    if *debugging print_callstack "\n============= generalize_pattern/TOP ============= " callstack; fi;
+																									    if_debugging_say   "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+																									    if *debugging
+																										printf "callstack: %s\n" (string::join " " (reverse callstack));
+																										printf "lexical context: lex.fn_nesting d= %d  outside_all_lets b= %s\n"  syntax_treewalk_lexical_context.fn_nesting  (syntax_treewalk_lexical_context.outside_all_lets ?? "TRUE" :: "FALSE");
+																									    fi;
+																									    if_debugging_unparse_pattern ("do_declaration/VALUE_DECLARATIONS/typecheck_named_value: pattern before generalization == \n", (given_pattern,100));
+			    ref_bound_typevar_refs
+				=
+				REF( []:  List( ty::Typevar_Ref ) );
+
+
+			    generalize_pattern'  given_pattern
+			    where
+				fun generalize_pattern' (ds::VARIABLE_IN_PATTERN variable)
+					=> 
+					{   # This is the core case for this function;
+					    # the others are just recursive descent
+					    # to get here:
+					    # 
+					    added_bound_typevar_refs
+						=
+						generalize_type			# This is the only call to generalize_type().
+						    ( variable,
+						      userbound,
+						      syntax_treewalk_lexical_context,
+						      generalize,
+						      source_code_region,
+						      "generalize_pattern" ! callstack
+						    );
+
+																								if *debugging
+
+																								    fun unparse_typevar_ref  typevar_ref
+																									=
+																									if_debugging_unparse_typevar_ref ("", typevar_ref);
+
+																								    say ("\ngeneralize_pattern': added_bound_typevar_refs: ");
+																								    apply  unparse_typevar_ref   added_bound_typevar_refs;
+																								    say ("\ngeneralize_pattern': *ref_bound_typevar_refs: ");
+																								    apply  unparse_typevar_ref   *ref_bound_typevar_refs;
+																								fi;
+					    case (added_bound_typevar_refs, *ref_bound_typevar_refs) 
+						(_ ! _, _ ! _) => bug "generalize_pattern' 1234";
+						_ => ();
+					    esac;
+
+					    ref_bound_typevar_refs
+						:=
+						added_bound_typevar_refs
+						@
+					       *ref_bound_typevar_refs;
+																								if *debugging
+																								    say ("\ngeneralize_pattern': resulting type variables list: ");
+																								    apply  unparse_typevar_ref  *ref_bound_typevar_refs
+																								    where
+																									fun unparse_typevar_ref  typevar_ref
+																									    =
+																									    if_debugging_unparse_typevar_ref ("", typevar_ref);
+																								    end;
+																								fi;
+					};
+
+				   generalize_pattern' (ds::RECORD_PATTERN { fields, ... } )          =>   apply (generalize_pattern' o #2) fields;
+				   generalize_pattern' (ds::APPLY_PATTERN(_, _, arg)       )          =>   generalize_pattern' arg;
+				   generalize_pattern' (ds::TYPE_CONSTRAINT_PATTERN (pattern, _)  )   =>   generalize_pattern' pattern;
+				   generalize_pattern' (ds::AS_PATTERN (var_pattern, pattern))        =>   {   generalize_pattern' var_pattern;
+													   generalize_pattern' pattern;
+												       };
+				   generalize_pattern' _ => ();
+				end;
+			    end;
+
+
+																									    if_debugging_unparse_pattern  ("do_declaration/VALUE_DECLARATIONS/typecheck_named_value: pattern after generalization == \n", (given_pattern,100));
+																									    if_debugging_say "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
+																									    if *debugging print_callstack "\n============= generalize_pattern/BOTTOM ========== " callstack; fi;
+																									    if_debugging_say   "\n";
+			    *ref_bound_typevar_refs;
+			};				# fun generalize_pattern
+
+
+		    # Compute type of f(x)
+		    # given types for f and x:
+		    #
+		    fun apply_type (operator_type: ty::Type, operand_type: ty::Type):  ty::Type
+			=
+			{   result_type = tyj::make_meta_type_variable_and_type (ty::infinity, ["apply_type  from  unify-and-generalize-types-g.pkg"]);
+
+    if_debugging_say "apply_type calling unify_types\n";
+			    uyt::unify_types
+			      (
+				"operator_type",   "operand_type --> result_type",
+				 operator_type,    (operand_type --> result_type),
+				["apply_type"]
+			      );
+    if_debugging_say "apply_type done calling unify_types\n";
+
+			    result_type;
+			};
+
+
+		    # Use unification to compute the most
+		    # general non-typeagnostic type for
+		    # a pattern.  This includes checking
+		    # that all values in a vector pattern
+		    # are of compatible type etc.
+		    #
+		    # Generalizing to typeagnostic type is
+		    # done later if permitted by
+		    # type_junk::is_value():
+		    #
+		    fun compute_pattern_type
+			( given_pattern:       ds::Case_Pattern,		# Compute a type for this pattern.
+			  fn_nesting:          Int,				# Lexical nesting of fun/fn constructs at this point in deep syntax treewalk.
+			  source_code_region:  ds::Source_Code_Region,
+			  callstack:           List(String)			# Debug support.
+			)
+			:
+			( ds::Case_Pattern,					# Possibly (probably) updated version of given_pattern deep syntax tree.
+			  ty::Type						# Computed type of given_pattern.
+			)
+			=
+			{
+    if *debugging print_callstack "\ncompute_pattern_type/TOP" callstack; fi;
+    if_debugging_unparse_pattern ("compute_pattern_type/TOP given_pattern == ", (given_pattern,100));
+			    result
+				=
+				case given_pattern
+				    #
+				    ds::WILDCARD_PATTERN
+					=>
+					( given_pattern,
+					  tyj::make_meta_type_variable_and_type  (fn_nesting, ["compute_pattern_type/WILDCARD_PATTERN  from  unify-and-generalize-types-g.pkg"])
+					);
+
+				    ds::VARIABLE_IN_PATTERN (vac::ORDINARY_VARIABLE { var_type as REF ty::UNDEFINED_TYPE, ... } )
+					=> 
+					{   var_type :=  tyj::make_meta_type_variable_and_type  (fn_nesting, ["compute_pattern_type/VARIABLE_IN_PATTERN  from  unify-and-generalize-types-g.pkg"]);
+
+					    (given_pattern, *var_type);
+					};
+
+				    # Multiple occurrence due to or-pattern 
+				    #
+				    ds::VARIABLE_IN_PATTERN (vac::ORDINARY_VARIABLE { var_type, ... } ) => (given_pattern, *var_type); 
+
+				    ds::FLOAT_CONSTANT_IN_PATTERN _                                    => (given_pattern, tt::float64_type);
+				    ds::STRING_CONSTANT_IN_PATTERN _                                   => (given_pattern, tt::string_type);
+				    ds::CHAR_CONSTANT_IN_PATTERN _                                     => (given_pattern, tt::char_type);
+
+				    ds::INT_CONSTANT_IN_PATTERN (_, type)                              => { note_overloaded_literal type; (given_pattern, type);};
+				    ds::UNT_CONSTANT_IN_PATTERN (_, type)                              => { note_overloaded_literal type; (given_pattern, type);};
+
+				    ds::RECORD_PATTERN { fields, is_incomplete, type_ref }
+					=>
+					# The record fields are already sorted by label,
+					# typically by make_record_pattern() in
+					#
+					#     src/lib/compiler/front/typer/main/typer-junk.pkg
+					#
+					{   my (fields, field_types)
+						=
+						tyj::map_unzip  g  fields
+						where
+						    fun g (label, pattern)
+							= 
+							{   my (field_pattern, field_type)
+							       =
+							       compute_pattern_type
+								   (pattern, fn_nesting, source_code_region, "compute_pattern_type/RECORD_PATTERN" ! callstack);
+
+							    ( (label, field_pattern),
+							      (label, field_type)
+							    );
+							};
+						end; 
+
+					    new_record_pattern
+						=
+						ds::RECORD_PATTERN { fields, is_incomplete, type_ref };
+
+					    if is_incomplete
+
+						# We need to recover the rest of the fields
+						# in this record before we can compute a
+						# full type for it.  In   src/lib/compiler/front/typer-stuff/types/types.api
+						# we define a special INCOMPLETE_RECORD_TYPE_VARIABLE
+						# just to handle this situation:
+						#
+						record_type
+						    =
+						    ty::TYPE_VARIABLE_REF
+						      (
+							ty::make_type_variable_ref
+							  (
+							    tyj::make_incomplete_record_type_variable
+							      (field_types,  fn_nesting),
+
+							    ["compute_pattern_type/RECORD_PATTERN  from  unify-and-generalize-types-g.pkg"]
+						      )   );
+
+						type_ref := record_type;
+
+						(new_record_pattern, record_type);
+
+					    else
+						( new_record_pattern,
+						  tt::record_type  field_types
+						);
+					    fi;
+					};
+
+				    ds::VECTOR_PATTERN (patterns, _)
+					=> 
+					{   my (patterns, pattern_types)
+						= 
+						tyj::map_unzip
+						    (fn pattern =  compute_pattern_type (pattern, fn_nesting, source_code_region, "compute_pattern_type/VECTOR_PATTERN" ! callstack))
+						    patterns;
+
+	   if_debugging_say "compute_pattern_type/VECTOR_PATTERN folding calls to unify_types\n";
+					    # Force all vector elements
+					    # to have the same type:
+					    #
+					    vector_element_type
+						=
+						fold_right
+						      (fn (a, b) =  { uyt::unify_types ("vector a", "vector b", a, b, "compute_pattern_type/VECTOR_PATTERN(2)" ! callstack); b;})
+						      (tyj::make_meta_type_variable_and_type  (fn_nesting, "compute_pattern_type/VECTOR_PATTERN(3)" ! callstack))
+						      pattern_types;
+	   if_debugging_say "compute_pattern_type/VECTOR_PATTERN done folding calls to unify_types\n";
+
+					    ( ds::VECTOR_PATTERN (patterns, vector_element_type),
+					      ty::TYPCON_TYPE (tt::vector_typ, [ vector_element_type ] )
+					    );
+					}
+					except
+					    uyt::UNIFY_TYPES mode
+						=
+						{  error_function
+						       source_code_region
+						       em::ERROR 
+						       (message("vector pattern type failure", mode))
+						       em::null_error_body;
+
+						   (given_pattern, ty::WILDCARD_TYPE);
+						};
+
+
+				    ds::OR_PATTERN (pattern1, pattern2)
+					=> 
+					  {
+	   if *debugging print_callstack "\ncompute_pattern_type/ds::OR_PATTERN/TOP" callstack; fi;
+					      my (pattern1, type1) = compute_pattern_type (pattern1, fn_nesting, source_code_region, "compute_pattern_type/ds::OR_PATTERN"    ! callstack);
+					      my (pattern2, type2) = compute_pattern_type (pattern2, fn_nesting, source_code_region, "compute_pattern_type/ds::OR_PATTERN(2)" ! callstack);
+
+	   if_debugging_say "compute_pattern_type/ds::OR_PATTERN calling unify_types_and_handle_errors\n";
+					      # Force both sides of the '|'
+					      # pattern to have the same type:
+					      #
+					      unify_types_and_handle_errors
+						  {
+						    type1,  name1 => "expected",
+						    type2,  name2 => "found",
+
+						    message => "or-patterns don't agree",
+						    source_code_region,
+
+						    unparse_phrase =>  unparse_pattern,
+						    phrase_name    => "pattern",
+						    phrase         =>  given_pattern,
+
+						    callstack      => "compute_pattern_type/ds::OR_PATTERN(3)" ! callstack
+						  };
+	   if_debugging_say "compute_pattern_type/ds::OR_PATTERN done calling unify_types_and_handle_errors\n";
+
+					      (ds::OR_PATTERN (pattern1, pattern2), type1);
+					  };
+
+				    ds::CONSTRUCTOR_PATTERN (dcon as ty::VALCON { type, ... }, _)
+					=> 
+					{     my  (type, fresh_meta_type_variables)
+						  =
+						  tyj::instantiate_if_type_scheme  type;
+
+					      # The following is to set the correct fn_nesting information
+					      # on the type variables in type. (ZHONG)
+					      #
+	   if_debugging_say "compute_pattern_type/ds::CONSTRUCTOR_PATTERN calling unify_types\n";
+					      uyt::unify_types
+						(
+						  "type", "temp_type",
+						   type,   temp_type,
+						  ["compute_pattern_type/ds::CONSTRUCTOR_PATTERN  from  unify-and-generalize-types-g.pkg"] 
+						)
+					      where
+						  temp_type =  tyj::make_meta_type_variable_and_type  (fn_nesting, ["compute_pattern_type/ds::CONSTRUCTOR_PATTERN  from  unify-and-generalize-types-g.pkg"]);
+					      end;
+	   if_debugging_say "compute_pattern_type/ds::CONSTRUCTOR_PATTERN done calling unify_types\n";
+
+					      ( ds::CONSTRUCTOR_PATTERN (dcon, fresh_meta_type_variables),
+						type
+					      );
+					 };
+
+				    ds::APPLY_PATTERN (dcon as ty::VALCON { type, form, ... }, _, arg)
+					=>
+					{   my  (arg_pattern, arg_type)
+						=
+						compute_pattern_type (arg, fn_nesting, source_code_region, "compute_pattern_type/ds::APPLY_PATTERN" ! callstack);
+
+					    my  (constructor, type)
+						=
+						case form
+						    #
+						    varhome::REFCELL_REP =>  (ref_new_dcon dcon,  tt::ref_pattern_type);
+						    _                    =>  (dcon,               type    );
+						esac;
+
+					    my  (type, fresh_meta_type_variables)
+						=
+						tyj::instantiate_if_type_scheme type;
+
+					    result_pattern
+					       =
+					       ds::APPLY_PATTERN (constructor, fresh_meta_type_variables, arg_pattern);
+
+	   if_debugging_say "compute_pattern_type/ds::APPLY_PATTERN calling apply_type\n";
+					    ( result_pattern,
+					      apply_type (type, arg_type)
+					    )
+					    except
+						uyt::UNIFY_TYPES  mode
+						    =
+						    {   error_function source_code_region em::ERROR
+							    (message("constructor and argument don't agree in pattern", mode))
+							    (fn stream
+								=
+								{   unparse_type::reset_unparse_type();
+								    pp::newline stream;
+								    pp::string stream "constructor: ";
+								    unparse_type  stream  type; pp::newline stream;
+								    pp::string stream "argument:    ";
+								    unparse_type stream arg_type; pp::newline stream;
+								    pp::string stream "in pattern:"; pp::break stream { spaces=>1, indent_on_wrap=>2 };
+								    unparse_pattern stream (given_pattern, *print_depth);
+								}
+							    );
+
+							( given_pattern,
+							  ty::WILDCARD_TYPE
+							);
+						    };
+					};
+
+				    ds::TYPE_CONSTRAINT_PATTERN (pattern, type)
+					=> 
+					{
+	   if_debugging_say "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN calling compute_pattern_type\n";
+					    my (npat, pat_type)
+						=
+						compute_pattern_type
+						    (pattern, fn_nesting, source_code_region, "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN" ! callstack);
+	   if_debugging_say "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN done calling compute_pattern_type\n";
+
+	   if_debugging_say "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN calling unify_types_and_handle_errors\n";
+					      if ( unify_types_and_handle_errors
+						       {
+							 type1 => pat_type,  name1 => "pattern",
+							 type2 => type,      name2 => "constraint",
+
+							 message=>"pattern and constraint don't agree",
+							 source_code_region,
+
+							 unparse_phrase => unparse_pattern,
+							 phrase_name    => "pattern",
+							 phrase         => given_pattern,
+
+							 callstack      => "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN(2)" ! callstack
+						       }
+						 ) 
+
+	   if_debugging_say "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN done calling unify_types_and_handle_errors I\n";
+						  ( ds::TYPE_CONSTRAINT_PATTERN (npat, type),
+						    type
+						  );
+					     else
+	   if_debugging_say "compute_pattern_type/ds::TYPE_CONSTRAINT_PATTERN done calling unify_types_and_handle_errors II\n";
+						  ( given_pattern,
+						    ty::WILDCARD_TYPE
+						  );
+					     fi;
+					};
+
+				    ds::AS_PATTERN (var_pattern as ds::VARIABLE_IN_PATTERN (vac::ORDINARY_VARIABLE { var_type, ... } ), main_pattern)
+					=>
+					{
+	   if_debugging_say "compute_pattern_type/AS_PATTERN calling compute_pattern_type\n";
+					    my  (main_pattern, main_pattern_type)
+						=
+						compute_pattern_type
+						    (main_pattern, fn_nesting, source_code_region, "compute_pattern_type/AS_PATTERN" ! callstack);
+
+	   if_debugging_say "compute_pattern_type/AS_PATTERN done calling compute_pattern_type\n";
+					    var_type := main_pattern_type;
+
+					    ( ds::AS_PATTERN (var_pattern, main_pattern),
+					      main_pattern_type
+					    );
+					};
+
+				    ds::AS_PATTERN (constraint_pattern as ds::TYPE_CONSTRAINT_PATTERN (ds::VARIABLE_IN_PATTERN (vac::ORDINARY_VARIABLE { var_type, ... } ), constraining_type), main_pattern)
+					=>
+					{
+	   if_debugging_say "compute_pattern_type/AS_PATTERN II calling compute_pattern_type\n";
+					    my  (main_pattern, main_pattern_type)
+						=
+						compute_pattern_type
+						    (main_pattern, fn_nesting, source_code_region, "compute_pattern_type/AS_PATTERN(2)" ! callstack);
+	   if_debugging_say "compute_pattern_type/AS_PATTERN II done calling compute_pattern_type\n";
+
+	   if_debugging_say "compute_pattern_type/AS_PATTERN II calling unify_types_and_handle_errors\n";
+					    if (unify_types_and_handle_errors
+						  {
+						    type1    => main_pattern_type,    name1 => "pattern",
+						    type2    => constraining_type,    name2 => "constraint",
+
+						    message  => "pattern and constraint don't agree",
+						    source_code_region,
+
+						    unparse_phrase =>  unparse_pattern,
+						    phrase_name    => "pattern",
+						    phrase         =>  given_pattern,
+
+						    callstack      => "compute_pattern_type/AS_PATTERN(3)" ! callstack
+						  }
+					       )
+
+	   if_debugging_say "compute_pattern_type/AS_PATTERN II done calling unify_types_and_handle_errors I\n";
+						var_type := constraining_type;
+
+						( ds::AS_PATTERN (constraint_pattern, main_pattern),
+						  constraining_type
+						);
+					    else
+	   if_debugging_say "compute_pattern_type/AS_PATTERN II done calling unify_types_and_handle_errors II\n";
+						( given_pattern,
+						  ty::WILDCARD_TYPE
+						);
+					    fi;
+					};
+
+				    p => bug "compute_pattern_type -- unexpected pattern";
+				esac;							# fun compute_pattern_type
+
+	    if *debugging print_callstack "\ncompute_pattern_type/BOTTOM" callstack; fi;
+
+			    result;
+			};
+
+		    # Use unification to compute the most
+		    # general non-typeagnostic type for
+		    # an expression.  This includes checking
+		    # that all values in a vector are of
+		    # compatible type etc.
+		    #
+		    # Generalizing to typeagnostic type is
+		    # done later if permitted by
+		    # type_junk::is_value():
+		    #
+		    fun compute_expression_type
+			(
+			  given_expression:                 ds::Deep_Expression,
+			  syntax_treewalk_lexical_context:  Syntax_Treewalk_Lexical_Context,
+			  source_code_region:               ds::Source_Code_Region,
+			  callstack:                        List(String)			# Debug support.
+			)
+			:
+			(ds::Deep_Expression, ty::Type)
+			=
+			{
+    if *debugging print_callstack "\ncompute_expression_type/TOP" callstack; fi;
+    if_debugging_unparse_expression ("compute_expression_type/TOP: expression ==", (given_expression,100));
+			    fun bool_unify_err { type, name, message }
+				=
+				{
+    if_debugging_say "compute_expression_type: bool_unify_err: calling unify_and-handle_errors\n";
+    result =
+				    unify_types_and_handle_errors
+				      {
+					type1    => type,          name1 => name,
+					type2    => tt::bool_type,   name2 => "",
+
+					message,
+					source_code_region,
+
+					unparse_phrase =>  unparse_expression,
+					phrase_name    => "expression",
+					phrase         =>  given_expression,
+
+					callstack      => "compute_expression_type()/bool_unify_error()" ! callstack
+				      };
+    if_debugging_say "compute_expression_type: bool_unify_err: done calling unify_and-handle_errors\n";
+    result;
+				};	
+
+			    # Typing of boolean short-circuit
+			    # operators 'and' and 'or':
+			    #
+			    fun short_circuit_and_or (con, what, e1, e2)
+				=
+				{
+     if_debugging_say "compute_expression_type/short_circuit_and_or calling compute_expression_type.";
+				    my (e1', t1) =   compute_expression_type (e1, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/short_circuit_and_or"    ! callstack);
+				    my (e2', t2) =   compute_expression_type (e2, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/short_circuit_and_or(2)" ! callstack);
+     if_debugging_say "compute_expression_type/short_circuit_and_or done calling compute_expression_type.";
+
+				    m =   string::cat ["operand of ", what, " is not of type bool"];
+
+				    if (    bool_unify_err {   type => t1,   name => "operand",   message => m   }
+				       and  bool_unify_err {   type => t2,   name => "operand",   message => m   }
+				       )
+
+					(   con (e1', e2'),
+					    tt::bool_type
+					);
+				    else
+					(   given_expression,
+					    ty::WILDCARD_TYPE
+					);
+				    fi;
+				};
+
+    if *debugging print_callstack "\ncompute_expression_type/TOP" callstack; fi;
+			   case given_expression
+
+			       ds::VARIABLE_IN_EXPRESSION ( var_ref as REF (vac::ORDINARY_VARIABLE { var_type, inlining_info, ... } ),
+					  _
+				      )
+				   =>
+				   { 	
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION I/TOP.";
+     if_debugging_unparse_type ("compute_expression_type/ds::VARIABLE_IN_EXPRESSION I: *var_type == ", *var_type);
+				       case (inlining_info_to_my_type  inlining_info)
+
+					   THE st
+						=>
+						{   my  (sty, fresh_meta_type_variables)
+							=
+							tyj::instantiate_if_type_scheme  st;
+
+						    my  (nty, _)
+							=
+							tyj::instantiate_if_type_scheme  *var_type;
+
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION calling unify_types.";
+						    uyt::unify_types ("sty", "nty", sty, nty, ["compute_expression_type/ds::VARIABLE_IN_EXPRESSION"])
+						    except
+							_ = ();	  #  ??? XXX BUGGO FIXME 
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION done calling unify_types.";
+
+						    ( ds::VARIABLE_IN_EXPRESSION (var_ref, fresh_meta_type_variables),
+						      sty
+						    );
+						};
+
+					   NULL
+					       =>
+					       {
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION I: calling tyj::instantiate_if_type_scheme.";
+						   my  (fresh_type, fresh_meta_type_variables)
+						       =
+						       tyj::instantiate_if_type_scheme  *var_type;
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION I: done calling tyj::instantiate_if_type_scheme.";
+     if_debugging_unparse_type ("compute_expression_type/ds::VARIABLE_IN_EXPRESSION I: type == ", fresh_type);
+     if_debugging_unparse_expression ("compute_expression_type/ds::VARIABLE_IN_EXPRESSION I: result expression == ", (ds::VARIABLE_IN_EXPRESSION (var_ref, fresh_meta_type_variables),100));
+
+						   ( ds::VARIABLE_IN_EXPRESSION (var_ref, fresh_meta_type_variables),
+						     fresh_type
+						   );
+					       };
+				       esac;
+				    };
+
+			       ds::VARIABLE_IN_EXPRESSION (var_ref as REF (vac::OVERLOADED_IDENTIFIER _), _)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION II.";
+				       ( given_expression,
+					 note_overloaded_variable (var_ref, error_function source_code_region)
+				       );
+				   };
+
+			       ds::VARIABLE_IN_EXPRESSION (REF _, _)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/ds::VARIABLE_IN_EXPRESSION III.";
+				       ( given_expression,
+					 ty::WILDCARD_TYPE
+				       );
+				   };
+
+			       ds::VALCON_IN_EXPRESSION (dcon as ty::VALCON { type, ... }, _)
+				   => 
+				   {
+     if_debugging_say "compute_expression_type/VALCON_IN_EXPRESSION.";
+				       (tyj::instantiate_if_type_scheme  type)
+					   ->
+				           (type, fresh_meta_type_variables);
+
+
+				       ( ds::VALCON_IN_EXPRESSION (dcon, fresh_meta_type_variables),
+					 type
+				       );
+				   };
+
+			       ds::INT_CONSTANT_IN_EXPRESSION (_, type) =>  { note_overloaded_literal type;  (given_expression, type);};
+			       ds::UNT_CONSTANT_IN_EXPRESSION (_, type) =>  { note_overloaded_literal type;  (given_expression, type);};
+
+			       ds::FLOAT_CONSTANT_IN_EXPRESSION  _ => (given_expression, tt::float64_type);
+			       ds::STRING_CONSTANT_IN_EXPRESSION _ => (given_expression, tt::string_type);
+			       ds::CHAR_CONSTANT_IN_EXPRESSION   _ => (given_expression, tt::char_type);
+
+			       ds::RECORD_IN_EXPRESSION fields
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/RECORD_IN_EXPRESSION.";
+
+
+				       my (fields, field_types)
+					  =
+					  tyj::map_unzip  h  fields		# Apply h to each field, return resulting value pairs in two lists.
+					  where
+					      fun h
+						  ( label as ds::NUMBERED_LABEL _,
+						    expression'
+						  )
+						  = 
+						  {   my  (expression, expression_type)
+							  =
+							  compute_expression_type
+							      (expression', syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/RECORD_IN_EXPRESSION" ! callstack);
+
+						      ( (label, expression),
+							(label, expression_type)
+						      );
+						  };
+					  end;
+
+				       record_type
+					   =
+					   map  extract  (tyj::sort_fields field_types)
+					   where
+					       fun extract (ds::NUMBERED_LABEL { name, ... }, field_type)
+						   =
+						   (name, field_type);
+					   end;
+
+				       ( ds::RECORD_IN_EXPRESSION fields,
+					 tt::record_type   record_type
+				       );
+				   };
+
+			       ds::RECORD_SELECTOR_EXPRESSION (label, record_expression)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/RECORD_SELECTOR_EXPRESSION  from  unify-and-generalize-types-g.pkg";
+     if_debugging_say "calling compute_expression_type:  compute_expression_type/RECORD_SELECTOR_EXPRESSION  from  unify-and-generalize-types-g.pkg";
+				       my  (record_expression, record_expression_type)
+					   =
+					   compute_expression_type
+					       (record_expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/RECORD_SELECTOR_EXPRESSION" ! callstack);
+     if_debugging_say "compute_expression_type() call done:  compute_expression_type/RECORD_SELECTOR_EXPRESSION  from  unify-and-generalize-types-g.pkg";
+
+				       result_type =   tyj::make_meta_type_variable_and_type  (ty::infinity, ["result_type in compute_expression_type/RECORD_SELECTOR_EXPRESSION  from  unify-and-generalize-types-g.pkg"]);
+
+				       # Remember that we need to infer the
+				       # the rest of the fields in the record:
+				       #
+				       incomplete_record_type
+					   =
+					   ty::TYPE_VARIABLE_REF
+					     (
+					       ty::make_type_variable_ref
+						 (
+						   tyj::make_incomplete_record_type_variable
+						     (label_types, ty::infinity),
+
+						   ["incomplete_record_type in compute_expression_type/RECORD_SELECTOR_EXPRESSION  from  unify-and-generalize-types-g.pkg"]
+					     )   )
+					   where
+					       label_types =   [ (typer_junk::symbol_naming_label  label,  result_type) ];
+					   end;
+
+
+				       {
+     if_debugging_say "compute_expression_type/RECORD_SELECTOR_EXPRESSION: calling unify_types.";
+					   uyt::unify_types
+					     ( "incomplete_record_type", "record_expression_type",
+						incomplete_record_type,   record_expression_type,
+					       ["compute_expression_type/RECORD_SELECTOR_EXPRESSION"]
+					     );
+     if_debugging_say "compute_expression_type/RECORD_SELECTOR_EXPRESSION: done calling unify_types.";
+					   (ds::RECORD_SELECTOR_EXPRESSION (label, record_expression), result_type);
+				       }
+				       except
+					   uyt::UNIFY_TYPES (mode)
+					      =
+					      {   error_function
+						      source_code_region
+						      em::ERROR
+						      (   message("selecting a non-existing field from a record", mode))
+						      (fn stream
+							  =
+							  {  unparse_type::reset_unparse_type ();
+							     pp::newline stream;
+							     pp::string stream "the field name: ";
+
+							     case label
+								 ds::NUMBERED_LABEL { name, ... } =>  uj::unparse_symbol stream name;
+							     esac;
+
+							     pp::newline stream;
+							     pp::string stream "the record type:    ";
+							     unparse_type stream record_expression_type; pp::newline stream;
+							     pp::string stream "in expression:"; 
+							     pp::break stream { spaces=>1, indent_on_wrap=>2 };
+							     unparse_expression stream (given_expression, *print_depth);
+							  }
+						      );
+
+						  ( given_expression,
+						    ty::WILDCARD_TYPE
+						  );
+					    };
+				   };
+
+			       ds::VECTOR_IN_EXPRESSION (expressions, _)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/VECTOR_IN_EXPRESSION.";
+				       my  (expressions, expression_types)
+					   =
+					   tyj::map_unzip
+					       (fn e =   compute_expression_type (e, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/VECTOR_IN_EXPRESSION" ! callstack))
+					       expressions;
+
+     if_debugging_say "compute_expression_type/VECTOR_IN_EXPRESSION: folding unify_types calls.";
+				       # Check that all expressions in vector have
+				       # compatible types, and combine them all to
+				       # yield the final vector element type:
+				       #
+				       vector_element_type
+					   =
+					   fold_right
+					       (fn (a, b) =   { uyt::unify_types ("vector a", "vector b", a, b, ["compute_expression_type/VECTOR_IN_EXPRESSION  from  unify-and-generalize-types-g.pkg"]);  b;})
+					       (tyj::make_meta_type_variable_and_type  (ty::infinity, ["compute_expression_type/VECTOR_IN_EXPRESSION  from  unify-and-generalize-types-g.pkg"]))
+					       expression_types;
+     if_debugging_say "compute_expression_type/VECTOR_IN_EXPRESSION: done folding unify_types calls.";
+
+				       ( ds::VECTOR_IN_EXPRESSION (expressions, vector_element_type),
+					 ty::TYPCON_TYPE (tt::vector_typ, [vector_element_type])
+				       );
+				   }
+				   except
+				       uyt::UNIFY_TYPES (mode)
+					   =
+					   {   error_function source_code_region em::ERROR
+						 (message("vector expression type failure", mode))
+						 em::null_error_body;
+
+					       (given_expression, ty::WILDCARD_TYPE);
+					   };
+
+
+			       ds::SEQUENTIAL_EXPRESSIONS expressions
+				   => 
+				   {
+     if_debugging_say "compute_expression_type/SEQUENTIAL_EXPRESSION.";
+				       fun scan NIL
+					       =>
+					       (NIL, tt::void_type);
+
+					   scan [expression]
+					       => 
+					       {   my  (expression, expression_type)
+						       =
+						       compute_expression_type
+							   (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/SEQUENTIAL_EXPRESSIONS" ! callstack);
+
+						   ([expression], expression_type);
+					       };
+
+					   scan (expression ! rest)
+					       => 
+					       {
+						   # The type of a sequence of expressions is
+						   # the type of the final expression.  We
+						   # do type-checking on all of them, but we
+						   # only keep the result of last one:
+
+						   my  (expression, _)				# Discard type of non-final expression.
+						       =
+						       compute_expression_type
+							   (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/SEQUENTIAL_EXPRESSIONS(2)" ! callstack);
+
+						   my  (expressions, expression_type)
+						       =
+						       scan rest;
+
+						   (expression ! expressions, expression_type);	# Type of final expression is type of sequence.
+					       };
+				       end;
+
+				       my  (expressions, sequence_type)
+					   =
+					   scan expressions;
+
+				       ( ds::SEQUENTIAL_EXPRESSIONS expressions,
+					 sequence_type
+				       );
+				   };
+
+			       ds::APPLY_EXPRESSION (operator, operand) 
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION.";
+     if_debugging_unparse_expression ("compute_expression_type/APPLY_EXPRESSION: operator == ", (operator,100));
+     if_debugging_unparse_expression ("compute_expression_type/APPLY_EXPRESSION: operand  == ", (operand, 100));
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: calling compute_expression_type on operator.";
+				       my  (operator, operator_type)
+					   =
+					   compute_expression_type
+					       (operator, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/APPLY_EXPRESSION" ! callstack);
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: done calling compute_expression_type on operator.";
+     if_debugging_unparse_expression ("compute_expression_type/APPLY_EXPRESSION: operator == ", (operator,100));
+     if_debugging_unparse_type       ("compute_expression_type/APPLY_EXPRESSION: operator_type == ", operator_type);
+
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: calling compute_expression_type on operand.";
+				       my  (operand, operand_type)
+					   =
+					   compute_expression_type
+					       (operand, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/APPLY_EXPRESSION(2)" ! callstack);
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: done calling compute_expression_type on operand.";
+     if_debugging_unparse_expression ("compute_expression_type/APPLY_EXPRESSION: operand == ", (operand,100));
+     if_debugging_unparse_type       ("compute_expression_type/APPLY_EXPRESSION: operand_type == ", operand_type);
+
+				       expression
+					   =
+					   ds::APPLY_EXPRESSION (operator, operand);
+     if_debugging_unparse_expression ("compute_expression_type/APPLY_EXPRESSION: expression == ", (expression,100));
+
+				       {
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: calling apply_type.";
+					   expression_type =  apply_type (operator_type, operand_type);
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: done calling apply_type I.";
+
+					   ( expression,
+					     expression_type
+					   );
+				       }
+				       except
+					   uyt::UNIFY_TYPES  mode
+					   =
+					   {
+     if_debugging_say "compute_expression_type/APPLY_EXPRESSION: done calling apply_type II.";
+					       operator_type   = tyj::prune operator_type;
+
+					       reduced_operator_type =   tyj::head_reduce_type  operator_type;
+
+					       unparse_type::reset_unparse_type ();
+
+					       if (tt::is_arrow_type (reduced_operator_type))
+
+						   error_function source_code_region em::ERROR
+						       (message("Operator and operand do not agree", mode))
+						       (fn stream
+							   =
+							   {   pp::newline stream;
+							       pp::string stream "operator domain: ";
+							       unparse_type stream (tt::domain reduced_operator_type);
+							       pp::newline stream;
+
+							       pp::string stream "operand:         ";
+							       unparse_type stream operand_type;
+							       pp::newline stream;
+
+							       pp::string stream "in expression:";
+							       pp::break stream { spaces=>1, indent_on_wrap=>2 };
+							       unparse_expression stream (given_expression, *print_depth);
+							   }
+						       );
+
+						   (given_expression, ty::WILDCARD_TYPE);
+
+					       else
+						    error_function source_code_region em::ERROR
+							(message("operator is not a function", mode))
+							(fn stream
+							    =
+							    { pp::newline stream;
+							      pp::string stream "operator: ";
+							      unparse_type stream (operator_type); pp::newline stream;
+							      pp::string stream "in expression:";
+							      pp::break stream { spaces=>1, indent_on_wrap=>2 };
+							      unparse_expression stream (given_expression,*print_depth);
+							    }
+							);
+
+						   (given_expression, ty::WILDCARD_TYPE);
+					       fi;
+					   };
+				   };
+
+			       ds::TYPE_CONSTRAINT_EXPRESSION (expression, constraining_type)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION.";
+				       my  (expression, expression_type)
+					   =
+					   compute_expression_type
+					       (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION" ! callstack);
+
+     if_debugging_say "compute_expression_type/TYPE_CONSTRAINT_EXPRESSION: calling unify_types_and_handle_errors.";
+				       if (unify_types_and_handle_errors
+					       {
+						 type1 => expression_type,    name1 => "expression",
+						 type2 => constraining_type,  name2 => "constraint",
+
+						 message => "expression doesn't match constraint",
+						 source_code_region,
+
+						 unparse_phrase =>  unparse_expression,
+						 phrase_name    => "expression",
+						 phrase         =>  given_expression,
+
+						 callstack      => "compute_expression_type/ds::TYPE_CONSTRAINT_EXPRESSION(2)" ! callstack
+					       }
+					  )
+
+     if_debugging_say "compute_expression_type/TYPE_CONSTRAINT_EXPRESSION: done calling unify_types_and_handle_errors I.";
+					    (ds::TYPE_CONSTRAINT_EXPRESSION (expression, constraining_type), constraining_type);
+				       else
+     if_debugging_say "compute_expression_type/TYPE_CONSTRAINT_EXPRESSION: done calling unify_types_and_handle_errors II.";
+					    (given_expression, ty::WILDCARD_TYPE);
+				       fi;
+				   };
+
+			       ds::EXCEPT_EXPRESSION (expression, (rules, _))
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/EXCEPT_EXPRESSION.";
+				       my (expression, expression_type)
+					   =
+					   compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/EXCEPT_EXPRESSION" ! callstack);
+
+				       my (rules, rule_pattern_type, exception_handler_type)
+					   =
+					   compute_match_type  (rules, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/EXCEPT_EXPRESSION(2)" ! callstack);
+
+				       expression =  ds::EXCEPT_EXPRESSION (expression, (rules, rule_pattern_type));
+
+     if_debugging_say "compute_expression_type/EXCEPT_EXPRESSION: above call to unify_types";
+				       {   uyt::unify_types ( "exception_handler_type",    "exception_type --> expression_type",            
+							      exception_handler_type,  tt::exception_type --> expression_type,
+							     ["compute_expression_type/EXCEPT_EXPRESSION"]
+							   );
+
+					   (expression, expression_type);
+				       }
+				       except uyt::UNIFY_TYPES  mode
+					      =
+					      {
+     if_debugging_say "compute_expression_type/EXCEPT_EXPRESSION: above second call to unify_types";
+						  if (unify_types_and_handle_errors
+							  {
+							    type1 => tt::domain (tyj::prune exception_handler_type),   name1 => "handler domain",
+							    type2 => tt::exception_type,                              name2 => "",
+
+							    message => "handler domain is not exception",
+							    source_code_region,
+
+							    unparse_phrase =>  unparse_expression,
+							    phrase_name    => "expression",
+							    phrase         =>  given_expression,
+
+							    callstack      => "compute_expression_type/EXCEPT_EXPRESSION(3)" ! callstack
+							}
+						     )
+
+     if_debugging_say "compute_expression_type/EXCEPT_EXPRESSION: above third call to unify_types";
+						      unify_types_and_handle_errors
+							{
+							  type1 => expression_type,                               name1 => "body",
+							  type2 => tt::range (tyj::prune exception_handler_type),  name2 => "handler range",
+
+							  message => "expression and handler don't agree",
+							  source_code_region,
+
+							  unparse_phrase =>  unparse_expression,
+							  phrase_name    => "expression",
+							  phrase         =>  given_expression,
+
+							  callstack      => "compute_expression_type/EXCEPT_EXPRESSION(4)" ! callstack
+							};
+						  else
+						      FALSE;
+						  fi;
+
+						  ( given_expression,
+						    ty::WILDCARD_TYPE
+						  );
+					      };
+				   };
+
+			       ds::RAISE_EXPRESSION (expression, _)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/RAISE_EXPRESSION:  TOP: calling compute_expression_type.";
+				       my (expression, expression_type)
+					   =
+					   compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/RAISE_EXPRESSION" ! callstack);
+     if_debugging_say "compute_expression_type/RAISE_EXPRESSION:  BBB: back from compute_expression_type.";
+
+     if_debugging_say "compute_expression_type/RAISE_EXPRESSION:  CCC: calling unify_types_and_handle_errors.";
+				       # Verify that 'expression' has an exception type:
+				       #
+				       unify_types_and_handle_errors
+					   {
+					     type1 => expression_type,     name1 => "raised",
+					     type2 => tt::exception_type,  name2 => "",
+
+					     message => "argument of raise is not an exception",
+					     source_code_region,
+
+					     unparse_phrase =>  unparse_expression,
+					     phrase_name    => "expression",
+					     phrase         =>  given_expression,
+
+					     callstack      => "compute_expression_type/RAISE_EXPRESSION(2)" ! callstack
+					   };
+
+				       # Now we discard all available type information
+				       # and return a totally unrestricted type
+				       # because the environment is free to consider
+				       # a 'raise' as returning whatever type it likes
+				       # -- since in fact 'raise' does not return at all:
+				       #
+				       fantasy_return_type
+					   =
+					   tyj::make_meta_type_variable_and_type  (ty::infinity, ["compute_expression_type/RAISE_EXPRESSION   from   unify-and-generalize-types-g.pkg"]);
+
+
+     if_debugging_say "compute_expression_type/RAISE_EXPRESSION:  BOT";
+				       (ds::RAISE_EXPRESSION (expression, fantasy_return_type), fantasy_return_type);
+				   };
+
+			       ds::LET_EXPRESSION (declaration, expression)
+				   => 
+				   {
+				       # The type of a 'let' construct
+				       # depends entirely upon its terminal
+				       # 'expression':
+
+     if_debugging_say "compute_expression_type/LET_EXPRESSION:  TOP: calling do_declaration on LET_EXPRESSION.d.";
+				       declaration = do_declaration (declaration, enter_let_scope (syntax_treewalk_lexical_context), source_code_region, "compute_expression_type/LET_EXPRESSION" ! callstack);
+     if_debugging_say "compute_expression_type/LET_EXPRESSION:  done calling do_declaration on LET_EXPRESSION.d.";
+     if_debugging_say "compute_expression_type/LET_EXPRESSION:  BBB: calling compute_expression_type on LET_EXPRESSION.e.";
+				       my (expression, expression_type)
+					   =
+					   compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/LET_EXPRESSION(2)" ! callstack);
+     if_debugging_say "compute_expression_type/LET_EXPRESSION:  done calling compute_expression_type on LET_EXPRESSION.e.";
+     if_debugging_say "compute_expression_type/LET_EXPRESSION:  BOT.";
+
+				       ( ds::LET_EXPRESSION (declaration, expression),
+					 expression_type
+				       );
+				   };
+
+			       ds::CASE_EXPRESSION (expression, rules, is_match)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/CASE_EXPRESSION:  TOP.";
+				       my (expression, expression_type) = compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/CASE_EXPRESSION(2)" ! callstack);
+				       my (rules', _, rule_type)        = compute_match_type (rules, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/CASE_EXPRESSION(3)" ! callstack);
+				       expression = ds::CASE_EXPRESSION (expression, rules', is_match);
+
+     if_debugging_say "compute_expression_type/CASE_EXPRESSION:  above call to apply_type.";
+				       (   expression,
+					   apply_type (rule_type, expression_type)
+				       )
+				       except
+					   uyt::UNIFY_TYPES  mode
+					      =
+					      {   if is_match
+
+     if_debugging_say "compute_expression_type/CASE_EXPRESSION:  above call to unify_types_and_handle_errors.";
+						      unify_types_and_handle_errors
+							{
+							  type1 => tt::domain rule_type,    name1 => "rule domain",
+							  type2 => expression_type,   name2 => "object",
+
+							  message=>"case object and rules don't agree",
+							  source_code_region,
+
+							  unparse_phrase =>  unparse_expression,
+							  phrase_name    => "expression",
+							  phrase         =>  given_expression,
+
+							  callstack      => "compute_expression_type/CASE_EXPRESSION(4)" ! callstack
+							};
+						  else 
+						      declaration
+							  =
+							  case rules 
+							      #	
+							      (ds::CASE_RULE (pattern, _)) ! _
+								  => 
+								  ds::NAMED_VALUE {
+								    pattern,
+								    expression => given_expression,
+
+								    ref_typevar_refs   => REF [],
+								    bound_typevar_refs => []
+								  };
+
+							      _ => bug "unexpected rule list 456";
+							  esac;
+
+    if_debugging_say "compute_expression_type/CASE_EXPRESSION:  above second call to unify_types_and_handle_errors.";
+						       unify_types_and_handle_errors
+							 {
+							   type1 => tt::domain rule_type,   name1 => "pattern",
+							   type2 => expression_type,        name2 => "expression",
+
+							   message => "pattern and expression in my declaration don't agree",
+							   source_code_region,
+
+							   unparse_phrase =>  unparse_named_value,
+							   phrase_name    => "declaration",
+							   phrase         =>  declaration,
+
+							   callstack      => "compute_expression_type/CASE_EXPRESSION(5)" ! callstack
+							 };
+						  fi;
+
+     if_debugging_say "compute_expression_type/CASE_EXPRESSION:  BOT.";
+						  ( given_expression,
+						    ty::WILDCARD_TYPE
+						  );
+					      };
+				   };
+				       #######################################################
+				       # This causes 'case' to behave differently from 'let'
+				       #	-- bound variables do not have generic types.
+				       #######################################################
+
+			       ds::IF_EXPRESSION { test_case, then_case, else_case }
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/IF_EXPRESSION:  TOP.";
+				       my (test_case', tty) = compute_expression_type (test_case, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::IF_EXPRESSION(1)" ! callstack);
+				       my (then_case', tct) = compute_expression_type (then_case, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::IF_EXPRESSION(2)" ! callstack);
+				       my (else_case', ect) = compute_expression_type (else_case, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::IF_EXPRESSION(3)" ! callstack);
+
+				       if
+				       (  bool_unify_err
+					      { type  => tty,
+						name    => "test expression",
+						message => "test expression in if is not of type bool"
+					      }
+				       and
+					  unify_types_and_handle_errors
+					      {
+						type1 => tct,   name1 => "then branch",
+						type2 => ect,   name2 => "else branch",
+
+						message  => "types of if branches do not agree",
+						source_code_region,
+
+						unparse_phrase =>  unparse_expression,
+						phrase_name    => "expression",
+						phrase         =>  given_expression,
+
+						callstack          => "compute_expression_type/ds::IF_EXPRESSION(4)" ! callstack
+					      }
+				       )
+
+     if_debugging_say "compute_expression_type/IF_EXPRESSION:  BOT I.";
+					   (   ds::IF_EXPRESSION { test_case => test_case',
+								   then_case => then_case',
+								   else_case => else_case'
+								 },
+					       tct
+					   );
+				       else
+     if_debugging_say "compute_expression_type/IF_EXPRESSION:  BOT II.";
+					   ( given_expression,
+					     ty::WILDCARD_TYPE
+					   );
+				       fi;
+				   };
+
+			       ds::AND_EXPRESSION (expression1, expression2)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/ds::AND_EXPRESSION.";
+				       short_circuit_and_or (ds::AND_EXPRESSION, "and", expression1, expression2);
+				   };
+
+			       ds::OR_EXPRESSION (expression1, expression2)
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/OR_EXPRESSION.";
+				       short_circuit_and_or (ds::OR_EXPRESSION, "or", expression1, expression2);
+				   };
+
+			       ds::WHILE_EXPRESSION { test, expression }
+				   =>
+				   {
+     if_debugging_say "compute_expression_type/ds::WHILE_EXPRESSION.";
+				       my (test', testtype) = compute_expression_type (test, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::WHILE_EXPRESSION(1)" ! callstack);
+				       my (expression', _)  = compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::WHILE_EXPRESSION(2)" ! callstack);
+
+				       if (bool_unify_err
+					       { type  => testtype,
+						 name    => "test expression",
+						 message => "test expression in while is not of type bool"
+					       }
+					  )
+
+					    (ds::WHILE_EXPRESSION { test => test', expression => expression' }, tt::void_type);
+				       else
+					    (expression, ty::WILDCARD_TYPE);
+				       fi;
+				   };
+
+			       ds::FN_EXPRESSION (rules, _)
+				   => 
+				   {
+     if_debugging_say "compute_expression_type/ds::FN_EXPRESSION.";
+				       my (rules, rule_pattern_type, rule_type) = compute_match_type (rules, syntax_treewalk_lexical_context, source_code_region, "compute_expression_type/ds::FN_EXPRESSION" ! callstack);
+
+				       (   ds::FN_EXPRESSION (rules, rule_pattern_type),
+					   rule_type
+				       );
+				   };
+
+			       ds::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, source_code_region)
+				   => 
+				   {
+     if_debugging_say "compute_expression_type/ds::SOURCE_CODE_REGION_FOR_EXPRESSION.";
+				       my (expression, expression_type)
+					   =
+					   compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region, callstack);
+
+				       (   ds::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, source_code_region),
+					   expression_type
+				       );
+				   };
+
+			       _ => bug "exptype -- bad expression";
+			   esac;
+			}								# fun compute_expression_type
+
+		    also
+		    fun compute_rule_type (ds::CASE_RULE (pattern, expression), syntax_treewalk_lexical_context, source_code_region, callstack)
+			=  
+			{
+																								       if *debugging print_callstack "\ncompute_rule_type/TOP" callstack; fi;
+																								       if *debugging printf "compute_rule_type/TOP: incrementing lex.fn_nesting from %d to %d\n" (syntax_treewalk_lexical_context.fn_nesting) (syntax_treewalk_lexical_context.fn_nesting + 1); fi;
+			    syntax_treewalk_lexical_context     =  enter_fn_scope  syntax_treewalk_lexical_context;
+			    my   (pattern, pattern_type)        =  compute_pattern_type    (pattern,    syntax_treewalk_lexical_context.fn_nesting,  source_code_region, "compute_rule_type(1)" ! callstack);	 if_debugging_say "compute_rule_type calling compute_expression_type.";
+			    my   (expression, expression_type)  =  compute_expression_type (expression, syntax_treewalk_lexical_context,             source_code_region, "compute_rule_type(2)" ! callstack);
+     if_debugging_say "compute_rule_type done calling compute_expression_type.";
+
+																								       if *debugging print_callstack "\ncompute_rule_type/BOTTOM" callstack; fi;
+																								       if *debugging printf "compute_rule_type/BOTTOM: returning from lex.fn_nesting %d to %d\n" (syntax_treewalk_lexical_context.fn_nesting) (syntax_treewalk_lexical_context.fn_nesting - 1); fi;
+			    ( ds::CASE_RULE (pattern, expression),
+			      pattern_type,
+			      pattern_type --> expression_type
+			    );
+			}
+
+		    also
+		    fun compute_match_type (rules, syntax_treewalk_lexical_context, source_code_region, callstack)
+			=
+			case rules
+
+			     [] => bug "empty rule list in typecheck::compute_match_type";
+
+			     [rule]
+				 => 
+				 {   my (rule0, argt, rule_type)
+					 =
+					 compute_rule_type
+					   ( rule,
+					     syntax_treewalk_lexical_context,
+					     source_code_region,
+					     "compute_match_type(1)" ! callstack
+					   );
+
+				     (   [rule0],
+					 argt,
+					 rule_type
+				     );
+				 };
+
+			     rule ! rest
+				 =>
+				 {   my (rule0, argt, rule_type)
+					 =
+					 compute_rule_type
+					   ( rule,
+					     syntax_treewalk_lexical_context,
+					     source_code_region,
+					     "compute_match_type(2)" ! callstack
+					   );
+
+				     fun unify_with_rule0 rule
+					 =
+					 {  my (rule', argt', rule_type')
+						=
+						compute_rule_type (rule, syntax_treewalk_lexical_context, source_code_region, "compute_match_type(3)" ! callstack);
+
+     if_debugging_say "compute_match_type: unify_with_rule0: calling unify_types_and_handle_errors.";
+					    unify_types_and_handle_errors
+						{
+						  type1 => rule_type,  name1 => "earlier rule (s)",
+						  type2 => rule_type', name2 => "this rule",
+
+						  message => "types of rules don't agree",
+						  source_code_region,
+
+						  unparse_phrase =>  unparse_rule,
+						  phrase_name    => "rule",
+						  phrase         =>  rule,
+
+						  callstack      => "compute_match_type(4)" ! callstack
+						};
+
+					    rule';
+					 };
+
+				     (   rule0 ! (map  unify_with_rule0  rest),
+					 argt,
+					 rule_type
+				     );
+				 };
+			esac
+
+		    also
+		    fun do_declaration
+			( given_declaration:	        ds::Declaration,
+			  syntax_treewalk_lexical_context:	Syntax_Treewalk_Lexical_Context,
+			  source_code_region:	        ds::Source_Code_Region,
+			  callstack:                        List(String)				# Debug support.
+			)
+			:
+			ds::Declaration
+			=
+			{
+			     if *debugging   print_callstack "\ndo_declaration/TOP" callstack; fi;
+			     if_debugging_unparse_declaration     ("do_declaration/TOP. given_declaration unparse     is:\n", given_declaration);
+			     if_debugging_prettyprint_declaration ("do_declaration/TOP. given_declaration prettyprint is:\n", (given_declaration,100));
+
+			     case given_declaration
+				 #
+				  ds::VALUE_DECLARATIONS named_values
+				      =>
+				      {
+																								       if_debugging_say "do_declaration/VALUE_DECLARATIONS\n";
+					  declaration
+					      =
+					      ds::VALUE_DECLARATIONS (map  do_named_value  named_values)
+					      where
+						  fun do_named_value
+						      ( named_value
+							as
+							ds::NAMED_VALUE
+							  {
+							    pattern    => given_pattern,
+							    expression => given_expression,
+							    ref_typevar_refs,
+							    bound_typevar_refs => bound_typevar_refs'			# Ignored.  Always [] at this point, I think.
+							  }
+						      )
+						      =
+						      {
+																									    if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value\n";
+																									    if_debugging_unparse_pattern    ("do_declaration/VALUE_DECLARATIONS/do_named_value: pattern == \n",    (given_pattern,   100));
+																									    if_debugging_unparse_expression ("do_declaration/VALUE_DECLARATIONS/do_named_value: expression == \n", (given_expression,100));
+
+							  my (pattern,    pattern_type   ) = compute_pattern_type    (given_pattern,        ty::infinity,                     source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(1)" ! callstack);			        if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value calling compute_expression_type.";
+							  my (expression, expression_type) = compute_expression_type (given_expression,     syntax_treewalk_lexical_context, source_code_region, "do_declaration/VALUE_DECLARATIONS/do_named_value(2)" ! callstack);
+
+																									    if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value done calling compute_expression_type.";
+																									    if_debugging_unparse_pattern    ("do_declaration/VALUE_DECLARATIONS/do_named_value: pattern == \n", (pattern,100));
+																									    if_debugging_unparse_expression ("do_declaration/VALUE_DECLARATIONS/do_named_value: expression == \n", (expression,100));
+																									    if_debugging_unparse_type       ("do_declaration/VALUE_DECLARATIONS/do_named_value: pattern type == \n", pattern_type);
+																									    if_debugging_unparse_type       ("do_declaration/VALUE_DECLARATIONS/do_named_value: expression type == \n", expression_type);
+
+							  # This is the sole call to   type_junk::is_value(),
+							  # the fn implementing the "value restriction" test:
+							  #
+							  generalize = is_value  given_expression;		#  or is_variable_type expression_type
+
+							  if *debugging
+							      say "\n=========================== do_declaration/VALUE_DECLARATIONS/do_named_value:  is_value() reports that:\n";
+							      say (sprintf "Following expression %s a value:\n" (generalize ?? "IS" :: "is NOT"));
+							      if_debugging_unparse_expression ("", (given_expression,100));
+							  fi;	
+
+																									    if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value: calling unify_types_and_handle_errors on pattern + expression\n";
+							  unify_types_and_handle_errors
+							      {
+								name1 => "pattern",		type1 => pattern_type,
+								name2 => "expression",	type2 => expression_type,
+
+								message => "Pattern and expression in 'my' declaration do not agree",
+
+								source_code_region,
+
+								unparse_phrase =>  unparse_named_value,
+								phrase_name    => "declaration",
+								phrase         =>  named_value,
+
+								callstack      =>  "do_declaration/VALUE_DECLARATIONS/do_named_value(3)" ! callstack
+							      };
+																									    if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value: done calling unify_types_and_handle_errors on pattern + expression\n";
+
+																									    if_debugging_say "do_declaration/VALUE_DECLARATIONS/do_named_value: calling generalize_pattern\n";
+							  bound_typevar_refs
+							      =
+							      generalize_pattern				# This is the only call to generalize_pattern().
+								(
+								  given_pattern,		# <------------ SHOULD THIS BE pattern INSTEAD? (Empirically, seems to make no difference.)
+								 *ref_typevar_refs,				# Type variables explicitly specified by user:  X, Y, ... 
+								  syntax_treewalk_lexical_context,
+								  generalize,
+								  source_code_region,
+								  "do_declaration/VALUE_DECLARATIONS/do_named_value(4)" ! callstack
+								);
+
+																								if *debugging
+																								    printf "\ndo_declaration/VALUE_DECLARATIONS/do_named_value: Creating NAMED_VALUE node with %d (was %d) bound_typevar_refs: \n" (list::length bound_typevar_refs) (list::length bound_typevar_refs');
+																								    printf "\nNAMED_VALUE.bound_typevar_refs: (%d)\n" (list::length bound_typevar_refs);
+																								    apply  unparse_typevar_ref  bound_typevar_refs
+																								    where
+																									fun unparse_typevar_ref  typevar_ref
+																									    =
+																									    if_debugging_unparse_typevar_ref ("", typevar_ref);
+																								    end;
+																								    printf "\n";
+																								    if_debugging_unparse_pattern    ("\nNAMED_VALUE.pattern == \n", (pattern,100));
+																								    if_debugging_unparse_expression ("\nNAMED_VALUE.expression == \n", (expression,100));
+																								    if_debugging_prettyprint_pattern    ("\nNAMED_VALUE.pattern    prettyprint == \n", (pattern,   100));
+																								    if_debugging_prettyprint_expression ("\nNAMED_VALUE.expression prettyprint == \n", (expression,100));
+																								fi;
+							  ds::NAMED_VALUE
+							    {
+							      pattern,
+							      expression,
+							      ref_typevar_refs,
+							      bound_typevar_refs
+							    };
+						      };				# fun do_named_value
+					      end;					# where
+																							      if *debugging       print_callstack "\ndo_declaration/VALUE_DECLARATIONS/BOTTOM" callstack; fi;
+																							      if_debugging_unparse_declaration     ("do_declaration/VALUE_DECLARATIONS/BOTTOM:  final result unparse     is:\n", declaration);
+																							      if_debugging_prettyprint_declaration ("do_declaration/VALUE_DECLARATIONS/BOTTOM:  final result prettyprint is:\n", (declaration,100));
+
+					  declaration;
+				      };
+
+				 ds::RECURSIVE_VALUE_DECLARATIONS  named_recursive_values_records				# "rvbs" == "recursive value bindings".
+				     =>
+				     {
+																								       if *debugging print_callstack "do_declaration/RECURSIVE_VALUE_DECLARATIONS/TOP" callstack; fi;
+																								       if *debugging printf "do_declaration/RECURSIVE_VALUE_DECLARATIONS/TOP: incrementing lex.fn_nesting from %d to %d\n" (syntax_treewalk_lexical_context.fn_nesting) (syntax_treewalk_lexical_context.fn_nesting + 1); fi;
+					 previous_syntax_treewalk_lexical_context
+					     =
+					     syntax_treewalk_lexical_context;
+
+					 syntax_treewalk_lexical_context
+					     =
+					     enter_fn_scope   syntax_treewalk_lexical_context;
+
+																							       if_debugging_say "do_declaration/RECURSIVE_VALUE_DECLARATIONS: TOP   in  src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg";
+					 # A general RECURSIVE_VALUE_DECLARATIONS statement
+					 # represents mutually recursive functions each of
+					 # which may have multiple rules:
+					 #
+					 #    fun foo ... => ...;
+					 #        foo ... => ...;
+					 #    end
+					 #    also
+					 #    fun bar ... => ...;
+					 #        bar ... => ...;
+					 #    end;
+					 #
+					 # Here each function (foo, bar ...) will be
+					 # represented by one NAMED_RECURSIVE_VALUES
+					 # record, where NAMED_RECURSIVE_VALUES/expression
+					 # will be a ds::FN_EXPRESSION (rules, _) with 'rules'
+					 # having one CASE_PATTERN (pattern, expression) clause
+					 # per pattern => expression rule.  Schematically:
+					 #
+					 #     RECURSIVE_VALUE_DECLARATIONS [
+					 #         NAMED_RECURSIVE_VALUES.expression		# Represents all of 'foo'.
+					 #             =>
+					 #             ds::FN_EXPRESSION.rules
+					 #                 =>
+					 #                 [ CASE_PATTERN( pattern, expression )	# One  foo ... => ... ;   rule.
+					 #                   ...
+					 #                 ]
+					 #         ...
+					 #     ]
+					 #
+					 # We use a two-pass algorithm here in which the first
+					 # pass typecheckes the left-hand sides of all the rules
+					 # and the second pass typechecks the right-hand sides.
+
+
+					 # First pass: rule patterns and types.
+					 # As we go, we accumulate the second-pass
+					 # worklist in "expression_thunks':
+					 #	
+					 rvbs_expression_thunk_pairs
+					     =
+					     map  do_one_function  named_recursive_values_records
+					     where
+						 # Process one NAMED_RECURSIVE_VALUES record,
+						 # which is to say all the rules for one function.
+						 #	
+						 # We derive a first-pass approximation to the
+						 # function's type by unifying together domain
+						 # types computed from the rule left hand sides
+						 # (the patterns) together with any explicitly
+						 # declared type constraints on the rule's range
+						 # (result) type.
+						 #
+						 # We save the result in
+						 #     NAMED_RECURSIVE_VALUES /
+						 #     ORDINARY_VARIBLE /
+						 #     var_type.
+						 #
+						 # During this first pass we do not compute any range
+						 # range types from the actual rule right hand sides
+						 # (the function bodies) -- we leave that for the
+						 # second pass.
+						 #
+						 fun do_one_function
+							 ( named_recursive_values
+							   as
+							   ds::NAMED_RECURSIVE_VALUES {
+							     variable => variable as vac::ORDINARY_VARIABLE { var_type, ... },
+							     expression,
+							     null_or_type,
+							     ref_typevar_refs,
+							     bound_typevar_refs
+							   }
+							 )
+							 => 
+							 {
+							     result
+								 =
+								 ( ds::NAMED_RECURSIVE_VALUES {
+								     variable,
+								     expression,
+								     null_or_type,
+								     ref_typevar_refs,
+								     bound_typevar_refs => *bound_typevar_refs_accumulator
+								   },
+								   expression_thunk
+								 );
+
+															    if (*debugging and ((list::length *bound_typevar_refs_accumulator) > 0))
+																if *debugging print_callstack "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function/TOP" callstack; fi;
+																printf "\nCreating NAMED_RECURSIVE_VALUES with %d-entry bound_typevar_refs list do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  in  unify-and-generalize-types-g.pkg\n" (list::length *bound_typevar_refs_accumulator);
+																printf "\nNAMED_RECURSIVE_VALUES.bound_typevar_refs: (%d) (was %d)\n" (list::length *bound_typevar_refs_accumulator) (list::length bound_typevar_refs);
+																apply  unparse_typevar_ref  *bound_typevar_refs_accumulator
+																where
+																    fun unparse_typevar_ref  typevar_ref
+																	=
+																	if_debugging_unparse_typevar_ref ("", typevar_ref);
+																end;
+																printf "\n";
+																if_debugging_unparse_expression ("\nNAMED_RECURSIVE_VALUES.expression == \n", (expression,100));
+																if_debugging_prettyprint_expression ("\nNAMED_RECURSVIE_VALUES.expression prettyprint == \n", (expression,100));
+															    fi;
+							      result;
+							 }
+							 where
+
+							     # We compute the function type by starting with
+							     # an initially completely unconstrained arrow
+							     # (function) type and then unifying it with all
+							     # available type information.  The eventual result
+							     # is a type which is as general as possible while
+							     # still being consistent with all known type
+							     # constraints/information.
+							     #
+							     # We use 'function_type_so_far' as our type result
+							     # accumulator:
+							     #
+							     domain_type =   tyj::make_meta_type_variable_and_type  (syntax_treewalk_lexical_context.fn_nesting, ["domain_type in do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  unify-and-generalize-types-g.pkg"]);
+							     range_type  =   tyj::make_meta_type_variable_and_type  (syntax_treewalk_lexical_context.fn_nesting, ["range_type  in do_one_function  in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  unify-and-generalize-types-g.pkg"]);
+							     #
+							     function_type_so_far =   domain_type --> range_type;
+
+
+							     # If the user explicitly declared a type for the
+							     # function, fold that type information into our
+							     # 'function_type_so_far' accumulator:
+							     #
+							     case null_or_type 
+
+								  NULL => TRUE;
+
+								  THE declared_function_type
+								      =>
+								      {
+																										if_debugging_say "do_one_function: calling unify_types_and_handle_errors in do_declaration/RECURSIVE_VALUE_DECLARATIONS  from  unify-and-generalize-types-g.pkg\n";
+									  unify_types_and_handle_errors
+									      {
+										type1 => function_type_so_far,    name1 => "",
+										type2 => declared_function_type,  name2 => "constraint",
+
+										message => "type constraint of my rec declaration\
+										       \ is not a function type",
+										source_code_region,
+
+										unparse_phrase =>  unparse_recursively_named_value,
+										phrase_name    => "declaration",
+										phrase         =>  named_recursive_values,
+
+										callstack      => "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(1)" ! callstack
+									      };
+								      };
+							     esac;
+
+							     # As we generalize rule patterns we
+							     # generate additional bound type variables,
+							     # which we will accumulate here:
+							     #
+							     bound_typevar_refs_accumulator
+								 =
+								 REF bound_typevar_refs;		# Always [] at this point.
+
+							     my (expression, expression_thunk)
+								 =
+								 f (expression, source_code_region, function_type_so_far)
+								 where
+								     fun f (ds::FN_EXPRESSION (rules, fn_type), source_code_region, function_type_so_far)
+									     =>
+									     {
+										 stipulate
+
+										     pattern_type_expression_triples
+											 =
+											 map  approximate_rule_type  rules
+											 where
+											     fun approximate_rule_type (ds::CASE_RULE (pattern, expression))
+												 =
+												 {   my (pattern, pattern_type)
+													 =
+													 compute_pattern_type
+													   (
+													     pattern,
+													    *generalize_mutually_recursive_functions		# See Note[1].
+														 ??  ty::infinity
+														 ::  syntax_treewalk_lexical_context.fn_nesting,
+													     source_code_region,
+													     "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(2)" ! callstack
+													   );
+
+												     case expression
+													  ds::TYPE_CONSTRAINT_EXPRESSION (expression, range_type_constraint)
+													      =>
+													      ( pattern,
+														pattern_type --> range_type_constraint,
+														(expression, source_code_region)
+													      );
+
+													  expression
+													      =>
+													      ( pattern,
+														pattern_type --> range_type,
+														(expression, source_code_region)
+													      );
+												     esac;
+												 };
+											 end; 
+
+										 herein
+
+										     rule_patterns    =  map  #1  pattern_type_expression_triples;
+										     rule_types       =  map  #2  pattern_type_expression_triples;
+										     rule_expressions =  map  #3  pattern_type_expression_triples;
+
+										 end;
+
+										 apply   unify_rule_type_with_function_type_so_far  rule_types
+										 where
+										     fun unify_rule_type_with_function_type_so_far  rule_type
+											 =
+											 {
+																											if_debugging_say "do_declaration/RECURSIVE_VALUE_DECLARATIONS: do_one_function: unify_rule_type_with_function_type_so_far:  calling unify_types_and_handle_errors\n";
+											     unify_types_and_handle_errors
+											       {
+												 type1 => rule_type,              name1 => "this clause",
+												 type2 => function_type_so_far,   name2 => "previous clauses",
+
+												 message => "parameter or result constraints\
+													    \ of clauses don't agree",
+
+												 source_code_region,
+
+												 unparse_phrase => unparse_recursively_named_value,
+												 phrase_name    => "declaration",
+												 phrase         => named_recursive_values,
+
+												 callstack      => "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(3)" ! callstack
+											       };
+
+											     ();
+											 };
+										 end;
+
+										 var_type := function_type_so_far;
+
+										 # Added 2009-04-25 CrT: See Note[1] at bottom of tile.
+										 #		
+    # src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg: generalize_type'/USER_TYPE_VARIABLE: X fn_nesting 1 syntax_treewalk_lexical_context.fn_nesting  1
+    # src/lib/thread-kit/src/core-thread-kit/event.pkg:151.9-172.3 Error: Explicit type variable cannot be generalized at its declaration point: X
+    # src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg: generalize_type'/USER_TYPE_VARIABLE: X fn_nesting 1 syntax_treewalk_lexical_context.fn_nesting  1
+    # src/lib/thread-kit/src/core-thread-kit/event.pkg:357.9-374.3 Error: Explicit type variable cannot be generalized at its declaration point: X
+										 if	*generalize_mutually_recursive_functions
+										     apply  generalize_rule_pattern  rule_patterns
+										     where
+											 fun generalize_rule_pattern  pattern
+											     =
+											     {
+																								if *debugging
+																								    printf "\n========== do_one_function CALLING generalize_pattern ==========  in do_declaration/RECURSIVE_VALUE_DECLARATIONS because *generalize_mutually_recursive_functions is TRUE.\n";
+																								    printf   "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+																								fi;
+												 added_type_variables
+												     =
+												     generalize_pattern
+												       (
+													 pattern,
+													*ref_typevar_refs,				# Type variables explicitly specified by user:  X, Y, ... 
+													 previous_syntax_treewalk_lexical_context,
+													 TRUE,						# "generalize"
+													 source_code_region,
+													"do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(4)" ! callstack
+												       );
+
+																								if *debugging
+																								    printf "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
+																								    printf   "========== do_one_function CALLED  generalize_pattern ==========  in do_declaration/RECURSIVE_VALUE_DECLARATIONS\n";
+																								fi;
+																								if *debugging
+																								    say ("\ndo_declaration/RECURSIVE_VALUE_DECLARATIONS: do_one_function: added_type_variables: \n");
+																								    apply  unparse_typevar_ref  added_type_variables
+																								    where
+																									fun unparse_typevar_ref  typevar_ref
+																									    =
+																									    if_debugging_unparse_typevar_ref ("", typevar_ref);
+																								    end;
+																								fi;
+												 bound_typevar_refs_accumulator
+												     :=
+												     added_type_variables
+												     @
+												   *bound_typevar_refs_accumulator;
+											     };
+										     end;
+																								if *debugging
+																								    say ("\ndo_declaration/RECURSIVE_VALUE_DECLARATIONS: do_one_function: FINAL bound_typevar_refs_accumulator: \n");
+																								    apply  unparse_typevar_ref  *bound_typevar_refs_accumulator
+																								    where
+																									fun unparse_typevar_ref  typevar_ref
+																									    =
+																									    if_debugging_unparse_typevar_ref ("", typevar_ref);
+																								    end;
+																								fi;
+										 fi;
+
+										 expression_thunk
+										     =
+										     fn ()
+											 =
+											 ds::FN_EXPRESSION
+											     ( paired_lists::map
+												   ds::CASE_RULE
+												   ( rule_patterns,
+												     map  unify_expression_with_range_type  rule_expressions
+												   ),
+
+											       tt::domain (tyj::prune (function_type_so_far))
+											     )
+											 where
+											     fun unify_expression_with_range_type (expression, source_code_region)
+												 =
+												 {
+																								    if_debugging_say "calling compute_expression_type: unify_expression_with_range_type() in f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg";
+												     my (expression, expression_type)
+													 =
+													 compute_expression_type (expression, syntax_treewalk_lexical_context, source_code_region,  "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(5)" ! callstack);
+																								    if_debugging_say "back from compute_expression_type:  unify_expression_with_range_type() in f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg";
+
+																								    if_debugging_say "calling unify_types_and_handle_errors:   unify_expression_with_range_type() in f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg";
+												     unify_types_and_handle_errors {
+
+													 type1 => expression_type,   name1 => "expression",
+													 type2 => range_type,        name2 => "result type",
+
+													 message=>"right-hand-side of clause\
+														  \ doesn't agree with function result type",
+
+													 source_code_region,
+
+													 unparse_phrase =>  unparse_recursively_named_value,
+													 phrase_name    => "declaration",
+													 phrase         =>  named_recursive_values,
+
+													 callstack      => "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function(6)" ! callstack
+												       };
+																								    if_debugging_say "back from unify_types_and_handle_errors:   unify_expression_with_range_type() in f() in do_one_function() in RECURSIVE_VALUE_DECLARATIONS in do_declaration() in src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg";
+
+												     expression;
+												 };
+
+											 end; 
+
+										( ds::FN_EXPRESSION (rules, fn_type),
+										  expression_thunk
+										);
+									     };
+
+									 f (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, source_code_region), _, function_type_so_far)
+									     => 
+									     {   my (expression, subthunk)
+										     =
+										     f (expression, source_code_region, function_type_so_far);
+
+										 expression_thunk
+										     =
+										     fn () =  ds::SOURCE_CODE_REGION_FOR_EXPRESSION (subthunk(), source_code_region);
+
+										 ( ds::SOURCE_CODE_REGION_FOR_EXPRESSION (expression, source_code_region),
+										   expression_thunk
+										 );
+									     };
+
+									 f (ds::TYPE_CONSTRAINT_EXPRESSION (expression, constraining_type), source_code_region, function_type_so_far)
+									     =>
+									     {
+																						     if_debugging_say "do_declaration/RECURSIVE_VALUE_DECLARATIONS: do_one_function: f:  calling unify_types_and_handle_errors\n";
+										 unify_types_and_handle_errors
+										     {
+										       type1 => constraining_type,      name1 => "this constraint",
+										       type2 => function_type_so_far,   name2 => "outer constraints",
+
+											message=>"type constraints on my rec\
+												  \ declaraction disagree",
+											source_code_region,
+
+											unparse_phrase =>  unparse_recursively_named_value,
+											phrase_name    => "declaration",
+											phrase         =>  named_recursive_values,
+
+											callstack      => "do_declaration/RECURSIVE_VALUE_DECLARATIONS/do_one_function/f/ds::TYPE_CONSTRAINT_EXPRESSION" ! callstack
+										     };
+																						     if_debugging_say "do_declaration/RECURSIVE_VALUE_DECLARATIONS: do_one_function: f:  done calling unify_types_and_handle_errors\n";
+
+										 my (expression, subthunk)
+										     =
+										     f (expression, source_code_region, function_type_so_far);
+
+										 expression_thunk
+										     =
+										     fn()  = ds::TYPE_CONSTRAINT_EXPRESSION (subthunk(), constraining_type);
+
+										 ( ds::TYPE_CONSTRAINT_EXPRESSION (expression, constraining_type),
+										   expression_thunk
+										 );
+									     };
+
+									f _ => bug "typecheck.823";
+								    end;					# fun f
+								end;					# where
+							end;						# where
+
+						     do_one_function _ => bug "do_one_function";
+						 end;							# fun do_one_function
+					     end;								# where (rvbs_expression_thunk_pairs)
+
+												    # paired_lists		is from   src/lib/std/src/paired-lists.pkg
+					 named_recursive_values_records              = map  #1  rvbs_expression_thunk_pairs;
+					 expression_thunks = map  #2  rvbs_expression_thunk_pairs;
+
+					 # Second pass: type-check and update
+					 # the right-hand-side expressions
+					 # (function bodies):
+					 #
+					 named_recursive_values_records							# "rvb" == "recursive value binding"
+					     =
+					     paired_lists::map
+						 do_rvb_expression
+						 (named_recursive_values_records, expression_thunks)
+					     where
+						 fun do_rvb_expression
+						     (  ds::NAMED_RECURSIVE_VALUES { variable, null_or_type, ref_typevar_refs, bound_typevar_refs, expression => _ },
+							expression_thunk
+						     )
+						     =
+						     ds::NAMED_RECURSIVE_VALUES {
+							 expression  =>  expression_thunk(),
+							 variable,
+							 null_or_type,
+							 ref_typevar_refs,
+							 bound_typevar_refs
+						     };
+					     end;
+
+					 # 2009-05-14 CrT:	
+					 # The SML/NJ code comments here:
+					 #	
+					 #    "No need to generalize here, because every RECURSIVE_VALUE_DECLARATIONS is
+					 #     wrapped in a VALUE_DECLARATIONS, and the generalization occurs at the
+					 #     outer level.  Previously had:
+					 #	
+					 #         named_recursive_values_records
+					 #             =
+					 #             map  generalize_type
+					 #             named_recursive_values_records
+					 #	
+					 # The above code does not actually typecheck, but something similar
+					 # seems needed if mutually recursive functions are to be
+					 # typeagnostic ("polymorphic"), which I need to make OOP work decently,
+					 # so I've added a
+					 #	
+					 #     if *generalize_mutually_recursive_functions
+					 #	       apply  generalize_rule_pattern  rule_patterns
+					 #	
+					 # call above in:
+					 #	
+					 #     do_declaration()/RECURSIVE_VALUE_DECLARATIONS/do_one_function()
+					 #	
+					 # 2011-06-07 CrT: Robert Harper informs me that finding the most general
+					 #  polymorphic type for mutually recursive functions is a mathematically
+					 #  undecidable problem. (He says that Haskell requires explicit user-supplied
+                                         #  types in such situations, and that SML should follow suit.)  This is probably
+					 #  why SML/NJ doesn't attempt this. ;-)  The Definition seems notably reticent on this front....
+																						    if_debugging_say "do_declaration/RECURSIVE_VALUE_DECLARATIONS: calling typer_junk::convert_deep_syntax_named_recursive_values_list_to_deep_syntax_value_declarations_or_recursive_value_declarations\n";
+					 declaration
+					     =
+					     typer_junk::convert_deep_syntax_named_recursive_values_list_to_deep_syntax_value_declarations_or_recursive_value_declarations
+						 named_recursive_values_records;
+																						    if *debugging       print_callstack "\ndo_declaration/RECURSIVE_VALUE_DECLARATIONS/BOTTOM" callstack; fi;
+																						    if *debugging                  printf "do_declaration/RECURSIVE_VALUE_DECLARATIONS/BOTTOM:  returning from lex.fn_nesting %d to %d\n" syntax_treewalk_lexical_context.fn_nesting (syntax_treewalk_lexical_context.fn_nesting - 1); fi;
+																						    if_debugging_unparse_declaration     ("do_declaration/RECURSIVE_VALUE_DECLARATIONS/BOTTOM:  final result unparse     is:\n", declaration);
+																						    if_debugging_prettyprint_declaration ("do_declaration/RECURSIVE_VALUE_DECLARATIONS/BOTTOM:  final result prettyprint is:\n", (declaration,100));
+
+					 declaration;
+				     };				# RECURSIVE_VALUE_DECLARATIONS
+
+				 ds::EXCEPTION_DECLARATIONS  ebs
+				     =>
+				     {
+																						    if_debugging_say "do_declaration/EXCEPTION_DECLARATIONS/TOP\n";
+
+
+					 if_debugging_say "do_declaration: EXCEPTION_DECLARATIONS";
+
+					 if   (syntax_treewalk_lexical_context.fn_nesting  < 1)
+
+					      apply eb_type ebs
+					      where
+						  fun check (ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::USER_TYPE_VARIABLE _) } )
+							  => 
+							  error_function source_code_region em::ERROR
+							      "type variable in top level exception type"
+							      em::null_error_body;
+
+						      check (ty::TYPCON_TYPE(_, args))
+							  =>
+							  apply check args;
+
+						      check _ => ();
+						  end;
+
+						  fun eb_type (ds::NAMED_EXCEPTION { exception_type => THE type, ... } ) =>   check type;
+						      eb_type _ => ();
+						  end;
+					      end;
+					 fi;
+
+																							    if_debugging_say "do_declaration/EXCEPTION_DECLARATIONS/BOT\n";
+					 given_declaration;
+				     };
+
+				 ds::LOCAL_DECLARATIONS (dec_in, dec_out)
+				     =>
+				     {
+																							    if_debugging_say "do_declaration/LOCAL_DECLARATIONS/TOP\n";
+					 dec_in'  = do_declaration (dec_in,  enter_let_scope syntax_treewalk_lexical_context, source_code_region, "do_declaration/LOCAL_DECLARATIONS(1)" ! callstack);
+					 dec_out' = do_declaration (dec_out,                 syntax_treewalk_lexical_context, source_code_region, "do_declaration/LOCAL_DECLARATIONS(2)" ! callstack);
+
+					 if_debugging_say "do_declaration: LOCAL_DECLARATION";
+
+																							    if_debugging_say "do_declaration/LOCAL_DECLARATIONS/BOT\n";
+					 ds::LOCAL_DECLARATIONS (dec_in', dec_out');
+				     };
+
+				 ds::SEQUENTIAL_DECLARATIONS (decls)
+				     => 
+				     {
+																							    if_debugging_say "do_declaration/SEQUENTIAL_DECLARATIONS/TOP\n";
+					 result = ds::SEQUENTIAL_DECLARATIONS (map (fn decl = do_declaration (decl, syntax_treewalk_lexical_context, source_code_region, "do_declaration/SEQUENTIAL_DECLARATIONS" ! callstack)) decls);
+																							    if_debugging_say "do_declaration/SEQUENTIAL_DECLARATIONS/BOT\n";
+					 result;
+				     };
+
+				 ds::ABSTRACT_TYPE_DECLARATION { abstract_typs, with_typs, body }
+				     => 
+				     {
+																							    if_debugging_say "do_declaration/ABSTRACT_TYPE_DECLARATION/TOP\n";
+					 fun make_abstract (ty::PLAIN_TYP { eq, ... } )
+						 =>
+						 eq := ty::EQ_ABSTRACT;
+
+					     make_abstract _
+						 =>
+						 bug "make_abstract";
+					 end;
+
+					 fun redefine_eq (ds::ENUM_DECLARATIONS { datatyps, ... } )
+						 =>
+						 {   apply  set_data  datatyps;
+						     #
+						     eq_types::define_eq_props  (datatyps, NIL, typerstore::empty);
+						 }
+						 where
+						     fun set_data (ty::PLAIN_TYP { eq, ... } ) =>   eq :=  ty::DATA;
+							 set_data _                               =>   ();
+						     end;
+						 end;	
+
+					    redefine_eq (ds::SEQUENTIAL_DECLARATIONS decs)
+						=>
+						apply redefine_eq decs;
+
+					    redefine_eq (ds::LOCAL_DECLARATIONS (din, dout))                        #  "You're a better man than I am, Gunga Din!" 
+						=>
+						{   redefine_eq din;
+						    redefine_eq dout;
+						};
+
+					    redefine_eq (ds::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, _))
+						=>
+						redefine_eq declaration;
+
+					    redefine_eq _
+						=>
+						();
+					 end;
+
+					 body' =   do_declaration
+						       (body, syntax_treewalk_lexical_context, source_code_region, "do_declaration/ABSTRACT_TYPE_DECLARATION" ! callstack);
+
+					 if_debugging_say "do_declaration: ABSTRACT_TYPE_DECLARATION";
+
+					 apply  make_abstract  abstract_typs;
+
+					 redefine_eq body';
+
+																							    if_debugging_say "do_declaration/ABSTRACT_TYPE_DECLARATION/BOT\n";
+					 ds::ABSTRACT_TYPE_DECLARATION {
+					     abstract_typs,
+					     with_typs,
+					     body => body'
+					 };
+				     };
+
+				 ds::SOURCE_CODE_REGION_FOR_DECLARATION (declaration, source_code_region)
+				     =>
+				     {
+																							    if_debugging_say "do_declaration/ds::SOURCE_CODE_REGION_FOR_DECLARATION\n";
+					 ds::SOURCE_CODE_REGION_FOR_DECLARATION (
+					     do_declaration (declaration, syntax_treewalk_lexical_context, source_code_region, callstack),
+					     source_code_region
+					 );
+				     }; 
+
+
+				 # The next several declarations will never be seen ordinarily;
+				 # they are for re-typechecking after the instrumentation phase
+				 # of debugger or profiler. 
+				 #
+				 ds::PACKAGE_DECLARATIONS  named_packages
+				     =>
+				     ds::PACKAGE_DECLARATIONS          (map (named_package_type  (syntax_treewalk_lexical_context, source_code_region, "do_declaration/PACKAGE_DECLARATIONS" ! callstack)) named_packages);
+
+				 ds::GENERIC_DECLARATIONS  named_generics
+				     =>
+				     ds::GENERIC_DECLARATIONS          (map (generic_naming_type (syntax_treewalk_lexical_context, source_code_region, "do_declaration/ds::GENERIC_DECLARATIONS" ! callstack)) named_generics);
+
+				_ => given_declaration;
+			    esac;
+			}
+
+		    also
+		    fun generic_naming_type
+			( syntax_treewalk_lexical_context, 
+			  source_code_region,
+			  callstack
+			)
+			(ds::NAMED_GENERIC { definition,
+					 name_symbol,
+					 a_generic
+				       }
+			)
+			=
+			ds::NAMED_GENERIC { definition  => generic_expression_type  definition,
+					    name_symbol,
+					    a_generic
+					  }
+			where
+			    fun generic_expression_type ( ds::GENERIC_DEFINITION { parameter, parameter_types, definition } )
+				    =>
+				    ds::GENERIC_DEFINITION { parameter,
+							 parameter_types,
+							 definition
+							     =>
+							     package_expression_type
+								 (syntax_treewalk_lexical_context, source_code_region, "generic_naming_type/generic_expression_type/ds::GENERIC_DEFINITION" ! callstack)
+								 definition
+						     };
+
+				generic_expression_type (ds::GENERIC_LET (declaration, expression))
+				    =>
+				    ds::GENERIC_LET (   do_declaration (declaration, enter_let_scope  syntax_treewalk_lexical_context, source_code_region, "generic_naming_type/generic_expression_type/ds::GENERIC_LET" ! callstack),
+						 generic_expression_type expression
+					     );
+
+				generic_expression_type (ds::SOURCE_CODE_REGION_FOR_GENERIC (generic_expression, source_code_region))
+				    =>
+				    ds::SOURCE_CODE_REGION_FOR_GENERIC (generic_expression_type generic_expression, source_code_region);
+
+				generic_expression_type  other
+				    =>
+				    other;
+			    end;
+			end
+
+		    also
+		    fun package_expression_type
+			    (syntax_treewalk_lexical_context, source_code_region, callstack)
+			    (se as (ds::COMPUTED_PACKAGE { a_generic, generic_argument, parameter_types } ))
+			    =>
+			    se;
+
+
+			package_expression_type (syntax_treewalk_lexical_context, source_code_region, callstack) (ds::PACKAGE_LET { declaration, expression })
+			    =>
+			    ds::PACKAGE_LET { declaration => do_declaration (declaration, enter_let_scope syntax_treewalk_lexical_context, source_code_region, "package_expression_type/ds::PACKAGE_LET" ! callstack),
+					      expression  => package_expression_type (syntax_treewalk_lexical_context, source_code_region, "package_expression_type/ds::PACKAGE_LET(2)" ! callstack) expression
+					    };
+
+
+			package_expression_type (syntax_treewalk_lexical_context, _, callstack) (ds::SOURCE_CODE_REGION_FOR_PACKAGE (expression, source_code_region))
+			    => 
+			    ds::SOURCE_CODE_REGION_FOR_PACKAGE (package_expression_type (syntax_treewalk_lexical_context, source_code_region, callstack) expression, source_code_region);
+
+			package_expression_type _ other
+			    =>
+			    other;
+		    end 
+
+		    also
+		    fun named_package_type (syntax_treewalk_lexical_context, source_code_region, callstack) (ds::NAMED_PACKAGE { a_package, definition, name_symbol } )
+			=
+			ds::NAMED_PACKAGE { a_package,
+					    definition => package_expression_type (syntax_treewalk_lexical_context, source_code_region, "named_package_type/ds::NAMED_PACKAGE" ! callstack) definition,
+					    name_symbol
+					  };
+
+		    if_debugging_say "unify_and_generalize_types: calling do_declaration";
+
+		end;				#  function unify_and_generalize_types 
+
+	    unify_and_generalize_types
+		  =
+		  compile_statistics::do_phase (compile_statistics::make_phase "Compiler 035  typecheck") unify_and_generalize_types;
+
+	end;	# stipulate
+    };		# package unify_and_generalize_types 
+end;
+
+################################################################
+# Note[1]:                                        2009-04-25 CrT
+#
+# While implementing OOP support and attempting
+# to make 'new' and method functions mutually
+# recursive, I discovered that
+#
+#     package test: api { f: X -> Void; } {
+#
+#          fun f (x: X) = ();
+#          fun g () = f 0;
+#      };
+#
+# typechecked ok but
+#
+#     package test: api { f: X -> Void; } {
+#
+#          fun f (x: X) = ()
+#          also
+#          fun g () = f 0;
+#      };
+#
+# did not.  This was a bit of a showstopper,
+# since forbidding class methods from creating
+# new class instances is a major restriction.
+#
+# After some digging I discovered that the SML/NJ
+# version of do_declaration/RECURSIVE_VALUE_DECLARATIONS
+# in this file apparently once generalized its patterns
+# but stopped doing so, judging by the comment
+#
+#				     # No need to generalize here, because every RECURSIVE_VALUE_DECLARATIONS is
+#				     # wrapped in a VALUE_DECLARATIONS, and the generalization occurs at the
+#				     # outer level.  Previously: named_recursive_values_records = map generalize_type named_recursive_values_records
+#
+# This omission appeared to be the root cause
+# of my above typechecking issue.
+#
+# Poking around farther, I found in
+#     src/lib/compiler/back/top/translate/translate-deep-syntax-to-lambdacode.pkg
+#         fun make_named_recursive_values
+#             fun g
+# the code and comment
+#				    ee = make_expression (expression, d); #  Was make_pattern_expression (expression, d, tvs) 
+#					                                  #  We no longer track type namings at NAMED_RECURSIVE_VALUES anymore ! 
+#
+# and in fact the NAMED_RECURSIVE_VALUES.bound_typevar_refs
+# field seemed at to be entirely unused by the compiler.
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

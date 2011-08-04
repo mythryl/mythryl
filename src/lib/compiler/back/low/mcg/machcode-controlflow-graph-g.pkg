@@ -1,0 +1,1452 @@
+## machcode-controlflow-graph-g.pkg
+#
+# See comments in
+#
+#     src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+
+###			"A codebase needs more than understanding.  It needs love.
+###			 An unloved codebase is a dying codebase."
+
+
+stipulate
+    package ast =  asm_stream;									# asm_stream			is from   src/lib/compiler/back/low/emit/asm-stream.pkg
+    package iht =  int_hashtable;								# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package lbl =  codelabel;									# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;							# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lms =  list_mergesort;								# list_mergesort		is from   src/lib/src/list-mergesort.pkg
+    package nt  =  note;									# note				is from   src/lib/src/note.pkg
+    package odg =  oop_digraph;									# oop_digraph			is from   src/lib/graph/oop-digraph.pkg
+    package rkj =  registerkinds_junk;								# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;									# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+    package sos =  string_out_stream;								# string_out_stream		is from   src/lib/compiler/back/low/library/string-out-stream.pkg
+    package ugi =  update_graph_info;								# update_graph_info		is from   src/lib/graph/update-graph-info.pkg
+herein
+
+    # This generic is invoked from;
+    #
+    #     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+    #     src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+    #     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+    #
+    generic package   machcode_controlflow_graph_g   (
+	#             ===========================
+	#
+	package mcf:  Machcode_Form;								# Machcode_Form			is from   src/lib/compiler/back/low/code/machcode-form.api
+
+	package meg:  Make_Empty_Graph;								# Make_Empty_Graph		is from   src/lib/graph/make-empty-graph.api
+												# digraph_by_adjacency_list	is from   src/lib/graph/digraph-by-adjacency-list.pkg
+
+	package mu:   Machcode_Universals							# Machcode_Universals		is from   src/lib/compiler/back/low/code/machcode-universals.api
+		      where
+			  mcf == mcf;								# "mcf" == "machcode_form" (abstract machine code).
+
+	package ae:   Instruction_Emitter							# Instruction_Emitter		is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+	              where
+		          mcf == mcf;								# "mcf" == "machcode_form" (abstract machine code).
+    )
+    : (weak) Machcode_Controlflow_Graph								# Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+    {
+	# Export to client packages:
+	#	
+	package mcf =  mcf;									# "mcf"  == "machcode_form" (abstract machine code).
+	package pop =  ae::cst::pop;								# "pop" == "pseudo_op".
+
+	stipulate
+	    package rgk =  mcf::rgk;								# "rgk" == "registerkinds".
+	    package cst =  ae::cst;								# "cst" == "codestream".
+	    package ae  =  ae;									# "ae"  == "asmcode_emitter".
+	herein
+
+	    Execution_Frequency = Float;							# Used to represent (estimated) frequency of execution of both basic blocks and also edges between them.
+
+	    Bblock_Kind
+		= START										# Entry node.  One per graph.
+		| STOP										# Exit node.   One per graph.
+		| NORMAL									# Normal node.
+
+	    also
+	    Bblock =
+		BBLOCK 
+		  { id:				Int,						# Block id.
+		    kind:			Bblock_Kind,					# Block kind.
+		    execution_frequency:	Ref( Execution_Frequency ),			# Execution frequency.
+		    #	
+		    labels:			Ref( List(  lbl::Codelabel ) ),			# Labels on blocks.
+		    ops:			Ref( List(  mcf::Machine_Op ) ),	# In reverse order.
+		    #
+		    alignment_pseudo_op:	Ref( Null_Or(  pop::Pseudo_Op ) ),		# Alignment only.
+		    notes:			Ref( nt::Notes )				# Annotations.
+		  }
+
+	    also
+	    Edge_Kind										# Edge kinds -- for more info see  src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+	      = ENTRY										# Entry edge. Edge from the unique START bblock in the graph.
+	      | EXIT										# Exit edge.  Edge to   the unique STOP  bblock in the graph.
+	      | JUMP										# Unconditional jump.
+	      | FALLSTHRU									# Falls through to next block.
+	      | BRANCH  Bool									# Branch.
+	      | SWITCH  Int									# Computed goto.
+	      | FLOWSTO										# FLOW_TO edge.
+
+	    also
+	    Edge_Info
+		=
+		EDGE_INFO
+		  { kind:   		    Edge_Kind,						# Edge kind.
+		    execution_frequency:    Ref( Execution_Frequency ),				# Estimated execution frequency for edge.
+		    notes:		    Ref( nt::Notes )					# Annotations.
+		  };
+
+	    Edge = odg::Edge( Edge_Info );
+	    Node = odg::Node( Bblock );
+
+	    # See comments in   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+	    #
+	    Graph_Info
+		=
+		GRAPH_INFO  
+		  { notes:		Ref( nt::Notes ),
+		    first_block:	Ref( Int ),						# Id of first block (UNUSED?) 
+		    reorder:		Ref( Bool ),						# Initially FALSE; set to TRUE (only) when note_changes(graph) is called.
+		    dataseg_pseudo_ops:	Ref( List( pop::Pseudo_Op ) ),				# Stuff for the traditional assembly-code "data" segement (or machine-code equivalent).  In reverse order of generation.
+		    decls:		Ref( List( pop::Pseudo_Op ) )				# pseudo-ops before first section.
+		  };
+
+	    Machcode_Controlflow_Graph
+		=
+		odg::Digraph( Bblock, Edge_Info, Graph_Info );
+	    #
+	    fun error msg
+		=
+		lem::error("machcode_controlflow_graph", msg);
+
+	    # ========================================================================
+	    #
+	    #  Notekinds
+	    #
+	    # ========================================================================
+
+	    #  escaping live out information 
+	    #
+	    liveout = nt::make_notekind 
+		  (THE (fn c =  "Liveout: " +
+				(line_break::line_break 75 
+				    (rkj::cls::codetemplists_to_string c))));
+
+	    # Global graph notes to be called
+	    # after topology changes -- i.e.,
+	    # when user calls our note_topology_changes() fun:
+	    #
+	    exception CHANGED_X  (String, (Void -> Void)); 					# String is name, for human display purposes.
+	    #
+	    changed
+		=
+		nt::make_notekind'
+		  {
+		    x_to_note =>  CHANGED_X,
+		    #	
+		    to_string =>  fn (name, _) = "CHANGED:" + name,
+		    #
+		    get       =>  fn CHANGED_X x => x;
+				     e           => raise exception e;
+				  end
+		  };
+
+	    # ========================================================================
+	    #
+	    #  Methods for manipulating basic blocks
+	    #
+	    # ========================================================================
+	    fun define_local_label (BBLOCK { labels=>REF (l ! _), ... } )
+		    =>
+		    l;
+
+		define_local_label (BBLOCK { labels, ... } )
+		    =>
+		    {   l = lbl::make_anonymous_codelabel ();
+
+			labels := [l];
+
+			l;
+		   };
+	    end;
+
+	    #
+	    fun ops_of_bblock (BBLOCK { ops, ... } )						# Get the list of machine instructions in a basic block -- in reverse order.
+		=
+		ops;
+
+	    #
+	    fun bblock_execution_frequency  (BBLOCK { execution_frequency,  ... } )
+		=
+		execution_frequency;
+
+	    #
+	    fun edge_execution_frequency (_, _, EDGE_INFO { execution_frequency, ... } )
+		=
+		execution_frequency;
+	    #
+	    fun sum_edge_execution_frequencies  edges
+		=
+		fold_right
+		    (fn (e, w) =  *(edge_execution_frequency e) + w)
+		    0.0
+		    edges;
+	    #
+	    fun clone_bblock { new_id => id, bblock => BBLOCK { kind, execution_frequency, alignment_pseudo_op, labels, ops, notes, ... } }
+		=
+		BBLOCK
+                  { id,
+		    kind,
+		    execution_frequency =>  REF *execution_frequency,
+		    labels              =>  REF [],
+		    alignment_pseudo_op =>  REF *alignment_pseudo_op,
+		    ops			=>  REF *ops,
+		    notes               =>  REF *notes
+		  };
+
+	    stipulate
+		fun make_bblock' (id, kind, ops, execution_frequency)				# Private internal fn.
+		    =
+		    BBLOCK { id,
+			    kind,
+			    execution_frequency,
+			    labels		=> REF [],
+			    ops			=> REF ops,
+			    alignment_pseudo_op	=> REF NULL,
+			    notes		=> REF []
+			  };
+	    herein
+		fun make_bblock       { id, execution_frequency } =  make_bblock' (id, NORMAL,[], execution_frequency);
+		fun make_start_bblock { id, execution_frequency } =  make_bblock' (id, START, [], execution_frequency);	# Called only from below  fun init
+		fun make_stop_bblock  { id, execution_frequency } =  make_bblock' (id, STOP,  [], execution_frequency);	# Called only from below  fun init
+	    end;
+	    #
+	    fun make_node { digraph => odg::DIGRAPH odg, execution_frequency }
+		=
+		{   id   = odg.allot_node_id ();
+		    node = (id, make_bblock { id, execution_frequency => REF execution_frequency });
+
+		    odg.add_node node;
+
+		    node;
+		};
+
+	    # Return THE(bool) if edge is of kind BRANCH, else NULL.
+	    # (The bool distinguishes the two out-edges from a conditional branch.)
+	    #
+	    fun bool_of_branch_edge (EDGE_INFO { kind => BRANCH b, ... } ) =>   THE b;
+		bool_of_branch_edge _ 		 		           =>   NULL;
+	    end;
+	    #
+	    # Same as above, except input is an edge
+	    # instead of an edge info record:
+	    #
+	    fun direction_of_branch_edge (_, _, e)
+		=
+		bool_of_branch_edge  e;
+
+
+
+	    ##########################################################################
+	    #
+	    #  Emit a basic block
+
+	    #
+	    fun bblock_kind_to_string START  =>  "START";
+		bblock_kind_to_string STOP   =>  "STOP";
+		bblock_kind_to_string NORMAL =>  "Block";
+	    end;
+	    #
+	    fun nl ()
+		=
+		file::write (*ast::asm_out_stream, "\n");
+	    #
+	    fun emit_header
+		({ emit_comment, put_bblock_note, begin_connected_component, end_connected_component, emit_op, emit_pseudo_op, define_local_label, define_global_label, get_notes, end_procedure } ) 
+		(BBLOCK { id, kind, execution_frequency, notes,      ... } )
+		= 
+		{   emit_comment (bblock_kind_to_string kind + "[" + int::to_string id +
+			    "] (" + float::to_string *execution_frequency + ")");
+		    nl();
+		    apply  put_bblock_note  *notes;
+		}; 
+	    #
+	    fun emit_footer
+		({ emit_comment, put_bblock_note, begin_connected_component, end_connected_component, emit_op, emit_pseudo_op, define_local_label, define_global_label, get_notes, end_procedure } ) 
+		(BBLOCK { notes, ... } )
+		= 
+		case (liveout.get  *notes)
+		    #
+		    THE regset
+			=> 
+			{   regs = string::tokens  char::is_space  (rkj::cls::codetemplists_to_string  regset);
+
+			    kkk = 7;
+			    #
+			    fun f (_,     [], regset, l) =>  regset ! l;
+				f (0,     vs, regset, l) =>  f (kkk, vs, "   ", regset ! l);
+				f (n,    [v], regset, l) =>  v + regset ! l;
+				f (n, v ! vs, regset, l) =>  f (n - 1, vs, regset + " " + v, l);
+			    end;
+
+			    text = reverse (f(kkk, regs, "",[]));
+
+			    apply
+				(fn c =  { emit_comment c;   nl(); })
+				text;
+			};
+
+		    NULL => ();
+		esac
+		except
+		    OVERFLOW =  print("Bad footer\n");
+	    #
+	    fun emit_stuff
+		    outline
+		    notes
+		   (block as BBLOCK { ops, labels, ... } )
+		=
+		{   (ae::make_stream  notes)
+			->
+			cst as { emit_pseudo_op, define_local_label, emit_op, ... };
+
+		    emit_header  cst  block;
+		    apply  define_local_label *labels; 
+
+		    if (not outline)   apply emit_op (reverse *ops);   fi;
+
+		    emit_footer cst block;
+		};
+
+	    emit_bblock_as_assembly_code         =  emit_stuff FALSE; 
+#	    emit_bblock_as_assembly_code_outline =  emit_stuff TRUE [];		# Never used.
+
+
+	    ##########################################################################
+	    #
+	    #  Methods for manipulating machcode_controlflow_graph
+	    #
+	    ##########################################################################
+	    #
+	    fun make_machcode_controlflow_graph' graph_info
+		=
+		meg::make_empty_graph
+		  {
+		    graph_name	    	=>  "CFG",		# Arbitrary client name for graph, for human-display purposes.
+		    graph_info,					# Arbitrary client value to associate with graph.
+		    expected_node_count =>  10			# Hint for initial sizing of internal graph vectors.  This is not a hard limit.
+		  };
+	    #
+	    fun make_machcode_controlflow_graph ()
+		=
+		make_machcode_controlflow_graph' graph_info
+		where
+		    graph_info
+			=
+			GRAPH_INFO
+			  { notes 		=>  REF [],
+			    dataseg_pseudo_ops	=>  REF [],
+			    decls		=>  REF [],
+			    #
+			    first_block		=>  REF 0,
+			    reorder		=>  REF FALSE
+			  };
+		end;
+
+	    # Never called; purpose unclear.
+	    # This does a pure-functional clear of graph.global_info.notes to REF []
+	    # by dint of copy-and-change of the root and info records.
+	    #
+	    fun make_subgraph (mcg as odg::DIGRAPH { graph_info => GRAPH_INFO graph_info, ... } )
+		=
+		{   graph_info
+			=
+			GRAPH_INFO
+			  { notes		=>  REF [],
+			    first_block		=>  graph_info.first_block,
+			    reorder     	=>  graph_info.reorder,
+			    dataseg_pseudo_ops	=>  graph_info.dataseg_pseudo_ops,
+			    decls		=>  graph_info.decls
+			  };
+
+		    ugi::update_graph_info  mcg  graph_info;		# Duplicate-and-mutate update to graph's global info value.
+		};
+	    #
+	    fun add_start_node_and_stop_node_to_graph
+		    #
+		    (odg::DIGRAPH  mcg)
+		=
+		case (mcg.entries ())
+		    #
+		    []  =>
+			{   i     = mcg.allot_node_id ();
+			    start = make_start_bblock { id => i, execution_frequency => REF 0.0 };
+
+			    mcg.add_node (i, start);
+
+			    j     = mcg.allot_node_id ();
+			    stop  = make_stop_bblock { id => j, execution_frequency => REF 0.0 };
+
+			    mcg.add_node (j, stop); 
+			 #  mcg.add_edge (i, j, EDGE_INFO { k=ENTRY, w=REF 0, a=REF [] } ); 
+			    mcg.set_entries [i];
+			    mcg.set_exits   [j];
+			};
+
+		    _ => ();
+		esac; 
+
+
+	    # Call all CHANGED_X notes on graph proper;
+	    # Set graph.info.reorder := TRUE.
+	    # Externally invoked (only) from:	
+	    #     src/lib/compiler/back/low/block-placement/weighted-block-placement-g.pkg
+	    #     src/lib/compiler/back/low/intel32/treecode/floating-point-code-intel32-g.pkg
+	    #
+	    fun note_topology_changes (odg::DIGRAPH { graph_info => GRAPH_INFO { reorder, notes, ... }, ... } )
+		= 
+		{   fun signal []			 => ();
+			signal (CHANGED_X(_, f) ! notes) => {   f ();
+								signal notes;
+			    				    };
+			signal(_ ! notes)		 => signal notes;
+		    end;
+
+		    signal *notes;
+
+		    reorder := TRUE;
+		}; 
+	    #
+	    fun get_global_graph_notes (odg::DIGRAPH { graph_info => GRAPH_INFO { notes, ... }, ... } )
+		=
+		notes;
+
+	    #
+	    fun liveout_note_of_bblock (BBLOCK { notes, ... } )					# This fun is invoked (only) from:
+		= 										#
+		case (liveout.get *notes)							#     src/lib/compiler/back/low/regor/cluster-regor-g.pkg
+		    #
+		    THE s =>  s;
+		    NULL  =>  rgk::empty_codetemplists;
+		esac;
+	    #
+	    fun falls_thru_from  (odg::DIGRAPH mcg,  node_id)
+		=
+		f  (mcg.in_edges  node_id)
+		where
+		    fun f  [] => NULL;
+			f ((i, _, EDGE_INFO { kind => BRANCH FALSE, ... } ) ! _) =>  THE i;
+			f ((i, _, EDGE_INFO { kind => FALLSTHRU,    ... } ) ! _) =>  THE i;
+			f (_ ! es) => f es;
+		    end;
+		end;
+	    #
+	    fun falls_thru_to  (odg::DIGRAPH mcg,  node_id)
+		=
+		f  (mcg.out_edges  node_id)
+		where
+		    fun f  []                                                    =>  NULL;
+			f ((_, j, EDGE_INFO { kind => BRANCH FALSE, ... } ) ! _) =>  THE j;
+			f ((_, j, EDGE_INFO { kind => FALLSTHRU,    ... } ) ! _) =>  THE j;
+			f (_ ! es) => f es;
+		    end;
+		end;
+	    #
+	    fun remove_edge  mcg  (i, j, EDGE_INFO { notes, ... } )
+		=
+		odg::remove_edge'  mcg
+		  (
+		    i,
+		    j,
+		    fn EDGE_INFO { notes => notes', ... }
+			=
+			notes == notes'
+		  );
+
+	    # Change the conditional branch on a basic block into
+	    # an unconditional jump to one of the original two possible
+	    # target bblocks.  'cond' tells us whether the jump should
+	    # follow the TRUE or FALSE branch:	
+	    #
+	    # This call is nowhere invoked:
+	    #
+	    fun change_bblock_branch_to_jump (mcg'' as odg::DIGRAPH mcg, bblock, cond)
+		=
+		{   # Drop both BRANCH edges from our out-edge list.
+		    # Return pruned outlist plus the bblocks the BRANCHes led to.
+		    #	
+		    fun loop ( (i, j, EDGE_INFO { kind => BRANCH cond', execution_frequency, notes } ) ! rest,	# Worklist (out-edges from block).
+                               es',										# Result -- when done: outedges minus the two BRANCH edges.
+                               x,										# Result -- when done: target bblock for new JUMP edge. 
+                               y										# Result -- when done: target bblock for discarded BRANCH edge.
+                             )
+			    =>
+			    if (cond' == cond)   loop (rest, (i, j, EDGE_INFO { kind => JUMP, execution_frequency, notes } ) ! es', j, y);
+			    else		 loop (rest,                                                                   es', x, j);
+			    fi;
+
+			loop ([], es', target, elim)
+			    =>
+			    (es', target, elim);
+
+			loop _ => error "change_bblock_branch_to_jump";
+		    end;
+
+		    out_edges =   mcg.out_edges  bblock;
+
+		    (loop (out_edges,[],-1,-1)) ->   (out_edges', target, elim);
+
+		    if (elim < 0)   error "change_bblock_branch_to_jump: bad edges";   fi;
+
+		    label =  define_local_label (mcg.node_info target); 					# Make label to which new JUMP will point.
+		    jmp   =  mu::jump  label;									# Make new JUMP abstract machine instruction.
+		    ops   =  ops_of_bblock (mcg.node_info bblock); 						# Get list of machine instructions in basic block.
+														# It is in reverse order, so the branch instruction is first.
+		    mcg.set_out_edges (bblock, out_edges');							# Set the new outlist on our bblock.	
+
+		    case *ops
+			#
+			branch ! rest
+			    => 
+			    case (mu::instruction_kind  branch)
+				#
+				mu::k::JUMP =>   ops := jmp ! rest;						# Replace branch instruction by jump instruction in our bblock instruction list.
+				#
+				_           =>   error "change_bblock_branch_to_jump: bad branch instruction";
+			    esac;
+
+			[]  =>   error "change_bblock_branch_to_jump: missing branch";
+		    esac;
+
+		    jmp;											# Return the new jump instruction.
+		};
+
+
+
+	    stipulate
+		fun get_node (odg::DIGRAPH { node_info, ... }, id)
+		    =
+		    (id, node_info id);
+	    herein
+		# Each machcode controlflow graph has
+		# one unique START node representing all external jumps into it, and
+		# one unique STOP  node representing all jumps out of it to external code.
+		#
+		# Here we provide functions to fetch either those nodes or their Node_Ids.
+		#
+		# These get used below and also in:
+		#
+		#     src/lib/compiler/back/low/block-placement/default-block-placement-g.pkg
+		#     src/lib/compiler/back/low/block-placement/weighted-block-placement-g.pkg
+		#     src/lib/compiler/back/low/block-placement/forward-jumps-to-jumps-g.pkg
+		#     src/lib/compiler/back/low/block-placement/check-machcode-block-placement-g.pkg
+		#     src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+		#
+		fun entry_node_id_of_graph (odg::DIGRAPH { entries, ... } )
+		    =
+		    case (entries())
+			#
+			[id] =>  id;
+			 _   =>  error "no unique entry block";
+		    esac;
+		#
+		fun exit_node_id_of_graph (odg::DIGRAPH { exits, node_info, ... } )
+		    =
+		    case (exits())
+			#
+			[id] =>  id;
+			 _   =>  error "no unique exit block";
+		    esac;
+		#
+		fun entry_node_of_graph mcg
+		    =
+		    get_node  (mcg, entry_node_id_of_graph  mcg);
+
+		#
+		fun exit_node_of_graph mcg
+		    =
+		    get_node  (mcg,  exit_node_id_of_graph  mcg);
+	    end;
+
+	    exception NOT_FOUND;
+	    #
+	    fun get_or_make_bblock_codelabel  (odg::DIGRAPH mcg)  node				# This fun is externally invoked (only) from   src/lib/compiler/back/low/block-placement/weighted-block-placement-g.pkg
+		=
+		define_local_label  (mcg.node_info  node);
+	    #
+	    fun clone_edge_info (EDGE_INFO { notes, execution_frequency, kind } )
+		=
+		EDGE_INFO
+		  { notes               =>  REF *notes,
+		    execution_frequency =>  REF *execution_frequency,
+		    kind
+		  };
+
+	    #######################################################################
+	    # See comment in   src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+	    # 
+	    # This fun is mentioned exactly one place -- below in  merge_basic_blocks.
+	    # This fun is never actually called at all.
+	    #
+	    fun must_precede (odg::DIGRAPH mcg) (i, j)
+		=
+		(   i == j
+		    or
+		    chase (mcg.in_edges j)
+		)
+		where
+		    visited =  iht::make_hashtable  { size_hint => 23,  not_found_exception => NOT_FOUND };					# Is this crazed or what? Why not the two-pointer trick?  XXX SUCKO FIXME
+		    #
+		    fun chase []
+			    =>
+			    FALSE;
+
+			chase ((u, v, EDGE_INFO { kind => (FALLSTHRU|BRANCH FALSE), ... } ) ! _)
+			    =>
+			    if (iht::contains_key visited u)
+				 FALSE;
+			    else
+				 u == i
+				 or
+				 {   iht::set visited (u, TRUE);
+				     chase (mcg.in_edges u);
+				 };
+			    fi;
+
+			chase(_ ! es)
+			    =>
+			    chase es;
+		    end;
+		end;
+
+
+	    #######################################################################
+	    #
+	    # Predicates on nodes and edges
+	    #
+	    # The first two funs are never called except by the third.
+	    # The third fun is never called except by split_all_critical_edges -- which is never called at all.
+	    #
+	    fun is_merge_node_id (odg::DIGRAPH mcg) node_id =  length (mcg.in_edges  node_id) > 1;	# More than one incoming edge. (That is, more than one other bblock jumps to us.)
+	    fun is_split_node_id (odg::DIGRAPH mcg) node_id =  length (mcg.out_edges node_id) > 1;	# More than one outgoing edge. (That is, we can jump to more than on other bblock.)
+	    #
+	    fun is_critical_edge mcg'' (_, _, EDGE_INFO { kind=>ENTRY, ... } ) =>  FALSE;
+		is_critical_edge mcg'' (_, _, EDGE_INFO { kind=>EXIT,  ... } ) =>  FALSE;
+		is_critical_edge mcg'' (i, j, _)                               =>  is_split_node_id  mcg''  i
+									      and  is_merge_node_id  mcg''  j;
+	    end;
+
+	 /*
+	    fun hasSideExits (odg::DIGRAPH mcg) node = 							# I think this was only for "hyperblocks" for VLIW machines -- code long since dropped from codebase. -- 2011-06-13 CrT
+		  list::exists (fn (_, _, EDGE_INFO { kind=SIDEEXIT _, ... } ) =>  TRUE 
+				| _                                            =>  FALSE
+                               )
+                               (mcg.out_edges node)
+	 */
+	    #
+	    fun has_side_exits _ _
+		=
+		FALSE;
+
+
+
+	    # Update the label of the branch instruction in a certain block
+	    # to be consistent with the control flow edges.					# Wouldn't it be cleaner to eliminate the redundancy? -- 2011-06-13 CrT XXX SUCKO FIXME.
+	    #											# A separate late pass could insert them right before machine code generation, no?
+	    fun update_bblock_jump_or_branch_per_graph_edges (mcg'' as odg::DIGRAPH mcg)
+		=
+		update
+		where
+		    label_of =   get_or_make_bblock_codelabel   mcg'';
+		    #
+		    fun update node
+			=
+			case (mcg.node_info  node)
+			    #
+			    BBLOCK { ops  => REF [], ... } =>  ();
+			    BBLOCK { kind => START,  ... } =>  ();
+			    BBLOCK { kind => STOP,   ... } =>  ();
+
+			    BBLOCK { ops => ops as REF (jmp ! rest), ... }
+				=> 
+				case (mcg.out_edges node)
+				    #
+				    [] => ();
+
+				    [(_, _, EDGE_INFO { kind => (ENTRY | EXIT), ... } )]
+					=>
+					();
+
+				    [(i, j, _)]
+					=>
+					if (mu::instruction_kind jmp == mu::k::JUMP)
+					    #
+					    ops := mu::set_jump_target (jmp, label_of j) ! rest;
+					fi;
+
+				    [ (_, i, EDGE_INFO { kind => BRANCH x, ... } ),
+				      (_, j, EDGE_INFO { kind => BRANCH y, ... } )
+				    ]
+					=>
+					{   my (no, yes)
+						=
+						x  ??  (j, i)
+						   ::  (i, j);
+
+					    ops :=  mu::set_branch_targets { i=>jmp, f=>label_of no, t=>label_of yes } ! rest;
+					};
+
+				    es  =>
+					{   fun gt ((_, _, EDGE_INFO { kind => SWITCH i, ... } ),
+						    (_, _, EDGE_INFO { kind => SWITCH j, ... } ))
+						    =>
+						    i > j;
+
+						gt _
+						    =>
+						    error "gt";
+					    end;
+
+					    es     =  lms::sort  gt  es;
+					    labels =  map  (fn (_, j, _) =  label_of j)  es;
+
+					    error "update_bblock_jump_or_branch_per_graph_edges";
+					};
+				esac;
+			esac;
+		end;
+
+	    stipulate
+		exception CANNOT_MERGE_BASIC_BLOCKS;
+	    herein
+		# 
+		fun merge_basic_blocks (mcg'' as odg::DIGRAPH mcg) (i, j, e as EDGE_INFO { execution_frequency, kind, ... } )
+		    #
+		    #  See comments in src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		    #
+		    #  This function is called only by    merge_all_basic_blocks_possible
+		    #  below -- which is never called.
+		    =
+		    {   case kind
+			    #
+			    (ENTRY | EXIT) =>  raise exception CANNOT_MERGE_BASIC_BLOCKS;
+			    _              =>  ();
+			esac; 
+
+			case (mcg.out_edges i, mcg.in_edges j)
+			    #
+			    ([(_, j', _)],[(i', _, _)])
+				=> 
+				if (j' != j or i' != i)   raise exception CANNOT_MERGE_BASIC_BLOCKS;   fi;
+
+			   _ => raise exception CANNOT_MERGE_BASIC_BLOCKS;
+			esac;  
+
+			if (must_precede mcg'' (i, j))
+			    #
+			    raise exception CANNOT_MERGE_BASIC_BLOCKS;
+			fi;
+
+			(mcg.node_info j)
+			    ->
+			    BBLOCK
+			      { alignment_pseudo_op	=>  d2,
+				ops			=>  i2,
+				notes		        =>  notes2,
+				... 
+			      };
+
+			case *d2
+			    #
+			    THE _ => ();
+			    _     => raise exception CANNOT_MERGE_BASIC_BLOCKS;
+			esac;
+
+			(mcg.node_info i)
+			    ->
+			    BBLOCK
+			      { alignment_pseudo_op	=>  d1,
+				ops			=>  i1,
+				notes			=>  notes1,
+				...
+			      }; 
+
+			# If both blocks have annotations then don't merge them.
+			# Instead, just try to remove the jump instruction:
+			#
+			can_merge
+			    =
+			    case (*notes1, *notes2)   
+				(_ ! _, _ ! _) => FALSE;
+				_              => TRUE;
+			    esac;
+
+			ops1 =  case *i1   
+				    #
+				    ops as jmp ! rest
+					=> 
+					mu::instruction_kind jmp == mu::k::JUMP
+					    ??  rest
+					    ::  ops;
+
+				    [] =>   [];
+				esac;
+
+			if can_merge
+			    #
+			    i1 := *i2 @ ops1;
+
+			    notes1 :=  *notes1 @ *notes2;
+
+			    mcg.set_out_edges 
+			      ( i,
+				map (fn (_, j', e) = (i, j', e))
+				    (mcg.out_edges j)
+			      );
+
+			    mcg.remove_node j;
+			    update_bblock_jump_or_branch_per_graph_edges  mcg''  i;
+
+			else
+			    # Just eliminate the jump
+			    # instruction at the end:
+			    # 
+			    i1 := ops1;
+			    #
+			    mcg.set_out_edges 
+			      ( i,
+				map (fn  (i, j, EDGE_INFO { execution_frequency, notes, ... } )
+					 =
+					 (i, j, EDGE_INFO { execution_frequency, notes, kind => FALLSTHRU } )
+				     )
+				     (mcg.out_edges i)
+			      );
+			fi;
+
+			TRUE;
+		    }
+		    except
+			CANNOT_MERGE_BASIC_BLOCKS = FALSE;
+	    end;
+	    #
+	    fun eliminate_jump (mcg'' as odg::DIGRAPH mcg) i
+		= 
+		# Eliminate the jump at the end of a basic block if feasible
+		#
+		# This fun is never called.
+		#
+		case (mcg.out_edges i)
+		    #
+		    [e as (i, j, EDGE_INFO { kind, execution_frequency, notes } )]
+			=>
+			case (falls_thru_from (mcg'', j))
+			    #
+			    THE _ => FALSE;
+
+			    NULL => if (must_precede mcg'' (j, i))
+					#
+					FALSE;
+				    else 
+					(mcg.node_info  i) ->   BBLOCK { ops,                 ... };
+					(mcg.node_info  j) ->   BBLOCK { alignment_pseudo_op, ... };
+
+					case (*alignment_pseudo_op, *ops)
+					    #	
+					    (NULL, jmp ! rest)
+						=>
+						if (mu::instruction_kind jmp == mu::k::JUMP) 
+						    #
+						    ops := rest;
+						    remove_edge mcg'' e;
+						    mcg.add_edge (i, j, EDGE_INFO { kind => FALLSTHRU, execution_frequency, notes } );
+						    TRUE;
+						else
+						    FALSE;
+						fi;
+
+					    _ => FALSE;
+					esac;
+				    fi;
+			esac;
+
+		    _ => FALSE;
+		esac;
+
+	    #
+	    fun insert_jump (mcg'' as odg::DIGRAPH mcg) i
+		=
+		case (mcg.out_edges i)
+		    #
+		    # Insert a jump at the end of a basic block if feasible.
+		    #
+		    # This fun is never called.
+		    #
+		    [e as (i, j, EDGE_INFO { kind => FALLSTHRU, execution_frequency, notes, ... } )]
+			=>
+			{   (mcg.node_info  i) ->   BBLOCK { ops, ... };
+
+			    ops := mu::jump (get_or_make_bblock_codelabel mcg'' j) ! *ops;
+
+			    remove_edge mcg'' e;
+
+			    mcg.add_edge (i, j, EDGE_INFO { kind => JUMP, execution_frequency, notes } );
+
+			    TRUE;
+			};
+
+		    _ => FALSE;
+		esac;
+
+
+
+	    # =====================================================================
+	    # See comments in
+	    #
+	    #     src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+	    #
+	    # This is called (only) in gen_popping_code		from   src/lib/compiler/back/low/intel32/treecode/floating-point-code-intel32-g.pkg
+	    #
+	    fun split_edges (mcg'' as odg::DIGRAPH mcg) { groups => [], jump }
+		    =>
+		    [];
+
+		split_edges (mcg'' as odg::DIGRAPH mcg) { groups as ((first, _) ! _), jump }
+		    => 
+		    {   # Target of all the edges:
+			#
+			j = { my (_, j, _) = head first;  j; };
+
+			# Insert an edge i->j with frequency freq.
+			# It is a jump edge iff jump flag is TRUE or
+			# some other block is already falling into j:
+			#
+			fun insert_edge (i, j, node_i, freq, jump)
+			    = 
+			    {   kind = if (jump or not_null (falls_thru_from (mcg'', j)) ) 
+					   ops_i = ops_of_bblock node_i;
+					   ops_i := mu::jump (get_or_make_bblock_codelabel mcg'' j) ! *ops_i;
+					   JUMP;
+				       else
+					   FALLSTHRU;
+				       fi;
+
+				edge_info = EDGE_INFO
+					      { kind,
+						execution_frequency =>  REF freq,
+						notes               =>  REF []
+					      };
+
+				edge = (i, j, edge_info);
+				mcg.add_edge edge;
+				edge;
+			    };
+
+			# Redirect all edges:
+			#
+			fun redirect ([], _, new)
+				=>
+				new;
+
+			    redirect((edges, ops) ! groups, execution_frequency, new)
+				=> 
+				{
+				    execution_frequency = sum_edge_execution_frequencies edges + execution_frequency;		# Execution_Frequency of new block. 
+
+				    # Sanity check
+				    #
+				    fun check []
+					    =>
+					    ();
+
+					check((u, v, _) ! es)
+					    => 
+					    {   if (v != j)  error "splitEdge: bad edge";  fi;
+						check es;
+					    };
+				    end;
+
+				    my () = check edges; 
+
+				    k = mcg.allot_node_id ();		# New basic-block id.
+
+				    node_k =    BBLOCK
+						  { id			=>  k,
+						    kind		=>  NORMAL, 
+						    execution_frequency =>  REF execution_frequency,
+						    #
+						    alignment_pseudo_op =>  REF NULL,
+						    labels		=>  REF [],
+						    #
+						    notes		=>  REF [],
+						    ops			=>  REF ops
+						  };
+
+				    apply (remove_edge mcg'') edges;
+
+				    apply (fn (i, _, e) =  mcg.add_edge (i, k, e))
+					  edges;
+
+				    mcg.add_node (k, node_k);
+
+				    redirect (groups, execution_frequency, (k, node_k, edges, execution_frequency) ! new); 
+				};
+			end;
+
+			new = redirect (groups, 0.0, []);
+
+			# Add the edges on the chain:
+			#
+			fun postprocess ([], next, new)
+				=>
+				new;
+
+			    postprocess((k, node_k, edges, execution_frequency) ! rest, next, new)
+				=>
+				{   jump   =   next == j and jump; 
+
+				    edge   =   insert_edge (k, next, node_k, execution_frequency, jump);
+
+				    postprocess (rest, k, ((k, node_k), edge) ! new);
+				};
+			end;
+
+			new = postprocess (new, j, []);
+
+			# Update the labels on the groups:
+			#
+			apply
+			    (fn (es, _)
+				=
+				apply
+				    (fn (i, _, _)
+					=
+					update_bblock_jump_or_branch_per_graph_edges  mcg''  i
+				    )
+				    es
+			    )
+			    groups;
+			new;
+		    };
+		end; 
+
+	    #######################################################################
+	    # Split all critical edges in the CFG
+	    #
+	    # This fun is never called.
+	    #
+	    fun split_all_critical_edges (mcg' as odg::DIGRAPH mcg)
+		=
+		{   has_changed = REF FALSE;
+
+		    mcg.forall_edges 
+			(fn e = if (is_critical_edge mcg' e)
+				    split_edges mcg' { groups => [([e], [])], jump => FALSE }; 
+				    has_changed := TRUE;
+				fi
+			);
+
+		    if *has_changed  note_topology_changes mcg'; fi;
+		}; 
+
+	    #######################################################################
+	    #
+	    #  Tail duplicate a region until there are no side entry edges
+	    #  entering into the region.  Return the set of new edges and nodes
+	    #
+	    fun tail_duplicate (mcg' as odg::DIGRAPH mcg:  Machcode_Controlflow_Graph) 
+			      { root, subgraph=>odg::DIGRAPH subgraph:  Machcode_Controlflow_Graph  }
+		=
+		{   block_map = iht::make_hashtable  { size_hint => 10,  not_found_exception => NOT_FOUND };
+
+		    print("[root " + int::to_string root + "]\n");
+		    #
+		    fun duplicate v
+			=
+			iht::get  block_map v
+			except
+			    NOT_FOUND
+				=
+				{   w  = mcg.allot_node_id ();
+				    w' = clone_bblock { new_id => w, bblock => mcg.node_info v };
+				    mcg.add_node (w, w');
+				    iht::set block_map (v, (w, w'));
+
+				    apply mcg.add_edge
+					  (map (fn (i, j, e) = (w, j, clone_edge_info e))
+					       (mcg.out_edges v)
+					  );
+
+				    update_bblock_jump_or_branch_per_graph_edges  mcg'  w;
+
+				    (w, w');
+				};
+		    #
+		    fun process ((n, _) ! rest, ns, ns', es)
+			    =>
+			    process (rest, collect (subgraph.entry_edges n, ns), ns', es);
+
+			process([], ns, ns', es)
+			    =>
+			    dupl (ns, ns', es, FALSE);
+		    end 
+
+		    also
+		    fun collect ([], ns) => ns;
+			 collect((i, _, _) ! es, ns) => collect (es, if (i == root ) ns; else i ! ns;fi);
+		    end 
+
+		    also
+		    fun dupl ([], ns, es, changed)
+			    =>
+			    (ns, es, changed);
+
+			dupl (n ! ns, ns', es, changed)
+			    =>
+			   redirect (mcg.out_edges n, ns, ns', es, changed);
+		    end    
+
+		    also
+		    fun redirect ([], ns, ns', es, changed)
+			    =>
+			    dupl (ns, ns', es, changed);
+
+			 redirect((u, v, e) ! es, ns, ns', es', changed)
+			     =>
+			     if  (v != root and
+				  mcg.has_edge (u, v) and
+				  subgraph.has_node v and 
+				  not (subgraph.has_edge (u, v))
+				 )
+
+				  # u -> v is a side entry edge, duplicate v
+				  #
+				  print("[tail duplicating " + int::to_string u + " -> "  + int::to_string v + "]\n");
+
+				  my (w, w') =  duplicate v;
+
+				  remove_edge mcg' (u, v, e);
+				  mcg.add_edge (u, w, e);
+				  update_bblock_jump_or_branch_per_graph_edges  mcg'  u;
+				  #
+				  redirect (es, w ! ns, (w, w') ! ns', (u, w, e) ! es', TRUE);
+			     else redirect (es, ns, ns', es', changed);
+			     fi;
+		    end;
+		    #
+		    fun iter (ns, es)
+			= 
+			{   (process (subgraph.nodes (),[], ns, es))
+				->
+				(ns, es, has_changed);
+
+			    if has_changed
+				#
+				note_topology_changes mcg';
+				iter (ns, es);
+			    else
+				{ nodes=>ns, edges=>es };
+			    fi;
+			};
+
+		    iter ([],[]); 
+		};
+
+
+	    # =====================================================================
+	    #
+	    #  Remove unreachable code in the CFG
+	    #
+	    # =====================================================================
+	    #
+	    fun remove_unreachable_code (mcg' as odg::DIGRAPH mcg)
+		=
+		{   nnn     =  mcg.capacity ();
+		    visited =  rwv::make_rw_vector (nnn, FALSE);
+		    #
+		    fun mark n
+			=
+			if (not (rwv::get (visited, n)))
+			    rwv::set (visited, n, TRUE);
+			    apply mark (mcg.next n);
+			fi;
+
+		    has_changed = REF FALSE;
+		    #
+		    fun remove (b, BBLOCK { ops, ... } )
+			=
+			if (not (rwv::get (visited, b)))
+			    #
+			    has_changed :=TRUE;
+
+			    case (mcg.in_edges b)
+				#
+				[] => mcg.remove_node b;
+
+				_  => {   ops := [];
+					  mcg.set_out_edges (b,[]);
+				      };
+			    esac;
+			fi;
+
+		    apply mark (mcg.entries ());
+		    mcg.forall_nodes remove;
+
+		    if *has_changed   note_topology_changes mcg';   fi;
+		};
+
+
+	    # =====================================================================
+	    #
+	    #  Merge all basic blocks in the CFG.
+	    #  Merge higher frequency edges first
+	    #
+	    # This fun is never called.
+	    #
+	    # =====================================================================
+	    fun merge_all_basic_blocks_possible (mcg' as odg::DIGRAPH mcg)
+		=
+		{   merge_bblocks = merge_basic_blocks mcg';
+		    #
+		    fun higher_freq
+                          (
+			    (_, _, EDGE_INFO { execution_frequency => x, ... } ),
+			    (_, _, EDGE_INFO { execution_frequency => y, ... } )
+			  )
+			=
+			*x < *y;
+		    #
+		    fun merge_all (    [], changed) =>   changed;
+			merge_all (e ! es, changed) =>   merge_all (es, merge_bblocks e or changed);
+		    end; 
+
+		    # Note: sort expects the gt operator
+		    # and sorts in ascending order:
+		    #
+		    has_changed = merge_all (lms::sort higher_freq (mcg.edges ()), FALSE);
+
+		    if has_changed   note_topology_changes mcg';   fi;
+		};
+
+	    ##########################################################################
+	    #
+	    #  For building a control-dependency graph.
+	    #
+	    # This fun is never called.
+	    #
+	    fun is_not_jump_or_fallsthru_edge (EDGE_INFO { kind, ... } )
+		= 
+		case kind
+		    #
+		    (JUMP | FALLSTHRU) =>   FALSE;
+		    _                  =>   TRUE;
+		esac;
+
+	    # ========================================================================
+	    #
+	    #  Pretty Printing and Viewing 
+	    #
+	    # ========================================================================
+
+	    package sfp =  sfprintf;									# sfprintf	is from   src/lib/src/sfprintf.pkg
+	    #
+	    fun show_edge_info  (EDGE_INFO { kind, execution_frequency, notes, ... } )
+		=
+		{   kind =  case kind
+				#
+				JUMP	    =>  "jump";
+				FALLSTHRU   =>  "fallsthru";
+				BRANCH b    =>   bool::to_string b;
+				SWITCH i    =>   int::to_string i;
+				ENTRY	    =>  "entry";
+				EXIT	    =>  "exit";
+				FLOWSTO	    =>  "flowsto";
+			    esac;
+
+		    sfp::sprintf'  "%s[%f]"  [sfp::STRING kind, sfp::FLOAT *execution_frequency];
+		};
+	    #
+	    fun get_string f x
+		=
+		{   buffer = sos::make_stream_buf();
+		    sss    = sos::open_string_out buffer;
+
+		    ast::with_stream sss f x; 
+
+		    sos::get_string buffer;
+		};
+	    #
+	    fun show_bblock  notes  bblock
+		=
+		{   text = get_string  (emit_bblock_as_assembly_code  notes)  bblock;
+
+		    fold_right
+			fn (x, "") => x;
+			   (x,  y) => x + " " + y;
+			end
+			""
+			(string::tokens
+			     fn ' ' => TRUE;
+				  _ => FALSE;
+			     end
+			     text
+			);
+		};
+	    #
+	    fun dump_node (out_s, mcg as odg::DIGRAPH g)
+		=
+		print_node
+		where
+		    fun print str
+			=
+			file::write (out_s, str);
+		    #
+		    fun print_list []  =>  ();
+			print_list [i] =>  print i;
+
+			print_list (h ! t)
+			    =>
+			    {   print (h + ", ");
+				print_list t;
+			    };
+		    end;
+
+		    (ast::with_stream out_s  ae::make_stream  [])
+			->
+			{ emit_op, define_local_label, put_bblock_note, ... };
+
+
+		    #
+		    fun show_freq (REF w)
+			=
+			sfp::sprintf' "[%f]" [sfp::FLOAT w];
+		    #
+		    fun show_edge' (blknum, e)
+			= 
+			sfp::sprintf' "%d:%s" [sfp::INT blknum, sfp::STRING (show_edge_info e)];
+		    #
+		    fun show_succ (_, x, e) = show_edge' (x, e);
+		    fun show_pred (x, _, e) = show_edge' (x, e); 
+		    #
+		    fun show_succs b
+			=
+			{   print "\tsucc:     "; 
+			    print_list (map show_succ (g.out_edges b)); 
+			    print "\n";
+			};
+		    #
+		    fun show_preds b
+			=
+			{   print "\tpred:     "; 
+			    print_list (map show_pred (g.in_edges b)); 
+			    print "\n";
+			};
+		    #
+		    fun print_node (_, BBLOCK { kind=>START, id, execution_frequency, ... } )
+			    =>
+			    {   print (sfp::sprintf' "ENTRY %d %s\n" [sfp::INT id, sfp::STRING (show_freq execution_frequency)]);
+				show_succs id;
+			    };
+
+			print_node (_, BBLOCK { kind=>STOP, id, execution_frequency, ... } )
+			    =>
+			    {   print (sfp::sprintf' "EXIT %d %s\n" [sfp::INT id, sfp::STRING (show_freq execution_frequency)]);
+				show_preds id;
+			    };
+
+			print_node (_, BBLOCK { id, alignment_pseudo_op, execution_frequency, ops, notes, labels, ... } )
+			    =>
+			    {   print (sfp::sprintf' "BBLOCK %d %s\n" [sfp::INT id, sfp::STRING (show_freq execution_frequency)]);
+
+				case *alignment_pseudo_op
+				    #
+				    THE p =>  print (pop::pseudo_op_to_string p + "\n");
+				    NULL  =>  ();
+				esac;
+
+				apply  put_bblock_note     *notes;
+				apply  define_local_label  *labels;
+
+				show_succs id;
+				show_preds id;
+
+				apply  emit_op  (reverse *ops);
+			    };
+		    end;
+		end;
+	    #
+	    fun dump (out_s, title, mcg as odg::DIGRAPH g)
+		=
+		{   fun print stream
+			=
+			file::write (out_s, stream);
+
+		    global_graph_notes =  *(get_global_graph_notes  mcg);
+
+		    my  { put_bblock_note, ... }
+			= 
+			ast::with_stream
+			    out_s
+			    ae::make_stream
+			    global_graph_notes;
+		    #
+		    fun print_data ()
+			=
+			{   g.graph_info ->  GRAPH_INFO { dataseg_pseudo_ops, ... };
+
+			    list::apply (print o pop::pseudo_op_to_string)
+					(reverse *dataseg_pseudo_ops);
+			};
+
+		    print (sfp::sprintf' "[ %s ]\n" [sfp::STRING title]);
+
+		    list::apply  put_bblock_note  global_graph_notes;
+
+		    #  print_node entry; 
+
+		    ast::with_stream  out_s  g.forall_nodes  (dump_node  (out_s,  mcg));
+
+		    #  print_node exit; 
+
+		    ast::with_stream  out_s  print_data  ();
+
+		    file::flush  out_s;
+		};
+
+	end;											# stipulate
+    };												# generic package   machcode_controlflow_graph_g
+end;												# stipulate
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,781 @@
+# Disclaimer...
+# =============
+# 
+# I've written and re-written many global schedulers thru the years.
+# It is always hard to get right.  Hopefully this is the last time I have
+# to write/rewrite one for a long while... 
+#
+# A parameterizable list scheduler.
+# ================================
+# This list scheduler does a few things:
+# 1. Works on a region at a time instead of one basic block
+# 2. Can perform replication
+# 3. Can perform register renaming to get around of anti-/output- dependences 
+# 4. Recognizes the distinction between initializations (which can be
+#    speculation) versus stores (which cannot be).
+#
+# Some notes on how the list scheduling algorithm work:
+# 1. (Side)-entries and (side)-exits are mcg edges that come into and out of
+#    the current region.  
+# 2. The region to be scheduled has to be acyclic.  Cyclic edges are cut
+#    arbitrarily (by the region forming combinator.)
+# 3. Every block that has side-entries has an "live-in" node that summaries
+#    all the values that are defined coming in the side-entires.  Similarly,
+#    for all blocks with side-exits we have "live-out" nodes. 
+# 4. During list scheduling, multiple blocks may be "open" at the same time.
+#    Instructions can only be placed within open blocks.
+# 5. Once every instruction (that appears in the block originally) 
+#    has been scheduled, the block is then "closed". 
+# 6. A new block is opened if all its predecessors is closed.
+# 7. "Ready" instructions, i.e. instructions with all its predecessors
+#    schedules are put onto a priority list.  The priority list is ranked
+#    by the execution frequency of the instruction.
+# 8. At each step, an instruction i is chosen from the priority list to 
+#    be scheduled.  This instruction has to be placed at "all" open blocks
+#    that reaches the block where instruction originates.  This may involve
+#    replicating the instruction.  For this transformation to be legal,
+#    structural and profitability checks have  to be performed.
+# 
+#    a.  Structural check determines whether it is semantics preserving 
+#        to put this instruction into the set of open blocks. 
+#    b.  Profitability check determines whether it is profitable, i.e. is
+#        it okay to put this instruction to these blocks or should we delay
+#        it.
+# 
+#    Instructions that fail these criteria are moved into a pending queue.
+# 9. Instructions from the pending queue are released back into the ready 
+#    queue whenever the set of open blocks change. 
+# 10. BUT ... this is not the entire story.  When scheduling dags, the
+#     dependency graph initially built is insufficient to summarize all 
+#     dependences.  For that to work, incremental liveness computation
+#     must also be performed.  This is how it works:
+#     
+#     a.  Each open block keeps track of what registers are live at the
+#         current time.  liveness can be inferred via the dependence dag
+#
+# -- Allen Leung (leunga@cs.nyu.edu) 6/1/00
+
+
+###             "If you happen to be one of the fretful minority
+###              who can do creative work, never force an idea;
+###              you'll abort it if you do.
+###
+###             "Be patient and you'll give birth to it when
+###              the time is ripe. Learn to wait."
+###
+###                                    -- Robert A Heinlein
+
+
+
+
+generic package ListScheduler
+    (package ddg:         SCHEDULER_DDG
+     package ir:          LOWHALF_IR
+     package machcode_universals:   Machcode_Universals
+     package format_instruction:  FORMAT_INSTRUCTION
+     #  package rewrite:     Rewrite_Machine_Instructions 
+        sharing DDG::I = machcode_universals::I = ir::I = #  = Rewrite::I 
+                FormatInstruction::I  
+    ) : LIST_SCHEDULER =
+pkg
+ 
+   package ir         = IR
+   package machcode_controlflow_graph        = ir::machcode_controlflow_graph
+   package ddg        = DDG
+   package i          = DDG::I
+   package SchedProps = DDG::SchedProps
+   package g          = graph
+   package a          = rw_vector
+   package da         = DynArray
+   package w8a        = rw_unt8_vector
+   package pq         = priority_queue
+
+   fun error msg = lowhalf_error_message::error("ListScheduler", msg)
+
+   debug = TRUE
+   verbose = TRUE
+   safetyCheck = TRUE
+
+   i2s = int::to_string
+
+   exception NotOpened
+   exception NotLive
+
+   dummyJump = (-1, DDG::NODE { instruction=machcode_universals::nop(), defs=[], uses=[], b= -1 } )
+
+   #  Data package to hold info about a block 
+   enum openBlock = 
+      OPEN_BLOCK of
+      { bid:            Int,                          #  Block id 
+       reachables:     w8a::Rw_Vector,                    #  reachable set 
+       rt:             SchedProps::reservation_table, #  reservation table 
+       sigma:          da::Rw_Vector(  List(  i::instruction ) ),
+       liveSet:        int_hashtable::Hashtable( List( g::edge( DDG::edge ) ) ),
+       jumpScheduled:  Ref( Bool ),
+       jumpTime:       Ref( Int ),
+       jumpNode:       REF(  g::node(  DDG::node ) )
+      } 
+
+   profitabilityRatio = 0.5
+
+   fun listScheduler { ranking, cpu_info, blockIdTable, mcg, region, ddg } = 
+   let
+       #  Extract architecture info from the data base 
+       my SchedProps::CPU_INFO { newTable, findSlot, pipeline, insert, ... } = 
+              cpu_info
+
+       # The data structures:
+       # next, prior   --- adjacency lists
+       # blockMap     --- mapping from internal block id -> real block id
+       # liveInMap    --- mapping from internal block id -> live in node
+       # liveOutMap   --- mapping from internal block id -> live out node
+       # issueTimeTable --- node id --> its issue time
+       # inDegsTable    --- node id --> its current in-degree
+       # instructionCountTable --- internal block id --> number of unscheduled instrs
+       #	
+       my DDG as g::GRAPH ddg = ddg
+       my CFG as g::GRAPH mcg = mcg
+       my Region as g::GRAPH region = region
+       my { next, prior, ... } = DDG::internalInfo DDG
+       my THE { blockMap, liveInMap, liveOutMap, ... } = *(DDG::globalInfo DDG)
+       N = ddg.capacity () #  number of instructions 
+       M = region.order () #  number of blocks in the region 
+
+       #  Internal tables indexed by instruction id 
+       issueTimeTable = a::rw_vector (N,-1) #  issue times of instructions 
+       inDegsTable    = a::rw_vector (N, 0) #  in-degree of a node 
+
+       #  Internal tables indexed by block id 
+       instructionCountTable = a::rw_vector (M, 0) /* number of instructions per block */  
+       freqTable      = a::rw_vector (M, 0) #  execution frequency of blocks 
+       predCountTable = a::rw_vector (M, 0) #  in degree of blocks 
+       rtTable        = a::rw_vector (M, newTable 0)
+       startTimeTable = a::rw_vector (M, 0)
+       maxTimeTable   = a::rw_vector (M, 0)
+       isLegalTable   = a::rw_vector (M, 0) /* is it legal to schedule 
+                                             block id at this time */
+       isProfitableTable = a::rw_vector (M, 0)
+       profitabilityTable = a::rw_vector (M, 0.0) #  priority of block 
+       liveSetTable   = a::rw_vector (M, int_hashtable::make_hashtable (0, NotLive))
+
+       stampCounter = REF 0
+       fun newStamp() = 
+       let st = *stampCounter + 1
+       in  stampCounter := st; st end
+
+       #  Linearize the schedule 
+       fun linearize sigma = 
+           da::fold_left (fn (instrs, l) => instrs @ l) [] sigma
+
+       /* It is okay to move an instruction from block id */ 
+       fun isLegalMove id = a::sub (isLegalTable, id) = *stampCounter
+       fun isProfitableMove id = a::sub (isProfitableTable, id) = *stampCounter
+
+       showInstruction = FormatInstruction::to_string [] (i::C.lookup (machcode_controlflow_graph::regmap CFG))
+
+       fun showOp (DDG::NODE { instruction, b, ... } )
+           = 
+           showInstruction instruction$" ["$i2s (a::sub (blockMap, b))$"]"
+
+       fun isJump instruction
+           =
+           case machcode_universals::instrKind instruction of
+             machcode_universals::IK_JUMP => TRUE
+           | _ => FALSE
+
+       #  Float priority function 
+       fun priorityFun (I as (i, DDG::NODE { b=b_i, ... } ), 
+                       J as (j, DDG::NODE { b=b_j, ... } )) = 
+           let p_i = a::sub (profitabilityTable, b_i)
+               p_j = a::sub (profitabilityTable, b_j)
+           in  case float::compare (p_i, p_j) of
+                 EQUAL => ranking (I, J)
+               | GREATER => TRUE
+               | LESS => FALSE
+           end
+
+ 
+       /* Initialization steps:
+        * 1. Initialize the frequency rw_vector
+        * 2. Count the number of predecessors of each block in the region
+        * 3. Count the number of non-special instructions
+        * 4. Initialize the pending queue
+        */
+       fun initialize () =
+       let /* Initialize the frequencies */ 
+            
+              a::keyed_apply (fn (id, b) =>
+                      let my machcode_controlflow_graph::BLOCK { freq, ... } = region.node_info b
+                      in  a::update (freqTable, id, *freq);
+                          a::update (predCountTable, id, length (region.in_edges b))
+                      end) (blockMap, 0, NULL)
+           pendingNodes = 
+               fold_right 
+                (fn ((i, i'), pending) =>
+                 let inEdges = ddg.in_edges i
+                     n       = length inEdges
+                     my DDG::NODE { b, instruction, ... } = i'
+                     fun addToPending() =
+                        if n == 0 
+                        then (i, i') . pending
+                        else (a::update (inDegsTable, i, n); pending)
+                 in  case machcode_universals::instrKind instruction of
+                       machcode_universals::IK_SINK   => pending
+                     | machcode_universals::IK_SOURCE => pending
+                     | _ =>
+                       (a::update (instructionCountTable, b, a::sub (instructionCountTable, b) + 1);
+                        addToPending()
+                       )
+                 end
+                ) [] (ddg.nodes ())
+       in  pendingNodes
+       end
+
+       #  Queues 
+       readyQueue = pq::create priorityFun 
+       enqueue    = pq::set readyQueue
+       pending    = REF (initialize())
+       /*
+       enqueue    = if debug then 
+           (fn (i, i') => (print("QUEUEING "$showOp i'$"\n"); enqueue (i, i'))) 
+           else enqueue
+        */
+
+       /* === Incremental liveness computation routines === */ 
+
+       /* 
+        * Add an instruction into the current live set of block bid.
+        */
+       fun addInstrToLiveSet (i, i' as DDG::NODE { defs, uses, ... }, liveSet) =
+       let lookupLiveSet = int_hashtable::find liveSet
+           lookupLiveSet = fn b => case lookupLiveSet b of THE x => x
+                                                             | NULL => []
+           updateLiveSet = int_hashtable::set liveSet
+
+           fun rmvUse r = 
+           let fun loop ([], es') = es'
+                 | loop((e as (j, k, _)) . es, es') =
+                   if i == k then loop (es, es') else loop (es, e . es')
+               es = lookupLiveSet r
+               es = loop (es, [])
+           in  updateLiveSet (r, es) end
+
+           fun rmvUses [] = ()
+             | rmvUses (r . uses) = (rmvUse r; rmvUses uses)
+
+           fun addDef (r, e) = updateLiveSet (r, e . lookupLiveSet r)
+
+           fun addDefs [] = ()
+             | addDefs((edge as (i, j, e as DDG::EDGE { r, d, ... } )) . es) = 
+               (#  print (i2s i$" -> "$i2s j$" "$DDG::edgeToString e$"\n"); 
+                if r >= 0 then addDef (r, edge)  
+                addDefs es
+               )
+ 
+       in  rmvUses uses; 
+           addDefs (a::sub (next, i))
+       end
+
+       /* 
+        * Check whether it is a legal code motion to move an instruction i
+        * from block "from" to block "to".  Instruction i must have no
+        * unscheduled predecessors at this point.
+        */
+       fun isIllegalCodeMotion (i, i' as DDG::NODE { defs, ... }, liveSet) = 
+       let /* Check whether instruction i defines a register r 
+            * that is currently live.  If so, the associated code motion is
+            * illegal (without renaming)
+            */
+           lookupLiveSet = int_hashtable::find liveSet
+           lookupLiveSet = fn b => case lookupLiveSet b of THE x => x
+                                                             | NULL => []
+            /*
+             * Add an output- dependence edge between two nodes
+             */
+           fun addOutputDepEdge (i, j, r) = 
+               (ddg.add_edge (i, j, DDG::EDGE { l= -1, d=DDG::OUTPUT, r=r } );
+                a::update (inDegsTable, j, a::sub (inDegsTable, j) + 1)
+               )
+
+           fun isLiveReg r =
+               let fun loop [] = FALSE
+                     | loop((j, k: Int, e) . es) = 
+                        if i == k then loop es else 
+                        (if debug then 
+                           print("BAD: "$i2s j$" -> "$i2s k$" " $
+                                 DDG::edgeToString e $
+                                 " "$showOp (ddg.node_info j)$" -> " $
+                                 " "$showOp (ddg.node_info k)$"\n"
+                                )
+                         
+                         TRUE
+                        )
+                     #  if i == k then i is the use of r so it doesn't count 
+               in  loop (lookupLiveSet r) 
+               end
+           fun canKillLiveValues [] = FALSE
+             | canKillLiveValues((r, _) . defs) = 
+               isLiveReg r or canKillLiveValues defs  
+       in  canKillLiveValues defs 
+       end
+
+       /* Find out the time slot to insert the instruction j in 
+        * reservation table rt (from block id) 
+        */
+       fun findScheduleSlot (bid, rt, p, j, j') =
+       let fun earliest ([], t) = t
+             | earliest((i, j, e as DDG::EDGE { l, ... } ) . es, t) =
+               let t' = a::sub (issueTimeTable, i)
+                   t'' = t' + l + 1
+               in  /* if debug then
+                     print (i2s i$" -> "$i2s j$" "$DDG::edgeToString e $
+                           " t'="$i2s t'$" t''="$i2s t''$"\n")
+                    */
+                   earliest (es, int::max (t, t''))
+               end
+           t_min = earliest (a::sub (prior, j), a::sub (startTimeTable, bid)) 
+       in  findSlot (rt, t_min, p) 
+       end
+
+       /* Release an instruction when all its predecessors 
+        * have been scheduled. Note that fake sink and source instructions
+        * must be treated specially and so we don't release them onto the queue.
+        */
+       fun releaseInstr j = 
+       let my j' as DDG::NODE { instruction, b, ... } = ddg.node_info j
+       in  case machcode_universals::instrKind instruction of 
+              machcode_universals::IK_SOURCE => ()
+           |  _ => if isProfitableMove b then enqueue (j, j') 
+                   else pending := (j, j') . *pending 
+       end
+
+       /* Release the successors of an instruction 
+        * after it has been scheduled 
+        */
+       fun updateSucc (i) =
+       let fun loop [] = ()
+             | loop((i, j, _) . es) = 
+               let n = a::sub (inDegsTable, j)
+               in  a::update (inDegsTable, j, n - 1);
+                   if n == 1 then releaseInstr j 
+                   loop es
+               end
+       in  loop (a::sub (next, i)) 
+       end
+
+       #  Release the live-in node for block id 
+       fun releaseLiveIn (bid, liveSet) =
+       let my liveInNode as (j, j') = int_hashtable::lookup liveInMap bid
+       in  if a::sub (issueTimeTable, j) < 0 then
+              (addInstrToLiveSet (j, j', liveSet);
+               a::update (issueTimeTable, j, 0);
+               updateSucc j;
+               if debug then print("LIVEIN "$showOp j'$"\n") else ()
+              )
+           else ()
+       end except _ => () #  no live-in node, so don't bother 
+
+       #  Release the live-out node for block id 
+       fun releaseLiveOut (bid, liveSet) = 
+       let my liveOutNode as (j, j' as DDG::NODE { instruction, ... } ) = 
+               int_hashtable::lookup liveOutMap bid
+       in  case machcode_universals::instrKind instruction of 
+              machcode_universals::IK_SINK =>
+              (addInstrToLiveSet (j, j', liveSet);
+               a::update (issueTimeTable, j, 0);
+               updateSucc j;
+               if debug then print("LIVEOUT "$showOp j'$"\n") else ()
+              )
+           |  _ => error("releaseLiveOut "$showOp j')
+       end except _ => () #  no live-out node, so don't bother 
+ 
+       fun printOpenBlocks blocks =
+           "[ " $
+           fold_right (fn (OPEN_BLOCK { bid, ... }, l) => 
+                   i2s (a::sub (blockMap, bid))$" "$l) "" blocks
+           + "]"
+
+       /* Move legal pending nodes from the pending queue and the ready queue
+        * to the ready queue. 
+        */
+       fun moveLegalPendingToReady() =
+       let fun scan ([], pending) = pending
+             | scan((node as (j, DDG::NODE { b, ... } )) . nodes, pending) = 
+               if isProfitableMove b then 
+                  (enqueue node; scan (nodes, pending))
+               else 
+                  scan (nodes, node . pending)
+           waiting = list::revAppend (pq::toList readyQueue, *pending)
+       in  pq::clear readyQueue;
+           pending := scan (waiting, [])
+       end
+
+
+       /* Given a set of openBlocks, compute the set of legal blocks
+        * and profitable blocks that can be scheduled at the current time.
+        * At this point, we also compute the profitability of moving 
+        * an instruction from bid to the openBlockList.
+        * Move instructions from pending queue to the priority queue.
+        */
+       fun updatePermittableCodeMotion openBlockList =
+       let stamp = newStamp()
+
+           /* What is the cost of moving an instruction from block source to 
+            * the blocks in openBlockList?
+            */
+           fun codeMotionCost (source) = 
+           let fun loop ([], C) = C
+                 | loop (OPEN_BLOCK { reachables, bid=target, ... } . L, C) = 
+                   if w8a::sub (reachables, source) == 0w0 then loop (L, C)
+                   else let freq = a::sub (freqTable, target)
+                        in  loop (L, C+freq) end
+           in  loop (openBlockList, 0) 
+           end
+
+           /* Check whether it is profitable to move an instruction from
+            * block source.  1.0 means non-speculative.  < 1.0 means
+            * speculative
+            */
+           fun isProfitable (source) =
+           let origCost = a::sub (freqTable, source)
+               moveCost = codeMotionCost (source) 
+               profitability = real origCost / real moveCost
+           in  a::update (profitabilityTable, source, profitability); 
+               profitability >= profitabilityRatio 
+           end
+
+           fun markLegal([]) = ()
+             | markLegal (bid . Xs) =  
+               if a::sub (isLegalTable, bid) == stamp then markLegal Xs else 
+               (a::update (isLegalTable, bid, stamp);
+                if debug then print (i2s (a::sub (blockMap, bid))) 
+                if isProfitable bid then 
+                   (if debug then print "+" 
+                    a::update (isProfitableTable, bid, stamp) 
+                   )
+                
+                if debug then print " "  
+                markLegal
+                   (markSucc (region.out_edges (a::sub (blockMap, bid)), Xs)) 
+               )
+           and markSucc([], Xs) = Xs
+             | markSucc((_, Y, _) . es, Xs) = 
+               if predAllLegal Y then markSucc (es, a::sub (blockIdTable, Y) . Xs)
+               else markSucc (es, Xs) 
+
+           and predAllLegal X = 
+               let fun loop [] = TRUE
+                     | loop((Y, _, _) . es) = 
+                       a::sub (isLegalTable, a::sub (blockIdTable, Y)) = stamp
+                       and loop es
+               in  #  IMPORTANT: prevent hoisting past side entries! 
+                   case region.entry_edges X of
+                     [] => loop (region.in_edges X) 
+                   | _ => FALSE 
+               end
+       in  if debug then print("LEGAL: ") 
+           markLegal (map (fn OPEN_BLOCK { bid, ... } => bid) openBlockList);
+           if debug then print("\n") 
+           moveLegalPendingToReady(); 
+           openBlockList
+       end
+
+       /* Open a new block b. 
+        * Mark all blocks that b reaches.
+        */
+       fun openBlock (b, openBlockList) = 
+       let bid = a::sub (blockIdTable, b)
+       in  if a::sub (isLegalTable, bid) < 0 then #  Closed permenantly! 
+              openBlockList
+           else openBlock'(bid, b, openBlockList)
+       end
+
+       and openBlock'(bid, b, openBlockList) = 
+       let reachables = w8a::rw_vector (M, 0w0)
+           fun markReachables b = 
+           let bid = a::sub (blockIdTable, b)
+           in  if w8a::sub (reachables, bid) == 0w0 then
+                   (w8a::update (reachables, bid, 0w1);
+                    apply markReachables (region.next b)
+                   )
+               else ()
+           end
+           markReachables b
+           fun mergeIncomingBlocks() =
+           let liveSet = int_hashtable::make_hashtable (32, NotLive)
+               lookupLiveSet = int_hashtable::find liveSet
+               lookupLiveSet = 
+                   fn b => case lookupLiveSet b of THE x => x | NULL => []
+               addLiveSet = int_hashtable::set liveSet
+               fun merge ([], NULL) = (newTable 5, 0)
+                 | merge([], THE(_, t, rt)) = (rt, t+1)
+                 | merge((Y, _, machcode_controlflow_graph::EDGE { w, ... } ) . es, rt) = 
+                   let Y_id      = a::sub (blockIdTable, Y) 
+                       liveSet_Y = a::sub (liveSetTable, Y_id)
+                       rt = 
+                           case rt of 
+                             NULL => THE(*w,
+                                          a::sub (maxTimeTable, Y_id),
+                                          a::sub (rtTable, Y_id))
+                           | THE (w', _, rt') => 
+                              if *w > w' then 
+                                     THE(*w,
+                                          a::sub (maxTimeTable, Y_id),
+                                          a::sub (rtTable, Y_id))
+                              else rt
+                   in  int_hashtable::keyed_apply (fn (r, es) => 
+                          addLiveSet (r, list::revAppend (es, lookupLiveSet r)))
+                          liveSet_Y;
+                       merge (es, rt)
+                   end
+               my (rt, start_time) = merge (region.in_edges b, NULL)
+           in  a::update (rtTable, bid, rt);
+               a::update (startTimeTable, bid, start_time);
+               a::update (liveSetTable, bid, liveSet);
+               (liveSet, rt)
+           end
+           if debug then 
+                      print("OPENING " + i2s b + " " + printOpenBlocks openBlockList  + 
+                            "(" + i2s (a::sub (instructionCountTable, bid)) + " instructions)\n") 
+                    
+           my (liveSet, rt) = mergeIncomingBlocks()
+           #  release live-in anchor of block b 
+           releaseLiveIn (bid, liveSet)
+           openBlock = 
+                OPEN_BLOCK { bid=bid, rt=rt, 
+                           reachables=reachables,
+                           liveSet=liveSet,
+                           jumpScheduled=REF FALSE,
+                           sigma=da::rw_vector (5,[]),
+                           jumpTime=REF 10000000,
+                           jumpNode=REF dummyJump
+                          }
+           openBlockList = 
+                updatePermittableCodeMotion (openBlock . openBlockList)
+       in  if a::sub (instructionCountTable, bid) == 0 then
+               closeBlock (bid, openBlockList)
+           else
+               openBlockList
+       end
+
+       #  Close a block 
+       and closeBlock (bid, openBlockList) = 
+       let fun rmv ((x as OPEN_BLOCK { bid=bid', rt, jumpScheduled, jumpTime, liveSet,
+                                    jumpNode=REF (j, j'), sigma, ... } ) . L, L') = 
+               if bid == bid' then 
+                  let b = a::sub (blockMap, bid)
+                      my machcode_controlflow_graph::BLOCK { instructions, ... } = region.node_info b
+                      instrs = linearize sigma
+                      instrs = if *jumpScheduled then
+                                     let my DDG::NODE { instruction=jmp, ... } = j'
+                                     in  addInstrToLiveSet (j, j', liveSet);
+                                         jmp . instrs 
+                                     end
+                                   else instrs
+                      instructions := instrs;
+                      /* release live-in anchor of block id if it hasn't already
+                         been released */
+                      releaseLiveIn (bid, liveSet);
+                      #  release live-out anchor of block id 
+                      releaseLiveOut (bid, liveSet); 
+                      n = a::sub (instructionCountTable, bid) 
+                  in  if n > 0 then
+                         print("WARNING block " + i2s b + " has " + i2s n  + 
+                               " instruction (s) left over\n")
+                      
+                      list::revAppend (L', L)
+                  end
+               else rmv (L, x . L')
+             | rmv([], _) = raise exception NotOpened #  not found, it's okay 
+           fun decCounts([], openBlockList) = openBlockList
+             | decCounts((_, Y, _) . es, openBlockList) = 
+               let bid_Y =  a::sub (blockIdTable, Y)
+                   n = a::sub (predCountTable, bid_Y) - 1
+               in  a::update (predCountTable, bid_Y, n);
+                   if n == 0 then decCounts (es, openBlock (Y, openBlockList))
+                   else decCounts (es, openBlockList)
+               end
+           openBlockList = rmv (openBlockList, [])
+           if debug then 
+                     print("CLOSING " + i2s (a::sub (blockMap, bid)) + " "  + 
+                           printOpenBlocks openBlockList + "\n")
+                   else ()
+           out_edges = region.out_edges (a::sub (blockMap, bid))
+
+           openBlockList = decCounts (out_edges, openBlockList)   
+       in #  mark this block as closed forever 
+           a::update (isLegalTable, bid, -1);
+           updatePermittableCodeMotion openBlockList 
+       end except NotOpened => openBlockList
+
+       #  Close all blocks that have jump instruction scheduled 
+       fun closeAllJumpedBlocks openBlockList =
+       let fun loop ([], L') = L'
+             | loop((B as OPEN_BLOCK { bid, jumpScheduled, ... } ) . L, L') =
+               if *jumpScheduled then loop (L, closeBlock (bid, B . L'))
+               else loop (L, B . L')
+       in  loop (openBlockList, []) end
+
+       # Schedule an instruction: 
+       # Given an instruction and a set of openBlocks, find out where 
+       # the instruction has to be inserted at. 
+
+       fun scheduleInstr (openBlockList, j, j' as DDG::NODE { instruction, b, ... } ) = 
+       let isJump = isJump instruction 
+           # blockName = lowhalf_notes::COMMENT.create
+           #                     (i2s (a::sub (blockMap, bid)))
+
+           pipeline = pipeline instruction
+
+           # Pass one: find out where to perform the code motion 
+           # and whether it is legal 
+
+           fun pass1 ([], insertionPoints) = pass2 (insertionPoints, 0)
+             | pass1((B as OPEN_BLOCK { rt, bid, reachables, liveSet, jumpTime, ... } ) .
+                     openBlocks, insertionPoints) = 
+               if w8a::sub (reachables, b) == 0w0              # unreachable!
+               then pass1 (openBlocks, insertionPoints)
+               else if bid != b and 
+                       isIllegalCodeMotion (j, j', liveSet) then
+                        # this is illegal; put instruction back to the
+                        # pending queue.
+
+                    (if debug then print("ILLEGAL " + showOp j' + "\n") 
+                     pending := (j, j') . *pending;
+                     openBlockList
+                    )
+               else let time = findScheduleSlot (bid, rt, pipeline, j, j')
+                    in  if time > *jumpTime then 
+                          # Can't schedule this instruction because
+                          # it must follow the jump instruction! 
+                          # Close this block instead.
+
+                         (pending := (j, j') . *pending;
+                          closeBlock (bid, openBlockList)
+                         )
+                        else
+                         pass1 (openBlocks, (time, B) . insertionPoints)
+                    end
+                          
+                   
+           #  Pass two: perform the actual insertion 
+           and pass2([], replicationCount) = finish()
+             | pass2((time, 
+                      OPEN_BLOCK { bid, rt, reachables, liveSet, sigma, 
+                                 jumpScheduled, jumpTime, jumpNode, ... } ) .
+                     insertionPoints, replicationCount) = 
+                  # a copy of instruction j has to be placed in reservation
+                  # table rt.
+
+                   let instruction = if replicationCount > 0 then 
+                                   machcode_universals::replicate instruction else instruction
+                       # instruction = if bid != b then 
+                       #             machcode_universals::annotate (instruction, blockName) 
+                       #          else instruction
+                   in  insert (rt, time, pipeline);
+                       a::update (issueTimeTable, j, 
+                                int::max (time, a::sub (issueTimeTable, j)));
+                       a::update (maxTimeTable, bid, 
+                                int::max (time, a::sub (maxTimeTable, bid)));
+                       if debug and (verbose or b != bid) then
+                         print(
+                           "Time " + i2s time  + 
+                           (if replicationCount > 0 then 
+                              " (" + i2s replicationCount + ")"
+                            else "")  + 
+                           " " + showInstruction instruction  + 
+                           " [" + i2s (a::sub (blockMap, b))  + 
+                           "] scheduled in block " + i2s (a::sub (blockMap, bid))  + 
+                           (if b != bid then " ***" else "")  + 
+                           (if *jumpScheduled then "!!" else "")  + 
+                           "\n")
+                       
+                       # Jump processing
+                       if isJump then
+                          (jumpScheduled := TRUE; 
+                           jumpTime := time;
+                           jumpNode := (j, j')
+                          )
+                       else 
+                          (addInstrToLiveSet (j, j', liveSet);
+                           da::update (sigma, time, instruction . da::sub (sigma, time))
+                          );
+                       pass2 (insertionPoints, replicationCount+1)
+                   end
+
+           # Do these things after successfully scheduled an instruction
+           and finish() = 
+           let updateSucc j;
+               n = a::sub (instructionCountTable, b) - 1
+           in  a::update (instructionCountTable, b, n);
+               # if we have run out instructions or else 
+               # we have scheduled the jump instruction, we can 
+               # close the current block.  
+               # At this point we wait until we can't find any instructions 
+               # that be scheduled ahead of the current jump instruction. 
+
+               if isJump then openBlockList
+               else if n == 0 then closeBlock (b, openBlockList) 
+               else openBlockList
+           end
+
+       in  pass1 (openBlockList, [])
+       end
+
+       #  Main loop 
+       fun schedule (openBlockList) =  
+       if pq::is_empty readyQueue then
+          let L = closeAllJumpedBlocks openBlockList 
+              L = updatePermittableCodeMotion L
+          in  case L of
+                [] => ()
+              | _  => schedule L 
+          end
+       else
+          let my (j, j' as DDG::NODE { b, ... } ) = pq::deleteMin readyQueue
+              openBlockList = scheduleInstr (openBlockList, j, j')
+          in  schedule openBlockList
+          end
+
+       fun scheduleAll() = 
+       let entries = region.entries ()
+           #  find blocks without predecessors in the region 
+           openBlockList = fold_right 
+                  (fn (b, L) => if a::sub (predCountTable, a::sub (blockIdTable, b)) == 0 
+                               then openBlock (b, L) else L
+                  ) [] entries
+       in  case openBlockList of
+             [] => error "cyclic region"  
+           | _  => schedule (updatePermittableCodeMotion openBlockList) 
+       end
+
+       fun sanityCheck() =
+       let ok = REF TRUE
+       in  ddg.forall_nodes 
+               (fn (i, i') =>
+                  if a::sub (issueTimeTable, i) < 0 then
+                    (print("UNSCHEDULED " + showOp i'  + 
+                          " |prior|=" + i2s (a::sub (inDegsTable, i)) + "\n");
+                     apply (fn (j, i, e) =>
+                          if a::sub (issueTimeTable, j) < 0 then
+                             (print("\t" + i2s j + " -> " + i2s i + " "  + 
+                                    DDG::edgeToString e);
+                              print("\t" + showOp (ddg.node_info j) + "\n")
+                             )
+                          else ()) (ddg.in_edges i);
+                     print "\n";
+                     ok := FALSE
+                    )
+                  else ()
+               );
+           if *ok then () else error "Scheduling error"
+       end
+
+   in  # ddg.forall_edges (fn (i, j, e) =>
+       #   print (showOp (ddg.node_info i) + " -> " + showOp (ddg.node_info j) + " "  + 
+       #         DDG::edgeToString e + "\n"));
+       scheduleAll();
+       if safetyCheck then sanityCheck() else ()
+   end 
+
+end

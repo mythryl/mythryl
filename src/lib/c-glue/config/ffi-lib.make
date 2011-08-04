@@ -13,7 +13,7 @@ SML=sml
 SMLBINDIR=`which sml | sed -e 's|\(.*\)/[^/]*|\1|'`
 GETARCH=$(SMLBINDIR)/.arch-n-opsys
 VERSION=`grep 'val VERSION' make.pkg | sed -e 's/.*"\(.*\)".*/\1/'`
-DEFAULT_CFLAGS= -U__GNUC__ -Wall 
+DEFAULT_CFLAGS= -U__GNUC__ -std=c99 -Wall 
 MY_CFLAGS= $(CFLAGS) $(DEFAULT_CFLAGS)
 MY_LDFLAGS= $(LDFLAGS)
 SHARED_LIBS=$(SHARED_LIBRARIES:%=../lib/%)

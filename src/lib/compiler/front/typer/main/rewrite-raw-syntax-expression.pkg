@@ -1,0 +1,226 @@
+## rewrite-raw-syntax-expression.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+####################################################
+#               Motivation
+#
+# We want to support traditional vector and matrix
+# manipulation syntax like
+#
+#     v1[i]   := v2[i]   + v3[i];
+#     m1[i,j] := m2[i,j] + m3[i,j];
+#
+# The right-hand side stuff can be (and is)
+# handled in the lexer and parser,
+#
+#     src/lib/compiler/front/parser/lex/mythryl.lex
+#     src/lib/compiler/front/parser/yacc/mythryl.grammar
+#
+# -- see in particular the
+#
+#     <postfix>"["	=> (yybegin initial; tokens::post_lbracket(yypos,yypos+1));
+#
+# rule in the former and the POST_LBRACKET rules
+# in the latter.  These transform surface syntax expressions
+# like
+#
+#     v2[i]
+#
+# into raw syntax expressions like
+#
+#     PRE_FIXITY_EXPRESSION [ v1, _[], i ]
+#
+# (simplifying the syntax  a bit for expository purposes)
+# which after operator precedence resolution then reduce to
+#
+#     APPLY_EXPRESSION (_[], (v1, i))
+#
+# (again, in simplified syntax for clarity) where the irregularly
+# named function '_[]' is being applied to the two-tuple of arguments
+# (v1, i).
+# 
+# These expressions may then be given concrete semantics
+# via definitions like
+#
+#         my (_[]):  (Vector( X ), Int) -> X =  inline_t::poly_vector::check_sub;
+# in
+#         src/lib/std/src/vector.pkg
+#
+# That leaves the left-hand side.  We want to
+# similarly reduce
+#
+#     v1[i] := expression;
+#
+# to something like
+#
+#     APPLY_EXPRESSION ((_[]:=), (v1, i, expression));
+#
+# where the irregularly named  (_[]:=)  operator can
+# in similar fashion be user-defined to map
+# to any desired function.
+#
+# That's our job in this file.
+#
+#
+# We get invoked at runtime from
+#
+#    typecheck_expression/PRE_FIXITY_EXPRESSION
+#
+# in
+#
+#     src/lib/compiler/front/typer/main/type-core-language.pkg
+#
+# immediately after resolution of the expression tree
+# from the unanalysed expression list by
+#
+#     src/lib/compiler/front/typer/main/resolve-operator-precedence.pkg
+#
+
+
+
+api Rewrite_Raw_Syntax_Expression {
+
+     rewrite_raw_syntax_expression
+         :
+         raw_syntax::Raw_Expression
+         ->
+         raw_syntax::Raw_Expression;
+         
+};
+
+
+stipulate
+    include raw_syntax;
+herein
+
+    package   rewrite_raw_syntax_expression
+    :         Rewrite_Raw_Syntax_Expression			# Rewrite_Raw_Syntax_Expression	is from   src/lib/compiler/front/typer/main/rewrite-raw-syntax-expression.pkg
+    {
+	# Here we support assignments into
+	# vectors and matrices by checking to
+	# see if our 'expression' argument
+	# is of the form
+	#
+	#     v[i] := x;
+	#
+	# for some subexpressions v, i and x
+	# and if so rewriting it as
+	#
+	#     (_[]:=)( v, i, x );
+	#
+	# where '_[]:=' is trinary function of
+	# irregular name syntax which may then
+	# be defined as desired by the user.
+	#
+	# The current solution has the virtues
+	# of being simple to read and understand,
+	# easy to write and quick to run.
+	#
+	# It has the disadvantage of being a hack:
+	#
+	#   o It is brittle in that if the parser
+	#     is changed to leave out the 'optional'
+	#     SOURCE_CODE_REGION_FOR_EXPRESSION
+	#     nodes we pattern match on, our match
+	#     will fail and we won't do the transform.
+	#
+	#   o We also won't do the transform if the
+	#     assignment is buried in some sub-tree
+	#     of 'expression' rather than being in
+	#     root position.  For example, if the
+	#     user writes
+	#     
+	#         foo() before v[i] := x;
+	#
+	#     then the transform won't fire and the
+	#     code will draw a compile error;  the
+	#     user will have to rewrite as
+	#
+	#         foo() before (v[i] := x);
+	#
+	# For now, at least, I'm happy having the
+	# code fast and simple even at the cost
+	# of some brittleness and the occasional
+	# need for an extra pair of parens.
+	#
+	# There's a lot to be said for fast and simple. :-)
+	#
+	#               -- 2006-06-28 CrT
+	#
+	fun rewrite_raw_syntax_expression  expression
+	    =
+	    case expression
+		APPLY_EXPRESSION
+		    { function => SOURCE_CODE_REGION_FOR_EXPRESSION (VARIABLE_IN_EXPRESSION [ top_symbol ], function_region),
+		      argument => TUPLE_EXPRESSION
+				    [ SOURCE_CODE_REGION_FOR_EXPRESSION
+					( PRE_FIXITY_EXPRESSION pre_fixity_expression,
+					  pre_fixity_region
+					),
+				      value_arg
+				    ]
+		    }
+		    =>
+		    {
+			top_name = symbol::name  top_symbol; 
+			if (top_name == ":=")
+			    case pre_fixity_expression
+				 [ { item => SOURCE_CODE_REGION_FOR_EXPRESSION (VARIABLE_IN_EXPRESSION [ op_symbol ],  _), fixity =>  op_fixity, source_code_region =>  op_source },
+				   { item => SOURCE_CODE_REGION_FOR_EXPRESSION (TUPLE_EXPRESSION [ vector, index ],    _), fixity => arg_fixity, source_code_region => arg_source }
+				 ]
+				     =>
+				     {
+					op_name = symbol::name  op_symbol; 
+
+					if (op_name == "_[]")
+
+					    APPLY_EXPRESSION
+					      { function => VARIABLE_IN_EXPRESSION [ symbol::make_value_symbol  "_[]:=" ],
+						argument => TUPLE_EXPRESSION
+							      [ vector,
+								index,
+								value_arg
+							      ]
+					      };
+
+					else
+					    expression;					# This is not the droid you're looking for.
+					fi;
+				    };
+
+				_ => expression;
+			    esac;
+			else
+			    expression;
+			fi;
+		    };
+
+		_   => expression;
+	    esac;
+    };                                                                         	# package rewrite_raw_syntax_expression
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

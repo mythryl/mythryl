@@ -1,0 +1,983 @@
+## cluster-regor-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+# This module provides services for the
+# new register allocator when using the
+# cluster representation.  
+# The algorithm is adapted from
+# Algorithm 19.17 from Appel, Modern Compiler Implementation in ML,
+# Calculation of live ranges in SSA form.  We don't directly use SSA 
+# here but the principles are the same.
+#
+# -- Allen Leung
+
+
+###           "Always listen to the experts.
+###            They'll tell you what can't be
+###            done and why.  Then do it."
+###
+###               -- Robert A Heinlein
+
+
+# We get invoked from:
+#     src/lib/compiler/back/low/regor/regor-risc-g.pkg
+#     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+
+stipulate
+    package geh =  graph_by_edge_hashtable;				# graph_by_edge_hashtable			is from   src/lib/std/src/graph-by-edge-hashtable.pkg
+    package iht =  int_hashtable;					# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package irc =  iterated_register_coalescing;			# iterated_register_coalescing			is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+    package lem =  lowhalf_error_message;				# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lms =  list_mergesort;					# list_mergesort				is from   src/lib/src/list-mergesort.pkg
+    package odg =  oop_digraph;						# oop_digraph					is from   src/lib/graph/oop-digraph.pkg
+    package rkj =  registerkinds_junk;					# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector; 						# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+    package uwv =  unsafe::rw_vector;					# unsafe					is from   src/lib/std/src/unsafe/unsafe.pkg
+herein									# "okay, I'm cheating a bit here" -- Allen Leung.
+
+    generic package   cluster_regor_g   (
+	#             ===============
+	#
+	package ae:  Instruction_Emitter;				# Instruction_Emitter				is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+
+	package mcg: Machcode_Controlflow_Graph				# Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+		     where
+			  mcf == ae::mcf				# "mcf" == "machcode_form" (abstract machine code).
+		     also pop == ae::cst::pop;				# "pop" == "pseudo_op".
+
+	package mu:  Machcode_Universals				# Machcode_Universals				is from   src/lib/compiler/back/low/code/machcode-universals.api
+		     where
+			 mcf == mcg::mcf;				# "mcf" == "machcode_form" (abstract machine code).
+
+	package spl: Register_Spilling					# Register_Spilling				is from   src/lib/compiler/back/low/regor/register-spilling.api
+		     where
+			 mcf == mcg::mcf;				# "mcf" == "machcode_form" (abstract machine code).
+    )
+    : (weak)  Regor_View_Of_Machcode_Controlflow_Graph			# Regor_View_Of_Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/regor/regor-view-of-machcode-controlflow-graph.api
+    {
+	# Exported to client packages:
+	#	
+	package mcf =  mcg::mcf;					# "mcf" == "machcode_form" (abstract machine code).
+	package rgk =  mcf::rgk;						# "rgk" == "registerkinds".
+	package spl =  spl;						# "spl" == "spill".
+        package cig =  codetemp_interference_graph;			# codetemp_interference_graph			is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+
+
+
+	fun is_on (flag, mask)
+	    =
+	    unt::bitwise_and (flag, mask) != 0u0;
+
+	print_interference_graph_size
+	    =
+	    lowhalf_control::make_bool (
+		"print_interference_graph_size",
+		"whether to show RA size"
+	    );
+
+	Machcode_Controlflow_Graph					# Exported to client packages.
+	    =
+	    mcg::Machcode_Controlflow_Graph;				# flowgraph is a cluster 
+
+	fun error msg
+	    =
+	    lem::error("cluster_regor", msg);
+
+	mode = 0u0;
+
+	fun uniq_registers codetemps					# This has the effect of sorting list by color and dropping any duplicate colors.
+	    =
+	    rkj::sortuniq_colored_codetemps  codetemps;
+
+	fun chase_register (c as rkj::CODETEMP_INFO { color=>REF (rkj::MACHINE r), ... } ) =>  (c, r);
+	    chase_register (     rkj::CODETEMP_INFO { color=>REF (rkj::ALIASED c), ... } ) =>  chase_register c;
+	    chase_register (c as rkj::CODETEMP_INFO { color=>REF  rkj::SPILLED,    ... } ) =>  (c,-1);
+	    chase_register (c as rkj::CODETEMP_INFO { color=>REF  rkj::CODETEMP, id, ... } ) =>  (c, id);
+	end;
+
+	fun color_of (rkj::CODETEMP_INFO { color=>REF (rkj::MACHINE r), ... } ) =>  r;
+	    color_of (rkj::CODETEMP_INFO { color=>REF (rkj::ALIASED c), ... } ) =>  color_of c;
+	    color_of (rkj::CODETEMP_INFO { color=>REF  rkj::SPILLED,    ... } ) =>  -1;
+	    color_of (rkj::CODETEMP_INFO { color=>REF  rkj::CODETEMP, id, ... } ) =>  id;
+	end;
+
+	fun chase (cig::NODE { color => REF (cig::ALIASED n), ... } )
+		=>
+		chase n;
+
+	    chase n
+		=>
+		n;
+	end;
+
+	exception NOT_THERE;
+
+#	(ae::make_stream  [])
+#	    ->
+#	    { emit_op, ... };	# Never used...?! Commented out 2011-07-04 CrT on assumption no interesting side-effects were intended.
+
+
+	fun dump_flowgraph (txt, mcg as odg::DIGRAPH graph, outstream)
+	    =
+	    {   fun say text
+		    =
+		    file::write (outstream, text);
+
+		fun say_pseudo  pseudo_op
+		    =
+		    {   say  (mcg::pop::pseudo_op_to_string  pseudo_op);
+			say  "\n";
+		    };
+
+		graph.graph_info ->   mcg::GRAPH_INFO { dataseg_pseudo_ops, ... };
+
+		mcg::dump (outstream, txt, mcg);
+		apply say_pseudo (reverse *dataseg_pseudo_ops);
+	    };
+
+	get_global_graph_notes = mcg::get_global_graph_notes; 
+
+	dummy_block =   mcg::make_bblock { id => -1, execution_frequency => REF 0.0 };
+
+	uniq = lms::unique_sort 
+		   (fn ( { block=>b1, op=>i1 },{ block=>b2, op=>i2 } )
+		       =
+		       case (int::compare (b1, b2))
+			   EQUAL =>  int::compare (i1, i2);
+			   ord   =>  ord;
+		       esac
+		   );
+
+	fun services (mcg as odg::DIGRAPH graph)
+	    =
+	    { build, 
+	      spill, 
+	      program_point =>  fn { block, op } =  prog_pt (block, op),
+	      block_num, 
+	      instr_num
+	    }
+	    where
+		graph.graph_info ->   mcg::GRAPH_INFO { notes => cl_notess, ... };
+
+		blocks = graph.nodes ();
+
+		fun max_block_id ((id, mcg::BBLOCK _) ! rest, curr)
+			=> 
+			if (id > curr)   max_block_id (rest, id);
+			else             max_block_id (rest, curr);
+			fi;
+
+		    max_block_id([], curr)
+			=>
+			curr;
+		end;
+
+		nnn =   max_block_id (blocks, graph.capacity ());
+
+
+		# Construct program point:
+		#
+		fun prog_pt (block, op)
+		  =
+		  { block, op };
+
+		fun block_num { block, op } =  block;
+		fun instr_num { block, op } =  op;
+
+		block_table		#  Blocks indexed by block id 
+		    =
+		    rwv::make_rw_vector (nnn, (graph.allot_node_id (), dummy_block));
+
+		# Fill block table:
+		#
+		list::apply
+		    (fn b as (nid, _) =  rw_vector::set (block_table, nid, b))
+		    blocks;
+
+		exit
+		    =
+		    case (graph.exits ())
+
+			 [e] =>  e;
+			  _  =>  error "EXIT";
+		    esac;
+
+
+		# Building the interference graph:
+		#	
+		fun build_interference_graph
+		    #
+		    ( registerkind,  
+		      graph' as cig::CODETEMP_INTERFERENCE_GRAPH
+				  {
+				    node_hashtable,
+				    is_globally_allocated_register_or_codetemp,					# Distinguishes registers allocated globally (e.g., esp and edi on intel32) from those allocated locally by the register allocator.
+				    mode,
+				    span,
+				    copy_tmps,
+				    ...
+				  }
+		    )
+		    =
+		    {   # Definitions indexed by
+			# block id+op id: 
+
+			defs_table =  rwv::make_rw_vector (nnn, rwv::make_rw_vector (0, [] : List( cig::Node )));
+			marked     =  rwv::make_rw_vector (nnn, -1);
+			add_edge   =  irc::add_edge graph';
+
+			# Copies indexed by source.
+			# This table maps variable v
+			# to the program points where
+			# v is a source of a copy.
+			#
+			copy_table = iht::make_hashtable  { size_hint => nnn,  not_found_exception => NOT_THERE } 
+				   : iht::Hashtable(  List  { dst: rkj::Codetemp_Info, pt: cig::Program_Point } );
+
+			lookup_copy =  iht::find copy_table; 
+
+			lookup_copy
+			    =
+			    fn r = case (lookup_copy r)
+				       THE c => c; 
+				       NULL  => [];
+				   esac;
+
+			add_copy      = iht::set copy_table;
+
+			stamp = REF 0;
+
+			# Allocate the arrays 
+			#
+			fun alloc [] => ();
+
+			    alloc((id, mcg::BBLOCK { ops, ... } ) ! blocks)
+				=> 
+				{   uwv::set (defs_table, id, rwv::make_rw_vector (length *ops+1, []));
+				    alloc blocks;
+				};
+			end;
+
+			alloc blocks;
+
+
+			# Remove pseudo use generated
+			# by copy temporaries:
+			#
+			fun rm_pseudo_uses []
+				=>
+				();
+
+			    rm_pseudo_uses (cig::NODE { uses, ... } ! ns)
+				=>
+				{   uses := [];
+				    rm_pseudo_uses ns;
+				};
+			end;
+
+
+			# Initialize the definitions before
+			# computing the liveness for v:
+			#
+			fun initialize (v, v', use_sites)
+			    =
+			    {
+				# First we remove all definitions for all copies 
+				# with v as source.
+				# When we have a copy and while we are processing v
+				#
+				#      x <- v
+				#
+				#  x does not really interfere with v at this point,
+				#  so we remove the definition of x temporarily.
+				#
+				fun mark_copies ([], trail)
+					=>
+					trail;
+
+				    mark_copies( { pt, dst } ! copies, trail)
+					=> 
+					{   b     = block_num pt;
+					    i     = instr_num pt;
+					    defs  = uwv::get (defs_table, b);
+					    nodes = uwv::get (defs, i);
+
+					    fun reverse_and_prepend ([], nodes)
+						    =>
+						    nodes;
+
+						reverse_and_prepend (n ! ns, nodes)
+						    =>
+						    reverse_and_prepend (ns, n ! nodes);
+					    end;
+
+					    dst_color = color_of dst;
+
+					    fun remove_dst ([], nodes')
+						    =>
+						    nodes';
+
+						remove_dst((d as cig::NODE { id=>r, ... } ) ! nodes, nodes')
+						    =>
+						    if   (r == dst_color)
+
+							 reverse_and_prepend (nodes', nodes);
+						    else
+							 remove_dst (nodes, d ! nodes');
+						    fi;
+					    end;
+
+					    nodes' = remove_dst (nodes, []);
+					    uwv::set (defs, i, nodes');
+					    mark_copies (copies, (defs, i, nodes) ! trail);
+					};
+				end;
+
+
+				# Then we mark all use sites of v
+				# with a fake definition so that
+				# the scanning will terminate
+				# correctly at these points.
+				#
+				fun mark_use_sites ([], trail)
+					=>
+					trail;
+
+				    mark_use_sites (pt ! pts, trail)
+					=> 
+					{   b     = block_num pt;
+					    i     = instr_num pt;
+					    defs  = uwv::get (defs_table, b);
+					    nodes = uwv::get (defs, i);
+
+					    uwv::set (defs, i, v' ! nodes);
+					    mark_use_sites (pts, (defs, i, nodes) ! trail);
+					};
+				end;
+
+				copies = lookup_copy v;
+				trail  = mark_copies (copies, []);
+				trail  = mark_use_sites (use_sites, trail);
+
+				trail;
+			    };
+
+			fun cleanup []
+				=>
+				();
+
+			    cleanup ((defs, i, nodes) ! trail)
+				=> 
+				{   uwv::set (defs, i, nodes);
+				    cleanup trail;
+				};
+			end; 
+
+			# Perform incremental liveness
+			# analysis on register v 
+			# and compute the span:
+			#
+			fun liveness (v, v' as cig::NODE { uses, ... }, register_v)
+			    =
+			    {   st = *stamp;
+				stamp := st + 1;
+
+				fun foreach_use_site ([], span)
+					=>
+					span;
+
+				    foreach_use_site (u ! uses, span)
+					=>
+					{   b = block_num u;
+					    i = instr_num u;
+
+					    (uwv::get (block_table, b))
+						->
+						block as (_, mcg::BBLOCK { execution_frequency, ... } );
+
+					    span =  if (i == 0)
+							#
+							live_out_atablock (block, span);			# Live out.
+						    else 
+							f = *execution_frequency;
+
+							defs = uwv::get (defs_table, b);
+
+							live_out_at_statement (block, rwv::length defs, defs, i+1, f, span+f);
+						    fi;
+
+					    foreach_use_site (uses, span);
+					};
+				end 
+
+				also
+				fun visit_pred ((nid, _), span)
+				    =
+				    foreach_pred (graph.prior nid, span)
+				    where
+					fun foreach_pred ([], span)
+						=>
+						span;
+
+					    foreach_pred (nid ! prior, span)
+						=>
+						{   span = live_out_atablock((nid, graph.node_info nid), span);
+						    foreach_pred (prior, span); 
+						};
+					end;
+				    end
+
+				also
+				fun live_out_at_statement (block, n_defs, defs, pos, freq, span)
+				    = 
+				    # v is live out
+				    #
+				    if (pos >= n_defs)
+
+					 visit_pred (block, span);
+				    else
+
+					foreach_def (uwv::get (defs, pos), FALSE)
+					where 
+					    fun foreach_def ([], TRUE)
+						    =>
+						    span;
+
+						foreach_def([], FALSE)
+						    => 
+						    live_out_at_statement (block, n_defs, defs, 
+								 pos+1, freq, span+freq);
+
+						foreach_def((d as cig::NODE { id=>r, ... } ) ! ds, kill)
+						    => 
+						    if (r == v)
+							 foreach_def (ds, TRUE);
+						    else
+							 add_edge (d, v');
+							 foreach_def (ds, kill);
+						    fi;
+					    end; 
+					end; 
+				    fi
+
+				also
+				fun live_out_atablock (block as (nid, mcg::BBLOCK { execution_frequency, ... } ), span)
+				    = 
+				    # v is live out at the current block 
+				    #
+				    if (uwv::get (marked, nid) == st)
+					#
+					span;
+				    else 
+					defs = uwv::get (defs_table, nid);
+
+					uwv::set (marked, nid, st);
+					live_out_at_statement (block, rwv::length defs, defs, 1, *execution_frequency, span);
+				    fi;
+
+				use_sites = uniq *uses; 
+				trail    = initialize (v, v', use_sites);
+				span     = foreach_use_site (use_sites, 0.0);
+				cleanup trail;
+
+				span;
+			    }; 			# fun build_interference_graph
+
+			new_nodes    =  irc::new_nodes  graph';
+
+			getnode      =  iht::get  node_hashtable;
+
+			op_def_use =  mu::def_use registerkind;
+
+			get_codetemps_of_our_kind     =  rgk::get_codetemps_for_kind  registerkind;
+
+
+
+			# Remove all globally allocated and
+			# spilled registers from the list 
+			#
+			fun drop_globally_allocated_and_spilled_registers regs
+			    =
+			    loop (regs, [])
+			    where
+				fun loop ([], rs')
+					=>
+					rs';
+
+				    loop (r ! rs, rs')
+					=> 
+					{   fun rmv (r as rkj::CODETEMP_INFO { color=>REF rkj::CODETEMP, id, ... } )
+						    => 
+						    if (is_globally_allocated_register_or_codetemp id)   loop (rs,     rs');
+						    else                                     loop (rs, r ! rs');
+                                                    fi;
+
+						rmv (rkj::CODETEMP_INFO { color=>REF (rkj::ALIASED r), ... } )
+						    =>
+						    rmv r;
+
+						rmv (r as rkj::CODETEMP_INFO { color=>REF (rkj::MACHINE col), ... } )
+						    => 
+						    if (is_globally_allocated_register_or_codetemp col)    loop (rs,     rs');
+						    else                                       loop (rs, r ! rs');
+						    fi;
+
+						rmv (rkj::CODETEMP_INFO { color=>REF rkj::SPILLED, ... } )
+						    =>
+						    loop (rs, rs');
+					    end;
+
+					    rmv r; 
+					};
+				end;
+			    end;
+
+
+			# Create parallel move:
+			#
+			fun make_moves (op, pt, cost, mv, tmps)
+			    =
+			    case op
+				#
+				mcf::NOTE { op, ... }
+				    => 
+				    # Strip away the annotation.
+				    # Note: we are assuming annotations cannot change 
+				    # the semantics of the copies.
+				    #	
+				    make_moves (op, pt, cost, mv, tmps);
+
+				mcf::COPY { dst, src, kind, ... }
+				    =>
+				    # If it is a parallel copy, deal
+				    # with the copy temporary properly.
+				    #	
+				    # If it is a register, create a
+				    # pseudo use site just below the
+				    # end of  the copy op.
+				    # This is to make sure that the
+				    # temporary is colored properly.
+				    #	
+				    # If the copy temporary doesn't
+				    # exist or if it has been spilled,
+				    # do nothing.
+				    #	
+				    if (kind == registerkind)
+					#
+					tmps = 
+					    case (mu::move_tmp_r op)
+						#
+						THE r
+						    => 
+						    # Add a pseudo use for tmpR 
+						    case (chase (getnode (color_of r)))
+							#
+							tmp as cig::NODE { uses, defs=>REF [d], ... }
+							    =>
+							    {   fun prev { block, op } = { block, op => op - 1 };
+								uses := [prev d]; 
+								tmp ! tmps;
+							    };
+
+							_ => error "make_moves";
+						    esac;
+
+
+						NULL => tmps;
+					    esac;
+
+
+					fun moves ([], [], mv)
+						=>
+						mv;
+
+					    moves (d ! ds, s ! ss, mv)
+						=>
+						{   (chase_register d) ->   (d, cd);
+						    (chase_register s) ->   (s, cs);
+
+						    if (  is_globally_allocated_register_or_codetemp cd
+						       or is_globally_allocated_register_or_codetemp cs
+						       )
+
+							moves (ds, ss, mv);
+							#
+						    elif (cd == cs)
+							#
+							moves (ds, ss, mv);
+						    else 
+							#
+							add_copy (cs, { dst=>d, pt } ! lookup_copy cs);
+
+							dst_reg = chase (getnode cd); 
+							src_reg = chase (getnode cs); 
+
+							moves (ds, ss, cig::MOVE_INT { dst_reg,
+										       src_reg,
+										       status  => REF cig::WORKLIST,
+										       hicount => REF 0,
+										       cost
+										     } ! mv
+							); 
+						    fi;
+						};
+					    moves _ => error "moves";
+					end;
+
+					(moves (dst, src, mv), tmps);
+				    else
+					(mv, tmps);
+				    fi;
+
+				_ => (mv, tmps);
+			    esac;
+
+
+			# Add the nodes first:
+			#
+			fun make_nodes ([], mv, tmps)
+				=>
+				(mv, tmps);
+
+			    make_nodes((nid, blk) ! blocks, mv, tmps)
+				=>
+				{   blk ->    mcg::BBLOCK { ops, notes, execution_frequency => REF w, ... };
+
+				    next     =  graph.next nid;
+				    live_out =  mcg::liveout_note_of_bblock blk;
+				    dtab     =  rwv::get (defs_table, nid);
+
+				    fun scan ([], pt, i, mv, tmps)
+					    =>
+					    (pt, i, mv, tmps);
+
+					scan (op ! rest, pt, i, mv, tmps)
+					    =>
+					    {   (op_def_use  op)
+						    ->
+						    (d, u);
+
+
+						defs = drop_globally_allocated_and_spilled_registers d;
+						uses = drop_globally_allocated_and_spilled_registers u;
+
+						defs = new_nodes { cost=>w, pt, defs, uses };
+
+						uwv::set (dtab, i, defs);
+
+						my (mv, tmps)
+						    =
+						    make_moves (op, pt, w, mv, tmps);
+
+						fun next { block, op }
+						    =
+						    { block, op => op + 1 };
+
+						scan (rest, next pt, i+1, mv, tmps);  
+					    };
+				    end;
+
+				    my (pt, i, mv, tmps)
+					= 
+					scan (*ops, prog_pt (nid, 1), 1, mv, tmps);
+
+				    # If the block is escaping
+				    # then all liveout registers
+				    # are considered used here.
+				    #
+				    case next 
+					#				  
+					[id] => 
+					    if (id == exit)
+						#
+						live_set =  drop_globally_allocated_and_spilled_registers
+								#
+							        (uniq_registers (get_codetemps_of_our_kind  live_out));
+
+						new_nodes { cost=>w, pt=>prog_pt (nid, 0), defs => [], uses => live_set };
+						();
+					    fi;
+
+					_ => ();
+				    esac;
+
+				    make_nodes (blocks, mv, tmps);
+				};
+			end;
+
+			# Add the edges 
+			#
+			my (moves, tmps)
+			    =
+			    make_nodes (blocks, [], []);
+
+			iht::keyed_apply
+			    (   fn (v, v' as cig::NODE { register, color, ... } )
+				    =
+				    {   fun compute_liveness ()
+					    = 
+					    set_span (v, liveness (v, v', register));
+
+					case *color
+					    #
+					    cig::CODETEMP    =>  compute_liveness ();
+					    cig::COLORED _ =>  compute_liveness ();
+					    cig::RAMREG _  =>  compute_liveness ();
+					    _              =>  ();
+					esac;
+				    }
+				    where
+					my set_span:  ((Int, Float)) -> Void
+					    =
+					    if (is_on (mode, irc::compute_span))
+						#
+						span_map = iht::make_hashtable  { size_hint => iht::vals_count  node_hashtable,  not_found_exception => NOT_THERE };
+						#
+						set_span = iht::set  span_map;
+						#
+						span := THE span_map;
+						#
+						set_span;
+					    else
+						fn _ = ();
+					    fi;
+				    end
+			    )
+			    node_hashtable;
+
+			if (is_on (irc::save_copy_temps, mode))
+			    #    
+			    copy_tmps := tmps;
+			fi;
+
+			rm_pseudo_uses  tmps;
+
+			moves;
+		    };			# fun build_interference_graph
+
+
+		# Build the interference graph initially:
+		#
+		fun build (cig, registerkind)
+		    =
+		    moves
+		    where
+			moves = build_interference_graph (registerkind, cig);
+
+			i2s = int::to_string;
+
+			if *print_interference_graph_size
+			    #
+			    cig ->   cig::CODETEMP_INTERFERENCE_GRAPH { node_hashtable, edge_hashtable, ... };
+
+			    ops =   fold_right
+					(fn ((_, mcg::BBLOCK { ops, ... } ), n)
+					    =
+					    length *ops + n
+					)
+					0
+					blocks;
+
+			    file::write
+			       ( *lowhalf_control::debug_stream,
+				 #
+				 "RA #blocks=" + i2s nnn
+				 +	" #ops  ="  + i2s ops
+				 +	" #nodes="  + i2s (iht::vals_count  node_hashtable)
+				 +	" #edges="  + i2s (geh::get_edge_count *edge_hashtable)
+				 +	" #moves="  + i2s (length moves) + "\n"
+			       );
+			fi;
+		    end;
+
+
+		# Rebuild the interference graph;
+		# We'll just do it from scratch for now.
+		#
+		fun rebuild (registerkind, cig)
+		    = 
+		    {   irc::clear_nodes cig;
+			build_interference_graph (registerkind, cig);
+		    };
+
+
+		# Spill a set of nodes and rewrite the flowgraph 
+		#
+		fun spill
+		      { copy_instr,
+			spill,
+			spill_src,
+			spill_copy_tmp, 
+			reload,
+			reload_dst,
+			rename_src,
+			graph,
+			registerkind,
+			nodes => nodes_to_spill
+		      }
+		    = 
+		    {
+			irc::clear_graph graph; 							# Remove the interference graph now.
+
+			spill_set  = cig::ppt_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE };			# Map program point to registers to be spilled.
+			reload_set = cig::ppt_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE };			# Map program point to registers to be reloaded.
+			kill_set   = cig::ppt_hashtable::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE }; 			# Map program point to registers to be killed.
+
+			spill_rewrite
+			    =
+			    spl::spill_rewrite {
+			      graph,
+			      spill,
+			      spill_src,
+			      spill_copy_tmp,
+			      reload,
+			      reload_dst,
+			      rename_src,
+			      copy_instr,
+			      registerkind,
+			      spill_set,
+			      reload_set,
+			      kill_set
+			    };
+
+			affected_blocks		# Set of basic blocks that are affected.
+			    =
+			    iht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_THERE };
+
+			add_affected_blocks
+			    =
+			    iht::set affected_blocks;
+
+			fun ins set
+			    =
+			    enter
+			    where
+				add =  cig::ppt_hashtable::set  set;
+
+				get =  cig::ppt_hashtable::find set;
+				get =  fn r =  case (get r)
+						   THE s => s;
+						   NULL  => [];
+					       esac;
+
+				fun enter (r, [])
+					=>
+					();
+
+				    enter (r, pt ! pts)
+					=> 
+					{   add (pt, r ! get pt);
+					    add_affected_blocks (block_num pt, TRUE);
+					    enter (r, pts);
+					};
+				end;
+			    end;
+
+			ins_spill_set  = ins spill_set;
+			ins_reload_set = ins reload_set;
+
+			ins_kill_set
+			    = 
+			    enter
+			    where
+				add =  cig::ppt_hashtable::set  kill_set;
+
+				get =  cig::ppt_hashtable::find kill_set;
+				get =  fn r =  case (get r)
+						   THE s => s;
+						   NULL => [];
+					       esac;
+
+				fun enter (r, [])
+					=>
+					();
+
+				    enter (r, pt ! pts)
+					=>
+					{   add (pt, r ! get pt);
+					    enter (r, pts);
+					};
+				end;
+			    end;
+
+
+			# Mark all spill/reload locations 
+			#
+			fun mark_spills (cig::NODE { color, register, defs, uses, ... } )
+			    =
+			    {   fun spill_it (defs, uses)
+				    = 
+				    {   ins_spill_set (register, defs);
+					ins_reload_set (register, uses);
+
+					# Definitions but no use!
+
+					case uses
+					    [] =>  ins_kill_set (register, defs);
+					    _  =>  ();
+					esac;
+				    };
+
+				d = *defs;
+				u = *uses;
+
+				case *color
+				    #
+				    cig::SPILLED     =>  spill_it (d, u);
+				    cig::SPILL_LOC _ =>  spill_it (d, u);
+				    cig::RAMREG _    =>  spill_it (d, u);
+				    cig::CODETEMP      =>  spill_it (d, u);
+				    _ => ();
+				esac;
+			    };
+
+			apply  mark_spills  nodes_to_spill;
+
+
+			# Rewrite all affected blocks:
+			#
+			fun rewrite_all (blknum, _)
+			    =
+			    {   (rwv::get (block_table, blknum))
+				    ->
+				    (_, mcg::BBLOCK { ops as REF ops', notes, ... } );
+
+				ops'=  spill_rewrite { pt=>prog_pt (blknum, length ops'), ops => ops', notes };
+
+				ops := ops';
+			    };
+
+
+			fun mark (cig::NODE { color, ... } )
+			    = 
+			    case *color
+				#
+				cig::CODETEMP      => color := cig::SPILLED;
+				cig::SPILLED     => ();
+				cig::SPILL_LOC _ => ();
+				cig::ALIASED _   => ();
+				cig::RAMREG _    => ();
+				cig::COLORED _   => error "mark: COLORED";
+				cig::REMOVED     => error "mark: REMOVED";
+			    esac;
+
+
+			iht::keyed_apply
+			    rewrite_all
+			    affected_blocks;
+
+			apply  mark  nodes_to_spill;
+
+			rebuild (registerkind, graph);
+		    };				# fun spill 
+	    end;				# fun services
+    };
+end;
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

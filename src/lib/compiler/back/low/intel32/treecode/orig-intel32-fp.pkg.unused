@@ -1,0 +1,1720 @@
+## intel32-fp.pkg
+
+
+
+
+# This phase takes a cluster with pseudo intel32 fp instructions, performs
+# liveness analysis to determine their live ranges, and rewrite the
+# program into the correct stack based code.
+#
+# The Basics 
+# ----------
+# o We assume there are 7 pseudo fp registers, %fp (0), ..., %fp (6),
+#   which are mapped onto the %st stack.  One stack location is reserved
+#   for holding temporaries.
+# o Important: for floating point comparisons, we actually need
+#   two extra stack locations in the worst case.  We handle this by 
+#   specifying that the instruction define an extra temporary fp register
+#   when necessary.
+# o The mapping between %fp <-> %st may change from program point to 
+#   program point.  We keep track of this lazy renaming and try to minimize
+#   the number of FXCH that we insert.
+# o At split and merge points, we may get inconsistent %fp <-> %st mappings.
+#   We handle this by inserting the appropriate renaming code.
+# o Parallel copies (renaming) are rewritten into a sequence of FXCHs! 
+#
+# Pseudo fp instructions     Semantics
+# --------------------------------------
+# FMOVE   src, dst           dst := src
+# FILOAD  ea, dst            dst := cvti2f (mem[ea])
+# FBINOP  lsrc, rsrc, dst    dst := lsrc * rsrc
+# FIBINOP lsrc, rsrc, dst    dst := lsrc * cvti2f (rsrc)
+# FUNOP   src, dst           dst := unaryOp src
+# FCMP    lsrc, rsrc         fp condition code := fcmp (lsrc, rsrc) 
+# 
+# An instruction may use its source operand (s) destructively.
+# We find this info using a global liveness analysis.
+#
+# The Translation
+# --------------- 
+# o We keep track of the namings between %fp registers and the 
+#   %st(..) staack locations.
+# o FXCH and FLDL are inserted at the appropriate places to move operands
+#   to %st (0).  FLDL is used if the operand is not dead.  FXCH is used
+#   if the operand is the last use.
+# o FCOPY's between pseudo %fp registers are done by software renaming
+#   and generate no code by itself!
+# o FSTL %st (1) are also generated to pop the stack after the last use
+#   of an operand.
+#
+# Note
+# ----
+# 1. This module should be run after floating point register allocation.
+# 
+# -- Allen Leung Leung (leunga@cs.nyu.edu)
+
+
+
+###                 "When I got stuck and I didn't know what to do next,
+###                  I would go out for a walk. I'd often walk down by the lake."
+###
+###                                             -- Andrew Wiles
+
+
+
+
+stipulate
+   package rkj = registerkinds_junk
+   debug = FALSE         /* set this to TRUE to debug this module 
+                              * set this to FALSE for production use.
+                              */ 
+   debugLiveness = TRUE #  Debug liveness analysis 
+   debugDead = FALSE     #  Debug dead code removal 
+   sanityCheck = TRUE
+herein
+    generic package floating_point_code_intel32_g (
+	package machcode_intel32_g:   Intel32INSTR
+	package machcode_universals_intel32:   Machcode_Universals 
+				  where I = machcode_intel32_g
+	package flowgraph:  Machcode_Controlflow_Graph
+				  where I = machcode_intel32_g
+	package liveness:   LIVENESS 
+				  where machcode_controlflow_graph = flowgraph
+	package asm_emitter:        Instruction_Emitter 
+				  where I = machcode_intel32_g
+				    and s::P = flowgraph::P
+       )
+
+    : Machcode_Controlflow_Graph_Improver
+
+    {
+       package machcode_controlflow_graph = flowgraph
+       package g   = graph
+       package i   = machcode_intel32_g
+       package t   = i::T
+       package p   = machcode_universals_intel32
+       package c   = i::C
+       package a   = rw_vector
+       package l   = Label
+       package An  = Annotations
+       package sl  = rkj::SortedCells
+       package ht  = int_hashtable
+       package im  = int_red_black_map
+
+       type flowgraph = machcode_controlflow_graph::mcg
+       type an = An::annotations
+
+       name = "INTEL32 (x86) floating point rewrite"
+
+       debugOn = LowhalfControl::mkFlag ("intel32-fp-debug", "intel32 fp debug mode")
+       traceOn = LowhalfControl::mkFlag ("fp_trace_mode_intel32", "intel32 fp trace mode")
+
+       fun error msg = lowhalf_error_message::error("floating_point_code_intel32_g", msg)
+       fun pr msg = file::write (*LowhalfControl::debug_stream, msg)
+
+       i2s = int::to_string
+
+       /*
+	* No overflow checking is needed for integer arithmetic in this module
+	*/
+
+       fun celllistToRegisterset l = list::fold_right rkj::Registerset::add rkj::Registerset::empty l
+       fun celllistToString l = rkj::Registerset::to_string (celllistToRegisterset l)
+
+       #  Annotation to mark split edges 
+       exception TARGET_MOVED_TO of g::node_id
+
+       /*-----------------------------------------------------------------------
+	* Primitive instruction handling routines
+	*-----------------------------------------------------------------------*/
+
+       #  Annotation an instruction 
+       fun mark (instruction, []) = instruction
+	 | mark (instruction, note . notes) = mark (i::NOTE { instruction, note }, notes)
+
+       #  Add pop suffix to a binary operator 
+       fun pop i::FADDL  = i::FADDP  | pop i::FADDS  = i::FADDP
+	 | pop i::FSUBL  = i::FSUBP  | pop i::FSUBS  = i::FSUBP
+	 | pop i::FSUBRL = i::FSUBRP | pop i::FSUBRS = i::FSUBRP
+	 | pop i::FMULL  = i::FMULP  | pop i::FMULS  = i::FMULP
+	 | pop i::FDIVL  = i::FDIVP  | pop i::FDIVS  = i::FDIVP
+	 | pop i::FDIVRL = i::FDIVRP | pop i::FDIVRS = i::FDIVRP
+	 | pop _ = error "fbinop::pop"
+
+       /* Invert the operator */ 
+       fun invert i::FADDL  = i::FADDL  | invert i::FADDS  = i::FADDS
+	 | invert i::FSUBL  = i::FSUBRL | invert i::FSUBS  = i::FSUBRS
+	 | invert i::FSUBRL = i::FSUBL  | invert i::FSUBRS = i::FSUBS
+	 | invert i::FMULL  = i::FMULL  | invert i::FMULS  = i::FMULS
+	 | invert i::FDIVL  = i::FDIVRL | invert i::FDIVS  = i::FDIVRS
+	 | invert i::FDIVRL = i::FDIVL  | invert i::FDIVRS = i::FDIVS
+	 | invert i::FADDP  = i::FADDP  | invert i::FMULP  = i::FMULP
+	 | invert i::FSUBP  = i::FSUBRP | invert i::FSUBRP = i::FSUBP
+	 | invert i::FDIVP  = i::FDIVRP | invert i::FDIVRP = i::FDIVP
+	 | invert _ = error "invert"
+
+       #  Pseudo instructions 
+       fun fld_fn (i::FP32, ea) = i::flds ea
+	 | fld_fn (i::FP64, ea) = i::fldl ea
+	 | fld_fn (i::FP80, ea) = i::fldt ea
+
+       fun fild_fn (i::I8, ea) = error "fild_fn"
+	 | fild_fn (i::I16, ea) = i::fild ea
+	 | fild_fn (i::I32, ea) = i::fildl ea
+	 | fild_fn (i::I64, ea) = i::fildll ea
+
+       fun fstp_fn (i::FP32, ea) = i::fstps ea
+	 | fstp_fn (i::FP64, ea) = i::fstpl ea
+	 | fstp_fn (i::FP80, ea) = i::fstpt ea
+
+       fun fst_fn (i::FP32, ea) = i::fsts ea
+	 | fst_fn (i::FP64, ea) = i::fstl ea
+	 | fst_fn (i::FP80, ea) = error "FSTT"
+
+       # -----------------------------------------------------------------------
+       # Prettyprint routines
+       # -----------------------------------------------------------------------
+       fun fregToString f = "%f"$i2s (rkj::intrakind_register_id f)
+       fun fregsToString s =
+	    list::fold_right (fn (r, "") => fregToString r | 
+			   (r, s) => fregToString r$" "$s) "" s
+
+       fun blknumOf (machcode_controlflow_graph::BLOCK { id, ... } ) = id 
+
+       # -----------------------------------------------------------------------
+       # A stack enum that mimics the intel32 floating point stack
+       # and keeps track of namings between %st (n) and %fp (n).
+       # -----------------------------------------------------------------------
+       package st :>
+       api
+	  type stack 
+	  type stnum = Int #  0 -- 7 
+	  my create:  Void -> stack
+	  my stack0:  stack
+	  my copy:    stack -> stack
+	  my clear:   stack -> Void
+	  my fp:      stack * rkj::interkind_register_id -> stnum
+	  my st:      stack * stnum -> rkj::interkind_register_id
+	  my set:     stack * stnum * rkj::interkind_register_id -> Void 
+	  my push:    stack * rkj::interkind_register_id -> Void
+	  my xch:     stack * stnum * stnum -> Void
+	  my pop:     stack -> Void
+	  my depth:   stack -> Int
+	  my nonFull:  stack -> Void
+	  my kill:    stack * registerkinds_junk::cell -> Void
+	  my stackToString:  stack -> String
+	  my equal:  stack * stack -> Bool 
+       end = 
+       pkg
+	  type stnum = Int
+	  enum stack =
+	      STACK of 
+	      { st:   a::Rw_Vector( rkj::interkind_register_id ), #  mapping %st -> %fp registers 
+		fp:   a::Rw_Vector( stnum ),    #  mapping %fp -> %st registers 
+		sp:   REF( Int )           #  stack pointer 
+	      } 
+
+	     #  Create a new stack 
+	  fun create () = STACK { st=a::rw_vector (8,-1), fp=a::rw_vector (7, 16), sp=REF -1 }
+
+	  stack0 = create()
+
+	     #  Copy a stack 
+	  fun copy (STACK { st, fp, sp } ) = 
+	  let st' = a::rw_vector (8, -1)
+	      fp' = a::rw_vector (7, 16)
+	  in  a::copy { src=st, dst=st', si=0, di=0, len=NULL };
+	      a::copy { src=fp, dst=fp', si=0, di=0, len=NULL };
+	      STACK { st=st', fp=fp', sp=REF(*sp) }
+	  end
+
+	     #  Depth of stack 
+	  fun depth (STACK { sp, ... } ) = *sp + 1
+
+	  fun nonFull (STACK { sp, ... } ) = 
+	      if *sp >= 7 then error "stack overflow" else ()
+
+	     #  Given %st (n), lookup the corresponding %fp (n) 
+	  fun st (STACK { st, sp, ... }, n) = a::sub (st, *sp - n)
+
+	     #  Given %fp (n), lookup the corresponding %st (n) 
+	  fun fp (STACK { fp, sp, ... }, n) = *sp - a::sub (fp, n)
+
+	  fun stackToString stack = 
+	  let depth = depth stack
+	      fun f i = if i >= depth then " ]"
+			else "%st("$i2s i$")=%f"$i2s (st (stack, i))$" "$f (i+1)
+	  in  "[ "$f 0 end
+
+	  fun clear (STACK { st, fp, sp, ... } ) = 
+	      (sp := -1; a::modify (fn _ => -1) st; a::modify (fn _ => 16) fp)
+
+	      #  Set %st (n) := %f 
+	  fun set (STACK { st, fp, sp, ... }, n, f) = 
+	      (a::update (st, *sp - n, f);
+	       if f >= 0 then a::update (fp, f, *sp - n) else ()
+	      )
+
+	     /* Pop one entry */ 
+	  fun pop (STACK { sp, st, fp, ... } ) = sp := *sp - 1
+
+	     /* Push %fp (f) onto %st (0) */ 
+	  fun push (stack as STACK { sp, ... }, f) = (sp := *sp + 1; set (stack, 0, f))
+
+	     /* Exchange the contents of %st (m) and %st (n) */ 
+	  fun xch (stack, m, n) = 
+	  let f_m = st (stack, m)
+	      f_n = st (stack, n)
+	  in  set (stack, m, f_n);
+	      set (stack, n, f_m)
+	  end
+
+	  fun kill (STACK { fp, ... }, f) = a::update (fp, rkj::registerNum f, 16)
+
+	  fun equal (st1, st2) =
+	  let m = depth st1
+	      n = depth st2
+	      fun loop i = 
+		  i >= m or (st (st1, i) = st (st2, i) and loop (i+1))
+	  in  m = n and loop (0) 
+	  end
+
+       end #  pkg 
+
+       # -----------------------------------------------------------------------
+       # Module to handle forward propagation.  
+       # Forward propagation does the following:
+       # Given an instruction
+       #   fmove mem, %fp (n)
+       # We delay the generation of the load until the first use of %fp (n), 
+       # which we can further improve by folding the load into the operand
+       # of the instruction, if it is the last use of this operand.
+       # If %fp (n) is dead then no load is necessary. 
+       # Of course, we have to be careful whenever we encounter other
+       # instruction with a write.
+       # -----------------------------------------------------------------------*)
+       /*
+       package ForwardPropagation :>
+       api
+	  type readbuffer 
+	  my create:  st::stack -> readbuffer
+	  my load:    readbuffer * c::cell * i::fsize * i::ea -> Void
+	  my allocate_register:  readbuffer * Bool * c::cell * List( i::instruction ) -> 
+			    i::operand * List( i::instruction )
+	  my flush:   readbuffer * List( i::instruction ) -> List( i::instruction )
+       end =
+       pkg
+
+	  enum readbuffer =
+	     READ of { stack:     st::stack,
+		       loads:      a::Rw_Vector( Null_Or( i::fsize * i::ea ) ),
+		       pending:   Ref( Int )
+		     }
+
+	  fun create stack = 
+	      READ { stack   =stack, 
+		   loads   =a::rw_vector (8, NULL),
+		   pending =REF 0
+		  }
+
+	  fun load (READ { pending, loads, ... }, fd, fsize, mem) = 
+	      (a::update (loads, fd, THE (fsize, mem));
+	       pending := *pending + 1
+	      )
+
+	  /* Extract the operand for a register 
+	   * If it has a delayed load associated with it then
+	   * we perform the load at this time. 
+	   */
+	  fun allocate_register (READ { pending, loads, stack, ... }, isLastUse, fs, code) = 
+	      case a::sub (loads, fs) of
+		NULL => 
+		let n = st::st (stack, fs)
+		in  if isLastUse 
+		    then (ST n, code)
+		    else let code = i::FLDL (ST n) . code
+			 in  st::push (stack, fs); (ST0, code)
+			 end
+		end
+	      | THE (fsize, mem) =>
+		let code = fld_fn (fsize, mem) . code
+		in  a::update (loads, fs, NULL); #  Delete load 
+		    pending := *pending - 1;
+		    st::push (stack, fs);        #  fs is now in place 
+		    (ST0, code)
+		end
+
+	  /* Extract a binary operand.
+	   * We'll try to fold this into the operand
+	   */
+	  fun getopnd (READ { pending, loads, stack, ... }, isLastUse, i::FPR fs, code) =
+	      (case a::sub (loads, fs) of
+		NULL => 
+		let n = st::st (stack, fs)
+		in  if isLastUse fs #  regmap XXX 
+		    then (ST n, code)
+		    else let code = i::FLDL (ST n) . code
+			 in  st::push (stack, fs); (ST0, code)
+			 end
+		end
+	      | THE (fsize, mem) =>
+		 (a::update (loads, fs, NULL); #  Delete load 
+		  pending := *pending - 1;
+		  if isLastUse fs then (mem, code)
+		  else let code = fld_fn (fsize, mem) . code
+		       in  st::push (stack, fs);
+			   (ST0, code)
+		       end
+		 )
+	      )
+	    | getopnd(_, _, ea, code) = (ea, code)
+
+	  fun flush (READ { pending=REF 0, ... }, code) = code
+
+       end #  pkg 
+	*/    
+
+       # -----------------------------------------------------------------------
+       # Module to handle delayed stores.  
+       # Delayed store does the following:
+       # Given an instruction
+       #   fstore %fp (n), %mem
+       # We delay the generation of the store until necessary.
+       # This gives us an opportunity to rearrange the order of the stores
+       # to eliminate unnecessary fxch.
+       # -----------------------------------------------------------------------*)
+       /*
+       package DelayStore :>
+       api
+	  type writebuffer 
+	  my create:  st::stack -> writebuffer
+	  my flush:  writebuffer * List( i::instruction ) -> List( i::instruction )
+       end =
+       pkg
+	  enum writebuffer =
+	     WRITE of { front:    Ref( List( i::ea * c::cell ) ),
+			back:     Ref( List( i::ea * c::cell ) ),
+			stack:    st::stack,
+			pending:  Ref( Int )
+		      }
+	  fun create stack = WRITE { front=REF [], back=REF [], 
+				   stack=stack, pending=REF 0 }
+	  fun flush (WRITE { pending=REF 0, ... }, code) = code
+       end #  pkg 
+       */
+
+       # -----------------------------------------------------------------------
+       # Main routine.
+       # 
+       # Algorithm:
+       #  1. Perform liveness analysis.
+       #  2. For each fp register, mark all its last use point (s).
+       #     Registers are popped at their last uses.  
+       #  3. Rewrite the instructions basic block by basic block.
+       #  4. Insert shuffle code at basic block boundaries. 
+       #     When necessary, split critical edges.
+       #  5. Sacrifice a goat to make sure things don't go wrong.
+       # -----------------------------------------------------------------------
+       fun run (Cfg as g::GRAPH mcg) = 
+       let
+	   numberOfBlks = mcg.capacity ()
+	   ENTRY        = list::hd (mcg.entries ())
+	   EXIT         = list::hd (mcg.exits ())
+
+	   getCell = c::getCellsByKind rkj::FLOAT_REGISTER 
+		     # extract the fp component of registerset
+
+	   stTable = a::tabulate (8, fn n => i::ST (c::ST n))
+
+	   fun st_fn n = (if sanityCheck and (n < 0 or n >= 8) then
+			  pr("WARNING BAD %st("$i2s n$")\n")
+
+		       a::sub (stTable, n) 
+		      )
+
+	   fun fxch_fn n = i::fxch { operand=c::ST n } 
+
+	   ST0 = st_fn 0 
+	   ST1 = st_fn 1
+	   POP_ST = i::fstpl ST0 #  Instruction to pop an entry 
+
+	   #  Dump instructions 
+	   fun dump instrs =
+	   let my Asm::S.STREAM { emit, ... } = 
+		   asm_stream::with_stream (*LowhalfControl::debug_stream) 
+		     Asm::make_stream []
+	   in  apply emit (reverse instrs)
+	   end 
+
+	   #  Create assembly of instruction 
+	   fun assemble instruction = 
+	   let buf = StringOutStream::mkStreamBuf()
+	       stream = StringOutStream::openStringOut buf
+	       my Asm::S.STREAM { emit, ... } = 
+		   asm_stream::with_stream stream Asm::make_stream []
+	       emit instruction
+	       s = StringOutStream::get_string buf
+	       n = string::size s
+	   in  if n == 0 then s else string::substring (s, 0, n - 1)
+	   end
+
+	   # ------------------------------------------------------------------ 
+	   # Perform liveness analysis on the floating point variables
+	   # p::S. I'm glad I didn't throw away the code liveness code.
+	   # ------------------------------------------------------------------
+	   defUse = p::defUse rkj::FLOAT_REGISTER   #  Def/use properties 
+	   my { liveIn=liveInTable, liveOut=liveOutTable } = liveness::liveness {
+		    defUse=defUse,
+		    #  updateCell=c::updateCellsByKind rkj::FLOAT_REGISTER, 
+		    getCell=getCell
+		  } Cfg
+	   # ------------------------------------------------------------------
+	   # Scan the instructions compute the last uses and dead definitions
+	   # at each program point.  Ideally we can do this during the code 
+	   # rewriting phase. But that's probably too error prone for now.
+	   # ------------------------------------------------------------------
+	   fun computeLastUse (blknum, instructions, liveOut) = 
+	   let fun scan ([], _, lastUse) = lastUse
+		 | scan (i . instrs, live, lastUse) = 
+		   let my (d, u)  = defUse i  
+		       d       = sl::uniq (d)#  Definitions 
+		       u       = sl::uniq (u)#  uses 
+		       dead    = sl::return (sl::difference (d, live))
+		       live    = sl::difference (live, d)
+		       last    = sl::return (sl::difference (u, live))
+		       live    = sl::union (live, u)
+
+			  if debug and debugLiveness then
+			    (case last of
+			      [] => ()
+			    | _  => print (assemble i$"\tlast use="$
+					  fregsToString last$"\n") 
+			    )
+			  else ()
+		   in  scan (instrs, live, (last, dead) . lastUse)
+		   end
+	       liveOutSet = sl::uniq liveOut
+
+		   if debug and debugLiveness then 
+		      print("LiveOut("$i2s blknum$") = "$
+		    fregsToString (sl::return liveOutSet)$"\n")
+		   else ()
+	   in  scan(*instructions, liveOutSet, [])
+	   end
+
+	   /*------------------------------------------------------------------ 
+	    * Temporary work space 
+	    *------------------------------------------------------------------*/
+	   my { high, low } = c::cellRange rkj::FLOAT_REGISTER
+	   n           = high+1
+	   lastUseTable  = a::rw_vector (n,-1) #  table for marking last uses 
+	   useTable      = a::rw_vector (n,-1) #  table for marking uses 
+
+	   #  %fp register namings before and after a basic block 
+	   namingsIn   = a::rw_vector (numberOfBlks, NULL)
+	   namingsOut  = a::rw_vector (numberOfBlks, NULL)
+	   stampCounter = REF -4096
+
+	   #  Edges that need splitting 
+	   exception NO_EDGES_TO_SPLIT
+	   edgesToSplit    = int_hashtable::make_hashtable (32, NO_EDGES_TO_SPLIT)
+	   addEdgesToSplit = int_hashtable::set edgesToSplit
+	   fun lookupEdgesToSplit b = 
+	       the_else (int_hashtable::find edgesToSplit b, [])
+
+	   /*------------------------------------------------------------------ 
+	    * Code for handling namings between basic block
+	    *------------------------------------------------------------------*/
+
+	   fun splitEdge (title, source, target, e) =
+	      (if debug and *traceOn then
+		  pr (title$" SPLITTING "$i2s source$"->"$ i2s target$"\n")
+
+	       addEdgesToSplit (target, (source, target, e) . lookupEdgesToSplit target)
+	      )
+
+	   fun computeFreq(_, _, machcode_controlflow_graph::EDGE { w, ... } ) = *w
+
+	   # Given a registerset, return a sorted and unique 
+	   # list of elements with all non-physical registers removed
+
+	   fun removeNonPhysical celllist = 
+	   let fun loop ([], S) = sl::return (sl::uniq S)
+		 | loop (f . fs, S) = 
+		   let fx = rkj::intrakind_register_id f 
+		   in  loop (fs, if fx <= 7 then f . S else S)
+		   end
+	   in  loop (celllist, []) 
+	   end
+
+	   # Given a sorted and unique list of registers,
+	   # Return a stack with these elements
+
+	   fun newStack fregs =
+	   let stack = st::create()
+	   in  apply (fn f => st::push (stack, rkj::intrakind_register_id f)) (reverse fregs);
+	       stack
+	   end
+
+
+	   # This function looks at all the entries on the stack,  
+	   # and generate code to deallocate all the dead values. 
+	   # The stack is updated.
+
+	   fun removeDeadValues (stack, liveSet, code) = 
+	   let stamp = *stampCounter
+	       stampCounter := *stampCounter - 1
+	       fun markLive [] = ()
+		 | markLive (r . rs) = 
+		   (a::update (useTable, rkj::intrakind_register_id r, stamp); markLive rs)
+	       fun isLive f = a::sub (useTable, f) = stamp
+	       fun loop (i, depth, code) = 
+		   if i >= depth then code else 
+		   let f = st::st (stack, i)
+		   in  if isLive f #  live? 
+		       then loop (i+1, depth, code)
+		       else 
+			 (if debug and *traceOn then
+			    pr("REMOVING %f"$i2s f$" in %st("$i2s i$")"$
+			       " current stack="$st::stackToString stack$"\n")
+
+			  if i == 0 then 
+			    (st::pop stack;
+			     loop (0, depth - 1, POP_ST . code)
+			    )
+			  else (st::xch (stack, 0, i);
+				st::pop stack;
+				loop (0, depth - 1, i::fstpl (st_fn i) . code)
+			       )
+			 )
+		   end
+	   in  markLive liveSet;
+	       loop (0, st::depth stack, code)
+	   end
+
+
+	   # ------------------------------------------------------------------ 
+	   # Given two stacks, source and target, where the namings are
+	   # permutation of each other, generate the minimal number of
+	   # fxchs to match source with target.
+	   #
+	   # Important: source and target MUST be permutations of each other.
+	   #
+	   # Essentially, we first decompose the permutation into cycles, 
+	   # and process each cycle.
+	   # ------------------------------------------------------------------
+	   fun shuffle (source, target, code) = 
+	   let stamp = *stampCounter
+	       stampCounter := *stampCounter - 1
+	       permutation = lastUseTable /* reuse the space */ 
+
+	       if debug and *traceOn then
+			     pr("Shuffle "$st::stackToString source$
+				      "->"$st::stackToString target$"\n")
+			  else ()
+
+	       #  Compute the initial permutation 
+	       n = st::depth source
+	       fun computeInitialPermutation (i) = 
+		   if i >= n 
+		   then ()
+		   else let f = st::st (source, i)
+			    j = st::fp (target, f)
+			in  a::update (permutation, j, i);
+			    computeInitialPermutation (i+1)
+			end
+	       computeInitialPermutation 0
+
+	       /* Decompose the initial permutation into cycles.
+		* The cycle involving 0 is treated specially.
+		*/
+	       visited = useTable
+	       fun isVisited i = a::sub (visited, i) = stamp
+	       fun markAsVisited i = a::update (visited, i, stamp)
+	       fun decomposeCycles (i, cycle0, cycles) = 
+		   if i >= n then (cycle0, cycles)
+		   else if isVisited i or 
+			   a::sub (permutation, i) = i #  trivial cycle 
+			then decomposeCycles (i+1, cycle0, cycles)
+		   else let fun makeCycle (j, cycle, zero) = 
+			    let k = a::sub (permutation, j)
+				cycle = j . cycle
+				zero  = zero or j = 0
+			    in  markAsVisited j;
+				if k == i then (cycle, zero)
+				else makeCycle (k, cycle, zero)
+			    end
+			    my (cycle, zero) = makeCycle (i, [], FALSE)
+			in  if zero then decomposeCycles (i+1, [cycle], cycles)
+			    else decomposeCycles (i+1, cycle0, cycle . cycles)
+			end
+
+	       my (cycle0, cycles) = decomposeCycles (0, [], []) 
+
+
+	       # Generate shuffle for a cycle that does not involve 0.
+	       # Given a cycle (c_1, ..., c_k), we generate this code:
+	       #  fxch %st (c_1), 
+	       #  fxch %st (c_2), 
+	       #  ...
+	       #  fxch %st (c_k), 
+	       #  fxch %st (c_1) 
+
+	       fun genxch ([], code) = code
+		 | genxch (c . cs, code) = genxch (cs, fxch_fn c . code)
+
+	       fun gen ([], code) = error "shuffle::gen"
+		 | gen (cs as (c . _), code) = fxch_fn c . genxch (cs, code)
+
+
+	       # Generate shuffle for a cycle that involves 0.
+	       # Given a cycle (c_1, ..., c_k) we first shuffle this to
+	       # an equivalent cycle (c_1, ..., c_k) where c'_k = 0, 
+	       # then we generate this code:
+	       #  fxch %st (c'_1), 
+	       #  fxch %st (c'_2), 
+	       #  ...
+	       #  fxch %st (c'_{ k - 1 } ), 
+
+	       fun gen0 ([], code) = error "shuffle::gen0"
+		 | gen0 (cs, code) = 
+		   let fun rearrange (0 . cs, cs') = cs@reverse cs'
+			 | rearrange (c . cs, cs') = rearrange (cs, c . cs')
+			 | rearrange([], _) = error "shuffle::rearrange"
+		       cs = rearrange (cs, [])
+		   in  genxch (cs, code)
+		   end
+
+	       /*
+		* Generate code.  Must process the non-zero cycles first.
+		*/
+	       code = list::fold_right gen code cycles
+	       code = list::fold_right gen0 code cycle0
+	   in  code
+	   end #  shuffle 
+
+	   /*------------------------------------------------------------------ 
+	    * Insert code at the end of a basic block.
+	    * Make sure we put code in front of a transfer instruction 
+	    *------------------------------------------------------------------*/ 
+	   fun insertAtEnd (instructions, code) = 
+	       (case instructions of
+		 [] => code
+	       | jmp . rest => 
+		 if p::instrKind jmp == p::IK_JUMP then
+		    jmp . code@rest
+		 else
+		    code@instructions
+	       )
+
+	   /*------------------------------------------------------------------ 
+	    * Magic for inserting shuffle code at the end of a basic block
+	    *------------------------------------------------------------------*/ 
+	   fun shuffleOut (stackOut, instructions, b, block, liveOut) = 
+	   let 
+	       liveOut = removeNonPhysical (liveOut)
+
+	       #  Generate code that remove unnecessary values 
+	       code = removeDeadValues (stackOut, liveOut, []) 
+
+	       fun done (stackOut, instructions, code) =
+		   (a::update (namingsOut, b, THE stackOut);
+		    insertAtEnd (instructions, code)
+		   )
+
+	       #  Generate code that shuffle values from source to target 
+	       fun match (source, target) = 
+		   done (target, instructions, shuffle (source, target, []))
+
+	       #  Generate code that shuffle values from source to liveOut 
+	       fun matchLiveOut() =
+		   case liveOut of
+		     [] => done (stackOut, instructions, code)
+		   | _  => match (stackOut, newStack liveOut) 
+
+	       # With multiple successors, find out which one we
+	       # should connect to.   Choose the one from the block that
+	       # follows from this one, if that exists, or else choose
+	       # from the edge with the highest frequency.
+
+	       fun find ([], _, id, best) = (id, best)
+		 | find((_, target, _) . edges, highestFreq, id, best) = 
+		   let my machcode_controlflow_graph::BLOCK { freq, ... } = mcg.node_info target
+		   in  if target == b+1 then (target, a::sub (namingsIn, target))
+			else (case a::sub (namingsIn, target) of
+				NULL => find (edges, highestFreq, id, best)
+			      | this as THE stack => 
+				if highestFreq < *freq then
+				   find (edges, *freq, target, this)
+				else
+				   find (edges, highestFreq, id, best)
+			      )
+		   end
+
+
+	       # Split all edges source->target except omitThis.
+
+	       fun splitAllEdgesExcept([], omitThis) = ()
+		 | splitAllEdgesExcept((source, target, e) . edges, omitThis) = 
+		   if target == EXIT then error "can't split exit edge!"
+		   else
+		   (if target != omitThis and 
+		       target <= b and          #  XXX 
+		       target != ENTRY
+		    then splitEdge("ShuffleOut", source, target, e) 
+		    splitAllEdgesExcept (edges, omitThis)
+		   )
+
+		  # Just one successor; 
+		  # try to match the namings of the successor if it exist.
+
+	       fun matchIt next = 
+	       let my (succBlock, target) = find (next, -1.0, -1, NULL) 
+	       in  splitAllEdgesExcept (next, succBlock);
+		   case target of
+		     THE stackIn => match (stackOut, stackIn)
+		   | NULL => done (stackOut, instructions, code)
+	       end
+
+	   in  case mcg.out_edges b of
+		 [] => matchLiveOut()
+	       | next as [(_, target, _)] => 
+		    if target == EXIT then matchLiveOut()
+		    else matchIt next
+	       | next => matchIt next 
+	   end #  shuffleOut 
+
+	   /*------------------------------------------------------------------ 
+	    * Compute the initial fp stack namings for basic block b.
+	    *------------------------------------------------------------------*/ 
+	   fun shuffleIn (b, block, liveIn) = 
+	   let 
+	       liveInSet = removeNonPhysical liveIn
+
+	       /* With multiple predecessors, find out which one we
+		* should connect to.   Choose the one from the block that
+		* falls into this one, if that exists, or else choose
+		* from the edge with the highest frequency.
+		*/
+	       fun find ([], _, best) = best
+		 | find((source, _, _) . edges, highestFreq, best) = 
+		   let my machcode_controlflow_graph::BLOCK { freq, ... } = mcg.node_info source
+		   in  case a::sub (namingsOut, source) of
+			  NULL => find (edges, highestFreq, best)
+			| this as THE stack => 
+			  if source == b - 1
+			  then this #  falls into b 
+			  else if highestFreq < *freq then find (edges, *freq, this)
+			    else find (edges, highestFreq, best)
+		   end
+
+	       fun splitAllDoneEdges [] = ()
+		 | splitAllDoneEdges ((source, target, e) . edges) = 
+		   (if source < b and 
+		       source != ENTRY and 
+		       source != EXIT
+		    then splitEdge("ShuffleIn", source, target, e) 
+		    splitAllDoneEdges edges
+		   )
+
+	       /* The initial stack namings are determined by the live set. 
+		* No compensation code is needed.
+		*/
+	       fun fromLiveIn() =
+	       let stackIn = 
+		       case liveInSet of
+			 [] => st::stack0
+		       | _  => 
+			 (pr("liveIn="$celllistToString liveIn$"\n");
+			  newStack liveInSet 
+			 )
+		   stackOut = st::copy stackIn
+	       in  (stackIn, stackOut, [])
+	       end
+
+	       prior = mcg.in_edges b 
+
+	       my (stackIn, stackOut, code) =  
+		   case find (prior, -1.0, NULL) of
+		     NULL => (splitAllDoneEdges (prior); fromLiveIn())
+		   | THE stackIn' => 
+		     (case prior of
+			[_] => #  one predecessor 
+			/* Use the namings as from the previous block 
+			 * We first have to deallocate all unused values.
+			 */
+			let stackOut = st::copy stackIn'
+			       #  Clean the stack of unused entries 
+			    code = removeDeadValues (stackOut, liveInSet, [])
+			in  (stackIn', stackOut, code) end
+		     |  prior => #  more than one predecessors 
+			let stackIn = st::copy stackIn'
+			    code = removeDeadValues (stackIn, liveInSet, [])
+			    stackOut = st::copy stackIn
+			in  /* If we have to generate code to deallocate
+			     * the stack then we have split the edge. 
+			     */
+			    case code of
+			       [] => ()
+			    |  _  => splitAllDoneEdges (prior);
+			    (stackIn, stackOut, []) 
+			end
+		     )
+	   in  a::update (namingsIn, b, THE stackIn);
+	       a::update (namingsOut, b, THE stackOut);
+	       (stackIn, stackOut, code)
+	   end  
+
+	   # ------------------------------------------------------------------ 
+	   # Code for patching up critical edges.
+	   # The trick is finding a good place to insert the critical edges.
+	   # Let's call an edge x->y that requires compensation 
+	   # code c to be inserted an candidate edge.  We write this as x->y (c)
+	   #
+	   # Here are the heuristics that we use to improve the final code:
+	   #
+	   #    1. Given two candidate edges a->x (c1) and b->x (c2) where c1=c2
+	   #       then we can merge the two copies of compensation code.
+	   #       This is quite common.  This generalizes to any number of edges.
+	   #
+	   #    2. Given two candidate edges a->x (c1) and b->x (c2) and where
+	   #       c1 and c2 are pops, we can partially share c1 and c2.
+	   #       Currently, I think I only recognize this case when
+	   #       x has no fp registers live-in.  
+	   #
+	   #    3. Given two candidate edges a->x (c1) and b->x (c2), 
+	   #       if a->x has a higher frequency then put the compensation
+	   #       code in front of x (so that it falls through into x)
+	   #       whenever possible.
+	   # 
+	   # As you can see, the voodoo is strong here. 
+	   #
+	   # The routine has two main phases:
+	   #    1. Determine the compensation code by applying the heuristics
+	   #       above.
+	   #    2. Then insert them and rebuild the mcg by renaming all block
+	   #       ids.  This is currently necessary to keep the layout order
+	   #       consistent with the order of the id.
+	   # ------------------------------------------------------------------
+	   fun repairCriticalEdges (Cfg as g::GRAPH mcg) =
+	   let 
+	       cleanup  = [lowhalf_notes::COMMENT.create "cleanup edge" ]
+	       critical = [lowhalf_notes::COMMENT.create "critical edge"]
+
+	       fun annotate (gen, an) =
+		 apply (fn ((_, machcode_controlflow_graph::BLOCK { annotations, ... } ), _) => annotations := an)
+		     gen
+
+
+	       # Special case: target block has stack depth of 0.
+	       # Just generate code that pop entries from the sources. 
+	       # To make things interesting, we try to share code among
+	       # all the critical edges.
+
+	       fun genPoppingCode(_, []) = ()
+		 | genPoppingCode (targetId, edges) =
+	       let /* Edges annotated with the source stack depth 
+		    * Ordered by increasing stack height 
+		    */
+		   edges = 
+		     im::keyvals_list
+		      (fold_right (fn (edge as (sourceId, _, _), M) =>
+			let n = st::depth (the (a::sub (namingsOut, sourceId)))
+			in  im::set (M, n, edge . the_else (im::find (M, n), [])) 
+			end) im::empty edges)
+
+		   #  Generate n pops 
+		   fun pops (0, code) = code
+		     | pops (n, code) = pops (n - 1, POP_ST . code)
+
+		   #  Create the chain of blocks 
+		   fun makeChain (depth, [], chain) = chain
+		     | makeChain (depth, (d, es) . es', chain) =
+		       let code = pops (d - depth, [])
+		       in  makeChain (d, es', (es, code) . chain)
+		       end
+
+		   chain = makeChain (0, edges, [])
+
+	       in  annotate (machcode_controlflow_graph::splitEdges Cfg { groups=chain, jump=FALSE }, cleanup)
+	       end
+
+	       /* 
+		* Generate repair code.
+		*/
+	       fun genRepairCode (targetId, stackIn, edges) =
+	       let liveIn = int_hashtable::lookup liveInTable targetId
+		   liveInSet = removeNonPhysical liveIn
+		   if debug then
+			      pr("LiveIn = "$celllistToString liveIn$"\n")
+			  else ()
+
+		   /* Group all edges whose output stack configurations
+		    * are the same.  Each group is merged together into
+		    * a single compensation block
+		    */
+		   fun partition ([], S) = S
+		     | partition((e as (src, _, _)) . es, S) =
+		       let stackOut = st::copy (the (a::sub (namingsOut, src)))
+			   fun find ([], S) = partition (es, ([e], stackOut) . S)
+			     | find((x as (es', st')) . S', S) =
+			       if st::equal (stackOut, st') then 
+				  partition (es, (e . es', st') . S' @ S)
+			       else
+				  find (S', x . S)
+		       in  find (S, [])
+		       end
+
+		   /* Partition by the source namings */ 
+		   S = partition (edges, [])
+
+		   #  Compute frequencies 
+		   S = map (fn (es, st) => (machcode_controlflow_graph::sumEdgeFreqs es, es, st)) S
+
+		   #  Ordered by non-increasing frequencies 
+		   S = list_mergesort::sort (fn ((x, _, _), (y, _, _)) => x < y) S
+
+		   #  Generate code 
+		   fun gen (freq, edges, stackOut) =
+		   let     #  Deallocate unused values 
+		       code = removeDeadValues (stackOut, liveInSet,[])
+			   #  shuffle values  
+		       code = shuffle (stackOut, stackIn, code)
+		   in  annotate(
+			  machcode_controlflow_graph::splitEdges Cfg { groups=[(edges, code)], jump=FALSE },
+				critical)
+		   end
+
+	       in  apply gen S
+	       end
+
+	       #  Split all edges entering targetId 
+	       fun split (targetId, edges) = 
+	       let stackIn = the (a::sub (namingsIn, targetId))
+		   fun log (s, t, e) =
+		       case a::sub (namingsOut, s) of
+			   THE stackOut =>
+			   (pr("SPLIT "$i2s s$"->"$i2s t$" "$
+			       st::stackToString stackOut$"->"$
+			       st::stackToString stackIn$"\n"))
+			 | NULL => error "split: stackOut"
+		   if debug and *traceOn then apply log edges else ()
+	       in  if st::depth stackIn == 0 then genPoppingCode (targetId, edges)
+		   else genRepairCode (targetId, stackIn, edges)
+	       end
+
+	   in  int_hashtable::keyed_apply split edgesToSplit;
+	       machcode_controlflow_graph::changed Cfg;
+	       Cfg
+	   end 
+
+	   /*------------------------------------------------------------------ 
+	    * Process all blocks which are not the entry or the exit
+	    *------------------------------------------------------------------*/
+	   stamp = REF 0
+	   fun rewriteAllBlocks (_, machcode_controlflow_graph::BLOCK { kind=machcode_controlflow_graph::START, ... } ) = ()
+	     | rewriteAllBlocks (_, machcode_controlflow_graph::BLOCK { kind=machcode_controlflow_graph::STOP, ... } ) = ()
+	     | rewriteAllBlocks
+		(blknum, block as machcode_controlflow_graph::BLOCK { instructions, labels, annotations, ... } ) =
+		let 
+		      if debug and *debugOn then 
+			  apply (fn l => pr (l::to_string l$":\n")) (*labels)
+
+		    liveIn  = ht::lookup liveInTable blknum
+		    liveOut = ht::lookup liveOutTable blknum
+		    st = rewrite(*stamp, blknum, block, 
+					instructions, liveIn, liveOut, 
+					annotations)
+		in  stamp := st #  update stamp 
+		end
+
+	   /*------------------------------------------------------------------ 
+	    * Translate code within a basic block.
+	    * Each instruction is given a unique stamp for identifying last
+	    * uses.
+	    *------------------------------------------------------------------*/
+	   and rewrite (stamp, blknum, block, instructions, liveIn, liveOut, 
+		       annotations) = 
+	   let my (stackIn, stack, code) = shuffleIn (blknum, block, liveIn)
+
+	       #  Dump instructions when encountering a bug 
+	       fun bug msg = 
+		   (pr("-------- bug in block "$i2s blknum$" ----\n");
+		    dump(*instructions);
+		    error msg
+		   )
+
+	       fun loop (stamp, [], [], code) = (stamp, code)
+		 | loop (stamp, instruction . rest, (lastUse, dead) . lastUses, code) = 
+		   let fun mark (table, []) = ()
+			 | mark (table, r . rs) = 
+			   (a::update (table, rkj::intrakind_register_id r, stamp); mark (table, rs))
+		   in  mark (lastUseTable, lastUse); #  mark all last uses 
+		       trans (stamp, instruction, [], rest, dead, lastUses, code) 
+		   end
+		 | loop _ = error "loop"
+
+
+		# Main routine that does the actual translation. 
+		# A few reminders:
+		#  o  The instructions are processed in normal order
+		#     and generated in the reversed order.
+		#  o  (Local) liveness is computed at the same time.
+		#  o  For each use, we have to find out whether it is
+		#     the last use.  If so, we can kill it and reclaim
+		#     the stack entry at the same time. 
+
+	       and trans (stamp, instruction, an, rest, dead, lastUses, code) =
+	       let #  Call this fate when done with code generation 
+		   fun finish_fn code = loop (stamp+1, rest, lastUses, code) 
+
+		   fun kill_the_dead_fn (dead, code) =
+		   let fun kill ([], code) = finish_fn code
+			 | kill (f . fs, code) = 
+			   let fx = rkj::intrakind_register_id f 
+			   in  if debug and debugDead then
+				  pr("DEAD "$fregToString f$" in "$
+				     st::stackToString stack$"\n")
+
+			       #  not a physical register 
+			       if fx >= 8 then kill (fs, code)
+			       else
+			       let i = st::fp (stack, fx)
+			       in  if debug and debugDead then
+				       pr("KILLING "$fregToString f$
+					  "=%st("$i2s i$")\n")
+
+				   if i < 0 then kill (fs, code) #  Dead already 
+				   else if i == 0 then 
+				     (st::pop stack; kill (fs, POP_ST . code))
+				   else 
+				     (st::xch (stack, 0, i); st::pop stack;
+				      kill (fs, i::fstpl (st_fn i) . code)
+				     )
+			       end
+			   end
+		   in  kill (dead, code) 
+		   end
+
+		   /* Call this fate when done with floating point 
+		    * code generation.  Remove all dead code first. 
+		    */
+		   fun done_fn code = kill_the_dead_fn (dead, code)
+
+		   #  Is this the last use of register f? 
+		   fun isLastUse f = a::sub (lastUseTable, f) = stamp
+
+		   /* Is this value dead? */ 
+		   fun isDead f = 
+		   let fun loop [] = FALSE
+			 | loop (r . rs) = rkj::codetemps_are_same_color (f, r) or loop rs
+		   in loop dead end
+
+		   #  Dump the stack before each intruction for debugging 
+		   fun log () = if debug and *traceOn then 
+				  pr (st::stackToString stack$assemble instruction$"...\n")
+			       else ()
+
+		   #  Find the location of a source register 
+		   fun getfs (f) = 
+		   let fx = rkj::intrakind_register_id f 
+		       s = st::fp (stack, fx) 
+		   in  (isLastUse fx, s) end
+
+		   #  Generate memory to memory move 
+		   fun mmmove (fsize, src, dst) =
+		   let st::nonFull stack
+		       code = fld_fn (fsize, src) . code
+		       code = mark (fstp_fn (fsize, dst), an) . code
+		   in  done_fn code end
+
+		   #  Allocate a new register in %st (0) 
+		   fun alloc (f, code) = (st::push (stack, rkj::intrakind_register_id f); code)
+
+		   #  register -> register move 
+		   fun rrmove (fs, fd) = 
+		   if rkj::codetemps_are_same_color (fs, fd) then done_fn code 
+		   else
+		   let my (dead, ss) = getfs fs 
+		   in  if dead then              #  fs is dead 
+			  (st::set (stack, ss, rkj::intrakind_register_id fd);  #  rename fd to fs 
+			   done_fn code             #  no code is generated 
+			  )
+		       else /* fs is not dead; push it onto %st (0);
+			     * set fd to %st (0) 
+			     */
+			  let code = alloc (fd, code) 
+			  in  done_fn (mark (i::fldl (st_fn ss), an) . code)
+			  end
+		   end
+
+		   /* memory -> register move.
+		    * Do dead code elimination here.
+		    */
+		   fun mrmove (fsize, src, fd) = 
+		       if isDead fd 
+		       then finish_fn code #  value has been killed 
+		       else 
+			  let code = alloc (fd, code) 
+			  in  done_fn (mark (fld_fn (fsize, src), an) . code)
+			  end 
+
+		   #  exchange %st (n) and %st (0) 
+		   fun xch (n) = (st::xch (stack, 0, n); fxch_fn n)
+
+		   #  push %st (n) onto the stack 
+		   fun push (n) = (st::push (stack,-2); i::fldl (st_fn n))
+
+
+		   #  push mem onto the stack 
+		   fun pushmem (src) = (st::push (stack,-2); i::fldl (src))
+
+		   /* register -> memory move.
+		    * Use pop version of the opcode if it is the last use.
+		    */
+		   fun rmmove (fsize, fs, dst) = 
+		   let fun fstp (code) = 
+			 (st::pop stack; done_fn (mark (fstp_fn (fsize, dst), an) . code))
+		       fun fst (code) = done_fn (mark (fst_fn (fsize, dst), an) . code)
+		   in  case getfs fs of 
+			 (TRUE, 0)  => fstp code
+		       | (TRUE, n)  => fstp (xch n . code)
+		       | (FALSE, 0) => fst (code) 
+		       | (FALSE, n) => fst (xch n . code)
+		   end
+
+		   #  Floating point move 
+		   fun fmove { fsize, src=i::FPR fs, dst=i::FPR fd } = rrmove (fs, fd)
+		     | fmove { fsize, src, dst=i::FPR fd } = mrmove (fsize, src, fd)
+		     | fmove { fsize, src=i::FPR fs, dst } = rmmove (fsize, fs, dst)
+		     | fmove { fsize, src, dst } = mmmove (fsize, src, dst)
+
+		   #  Floating point integer load operator 
+		   fun fiload { isize, ea, dst=i::FPR fd } = 
+		       let code = alloc (fd, code) 
+			   code = mark (fild_fn (isize, ea), an) . code
+		       in  done_fn code
+		       end
+		     | fiload { isize, ea, dst } = 
+		       let code = mark (fild_fn (isize, ea), an) . code
+			   code = i::fstpl (dst) . code #  XXX 
+		       in  done_fn code
+		       end
+
+		   #  Make a copy of register fs to %st (0). 
+		   fun moveregtotop (fs, code) = 
+		       (case getfs fs of
+			 (TRUE, 0) => code
+		       | (TRUE, n) => xch n . code
+		       | (FALSE, n) => push n . code
+		       )
+
+		   fun movememtotop (fsize, mem, code) = 
+		       (st::push (stack, -2); fld_fn (fsize, mem) . code)
+
+		   #  Move an operand to top of stack 
+		   fun movetotop (fsize, i::FPR fs, code) = moveregtotop (fs, code)
+		     | movetotop (fsize, mem, code) = movememtotop (fsize, mem, code)
+
+		   fun storeResult (fsize, dst, n, code) = 
+		       case dst of
+			 i::FPR fd => (st::set (stack, n, rkj::intrakind_register_id fd); done_fn code)
+		       | mem      => 
+			  let code = if n == 0 then code else xch n . code
+			  in  st::pop stack; done_fn (fstp_fn (fsize, mem) . code) end
+
+		   #  Floating point unary operator 
+		   fun funop { fsize, unOp, src, dst } = 
+		       let code = movetotop (fsize, src, code)
+			   code = mark (i::funary unOp, an) . code
+
+			   #  Moronic hack to deal with partial tangent! 
+			   code = 
+			       case unOp of 
+				 i::FPTAN => 
+				   (if st::depth stack >= 7 then error "FPTAN"
+
+				    POP_ST . code #  pop the useless 1.0 
+				   )
+			       | _ => code
+		       in  storeResult (fsize, dst, 0, code)
+		       end
+
+		   # Floating point binary operator. 
+		   # Note:
+		   #    binop src, dst
+		   #    means dst := dst binop src 
+		   #          (lsrc := lsrc binop rsrc)
+		   #    on the intel32
+
+		   fun fbinop { fsize, binOp, lsrc, rsrc, dst } = 
+		   let /* generate code and set %st (n) = fd */ 
+		       #  op2 := op1 - op2 
+		       fun op (binOp, op1, op2, n, code) = 
+		       let code = 
+			    mark (i::fbinary { binOp=binOp, src=op1, dst=op2 }, an)
+			       . code
+		       in  storeResult (i::FP64, dst, n, code)
+		       end
+
+		       fun operR (binOp, op1, op2, n, code) = 
+			   op (invert binOp, op1, op2, n, code) 
+
+		       fun operP (binOp, op1, op2, n, code) = 
+			    (st::pop stack; op (pop binOp, op1, op2, n - 1, code))
+
+		       fun operRP (binOp, op1, op2, n, code) = 
+			    (st::pop stack; operR (pop binOp, op1, op2, n - 1, code))
+
+		       /* Many special cases to consider. 
+			* Basically, try to reuse stack space as 
+			* much as possible by taking advantage of last uses.
+			* 
+			*  Stack=[st (0)=3.0 st (1)=2.0]
+			*    fsub   %st (1), %st [1, 2.0]
+			*    fsubr  %st (1), %st [-1, 2.0]
+			*    fsub   %st, %st (1) [3.0, 1.0]
+			*    fsubr  %st, %st (1) [3.0,-1.0]
+			*
+			*    fsubp  %st, %st (1) [1]
+			*    fsubrp %st, %st (1) [-1]
+			*  So,
+			*    fsub  %st (n), %st (means %st - %st (n) -> %st)
+			*    fsub  %st, %st (n) (means %st - %st (n) -> %st (n))
+			*    fsubr %st (n), %st (means %st (n) - %st -> %st)
+			*    fsubr %st, %st (n) (means %st (n) - %st -> %st (n))
+			*/
+		       fun reg2 (fx, fy) =
+		       let my (dx, sx) = getfs fx
+			   my (dy, sy) = getfs fy
+			   fun loop (dx, sx, dy, sy, code) =
+			       #    op1,   op2 (dst) 
+			     case (dx, sx, dy, sy) of
+			       (TRUE, 0, FALSE, n) => op (binOp, st_fn n, ST0, 0, code) 
+			     | (FALSE, n, TRUE, 0) => operR (binOp, st_fn n, ST0, 0, code)
+			     | (TRUE, n, TRUE, 0) => operRP (binOp, ST0, st_fn n, n, code)
+			     | (TRUE, 0, TRUE, n) => operP (binOp, ST0, st_fn n, n, code)
+			     | (FALSE, 0, TRUE, n) => op (binOp, ST0, st_fn n, n, code)
+			     | (TRUE, n, FALSE, 0) => operR (binOp, ST0, st_fn n, n, code)
+			     | (TRUE, sx, dy, sy) =>
+				loop (TRUE, 0, dy, sy, xch sx . code) 
+			     | (dx, sx, TRUE, sy) =>
+				loop (dx, sx, TRUE, 0, xch sy . code) 
+			     | (FALSE, sx, FALSE, sy) =>
+				loop (TRUE, 0, FALSE, sy+1, push sx . code) 
+		       in  if sx == sy then #  same register 
+			   let code = 
+				   case (dx, sx) of
+				     (TRUE, 0) => code
+				   | (TRUE, n) => xch n . code
+				   | (FALSE, n) => push n . code
+			   in  op (binOp, ST0, ST0, 0, code) 
+			   end
+			   else loop (dx, sx, dy, sy, code)
+		       end
+
+		       #  reg/mem operands 
+		       fun regmem (binOp, fx, mem) =
+			   case getfs fx of
+			     (TRUE, 0) => op (binOp, mem, ST0, 0, code)
+			   | (TRUE, n) => op (binOp, mem, ST0, 0, xch n . code) 
+			   | (FALSE, n) => op (binOp, mem, ST0, 0, push n . code)
+
+		       /* Two memory operands. Optimize the case when
+			* the two operands are identical.
+			*/
+		       fun mem2 (lsrc, rsrc) =
+			   let st::push (stack,-2)
+			       code = fld_fn (fsize, lsrc) . code
+			       rsrc = if p::eqOpn (lsrc, rsrc) then ST0 else rsrc
+			   in  op (binOp, rsrc, ST0, 0, code)
+			   end
+
+		       fun process (i::FPR fx, i::FPR fy) = reg2 (fx, fy)
+			 | process (i::FPR fx, mem) = regmem (binOp, fx, mem)
+			 | process (mem, i::FPR fy) = regmem (invert binOp, fy, mem)
+			 | process (lsrc, rsrc) = mem2 (lsrc, rsrc)
+
+		   in  process (lsrc, rsrc)
+		   end
+
+		   #  Floating point binary operator with integer conversion 
+		   fun fibinop { isize, binOp, lsrc, rsrc, dst } = 
+		   let fun op (binOp, src, code) = 
+		       let code = mark (i::fibinary { binOp=binOp, src=src }, an)
+					 . code
+		       in  storeResult (i::FP64, dst, 0, code)
+		       end
+
+		       fun regmem (binOp, fx, mem) = 
+			   case getfs fx of
+			     (TRUE, 0) => op (binOp, mem, code)
+			   | (TRUE, n) => op (binOp, mem, xch n . code)
+			   | (FALSE, n) => op (binOp, mem, push n . code)
+
+		   in  case (lsrc, rsrc) of
+			 (i::FPR fx, mem) => regmem (binOp, fx, mem)
+		       | (lsrc, rsrc) => op (binOp, rsrc, pushmem lsrc . code) 
+		   end
+
+		   /* Floating point comparison 
+		    * We have to make sure there are enough registers. 
+		    * The trick is that tmp is always a physical register.
+		    * So we can always use it as temporary space if we
+		    * have run out.
+		    */
+		   fun fcmp { i, fsize, lsrc, rsrc } = 
+		   let fun fucompp code = 
+			  (st::pop stack; st::pop stack; 
+			   if i then 
+			      POP_ST .  mark (i::fucomip (st_fn 1), an) . code
+			    else
+			      mark (i::fucompp, an) . code
+			  )
+		       fun fucomp (n) = 
+			   (st::pop stack; 
+			    mark((if i then i::fucomip else i::fucomp)(st_fn n), an))
+		       fun fucom (n) = 
+			    mark((if i then i::fucomi else i::fucom)(st_fn n), an)
+
+		       fun genmemcmp () =
+			   let code = movememtotop (fsize, rsrc, code)
+			       code = movememtotop (fsize, lsrc, code)
+			   in  finish_fn (fucompp (code))
+			   end
+
+		       fun genmemregcmp (lsrc, fy) = 
+			   case getfs fy of
+			     (FALSE, n) => 
+			     let code = movememtotop (fsize, lsrc, code)
+			     in  finish_fn (fucomp (n+1) . code) end
+			   | (TRUE, n) => 
+			     let code = if n == 0 then code else xch n . code
+				 code = movememtotop (fsize, lsrc, code)
+			     in  finish_fn (fucompp (code))
+			     end 
+
+		       fun genregmemcmp (fx, rsrc) =
+		       let code = 
+				case getfs fx of
+				 (TRUE, n) => 
+				   let code = if n == 0 then code 
+						  else xch n . code
+				       code = movememtotop (fsize, rsrc, code)
+				   in  xch 1 . code end
+			       | (FALSE, n) => 
+				   let code = movememtotop (fsize, rsrc, code)
+				   in  push (n+1) . code
+				   end
+		       in  finish_fn (fucompp (code))
+		       end
+
+		       /* Deal with the special case when both sources are
+			* in the same register
+			*/
+		       fun regsame (dx, sx) =
+			   let my (code, cmp) = 
+				case (dx, sx) of
+				  (TRUE, 0)  => (code, fucomp 0) #  pop once! 
+				| (FALSE, 0) => (code, fucom 0) #  Don't pop! 
+				| (TRUE, n)  => (xch n . code, fucomp 0)
+				| (FALSE, n) => (xch n . code, fucom 0)
+			   in   finish_fn (cmp . code) end
+
+		       fun reg2 (fx, fy) = 
+			   # special case is when things are already in place.  
+			   # Note: should also generate FUCOM and FUCOMP!!!
+
+			   let my (dx, sx) = getfs fx
+			       my (dy, sy) = getfs fy
+			       fun fstp (n) = 
+				   (st::xch (stack, n, 0); st::pop stack; i::fstpl (st_fn n))
+			   in  if sx == sy then regsame (dx, sx) #  same register!
+			       else
+				   #  first, move sx to %st (0) 
+			       let my (sy, code) = 
+				   if sx == 0 then (sy, code) #  there already 
+				   else (if sy == 0 then sx else sy, 
+					 xch sx . code)
+
+				   #  Generate the appropriate comparison op 
+				   my (sy, code, popY) = 
+				       case (dx, dy, sy) of
+					 (TRUE, TRUE, 0) => (-1, fucompp code, FALSE)
+				       | (TRUE, _, _)  => (sy - 1, fucomp sy . code, dy)
+				       | (FALSE, _, _) => (sy, fucom sy . code, dy)
+
+				   /* Pop fy if it is dead and hasn't already
+				    * been popped.
+				    */
+				   code = if popY then fstp sy . code else code
+			       in  finish_fn code  
+			       end
+			   end
+
+		   in  case (lsrc, rsrc) of
+			 (i::FPR x, i::FPR y) => reg2 (x, y)
+		       | (i::FPR x, mem) => genregmemcmp (x, mem)
+		       | (mem, i::FPR y) => genmemregcmp (mem, y)
+		       | _ => genmemcmp()
+		   end
+
+
+		   fun prCopy (dst, src) =
+		       paired_lists::apply (fn (fd, fs) =>
+			  pr (fregToString (fd)$"<-"$fregToString fs$" "))
+			    (dst, src)
+
+		   /* Parallel copy magic.
+		    * For each src registers, we find out 
+		    *  1. whether it is the last use, and if so,
+		    *  2. whether it is used more than once.
+		    * If a source is a last and unique use, then we
+		    * can simply rename it to appropriate destination register.
+		    */
+		   fun fcopy (i::COPY { dst, src, tmp, ... } ) = let
+		       fun loop ([], [], copies, renames) = (copies, renames)
+			 | loop (fd . fds, fs . fss, copies, renames) = 
+			   let fsx = rkj::intrakind_register_id fs
+			   in  if isLastUse fsx then 
+				 if a::sub (useTable, fsx) != stamp 
+				   #  unused 
+				 then (a::update (useTable, fsx, stamp);
+				       loop (fds, fss, copies, 
+					    if rkj::codetemps_are_same_color (fd, fs) then renames 
+					    else (fd, fs) . renames)
+				   )
+				  else loop (fds, fss, (fd, fs) . copies, renames)
+			       else loop (fds, fss, (fd, fs) . copies, renames)
+			   end
+			 | loop _ = error "fcopy::loop"
+
+		       #  generate code for the copies 
+		       fun genCopy([], code) = code
+			 | genCopy((fd, fs) . copies, code) = 
+			   let ss   = st::fp (stack, rkj::intrakind_register_id fs)
+			       st::push (stack, rkj::intrakind_register_id fd)
+			       code = i::fldl (st_fn ss) . code 
+			   in  genCopy (copies, code) end
+
+		       #  perform the renaming; it must be done in parallel! 
+		       fun renaming (renames) = 
+		       let ss = map (fn (_, fs) => 
+					    st::fp (stack, rkj::intrakind_register_id fs)) renames
+		       in  paired_lists::apply (fn ((fd, _), ss) => 
+				   st::set (stack, ss, rkj::intrakind_register_id fd))
+			      (renames, ss)
+		       end
+
+		       /* if debug then
+				  (paired_lists::apply (fn (fd, fs) =>
+				      pr (fregToString (regmap fd)$"<-"$
+					 fregToString (regmap fs)$" ")
+				      ) (dst, src);
+				   pr "\n")
+			       else () */
+
+		       my (copies, renames) = loop (dst, src, [], [])
+		       code = genCopy (copies, code)
+		      in  renaming renames;
+			  case tmp of
+			      THE (i::FPR f) => 
+			      (if debug and debugDead 
+			       then pr("KILLING tmp "$fregToString f$"\n")
+
+			       st::kill (stack, f)     
+			   )
+			    | _ => ();
+			  done_fn code
+		      end
+		    | fcopy _ = error "fcopy"
+
+		   fun call (instruction, return) = let 
+		     code = mark (i::INSTRUCTION instruction, an) . code
+		     returnSet = sl::return (sl::uniq (getCell return))
+		   in
+		     case returnSet of
+			 [] => ()
+		       | [r] => st::push (stack, rkj::intrakind_register_id r) 
+		       | _   => 
+			 error "can't return more than one fp argument (yet)";
+		     kill_the_dead_fn (list::filter isDead returnSet, code)
+		   end
+		   fun intel32trans instruction =
+		    (case instruction 
+		      of i::FMOVE x   => (log(); fmove x)
+		       | i::FBINOP x  => (log(); fbinop x)
+		       | i::FIBINOP x => (log(); fibinop x)
+		       | i::FUNOP x   => (log(); funop x)
+		       | i::FILOAD x  => (log(); fiload x)
+		       | i::FCMP x    => (log(); fcmp x)
+
+			 #  handle calling convention 
+		       | i::CALL { return, ... }    => (log(); call (instruction, return))
+
+			  /* 
+			   * Catch instructions that absolutely 
+			   * should not have been generated at this point.
+			   */
+		       | (i::FLD1 | i::FLDL2E | i::FLDLG2 | i::FLDLN2 | i::FLDPI |
+			  i::FLDZ | i::FLDL _ | i::FLDS _ | i::FLDT _ | 
+			  i::fild_fn _ | i::FILDL _ | i::FILDLL _ | 
+			  i::FENV _ | i::FBINARY _ | i::FIBINARY _ | i::FUNARY _ |
+			  i::FUCOMPP | i::FUCOM _ | i::FUCOMP _ | i::FCOMPP | i::FXCH _ |
+			  i::FCOMI _ | i::FCOMIP _ | i::FUCOMI _ | i::FUCOMIP _ |
+			  i::FSTPL _ | i::FSTPS _ | i::FSTPT _ | i::FSTL _ | i::FSTS _ 
+			 ) => bug("Illegal FP instructions")
+
+			  #  Other instructions are untouched 
+		       | instruction => finish_fn (mark (i::INSTRUCTION instruction, an) . code)
+		   /*esac*/)
+	       in  
+		   case instruction
+		   of i::NOTE { note, instruction } =>
+			  trans (stamp, instruction, note . an, rest, dead, lastUses, code)
+		    | i::COPY { k=rkj::FLOAT_REGISTER, ... } => (log(); fcopy instruction)
+		    | i::LIVE _ => done_fn (mark (instruction, an) . code)
+		    | i::INSTRUCTION instruction => intel32trans (instruction)
+		    | _  => finish_fn (mark (instruction, an) . code)
+	       end #  trans 
+
+	       /*
+		* Check the translation result to see if it matches the original
+		* code.
+		*/
+	       fun checkTranslation (stackIn, stackOut, instructions) = 
+	       let n = REF (st::depth stackIn)
+		   fun push () = n := *n + 1
+		   fun pop () = n := *n - 1
+		   fun scan (i::INSTRUCTION (i::FBINARY { binOp, ... } )) = 
+			  (case binOp of 
+			    ( i::FADDP | i::FSUBP | i::FSUBRP | i::FMULP
+			    | i::FDIVP | i::FDIVRP) => pop()
+			  | _ => ()
+			  )
+		     | scan (i::INSTRUCTION (i::FIBINARY { binOp, ... } )) = ()
+		     | scan (i::INSTRUCTION (i::FUNARY i::FPTAN)) = push()
+		     | scan (i::INSTRUCTION (i::FUNARY _)) = ()
+		     | scan (i::INSTRUCTION (i::FLDL (i::ST n))) = push()
+		     | scan (i::INSTRUCTION (i::FLDL mem)) = push()
+		     | scan (i::INSTRUCTION (i::FLDS mem)) = push()
+		     | scan (i::INSTRUCTION (i::FLDT mem)) = push()
+		     | scan (i::INSTRUCTION (i::FSTL (i::ST n))) = ()
+		     | scan (i::INSTRUCTION (i::FSTPL (i::ST n))) = pop()
+		     | scan (i::INSTRUCTION (i::FSTL mem)) = ()
+		     | scan (i::INSTRUCTION (i::FSTS mem)) = ()
+		     | scan (i::INSTRUCTION (i::FSTPL mem)) = pop()
+		     | scan (i::INSTRUCTION (i::FSTPS mem)) = pop()
+		     | scan (i::INSTRUCTION (i::FSTPT mem)) = pop()
+		     | scan (i::INSTRUCTION (i::FXCH { operand=i, ... } )) = ()
+		     | scan (i::INSTRUCTION (i::FUCOM _)) = ()
+		     | scan (i::INSTRUCTION (i::FUCOMP _)) = pop()
+		     | scan (i::INSTRUCTION (i::FUCOMPP)) = (pop(); pop())
+		     | scan (i::INSTRUCTION (i::FILD mem)) = push()
+		     | scan (i::INSTRUCTION (i::FILDL mem)) = push()
+		     | scan (i::INSTRUCTION (i::FILDLL mem)) = push()
+		     | scan (i::INSTRUCTION (i::CALL { return, ... } )) = 
+		       (n := 0; #  Clear the stack 
+			#  Simulate the pushing of arguments 
+			let returnSet = sl::return (sl::uniq (getCell return))
+			in  apply (fn _ => push()) returnSet
+			end
+		       )
+		     | scan _ = ()
+		   apply scan (reverse instructions);  
+		   n = *n
+		   m = st::depth stackOut
+	       in
+		   if n != m then
+		      (dump (instructions);
+		       bug("Bad translation n="$i2s n$ " expected="$i2s m$"\n")
+		      )
+		   else ()
+	       end
+
+
+	       #  Dump the initial code 
+	       if debug and *debugOn then
+			(pr("-------- block "$i2s blknum$" ----"$
+			     celllistToString liveIn$" "$
+			     st::stackToString stackIn$"\n");
+			 dump (*instructions);
+			 pr("next=");
+			 apply (fn b => pr (i2s b$" ")) (mcg.next blknum);
+			 pr("\n")
+			)
+		       else ()
+
+	       #  Compute the last uses 
+	       lastUse = computeLastUse (blknum, instructions, liveOut) 
+
+	       #  Rewrite the code 
+	       my (stamp, instructions') = loop (stamp, reverse(*instructions), lastUse, code)
+
+	       #  Insert shuffle code at the end if necessary 
+	       instructions' = shuffleOut (stack, instructions', blknum, block, liveOut)
+
+	       #  Dump translation 
+	       if debug and *debugOn then
+			 (pr("-------- translation "$i2s blknum$"----"$
+			     celllistToString liveIn$" "$
+			     st::stackToString stackIn$"\n");
+			  dump instructions';
+			  pr("-------- done "$i2s blknum$"----"$
+			     celllistToString liveOut$" "$
+			     st::stackToString stack$"\n")
+			 )
+		      else ()
+
+	       #  Check if things are okay 
+	       if debug and sanityCheck then
+			  checkTranslation (stackIn, stack, instructions')
+		       else ()
+
+	   in  instructions := instructions'; /* update the instructions */ 
+	       stamp
+	   end #  process 
+
+       in  #  Translate all blocks 
+	   stamp := c::firstPseudo; 
+	   mcg.forall_nodes rewriteAllBlocks; 
+	   #  If we found critical edges, then we have to split them... 
+	   if int_hashtable::vals_count edgesToSplit == 0 then Cfg 
+	   else repairCriticalEdges (Cfg)
+       end 
+
+    } #  generic package 
+end					# stipulate
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

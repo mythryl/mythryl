@@ -1,0 +1,1002 @@
+## adl-typing.pkg -- derived from  ~/src/sml/nj/smlnj-110.60/MLRISC/Tools/ADL/mdl-typing.sml
+#
+# Type checking for RTL.
+# We also perform arity raising to convert the program into explicit type
+# passing style at the same time.
+#
+# Note: there are quite a lot of bugs in the algorithm. 
+#       I don't have time to fix them.       XXX BUGGO FIXME
+#
+# Allen Leung (leunga@cs.nyu.edu)
+
+# Compiled by:
+#     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages.lib
+
+
+
+###                    "The more we get out of the world the less we leave,
+###                     and in the long run we shall have to pay our debts at a
+###                     time that may be very inconvenient for our own survival."
+###
+###                                                   -- Norbert Wiener 
+
+
+stipulate
+    package err	=  adl_error;							# adl_error						is from   src/lib/compiler/back/low/tools/line-number-db/adl-error.pkg
+    package spp =  simple_prettyprinter;					# simple_prettyprinter					is from   src/lib/prettyprint/simple/simple-prettyprinter.pkg
+    package mc  =  architecture_description;					# architecture_description				is from   src/lib/compiler/back/low/tools/arch/architecture-description.pkg
+    package rrs =  adl_rewrite_raw_syntax_parsetree;				# adl_rewrite_raw_syntax_parsetree			is from   src/lib/compiler/back/low/tools/adl-syntax/adl-rewrite-raw-syntax-parsetree.pkg
+    package mst =  adl_symboltable;						# adl_symboltable					is from   src/lib/compiler/back/low/tools/arch/adl-symboltable.pkg
+    package mtj =  adl_type_junk;						# adl_type_junk						is from   src/lib/compiler/back/low/tools/arch/adl-type-junk.pkg
+    package raw =  adl_raw_syntax_form;						# adl_raw_syntax_form					is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-form.pkg
+    package rsu =  adl_raw_syntax_unparser;					# adl_raw_syntax_unparser				is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-unparser.pkg
+    package rsj =  adl_raw_syntax_junk;						# adl_raw_syntax_junk					is from   src/lib/compiler/back/low/tools/adl-syntax/adl-raw-syntax-junk.pkg
+herein
+
+    package   adl_typing
+    : (weak)  Adl_Typing							# Adl_Typing						is from   src/lib/compiler/back/low/tools/arch/adl-typing.api
+    {
+
+	infix val ++ ;
+
+	++ = mst::(++);
+
+	fun e2s  e =  spp::prettyprint_expression_to_string (rsu::expression      e);
+	fun p2s  e =  spp::prettyprint_expression_to_string (rsu::pattern         e);
+	fun d2s  e =  spp::prettyprint_expression_to_string (rsu::decl            e);
+	fun id2s e =  spp::prettyprint_expression_to_string (rsu::uppercase_ident e);
+	fun t2s  e =  spp::prettyprint_expression_to_string (rsu::type            e);
+
+	fun unify_expression (e, t1, t2) =  mtj::unify (fn _ = " in " + e2s e, t1, t2);
+	fun unify_pattern    (p, t1, t2) =  mtj::unify (fn _ = " in " + p2s p, t1, t2);
+
+	fun undefined_cons (pattern, id)
+	    =
+	    err::error ("undefined constructor " + id2s id + " in " + p2s pattern);
+
+	fun lookup_cons e''' id
+	    =
+	    mst::find_value e''' id;
+
+	fun is_typeagnostic t
+	    =
+	    {   poly = REF FALSE;
+
+		fun rewrite_type_node _ (t as raw::TYPE_VARIABLE_TYPE(_, _, _, REF NULL)) =>   { poly := TRUE;   t;  };
+		    rewrite_type_node _ (t as raw::TYPE_SCHEME_TYPE _)                    =>   { poly := TRUE;   t;  };
+		    rewrite_type_node _ (t as raw::TYVARTY _)                             =>   { poly := TRUE;   t;  };
+		    #
+		    rewrite_type_node _ t
+			=>
+			t;
+		end;
+
+		fns.rewrite_type_parsetree  t
+		where
+		    fns =  rrs::make_raw_syntax_parsetree_rewriters [ rrs::REWRITE_TYPE_NODE rewrite_type_node ];
+		end;
+
+		*poly;
+	    };
+
+	fun open_strs e''' ids
+	    =
+	    {   es = map (mst::find_package e''') ids;
+		#
+		fold_right  (++)  mst::empty  es;
+	    };
+
+	fun bound_variable e''' (raw::VARTV _) =>  mtj::new_variable 0;
+	    bound_variable e''' (raw::INTTV _) =>  mtj::new_ivar     0;
+	end;
+
+	fun poly_type name
+	    =
+	    {   tv =  mtj::new_ivar 0;
+		#
+		raw::TYPE_SCHEME_TYPE ([tv], raw::APPTY (raw::IDENT([], name),[tv]));
+	    };
+
+	fun make_type name
+	    =
+	    raw::IDTY (raw::IDENT([], name));
+
+	bits_type    =  poly_type "bits";
+	region_type  =  make_type "region";
+	effect_type  =  make_type "effect";
+	bool_type    =  make_type "bool";
+	string_type  =  make_type "string";
+	int_type     =  make_type "int";
+	word_type    =  make_type "word";
+
+	fun list_type (ps, t)
+	    = 
+	    raw::APPTY
+	      ( raw::IDENT ([], "list"),
+		[ raw::INTVARTY (length ps), mtj::deref t]
+	      );
+
+	fun apply_type  name x =  raw::APPTY (raw::IDENT([], name), [x]);
+	fun intapp_type name n =  apply_type name (raw::INTVARTY n);
+
+	# Perform typechecking
+	#
+	fun type_check  architecture_description  d
+	    = 
+	    (d, e''')
+	    where
+		mtj::init ();
+
+		bits_of =  intapp_type "bits";
+
+		register_of = intapp_type "bits";
+
+		(mc::find_registerset_by_name  architecture_description  "GP")
+		    ->
+		    raw::REGISTER_SET { bits => width_of_gp, ... };
+
+
+		fun map2 f (x ! xs)
+			=>
+			(a ! c, b ! d)
+			where
+			    (f x)       ->   (a, b);
+			    (map2 f xs) ->   (c, d);
+			end;
+
+		    map2 f [] =>   ([], []);
+		end;
+
+
+		fun mem_of e''' (expression, e, "registerset", region)
+			=>
+			{   case region     THE _ =>  err::error ("illegal region in " + e2s expression);
+					    NULL  =>  ();
+			    esac;
+			    #
+			    ( bits_of width_of_gp,
+			      register_of width_of_gp,
+			      e
+			    );
+			};
+
+		    mem_of e''' (expression, e, m, region)
+			=>
+			(arg_type, ret_type, e)
+			where
+			    (mc::find_registerset_by_name  architecture_description  m)
+				->
+				raw::REGISTER_SET { bits=>n, count, name, aggregable, ... };
+
+			    fun log2 1 =>  0;
+				log2 n =>  log2 (n / 2) + 1;
+			    end;
+
+			    arg_type
+				=
+				case count
+				    #
+				    THE m => bits_of (log2 m);
+				    #
+				    NULL  => 
+					case name
+					    #
+					    "MEM"  =>   bits_of  width_of_gp;
+					    "CTRL" =>   bits_of  width_of_gp;
+					    #
+					    _      =>   {   err::error ("@@@" + m + "[" + e2s e + "] is illegal");
+							    mst::var e''';
+							};
+					esac;
+				esac;
+
+			    if (name == "MEM")
+				#
+				case region
+				    #
+				    THE r =>    {   my (_, t') =  w''' e''' (rsj::id r);
+						    #
+						    unify_expression (expression, t', region_type);
+						};
+
+				    NULL  =>    err::warning ("missing region in " + e2s expression);
+				esac;
+			    else
+				case region
+				    #
+				    THE _ =>  err::error ("illegal region in " + e2s expression);
+				    _     =>  ();
+				esac;
+			    fi;	
+
+			    ret_type =
+				if aggregable    apply_type "bits" (mtj::new_ivar 0);
+				else             register_of n;
+				fi;
+			end;
+		end
+
+		also
+		fun w''' e''' (     raw::ID_IN_EXPRESSION id)        =>  mst::find_value e''' id;				# W must have meant 'statement'...? Or atomic expression?
+		    w''' e''' (e as raw::TUPLE_IN_EXPRESSION [])     =>  (e, effect_type);
+		    w''' e''' (     raw::TUPLE_IN_EXPRESSION [e])    =>   w'''  e'''  e;
+		    w''' e''' (     raw::TUPLE_IN_EXPRESSION es)     =>  {   (ws e''' es) ->   (es, ts);
+							#
+							(raw::TUPLE_IN_EXPRESSION es, raw::TUPLETY ts);
+						    };
+		    w''' e''' (raw::RECORD_IN_EXPRESSION les)
+			=> 
+			{   (lws e''' les) ->   (les, lts);
+			    #
+			    (raw::RECORD_IN_EXPRESSION les, raw::RECORDTY lts);
+			};
+
+		    w''' e''' (e as raw::LITERAL_IN_EXPRESSION (raw::INT_LIT   _)) =>  (e, int_type);
+		    w''' e''' (e as raw::LITERAL_IN_EXPRESSION (raw::UNT32_LIT _)) =>  (e, word_type);
+		    w''' e''' (e as raw::LITERAL_IN_EXPRESSION (raw::UNT_LIT   _)) =>  (e, word_type);
+		    w''' e''' (e as raw::LITERAL_IN_EXPRESSION (raw::BOOL_LIT   _)) =>  (e, bool_type);
+		    w''' e''' (e as raw::LITERAL_IN_EXPRESSION (raw::STRING_LIT _)) =>  (e, string_type);
+
+		    w''' e''' (expression as raw::TYPED_EXPRESSION (e, t))
+			=>
+			{   (w''' e''' e) ->    (e, t1);
+			    t2 = t''' e''' t;
+			    unify_expression (expression, t1, t2);
+			    (e, t2);
+			};
+
+		    w''' e''' (expression as raw::LIST_IN_EXPRESSION (es, NULL))
+			=> 
+			{   (ws e''' es) ->   (es, ts);
+			    t  = mst::var e''';
+
+			    fold_right
+				(fn (a, b) =  { unify_expression (expression, a, b); a; })
+				t
+				ts;
+
+			    (raw::LIST_IN_EXPRESSION (es, NULL), list_type (es, t));
+			};
+
+		    w''' e''' (expression as raw::BITFIELD_IN_EXPRESSION (e, l))
+			=>
+			{   (w''' e''' e) ->   (e, t);
+
+			    n = fold_right  (fn ((a, b), l) =  b-a+1+l)  0  l;
+
+			    my (e, t') =   mst::inst e''' (raw::BITFIELD_IN_EXPRESSION (e, l), bits_type);
+
+			    unify_expression (expression, t, t'); 
+
+			    (e, bits_of n);
+			};
+
+		    w''' e''' (expression as raw::REGISTER_IN_EXPRESSION (id, e, region))
+			=>
+			{   (w''' e''' e) ->   (e, t);
+
+			    my (arg_type, ret_type, e)
+				=
+				mem_of e''' (expression, e, id, region);
+
+			    unify_expression (expression, t, arg_type);
+
+			    (raw::REGISTER_IN_EXPRESSION (id, e, region), ret_type);
+			};
+
+		    w''' e''' (expression as raw::APPLY_EXPRESSION (f, x))
+			=>
+			{   (w''' e''' f) ->   (f, t1);
+			    (w''' e''' x) ->   (x, t2);
+
+			    t = mst::var  e''';
+
+			    unify_expression (expression, t1, raw::FUNTY (t2, t)); 
+
+			    (raw::APPLY_EXPRESSION (f, x), t) ;
+			};
+
+		    w''' e''' (expression as raw::IF_EXPRESSION (a, b, c))
+			=>
+			{   (w''' e''' a) ->   (a, t1);
+			    (w''' e''' b) ->   (b, t2);
+			    (w''' e''' c) ->   (c, t3);
+
+			    unify_expression (a, t1, bool_type);
+			    unify_expression (expression, t2, t3); 
+
+			    (raw::IF_EXPRESSION (a, b, c), t2);
+			};
+
+		    w''' e''' (expression as raw::CASE_EXPRESSION (e, cs))
+			=>
+			{   (w''' e''' e)  ->   (e,  t1);
+			    (css  e''' cs) ->   (cs, t2);
+
+			    t3 =  mst::var  e''';
+
+			    unify_expression (expression, t2, raw::FUNTY (t1, t3));
+
+			    (raw::CASE_EXPRESSION (e, cs), t3);
+			};
+
+		    w''' e''' (raw::FN_IN_EXPRESSION cs)
+			=>
+			{   (css e''' cs) ->   (cs, t);
+			    #
+			    (raw::FN_IN_EXPRESSION cs, t);
+			};
+
+		    w''' e''' (e as raw::SEQUENTIAL_EXPRESSIONS [])
+			=>
+			(e, effect_type);
+
+		    w''' e''' (raw::SEQUENTIAL_EXPRESSIONS [e])
+			=>
+			w'''  e'''  e;
+
+		    w''' e''' (raw::SEQUENTIAL_EXPRESSIONS (e ! es))
+			=>
+			{   (w''' e''' e)  ->   (e, _);
+			    (wseq e''' es) ->   (es, t);
+			    #
+			    (raw::SEQUENTIAL_EXPRESSIONS (e ! es), t);
+			};
+
+		    w''' e''' (raw::LET_EXPRESSION (ds, es))
+			=>
+			{   (ds''' e''' ds) ->   (ds, e'''');
+
+			    my (es, t)
+				=
+				 wseq (e''' ++ e'''') es;
+
+			    (raw::LET_EXPRESSION (ds, es), t);
+			};
+
+		    w''' e''' (raw::SOURCE_CODE_REGION_FOR_EXPRESSION (l, e))
+			=>
+			{   err::set_loc  l;
+			    #
+			    w'''  e'''  e;
+			};
+
+		    w''' e''' expression
+			=>
+			err::fail ("w''' " + e2s expression);
+		end
+
+		also
+		fun ws e''' es												# Ws
+		    =
+		    map2 (w''' e''') es
+
+		also
+		fun wseq e''' []											# Wseq
+			=> 
+			{   my (e, t) =  w''' e''' (raw::SEQUENTIAL_EXPRESSIONS []);
+			    ([e], t);
+			};
+
+		    wseq e''' [e]
+			=> 
+			{   my (e, t) = w''' e''' e;
+			    ([e], t);
+			};
+
+		    wseq e''' (e ! es)
+			=>
+			{   my (e, _)  = w''' e''' e;
+			    my (es, t) = wseq e''' es;
+			    #	
+			    (e ! es, t);
+			};
+		end
+
+		also
+		fun lw e''' (l, e)											# LW
+		    = 
+		    {   my (e, t) =  w''' e''' e;
+			#
+			((l, e), (l, t));
+		    }
+
+		also
+		fun lws e''' les											# LWs
+		    =
+		    map2 (lw e''') les
+
+		also
+		fun css e''' []												# CSs might have been clauses
+			=>
+			([],  mst::var e''');
+
+		    css e''' (all as c ! cs)
+			=>
+			{   (cs''' e''' c ) ->   (c,  t );
+			    (css   e''' cs) ->   (cs, t');
+			    #
+			    unify_expression (raw::FN_IN_EXPRESSION all, t, t');
+			    #
+			    (c ! cs, t);
+			};
+		end
+
+		also
+		fun cs''' e''' (raw::CLAUSE (ps, g, e))									# CS might have been Clause
+		    =
+		    {   my (ts, es) = map2 (p''' e''') ps;
+
+			e'''' = fold_right (++) mst::empty es   ;
+
+			my (e, t2)
+			    =
+			    w''' (e''' ++ e'''') e;
+
+			fun f []       =>  t2;
+			    f (t ! ts) =>  raw::FUNTY (t, f ts);
+			end;
+
+			g = case g
+				#
+				NULL => NULL;
+				#
+				THE ge => 
+				    {   (w''' e''' ge) ->   (ge', tg);
+					#
+					unify_expression (ge, tg, bool_type);
+					#
+					THE ge;
+				    };
+			    esac;
+
+			( raw::CLAUSE (ps, g, e),
+			  f ts
+			);
+		    }
+
+		also
+		fun p''' e''' (raw::IDPAT id)
+			=>
+			pvar e''' id;									# P might have been pattern
+
+		    p''' e''' (raw::ASPAT (id', p))
+			=>
+			{   (p''' e''' p) ->   (t1, e'''');
+			    #
+			    e''''' =  mst::named_variable (id', rsj::id id', t1);
+			    #
+			    (t1, e''''' ++ e'''');
+			};
+
+		    p''' e''' (raw::TUPLEPAT [p])
+			=>
+			p''' e''' p;
+
+		    p''' e''' (raw::TUPLEPAT ps)
+			=> 
+			{   my (ts, e'''')
+				=
+				ps''' e''' ps;
+
+			    (raw::TUPLETY ts, e'''');
+			};
+
+		    p''' e''' (pattern as raw::OR_PATTERN ps)
+			=>
+			{   my (ts, e'''') =   ps''' e''' ps;
+			    #
+			    t =  mst::var  e''';
+			    #
+			    fold_right
+				(fn (t1, t2) =  { unify_pattern (pattern, t1, t2); t1; })
+				t
+				ts;
+
+			    (t, e'''');
+			};
+
+		    p''' e''' (raw::RECORD_PATTERN (lps, FALSE))
+			=>
+			{   my (lts, e'''') =  lps''' e''' lps;
+			    #
+			   (raw::RECORDTY lts,  e'''');
+			};
+
+		    p''' e'''  raw::WILDCARD_PATTERN            =>  (mst::var e''',   mst::empty);
+		    p''' e''' (raw::LITPAT (raw::INT_LIT    _)) =>  (int_type,        mst::empty);
+		    p''' e''' (raw::LITPAT (raw::BOOL_LIT   _)) =>  (bool_type,       mst::empty);
+		    p''' e''' (raw::LITPAT (raw::UNT_LIT    _)) =>  (rsj::unt32_type, mst::empty);
+		    p''' e''' (raw::LITPAT (raw::STRING_LIT _)) =>  (string_type,     mst::empty);
+
+		    p''' e''' (pattern as raw::CONSPAT (id, NULL))
+			=>
+			{   my (_, t1) =  lookup_cons e''' id;
+			    #
+			    (t1, mst::empty);
+			}
+			except
+			    _ = 
+			    case id
+				#
+				raw::IDENT ([], id) =>   pvar e'''  id;
+				#
+				_                   =>  {   undefined_cons (pattern, id);
+							    #
+							    ( mst::var  e''',
+							      mst::empty
+							    );
+							};
+			    esac;
+
+
+		    p''' e''' (pattern as raw::CONSPAT (id, THE p))
+			=>
+			{   my (_, t1)     =  lookup_cons e''' id;
+			    my (t2, e'''') =  p'''  e'''  p;
+			    #
+			    t3 =  mst::var  e''';
+			    #
+			    unify_pattern (pattern, t1, raw::FUNTY (t2, t3));
+			    #
+			    (t3,  e'''');
+			}
+			except
+			    _ = case id
+				    #
+				    raw::IDENT([], id)  =>  pvar  e'''  id;
+				    #	
+				    _                   =>  {   undefined_cons (pattern, id);
+								#
+								( mst::var e''',
+								  mst::empty
+								);
+							    };
+				esac;
+
+
+		    p''' e''' (pattern as raw::LISTPAT (ps, NULL))
+			=>
+			{   (ps'''  e'''  ps) ->   (ts, e'''');
+			    #
+			    t =  mst::var e''';
+			    #
+			    fold_right
+				(fn (a, b) = { unify_pattern (pattern, a, b);
+					       a;
+					     }
+				)
+				t
+				ts;
+
+			    ( list_type (ps, t),
+			      e''''
+			    );
+			};
+
+		    p''' e''' p
+			=>
+			{   err::error ("pattern " + p2s p + " not allowed in semantics description"); 
+			    #
+			    ( mst::var e''',
+			      mst::empty
+			    );
+			};
+		end
+
+		also
+		fun ps''' e''' ps 											# Ps might have been patterns
+		    =
+		    {   xs = map (p''' e''') ps;
+			ts = map #1 xs;
+			es = map #2 xs;
+			#
+			(ts,   fold_right (++) mst::empty es);
+		    }
+
+		also
+		fun lps''' e''' lps											# LPs
+		    =
+		    {   xs  = map (lp''' e''') lps;
+			#
+			lts = map #1 xs;
+			es  = map #2 xs;										# Es
+			#
+			(lts, fold_right (++) mst::empty es);
+		    }
+
+		also
+		fun lp''' e''' (l, p)											# LP maybe "label pattern"...?
+		    =
+		    {   my (t, e''') =  p''' e''' p;
+			((l, t), e''');
+		    }
+
+		also
+		fun pvar e''' id'											# Pvar might have been pattern-variable
+		    =
+		    {   t = mst::var  e''';
+			#
+			(t,  mst::named_variable (id', rsj::id id', t));
+		    }
+
+		also
+		fun d''' e''' (raw::DATATYPE_DECL (dbs, tbs)) 								# D might have been declaration
+			=>
+			{   my (dbs, tbs, e''') =   dts''' e''' (dbs, tbs);
+			    #
+			    ( raw::DATATYPE_DECL (dbs, tbs),
+			      e'''
+			    );
+			};
+
+		    d''' e''' (raw::FUN_DECL fbs)
+			=> 
+			{   my (fbs, e''') =   fds''' e''' fbs;
+			    #
+			    (raw::FUN_DECL fbs,   e''');
+			};
+
+		    d''' e''' (raw::RTL_DECL (pattern, e, loc))
+			=> 
+			{   my (raw::NAMED_VARIABLE (pattern, e), e''')
+				=
+				vd''' e''' (raw::NAMED_VARIABLE (pattern, e));
+
+			    (raw::RTL_DECL (pattern, e, loc),   e''');
+			};
+
+		    d''' e''' (raw::RTL_SIG_DECL (ids, type))
+			=>
+			{   e''' =  vs''' e''' (ids, type);
+			    #
+			    (raw::RTL_SIG_DECL (ids, type),   e''');
+			};
+
+		    d''' e''' (raw::VAL_DECL vbs)
+			=> 
+			{   my (vbs, e''') =   vds''' e''' vbs;
+			    #
+			    (raw::VAL_DECL vbs,   e''');
+			};
+
+		    d''' e''' (raw::TYPE_API_DECL (id, tvs))
+			=>
+			{   e''' =   ts''' e''' (id, tvs);
+			    #
+			    (raw::TYPE_API_DECL (id, tvs),   e''');
+			};
+
+		    d''' e''' (raw::VALUE_API_DECL (ids, type))
+			=> 
+			{   e''' =   vs''' e''' (ids, type);
+			    #
+			    (raw::VALUE_API_DECL (ids, type),   e''');
+			};
+
+		    d''' e''' (raw::LOCAL_DECL (d1, d2))
+			=>
+			{   my (d1, e1) =   ds'''  e''' d1;
+			    my (d2, e2) =   ds''' (e''' ++ e1) d2 ;
+			    #
+			    (raw::LOCAL_DECL (d1, d2), e2);
+			};
+
+		    d''' e''' (raw::SEQ_DECL ds)
+			=> 
+			{   (ds'''  e'''  ds) ->   (ds, e''');
+			    #
+			    (raw::SEQ_DECL ds,   e''');
+			};
+
+		    d''' e''' (d as raw::OPEN_DECL ids)
+			=>
+			{   e''' =   open_strs  e'''  ids;
+			    #
+			    (d,  e''');
+			};
+
+		    d''' e''' (raw::PACKAGE_DECL (id, args, s, sexp))
+			=>
+			{   (se'''  e'''  sexp) ->   (sexp, e'''');
+			    #
+			    ( raw::PACKAGE_DECL (id, args, s, sexp),
+			      mst::named_package (id, args, e'''')
+			    );
+			};
+
+		    d''' e''' (d as raw::PACKAGE_API_DECL _) =>  (d, mst::empty);
+		    d''' e''' (d as raw::INFIX_DECL      _) =>  (d, mst::empty);
+		    d''' e''' (d as raw::INFIXR_DECL     _) =>  (d, mst::empty);
+		    d''' e''' (d as raw::NONFIX_DECL     _) =>  (d, mst::empty);
+
+		    d''' e''' (raw::SOURCE_CODE_REGION_FOR_DECLARATION (l, d))
+			=> 
+			{   my (d, e''') =   err::with_loc l (d''' e''') d;
+			    #
+			    (raw::SOURCE_CODE_REGION_FOR_DECLARATION (l, d),   e''');
+			};
+
+		    d''' e''' (d as raw::VERBATIM_CODE [])
+			=>
+			(d,  mst::empty);
+
+		    d''' _ d
+			=>
+			{   err::error ("illegal declaration: " + d2s d);
+			    #
+			    ( d,
+			      mst::empty
+			    );
+			};
+		end								# fun d'''
+
+		also
+		fun ds''' e''' []											# DS might have been datatype specification.
+			=>
+			([], mst::empty);
+
+		    ds''' e''' (d ! ds)
+			=> 
+			{   my (d,  e1) =  d'''   e''' d ;
+			    my (ds, e2) =  ds''' (e''' ++ e1) ds;
+			    #
+			    (d ! ds,   e1 ++ e2);
+			};
+		end
+
+		also
+		fun ts''' e''' (id,[])											# TS might have been type specification.
+			=>
+			mst::type_bind (id, raw::IDTY (raw::IDENT([], id)));
+
+		    ts''' e''' (id, tvs)
+			=>
+			{   vs = map  (bound_variable e''')  tvs;
+			    #
+			    t  = raw::LAMBDATY (vs, raw::APPTY (raw::IDENT([], id), vs));
+			    #
+			    mst::type_bind (id, t);
+			};
+		end
+
+		also
+		fun vs''' e''' (ids, type) 										# VS might have been value specification.
+		    =
+		    {   t = t''' e''' type;
+			#
+			fold_right
+			    (fn (id', e''') =  mst::named_variable (id', rsj::id id', t) ++ e''')
+			    mst::empty
+			    ids ;
+		    }
+
+		also
+		fun fds''' e''' []											# FDs might have been function declarations.
+			=>
+			([],  mst::empty);
+
+		    fds''' e''' (fb ! fbs)
+			=>
+			{   my (fb,  e'''' ) =  fd''' e''' fb;
+			    my (fbs, e''''') =  fds''' (e''' ++ e'''') fbs;
+			    #
+			    ( fb ! fbs,
+			      e'''' ++ e'''''
+			    );
+			};
+		end
+
+		also
+		fun fd''' e''' (raw::FUN (f, cs))								# FD might have been function declaration.
+		    =
+		    {   my (cs, t) =   css e''' cs;
+			#
+			my (raw::FN_IN_EXPRESSION cs, t) =   mst::gen e''' (raw::FN_IN_EXPRESSION cs, t);
+			#
+			( raw::FUN (f, cs),
+			  mst::named_variable (f, rsj::id f, t)
+			);
+		    }
+
+		also
+		fun vds''' e''' []											# VDs might have been value declarations.
+			=>
+			([],   mst::empty);
+
+		    vds''' e''' (value_naming ! vbs)
+			=>
+			{   my (value_naming, e'''' ) =  vd'''   e''' value_naming;
+			    my (vbs,          e''''') =  vds''' (e''' ++ e'''')  vbs;					# "vbs" is most likely "value bindings".
+			    #
+			    ( value_naming ! vbs,
+			      e'''' ++ e'''''
+			    );
+			};
+		end
+
+		also
+		fun vd''' e''' (value_naming as raw::NAMED_VARIABLE (p, e))	 						# VD might have been value declaration.
+		    =
+		    {   my (t, e'''') =  p'''  e''' p;
+			my (e, t')    =  w''' (e''' ++ e'''') e;
+			#
+			mtj::unify (fn _ =  spp::prettyprint_expression_to_string (rsu::named_value  value_naming), t, t');
+			#
+			(raw::NAMED_VARIABLE (p, e),   e'''');
+		    }
+
+		also
+		fun dts''' e''' (dbs, tbs)										# DTs might have been datatypes.
+		    =
+		    {   my (dbs, e1) =  dbs''' e''' dbs;
+			my (tbs, e2) =  tds''' e''' tbs;
+			#
+			( dbs,
+			  tbs,
+			  e1 ++ e2
+			);
+		    }
+
+		also
+		fun dbs''' e''' []
+			=>
+			([],  mst::empty);									# DBs might have been datatype bindings.
+
+		    dbs''' e''' (db ! dbs)
+			=>
+			{   my (db,  e''' ) =  db'''  e''' db ;
+			    my (dbs, e'''') =  dbs''' e''' dbs;
+			    #
+			    ( db ! dbs,
+			      e''' ++ e''''
+			    );
+			};
+		end
+
+		also
+		fun db''' e''' (db as raw::DATATYPE { type_variables, cbs, ... } )			# DB might have been datatype binding.
+		    =
+		    ( db,
+		      mst::empty
+		    )
+
+		also
+		fun tds''' e''' []										# TDs might have been type declarations.
+			=>
+			( [],
+			  mst::empty
+			);
+
+		    tds''' e''' (tb ! tbs)
+			=>
+			{   (td'''  e''' tb ) ->    (tb,  e''' );
+			    (tds''' e''' tbs) ->    (tbs, e'''');
+			    #
+			    ( tb ! tbs,
+			      e''' ++ e''''
+			    );
+			};
+		end
+
+		also
+		fun td''' e''' (raw::TYPE_ALIAS (id, tvs, t)) 							# TD might have been type declaration.
+		    =
+		    {   tve =  REF (map (fn tv =  (tv, mst::var e''')) tvs);
+			t'  =  mst::lambda e''' (t'''' e''' tve t);
+			#
+			( raw::TYPE_ALIAS (id, tvs, t),
+			  mst::type_bind (id, t')
+			);
+		    }
+
+		also
+		fun t''' e''' t 										# T might have been type.
+		    =
+		    {   tvs =  REF [];
+			t   =  t'''' e''' tvs t;
+			#
+			my (_, t)
+			    =
+			    mst::gen e''' (rsj::integer_constant_in_expression 0, t);
+
+			t;
+		    }
+
+		also
+		fun t'''' e''' tvs (raw::IDTY id)
+			=>
+			mst::find_type e''' id;
+
+		    t'''' e''' tvs (type as raw::APPTY (f, tys))
+			=>
+			{   t  =  mst::find_type e''' f;
+			    ts =  map (t'''' e''' tvs) tys;
+			    #
+			    mtj::apply (" in type " + t2s type, t, ts);
+			};
+
+		    t'''' e''' tvs (     raw::FUNTY (x, y))    =>  raw::FUNTY         (t''''  e''' tvs x, t'''' e''' tvs y);
+		    t'''' e''' tvs (     raw::TUPLETY ts)      =>  raw::TUPLETY  (map (t''''  e''' tvs) ts);
+		    t'''' e''' tvs (     raw::RECORDTY lts)    =>  raw::RECORDTY (map (lt'''' e''' tvs) lts);
+		    t'''' e''' tvs (t as raw::INTVARTY _)      =>  t;
+
+		    t'''' e''' tvs (type as raw::TYVARTY tv)
+			=>
+			scan *tvs
+			where
+			    fun scan []
+				    =>
+				    {   v = bound_variable e''' tv;
+					tvs := (tv, v) ! *tvs;
+					v;
+				    };
+
+				scan((k, v) ! tvs)
+				    =>
+				    if (k == tv)   v;
+				    else           scan tvs;
+				    fi;
+			    end;
+			end;
+
+		    t'''' e''' tvs t
+			=>
+			{   err::error ("unknown type " + t2s t);
+			    t;
+			};
+		end
+
+		also
+		fun lt'''' e''' tvs (l, t)											# LT might be labelled type or such...?
+		    =
+		    ( l,
+		      t'''' e''' tvs t
+		    )
+
+		also
+		fun se''' e''' (raw::IDSEXP id)											# SE might have been sequence of expressions...? Statement?
+			=>
+			( raw::IDSEXP id,
+			  mst::find_package e''' id
+			);
+
+		    se''' e''' (raw::DECLSEXP ds)
+			=>
+			{   (ds'''  e'''  ds) ->   (ds, e''');
+			    #
+			    (raw::DECLSEXP ds,   e''');
+			};
+		end;
+
+		e''' = mst::empty;
+
+		(d''' e''' d) ->   (d, e''');
+	    end;
+    };																# package   adl_typing
+end;																# stipulate
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

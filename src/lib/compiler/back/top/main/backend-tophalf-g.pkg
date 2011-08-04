@@ -1,0 +1,653 @@
+## backend-tophalf-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+# This file defines the backend of the compiler, primarily
+# the backend tophalf, which is to say the part which does
+# the machine-independent code optimizations and transformations.
+#
+#
+# At compiletime this generic gets invoked by
+#
+#     src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+#     src/lib/compiler/back/low/main/pwrpc32/backend-pwrpc32.pkg
+#     src/lib/compiler/back/low/main/sparc32/backend-sparc32.pkg
+#
+# to produce the various platform-specific compiler backends.
+#
+# The "package blh' ("backend_lowhalf") generic parameter which they
+# hand us takes care of all the machine-dependent optimizations,
+# code-generation issues &tc for us.
+#
+#
+#
+# Runtime invocation of our (sole)
+#
+#     translate_anormcode_to_execode
+# 
+# entrypoint is from
+# 
+#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+
+
+
+###    "When trouble is solved before it forms,
+###     who calls that clever?"
+###
+###                             -- Sun Tzu
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/pwrpc32/backend-pwrpc32.pkg
+#     src/lib/compiler/back/low/main/sparc32/backend-sparc32.pkg
+#     src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+
+stipulate
+    package abc =  eliminate_array_bounds_checks_in_anormcode;		# eliminate_array_bounds_checks_in_anormcode		is from   src/lib/compiler/back/top/improve/eliminate-array-bounds-checks-in-anormcode.pkg
+    package an  =  anormcode_form;					# anormcode_form					is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package asc =  anormcode_sequencer_controls;			# anormcode_sequencer_controls				is from   src/lib/compiler/back/top/main/anormcode-sequencer-controls.pkg
+    package cs  =  code_segment;					# code_segment						is from   src/lib/compiler/execution/code-segments/code-segment.pkg
+    package ctv =  anormcode_namedtypevar_vs_debruijntypevar_forms;	# anormcode_namedtypevar_vs_debruijntypevar_forms	is from   src/lib/compiler/back/top/anormcode/anormcode-namedtypevar-vs-debruijntypevar-forms.pkg
+    package dai =  do_crossmodule_anormcode_inlining;			# do_crossmodule_anormcode_inlining			is from   src/lib/compiler/back/top/improve/do-crossmodule-anormcode-inlining.pkg
+    package drt =  drop_types_from_anormcode;				# drop_types_from_anormcode				is from   src/lib/compiler/back/top/forms/drop-types-from-anormcode.pkg
+    package dua =  def_use_analysis_of_anormcode;			# def_use_analysis_of_anormcode				is from   src/lib/compiler/back/top/improve/def-use-analysis-of-anormcode.pkg
+    package fvp =  convert_free_variables_to_parameters_in_anormcode;	# convert_free_variables_to_parameters_in_anormcode	is from   src/lib/compiler/back/top/improve/convert-free-variables-to-parameters-in-anormcode.pkg
+    package fgf =  fatecode_globalfix;					# fatecode_globalfix					is from   src/lib/compiler/back/top/closures/fatecode-globalfix.pkg
+    package glb =  generate_literals_bytecode_vector;			# generate_literals_bytecode_vector			is from   src/lib/compiler/back/top/main/generate-literals-bytecode-vector.pkg
+    package ia  =  improve_anormcode;					# improve_anormcode					is from   src/lib/compiler/back/top/improve/improve-anormcode.pkg
+    package iaq =  improve_anormcode_quickly;				# improve_anormcode_quickly				is from   src/lib/compiler/back/top/improve/improve-anormcode-quickly.pkg
+    package ihc =  pick_fatecode_funs_for_heaplimit_checks;		# pick_fatecode_funs_for_heaplimit_checks		is from   src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
+    package la  =  loopify_anormcode;					# loopify_anormcode					is from   src/lib/compiler/back/top/improve/loopify-anormcode.pkg
+    package lgt =  specialize_anormcode_to_least_general_type;		# specialize_anormcode_to_least_general_type		is from   src/lib/compiler/back/top/improve/specialize-anormcode-to-least-general-type.pkg
+    package hcf =  highcode_form;					# highcode_form						is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package no  =  null_or;						# null_or						is from   src/lib/std/src/null-or.pkg
+    package mrf =  improve_mutually_recursive_anormcode_functions;	# improve_mutually_recursive_anormcode_functions	is from   src/lib/compiler/back/top/improve/improve-mutually-recursive-anormcode-functions.pkg
+    package pa  =  prettyprint_anormcode;				# prettyprint_anormcode					is from   src/lib/compiler/back/top/anormcode/prettyprint-anormcode.pkg
+    package bac =  insert_anormcode_boxing_and_coercion_code;		# insert_anormcode_boxing_and_coercion_code		is from   src/lib/compiler/back/top/forms/insert-anormcode-boxing-and-coercion-code.pkg
+    package pci =  per_compile_info;					# per_compile_info					is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+    package pp  =  prettyprint;						# prettyprint						is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    package rat =  recover_anormcode_type_info;				# recover_anormcode_type_info				is from   src/lib/compiler/back/top/improve/recover-anormcode-type-info.pkg
+    package tm  =  time;						# time							is from   src/lib/std/time.pkg
+    package tr  =  cpu_timer;						# cpu_timer						is from   src/lib/std/src/cpu-timer.pkg
+
+    infix val 70 +++ ;   my (+++) = tm::(+) ;
+    infix val 70 --- ;   my (---) = tm::(-) ;
+
+    tracing     =  tracing::make_trace_tree_leaf { parent => tracing::all_tracing, name => "backend::tracing" };
+    trace	=  tracing::print_if  tracing;		# Conditionally write strings to tracing.log or whatever.
+        #
+        # To debug via tracelogging, annotate the code with lines like
+	#
+        #	trace .{ sprintf "foo/top: bar d=%d" bar; };
+	#
+	# and then set   write_tracelog = TRUE;   below.
+herein
+
+    generic package   backend_tophalf_g   (
+	#             =================
+	#
+	package blh: Backend_Lowhalf;					# Backend_Lowhalf				is from   src/lib/compiler/back/low/main/main/backend-lowhalf.api
+									# backend_lowhalf_g				is from	  src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+									# backend_lowhalf_intel32_g			is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+									# backend_lowhalf_pwrpc32			is from   src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+									# backend_lowhalf_sparc32			is from   src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+									# "blh" == "backend_lowhalf".
+
+	harvest_code_segment						# harvest_code_segment				def in	  src/lib/compiler/back/low/main/pwrpc32/backend-pwrpc32.pkg
+	    :								# harvest_code_segment				def in	  src/lib/compiler/back/low/main/sparc32/backend-sparc32.pkg
+	    (Void -> Int)						# harvest_code_segment				def in	  src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+	    ->
+	    cs::Code_Segment;
+    )
+    : (weak) Backend							# Backend					is from   src/lib/compiler/toplevel/main/backend.api
+    {
+	stipulate
+	    #								
+	    package  mp =  blh::mp;					# "mp"  == "machine_properties".
+	    package a2f =  translate_anormcode_to_fatecode_g( mp );	# translate_anormcode_to_fatecode_g		is from   src/lib/compiler/back/top/fatecode/translate-anormcode-to-fatecode-g.pkg
+	    package fpt =  fatecode_preimprover_transform_g(  mp );	# fatecode_preimprover_transform_g		is from   src/lib/compiler/back/top/fatecode/fatecode-preimprover-transform-g.pkg	
+	    package run =  run_optional_fatecode_improvers_g( mp );	# run_optional_fatecode_improvers_g		is from   src/lib/compiler/back/top/improve-fatecode/run-optional-fatecode-improvers-g.pkg
+	    package mfc =  make_fatecode_closures_g(          mp );	# make_fatecode_closures_g			is from   src/lib/compiler/back/top/closures/make-fatecode-closures-g.pkg
+	    package sfr =  spill_fatecode_registers_g(        mp );	# spill_fatecode_registers_g			if from   src/lib/compiler/back/low/main/fatecode/spill-fatecode-registers-g.pkg
+	    package fin =  fatecode_inlining_g(               mp );	# fatecode_inlining_g				is from   src/lib/compiler/back/top/closures/dummy-fatecode-inlining-g.pkg
+	herein 								# Implements cross-module inlining -- or would, if its contents weren't commented out.
+	    # Export to client packages:
+	    #
+	    package blh = blh;
+
+	    target_architecture =  blh::mp::machine_architecture;			# PWRPC32/SPARC32/INTEL32.
+	    abi_variant         =  blh::abi_variant;
+	    #
+	    fun bug s
+		=
+		error_message::impossible ("backend_tophalf_g:" + s);
+
+	    say = control_print::say;
+
+	    package k {
+		Highcodekind			# This is a simple ad-hoc mechanism to ensure sane ordering of highcode passes.
+		  = WRAP
+		  | DROP_TYPES
+		  | DEBRUIJN
+		  | NAMED
+		  ;
+	    };
+	    #
+	    fun phase x
+		=
+		compile_statistics::do_phase (compile_statistics::make_phase x);
+
+	    convert_debruijn_typevars_to_named_typevars_in_anormcode	= phase "highcode 056  convert_debruijn_typevars_to_named_typevars_in_anormcode"	ctv::convert_debruijn_typevars_to_named_typevars_in_anormcode;
+	    convert_named_typevars_to_debruijn_typevars_in_anormcode	= phase "highcode 057  convert_named_typevars_to_debruijn_typevars_in_anormcode"	ctv::convert_named_typevars_to_debruijn_typevars_in_anormcode;
+/*Used*/    improve_anormcode_quickly					= phase "highcode 052  improve_anormcode_quickly"					iaq::improve_anormcode_quickly;
+/*used*/    collect_anormcode_def_use_info				= phase "highcode 052a collect_anormcode_def_use_info"					dua::collect_anormcode_def_use_info;
+/*Used*/    improve_anormcode						= phase "highcode 052b improve_anormcode"						(fn (opts, expression) =  ia::improve_anormcode opts expression);
+/*Used*/    loopify_anormcode						= phase "highcode 057  loopify_anormcode"						la::loopify_anormcode;
+/*Used*/    improve_mutually_recursive_anormcode_functions		= phase "highcode 056  improve_mutually_recursive_anormcode_functions"			mrf::improve_mutually_recursive_anormcode_functions;
+/*Used*/    do_crossmodule_anormcode_inlining				= phase "highcode 058  do_crossmodule_anormcode_inlining"				dai::do_crossmodule_anormcode_inlining;
+	    eliminate_array_bounds_checks_in_anormcode			= phase "highcode 059  eliminate_array_bounds_checks_in_anormcode"			abc::eliminate_array_bounds_checks_in_anormcode;
+	    convert_free_variables_to_parameters_in_anormcode		= phase "highcode 0535 convert_free_variables_to_parameters_in_anormcode"		fvp::convert_free_variables_to_parameters_in_anormcode;
+	    anormcode_is_well_formed					= phase "highcode 0536 anormcode_is_well_formed"					fvp::anormcode_is_well_formed;
+/*Used*/    specialize_anormcode_to_least_general_type			= phase "highcode 053  specialize_anormcode_to_least_general_type"			lgt::specialize_anormcode_to_least_general_type;
+/*Used*/    insert_anormcode_boxing_and_coercion_code			= phase "highcode 054  insert_anormcode_boxing_and_coercion_code"			bac::insert_anormcode_boxing_and_coercion_code;
+/*Used*/    drop_types_from_anormcode					= phase "highcode 055  drop_types_from_anormcode"					drt::drop_types_from_anormcode;
+	    recover_anormcode_type_info					= phase "highcode 05a  recover_anormcode_type_info"					rat::recover_anormcode_type_info;
+
+	    translate_anormcode_to_fatecode				= phase "fatecode 060  translate_anormcode_to_fatecode"					a2f::translate_anormcode_to_fatecode;
+
+	    fatecode_preimprover_transform				= phase "fatecode 065  fatecode_preimprover_transform"					fpt::fatecode_preimprover_transform;
+	    run_optional_fatecode_improvers				= phase "fatecode 070  run_optional_fatecode_improvers"					run::run_optional_fatecode_improvers;
+	    split_off_fatecode_literals					= phase "fatecode 075  split_off_fatecode_literals"					glb::split_off_fatecode_literals;
+	    generate_literals_bytecode_vector				= phase "fatecode 076  generate_literals_bytecode_vector"				glb::generate_literals_bytecode_vector;
+	    make_fatecode_closures					= phase "fatecode 080  make_fatecode_closures"						mfc::make_fatecode_closures;
+	    fatecode_globalfix						= phase "fatecode 090  fatecode_globalfix"						fgf::fatecode_globalfix;
+	    spill_fatecode_registers					= phase "fatecode 100  spill_fatecode_registers"					sfr::spill_fatecode_registers;
+	    pick_fatecode_funs_for_heaplimit_checks			= phase "fatecode 110  pick_fatecode_funs_for_heaplimit_checks"				ihc::pick_fatecode_funs_for_heaplimit_checks;
+
+	    translate_fatecode_to_execode				= phase "fatecode 120  fatecode_to_execode"						blh::translate_fatecode_to_execode;
+
+	    improve_anormcode
+		=
+		fn opts =
+		fn lambda_expression
+		    =
+		    improve_anormcode  (opts,  collect_anormcode_def_use_info  lambda_expression);
+
+	    # Pretty printing for the "A-Normal" and
+            # "Fatecode" (== continuation passing style)
+            # intermediate code formats.
+	    #
+	    my  ( pprint_anormcode_program,
+		  pprint_fatecode_expression
+		)
+		= 
+		{   fun make_prettyprinter (flag, print_e) s e
+			=
+			if *flag
+			    #
+			    say ("\n[After " + s + " ...]\n\n");
+			    print_e e; 
+			    say "\n";
+			    e;
+			else
+			    e;
+			fi;
+
+		    ( make_prettyprinter (asc::print,           prettyprint_anormcode::print_prog),
+		      make_prettyprinter (controls::cg::printit, prettyprint_fatecode::print_fatecode_function)
+		    );
+		};
+
+	    # Writing out a term into
+	    # a error output file 
+	    #
+	    fun dump_term (print_e, s, le)
+		=
+		{   out_s = file::open_for_append s;
+		    save_out = *controls::print::out;
+		    #
+		    fun done ()
+			=
+			{   file::close_output  out_s;
+
+			    controls::print::out := save_out;
+			};
+
+		    controls::print::out
+			:=
+			{ say   =>   fn s  = file::write (out_s, s),
+			  flush =>   fn () = file::flush out_s
+			};
+
+		    print_e le
+		    except
+			x =  {   done ()
+				 except
+				     _ = ();
+
+				 raise exception x;
+			     };
+
+		    done ();
+		};
+
+    #  XXX BUGGO FIXME This looks like more thread-hostile buried global mutable state :( 
+    #	my fcs:    Ref( List( anormcode::Program -> anormcode::Program ) )
+    #                = REF [];
+
+	    # Compile anormcode ("A-Normal" intermediate code)
+            # to fatecode ("continuation passing style" intermediate code)
+            # and thence on down to binary machine code.
+
+	    # This function is invoked (only) from
+	    # fun   translate_anormcode_to_execode   in
+	    #
+	    #     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	    #
+	    fun translate_anormcode_to_execode (
+		    #
+		    highcode,
+		    per_compile_info as { error_fn, source_name, prettyprinter_or_null, cpu_timer, ... }: pci::Per_Compile_Info( deep_syntax::Declaration ),
+		    cross_module_inlining
+		)
+		= 
+		{   time_to_string =  tm::format 5;
+
+		    # Write 'string' to our compile.log file, if any:
+		    #
+		    fun to_compile_log string	
+			=
+			case prettyprinter_or_null
+			    #
+			    NULL              => ();
+			    #
+			    THE prettyprinter
+				=>
+				{   elapsed_cpu =  cpu_timer::get_added_cpu_time  cpu_timer;
+				    pps = prettyprinter.stream;
+				    pp::string pps (sprintf "(%s cpu secs)   " (time_to_string elapsed_cpu));
+				    pp::string pps string;
+				    pp::newline  pps;
+				}; 
+			esac;
+		    
+		    to_compile_log "translate_anormcode_to_execode/TOP";
+		    #
+		    fun err severity s
+			=
+			error_fn (0, 0) severity (cat ["Float constant out of range: ", s, "\n"]);
+
+		    #
+		    fun check (check_e, print_e, check_id)   (level, log_id)   e
+			=
+			if (check_e (e, level))
+			    dump_term (print_e, source_name + "." + check_id + log_id, e);
+			    bug (check_id + " typing errors " + log_id);
+			fi;
+
+		    #
+		    fun maybe_prettyprint_fatecode  function
+			=
+			{   per_compile_info ->  { prettyprinter_or_null, ... };
+
+			    case prettyprinter_or_null
+				#
+				THE pp
+				    =>
+				    {   pp.put "\n\n\n(Following printed by src/lib/compiler/back/top/main/backend-tophalf-g.pkg.)\n";
+					pp.put "\n\nfatecode form:\n";
+					prettyprint_fatecode::prettyprint_fatecode_function  pp  function;
+					pp.put "\n";
+				    };
+
+				NULL => ();
+			    esac;
+			};
+		    #
+		    fun wff (f, s)                  #  "wff" == "well formed formula" 
+			=
+			if (not (anormcode_is_well_formed  f))
+			    print ("\nAfter " + s + " CODE NOT WELL FORMED\n");
+			fi;
+
+		    # f: program		highcode code
+		    # fifi: program opt	inlinable approximation of f
+		    # fk: highcodekind	what kind of highcode variant this is
+		    # l: String	        last phase through which it went
+		    #
+		    # Our phase sequence here is controlled by 'anormcode_passes' in:
+		    #
+		    #    src/lib/compiler/back/top/main/anormcode-sequencer-controls.pkg
+		    #
+		    fun runphase (p, (f, fifi, fk, l))
+			=
+			case (p, fk)
+			    #
+			    (("improve_anormcode" | "improve_anormcode_quickly"), k::DEBRUIJN)
+				=>
+				{   say("\n!! " + p + " cannot be applied to the DeBruijn form !!\n");
+				    (f, fifi, fk, l);
+				};
+
+			    ("improve_anormcode", _)
+				=>
+				(improve_anormcode { eta_split=>FALSE, tfn_inline=>FALSE } f,  fifi, fk, p);
+
+			    ("improve_anormcode+eta", _)
+				=>
+				(improve_anormcode { eta_split=>TRUE, tfn_inline=>FALSE } f,  fifi, fk, p);
+
+			    ("improve_anormcode_quickly", _)
+				=>
+				(improve_anormcode_quickly f,  fifi, fk, p);
+
+			    ("improve_mutually_recursive_anormcode_functions",   _)
+				=>
+				(improve_mutually_recursive_anormcode_functions f,     fifi, fk, p);
+
+			    ("loopify_anormcode",  _)			             =>  (loopify_anormcode                          f,  fifi, fk, p);
+			    ("eliminate_array_bounds_checks_in_anormcode",  _)	     =>  (eliminate_array_bounds_checks_in_anormcode f,  fifi, fk, p);
+			    ("specialize_anormcode_to_least_general_type", k::NAMED) =>  (specialize_anormcode_to_least_general_type f,  fifi, fk, p);
+
+			    ("insert_anormcode_boxing_and_coercion_code",   k::NAMED)	=> (insert_anormcode_boxing_and_coercion_code   f,      fifi, k::WRAP,       p);
+			    ("drop_types_from_anormcode", 		    k::WRAP)	=> (drop_types_from_anormcode 			f,      fifi, k::DROP_TYPES, p);
+
+			    ("deb2names", k::DEBRUIJN)	=> (convert_debruijn_typevars_to_named_typevars_in_anormcode f,   fifi,   k::NAMED,    p);
+			    ("names2deb", k::NAMED)	=> (convert_named_typevars_to_debruijn_typevars_in_anormcode f,   fifi,   k::DEBRUIJN, p);
+
+			    ("convert_free_variables_to_parameters_in_anormcode", _)
+				=>
+				{   f = convert_free_variables_to_parameters_in_anormcode f;
+
+				    if *asc::check   wff (f, p);  fi;
+
+				    (f, fifi, fk, p);
+				};
+
+			    ("do_crossmodule_anormcode_inlining",    k::NAMED)
+				=>
+				{   my (f, fifi) = do_crossmodule_anormcode_inlining (f, cross_module_inlining);
+
+				    (f, fifi, fk, p);
+				};
+
+			    #  pseudo highcode phases
+ 
+			    ("pickle",   _)
+				=>
+				( the (unpickler_junk::unpickle_highcode (.pickle (pickler_junk::pickle_highcode_program (THE f)))),
+				  unpickler_junk::unpickle_highcode (.pickle (pickler_junk::pickle_highcode_program fifi)),
+				  fk,
+				  p
+				);
+
+			    ("collect_anormcode_def_use_info", _)
+				=>
+				(collect_anormcode_def_use_info  f,   fifi,   fk,   p);
+
+			    _ =>
+				{   case (p, fk)
+					#
+					("id", _)	    =>   ();
+					("wellformed", _)   =>   wff (f, l);
+					#
+					("recover_anormcode_type_info", _)
+					    =>
+					    {   my { get_lty, ... }
+						    =
+						    recover_anormcode_type_info (f, fk == k::DROP_TYPES);
+
+						asc::recover := (say o hcf::uniqtype_to_string o get_lty o an::VAR);
+					    };
+
+					("print", _)	
+				    =>
+					    {   say("\n[After " + l + "...]\n\n");
+						pa::print_fundec f; say "\n";
+					    };
+
+					("printsplit", _)
+					    => 
+					    {   say "[ splitted ]\n\n";
+						no::map pa::print_fundec fifi;
+						say "\n";
+					    };
+
+					("check", _)
+					    =>
+					    (check (type_anormcode::check_top, prettyprint_anormcode::print_fundec, "highcode")
+						   (fk == k::DROP_TYPES, l) f);
+
+					_ =>
+					    say("\n!! Unknown or badly scheduled anormcode pass '" + p + "' !!\n");
+				    esac;
+
+				    (f, fifi, fk, l);
+				};
+			esac;
+		    #
+		    fun print (f, fifi, fk, l)
+			=
+			{   pprint_anormcode_program l f;
+			    (f, fifi, fk, l);
+			};
+		    #
+		    fun check' (f, fifi, fk, l)
+			=
+			{   fun c n reified f
+				=
+				check (type_anormcode::check_top, prettyprint_anormcode::print_fundec, n)
+				      (reified, l) (convert_named_typevars_to_debruijn_typevars_in_anormcode f);
+
+			    if (*asc::check)
+				#
+				c "HIGHCODE" (fk == k::DROP_TYPES) f;
+				no::map (c "iHIGHCODE" FALSE) fifi;
+				();
+			    fi;
+
+			    (f, fifi, fk, l);
+			};
+		    #
+		    fun show_history [s]     =>  say (cat ["  raised at:\t", s, "\n"]);
+			show_history (s ! r) =>  { show_history r; say (cat ["\t\t", s, "\n"]);};
+			show_history []      =>  ();
+		    end;
+		    #
+		    fun runphase' (arg as (phase_name, { 1=>f, ... } ))
+			=
+			{   if *asc::print_phases      say( "Phase " + phase_name + "...");   fi;
+
+			    (   (check' o print o runphase) arg)
+			    before
+				{   if *asc::print_phases    say("..." + phase_name + " Done.\n");	fi;
+				    #
+				    to_compile_log ("translate_anormcode_to_execode phase " + phase_name + " done.");
+				};
+			}
+			except x
+			       =
+			       {    say ("\nwhile in " + phase_name + " phase\n");
+				    dump_term (prettyprint_anormcode::print_fundec, "highcode.core", f);
+				    show_history (lib7::exception_history x);
+				    raise exception x;
+			       };
+
+		    to_compile_log ("translate_anormcode_to_execode: *asc::phases == '" + (string::join " " *asc::anormcode_passes));
+
+		    my (highcode, fifi, fk, _)
+			=
+			fold_left runphase'
+			      (highcode, NULL, k::DEBRUIJN, "highcodenm")
+			      (/* "id" ! */ "deb2names" ! *asc::anormcode_passes);
+
+		    # Run any missing passes:
+		    #
+		    my (highcode, fk)
+			=
+			if (fk == k::DEBRUIJN)
+			    #
+			    say "\n!!Forgot deb2names!!\n";
+			    (convert_debruijn_typevars_to_named_typevars_in_anormcode highcode, k::NAMED);
+			else
+			    (highcode, fk);
+			fi;
+
+		    my (highcode, fk)
+			=
+			if (fk == k::NAMED)
+			    #
+			    say "\n!!Forgot wrap!!\n";
+			    #	
+			    (insert_anormcode_boxing_and_coercion_code highcode, k::WRAP);
+			else
+			    (highcode, fk);
+			fi;
+
+		    my (highcode, fk)
+			=
+			if (fk == k::WRAP)
+			    #
+			    say "\n!!Forgot drop_types_from_anormcode!!\n";
+			    (drop_types_from_anormcode highcode, k::DROP_TYPES);
+			else
+			    (highcode, fk);
+			fi;
+
+		    # Finish up with fatecode 
+		    #
+		    my (new_code_segment, bytecodes_to_regenerate_literals_vector)
+			= 
+			{   function =  translate_anormcode_to_fatecode  highcode;
+
+			    pprint_fatecode_expression "translate_anormcode_to_fatecode" function;
+
+			    # Running this on mythryl.lex.pkg takes MINUTES -- must be
+			    # an O(N**2) performance bug or such -- so I've commented
+			    # out the call for now. -- 2010-09-08 CrT
+			    #	
+#			    maybe_prettyprint_fatecode  function;
+
+
+			    function =   (   pprint_fatecode_expression "fatecode_preimprover_transform"
+                                             o
+                                             fatecode_preimprover_transform
+                                         )
+                                         function;
+
+			    function =   run_optional_fatecode_improvers (function, NULL, FALSE);	# Despite the name, before returning this pass always runs   rup::replace_unlimited_precision_int_ops_in_fatecode
+
+			    pprint_fatecode_expression
+				"optional_fatecode_improvers"
+				function;
+
+			    (split_off_fatecode_literals  function)
+				->
+			        (function, literals);
+				
+			    # Generate the literals bytecode program
+			    # which will eventually be interpreted by
+			    #
+			    #     src/c/cleaner/make-package-literals-via-bytecode-interpreter.c
+			    #	
+			    bytecodes_to_regenerate_literals_vector =   generate_literals_bytecode_vector  literals;
+
+			    pprint_fatecode_expression
+				"optional_fatecode_improvers-code"
+				function;
+			    #
+
+			    case (fin::fatecode_inlining  function)
+				#
+				[ code_segment ]
+				    =>
+				    ( gen code_segment,
+				      bytecodes_to_regenerate_literals_vector
+				    );
+
+				[] => bug "unexpected case on gen in translate_anormcode_to_execode";
+			    esac
+			    where
+				fun gen fx
+				    = 
+				    {   fx =    (   pprint_fatecode_expression "make_fatecode_closures"
+						    o
+						    make_fatecode_closures
+						)
+						fx;
+
+					carg =   fatecode_globalfix  fx;
+
+					carg =   spill_fatecode_registers  carg;
+
+					(pick_fatecode_funs_for_heaplimit_checks  carg)
+					    ->
+					    (carg, limits);
+
+
+					# The following call is where runtime flow of control
+					# passes from the machine-independent  FLINT-derived backend
+					# tophalf to the machine-dependent MLRISC-derived backend
+					# lowhalf:
+
+					entrypoint_thunk				# Evaluates to entrypoint offset in machinecode bytevector. (In practice this is currently always zero.)
+					    =
+					    translate_fatecode_to_execode		# translate_fatecode_to_execode	def in     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+					      {
+						fatecode_functions => carg,
+						limits,
+						err,
+						source_name,
+						per_compile_info
+					      };
+
+					harvest_code_segment  entrypoint_thunk;		# harvest_code_segment		def in    src/lib/compiler/back/low/main/pwrpc32/backend-pwrpc32.pkg
+											# harvest_code_segment		def in    src/lib/compiler/back/low/main/sparc32/backend-sparc32.pkg
+											# harvest_code_segment		def in    src/lib/compiler/back/low/main/intel32/backend-intel32-g.pkg
+				    };
+			    end;
+			};
+
+		    mapped_fifi
+			=
+			no::map convert_named_typevars_to_debruijn_typevars_in_anormcode fifi;
+
+		    ( { code_segment=>new_code_segment, bytecodes_to_regenerate_literals_vector },
+		      mapped_fifi
+		    );
+		};                                            #  function translate_anormcode_to_execode 
+
+	    translate_anormcode_to_execode
+		=
+		phase
+		    "highcode 050 translate_anormcode_to_execode"
+		    translate_anormcode_to_execode;
+
+	end;						# stipulate
+    };							# package backend_tophalf_g 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+## COPYRIGHT (c) 1998 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

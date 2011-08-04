@@ -1,1 +1,1 @@
-..\..\bin\make7 Ml-Burg.make6 main.main ml-burg
+..\..\bin\makelib mythryl-burg.lib main.main mythryl-burg

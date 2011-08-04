@@ -1,0 +1,104 @@
+// sendbuf.c
+
+
+#include "../../config.h"
+
+#include <errno.h>
+#include <ctype.h>
+#include <unistd.h>
+#include <stdio.h>
+
+#include "sockets-osdep.h"
+#include INCLUDE_SOCKET_H
+#include "runtime-base.h"
+#include "runtime-values.h"
+#include "lib7-c.h"
+#include "cfun-proto-list.h"
+
+#include "print-if.h"
+#include "hexdump-if.h"
+
+
+/*
+###         "Railroad carriages are pulled at the enormous speed
+###          of fifteen miles per hour by engines which,
+###          in addition to endangering life and limb of passengers,
+###          roar and snort their way through the countryside,
+###          setting fire to the crops, scaring the livestock,
+###          and frightening women and children.
+###
+###         "The Almighty certainly never intended that
+###          people should travel at such break-neck speed."
+### 
+###                -- President Martin Van Buren, 1829
+*/
+
+
+
+// One of the library bindings exported via
+//     src/c/lib/socket/cfun-list.h
+// and thence
+//     src/c/lib/socket/libmythryl-socket.c
+
+
+
+Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
+    //==================
+    //
+    // Mythryl type:
+    //     ( Int,	    # socket fd
+    //       Wy8Vector,     # byte vector
+    //       Int,           # start offset
+    //       Int,           # vector length (end offset)
+    //       Bool,          # don't-route flag
+    //       Bool           # default-oob flag
+    //     )
+    //     ->
+    //     Int
+    //
+    // Send data from the buffer; bytes is either a rw_unt8_vector.Rw_Vector, or
+    // a unt8_vector.vector.  The arguments are: socket, data buffer, start
+    // position, number of bytes, OOB flag, and don't_route flag.
+    //
+    // This fn gets bound as   send_v, send_a   in:
+    //
+    //     src/lib/std/src/socket/socket-guts.pkg
+
+
+    int   socket    = GET_TUPLE_SLOT_AS_INT(                   arg, 0);
+    Val   buf       = GET_TUPLE_SLOT_AS_VAL(                      arg, 1);
+    char* data      = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT(arg, 2);
+    int   nbytes    = GET_TUPLE_SLOT_AS_INT(                   arg, 3);
+    Val   oob       = GET_TUPLE_SLOT_AS_VAL(                      arg, 4);
+    Val   dontroute = GET_TUPLE_SLOT_AS_VAL(                      arg, 5);
+
+    // Compute flags parameter:
+    //
+    int flgs = 0;
+    if (oob       == HEAP_TRUE) flgs |= MSG_OOB;
+    if (dontroute == HEAP_TRUE) flgs |= MSG_DONTROUTE;
+
+    print_if(   "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n", socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE" );
+    hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)data, nbytes );
+
+    errno = 0;
+
+    {   int n;
+
+/*      do { */	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+
+            n = send (socket, data, nbytes, flgs);
+
+/*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+
+        print_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
+
+        CHECK_RETURN (task, n);
+    }
+}
+
+
+// COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// released under Gnu Public Licence version 3.
+

@@ -1,0 +1,1174 @@
+## specialize-anormcode-to-least-general-type.pkg 	"specialize.pkg" in SML/NJ
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+# This is one of the A-Normal Form compiler passes --
+# for context see the comments in
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+#
+
+# minimal type derivation, type specialization,  and lifting of
+# package access (not supported yet) and type application
+
+
+
+#   "The type inference algorithm is designed to find the most
+#    general types for expressions.  This is good for programming,
+#    but regarding efficiency this often introduced unnecessary
+#    generality, so this phase instead specializes expressions
+#    to their least general type."
+#
+#                   -- Stefan Monnier, "Principled Compilation and Scavanging"
+
+
+
+
+
+###        "Quality isn't something you lay
+###         on top of subjects and objects
+###         like tinsel on a Christmas tree."
+###
+###                     -- Robert Pirsig
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Specialize_Anormcode_To_Least_General_Type {
+	#
+	specialize_anormcode_to_least_general_type
+	    :
+	    acf::Function  ->  acf::Function;
+    };
+end;
+
+
+stipulate
+    package acf =  anormcode_form;					# anormcode_form				is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package di  =  debruijn_index;					# debruijn_index				is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package hcf =  highcode_form;					# highcode_form					is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hct =  highcode_type;					# highcode_type					is from   src/lib/compiler/back/top/highcode/highcode-type.pkg
+    package hcv =  highcode_var;					# highcode_var					is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package hut =  highcode_uniq_types;					# highcode_uniq_types				is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package iht =  int_hashtable;					# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package m2m =  convert_monoarg_to_multiarg_anormcode;		# convert_monoarg_to_multiarg_anormcode		is from   src/lib/compiler/back/top/lambdacode/convert-monoarg-to-multiarg-anormcode.pkg
+    package hbt =  highcode_basetypes;					# highcode_basetypes				is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+    package rat =  recover_anormcode_type_info;				# recover_anormcode_type_info			is from   src/lib/compiler/back/top/improve/recover-anormcode-type-info.pkg
+herein
+
+    package   specialize_anormcode_to_least_general_type
+    : (weak)  Specialize_Anormcode_To_Least_General_Type		# Specialize_Anormcode_To_Least_General_Type	is from   src/lib/compiler/back/top/improve/specialize-anormcode-to-least-general-type.pkg
+    {
+	say = control_print::say;
+
+	fun bug s
+            =
+            error_message::impossible ("SpecializeNvar: " + s);
+
+	fun make_var _
+            =
+            highcode_var::make_highcode_variable();
+
+	ident =   fn le =   (le:  acf::Expression);
+
+
+	tk_tbx = hcf::boxedtype_uniqkind;		# The special boxed Highcode_Kind 
+	tk_tmn = hcf::plaintype_uniqkind;
+
+	same_uniqkind
+            =
+            hcf::same_uniqkind;
+
+
+	# Checking the equivalence of two Type sequences 
+	#
+	same_uniqtyp
+            =
+            hcf::same_uniqtyp;
+
+	fun tcs_eqv (xs, ys)
+	    = 
+	    teq (xs, ys)
+	    where 
+		fun teq ([],[])
+                        =>
+                        TRUE;
+
+		    teq (a ! r, b ! s)
+                        =>
+                        same_uniqtyp (a, b)
+                            ??   teq (r, s)
+                            ::   FALSE;
+
+		    teq _ => bug "unexpected cases in tcs_eqv";
+		end;
+	    end;
+
+	# Accounting functions; how many functions have been specialized 
+	#
+	fun make_click ()
+	    = 
+	    (click, num_click)
+            where
+	        x = REF 0;
+
+		fun click     () =  (x := *x + 1);
+		fun num_click () =  *x;
+	    end;
+
+	# ***************************************************************************
+	#                   UTILITY FUNCTIONS FOR KIND AND TYPE BOUNDS              *
+	# ***************************************************************************
+
+
+	# Bnd is a lattice on the type hierarchy,
+        # used to infer minimum type bounds.
+	# Right now, we only deal with first-order kinds.
+	# All higher-order kinds will be assigned KTOP.
+	#
+	Bound 
+	  = KBOX
+	  | KTOP
+	  | TBND  hut::Uniqtyp
+          ;
+
+	Bounds
+            =
+            List( Bound );
+
+	# * THE FOLLOWING FUNCTION IS NOT FULLY DEFINED 	XXX BUGGO FIXME
+	#
+	fun k_bnd kenv tc
+	    = 
+	    if (hcf::uniqtyp_is_debruijn_typevar tc )
+
+		my (i, j)  = hcf::unpack_debruijn_typevar_uniqtyp tc;
+
+		my (_, ks) = list::nth (kenv, i - 1) 
+			     except _ =  bug "unexpected case A in kBnd";
+
+		my (_, k)  = list::nth (ks, j)
+			     except _ =  bug "unexpected case B in kBnd";
+
+		if (same_uniqkind (tk_tbx, k))   KBOX;
+		else                                         KTOP;
+		fi;
+
+	    elif (hcf::uniqtyp_is_named_typevar tc)  KTOP;	#  XXX BUGGO FIXME: check the kenv for KBOX 
+	    elif (hcf::uniqtyp_is_basetype tc) 
+
+		p = hcf::unpack_basetype_uniqtyp tc;
+
+		if (hbt::basetype_is_unboxed p)   KTOP;
+		else                              KBOX;
+		fi;
+	    else
+		KBOX;
+	    fi;
+
+	fun km_bnd kenv (tc, KTOP  ) =>  KTOP;
+	    km_bnd kenv (tc, KBOX  ) =>  k_bnd kenv tc;
+	    km_bnd kenv (tc, TBND _) =>  bug "unexpected cases in kmBnd";
+	end;
+
+	fun t_bnd kenv tc
+            =
+            TBND tc;
+
+	fun tm_bnd kenv (tc, KTOP) => KTOP;
+	    tm_bnd kenv (tc, KBOX) => k_bnd kenv tc;
+
+	    tm_bnd kenv (tc, x as TBND t)
+                => 
+	        same_uniqtyp (tc, t)
+                    ??   x
+                    ::   km_bnd kenv (tc, k_bnd kenv t);
+        end;
+
+
+	Spkind 
+	  = FULL 
+	  | PART  List( Bool )		#  filter indicator; which one is gone 
+	  ;
+
+	Spinfo
+	  = NOSP
+	  | NARROW  List ((hcv::Variable, hut::Uniqkind))
+	  | PARTSP  { ntvks: List( (hcv::Variable, hut::Uniqkind) ), nts: List( hut::Uniqtyp ), masks: List( Bool ) }
+	  | FULLSP  (List( hut::Uniqtyp ), List( hcv::Variable ))
+          ;
+
+
+	# Given a list of default kinds, and a list
+        # of bound information, a depth,  and the
+        #  ( List (Uniqtyp),  List (hcv::Variable) ) list info
+	# in the itable, returns the the spinfo.
+	#
+	fun bound_fn (oks, bounds, d, info)
+	  = 
+	  h (oks, bounds, 0, [], [], TRUE)
+	  where
+
+	      # Pass 1.
+
+	      fun g ((TBND _) ! bs, r, z) =>  g (bs, FALSE ! r, z);
+		  g (_ ! bs, r, _)        =>  g (bs, TRUE ! r, FALSE);
+		  g ([], r, z)            =>  if z  FULL; else PART (reverse r);fi;
+	      end;
+
+	      spk = g (bounds, [], TRUE);
+
+	      adj = case spk
+                        FULL => (fn tc = tc);
+			_    => (fn tc = hcf::change_depth_of_uniqtyp (tc, d, di::next d));
+                    esac;
+		    #  if not full-specializations, we push depth one-level down 
+
+
+	      # Pass 2.
+
+	      n = length oks;
+
+	      # Invariants: n = length bounds = length (the-resulting-ts) 
+	      #
+	      fun h ([], [], i, [], ts, _)
+		      => 
+		      case info
+                          [(_, xs)] =>  FULLSP (reverse ts, xs);
+			  _         =>  bug "unexpected case in bndGen 3";
+		      esac;
+
+		  h([], [], i, ks, ts, b)
+		      => 
+		      if b           NOSP;
+		      elif (i == n ) NARROW (reverse ks); 
+		      else           case spk
+					 PART masks =>  PARTSP { ntvks=>reverse ks, nts=>reverse ts, masks };
+					 _          =>  bug "unexpected case 1 in bndGen";
+				     esac;
+		      fi;
+
+		  h (ok ! oks, (TBND tc) ! bs, i, ks, ts, b)
+		      => 
+		      h (oks, bs, i, ks, (adj tc) ! ts, FALSE);
+
+		  h((ok as (tv, _)) ! oks, KTOP ! bs, i, ks, ts, b)
+		      => 
+		      h (oks, bs, i+1, ok ! ks, (hcf::make_named_typevar_uniqtyp tv) ! ts, b);
+
+		  h((tv, ok) ! oks, KBOX ! bs, i, ks, ts, b)
+		      => 
+		      {   #  nk = if same_uniqkind (tk_tbx, ok) then ok else tk_tbx 
+
+			  my (nk, b)
+                              = 
+			      same_uniqkind (tk_tmn, ok)
+                                  ??  (tk_tbx, FALSE)
+                                  ::  (ok, b);
+
+		         h (oks, bs, i+1, (tv, nk) ! ks, (hcf::make_named_typevar_uniqtyp tv) ! ts, b);
+		     };
+
+		  h _ => bug "unexpected cases 2 in bndGen";
+	      end;
+	  end;
+
+
+	# **************************************************************************
+	#                  UTILITY FUNCTIONS FOR INFO DICTIONARIES                 *
+	# **************************************************************************
+
+
+	# We maintain a table mapping each
+        # hcv::Variable to its definition depth,
+	# its type, and a list of its uses,
+        # indexed by its specific type instances. 
+
+	exception ITABLE;
+	exception DTABLE;
+
+	Dinfo 
+	  = ESCAPE
+	  | NOCSTR
+	  | CSTR  Bounds
+          ;
+
+#	Depth  = di::Debruijn_Depth;
+	Info   = List ( (List( hut::Uniqtyp ),  List( hcv::Variable)) );
+	Itable = iht::Hashtable( Info );   #  hcv::Variable -> (hct::Uniqtyp List * hcv::Variable) 
+	Dtable = iht::Hashtable ((di::Debruijn_Depth, Dinfo)); 
+
+	Info_Dictionary = IENV   (List( (Itable, List( (hcv::Variable, hut::Uniqkind) )) ), Dtable); 
+
+	# **************************************************************************
+	#              UTILITY FUNCTIONS FOR TYPE SPECIALIZATIONS                  *
+	# **************************************************************************
+	# * initializing a new info dictionary:  Void -> infoDict 
+	#
+	fun init_info_dictionary ()
+            = 
+	    {   my itable:  Itable = iht::make_hashtable  { size_hint => 32,  not_found_exception => ITABLE };  
+	        my dtable:  Dtable = iht::make_hashtable  { size_hint => 32,  not_found_exception => DTABLE };
+		#
+	        IENV ([(itable,[])], dtable);
+	    };
+
+	# Register a definition of sth
+        # interesting into the info dictionary 
+	#
+	fun typechecked_package_dtable (IENV(_, dtable), v, ddinfo)
+            =
+	    iht::set dtable (v, ddinfo);
+
+	# Mark an hcv::Variable
+        # in the dtable as escape:
+	#
+	fun esc_dtable (IENV(_, dtable), v)
+            = 
+	    case (iht::find dtable v)
+		THE (_, ESCAPE) => ();
+		THE (d, _)      => iht::set dtable (v, (d, ESCAPE));
+		NULL            => ();
+	    esac;
+
+
+	# Register a dtable entry; modify the
+        # least upper bound of a particular
+	# type naming; notice I am only moving
+        # kind info upwards, not type info,
+	# I could move type info upwards though.
+	#
+	fun reg_dtable (IENV (kenv, dtable), v, infos)
+            = 
+	    {   my (dd, dinfo)
+                    = 
+		    (iht::get  dtable  v)
+		    except
+		        _ = bug "unexpected cases in regDtable";
+
+	        case dinfo 
+		     ESCAPE => ();
+		     _ => 
+		       {  fun h ((ts, _), ESCAPE) => ESCAPE;
+			      h ((ts, _), NOCSTR) => CSTR (map (k_bnd kenv) ts);
+
+			      h ((ts, _), CSTR bnds)
+                                  => 
+				  {   nbnds = paired_lists::map (km_bnd kenv) (ts, bnds);
+				      CSTR nbnds;
+				  };
+                          end;
+
+			  ndinfo = fold_right h dinfo infos;
+
+			  iht::set dtable (v, (dd, ndinfo));
+		       };
+		esac;
+	    };			# fun reg_dtable 
+
+
+	# Calculate the least upper bound of all type instances;
+	# this should take v out of the current dtable ! 
+        #
+	fun sum_dtable (IENV (kenv, dtable), v, infos)
+            = 
+	    {   my (dd, dinfo)
+		    = 
+		    (iht::get  dtable  v)
+		    except
+			_ = bug "unexpected cases in sum_dtable";
+
+	       case dinfo
+
+		   ESCAPE
+                       =>
+                       (dd, ESCAPE);
+
+		   _   => 
+			 {   fun h ((ts, _), ESCAPE) => ESCAPE;
+				 h ((ts, _), NOCSTR) => CSTR (map (t_bnd kenv) ts);
+
+				 h ((ts, _), CSTR bnds)
+                                     => 
+				     {   nbnds = paired_lists::map (tm_bnd kenv) (ts, bnds);
+				         CSTR nbnds;
+				     };
+                             end;
+
+			     ndinfo = fold_right h dinfo infos;
+
+			     (dd, ndinfo);
+			 };
+		 esac;
+	     };
+
+	# Find out the set of nvars
+        # in a list of typs:
+	# 
+	fun tcs_nvars typs
+            =
+            sorted_list::foldmerge (map  hut::get_free_named_variables_in_uniqtyp  typs);
+
+	# Get and add a new type
+        # instance into the itable:
+        #
+	fun get_itable (IENV (itabs, dtab), d, v, ts, get_lty, nv_depth)
+            = 
+	    {   my (dd, _)
+                    = 
+		    (iht::get  dtab  v)
+		    except _ =  bug "unexpected cases in get_itable";
+
+		nd = list::fold_right int::max dd (map nv_depth (tcs_nvars ts));
+
+		my (itab, _) = ((list::nth (itabs, d-nd))
+			       except
+				   _ = bug "unexpected itables in lookUpItable");
+
+		nts = map (fn t = hcf::change_depth_of_uniqtyp (t, d, nd))
+                          ts;
+
+		xi  = the_else (iht::find itab v, []);
+
+		fun h ((ots, xs) ! r)
+			=>
+			if (tcs_eqv (ots, nts))  (map acf::VAR xs);
+			else                     h r;
+			fi;
+
+		    h [] =>
+			{   oldt = get_lty (acf::VAR v);     # ** old type is ok **
+			    bb = hcf::apply_typeagnostic_type_to_arglist (oldt, ts);
+			    nvs =  map make_var  bb;
+			    iht::set itab (v, (nts, nvs) ! xi);
+			    map acf::VAR nvs;
+			};
+		end;
+
+		h xi;
+	    };
+
+	# Push a new layer of type abstraction:  infoDict -> infoDict 
+	#
+	fun push_itable (IENV (itables, dtable), tvks)
+            = 
+	    {   my nt:  Itable
+                    =
+                    iht::make_hashtable  { size_hint => 32,  not_found_exception => ITABLE };
+
+	        (IENV((nt, tvks) ! itables, dtable));
+	    };
+
+	# Pop off a layer when exiting a
+        # type abstaction, adjust the
+        # dtable properly, and generate the
+        # proper headers: infoDict -> (Expression -> Expression)
+	#
+	fun pop_itable (IENV([], _))
+                =>
+	        bug "unexpected empty information dictionary in popItable";
+
+	    pop_itable (ienv as IENV((nt, _) ! _, _))
+                => 
+	        {   infos = iht::keyvals_list nt;
+
+		    fun h ((v, info), header)
+			= 
+			{   reg_dtable (ienv, v, info);
+
+			    fun g ((ts, xs), e)
+                                =
+                                acf::LET (xs, acf::APPLY_TYPEFUN (acf::VAR v, ts), e);
+
+			    fn e =  fold_right g (header e) info;
+			};
+
+		    fold_right h ident infos; 
+	      };
+        end;
+
+	# Check out a escaped variable from the info dictionary, build the header properly 
+	#
+	fun check_out_esc (IENV([], _), v)
+                =>
+	        bug "unexpected empty information dictionary in chkOut";
+
+	    check_out_esc (ienv as IENV((nt, _) ! _, _), v)
+                => 
+	        {   info = the_else (iht::find nt v, []);
+
+		    fun g ((ts, xs), e)
+                        =
+                        acf::LET (xs, acf::APPLY_TYPEFUN (acf::VAR v, ts), e);
+
+		    header =  fn e = fold_right g e info;
+
+		    # Remove this v so it won't
+                    # be considered again 
+		    #
+		    ignore (iht::remove nt v)
+                           except _ = ();
+
+		    header;
+	        };
+        end;
+
+	fun check_out_escs (ienv, vs)
+            = 
+	    fold_right
+                (fn (v, h) =  (check_out_esc (ienv, v)) o h)
+                ident
+                vs;
+
+	# Check out a regular variable from the info dictionary, build the header
+	# properly, of course, adjust the corresponding dtable entry.
+	#
+	fun check_out_norm (IENV([], _), v, oks, d)
+                =>
+	        bug "unexpected empty information dictionary in chkOut";
+
+	    check_out_norm (ienv as IENV((nt, _) ! _, dtable), v, oks, d)
+                => 
+		{   info = the_else (iht::find nt v, []);
+
+		    my (_, dinfo) = sum_dtable (ienv, v, info);
+
+		    spinfo = 
+		      case dinfo
+
+			  ESCAPE => NOSP;
+
+			  NOCSTR => # Must be a dead function, let's double check.
+			      case info
+                                  [] => NOSP;
+				  _  => bug "unexpected cases in chkOutNorm";
+			      esac;
+
+			  CSTR bounds => bound_fn (oks, bounds, d, info);
+                      esac;
+
+		    fun make_header ((ts, xs), e)
+                        = 
+			case spinfo
+			    #
+			    FULLSP _ => e;
+
+			    PARTSP { masks, ... }
+				=> 
+				{   fun h ([], [], z)
+					    =>
+					    reverse z;
+
+					h (a ! r, b ! s, z)
+					    =>
+					    if b  h (r, s, a ! z); else h (r, s, z);fi;
+
+					h _ => bug "unexpected cases in tapp";
+				    end;
+
+				    acf::LET (xs, acf::APPLY_TYPEFUN (acf::VAR v, h (ts, masks, [])), e);
+				};
+
+			     _ => acf::LET (xs, acf::APPLY_TYPEFUN (acf::VAR v, ts), e);
+			esac;
+
+		    header =  fn e = fold_right make_header e info;
+
+		    # Don't consider it again... 
+		    #
+		    iht::remove nt v
+                    except
+                        _ = [];
+
+		    (header, spinfo);
+		};
+	end;
+
+	/****************************************************************************
+	 *                         MAIN FUNCTION                                    *
+	 ****************************************************************************/
+
+	# The substitution intmapf: named variable -> Uniqtyp
+	#
+	Smap = List( (hcv::Variable, hut::Uniqtyp) );
+
+	initsmap = [];
+
+	fun mergesmaps (s1: Smap as h1 ! t1, s2: Smap as h2 ! t2)
+                =>
+	        case (int::compare (#1 h1, #1 h2))   
+		    #
+		    LESS    => h1 ! (mergesmaps (t1, s2));
+		    GREATER => h2 ! (mergesmaps (s1, t2));
+		    EQUAL   => h1 ! (mergesmaps (t1, t2));  #  Drop h2 
+		esac;
+
+	    mergesmaps (s1, []) => s1;
+	    mergesmaps ([], s2) => s2;
+        end;
+
+	fun addsmap (tvks, ts, smap)
+            = 
+	    {   fun select ((tvar, type_kind), typ)
+                    =
+                    (tvar, typ);
+
+		tvtcs = paired_lists::map select (tvks, ts);
+
+		fun cmp ((tvar1, _), (tvar2, _))
+                    =
+                    tvar1 > tvar2;
+
+		tvtcs = list_mergesort::sort cmp tvtcs;
+
+		mergesmaps (tvtcs, smap);
+	    };
+
+	# **** end of the substitution intmapf hack ********************
+
+	# **** the nvar-depth intmapf: named variable -> di::depth ********
+
+	Nmap = int_binary_map::Map( di::Debruijn_Depth );
+
+	initnmap = int_binary_map::empty;
+
+	fun addnmap (tvks, d, nmap)
+            = 
+	    h (tvks, nmap)
+            where
+	        fun h ((tv, _) ! xs, nmap)
+                        => 
+		        h (xs, int_binary_map::set (nmap, tv, d));
+
+		    h ([], nmap)
+                        =>
+                        nmap;
+                end;
+	    end; 
+
+	fun looknmap nmap nvar
+	    = 
+	    case (int_binary_map::get (nmap, nvar))
+		THE d => d;
+		NULL  => di::top;
+	    esac;
+	    #   Bug "unexpected case in looknmap") 
+
+	# **** end of the substitution intmapf hack ********************
+
+	fun phase x = compile_statistics::do_phase (compile_statistics::make_phase x);
+
+	recover_anormcode_type_info
+	    =
+	    /* phase "Compiler 053 recover" */ rat::recover_anormcode_type_info;
+
+	fun specialize_anormcode_to_least_general_type   fdec
+            = 
+	    {   my (click, num_click)
+                    =
+                    make_click ();
+
+		# In pass1, we calculate the old type of each variables in the highcode
+		# expression. The reason we can't merge this with the main pass is
+		# that the main pass traverse the code in different order.
+		# There must be a simpler way, but I didn't find one yet (ZHONG).
+		#
+		(recover_anormcode_type_info (fdec, FALSE))
+		    ->
+		    { get_lty, clean_up, ... };
+                    
+
+		tc_nvar_subst =   hcf::tc_nvar_subst_fn();
+		lt_nvar_subst =   hcf::lt_nvar_subst_fn();
+
+		fun transform
+		      ( ienv,
+			d,
+			nmap,
+			smap,
+			did_flat
+		      )
+		    = 
+		    loop
+		    where
+			# transform:  ( InfoDict,
+			#	        di::Debruijn_Depth,				# Depth of resulting expression.
+			#		Convert( Uniqtype ),		# Encodes type translation. 
+			#		Convert( Uniqtyp ),		# Encodes type translation. 
+			#		Smap,					# Substitution map.
+			#		Bool					# Do we need to flatten the return results of the current function?
+			#	      )
+			#             ->
+			#             (Expression -> Expression)
+			#             where
+			#	             Convert(X) = di::Debruijn_Depth -> X -> X
+
+		        tcf = tc_nvar_subst smap;
+			ltf = lt_nvar_subst smap;
+
+			nv_depth = looknmap nmap;
+
+			# We chkin and chkout typeagnostic values only 
+			#
+			fun chkin   v  = typechecked_package_dtable (ienv, v, (d, ESCAPE));
+			fun chkout  v  = check_out_esc (ienv, v);
+
+			fun chkins  vs = apply chkin vs;
+			fun chkouts vs = check_out_escs (ienv, vs);
+
+			# lpvar:  value -> value 
+			#
+			fun lpvar (u as (acf::VAR v))
+                                =>
+                                {   esc_dtable (ienv, v);
+                                    u;
+                                };
+
+			    lpvar u
+                                =>
+                                u;
+                        end;
+
+			# lpvars:  List( value ) -> List( value )
+			#
+			fun lpvars vs
+                            =
+                            map lpvar vs;
+
+			# lpprim:  baseop -> baseop 
+			#
+			fun lpprim (d, po, lt, ts)
+                            =
+                            (d, po, ltf lt, map tcf ts);
+
+			# lpdc:  dcon -> dcon 
+			#
+			fun lpdc (s, representation, lt)
+                            =
+                            (s, representation, ltf lt);
+
+			# lplet:  (hcv::Variable, Expression) -> (Expression -> Expression) 
+			#
+			fun lplet (v, e, fate)
+			    = 
+			    {   chkin v;
+				ne = loop e;
+				fate ((chkout v) ne);
+			    }
+
+			# lplets:  (List(hcv::Variable), Expression) -> (Expression -> Expression) 
+			#
+			also
+			fun lplets (vs, e, fate)
+			    = 
+			    {   chkins vs;
+				ne = loop e;
+				fate ((chkouts vs) ne);
+			    }
+
+			# lpcon:  (con, Expression) -> (con, Expression)
+			#
+			also
+			fun lpcon (acf::VAL_CASETAG (dc, ts, v), e)
+				=> 
+				(acf::VAL_CASETAG (lpdc dc, map tcf ts, v), lplet (v, e, fn x = x));
+
+			    lpcon (c, e)
+				=>
+				(c, loop e);
+			end 
+
+			# lpfd:  fundec -> fundec *** requires REWORK *** 		XXX BUGGO FIXME
+			#
+			also
+			fun lpfd (fk as { call_as=> acf::CALL_AS_GENERIC_PACKAGE, ... }, f, vts, be)
+				=> 
+				( fk,
+                                  f,
+                                  map (fn (v, t) = (v, ltf t)) vts, 
+				  lplets (map #1 vts, be, fn e = e)
+                                );
+
+			    lpfd (fk as { call_as => acf::CALL_AS_FUNCTION calling_convention, loop_info, all_callers_known, inlining_hint }, f, vts, be)
+				=> 
+				{   # First, get the original arg and result types of f:
+				    #
+				    (hcf::unpack_arrow_uniqtype (get_lty (acf::VAR f)))
+					->
+					(calling_convention', atys, rtys);
+					
+
+				    # Sanity check: (Sld turn this off later):
+				    #
+				    my { arg_is_raw, body_is_raw }
+					= 
+					if (hcf::same_callnotes (calling_convention, calling_convention'))
+					    #
+					    hcf::unpack_calling_convention  calling_convention;
+					else
+					    bug "unexpected code in lpfd";
+					fi;
+
+				    # Get the newly specialized types:
+				    #
+				    my (natys, nrtys)
+					=
+					(map ltf atys, map ltf rtys);
+
+				    # Do we need flatten the arguments and the results?
+				    # 
+				    my ((arg_is_raw, arg_ltys, _), unflatten)
+					= 
+					m2m::v_unflatten (natys, arg_is_raw);
+
+				    my (body_is_raw, body_ltys, ndid_flat)
+					=
+					m2m::t_flatten (nrtys, body_is_raw);
+
+				    # Process the function body:
+				    #
+				    nbe = if (ndid_flat == did_flat)  loop be;
+					  else                        transform (ienv, d, nmap, smap, ndid_flat) be;
+					  fi;
+
+				    my (arg_lvs, nnbe)
+					=
+					unflatten (map #1 vts, nbe);
+
+				    # Fix the loop_info information:
+				    #
+				    nisrec = case loop_info
+						 #
+						 THE _ => THE (body_ltys, acf::OTHER_LOOP);
+						 NULL  => NULL;
+					     esac;
+
+				    nfixed = hcf::update_calling_convention (calling_convention, { arg_is_raw, body_is_raw });
+
+				    nfk = { loop_info =>  nisrec,
+					    call_as   =>  acf::CALL_AS_FUNCTION  nfixed,
+					    #
+					    all_callers_known,
+					    inlining_hint
+					  };
+
+				    (nfk, f, paired_lists::zip (arg_lvs, arg_ltys), nnbe);
+				};
+			end 
+
+			# lptf:  tfundec * Expression -> Expression *** Invariant: ne2 has been processed 
+			#
+			also
+			fun lptf ((tfk, v, tvks, e1), ne2)
+			    = 
+			    {   nienv  = push_itable (ienv, tvks);
+				nd     = di::next d;
+				nnmap  = addnmap (tvks, nd, nmap);
+				ne1    = transform (nienv, nd, nnmap, smap, FALSE) e1;
+				header = pop_itable nienv;
+				#
+				acf::TYPEFUN((tfk, v, tvks, header ne1), ne2);
+			    }
+
+			# loop:  Expression -> Expression 
+			also
+			fun loop le
+			    = 
+			    case le
+				#
+				acf::RET vs
+				    =>
+				    if did_flat
+					#
+					vts = map (ltf o get_lty) vs;
+
+					my ((_, _, ndid_flat), flatten)
+					    =
+					    m2m::v_flatten (vts, FALSE);
+
+					if ndid_flat 
+					    my (nvs, header) = flatten vs;
+					    header (acf::RET nvs);
+					else
+					    acf::RET (lpvars vs);
+					fi;
+
+				    else
+					acf::RET (lpvars vs);
+				    fi;
+
+				acf::LET (vs, e1, e2)
+				    => 
+				    {   # First, get the original types:
+					#
+					vtys = map (ltf o get_lty o acf::VAR) vs;
+
+					# Second, get the newly specialized types:
+					# 
+					my ((_, _, ndid_flat), unflatten)
+					    = 
+					    m2m::v_unflatten (vtys, FALSE);
+					      #  treat the let type as always "cooked" 
+
+				       chkins vs;
+
+				       ne2 = loop e2;
+				       ne2 = (chkouts vs) ne2;
+
+				       my (nvs, ne2)
+					   =
+					   unflatten (vs, ne2);
+
+				       ne1 = if (ndid_flat == did_flat)  loop e1;
+					     else                        transform (ienv, d, nmap, smap, ndid_flat) e1;
+					     fi; 
+
+				       acf::LET (nvs, ne1, ne2);
+				   };
+
+				acf::MUTUALLY_RECURSIVE_FNS (fdecs, e)
+				    =>
+				    acf::MUTUALLY_RECURSIVE_FNS (map lpfd fdecs, loop e);
+
+				acf::APPLY (v, vs)
+				    => 
+				    {   vty = get_lty v;
+
+					if (hcf::uniqtype_is_generic_package vty)
+					    #
+					    acf::APPLY (lpvar v, lpvars vs);
+					else 
+					    # First get the original arg and result types of v 
+					    #
+					    (hcf::unpack_arrow_uniqtype  vty)
+						->
+						(calling_convention, atys, rtys);
+						
+
+					    (hcf::unpack_calling_convention  calling_convention)
+						->
+						{ arg_is_raw, body_is_raw };
+
+
+					    # Get the newly specialized types:
+					    #
+					    (map ltf atys,  map ltf rtys)
+						->
+						(natys, nrtys);
+						
+
+					    my (nvs, hdr1)
+						=
+						(#2 (m2m::v_flatten (natys, arg_is_raw))) vs;
+
+					    hdr2 = 
+						if did_flat
+						    #
+						    ident;
+						else
+						    my ((_, _, ndid_flat), unflatten)
+							= 
+							m2m::v_unflatten (nrtys, body_is_raw);
+
+						    fvs = map make_var nrtys;
+
+						    if ndid_flat 
+							#
+							my (nvs, xe)
+							    = 
+							    unflatten (fvs, acf::RET (map acf::VAR fvs));
+
+							fn le =  acf::LET (nvs, le, xe);
+						    else
+							ident;
+						    fi;
+
+						 fi;
+
+					     hdr1 (acf::APPLY (lpvar v, lpvars nvs));
+					fi;
+				   };
+
+				acf::TYPEFUN ((tfk, v, tvks, e1), e2)
+				    => 
+				    {   typechecked_package_dtable (ienv, v, (d, NOCSTR));
+					ne2 = loop e2; 
+					ks = map #2 tvks;
+					my (hdr2, spinfo) = check_out_norm (ienv, v, tvks, d);  
+					ne2 = hdr2 ne2;
+
+					case spinfo
+					    #
+					    NOSP =>
+						lptf((tfk, v, tvks, e1), ne2);
+
+					    NARROW ntvks
+						=>
+						lptf((tfk, v, ntvks, e1), ne2);
+
+					    PARTSP { ntvks, nts, ... }
+						=>
+						#  Assume nts is already shifted one level down 
+						{   nienv = push_itable (ienv, ntvks);
+						    xd = di::next d;
+						    nnmap = addnmap (ntvks, xd, nmap);
+						    nsmap = addsmap (tvks, nts, smap);
+						    ne1 = transform (nienv, xd, nnmap, nsmap, FALSE) e1;
+						    hdr0 = pop_itable nienv;
+						    acf::TYPEFUN ((tfk, v, ntvks, hdr0 ne1), ne2);
+						};
+
+					    FULLSP (nts, xs)
+						=> 
+						{ 
+						    nnmap = addnmap (tvks, d, nmap);
+						    nsmap = addsmap (tvks, nts, smap);
+
+						    ne1 = transform (ienv, d, nnmap, nsmap, FALSE) e1;
+
+						    click();
+
+                                                    acf::LET (xs, ne1, ne2);
+						};
+					esac;
+				   };
+
+				acf::APPLY_TYPEFUN (u as acf::VAR v, ts)
+				    => 
+				    {   nts = map tcf ts;
+					vs = get_itable (ienv, d, v, nts, get_lty, nv_depth);
+
+					if did_flat  
+					    #
+					    vts = hcf::apply_typeagnostic_type_to_arglist (ltf (get_lty u), nts);
+
+					    my ((_, _, ndid_flat), flatten)
+						= 
+						m2m::v_flatten (vts, FALSE);
+
+					    if ndid_flat 
+						my (nvs, header) = flatten vs;
+						header (acf::RET nvs);
+					    else
+						acf::RET vs;
+					    fi;
+					else
+					    acf::RET vs;
+					fi;
+				   };
+
+				acf::SWITCH (v, csig, cases, opp)
+				    => 
+				    acf::SWITCH
+				      ( lpvar v,
+					csig,
+					map lpcon cases, 
+					case opp
+					    THE e => THE (loop e);
+					    NULL => NULL;
+					esac
+				      );
+
+				acf::CONSTRUCTOR (dc, ts, u, v, e)
+				    => 
+				    lplet (v, e,  fn ne = acf::CONSTRUCTOR (lpdc dc, map tcf ts, lpvar u, v, ne));
+
+				acf::RECORD (rk as acf::RK_VECTOR t, vs, v, e)
+				    => 
+				    lplet (v, e, fn ne = acf::RECORD (acf::RK_VECTOR (tcf t), lpvars vs, v, ne));
+
+				acf::RECORD (rk, vs, v, e)
+				    =>
+				    lplet (v, e, fn ne = acf::RECORD (rk, lpvars vs, v, ne));
+
+				acf::SELECT (u, i, v, e)
+				    => 
+				    lplet (v, e, fn ne = acf::SELECT (lpvar u, i, v, ne));
+
+				acf::RAISE (sv, ts)
+				    => 
+				    {   nts = map ltf ts;
+					nsv = lpvar sv;
+
+					if did_flat 
+					    nnts = #2 (m2m::t_flatten (nts, FALSE));
+					    acf::RAISE (nsv, nnts);
+					else 
+					    acf::RAISE (nsv, nts);
+					fi;
+				   };
+
+				acf::EXCEPT (e, v)
+				    =>
+				    acf::EXCEPT (loop e, lpvar v);
+
+				acf::BRANCH (p, vs, e1, e2)
+				    => 
+				    acf::BRANCH (lpprim p, lpvars vs, loop e1, loop e2);
+
+				acf::BASEOP (p, vs, v, e)
+				    => 
+				    lplet (v, e, fn ne = acf::BASEOP (lpprim p, lpvars vs, v, ne));
+
+				_ => bug "unexpected lexps in loop";
+			    esac;
+		    end;			# fun transform 
+
+
+		case fdec
+		    #
+		     (fk as { call_as=> acf::CALL_AS_GENERIC_PACKAGE, ... }, f, vts, e)
+			 => 
+			 {   ienv = init_info_dictionary();
+
+			     d = di::top;
+
+			     apply (fn (x, _) = typechecked_package_dtable (ienv, x, (d, ESCAPE)))
+                                   vts;
+
+			     ne = transform (ienv, d, initnmap, initsmap, FALSE) e;
+
+			     header = check_out_escs (ienv, map #1 vts);
+
+			     nfdec = (fk, f, vts, header ne) before (clean_up());
+
+			     if (num_click () > 0)
+                                 #  LContract::lcontract
+                                 nfdec;
+			         #  if we did specialize, we run a round of lcontract on the result 
+			     else
+                                 nfdec;
+                             fi;
+			 };
+
+		    _ => bug "non generic package program in specialize";
+	        esac;
+	    };				# fun     specialize_anormcode_to_least_general_type 
+    };					# package specialize_anormcode_to_least_general_type 
+end;					# toplevel stipulate 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

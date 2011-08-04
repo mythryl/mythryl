@@ -1,0 +1,393 @@
+## fsm.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# Deterministic finite-state machines.
+
+
+package   dfa
+: (weak)  Dfa
+{
+    exception SYNTAX_NOT_HANDLED;
+
+    Move = MOVE  (Int, Null_Or( Char ), Int);
+
+    fun compare_char_option (NULL, NULL) => EQUAL;
+	compare_char_option (NULL, THE (c)) => LESS;
+	compare_char_option (THE (c), NULL) => GREATER;
+	compare_char_option (THE (c), THE (c')) => char::compare (c, c');
+    end;
+
+
+    package n= nfa;	# nfa	is from   src/lib/regex/backend/nfa.pkg
+    package int_set = n::int_set;
+
+    package int_set_set
+        = 
+	list_set_g (
+	    Key = int_set::Set;
+	    compare = int_set::compare;
+	);
+
+    package int2set
+        = 
+	list_set_g (
+
+	    Key = (Int, Int);
+
+	    fun compare ((i1, i2), (j1, j2))
+                = 
+	        case (int::compare (i1, j1))
+		    EQUAL => int::compare (i2, j2);
+		    v => v;
+                esac;
+	);
+
+    package move_set
+        = 
+	list_set_g (
+
+	    Key = Move; 
+
+	    fun compare (MOVE (i, c, j), MOVE (i', c', j'))
+                =
+	        case (int::compare (i, i'))
+
+		    EQUAL => case (compare_char_option (c, c')) 
+				 EQUAL => int::compare (j, j');
+				 v => v;
+                             esac;
+
+		    v => v;
+
+                esac;
+	);
+
+    package char_set
+	= 
+	list_set_g (
+
+	    Key = Char;
+	    compare = char::compare;
+	);
+
+    package is = int_set_set;
+    package i = int_set;
+    package i2 = int2set;
+    package m = move_set;
+    package c = char_set;
+    package a2= matrix;			# matrix	is from   src/lib/std/src/matrix.pkg
+    package a= rw_vector;		# rw_vector	is from   src/lib/std/src/rw-vector.pkg
+
+    package map
+        =
+        list_map_g (
+	    Key = int_set::Set;
+	    compare = int_set::compare;
+	);
+
+    # Create sets from lists 
+
+    fun i_list l = i::add_list (i::empty, l);
+    fun m_list l = m::add_list (m::empty, l);
+
+    Dfa = DFA { states:       i::Set,
+		moves:        m::Set,
+		accepting:    i2::Set,
+		table:        a2::Array(    Null_Or(  Int ) ),
+		acc_table:    a::Rw_Vector( Null_Or( Int ) ),
+		start_table:  a::Rw_Vector( Bool )
+              };
+
+
+    fun print (DFA { states, moves, accepting, ... } )
+	= 
+	{   pr   = file::print;
+	    pr_i  = file::print o int::to_string;
+	    pr_i2 = file::print o (fn (i1, i2) => int::to_string i1; end );
+	    pr_c  = file::print o char::to_string;
+
+	    pr ("States: 0 -> ");
+	    pr_i (i::vals_count (states) - 1);
+	    pr "\nAccepting:";
+
+	    i2::apply  (fn k = { pr " "; pr_i2 k;})
+                       accepting;
+
+	    pr "\nMoves\n";
+
+	    m::apply
+
+		fn (MOVE (i, NULL, d))
+		       =>
+		       {   pr " ";
+			   pr_i i;
+			   pr " --@--> ";
+			   pr_i d;
+			   pr "\n";
+		       };
+
+		   (MOVE (i, THE c, d))
+		       =>
+		       {   pr " ";
+			   pr_i i;
+			   pr " --";
+			   pr_c c;
+			   pr "--> ";
+			   pr_i d;
+			   pr "\n";
+		       };
+		end
+
+		moves;
+	};
+
+
+    fun move' moves (i, c)
+	= 
+	case (m::find
+
+                 (fn (MOVE (s1, THE c', s2))
+                         =
+		         (s1==i and c==c')
+                 )
+
+	         moves
+             )
+	  
+	     NULL => NULL;
+	     THE (MOVE (s1, THE c', s2)) => THE s2;
+	esac;
+
+# 	fun move (DFA { moves, ... } ) (i, c) = move' moves (i, c) 
+
+    fun move (DFA { table, ... } ) (i, c)
+	=
+	a2::get (table, i, char::to_int (c)-char::to_int (char::min_char));
+
+    fun accepting' accepting i
+	=
+	i2::fold_right
+
+            (fn ((s, n), NULL)     => if (s==i)   THE n;
+				      else        NULL;
+                                      fi;
+
+		((s, n), THE (n')) => if (s==i)   THE n;
+				      else        THE n';
+                                      fi;
+	     end)
+
+  	     NULL
+
+             accepting;
+
+# 	fun accepting (DFA { accepting, ... } ) i
+#            =
+#            accepting' accepting i 
+
+    fun accepting (DFA { acc_table, ... } ) i
+	=
+	a::get (acc_table, i);
+
+    fun can_start (DFA { start_table, ... } ) c
+	=
+	a::get (start_table, char::to_int (c));
+
+
+    fun build' nfa
+        = 
+	{   move      = n::move nfa;
+	    accepting = n::accepting nfa;
+
+	    start = n::start nfa;
+	    chars = n::chars nfa;
+
+	    fun get_all_chars  ps
+                = 
+		i::fold_left
+		(fn (s, cs) =  c::add_list (cs, chars s))
+		c::empty ps;
+
+	    init_chars = get_all_chars  start;
+
+	    fun get_all_states (ps, c)
+		= 
+		i::fold_left
+		(fn (s, ss) =  i::union (ss, move (s, c)))
+		i::empty ps;
+
+	    fun loop ([], set, moves) => (set, moves);
+
+	        loop (x ! xs, set, moves)
+		    => 
+		    {   cl = get_all_chars (x);
+
+			my (nstack, sdu, ml)
+                            = 
+			    c::fold_left
+				(fn (c, (ns, sd, ml))
+				    =
+				    {   u = get_all_states (x, c);
+
+					if ((not (is::member (set, u))
+					     and (not (is::member (sd, u))))
+					)
+					    ( u ! ns,
+					      is::add (sd, u),
+					      (x, c, u) ! ml
+					    );
+					else
+					    (ns, sd, (x, c, u) ! ml);
+					fi;
+				    }
+				)
+				([], is::empty,[])
+                                cl;
+
+			loop (nstack@xs, is::union (set, sdu), ml@moves);
+		    };
+            end;
+
+	    my (s_set, m_list)
+                =
+                loop ([start], is::singleton (start), []);
+
+	    num = REF 1;
+
+	    fun new ()
+		=
+		{   n = *num;
+		    num := n+1 ;
+		    n;
+		};
+
+	    s_map = map::set (map::empty, start, 0);
+	    s_set' = is::delete (s_set, start);
+
+	    s_map = is::fold_left
+                        (fn (is, map) =  map::set (map, is, new ()))
+			s_map
+                        s_set';
+
+	    states = i::add_list (i::empty, list::tabulate (*num, fn x = x));
+
+	    moves = m::add_list (m::empty,
+				   map (fn (is1, c, is2)
+					   =
+					   MOVE (the (map::get (s_map, is1)),
+						 THE c,
+						 the (map::get (s_map, is2)))
+                                       )
+				       m_list);
+
+	    # Given a set of accepting states, look for a given state,
+	    # with the minimal corresponding pattern number
+
+	    fun min_pattern acc_set
+                =
+		loop (tail l, head l)
+                where
+                    l = map (the o accepting) (i::vals_list acc_set);
+
+		    fun loop ([], min)
+                            =>
+                            min;
+
+			loop (n ! ns, min)
+                            => 
+			    if (n < min)   loop (ns, n);
+			    else           loop (ns, min);
+                            fi;
+                    end;
+		end;
+
+
+	    accept
+                =
+                is::fold_left
+                    (fn (is, cis)
+                        =
+			{   items = i::filter
+					(fn k
+					    =
+					    case (accepting k)
+						THE _ => TRUE;
+						NULL  => FALSE;
+					    esac
+					)
+					is;
+
+			    if   (i::is_empty items)
+			        
+                                 cis;
+			    else 
+				 i2::add (cis, (the (map::get (s_map, is)),
+							min_pattern items));
+                            fi;
+			}
+                    )
+                    i2::empty
+                    s_set;
+
+	    table
+                =
+                a2::tabulate
+                    a2::ROW_MAJOR
+                    ( *num, 
+		      char::to_int (char::max_char)-char::to_int (char::min_char)+1,
+		      fn (s, c) =  move' moves (s, char::from_int (c+char::to_int (char::min_char)))
+                    );
+
+	    acc_table
+                =
+                a::tabulate
+                    ( *num, 
+		      fn (s) =  accepting' accept s
+                    );
+
+	    start_table
+                =
+                a::tabulate
+                    ( char::to_int (char::max_char) - char::to_int (char::min_char)+1,
+		      fn c =  c::member (init_chars, char::from_int (c+char::to_int (char::min_char)))
+                    );
+
+
+	    DFA { states, moves, accepting=>accept, table, acc_table, start_table };
+	};
+
+	
+    fun build r
+	=
+	build' (n::build (r, 0));
+
+    fun build_pattern rs
+	=
+	build' (n::build_pattern rs);
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,82 @@
+#
+# This is just a very simple worklist based data analyzer.
+# Parameterized by the dataflow problem.
+#
+# -- Allen Leung
+
+
+generic package dataflow_g (P:  DATAFLOW_PROBLEM) : DATAFLOW_ANALYZER {
+
+   package g   = graph
+   package a   = rw_vector
+   package machcode_controlflow_graph = p::machcode_controlflow_graph
+
+   type dataflow_info = p::dataflow_info
+
+   fun analyze (machcode_controlflow_graph, info) =
+   let my G' as g::GRAPH mcg = if p::forward then machcode_controlflow_graph
+                               else reversed_graph_view::rev_view machcode_controlflow_graph
+       N         = mcg.capacity ()
+       ENTRY     = case mcg.entries () of
+                         [ENTRY] => ENTRY
+                       | _ => raise exception graph::NOT_SINGLE_ENTRY
+       inputs    = a::rw_vector (N, p::bot)
+       outputs   = a::rw_vector (N, p::bot)
+       transfers = a::rw_vector (N, fn _ => p::bot)
+       prologue  = p::prologue (machcode_controlflow_graph, info)
+       mcg.forall_nodes  
+                          (fn (n, n') => 
+                           let my { input, output, transfer } = prologue (n, n')
+                           in  a::update (inputs, n, input);
+                               a::update (outputs, n, output);
+                               a::update (transfers, n, transfer)
+                           end
+                          )
+
+       abstype worklist = WL of Int List * Int List
+       with 
+            exception EMPTY_QUEUE
+            on_queue = a::rw_vector (N, FALSE)
+            empty = WL([],[])
+            empty = WL([],[])
+            fun enque (wl as WL (b, f), i)  = 
+                if a::sub (on_queue, i) then wl else
+                (a::update (on_queue, i, TRUE); WL (i . b, f))
+            fun deque (WL([],[]))  = raise exception EMPTY_QUEUE
+              | deque (WL (b,[]))   = deque (WL([], reverse b))
+              | deque (WL (b, i . f)) = (a::update (on_queue, i, FALSE); (WL (b, f), i))
+           fun insert (wl,[]) = wl
+             | insert (wl, (_, n, _) . es) = insert (enque (wl, n), es)
+           fun insert'(wl,[]) = wl 
+             | insert'(wl, n . ns) = insert'(enque (wl, n), ns)
+       end
+
+       fun propagate worklist =
+       let my (worklist, i) = deque worklist
+           new_input   = 
+               case mcg.in_edges i of
+                 [(p, _, _)] => if p == ENTRY then a::sub (inputs, i)
+                              else a::sub (outputs, p)
+               | x => p::join (map (fn (i, _, _) => a::sub (outputs, i)) x)
+           old_output  = a::sub (outputs, i)
+           f           = a::sub (transfers, i)
+           new_output  = f new_input
+       in  a::update (inputs, i, new_input);
+           if P::(====) (old_output, new_output) then propagate worklist
+           else (a::update (outputs, i, new_output);
+                 propagate (insert (worklist, mcg.out_edges i)))
+       end
+      
+       nodes    = graph_topological_sort::topologicalSort G' (mcg.entries ())
+       propagate (insert'(empty, nodes)) except EMPTY_QUEUE => ()
+       epilogue = p::epilogue (machcode_controlflow_graph, info)
+       mcg.forall_nodes
+                         (fn (n, n') => epilogue { input  = a::sub (inputs, n),
+                                                output = a::sub (outputs, n),
+                                                node   = (n, n') } )
+   in
+       info
+   end 
+
+};
+

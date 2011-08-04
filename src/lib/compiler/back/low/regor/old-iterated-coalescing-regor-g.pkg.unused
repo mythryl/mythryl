@@ -1,0 +1,806 @@
+# Graph coloring register allocation. graph
+# Implements the 'iterated register coalescing' scheme described 
+# in POPL'96, and TOPLAS v18 #3, prettyprint 325-353. 
+
+
+# This is a reorganization of the old iterated coalescing 
+# register allocator using a more modular implementation.
+# 
+# --- Allen Leung
+
+
+###        "Education is the ability to listen
+###         to almost anything without losing
+###         your temper or your self-confidence."
+###
+###                     -- Robert Frost
+
+
+generic package OldRegAllocator
+    (package RaArch:  RA_ARCH_PARAMS)
+    (package RaUser:  RA_USER_PARAMS
+       where I = RaArch::I
+       where B = RaArch::liveness::f::B
+    )
+: Regor
+{
+   package f = RaArch::liveness::F
+   package core = OldRACore
+   package g = core::G
+   package a = rw_vector
+   package i = RaArch::I
+   package rgk = i::rgk
+   package p = RaArch::machcode_universals
+   package sl = sorted_list
+
+   enum mode = REGOR | COPY_PROPAGATION
+
+   use G
+
+   fun error msg = lowhalf_error_message::error("IteratedCoalescing", msg)
+
+
+   # Debugging flags
+
+   dump_machcode_controlflow_graph_before_regor   = LowhalfControl::getFlag "dump_machcode_controlflow_graph_before_regor"
+   dump_machcode_controlflow_graph_after_regor    = LowhalfControl::getFlag "dump_machcode_controlflow_graph_after_regor"
+   dump_machcode_controlflow_graph_after_register_spilling      = LowhalfControl::getFlag "dump_machcode_controlflow_graph_after_register_spilling"
+   dump_codetemp_interference_graph                     = LowhalfControl::getFlag "dump_codetemp_interference_graph"
+   regor_count                            = LowhalfControl::getCounter "regor_count"
+   regor_rewrites                          = LowhalfControl::getCounter "regor_rewrites"
+
+
+   # Set of dedicated registers.
+   # Note: I'm using an rw_vector for testing for dedicated registers.
+   # I hope this is now a bit faster than before. -- Allen Leung
+
+   spillRegSentinel = -1 #  what is this? 
+   dedicated     = sl::uniq (RaUser::dedicated)
+   firstPseudoR  = RaArch::firstPseudoR
+   dedicatedRegs = a::rw_vector (firstPseudoR, FALSE)
+   my _  = apply (fn r => if r >= 0 and r < firstPseudoR then
+                         a::update (dedicatedRegs, r, TRUE) else ()) dedicated
+   fun isDedicated r = r < 0 or r < firstPseudoR and 
+                                    unsafe::rw_vector::get (dedicatedRegs, r) 
+   # Note: The following is no long necessary!
+   # Note: This function maintains the order of members in rset
+   # which is important when dealing with parallel copies.
+
+   fun rmvDedicated rset
+       = 
+       let fun loop (x . xs, xs') = loop (xs, if isDedicated x then xs' else x . xs')
+	     | loop([], xs') = xs'
+       in  loop (rset,[])
+       end
+
+
+   #  register mapping functions 
+   fun uniqMap (f, l) = sl::uniq (map f l)
+
+   fun prList (l: List( Int ), msg: String) = 
+   let fun pr [] = print "\n"
+         | pr (x . xs) = (print (int::to_string x + " "); pr xs)
+   in  print msg; pr l
+   end
+
+   #  Debugging 
+   fun print_blocks (blks, regmap, annotations) = 
+   let regmap = c::lookup regmap
+       my RaArch::AsmEmitter::S.STREAM { emit, ... } =
+              asm_stream::with_stream file::stdout 
+                 RaArch::AsmEmitter::make_stream annotations
+        emit = emit regmap
+        fun prBlks([]) = print"\n"
+          | prBlks (f::BBLOCK { blknum, instructions, liveOut, liveIn,
+                            next, prior, ... } . blocks)=
+            let
+              fun regset registerset = map regmap (RaArch::regSet (registerset))
+              fun pr [] = prList (regset *liveOut, "liveOut: ")
+                | pr (instruction . rest) = (emit instruction; pr rest)
+              fun blkNum (f::BBLOCK { blknum, ... }, _) = blknum
+                | blkNum (f::ENTRY { blknum, ... }, _) = blknum
+                | blkNum (f::EXIT { blknum, ... }, _) = blknum
+                | blkNum _ = error "print_blocks::prBlks::blkNum"
+            in
+              print("BLOCK" + int::to_string blknum + "\n");
+              prList (regset *liveIn, "LiveIn :");
+              prList (map blkNum *prior, "predecessors: ");
+              case *instructions of [] => print "empty instruction sequence\n"
+                           |  l  => pr (reverse l)
+              /*esac*/;
+              prList (map blkNum *next, "successors: ");
+              prBlks (blocks)
+            end
+          | prBlks (f::LABEL lab . blocks) =
+              (print (label::nameOf lab + ":\n"); prBlks (blocks))
+          | prBlks (f::PSEUDO pOp . blocks) = (print (f::P.to_string pOp); prBlks (blocks))
+          | prBlks(_ . blocks) = prBlks (blocks)
+   in prBlks blks
+   end
+
+   fun debug (flag, msg, blocks, regmap, annotations) =
+   if *flag then
+      (print ("------------------" + msg + " ----------------\n");
+       print_blocks (blocks, regmap, annotations))
+   else ()
+
+
+   #  Utility functions 
+   fun newNode (num, col) =
+       NODE { number=num,
+            color=REF col,
+            degree=REF 0,
+            adj=REF [],
+            movecnt = REF 0,
+            movelist = REF [] }
+
+   fun nodeNumber (NODE { number, ... } ) = number
+
+   fun chase (NODE { color=REF (ALIASED r), ... } ) = chase r
+     | chase x = x
+
+   fun nodeMember(_, []) = FALSE
+     | nodeMember (node as NODE { number=x, ... }, NODE { number=y, ... } . rest) =
+        x = y or nodeMember (node, rest)
+
+
+   fun isMoveRelated (NODE { movecnt=REF 0, ... } ) = FALSE
+     | isMoveRelated _ = TRUE
+
+   exception PrevSpills 
+   prevSpills      = int_map::new (32, PrevSpills) : int_map::intmap(  Bool )
+   isSpilled       = int_map::mapWithDefault (prevSpills, FALSE)
+   enterSpilled    = int_map::add prevSpills 
+   fun markAsSpilled r = enterSpilled (r, TRUE)
+
+
+   # This is the new register allocator!
+
+   fun ra mode prohibit 
+       (cluster as f::CLUSTER { regmap, blocks, annotations=REF an, ... } ) =
+   if RaArch::numRegs() == 0 then cluster
+   else
+   let
+       int_map::clear prevSpills
+       apply (fn (i, j) => 
+                    let fun loop (i) = 
+                            if i <= j then (markAsSpilled i; loop (i+1)) else ()
+                    in  loop i end) prohibit
+
+          #  number of blocks 
+       numBlocks = fold_right (fn (f::BBLOCK _, n) => n + 1 | (_, n) => n) 0 blocks
+
+       blockDU = a::rw_vector( numBlocks, [] : List( List( node ) * List( node ) ) )
+       cblocks = a::rw_vector( numBlocks, f::LABEL (label::newLabel ""))
+       numOfBlocks = a::length cblocks
+
+           #  remainInfo: blocks where spill nodes are defined and used. 
+       type Info  =  int_map::intmap( List( Int ) )
+       my remainInfo:   Ref( Null_Or( Info * Info ) )  = REF NULL
+
+       fun cleanupSpillInfo() = remainInfo := NULL
+
+
+       # Build blockDU and cblocks.
+       # This is done once per RA.
+
+       fun initialize () = 
+       let nodes = int_map::new (32, Nodes)
+           fun mkNode i =
+                newNode (i, if i < firstPseudoR then COLORED (i) else PSEUDO)
+           lookupNodes = int_map::map nodes
+           enterNodes = int_map::add nodes
+           fun newnode n =
+                 lookupNodes n
+                 except _ =>
+                   let node = mkNode n
+                   in  enterNodes (n, node); node
+                   end
+           fun blockDefUse((b as f::BBLOCK { instructions, liveOut, next, ... } ) . blks, n) = 
+               let fun instructionDefUse instruction = 
+                   let my (d, u) = RaArch::defUse instruction
+                       fun rmv [] = []
+                         | rmv (l as [x]) =
+                             if isDedicated x then [] else [newnode x]
+                         | rmv set = map newnode (rmvDedicated set)
+                   in (rmv d, rmv u) end
+               in  unsafe::rw_vector::update (cblocks, n, b);
+                   unsafe::rw_vector::update (blockDU, n, map instructionDefUse *instructions);
+                   case *next
+                   of 
+                      [(f::EXIT _, _)] =>
+                         apply (fn i => (newnode i; ()))
+                             (rmvDedicated (RaArch::regSet(*liveOut)))
+                     | _  => ();
+                   blockDefUse (blks, n+1)
+               end
+             | blockDefUse(_ . blks, n) = blockDefUse (blks, n)
+             | blockDefUse([], _) = ()
+
+            # if copy propagation was done prior to register allocation
+            # then some nodes may already be aliased. 
+
+           fun updateAliases() = 
+           let alias = int_map::mapInt regmap
+               fun fixup (num, NODE { color, ... } ) =
+                   if num < firstPseudoR then ()
+                   else let reg = alias num
+                        in  if reg==num then () else 
+                            color := ALIASED (newnode reg)
+                        end 
+           in  int_map::apply fixup nodes end
+       in  blockDefUse (blocks, 0);
+           updateAliases();
+           nodes
+       end
+
+
+       # Run liveness analysis 
+
+       fun liveness (nodes, blocks) = 
+       let getnode = int_map::map nodes
+           fun regmap i = 
+           let node = getnode i
+           in  case node
+                of NODE { color= REF (COLORED r), ... } => r
+                 | NODE { color=REF PSEUDO, ... } => nodeNumber node
+                 | NODE { color=REF (ALIASED r), ... } => nodeNumber (chase node)
+                 | _ => error "liveness::regmap"
+           end except _ => i                 #  XXX 
+       in  RaArch::liveness::liveness (blocks, regmap)
+       end
+
+
+       # Given a set of registers, remove all spilled and dedicated nodes.
+       # NOTE: we assume that dedicated registers are NEVER entered into
+       #       nodes int_map. 
+
+       fun collectNodes (getnode, regs) =  
+       let fun loop ([], xs) = xs
+             | loop (r . rs, xs) = 
+               (case chase (getnode r) of
+                  NODE { color=REF (COLORED -1), ... } => loop (rs, xs) 
+                | x => loop (rs, x . xs)
+               ) except _ => loop (rs, xs) #  Dedicated 
+       in  loop (regs,[]) end
+
+
+
+       #* Builds the interference graph and initialMove list 
+
+       fun build (graph as GRAPH { graph_by_edge_hashtable, nodes, ... } ) = 
+       let # The movecnt field is used to (lazily) record members in the 
+           # live set. Deleted members are removed during an 
+           # addEdgeForallLive operation.
+
+           getnode = int_map::map nodes
+           chaseReg = chase o getnode
+           chaseRegs = map chaseReg
+           addEdge = core::addEdge graph
+           member = bm::member graph_by_edge_hashtable
+           fun memGraph_By_Edge_Hashtable (NODE { number=x, ... }, NODE { number=y, ... } ) =
+               member (if x<y then (x, y) else (y, x))
+
+           fun delete (NODE { movecnt, ... } ) = movecnt:=0
+           fun insert ((node as NODE { movecnt as REF 0, ... } ) . rest, live) = 
+                (movecnt:=1; insert (rest, node . live))
+             | insert(_ . rest, live) = insert (rest, live)
+             | insert([], live) = live
+           fun addEdgeForallLive([], live) = live
+             | addEdgeForallLive (d . ds, live) = 
+               let fun f ([], pruned) = pruned
+                     | f ((n as NODE { movecnt as REF 1, ... } ) . rest, pruned) =
+                         (addEdge (d, n); f (rest, n . pruned))
+                     | f (_ . rest, pruned) = f (rest, pruned)
+               in addEdgeForallLive (ds, f (live, []))
+               end
+           fun forallBlocks(-1, mvs) = mvs
+             | forallBlocks (n, mvs) = 
+               let my f::BBLOCK { instructions, liveOut, ... } = a::sub (cblocks, n)
+                   bdu = a::sub (blockDU, n)
+                   fun doBlock([], _, live, mvs) = 
+                         (apply (fn NODE { movecnt, ... } => movecnt := 0) live;
+                          forallBlocks (n - 1, mvs))
+                     | doBlock (instruction . rest, (def', use) . bdu, live', mvs) = 
+                       let def = map chase def'
+                           use = map chase use
+                          #  move instructions are treated specially 
+                          # There  is a subtle interaction between parallel
+                          #  moves and interference graph construction. When we
+                          #  have { d1, ... dn } <- { s1, ... sn } and liveOut we 
+                          #  should make di interfere with:
+                          # 
+                          #       liveOut U { d1, ... dn } U ( { s1, ... sn } \ { si } )
+                          #
+                          #   This is not currently done.   XXX BUGGO FIXME
+
+                          fun zip (d . defs, u . uses) = 
+                              if isDedicated d or 
+                                 isDedicated u then zip (defs, uses) 
+                              else 
+                              let my d as NODE { number=x, ... } = chaseReg d
+                                  my u as NODE { number=y, ... } = chaseReg u 
+                              in  if x == y then zip (defs, uses)
+                                  else
+                                   MOVE_INT { dst=d, src=u, status=REF WORKLIST } .
+                                    zip (defs, uses)
+                              end 
+                            | zip([],[]) = mvs
+
+                         # Assumes that the move temporary 
+                         # if present is always the
+                         # first thing on the definition list.
+
+                         moves = 
+                           if p::moveInstr instruction then 
+                           let my (defs, uses) = RaArch::defUse instruction
+                               defs =
+                                   case defs of 
+                                     [] => []
+                                   | _ . rest => case p::moveTmpR instruction of
+                                                   THE _ => rest
+                                                |  NULL => defs
+                           in  zip (defs, uses)
+                           end
+                           else mvs
+                        live = 
+                           if length def > 1 then
+                             addEdgeForallLive (def, insert (def, live'))
+                           else addEdgeForallLive (def, live')
+                     in apply delete def;
+                        doBlock (rest, bdu, insert (use, live), moves)
+                     end  
+                   lout = collectNodes (getnode, RaArch::regSet(*liveOut))
+                in doBlock(*instructions, bdu, insert (lout, []), mvs)
+                end
+             # Filter moves that already have an interference.
+             # Also initialize the movelist and movecnt fields at this time.
+
+             fun filter [] = []
+               | filter (MOVE_INT { src=NODE { color=REF (COLORED _), ... }, 
+                            dst=NODE { color=REF (COLORED _), ... }, ... } . rest) = 
+                   filter rest
+               | filter ((mv as MOVE_INT { src, dst, ... } ) . rest) = 
+                 if memGraph_By_Edge_Hashtable (src, dst) then filter rest
+                 else let 
+                  fun info (u as NODE { color=REF PSEUDO, movecnt, movelist, ... } ) =
+                      (movelist := mv . *movelist;   movecnt := 1 + *movecnt)
+                    | info _ = ()
+                in info src;  info dst;  mv . filter rest
+                end
+        in filter (forallBlocks (numOfBlocks - 1, []))
+        end #  Build 
+
+
+        # select a spill node 
+
+        fun selectSpill (GRAPH { nodes, spillFlag, K, ... }, 
+              { simplifyWkl, spillWkl, stack, moveWkl, freezeWkl } ) =
+        let #  DuCount: compute the def/use points of spilled nodes. 
+            getnode  = int_map::map nodes
+            chaseReg = chase o getnode
+            fun duCount spillable = 
+            let size = length spillable
+                exception INFO
+                my defInfo:  Info = int_map::new (size, INFO)
+                my useInfo:  Info = int_map::new (size, INFO)
+                addDef = int_map::add defInfo 
+                addUse = int_map::add useInfo
+                getDefs = int_map::mapWithDefault (defInfo,[]) 
+                getUses = int_map::mapWithDefault (useInfo,[])
+
+                # doblocks --- 
+                # updates the defInfo and useInfo tables to indicate
+                # the blocks where spillable live ranges are defined and used.
+
+                fun doblocks -1 = ()
+                  | doblocks blknum = 
+                    let bdu = a::sub (blockDU, blknum)
+                        fun iter [] = ()
+                          | iter((def', use) . rest) = 
+                            let def = uniqMap (nodeNumber o chase, def')
+                                use = uniqMap (nodeNumber o chase, use)
+                                fun updateDef n = addDef (n, blknum . getDefs n)
+                                fun updateUse n = addUse (n, blknum . getUses n)
+                            in  apply updateDef (sl::intersect (def, spillable));  
+                                apply updateUse (sl::intersect (use, spillable));   
+                                iter rest
+                            end
+                    in iter (bdu);
+                       doblocks (blknum - 1)
+                    end
+
+                # If a node is live going out of an block terminated by 
+                # an escaping branch, it may be necessary to reload the
+                # the node just prior to taking the branch. We will therefore
+                # record this as a definition of the node.
+
+                fun doBBlocks n = 
+                let my f::BBLOCK { blknum, liveIn, liveOut, next, ... } = 
+                         a::sub (cblocks, n)
+                    liveout = 
+                     uniqMap (nodeNumber,
+                               collectNodes (getnode, RaArch::regSet(*liveOut)))
+                in  case *next of 
+                      [(f::EXIT _, _)] => 
+                       (case sl::intersect (spillable, liveout) 
+                          of [] => doBBlocks (n+1)
+                           | some =>
+                             (apply (fn n => addDef (n, blknum . getDefs n)) some;
+                              doBBlocks (n+1))
+                       /*esac*/)
+                    | _ => doBBlocks (n+1)
+                    # esac
+                end /* doBBlocks */ 
+            in  doblocks (numOfBlocks - 1);
+                doBBlocks 0 except _ => ();
+                (defInfo, useInfo)
+            end #  DuCount 
+
+            # Since the spillWkl is not actively maintained, the set of
+            # spillable nodes for which def/use info is needed is a subset
+            # of spillWkl.
+
+            fun remainingNodes() = 
+            let fun prune [] = []
+                  | prune((n as NODE { color=REF PSEUDO, ... } ) . ns) =  
+                      n . prune ns
+                  | prune((n as NODE { color=REF (ALIASED _), ... } ) . ns) = 
+                      prune (chase n . ns)
+                  | prune(_ . ns) = prune ns
+            in  case *remainInfo of 
+                  THE info => prune spillWkl
+                | NULL => 
+                  let #  first time spilling 
+                      spillable = prune ( spillWkl)
+                  in remainInfo := 
+                       (case spillable 
+                         of [] => NULL
+                          | _ => THE (duCount (uniqMap (nodeNumber, spillable)))
+                        /*esac*/);
+                     spillable
+                  end
+            end
+
+            # * apply the Chaitin heuristic to find the spill node *
+            fun chaitinHeuristic (spillable) = 
+            let infinity = 1000000.0
+                infinityi= 1000000
+                my THE (dinfo, uinfo) = *remainInfo
+                getdInfo = int_map::map dinfo
+                getuInfo = int_map::map uinfo
+                fun coreDump [] = ()
+                  | coreDump ((node as NODE { number, degree, adj, ... } ) . rest) = 
+                    (print (cat
+                      ["number =", int::to_string number,
+                       " node =", int::to_string (nodeNumber (chase node)),
+                       " degree = ", int::to_string (*degree),
+                       " adj = "]);
+                     prList (map (nodeNumber o chase) (*adj), "");
+                     print "\n";
+                     coreDump rest)
+                fun iter ([], node, cmin) = 
+                       if node != -1 then 
+                          (if *dump_machcode_controlflow_graph_after_register_spilling then 
+                              print("Spilling node " + int::to_string node  + 
+                                    " cost=" + float::to_string cmin + "\n") 
+                           getnode node
+                          ) 
+                       else (coreDump spillable; 
+                             prList (int_map::keys prevSpills, "PrevSpills: ");
+                             error "chaitinHeuristic::iter")
+                  | iter((node as NODE { number, degree, ... } ) . rest, cnode, cmin) =
+                    let
+                       # An exeception will be raised if the node is defined
+                       # but not used. This is not a suitable node to spill.
+
+                        cost = 
+                          (length (getdInfo number) except _ => 0) +
+                              (length (getuInfo number) except _ => infinityi)
+                        heuristic = real cost / real (*degree)
+                    in
+                        if heuristic < cmin and not (isSpilled number)
+                        then iter (rest, number, heuristic)
+                        else iter (rest, cnode, cmin)
+                    end
+            in iter (spillable, -1, infinity)
+            end
+       in case mode of 
+            COPY_PROPAGATION =>
+              { spillWkl=[], simplifyWkl=[], stack=[], moveWkl=[], freezeWkl=[] }
+          | REGOR => 
+            (case remainingNodes() of 
+               [] => { spillWkl=[], simplifyWkl=simplifyWkl, 
+                      stack=stack, moveWkl=moveWkl, freezeWkl=freezeWkl }
+             | spillWkl => 
+               let spillNode = chaitinHeuristic (spillWkl)
+                   simpWkl = 
+                       if isMoveRelated spillNode
+                       then spillNode . core::wklFromFrozen (K, spillNode)
+                       else [spillNode]
+               in  spillFlag:=TRUE;
+                   { simplifyWkl=simpWkl,
+                    spillWkl = spillWkl,
+                    freezeWkl = freezeWkl,
+                    stack = stack,
+                    moveWkl = moveWkl }
+               end
+               /*esac*/)
+       end #  selectSpill 
+
+
+       # rewriteGraph (spillList) - 
+       #   an unsuccessful round of coloring has taken
+       #   place with nodes in spillList having been spilled. The
+       #   flowgraph must be updated and the entire process repeated. 
+
+       fun rewriteGraph (graph as GRAPH { nodes, ... }, spillList) = 
+       let regor_rewrites := *regor_rewrites + 1
+           my THE (dInfo, uInfo) = *remainInfo
+           getnode = int_map::map nodes
+           enternode = int_map::add nodes
+           chaseReg = chase o getnode
+           chaseRegs = map chaseReg
+          
+           fun newdu (d, u) = 
+           let fun rmv ([], nodes) = nodes
+                 | rmv (r . rs, nodes) = 
+                   let node = chase (getnode r) except _ => 
+                                  let n = newNode (r, PSEUDO)
+                                  in  enternode (r, n); n
+                                  end
+                   in rmv (rs, node . nodes) end
+               fun rmv' rs = rmv (rmvDedicated rs,[])
+           in (rmv' d, rmv' u)
+           end #  newdu 
+
+           defUse = newdu o RaArch::defUse
+
+           #  Blocks where spill code is required for node n 
+           fun affectedBlocks node = 
+           let n = nodeNumber node
+           in  sl::merge (sl::uniq (int_map::mapWithDefault (dInfo,[]) n),
+                        sl::uniq (int_map::mapWithDefault (uInfo,[]) n))
+           end
+
+           mapr = c::lookup regmap
+           markProh = apply markAsSpilled
+
+           #  Insert spill code into the affected blocks 
+           fun doBlocks([], _) = ()
+             | doBlocks (blknum . rest, node) = 
+           let my f::BBLOCK { instructions, liveOut, name, ... } = 
+                     a::sub (cblocks, blknum)
+               bdu = a::sub (blockDU, blknum)
+               liveOut = collectNodes (getnode, RaArch::regSet(*liveOut))
+               spillReg = nodeNumber node
+
+               #  note: the instruction list start out in reverse order. 
+               fun doInstrs([], [], newI, newBDU) =
+                     (reverse newI, reverse newBDU)
+                 | doInstrs (instruction . rest, (du as (d, u)) . bDU, newI, newBDU) = 
+                   let defs=map chase d
+                       uses=map chase u
+
+                       fun outputInstrs (instrs, I, bDU) = 
+                           { newI=instrs @ I, 
+                            newBDU=(map defUse instrs) @ bDU }
+
+                       fun newReloadCopy (rds, rss) = 
+                       let fun f (rd . rds, rs . rss, rds', rss') = 
+                               if mapr rs == spillReg 
+                               then(([rd], [rs]), (rds@rds', rss@rss'))
+                               else f (rds, rss, rd . rds', rs . rss')
+                             | f([], [], _, _) = error "newReloadCopy::f"
+                       in f (rds, rss, [], []) end
+            
+                       #  insert reloading code and continue 
+                       fun reloadInstr (instruction, du, newI, newBDU)=
+                       let my { code, prohibitions } = 
+                               RaUser::reload { regmap=mapr, instruction=instr, 
+                                             reg=spillReg, id=name }
+                           markProh prohibitions
+                           my { newI, newBDU } = 
+                               outputInstrs (code, newI, newBDU)
+                       in doInstrs (rest, bDU, newI, newBDU) end
+
+                       #  insert reload code for copies. 
+                       fun reloadCopy (du, instruction, newI, newBDU) =
+                           if nodeMember (node, #2 du) then 
+                           (case (p::moveDstSrc (instruction)) 
+                            of ([d], [u]) => 
+                              reloadInstr (instruction, du, newI, newBDU)
+                            | (defs, uses) => 
+                              let my (mv, cpy) = newReloadCopy (defs, uses)
+                                  cpyInstr = RaUser::copyInstr (cpy, instruction)
+                                  duCpy = defUse cpyInstr
+                                  my { code, prohibitions } =
+                                    RaUser::reload
+                                     { regmap=mapr, 
+                                      instruction=RaUser::copyInstr (mv, instruction), 
+                                      reg=spillReg, id=name }
+                                  markProh prohibitions
+                                  my { newI, newBDU } = 
+                                      outputInstrs (code, newI, newBDU)
+                             in  #  recurse to deal with multiple uses 
+                                 reloadCopy (duCpy, cpyInstr, newI, newBDU) 
+                             end
+                             /*esac*/)
+                          else
+                             doInstrs (rest, bDU, instruction . newI, du . newBDU)
+
+                      #  insert reload code 
+                      fun reload (du as (d, u), instruction, newI, newBDU) = 
+                        if p::moveInstr (instruction) then 
+                           reloadCopy (du, instruction, newI, newBDU)
+                        else if nodeMember (node, u) then 
+                          let my { code, prohibitions } = 
+                                RaUser::reload { regmap=mapr, instruction=instr, 
+                                              reg=spillReg, id=name }
+                              my { newI, newBDU } = 
+                                     outputInstrs (code, newI, newBDU)
+                              markProh prohibitions
+                          in doInstrs (rest, bDU, newI, newBDU)
+                          end
+                       else
+                         doInstrs (rest, bDU, instruction . newI, du . newBDU)
+
+
+                      fun spillInstr (instruction, newI, newBDU) = 
+                      let my { code, instruction, prohibitions } = 
+                           RaUser::spill { regmap=mapr,  instruction=instr, reg=spillReg, id=name }
+                          markProh prohibitions
+                          my { newI, newBDU } = outputInstrs (code, newI, newBDU)
+                      in case instruction
+                          of NULL => doInstrs (rest, bDU, newI, newBDU)
+                           | THE instruction => 
+                               reload (defUse instruction, instruction, newI, newBDU)
+                      end
+            
+                      fun spillCopy() = 
+                      let # Note . There is a guarantee that the node 
+                          # will never be aliased to another register.
+
+                          fun newSpillCopy (rds, rss) = 
+                          let fun f (rd . rds, rs . rss, rds', rss') = 
+                              if mapr rd == spillReg then 
+                                 (([rd], [rs]), (rds@rds', rss@rss'))
+                              else f (rds, rss, rd . rds', rs . rss')
+                                | f([], [], _, _) = error "newSpillCopy"
+                          in f (rds, rss, [], []) end
+
+                          fun spillCpyDst() = 
+                          let my (mv, cpy) = newSpillCopy (p::moveDstSrc (instruction))
+                              my (newI, newBDU) = 
+                              (case cpy
+                               of ([],[]) => (newI, newBDU)
+                                | _ => let cpyInstr = RaUser::copyInstr (cpy, instruction)
+                                       in (cpyInstr . newI, defUse cpyInstr . newBDU)
+                                       end
+                              /*esac*/)
+                              instruction = RaUser::copyInstr (mv, instruction)
+                          in spillInstr (instruction, newI, newBDU)
+                          end
+                      in case p::moveTmpR instruction
+                          of NULL => spillCpyDst()
+                           | THE r => 
+                             if mapr r==spillReg 
+                             then spillInstr (instruction, newI, newBDU)
+                             else spillCpyDst()
+                         # esac
+                      end #  spillCopy 
+                   in #  insert spill code 
+                      if nodeMember (node, defs) then 
+                         if p::moveInstr instruction then spillCopy() 
+                         else spillInstr (instruction, newI, newBDU)
+                      else
+                        reload((defs, uses), instruction, newI, newBDU)
+                   end
+
+               # special action if the last instruction is an escaping
+               # branch and the node is live across the branch.
+               # We discover if the node needs to be spilled or reloaded.
+
+               fun blockEnd (instrs as instruction . rest, bDU as du . bdu) = 
+               let fun escapes [] = FALSE
+                     | escapes (p::ESCAPES . _) = TRUE
+                     | escapes (_ . targets) = escapes targets
+               in if nodeMember (node, liveOut) then
+                  (case p::instrKind instruction
+                   of p::IK_JUMP =>
+                       if escapes (p::branchTargets instruction) then let
+                           my { code, ... } = 
+                             RaUser::reload { regmap=mapr, instruction=instr, reg=spillReg, id=name }
+                           reloadDU = map defUse code
+                         in (reverse code@rest, reverse reloadDU@bdu)
+                         end
+                       else (instrs, bDU)
+                    | _ => (instrs, bDU)
+                  /*esac*/)
+                  else (instrs, bDU)
+               end
+                 | blockEnd([],[]) = ([], [])
+
+              my (newInstrs, newBdu) = 
+                   doInstrs(*instructions, bdu, [], [])
+              my (newInstrs, newBdu) = blockEnd (newInstrs, newBdu)
+          in  instructions := newInstrs;
+              a::update (blockDU, blknum, newBdu);
+              doBlocks (rest, node)
+          end #  DoBlocks 
+
+          # The optimistic coloring selection may come up with a node
+          # that has already been spilled. Must be careful not to spill
+          # it twice.
+
+          fun glue [] = ()
+            | glue((node as NODE { number, color, ... } ) . rest) =
+               (if not (isSpilled number) then 
+                  (doBlocks (affectedBlocks node, node)
+                   before color := COLORED (spillRegSentinel)
+                  )
+                
+                glue rest
+               )
+
+          # redoAlgorithm
+          #  -- rerun graph coloring but note that spilling may 
+          #     have introduced new registers.
+
+          fun redoAlgorithm (spillList) = 
+          let apply (markAsSpilled o nodeNumber) spillList
+              fun init (_, NODE { color=REF PSEUDO, degree, adj,  
+                               movecnt, movelist, ... } ) =
+                     (degree:=0; adj := []; movecnt:=0; movelist:=[])
+                | init _ = ()
+          in int_map::apply init nodes
+          end
+       in glue (spillList);
+          redoAlgorithm (spillList);
+          debug (dump_machcode_controlflow_graph_after_register_spilling, "after spilling", blocks, regmap, an)
+       end #  rewriteGraph 
+
+
+       # The main driver 
+
+       fun graphColoring (nodes) =
+       let # Create an empty interference graph:
+           graph = newGraph
+                       { nodes=nodes,
+                        K=RaUser::nFreeRegs,
+                        numRegs=RaArch::numRegs(),
+                        regmap=regmap,
+                        allocate_register=RaUser::allocate_register,
+                        firstPseudoR=firstPseudoR
+                       }
+           moves      = build graph        #  Build interference graph 
+           worklists  = core::makeWorkLists graph moves 
+           simpCoalFz = core::simplifyCoalesceFreeze graph
+
+           #  Note: freezeWkl or spillWkl are maintained lazily. 
+           fun iterate wl =  
+               case simpCoalFz wl of
+                 wl as { spillWkl= _ . _, ... } => iterate (selectSpill (graph, wl))
+               | wl =>
+                 (case mode of
+                   COPY_PROPAGATION => core::finishCP graph
+                 | REGOR =>
+                   (case core::optimisticSpilling graph wl of
+                     [] => core::finishRA graph
+                   | spills => (rewriteGraph (graph, spills); 
+                                graphColoring (nodes))
+                   )
+                 )
+       in  if *dump_codetemp_interference_graph then core::dumpGraph graph 
+           debug (dump_machcode_controlflow_graph_before_regor, "before register allocation", blocks, regmap, an);
+           iterate worklists
+       end
+       nodes = initialize()
+   in  liveness (nodes, blocks);   #  run liveness analysis 
+       graphColoring (nodes);
+       debug (dump_machcode_controlflow_graph_after_regor, "after register allocation", blocks, regmap, an);
+       regor_count := *regor_count + 1;
+       cluster
+   end
+
+};

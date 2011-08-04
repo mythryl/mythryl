@@ -1,0 +1,249 @@
+# 
+# Operator Strength Reduction.
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+
+
+###        "Perhaps if we wrote programs
+###         from childhood on, as adults
+###         we'd be able to read them."
+###
+###           -- Alan Perlis
+
+
+generic package SSAOSR (CF:  SSA_CONSTANT_FOLDING) : SSA_OPTIMIZATION =
+pkg
+   package ssa = cf::SSA
+   package dom = SSA::Dom
+   package i   = SSA::I
+   package rtl = SSA::RTL
+   package t   = RTL::T
+   package g   = graph
+   package a   = rw_vector
+   package da  = DynArray
+   package h   = hashtable
+
+   type flowgraph = SSA::ssa
+
+   fun error msg = lowhalf_error_message::error("SSAOperatorStrengthReduction", msg)
+
+   name = "Operator Strength Reduction"
+
+   fun run (SSA as g::GRAPH ssa) = SSA
+   /*
+   let my Dom as g::GRAPH dom = SSA::dom SSA
+       sdom               = Dom::strictly_dominates Dom
+       replaceAllUses     = SSA::replaceAllUses SSA
+       showOp             = SSA::showOp SSA
+       N                  = ssa.capacity ()
+       V                  = SSA::maxVariable SSA
+       defSiteTable         = SSA::defSiteTable SSA
+       defsTable            = SSA::defsTable SSA
+       usesTable            = SSA::usesTable SSA
+       rtlTable             = SSA::rtlTable SSA
+       blockTable           = SSA::blockTable SSA
+
+       headers = da::rw_vector (V,-1)	#  headers of instructions 
+                        			#  -1 if it is not an induction variable 
+       inSCC   = da::rw_vector (N,-1)	#  is the instruction in the SCC? 
+
+       exception NOT_THERE
+
+       table  = cf::hashTable (13, NOT_THERE)
+       search = h::lookup table
+       insert = h::set table
+       inventName = i::c::new_cell i::c::GP
+
+       fun add (e, operands, name) = insert((e, operands, 0), name)
+
+       #  Check whether value x is a region constant 
+       fun isRegionConstant (x, header) =
+           x < 0 or sdom (a::sub (blockTable, a::sub (defSiteTable, x)), header)
+
+       #  Copy an instruction 
+       fun copyDef'(SSA::OP { b, i, e, s, p, ... }, t) = SSA::OP { b=b, i=i, e=e, s=s, p=p, t=[t] }
+         | copyDef'(SSA::PHI { b, s, t', preds, ... }, t) = 
+             SSA::PHI { b=b, t'=t', s=s, preds=preds, t=t }
+         | copyDef' _ = error "copyDef'"
+
+       fun copyDef (x, t) = 
+           let i' = node_info x
+               i = ssa.new_id ()
+           in  ssa.add_node (i, copyDef'(i', t)); 
+               (i, i') 
+           end
+
+       #  Process each scc 
+       fun processSCC ([], _)  = ()
+         | processSCC ([n], _) = strengthReduce (n, node_info n)
+         | processSCC (scc as witness . _, _) =
+           let #  find the header block of the SCC 
+               fun findHeader([], scc, h) = (scc, h)
+                 | findHeader (i . ops, scc, h) =
+                     let i' = node_info i
+                     in  da::update (inSCC, i, witness);
+                         findHeader (ops, (i, i') . scc,
+                            case i' of
+                               SSA::PHI { b, ... } => if h == -1 or sdom (b, h) 
+                                                 then b else h
+                            |  _ => h
+                         )
+                     end 
+               my (scc, header) = findHeader (scc,[],-1)
+
+               #  Check whether the scc is an inductive variable 
+               fun isIVSCC [] = TRUE
+                 | isIVSCC ((_, i') . ops) = isIVOp i' and isIVSCC ops
+
+               #  is the operation a legal inductive cycle? 
+               and isIVOp (SSA::PHI { s, ... } ) = list::all isIVorRC s
+                 | isIVOp (SSA::OP { e=t::MOVE_INT_REGISTERS _, s=[s], ... } ) = isIVorRC s
+                 | isIVOp (SSA::OP { e=t::RTL { e, ... }, s=[a, b], ... } ) = 
+                   let fun f (t::MOVE_INT(_, _, t::ADD(_, t::REG(_, 0), t::REG(_, 1)))) =
+                             isIVRC (a, b) or isIVRC (b, a)
+                         | f (t::MOVE_INT(_, _, t::ADD(_, t::REG(_, 1), t::REG(_, 0)))) =
+                             isIVRC (a, b) or isIVRC (b, a)
+                         | f (t::MOVE_INT(_, _, t::ADDT(_, t::REG(_, 0), t::REG(_, 1)))) =
+                             isIVRC (a, b) or isIVRC (b, a)
+                         | f (t::MOVE_INT(_, _, t::ADDT(_, t::REG(_, 1), t::REG(_, 0)))) =
+                             isIVRC (a, b) or isIVRC (b, a)
+                         | f (t::MOVE_INT(_, _, t::SUB(_, t::REG(_, 0), t::REG(_, 1)))) =
+                             isIVRC (a, b)
+                         | f (t::MOVE_INT(_, _, t::SUB(_, t::REG(_, 1), t::REG(_, 0)))) =
+                             isIVRC (b, a)
+                         | f (t::MOVE_INT(_, _, t::SUBT(_, t::REG(_, 0), t::REG(_, 1)))) =
+                             isIVRC (a, b)
+                         | f (t::MOVE_INT(_, _, t::SUBT(_, t::REG(_, 1), t::REG(_, 0)))) =
+                             isIVRC (b, a)
+                         | f _ = FALSE
+                   in f e end
+                 | isIVOp _ = FALSE
+               and isIV x = x >= 0 and da::sub (inSCC, x) = witness 
+               and isRC x = isRegionConstant (x, header)
+               and isIVRC (a, b) = isIV a and isRC b
+               and isIVorRC x = isIV x or isRC x
+
+               fun dumpSCC (title, scc) =
+                   (print (title$"="$int::to_string header$"\n");
+                     apply (fn (_, i) => print("\t"$showOp i$"\n")) scc)
+
+           in  if isIVSCC scc then
+                  #  found an induction variable 
+                  let fun mark t = da::update (headers, t, header)
+                  in  dumpSCC("IV", scc);
+                      apply (fn (_, SSA::OP { t, ... } ) => apply mark t
+                            | (_, SSA::PHI { t, ... } ) => mark t
+                            | _ => error "headers") scc
+                  end
+               else
+                  (apply strengthReduce scc)
+           end
+
+           #  perform strength reduction 
+       and strengthReduce (n, n' as SSA::OP { e, t=[t], s=[a, b], ... } ) =
+           (case isInReducibleForm (e, a, b) of
+               THE (iv, rc) => replace (t, e, iv, rc) 
+            |  NULL => ())
+         | strengthReduce _ = ()
+
+           #  Check whether an instruction is in reducible form 
+       and isInReducibleForm (rtl, a, b) =
+           let fun isIVRC (a, b) =
+                   a >= 0 and
+                   let header_a = da::sub (headers, a)
+                   in  header_a != -1 and isRegionConstant (b, header_a)
+                   end 
+               fun addOrMul() = 
+                   if isIVRC (a, b) then THE (a, b)
+                   else if isIVRC (b, a) then THE (b, a)
+                   else NULL
+               fun sub () =  
+                   if isIVRC (a, b) then THE (a, b) else NULL
+               fun reducible rtl =
+               case rtl of
+                 t::MOVE_INT(_, _, t::ADD(_, t::REG(_, 0), t::REG(_, 1))) => addOrMul()
+               | t::MOVE_INT(_, _, t::ADDT(_, t::REG(_, 0), t::REG(_, 1))) => addOrMul()
+               | t::MOVE_INT(_, _, t::MULS(_, t::REG(_, 0), t::REG(_, 1))) => addOrMul()
+               | t::MOVE_INT(_, _, t::MULU(_, t::REG(_, 0), t::REG(_, 1))) => addOrMul()
+               | t::MOVE_INT(_, _, t::MULT(_, t::REG(_, 0), t::REG(_, 1))) => addOrMul()
+               | t::MOVE_INT(_, _, t::SUB(_, t::REG(_, 0), t::REG(_, 1))) => sub()
+               | t::MOVE_INT(_, _, t::SUBT(_, t::REG(_, 0), t::REG(_, 1))) => sub()
+               | t::RTL { e, ... } => reducible e
+               | _ => NULL
+           in  reducible rtl 
+           end
+
+           /*
+            * Replace the current operation with a copy from its 
+            * reduced counterpart.
+            */
+       and replace (t, e, iv, rc) = 
+           let t' = reduce (e, iv, rc)
+           in  replaceAllUses { from=t, to=t'};
+               da::update (headers, t, da::sub (headers, iv))
+           end
+
+           /*
+            * Insert code to strength reduce an induction variable
+            * and return the SSA name of the result
+            */
+       and reduce (e, iv, rc) =
+           let operands = [iv, rc]
+           in  search (e, operands, 0)
+               except _ =>
+               let result = inventName()
+                   add (e, operands, result)
+                   my (newDef, _) = copyDef (iv, result)
+                   iv_header = da::sub (headers, iv)
+                   da::update (headers, result, iv_header)
+                   fun isMult (t::RTL { e, ... } ) = isMult e
+                     | isMult (t::MOVE_INT(_, _, t::MULS(_, t::REG(_, 0), t::REG(_, 1)))) = TRUE
+                     | isMult (t::MOVE_INT(_, _, t::MULU(_, t::REG(_, 0), t::REG(_, 1)))) = TRUE
+                     | isMult (t::MOVE_INT(_, _, t::MULT(_, t::REG(_, 0), t::REG(_, 1)))) = TRUE
+                     | isMult _ = FALSE
+                   fun doOperand r =
+                      if r >= 0 and da::sub (headers, r) == iv_header then
+                         (replaceAllUses { from=r, to=reduce (e, r, rc) };())
+                      else if r >= 0 or isMult e and
+                              (case node_info (defSite r) of
+                                  SSA::PHI _ => TRUE
+                               |  _ => FALSE) then
+                         (replaceAllUses { from=r, to=apply (e, r, rc) }; ())
+                      else ()
+               in  apply doOperand operands;
+                   result
+               end 
+           end
+                             
+       and apply (e, op1, op2) = 
+           let operands = [op1, op2]
+           in  search (e, operands, 0)
+               except _ =>
+                  if op1 < 0 or
+                     let header_op1 = da::sub (headers, op1)
+                     in  header_op1 != -1 and 
+                         isRegionConstant (op2, header_op1)
+                     end then
+                     reduce (e, op1, op2)
+                  else if op2 < 0 or 
+                     let header_op2 = da::sub (headers, op2)
+                     in  header_op2 != -1 and 
+                         isRegionConstant (op1, header_op2)
+                     end then
+                     reduce (e, op2, op1)
+                  else 
+                     let result = inventName()
+                         add (e, operands, result)
+                     in  result 
+                     end
+           end
+   
+   in  #  process all loops 
+       graph_strongly_connected_components::strong_components (reversed_graph_view::rev_view SSA) processSCC ();
+       SSA::changed SSA;
+       SSA
+   end   
+   */
+   
+end

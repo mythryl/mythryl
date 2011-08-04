@@ -1,0 +1,603 @@
+## libfile-grammar-actions.pkg -- rule actions for .lib file syntax grammar.
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+##                   "Computer language design is just
+##                    like a stroll in the park.
+##
+##                   "Jurassic Park, that is."
+##
+##                                -- Larry Wall in <1994Jun15.074039.2654@netlabs.com>
+
+stipulate
+    package ad  =  anchor_dictionary;					# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package em  =  error_message;					# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package lg  =  inter_library_dependency_graph;			# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package lnd =  line_number_db;					# line_number_db			is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package lsi =  library_source_index;				# library_source_index			is from   src/app/makelib/stuff/library-source-index.pkg
+    package mvi =  makelib_version_intlist;				# makelib_version_intlist		is from   src/app/makelib/stuff/makelib-version-intlist.pkg
+    package ms  =  makelib_state;					# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+    package pmt =  private_makelib_tools;				# private_makelib_tools			is from   src/app/makelib/tools/main/private-makelib-tools.pkg
+    package ps  =  pervasive_symbol;					# pervasive_symbol			is from   src/app/makelib/main/pervasive-symbol.pkg
+    package rlf =  raw_libfile;						# raw_libfile				is from   src/app/makelib/stuff/raw-libfile.pkg
+    package sy  =  symbol;						# symbol				is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package sym =  symbol_map;						# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+    package sys =  symbol_set;						# symbol_set				is from   src/app/makelib/stuff/symbol-set.pkg
+    package xns =  exceptions;						# exceptions				is from   src/lib/std/exceptions.pkg
+herein
+
+    package libfile_grammar_actions: Libfile_Grammar_Actions   {	# Libfile_Grammar_Actions		is from   src/app/makelib/parse/libfile-grammar-actions.api
+	#
+	Source_Code_Region =   lnd::Source_Code_Region;
+
+	Cm_Symbol  =  String;
+	Cm_Ilk     =  String;
+
+#	Cm_Version =  mvi::Makelib_Version_Intlist;					# 
+	Library    =  lg::Inter_Library_Dependency_Graph;
+
+
+							    
+	Exports_Symbolset =   rlf::Libfile  ->  sym::Map (rlf::Libfile -> Void); 
+
+	Int_Expression  =  rlf::Libfile -> Int;
+	Bool_Expression =  rlf::Libfile -> Bool;
+
+	Members
+	    =
+	    (rlf::Libfile,   Null_Or( ad::File ))
+	    ->
+	    rlf::Libfile;
+
+	Tool_Option  =  pmt::Tool_Option;
+	Tool_Index   =  pmt::Index;
+
+	make_tool_index
+	    =
+	    pmt::make_index;
+
+	Plaint_Sink =  String -> Void;
+
+	fun save_eval (expression, dictionary, error)
+	    =
+	    expression dictionary
+	    except
+		exn =  { error ("expression raises exception: " + xns::exception_message exn);
+			 FALSE;
+		       };
+
+
+	fun file_native (file_path, path_root, plaint_sink)
+	    =
+	    ad::from_native
+		{ plaint_sink }
+		{ path_root, file_path };
+
+
+	fun file_standard  (makelib_state:  ms::Makelib_State)   (file_path, path_root, plaint_sink)
+	    =
+	    ad::from_standard'
+		{ anchor_dictionary => makelib_state.makelib_session.anchor_dictionary,
+		  plaint_sink
+		}
+		{ path_root, file_path };
+
+	fun cm_symbol symbol
+	    =
+	    symbol;
+
+
+	fun cm_version
+              ( dotted_ints_version_string:  String,			# Something like "12.3.1", say.
+                error
+	      )
+	    =
+	    case (mvi::from_string  dotted_ints_version_string)		# 
+		#	  
+		THE v =>  v;
+		NULL  =>  {   error "ill-formed version specification";
+                              mvi::zero;
+                          };
+	    esac;
+
+	my_package     =   sy::make_package_symbol;			# symbol		is from   src/lib/compiler/front/basics/map/symbol.pkg
+	my_api         =   sy::make_api_symbol;
+	my_g           =   sy::make_generic_symbol;
+	my_generic_api =   sy::make_generic_api_symbol;
+
+	fun ilk string
+	    =
+	    string::map char::to_lower string;
+
+	fun apply_to  mc  e
+	    =
+	    e mc;
+
+	fun sgl2sll sublibraries
+	    =
+	    {   fun same_sublibrary
+                        (lt1: lg::Library_Thunk)
+                        (lt2: lg::Library_Thunk)
+		    =
+		    ad::compare (lt1.libfile, lt2.libfile) == EQUAL;
+
+
+		fun add (x, l)
+		    =
+		    if (list::exists (same_sublibrary x) l)       l;		# Doesn't this make us O(N**2)? XXX BUGGO FIXME
+		    else                                      x ! l;
+		    fi;
+
+		fun one_sg  (lt: lg::Library_Thunk,  l)
+		    =
+		    case (lt.library_thunk ())
+			#		  
+			lg::LIBRARY { more, sublibraries, ... }
+			    =>
+			    case more
+				#
+				lg::SUBLIBRARY _ =>  fold_right add l sublibraries;
+				_                =>  add (lt, l);
+			    esac;
+
+			_ => l;
+		    esac;
+
+		fold_right one_sg [] sublibraries;
+	    };
+
+
+	# Filter out unused stuff and thunkify the library. 
+	#
+	fun filter_and_thunkify_sublibrary_list (sgl, imp_syms)
+	    =
+	    {   # Add fake package "<Pervasive>"
+		# so that we are sure not to lose
+		# the primordial_library when filtering:
+
+		ss = sys::add (imp_syms, ps::pervasive_package_symbol);
+
+		fun add ((p, g as lg::LIBRARY { catalog, ... }
+							      , rb	# MUSTDIE
+							      ), l)
+			=>
+			{   fun defined_here symbol
+				=
+				sym::contains_key (catalog, symbol);
+
+			    if (sys::exists  defined_here  ss)
+				#			    
+				{ libfile    =>   p,
+                                  library_thunk =>   fn () = g
+				, renamings     =>   rb	# MUSTDIE
+				} ! l;
+			    else
+				l;
+			    fi;
+			};
+
+
+		    add ((_, lg::BAD_LIBRARY
+					      , _	# MUSTDIE
+					      ), l)
+			=>
+			l;
+		end;
+
+		fold_right add [] sgl;
+	    };
+
+	\/ = string_set::union;
+	#
+	infix val  \/ ;
+
+	fun get_exports (mc, e)
+	    =
+	    sym::keyed_fold_left
+		(fn (symbol, c, symbol_set) =   { c mc;   sys::add (symbol_set, symbol); })
+		sys::empty
+		(apply_to  mc  e);
+
+
+	# This is the grammar action function for .lib rules starting with 'group'.
+	# Construct a new sublibrary:
+	#
+	fun make_sublibrary
+	    { path       => libfile,
+	      exports,
+	      members,
+	      makelib_state,
+	      this_library,
+	      primordial_library
+	    }
+	    =
+	    {   mc =  apply_to  (rlf::make_primordial_libfile  makelib_state  primordial_library,  this_library)  members;
+
+		filter =  get_exports (mc, exports);
+
+		# Fetch pervasive package from init library
+		# by looking up the symbol "<Pervasive>" in it:
+		#
+		my pfsbn    #  "pervasive far source/compiledfile node" ...? 
+		    =
+		    {   my { catalog, ... }
+			    =
+			    case primordial_library
+				#
+				lg::LIBRARY x     => x;
+				lg::BAD_LIBRARY => em::impossible "libfile-grammar-actions.pkg: group: bad init library";
+			    esac;
+
+			(the (sym::get (catalog, ps::pervasive_package_symbol))).masked_tome_thunk;
+		    };
+
+
+		rlf::make_index (makelib_state, libfile, mc);
+
+
+		my { exports, imported_symbols => isl }
+		    =
+		    rlf::make_libfile (libfile, mc, filter, makelib_state, pfsbn ());
+
+
+		sublibraries
+		    =
+		    filter_and_thunkify_sublibrary_list (rlf::sublibraries mc, isl);
+
+		    
+
+
+
+		lg::LIBRARY
+		  {
+		    catalog =>  exports,
+		    more    =>  lg::SUBLIBRARY   { sublibraries,
+						   main_library => this_library
+					         },
+		    #
+		    libfile,
+		    #
+		    sources      =>  rlf::sources mc,
+		    sublibraries =>  sgl2sll sublibraries
+		  };
+	    };
+
+	# This is the grammar action function called
+	# by .lib rules starting with 'library' -- see
+	#
+        #     src/app/makelib/parse/libfile.grammar
+	#
+	# Which is to say, it is here that we construct the
+	# typical toplevel return result of parsing a .lib file.
+	#
+	fun make_main_library
+		{ path       => libfile,
+		  exports,
+		  members,
+		  makelib_version_intlist,
+		  makelib_state,
+		  primordial_library
+
+		}
+	    =
+	    {   mc =  apply_to (
+			  rlf::make_primordial_libfile  makelib_state  primordial_library,
+			  THE libfile
+		      )
+		      members;
+
+		filter = get_exports (mc, exports);
+
+		# Fetch pervasive package from init library
+		# by looking up the symbol "<Pervasive>" in it:
+		#
+		pfsbn =
+		    {   my { catalog, ... }
+			    =
+			    case primordial_library
+				#
+				lg::LIBRARY x   =>  x;
+				lg::BAD_LIBRARY =>  em::impossible "libfile-grammar-actions.pkg: lib: bad init library";
+			    esac;
+
+			
+                        (the (sym::get (catalog, ps::pervasive_package_symbol))).masked_tome_thunk;
+		    };
+
+		rlf::make_index (makelib_state, libfile, mc);
+
+		my { exports, imported_symbols => isl }
+		    =
+		    rlf::make_libfile (libfile, mc, filter, makelib_state, pfsbn ());
+
+		sublibraries
+		    =
+		    filter_and_thunkify_sublibrary_list (rlf::sublibraries mc, isl);
+
+
+		lg::LIBRARY
+		  {
+		    catalog =>  exports,
+		    #
+		    more =>
+			lg::MAIN_LIBRARY
+			  {
+			    makelib_version_intlist,
+			    #
+			    frozen_vs_thawed_stuff =>   lg::THAWEDLIB_STUFF { sublibraries }
+			  },
+		    #
+		    libfile,
+		    #
+		    sources      =>  rlf::sources mc,
+		    sublibraries =>  sgl2sll sublibraries
+		  };
+	    };
+
+
+
+	fun empty_members (dictionary, _)
+	    =
+	    dictionary;
+
+
+	fun make_member
+		{ makelib_state, recursive_parse, load_plugin }
+		args
+		(dictionary, this_library)
+	    =
+	    {   libfile
+		    =
+		    rlf::expand_one
+
+			{ makelib_state,
+			  recursive_parse  => recursive_parse  this_library,
+			  load_plugin
+			}
+
+			args;
+
+		error = lsi::error
+			    makelib_state.library_source_index
+			    args.library;
+
+		fun error0 s
+		    =
+		    error em::ERROR s em::null_error_body;
+
+		rlf::sequential (dictionary, libfile, error0);
+	    };
+
+
+	fun members (m1, m2) (dictionary, this_library)
+	    =
+	    m2 (m1 (dictionary, this_library), this_library);
+
+
+	fun guarded_members (c, (m1, m2), error) (dictionary, this_library)
+	    =
+	    if (save_eval (c, dictionary, error))   m1 (dictionary, this_library);
+	    else 				    m2 (dictionary, this_library);
+            fi;
+
+	fun error_member thunk (dictionary, _)
+	    =
+	    {   thunk ();
+		dictionary;
+	    };
+
+	fun symerr s
+	    =
+	    cat [  "exported ",
+		       sy::name_space_to_string (sy::name_space s),
+		       " not defined: ",
+		       sy::name s
+		    ];
+
+	fun exports_symbolset_from_symbol (s: sy::Symbol, error) dictionary
+	    =
+	    sym::singleton (s, check)
+	    where
+	        fun check final_env
+		    =
+		    if (not  (rlf::ml_find final_env s))
+			#
+		        error (symerr s);
+		    fi;
+	    end;
+
+
+	fun union_of_exports_symbolsets (ss1: Exports_Symbolset, ss2: Exports_Symbolset) dictionary
+	    =
+	    sym::union_with #1 (ss1 dictionary, ss2 dictionary);
+
+
+	fun difference_of_exports_symbolsets (ss1: Exports_Symbolset, ss2: Exports_Symbolset)  (libfile: rlf::Libfile)
+	    =
+	    {   ss2_map =  ss2  libfile;
+
+		fun in_ss2 (s, _)
+		    =
+		    sym::contains_key (ss2_map, s);
+
+		sym::keyed_filter (not o in_ss2) (ss1 libfile);
+	    };
+
+	fun intersection_of_exports_symbolsets (ss1: Exports_Symbolset, ss2: Exports_Symbolset)  (libfile: rlf::Libfile)
+	    =
+	    sym::intersect_with #1 (ss1 libfile, ss2 libfile);
+
+
+	stipulate
+	    # Convert symbol-set to a map from symbols
+	    # to fns checking for those symbol's presence in a map:
+	    #
+	    fun with_checkers (symbol_set, error)
+		=
+		sys::fold_left  add1  sym::empty  symbol_set
+		where
+		    fun add1 (symbol, symbol_map)
+			=
+			sym::set (symbol_map, symbol, check)
+			where
+			    fun check final_env
+				=
+				if (not (rlf::ml_find final_env symbol))   error (symerr symbol);   fi;
+			end;
+		end;
+
+	    fun exportfile
+                    exported_symbols_fn								# rlf::api_or_pkg_exported_symbols or rlf::sublibrary_exported_symbols;
+                    ( null_or_srcfile,								# NULL is a wildcard -- get exported symbols from all files.
+                      report_error: String -> Void
+                    )
+                    (libfile: rlf::Libfile)
+		=
+		with_checkers (exported_symbols_fn (libfile, null_or_srcfile, report_error), report_error);
+	herein
+
+	    # These two are mainly for the 'filecat' rule in
+	    #
+	    #     src/app/makelib/parse/libfile.grammar
+	    #
+	    api_or_pkg_exported_symbols  =  exportfile  rlf::api_or_pkg_exported_symbols;
+	    sublibrary_exported_symbols  =  exportfile  rlf::sublibrary_exported_symbols;
+
+	    fun export_freezefile (p, error, { hasoptions, elab, this_library } ) libfile
+		=
+		{   fun elab' ()
+			=
+			elab () (rlf::empty_libfile, this_library);
+
+		    raw   =   rlf::freezefile_exports (libfile, p, error, hasoptions, elab');
+
+		    with_checkers (raw, error);
+		};
+	end;
+
+
+	fun empty_exports libfile
+	    =
+	    sym::empty;
+
+
+	fun conditional_exports  (conditional_expression, (exports, else_exports), error)  libfile
+	    =
+	    if (save_eval (conditional_expression, libfile, error))   exports       libfile;
+	    else                                                      else_exports  libfile;
+            fi;
+
+
+	fun default_library_exports  libfile
+	    =
+	    union_of_exports_symbolsets
+	      (
+		api_or_pkg_exported_symbols   (NULL, fn s = ()),
+		sublibrary_exported_symbols   (NULL, fn s = ())
+	      )
+	      libfile;
+
+
+	fun error_export  thunk  libfile
+	    =
+	    {   thunk ();
+		sym::empty;
+	    };
+
+	Addsym = PLUS  | MINUS;
+	Mulsym = TIMES | DIV | MOD;
+
+	Eqsym   = EQ | NE;
+	Ineqsym = GT | GE | LT | LE;
+
+
+	fun number i _
+	    =
+	    i;
+
+
+	fun variable  makelib_state  v  e
+	    =
+	    rlf::num_find  makelib_state  e  v;
+
+
+	fun add (e1, PLUS,  e2) e   =>   e1 e + e2 e;
+	    add (e1, MINUS, e2) e   =>   e1 e - e2 e;
+	end;
+
+
+	fun mul (e1, TIMES, e2) e   =>   e1 e * e2 e;
+	    mul (e1, DIV,   e2) e   =>   e1 e / e2 e;
+	    mul (e1, MOD,   e2) e   =>   e1 e % e2 e;
+	end;
+
+
+	fun sign (PLUS,  ex) e   =>   ex e;
+	    sign (MINUS, ex) e   =>   -(ex e);
+	end;
+
+
+	fun negate ex e
+	    =
+	    -(ex e);
+
+
+	fun ml_defined               s e   =   rlf::ml_find               e s;
+
+	fun is_defined_hostproperty makelib_state s e   =   rlf::is_defined_hostproperty makelib_state e s;
+
+	fun conj (e1, e2) e   =   e1 e and e2 e;
+	fun disj (e1, e2) e   =   e1 e or  e2 e;
+
+
+	fun beq (e1: Bool_Expression, EQ, e2) e   =>   e1 e == e2 e;
+	    beq (e1, NE, e2) e               =>   e1 e != e2 e;
+	end;
+
+
+	fun not ex e
+	    =
+	    bool::not (ex e);
+
+
+	fun ineq (e1, LT, e2) e   =>   e1 e <  e2 e;
+	    ineq (e1, LE, e2) e   =>   e1 e <= e2 e;
+	    ineq (e1, GT, e2) e   =>   e1 e >  e2 e;
+	    ineq (e1, GE, e2) e   =>   e1 e >= e2 e;
+	end;
+
+
+	fun eq (e1: Int_Expression, EQ, e2) e   =>   e1 e == e2 e;
+	    eq (e1,                 NE, e2) e   =>   e1 e != e2 e;
+	end;
+
+	string  = pmt::STRING;
+	subopts = pmt::SUBOPTS;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

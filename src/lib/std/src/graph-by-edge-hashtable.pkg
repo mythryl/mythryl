@@ -1,0 +1,370 @@
+## graph-by-edge-hashtable.pkg
+#
+# For overview comments see:
+#
+#     src/lib/std/src/graph-by-edge-hashtable.api
+#
+# We use the usual vector-of-bucketlists hashtable implementation approach,
+# hashing the two node ids defining an edge.
+#
+# When the node ids are small enough, we pack them
+# two to a word to save a little space -- that is,
+# each edge can then be packed in a single Unt.
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+
+stipulate
+    package unt =  unt_guts;		# unt_guts		is from   src/lib/std/src/bind-unt-guts.pkg
+    package rwv =  rw_vector;		# rw_vector		is from   src/lib/std/src/rw-vector.pkg
+    package ua  =  unsafe::rw_vector;	# unsafe		is from   src/lib/std/src/unsafe/unsafe.pkg
+herein
+
+    package   graph_by_edge_hashtable
+    : (weak)  Graph_By_Edge_Hashtable		# Graph_By_Edge_Hashtable	is from   src/lib/std/src/graph-by-edge-hashtable.api
+    {
+	Graph_By_Edge_Hashtable
+	    = 
+	    GRAPH_BY_EDGE_HASHTABLE
+	      { table: Hashtable, 
+		edge_count: Ref( Int )
+	      }
+	also
+	Hashtable								# Hashtable vector-of-bucketlists.
+	  = SMALL  (Ref( rwv::Rw_Vector( List( Unt ) ) ), Unt)			# Store each edge as a single Unt.
+	  | LARGE  (Ref( rwv::Rw_Vector( Bucket      ) ), Unt)			# Store each edge as a triple (node1, node2, next-in-bucketchain).
+		#
+		# This looks daft.
+		# A List cell takes   2 words + overhead,
+		# a Bucket cell takes 3 words + overhead.
+		# So we're doubling the amount of code for
+		# maybe a 25% space savings.  Packing 3
+		# edges per bucket at one word per edge
+		# (say) would seem to be a lot more
+		# space-efficient, if we care that much.
+		# -- 2011-06-21 CrT   XXX SUCKO FIXME.
+
+	also
+	Bucket = NIL | BUCKET  (Int, Int, Bucket); 
+
+	exception NODES;
+
+	fun hash_fun (i, j, shift, size)					# ((i<<shift) + (i+j)) & (size-1)
+	    = 
+	    {   i    = unt::from_int i;
+		j    = unt::from_int j;
+		h    = unt::(+) (unt::(<<) (i, shift), unt::(+) (i, j));
+		mask = unt::(-) (unt::from_int size, 0u1);
+		unt::to_int_x (unt::bitwise_and (h, mask));
+	    };
+
+	empty_graph
+	    =
+	    GRAPH_BY_EDGE_HASHTABLE
+	      {
+		table => SMALL (REF (rwv::make_rw_vector (2, [])), 0u0),
+		edge_count => REF 0
+	      };
+
+
+	fun get_edge_count (GRAPH_BY_EDGE_HASHTABLE { edge_count, ... } )
+	    =
+	    *edge_count;
+
+
+	fun get_hashchains_count (GRAPH_BY_EDGE_HASHTABLE { table=>SMALL (REF table, _), ... } ) =>  rwv::length  table;
+	    get_hashchains_count (GRAPH_BY_EDGE_HASHTABLE { table=>LARGE (REF table, _), ... } ) =>  rwv::length  table;
+	end;
+
+
+	fun edge_exists (GRAPH_BY_EDGE_HASHTABLE { table=>SMALL (table, shift), ... } )
+		=>
+		(fn (i, j)
+		    =
+		    {   my (i, j)
+			    =
+			    if (i < j)   (i, j);
+			    else         (j, i);
+			    fi;
+
+			k = unt::(+) (unt::(<<) (unt::from_int i, 0u15), unt::from_int j);
+
+			fun find [] => FALSE;
+			    find (k' ! b)   =>   k == k' or find b;
+			end;
+
+			tab = *table;
+
+			find (ua::get (tab, hash_fun (i, j, shift, rwv::length tab)));
+		    }
+		);
+
+	    edge_exists (GRAPH_BY_EDGE_HASHTABLE { table=>LARGE (table, shift), ... } )
+		=>
+		(fn (i, j)
+		    =
+		    {   my (i, j)
+			    =
+			    if (i < j)   (i, j);
+			    else         (j, i);
+			    fi;
+
+			fun find NIL => FALSE;
+			    find (BUCKET(i', j', b))   =>   i == i' and j == j' or find b;
+			end;
+
+			tab = *table;
+
+			find (ua::get (tab, hash_fun (i, j, shift, rwv::length tab)));
+		    }
+		);
+	end;
+
+     #      edge_exists (GRAPH_BY_EDGE_HASHTABLE { table=GRAPH_BY_EDGE_HASHTABLE table, ... } ) =
+     #       (fn (i, j) => 
+     #	let my (i, j) = if i > j then (i, j) else (j, i)
+     #	    bit   = unt::from_int (ua::get (indices, i) + j)
+     #	    index = unt::toIntX (W.>>(bit, 0u3))
+     #	    mask  = W.<<(0u1, unt::bitwise_and (bit, 0u7))
+     #	in  unt::bitwise_and (unt::from_int (W8::toInt (UW8A::sub (table, index))), mask) != 0u0 
+     #	end
+     #       )
+
+
+	fun insert_edge (GRAPH_BY_EDGE_HASHTABLE { table=>SMALL (table, shift), edge_count, ... } )
+		=>
+		insert
+		where
+		    # Here we're using the bitmatrix graph representation,
+		    # not the hashtable-of-edges representation.
+		    #
+		    fun insert (i, j)
+			=
+			{   my (i, j)
+				=
+				if (i < j)   (i, j);
+				else         (j, i);
+				fi;
+
+			    tab = *table;
+
+			    len = rwv::length tab;
+
+			    if (*edge_count < len)
+				#
+				index = hash_fun (i, j, shift, len);
+
+				k = unt::(+) (unt::(<<) (unt::from_int i, 0u15), unt::from_int j);	# (i << 15) + j -- pack both node IDs into a single Unt.
+
+				fun find []         =>   FALSE;							# Search a bucketchain for a given edge, encoded as a single Unt.
+				    find (k' ! b)   =>   k == k' or find b;
+				end;
+
+				b = ua::get (tab, index);
+
+				if (find b)
+				    #
+				    FALSE;
+				else
+				    ua::set (tab, index, k ! b); 
+				    edge_count := *edge_count + 1;
+				    TRUE;
+				fi;
+
+			    else
+				# Grow table:
+				# 
+				old_table = tab;
+				old_size  = rwv::length old_table;
+				new_size  = old_size + old_size;
+				new_table = rwv::make_rw_vector (new_size,[]);
+
+				fun enter n
+				    =
+				    if (n < old_size )
+
+					loop (ua::get (old_table, n), [], [])
+					where
+					    fun loop ([], a, b)
+						    => 
+						    {   ua::set (new_table, n, a);
+							ua::set (new_table, n + old_size, b);
+							enter (n+1);
+						    };
+
+						loop (k ! l, a, b)
+						    =>
+						    {   i = unt::to_int_x (unt::(>>) (k, 0u15));  
+							j = unt::to_int_x (unt::(-) (k, unt::(<<) (unt::from_int i, 0u15)));
+
+							(hash_fun (i, j, shift, new_size) == n) 
+							    ??  loop (l,  k ! a,      b)
+							    ::  loop (l,      a,  k ! b);
+						    };
+					    end;
+					end;
+
+				    fi;
+
+				table := new_table;
+				enter 0; 						# Copy contents of old hashtable into new one.
+				insert (i, j);
+			    fi; 
+			};
+		end;
+
+	    insert_edge (GRAPH_BY_EDGE_HASHTABLE { table=>LARGE (table, shift), edge_count, ... } )
+		    =>
+		    insert
+		    where
+			fun insert (i, j)
+			    =
+			    {   my (i, j) = if (i < j ) (i, j); else (j, i);fi;
+				tab = *table;
+				len = rwv::length tab;
+
+				if (*edge_count < len)
+				    #
+				    index = hash_fun (i, j, shift, len);
+
+				    fun find NIL => FALSE;
+					find (BUCKET(i', j', b))   =>   i == i' and j == j' or find b;
+				    end;
+
+				    b = ua::get (tab, index);
+
+				    if (find b)
+					 FALSE;
+				    else
+					 ua::set (tab, index, BUCKET (i, j, b)); 
+					 edge_count := *edge_count + 1;
+					 TRUE;
+				    fi;
+
+				else #  grow table 
+
+				    old_table = tab;
+				    old_size  = rwv::length old_table;
+				    new_size  = old_size + old_size;
+				    new_table = rwv::make_rw_vector (new_size, NIL);
+
+				    fun enter n
+					=
+					if (n < old_size)
+
+					     loop (ua::get (old_table, n), NIL, NIL)
+					     where
+						 fun loop (NIL, a, b)
+							 => 
+							 {   ua::set (new_table, n, a);
+							     ua::set (new_table, n + old_size, b);
+							     enter (n+1);
+							 };
+
+						     loop (BUCKET(i, j, l), a, b)
+							 =>
+							 if (hash_fun (i, j, shift, new_size) == n) 
+							      loop (l, BUCKET (i, j, a), b);
+							 else loop (l, a, BUCKET (i, j, b));
+							 fi;
+						 end;
+					     end;
+					fi;
+
+				    table := new_table;
+				    enter 0; 
+				    insert (i, j);
+				fi; 
+			    };			# fun insert
+		    end;
+	end;					# fun insert_edge
+
+     #     | add (GRAPH_BY_EDGE_HASHTABLE { table=GRAPH_BY_EDGE_HASHTABLE table, ... } ) =
+     #       (fn (i, j) =>
+     #	let my (i, j) = if i > j then (i, j) else (j, i)
+     #	    bit   = unt::from_int (ua::get (indices, i) + j)
+     #	    index = unt::toIntX (W.>>(bit, 0u3))
+     #	    mask  = W.<<(0u1, unt::bitwise_and (bit, 0u7))
+     #	    value = unt::from_int (W8::toInt (UW8A::sub (table, index)))
+     #	in  if unt::bitwise_and (value, mask) != 0u0 then FALSE
+     #	    else (UW8A::update (table, index, 
+     #		    W8::from_int (unt::toIntX (unt::bitwise_or (value, mask)))); TRUE) 
+     #	end
+     #       )
+
+
+	fun delete (GRAPH_BY_EDGE_HASHTABLE { table=>SMALL (table, shift), edge_count, ... } )
+		=>
+		(fn (i, j)
+		    =
+		    {   k = unt::(+) (unt::(<<) (unt::from_int i, 0u15), unt::from_int j);
+
+			fun find []
+				=>
+				[];
+
+			    find (k' ! b)
+				=>
+				if (k == k')
+				    edge_count := *edge_count - 1;
+				    b;
+				else
+				    k' ! find b;
+				fi;
+			end;
+
+			tab = *table;
+			index = hash_fun (i, j, shift, rwv::length tab);
+			n = *edge_count;
+			ua::set (tab, index, find (ua::get (tab, index)));
+			*edge_count != n;
+		    }
+		);
+
+	    delete (GRAPH_BY_EDGE_HASHTABLE { table=>LARGE (table, shift), edge_count, ... } )
+		=>
+		(fn (i, j)
+		    =
+		    {   fun find NIL
+				=>
+				NIL;
+
+			    find (BUCKET(i', j', b))
+				=>
+				if (i == i' and j == j')
+				     edge_count := *edge_count - 1;
+				     b;
+				else
+				     BUCKET (i', j', find b);
+				fi;
+			end;
+
+			tab = *table;
+			index = hash_fun (i, j, shift, rwv::length tab);
+			n = *edge_count;
+			ua::set (tab, index, find (ua::get (tab, index)));
+			*edge_count != n;
+		    }
+		);
+	end;			# fun delete
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

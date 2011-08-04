@@ -1,1 +1,1 @@
-..\..\bin\make7 mythryl-lex.make6 export_lex_fn::lex_fn  mythryl-lex
+..\..\bin\makelib mythryl-lex.lib export_lex_fn::lex_fn  mythryl-lex

@@ -1,0 +1,2178 @@
+## pickler-junk.pkg
+#
+# The revised pickler using the new "generic" pickling facility.
+#
+# March 2000, Matthias Blume
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+stipulate
+    generic package map_g =  red_black_map_g;
+    package int_map     =  int_red_black_map;				# int_red_black_map		is from   src/lib/src/int-red-black-map.pkg
+    #
+    package acf =  anormcode_form;					# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package cty =  ctypes;						# ctypes			is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package di  =  debruijn_index;					# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ed  =  stamppath::module_stamp_map;				# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package hbo =  highcode_baseops;					# highcode_baseops		is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hbt =  highcode_basetypes;					# highcode_basetypes		is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+    package hut =  highcode_uniq_types;					# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package ii  =  inlining_junk;					# inlining_junk			is from   src/lib/compiler/front/semantic/basics/inlining-junk.pkg
+    package ix  =  inlining_mapstack;					# inlining_mapstack		is from   src/lib/compiler/toplevel/compiler-state/inlining-mapstack.pkg
+    package ip  =  inverse_path;					# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package mld =  module_level_declarations;				# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package ph  =  picklehash;						# picklehash			is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package pkr =  pickler;						# pickler			is from   src/lib/compiler/src/library/pickler.pkg
+    package sp  =  symbol_path;						# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package sta =  stamp;						# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package stx =  stampmapstack;					# stampmapstack			is from   src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+    package syx =  symbolmapstack;					# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package sxe =  symbolmapstack_entry;				# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package sy  =  symbol;						# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package tag =  pickler_datatype_tags;				# pickler_datatype_tags		is from   src/lib/compiler/src/library/pickler-datatype-tags.pkg
+    package ty  =  types;						# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package vac =  variables_and_constructors;				# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;						# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+    package   pickler_junk
+    :         Pickler_Junk						# Pickler_Junk		is from   src/lib/compiler/front/semantic/pickle/pickler-junk.api
+    {
+	Pickling_Context
+	  #
+	  = INITIAL_PICKLING     stx::Stampmapstack
+	  | REPICKLING           ph::Picklehash
+	  | FREEZEFILE_PICKLING  List( (Null_Or( (Int, sy::Symbol) ), stx::Stampmapstack))
+	  ;
+
+	# To gather some statistics:
+	#
+	add_pickles = compile_statistics::add_stat (compile_statistics::make_stat "Pickle Bytes");
+	#
+	fun bug msg
+            =
+            error_message::impossible ("pickler_junk: " + msg);
+
+
+	# NOTE:  The CRC functions really ought to work on unt8_vector::vectors XXX BUGGO FIXME *
+	#
+	fun hash_pickle pickle
+	    =
+	    ph::from_bytes
+	      (byte::string_to_bytes
+		 (crc::to_string
+		    (crc::from_string
+		      (byte::bytes_to_string pickle))));
+	#
+	fun compare_symbols (a, b)
+            =
+            if   (sy::symbol_gt (a, b))   GREATER;
+	    elif (sy::eq        (a, b))   EQUAL;
+	    else                              LESS;
+            fi;
+
+	package lambda_type_map =  map_g (package {  Key = hut::Uniqtype;    compare = hut::compare_uniqtypes; });
+	package typ_map 	=  map_g (package {  Key = hut::Uniqtyp;  compare = hut::compare_uniqtyps;      });
+	package type_kind_map   =  map_g (package {  Key = hut::Uniqkind;    compare = hut::compare_uniqkinds;   });
+
+									# stamp_map				is from   src/lib/compiler/front/typer-stuff/basics/stampmap.pkg
+									# symbol_and_picklehash_pickling	is from   src/lib/compiler/front/semantic/pickle/symbol-and-picklehash-pickling.pkg
+	package data_type_map        = stamp_map;
+	package datatype_member_map  = stamp_map;
+
+
+
+	package spp= symbol_and_picklehash_pickling;
+
+	Map =  { lambda_type:      lambda_type_map::Map(		pkr::Id ),
+		 typ: 	   typ_map::Map(			pkr::Id ),
+		 type_kind:        type_kind_map::Map(			pkr::Id ),
+		 data_type:        data_type_map::Map(			pkr::Id ),
+		 datatype_member:  datatype_member_map::Map(		pkr::Id ),
+		 module_id:        stx::Stampmapstackx(	pkr::Id )
+	       };
+
+	empty_map
+            =
+            { lambda_type	=>  lambda_type_map::empty,
+	      typ 		=>  typ_map::empty,
+	      type_kind		=>  type_kind_map::empty,
+	      data_type		=>  data_type_map::empty,
+	      datatype_member	=>  datatype_member_map::empty,
+	      module_id		=>  stx::stampmapstackx
+	    };
+
+	# Datatype tags -- see   src/lib/compiler/src/library/pickler-datatype-tags.pkg
+	# Uniqtyp info:
+	#
+	tag_number_kind_and_bitsize		=  1;
+        tag_math_op				=  2;
+	tag_comparison_op			=  3;
+	tag_primitive_op			=  4;
+	tag_constructor_signature		=  5;
+	tag_varhome				=  6;
+	tag_valcon_form				=  7;
+	tag_lambdatype				=  8;
+	tag_typ				=  9;
+	tag_typekind				= 10;
+	tag_value				= 11;
+	tag_con					= 12;	# Maybe should be tag_valcon
+	tag_lambda_expression			= 13;
+	tag_fk					= 14;
+	tag_recordkind				= 15;
+	tag_stamp				= 16;
+	tag_mi					= 17;
+	tag_equality_property			= 18;
+	tag_typ_kind				= 19;
+	tag_adtype_info				= 20;
+	tag_datatype_family			= 21;
+#	_					= 22;
+	tag_type				= 23;
+	tag_inlining_info			= 24;
+	tag_variable				= 25;
+	tag_apackage_definition 		= 26;
+	tag_an_api				= 27;
+	tag_a_pkg_fn_api			= 28;
+	tag_aspec				= 29;
+	tag_an_typechecked_package		= 30;
+	tag_a_package				= 31;
+	tag_a_generic				= 32;
+	tag_astamp_expression			= 33;
+	tag_atyp_expression			= 34;
+	tag_apackage_expression			= 35;
+	tag_ageneric_expression			= 36;
+	tag_typechecked_packageexpression	= 37;
+	tag_typechecked_packagedeclaration	= 38;
+	tag_typechecked_package_dictionary	= 39;
+	tag_infix				= 40;
+	tag_anaming				= 41;
+	tag_dcon				= 42;
+	tag_dictionary				= 43;
+	tag_fprim				= 44;
+	tag_function_declaration		= 45;
+	tag_tfundec				= 46;
+	tag_datatyp				= 47;
+	tag_datatype_member			= 48;
+	tag_aname_representation_domain		= 49;
+	tag_overload				= 50;
+	tag_ageneric_closure			= 51;
+	tag_agenerics_expansion			= 52;
+	tag_typechecked_generic			= 53;
+	tag_symbol_path				= 54;
+	tag_inverse_path			= 55;
+	tag_package_identifier			= 56;
+	tag_generic_identifier			= 57;
+	tag_cci					= 58;
+	tag_ctype				= 59;
+	tag_ccall_type				= 60;
+
+	# This is a bit awful.
+	# We really ought to have syntax for "functional update" XXX FIXME BUGGO :
+	#
+	lambda_types = { find     =>   fn (m: Map, key) =  lambda_type_map::get (m.lambda_type, key),
+			 insert   =>   fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+					    key,
+					    value
+					 )
+				      =
+				      { lambda_type      => lambda_type_map::set (lambda_type, key, value),
+					typ,
+					type_kind,
+					data_type,
+					datatype_member,
+					module_id
+				      }
+		       };
+
+	typs = { find   => fn (m: Map, key) =  typ_map::get (m.typ, key),
+			      insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+					     key,
+					     value
+					  )
+				       =
+				       { lambda_type,
+					 typ => typ_map::set (typ, key, value),
+					 type_kind,
+					 data_type,
+					 datatype_member,
+					 module_id
+				       }
+			    };
+
+	type_kinds = { find   => fn (m: Map, key) =  type_kind_map::get (m.type_kind, key),
+		       insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+				      key,
+				      value
+				   )
+				=
+				{ lambda_type,
+				  typ,
+				  type_kind        => type_kind_map::set (type_kind, key, value),
+				  data_type,
+				  datatype_member,
+				  module_id
+				}
+		     };
+	#
+	fun data_types key = { find   => fn (m: Map, _) =  data_type_map::get (m.data_type, key),
+			       insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+					      _,
+					      value
+					   )
+					=
+					{ lambda_type,
+					  typ,
+					  type_kind,
+					  data_type        => data_type_map::set (data_type, key, value),
+					  datatype_member,
+					  module_id
+					}
+			     };
+	#
+	fun datatype_members key = { find   => fn (m: Map, _) =  datatype_member_map::get (m.datatype_member, key),
+				     insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+						     _,
+						     value
+						 )
+					      =
+					      { lambda_type,
+						typ,
+						type_kind,
+						data_type,
+						datatype_member  => datatype_member_map::set (datatype_member, key, value),
+						module_id
+					      }
+				   };
+	#
+	fun module_typs key = { find   => fn (m: Map, _) =  stx::find_x_by_typestamp (m.module_id, key),
+					     insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+							    _,
+							    value
+							 )
+						      =
+						      { lambda_type,
+							typ,
+							type_kind,
+							data_type,
+							datatype_member,
+							module_id        => stx::enter_x_by_typestamp (module_id, key, value)
+						      }
+					   };
+
+	apis = { find   => fn (m: Map, key) =  stx::find_x_by_apistamp   (m.module_id,   stx::apistamp_of  key),
+		 #
+		 insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+				key,
+				value
+			     )
+			  =
+			  { lambda_type,
+			    typ,
+			    type_kind,
+			    data_type,
+			    datatype_member,
+			    module_id  =>   stx::enter_x_by_apistamp   (module_id,   stx::apistamp_of  key,   value)
+			  }
+	       };
+	#
+	fun packages key = { find   => fn (m: Map, _) =  stx::find_x_by_packagestamp (m.module_id, key),
+			     insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+					     _,
+					    value
+					 )
+				      =
+				      { lambda_type,
+					typ,
+					type_kind,
+					data_type,
+					datatype_member,
+					module_id        => stx::enter_x_by_packagestamp (module_id, key, value)
+				      }
+			   };
+	#
+	fun generics key = { find   => fn (m: Map, _) =  stx::find_x_by_genericstamp (m.module_id, key),
+			     #
+			     insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+					    _,
+					    value
+					 )
+				      =
+				      { lambda_type,
+					typ,
+					type_kind,
+					data_type,
+					datatype_member,
+					module_id        => stx::enter_x_by_genericstamp (module_id, key, value)
+				      }
+			   };
+
+	typerstore
+            =
+            { find   => fn (m: Map, key) =  stx::find_x_by_typerstorestamp (m.module_id, stx::typerstorestamp_of key),
+	      #	
+	      insert => fn (  { lambda_type, typ, type_kind, data_type, datatype_member, module_id },
+			      key,
+			      value
+			   )
+			   =
+			   { lambda_type,
+			     typ,
+			     type_kind,
+			     data_type,
+			     datatype_member,
+			     module_id        => stx::enter_x_by_typerstorestamp   (module_id,   stx::typerstorestamp_of  key,   value)
+			   }
+		};
+
+	wrap_an_int    = pkr::wrap_int;
+	wrap_an_int32  = pkr::wrap_int32;
+	wrap_an_unt    = pkr::wrap_unt;
+
+	wrap_an_unt32  = pkr::wrap_unt32;
+	wrap_a_string  = pkr::wrap_string;
+	share        = pkr::adhoc_share;
+
+	wrap_a_list    = pkr::wrap_list;
+	wrap_a_pair    = pkr::wrap_pair;
+
+	wrap_a_bool    = pkr::wrap_bool;
+	wrap_a_null_or = pkr::wrap_null_or;
+
+	wrap_a_symbol  = spp::wrap_symbol;
+
+	wrap_a_picklehash = spp::wrap_picklehash;
+
+	fun make_renumber_fn ()
+	    =
+	    renumber_int							# Assign compact small-integer encodings to a sparse set of integers.
+	    where
+		# Support for "alpha conversion":
+		# Construct a function which assigns successive
+		# numbers 0,1,2... to arbitrary successive int
+		# arguments, always returning the same value for
+		# any given int:
+
+	        map   = REF int_map::empty;
+		count = REF 0;
+		#
+		fun renumber_int  some_integer
+		    =
+		    case (int_map::get (*map, some_integer))
+			#		      
+			THE another_integer
+			    =>
+			    another_integer;
+
+			NULL => {   new_integer = *count;
+
+				    count := new_integer + 1;
+				    map   := int_map::set (*map, some_integer, new_integer);
+
+				    new_integer;
+				};
+                    esac;
+	    end;
+
+        # Byte encodings for kinds of integers:
+	#
+	fun wrap_number_kind_and_bitsize  (arg:  hbo::Number_Kind_And_Bits)
+	    =
+	    nk arg
+            where
+	        mknod =  pkr::make_funtree_node  tag_number_kind_and_bitsize;
+		#
+		fun nk (hbo::INT   i) =>   mknod  "A"  [wrap_an_int i];
+		    nk (hbo::UNT   i) =>   mknod  "B"  [wrap_an_int i];
+		    nk (hbo::FLOAT i) =>   mknod  "C"  [wrap_an_int i];
+                end;
+	    end;
+
+        # Byte encodings for arithmetic operators:
+	#
+	fun wrap_math_op  (op:  hbo::Math_Op)
+	    =
+	    mknod (encode_it op) []
+            where
+	        mknod =  pkr::make_funtree_node  tag_math_op;
+		#
+		fun encode_it hbo::ADD      => "\000";
+		    encode_it hbo::SUBTRACT => "\001";
+		    encode_it hbo::MULTIPLY => "\002";
+		    encode_it hbo::DIVIDE   => "\003";
+
+		    encode_it hbo::NEGATE   => "\004";
+		    encode_it hbo::ABS      => "\005";
+
+		    encode_it hbo::LSHIFT  => "\006";
+		    encode_it hbo::RSHIFT  => "\007";
+		    encode_it hbo::RSHIFTL => "\008";
+
+		    encode_it hbo::BITWISE_AND    => "\009";
+		    encode_it hbo::BITWISE_OR     => "\010";
+		    encode_it hbo::BITWISE_XOR    => "\011";
+		    encode_it hbo::BITWISE_NOT    => "\012";
+
+		    encode_it hbo::FSQRT   => "\013";
+		    encode_it hbo::FSIN    => "\014";
+		    encode_it hbo::FCOS    => "\015";
+		    encode_it hbo::FTAN    => "\016";
+
+		    encode_it hbo::REM     => "\017";
+		    encode_it hbo::DIV     => "\018";
+		    encode_it hbo::MOD     => "\019";
+                end;
+	    end;
+
+        # Byte encodings for arithmetic comparison operators:
+	#
+	fun wrap_comparison_op  (op:  hbo::Comparison_Op)
+	    =
+	    mknod (encode_it op) []
+            where
+		mknod =  pkr::make_funtree_node  tag_comparison_op;
+		#
+		fun encode_it hbo::GT  => "\000";
+		    encode_it hbo::GE  => "\001";
+		    encode_it hbo::LT  => "\002";
+		    encode_it hbo::LE  => "\003";
+		    encode_it hbo::LEU => "\004";
+		    encode_it hbo::LTU => "\005";
+		    encode_it hbo::GEU => "\006";
+		    encode_it hbo::GTU => "\007";
+		    encode_it hbo::EQL => "\008";
+		    encode_it hbo::NEQ => "\009";
+                end;
+	    end;
+
+        # Byte encodings for C language types:
+	#
+	fun wrap_ctype  (t: cty::Ctype)
+	    =
+	    {   mknod =  pkr::make_funtree_node  tag_ctype;
+		#
+		fun @? n  =  string::from_char (char::from_int n);	# 2007-08-19-CrT: @? should be ? throughout.
+		fun %? n  =  mknod (@? n) [];
+	    
+		case t
+		    #                  
+		    cty::VOID                      =>   %?  0;
+		    cty::FLOAT                     =>   %?  1;
+		    cty::DOUBLE                    =>   %?  2;
+		    cty::LONG_DOUBLE               =>   %?  3;
+		    cty::UNSIGNED cty::CHAR      =>   %?  4;
+		    cty::UNSIGNED cty::SHORT     =>   %?  5;
+		    cty::UNSIGNED cty::INT       =>   %?  6;
+		    cty::UNSIGNED cty::LONG      =>   %?  7;
+		    cty::UNSIGNED cty::LONG_LONG =>   %?  8;
+		    cty::SIGNED   cty::CHAR      =>   %?  9;
+		    cty::SIGNED   cty::SHORT     =>   %? 10;
+		    cty::SIGNED   cty::INT       =>   %? 11;
+		    cty::SIGNED   cty::LONG      =>   %? 12;
+		    cty::SIGNED   cty::LONG_LONG =>   %? 13;
+		    cty::PTR                       =>   %? 14;
+
+		    cty::ARRAY (t, i)              =>   mknod (@? 20) [wrap_ctype t, wrap_an_int i];
+		    cty::STRUCT l                  =>   mknod (@? 21) [wrap_a_list wrap_ctype l];
+		    cty::UNION l                   =>   mknod (@? 22) [wrap_a_list wrap_ctype l];
+               esac;
+	    };
+
+        # Byte encodings for C function call argument representations:
+	#
+	fun wrap_ccall_function_argument_form t
+	    =
+	    {   mknod =    pkr::make_funtree_node  tag_ccall_type;
+	    
+		case t
+		    #                  
+		    hbo::CCI32 =>  mknod "\000" [];              #  passed as int32 
+		    hbo::CCI64 =>  mknod "\001" [];              #  int64, currently unused 
+		    hbo::CCR64 =>  mknod "\002" [];              #  passed as float64 
+		    hbo::CCML  =>  mknod "\003"  [];             #  passed as unsafe::unsafe_chunk::chunk 
+                esac;
+	    };
+	#
+	fun wrap_ccall_info { c_prototype => { calling_convention, return_type, parameter_types },
+			ml_argument_representations,
+			ml_result_representation,
+			is_reentrant
+		      }
+	    =
+	    {   mknod =  pkr::make_funtree_node  tag_cci; 
+	    
+		mknod "C" [  wrap_a_string                                   calling_convention,
+			     wrap_ctype                                      return_type,
+			     wrap_a_list    wrap_ctype                         parameter_types,
+			     wrap_a_list    wrap_ccall_function_argument_form  ml_argument_representations,
+			     wrap_a_null_or wrap_ccall_function_argument_form  ml_result_representation,
+			     wrap_a_bool                                     is_reentrant
+			  ];
+	    };
+	#
+	fun wrap_baseop  (op: hbo::Baseop)
+	    =
+	    {   mknod =  pkr::make_funtree_node  tag_primitive_op;
+		#
+		fun @? n
+                    =
+                    string::from_char (char::from_int n);
+		#
+		fun fromto tag (from, to)
+                    =
+                    mknod (@? tag) [ wrap_an_int from,
+                                     wrap_an_int to
+                                   ];
+		#
+		fun %? n
+                    =
+                    mknod  (@? n)  [];
+	    
+		case op
+		    #		  
+		    hbo::MATH { op, overflow, kindbits }  =>   mknod  (@? 100)  [wrap_math_op       op,  wrap_a_bool overflow,  wrap_number_kind_and_bitsize  kindbits];
+		    hbo::CMP  { op, kindbits }            =>   mknod  (@? 101)  [wrap_comparison_op op,                       wrap_number_kind_and_bitsize  kindbits];
+		    #
+		    hbo::SHRINK_INT x =>  fromto 102 x;
+		    hbo::SHRINK_UNT x =>  fromto 103 x;
+		    hbo::CHOP       x =>  fromto 104 x;
+		    hbo::STRETCH    x =>  fromto 105 x;
+		    hbo::COPY       x =>  fromto 106 x;
+
+		    hbo::LSHIFT_MACRO kindbits                         =>   mknod  (@? 107)  [wrap_number_kind_and_bitsize  kindbits];
+		    hbo::RSHIFT_MACRO kindbits                         =>   mknod  (@? 108)  [wrap_number_kind_and_bitsize  kindbits];
+		    hbo::RSHIFTL_MACRO kindbits                        =>   mknod  (@? 109)  [wrap_number_kind_and_bitsize  kindbits];
+
+		    hbo::ROUND  { floor, from, to }                    =>   mknod  (@? 110)   [wrap_a_bool floor,   wrap_number_kind_and_bitsize from,   wrap_number_kind_and_bitsize to];
+		    hbo::CONVERT_FLOAT { from, to }                    =>   mknod  (@? 111)   [                     wrap_number_kind_and_bitsize from,   wrap_number_kind_and_bitsize to];
+
+		    hbo::NUMSUBSCRIPT { kindbits, checked, immutable } =>   mknod  (@? 112)  [wrap_number_kind_and_bitsize kindbits, wrap_a_bool checked, wrap_a_bool immutable];
+		    hbo::NUMUPDATE { kindbits, checked }               =>   mknod  (@? 113)  [wrap_number_kind_and_bitsize kindbits, wrap_a_bool checked];
+
+		    hbo::ALLOCATE_NUMERIC_RW_VECTOR_MACRO kindbits     =>   mknod  (@? 114)  [wrap_number_kind_and_bitsize  kindbits];
+		    hbo::ALLOCATE_NUMERIC_RO_VECTOR_MACRO kindbits     =>   mknod  (@? 115)  [wrap_number_kind_and_bitsize  kindbits];
+
+		    hbo::RAW_FETCH_FROM_RAM kindbits                   =>   mknod  (@? 116)  [wrap_number_kind_and_bitsize  kindbits];
+		    hbo::RAW_STORE_TO_RAM   kindbits                   =>   mknod  (@? 117)  [wrap_number_kind_and_bitsize  kindbits];
+		    hbo::RAW_CCALL (THE i)                             =>   mknod  (@? 118)  [wrap_ccall_info i];
+		    hbo::RAW_ALLOCATE_C_RECORD { fblock }              =>   mknod  (@? 119)  [wrap_a_bool fblock];
+
+		    hbo::MIN_MACRO kindbits                            =>   mknod  (@? 120)  [wrap_number_kind_and_bitsize kindbits];
+		    hbo::MAX_MACRO kindbits                            =>   mknod  (@? 121)  [wrap_number_kind_and_bitsize kindbits];
+		    hbo::ABS_MACRO kindbits                            =>   mknod  (@? 122)  [wrap_number_kind_and_bitsize kindbits];
+
+		    hbo::SHRINK_INTEGER     i                          =>   mknod  (@? 123)  [wrap_an_int i];
+		    hbo::CHOP_INTEGER       i                          =>   mknod  (@? 124)  [wrap_an_int i];
+		    hbo::STRETCH_TO_INTEGER i                          =>   mknod  (@? 125)  [wrap_an_int i];
+		    hbo::COPY_TO_INTEGER    i                          =>   mknod  (@? 126)  [wrap_an_int i];
+
+		    hbo::MAKE_EXCEPTION_TAG             => %?0;
+		    hbo::WRAP                           => %?1;
+		    hbo::UNWRAP                         => %?2;
+		    hbo::SUBSCRIPT                      => %?3;
+		    hbo::SUBSCRIPTV                     => %?4;
+		    hbo::SUBSCRIPT_MACRO                => %?5;
+		    hbo::SUBSCRIPTV_MACRO               => %?6;
+		    hbo::MAKE_RW_VECTOR_MACRO           => %?7;
+		    hbo::PTR_EQL                        => %?8;
+		    hbo::PTR_NEQ                        => %?9;
+		    hbo::POLY_EQL                       => %?10;
+		    hbo::POLY_NEQ                       => %?11;
+		    hbo::BOXED                          => %?12;
+		    hbo::UNBOXED                        => %?13;
+		    hbo::LENGTH                         => %?14;
+		    hbo::CHUNK_LENGTH                   => %?15;
+
+		    hbo::CAST                           => %?16;
+		    hbo::GET_RUNTIME_ASM_PACKAGE_RECORD => %?17;
+		    hbo::MARK_EXCEPTION_WITH_STRING     => %?18;
+		    hbo::GET_EXCEPTION_HANDLER          => %?19;
+		    hbo::SET_EXCEPTION_HANDLER          => %?20;
+		    hbo::GET_CURRENT_THREAD_REGISTER    => %?21;
+		    hbo::SET_CURRENT_THREAD_REGISTER    => %?22;
+		    hbo::PSEUDOREG_GET                  => %?23;
+		    hbo::PSEUDOREG_SET                  => %?24;
+		    hbo::SETMARK                        => %?25;
+		    hbo::DISPOSE                        => %?26;
+		    hbo::MAKE_REFCELL                   => %?27;
+		    hbo::CALLCC                         => %?28;
+		    hbo::CAPTURE                        => %?29;
+		    hbo::THROW                          => %?30;
+		    hbo::DEREF                          => %?31;
+		    hbo::ASSIGN                         => %?32;
+
+		   #  NOTE: hbo::SET_INT_REFCELL is defined below 
+
+		    hbo::UPDATE                         => %?33;
+		    hbo::UPDATE_MACRO                   => %?34;
+		    hbo::BOXED_SET                      => %?35;
+		    hbo::UNBOXED_SET                    => %?36;
+
+		    hbo::GET_BTAG_FROM_TAGWORD          => %?37;
+		    hbo::MAKE_SPECIAL                   => %?38;
+		    hbo::SET_STATE_OF_SPECIAL           => %?39;
+		    hbo::GET_STATE_OF_SPECIAL           => %?40;
+		    hbo::USELVAR                        => %?41;
+		    hbo::DEFLVAR                        => %?42;
+		    hbo::NOT_MACRO                      => %?43;
+		    hbo::COMPOSE_MACRO                  => %?44;
+		    hbo::BEFORE_MACRO                   => %?45;
+		    hbo::ALLOCATE_RW_VECTOR_MACRO       => %?46;
+		    hbo::ALLOCATE_RO_VECTOR_MACRO       => %?47;
+		    hbo::ISOLATE                        => %?48;
+		    hbo::WCAST                          => %?49;
+		    hbo::NEW_ARRAY0                     => %?50;
+		    hbo::GET_VECTOR_DATACHUNK           => %?51;
+		    hbo::SUBSCRIPT_REC                  => %?52;
+		    hbo::SUBSCRIPT_RAW64                => %?53;
+		    hbo::SET_INT_REFCELL                => %?54;
+		    hbo::RAW_CCALL NULL                 => %?55;
+		    hbo::IGNORE_MACRO                   => %?56;
+		    hbo::IDENTITY_MACRO                 => %?57;
+		    hbo::CVT64                          => %?58;
+                esac;
+	    };
+	#
+	fun wrap_constructor_signature  arg
+	    =
+	    cs arg
+            where 
+	        mknod =  pkr::make_funtree_node  tag_constructor_signature;
+		#
+		fun cs (vh::CONSTRUCTOR_SIGNATURE (i, j)) =>  mknod "S"  [wrap_an_int i, wrap_an_int j];
+		    cs  vh::NULLARY_CONSTRUCTOR           =>  mknod "N"  [];
+                end;
+	    end;
+	#
+	fun make_varhome { wrap_highcode_variable, is_local_picklehash }
+	    =
+	    { wrap_varhome,
+	      wrap_valcon_form
+	    }
+            where
+	        mknod =  pkr::make_funtree_node  tag_varhome;
+		#
+		fun wrap_varhome (vh::HIGHCODE_VARIABLE i) =>  mknod "A"  [wrap_highcode_variable i];
+		    wrap_varhome (vh::EXTERN p)            =>  mknod "B"  [wrap_a_picklehash p];
+
+		    wrap_varhome (vh::PATH (a as vh::EXTERN picklehash, i))
+			=>
+			# is_local_picklehash always returns false in the "normal pickler" case.
+			# It returns TRUE in the "repickle" case for the
+			# picklehash that was the hash of the original whole pickle.
+			# Since alpha-conversion has already taken place if we find
+			# an EXTERN picklehash, we don't call "highcode_variable" but "int".
+			#
+			if (is_local_picklehash  picklehash)   mknod "A"  [wrap_an_int i];
+			else                                   mknod "C"  [wrap_varhome a, wrap_an_int i];
+                        fi;
+
+		    wrap_varhome (vh::PATH (a, i)) =>  mknod "C"  [wrap_varhome a, wrap_an_int i];
+		    wrap_varhome vh::NO_VARHOME   =>  mknod "D"  [];
+                end;
+
+		mknod =   pkr::make_funtree_node  tag_valcon_form;
+		#
+		fun wrap_valcon_form  vh::UNTAGGED                 =>   mknod "A"  [];
+		    wrap_valcon_form (vh::TAGGED i)                =>   mknod "B"  [wrap_an_int i];
+		    wrap_valcon_form  vh::TRANSPARENT              =>   mknod "C"  [];
+		    wrap_valcon_form (vh::CONSTANT i)              =>   mknod "D"  [wrap_an_int i];
+		    wrap_valcon_form  vh::REFCELL_REP              =>   mknod "E"  [];
+		    wrap_valcon_form (vh::EXCEPTION a)             =>   mknod "F"  [wrap_varhome a];
+		    wrap_valcon_form  vh::LISTCONS                 =>   mknod "G"  [];
+		    wrap_valcon_form  vh::LISTNIL                  =>   mknod "H"  [];
+		    wrap_valcon_form (vh::SUSPENSION NULL)         =>   mknod "I"  [];
+		    wrap_valcon_form (vh::SUSPENSION (THE (a, b))) =>   mknod "J"  [wrap_varhome a, wrap_varhome b];
+                end;
+	    end;
+
+	# lambda-type stuff; some of it is used in both picklers 
+        #
+	fun wrap_type_kind x
+	    =
+	    share type_kinds tk x
+            where
+	        mknod =    pkr::make_funtree_node  tag_typekind;
+		#
+		fun tk x
+                    =
+                    case (hut::uniqkind_to_kind  x)     
+			#
+		        hut::kind::PLAINTYPE			=>   mknod "A"  [];
+			hut::kind::BOXEDTYPE		=>   mknod "B"  [];
+			hut::kind::KINDSEQ ks	=>   mknod "C"  [wrap_a_list wrap_type_kind ks];
+			hut::kind::KINDFUN (ks, kr)	=>   mknod "D"  [wrap_a_list wrap_type_kind ks, wrap_type_kind kr];
+                    esac;
+	    end;
+	#
+	fun make_lambda_type  highcode_variable
+	    =
+	    {   fun wrap_a_lambda_type x
+		    =
+		    share lambda_types lty_i x
+                    where
+		        mknod =    pkr::make_funtree_node  tag_lambdatype;
+			#
+			fun lty_i x
+			    =
+			    case (hut::uniqtype_to_type x)
+				#
+				hut::type::TYP tc             =>    mknod "A"  [wrap_a_typ tc];
+				hut::type::PACKAGE l                  =>    mknod "B"  [wrap_a_list wrap_a_lambda_type l];
+				hut::type::GENERIC_PACKAGE (ts1, ts2) =>    mknod "C"  [wrap_a_list wrap_a_lambda_type ts1, wrap_a_list wrap_a_lambda_type ts2];
+				hut::type::TYPEAGNOSTIC (ks, ts)       =>    mknod "D"  [wrap_a_list wrap_type_kind ks, wrap_a_list wrap_a_lambda_type ts];
+				#
+				hut::type::INDIRECT_TYPE_THUNK _            =>   bug "unexpected INDIRECT_TYPE_THUNK in mkPickleLty";
+				hut::type::TYPE_CLOSURE       _            =>   bug "unexpected TYPE_CLOSURE in mkPickleLty";
+				hut::type::FATE _            =>   bug "unexpected INTERNAL_CLOSURE in mkPickleLty";
+                            esac;
+		    end
+
+		also
+		fun wrap_a_typ x
+		    =
+		    share typs tyc_i x
+                    where
+			mknod =    pkr::make_funtree_node  tag_typ;
+			#
+			fun tyc_i x
+			    =
+			    case (hut::uniqtyp_to_typ  x)     
+				#
+			        hut::typ::DEBRUIJN_TYPEVAR (db, i)                                      =>  mknod "A"  [wrap_an_int (di::di_toint db), wrap_an_int i];
+			        hut::typ::NAMED_TYPEVAR n                                      =>  mknod "B"  [highcode_variable n];
+			        hut::typ::BASETYPE t                                           =>  mknod "C"  [wrap_an_int (hbt::basetype_to_int t)];
+			        hut::typ::TYPEFUN (ks, tc)                                     =>  mknod "D"  [wrap_a_list wrap_type_kind ks, wrap_a_typ tc];
+			        hut::typ::APPLY_TYPEFUN (tc, l)                                   =>  mknod "E"  [wrap_a_typ tc, wrap_a_list wrap_a_typ l];
+			        hut::typ::TYPESEQ l                                      =>  mknod "F"  [wrap_a_list wrap_a_typ l];
+			        hut::typ::ITH_IN_TYPESEQ (tc, i)                              =>  mknod "G"  [wrap_a_typ tc, wrap_an_int i];
+			        hut::typ::SUM l                                           =>  mknod "H"  [wrap_a_list wrap_a_typ l];
+			        hut::typ::RECURSIVE ((n, tc, ts), i)                      =>  mknod "I"  [wrap_an_int n, wrap_a_typ tc, wrap_a_list wrap_a_typ ts, wrap_an_int i];
+			        hut::typ::ABSTRACT tc                                     =>  mknod "J"  [wrap_a_typ tc];
+			        hut::typ::BOXED tc                                        =>  mknod "K"  [wrap_a_typ tc];
+			        hut::typ::TUPLE (_, l)                                    =>  mknod "L"  [wrap_a_list wrap_a_typ l];
+			        hut::typ::ARROW (hut::VARIABLE_CALLING_CONVENTION { arg_is_raw  => b1,
+                                                                                body_is_raw => b2 }, ts1, ts2) =>  mknod "M"  [wrap_a_bool b1, wrap_a_bool b2, wrap_a_list wrap_a_typ ts1, wrap_a_list wrap_a_typ ts2];
+			        hut::typ::ARROW (hut::FIXED_CALLING_CONVENTION, ts1, ts2)           =>  mknod "N"  [wrap_a_list wrap_a_typ ts1, wrap_a_list wrap_a_typ ts2];
+			        hut::typ::EXTENSIBLE_TOKEN (tk, t)                        =>  mknod "O"  [wrap_an_int (hut::token_int tk), wrap_a_typ t];
+				#
+			        hut::typ::PARROW _                                        => bug "unexpected TC_PARREW in mkPickleLty";
+			        hut::typ::INDIRECT_TYPE_THUNK _                                => bug "unexpected TC_INDIRECT in mkPickleLty";
+			        hut::typ::TYPE_CLOSURE _                                       => bug "unexpected TC_CLOSURE in mkPickleLty";
+			        hut::typ::FATE _                                          => bug "unexpected TC_FATE in mkPickleLty";
+                            esac;
+		    end;
+	    
+		{ wrap_typ      =>  wrap_a_typ,
+		  wrap_lambda_type =>  wrap_a_lambda_type
+		};
+	    };
+
+	#
+	fun wrap_highcode  highcode_expression
+	    =
+	    wrap_function_declaration  highcode_expression
+	    where
+		# The highcode pickler.  We use highcode (A-normal form)
+		# to represent inlinable code exported from a tome, because
+		# it is high-level, machine-independent and convenient because
+		# we produce it anyhow as part of compilation.
+
+	        renumber_int =   make_renumber_fn ();					# "alpha conversion" -- renumbering.
+
+		wrap_highcode_variable
+                    =
+                    wrap_an_int  o  renumber_int;
+
+		(make_varhome {  wrap_highcode_variable,
+				 is_local_picklehash =>  fn _ = FALSE
+			      })
+		    ->
+		    { wrap_varhome, wrap_valcon_form };
+
+
+
+		(make_lambda_type  wrap_highcode_variable)
+		    ->
+		    { wrap_lambda_type, wrap_typ };
+
+
+		mknod =  pkr::make_funtree_node  tag_value;
+		#
+		fun wrap_value (acf::VAR   v)   =>  mknod "a"  [wrap_highcode_variable v];
+		    wrap_value (acf::INT   i)   =>  mknod "b"  [wrap_an_int   i];
+		    wrap_value (acf::INT32 i32) =>  mknod "c"  [wrap_an_int32 i32];
+		    wrap_value (acf::UNT   u)   =>  mknod "d"  [wrap_an_unt   u];
+		    wrap_value (acf::UNT32 u32) =>  mknod "e"  [wrap_an_unt32 u32];
+		    wrap_value (acf::FLOAT64 s) =>  mknod "f"  [wrap_a_string s];
+		    wrap_value (acf::STRING  s) =>  mknod "g"  [wrap_a_string s];
+                end;
+		#
+		fun wrap_con  arg
+		    =
+		    c arg
+                    where
+			mknod =  pkr::make_funtree_node  tag_con;
+			#
+			fun c (acf::VAL_CASETAG (dc, ts, v), e) =>  mknod "1"  [wrap_dcon (dc, ts), wrap_highcode_variable v, wrap_lambda_expression e];
+			    c (acf::INT_CASETAG   i,   e)       =>  mknod "2"  [wrap_an_int   i,    wrap_lambda_expression e];
+			    c (acf::INT32_CASETAG i32, e)       =>  mknod "3"  [wrap_an_int32 i32,  wrap_lambda_expression e];
+			    c (acf::UNT_CASETAG   u,   e)       =>  mknod "4"  [wrap_an_unt   u,    wrap_lambda_expression e];
+			    c (acf::UNT32_CASETAG u32, e)       =>  mknod "5"  [wrap_an_unt32 u32,  wrap_lambda_expression e];
+			    c (acf::FLOAT64_CASETAG s, e)       =>  mknod "6"  [wrap_a_string s,    wrap_lambda_expression e];
+			    c (acf::STRING_CASETAG s, e)        =>  mknod "7"  [wrap_a_string s,    wrap_lambda_expression e];
+			    c (acf::VLEN_CASETAG i, e)          =>  mknod "8"  [wrap_an_int i,      wrap_lambda_expression e];
+                        end;
+		    end
+
+		also
+		fun wrap_dcon ((s, cr, t), ts)
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_dcon;
+			#
+			mknod "x"  [ wrap_a_symbol s,
+                                     wrap_valcon_form cr,			# cr may be constructor_representation (valcon form)
+                                     wrap_lambda_type t,
+                                     wrap_a_list wrap_typ ts
+                                   ];
+		    }
+
+		also
+		fun wrap_dictionary { default => v, table => tables }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_dictionary;
+			#
+			mknod "y"  [wrap_highcode_variable v, wrap_a_list (wrap_a_pair (wrap_a_list wrap_typ, wrap_highcode_variable)) tables];
+		    }
+
+		also
+		fun wrap_fprim (dtopt, op, t, ts)
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_fprim;
+			#
+			mknod "z"  [ wrap_a_null_or  wrap_dictionary  dtopt,
+                                     wrap_baseop  op,
+                                     wrap_lambda_type  t,
+                                     wrap_a_list  wrap_typ  ts
+                                   ];
+		    }
+
+		also
+		fun wrap_lambda_expression arg
+		    =
+		    l arg
+                    where
+			mknod =  pkr::make_funtree_node  tag_lambda_expression;
+			#
+			fun l (acf::RET vs)                            =>  mknod "j"  [wrap_a_list wrap_value vs];
+			    l (acf::LET (vs, e1, e2))                  =>  mknod "k"  [wrap_a_list wrap_highcode_variable vs, wrap_lambda_expression e1, wrap_lambda_expression e2];
+			    l (acf::MUTUALLY_RECURSIVE_FNS (fdecs, e)) =>  mknod "l"  [wrap_a_list wrap_function_declaration fdecs, wrap_lambda_expression e];
+
+			    l (acf::APPLY (v, vs))                     =>  mknod "m"  [wrap_value v, wrap_a_list wrap_value vs];
+			    l (acf::TYPEFUN (tfdec, e))                =>  mknod "n"  [wrap_tfundec tfdec, wrap_lambda_expression e];
+			    l (acf::APPLY_TYPEFUN (v, ts))                =>  mknod "o"  [wrap_value v, wrap_a_list wrap_typ ts];
+
+			    l (acf::SWITCH (v, crl, cel, eo))          =>  mknod "p"  [wrap_value v, wrap_constructor_signature crl, wrap_a_list wrap_con cel, wrap_a_null_or wrap_lambda_expression eo];
+			    l (acf::CONSTRUCTOR (dc, ts, u, v, e))     =>  mknod "q"  [wrap_dcon (dc, ts), wrap_value u, wrap_highcode_variable v, wrap_lambda_expression e];
+			    l (acf::RECORD (rk, vl, v, e))             =>  mknod "r"  [wrap_record_kind rk, wrap_a_list wrap_value vl, wrap_highcode_variable v, wrap_lambda_expression e];
+
+			    l (acf::SELECT (u, i, v, e))               =>  mknod "s"  [wrap_value u, wrap_an_int i, wrap_highcode_variable v, wrap_lambda_expression e];
+			    l (acf::RAISE (u, ts))                     =>  mknod "t"  [wrap_value u, wrap_a_list wrap_lambda_type ts];
+			    l (acf::EXCEPT (e, u))                     =>  mknod "u"  [wrap_lambda_expression e, wrap_value u];
+
+			    l (acf::BRANCH (p, vs, e1, e2))            =>  mknod "v"  [wrap_fprim p, wrap_a_list wrap_value vs, wrap_lambda_expression e1, wrap_lambda_expression e2];
+			    l (acf::BASEOP (p, vs, v, e))              =>  mknod "w"  [wrap_fprim p, wrap_a_list wrap_value vs, wrap_highcode_variable v,  wrap_lambda_expression e];
+                        end;
+		    end
+
+		also
+		fun wrap_function_declaration (fk, v, vts, e)
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_function_declaration;
+			#		    
+			mknod "a"  [wrap_fkind fk, wrap_highcode_variable v, wrap_a_list (wrap_a_pair (wrap_highcode_variable, wrap_lambda_type)) vts, wrap_lambda_expression e];
+		    }
+
+		also
+		fun wrap_tfundec (_, v, tvks, e)
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_tfundec;
+			#
+			mknod "b"  [wrap_highcode_variable v, wrap_a_list (wrap_a_pair (wrap_highcode_variable, wrap_type_kind)) tvks, wrap_lambda_expression e];
+		    }
+
+		also
+		fun wrap_fkind arg
+		    =
+		    fk arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_fk;
+			#
+			fun is_always acf::INLINE_WHENEVER_POSSIBLE => TRUE;
+			    is_always _ => FALSE;
+                        end;
+			#
+			fun strip (x, y)
+                            =
+                            x;
+			#
+			fun fk { call_as => acf::CALL_AS_GENERIC_PACKAGE, ... }
+                                =>
+                                 mknod "2"  [];
+
+			    fk { loop_info, call_as => acf::CALL_AS_FUNCTION fixed, all_callers_known, inlining_hint }
+				=>
+				case fixed
+				    #				  
+				    hut::VARIABLE_CALLING_CONVENTION { arg_is_raw => b1, body_is_raw => b2 }
+					=>
+					mknod "3"  [ wrap_a_null_or (wrap_a_list wrap_lambda_type) (null_or::map strip loop_info),
+						     wrap_a_bool b1,
+						     wrap_a_bool b2,
+						     wrap_a_bool all_callers_known,
+						     wrap_a_bool (is_always inlining_hint)
+						   ];
+
+				    hut::FIXED_CALLING_CONVENTION
+					=>
+					mknod "4" [ wrap_a_null_or (wrap_a_list wrap_lambda_type) (null_or::map strip loop_info),
+						    wrap_a_bool all_callers_known,
+                                                    wrap_a_bool (is_always inlining_hint)
+						  ];
+                                esac;
+                        end;
+		    end
+
+		also
+		fun wrap_record_kind arg
+		    =
+		    rk arg
+                    where 
+		        mknod =  pkr::make_funtree_node  tag_recordkind;
+			#
+			fun rk (acf::RK_VECTOR tc) =>  mknod "5"  [wrap_typ tc];
+			    rk  acf::RK_PACKAGE     =>  mknod "6"  [];
+			    rk (acf::RK_TUPLE _)   =>  mknod "7"  [];
+                        end;
+		    end;
+	    
+	    end;								# fun wrap_highcode 
+
+	#
+	fun pickle_highcode_program  fo
+	    =
+	    { pickle,
+	      picklehash
+	    }
+            where
+	        pickle
+                    =
+                    byte::string_to_bytes
+                        (pkr::funtree_to_pickle
+                            empty_map
+                            (wrap_a_null_or  wrap_highcode  fo)
+                        );
+
+		picklehash = hash_pickle pickle;
+	    end;
+
+	#
+	fun make_inlining_mapstack_funtree  inlining_mapstack
+            =
+	    # This is called exactly once, in
+	    #
+	    #     src/app/makelib/freezefile/freezefile-g.pkg
+	    #
+            wrap_a_list
+		#
+                (wrap_a_pair
+                    (wrap_a_picklehash, wrap_highcode))
+		#
+                (ix::keyvals_list  inlining_mapstack);
+
+
+	# Built and return a fn of type
+	#
+	#     syx::Symbolmapstack -> Funtree( A_adhoc_map );
+	#
+	# This function is called externally (only) once, in
+	#
+	#     src/app/makelib/freezefile/freezefile-g.pkg
+	#
+	fun make_symbolmapstack_funtree
+		#
+		note_lvar
+		#
+		(pickling_context:  Pickling_Context)           #  INITIAL_PICKLING/REPICKLING/FREEZEFILE_PICKLING
+	    =
+	    {   my  { typ_stub,
+                      api_stub,
+                      package_stub,
+                      generic_stub,
+                      typechecked_package_stub,
+                      is_local_picklehash,
+                      is_lib
+                    }
+		    =
+		    case pickling_context
+			#		      
+			INITIAL_PICKLING  type_map
+			    =>
+			    { typ_stub 		=> do_stub (stx::typestamp_of,        stx::typestamp_is_fresh,       stx::find_plain_typ_record_by_typestamp),
+			      api_stub                  => do_stub (stx::apistamp_of,         stx::apistamp_is_fresh,        stx::find_api_record_by_apistamp),
+			      package_stub              => do_stub (stx::packagestamp_of,     stx::packagestamp_is_fresh,    stx::find_typechecked_package_by_packagestamp),
+			      generic_stub              => do_stub (stx::genericstamp_of,     stx::genericstamp_is_fresh,    stx::find_typechecked_generic_by_genericstamp),
+			      typechecked_package_stub  => do_stub (stx::typerstorestamp_of,  stx::typerstorestamp_is_fresh, stx::find_typerstore_record_by_typerstorestamp),
+			      #
+			      is_local_picklehash       => fn _  =  FALSE,
+			      is_lib => FALSE
+			    }
+			    where
+				fun do_stub (stamp_of, is_fresh, find)  r
+				    =
+				    {   stamp =  stamp_of  r;
+
+					if (not (is_fresh stamp))
+					    #
+					     if (not_null (find (type_map, stamp)))   THE (NULL, stamp);
+					     else                                     NULL;
+                                             fi;
+					else
+					     NULL;
+					fi;
+				    };
+			    end;
+
+			REPICKLING my_picklehash
+			    =>
+			    { typ_stub		=>  do_stub (stx::typestamp_of,        .stub,				.owner),
+			      api_stub			=>  do_stub (stx::apistamp_of,         .stub,				.owner),
+			      package_stub		=>  do_stub (stx::packagestamp_of,     .stub o .typechecked_package,	.owner),
+			      generic_stub		=>  do_stub (stx::genericstamp_of,     .stub o .typechecked_generic,	.owner),
+			      typechecked_package_stub	=>  do_stub (stx::typerstorestamp_of,  .stub,				.owner),
+			      is_local_picklehash,
+			      is_lib			=>  FALSE
+			    }
+			    where
+				fun is_local_picklehash  p
+				    =
+				    ph::compare (p, my_picklehash) == EQUAL;
+				#
+				fun do_stub (stamp_of, stub_of, owner_of) r
+				    =
+				    case (stub_of  r)
+					#	
+					THE stub
+					    =>
+					    if (is_local_picklehash (owner_of stub))   THE (NULL, stamp_of r);
+					    else                                       NULL;
+                                            fi;
+
+					NULL =>   bug "REHASH: no Stub_Info";
+				    esac;
+			    end;
+
+			FREEZEFILE_PICKLING
+                            (
+				context:   List(  ( Null_Or( ( Int,				# sublib_index -- 0..N-1 index into lg::LIBRARY.sublibraries list.
+                                                               sy::Symbol)			# symbol naming the first api/package/... exported by tome in question.
+                                                             ),
+                                                    stx::Stampmapstack
+                                                  )
+                                               )
+			    )
+			    =>
+			    { typ_stub		=>  do_stub (stx::typestamp_of,        .stub,                         stx::find_plain_typ_record_by_typestamp,	.is_lib),
+			      api_stub                  =>  do_stub (stx::apistamp_of,         .stub,                         stx::find_api_record_by_apistamp,			.is_lib),
+			      package_stub              =>  do_stub (stx::packagestamp_of,     .stub o .typechecked_package,  stx::find_typechecked_package_by_packagestamp,	.is_lib),
+			      generic_stub              =>  do_stub (stx::genericstamp_of,     .stub o .typechecked_generic,  stx::find_typechecked_generic_by_genericstamp,	.is_lib),
+			      typechecked_package_stub  =>  do_stub (stx::typerstorestamp_of,  .stub,                         stx::find_typerstore_record_by_typerstorestamp,	.is_lib),
+			      #
+			      is_local_picklehash       =>  fn _ = FALSE,
+			      is_lib                    =>  TRUE
+			    }
+			    where
+			        fun do_stub (stamp_of, stub_of, find, is_lib)  record
+				    =
+				    case (stub_of  record)
+					#
+					THE stub
+					    =>
+					    {   stamp =  stamp_of  record;
+						#
+						if (is_lib stub)   THE (get stamp, stamp);
+						else               NULL;
+						fi;
+					    };
+					#
+					NULL =>   bug "FREEZEFILE_PICKLING: no Stub_Info";
+				    esac
+				    where
+				        fun get stamp
+					    =
+					    loop context
+					    where
+						fun loop []
+							=>
+							bug "FREEZEFILE_PICKLING: import info missing";
+
+						    loop ((lms, a_map) ! rest)
+							=>
+							if (not_null (find (a_map, stamp)))    lms;
+							else                                   loop rest;
+							fi;
+						end;
+					    end;
+				    end;
+			    end;
+                        esac;
+
+		# Owner picklehashes of stubs are pickled
+                # only in the case of libraries,
+		# otherwise they are ignored completely.
+                #
+		fun lib_picklehash  x
+		    =
+		    if is_lib
+			#		        
+			case x
+			    #	
+			    (THE stub, owner_of) =>  [wrap_a_picklehash (owner_of stub)];
+			    (NULL,     _       ) =>  [];
+			esac;
+		    else
+                        [];
+                    fi;
+		#
+		fun wrap_lib_mod_spec  lms
+                    =
+                    wrap_a_null_or (wrap_a_pair (wrap_an_int, wrap_a_symbol))   lms;
+
+		stamp_converter =  sta::new_converter ();
+		#
+		fun wrap_stamp  s
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_stamp;
+			#
+			sta::case'
+                            stamp_converter
+                            s
+                            {   fresh   =>   fn int                    =   mknod "A"  [wrap_an_int int],
+			        global  =>   fn { picklehash, count }  =   mknod "B"  [wrap_a_picklehash picklehash, wrap_an_int count],
+				stale   =>   fn string                 =   mknod "C"  [wrap_a_string string]
+			    };
+		    };
+
+		wrap_typestamp =  wrap_stamp;
+		wrap_apistamp  =  wrap_stamp;
+		#
+		fun wrap_package_stamp { an_api, typechecked_package }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_package_identifier;
+			#
+			mknod "D"  [ wrap_stamp an_api,
+                                     wrap_stamp typechecked_package
+                                   ];
+		    };
+		#
+		fun wrap_generic { parameter_api, body_api, typechecked_generic }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_generic_identifier;
+			#
+			mknod "E"  [ wrap_stamp  parameter_api,
+                                     wrap_stamp  body_api,
+                                     wrap_stamp  typechecked_generic
+                                   ];
+		    };
+
+		wrap_dictionary_identifier = wrap_stamp;
+
+		wrap_module_stamp   =   wrap_stamp;
+		wrap_stamppath    =   wrap_a_list  wrap_module_stamp;
+
+
+		my { wrap_varhome, wrap_valcon_form }
+		    =
+		    make_varhome { wrap_highcode_variable =>  wrap_an_int o number_lvar,
+			           is_local_picklehash
+			         }
+		    where
+			lvar_number =  REF 0;
+			#
+			fun number_lvar  lvar
+			    =
+			    {   result = *lvar_number;
+
+				note_lvar  lvar;
+
+				lvar_number := result + 1;
+
+				result;
+			    };
+		    end;
+
+		stipulate    mknod =  pkr::make_funtree_node  tag_symbol_path;     herein   fun wrap_spath (sp::SYMBOL_PATH p)    =    mknod "s"  [wrap_a_list wrap_a_symbol p];	end;
+		stipulate    mknod =  pkr::make_funtree_node  tag_inverse_path;    herein   fun wrap_ipath (ip::INVERSE_PATH p)   =    mknod "i"  [wrap_a_list wrap_a_symbol p];	end;
+
+		#  For debugging:
+		#
+		fun showipath (ip::INVERSE_PATH p)
+		    =
+		    cat (map   (fn s =  sy::symbol_to_string s + ".")   (reverse p));
+
+		label = wrap_a_symbol;
+		#
+		fun equality_property eqp
+		    =
+		    mknod  (eqc eqp)  []
+                    where
+		        mknod =  pkr::make_funtree_node  tag_equality_property;
+			#
+			fun eqc ty::YES           => "\000";
+			    eqc ty::NO            => "\001";
+			    eqc ty::INDETERMINATE => "\002";
+			    eqc ty::CHUNK         => "\003";
+			    eqc ty::DATA          => "\004";
+			    eqc ty::EQ_ABSTRACT   => "\005";
+			    eqc ty::UNDEF         => "\006";
+			end;
+		    end;
+		#
+		fun wrap_a_datatyp (ty::VALCON { name, is_constant, type, form, signature, is_lazy } )
+                    =
+                    {   mknod =  pkr::make_funtree_node  tag_datatyp;
+			#
+			mknod "c" [ wrap_a_symbol              name,
+				    wrap_a_bool                is_constant,
+                                    wrap_a_type                type,
+                                    wrap_valcon_form           form,
+			            wrap_constructor_signature signature,
+                                    wrap_a_bool                is_lazy
+                                  ];
+		    }
+
+		also
+		fun wrap_atyp_kind arg
+                    =
+		    tk arg
+                    where
+                        mknod =  pkr::make_funtree_node  tag_typ_kind;
+			#
+			fun tk (ty::BASE pt)                                                 =>  mknod "a"  [wrap_an_int pt];
+			    tk (ty::DATATYPE { index, family, stamps, root, free_typs } ) =>  mknod "b"  [wrap_an_int index,  wrap_a_null_or  wrap_module_stamp  root,  wrap_adtype_info (stamps, family, free_typs)];
+			    tk (ty::ABSTRACT typecon)                                        =>  mknod "c"  [wrap_a_typ typecon];
+			    tk (ty::FLEXIBLE_TYP tps)                                     =>  mknod "d"  [];
+			    tk ty::FORMAL                                                    =>  mknod "d"  [];		# "d" is used twice here; this is probably unintentional.  XXX BUGGO FIXME.
+			    tk ty::TEMP                                                      =>  mknod "e"  [];
+
+
+                            #  mknod "f" TYP_PATH tps 
+
+			    # I (Matthias) carried through this message from Zhong:
+			    #  Typ_Path should never be pickled; the only way it can be
+			    # pickled is when pickling the domains of a mutually 
+			    # recursive datatypes; right now the mutually recursive
+			    # datatypes are not assigned accurate domains ... (ZHONG)
+			    # the preceding code is just a temporary gross hack.  XXX BUGGO FIXME
+                        end;
+		    end
+
+		also
+		fun wrap_adtype_info  x
+		    =
+		    share   (data_types (vector::get (#1 x, 0)))   dti_raw    x
+                    where
+		        mknod =  pkr::make_funtree_node  tag_adtype_info;
+			#
+			fun dti_raw (ss, family, free_typs)
+			    =
+			    mknod "a" [ wrap_a_list wrap_stamp (vector::fold_right (!) [] ss),
+				        wrap_adt_family family,
+				        wrap_a_list wrap_a_typ free_typs
+				      ];
+		    end
+
+		also
+		fun wrap_adt_family x				# "adt" must be "datatype" or maybe "abstract datatype"
+		    =
+		    share (datatype_members x.mkey) dtf_raw x
+                    where
+			mknod =  pkr::make_funtree_node  tag_datatype_family;
+			#
+			fun dtf_raw { mkey, members, property_list }
+			    =
+			    mknod "b" [ wrap_stamp mkey,
+				        wrap_a_list wrap_a_datatype_member (vector::fold_right (!) [] members)
+				      ];
+		    end
+
+		also
+		fun wrap_a_datatype_member { typ_name, constructor_list, arity, eq => REF e, is_lazy, an_api }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_datatype_member;
+			#
+			mknod "c" [ wrap_a_symbol typ_name,
+				    wrap_a_list wrap_aname_representation_domain constructor_list,
+				    wrap_an_int arity,
+				    equality_property e,
+				    wrap_a_bool is_lazy,
+				    wrap_constructor_signature an_api
+				  ];
+		    }
+
+		also
+		fun wrap_aname_representation_domain { name, form, domain }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_aname_representation_domain;
+			#
+		        mknod "d" [ wrap_a_symbol                name,
+				    wrap_valcon_form             form,
+				    wrap_a_null_or  wrap_a_type  domain
+				  ];
+		    }
+
+		also
+		fun wrap_a_typ arg
+		    =
+		    wrap_typ'  arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag::typ;
+			#
+			fun wrap_typ' (typ as ty::PLAIN_TYP g)
+				=>
+				{   fun gt_raw (g as { stamp,
+						       arity,
+						       eq => REF eq,
+						       kind,
+						       path,
+						       stub
+						     }
+					       )
+					=
+					case (typ_stub g)
+					    #					  
+					    THE (lib_mod_spec, typestamp)
+						=>
+						mknod "A"     [ wrap_lib_mod_spec  lib_mod_spec,
+								wrap_typestamp     typestamp
+							      ];
+
+					    NULL =>
+						mknod "B"   ( [ wrap_stamp	    stamp,
+								wrap_an_int         arity,
+								equality_property   eq,
+								wrap_atyp_kind   kind,
+								wrap_ipath          path
+							      ]
+							      @
+							      lib_picklehash (stub, .owner)
+							    );
+                                        esac;
+
+				    share   (module_typs  (stx::typestamp_of  g))   gt_raw   g;
+				};
+
+			    wrap_typ' (typ as ty::DEFINED_TYP dt)
+				=>
+				share (module_typs (stx::typestamp_of' typ))  dt_raw  dt
+				where
+				    fun dt_raw { stamp, type_scheme, strict, path }
+					=
+					{   type_scheme ->  ty::TYPE_SCHEME { arity, body };
+					    #
+					    mknod "C" [ wrap_stamp	    stamp,
+							wrap_an_int	    arity,
+						        wrap_a_type	    body,
+						        wrap_a_list wrap_a_bool strict,
+						        wrap_ipath	    path
+						      ];
+					};
+				end;
+
+			    wrap_typ' (ty::TYP_BY_STAMPPATH { arity, stamppath, path } ) =>    mknod "D"  [wrap_an_int arity,  wrap_stamppath stamppath,  wrap_ipath path];
+			    wrap_typ' (ty::RECORD_TYP l)                                     =>    mknod "E"  [wrap_a_list label l];
+			    wrap_typ' (ty::RECURSIVE_TYPE i)                                    =>    mknod "F"  [wrap_an_int i];
+			    wrap_typ' (ty::FREE_TYPE i)                                         =>    mknod "G"  [wrap_an_int i];
+			    wrap_typ' ty::ERRONEOUS_TYP                                      =>    mknod "H"  [];
+                        end;
+		    end
+
+		also
+		fun wrap_a_type  arg
+		    =
+		    wrap_type' arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_type;
+			#
+			fun wrap_type' (ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE t) } )   =>   wrap_type' t;
+
+			    wrap_type' (ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::META_TYPE_VARIABLE              _) } )   =>   bug "unresolved TYPE_VARIABLE_REF in pickle-module";
+			    wrap_type' (ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::INCOMPLETE_RECORD_TYPE_VARIABLE _) } )   =>   bug "unresolved TYPE_VARIABLE_REF in pickle-module";
+
+			    wrap_type' (ty::TYPCON_TYPE (c, l)) =>   mknod "a"  [wrap_a_typ c, wrap_a_list wrap_type' l];
+			    wrap_type' (ty::TYPE_SCHEME_ARG_I i)     =>   mknod "b"  [wrap_an_int i];
+			    wrap_type' ty::WILDCARD_TYPE             =>   mknod "c"  [];
+			    wrap_type' (ty::TYPE_SCHEME_TYPE {
+					type_scheme_arg_eq_properties => an_api,
+					type_scheme => ty::TYPE_SCHEME { arity, body }
+				    }
+				   )                                 =>   mknod "d"  [wrap_a_list wrap_a_bool an_api, wrap_an_int arity, wrap_type' body];
+			    wrap_type'  ty::UNDEFINED_TYPE           =>   mknod "e"  [];
+
+			    wrap_type' _ => bug "unexpected type in pickler_junk::wrap_a_type";
+                        end;
+		    end;
+
+		mknod =  pkr::make_funtree_node  tag_inlining_info;
+		#
+		fun wrap_inlining_info  inlining_info
+		    =
+		    ii::case_inlining_info  inlining_info
+                      {
+			do_inline_baseop  =>   fn (op, t) =   mknod "A"  [wrap_baseop op, wrap_a_type t],
+			do_inline_package =>   fn sl      =   mknod "B"  [wrap_a_list wrap_inlining_info sl],
+			do_inline_nothing =>   fn ()      =   mknod "C"  []
+		      };
+
+		mknod =  pkr::make_funtree_node  tag_variable;
+		#
+		fun wrap_a_variable (vac::ORDINARY_VARIABLE {   varhome,   inlining_info,   path,   var_type => REF type } )
+			=>
+			mknod "1" [ wrap_varhome        varhome,
+				    wrap_inlining_info  inlining_info,
+                                    wrap_spath          path,
+                                    wrap_a_type         type
+				  ];
+
+		    wrap_a_variable (vac::OVERLOADED_IDENTIFIER {   name,   alternatives,   type_scheme => ty::TYPE_SCHEME { arity, body }   } )
+			=>
+			mknod "2" [ wrap_a_symbol                   name,
+				    wrap_a_list wrap_an_overload   *alternatives,
+				    wrap_an_int                     arity,
+				    wrap_a_type                     body
+				  ];
+
+		    wrap_a_variable vac::ERRORVAR
+                        =>
+			mknod "3" [];
+                end 
+
+		also
+		fun wrap_an_overload { indicator, variant }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_overload;
+			#
+			mknod "o" [ wrap_a_type      indicator,
+				    wrap_a_variable  variant
+				  ];
+		    };
+		#
+		fun wrap_apackage_definition arg
+		    =
+		    sd arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_apackage_definition ;
+			#
+			fun sd (mld::CONSTANT_PACKAGE_DEFINITION s)        =>   mknod "C"  [wrap_a_package s];
+			    sd (mld::VARIABLE_PACKAGE_DEFINITION (s, p))   =>   mknod "V"  [wrap_an_api s, wrap_stamppath p];
+                        end;
+
+		    end
+
+		also
+		fun wrap_an_api  arg
+		    =
+		    an_api arg
+                    where 
+		        mknod =  pkr::make_funtree_node  tag_an_api;
+			#
+			fun an_api  mld::ERRONEOUS_API
+                                =>
+                                mknod "A"  [];
+
+			    an_api (mld::API s)
+				=>
+				    case (api_stub s)
+					#									     
+				        THE (l, i)
+                                            =>
+                                            mknod "B" [ wrap_lib_mod_spec  l,
+							wrap_apistamp  i
+                                                      ];
+
+					NULL
+					    =>
+					    {   fun encode_raw_api (api_record: mld::Api_Record)
+						    =
+						    {   api_record
+							    ->
+						            { stamp => sta,
+							      name,
+							      closed,
+							      contains_generic,
+							      symbols,
+							      api_elements,
+							      property_list,
+							      stub,
+							      type_sharing,
+							      package_sharing
+							    };
+
+							b = package_property_lists::api_bound_generic_evaluation_paths  api_record;
+							b = NULL; #  Currently turned off
+
+							mknod "C" ( [ wrap_stamp sta,
+								      wrap_a_null_or wrap_a_symbol name,
+								      wrap_a_bool closed,
+								      wrap_a_bool contains_generic,
+								      wrap_a_list wrap_a_symbol symbols,
+								      wrap_a_list (wrap_a_pair (wrap_a_symbol, wrap_aspec)) api_elements,
+								      wrap_a_null_or (wrap_a_list (wrap_a_pair (wrap_stamppath, wrap_type_kind))) b,
+								      wrap_a_list (wrap_a_list wrap_spath) type_sharing,
+								      wrap_a_list (wrap_a_list wrap_spath) package_sharing
+								    ]
+								    @
+                                                                    lib_picklehash (stub, .owner)
+                                                                  );
+						    };
+
+						share apis encode_raw_api s;
+					    };
+				   esac;
+                        end;
+		    end
+
+		also
+		fun wrap_a_generic_api  arg
+		    =
+		    wrap_generic_api' arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_a_pkg_fn_api;
+			#
+			fun wrap_generic_api' mld::ERRONEOUS_GENERIC_API
+                                =>
+                                mknod "a"  [];
+
+			    wrap_generic_api' (mld::GENERIC_API { kind, parameter_api, parameter_variable, parameter_symbol, body_api } )
+				=>
+				mknod "c" [ wrap_a_null_or  wrap_a_symbol  kind,
+					    wrap_an_api                    parameter_api,
+					    wrap_module_stamp              parameter_variable,
+					    wrap_a_null_or  wrap_a_symbol  parameter_symbol,
+					    wrap_an_api                    body_api
+					  ];
+                        end;
+		    end
+
+		also
+		fun wrap_aspec arg
+		    =
+		    dospec arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_aspec;
+			#
+			fun dospec (mld::TYP_IN_API { typ => t, module_stamp => v, is_a_replica, scope } )
+				=>
+				mknod "1" [ wrap_a_typ t,
+					    wrap_module_stamp v,
+					    wrap_a_bool is_a_replica,
+					    wrap_an_int scope
+					  ];
+
+			    dospec (mld::PACKAGE_IN_API { an_api, slot, definition, module_stamp => v } )
+				=>
+				mknod "2" [ wrap_an_api  an_api,
+					    wrap_an_int  slot,
+					    wrap_a_null_or (wrap_a_pair (wrap_apackage_definition, wrap_an_int)) definition,
+					    wrap_module_stamp v
+					  ];
+
+			    dospec (mld::GENERIC_IN_API { a_generic_api, slot, module_stamp => v } )
+				=>
+				mknod "3" [ wrap_a_generic_api  a_generic_api,
+                                            wrap_an_int        slot,
+                                            wrap_module_stamp  v
+                                          ];
+
+			    dospec (mld::VALUE_IN_API { type, slot } )
+				=>
+				mknod "4" [ wrap_a_type  type,
+                                            wrap_an_int  slot
+					  ];
+
+			    dospec (mld::VALCON_IN_API { datatype => c, slot } )
+				=>
+				mknod "5" [ wrap_a_datatyp  c,
+                                            wrap_a_null_or  wrap_an_int  slot
+					  ];
+                        end;
+		    end
+
+		also
+		fun wrap_an_typechecked_package  arg
+		    =
+		    en arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_an_typechecked_package;
+			#
+		        fun en (mld::TYP_ENTRY   t) =>    mknod "A"  [wrap_atypechecked_typ  t];
+			    en (mld::PACKAGE_ENTRY  t) =>    mknod "B"  [wrap_agenerics_expansion  t];
+			    en (mld::GENERIC_ENTRY  t) =>    mknod "C"  [wrap_atypechecked_generic t];
+			    en mld::ERRONEOUS_ENTRY    =>    mknod "D"  [];
+                        end;
+		    end
+
+		also
+		fun wrap_ageneric_closure (mld::GENERIC_CLOSURE { parameter_module_stamp=>parameter, body_package_expression=>body, typerstore=>dictionary } )
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_ageneric_closure;
+			#
+			mknod "f" [ wrap_module_stamp                       parameter,
+				    wrap_apackage_expression                body,
+				    wrap_an_typechecked_package_dictionary  dictionary
+				  ];
+		    }
+
+		also
+		fun wrap_a_package arg
+		    =
+		    a_package arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_a_package;
+			#
+			fun a_package (mld::PACKAGE_API { an_api, stamppath => p } )
+				=>
+				mknod "A"  [wrap_an_api an_api, wrap_stamppath p];
+
+			    a_package mld::ERRONEOUS_PACKAGE
+				=>
+				mknod "B"  [];
+
+			    a_package (mld::A_PACKAGE (s as { an_api, typechecked_package, varhome => a, inlining_info=>info } ))
+			        =>
+			        case (package_stub  s)       #  stub represents just the strerec suspension! 
+				    #				  
+				    THE (l, i) =>   mknod "C" [ wrap_an_api an_api,
+								wrap_lib_mod_spec l,
+								wrap_package_stamp i,
+								wrap_varhome a,
+								wrap_inlining_info info
+							      ];
+
+				    NULL       =>   mknod "D" [ wrap_an_api an_api,
+								wrap_ashared_generics_expansion  (stx::packagestamp_of  s)  typechecked_package,
+								wrap_varhome a,
+								wrap_inlining_info info
+							      ];
+                               esac;
+			end;
+		    end
+
+		also
+		fun wrap_a_generic  arg
+		    =
+		    ageneric arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_a_generic;
+			#
+			fun ageneric mld::ERRONEOUS_GENERIC
+                                =>
+				mknod "E"  [];
+
+			    ageneric (mld::GENERIC (f as { a_generic_api, typechecked_generic, varhome, inlining_info } ))
+			        =>
+			        case (generic_stub  f)
+				    #				  
+				    THE (l, i) => mknod "F"   [ wrap_a_generic_api  a_generic_api,
+								wrap_lib_mod_spec l,
+								wrap_generic i,
+								wrap_varhome  varhome,
+								wrap_inlining_info  inlining_info
+							      ];
+
+				    NULL       => mknod "G"   [ wrap_a_generic_api  a_generic_api,
+								wrap_ashared_typechecked_generic (stx::genericstamp_of f)  typechecked_generic,
+								wrap_varhome  varhome,
+								wrap_inlining_info  inlining_info
+							      ];
+                                esac;
+			end;
+		    end
+
+		also
+		fun # wrap_astamp_expression (mld::CONST s)     =>  pkr::make_funtree_node  tag_astamp_expression "a" [wrap_stamp s];
+		      wrap_astamp_expression (mld::GET_STAMP s) =>  pkr::make_funtree_node  tag_astamp_expression "b" [wrap_apackage_expression s];
+		      wrap_astamp_expression mld::MAKE_STAMP    =>  mknod "c"  [];
+                end 
+
+		also
+		fun wrap_atyp_expression (mld::CONSTANT_TYP      t) =>  pkr::make_funtree_node  tag_atyp_expression "d" [wrap_a_typ    t];
+		    wrap_atyp_expression (mld::FORMAL_TYP        t) =>  pkr::make_funtree_node  tag_atyp_expression "e" [wrap_a_typ    t];
+		    wrap_atyp_expression (mld::TYPE_VARIABLE_TYP s) =>  pkr::make_funtree_node  tag_atyp_expression "f" [wrap_stamppath s];
+                end
+
+		also
+		fun wrap_apackage_expression  arg
+		    =
+		    packageexpression  arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_apackage_expression;
+			#
+			fun packageexpression (mld::VARIABLE_PACKAGE s)           =>  mknod "g"   [ wrap_stamppath         s ];
+			    packageexpression (mld::CONSTANT_PACKAGE s)           =>  mknod "h"   [ wrap_agenerics_expansion s ];
+			    packageexpression (mld::PACKAGE {
+						      stamp => s,
+						      module_declaration => e } ) =>  mknod "i"   [ wrap_astamp_expression s,
+                                                                                                    wrap_an_module_declaration e
+                                                                                                  ];
+
+			    packageexpression (mld::APPLY (f, s))                 =>  mknod "j"   [ wrap_ageneric_expression f,
+                                                                                                    wrap_apackage_expression s
+                                                                                                  ];
+			    packageexpression (mld::PACKAGE_LET { declaration,
+                                                                expression } )    =>  mknod "k"   [ wrap_an_module_declaration declaration,
+												    wrap_apackage_expression expression
+												  ];
+			    packageexpression (mld::ABSTRACT_PACKAGE (s, e))      =>  mknod "l"   [ wrap_an_api s,
+												    wrap_apackage_expression e
+												  ];
+			    packageexpression (mld::COERCED_PACKAGE {
+						      boundvar,
+						      raw,
+						      coercion } )                =>  mknod "m"   [ wrap_module_stamp         boundvar,
+												    wrap_apackage_expression  raw,
+												    wrap_apackage_expression  coercion
+												  ];
+			    packageexpression (mld::FORMAL_PACKAGE fs)            =>  mknod "n"   [ wrap_a_generic_api  fs ];
+			end;
+		    end
+
+		also
+		fun wrap_ageneric_expression arg
+		    =
+		    genericexpression arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_ageneric_expression;
+			#
+			fun genericexpression (mld::VARIABLE_GENERIC s)             =>  mknod "o" [ wrap_stamppath          s ];
+			    genericexpression (mld::CONSTANT_GENERIC e)             =>  mknod "p" [ wrap_atypechecked_generic e ];
+			    genericexpression (mld::LAMBDA { parameter, body } )    =>  mknod "q" [ wrap_module_stamp         parameter,
+												    wrap_apackage_expression  body
+												  ];
+			    genericexpression (mld::LAMBDA_TP {
+                                                   parameter,
+                                                   body,
+                                                   an_api } )                       => mknod "r"  [ wrap_module_stamp         parameter,
+												    wrap_apackage_expression  body,
+												    wrap_a_generic_api        an_api
+												  ];
+			    genericexpression (mld::LET_GENERIC (e, f))             => mknod "s"  [ wrap_an_module_declaration e,
+												    wrap_ageneric_expression   f
+												  ];
+                        end;
+		    end
+
+		also
+		fun wrap_an_module_expression arg
+		    =
+		    typechecked_packageexpression arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_typechecked_packageexpression;
+			#
+			fun typechecked_packageexpression (mld::TYP_EXPRESSION  t)               =>  mknod "t"  [wrap_atyp_expression  t];
+			    typechecked_packageexpression (mld::PACKAGE_EXPRESSION s)               =>  mknod "u"  [wrap_apackage_expression s];
+			    typechecked_packageexpression (mld::GENERIC_EXPRESSION f)               =>  mknod "v"  [wrap_ageneric_expression f];
+			    typechecked_packageexpression  mld::ERRONEOUS_ENTRY_EXPRESSION          =>  mknod "w"  [];
+			    typechecked_packageexpression  mld::DUMMY_GENERIC_EVALUATION_EXPRESSION =>  mknod "x"  [];
+                        end;
+		    end
+
+		also
+		fun wrap_an_module_declaration arg
+		    =
+		    typechecked_packagedeclaration arg
+                    where
+		        mknod =  pkr::make_funtree_node  tag_typechecked_packagedeclaration;
+			#
+			fun typechecked_packagedeclaration (mld::TYP_DECLARATION (s, x))
+                                =>
+                                mknod "A" [ wrap_module_stamp        s,
+					    wrap_atyp_expression  x
+                                          ];
+
+			    typechecked_packagedeclaration (mld::PACKAGE_DECLARATION (s, x, n))
+                                =>
+				mknod "B" [ wrap_module_stamp         s,
+                                            wrap_apackage_expression  x,
+                                            wrap_a_symbol             n
+                                          ];
+
+			    typechecked_packagedeclaration (mld::GENERIC_DECLARATION (s, x))
+                                =>
+                                mknod "C" [ wrap_module_stamp         s,
+                                            wrap_ageneric_expression  x
+                                          ];
+
+			    typechecked_packagedeclaration (mld::SEQUENTIAL_DECLARATIONS e)
+                                =>
+                                mknod "D" [ wrap_a_list  wrap_an_module_declaration  e ];
+
+			    typechecked_packagedeclaration (mld::LOCAL_DECLARATION (a, b))
+                                =>
+                                mknod "E" [ wrap_an_module_declaration a,
+                                            wrap_an_module_declaration b
+                                          ];
+
+			    typechecked_packagedeclaration mld::ERRONEOUS_ENTRY_DECLARATION
+                                =>
+                                mknod "F" [];
+
+			    typechecked_packagedeclaration mld::EMPTY_GENERIC_EVALUATION_DECLARATION
+                                =>
+                                mknod "G" [];
+                        end;
+		    end
+
+		also
+		fun wrap_an_typechecked_package_dictionary (mld::MARKED_TYPERSTORE m)
+			=>
+			case (typechecked_package_stub  m)
+			    #			  
+			    THE (l, i)
+				=>
+				mknod "D"  [wrap_lib_mod_spec l, wrap_dictionary_identifier i];
+			    NULL
+				=>
+				{   fun mee_raw { stamp => s, typerstore, stub }
+					=
+					mknod "E" (   [ wrap_stamp s,
+							wrap_an_typechecked_package_dictionary  typerstore
+						      ]
+						      @
+						      lib_picklehash ( stub:   Null_Or( mld::Stub_Info ),
+							               .owner
+							             )
+						  );
+
+				   share typerstore  mee_raw m;
+			       };
+			esac;
+
+		    wrap_an_typechecked_package_dictionary (mld::NAMED_TYPERSTORE (d, r))
+                        =>
+			{   mknod =   pkr::make_funtree_node  tag_typechecked_package_dictionary;
+			    #
+                            mknod "A" [ wrap_a_list (wrap_a_pair (wrap_module_stamp, wrap_an_typechecked_package)) (ed::keyvals_list d),
+					wrap_an_typechecked_package_dictionary r
+				      ];
+			};
+
+		    wrap_an_typechecked_package_dictionary mld::NULL_TYPERSTORE
+                        =>
+                        mknod "B" [];
+
+		    wrap_an_typechecked_package_dictionary mld::ERRONEOUS_ENTRY_DICTIONARY
+                        =>
+                        mknod "C" [];
+                end 
+
+		also
+		fun wrap_agenerics_expansion { stamp => s, typerstore, property_list, inverse_path, stub }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_agenerics_expansion;
+			#
+			mknod "s"   ( [ wrap_stamp s,
+				        wrap_an_typechecked_package_dictionary typerstore,
+					wrap_ipath  inverse_path
+				      ]
+			              @
+				      lib_picklehash ( stub:   Null_Or( mld::Stub_Info ),
+					       	       .owner
+					             )
+				    );
+		    }
+
+		also
+		fun wrap_ashared_generics_expansion id
+                    =
+                    share (packages id) wrap_agenerics_expansion
+
+		also
+		fun wrap_atypechecked_generic
+                    { stamp => s,
+		      generic_closure,
+		      property_list,
+		      typ_path,
+		      inverse_path,
+		      stub
+		    }
+		    =
+		    {   mknod =  pkr::make_funtree_node  tag_typechecked_generic;
+			#
+			mknod "f"   ( [ wrap_stamp s,
+				        wrap_ageneric_closure  generic_closure,
+					wrap_ipath inverse_path
+				      ]
+			              @
+				      lib_picklehash ( stub:   Null_Or( mld::Stub_Info ),
+						       .owner
+					             )
+				    );
+		    }
+
+		also
+		fun wrap_ashared_typechecked_generic id
+                    =
+                    share (generics id) wrap_atypechecked_generic
+
+		also
+		fun wrap_atypechecked_typ x
+                    =
+                    wrap_a_typ x;
+		#
+		fun wrap_a_fixity  fixity::NONFIX          =>    mknod "N" [];
+		    wrap_a_fixity (fixity::INFIX (i, j))   =>    pkr::make_funtree_node tag_infix "I" [ wrap_an_int i,
+												        wrap_an_int j
+												      ];
+                end;
+
+		mknod =  pkr::make_funtree_node  tag_anaming;
+		#
+		fun wrap_anaming (sxe::NAMED_VARIABLE    x) =>    mknod "1"  [wrap_a_variable     x];
+		    wrap_anaming (sxe::NAMED_CONSTRUCTOR x) =>    mknod "2"  [wrap_a_datatyp   x];
+		    wrap_anaming (sxe::NAMED_TYPE        x) =>    mknod "3"  [wrap_a_typ       x];
+		    wrap_anaming (sxe::NAMED_API         x) =>    mknod "4"  [wrap_an_api         x];
+		    wrap_anaming (sxe::NAMED_PACKAGE     x) =>    mknod "5"  [wrap_a_package      x];
+		    wrap_anaming (sxe::NAMED_GENERIC_API x) =>    mknod "6"  [wrap_a_generic_api  x];
+		    wrap_anaming (sxe::NAMED_GENERIC     x) =>    mknod "7"  [wrap_a_generic      x];
+		    wrap_anaming (sxe::NAMED_FIXITY      x) =>    mknod "8"  [wrap_a_fixity       x];
+                end;
+		#
+		fun symbolmapstackpickler  symbolmapstack
+		    =
+		    {   symbols = list_mergesort::unique_sort compare_symbols (syx::symbols symbolmapstack);
+			pairs   = map (fn symbol = (symbol, syx::get (symbolmapstack, symbol))) symbols;
+			#
+			wrap_a_list (wrap_a_pair (wrap_a_symbol, wrap_anaming)) pairs;
+		    };
+	    
+		symbolmapstackpickler;
+	    };												# fun make_symbolmapstack_funtree
+
+	# This fn is called once each from:
+	#
+	#     src/lib/compiler/front/semantic/pickle/rehash-module.pkg					# pickling_context == pks::REHASH
+	#     src/lib/compiler/front/semantic/symbolmapstack/base-types-and-ops-symbolmapstack.pkg			# pickling_context == pks::INITIAL
+	#     src/lib/compiler/toplevel/compiler/mythryl-compiler-g.pkg					# pickling_context == pks::INITIAL
+	#
+	fun pickle_symbolmapstack
+		pickling_context			# Information from compilation of files upon which current sourcefile of interest depends.
+		symbolmapstack				# Symbol table to be pickled.  Contains (only) information from compilation of current sourcefile of interest.
+	    =
+	    { picklehash,
+              pickle,
+              exported_highcode_variables
+            }
+            where
+	        lvlist =  REF [];
+		#
+		fun note_lvar  v
+                    =
+                    lvlist  :=  v ! *lvlist;
+
+		make_symbolmapstack_funtree'
+		    =
+		    make_symbolmapstack_funtree  note_lvar  pickling_context;
+
+		funtree    =   make_symbolmapstack_funtree'  symbolmapstack;
+
+		pickle     =   byte::string_to_bytes (pkr::funtree_to_pickle  empty_map  funtree);
+
+		picklehash =   hash_pickle  pickle;
+
+
+		exported_highcode_variables
+		    =
+		    reverse  *lvlist;
+
+
+		add_pickles (unt8_vector::length  pickle);
+	    end;
+
+	# The dummy symbol table pickler:
+	#
+	fun dont_pickle { symbolmapstack, count }
+	    =
+	    {   # Construct a dummy picklehash from 'count':
+		#
+	        picklehash
+		    =
+		    {   to_byte =  unt8::from_large_unt  o  unt32::to_large_unt;
+
+			my (>>) = unt32::(>>);
+
+			infix val  >> ;
+
+			w = unt32::from_int count;
+		    
+			ph::from_bytes
+			  (unt8_vector::from_list
+			   [0u0, 0u0, 0u0, to_byte (w >> 0u24), 0u0, 0u0, 0u0, to_byte (w >> 0u16),
+			    0u0, 0u0, 0u0, to_byte (w >> 0u08), 0u0, 0u0, 0u0, to_byte (w)]);
+		    };
+
+		# Next line is an alternative to using nestable_picklehash_map::consolidate:
+		# 
+		syms =  list_mergesort::unique_sort  compare_symbols  (syx::symbols  symbolmapstack);
+		#
+		fun make_varhome i
+                    =
+                    vh::PATH (vh::EXTERN picklehash, i);
+		#
+		fun mapnaming (symbol, (i, symbolmapstackx, lvars))
+		    =
+		    case (syx::get (symbolmapstack, symbol))
+			#		      
+			sxe::NAMED_VARIABLE (vac::ORDINARY_VARIABLE { varhome=>a, inlining_info=>z, path=>p, var_type => REF t } )
+			    =>
+			    case a
+				#
+				vh::HIGHCODE_VARIABLE k
+				    =>
+				    (   i+1,
+					syx::bind ( symbol,
+							   sxe::NAMED_VARIABLE ( vac::ORDINARY_VARIABLE { varhome        => make_varhome i,
+													  inlining_info => z,
+													  path          => p,
+													  var_type      => REF t
+													}
+									    ),
+									    symbolmapstackx
+							 ),
+					 k ! lvars
+				    );
+
+			       _ => bug ("dontPickle 1: " + vh::print_varhome a);
+			   esac;
+
+		       sxe::NAMED_PACKAGE (mld::A_PACKAGE {   an_api => s,   typechecked_package => r,   varhome => a,   inlining_info =>z } )
+			   =>
+			   case a
+
+				vh::HIGHCODE_VARIABLE k
+				    => 
+				    (   i+1,
+					syx::bind ( symbol,
+								 sxe::NAMED_PACKAGE ( mld::A_PACKAGE { varhome            => make_varhome i,
+												       an_api              => s,
+												       typechecked_package => r,
+												       inlining_info       => z
+												     }
+									   ),
+								 symbolmapstackx
+							       ),
+					k ! lvars
+				    );
+
+			       _ => bug ("dontPickle 2" + vh::print_varhome a);
+			   esac;
+
+		       sxe::NAMED_GENERIC (mld::GENERIC { a_generic_api => s,  typechecked_generic => r, varhome => a, inlining_info=>z } )
+			   =>
+			   case a
+
+				vh::HIGHCODE_VARIABLE k
+				    => 
+				    (   i+1,
+					syx::bind ( symbol,
+								 sxe::NAMED_GENERIC (mld::GENERIC { varhome            => make_varhome i,
+												    a_generic_api       => s,
+												    typechecked_generic => r,
+												    inlining_info       => z
+												  }
+									   ),
+								 symbolmapstackx
+							       ),
+					k ! lvars
+				    );
+
+			       _ => bug ("dontPickle 3" + vh::print_varhome a);
+			   esac;
+
+		      sxe::NAMED_CONSTRUCTOR (ty::VALCON { name,
+							   is_constant,
+							   type,
+							   signature,
+							   is_lazy          => FALSE,
+							   form as (vh::EXCEPTION a)
+							 }
+				 )
+			   =>
+			   {   new_form = vh::EXCEPTION (make_varhome i);
+
+			       case a
+
+				   vh::HIGHCODE_VARIABLE k
+				       =>
+				       (   i+1,
+					   syx::bind ( symbol,
+								    sxe::NAMED_CONSTRUCTOR ( ty::VALCON {  form => new_form,
+													   name,
+													   is_lazy   => FALSE,
+													   is_constant,
+													   type,
+													   signature
+													 }
+									      ),
+								    symbolmapstackx
+								  ),
+					   k ! lvars
+				       );
+
+				  _ => bug ("dontPickle 4" + vh::print_varhome a);
+
+			       esac;
+			   };
+
+		        naming => (i,   syx::bind (symbol, naming, symbolmapstackx),   lvars);
+		    esac;
+
+		my (_, new_symbolmapstack, lvars)
+		    =
+		    fold_left
+                        mapnaming
+                        (0, syx::empty, NIL)
+                        syms;
+
+		{ new_symbolmapstack,
+		  picklehash,
+		  exported_highcode_variables => reverse lvars
+		};
+	    };                  #  fun dont_pickle 
+    };
+end;
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

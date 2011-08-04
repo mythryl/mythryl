@@ -1,0 +1,1270 @@
+## type-type.pkg -- typecheck a type.
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+# The center of the typer is
+#
+#      src/lib/compiler/front/typer/main/type-package-language-g.pkg
+# 
+#  -- see it for a higher-level overview.
+#  It calls us to do specialized typechecking
+#  of types.
+#
+
+
+
+###           "The future just ain't what it use to be
+###             -- and what's more it never was."
+###
+###                             -- Lee Hays
+
+
+
+stipulate
+    package bt  =  type_types;							# type_types			is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package ds  =  deep_syntax;							# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package em  =  error_message;						# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fst =  find_in_symbolmapstack;					# find_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/find-in-symbolmapstack.pkg
+    package ip  =  inverse_path;						# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package raw =  raw_syntax; 							# raw_syntax			is from   src/lib/compiler/front/parser/raw-syntax/raw-syntax.pkg
+    package sta =  stamp;							# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sxe =  symbolmapstack_entry;					# symbolmapstack_entry		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack-entry.pkg
+    package sy  =  symbol;							# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syp =  symbol_path;							# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package syx =  symbolmapstack;						# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package trs =  typer_junk;							# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package ts  =  type_junk;							# type_junk			is from   src/lib/compiler/front/typer-stuff/types/type-junk.pkg
+    package tvs =  type_variable_set;						# type_variable_set		is from   src/lib/compiler/front/typer/main/type-variable-set.pkg
+    package ty  =  types;							# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+herein
+
+
+    package   type_type
+    : (weak)  Type_Type								# Type_Type		is from   src/lib/compiler/front/typer/main/type-type.api
+    {
+	debugging   =   typer_control::typecheck_type_debugging;		# eval:  set_control "typechecker::typecheck_type_debugging" "TRUE";
+	say         =   control_print::say;
+
+	fun if_debugging_say (msg: String)
+	    =
+	    if   *debugging
+                say msg;
+                say "\n";
+	    fi;
+
+	fun bug msg
+	    =
+	    error_message::impossible ("type_type: " + msg);
+
+        fun unparse_type
+            (
+              msg:          String,
+              type:         types::Type,
+              symbolmapstack: symbolmapstack::Symbolmapstack
+            )
+            =
+            if *debugging
+		print "\n";
+                print msg;
+                pp = prettyprinter::make_file_prettyprinter "/dev/stdout";
+
+                pps = pp.stream;
+
+                unparse_type::unparse_type
+                    symbolmapstack
+                    pps
+                    type;
+
+                pp.flush ();
+                pp.close ();
+		print "\n";
+            fi;
+
+
+
+	##### TYPES #####
+
+	my --> =  bt::(-->);
+
+	infix val  --> ;
+
+	fun typecheck_type_variable (
+                type_variable:       raw::Type_Variable,
+                error_function,
+                source_code_region:  ds::Source_Code_Region
+            )
+	    =
+	    case type_variable
+
+	         raw::TYPE_VARIABLE  type_variable_symbol		# X
+		     =>
+		     ty::make_type_variable_ref
+                       (
+                         ts::make_user_type_variable  type_variable_symbol,
+                         ["typecheck_type_variable  from  type-type.pkg"]
+                       );
+
+	         raw::SOURCE_CODE_REGION_FOR_TYPE_VARIABLE (type_variable, source_code_region)
+		     =>
+		     typecheck_type_variable (type_variable, error_function, source_code_region);
+            esac;
+
+	fun type_typevar_list (type_variables, error_function, source_code_region)
+            =
+            type_variables
+            where 
+
+	        type_variables
+                    =
+                    map (fn type_variable =  typecheck_type_variable (type_variable, error_function, source_code_region))
+                         type_variables;
+
+		names = map (   fn { id, ref_typevar => REF (ty::USER_TYPE_VARIABLE { name, ... } ) }
+					=>
+					name;
+
+				    _   =>   bug "type_typevar_list";
+                                end 
+                            )
+                            type_variables;
+
+		trs::forbid_duplicates_in_list (
+                    (error_function source_code_region),
+                    "duplicate type variable name",
+                    names
+                );
+	    end;
+
+
+
+	# We get invoked from various places in
+	#     src/lib/compiler/front/typer/main/type-core-language.pkg
+        #
+	fun type_type
+            (
+	      raw_syntax_tree:     raw::Any_Type,
+	      symbolmapstack:         syx::Symbolmapstack,
+	      error_function:      error_message::Error_Function,
+	      source_code_region:  ds::Source_Code_Region
+	    )
+	    :
+            ( types::Type,
+              tvs::Type_Variable_Set
+            )
+	    =
+	    case raw_syntax_tree   
+
+		raw::TYPE_VARIABLE_TYPE type_variable
+		    => 
+		    {   type_variable
+                            =
+                            typecheck_type_variable
+                                (type_variable, error_function, source_code_region);
+
+			( ty::TYPE_VARIABLE_REF  type_variable,
+			  tvs::singleton         type_variable
+			);
+		    };
+
+		raw::TYP_TYPE (constructor_list, types)
+		    => 
+		    {   constructor1
+			    = 
+			    if ((sy::name (head constructor_list)) == "->")
+				#
+				bt::arrow_typ;
+			    else
+				fst::find_typ_via_symbol_path_and_check_arity
+                                  (
+				    symbolmapstack,
+				    syp::SYMBOL_PATH constructor_list,
+				    length types,
+				    error_function  source_code_region
+				  );
+			    fi;
+
+			my (lambda_types1, lambda_variable_type1)
+			    =
+			    typecheck_type_list (types, symbolmapstack, error_function, source_code_region);
+
+
+			(   ts::make_constructor_type (constructor1, lambda_types1),
+			    lambda_variable_type1
+			);
+		    };
+
+		raw::RECORD_TYPE labels         #  (symbol*Any_Type) List 
+		    => 
+		    {   my (lbs1, lvt1)
+			    =
+			    typecheck_tlabel (labels, symbolmapstack, error_function, source_code_region);
+
+			( bt::record_type (trs::sort_record (lbs1, error_function source_code_region)),
+			  lvt1
+			);
+		    };
+
+		raw::TUPLE_TYPE types
+		    =>
+		    {   my (lts1, lvt1)
+                            =
+                            typecheck_type_list (types, symbolmapstack, error_function, source_code_region);
+
+			( bt::tuple_type lts1,
+			  lvt1
+			);
+		    };
+
+		raw::SOURCE_CODE_REGION_FOR_TYPE (type, source_code_region)
+		    =>
+		    type_type
+                        (type, symbolmapstack, error_function, source_code_region);
+            esac
+
+
+
+	also
+	fun typecheck_tlabel (labels, symbolmapstack, error_function, source_code_region:  ds::Source_Code_Region)
+	    =
+	    fold_right 
+	      (   fn (   ( lb2, t2),
+                         (lts2, lvt2)
+                     )
+                     =
+		     {   my (t3, lvt3)
+                             =
+                             type_type (t2, symbolmapstack, error_function, source_code_region);
+
+			 ( (lb2, t3) ! lts2,
+			   tvs::union (lvt3, lvt2, error_function source_code_region)
+			 );
+		     }
+              )
+	      ([], tvs::empty)
+              labels
+
+	also
+	fun typecheck_type_list (ts, symbolmapstack, error_function, source_code_region:  ds::Source_Code_Region)
+	    =
+	    fold_right 
+	      (   fn (t2, (lts2, lvt2))
+                     =
+		     {   my (t3, lvt3)
+                             =
+                             type_type (t2, symbolmapstack, error_function, source_code_region);
+
+                         ( t3 ! lts2,
+                           tvs::union (lvt3, lvt2, error_function source_code_region)
+                         );
+		     }
+              )
+	      ([], tvs::empty)
+              ts;
+
+
+	# *** VALCON DECLARATIONS ***
+
+	exception ISREC;
+
+	fun typecheck_named_constructor (
+                (typ, args, name, def, source_code_region, is_lazy),
+                symbolmapstack,
+                inverse_path: ip::Inverse_Path,
+                error_function
+            )
+	    =
+	    {   rhs = ts::make_constructor_type   (typ,   map ty::TYPE_VARIABLE_REF args);
+
+
+                unparse_type ("typecheck_named_constructor processing: ", rhs, symbolmapstack );
+
+
+		fun checkrec (_, NULL)
+                        =>
+                        ();
+
+		    checkrec (_, THE type)
+			=> 
+		        findname type
+                        where
+			    fun findname (raw::TYPE_VARIABLE_TYPE _)
+                                    =>
+                                    ();
+
+				findname (raw::TYP_TYPE ([co], ts))
+				    => 
+				    if   (symbol::eq (co, name))
+				         
+					 (raise exception ISREC); 
+				    else
+					 apply findname ts;
+				    fi;
+
+				findname (raw::TYP_TYPE (_, ts))      => apply findname ts;
+				findname (raw::RECORD_TYPE  lbs)                   => apply   (fn (_, t) =  findname t)   lbs;
+				findname (raw::TUPLE_TYPE  ts)                     => apply findname ts;
+
+				findname (raw::SOURCE_CODE_REGION_FOR_TYPE (t, _)) => findname t;
+			    end;
+			end;
+                 end;
+
+		 fun typecheck_constr (name,  THE type)
+			 =>
+			 {   my (t, type_variable)
+				 =
+				 type_type (type, symbolmapstack, error_function, source_code_region);
+
+			     ( (name, FALSE, (t --> rhs)),
+			       type_variable
+			     );
+			 };
+
+		     typecheck_constr (name, NULL)
+			 =>
+			 ( (name, TRUE, rhs),
+			   tvs::empty
+			 );
+                 end;
+
+		 arity   =   length args;
+
+		 is_recursive
+                     =
+                     {   apply checkrec def;
+                         FALSE;
+                     }
+                     except
+                         ISREC = TRUE;
+
+		 my (dcl, type_variables)
+                     = 
+		     fold_right
+		        (   fn (d, (dcl1, type_variables1))
+                               =
+			       {   my  (dc2, type_variable2)
+                                       =
+                                       typecheck_constr d;
+
+                                   ( dc2 ! dcl1,
+                                     tvs::union (type_variable2, type_variables1, error_function source_code_region)
+                                   );
+			       }
+                        )
+		        ([], tvs::empty)
+                        def;
+
+                 trs::check_bound_type_variables (type_variables, args, error_function source_code_region);
+                 ts::resolve_type_variables_to_typescheme_slots args;
+
+		 sdcl   =   trs::sort3 dcl;
+
+		 my (reps, signature)
+                     =
+                     pick_valcon_form::infer is_recursive sdcl;
+
+		 fun bind_dcons ((name, is_constant, type), form)
+                     =
+		     {
+                         ts::drop_macro_expanded_indirections_from_type  type;
+
+			 type
+                             = 
+			     if (arity > 0)
+			         
+                                  ty::TYPE_SCHEME_TYPE {
+
+                                      type_scheme_arg_eq_properties
+					  =>
+					  ts::make_typeagnostic_api arity,
+
+				      type_scheme
+					  =>
+					  ty::TYPE_SCHEME
+					    { arity,
+					      body  => type
+					    }
+                                  };
+			     else
+                                  type;
+                             fi;
+
+                         ty::VALCON
+                           {
+                             type,
+                             is_lazy,
+                             name,
+                             is_constant,
+			     #	
+                             form,
+			     signature
+                           };
+		     };
+
+		 fun bind_dconslist
+                         ( (r1 as (name, _, _))  !  l1,
+                            r2                   !  l2
+                         )
+			 =>
+			 {   dcon   =   bind_dcons (r1, r2);
+
+			     my (dcl, e2)
+				 =
+				 bind_dconslist (l1, l2);
+
+			     (   dcon ! dcl,
+				 syx::bind (
+				     name,
+				     sxe::NAMED_CONSTRUCTOR dcon,
+				     e2
+				 )
+			     );
+			 };
+
+		     bind_dconslist ([],[]) =>   ([], syx::empty);
+		     bind_dconslist _       =>   bug "typecheckDB::bindDconslist";
+                 end;
+
+
+                 if (length sdcl < length dcl)    #  Duplicate constructor names 
+
+		      fun member (x: String,   []) =>   FALSE;
+			  member (x,        y ! r) =>   (x == y)   or   member (x, r);
+                      end;
+
+		       fun dups (  [], l)
+                               =>
+                               l;
+
+			   dups (x ! r, l)
+			       =>
+			       if   (member (x, r)   and   not (member (x, l)))
+			            dups (r, x ! l);
+			       else dups (r,     l);
+                               fi;
+                       end;
+
+		       fun add_commas []          =>   [];
+			   add_commas (y as [_])  =>   y;
+			   add_commas (s ! r)      =>   s ! ", " ! add_commas (r);
+                       end;
+
+		       duplicates
+			   =
+			   dups (map (fn (n, _, _) => sy::name n; end ) dcl,[]);
+
+
+		       error_function
+			   source_code_region
+			   em::ERROR
+			   (   cat [
+				   "enum ",
+				   sy::name name,
+				   " has duplicate constructor name (s): ",
+				   cat (add_commas (duplicates))
+			       ]
+			   )
+			   em::null_error_body;
+
+                 fi;
+
+		 bind_dconslist (sdcl, reps);
+	     };
+
+
+	# *** TYPE DECLARATIONS ***
+
+	fun typecheck_named_types (
+		named_types:     List( raw::Named_Type ),
+		notwith: Bool,
+		symbolmapstack0,
+                inverse_path,
+		source_code_region,
+		{ make_fresh_stamp, error_fn, ... }: trs::Per_Compile_Info
+	    )
+	    :
+            ( List( ty::Typ ),
+              List( sy::Symbol ),
+              syx::Symbolmapstack
+            )
+	    =
+	    {   fun typecheck_named_type (
+                        tb: raw::Named_Type,
+                        symbolmapstack,
+                        source_code_region
+                    )
+                    : (ty::Typ, sy::Symbol)
+		    =
+		    case tb
+			#
+			raw::NAMED_TYPE   { typ => name,   definition,   type_variables }
+			    =>
+			    {   type_variables
+				    =
+				    type_typevar_list  (type_variables, error_fn, source_code_region);
+
+				my (type, type_variable)
+				    =
+				    type_type  (definition, symbolmapstack, error_fn, source_code_region);
+
+				arity   =   length type_variables;
+
+				trs::check_bound_type_variables (type_variable, type_variables, error_fn source_code_region);
+				ts::resolve_type_variables_to_typescheme_slots type_variables;
+				ts::drop_macro_expanded_indirections_from_type type;
+
+				typ =    ty::DEFINED_TYP
+					      {
+						stamp  =>  make_fresh_stamp(),
+						path   =>  inverse_path::extend (inverse_path, name),
+						strict =>  trs::calculate_strictness (arity, type),
+						#
+						type_scheme => ty::TYPE_SCHEME { arity, body=>type }
+					      };
+
+				(typ, name);
+			    };
+
+			raw::SOURCE_CODE_REGION_FOR_NAMED_TYPE (tb', source_code_region')
+			    =>
+			    typecheck_named_type (tb', symbolmapstack, source_code_region');
+                    esac;
+
+                loop (named_types, NIL, NIL, syx::empty)
+                where
+		    fun loop (NIL, typs, names, symbolmapstack)
+			    =>
+			    ( reverse typs,
+			      reverse names,
+			      symbolmapstack
+			    );
+
+			loop (named_type ! rest, typs, names, symbolmapstack)
+			    =>
+			    {  symbolmapstack'
+				    =
+				    if notwith      symbolmapstack0;
+				    else            syx::atop (symbolmapstack, symbolmapstack0);
+                                    fi;
+
+				my (typ, name)
+				    =
+				    typecheck_named_type (named_type, symbolmapstack', source_code_region);
+
+				loop (
+				    rest,
+				    typ ! typs,
+				    name ! names,
+				    syx::bind (name, sxe::NAMED_TYPE typ, symbolmapstack)
+				);
+			    };
+		    end;
+		end;
+	    };
+
+	fun type_type_declaration (
+                named_types: List( raw::Named_Type ),
+                symbolmapstack,
+                inverse_path,
+                source_code_region,
+		per_compile_info as { error_fn, make_fresh_stamp, ... }: trs::Per_Compile_Info
+            )
+	    : (deep_syntax::Declaration, syx::Symbolmapstack)
+	    =
+	    {   if_debugging_say ">>type_type_declaration";
+
+		my (typs, names, symbolmapstack')
+                    =
+		    typecheck_named_types (
+                        named_types,
+                        TRUE,
+                        symbolmapstack,
+                        inverse_path,
+                        source_code_region,
+                        per_compile_info
+                    );
+
+                if_debugging_say "--type_type_declaration: typecheck_named_types done";
+	    
+                trs::forbid_duplicates_in_list   (error_fn source_code_region,   "duplicate type definition",   names);
+
+		if_debugging_say "<<type_type_declaration";
+
+		(ds::TYPE_DECLARATIONS typs,   symbolmapstack');
+	    };
+
+	fun type_datatype_declaration
+              (
+                { datatyps, with_typs },
+                symbolmapstack0,
+                api_context, 
+	        api_typerstore,
+                is_free,
+                inverse_path,
+                source_code_region, 
+	        per_compile_info as { make_fresh_stamp, error_fn, ... }:   trs::Per_Compile_Info
+              )
+	    =
+	    {   #  predefine datatypes 
+
+                if_debugging_say ">>type_datatype_declaration";
+
+		fun preprocess
+                        source_code_region
+                        (   raw::NAMED_ENUM {
+                                typ => name,
+                                right_hand_side   => raw::VALCONS definition,
+                                type_variables,
+                                is_lazy
+                            }
+                        )
+			=> 
+			{   type_variables
+				=
+				type_typevar_list
+				    (type_variables, error_fn, source_code_region);
+
+			    strict_name
+				=
+				if is_lazy     sy::make_type_symbol (sy::name name + "!");
+				else           name;
+                                fi;
+
+			    typ =    ty::PLAIN_TYP
+					  {
+					    path  =>  ip::extend (inverse_path, strict_name),
+					    arity =>  length type_variables,
+					    stamp =>  make_fresh_stamp(),
+					    eq    =>  REF ty::DATA,
+					    kind  =>  ty::TEMP,
+					    stub  =>  NULL
+					  };
+
+			    binddef =   if (not  is_lazy)
+					    #	
+					    typ;
+					else
+					    ty::DEFINED_TYP
+					      {
+						stamp  => make_fresh_stamp(),
+						#
+						path   => ip::extend (inverse_path, name),
+						#
+						strict => map   (fn _ = TRUE)   type_variables,
+						#
+						type_scheme => ty::TYPE_SCHEME {
+								   arity => length type_variables,
+								   body  => ty::TYPCON_TYPE (
+									       bt::susp_typ,
+									       [   ty::TYPCON_TYPE (
+										       typ,
+										       map ty::TYPE_VARIABLE_REF type_variables
+										   )
+									       ]
+									   )
+							       }
+					     };
+					fi;
+
+			    THE {
+				type_variables,
+				name,
+				definition,
+
+				binddef,
+				is_lazy,
+
+				source_code_region,
+				typ,
+				strict_name
+			    };
+			};
+
+		    preprocess source_code_region (raw::NAMED_ENUM { typ          =>  name,
+                                                                     right_hand_side =>  raw::REPLICAS _,
+                                                                     ...
+                                                                   }
+                                                  )
+			=> 
+			{   error_fn
+				source_code_region
+				em::ERROR
+				("enum replication mixed with regular datatypes:" + sy::name name)
+				em::null_error_body;
+
+			    NULL;
+			};
+
+		    preprocess _ (raw::SOURCE_CODE_REGION_FOR_NAMED_DATATYPE (db', source_code_region'))
+			=>
+			preprocess source_code_region' db';
+                end;
+
+		dbs = list::map_maybe_null_fn
+                          (preprocess source_code_region)
+                          datatyps;
+
+                if_debugging_say "--type_datatype_declaration: preprocessing done";
+
+		env_dtyps         #  symbolmapstack containing preliminary datatyps 
+                    =
+		    fold_left
+                        (fn ( { name, binddef, ... }, symbolmapstack)
+                            =
+			    syx::bind (name, sxe::NAMED_TYPE binddef, symbolmapstack)
+                        )
+			syx::empty
+                        dbs;
+
+                if_debugging_say "--type_datatype_declaration: envDTyps defined";
+
+
+
+		#  Typecheck associated with_typs: 
+
+		my (with_typs, withtyc_names, env_wtyps)
+                    = 
+		    typecheck_named_types (
+                        with_typs,
+                        FALSE,
+                        syx::atop (env_dtyps, symbolmapstack0),
+			inverse_path,
+                        source_code_region,
+                        per_compile_info
+                    );
+
+                if_debugging_say "--type_datatype_declaration: with_typs elaborated";
+
+
+
+		#  Check for duplicate typ names: 
+
+                trs::forbid_duplicates_in_list (
+                    error_fn source_code_region,
+		    "duplicate type names in type declaration",
+	            map .name dbs @ withtyc_names
+                    );
+
+                if_debugging_say "--type_datatype_declaration: uniqueness checked";
+
+
+
+		#  Add lazy auxiliary with_typs if any: 
+
+		with_typs
+                    =
+                    map .binddef
+                       (list::filter .is_lazy dbs) @ with_typs;
+
+
+
+		# symbolmapstack containing only new
+                # datatyps and with_typs:
+
+		env_typs   =   syx::atop (env_wtyps, env_dtyps);
+
+
+
+		# symbolmapstack for evaluating the
+                # Constructor types:
+
+		full_symbolmapstack   =   syx::atop (env_typs, symbolmapstack0);
+
+                if_debugging_say "--type_datatype_declaration: envTyps, fullSymbolmapstack defined";
+
+		prelim_dtyps   =   map .typ dbs;
+
+
+
+		# Nomenclature:  "Definition of SML" calls typcons from apis "flexible" an all others "rigid".
+		#
+		# The following functions pull out all the flexible components
+		# inside the domains of the datatypes, and put them into the
+		# free_typs field in the DATATYPE kind; this way, future 
+		# re-instantiations of the datatypes only need to modify the
+		# free_typs list, rather than all the domains (ZHONG)
+
+
+		free_typs_ref
+                    =
+                    REF  ([]:  List( ty::Typ ),   0);
+
+		fun reg_free typ
+                    = 
+                    h (ss, n)
+                    where
+		        my (ss, n)
+                            =
+                            *free_typs_ref;
+
+			fun h (x ! rest, i)
+				=> 
+				if (ts::typs_are_equal (typ, x))
+				    #				    
+				    ty::FREE_TYPE (i - 1);
+				else
+				    h (rest, i - 1);
+				fi;
+
+			    h ([], _)
+				=> 
+				{   (free_typs_ref := (typ ! ss, n+1));
+				    #
+				    ty::FREE_TYPE n;
+				};
+                        end;
+		    end;
+
+		fun translate_typ (typ as ty::PLAIN_TYP { kind => ty::TEMP, ... } )
+			=>
+			g (typ, 0, prelim_dtyps)
+                        where
+			    fun g (typ, i, x ! rest)
+				    =>
+				    if (ts::typs_are_equal (typ, x))
+					#				        
+					ty::RECURSIVE_TYPE i;
+				    else
+					g (typ, i+1, rest);
+				    fi;
+
+			        g (typ, _, NIL)
+                                    =>
+                                    typ;
+                            end;
+			end;
+
+		   translate_typ (typ as ty::PLAIN_TYP _)
+			=> 
+			if (is_free typ   )   reg_free typ;
+			else                              typ;
+                        fi;
+
+		   translate_typ (typ as (ty::DEFINED_TYP _ | ty::TYP_BY_STAMPPATH _))
+			=> 
+			if (is_free typ)   reg_free typ;
+			else                           typ;
+                        fi;
+
+		   translate_typ typ
+			=>
+			typ;
+                end;
+
+
+		fun translate_type type
+                    = 
+		    case (ts::head_reduce_type  type)
+			#
+		        ty::TYPCON_TYPE (typ, args)
+			    =>
+			    ty::TYPCON_TYPE (translate_typ typ, map translate_type args);
+
+		        ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties, type_scheme => ty::TYPE_SCHEME { arity, body } }
+			    =>
+			    ty::TYPE_SCHEME_TYPE {
+				type_scheme_arg_eq_properties,
+				type_scheme => ty::TYPE_SCHEME {
+						   arity,
+						   body  => translate_type body
+					       }
+			    };
+
+		        type => type;
+                    esac;
+
+
+
+		#  Typecheck the definition of a enum: 
+		#
+		fun typecheck_right_hand_side (
+                        {   type_variables,
+                            name,
+                            definition,
+                            source_code_region,
+                            typ,
+                            is_lazy,
+                            binddef,
+                            strict_name
+                        },
+			(i, done)
+                    )
+                    = 
+		    {   my (valcons, _)
+                            = 
+			    typecheck_named_constructor (
+                                (   typ,
+                                    type_variables,
+                                    name,
+                                    definition,
+                                    source_code_region,
+                                    is_lazy
+                                ),
+                                full_symbolmapstack,
+                                inverse_path,
+                                error_fn
+                            );
+
+			fun make_dcon_desc (ty::VALCON { name, is_constant, form, signature, type, is_lazy } )
+                            = 
+			    {   name,
+                                form,
+			        domain         =>   if is_constant
+							#
+							NULL;
+						    else
+							case (translate_type  type)
+							    #
+							    ty::TYPCON_TYPE (_, [dom, _])
+								=>
+								THE dom;
+
+							    ty::TYPE_SCHEME_TYPE
+								{
+								  type_scheme =>  ty::TYPE_SCHEME {
+								  body        =>  ty::TYPCON_TYPE (_, [dom, _]), ... },
+								  ...
+								}
+								=>
+								THE dom;
+
+							   _ => bug "typecheck_right_hand_side";
+						       esac;
+						    fi
+                            };
+
+                        (   i+1,
+			    {   index       =>  i,
+
+				is_lazy,
+			        name,
+				typ,
+				strict_name,
+
+				dcon_names  =>  map   (fn ty::VALCON { name, ... } = name)   valcons,
+				dcons       =>  valcons,
+				dcon_descs  =>  map  make_dcon_desc  valcons
+
+                            } ! done
+                        );
+		    };
+
+		my (_, dbs')
+                    =
+                    fold_left
+                         typecheck_right_hand_side
+                         (0, NIL)
+                         dbs;
+
+		dbs'   =   reverse dbs';
+
+                if_debugging_say "--type_datatype_declaration: RHS elaborated";
+
+		fun make_member
+			{
+			  name,
+			  dcon_descs,
+			  dcon_names,
+			  index,
+			  is_lazy,
+			  strict_name,
+			  dcons  =>  ty::VALCON { signature, ... } ! _,
+			  typ =>  ty::PLAIN_TYP { stamp, arity, eq, ... }
+			}
+			=>
+			#  Extract common signature from first Constructor 
+
+			( stamp,
+			  { constructor_list => dcon_descs,
+			     arity,
+			     eq,
+			     is_lazy,
+			     typ_name => strict_name,
+			     an_api        => signature
+			  }
+			);
+
+		    make_member _   =>   bug "makeMember";
+                end;
+
+		my (mstamps, members)
+                    =
+                    paired_lists::unzip (map make_member dbs');
+
+		nstamps
+                    =
+                    vector::from_list  mstamps;
+
+		nfamily
+                    =
+                    { members       => vector::from_list members,
+		      property_list => property_list::make_property_list (),
+		      mkey          => make_fresh_stamp()
+                    };
+
+		nfreetyps
+                    = 
+		    {   my (x, n)
+                            =
+                            *free_typs_ref;  
+
+                        if (length x != n)   #  Sanity check 
+			    bug "unexpected nfreetyps in type_datatype_declaration";
+                        fi;
+
+                        reverse x; 
+		    };
+
+                if_debugging_say "--type_datatype_declaration: members defined";
+
+		fun fix_dtyc {
+                        name,
+                        index,
+		        typ as ty::PLAIN_TYP { path, arity, stamp, eq, kind, stub },
+			dcon_names,
+                        dcons,
+                        dcon_descs,
+                        is_lazy,
+                        strict_name
+                    }
+                    =>
+		      { old  => typ,
+			name => strict_name,
+			#
+		        new  => ty::PLAIN_TYP {
+			           stub  => NULL,
+                                   path,
+                                   arity,
+                                   stamp,
+                                   eq,
+				   kind  => ty::DATATYPE
+                                              {
+						index,
+						stamps       =>  nstamps,
+						family       =>  nfamily,
+						#
+						free_typs =>  nfreetyps,
+						root         =>  NULL
+                                              }
+                               }
+                      };
+
+		   fix_dtyc _ => bug "fixDtyc"; end;
+
+		dtycmap
+                    =
+                    map fix_dtyc dbs';     # Map preliminary to final datatyps 
+
+                if_debugging_say "--type_datatype_declaration: fixDtyps done";
+
+		final_dtyps   =   map .new dtycmap;
+
+                if_debugging_say "--type_datatype_declaration: finalDtyps defined";
+
+                eq_types::define_eq_props (final_dtyps, api_context, api_typerstore);
+
+                if_debugging_say "--type_datatype_declaration: defineEqProps done";
+
+		fun apply_map m
+                    =
+                    f
+                    where
+		        fun same_type_identifier
+				( ty::PLAIN_TYP g1,
+				  ty::PLAIN_TYP g2
+				)
+				=>
+				sta::same_stamp
+                                  ( g1.stamp,
+				    g2.stamp
+				  );
+
+			    same_type_identifier
+                                ( typ1 as ty::DEFINED_TYP _,
+                                  typ2 as ty::DEFINED_TYP _
+                                )
+				=>
+				ts::typ_equality (typ1, typ2);  
+
+			    same_type_identifier _
+                                =>
+                                FALSE;
+                        end;
+
+			fun f (ty::TYPCON_TYPE (typ, args))
+				=>
+				ty::TYPCON_TYPE
+				  ( get m,
+				    map  (apply_map m)  args
+				  )
+				where
+				    fun get ( { old, new, name } ! rest)
+					    => 
+					    if (same_type_identifier (old, typ))
+						 new;
+					    else
+						 get rest;
+					    fi;
+
+					get NIL
+					    =>
+					    typ;
+				    end;
+				end;
+
+			    f (   ty::TYPE_SCHEME_TYPE
+                                    {
+                                      type_scheme_arg_eq_properties,
+                                      type_scheme => ty::TYPE_SCHEME { arity, body }
+                                    }
+                              )
+				=>
+				ty::TYPE_SCHEME_TYPE {
+				    type_scheme_arg_eq_properties,
+
+				    type_scheme => ty::TYPE_SCHEME { arity,
+								 body  => f body
+							       }
+				};
+
+			    f t   =>   t;
+                        end;
+		    end;
+
+		fun aug_tycmap
+			( typ as
+			      ty::DEFINED_TYP {
+				  stamp,
+				  strict,
+				  path,
+				  type_scheme => ty::TYPE_SCHEME { arity, body }
+			      },
+			  tycmap
+			)
+			=>
+			{ old  => typ,
+
+			  name => ip::last path,
+
+			  new  => ty::DEFINED_TYP
+				    {
+				      strict,
+				      stamp,
+				      path,
+				      #
+				      type_scheme => ty::TYPE_SCHEME
+                                                       {
+							 arity,
+							 body  => apply_map tycmap body
+						       }
+				    }
+			}
+			! tycmap;
+
+		    aug_tycmap _
+			=>
+			bug "aug_tycmap";
+                end;
+
+		# Use fold_left to process the
+                # with_typs in their
+                # original order:
+                # 
+		alltycmap
+                    =
+                    fold_left
+                        aug_tycmap
+                        dtycmap
+                        with_typs;
+
+                if_debugging_say "--type_datatype_declaration: alltycmap defined";
+
+		fun header (_,     0, z)  =>  z;
+		    header (a ! r, n, z)  =>  header (r, n - 1, a ! z);
+		    header (  [],  _, _)  =>  bug "header2 in type_datatype_declaration";
+                end;
+
+		final_withtyps
+                    =
+                    map .new (header (alltycmap, length with_typs, []));
+
+                if_debugging_say "--type_datatype_declaration: finalWithtyps defined";
+
+		fun fix_dcon (ty::VALCON { name, is_constant, form, signature, type, is_lazy } )
+                    = 
+		    ty::VALCON
+                      {
+			type =>   apply_map  alltycmap  type,
+			#
+                        name,
+                        is_constant,
+                        form,
+                        signature,
+                        is_lazy
+                      };
+
+		final_dcons
+                    =
+                    list::cat (map (map fix_dcon) (map .dcons dbs'));
+
+                if_debugging_say "--type_datatype_declaration: finalDcons defined";
+
+		env_dcons
+                    =
+                    fold_left
+                        (fn (d as ty::VALCON { name, ... },   e)
+                            =
+			    syx::bind   (name,   sxe::NAMED_CONSTRUCTOR d,   e)
+                        )
+		        syx::empty 
+		        final_dcons;
+
+		final_symbolmapstack
+                    =
+                    fold_right
+                        (fn ( { old, name, new },   e)
+                            =
+			    syx::bind   (name,   sxe::NAMED_TYPE new,   e)
+                        ) 
+			env_dcons
+                        alltycmap;
+
+                if_debugging_say "--type_datatype_declaration: envDcons, finalSymbolmapstack defined";
+
+		trs::forbid_duplicates_in_list
+		  ( error_fn source_code_region,
+                    "duplicate Constructor names in enum declaration",
+		    list::cat (map .dcon_names dbs')
+                  );
+
+		if_debugging_say "<<type_datatype_declaration";
+
+		(final_dtyps, final_withtyps, final_dcons, final_symbolmapstack);
+
+	    };			# fun type_datatype_declaration 
+    };				# package type_type
+end;				# stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

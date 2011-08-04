@@ -1,0 +1,497 @@
+## anormcode-namedtypevar-vs-debruijntypevar-forms.pkg -- Interconversion between named-typevar and de Bruijn typevar representations.
+#
+# Named type variables are just what you think.
+# Debruijn type variables are an alternative
+# representation based on relative position,
+# which are more convenient when manipulating
+# code.  For background see:
+#
+#     src/lib/compiler/front/typer/basics/debruijn-index.pkg
+#   
+# Here we handle rewriting functions expressed in anormcode form so
+# as to convert them between the two typevariable representations.
+#
+# We are invoked (only) from:
+#
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+stipulate
+    package acf =  anormcode_form;						# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Anormcode_Namedtypevar_Vs_Debruijntypevar_Forms {
+	#
+	convert_debruijn_typevars_to_named_typevars_in_anormcode:  acf::Function -> acf::Function;
+	convert_named_typevars_to_debruijn_typevars_in_anormcode:  acf::Function -> acf::Function;
+    };
+end;
+
+
+
+stipulate
+    package acf =  anormcode_form;						# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package di  =  debruijn_index;						# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package hcf =  highcode_form;						# highcode_form			is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hct =  highcode_type;						# highcode_type			is from   src/lib/compiler/back/top/highcode/highcode-type.pkg
+    package hcv =  highcode_var;						# highcode_var			is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package hut =  highcode_uniq_types;						# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+herein
+
+    package   anormcode_namedtypevar_vs_debruijntypevar_forms
+    :         Anormcode_Namedtypevar_Vs_Debruijntypevar_Forms			# Anormcode_Namedtypevar_Vs_Debruijntypevar_Forms	is from   src/lib/compiler/back/top/anormcode/anormcode-namedtypevar-vs-debruijntypevar-forms.pkg
+    {
+	#
+	convert_debruijn_typevars_to_named_typevars_in_anormcode
+	    #
+	    # Convert all variables bound by the term-language
+	    # TYPEFUN (capital lambda) construct into named variables.
+	    #
+	    # This is primarily to experiment with the cost of named variables,
+	    # should we introduce them during translate or other phases.
+	    =
+	    convert_fundec  hut::empty_uniqtyp_dictionary  di::top
+	    where
+		fun extend_dictionary
+			#
+                       (dictionary:	hut::Uniqtyp_Dictionary)
+                       (_:		di::Debruijn_Depth)
+                       (_:		di::Debruijn_Index)
+                       (vars_and_kinds:	List( (hcv::Variable, hut::Uniqkind) ))
+		    =
+		    hut::cons_entry_onto_uniqtyp_dictionary (dictionary, (THE (map make_named_typevar vars_and_kinds), 0))
+		    where	
+		        fun make_named_typevar (typevar: hcv::Variable,  _: hut::Uniqkind)
+			    =
+			    hct::make_named_typevar_uniqtyp  typevar;
+		    end;
+
+		#
+		fun convert_expression
+			#
+                        dictionary
+                       (depth:			di::Debruijn_Depth)
+		    =
+		    {   fun tc_subst typ
+			    =
+			    hut::make_type_closure_uniqtyp (typ, depth, depth, dictionary);
+
+			#
+			fun lt_subst lambda_type
+			    =
+			    hut::make_type_closure_uniqtype (lambda_type, depth, depth, dictionary);
+
+			#
+			fun convert_con (acf::VAL_CASETAG ((symbol, cr, lambda_type), ts, lv))
+				=>
+				acf::VAL_CASETAG ((symbol, cr, lt_subst lambda_type),
+				       map tc_subst ts, lv);
+
+			    convert_con c
+				=>
+				c;
+			end;
+
+			#
+			fun convert_dictionary { default, table }
+			    =
+			    {   fun f (ts, lv)
+				    =
+				    ((map tc_subst ts), lv);
+
+				{ default,
+				  table => map f table
+				} : acf::Dictionary;
+			    };
+
+			#
+			fun convert_baseop (dictionary_opt, po, lambda_type, typs)
+			    =
+			    ( null_or::map convert_dictionary dictionary_opt,
+			      po,
+			      lt_subst lambda_type,
+			      map tc_subst typs
+			    )
+			    : acf::Baseop;
+
+			#
+			fun r expression
+			    = 
+			    case expression
+				#
+				acf::RET _ => expression;              #  no processing required 
+
+				acf::LET (lvs, e1, e2)      		#  recursion only 
+				    =>
+				    acf::LET (lvs, r e1, r e2);
+
+				acf::MUTUALLY_RECURSIVE_FNS (fundecs, e)        		#  recursion only 
+				    =>
+				    acf::MUTUALLY_RECURSIVE_FNS (map (convert_fundec dictionary depth) fundecs,
+					   r e);
+
+				acf::APPLY _
+				    =>
+				    expression;              	#  no processing required 
+
+				acf::TYPEFUN ((tfk, v, vars_and_kinds, e1), e2)
+				    => 
+				    acf::TYPEFUN ( (tfk, v, vars_and_kinds, convert_expression (extend_dictionary dictionary depth 0 vars_and_kinds) (di::next depth) e1),
+					           r e2
+                                                 );
+
+				acf::APPLY_TYPEFUN (v, ts)            		#  subst ts 
+				    =>
+				    acf::APPLY_TYPEFUN (v, map tc_subst ts);
+
+				acf::SWITCH (v, cs, conlexps, lexp_o)
+				    => 
+				    acf::SWITCH (v, cs,
+					      (map (fn (con, lambda_expression) = (convert_con con, r lambda_expression)) 
+						   conlexps),
+					      null_or::map r lexp_o);
+
+				acf::CONSTRUCTOR ((symbol, cr, lambda_type), ts, v, lv, e)
+				    => 
+				    acf::CONSTRUCTOR ((symbol, cr, lt_subst lambda_type),
+					   map tc_subst ts,
+					   v, lv, r e);
+
+				acf::RECORD (rk, vs, lv, e)
+				    => 
+				    acf::RECORD
+				      ( case rk    
+					    acf::RK_VECTOR t => 
+					    acf::RK_VECTOR (tc_subst t);
+					   _ => rk;
+					esac,
+					vs, lv, r e
+				      );
+
+				acf::SELECT (v, i, lv, e)
+				    =>
+				    acf::SELECT (v, i, lv, r e);
+
+				acf::RAISE (v, ltys)
+				    => 
+				    acf::RAISE (v, map lt_subst ltys);
+
+				acf::EXCEPT (e, v)
+				    => 
+				    acf::EXCEPT (r e, v);
+
+				acf::BRANCH (po, vs, e1, e2)
+				    =>
+				    acf::BRANCH (convert_baseop po, 
+					      vs, r e1, r e2);
+
+				acf::BASEOP (po, vs, lv, e)
+				    => 
+				    acf::BASEOP (convert_baseop po,
+					      vs, lv, r e);
+			    esac;
+
+			r;
+		    }                    # fun convert_expression
+
+		also
+		fun convert_fundec
+		       (dictionary:		hut::Uniqtyp_Dictionary)
+		       (depth:			di::Debruijn_Depth)
+                       (fkind, lambda_variable, lvlts, e)
+                    :   acf::Function
+		    =
+		    ( convert_fkind  fkind, 
+		      lambda_variable,
+		      map convert_lv_lt lvlts,
+		      convert_expression dictionary  depth  e
+		    )
+		    where
+		        fun tc_subst (uniqtyp: hut::Uniqtyp)
+			    =
+			    hut::make_type_closure_uniqtyp (uniqtyp, depth, depth, dictionary);
+
+			#
+			fun lt_subst (uniqtype: hut::Uniqtype)
+			    =
+			    hut::make_type_closure_uniqtype (uniqtype, depth, depth, dictionary);
+
+			#
+			fun convert_fkind
+			    { loop_info => THE (ltys, lk),
+			      call_as,
+			      all_callers_known,
+			      inlining_hint
+			    }
+				=>
+				{ loop_info => THE (map lt_subst ltys, lk),
+				  call_as,
+				  all_callers_known,
+				  inlining_hint
+				};
+
+			    convert_fkind fk
+				=>
+				fk;
+			end;
+
+			#
+			fun convert_lv_lt (lambda_variable, lambda_type)
+			    =
+			    (lambda_variable, lt_subst lambda_type);
+		    end;					# fun convert_fundec 
+	    end;
+
+
+
+	fun convert_named_typevars_to_debruijn_typevars_in_anormcode_thunk ()			# Evaluating thunk sets up a fresh (empty) dictionary.
+	    #
+	    # Removes all named variables (hut::typ::NAMED_TYPEVAR) from an anormcode function,
+	    # replacing them with deBruijn-indexed variables.
+	    #
+	    # We assume that named variables are only bound by the
+	    # *term* language (acf::TYPEFUN --capital lambda), and not by the
+	    # *type* language (hut::type::TYPEAGNOSTIC (forall) or hut::typ::TYPEFN (lowercase lambda)).
+	    #
+	    =
+	    convert_fundec  int_red_black_map::empty  di::top
+	    where
+		fun extend_dictionary dictionary d i []
+			=>
+			dictionary;
+
+		    extend_dictionary dictionary d i ((typevar: hcv::Variable, _: hut::Uniqkind) ! vars_and_kinds)
+			=>
+			extend_dictionary (int_red_black_map::set (dictionary, typevar, (d, i)))
+				  d (i+1) vars_and_kinds;
+		end;
+
+		#
+		fun query_dictionary dictionary (typevar, current_depth)
+		    = 
+		    case (int_red_black_map::get (dictionary, typevar))
+			#
+			THE (definition_depth, i)
+			    =>
+			    THE (hcf::make_debruijn_typevar_uniqtyp (di::subtract (current_depth, definition_depth), i));
+
+			NULL =>   NULL;
+		    esac;
+
+
+		tc_named_typevar_elimination =  hcf::tc_named_typevar_elimination_thunk ();				# Evaluating the thunk allocates a new dictionary.
+		lt_named_typevar_elimination =  hcf::lt_named_typevar_elimination_thunk ();				# Evaluating the thunk allocates a new dictionary.
+
+		#
+		fun convert_expression
+                        dictionary
+                       (depth:		di::Debruijn_Depth)
+		    =
+		    r
+		    where
+
+			# Make a new subst dictionary on each invocation.
+			# Clean this up later.	XXX BUGGO FIXME
+			stipulate
+			    query_dict =  query_dictionary  dictionary;
+			herein
+			    tc_subst =  tc_named_typevar_elimination  query_dict  depth;
+			    lt_subst =  lt_named_typevar_elimination  query_dict  depth;
+			end;
+
+			#
+			fun convert_con (acf::VAL_CASETAG ((symbol, cr,          lambda_type),              ts, lv))
+				=>       acf::VAL_CASETAG ((symbol, cr, lt_subst lambda_type), map tc_subst ts, lv);
+
+			    convert_con c
+				=>
+				c;
+			end;
+
+			#
+			fun convert_dictionary { default, table }   :   acf::Dictionary
+			    =
+			    { default,
+			      table => map f table
+			    }
+			    where
+			        fun f (ts, lv)
+				    =
+				    ((map tc_subst ts), lv);
+			    end;
+
+			#
+			fun convert_baseop (dictionary_opt, po, lambda_type, typs)
+			    =
+			    ( null_or::map convert_dictionary dictionary_opt,
+			      po,
+			      lt_subst lambda_type,
+			      map tc_subst typs
+			    )
+			    : acf::Baseop;
+
+			#
+			fun r expression                 #  Default recursive invocation 
+			    =
+			    case expression
+				#                          
+				acf::RET _
+				    =>
+				    expression;              #  no processing required 
+
+				acf::LET (lvs, e1, e2)       #  recursion only 
+				     =>
+				     acf::LET (lvs, r e1, r e2);
+
+				acf::MUTUALLY_RECURSIVE_FNS (fundecs, e)        #  recursion only 
+				     =>
+				     acf::MUTUALLY_RECURSIVE_FNS
+				       ( map (convert_fundec dictionary depth) fundecs,
+					 r e
+				       );
+
+				acf::APPLY _
+				    =>
+				    expression;              #  no processing required 
+
+				acf::TYPEFUN ((tfk, v, vars_and_kinds, e1), e2)
+				    => 
+				    acf::TYPEFUN ((tfk, v, vars_and_kinds, 
+					    convert_expression (extend_dictionary dictionary depth 0 vars_and_kinds) (di::next depth) e1),
+					   r e2);
+
+				acf::APPLY_TYPEFUN (v, ts)           #  subst ts
+				    => 
+				    acf::APPLY_TYPEFUN (v, map tc_subst ts);
+
+				acf::SWITCH (v, cs, conlexps, lexp_o)
+				    => 
+				    acf::SWITCH
+				      ( v,
+					cs,
+					map (fn (con, lambda_expression) =  (convert_con con, r lambda_expression)) 
+					    conlexps,
+					null_or::map r lexp_o
+				      );
+
+				acf::CONSTRUCTOR ((symbol, cr, lambda_type), ts, v, lv, e)
+				    => 
+				    acf::CONSTRUCTOR ((symbol, cr, lt_subst lambda_type),
+					   map tc_subst ts,
+					   v, lv, r e);
+
+				acf::RECORD (rk, vs, lv, e)
+				    => 
+				    acf::RECORD
+				      ( case rk    
+					    acf::RK_VECTOR t => acf::RK_VECTOR (tc_subst t);
+					    _ => rk;
+					esac,
+					vs,
+					lv,
+					r e
+				      );
+
+				acf::SELECT (v, i, lv, e)
+				    =>
+				    acf::SELECT (v, i, lv, r e);
+
+				acf::RAISE (v, ltys)
+				    => 
+				    acf::RAISE (v, map lt_subst ltys);
+
+				acf::EXCEPT (e, v)
+				    => 
+				    acf::EXCEPT (r e, v);
+
+				acf::BRANCH (po, vs, e1, e2)
+				    =>
+				    acf::BRANCH (convert_baseop po, 
+					      vs, r e1, r e2);
+
+				acf::BASEOP (po, vs, lv, e)
+				    => 
+				    acf::BASEOP (convert_baseop po,
+					      vs, lv, r e);
+			esac;		# fun r
+
+		    end			# where (fun convert_expression)
+
+		also
+		fun convert_fundec dictionary d (fkind, lambda_variable, lvlts, e)
+		    =
+		    {   q = query_dictionary dictionary;
+
+			# Make a new substitution dictionary on each invocation.
+			# We'll clean this up later.  XXX BUGGO FXIME
+
+			tc_subst =  tc_named_typevar_elimination  q  d;
+			lt_subst =  lt_named_typevar_elimination  q  d;
+
+			#
+			fun convert_fkind
+				{ loop_info => THE (ltys, lk),
+				  call_as,
+				  all_callers_known,
+				  inlining_hint
+				}
+				    =>
+				    {  loop_info => THE (map lt_subst ltys, lk),
+				       call_as,
+				       all_callers_known,
+				       inlining_hint
+				    };
+
+			    convert_fkind fk
+				=>
+				fk;
+			end;
+
+			#
+			fun convert_lv_lt (lambda_variable, lambda_type)
+			    =
+			    (lambda_variable, lt_subst lambda_type);
+
+			( convert_fkind fkind, 
+			  lambda_variable,
+			  map convert_lv_lt lvlts,
+			  convert_expression dictionary d e
+			)
+			: acf::Function;
+
+		    };	# fun convert_fundec
+
+	    end;								# fun convert_named_typevars_to_debruijn_typevars_in_anormcode_thunk
+
+
+	# Use fresh tables for each invocation -- that is,
+	# for each compilation unit.
+	#
+	fun convert_named_typevars_to_debruijn_typevars_in_anormcode  anormcode_function
+	    =
+	    convert_named_typevars_to_debruijn_typevars_in_anormcode_thunk  ()  anormcode_function;				# Evaluating the thunk allocates a new dictionary.
+
+    };					#  anormcode_namedtypevar_vs_debruijntypevar_forms 
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

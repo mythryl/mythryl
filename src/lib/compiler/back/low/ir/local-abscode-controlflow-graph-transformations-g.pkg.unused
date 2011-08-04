@@ -1,0 +1,353 @@
+## local-machcode-controlflow-graph-transformations-g.pkg
+/*
+ * Some basic local machcode_controlflow_graph transformations.  See the api for descriptions.
+ *
+ * -- Allen Leung
+ */
+generic package local_machcode_controlflow_graph_transformations_g
+     (package machcode_controlflow_graph:        Machcode_Controlflow_Graph
+      package machcode_universals:  Machcode_Universals
+         sharing machcode_controlflow_graph::I = machcode_universals::I
+     ) : Local_Machcode_Controlflow_Graph_Transformations
+{
+
+   package machcode_controlflow_graph = machcode_controlflow_graph
+   package i   = machcode_controlflow_graph::I
+   package w   = machcode_controlflow_graph::W
+   package g   = graph
+   package h   = sparse_rw_vector
+   package s   = bit_set
+
+   exception CANNOT_MERGE
+
+   fun error msg = lowhalf_error_message::error("local_machcode_controlflow_graph_transformations_g", msg)
+
+   fun labelOf (g::GRAPH mcg) node
+       =
+       machcode_controlflow_graph::define_local_label (mcg.node_info node)
+
+   fun copyEdge (machcode_controlflow_graph::EDGE { a, w, k } )
+       =
+       machcode_controlflow_graph::EDGE { a=REF *a, w=REF *w, k=k }
+
+   /*=====================================================================
+    *
+    *  Check whether block i must precede block j in any linear layout.
+    *  This may be true if i falls through to j (transitively)
+    *
+    *=====================================================================*/
+   fun mustPrecede (g::GRAPH mcg) (i, j) =
+   let visited = h::rw_vector (23, FALSE)
+       fun chase [] = FALSE
+         | chase((u, v, machcode_controlflow_graph::EDGE { k=(machcode_controlflow_graph::FALLSTHRU|machcode_controlflow_graph::BRANCH FALSE), ... } ) . _) =
+           if h::sub (visited, u) then FALSE
+           else u = i or (h::update (visited, u, TRUE); chase (mcg.in_edges u))
+         | chase(_ . es) = chase es
+   in  i = j or chase (mcg.in_edges j)
+   end
+
+   /*=====================================================================
+    *
+    *  Predicates on nodes and edges
+    *
+    *=====================================================================*/
+   fun isMerge (g::GRAPH mcg) node = length (mcg.in_edges node) > 1
+   fun isSplit (g::GRAPH mcg) node = length (mcg.out_edges node) > 1
+/*
+   fun hasSideExits (g::GRAPH mcg) node = 
+         list::exists (fn (_, _, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::SIDEEXIT _, ... } ) => TRUE 
+                       | _ => FALSE) (mcg.out_edges node)
+*/
+   fun hasSideExits _ _ = FALSE
+   fun isCriticalEdge CFG (_, _, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::ENTRY, ... } ) = FALSE
+     | isCriticalEdge CFG (_, _, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::EXIT, ... } ) = FALSE
+     | isCriticalEdge CFG (i, j, _) = isSplit CFG i and isMerge CFG j
+
+   /*=====================================================================
+    *
+    *  Update the label of the branch instruction in a certain block
+    *  to be consistent with the control flow edges.  This doesn't work
+    *  on hyperblocks!!
+    *
+    *=====================================================================*/
+   fun updateJumpLabel (CFG as g::GRAPH mcg) =
+   let labelOf = labelOf CFG
+       fun update node =
+       case mcg.node_info node of
+          machcode_controlflow_graph::BLOCK { instructions=REF [], ... } => ()
+       |  machcode_controlflow_graph::BLOCK { kind=machcode_controlflow_graph::START, ... } => ()
+       |  machcode_controlflow_graph::BLOCK { kind=machcode_controlflow_graph::STOP, ... } => ()
+       |  machcode_controlflow_graph::BLOCK { instructions=instructions as REF (jmp . rest), ... } => 
+             (case mcg.out_edges node of
+                [] => ()
+             |  [(_, _, machcode_controlflow_graph::EDGE { k=(machcode_controlflow_graph::ENTRY | machcode_controlflow_graph::EXIT), ... } )] => ()
+             |  [(i, j, _)] =>
+                  if machcode_universals::instrKind jmp == machcode_universals::IK_JUMP then
+                       instructions := machcode_universals::setTargets (jmp,[labelOf j]) . rest
+                  else ()
+             |  [(_, i, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::BRANCH x, ... } ),
+                 (_, j, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::BRANCH y, ... } )] =>
+                  let my (i, j) = if x then (j, i) else (i, j)
+                  in  instructions := 
+                        machcode_universals::setTargets (jmp,[labelOf i, labelOf j]) . rest
+                  end
+             |  es =>
+                  let fun gt ((_, _, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::SWITCH i, ... } ),
+                              (_, _, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::SWITCH j, ... } )) = i > j
+                        | gt _ = error "gt"
+                      es = list_mergesort::sort gt es
+                      labels = map (fn (_, j, _) => labelOf j) es
+                  in  instructions := machcode_universals::setTargets (jmp, labels) . rest;
+                      error "updateJumpLabel"
+                  end
+             )
+   in  update
+   end
+
+   /*=====================================================================
+    *
+    *  Merge a control flow edge i -> j.
+    *  Raise Can't Merge if it is illegal.
+    *  After merging blocks i and j will become block i.
+    *
+    *=====================================================================*/
+   fun mergeEdge (CFG as g::GRAPH mcg) (i, j, e as machcode_controlflow_graph::EDGE { w, k, ... } ) = 
+   let case k of
+                  (machcode_controlflow_graph::ENTRY | machcode_controlflow_graph::EXIT) => raise exception CANNOT_MERGE
+               |  _ => () 
+       case (mcg.out_edges i, mcg.in_edges j) of
+                  ([(_, j', _)],[(i', _, _)]) => 
+                     if j' != j or i' != i then raise exception CANNOT_MERGE
+                     else ()
+               |  _ => raise exception CANNOT_MERGE  
+       if mustPreceed CFG (i, j) then raise exception CANNOT_MERGE else ()
+       my machcode_controlflow_graph::BLOCK { data=d2, instructions=i2, annotations=a2, ... } = 
+              mcg.node_info j
+       case *d2 of [] => () | _ => raise exception CANNOT_MERGE
+       my machcode_controlflow_graph::BLOCK { data=d1, instructions=i1, annotations=a1, ... } = 
+              mcg.node_info i
+          /* If both blocks have annotations then don't merge them.
+           * But instead, just try to removed the jump instruction instead.
+           */
+       canMerge = case (*a1, *a2) of
+                 (_ . _, _ . _) => FALSE
+               | _ => TRUE
+       instructions1 = case *i1 of
+                      [] => []
+                    | instructions as jmp . rest => 
+                        if machcode_universals::instrKind jmp == machcode_universals::IK_JUMP 
+                        then rest else instructions
+   in  if canMerge then
+        (i1 := *i2 @ instructions1;
+         a1 := *a1 @ *a2;
+         mcg.set_out_edges 
+           (i, map (fn (_, j', e) => (i, j', e)) (mcg.out_edges j));
+         mcg.remove_node j;
+         updateJumpLabel CFG i
+        )
+       else #  Just eliminate the jump instruction at the end 
+         (i1 := instructions1;
+          mcg.set_out_edges 
+            (i, map (fn (i, j, machcode_controlflow_graph::EDGE { w, a, ... } ) => 
+                  (i, j, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::FALLSTHRU, w=w, a=a } ))
+                     (mcg.out_edges i))
+         );
+       TRUE
+   end except CANNOT_MERGE => FALSE
+
+   /*=====================================================================
+    *
+    *  Eliminate the jump at the end of a basic block if feasible
+    *
+    *=====================================================================*/
+   fun eliminateJump (CFG as g::GRAPH mcg) i = 
+       (case mcg.out_edges i of
+          [e as (i, j, machcode_controlflow_graph::EDGE { k, w, a } )] =>
+            (case machcode_controlflow_graph::fallsThruFrom (CFG, j) of
+                THE _ => FALSE
+             |  NULL => 
+                if mustPreceed CFG (j, i) then FALSE
+                else 
+                let my machcode_controlflow_graph::BLOCK { instructions, ... } = mcg.node_info i
+                    my machcode_controlflow_graph::BLOCK { data, ... }  = mcg.node_info j
+                in  case (*data,*instructions) of 
+                      ([], jmp . rest) =>
+                       if machcode_universals::instrKind jmp == machcode_universals::IK_JUMP then
+                        (instructions := rest;
+                         machcode_controlflow_graph::removeEdge CFG e;
+                         mcg.add_edge (i, j, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::FALLSTHRU, w=w, a=a } );
+                         TRUE
+                        )
+                       else FALSE
+                    |  _ => FALSE
+                end
+            )
+       |  _ => FALSE
+       )
+    
+   /*=====================================================================
+    *
+    *  Insert a jump at the end of a basic block if feasible
+    *
+    *=====================================================================*/
+   fun insertJump (CFG as g::GRAPH mcg) i =   
+       (case mcg.out_edges i of
+           [e as (i, j, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::FALLSTHRU, w, a, ... } )] =>
+              let my machcode_controlflow_graph::BLOCK { instructions, ... } = mcg.node_info i
+              in  instructions := machcode_universals::jump (labelOf CFG j) . *instructions;
+                  machcode_controlflow_graph::removeEdge CFG e;
+                  mcg.add_edge (i, j, machcode_controlflow_graph::EDGE { k=machcode_controlflow_graph::JUMP, w=w, a=a } );
+                  TRUE
+              end
+        |  _ => FALSE
+       )
+
+   /*=====================================================================
+    *
+    *  Split a control flow edge, return a new edge and the new block 
+    *
+    *=====================================================================*/
+   fun splitEdge (CFG as g::GRAPH mcg) 
+                 { kind, edge=(i, j, e as machcode_controlflow_graph::EDGE { w, ... } ), jump } = 
+   let k = mcg.new_id ()
+       jump = jump or i = j or
+              (case machcode_controlflow_graph::fallsThruFrom (CFG, j) of 
+                NULL => FALSE
+              | THE _ => TRUE)
+       instructions = REF (if jump then [machcode_universals::jump (labelOf CFG j)] else [])
+       node = 
+           machcode_controlflow_graph::BLOCK { id=k, kind=kind, 
+                     freq= REF *w, data=REF [], labels = REF [],
+                     instructions=instructions, annotations=REF [] }
+       kind = if jump then machcode_controlflow_graph::JUMP else machcode_controlflow_graph::FALLSTHRU
+       edge = (k, j, machcode_controlflow_graph::EDGE { w=REF *w, a=REF [], k=kind } )
+   in  machcode_controlflow_graph::removeEdge CFG (i, j, e);
+       mcg.add_edge (i, k, e);
+       mcg.add_node (k, node);
+       mcg.add_edge edge;
+       updateJumpLabel CFG i;
+       { node=(k, node), edge=edge }
+   end 
+
+   /*=====================================================================
+    *
+    *  Split all critical edges in the CFG
+    *
+    *=====================================================================*/
+   fun splitAllCriticalEdges (CFG as g::GRAPH mcg) =
+   let changed = REF FALSE
+   in  mcg.forall_edges 
+         (fn e => if isCriticalEdge CFG e then
+           (splitEdge CFG { edge=e, kind=machcode_controlflow_graph::NORMAL, jump=FALSE }; changed := TRUE)
+            else ());
+       if *changed then machcode_controlflow_graph::changed CFG else ()
+   end 
+
+   /*=====================================================================
+    *
+    *  Tail duplicate a region until there are no side entry edges
+    *  entering into the region.  Return the set of new edges and nodes
+    *
+    *=====================================================================*/
+   fun tailDuplicate (CFG as g::GRAPH mcg:  machcode_controlflow_graph::mcg) 
+                     { subgraph=g::GRAPH subgraph:  machcode_controlflow_graph::mcg, root } =
+   let exception NOT_FOUND
+       blockMap = h::rw_vector'(10, fn v => raise exception NOT_FOUND)
+       print("[root "$int::to_string root$"]\n")
+
+       fun duplicate v =
+           h::sub (blockMap, v) except NOT_FOUND =>
+           let w  = mcg.new_id ()
+               w' = machcode_controlflow_graph::copyBlock (w, mcg.node_info v)
+           in  mcg.add_node (w, w');
+               h::update (blockMap, v, (w, w'));
+               apply mcg.add_edge
+                   (map (fn (i, j, e) => (w, j, copyEdge e)) (mcg.out_edges v));
+               updateJumpLabel CFG w;
+               (w, w')
+           end
+
+       fun process ((n, _) . rest, ns, Ns, Es) =
+            process (rest, collect (subgraph.entry_edges n, ns), Ns, Es)
+         | process([], ns, Ns, Es) = dupl (ns, Ns, Es, FALSE)
+
+       and collect([], ns) = ns
+         | collect((i, _, _) . es, ns) = collect (es, if i == root then ns else i . ns)
+
+       and dupl([], Ns, Es, changed) = (Ns, Es, changed)
+         | dupl (n . ns, Ns, Es, changed) =
+              redirect (mcg.out_edges n, ns, Ns, Es, changed)   
+
+       and redirect([], ns, Ns, Es, changed) = dupl (ns, Ns, Es, changed)
+         | redirect((u, v, e) . es, ns, Ns, Es, changed) =
+            if v != root and
+               mcg.has_edge (u, v) and
+               subgraph.has_node v and 
+               not (subgraph.has_edge (u, v)) then
+               /* 
+                * u -> v is a side entry edge, duplicate v
+                */
+            let print("[tail duplicating "$int::to_string u$" -> " $
+                              int::to_string v$"]\n")
+                my (w, w') = duplicate v
+            in  machcode_controlflow_graph::removeEdge CFG (u, v, e);
+                mcg.add_edge (u, w, e);
+                updateJumpLabel CFG u;
+                redirect (es, w . ns, (w, w') . Ns, (u, w, e) . Es, TRUE)
+            end
+            else redirect (es, ns, Ns, Es, changed)
+
+       fun iter (Ns, Es) = 
+           let my (Ns, Es, changed) = process (subgraph.nodes (),[], Ns, Es)
+           in  if changed then (machcode_controlflow_graph::changed CFG; iter (Ns, Es))
+               else { nodes=Ns, edges=Es }
+           end
+
+   in  iter([],[]) 
+   end
+
+
+   /*=====================================================================
+    *
+    *  Remove unreachable code in the CFG
+    *
+    *=====================================================================*/
+   fun removeUnreachableCode (CFG as g::GRAPH mcg) =
+   let N = mcg.capacity ()
+       visited = s::create N 
+       fun mark n = if s::markAndTest (visited, n) then ()
+                    else apply mark (mcg.next n)
+       changed = REF FALSE
+       fun remove (b, machcode_controlflow_graph::BLOCK { data, instructions, ... } ) =
+           if s::contains (visited, b) then ()
+           else
+           (changed :=TRUE;
+            case mcg.in_edges b of
+              [] => mcg.remove_node b
+            |  _  => (instructions := []; mcg.set_out_edges (b,[]))
+           )
+   in  apply mark (mcg.entries ());
+       mcg.forall_nodes remove;
+       if *changed then machcode_controlflow_graph::changed CFG else ()
+   end
+
+
+   /*=====================================================================
+    *
+    *  Merge all edges in the CFG.
+    *  Merge higher frequency edges first
+    *
+    *=====================================================================*/
+   fun mergeAllEdges (CFG as g::GRAPH mcg) =
+   let mergeEdge = mergeEdge CFG
+       fun higherFreq((_, _, machcode_controlflow_graph::EDGE { w=x, ... } ), (_, _, machcode_controlflow_graph::EDGE { w=y, ... } ))= *x < *y
+       fun mergeAll([], changed) = changed
+         | mergeAll (e . es, changed) = mergeAll (es, mergeEdge e or changed) 
+       /* note: sort expects the gt operator and sorts in ascending order */ 
+       changed = mergeAll (list_mergesort::sort higherFreq (mcg.edges ()),
+                              FALSE)
+   in  if changed then machcode_controlflow_graph::changed CFG else ()
+   end
+
+}
+

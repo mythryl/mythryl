@@ -1,0 +1,202 @@
+## default-block-placement-g.pkg
+#
+# See background comments in
+#
+#     src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list.api
+#
+#
+# See also:
+#
+#     src/lib/compiler/back/low/block-placement/weighted-block-placement-g.pkg
+#
+# Place blocks in an order that respects the FALLSTHRU and (BRANCH FALSE)
+# edges and is otherwise the order of block generation.
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+stipulate
+    package lem =  lowhalf_error_message;					# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhc =  lowhalf_control;						# lowhalf_control			is from   src/lib/compiler/back/low/control/lowhalf-control.pkg
+    package odg =  oop_digraph;							# oop_digraph				is from   src/lib/graph/oop-digraph.pkg
+    package rwv =  rw_vector;							# rw_vector				is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list-g.pkg
+    #
+    generic package   default_block_placement_g   (
+	#             =========================
+	#
+	mcg:  Machcode_Controlflow_Graph						# Machcode_Controlflow_Graph		is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+    )
+    : (weak) Make_Final_Basic_Block_Order_List					# Make_Final_Basic_Block_Order_List	is from   src/lib/compiler/back/low/block-placement/make-final-basic-block-order-list.api
+    {
+	# Export to client packages:
+	#
+	package mcg = mcg;
+
+	stipulate
+	    # Flags:
+	    #
+	    dump_machcode_controlflow_graph_block_list
+		=
+		lhc::make_bool
+		  ( "dump_machcode_controlflow_graph_block_list",
+		    "whether block list is shown"
+		  );
+
+	    dump_machcode_controlflow_graph_after_block_placement
+		=
+		lhc::make_bool
+		  ( "dump_machcode_controlflow_graph_after_block_placement",
+		    "whether machcode_controlflow_graph is shown after block placement"
+		  );
+
+	    dump_strm = lhc::debug_stream;
+
+	    fun block_to_string (id', mcg::BBLOCK { id, ... } )
+		=
+		cat ["<", int::to_string id', ":", int::to_string id, ">"];
+
+	    fun error msg
+		=
+		lem::error ("default_block_placement", msg);
+	herein
+
+	    fun make_final_basic_block_order_list								# This is our external entrypoint.
+		    #
+		    (mcg as odg::DIGRAPH graph)
+		=
+		{   placed = rw_vector::make_rw_vector (graph.capacity (), FALSE);
+
+		    fun is_marked id =  rw_vector::get (placed, id      );
+		    fun mark id      =  rw_vector::set (placed, id, TRUE);
+
+		    fun assert_not_marked id
+			=
+			if (is_marked id)	error "conflicting placement constraints";		fi;
+
+		    # Special-case the entry and exit blocks 
+
+		    fun getablek id
+			=
+			(id, graph.node_info id);
+
+		    entry_node =  mcg::entry_node_of_graph mcg;
+		    exit_node  =  mcg::exit_node_of_graph  mcg;
+
+		    mark (#1 exit_node);				# We place exit at the end.
+
+
+		    # Return TRUE if the edge must connect adjacent nodes: 
+		    #
+		    fun adjacent_edge (_, _, mcg::EDGE_INFO { kind => mcg::FALLSTHRU,    ... } ) =>  TRUE;
+			adjacent_edge (_, _, mcg::EDGE_INFO { kind => mcg::BRANCH FALSE, ... } ) =>  TRUE;
+			adjacent_edge _                                                          =>  FALSE;
+		    end;
+
+		    find_adjacent_edge = list::find adjacent_edge;
+
+
+		    # Place nodes by assuming that the
+		    # initial order is close to correct:
+		    #
+		    fun place_nodes ([], l)
+			    =>
+			    list::reverse (exit_node ! l);
+
+			place_nodes ((nd1 as (id1, b1)) ! r1, l)
+			    =>
+			    if (is_marked id1)
+				#		        
+				place_nodes (r1, l);
+			    else 
+				case r1
+				    #
+				    []  =>
+					list::reverse (exit_node ! nd1 ! l);
+
+				    (nd2 as (id2, b2)) ! r2
+					=>
+					if (is_marked  id2)
+					    #
+					    place_nodes (nd1 ! r2, l);
+					else
+					    # Here we know that both nd1 and nd2 have not been
+					    # placed.  We need to check for placement constraints
+					    # in nd1's out edges and nd2's in edges.
+
+					    mark id1;
+
+					    case (find_adjacent_edge (graph.out_edges id1))
+						#
+						NULL =>
+						    place_nodes (push_pred_chain (nd2, r2), nd1 ! l)
+						    where
+							fun push_pred_chain (nd as (id, _), r)
+							    =
+							    case (find_adjacent_edge (graph.in_edges id))
+								#
+								NULL =>   nd ! r;
+
+								THE (src, _, _)
+								    =>
+								    {   assert_not_marked  src;
+									push_pred_chain (getablek src, nd ! r);
+								    };
+							    esac;
+						    end;
+
+						THE (_, dst, _)
+						    =>
+						    if (dst == id2)
+							#
+							place_nodes (r1, nd1 ! l);
+						    else
+							assert_not_marked dst;
+							place_nodes (getablek dst ! r1, nd1 ! l);
+						    fi;
+					    esac;
+				       fi;
+				esac;
+			    fi;
+		    end;		# fun place_nodes
+
+		    nodes =   place_nodes (entry_node ! graph.nodes (), []);
+
+		    if *dump_machcode_controlflow_graph_block_list
+			#
+			fun say s
+			    =
+			    file::write (*dump_strm, s);
+
+			say "Block placement order:\n";
+
+			list::apply
+			    (fn b =  say (cat ["  ", block_to_string b, "\n"]))
+			    nodes;
+		    fi;
+
+		    if *dump_machcode_controlflow_graph_after_block_placement
+			#
+			pr_node =   mcg::dump_node (*dump_strm, mcg);
+
+			file::write (*dump_strm, "[ after block placement ]\n");
+
+			list::apply   pr_node   nodes;
+		    fi;
+
+		    (mcg, nodes);
+		};			# fun block_placement
+	end;
+    };					# generic package  default_block_placement_g
+end;
+
+## COPYRIGHT (c) 2001 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

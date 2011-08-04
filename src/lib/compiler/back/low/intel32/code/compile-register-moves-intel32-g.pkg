@@ -1,0 +1,209 @@
+## compile-register-moves-intel32-g.pkg
+#
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+
+
+#               "I think we need someone in a
+#                responsible political position
+#                to have the courage to say,
+#                'Let's terminate human spaceflight.'"
+#
+#                              --James Van Allen 
+
+
+# Our generic is compiletime-invoked from:
+#
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+
+stipulate
+    package rkj =  registerkinds_junk;							# registerkinds_junk			is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   compile_register_moves_intel32_g   (
+	#             ================================
+	#
+	mcf:  Machcode_Intel32								# Machcode_Intel32			is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+    )
+    : (weak) Compile_Register_Moves_Intel32						# Compile_Register_Moves_Intel32	is from   src/lib/compiler/back/low/intel32/code/compile-register-moves-intel32.api
+    {
+	# Export to client packages:
+	#
+	package mcf = mcf;
+
+	stipulate
+	    package crm
+		=
+		compile_register_moves_g (						# compile_register_moves_g		is from   src/lib/compiler/back/low/code/compile-register-moves-g.pkg
+		    #
+		    mcf									# "mcf" == "machcode_form" (abstract machine code).
+		);
+	herein
+
+	    Parallel_Register_Moves
+	      =
+	      { tmp:  Null_Or( mcf::Operand ),						# Temporary register if needed.
+		dst:  List( rkj::Codetemp_Info ),					# Move values in these registers...
+		src:  List( rkj::Codetemp_Info )					# ... into these registers. Lists must be same length.
+	      };
+
+	    exception FOO;
+
+	    compile_int_register_moves
+		=
+		crm::compile_int_register_moves
+		  {
+		    mv_instr =>   fn { dst, src } = [mcf::move { mv_op=>mcf::MOVL, src, dst } ],
+		    ea       =>   mcf::DIRECT
+		  };
+
+	    # These assume that the ''registers''
+	    # are mapped onto the memory.
+
+	    # Note, this only works with
+	    # double precision floating point:
+	    #
+	    shufflefp_normal_and_slow
+		= 
+		crm::compile_int_register_moves
+		  {
+		    mv_instr =>   fn { dst, src } = [mcf::fldl src, mcf::fstpl dst],
+		    ea       =>   mcf::FDIRECT
+		  };
+
+	    # This version makes use of the intel32
+	    # floating point stack for hardware
+	    # renaming:
+	    #
+	    fun shufflefp_normal { tmp, src, dst }
+		=
+		{   n =  length src;
+
+		    if (n <= 7)
+			#	        
+			fun gen (s ! ss, d ! ds, pushes, pops)
+				=> 
+				if (rkj::codetemps_are_same_color (s, d))
+				     #			     
+				    gen (ss, ds, pushes, pops);
+				else 
+				    gen (ss, ds, 
+					mcf::fldl  (mcf::FDIRECT s) ! pushes,
+					mcf::fstpl (mcf::FDIRECT d) ! pops
+				    );
+				fi;
+
+			    gen (_, _, pushes, pops)
+				=>
+				list::reverse_and_prepend (pushes, pops);
+			end;
+
+			gen (src, dst, [], []); 
+		    else
+			shufflefp_normal_and_slow { tmp, src, dst };
+		    fi;
+		};
+
+	    # These assume that the ''registers'' are mapped onto the pseudo 
+	    # %fpr register.  Only works with double precision floating point for 
+	    # now...
+	    #
+	    shufflefp_fast
+		= 
+		crm::compile_int_register_moves
+		  {
+		    mv_instr =>   fn { dst, src } = [mcf::fmove { fsize => mcf::FP64,   src, dst } ],
+		    ea       =>   mcf::FPR
+		  };
+
+	    fun compile_float_register_moves (x as { tmp=>THE (mcf::FPR _), ... } )
+		    =>
+		    shufflefp_fast x;
+
+		compile_float_register_moves x
+		    =>
+		    shufflefp_normal x;
+	    end;
+	end;
+    };
+end;
+
+# NOTE on xchg on the intel32
+#
+# From Allen Leung:
+# Here's why I didn't use xchg: 
+# 
+# o  According to the optimization guide xchg mem, reg is complex,
+#    cannot be pipelined or paired at all. xchg reg, reg requires 3 uops.
+#    In contrast, mov mem, reg requires 1 or 2 uops.  
+#    So xchgs loses out, at least on paper.  
+#    [I haven't done any measurements though] 
+# 
+# o  Secondly, unlike other architectures, parallel copies are split 
+#    into individual copies during instruction selection.  Here's why
+#    I did this:  I found that more copies are retained and more spills 
+#    are generated when keeping the parallel copies.   My guess on this is 
+#    that the copy temporary for parallel copies create addition 
+#    interferences [even when they are not needed.]  
+#    This is not a problem on RISC machines, because of plentiful registers.
+#   
+# o  Spilling of parallel copies is also a very complex business when
+#    memory coalescing is turned on.  I think I have implemented a solution
+#    to this, but not using parallel copies keep life simple.   This problem
+#    could be simpler with xchg...but I haven't thought about it much.
+# 
+# From Fermin Reig:
+# In the java@gcc.gnu.org, GC  mailing lists there's been a discussion about
+# the costs of xcgh. Here's some extracts of it:
+# 
+# ----------------
+# > From: Emery Berger [mailto: emery@cs.utexas.edu]
+# > 
+# > http://developer.intel.com/design/pentium4/manuals/24547203::pdf
+# > 
+# > See Chapter 7.1. "For the P6 family processors, locked 
+# > operations serialize
+# > all outstanding load and store operations (that is, wait for them to
+# > complete). This rule is also TRUE for the Pentium 4 
+# > processor, with one
+# > exception: load operations that reference weakly ordered 
+# > memory types (such
+# > as the WC memory type) may not be serialized. "
+# > 
+# -----------------
+# I just tried this on a 500 MHz Pentium III.  I get about 23 cycles for
+#  
+# lock; cmpxchg
+#  
+# :
+# and about 19 or 20 cycles for xchg (which has an implicit lock prefix).
+#  
+# I got consistent results by timing a loop and by looking at an instruction
+# level profile.  Putting other stuff in the loop didn't seem to affect the
+# time taken by xchg much.  Here's the code in case someone else wants to try.
+# (This requires Linux/gcc)
+# -------------------
+# Chris Dodd pointed out on the GC mailing list that on recent Intel32 (x86)
+# processors:
+#  
+# - cmpxchg without a lock prefix is much faster (roughly 3x or close to 15
+# cycles by my measurements) than either xchg (implied lock prefix) or lock;
+# cmpxchg .
+#  
+# - cmpxchg without the lock prefix is atomic on uniprocessors, i.e. it's not
+# interruptable.
+#  
+# As far as I can tell, none of the GNU libraries currently take advantage of
+# this fact.  Should they?
+#  
+# This argues, for example, that I could get noticable additional speedup from
+# Java hash synchronization on Intel32 by overwriting a few strategic "lock"
+# prefixes with "nop"s when I notice that there's only one processor
+#
+#
+# From John Reppy:
+#
+# Disregard what I said.  The xchg instruction has an implicit lock prefix,
+# so it is not useful for normal programming tasks.

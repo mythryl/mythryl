@@ -1,0 +1,214 @@
+#
+# Partition the IR into regions according to partition criteria
+# and frequencies.  Then feed the regions into the instruction
+# scheduler.
+#
+# The partitional criteria can be:
+#   1. The maximum number of blocks
+#   2. The maximum number of instructions
+
+
+###              "The principal mark of genius is
+###               not perfection but originality,
+###               the opening of new frontiers."
+###
+###                        -- Arthur Koestler
+
+
+generic package RegionBuilder (IR:  LOWHALF_IR) : REGION_BUILDER =
+pkg
+   package ir   = IR
+   package machcode_controlflow_graph  = ir::machcode_controlflow_graph
+   package util = ir::Util
+   package g    = graph
+   package a    = rw_vector
+   package pq   = priority_queue
+   package da   = DynArray
+
+   fun error msg = lowhalf_error_message::error("RegionBuilder", msg)
+
+   view_IR = LowhalfControl::getFlag "view-IR"
+
+   i2s = int::to_string
+ 
+   fun regionBuilder { maxBlocks, maxInstrs, sideEntries, minFreqRatio,
+                      traceOnly, internalBackEdges, insertDummyBlocks
+                     }  (IR as g::GRAPH mcg) schedule =
+   let N = mcg.capacity ()
+       my g::GRAPH loop = ir::loop IR 
+
+       /* Note: tables must be dynamic because the mcg may be changed 
+        * while scheduling is being performed
+        */
+       processed = da::rw_vector (N, FALSE)
+       fun isProcessed i = da::sub (processed, i) 
+       fun markAsProcessed i = da::update (processed, i, TRUE)
+       blockIdTable = da::rw_vector (N, 0)
+
+       /* A queue of all the blocks ranked by priority 
+        * Give loop headers extra priority
+        */
+       fun freqOf (machcode_controlflow_graph::BLOCK { freq, ... } ) = *freq 
+       fun highestFreqFirst((i, i'), (j, j')) = 
+           let f_i = freqOf i'
+               f_j = freqOf j'
+           in  if f_i == f_j then loop.has_node i  
+               else f_i > f_j 
+           end
+       seeds = pq::from_list highestFreqFirst (mcg.nodes ())
+
+       #  Initialization 
+       fun initialization () =
+           (apply markAsProcessed (mcg.entries ());
+            apply markAsProcessed (mcg.exits ())
+           )
+
+       /* Locate an unprocessed seed block; raises exception if everything
+        * is done.
+        */
+       fun newSeed() =
+       let my (i, i') = pq::deleteMin seeds
+       in  if isProcessed i then newSeed() 
+           else if freqOf i' == 0 then raise exception pq::EMPTY_PRIORITY_QUEUE
+           else (i, i')
+       end
+
+       /* Grow a region according to the various parameters */ 
+       fun grow (seed as (s, s')) = 
+       let freq    = real (freqOf s')
+           minFreq = freq * minFreqRatio
+
+           #  Remove non candidates 
+           fun prune (j, j') = isProcessed j or real (freqOf j') < minFreq 
+
+           fun pruneEdge (w)
+               =
+               real *w  <  minFreq
+
+           fun followSucc([], blocks) = blocks
+             | followSucc((_, j, machcode_controlflow_graph::EDGE { w, ... } ) . es, blocks) =
+               let j' = mcg.node_info j
+               in  if pruneEdge w or prune (j, j') then followSucc (es, blocks)
+                   else followSucc (es, (j, j') . blocks)
+               end
+
+           fun followPred([], blocks) = blocks
+             | followPred((j, _, machcode_controlflow_graph::EDGE { w, ... } ) . es, blocks) =
+               let j' = mcg.node_info j
+               in  if pruneEdge w or prune (j, j') then followPred (es, blocks)
+                   else followPred (es, (j, j') . blocks)
+               end
+
+
+           queue   = pq::from_list highestFreqFirst [seed]
+           enqueue = pq::set queue
+
+           fun chooseBest [] = []
+             | chooseBest ((j, j') . rest) = 
+               let w = freqOf j'
+                   fun find ([], j, j', w) = [(j, j')]
+                     | find((k, k') . rest, j, j', w) = 
+                       let w' = freqOf k'
+                       in  if w' > w then find (rest, k, k', w') 
+                           else find (rest, j, j', w)
+                       end
+               in  find (rest, j, j', w) end
+
+           fun add ([], blocks, blockCount) = (blocks, blockCount)
+             | add((j, j') . rest, blocks, blockCount) = 
+               if isProcessed j then add (rest, blocks, blockCount) 
+               else (markAsProcessed j; 
+                     enqueue (j, j'); 
+                     add (rest, j . blocks, blockCount+1)
+                    )
+
+           #  Find the region using best first search 
+           fun collect (front, back, blockCount) =
+           if pq::is_empty queue or blockCount >= maxBlocks then 
+               front @ reverse back 
+           else
+           let my node as (j, j') = pq::deleteMin queue
+               succs  = followSucc (mcg.out_edges j, [])
+               succs  = if traceOnly then chooseBest succs else succs
+               my (back, blockCount) = add (succs, back, blockCount)
+               /* preds  = followPred (mcg.in_edges j, [])
+               preds  = if traceOnly then chooseBest preds else preds 
+               my (front, blockCount) = add (preds, front, blockCount) */
+           in  collect (front, back, blockCount)
+           end
+           
+           markAsProcessed s #  mark the seed block as processed 
+           blocks = collect([s], [], 1)
+           #  The blocks collected are not in linear order 
+       in  blocks
+       end
+
+       #  Create a new subgraph from the blocks 
+       fun makeSubgraph blocks =
+           if traceOnly then trace_view::trace_view blocks IR
+           else acyclic_subgraph_view::acyclic_view blocks IR
+
+       /* 
+        * Perform tail duplication if no side entries are allowed
+        * BUG: make sure liveness information is kept up-to-date! XXX
+        */
+       fun tailDuplication (root, subgraph) =
+       let my { nodes, edges } = Util::tailDuplicate IR 
+                                  { subgraph=subgraph, root=root }
+           ins = pq::set seeds
+           fun newNode (b, b') = (ins (b, b'); da::update (blockIdTable, b, 0))
+       in  /* add new nodes created as a consequence of tail duplication
+            * onto the queue so that they will be properly processed later.
+            */
+           apply newNode nodes
+       end
+
+
+       /* Create a new region */ 
+       fun createRegion() = 
+       let seed     = newSeed()
+           blocks   = grow seed 
+           subgraph = makeSubgraph blocks;
+       in  if sideEntries then () else tailDuplication (hd blocks, subgraph);
+           subgraph
+       end
+
+       #  Number of instructions 
+       fun numberOfInstructions (g::GRAPH mcg) =
+       let size = REF 0
+       in  mcg.forall_nodes (fn (_, machcode_controlflow_graph::BLOCK { instructions, ... } ) =>
+                  size := *size + length(*instructions));
+           *size 
+       end
+
+       fun sizeOf (g::GRAPH mcg) = mcg.order ()
+
+       /* Main loop */ 
+       fun main () =
+       let my region as g::GRAPH R = createRegion()
+           size = sizeOf region
+       in  if size <= 1 then ()
+           else
+             let numberOfInstructions = numberOfInstructions region
+             in  if numberOfInstructions <= 2 then ()
+                 else
+                   let 
+                       (print("REGION["$i2s (R.order ())$"] ");
+                        apply (fn (X, _) => print (i2s X$" ")) (R.nodes ());
+                        print "\n")
+
+                   in if *view_IR then ir::viewSubgraph IR region 
+                      schedule { ir=IR, region=region, 
+                               blockIdTable=da::baseArray blockIdTable,
+                               numberOfInstructions=numberOfInstructions };
+                      if *view_IR then ir::viewSubgraph IR region else ()
+                   end
+             end;
+           main()
+       end 
+ 
+   in  initialization();
+       main() except pq::EMPTY_PRIORITY_QUEUE => ()
+   end
+
+end

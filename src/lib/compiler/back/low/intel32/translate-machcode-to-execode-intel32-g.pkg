@@ -1,0 +1,897 @@
+# translate-machcode-to-execode-intel32-g.pkg
+#
+# Generate actual binary executable intel32 machine code
+# given abstract intel32 instructions per
+#
+#     src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+#
+# If the intel32 were like other architectures, 
+# the code synthesis logic in
+#
+#     src/lib/compiler/back/low/tools/arch/make-sourcecode-for-translate-machcode-to-execode-xxx-g-package.pkg
+#
+# would use the information in
+#
+#     src/lib/compiler/back/low/intel32/intel32.architecture-description
+#
+# to produce a file which would generate the binary executable code for us.
+# 
+# However the intel32 machine instruction coding is too complex
+# for our simple code-synthesis scheme, so this file contains
+# a handmade replacement.
+
+# Compiled by:
+#     src/lib/compiler/back/low/intel32/backend-intel32.lib
+
+
+
+# IMPORTANT NOTE: 
+#   Integer registers are numbered from 0 - 31 (0-7 are physical)
+#   Floating point registers are numbered from 32-63 (32-39 are physical)
+
+# Our generic's compiletime invocation is from:
+#
+#     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#
+# Our runtime invocations are from:
+#
+#     src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+#     src/lib/compiler/back/low/intel32/jmp/jump-size-ranges-intel32-g.pkg
+
+stipulate
+    package lem =  lowhalf_error_message;				# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;					# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package w   =  large_unt;						# large_unt					is from   src/lib/std/large-unt.pkg
+    package w32 =  unt32;						# unt32						is from   src/lib/std/unt32.pkg
+    package w8  =  unt8;						# unt8						is from   src/lib/std/unt8.pkg
+herein
+
+    generic package   translate_machcode_to_execode_intel32_g   (
+	#             ======================================
+	#
+									# machcode_intel32				is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	package mcf: Machcode_Intel32;					# Machcode_Intel32				is from   src/lib/compiler/back/low/intel32/code/machcode-intel32.codemade.api
+
+									# compile_register_moves_intel32		is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	package crm: Compile_Register_Moves_Intel32			# Compile_Register_Moves_Intel32		is from   src/lib/compiler/back/low/intel32/code/compile-register-moves-intel32.api
+		     where						# "crm" == "compile_register_moves".
+			 mcf== mcf;					# "mcf" == "machcode_form" (abstract machine code).
+
+									# treecode_eval_intel32				is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	package tce: Treecode_Eval					# Treecode_Eval					is from   src/lib/compiler/back/low/treecode/treecode-eval.api
+		     where						# "tce" == "treecode_eval".
+			 tcf == mcf::tcf;				# "tcf" == "treecode_form".
+
+									# memory_registers_intel32			is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	package mem: Machcode_Address_Of_Ramreg_Intel32			# Machcode_Address_Of_Ramreg_Intel32		is from   src/lib/compiler/back/low/intel32/code/machcode-address-of-ramreg-intel32.api
+		     where						# "mem" == "memory_registers".
+			 mcf== mcf;					# "mcf" == "machcode_form" (abstract machine code).
+
+									# translate_machcode_to_asmcode_intel32		is from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	package ae:  Instruction_Emitter				# Instruction_Emitter				is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+		     where						# "ae" == "asmcode_emitter".
+			 mcf == mcf;					# "mcf" == "machcode_form" (abstract machine code).
+
+	ramreg_base:  Null_Or(  rkj::Codetemp_Info );			# calls_basis					is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    )
+    : (weak)  Execode_Emitter						# Execode_Emitter				is from   src/lib/compiler/back/low/emit/execode-emitter.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;						# "mcf" == "machcode_form" (abstract machine code).
+
+	stipulate
+	    package lac =  mcf::lac;					# "lac" == "late_constant".
+	herein
+
+	    itow  = unt::from_int;
+	    wtoi  = unt::to_int;
+
+	    fun error msg
+		=
+		lem::impossible ("translate_machcode_to_execode_intel32_g." + msg);
+
+
+	    # Sanity check!
+
+	    eax = 0;   esp = 4;   
+	    ecx = 1;   ebp = 5;
+	    edx = 2;   esi = 6;   
+	    ebx = 3;   edi = 7;
+
+	    operand16prefix = 0x66;
+
+	    fun const lateconst
+		=
+		int32::from_int (lac::late_constant_to_int  lateconst);
+
+	    fun lambda_expression le
+		=
+		int32::from_int (tce::value_of le);
+
+	    to_unt8 = unt8::from_large_unt o large_unt::from_large_int o int32::to_large;
+	    e_bytes  = unt8_vector::from_list; 
+
+	    fun e_byte i
+		=
+		e_bytes [w8::from_int i];
+
+	    stipulate 
+
+		to_lunt = (w::from_large_int o int32::to_large); 
+
+		fun shift (w, count)
+		    =
+		    w8::from_large_unt((w::(>>))(w, count));
+
+	    herein
+		fun e_short i16
+		    =
+		    {
+			w = to_lunt i16;
+			[shift (w, 0u0), shift (w, 0u8)];
+		    };
+
+		fun e_long i32
+		    =
+		    {
+			w = to_lunt i32;
+			[shift (w, 0u0), shift (w, 0u8), shift (w, 0u16), shift (w, 0u24)];
+		    };
+	    end;
+
+	    fun emit_ops  ops
+		=
+		unt8_vector::cat (map  op_to_bytevector  ops)
+
+	    also
+	    fun emit_intel32instr (instruction: mcf::Base_Op)
+		=
+		{   error = fn msg
+				=
+				{   (ae::make_stream  []) ->   { emit_op, ... };
+				    #
+				    emit_op (mcf::BASE_OP instruction);
+				    #
+				    error msg;
+				};
+
+		    r_num =  rkj::hardware_register_id_of; 
+		    f_num =  rkj::hardware_register_id_of; 
+
+		    fun ramreg r
+			=
+			mem::ramreg { reg=>r, base=>null_or::the ramreg_base };
+
+		    Size = ZERO | BITS8 | BITS32;
+
+		    fun size i
+			= 
+			if (i == 0 ) ZERO;
+			else if (int32::(<) (i, 128) and int32::(<=) (-128, i) ) BITS8; 
+			else BITS32; fi; fi;
+
+		    fun immed_operand (mcf::IMMED (i32)) => i32;
+			immed_operand (mcf::IMMED_LABEL le) => lambda_expression le;
+			immed_operand (mcf::LABEL_EA le) => lambda_expression le;
+			immed_operand _ => error "immedOpnd";
+		    end;
+
+		    nonfix val  mod ;
+
+		    fun scale (n, m) = unt::to_int_x (unt::(<<) (unt::from_int n, unt::from_int m));
+		    fun modrm { mod, reg, rm } = w8::from_int (scale (mod, 6) + scale (reg, 3) + rm);
+		    fun sib { ss, index, base } = w8::from_int (scale (ss, 6) + scale (index, 3) + base);
+		    fun reg { opc, reg } = w8::from_int (scale (opc, 3) + reg);
+
+		    fun e_immed_ext (opc, mcf::DIRECT r)
+			    =>
+			    [modrm { mod=>3, reg=>opc, rm=>r_num r } ];
+
+			e_immed_ext (opc, opn as mcf::RAMREG _)
+			    =>
+			    e_immed_ext (opc, ramreg opn);
+
+			e_immed_ext (opc, mcf::DISPLACE { base, disp, ... } )
+			    =>
+			    {
+				base = r_num base;                #  XXX rNum may be done twice 
+				immed = immed_operand disp;
+
+				fun displace (mod, e_disp)
+				    = 
+				    if (base==esp ) 
+					modrm { mod, reg=>opc, rm=>4 } !
+					sib { ss=>0, index=>4, base=>esp } ! e_disp immed;
+				    else
+					modrm { mod, reg=>opc, rm=>base } ! e_disp immed;
+				    fi;
+
+				case (size immed)
+
+				    ZERO
+					=> 
+					if   (base == esp)
+
+					     [modrm { mod=>0, reg=>opc, rm=>4 }, sib { ss=>0, index=>4, base=>esp } ];
+
+					elif   (base==ebp)
+
+					     [modrm { mod=>1, reg=>opc, rm=>ebp }, 0u0];
+					else 
+					     [modrm { mod=>0, reg=>opc, rm=>base } ];
+					fi;
+
+				    BITS8  =>   displace (1, fn i => [to_unt8 i]; end );
+				    BITS32 =>   displace (2, e_long);
+				esac;
+
+			      };
+
+			e_immed_ext (opc, mcf::INDEXED { base=>NULL, index, scale, disp, ... } )
+			   => 
+			  (modrm { mod=>0, reg=>opc, rm=>4 } !
+			   sib { base=>5, ss=>scale, index=>r_num index } ! 
+			   e_long (immed_operand disp));
+
+			e_immed_ext (opc, mcf::INDEXED { base=>THE b, index, scale, disp, ... } )
+			    =>
+			    {
+				index = r_num index;
+				base = r_num b;
+				immed = immed_operand disp;
+
+				fun indexed (mod, e_disp)
+				    = 
+				    modrm { mod, reg=>opc, rm=>4 } !
+				      sib { ss=>scale, index, base } ! e_disp immed;
+
+				case (size immed)
+
+				    ZERO => 
+					if (base==ebp ) 
+					  [modrm { mod=>1, reg=>opc, rm=>4 },
+					     sib { ss=>scale, index, base=>5 }, 0u0];
+					else
+					  [modrm { mod=>0, reg=>opc, rm=>4 }, 
+					     sib { ss=>scale, index, base } ];
+					fi;
+
+				    BITS8  =>   indexed (1, fn i = [to_unt8 i]);
+				    BITS32 =>   indexed (2, e_long);
+				esac;
+
+			    };
+
+			e_immed_ext (opc, operand as mcf::FDIRECT f) => e_immed_ext (opc, ramreg operand);
+			e_immed_ext(_, mcf::IMMED _) => error "eImmedExt: Immed";
+			e_immed_ext(_, mcf::IMMED_LABEL _) => error "eImmedExt: ImmedLabel";
+			e_immed_ext(_, mcf::RELATIVE _) => error "eImmedExt: Relative";
+			e_immed_ext(_, mcf::LABEL_EA _) => error "eImmedExt: LabelEA";
+			e_immed_ext(_, mcf::FPR _) => error "eImmedExt: FPR";
+			e_immed_ext(_, mcf::ST _) => error "eImmedExt: ST";
+		    end;
+
+		    #  Shorthands for various encodings: 
+
+		    fun encode    (byte1, opc, operand) =   e_bytes (byte1 ! e_immed_ext (opc, operand));
+		    fun encode_st (byte1, opc, stn)  =   e_bytes [byte1, reg { opc, reg=>f_num stn } ];
+
+		    fun encode2 (byte1, byte2, opc, operand)
+			= 
+			e_bytes (byte1 ! byte2 ! e_immed_ext (opc, operand));
+
+		    fun encode_reg (byte1, reg, operand)
+			=
+			encode (byte1, r_num reg, operand);
+
+		    fun encode_long_imm (byte1, opc, operand, i)
+			=
+			e_bytes (byte1 ! (e_immed_ext (opc, operand) @ e_long i));
+
+		    fun encode_short_imm (byte1, opc, operand, w)
+			=
+			e_bytes (byte1 ! (e_immed_ext (opc, operand) @ e_short w));
+
+		    fun encode_byte_imm (byte1, opc, operand, b)
+			=
+			e_bytes (byte1 ! (e_immed_ext (opc, operand) @ [to_unt8 b]));
+
+		    fun cond_code cond
+			=
+			case cond
+			    #
+			    mcf::EQ => 0u4;       mcf::NE => 0u5;
+			    mcf::LT => 0u12;      mcf::LE => 0u14;
+			    mcf::GT => 0u15;      mcf::GE => 0u13;
+			    mcf::AA => 0u7;       mcf::AE => 0u3;
+			    mcf::BB => 0u2;       mcf::BE => 0u6;
+			    mcf::CC => 0u2;       mcf::NC => 0u3;
+			    mcf::PP => 0uxa;      mcf::NP => 0uxb;
+			    mcf::OO => 0u0;       mcf::NO => 0u1;
+			esac;
+
+
+		    # arith: only 5 cases need be considered:
+		    #  dst,   src
+		    #  -----------
+		    #  EAX,   imm32
+		    #        r/m32, imm32
+		    #  r/m32, imm8
+		    #        r/m32, r32
+		    #  r32,   r/m32
+		    #
+		    fun arith (opc1, opc2)
+			=
+			f
+			where 
+
+			    fun f (mcf::IMMED_LABEL le, dst) =>  f (mcf::IMMED (lambda_expression le), dst);
+				f (mcf::LABEL_EA    le, dst) =>  f (mcf::IMMED (lambda_expression le), dst);
+
+				f (mcf::IMMED (i), dst)
+				    => 
+				    case (size i)
+
+					BITS32
+					    => 
+					    case dst
+						#				      
+						mcf::DIRECT r
+						    =>
+						    if (rkj::hardware_register_id_of r == eax)
+							#
+							e_bytes (w8::from_int (8*opc2 + 5) ! e_long (i));
+						    else 
+							encode_long_imm (0ux81, opc2, dst, i);
+						    fi;
+
+					      _ => encode_long_imm (0ux81, opc2, dst, i);
+					    esac;
+
+					_ => encode_byte_imm (0ux83, opc2, dst, i);  #  83 /digit ib 
+				    esac;
+
+				f (src, mcf::DIRECT r) => encode_reg (opc1+0u3, r, src);
+				f (mcf::DIRECT r, dst) => encode_reg (opc1+0u1, r, dst);
+				f _ => error "arith.f";
+			    end;
+			end;
+
+		    # test:  the following cases need be considered:
+		    #  lsrc,  rsrc
+		    #  -----------
+		    #  AL,    imm8  opc1 A8
+		    #  EAX,   imm32 opc1 A9
+		    #  r/m8,  imm8  opc2 F6/0 ib
+		    #        r/m32, imm32 opc2 F7/0 id
+		    #        r/m8,  r8    opc3 84/r
+		    #        r/m32, r32   opc3 85/r
+
+		    fun test (bits, mcf::IMMED_LABEL le, lsrc) => test (bits, mcf::IMMED (lambda_expression le), lsrc);
+			test (bits, mcf::LABEL_EA    le, lsrc) => test (bits, mcf::IMMED (lambda_expression le), lsrc);
+
+			test (bits, mcf::IMMED (i), lsrc)
+			    =>
+			    case (lsrc, i >= 0 and i < 255)    
+				#	
+				(mcf::DIRECT r, FALSE)
+				    => 
+				    if (rkj::hardware_register_id_of r == eax)  e_bytes (0uxA9 ! e_long i); 
+				    else                                        encode_long_imm (0uxF7, 0, lsrc, i);
+				    fi;
+
+				(_, FALSE)
+				    =>
+				    encode_long_imm (0uxF7, 0, lsrc, i);
+
+				(mcf::DIRECT r, TRUE)   #  8 bit 
+				    =>
+				    {   r =  rkj::hardware_register_id_of  r;
+
+					if   (r == eax)   e_bytes [0uxA8, to_unt8 i];
+					elif (r < 4)      encode_byte_imm (0uxF6, 0, lsrc, i);				    #  unfortunately, only CL, DL, BL can be encoded 
+					elif (bits == 8)  error "test.8"; 
+					else              encode_long_imm (0uxF7, 0, lsrc, i);
+					fi;
+				    };
+
+				(_, TRUE)
+				    =>
+				    encode_byte_imm (0uxF6, 0, lsrc, i);
+			    esac;
+
+			test (8, rsrc as mcf::DIRECT r, lsrc)
+			    =>
+			    if (r_num r < 4)   encode_reg (0ux84, r, lsrc);
+			    else               error "test.8";
+			    fi;
+
+			test (32, mcf::DIRECT r, lsrc)
+			    =>
+			    encode_reg (0ux85, r, lsrc);
+
+			test _
+			    =>
+			    error "test";
+		    end;
+
+
+		    case instruction
+			#
+			mcf::NOP => e_byte 0x90;
+
+			mcf::JMP (mcf::RELATIVE i, _)
+			    =>
+			    {   fun short_jmp ()
+				    =
+				    e_bytes [0uxeb, unt8::from_int (i - 2)];
+
+				case (size (int32::from_int (i - 2)))
+
+				    BITS32 =>  e_bytes (0uxe9 ! e_long (int32::from_int (i - 5)));
+				    _      =>  short_jmp ();
+				esac;
+
+			    }
+			    except
+				e = { print "JMP\n"; raise exception e;};
+
+			mcf::JMP (operand, _)
+			    =>
+			    encode (0uxff, 4, operand);
+
+			mcf::JCC { cond, operand=>mcf::RELATIVE i }
+			   => 
+			   {   code = cond_code cond;
+
+			       case (size (int32::from_int (i - 2)))
+
+				   BITS32
+				       => 
+				       e_bytes (0ux0f ! unt8::(+) (0ux80, code) ! e_long (int32::from_int (i - 6)));
+
+				  _    => 
+				       e_bytes [unt8::(+) (0ux70, code), unt8::from_int (i - 2)];
+			       esac;
+			   }; 
+
+			mcf::CALL { operand=>mcf::RELATIVE i, ... } => e_bytes (0uxe8 ! e_long (int32::from_int (i - 5)));
+			mcf::CALL { operand, ... } => encode (0uxff, 2, operand);
+			mcf::RET NULL => e_byte 0xc3;
+
+			# Integer 
+
+			mcf::MOVE { mv_op=>mcf::MOVL, src, dst }
+			    => 
+			    mv (src, dst)
+			    where
+				fun mv (mcf::IMMED (i), mcf::DIRECT r)
+					=>
+					e_bytes (unt8::(+) (0uxb8, unt8::from_int (r_num r)) ! e_long (i));
+
+				    mv (mcf::IMMED (i), _)		=>  encode_long_imm (0uxc7, 0, dst, i);
+				    mv (mcf::IMMED_LABEL le, dst)	=>  mv (mcf::IMMED (lambda_expression le), dst);
+				    #
+				    mv (mcf::LABEL_EA le, dst)		=>  error "MOVL: LabelEA";
+				    #
+				    mv (src as mcf::RAMREG _, dst)	=>  mv (ramreg src, dst);
+				    mv (src, dst as mcf::RAMREG _)	=>  mv (src, ramreg dst);  
+				    #
+				    mv (src, dst)			=>  arith (0ux88, 0) (src, dst);
+				end;
+			    end;
+
+			mcf::MOVE { mv_op=>mcf::MOVW, src, dst }
+			    =>
+			    {   fun immed16 i = int32::(<) (i, 32768) and int32::(<=) (-32768, i);
+				fun prefix v = unt8_vector::cat [e_byte (operand16prefix), v];
+
+				fun mv (mcf::IMMED (i), _)
+					=> 
+					case dst
+					    #
+					    mcf::DIRECT r
+						=> 
+						if (immed16 i) 
+						     prefix (e_bytes (w8::(+) (0uxb8, w8::from_int (r_num r)) ! e_short (i)));
+						else error "MOVW: Immediate too large";
+						fi;
+
+					   _ => prefix (encode_short_imm (0uxc7, 0, dst, i));
+					esac;
+
+				    mv (src as mcf::RAMREG _, dst) => mv (ramreg src, dst);
+				    mv (src, dst as mcf::RAMREG _) => mv (src, ramreg dst);
+
+				    mv (src, dst) => prefix (arith (0ux88, 0) (src, dst));
+				end;
+
+				mv (src, dst);
+			    };
+
+			mcf::MOVE { mv_op=>mcf::MOVB, dst, src=>mcf::IMMED (i) }
+			    =>
+			    case (size i)
+				 BITS32 => error "MOVE: MOVB: imm8";
+				_ => encode_byte_imm (0uxc6, 0, dst, i);
+			    esac;
+
+
+			mcf::MOVE { mv_op=>mcf::MOVB, dst, src=>mcf::DIRECT r } => encode_reg (0ux88, r, dst);
+			mcf::MOVE { mv_op=>mcf::MOVB, dst=>mcf::DIRECT r, src } => encode_reg (0ux8a, r, src);
+			mcf::MOVE { mv_op, src=>mcf::IMMED _, ... } => error "MOVE: Immed";
+
+			mcf::MOVE { mv_op, src, dst=>mcf::DIRECT r }
+			    =>
+			    {   byte2 = case mv_op   
+					    mcf::MOVZBL => 0uxb6; 
+					    mcf::MOVZWL => 0uxb7; 
+					    mcf::MOVSBL => 0uxbe; 
+					    mcf::MOVSWL => 0uxbf; 
+					    _ => error "MOV[SIZE]X";
+					 esac;
+
+				e_bytes (0ux0f ! byte2 ! e_immed_ext (r_num r, src));
+			    };
+
+			mcf::MOVE _
+			    =>
+			    error "MOVE";
+
+			mcf::CMOV { cond, src, dst }
+			    => 
+			    {   cond = cond_code cond;
+				e_bytes (0ux0f ! unt8::(+) (cond, 0ux40) ! e_immed_ext (r_num dst, src));
+			    };
+
+			mcf::LEA { r32, address } => encode_reg (0ux8d, r32, address);
+			mcf::CMPL { lsrc, rsrc } => arith (0ux38, 7) (rsrc, lsrc);
+			(mcf::CMPW _ | mcf::CMPB _) => error "CMP";
+			mcf::TESTL { lsrc, rsrc } => test (32, rsrc, lsrc);
+			mcf::TESTB { lsrc, rsrc } => test (8, rsrc, lsrc);
+			mcf::TESTW _ => error "TEST";
+
+			mcf::BINARY { bin_op, src, dst }
+			    =>
+			    {
+				fun shift (code, src)
+				    = 
+				    case src
+					#
+					mcf::IMMED (1) => encode (0uxd1, code, dst);
+					mcf::IMMED (n) => encode_byte_imm (0uxc1, code, dst, n);
+					mcf::DIRECT r => 
+					  if (r_num r != ecx )  error "shift: Direct";
+					  else encode (0uxd3, code, dst);fi;
+					mcf::RAMREG _ => shift (code, ramreg src);
+					_  => error "shift";
+				    esac;
+
+
+				case bin_op
+				    mcf::ADDL => arith (0u0, 0) (src, dst);
+				    mcf::SUBL => arith (0ux28, 5) (src, dst);
+				    mcf::ANDL => arith (0ux20, 4) (src, dst);
+				    mcf::ORL  => arith (0u8, 1) (src, dst);
+				    mcf::XORL => arith (0ux30, 6) (src, dst);
+				    mcf::SHLL => shift (4, src);
+				    mcf::SARL => shift (7, src);
+				    mcf::SHRL => shift (5, src);
+
+				    mcf::IMULL
+					=> 
+					case (src, dst) 
+					    #
+					    (mcf::IMMED (i), mcf::DIRECT dst_r)
+						=>
+						case (size i)
+						    BITS32 => encode_long_imm (0ux69, r_num dst_r, dst, i);
+						    _      => encode_byte_imm (0ux6b, r_num dst_r, dst, i);
+						esac;
+
+					    (_, mcf::DIRECT dst_r)
+						=> 
+						 e_bytes (0ux0f ! 0uxaf ! (e_immed_ext (r_num dst_r, src)));
+
+					   _ => error "imull";
+					esac;
+
+				    _ => error "binary";
+				esac;
+			    };
+
+			mcf::MULTDIV { mult_div_op, src }
+			    =>
+			    {
+				mul_op
+				    = 
+				    case mult_div_op
+					#
+					mcf::MULL1 => 4;
+					mcf::IDIVL1 => 7;
+					mcf::DIVL1 => 6;
+					mcf::IMULL1 => error "imull1";
+				    esac;
+
+				encode (0uxf7, mul_op, src);
+			    };
+
+			mcf::MUL3 { dst, src1, src2=>i }
+			    => 
+			    case src1
+				#
+				mcf::IMMED _ => error "mul3: Immed";
+				mcf::IMMED_LABEL _ => error "mul3: ImmedLabel";
+
+				_   => 
+				    case (size i)
+					BITS32 => encode_long_imm (0ux69, r_num dst, src1, i);
+					_      => encode_byte_imm (0ux6b, r_num dst, src1, i);
+				    esac;
+			    esac;
+
+
+			mcf::UNARY { un_op, operand }
+			    => 
+			    case un_op
+				#
+				mcf::DECL
+				    => 
+				    case operand
+					#
+					mcf::DIRECT d =>  e_byte (0x48 + r_num d);
+					_            =>  encode (0uxff, 1, operand);
+				    esac;
+
+				mcf::INCL
+				    =>
+				    case operand
+					#	
+					mcf::DIRECT d =>  e_byte (0x40 + r_num d);
+					_            =>  encode (0uxff, 0, operand);
+				    esac;
+
+				mcf::NEGL => encode (0uxf7, 3, operand);
+				mcf::NOTL => encode (0uxf7, 2, operand);
+				#
+				_ => error "UNARY is not in DECL/INCL/NEGL, NOTL";
+			    esac;
+
+			mcf::SET { cond, operand }
+			    => 
+			    e_bytes (0ux0f ! unt8::(+) (0ux90, cond_code cond) ! e_immed_ext (0, operand));
+
+			mcf::PUSHL (mcf::IMMED (i))
+			    => 
+			    case (size i )
+				BITS32 => e_bytes (0ux68 ! e_long (i));
+				_      => e_bytes [0ux6a, to_unt8 i];
+			    esac;
+
+			mcf::PUSHL (mcf::DIRECT r) => e_byte (0x50+r_num r);
+			mcf::PUSHL operand => encode (0uxff, 6, operand);
+
+			mcf::POP (mcf::DIRECT r) => e_byte (0x58+r_num r);
+			mcf::POP (operand) => encode (0ux8f, 0, operand);
+
+			mcf::CDQ  => e_byte (0x99);
+			mcf::INTO => e_byte (0xce);
+
+
+
+			# Floating:
+
+			mcf::FBINARY { bin_op, src=>mcf::ST src, dst=>mcf::ST dst }
+			    =>    
+			    {   src = w8::from_int (f_num src);
+				dst = w8::from_int (f_num dst);
+
+				my (opc1, opc2)
+				    =
+				    case (src, dst)   
+					#
+					(_, 0u0)
+					    => 
+					    case bin_op
+						#
+						mcf::FADDL  => (0uxd8, 0uxc0 + src);
+						mcf::FMULL  => (0uxd8, 0uxc8 + src);
+						mcf::FSUBRL => (0uxd8, 0uxe8 + src);
+						mcf::FSUBL  => (0uxd8, 0uxe0 + src); #  gas XXX 
+						mcf::FDIVRL => (0uxd8, 0uxf8 + src);
+						mcf::FDIVL  => (0uxd8, 0uxf0 + src); #  gas XXX 
+						_        => error "FBINARY: pop: src=%st (n), dst=%st";
+					    esac;
+
+
+					(0u0, _)
+					    =>
+					    case bin_op
+						#
+						mcf::FADDP  => (0uxde, 0uxc0 + dst);
+						mcf::FMULP  => (0uxde, 0uxc8 + dst);
+						mcf::FSUBRP => (0uxde, 0uxe8 + dst); #  gas XXX 
+						mcf::FSUBP  => (0uxde, 0uxe0 + dst);
+						mcf::FDIVRP => (0uxde, 0uxf8 + dst); #  gas XXX 
+						mcf::FDIVP  => (0uxde, 0uxf0 + dst);
+
+						mcf::FADDL  => (0uxdc, 0uxc0 + dst);
+						mcf::FMULL  => (0uxdc, 0uxc8 + dst);
+						mcf::FSUBRL => (0uxdc, 0uxe8 + dst); #  gas XXX 
+						mcf::FSUBL  => (0uxdc, 0uxe0 + dst);
+						mcf::FDIVRL => (0uxdc, 0uxf8 + dst); #  gas XXX 
+						mcf::FDIVL  => (0uxdc, 0uxf0 + dst);
+
+						_ => error "FBINARY (0u0, _)";
+					     esac;
+
+					(_, _) => error "FBINARY (src, dst) non %st (0)";
+				    esac;
+
+				e_bytes [opc1, opc2];
+			    };
+
+			mcf::FBINARY { bin_op, src, dst=>mcf::ST dst }
+			    => 
+			    if (rkj::hardware_register_id_of dst == 0)
+				#
+				my (opc, code)
+				    = 
+				    case bin_op
+					#
+					mcf::FADDL  => (0uxdc, 0); 
+					mcf::FMULL  => (0uxdc, 1); 
+					mcf::FCOML  => (0uxdc, 2); 
+					mcf::FCOMPL => (0uxdc, 3); 
+					mcf::FSUBL  => (0uxdc, 4); 
+					mcf::FSUBRL => (0uxdc, 5); 
+					mcf::FDIVL  => (0uxdc, 6);
+					mcf::FDIVRL => (0uxdc, 7);
+					mcf::FADDS  => (0uxd8, 0); 
+					mcf::FMULS  => (0uxd8, 1); 
+					mcf::FCOMS  => (0uxd8, 2); 
+					mcf::FCOMPS => (0uxd8, 3); 
+					mcf::FSUBS  => (0uxd8, 4); 
+					mcf::FSUBRS => (0uxd8, 5); 
+					mcf::FDIVS  => (0uxd8, 6);
+					mcf::FDIVRS => (0uxd8, 7);
+					#
+					_ =>  error "FBINARY: pop: dst=%st";
+				    esac;
+
+				encode (opc, code, src);
+
+			    else
+				error "FBINARY";
+			    fi;
+
+			mcf::FIBINARY { bin_op, src }
+			    => 
+			    {   my (opc, code)
+				    =
+				    case bin_op
+					#
+					mcf::FIADDL  => (0uxda, 0);
+					mcf::FIMULL  => (0uxda, 1);
+					mcf::FICOML  => (0uxda, 2);
+					mcf::FICOMPL => (0uxda, 3);
+					mcf::FISUBL  => (0uxda, 4);
+					mcf::FISUBRL => (0uxda, 5);
+					mcf::FIDIVL  => (0uxda, 6);
+					mcf::FIDIVRL => (0uxda, 7);
+					mcf::FIADDS  => (0uxde, 0);
+					mcf::FIMULS  => (0uxde, 1);
+					mcf::FICOMS  => (0uxde, 2);
+					mcf::FICOMPS => (0uxde, 3);
+					mcf::FISUBS  => (0uxde, 4);
+					mcf::FISUBRS => (0uxde, 5);
+					mcf::FIDIVS  => (0uxde, 6);
+					mcf::FIDIVRS => (0uxde, 7);
+				    esac;
+
+				encode (opc, code, src);
+			    };
+
+			mcf::FUNARY un_op
+			    =>
+			    e_bytes
+			      [ 0uxd9, 
+				#
+				case un_op
+				    #
+				    mcf::FCHS	=> 0uxe0;
+				    mcf::FABS	=> 0uxe1;
+				    #
+				    mcf::FPTAN	=> 0uxf2;
+				    mcf::FPATAN	=> 0uxf3;
+				    #
+				    mcf::FDECSTP	=> 0uxf6;
+				    mcf::FINCSTP	=> 0uxf7;
+				    #
+				    mcf::FSQRT	=> 0uxfa;
+				    #
+				    mcf::FSIN	=> 0uxfe;
+				    mcf::FCOS	=> 0uxff;
+				    #
+				    _ => error "FUNARY";
+				esac
+			      ];
+
+			mcf::FXCH { operand } => encode_st (0uxd9, 25, operand);
+
+			mcf::FUCOM   (mcf::ST n) => encode_st (0uxdd, 28, n);
+			mcf::FUCOMP  (mcf::ST n) => encode_st (0uxdd, 29, n);
+			mcf::FUCOMPP            => e_bytes [0uxda, 0uxe9];
+			mcf::FCOMI   (mcf::ST n) => encode_st (0uxdb, 0x1e, n);
+			mcf::FCOMIP  (mcf::ST n) => encode_st (0uxdf, 0x1e, n);
+			mcf::FUCOMI  (mcf::ST n) => encode_st (0uxdb, 0x1d, n);
+			mcf::FUCOMIP (mcf::ST n) => encode_st (0uxdf, 0x1d, n);
+
+			mcf::FSTS operand    => encode (0uxd9, 2, operand);
+			mcf::FSTL (mcf::ST n) => encode_st (0uxdd, 26, n);
+			mcf::FSTL operand    => encode (0uxdd, 2, operand);
+
+			mcf::FSTPS operand    => encode (0uxd9, 3, operand);
+			mcf::FSTPL (mcf::ST n) => encode_st (0uxdd, 27, n);
+			mcf::FSTPL operand    => encode (0uxdd, 3, operand);
+			mcf::FSTPT operand    => encode (0uxdb, 7, operand);
+
+			mcf::FLD1   => e_bytes [0uxd9, 0uxe8];
+			mcf::FLDL2T => e_bytes [0uxd9, 0uxe9];
+			mcf::FLDL2E => e_bytes [0uxd9, 0uxea];
+			mcf::FLDPI  => e_bytes [0uxd9, 0uxeb];
+			mcf::FLDLG2 => e_bytes [0uxd9, 0uxec];
+			mcf::FLDLN2 => e_bytes [0uxd9, 0uxed];
+			mcf::FLDZ   => e_bytes [0uxd9, 0uxee];
+			mcf::FLDS operand => encode (0uxd9, 0, operand);
+
+			mcf::FLDL (mcf::ST n) => encode_st (0uxd9, 24, n);
+			mcf::FLDL operand => encode (0uxdd, 0, operand);
+
+			mcf::FILD operand => encode (0uxdf, 0, operand);
+			mcf::FILDL operand => encode (0uxdb, 0, operand);
+			mcf::FILDLL operand => encode (0uxdf, 5, operand);
+
+			mcf::FNSTSW => e_bytes [0uxdf, 0uxe0];
+
+		       #  misc 
+			mcf::SAHF => e_byte (0x9e);
+			_ => error "emitInstr";
+		    esac;
+		} 
+
+	    also
+	    fun op_to_bytevector (mcf::LIVE _)									# Generate absolute machine-code for given abstract machine instruction, as a byte-vector.
+		    =>
+		    unt8_vector::from_list [];
+
+		op_to_bytevector (mcf::DEAD _)
+		    =>
+		    unt8_vector::from_list [];
+
+		op_to_bytevector (mcf::COPY { kind, dst, src, tmp, ... } )
+		    => 
+		    case kind
+			#
+			rkj::INT_REGISTER   => emit_ops  (crm::compile_int_register_moves   { tmp, dst, src } );
+			rkj::FLOAT_REGISTER => emit_ops  (crm::compile_float_register_moves { tmp, dst, src } );
+			#	
+		       _ => error "COPY";
+		    esac;
+
+		op_to_bytevector (mcf::BASE_OP instruction)
+		    =>
+		    emit_intel32instr    instruction;
+
+		op_to_bytevector (mcf::NOTE { op, ... }   )
+		    =>
+		    op_to_bytevector  op;
+	    end;
+	end;
+    };
+end;
+
+# COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

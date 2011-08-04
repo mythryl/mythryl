@@ -1,0 +1,780 @@
+## fsm.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+# Non-deterministic and deterministic finite-state machines.
+
+
+
+###         "It is difficult to extract sense from strings,
+###          but they are the only communication coin we can count on."
+###
+###                                  -- Alan Perlis
+
+
+api Nfa {
+
+    exception SYNTAX_NOT_HANDLED;
+
+    package int_set:  Set		# Set	is from   src/lib/src/set.api
+		      where
+			  key::Key == Int;
+
+    Nfa;
+
+    build:               (abstract_regular_expression::Abstract_Regular_Expression, Int) -> Nfa;
+    build_pattern:  List( abstract_regular_expression::Abstract_Regular_Expression ) -> Nfa;
+
+    start:      Nfa -> int_set::Set;
+    move:       Nfa -> (Int, Char) -> int_set::Set;
+    chars:      Nfa -> Int -> List( Char );
+    accepting:  Nfa -> Int -> Null_Or( Int );
+
+    print:  Nfa -> Void;
+};
+
+
+
+package nfa: (weak)  Nfa {		# Nfa	is from   src/lib/regex/backend/fsm.pkg
+
+    exception SYNTAX_NOT_HANDLED;
+
+
+    Move = MOVE  (Int, Null_Or( Char ), Int);
+
+    fun compare_char_option (NULL, NULL   ) =>  EQUAL;
+	compare_char_option (NULL, THE (c)) =>  LESS;
+	compare_char_option (THE (c), NULL) =>  GREATER;
+
+	compare_char_option (THE (c), THE (c'))
+	    =>
+	    char::compare (c, c');
+    end;
+
+    package s= abstract_regular_expression;	# abstract_regular_expression	is from   src/lib/regex/front/abstract-regular-expression.pkg
+
+    package int_set
+	= 
+	list_set_g (package { 
+			Key = Int; 
+		       compare = int::compare; 
+		   });
+
+    package int2set
+	= 
+	list_set_g (package {
+			Key = (Int, Int);
+		       fun compare ((i1, i2), (j1, j2)) = 
+			   case (int::compare (i1, j1))
+			        EQUAL => int::compare (i2, j2);
+			       v => v; esac;
+		   });
+
+    package move_set
+	= 
+	list_set_g (package { 
+			Key = Move; 
+
+		       fun compare (MOVE (i, c, j), MOVE (i', c', j'))
+			   =
+			   case (int::compare (i, i'))
+			     
+			       EQUAL => case (compare_char_option (c, c')) 
+					   
+					    EQUAL =>   int::compare (j, j');
+					    v     =>   v;
+					esac;
+
+			       v     => v;
+			   esac;
+		   });
+
+    package char_set
+	= 
+	list_set_g (package {
+			Key = Char;
+		       compare = char::compare;
+		   });
+
+    package i  = int_set;
+    package i2 = int2set;
+    package m  = move_set;
+    package c  = char_set;
+	    
+    #  Create sets from lists 
+    fun i_list l =   i::add_list (i::empty, l);
+    fun m_list l =   m::add_list (m::empty, l);
+
+    Nfa = NFA  { states:    i::Set,
+		 moves:     m::Set,
+		 accepting: i2::Set };
+
+    fun print (NFA { states, moves, accepting } )
+	= 
+	{   pr   = file::print;
+	    pr_i  = file::print o int::to_string;
+	    pr_i2 = file::print o (fn (i1, i2) => (int::to_string i1); end );
+	    pr_c  = file::print o char::to_string;
+
+	    pr ("States: 0 -> ");
+	    pr_i (i::vals_count (states) - 1);
+	    pr "\nAccepting:";
+	    i2::apply (fn k => { pr " "; pr_i2 k;}; end ) accepting;
+	    pr "\nMoves\n";
+
+	    m::apply
+                fn (MOVE (i, NULL, d)) => { pr " ";
+					    pr_i i;
+					    pr " --@--> ";
+					    pr_i d;
+					    pr "\n";};
+		     (MOVE (i, THE c, d)) => { pr " ";
+					      pr_i i;
+					      pr " --";
+					      pr_c c;
+					      pr "--> ";
+					      pr_i d;
+					      pr "\n";};
+                end
+                moves;
+	};
+
+
+    fun null_accept n
+	=
+	NFA { states=>i_list [0, 1], moves=>m::add (m::empty, MOVE (0, NULL, 1)),
+			    accepting=>i2::singleton (1, n) };
+
+    fun null_refuse n
+	=
+	NFA { states=>i_list [0, 1], moves=>m::empty,
+			    accepting=>i2::singleton (1, n) };
+
+    fun renumber n st = n + st;
+    fun renumber_move n (MOVE (s, c, s')) = MOVE (renumber n s, c, renumber n s');
+    fun renumber_acc n (st, n') = (n+st, n');
+
+    fun build' n (s::GROUP e)
+	    =>
+	    build' n e;
+
+	build' n (s::ALT l)
+	    => 
+	    fold_right (fn (NFA { states=>s1, moves=>m1, ... },
+			    NFA { states=>s2, moves=>m2, ... } )
+				=> 
+				{   k1 = i::vals_count s1;
+				    k2 = i::vals_count s2;
+				    s1' = i::map (renumber 1) s1;
+				    s2' = i::map (renumber (k1+1)) s2;
+				    m1' = m::map (renumber_move 1) m1;
+				    m2' = m::map (renumber_move (k1+1)) m2;
+
+				    NFA { states => i::add_list (i::union (s1', s2'),
+							 [0, k1+k2+1]),
+					  moves => m::add_list (m::union (m1', m2'),
+							[MOVE (0, NULL, 1),
+							 MOVE (0, NULL, k1+1),
+							 MOVE (k1, NULL, k1+k2+1),
+							 MOVE (k1+k2, NULL, k1+k2+1)]),
+					  accepting => i2::singleton (k1+k2+1, n)
+					};
+				}; end 
+		       )
+		       (null_refuse n) (map (build' n) l);
+
+	build' n (s::CONCAT l)
+	    => 
+	    fold_right (fn (NFA { states=>s1, moves=>m1, ... },
+		     NFA { states=>s2, moves=>m2, accepting } ) =>
+		 { k = i::vals_count s1 - 1;
+		     s2' = i::map (renumber k) s2;
+		     m2' = m::map (renumber_move k) m2;
+		     accepting' = i2::map (renumber_acc k) accepting;
+
+		     NFA { states=>i::union (s1, s2'),
+			  moves=>m::union (m1, m2'),
+			  accepting=>accepting'};
+		 }; end )
+		(null_accept n) (map (build' n) l);
+	build' n (s::INTERVAL (e, n1, n2)) => raise exception SYNTAX_NOT_HANDLED;
+	build' n (s::OPTION e) => build' n (s::ALT [s::CONCAT [], e]);
+	build' n (s::PLUS e) => 
+	   { my (NFA { states, moves, ... } ) = build' n e;
+	       m = i::vals_count states;
+
+	       NFA { states=>i::add (states, m),
+		    moves=>m::add_list (moves, [MOVE (m - 1, NULL, m),
+					     MOVE (m - 1, NULL, 0)]),
+		    accepting=>i2::singleton (m, n) };
+	   };
+	build' n (s::STAR e) => build' n (s::ALT [s::CONCAT [], s::PLUS e]);
+	build' n (s::MATCH_SET s) => 
+	   if (s::char_set::is_empty s)  null_accept (n);
+	   else
+	       { moves = s::char_set::fold_left (fn (c, move_set) => m::add (move_set, MOVE (0, THE c, 1)); end )
+					       m::empty s;
+
+		   NFA { states=>i_list [0, 1],
+			moves,
+			accepting=>i2::singleton (1, n) };
+	       };fi;
+	build' n (s::NONMATCH_SET s) => 
+	   { moves = s::char_set::fold_left (fn (c, move_set) => m::add (move_set, MOVE (0, THE c, 1)); end )
+					   m::empty (s::char_set::difference (s::all_chars, s));
+
+	       NFA { states=>i_list [0, 1],
+		    moves,
+		    accepting=>i2::singleton (1, n) };
+	   };
+	build' n (s::CHAR c) => NFA { states=>i_list [0, 1],
+				    moves=>m::singleton (MOVE (0, THE c, 1)),
+				    accepting=>i2::singleton (1, n) };
+	build' n (s::BEGIN) => raise exception SYNTAX_NOT_HANDLED;
+	build' n (s::END) => raise exception SYNTAX_NOT_HANDLED;
+    end;
+
+
+    fun build (r, n)
+	=
+	{   my (NFA { states, moves, accepting } ) = build' n r;
+
+	    # Clean up the nfa to remove epsilon moves.
+	    # A simple way to do this:
+	    # 1. states= { 0 }, moves= {}
+	    # 2. for every s in states,
+	    # 3.   compute closure (s)
+	    # 4.   for any move (i, c, o) with i in closure (s)
+	    # 5.       add move (0, c, o) to moves
+	    # 6.       add state o to states
+	    # 7. repeat until no modifications to states and moves
+
+	    NFA { states, moves, accepting };
+	};
+
+    fun build_pattern rs
+	= 
+	{   fun loop ([], _) =>  [];
+		loop (r ! rs, n)
+		    =>
+		    (build (r, n)) ! (loop (rs, n+1));
+	    end;
+
+	    rs' = loop (rs, 0);
+
+	    renums = fold_right
+			 (fn (NFA { states, ... }, acc)
+			     =
+			     1 ! (map (fn k =  k+i::vals_count states)
+				       acc
+			 )       )
+			 []
+			 rs';
+
+	    news
+		=
+		paired_lists::map
+		    (    fn (NFA { states, moves, accepting }, renum)
+			    =
+			    {   new_states  = i::map (renumber renum) states;
+				new_moves   = m::map (renumber_move renum) moves;
+				make_access = i2::map (renumber_acc renum) accepting;
+
+				NFA { states    =>  new_states,
+				      moves     =>  new_moves,
+				      accepting =>  make_access
+				    };
+			    }
+		    )
+		    (rs', renums);
+
+	    my (states, moves, accepting)
+	       =
+	       fold_left
+		   (    fn (   NFA { states, moves, accepting },
+			       (acc_s, acc_m, acc_a)
+			   )
+			   =
+			   (   i::union  (states, acc_s),
+			       m::union  (moves, acc_m),
+			       i2::union (accepting, acc_a)
+			   )
+		   )
+		   (   i::singleton 0,
+		       m::add_list (
+			   m::empty,
+			   map (fn k =  MOVE (0, NULL, k)) renums
+		       ),
+		       i2::empty
+		   )
+		   news;
+
+	    NFA { states, moves, accepting };
+
+	};
+
+    fun accepting (NFA { accepting, ... } ) state
+	= 
+	{   item
+                =
+                i2::find
+                    (fn (i, _) =  (i==state))
+                    accepting;
+
+	    case item
+	      
+		NULL => NULL;
+		THE (s, n) => THE (n);
+	    esac;
+	};
+
+    #  Compute possible next states from orig with character c 
+    fun one_move (NFA { moves, ... } ) (orig, char)
+	= 
+	m::fold_right
+            (fn (MOVE (_, NULL, _), set) => set;
+
+		(MOVE (or_op, THE c, d), set)
+                    => 
+		    if (c==char and or_op==orig)   i::add (set, d);
+		    else                           set;         fi;
+            end)
+	    i::empty
+            moves;
+
+    fun closure (NFA { moves, ... } ) orig_set
+	=
+	loop orig_set
+	where 
+
+	    fun add_state (MOVE (orig, NULL, dest), (b, states))
+		    =>
+		    if  (     i::member (states, orig) and
+			 not (i::member (states, dest))
+		    )
+			 (TRUE, i::add (states, dest));
+		    else 
+			 (b, states);
+		    fi;
+
+		add_state (_, bs) => bs;
+	    end;
+
+	    fun loop (states)
+		= 
+		{   my (modified, new)
+                        =
+                        m::fold_right
+                            add_state
+			    (FALSE, states)
+                            moves;
+
+		    if modified   loop (new); 
+		    else                new;    fi; 
+		};
+
+	end;
+	
+    fun move nfa
+	=
+	{   closure  =  closure  nfa;
+	    one_move =  one_move nfa;
+
+	    closure o one_move;
+	};
+
+    fun start nfa
+	=
+	closure nfa (i::singleton 0);
+
+    fun chars (NFA { moves, ... } ) state
+	=
+	{   fun f (MOVE (s1, THE c, s2), s)
+		=>
+		if   (s1 == state)
+		    
+		     c::add (s, c);
+		else
+		     s;
+		fi;
+
+		f (_, s) => s;
+	    end;
+
+	    c::vals_list (m::fold_left f c::empty moves);
+	};
+
+};
+
+
+
+api Dfa {
+
+    exception SYNTAX_NOT_HANDLED;
+
+    Dfa;
+
+    build:                abstract_regular_expression::Abstract_Regular_Expression   -> Dfa;
+    build_pattern:  List( abstract_regular_expression::Abstract_Regular_Expression ) -> Dfa;
+    move:  Dfa -> (Int, Char) -> Null_Or( Int );
+    accepting:  Dfa -> Int -> Null_Or( Int );
+    can_start:  Dfa -> Char -> Bool;
+
+};
+
+
+
+package dfa: (weak)  Dfa {
+
+    exception SYNTAX_NOT_HANDLED;
+
+    Move = MOVE  (Int, Null_Or( Char ), Int);
+
+    fun compare_char_option (NULL, NULL) => EQUAL;
+	compare_char_option (NULL, THE (c)) => LESS;
+	compare_char_option (THE (c), NULL) => GREATER;
+	compare_char_option (THE (c), THE (c')) => char::compare (c, c');
+    end;
+
+
+    package n= nfa;	# nfa	is from   src/lib/regex/backend/fsm.pkg
+    package int_set = n::int_set;
+    package int_set_set = 
+	list_set_g (package {
+			Key = int_set::Set;
+		       compare = int_set::compare;
+		   });
+    package int2set = 
+	list_set_g (package {
+			Key = (Int, Int);
+		       fun compare ((i1, i2), (j1, j2)) = 
+			   case (int::compare (i1, j1))
+			        EQUAL => int::compare (i2, j2);
+			       v => v; esac;
+		   });
+    package move_set = 
+	list_set_g (package { 
+			Key = Move; 
+		       fun compare (MOVE (i, c, j), MOVE (i', c', j')) =
+			   (case (int::compare (i, i'))
+			         EQUAL => 
+				  (case (compare_char_option (c, c')) 
+				        EQUAL => int::compare (j, j');
+				       v => v; esac);
+				v => v; esac);
+		   });
+
+    package char_set = 
+	list_set_g (package {
+			Key = Char;
+		       compare = char::compare;
+		   });
+
+    package is = int_set_set;
+    package i = int_set;
+    package i2 = int2set;
+    package m = move_set;
+    package c = char_set;
+    package a2= matrix;			# matrix	is from   src/lib/std/src/matrix.pkg
+    package a= rw_vector;		# rw_vector	is from   src/lib/std/src/rw-vector.pkg
+
+    package map = list_map_g (package {
+				  Key = int_set::Set;
+				 compare = int_set::compare;
+			     });
+
+    #  Create sets from lists 
+    fun i_list l = i::add_list (i::empty, l);
+    fun m_list l = m::add_list (m::empty, l);
+
+    Dfa = DFA { states:       i::Set,
+		moves:        m::Set,
+		accepting:    i2::Set,
+		table:        a2::Array(    Null_Or(  Int ) ),
+		acc_table:    a::Rw_Vector( Null_Or( Int ) ),
+		start_table:  a::Rw_Vector( Bool )
+              };
+
+
+    fun print (DFA { states, moves, accepting, ... } )
+	= 
+	{   pr   = file::print;
+	    pr_i  = file::print o int::to_string;
+	    pr_i2 = file::print o (fn (i1, i2) => int::to_string i1; end );
+	    pr_c  = file::print o char::to_string;
+
+	    pr ("States: 0 -> ");
+	    pr_i (i::vals_count (states) - 1);
+	    pr "\nAccepting:";
+
+	    i2::apply  (fn k = { pr " "; pr_i2 k;})
+                       accepting;
+
+	    pr "\nMoves\n";
+
+	    m::apply
+
+		fn (MOVE (i, NULL, d))
+		       =>
+		       {   pr " ";
+			   pr_i i;
+			   pr " --@--> ";
+			   pr_i d;
+			   pr "\n";
+		       };
+
+		   (MOVE (i, THE c, d))
+		       =>
+		       {   pr " ";
+			   pr_i i;
+			   pr " --";
+			   pr_c c;
+			   pr "--> ";
+			   pr_i d;
+			   pr "\n";
+		       };
+		end
+
+		moves;
+	};
+
+
+    fun move' moves (i, c)
+	= 
+	case (m::find
+
+                 (fn (MOVE (s1, THE c', s2))
+                         =
+		         (s1==i and c==c')
+                 )
+
+	         moves
+             )
+	  
+	     NULL => NULL;
+	     THE (MOVE (s1, THE c', s2)) => THE s2;
+	esac;
+
+# 	fun move (DFA { moves, ... } ) (i, c) = move' moves (i, c) 
+
+    fun move (DFA { table, ... } ) (i, c)
+	=
+	a2::get (table, i, char::to_int (c)-char::to_int (char::min_char));
+
+    fun accepting' accepting i
+	=
+	i2::fold_right
+
+            (fn ((s, n), NULL)     => if (s==i)   THE n;
+				      else        NULL;
+                                      fi;
+
+		((s, n), THE (n')) => if (s==i)   THE n;
+				      else        THE n';
+                                      fi;
+	     end)
+
+  	     NULL
+
+             accepting;
+
+# 	fun accepting (DFA { accepting, ... } ) i
+#            =
+#            accepting' accepting i 
+
+    fun accepting (DFA { acc_table, ... } ) i
+	=
+	a::get (acc_table, i);
+
+    fun can_start (DFA { start_table, ... } ) c
+	=
+	a::get (start_table, char::to_int (c));
+
+
+    fun build' nfa
+        = 
+	{   move      = n::move nfa;
+	    accepting = n::accepting nfa;
+
+	    start = n::start nfa;
+	    chars = n::chars nfa;
+
+	    fun get_all_chars  ps
+                = 
+		i::fold_left
+		(fn (s, cs) =  c::add_list (cs, chars s))
+		c::empty ps;
+
+	    init_chars = get_all_chars  start;
+
+	    fun get_all_states (ps, c)
+		= 
+		i::fold_left
+		(fn (s, ss) =  i::union (ss, move (s, c)))
+		i::empty ps;
+
+	    fun loop ([], set, moves) => (set, moves);
+
+	        loop (x ! xs, set, moves)
+		    => 
+		    {   cl = get_all_chars (x);
+			my (nstack, sdu, ml) = 
+			    c::fold_left
+			    (fn (c, (ns, sd, ml)) =>
+			     { u = get_all_states (x, c);
+
+				 if ((not (is::member (set, u))
+				      and (not (is::member (sd, u))))
+				 )
+                                         ( u ! ns,
+					   is::add (sd, u),
+					   (x, c, u) ! ml
+                                         );
+				 else (ns, sd, (x, c, u) ! ml);fi;
+			     }; end ) ([], is::empty,[]) cl;
+
+			loop (nstack@xs, is::union (set, sdu), ml@moves);
+		    };
+                end;
+
+	    my (s_set, m_list)
+                =
+                loop ([start], is::singleton (start), []);
+
+	    num = REF 1;
+
+	    fun new ()
+		=
+		{   n = *num;
+		    num := n+1 ;
+		    n;
+		};
+
+	    s_map = map::set (map::empty, start, 0);
+	    s_set' = is::delete (s_set, start);
+	    s_map = is::fold_left (fn (is, map) =  map::set (map, is, new ()))
+				s_map s_set';
+
+	    states = i::add_list (i::empty, list::tabulate (*num, fn x = x));
+
+	    moves = m::add_list (m::empty,
+				   map (fn (is1, c, is2)
+					   =
+					   MOVE (the (map::get (s_map, is1)),
+						 THE c,
+						 the (map::get (s_map, is2)))
+                                       )
+				       m_list);
+
+	    # Given a set of accepting states, look for a given state,
+	    # with the minimal corresponding pattern number
+
+	    fun min_pattern acc_set
+                =
+		loop (tail l, head l)
+                where
+                    l = map (the o accepting) (i::vals_list acc_set);
+
+		    fun loop ([], min) => min;
+
+			loop (n ! ns, min)
+                            => 
+			    if (n < min)   loop (ns, n);
+			    else           loop (ns, min);
+                            fi;
+                    end;
+		end;
+
+
+	    accept
+                =
+                is::fold_left
+                    (fn (is, cis)
+                        =
+			{   items
+                                =
+                                i::filter
+                                    (fn k
+                                        =
+					case (accepting k)
+					  
+					     THE _ => TRUE;
+					     NULL  => FALSE;
+                                        esac
+                                    )
+                                    is;
+
+			    if   (i::is_empty items)
+			        
+                                 cis;
+			    else 
+				 i2::add (cis, (the (map::get (s_map, is)),
+							min_pattern items));
+                            fi;
+			}
+                    )
+                    i2::empty
+                    s_set;
+
+	    table
+                =
+                a2::tabulate
+                    a2::ROW_MAJOR
+                    ( *num, 
+		      char::to_int (char::max_char)-char::to_int (char::min_char)+1,
+		      fn (s, c) =  move' moves (s, char::from_int (c+char::to_int (char::min_char)))
+                    );
+
+	    acc_table
+                =
+                a::tabulate
+                    ( *num, 
+		      fn (s) =  accepting' accept s
+                    );
+
+	    start_table
+                =
+                a::tabulate
+                    ( char::to_int (char::max_char) - char::to_int (char::min_char)+1,
+		      fn c =  c::member (init_chars, char::from_int (c+char::to_int (char::min_char)))
+                    );
+
+
+	    DFA { states, moves, accepting=>accept, table, acc_table, start_table };
+
+	};
+
+	
+    fun build r
+	=
+	build' (n::build (r, 0));
+
+    fun build_pattern rs
+	=
+	build' (n::build_pattern rs);
+
+};
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1998 Bell Labs, Lucent Technologies.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,1285 @@
+## translate-lambdacode-to-anormcode.pkg
+## monnier@cs.yale.edu 
+#
+# Converting lambdacode_form::Lambdacode_Expression
+# to         anormcode_form::Function.
+#
+#
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format) is the second backend code representation, and the first used for optimization.
+#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+#     Our task here is converting from the third to the fourth form.
+#
+#
+#
+# For lambdacode code format see:	     src/lib/compiler/back/top/lambdacode/lambdacode-form.api
+# For A-Normal code format see:		     src/lib/compiler/back/top/anormcode/anormcode-form.api
+# We get invoked (only) from:		     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+
+
+###                      "Reading a translation is like examining
+###                       the back of a piece of tapesty."
+###
+###                                              -- Cervantes.
+
+
+
+stipulate
+    package acf =  anormcode_form;				# anormcode_form			is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package lcf =  lambdacode_form;				# lambdacode_form			is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+herein
+
+    api Translate_Lambdacode_To_Anormcode {
+	#
+	translate_lambdacode_to_anormcode
+	    :
+	    lcf::Lambdacode_Expression
+	    ->
+	    acf::Function;
+    };
+end;
+
+
+stipulate
+    package acf =  anormcode_form;				# anormcode_form			is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package acj =  anormcode_junk;				# anormcode_junk			is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package di  =  debruijn_index;				# debruijn_index			is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package m2m =  convert_monoarg_to_multiarg_anormcode;	# convert_monoarg_to_multiarg_anormcode	is from   src/lib/compiler/back/top/lambdacode/convert-monoarg-to-multiarg-anormcode.pkg
+    package hbo =  highcode_baseops;				# highcode_baseops			is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;				# highcode_form				is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hut =  highcode_uniq_types;				# highcode_uniq_types			is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package lcf =  lambdacode_form;				# lambdacode_form			is from   src/lib/compiler/back/top/lambdacode/lambdacode-form.pkg
+    package tt  =  type_types;					# type_types				is from   src/lib/compiler/front/typer/types/type-types.pkg
+    package ty  =  types;					# types					is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+herein
+
+
+    package   translate_lambdacode_to_anormcode
+    : (weak)  Translate_Lambdacode_To_Anormcode			# Translate_Lambdacode_To_Anormcode	is from   src/lib/compiler/back/top/lambdacode/translate-lambdacode-to-anormcode.pkg
+    {
+	say   = control_print::say;
+
+	make_var =  highcode_var::make_highcode_variable;
+
+	ident = fn le:  lcf::Lambdacode_Expression
+                    =
+                    le;
+
+	my (iadd_prim, uadd_prim)
+            = 
+	    {   lt_int = hcf::int_uniqtype;
+
+		int_op_type = hcf::make_lambdacode_arrow_uniqtype (hcf::make_tuple_uniqtype [lt_int, lt_int], lt_int);
+
+		addu = hbo::MATH { op=>hbo::ADD, overflow=>FALSE, kindbits=>hbo::UNT 31 };
+	    
+                ( lcf::BASEOP (hbo::iadd, int_op_type, []),
+                  lcf::BASEOP (addu,      int_op_type, [])
+                );
+	    };
+
+	fun bug msg
+            =
+            error_message::impossible("translate_lambdacode_to_anormcode: " + msg);
+
+	stipulate
+            my (true_dcon', false_dcon')
+		= 
+		( h tt::true_dcon,
+                  h tt::false_dcon
+                )
+		where
+		    type =  hcf::make_arrow_uniqtype				# Highcode type "Void -> Bool".
+			      (
+				hcf::rawraw_variable_calling_convention,
+				[ hcf::void_uniqtype ],
+				[ hcf::bool_uniqtype ]
+			      );
+
+		    fun h (ty::VALCON { name, form, ... } )
+			=
+			(name, form, type);
+		end;
+
+	    fun bool_lexp b
+                = 
+		{   v = make_var();
+                    w = make_var();
+
+		    dc = if b  true_dcon'; else false_dcon';fi;
+		
+                    acf::RECORD (acj::rk_tuple, [], v, 
+		    acf::CONSTRUCTOR (dc, [], acf::VAR v, w, acf::RET [acf::VAR w]));
+		};
+	herein 
+
+	    fun highcode_baseop
+		  ( baseop							# : acf::Baseop
+                        as
+                        ( dictionary:	Null_Or( acf::Dictionary ),		# Map from types to matching make_foo fns.
+			  op:		hbo::Baseop,				# Op to perform -- add, shift, fetch-from-vector, whatever.
+			  op_type:	hut::Uniqtype,				# Result of op.
+			  arg_types:	List( hut::Uniqtyp )
+			),
+		    vs,								# Arg vals
+		    v,								# Highcode var
+		    e								# c_lexp
+		  )
+		= 
+		case op
+
+		    # Branch baseops get translated into acf::BRANCH:
+		    #
+		    ( hbo::BOXED  | hbo::UNBOXED | hbo::CMP _ | hbo::PTR_EQL
+		    | hbo::PTR_NEQ | hbo::POLY_EQL | hbo::POLY_NEQ
+		    )
+			=>
+			acf::LET( [v],
+				  acf::BRANCH (baseop, vs, bool_lexp TRUE, bool_lexp FALSE),
+				  e
+				);
+
+		    # baseops that take zero arguments;
+		    # argument types must be void
+		    #
+		    ( hbo::GET_RUNTIME_ASM_PACKAGE_RECORD
+		    | hbo::GET_EXCEPTION_HANDLER
+		    | hbo::GET_CURRENT_THREAD_REGISTER
+		    | hbo::DEFLVAR
+		    )
+			=>
+			{   fun fix t
+				= 
+				hcf::if_uniqtype_is_arrow_type
+				  ( t, 
+				    fn (ff,[t1], ts2)
+					    =>
+					    if (hcf::same_uniqtyp (t1, hcf::void_uniqtyp)) 
+						#
+						hcf::make_typ_uniqtype (hcf::make_arrow_uniqtyp (ff, [], ts2));
+					    else
+						bug "unexpected zero-args prims 1 in highcode_baseop";
+					    fi;
+
+					_ => bug "highcodePrim: t1";
+				    end,
+
+				    fn _ =  bug "unexpected zero-args prims 2 in highcode_baseop"
+				  );
+
+			    new_op_type
+				=
+				hcf::if_uniqtype_is_lambdacode_typeagnostic
+				  ( op_type, 
+				    fn (ks, t) =  hcf::make_lambdacode_typeagnostic_uniqtype (ks, fix t),
+				    fn _       =  fix op_type
+				  );
+
+			    acf::BASEOP ((dictionary, op, new_op_type, arg_types), [], v, e);
+		       };
+
+		    _ =>   acf::BASEOP (baseop, vs, v, e);
+		esac;
+
+	end;					#  stipulate highcode_baseop 
+
+	# force_raw freezes the calling conventions of a data constructor;
+	# strictly used by the CON and VALCON only 
+	#
+	fun force_raw  pty
+            = 
+	    if (hcf::uniqtype_is_lambdacode_typeagnostic  pty)
+		#
+	        my (ks, body) =  hcf::unpack_lambdacode_typeagnostic_uniqtype   pty;
+	        my (aty, rty) =  hcf::unpack_lambdacode_arrow_uniqtype          body;
+
+		hcf::make_lambdacode_typeagnostic_uniqtype
+                  ( ks,
+		    hcf::make_arrow_uniqtype
+		      (
+			hcf::rawraw_variable_calling_convention,
+			[ m2m::ltc_raw  aty ],
+			[ m2m::ltc_raw  rty ]
+		      )
+                  );
+	    else 
+	        my (aty, rty)
+		    =
+		    hcf::unpack_lambdacode_arrow_uniqtype  pty;
+
+		hcf::make_arrow_uniqtype
+		  (
+		    hcf::rawraw_variable_calling_convention,
+		    [ m2m::ltc_raw  aty ],
+		    [ m2m::ltc_raw  rty ]
+		  );
+
+	    fi;					#  function force_raw 
+
+	fun to_con  con
+            =
+	    case con
+		#
+		lcf::INT_CASETAG     x =>  acf::INT_CASETAG     x;
+		lcf::INT32_CASETAG   x =>  acf::INT32_CASETAG   x;
+		lcf::UNT_CASETAG     x =>  acf::UNT_CASETAG     x;
+		lcf::UNT32_CASETAG   x =>  acf::UNT32_CASETAG   x;
+		lcf::FLOAT64_CASETAG x =>  acf::FLOAT64_CASETAG x;
+		lcf::STRING_CASETAG  x =>  acf::STRING_CASETAG  x;
+		lcf::VLEN_CASETAG    x =>  acf::VLEN_CASETAG    x;
+		#
+		lcf::INTEGER_CASETAG _ =>  bug "INTEGER_CASETAG" ;
+		lcf::VAL_CASETAG     x =>  bug "unexpected case in to_con";
+	    esac;
+
+	fun to_fun_dec
+	      ( venv,				# Maps highcode variables to types;  initially empty.
+		d,				# Debruijn depth;  initially di::top.
+		f_lv,				# Fresh variable.
+		arg_lv,				# Arg to function.
+		arg_lty,			# Type of arg to function.
+		body,				# Body of function.
+		loop_info			# Initially FALSE.
+	      )
+            =
+	    {   # First, we translate the body
+                # (in the extended dictionary):
+		# 
+		my (body', body_lty)
+                    =
+		    to_lexp (hcf::set_uniqtype_for_var (venv, arg_lv, arg_lty, d), d)
+                            body;
+
+		# Detuple the arg type:
+		# 
+		(m2m::v_punflatten  arg_lty)
+		    ->
+		    ((arg_is_raw, arg_ltys, _), unflatten);
+                    
+
+		# Add tupling code at the beginning of the body:
+		# 
+		(unflatten (arg_lv, body'))
+		    ->
+		    (arg_lvs, body'');
+
+		# Construct the return type if necessary:
+		# 
+		(m2m::t_pflatten  body_lty)
+		    ->
+                    (body_is_raw, body_ltys, _);
+
+		rettype = if (not loop_info)  NULL;
+			  else                THE (map m2m::ltc_raw body_ltys, acf::OTHER_LOOP);
+                          fi;
+
+		my (f_lty, fkind)
+                    =
+		    if (hcf::uniqtype_is_typ arg_lty and hcf::uniqtype_is_typ body_lty) 
+
+			# A function:
+			#
+			( hcf::make_lambdacode_arrow_uniqtype (arg_lty, body_lty),
+
+			  { loop_info         =>  rettype,
+                            all_callers_known =>  FALSE,
+                            inlining_hint     =>  acf::INLINE_IF_SIZE_SAFE,
+			    call_as           =>  acf::CALL_AS_FUNCTION (hcf::make_variable_calling_convention { arg_is_raw, body_is_raw })
+                          }
+                        );
+		    else 
+			# A generic package:
+			# 
+			( hcf::make_lambdacode_generic_package_uniqtype (arg_lty, body_lty),
+
+			  { loop_info         =>  rettype,
+                            all_callers_known =>  FALSE,
+                            inlining_hint     =>  acf::INLINE_IF_SIZE_SAFE,
+			    call_as           =>  acf::CALL_AS_GENERIC_PACKAGE
+                          }
+                        );
+                    fi;
+
+	        ( (fkind, f_lv, paired_lists::zip (arg_lvs, map m2m::ltc_raw arg_ltys), body''),
+		  f_lty
+                );
+	    }
+
+
+	# Translate expressions whose structure is the same
+	# in Anormcode as in lambdacode (either both naming or both non-naming)
+	# a fate is unnecessary:
+	#
+	also
+        fun to_lexp (venv, d) lambda_expression
+            =
+	    {   fun default_to_values ()
+                    =
+		    to_values
+                      ( venv,
+                        d,
+                        lambda_expression,
+			fn (vals, lambda_type)
+                            =
+			    (acf::RET vals, lambda_type)
+                      );
+
+		case lambda_expression
+		    #
+		    lcf::APPLY (lcf::BASEOP _, arg) => default_to_values();
+		    lcf::APPLY (lcf::GENOP  _, arg) => default_to_values();
+
+		    lcf::APPLY (lcf::FN (arg_lv, arg_lty, body), arg_le)
+                        =>
+			to_lexp (venv, d) (lcf::LET (arg_lv, arg_le, body));
+
+		    lcf::APPLY (f, arg)
+                        =>
+			# First, evaluate f to a mere value:
+                        # 
+			to_value
+                          ( venv,
+                            d,
+                            f,
+			    fn (f_val, f_lty)
+                                =
+				# Then evaluate the argument:
+				#
+				to_values
+                                  ( venv,
+                                    d,
+                                    arg,
+				    fn (arg_vals, arg_lty)
+                                        =
+					# Now find the return type:
+					#
+					{   my (_, r_lty)
+                                                = 
+					        hcf::uniqtype_is_lambdacode_generic_package  f_lty
+                                                    ??  hcf::unpack_lambdacode_generic_package_uniqtype    f_lty
+					            ::  hcf::unpack_lambdacode_arrow_uniqtype  f_lty;
+
+					    # And finally do the call:
+					    # 
+					    (acf::APPLY (f_val, arg_vals), r_lty);
+					}
+                                  )
+                          );
+
+		    lcf::MUTUALLY_RECURSIVE_FNS (lvs, ltys, lexps, lambda_expression)
+                        =>
+			# First, let's set up the enriched
+                        # dictionary with those funs:
+			#
+			{   venv' = paired_lists::fold_left
+					(fn (lv, lambda_type, ve) = hcf::set_uniqtype_for_var (ve, lv, lambda_type, d))
+					venv
+					(lvs, ltys);
+
+			     fun map3 _ ([], _, _) => [];
+				 map3 _ (_, [], _) => [];
+				 map3 _ (_, _, []) => [];
+
+				 map3 f (x ! xs, y ! ys, z ! zs)
+                                     =>
+				     f (x, y, z) ! map3 f (xs, ys, zs);
+                             end;
+
+			     # Then translate each function in turn:
+			     #	 
+			     funs = map3  fn (f_lv, f_lty, lcf::FN (arg_lv, arg_lty, body))
+						 =>
+						 #1 (to_fun_dec (venv', d, f_lv, arg_lv, arg_lty, body, TRUE));
+
+					       _ =>
+                                                 bug "non-function in lcf::MUTUALLY_RECURSIVE_FNS";
+                                          end
+
+					  (lvs, ltys, lexps);
+
+			     # Finally, translate the Lambdacode_Expression:
+			     #
+			     my (lambda_expression', lambda_type)
+                                 =
+                                 to_lexp (venv', d) lambda_expression;
+
+			     ( acf::MUTUALLY_RECURSIVE_FNS (funs, lambda_expression'),
+                               lambda_type
+                             );
+			 };
+
+		    lcf::LET (highcode_variable, lambda_expression1, lambda_expression2)
+                        =>
+			to_lvar
+                          ( venv,
+                            d,
+                            highcode_variable,
+                            lambda_expression1,
+			    fn lambda_type1
+                                =
+			        to_lexp
+                                  ( hcf::set_uniqtype_for_var (venv, highcode_variable, lambda_type1, d),
+                                    d
+                                  )
+                                  lambda_expression2
+                          );
+
+		    lcf::RAISE (le, r_lty)
+                        => 
+			to_value
+                          ( venv,
+                            d,
+                            le,
+			    fn (le_val, le_lty)
+                                =
+				{   my (_, r_ltys, _)
+                                        =
+                                        m2m::t_pflatten r_lty;
+
+				    ( acf::RAISE (le_val, map m2m::ltc_raw r_ltys),
+                                      r_lty
+                                    );
+				}
+                          );
+
+		    lcf::EXCEPT (body, handler)
+                        =>
+			to_value
+                          ( venv,
+                            d,
+                            handler,
+			    fn (h_val, h_lty)
+                                =
+				{   my (body', body_lty)
+                                        =
+                                        to_lexp (venv, d) body;
+
+				    (acf::EXCEPT (body', h_val), body_lty);
+				}
+                          );
+
+		    lcf::SWITCH (le, acs,[], NULL)
+                        => bug "unexpected case in lcf::SWITCH";
+			 #  to_value (venv, d, le, fn _ = (acf::RET[], [])) 
+
+		    lcf::SWITCH (le, acs,[], THE lambda_expression)
+                        =>
+			to_value
+                          ( venv,
+                            d,
+                            le,
+                            fn (v, lambda_type)
+                                =
+                                to_lexp
+                                  (venv, d)
+                                  lambda_expression
+                          );
+
+		    lcf::SWITCH (le, acs, conlexps, default)
+                        =>
+			{   fun f (lcf::VAL_CASETAG((s, cr, lambda_type), typs, highcode_variable), le)
+                                    =>
+				    {   my (lv_lty, _)
+                                            =
+                                            hcf::unpack_lambdacode_arrow_uniqtype
+                                              (hcf::apply_typeagnostic_type_to_arglist_with_single_result
+                                                  (lambda_type, typs)
+                                              );
+
+				        newvenv = hcf::set_uniqtype_for_var (venv, highcode_variable, lv_lty, d);
+
+				        my (le, le_lty)
+                                            =
+                                            to_lexp (newvenv, d) le;
+
+				        ( ( acf::VAL_CASETAG
+                                              ( (s, cr, force_raw  lambda_type),
+						map m2m::tcc_raw  typs,
+                                                highcode_variable
+                                              ),
+				            le
+                                          ),
+				          le_lty
+                                        );
+				    };
+
+				f (con, le)
+                                    =>
+				    {   (to_lexp (venv, d) le) ->   (lambda_expression, lambda_type);
+					#
+				        ((to_con con, lambda_expression), lambda_type);
+				    };
+                            end;
+
+			    to_value
+                              ( venv,
+                                d,
+                                le,
+				fn (v, lambda_type)
+                                    =
+				    {   default  = null_or::map (#1 o to_lexp (venv, d)) default;
+					conlexps = map f conlexps;
+					lambda_type = #2 (list::head conlexps);
+				        (acf::SWITCH (v, acs, map #1 conlexps, default), lambda_type);
+				    }
+                              );
+		       };
+
+		    # For mere values, use to_values:
+		    # 
+		    _ => default_to_values ();
+
+                esac;
+	    }
+
+
+	# tovalue: turns a lambdacode Lambdacode_Expression into a value+type and then calls
+	# the fate that will turn it into an Anormcode Lambdacode_Expression+type
+	# (ltyenv * debruijn_index * lcf::Lambdacode_Expression * ((value * Uniqtype) -> (acf::Lambdacode_Expression * Uniqtype list))) -> (acf::Lambdacode_Expression * Uniqtype)
+	# 
+	# - venv is the type dictionary for values
+	# - conts is the fate
+	#
+	also
+        fun to_value (venv, d, lambda_expression, fate)
+            =
+	    {   case lambda_expression
+                  
+		      # For simple values, it's trivial:
+		      #	 
+		      lcf::VAR v
+                          =>
+                          fate (acf::VAR v, hcf::get_uniqtype_for_var (venv, v, d));
+
+		      lcf::INT i
+                          => 
+			  {   i+i+2;					# Maybe trigger OVERFLOW exception.
+			      fate (acf::INT i, hcf::int_uniqtype);
+			  }
+			  except
+			      OVERFLOW
+				  =
+				  {   z  = i / 2;
+				      ne = lcf::APPLY (iadd_prim, lcf::RECORD [lcf::INT z, lcf::INT (i-z)]);
+				      to_value (venv, d, ne, fate);
+				  };
+
+
+		      lcf::UNT i
+                          => 
+			  {   max_unt = 0ux20000000;
+
+			      if (unt::(<) (i, max_unt))
+				  #
+				  fate (acf::UNT i, hcf::int_uniqtype);
+			      else
+				  x1 = unt::(/) (i, 0u2);
+				  x2 = unt::(-) (i, x1);
+
+				  ne = lcf::APPLY (uadd_prim, lcf::RECORD [lcf::UNT x1, lcf::UNT x2]);
+
+				  to_value (venv, d, ne, fate);
+			      fi;
+			  };
+
+		      lcf::INT32   n =>  fate (acf::INT32   n, hcf::int32_uniqtype);
+		      lcf::UNT32   n =>  fate (acf::UNT32   n, hcf::int32_uniqtype);
+		      lcf::FLOAT64 x =>  fate (acf::FLOAT64 x, hcf::float64_uniqtype);
+		      lcf::STRING  s =>  fate (acf::STRING  s, hcf::string_uniqtype);
+
+		      # For cases where to_lvar is more convenient:
+		      #	 
+		      _   => 
+			  {   lv = make_var();
+			      to_lvar
+                                ( venv,
+                                  d,
+                                  lv,
+                                  lambda_expression,
+                                  fn lambda_type
+                                      =
+                                      fate (acf::VAR lv, lambda_type)
+                                );
+			  };
+                esac;
+	    }
+
+
+
+	# to_values: turns a lambdacode Lambdacode_Expression into a list of values and a list of types
+	# and then calls the fate that will turn it into an Anormcode Lambdacode_Expression+type
+	#
+	# (ltyenv * debruijn_index * lcf::Lambdacode_Expression * ((value list * Uniqtype list) -> (acf::Lambdacode_Expression * Uniqtype list))) -> (acf::Lambdacode_Expression * Uniqtype)
+	# 
+	# - venv is the type dictionary for values
+	# - fate is the fate
+	#
+	also
+        fun to_values (venv, d, lambda_expression, fate)
+            =
+	    {   1;
+
+		case lambda_expression   
+
+		    lcf::RECORD  lexps
+                        =>
+		        lexps2values
+                          ( venv,
+                            d,
+                            lexps,
+			    fn (vals, ltys)
+                                =
+				{   lambda_type = hcf::make_tuple_uniqtype ltys;
+
+				    my (_, ltys, _)
+                                        =
+                                        m2m::t_pflatten lambda_type;
+
+				    # Detect the case where
+                                    # flattening is trivial:
+				    # 
+				    if (hcf::same_uniqtype (lambda_type, hcf::make_tuple_uniqtype ltys) )
+
+					fate (vals, lambda_type);
+				    else
+					lv = make_var();
+
+					my (_, pflatten)   = m2m::v_pflatten lambda_type; 
+					my (vs, wrap)      = pflatten (acf::VAR lv);
+					my (c_lexp, c_lty) = fate (vs, lambda_type);
+
+					( acf::RECORD (acj::rk_tuple, vals, lv, wrap c_lexp),
+					  c_lty
+                                        );
+				    fi;
+				}
+                          );
+
+		    _   =>
+                        to_value
+                          ( venv,
+                            d,
+                            lambda_expression,
+			    fn (v, lambda_type)
+                                =
+				{   my (vs, wrap)
+                                        =
+                                        (#2 (m2m::v_pflatten lambda_type))  v;
+
+				    my (c_lexp, c_lty)
+                                        =
+                                        fate (vs, lambda_type);
+
+				 (wrap c_lexp, c_lty);
+				}
+                          );
+                esac;
+	    }
+
+	# Evaluate each lambda_expression
+        # to a value:
+        # 
+	also
+        fun lexps2values (venv, d, lexps, fate)
+            =
+	    f lexps ([], [])
+            where
+
+		fun f [] (vals, ltys)
+                        =>
+                        fate (reverse vals, reverse ltys);
+
+		    f (lambda_expression ! lexps) (vals, ltys)
+                        =>
+		        to_value
+                          ( venv,
+                            d,
+                            lambda_expression,
+			    fn (v, lambda_type)
+                                =
+			        f lexps (v ! vals, lambda_type ! ltys)
+                          );
+                end;
+	    end
+
+
+	# to_lvar: Same as to_value except that
+        # it binds the value of the lambdacode
+	# to the indicated Variable
+        # and passes just the type to the continutation:
+	#
+	also
+        fun to_lvar
+               ( venv,
+                 d,
+                 highcode_variable,
+                 lambda_expression,
+                 fate
+               )
+            =
+	    {   fun eta_expand (f, f_lty)					# "eta-expansion" is the conversion   f   ->   fn x = f(x)
+                    =								# E.g., we do this to baseops because they are not legal function values in anormcode (unlike lambdacode).
+		    {   lv = make_var();
+
+			my (arg_lty, ret_lty)					# Arg type and return type of 'f'.
+                            =
+                            (hcf::unpack_lambdacode_arrow_uniqtype f_lty);
+
+		        to_lvar
+                          ( venv,
+                            d,
+                            highcode_variable,
+			    lcf::FN (lv, arg_lty, lcf::APPLY (f, lcf::VAR lv)),
+			    fate
+                          );
+		    };
+
+		# inbetween to_lvar and to_value:
+                # it binds the lambda_expression
+                # to a variable but is free to choose
+                # the Variable and passes
+                # it to the continutation:
+		#
+		fun to_lvarvalue (venv, d, lambda_expression, fate)
+                    =
+		    to_value
+                      ( venv,
+                        d,
+                        lambda_expression,
+			fn (v, lambda_type)
+                            =
+			    case v
+				#
+				acf::VAR lv
+                                    =>
+                                    fate (lv, lambda_type);
+
+			        _   =>
+                                    {   lv = make_var();
+
+					my (lambda_expression', lambda_type)
+                                            =
+                                            fate (lv, lambda_type);
+
+				        (acf::LET ([lv], acf::RET [v], lambda_expression'), lambda_type);
+				    };
+                            esac
+                      );
+
+		fun baseop_helper (arg, f_lty, typs, filler)
+                    =
+		    # Invariants: baseop's
+                    # types are always fully closed:
+		    # 
+		    {   # pty is the resulting highcode type of the underlying baseop,
+			# r_lty is the result lambdacode type of this baseop expression,
+			# and flat indicates whether we should flatten the arguments or not.
+                        # The results of baseops are never flattened.
+			#
+			my (pty, r_lty, flat)
+                            = 
+			    case (hcf::uniqtype_is_lambdacode_typeagnostic f_lty, typs) 
+				#
+			        (TRUE, _)		# Typeagnostic case.
+                                    => 
+				    {   my (ks,  lt ) =  hcf::unpack_lambdacode_typeagnostic_uniqtype   f_lty;
+				        my (aty, rty) =  hcf::unpack_lambdacode_arrow_uniqtype  lt;
+
+				        r_lty
+                                            = 
+				            hcf::apply_typeagnostic_type_to_arglist_with_single_result
+                                              ( hcf::make_lambdacode_typeagnostic_uniqtype (ks, rty),
+                                                typs
+                                              );
+
+				        my (_, atys, flat) = m2m::t_pflatten aty; 
+
+					# You really want to have a simpler
+					# flattening heuristics here; in fact,
+					# baseop can have its own flattening
+					# strategy. The key is that baseop's 
+					# type never escape outside.
+
+					atys =  map  m2m::ltc_raw  atys;
+
+					nrty =  m2m::ltc_raw rty;
+
+					pty  =  hcf::make_arrow_uniqtype
+						  (
+						    hcf::rawraw_variable_calling_convention,
+						    atys,
+						    [ nrty ]
+						  );
+
+				        ( hcf::make_lambdacode_typeagnostic_uniqtype (ks, pty),
+                                          r_lty,
+                                          flat
+                                        );
+				    };
+
+			        (FALSE, [])		# Typelocked case.
+				    =>
+				    {   my (aty,     rty ) =  hcf::unpack_lambdacode_arrow_uniqtype  f_lty;
+
+				        my (_, atys, flat) =  m2m::t_pflatten  aty;
+
+					atys =  map  m2m::ltc_raw  atys;
+
+					nrty =  m2m::ltc_raw  rty;
+
+					pty  =  hcf::make_arrow_uniqtype
+						  (
+						    hcf::rawraw_variable_calling_convention,
+						    atys,
+						    [nrty]
+						  );
+
+				        (pty, rty, flat);
+				    };
+
+			        _ => bug "unexpected case in baseop_helper";
+                            esac;
+
+		      if flat 
+			  #
+			  # ZHONG asks: is the following definitely safe ?
+			  # what would happen if ltc_raw is not an identity function ?
+			  #
+			  to_values
+                            ( venv,
+                              d,
+                              arg,
+			      fn (arg_vals, arg_lty)
+                                  =
+				  {   my (c_lexp, c_lty)
+                                          =
+                                          fate (r_lty);
+
+				      # Put the filling inbetween:
+				      #	 
+				      (filler (arg_vals, pty, c_lexp), c_lty);
+				  }
+                            );  
+		      else 
+			  to_value
+                            ( venv,
+                              d,
+                              arg,
+			      fn (arg_val, arg_lty)
+                                  =
+				  {   my (c_lexp, c_lty)
+                                          =
+                                          fate (r_lty);
+
+				      # Put the filling inbetween:
+				      #	
+				      (filler([arg_val], pty, c_lexp), c_lty);
+				  }
+                            );
+                      fi;   
+		    };			# fun baseop_helper 
+
+		fun default_tolexp ()
+                    =
+		    {   my (lambda_expression', lambda_type)
+                            =
+                            to_lexp (venv, d) lambda_expression;
+
+			my (c_lexp, c_lty) =  fate (lambda_type);
+			my (_, punflatten) =  m2m::v_punflatten lambda_type; 
+			my (lvs, c_lexp' ) =  punflatten (highcode_variable, c_lexp);
+
+		        (acf::LET (lvs, lambda_expression', c_lexp'), c_lty);
+		    };
+
+	#       fun default_to_value ()
+        #           = 
+	#           to_value
+        #             ( venv,
+        #               d,
+        #               lambda_expression, 
+	#               fn (v, lambdaType)
+        #                   => 
+	#                   let my (lambda_expression', ltys) = fate (lambdaType) 
+	#                   in (acf::LET([highcode_variable], acf::RET[v], lambda_expression'), ltys) 
+	#                   end) 
+
+	    
+                case lambda_expression
+		    #
+		    # baseops have to be eta-expanded since they're not valid
+		    # function values anymore in Anormcode
+
+		    lcf::BASEOP   (_, lambda_type, typs) =>  eta_expand (lambda_expression, hcf::apply_typeagnostic_type_to_arglist_with_single_result (lambda_type, typs));
+		    lcf::GENOP (_, _, lambda_type, typs) =>  eta_expand (lambda_expression, hcf::apply_typeagnostic_type_to_arglist_with_single_result (lambda_type, typs));
+
+		    lcf::FN (arg_lv, arg_lty, body)
+			=>
+			# Translate the body with the extended 
+			# dictionary into a Function_Declaration:
+			#
+			{   my (function_declaration as (fk, f_lv, args, body'), f_lty)
+				=
+				to_fun_dec (venv, d, highcode_variable, arg_lv, arg_lty, body, FALSE);
+
+			    my (lambda_expression, lambda_type)
+				=
+				fate  f_lty;
+
+			    ( acf::MUTUALLY_RECURSIVE_FNS ( [function_declaration], lambda_expression),
+			      lambda_type
+			    );
+			};
+
+		    # This is were we really deal with baseops:
+		    # 
+		    lcf::APPLY  (lcf::BASEOP (baseop, f_lty, typs),  arg)
+			=>
+			baseop_helper
+			  ( arg,
+			    f_lty,
+			    typs,
+			    fn (arg_vals, pty, c_lexp)
+				=
+				highcode_baseop
+				  ( (NULL, baseop, pty, map m2m::tcc_raw typs),
+				    arg_vals,
+				    highcode_variable,
+				    c_lexp
+				  )
+			  );
+
+		    lcf::APPLY (lcf::GENOP( { default, table }, baseop, f_lty, typs), arg)
+			=>
+			{   fun f ([], table, fate)
+				    =>
+				    fate (table);
+
+				f ((typs, le) ! t1, t2, fate)
+				    =>
+				    to_lvarvalue
+				      ( venv,
+					d,
+					le,
+					fn (le_lv, le_lty)
+					    =
+					    f (t1, (map m2m::tcc_raw typs, le_lv) ! t2, fate)
+				      );
+			    end;
+
+			    # First, evaluate default:
+			    # 
+			    to_lvarvalue
+			      ( venv,
+				d,
+				default,
+				fn (default_lv, default_lty)
+				    =
+				    # Then evaluate the table:
+				    # 
+				    f ( table,
+					[],
+					fn table'
+					    =
+					    baseop_helper
+					      ( arg,
+						f_lty,
+						typs,
+						fn (arg_vals, pty, c_lexp)
+						    =
+						    highcode_baseop
+						      ( ( THE { default => default_lv, 
+								table   => table'
+							      },
+							  baseop,
+							  pty, 
+							  map m2m::tcc_raw typs
+							),
+							arg_vals,
+							highcode_variable,
+							c_lexp
+						      )
+					      )
+				      )
+			      );
+			};
+
+
+		    lcf::TYPEFUN (tks, body)
+			=>
+			{   my (body', body_lty)
+				=
+				to_value
+				  ( venv,
+				    di::next d,
+				    body, 
+				    fn (le_val, le_lty)
+					=
+					(acf::RET [le_val], le_lty)
+				  );
+
+			    lambda_type = hcf::make_lambdacode_typeagnostic_uniqtype (tks, body_lty);
+
+			    my (lambda_expression', lambda_type)
+				=
+				fate (lambda_type);
+
+			    args = map  (fn tk = (make_var(), tk))  tks;
+
+			    ( acf::TYPEFUN
+				( ( { inlining_hint => acf::INLINE_IF_SIZE_SAFE },
+				    highcode_variable,
+				    args,
+				    body'
+				  ),
+				  lambda_expression'
+				),
+			      lambda_type
+			    );
+			};
+
+		    lcf::APPLY_TYPEFUN (f, typs)
+			=>
+			# Similar to APPLY:
+			# 
+			to_value
+			  ( venv,
+			    d,
+			    f,
+			    fn (f_val, f_lty)
+				=
+				{   f_lty = hcf::apply_typeagnostic_type_to_arglist_with_single_result
+						(f_lty, typs);
+
+				    my (c_lexp, c_lty)
+					=
+					fate (f_lty);
+
+				    ( acf::LET( [highcode_variable],
+					      acf::APPLY_TYPEFUN (f_val,  map  m2m::tcc_raw  typs),
+					      c_lexp
+					    ),
+				      c_lty
+				    );
+				}
+			  );
+
+		    lcf::EXCEPTION_TAG (le, lambda_type)
+			=>
+			to_value
+			  ( venv,
+			    d,
+			    le,
+			    fn (le_lv, le_lty)
+				=
+				{   my (c_lexp, c_lty)
+					=
+					fate (hcf::make_exception_tag_uniqtype lambda_type);
+
+				    make_exception_tag = acj::make__make_exception_tag (m2m::tcc_raw (hcf::unpack_typ_uniqtype lambda_type));
+
+				    ( highcode_baseop (make_exception_tag, [le_lv], highcode_variable, c_lexp),
+				      c_lty
+				    );
+				}
+			  );
+
+		    lcf::CONSTRUCTOR ((s, cr, lambda_type), typs, le)
+			=>
+			to_value
+			  ( venv,
+			    d,
+			    le,
+			    fn (v, _)
+				=
+				{   r_lty = hcf::apply_typeagnostic_type_to_arglist_with_single_result
+						(lambda_type, typs);
+
+				    my (_,      v_lty) =   hcf::unpack_lambdacode_arrow_uniqtype  r_lty;
+				    my (c_lexp, c_lty) =   fate            v_lty;
+
+				    ( acf::CONSTRUCTOR
+					( (s, cr, force_raw lambda_type),
+					  map m2m::tcc_raw typs,
+					  v,
+					  highcode_variable,
+					  c_lexp
+					),
+
+				      c_lty
+				    );
+				}
+			   );
+
+		    lcf::VECTOR (lexps, typ)
+			=>
+			lexps2values
+			  ( venv,
+			    d,
+			    lexps,
+			    fn (vals, ltys)
+				=
+				{   lambda_type
+					=
+					hcf::make_typ_uniqtype  (hcf::make_ro_vector_uniqtyp  typ);
+
+				    my (c_lexp, c_lty)
+					=
+					fate (lambda_type);
+
+				    ( acf::RECORD
+					( acf::RK_VECTOR (m2m::tcc_raw typ),
+					  vals,
+					  highcode_variable,
+					  c_lexp
+					),
+					c_lty
+				    );
+				}
+			  );
+
+		    lcf::RECORD lexps
+			=>
+			lexps2values
+			  ( venv,
+			    d,
+			    lexps,
+			    fn (vals, ltys)
+				=
+				{   lambda_type = hcf::make_tuple_uniqtype ltys;
+
+				    my (c_lexp, c_lty)
+					=
+					fate (lambda_type);
+
+				    (acf::RECORD (acj::rk_tuple, vals, highcode_variable, c_lexp), c_lty);
+				}
+			  );
+
+		    lcf::PACKAGE_RECORD lexps
+			=>
+			lexps2values
+			  ( venv,
+			    d,
+			    lexps,
+			    fn (vals, ltys)
+				=
+				{   lambda_type = hcf::make_package_uniqtype (ltys);
+
+				    my (c_lexp, c_lty)
+					=
+					fate  lambda_type;
+
+				    ( acf::RECORD
+					( acf::RK_PACKAGE,
+					  vals,
+					  highcode_variable,
+					  c_lexp
+					),
+
+				      c_lty
+				    );
+				}
+			  );
+
+		    lcf::SELECT (n, lambda_expression)
+			=>
+			to_value
+			  ( venv,
+			    d,
+			    lambda_expression,
+			    fn (v, lambda_type)
+				=
+				{   lambda_type =  (hcf::lt_select (lambda_type, n));
+
+				    my (c_lexp, c_lty)
+					=
+					fate  lambda_type;
+
+				    ( acf::SELECT (v, n, highcode_variable, c_lexp),
+				      c_lty
+				    );
+				}
+			  );
+
+		    lcf::PACK (lambda_type, otyps, ntyps, lambda_expression)
+			=>
+			bug "PACK is not currently supported";
+
+	    /*
+			to_value (venv, d, lambda_expression,
+				fn (v, v_lty) =>
+				let nlty = hcf::pmacroExpandPolymorephicLambdaTypeOrHOC (lambdaType, ntyps)
+				    my (c_lexp, c_lty) = fate (nlty)
+				in (acf::PACK (lambdaType,
+					   map m2m::tcc_raw otyps,
+					   map m2m::tcc_raw ntyps,
+					   v, highcode_variable, c_lexp),
+				    c_lty)
+				end)
+	    */
+
+		  #  these ones shouldn't matter because they shouldn't appear 
+	    #        | lcf::WRAP _ => bug "unexpected WRAP in plambda" 
+	    #        | lcf::UNWRAP _ => bug "unexpected UNWRAP in plambda" 
+
+		    _ => default_tolexp ();
+                esac;
+	    };
+
+	# We get invoked (only) from:
+	#
+	#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+	fun translate_lambdacode_to_anormcode (lambda_expression as lcf::FN (arg_lv, arg_lty, e))
+		=>
+		#1 (to_fun_dec (hcf::empty_highcode_variable_to_uniqtype_map, di::top, make_var(), arg_lv, arg_lty, e, FALSE))
+		except
+                    x = raise exception x;
+
+	    translate_lambdacode_to_anormcode _
+                =>
+                bug "unexpected toplevel Lambdacode_Expression";
+        end;
+    };					# package translate_lambdacode_to_anormcode 
+end;					# toplevel stipulate 
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1997 YALE FLINT PROJECT 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

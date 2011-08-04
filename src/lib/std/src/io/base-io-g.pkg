@@ -1,0 +1,564 @@
+## base-io-g.pkg
+
+# Compiled by:
+#     src/lib/std/src/standard-core.sublib
+
+# The below generic gets invoked in:
+#
+#     src/lib/std/src/io/text-base-io.pkg
+#     src/lib/std/src/io/binary-base-io.pkg
+
+generic package   base_io_g   (
+    #
+    package vector:          Typelocked_Vector;			# Typelocked_Vector		is from   src/lib/std/src/typelocked-vector.api
+    package vector_slice:    Typelocked_Vector_Slice;			# Typelocked_Vector_Slice	is from   src/lib/std/src/typelocked-vector-slice.api
+    package rw_vector:       Typelocked_Rw_Vector;			# Typelocked_Rw_Vector		is from   src/lib/std/src/typelocked-rw-vector.api
+    package rw_vector_slice: Typelocked_Rw_Vector_Slice;		# Typelocked_Rw_Vector_Slice	is from   src/lib/std/src/typelocked-rw-vector-slice.api
+
+	sharing vector::Element == vector_slice::Element == rw_vector::Element == rw_vector_slice::Element;
+	sharing vector::Vector  == vector_slice::Vector  == rw_vector::Vector  == rw_vector_slice::Vector;
+
+	sharing vector_slice::Slice  == rw_vector_slice::Vector_Slice;
+	sharing rw_vector::Rw_Vector == rw_vector_slice::Rw_Vector;
+
+    eqtype File_Position;
+
+    some_element:  vector::Element;
+    compare:       (File_Position, File_Position) -> Order;
+
+)
+:
+Base_Io				# Base_Io	is from   src/lib/std/src/io/base-io.api
+        where  Element == vector::Element
+        where  Vector == vector::Vector
+	where  Vector_Slice == vector_slice::Slice
+	where  Rw_Vector == rw_vector::Rw_Vector
+	where  Rw_Vector_Slice == rw_vector_slice::Slice
+	where  File_Position == File_Position
+=
+package {
+
+    package a  = rw_vector;		# rw_vector		is from   src/lib/std/src/rw-vector.pkg
+    package rs = rw_vector_slice;	# rw_vector_slice	is from   src/lib/std/src/rw-vector-slice.pkg
+    package v  = vector;		# vector		is from   src/lib/std/src/vector.pkg
+    package vs = vector_slice;		# vector_slice		is from   src/lib/std/src/vector-slice.pkg
+
+    Element =  a::Element;
+    Vector  =  v::Vector;
+
+    Vector_Slice    =  vs::Slice;
+    Rw_Vector       =  a::Rw_Vector;
+    Rw_Vector_Slice =  rs::Slice;
+
+    File_Position = File_Position;
+
+    compare = compare;
+
+    Reader = READER {
+	       name:         String,
+	       chunk_size:   Int,
+
+	       read_vector:			Null_Or( Int -> Vector ),
+	       read_rw_vector:			Null_Or( Rw_Vector_Slice -> Int ),
+
+	       read_vector_nonblocking:		Null_Or( Int -> Null_Or( Vector ) ),
+	       read_rw_vector_nonblocking:	Null_Or( Rw_Vector_Slice -> Null_Or( Int ) ),
+
+	       block:        			Null_Or( Void -> Void ),
+	       can_read:    			Null_Or( Void -> Bool ),
+
+	       avail:        			Void -> Null_Or( Int ),
+
+	       get_position:      Null_Or( Void -> File_Position ),
+	       set_position:      Null_Or( File_Position -> Void ),
+	       end_position:      Null_Or( Void -> File_Position ),
+	       verify_position:   Null_Or( Void -> File_Position ),
+
+	       close:             Void -> Void,
+
+	       io_descriptor:     Null_Or( winix_types::io::Io_Descriptor )
+	     };
+
+    Writer = WRITER {
+	       name:          String,
+	       chunk_size:    Int,
+
+	       write_vector:                 Null_Or( Vector_Slice -> Int ),
+	       write_rw_vector:              Null_Or( Rw_Vector_Slice -> Int ),
+	       write_vector_nonblocking:     Null_Or( Vector_Slice -> Null_Or( Int ) ),
+	       write_rw_vector_nonblocking:  Null_Or( Rw_Vector_Slice -> Null_Or( Int ) ),
+
+	       block:                        Null_Or( Void -> Void ),
+	       can_output:                   Null_Or( Void -> Bool ),
+
+	       get_position:       Null_Or( Void -> File_Position ),
+	       set_position:       Null_Or( File_Position -> Void ),
+	       end_position:       Null_Or( Void -> File_Position ),
+	       verify_position:    Null_Or( Void -> File_Position ),
+
+	       close:              Void -> Void,
+	       io_descriptor:      Null_Or( winix_types::io::Io_Descriptor )
+	     };
+
+    fun blocking_operation  (f, block)  x
+        =
+        {   block ();
+
+            null_or::the (f x);
+        };
+
+
+    fun nonblocking_operation (read, can_read) x
+        =
+	if   (can_read())   THE (read x);
+        else                NULL;
+        fi;
+
+    fun augment_reader (READER rd)
+        =
+        {
+	    fun readrw_to_readro readrw n
+                =
+                {   a = a::make_rw_vector (n, some_element);
+		    n = readrw (rs::make_full_slice a);
+
+		    rs::to_vector (rs::make_slice (a, 0, THE n));
+		};
+
+	    fun readrw_to_readro_nb readrw_nb n
+                =
+                {   a = a::make_rw_vector (n, some_element);
+
+		    case (readrw_nb (rs::make_full_slice a))
+		      
+		         THE n' =>  THE (rs::to_vector (rs::make_slice (a, 0, THE n')));
+		         NULL   =>  NULL;
+                    esac;  
+		};
+
+	    fun readro_to_readrw readro asl
+                =
+                {   my (a, start, nelems) = rs::base asl;
+		    v = readro nelems;
+		    len = v::length v;
+
+		    a::copy_vec { to=>a, di=>start, from=>v };
+		    len;
+		};
+
+	    fun readro_to_readrw_nb readro_nb asl
+                =
+                {   my (a, start, nelems)
+                        =
+                        rs::base asl;
+
+		    case (readro_nb nelems)
+		      
+		          THE v
+                              =>
+                              {   len = v::length v;
+
+			          a::copy_vec { to=>a, di=>start, from=>v };
+			          THE len;
+			      };
+
+		          NULL => NULL;
+		    esac;
+	        };
+
+	    read_vector'
+                =
+                case rd
+		  
+		     { read_vector    => THE f, ... } =>  THE f;
+		     { read_rw_vector => THE f, ... } =>  THE (readrw_to_readro f);
+
+		     { read_vector_nonblocking => THE f, block=>THE b, ... }
+                         =>
+			 THE (blocking_operation (f, b));
+
+		     { read_rw_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+			 THE (blocking_operation (readrw_to_readro_nb f, b));
+
+		     _ => NULL;
+                esac;
+
+
+	    read_rw_vector'
+                =
+                case rd
+		  
+		     { read_rw_vector => THE f, ... } =>  THE f;
+		     { read_vector    => THE f, ... } =>  THE (readro_to_readrw f);
+
+		     { read_rw_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+			 THE (blocking_operation (f, b));
+
+		     { read_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+			 THE (blocking_operation (readro_to_readrw_nb f, b));
+
+		     _ => NULL;
+                esac;
+
+
+	    read_vector_nonblocking'
+                =
+                case rd
+		  
+		     { read_vector_nonblocking    => THE f, ... } =>  THE f;
+		     { read_rw_vector_nonblocking => THE f, ... } =>  THE (readrw_to_readro_nb f);
+
+		     { read_vector=>THE f, can_read=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (f, can));
+
+		     { read_rw_vector=>THE f, can_read=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (readrw_to_readro f, can));
+
+		     _ => NULL;
+                esac;
+
+
+	    read_rw_vector_nonblocking'
+                =
+                case rd
+		  
+		     { read_rw_vector_nonblocking => THE f, ... } =>  THE f;
+		     { read_vector_nonblocking    => THE f, ... } =>  THE (readro_to_readrw_nb f);
+
+		     { read_rw_vector=>THE f, can_read=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (f, can));
+
+		     { read_vector=>THE f, can_read=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (readro_to_readrw f, can));
+
+		     _ => NULL;
+                esac;
+
+
+	     READER
+                 { name        =>  rd.name,
+		   chunk_size  =>  rd.chunk_size,
+
+		   read_vector    =>  read_vector',
+		   read_rw_vector =>  read_rw_vector',
+
+		   read_vector_nonblocking    =>  read_vector_nonblocking',
+		   read_rw_vector_nonblocking =>  read_rw_vector_nonblocking',
+
+		   block       =>  rd.block,
+		   can_read    =>  rd.can_read,
+		   avail       =>  rd.avail,
+		   get_position     =>  rd.get_position,
+		   set_position     =>  rd.set_position,
+		   end_position     =>  rd.end_position, 
+		   verify_position  =>  rd.verify_position,
+		   close       =>  rd.close,
+
+		   io_descriptor     =>  rd.io_descriptor
+	         };
+	  };
+
+    fun augment_writer (WRITER wr)
+        =
+        {   fun writev_to_writea  writev  asl
+                =
+                writev (vs::make_full_slice (rs::to_vector asl));
+
+
+	    fun writea_to_writev  writea  vsl
+                =
+		case (vs::length  vsl)
+                  
+		     0 => 0;
+
+		     n => {  a = a::make_rw_vector (n, vs::get (vsl, 0));
+
+			     rs::copy_vec
+                                 {
+                                   from =>  vs::make_subslice (vsl, 1, NULL),
+				   to   =>  a,
+                                   di   => 1
+                                 };
+
+			     writea (rs::make_full_slice a);
+			 };
+                esac;
+
+
+	    fun writea_to_writev_nb  writea_nb  vsl
+                =
+		case (vs::length  vsl)
+                  
+		     0 => THE 0;
+
+		     n => {  a = a::make_rw_vector (n, vs::get (vsl, 0));
+
+			     rs::copy_vec { from => vs::make_subslice (vsl, 1, NULL),
+					    to   => a,
+                                            di   => 1
+                                          };
+
+			     writea_nb (rs::make_full_slice a);
+			 };
+                esac;
+
+
+	    write_vector'
+                =
+                case wr
+		  
+		     { write_vector=>THE f, ... } =>  THE f;
+		     { write_rw_vector=>THE f, ... } =>  THE (writea_to_writev f);
+
+		     { write_vector_nonblocking=>THE f, block=>THE b, ... }
+                         => 
+			 THE (fn i = { b(); null_or::the (f i);} );
+
+		     { write_rw_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+			 THE (fn x =  { b(); writea_to_writev (null_or::the o f) x;});
+
+		     _ => NULL;
+                esac;
+
+
+	    write_rw_vector'
+                =
+                case wr
+		  
+		     { write_rw_vector => THE f, ... } =>  THE f;
+		     { write_vector => THE f, ... } =>  THE (writev_to_writea  f);
+
+		     { write_rw_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+                         THE (blocking_operation (f, b));
+
+		     { write_vector_nonblocking=>THE f, block=>THE b, ... }
+                         =>
+			 THE (blocking_operation (writev_to_writea f, b));
+
+		     _ => NULL;
+                esac;
+
+
+	    write_vector_nonblocking'
+                =
+                case wr
+		  
+		     { write_vector_nonblocking=>THE f, ... } =>  THE f;
+		     { write_rw_vector_nonblocking=>THE f, ... } =>  THE (writea_to_writev_nb f);
+
+		     { write_vector=>THE f, can_output=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (f, can));
+
+		     { write_rw_vector=>THE f, can_output=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (writea_to_writev f, can));
+		     _ => NULL;
+                esac;
+
+
+	    write_rw_vector_nonblocking'
+                =
+                case wr
+		  
+		     { write_rw_vector_nonblocking=>THE f, ... } =>  THE f;
+		     { write_vector_nonblocking=>THE f, ... } =>  THE (writev_to_writea f);
+
+		     { write_rw_vector=>THE f, can_output=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (f, can));
+
+		     { write_vector=>THE f, can_output=>THE can, ... }
+                         =>
+			 THE (nonblocking_operation (writev_to_writea f, can));
+
+		     _ => NULL;
+                esac;
+
+
+	    WRITER  {   name         =>  wr.name,
+                    chunk_size   =>  wr.chunk_size,
+
+		    write_vector    =>  write_vector',
+                    write_rw_vector    =>  write_rw_vector',
+
+		    write_vector_nonblocking =>  write_vector_nonblocking',
+                    write_rw_vector_nonblocking =>  write_rw_vector_nonblocking',
+
+		    block        =>  wr.block,
+                    can_output   =>  wr.can_output,
+
+		    get_position      =>  wr.get_position,
+                    set_position      =>  wr.set_position,
+                    end_position      =>  wr.end_position,
+		    verify_position   =>  wr.verify_position,
+
+		    close        =>  wr.close,
+		    io_descriptor      =>  wr.io_descriptor
+	       };
+	  };
+
+    fun open_vector v
+        =
+        {   position = REF 0;
+	    closed = REF FALSE;
+
+	    fun check_closed ()
+                =
+                if   *closed      raise exception io_exceptions::CLOSED_IO_STREAM;   fi;
+
+	    len = v::length v;
+
+	    fun avail ()
+                =
+                len - *position;
+
+	    fun read_ro n
+		 =
+		 {
+		    p = *position;
+		    m = int31_guts::min (n, len - p);
+
+		    check_closed ();
+		    position := p + m;
+		    vs::to_vector (vs::make_slice (v, p, THE m));
+		};
+
+	    fun read_rw asl
+		=
+		{
+		    p = *position;
+		    my (buf, i, n) = rs::base asl;
+		    m = int31_guts::min (n, len - p);
+
+		    check_closed ();
+		    position := p + m;
+		    rs::copy_vec { from => vs::make_slice (v, p, THE m),
+                                   to   => buf,
+                                   di   => i
+                                 };
+		    m;
+		};
+
+	    fun checked k ()
+                =
+                {   check_closed ();
+                    k;
+                };
+
+	    # Random access not supported because position type is abstract:
+            #
+	    READER { name        =>  "<vector>",
+		 chunk_size  =>  len,
+
+		 read_vector    =>  THE read_ro,
+		 read_rw_vector =>  THE read_rw,
+
+		 read_vector_nonblocking    =>  THE (THE o read_ro),
+		 read_rw_vector_nonblocking =>  THE (THE o read_rw),
+
+		 block       =>  THE check_closed,
+		 can_read    =>  THE (checked TRUE),
+		 avail       =>  THE o avail,
+
+		 get_position     =>  NULL,
+		 set_position     =>  NULL,
+		 end_position     =>  NULL,
+		 verify_position  =>  NULL,
+
+		 close       =>  fn () = closed := TRUE,
+		 io_descriptor     =>  NULL
+            };
+	};
+
+    fun null_reader ()
+	=
+	{   closed = REF FALSE;
+
+	    fun check_closed ()
+                =
+                if   *closed      raise exception io_exceptions::CLOSED_IO_STREAM;   fi;
+
+	    fun checked k _
+                =
+                {   check_closed ();
+                    k;
+                };
+
+	    READER { name        =>  "<null>",
+		 chunk_size  =>  1,
+
+		 read_vector    =>  THE (checked (v::from_list [])),
+		 read_rw_vector    =>  THE (checked 0),
+
+		 read_vector_nonblocking =>  THE (checked (THE (v::from_list []))),
+		 read_rw_vector_nonblocking =>  THE (checked (THE 0)),
+
+		 block       =>  THE check_closed,
+		 can_read    =>  THE (checked TRUE),
+		 avail       =>  fn () = THE 0,
+		 get_position     =>  NULL,
+		 set_position     =>  NULL,
+		 end_position     =>  NULL,
+		 verify_position  =>  NULL,
+		 close       =>  fn () =  closed := TRUE,
+		 io_descriptor     =>  NULL
+            };
+	};
+	
+    fun null_writer ()
+	=
+	{   closed = REF FALSE;
+
+	    fun check_closed ()
+                =
+                if  *closed    raise exception io_exceptions::CLOSED_IO_STREAM;  fi;
+
+	    fun checked k ()
+                =
+                k;
+
+	    fun write_vector    vsl =  { check_closed ();   vs::length vsl; };
+	    fun write_rw_vector asl =  { check_closed ();   rs::length asl; };
+
+	    WRITER
+                { name         => "<null>",
+		  chunk_size   => 1,
+
+		  write_vector    => THE write_vector,
+		  write_rw_vector    => THE write_rw_vector,
+
+		  write_vector_nonblocking => THE (THE o write_vector),
+		  write_rw_vector_nonblocking => THE (THE o write_rw_vector),
+
+		  block        => THE check_closed,
+		  can_output   => THE (checked TRUE),
+
+		  get_position      => NULL,
+		  set_position      => NULL,
+		  end_position      => NULL,
+		  verify_position   => NULL,
+
+		  close =>  fn () =  closed := TRUE,
+
+		  io_descriptor => NULL
+	        };
+	};
+
+}; #  base_io 
+
+
+
+
+## COPYRIGHT (c) 1995 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

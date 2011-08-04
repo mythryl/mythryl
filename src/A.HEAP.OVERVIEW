@@ -1,0 +1,378 @@
+
+Nomenclature:
+    Reclaiming unused memory is traditionally called "garbage collection,"
+    but that is too verbose to use constanctly, so here we call it
+    "heap cleaning".
+
+    Andrew Appel's original (?) 1988 paper on the
+    SML/NJ garbage collector is:
+
+        Simple Generational Garbage Collection and Fast Allocation
+        1988 16p
+        http://mythryl.org/pub/pml/simple-generational-garbage-collection-and-fast-allocation-appel-1988-16p.pdf
+
+
+
+ Background
+ ==========
+
+     The heap consists of a collection of "chunks", which is to say
+     records, tuples, vectors, large integers etc.
+
+     In a typeless language like Lisp or Python each chunk must
+     contain full explicit type information because all typechecking
+     must be done at runtime.  In Mythryl the compiler knows the full
+     type of every variable at compiletime, so in general no typechecking
+     need be done at runtime, and consequently heapchunks need contain
+     no type information for runtime typechecking.
+
+     However, the Mythryl garbage collector does not have access to
+     compiletime type information (perhaps it should...) and in order
+     to traverse the heap must be able to distinguish pointers from
+     nonpointer data (e.g. ascii strings) and also needs to know the
+     lengths of vectors, tuples and records.
+
+     Consequently we tag Mythryl heapchunks with (just) sufficient type
+     information to allow the garbage collector to function properly.
+
+     In this file we define these heapchunk type-tags and also various
+     common operations upon them.
+
+ Overview
+ ========
+
+
+
+
+     The core idea is to structure the Mythryl heap
+     as sequentially-allocated chunks
+
+               chunk
+               chunk
+               chunk
+                ...
+
+     and then structure each individual chunk as a sequence of 32-bit words:
+
+               tagword
+               dataword
+               dataword
+               dataword
+               ...
+
+     where the tagword gives the type and length of the chunk and
+     the datawords hold the actual useful user data.
+
+     The   Representation   type from   src/lib/std/src/unsafe/unsafe-chunk.api
+     provides a succinct summary of supported heapchunk varieties:
+
+	 Representation
+	     = UNBOXED
+	     | UNT32
+	     | FLOAT64
+	     | PAIR
+	     | RECORD
+	     | REF
+	     | TYPEAGNOSTIC_RO_VECTOR
+	     | TYPEAGNOSTIC_RW_VECTOR	# includes REF 
+	     | BYTE_RO_VECTOR	        # includes unt8_vector::Vector and char_vector::Vector 
+	     | BYTE_RW_VECTOR	        # includes rw_unt8_vector::rw_vector and rw_char_vector::rw_vector 
+     #       | FLOAT64_RO_VECTOR	# use TYPEAGNOSTIC_RO_VECTOR for now 	XXX BUGGO FIXME
+	     | FLOAT64_RW_VECTOR
+	     | LAZY_SUSPENSION
+	     | WEAK_POINTER
+             ;
+
+
+     The 32-bit tagword has a three-field layout:
+
+          bit 31                          0 bit
+              -----------------------------
+              | Length  | B-tag  | A-tag  |
+              | 25 bits | 5 bits | 2 bits |
+              -----------------------------
+
+     Tagword field intepretation:
+
+         A-tag:  Always  binary 10.  This distinguishes a tagword
+                 from any possible dataword.  In a bugfree world
+                 there should never be any confusion between tagwords
+                 and datawords, but this provides an extra margin of safety.
+
+         B-tag:  This field distinguishes records from vectors etc:
+
+                     0  Pairs, tuples, records.
+                     1  Read-only  vectors -- C-tag gives length.
+                     2  Read-write vectors -- C-tag gives length.
+                     3  Typeagnostic read-write_vector data.
+                     4  32-bit aligned non-pointer data, e.g. 32-bit ints.
+                     5  64-bit aligned non-pointer data, e.g. 64-bit floats.
+                     6  'Special' chunks (weak pointers and lazy suspensions); length is C-tag.
+                  0x10  External symbol reference (used in exported heap images).
+                  0x1F  A forwarded chunk, during cleaning (garbage collection).
+
+         C-tag: Usually holds the length-in-words of the chunk, but vector-headers
+                and specials (ab)use it to hold additional type/state information.
+                (This works because vector-headers and specials are fixed-length.)
+
+     Dataword intepretation:
+
+         Generic tuples, records and vectors typically contain pointers
+         to other heapchunks, but for time and space efficiency we also
+         allow 31-bit integers to be stored in their dataslots, distinguished
+         from pointers by setting their lowest bit to '1'.  This works because
+         we keep all heap chunks 32-bit aligned for speed on intel --
+         to prevent busfaults on other architectures -- so the
+         least-significant two bits of all valid pointers will always be
+         binary 00.  These low two bits constitute the "A-tag".
+
+         The possible A-tag values are thus:
+	       # 	
+             00:  Pointer. 
+             10:  Tagword.
+             01:  31-bit int.
+             11:  31-bit int.
+
+
+    Macros defining A-tags, B-tags and C-tags (etc) may be found in:
+
+        src/c/h/heap-tags.h
+
+
+
+ Maintainer Warning!
+ ===================
+
+ Much implicit knowledge about heap chunk sizing
+ is buried in the max_words function in:
+
+     src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
+
+ Changes which invalidate this knowledge could
+ result in subtle heap-corruption bugs.
+
+
+
+ Inter-Agegroup Pointers Map
+ ===========================
+
+// Motivation
+// ==========
+//
+// Most heap objects are short-lived;  they are
+// allocated in the youngest heap agegroup
+// (agegroup0) and they die before getting
+// promoted to an older agegroup.  Consequently
+// we can save time by usually cleaning ("garbage-collecting")
+// only the youngest agegroup.
+//
+// However, to do this we must track all pointers from
+// older agegroups into the youngest agegroup,
+// otherwise we might delete as garbage data which is
+// in fact live.
+// 
+// More generally, to clean heap agegroup A correctly,
+// we need to know about all pointers from older agegroups
+// into A.
+// 
+// Tracking such inter-agegroup pointers one-by-one would
+// be expensive;  What we do instead is to divide memory up
+// into 256-byte cards and then remember for each such card
+// the youngest agegroup pointed to by any pointer within
+// that card.  This saves considerable memory at the cost
+// of requiring the cleaner to scan the complete card
+// to find the actual pointer(s) in question.  Since
+// backpointers from older to younger agegroups are quite
+// rare, this is not a major computational expense.
+
+
+
+// Nomenclature
+// ============
+//
+// "Clean" vs "Dirty"
+//     We say a card is "clean" if it contains no pointers to
+//     younger agegroups; otherwise it is "dirty".
+//
+
+
+
+
+
+H// =====================================================================
+// Nomenclature
+//
+//
+//
+// Pages and books
+// ===============
+//
+//     4KB (1<<12) of ram makes a   PAGE.
+//    64KB (1<<16) of ram makes a   BOOK.
+//
+//
+//
+// Heaps and chunks
+// ================
+//
+//     Mythryl stores all datastructures in a  "heap".
+//     There is no stack; "stackframes" are allocated on the heap
+//     and recycled by the cleaner ("garbage-collector") just
+//     like any other record.
+//
+//     Elements of the heap include strings, records, vectors,
+//     pairs ("cons cells" to lispers), and executable code.
+//     We use the word "chunk" to refer generically to all of them.
+//
+//
+//
+// Sibs and siblings
+// =================
+//
+//     A "sibling" is a blood relative,
+//     canonically a brother or sister.
+//
+//     A "sib" is a set of siblings.
+//
+
+
+
+// =====================================================================
+// Motivation
+//
+// Mythryl uses large numbers of small ram chunks.
+// The typical size of a heap element is two or three words.
+// 
+// Mythryl also allocates heap memory at a prodigous rate;
+// a typical Mythryl program allocates about one word of
+// heap memory for every five to ten machine instructions
+// executed.  (Mythryl programs avoid side-effects by
+// constantly creating new values instead of modifying
+// existing ones.)
+//
+// Together, these two facts place stringent constraints
+// on both the Mythryl storage allocator and the Mythryl
+// cleaner ("garbage collector").
+//
+// Mythryl allocates heap memory by treating it as a stack
+// which is never popped:  An allocation pointer is simply
+// monotonically advanced to allocate new heap memory.
+//
+// Mythryl recovers unused memory by copying the "live"
+// (in-use) data to a new area of memory and then marking
+// the entire old heap area as free.  Since Mythryl heap
+// values usually have very short lifetimes, the heap will
+// normally be mostly garbage, with only a few percent of
+// live data:  Touching only live data makes the cleaning
+// very fast.  Since in general we push but do not pop, our
+// allocation can be even faster than C-style stack allocation,
+// which has to both push and pop every stackframe.
+//
+// Making this approach work well involves solving a number
+// of problems.  Two of the most important are:
+//
+//     Problem: Tag overhead
+//     =====================
+//
+//         If heap chunks are typically only two or three words,
+//         have a one-word header on each can waste 25-33% of memory.
+//
+//     Problem: Old, long-lived heap values.
+//     =====================================
+//
+//         While most heap values are very short lived, a few
+//         such as the compiled code in the system are large
+//         and live a long time.  Copying them every time we
+//         "garbage collect" would waste time and ram.
+//     
+//     
+// We solve these problems using what the academic world calls
+// "multi-generation garbage collection":
+//     
+//   o Values in the heap are segregated by age into agegroups.
+//     We copy the live values in the youngest agegroup every
+//     time we clean the heap, but we copy older agegroups only
+//     occasionally.  Since the youngest agegroups contain the
+//     most recently deceased values ripe for recycling, this
+//     gives us the most memory recovered per unit work, making
+//     our cleaner very efficient.
+//
+//   o The youngest agegroup is engineered for time efficiency -- speed
+//     of allocation -- with new values being allocated simply by
+//     advancing a pointer, and every value having a tagword
+//     identifying its type. (Record vs string vs vector vs ... )
+//     The tagwords waste space, but the youngest agegroup
+//     is the smallest agegroup, so not much spaces is wasted.
+//
+//   o Older generations are engineered for space efficiency.
+//     Rather than give each individual value a tagword, we
+//     group values of the same type together into 64K blocks
+//     of ram -- "books" -- and then assign just one tagword
+//     per book instead of one per value.
+//     by agegroup and within an agegroup it
+//     divides them up by kinds into records,
+//     pairs, strings and vectors, storing
+//     each kind separately.  We refer to
+//     these separate buffers as:
+//
+
+
+
+// =====================================================================
+// Overview
+//
+// By default the Mythryl heap consists of six agegroups.  This is set by
+//
+//     DEFAULT_ACTIVE_AGEGROUPS
+// in
+//     src/c/h/runtime-configuration.h
+//
+// Aside from agegroup0, which is a simple block of memory managed
+// via sequential allocation from one end to the other, each agegroup
+// contains separate ram buffers for the different kinds of values:
+//
+//     pairs			// Stored without tagwords to save space. (Length is always 2.)
+//     records
+//     strings
+//     vectors
+//
+// Values of the same kind are called
+//
+//     siblings
+//
+// and the buffers containing them are called
+//
+//     sibs
+//
+// During cleaning, when live values are being copied,
+// each sib may have two buffers,
+//
+//     from-space
+//     to-space
+//
+// When all live values in a sib have been copied out
+// of from-space and into to-space, the from-space buffer
+// can be marked as "free" and the roles of the two buffers
+// interchanged.
+// 
+// Compiled code is treated specially;  it lives in a
+// separate "Hugechunk" sib.
+// 
+// The the above heap datastructure is defined in
+// 
+//     src/c/h/heap.h
+// 
+// containing them arek :    #define 	5of "bibop" stands for "big bag of pages".  It is a technique for avoiding
+// explicit tags on small ram records by packing them in pages which all
+// contain the same type of record and then setting up just one typetag
+// per memory page instead of one per record.
+//
+// We 64K "books" the book_to_sibid_global,  so on 32-bit machines a single
+// 64K-entry table suffices to cover the entire 32-bit address space.
+//
+// The 
+//
+//     book_to_sibid_global
+//
+// maps memory pages to Sibids.
+

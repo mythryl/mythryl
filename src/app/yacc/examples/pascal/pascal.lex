@@ -23,20 +23,20 @@ package KeyWord : sig
 	   fold_left (fn (c,v)=>(v*HashFactor+(ord c)) mod TableSize) 0 (explode s)
 
 
-	hash_table = rw_vector.array(TableSize,NIL) :
+	hashtable = rw_vector.array(TableSize,NIL) :
 		 (String * (int * int -> (Semantic_Value,int) token)) list rw_vector.rw_vector
 
 
 	add = fn (s,v) =>
 	 let i = hash s
-	 in rw_vector.update(hash_table,i,(s,v) . (rw_vector.sub(hash_table, i)))
+	 in rw_vector.update(hashtable,i,(s,v) . (rw_vector.sub(hashtable, i)))
 	 end
 
         find = fn s =>
 	  let i = hash s
 	      fun f ((key,v) . r) = if s=key then THE v else f r
 	        | f NIL = NULL
-	  in  f (rw_vector.sub(hash_table, i))
+	  in  f (rw_vector.sub(hashtable, i))
 	  end
  
 	my _ = 

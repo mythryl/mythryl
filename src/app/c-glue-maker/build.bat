@@ -1,1 +1,1 @@
-..\..\..\bin\make7 c-glue-maker.make6 main.main c-glue-maker
+..\..\..\bin\makelib c-glue-maker.lib main.main c-glue-maker

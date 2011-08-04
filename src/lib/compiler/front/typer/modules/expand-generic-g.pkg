@@ -1,0 +1,856 @@
+## expand-generic-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer/typer.sublib
+
+###       "Within C++, there is a much
+###        smaller and cleaner language
+###        struggling to get out."
+###
+###          -- Bjarne Stroustrup
+
+
+# The center of the typechecker is
+#
+#     src/lib/compiler/front/typer/main/type-package-language-g.pkg
+#
+# -- see it for a higher-level overview.
+# It calls us to do specialized generic
+# expansion stuff.
+
+stipulate
+    package di  =  debruijn_index;						# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package ip  =  inverse_path;						# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package mld =  module_level_declarations;					# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package spc =  stamppath_context;						# stamppath_context		is from   src/lib/compiler/front/typer-stuff/modules/stamppath-context.pkg
+    package trj =  typer_junk;							# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+herein
+
+    api Expand_Generic {
+	#
+	package generics_expansion_junk:  Generics_Expansion_Junk;		# Generics_Expansion_Junk	is from   src/lib/compiler/front/typer/modules/generics-expansion-junk-g.pkg
+
+	 expand_generic: ( mld::Typechecked_Generic,
+			   mld::Typechecked_Package,
+			   di::Debruijn_Depth,
+			   spc::Context,
+			   ip::Inverse_Path,
+			   trj::Per_Compile_Info
+			 )
+			-> mld::Typechecked_Package; 
+
+	 debugging:  Ref(  Bool );
+    };
+end;
+
+
+#  Genericized to factor out dependencies on highcode: 
+
+stipulate
+    package trj =  typer_junk;						# typer_junk			is from   src/lib/compiler/front/typer/main/typer-junk.pkg
+    package ip  =  inverse_path;					# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package lnd =  line_number_db;					# line_number_db		is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package mj  =  module_junk;						# module_junk			is from   src/lib/compiler/front/typer-stuff/modules/module-junk.pkg
+    package mld =  module_level_declarations;				# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package sap =  stamppath;						# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package spc =  stamppath_context;					# stamppath_context		is from   src/lib/compiler/front/typer-stuff/modules/stamppath-context.pkg
+    package stx =  stampmapstack;					# stampmapstack			is from   src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+    package tro =  typerstore;						# typerstore			is from   src/lib/compiler/front/typer-stuff/modules/typerstore.pkg
+    package ty  =  types;						# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    #
+    include module_level_declarations; 
+herein 
+
+    generic package   expand_generic_g   (
+	#             ================
+	#
+	package i:  Generics_Expansion_Junk;				# Generics_Expansion_Junk	is from   src/lib/compiler/front/typer/modules/generics-expansion-junk-g.pkg
+    )
+    : (weak)  Expand_Generic						# Expand_Generic		is from   src/lib/compiler/front/typer/modules/expand-generic-g.pkg
+    {
+	package generics_expansion_junk = i;
+
+	#  Debugging 
+	say = control_print::say;
+	debugging = typer_data_controls::expand_generics_g_debugging;
+
+	fun if_debugging_say (msg: String)
+	    =
+	    if *debugging   say msg;   say "\n";	fi;
+
+	include typer_debugging;
+
+	debug_print
+            =
+            (fn x => debug_print debugging x; end );     #  Value Restriction 
+
+	fun bug msg
+            =
+            error_message::impossible ("expand_generic: " + msg);
+
+	anon_generic_sym =   symbol::make_generic_symbol   "anonymous_g";
+	param_sym        =   symbol::make_package_symbol "<generic_api_parameter_inst>";
+	anon_package_sym =   symbol::make_package_symbol "<anonymous_package>";
+	result_id        =   symbol::make_package_symbol "<result_package>";
+	return_id        =   symbol::make_package_symbol "<return_package>";
+
+	default_error
+            =
+            error_message::error_no_file
+                (error_message::default_plaint_sink(), REF FALSE)
+		(0, 0);
+
+	fun evaluate_typ (
+                entv,
+	        typechecked_typ_expression,
+		typerstore,
+		stamppath_context,
+		inverse_path, 
+		per_compile_info as { make_fresh_stamp, ... }: trj::Per_Compile_Info
+	    )
+	    =
+	    case typechecked_typ_expression
+		#
+		CONSTANT_TYP typ
+		    =>
+		    typ;
+
+		FORMAL_TYP (ty::PLAIN_TYP { kind, arity, eq, path, ... } )
+		    =>
+		    case kind
+			#
+			ty::DATATYPE { index=>0, stamps, free_typs, family, root=>NULL }
+			    =>
+			    {   viztyc = mj::translate_typ typerstore;
+				nstamps = vector::map  (fn _ = make_fresh_stamp())  stamps;
+				nst = vector::get (nstamps, 0);
+				nfreetyps = map viztyc free_typs;
+				spc::bind_typ_path (stamppath_context, nst, entv);
+
+				ty::PLAIN_TYP {
+				    stamp => nst,
+				    arity,
+				    eq,
+				    path  => ip::append (inverse_path, path),
+				    stub  => NULL,
+				    kind  => ty::DATATYPE { index    => 0,
+							   stamps   => nstamps,
+							   root     => NULL,
+							   free_typs => nfreetyps,
+							   family
+						         }
+				};
+			    };
+
+			ty::DATATYPE { index=>i, root=>THE rtev, ... }
+			    =>
+			    {   my (nstamps, nfreetyps, nfamily)
+				    = 
+				    case (tro::find_typ_by_module_stamp (typerstore, rtev))
+					#
+					ty::PLAIN_TYP { kind => ty::DATATYPE dt, ... }
+					    =>
+					    ( dt.stamps,
+					      dt.free_typs,
+					      dt.family
+					    );
+
+					_ => bug "unexpected case in evaluate_typ-FMGENtyc (2)";
+                                    esac;
+
+				nst = vector::get (nstamps, i);		#  "nst" = "new stamp"?
+
+				spc::bind_typ_path (stamppath_context, nst, entv);
+
+				ty::PLAIN_TYP
+				  {
+				    stamp => nst,
+				    arity,
+				    path  => ip::append (inverse_path, path),
+				    eq,
+				    stub  => NULL,
+				    kind  => ty::DATATYPE { index    => i,
+							   stamps   => nstamps,
+							   root     => NULL,
+							   free_typs => nfreetyps,
+							   family   => nfamily
+							 }
+				  };
+			    };
+
+			_ => bug "unexpected PLAIN_TYP in evaluate_typ";
+		    esac;
+
+
+		FORMAL_TYP (
+		     ty::DEFINED_TYP {
+			 stamp,
+			 strict,
+			 path,
+			 type_scheme => ty::TYPE_SCHEME { arity, body }
+		     }
+		 )
+		    =>
+		    {   nst = make_fresh_stamp();
+
+			#  type_identifier=stamp (this should perhaps be more abstract some day) 
+
+			spc::bind_typ_path (stamppath_context, nst, entv);
+
+			ty::DEFINED_TYP
+                          {
+			    stamp  => nst,
+			    strict,
+			    path   => ip::append (inverse_path, path),
+			    type_scheme => ty::TYPE_SCHEME { arity, 
+							    body  => mj::translate_type  typerstore  body
+							  }
+			  };
+		    };
+
+		TYPE_VARIABLE_TYP stamppath
+		    => 
+		    {   if_debugging_say (">>evaluate_typ[TYPE_VARIABLE_TYP]: " + sap::stamppath_to_string stamppath);
+
+			tro::find_typ_via_stamppath (typerstore, stamppath);
+		    };
+
+		 _   => bug "unexpected typechecked_typ_expression in evaluate_typ";
+             esac
+
+
+
+	also
+	fun evaluate_package_expression (
+                package_expression,
+                depth,
+                stamppath_context,
+                module_stamp_v,
+                typerstore,
+                inverse_path, 
+		per_compile_info as { make_fresh_stamp, ... }: trj::Per_Compile_Info
+            )
+            =
+	    {   if_debugging_say ("[Inside evaluate_package_expression ......");
+
+		case package_expression
+
+		    VARIABLE_PACKAGE stamppath
+			=>
+			{   if_debugging_say (">>evaluatePackageexpression[VARIABLE_PACKAGE]: " + sap::stamppath_to_string stamppath);
+
+			    (   tro::find_package_via_stamppath (typerstore, stamppath),
+				typerstore
+			    );
+			};
+
+		    CONSTANT_PACKAGE typechecked_package
+			=>
+			(typechecked_package, typerstore);
+
+		    PACKAGE { stamp, module_declaration }
+			=>
+			{   stamppath_context = spc::enter_open (stamppath_context, module_stamp_v);
+
+			    stp = evaluate_stamp_expression (stamp, depth, stamppath_context, typerstore, per_compile_info);
+
+			    dictionary = evaluate_declaration( module_declaration, depth, stamppath_context, typerstore, inverse_path, per_compile_info);
+
+			    ( { stamp                  =>  stp,
+				typerstore =>  dictionary,
+
+				property_list          =>  property_list::make_property_list (),
+				stub                   =>  NULL,
+				inverse_path
+			      },
+
+			      typerstore
+			    );
+			};
+
+		    APPLY (generic_expression, package_expression)
+			=>
+			{   my (typechecked_generic, typerstore1)
+				= 
+				evaluate_generic (generic_expression, depth, stamppath_context, typerstore, per_compile_info);
+
+			    my (argument_typechecked_package, typerstore2)
+				= 
+				evaluate_package_expression (
+				  package_expression,
+				  depth,
+				  stamppath_context,
+				  module_stamp_v,
+				  typerstore1,
+				  ip::empty,
+				  per_compile_info
+				);
+
+			    stamppath_context
+				=
+				spc::enter_open (stamppath_context, module_stamp_v);
+
+			    ( expand_generic (typechecked_generic, argument_typechecked_package, depth, stamppath_context, inverse_path, per_compile_info),
+			      typerstore2
+			    );
+			};
+
+		    PACKAGE_LET { declaration => module_declaration, expression => package_expression }
+			=>
+			{   typerstore1
+				=
+				evaluate_declaration (
+				  module_declaration,
+				  depth,
+				  stamppath_context,
+				  typerstore,
+				  inverse_path,
+				  per_compile_info
+				);
+
+			    my (typechecked_package, typerstore2)
+				= 
+				evaluate_package_expression (
+				  package_expression,
+				  depth,
+				  stamppath_context,
+				  module_stamp_v,
+				  typerstore1, 
+				  inverse_path,
+				  per_compile_info
+				);
+
+			    (typechecked_package, typerstore2);
+			};
+
+		    ABSTRACT_PACKAGE (an_api, package_expression)
+			=> 
+			{   my (source_typechecked_package, typerstore1)
+				= 
+				evaluate_package_expression
+				  (
+				    package_expression,
+				    depth,
+				    stamppath_context,
+				    module_stamp_v,
+				    typerstore,
+				    inverse_path,
+				    per_compile_info
+				  );
+
+			    my {   typechecked_package,
+				    abstract_typs,
+				    typ_stamppaths
+				}
+				= 
+				i::instantiate_package_abstractions
+                                  {
+				    an_api,
+				    typerstore,
+				    source_typechecked_package,
+				    inverse_path, 
+				    source_code_region  => lnd::null_region,
+				    per_compile_info
+				  };
+
+			    # Because the abstraction creates a
+			    # bunch of new stamps, we have to
+			    # bind them to the typechecked_package path context:
+
+
+			    stamppath_context
+                                =
+                                spc::enter_open (stamppath_context, module_stamp_v);
+
+			    fun h (ty::PLAIN_TYP gt, ep)
+				    =>
+				    spc::bind_typ_long_path (
+					stamppath_context,
+					stx::typestamp_of  gt,
+					ep
+				    );
+
+			        h _ => ();
+                            end;
+
+			    paired_lists::apply
+                                h
+                                ( abstract_typs,
+                                  typ_stamppaths
+                                );
+
+			    ( typechecked_package,
+			      typerstore1
+			    );
+			};
+
+		    COERCED_PACKAGE { boundvar, raw, coercion }
+			=>
+			# Propagage the context inverse_path
+			# into the raw uncoerced package:
+
+			{   my (raw_typechecked_package, typerstore1)
+				= 
+				evaluate_package_expression
+                                  (
+				    raw,
+				    depth,
+				    stamppath_context,
+				    THE boundvar,
+				    typerstore,
+				    inverse_path,
+				    per_compile_info
+				  );
+
+			    typerstore2
+                                =
+                                tro::set (typerstore1, boundvar, PACKAGE_ENTRY raw_typechecked_package);
+
+			    my (typechecked_package, typerstore3)
+				= 
+				evaluate_package_expression
+                                  (
+				    coercion,
+				    depth,
+				    stamppath_context,
+				    module_stamp_v, 
+				    typerstore2,
+				    ip::empty,
+				    per_compile_info
+				  );
+
+			    (typechecked_package, typerstore3);
+			};
+
+		    FORMAL_PACKAGE _ => bug "unexpected FORMAL_PACKAGE in evaluatePackageexpression";
+                esac;
+            }
+
+
+	also
+	fun evaluate_generic (
+                generic_expression,
+                debruijn_depth,
+                stamppath_context,
+                typerstore, 
+		per_compile_info as { make_fresh_stamp, ... }: trj::Per_Compile_Info
+            )
+            =
+	    case generic_expression
+		#
+		VARIABLE_GENERIC stamppath
+		    =>
+		    {   if_debugging_say (">>evaluateGeneric[VARIABLE_GENERIC]: " + sap::stamppath_to_string stamppath);
+
+			(   tro::find_generic_via_stamppath (typerstore, stamppath),
+			    typerstore
+			);
+		    };
+
+		CONSTANT_GENERIC typechecked_generic
+		    =>
+		   (typechecked_generic, typerstore);
+
+		LAMBDA { parameter, body }
+		    => 
+		    {   clos = GENERIC_CLOSURE {   parameter_module_stamp    => parameter,
+						   body_package_expression => body,
+						   typerstore
+					       };
+
+			( { stamp           => make_fresh_stamp (),
+			    generic_closure => clos,
+			    property_list   => property_list::make_property_list (),
+
+			    typ_path => NULL,
+			    inverse_path          => ip::INVERSE_PATH [anon_generic_sym],
+			    stub                  => NULL
+			  },
+
+			  typerstore
+			);
+		    };
+
+		LAMBDA_TP {
+		    parameter,
+		    body,
+		    an_api as GENERIC_API { parameter_api, body_api, ... }
+		}
+		    =>
+		    {   generic_closure
+			    =
+			    GENERIC_CLOSURE
+			      { parameter_module_stamp =>  parameter,
+				body_package_expression         =>  body,
+				typerstore
+			      };
+
+			tps = { inverse_path' = ip::INVERSE_PATH [param_sym];
+
+				my { typechecked_package => param_typechecked_package,   typ_paths => param_tps }
+				    =
+				    i::do_generic_parameter_api {
+					an_api      => parameter_api,
+					typerstore, 
+					inverse_path       => inverse_path',
+					debruijn_depth,
+					source_code_region  => lnd::null_region,
+					per_compile_info
+				    };
+
+				typerstore'
+				    = 
+				    tro::mark (
+					make_fresh_stamp,
+					tro::set (typerstore,  parameter,  PACKAGE_ENTRY param_typechecked_package)
+				    );
+
+				my (body_typechecked_package, _)
+				    = 
+				    evaluate_package_expression (
+					body,
+					debruijn_index::next debruijn_depth,
+					stamppath_context,
+					NULL,
+					typerstore',
+					ip::empty,
+					per_compile_info
+				    );
+
+				body_tps
+				    = 
+				    i::get_packages_typ_paths {
+					an_api      => body_api,
+					typechecked_package       => body_typechecked_package, 
+					typerstore => typerstore',
+					per_compile_info
+				    };
+
+				ty::TYPPATH_GENERIC (param_tps, body_tps);
+			      };
+
+
+			( { stamp         => make_fresh_stamp(),
+			    generic_closure,
+			    property_list => property_list::make_property_list (),
+
+			    typ_path => THE tps,
+			    inverse_path         => ip::INVERSE_PATH [anon_generic_sym],
+			    stub                => NULL
+			  },
+
+			  typerstore
+			);
+		    };
+
+		LET_GENERIC (module_declaration, generic_expression)
+		    =>
+		    {   typerstore1
+			    =
+			    evaluate_declaration
+			      (
+				module_declaration,
+				debruijn_depth,
+				stamppath_context,
+				typerstore,
+				ip::empty,
+				per_compile_info
+			      );
+
+			my (typechecked_generic, typerstore2)
+			    = 
+			    evaluate_generic
+			      (
+				generic_expression,
+				debruijn_depth,
+				stamppath_context,
+				typerstore1,
+				per_compile_info
+			      );
+
+			(typechecked_generic, typerstore2);
+		    };
+
+	        _ => bug "unexpected cases in evaluateGeneric";
+            esac
+
+
+
+	also
+	fun expand_generic (
+                typechecked_generic:  mld::Typechecked_Generic,
+		argument_typechecked_package,
+		depth,
+		stamppath_context,
+		inverse_path,
+		per_compile_info as { make_fresh_stamp, ... } : trj::Per_Compile_Info
+	    )
+	    = 
+	    {   my { generic_closure => GENERIC_CLOSURE { parameter_module_stamp, body_package_expression, typerstore },
+		     typ_path,
+		     ...
+		    }
+		    = typechecked_generic;
+
+		new_typerstore
+		    =
+		    tro::mark(  make_fresh_stamp,
+
+			       tro::set ( typerstore,
+                                         parameter_module_stamp,
+					 PACKAGE_ENTRY argument_typechecked_package
+				       )
+			   );
+
+		if_debugging_say ("[Inside EvalAPP] ......");
+
+
+		case (body_package_expression, typ_path)
+
+		    (   FORMAL_PACKAGE
+			    (GENERIC_API { parameter_api, body_api, ... } ),
+			    THE tp
+		    )
+			=> 
+			{   arg_tps
+				=
+				i::get_packages_typ_paths
+				  {
+				    an_api                 => parameter_api,
+				    typechecked_package    => argument_typechecked_package,
+				    typerstore,
+				    per_compile_info
+				  };
+
+			    result_tp = ty::TYPPATH_APPLY (tp, arg_tps);
+
+			    # Failing to add the stamps into the
+			    # typechecked_package path context is a
+			    # potential bug here. Will fix this in the
+			    # future.  XXX BUGGO FIXME ZHONG
+
+###											"You can never plan the future by the past." -- Edmund Burke
+
+			    my {   typechecked_package,
+				    abstract_typs,
+				    typ_stamppaths
+				}
+				=
+				i::macro_expand_formal_generic_body_api
+				  {
+				    an_api           => body_api,
+				    typerstore => new_typerstore,
+				    typ_path      => result_tp,
+				    #
+				    inverse_path,
+				    source_code_region     => lnd::null_region,
+				    per_compile_info
+				 };
+
+			    fun bind_typ (ty::PLAIN_TYP highcode_basetypes, stamppath)
+				    => 
+				    spc::bind_typ_long_path (
+				       #
+				       stamppath_context,
+				       stx::typestamp_of  highcode_basetypes,
+				       stamppath
+				    );
+
+				bind_typ _
+				    =>
+				    ();
+			    end;
+
+
+			    paired_lists::apply
+				bind_typ
+				(abstract_typs, typ_stamppaths);
+
+			    typechecked_package;
+			};
+
+		   _
+		       => 
+		       {   my (typechecked_package, typerstore_additions)
+			       =
+			       evaluate_package_expression
+				 (
+				   body_package_expression,
+				   depth,
+				   stamppath_context,
+				   NULL,
+				   new_typerstore,
+				   inverse_path,
+				   per_compile_info
+				 );
+
+			   # Invariant: macroExpansionDictionaryAdditions should always
+			   # be same as newMacroExpansionDictionary if the body of
+			   # an generic is always a BasePackage.
+			   # Notice that the generic body is constructed
+			   # either in the source programs (sml::grm) or in
+			   # type-package-language.pkg when dealing
+			   # with curried generic applications.
+
+
+			   typechecked_package;
+		       };
+                esac;
+	    }
+
+	also
+	fun evaluate_declaration (
+                declaration,
+                depth,
+                stamppath_context,
+                typerstore,
+                inverse_path,
+                per_compile_info as { make_fresh_stamp, ... }: trj::Per_Compile_Info
+            )
+	    =
+	    {   if_debugging_say ("[Inside EvalDeclaration ......");
+
+		case declaration
+
+		     TYP_DECLARATION (module_stamp, typechecked_typ_expression)
+			 => 
+			 {   typechecked_typ
+				 = 
+				 evaluate_typ
+                                   ( module_stamp,
+				     typechecked_typ_expression,
+				     typerstore,
+				     stamppath_context,
+				     inverse_path,
+				     per_compile_info
+				   );
+
+			     tro::set
+                               ( typerstore,
+				 module_stamp,
+				 TYP_ENTRY typechecked_typ
+			       );
+			 };
+
+		     PACKAGE_DECLARATION (module_stamp, package_expression, symbol)
+			 => 
+			 {   inverse_path'
+				 = 
+				 if (  symbol::eq (symbol, return_id)
+				    or symbol::eq (symbol, result_id)
+				    )
+
+				      inverse_path;
+				 else
+				      ip::extend (inverse_path, symbol);
+				 fi;
+
+			     my (typechecked_package, typerstore1)
+				 =
+				 evaluate_package_expression
+                                   ( package_expression,
+				     depth,
+				     stamppath_context,
+				     THE module_stamp,
+				     typerstore,
+				     inverse_path',
+				     per_compile_info
+				   );
+
+			     tro::set (typerstore1, module_stamp, PACKAGE_ENTRY typechecked_package);
+			 };
+
+		     GENERIC_DECLARATION (module_stamp, generic_expression)
+			 => 
+			 {   my (typechecked_generic, typerstore1)
+				 = 
+				 evaluate_generic (generic_expression, depth, stamppath_context, typerstore, per_compile_info);
+
+			     tro::set (typerstore1, module_stamp, GENERIC_ENTRY typechecked_generic);
+			 };
+
+		     SEQUENTIAL_DECLARATIONS decs
+			 =>
+			 {   fun h (declaration, typerstore0)
+				 = 
+				 evaluate_declaration (declaration, depth, stamppath_context, typerstore0, inverse_path, per_compile_info);
+
+			     tro::mark (make_fresh_stamp, fold_left h typerstore decs);
+			 };
+
+		     # The following may be wrong,
+		     # but since ASSERTION! the
+		     # bound symbols are all distinct,
+		     # it would not appear to cause any harm.
+
+		     LOCAL_DECLARATION (local_declaration, body_declaration)
+			 => 
+			 {   typerstore1
+				 =
+				 evaluate_declaration
+                                   ( local_declaration,
+				     depth,
+				     stamppath_context,
+				     typerstore,
+				     ip::empty,
+				     per_compile_info
+				   );
+
+			     evaluate_declaration (body_declaration, depth, stamppath_context, typerstore1, inverse_path, per_compile_info);
+			 };
+
+		     _  => typerstore;
+                esac;
+            }
+
+
+
+	also
+	fun evaluate_stamp_expression (
+                stamp_expression,
+                depth,
+                stamppath_context,
+                typerstore,
+                per_compile_info as { make_fresh_stamp, ... }: trj::Per_Compile_Info
+            )
+	    =
+	    case stamp_expression
+		#
+		MAKE_STAMP      => make_fresh_stamp ();
+
+	   #    CONST stamp     => stamp; 
+
+		GET_STAMP package_expression
+		    =>
+		    .stamp (
+			#1 (
+			    evaluate_package_expression
+                              (
+				package_expression,
+				depth,
+				stamppath_context,
+				NULL,
+				typerstore,
+				ip::empty,
+				per_compile_info
+			      )
+			   )
+		    );
+            esac;
+
+
+#	my expandGeneric
+#            =
+#            compile_statistics::do_phase
+#                (compile_statistics::make_phase "Compiler 044 x-expandGeneric")
+#                expandGeneric
+
+
+
+    };										# package expand_generic 
+end;										# toplevel stipulate 
+
+
+## Copyright 1996 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

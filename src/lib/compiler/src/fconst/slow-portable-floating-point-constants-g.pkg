@@ -1,0 +1,468 @@
+## slow-portable-floating-point-constants-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+#   slow_portable_floating_point_constants_g: generate Mythryl floating-point constants.
+#   slow_portable_floating_point_constants_g uses long multiplication to find the correct bit pattern for
+#   the real.  This method is slow, but accurate, and works to any precision,
+#   which means that floats can be cross-compiled correctly.
+#   
+#   The function emitreal should take (Int * Bool Rw_Vector * Int) which represents
+#   a real value as (sign * fraction * exponent).
+#   The sign is 0 if the real is positive, 1 if negative.
+#   The fraction is a boolean rw_vector representing the bits; note that the most
+#   significant bit is in position 0.
+#   The exponent is the binary exponent of the normalized fraction.
+#   "Normalized" here means a number between 0 and 1.
+#   
+#   The algorithm is inefficient on forms like 10000000.0; forms like 1E7 (with
+#   no bogus zeros) are better.  Also inefficient on forms like 0E23 or 1E-212.
+
+
+api Primitive_Floating_Point {							# Unreferenced outside this file.
+    #
+    significant:  Int;
+    minexp:       Int;
+    maxexp:       Int;
+    transreal:    ((Int, ((Int,Int) -> Int), Int)) -> String;
+};
+
+api Floating_Point_Constant {							# Unreferenced outside this file.
+    #
+    exception BAD_FLOAT  String;
+
+    realconst:  String -> String;
+};
+
+generic package slow_portable_floating_point_constants_g (
+
+    p:  Primitive_Floating_Point						# Primitive_Floating_Point	is from   src/lib/compiler/src/fconst/slow-portable-floating-point-constants-g.pkg
+)
+
+: (weak)  Floating_Point_Constant						# Floating_Point_Constant		is from   src/lib/compiler/src/fconst/slow-portable-floating-point-constants-g.pkg
+
+{
+    include p;
+
+    exception BAD_FLOAT  String;
+
+    # Use more than the required precision, then round at the end.
+    # This criterion works well enough for the 53 bits required by
+    # Vax G format and IEEE double format, but has not been tested
+    # with other values of significant.
+
+    fun log2 0 =>  1;
+        log2 i =>  1 + log2 (i / 2);
+    end;
+
+    precision   =   significant + log2 (maxexp-minexp) + 3;
+
+    #  A float is a WHOLE "fraction" and an exponent base TWO. 
+     Float = { frac:  integer::Int, exp:  Int };
+
+    bigint = integer::from_int;
+    plus   = integer::(+);
+    times  = integer::(*);
+
+    # Size of a bigint in bits:
+    #   bigsize 0 = 1
+    #   bigsize i = floor (log2 (i))+1
+    # This means that:
+    #   bigsize i = floor (log2 (2*i+1))
+
+    bigone = integer::from_int 1;
+
+    fun bigsize x
+        =
+        integer::log2 (plus (plus (x, x), bigone));
+
+    fun getbit (b, w)
+        =
+	integer::compare (integer::bitwise_and (integer::(>>>) (b, w), bigone), bigone)   ==   EQUAL;
+
+    infix val  plus times ;
+
+    # Take a bigint and return a function that will represent the
+    # fraction.  The function is called with two integers (start, width), and returns
+    # an integer represented by the bits from start to start+width-1.
+    # The high (1/2) bit is in position 0.  Assumes that
+    # the bigint is positive.  This will work if the bigint is smaller than
+    # the rw_vector or vice versa;  however, the number will be truncated, not
+    # rounded.
+
+    exception BITS;
+
+    fun makebits frac (start, width)
+        =
+	{ s = bigsize frac;
+
+	    fun onebit b
+                =
+                getbit (frac, unt::from_int (s - 1-b));
+
+	    fun b TRUE => 1;
+	       b FALSE => 0; end;
+
+	    fun f 0 => b (onebit start);
+	       f i => b (onebit (start+i)) + 2 * f (i - 1); end;
+
+       
+           if ( start < 0    or
+                width < 0
+	   )
+                raise exception BITS;
+	   else
+                f (width - 1);
+           fi;
+       };
+
+    #  Round a float to n significant digits 
+
+    stipulate
+
+        one = bigint 1;
+
+    herein
+
+	fun round (float as { frac=>f, exp=>e }, n)
+            =
+	    {   shift   =   bigsize f + 1 - n;
+	    
+		if (shift <= 0)
+                    
+                     float;
+		else
+                     { exp  =>   e + shift,
+
+		       frac =>   (getbit (f, unt::from_int (shift - 1)))
+				   ?? integer::(>>>) (f, unt::from_int shift) plus one
+				   :: integer::(>>>) (f, unt::from_int shift)
+		     };
+                fi;
+	    };
+    end;
+
+    # maketenth:  create the float of one tenth,
+    # to any number of significant
+    # digits, with no rounding on the last digit.
+    #
+    stipulate
+
+        zero = bigint 0;
+        one  = bigint 1;
+        two  = bigint 2;
+
+    herein
+
+	fun maketenth 1
+                =>
+                { frac=>one, exp=> -4 };
+
+	    maketenth n
+		=>
+		{   my { frac, exp } = maketenth (n - 1);
+
+		    recursive val tenthbit
+			=
+			fn 0 =>  zero;
+			   1 =>  one;
+			   2 =>  one;
+			   3 =>  zero;
+			   n =>  tenthbit (n % 4);
+			end;
+
+		    f = (frac times two) plus tenthbit n;
+		    e = exp - 1;
+
+		    {   frac => f,
+			exp  => e
+		    };
+		};
+        end;
+    end;
+
+    #  Float values ten and one tenth, to the correct precision. 
+    ten     =   { frac => bigint 5,   exp => 1 };
+    tenth   =   round (maketenth (precision+1), precision);
+
+    #  Multiply two floats together to the correct precision: 
+
+    fun mult { frac => f1,   exp => e1 }
+             { frac => f2,   exp => e2 }
+        =
+	{   f = f1 times f2;
+
+	    my e:  Int = e1 + e2;		#  Shouldn't need the type constraint, our comp bug XXX BUGGO FIXME 
+	
+	    round ( { frac => f,   exp => e },   precision );
+	};
+
+    #  Create a dynamic rw_vector of powers of ten 
+
+    package dfa
+	=
+	expanding_rw_vector_g (
+
+	    package {
+                include rw_vector;
+
+		Float     = { frac:  integer::Int, exp:  Int };
+		Element   = Void -> Float;
+		Rw_Vector = Rw_Vector( Element );
+		Vector    = Vector( Element );
+	    }
+	);
+
+    stipulate
+
+        include rw_vector;
+        include list;
+        include dfa;
+
+	infix val 9  sub ;
+
+	exception UNKNOWN;
+
+	fun makelem e
+            =
+            (fn () = e);
+
+	one = { frac=>bigint 1, exp=>0 };
+
+    herein
+
+	pos10 = dfa::rw_vector (0, fn () = raise exception UNKNOWN);	/* 10^2^n */       my _ = 
+
+	dfa::set (pos10, 0, makelem ten);
+
+	neg10 = dfa::rw_vector (0, fn () = raise exception UNKNOWN);	/* 10^-2^n */      my _ = 
+
+	dfa::set (neg10, 0, makelem tenth);
+
+	fun access (arr, n)
+            =
+           (dfa::get (arr, n)) ()
+	   except
+               UNKNOWN
+               =
+               {   last   =   access (arr, n - 1);
+		   new    = mult last last;
+	       
+                   dfa::set (arr, n, makelem new);
+
+		   new;
+	       };
+
+	fun pow10_2 0   =>   one;
+	    pow10_2 n   =>   if   (n > 0   )   access (pos10,  n - 1);
+                                          else   access (neg10, -n - 1);   fi;
+        end;
+
+	fun raisepower (f, 0)
+                =>
+                f;
+
+	    raisepower (f, e)
+		=>
+		{   sign   =   if (e < 0)   -1;
+			       else          1;
+			       fi;
+
+		    fun power (f, p)
+			=
+			mult f (pow10_2 (sign*p));
+
+		    fun raisep (f, 0u0, _) => f;
+		       raisep (f, e, p)
+			=>
+			if   (unt::bitwise_and (e, 0u1) == 0u1)
+
+			     raisep ( power (f, p),   unt::(>>) (e, 0u1),   p + 1 );
+			else raisep ( f,              unt::(>>) (e, 0u1),   p + 1 );
+			fi;
+		    end;
+
+
+		    raisep (f,   unt::from_int (abs e),   1);
+		};
+        end;
+    end;
+
+    # Take a string list of the form { digit*.[digit*] },
+    # and return a bigint and the exponent base 10.
+    # Requires that the list contain a decimal point and
+    # no trailing zeros (useless zeros after the decimal point).
+    #
+    stipulate
+
+        ten   =   bigint 10;
+        zero  =   bigint  0;
+
+    herein
+
+	fun reducefrac f
+            =
+	    {   fun getexp NIL => 0;
+		    getexp ('.' ! _) => 0;
+		    getexp (_ ! tl) => getexp tl - 1;
+                end;
+
+		fun getwhole NIL => zero;
+		    getwhole ('.' ! tl) => getwhole tl;
+		    getwhole ('0' ! tl) => ten times getwhole tl;
+
+		    getwhole (n ! tl)
+			=>
+			bigint (char::to_int n - char::to_int '0') plus (ten times getwhole tl);
+                end;
+
+		backwards   =   reverse f;
+
+		whole  =  getwhole backwards;
+
+		exp   =   getexp backwards;
+	    
+		(whole, exp);
+	    };
+    end;
+
+    # Take a legal ML float string and return an (Int * bigint * Int)
+    # which is the sign, whole "fraction", and power of ten exponent
+    #
+    fun getparts s
+        =
+	{   Trailing = SIGNIFICANT | TRAILING;
+
+	    # Separate the fraction from the exponent,
+            # adding a decimal point if there is none
+            # and eliminating trailing zeros:
+	    #
+	    fun separate (NIL, s) => (NIL, NIL, s);
+
+	        separate (('E' | 'e') ! tl, SIGNIFICANT)   =>   (['.'], tl, SIGNIFICANT);
+	        separate (('E' | 'e') ! tl, TRAILING   )   =>   (NIL,    tl, TRAILING   );
+
+	        separate ('0' ! tl, s)
+		    =>
+		    {   my (r, e, s) = separate (tl, s);
+
+			case s
+			     TRAILING    => (      r, e, TRAILING   );
+			    SIGNIFICANT => ('0' ! r, e, SIGNIFICANT);
+			esac;
+		    };
+
+	        separate ('.' ! tl, _)
+		    =>
+		    {   my   (r, e, _)   =   separate (tl, TRAILING);
+
+			('.' ! r, e, SIGNIFICANT);
+		    };
+
+	        separate (hd ! tl, s)
+		    =>
+		    {   my (r, e, _)   =   separate (tl, s);
+
+			(hd ! r, e, SIGNIFICANT);
+		    };
+            end;
+
+
+	    my (unsigned, sign)
+                =
+		case (explode s)
+		     ('-' ! more)  =>   (more,  1);
+		    other          =>   (other, 0);
+		esac;
+
+
+	    my (frac_s, exp_s, _)
+                =
+                separate (unsigned, SIGNIFICANT);
+
+
+	    fun atoi strlist
+                =
+		{   numlist
+                        =
+                        map (fn n = char::to_int n - char::to_int '0')
+                            strlist;
+		
+                    list::fold_left
+                        (fn (a: Int, b) = b*10 + a)
+                        0
+                        numlist;
+		};
+
+
+	    exp10
+                =
+		case exp_s
+		      NIL          =>   0;
+		     '-' ! more   =>   -(atoi more);
+		     other        =>    atoi other;
+		esac
+		except
+                    OVERFLOW
+                    =
+                    raise exception BAD_FLOAT s;
+
+	    my (frac, exp)
+                =
+                reducefrac frac_s;
+	 
+	    (sign, frac, exp10 + exp);
+	};
+
+    fun realconst f
+        = 
+	{   my   (sign, frac10, exp10)   =   getparts f;
+
+	    float
+                =
+                raisepower (
+                    round (
+                        {   frac => frac10,
+                            exp  => 0
+                        },
+                        precision
+                    ),
+                    exp10
+                );
+
+	    my (newf as { frac, exp } )
+                =
+                round (float, significant+1);
+
+	    size   =   bigsize frac;
+	    bits   =   makebits frac;
+	    exp    =   exp + size;
+
+	
+            transreal (
+
+		case size 
+
+		    0 => (0, bits, 0);
+
+		    _ => if (exp < minexp   or 
+                             exp > maxexp
+                         )
+                               raise exception BAD_FLOAT f;
+			 else
+                               (sign, bits, exp);
+                         fi;
+                esac
+            );
+	};
+
+};           #  generic package slow_portable_floating_point_constants_g 
+
+
+
+## Copyright 1989 by AT&T Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

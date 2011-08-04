@@ -1,0 +1,2264 @@
+## freezefile-g.pkg -- Loading, saving and managing freezefiles.
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+
+# See overview comments in
+#
+#     src/app/makelib/freezefile/freezefile.api
+#     src/lib/compiler/src/library/unpickler.pkg
+#
+#
+# FILE FORMAT
+# 
+#     The format of a foo.lib.frozen file ("freezefile") is as follows:
+# 
+#      - s:  The size s of the pickled dependency graph.
+#            This size is itself written as a four-byte string.
+# 
+#      - t:  The size of the pickled dictionary for the entire
+#            library (using the pickleEnvN interface of the pickler)
+#            in the same format as s.
+# 
+#      - The pickled dependency graph.  This graph contains
+#        integer offsets of the .compiled files for the individual
+#        sourcefile members. These offsets need to be adjusted
+#        by adding s + t + 8. The pickled dependency graph also
+#        contains integer offsets relative to other freezefiles.
+#        These offsets need no further adjustment.
+# 
+#      - Individual .compiled file contents (concatenated) but without
+#        their symbol tables.  The format of .compiled files is described in:
+#
+#            src/lib/compiler/execution/compiledfile/compiledfile.pkg
+# 
+# 
+# 
+# GENERIC INVOCATION CONTEXT
+# 
+#     Our freezefile_g generic is invoked once each
+#     by the standard and bootstrap compilers:
+#
+#         src/app/makelib/main/makelib-g.pkg
+#         src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+#
+#
+#
+# RUNTIME INVOCATION CONTEXT
+#
+#
+#     Our most typical call is from the local freeze() in
+#
+#         src/app/makelib/parse/libfile-parser-g.pkg
+
+
+
+###                "If you have a garden and a library,
+###                 you have everything you need."
+###
+###                        -- Marcus Tullius Cicero
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;						# anchor_dictionary				is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package bio =  binary_io;							# binary_io					is from   src/lib/std/src/posix/binary-io.pkg
+    package cf  =  compiledfile;						# compiledfile					is from   src/lib/compiler/execution/compiledfile/compiledfile.pkg
+    package em  =  error_message;						# error_message					is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fp  =  filename_policy;						# filename_policy				is from   src/app/makelib/main/filename-policy.pkg
+    package flt =  frozenlib_tome;						# frozenlib_tome				is from   src/app/makelib/freezefile/frozenlib-tome.pkg
+    package ftm =  frozenlib_tome_map;						# frozenlib_tome_map				is from   src/app/makelib/freezefile/frozenlib-tome-map.pkg
+    package lg  =  inter_library_dependency_graph;				# inter_library_dependency_graph		is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package mcv =  mythryl_compiler_version;					# mythryl_compiler_version			is from   src/lib/core/internal/mythryl-compiler-version.pkg
+    package ms  =  makelib_state;						# makelib_state					is from   src/app/makelib/main/makelib-state.pkg
+    package mvi =  makelib_version_intlist;					# makelib_version_intlist			is from   src/app/makelib/stuff/makelib-version-intlist.pkg
+    package ph  =  picklehash;							# picklehash					is from   src/lib/compiler/front/basics/map/picklehash.pkg
+    package pks =  pickler_junk;						# pickler_junk					is from   src/lib/compiler/front/semantic/pickle/pickler-junk.pkg
+    package pp  =  prettyprint;							# prettyprint					is from   src/lib/prettyprint/big/src/prettyprint.pkg
+    package psp =  symbol_and_picklehash_pickling;				# symbol_and_picklehash_pickling		is from   src/lib/compiler/front/semantic/pickle/symbol-and-picklehash-pickling.pkg
+    package pkr =  pickler;							# pickler					is from   src/lib/compiler/src/library/pickler.pkg
+    package s2m =  collect_all_modtrees_in_symbolmapstack;			# collect_all_modtrees_in_symbolmapstack	is from   src/lib/compiler/front/typer-stuff/symbolmapstack/collect-all-modtrees-in-symbolmapstack.pkg
+    package sa  =  supported_architectures;					# supported_architectures			is from   src/lib/compiler/front/basics/main/supported-architectures.pkg
+    package sg  =  intra_library_dependency_graph;				# intra_library_dependency_graph		is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package shm =  sharing_mode;						# sharing_mode					is from   src/app/makelib/stuff/sharing-mode.pkg
+    package sm  =  line_number_db;						# line_number_db				is from   src/lib/compiler/front/basics/source/line-number-db.pkg
+    package sts =  string_set;							# string_set					is from   src/lib/src/string-set.pkg
+    package stx =  stampmapstack;						# stampmapstack					is from   src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+    package sy  =  symbol;							# symbol					is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package sym =  symbol_map;							# symbol_map					is from   src/app/makelib/stuff/symbol-map.pkg
+    package sys =  symbol_set;							# symbol_set					is from   src/app/makelib/stuff/symbol-set.pkg
+    package syx =  symbolmapstack;						# symbolmapstack				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package tag =  pickler_datatype_tags;					# pickler_datatype_tags				is from   src/lib/compiler/src/library/pickler-datatype-tags.pkg
+    package tlt =  thawedlib_tome;						# thawedlib_tome				is from   src/app/makelib/compilable/thawedlib-tome.pkg
+    package ttm =  thawedlib_tome_map;						# thawedlib_tome_map				is from   src/app/makelib/compilable/thawedlib-tome-map.pkg
+    package tst =  tome_symbolmapstack;						# tome_symbolmapstack				is from   src/app/makelib/depend/tome-symbolmapstack.pkg
+    package ups =  unpickler_junk;						# unpickler_junk				is from   src/lib/compiler/front/semantic/pickle/unpickler-junk.pkg
+    package upr =  unpickler;							# unpickler					is from   src/lib/compiler/src/library/unpickler.pkg
+
+    package ssm									# "ssm" ==e "symbol set map"
+	=
+	map_g (
+	    package {
+		Key     = sys::Set;
+		compare = sys::compare;
+	    }
+	);
+herein
+
+
+    # We are invoked from:
+    #
+    #     src/app/makelib/main/makelib-g.pkg
+    #     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+
+    generic package freezefile_g (
+	#
+	architecture:  sa::Supported_Architectures;				# PWRPC32/SPARC32/INTEL32.	Used (only) as arg to   cf::write_compiledfile, where it ultimately prevents mixing code for different architectures during linking.
+	#
+	package freezefile_roster:  Freezefile_Roster;				# Freezefile_Roster	is from   src/app/makelib/freezefile/freezefile-roster-g.pkg
+	#
+	compile_library								# fun recompile from either   src/app/makelib/main/makelib-g.pkg
+            :									#                    or else  src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+            ms::Makelib_State
+	    ->
+            lg::Inter_Library_Dependency_Graph
+	    ->
+            Null_Or (
+                tlt::Thawedlib_Tome
+	        ->
+                { compiledfile:		cf::Compiledfile,
+		  component_bytesizes:	cf::Component_Bytesizes
+		}
+	    );
+
+	get_symbol_and_inlining_mapstacks
+	    :
+	    tlt::Thawedlib_Tome -> sg::Symbol_And_Inlining_Mapstacks;
+    )
+    :
+    Freezefile									# Freezefile		is from   src/app/makelib/freezefile/freezefile.api
+    {
+	package ffr =  freezefile_roster;					# Local abbreviation.
+										# freezefile_roster_g	is from   src/app/makelib/freezefile/freezefile-roster-g.pkg
+
+	Library_Fetcher
+            =
+            ( ms::Makelib_State,
+	      ad::File,
+	      Null_Or( mvi::Makelib_Version_Intlist )
+	      , ad::Renamings	# MUSTDIE
+            )
+	    ->
+            Null_Or( lg::Inter_Library_Dependency_Graph ); 
+
+
+
+
+	library_picklehash_bytesize					# presumably this is saying that picklehashes are 16 bytes.
+            =								# If so, this should be 'ph::pickle_hash_size' instead of '16', no?
+            16;								# XXX BUGGO FIXME.
+
+	Map =
+            { symbol_set_map:  ssm::Map( pkr::Id ),
+	      sml_info_map:    ttm::Map( pkr::Id ),
+	      pickle_map:      pks::Map
+	    };
+
+	my empty_map:  Map
+            =
+            { symbol_set_map =>  ssm::empty,
+	      sml_info_map   =>  ttm::empty,
+	      pickle_map     =>  pks::empty_map
+	    };
+
+	lifter
+            =
+            { extract   =>   fn (m: Map)             =  m.pickle_map,
+	      patchback =>   fn (m: Map, pickle_map) =  { symbol_set_map =>  m.symbol_set_map,
+							  sml_info_map   =>  m.sml_info_map,
+							  pickle_map
+							}
+	    };
+
+
+	symbol_sets
+            =
+            { find   =>  fn (m: Map, k)
+			     =
+			     ssm::get (m.symbol_set_map, k),
+
+	      insert =>  fn ( { symbol_set_map, sml_info_map, pickle_map }, k, v)
+			     =
+			     { sml_info_map,
+			       symbol_set_map =>  ssm::set (symbol_set_map, k, v),
+			       pickle_map
+			     }
+	    };
+
+
+	thawedlib_tome_tin_sets =
+            { find   =>  fn (m: Map,   sg::THAWEDLIB_TOME_TIN  tin)
+                             =
+                             ttm::get (m.sml_info_map, tin.thawedlib_tome),
+
+	      insert =>  fn ( { symbol_set_map, sml_info_map, pickle_map }, sg::THAWEDLIB_TOME_TIN tin, v)
+			     =
+			     { symbol_set_map,
+			       sml_info_map =>  ttm::set  (sml_info_map, tin.thawedlib_tome, v),
+			       pickle_map
+			     }
+	    };
+
+	#
+	fun fetch_pickle  (input_stream:  bio::Input_Stream)
+	    =
+	    {	library_picklehash_bytestring =  read_n_bytes  library_picklehash_bytesize;						# Read and ignore 16-byte library picklehash.
+		#
+		dependency_graph_bytesize     =  large_unt::to_int_x  (pack_big_endian_unt32::get_vec  (read_n_bytes 4, 0));		# Read four-byte length-in-bytes of following graph pickle. 
+		#
+		dependency_graph_pickle       =  byte::bytes_to_string  (read_n_bytes  dependency_graph_bytesize);			# Read graph pickle itself.
+		#	    
+		{ pickle   =>  dependency_graph_pickle,
+		  bytesize =>  dependency_graph_bytesize
+		};
+	    }
+	    where
+	        fun read_n_bytes  n													# A simple wrapper around   bio::read_n
+		    =
+		    {   byte_vector =  bio::read_n  (input_stream, n);
+		    
+			# Sanity check -- make sure we read requested number of bytes:
+			#
+			if (n != unt8_vector::length  byte_vector)
+			    #                            
+                            file::vsay ["                        freezefile-g.pkg: fetch_pickle: format error"];
+                            raise exception upr::FORMAT;
+                        fi;
+
+                        byte_vector;
+		    };
+	    end;
+	#
+	fun make_pickle_fetcher  make_freezefile_name  ()
+	    =
+	    safely::do
+                {
+		  open_it  =>  bio::open_for_read o make_freezefile_name,
+		  close_it =>  bio::close_input,
+		  cleanup  =>  fn _ = ()
+	        }
+		(.pickle o fetch_pickle);
+
+
+	# Build a mapping
+	#
+        #     flt::Frozenlib_Tome -> (Int, sy::Symbol)
+	#
+        # that maps each Frozenlib_Tome in a lg::Library to the
+	# 0..N index of its exporting sub-library in the
+	#     lg::LIBRARY.sublibraries
+	# list, plus a representative symbol (naming a package or
+	# api defined in that tome) that can be used to find the
+	# Frozenlib_Tome within the exports of that sub-library.
+	#
+	# (We will need this mapping when pickling.)
+	#
+	fun make_tome_to_sublib_map  (sublibraries:   List( lg::Library_Thunk )):   flt::Frozenlib_Tome  ->  (Int, sy::Symbol)
+	    = 
+	    get
+            where
+		# Handle one catalog entry (api or package definition
+		# within a .api or .pkg file) for sub-library:
+		#
+	        fun do_one_fat_tome
+			#
+                        (sublib_index:  Int)			# The index, 0->N-1, of the current sublibrary within the lg::LIBRARY.sublibraries list of its owning library.
+			#
+                        ( symbol:       sy::Symbol,		# A symbol naming a package or api within current sublibrary.
+                          fat_tome:     lg::Fat_Tome,		# The package or api named by preceding symbol.
+                          tome_to_sublib_map			# The result map we're constructing.
+                        )
+		    =
+		    case (fat_tome.masked_tome_thunk ())
+			#		      
+			{ exports_mask, tome => sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN  tin, ... } }
+			    =>
+			    # A given tome (.api or .pkg file) may contain multiple actual
+			    # api and/or package definitions.  If so, we will be called
+			    # once for each such def and we will here blindly overwrite any
+			    # pre-existing   tome_to_sublib_map   entry for this tome with one for
+			    # the new symbol, meaning that the last symbol registered wins:
+			    #
+			    ftm::set (tome_to_sublib_map, tin.frozenlib_tome, (sublib_index, symbol));
+
+			_   =>
+			    tome_to_sublib_map;
+                    esac;
+
+
+		# ... but we want the first guy to win,
+                # so we do fold_right and count from the top:
+		#
+		fun do_one_sublib' (g as lg::LIBRARY { catalog, ... }, (tome_to_sublib_map, sublib_index))
+			=>
+			( sym::keyed_fold_left			# symbol_map	is from   src/app/makelib/stuff/symbol-map.pkg
+                              (do_one_fat_tome  sublib_index)
+                              tome_to_sublib_map
+                              catalog,
+			  #
+                          sublib_index - 1
+                        );
+
+		    do_one_sublib' (_, (tome_to_sublib_map, sublib_index))
+			=>
+			( tome_to_sublib_map,
+                          sublib_index - 1
+                        );
+                end;
+
+		#
+		fun do_one_sublib (lt: lg::Library_Thunk, inversemap_and_sublibindex)
+                    =
+                    do_one_sublib' (lt.library_thunk (), inversemap_and_sublibindex);
+
+
+		my (tome_to_sublib_map, _)
+                    =
+                    fold_right
+                        do_one_sublib
+                        (ftm::empty, length sublibraries - 1)
+                        sublibraries;
+
+						# frozenlib_tome_map	is from   src/app/makelib/freezefile/frozenlib-tome-map.pkg
+		#
+		fun get (frozenlib_tome:  flt::Frozenlib_Tome)
+		    =
+		    case (ftm::get  (tome_to_sublib_map, frozenlib_tome))
+			#		      
+		        THE p =>  p;
+		        NULL  =>  em::impossible "save_freezefile: bad inverse map";
+                    esac;
+	    
+	    end;             #  fun make_tome_to_sublib_map 
+
+
+
+	# A library picklehash is created by "pickling" the dependency graph
+	# of the library in a cursory fashion, thereby recording the
+	# interface picklehashes of external references.
+	# 
+	# The so-created pickle string is never used for unpickling.
+	# Instead, it is hashed and the picklehash stored at in the
+	# header of its .lib.frozen file to support later
+	# corruption/staleness checks -- for example via
+	#
+	#     src/app/makelib/freezefile/verify-freezefile-g.pkg
+	# 
+	# In paranoia mode makelib checks if the recorded
+	# hash is identical to the one that _would_ be created if
+	# one were to re-freeze the library now.
+	#
+	fun compute_library_picklehash
+            (
+              libfile:        ad::File,
+              catalog_tomes:  List( sg::Tome ),									# All the tomes in the library catalog.
+              sublibraries:   List( lg::Library_Thunk )
+            )
+	    =
+	    pks::hash_pickle
+		(byte::string_to_bytes
+		    (pkr::funtree_to_pickle   empty_map   (wrap_catalog_tomes  ()))
+                )
+	    where
+	        fun tome_compare
+                      ( sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN tin1, ... },
+			sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN tin2, ... }
+		      )
+			=>
+			flt::compare
+                            ( tin1.frozenlib_tome,
+                              tin2.frozenlib_tome
+                            );
+
+		    tome_compare  (sg::TOME_IN_FROZENLIB _, sg::TOME_IN_THAWEDLIB _) =>  GREATER;
+		    tome_compare  (sg::TOME_IN_THAWEDLIB _, sg::TOME_IN_FROZENLIB _) =>  LESS;
+
+		    tome_compare ( sg::TOME_IN_THAWEDLIB (sg::THAWEDLIB_TOME_TIN tin1),
+				   sg::TOME_IN_THAWEDLIB (sg::THAWEDLIB_TOME_TIN tin2)
+			         )
+			=>
+			tlt::compare			# thawedlib_tome		is from   src/app/makelib/compilable/thawedlib-tome.pkg
+                            ( tin1.thawedlib_tome,
+                              tin2.thawedlib_tome
+                            );
+                end;
+
+
+		# To deal with the primordial library (where export nodes come in
+		# in an ad-hoc order not derived from the export map),
+		# we first sort the list of export nodes, thereby getting rid
+		# of duplicates.  This should normally canonicalize the list.
+		# The resulting order is unfortunately not persistent.
+		# Most of the time this should not matter, though.		("most"?! XXX BUGGO FIXME)
+		#
+		catalog_tomes
+                    =
+                    list_mergesort::unique_sort		# list_mergesort	is from   src/lib/src/list-mergesort.pkg
+                        tome_compare
+                        catalog_tomes;
+
+		tome_to_sublib_map
+                    =
+                    make_tome_to_sublib_map  sublibraries;
+
+								# symbol_and_picklehash_pickling	is from   src/lib/compiler/front/semantic/pickle/symbol-and-picklehash-pickling.pkg
+
+		wrap_picklehash =  psp::wrap_picklehash;
+
+		share  =  pkr::adhoc_share;
+
+#		wrap_symbol =  psp::wrap_symbol;
+#		wrap_string =  pkr::wrap_string;
+		wrap_list   =  pkr::wrap_list;
+		wrap_int    =  pkr::wrap_int;
+
+
+		#
+		fun wrap_thawedlib_tome_tin (tome_tin:  sg::Thawedlib_Tome_Tin)				# Compare to  wrap_sourcefile_node(tome_tin:  sg::Thawedlib_Tome_Tin)
+		    =
+		    share  thawedlib_tome_tin_sets  wrap_raw_thawedlib_tome_tin  tome_tin
+		    where
+		        mknod =    pkr::make_funtree_node  tag::thawedlib_tome;
+
+			#
+			fun wrap_raw_thawedlib_tome_tin (sg::THAWEDLIB_TOME_TIN t)
+			    =
+			    mknod "a" [ wrap_list  wrap_thawedlib_tome_tin    t.near_imports,
+					wrap_list  wrap_far_tome              t.far_imports
+                                      ];
+		    end
+
+		also
+                fun wrap_far_tome { exports_mask, tome }
+		    =
+		    {   mknod =    pkr::make_funtree_node   tag::far_tome;
+			#
+			mknod "f"  [wrap_tome tome];
+		   }
+
+		also
+                fun wrap_tome  (tome:  sg::Tome)
+		    =
+		    {   mknod =    pkr::make_funtree_node  tag::tome;
+			#		    
+			case tome
+			    #		          
+			    sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN { frozenlib_tome, ... }, symbol_and_inlining_mapstacks, ... }
+				=>
+				{   (tome_to_sublib_map  frozenlib_tome)
+					->
+					(sublib_index, symbol);					# 'symbol' names an api or package exported by the tome.  Unused here.
+
+				    symbol_and_inlining_mapstacks
+					->
+					{ symbolmapstack_picklehash,
+					  inlining_mapstack_picklehash,
+					  ...
+					};
+
+
+				    mknod "2" [ wrap_int         sublib_index,			# Offset of sublib within lg::LIBRARY.sublibraries list.
+						wrap_picklehash  symbolmapstack_picklehash,
+						wrap_picklehash  inlining_mapstack_picklehash
+					      ];
+				};
+
+			    #
+			    sg::TOME_IN_THAWEDLIB  thawedlib_tome_tin
+				=>
+				mknod "3" [wrap_thawedlib_tome_tin  thawedlib_tome_tin];
+                        esac;
+		    };
+
+		#
+		fun wrap_catalog_tomes ()
+		    =
+		    {   mknod =    pkr::make_funtree_node   tag::sublibraries;
+			#
+			mknod "g"  [wrap_list  wrap_tome  catalog_tomes];
+		    };
+	    end;										# fun compute_library_picklehash 
+
+
+
+	# Comparison of on-disk picklehash with in-memory image.
+	# We are called (only) from:
+	#
+	#     src/app/makelib/freezefile/verify-freezefile-g.pkg 
+	#
+	fun on_disk_library_picklehash_matches_in_memory_library_image   (makelib_state: ms::Makelib_State)   (arg as (libfile, _, _))
+	    =
+	    {   new_picklehash  =   byte::bytes_to_string  (ph::to_bytes  (compute_library_picklehash  arg));
+		filename_policy =   makelib_state.makelib_session.filename_policy;
+		freezefile_name =   fp::make_freezefile_name  filename_policy  libfile;							# "foo.lib.frozen"
+
+		safely::do
+		    {
+		      open_it  =>  .{ bio::open_for_read  freezefile_name; },
+		      close_it =>     bio::close_input,							# binary_io	is from   src/lib/std/src/posix/binary-io.pkg
+		      cleanup  =>  fn _ = ()
+		    }
+		   .{   old_picklehash
+                            =
+                            byte::bytes_to_string  (bio::read_n  (#stream,  library_picklehash_bytesize));
+		    
+			old_picklehash == new_picklehash;
+		    }
+		except _
+                    =
+                    FALSE;
+	    };
+
+
+	########################################################################################################
+	#
+	fun load_freezefile
+		#
+                { get_library, any_errors }
+		#
+                ( makelib_state:  makelib_state::Makelib_State,
+                  libfile:	  ad::File,
+                  makelib_version_intlist:      Null_Or( mvi::Makelib_Version_Intlist )			# XXX BUGGO FIXME 'version' here can die, I think.
+                  , anchor_rebinds	# MUSTDIE
+                )
+	    =
+	    {
+#		THE (safely::do
+#                        { open_it  =>  bio::open_for_read  o  make_freezefile_name,
+#			  close_it =>  bio::close_input,
+#			  cleanup  =>  fn _ = ()
+#			}
+#			read_freezefile_header
+#		     )
+#		except
+#                    upr::FORMAT
+#                        =>
+#                        {   error ["file is corrupted (old version?)"];
+#			    NULL;
+#                        };
+#
+#		    io_exceptions::IO _
+#                        =>
+#                        NULL;
+#                end;
+
+
+		THE (safely::do
+                        { open_it  =>  bio::open_for_read  o  make_freezefile_name,
+			  close_it =>  bio::close_input,
+			  cleanup  =>  fn _ = ()
+			}
+			read_freezefile_contents
+		     )
+		except
+                    upr::FORMAT
+                        =>
+                        {   report_error ["file is corrupted (old version?)"];
+			    NULL;
+                        };
+
+		    io_exceptions::IO _
+                        =>
+                        NULL;
+                end;
+	    }
+	    where
+	        error_info
+                    =
+                    ( makelib_state.plaint_sink,
+                      any_errors
+                    );
+
+		library_description
+                    =
+                    ad::describe  libfile;
+
+									# makelib_state		is from   src/app/makelib/main/makelib-state.pkg
+
+		#
+		fun report_error  (error_message:  List(String))
+		    =
+		    em::error_no_file
+			#
+                        error_info
+			sm::null_region
+			em::ERROR (cat ("(built) " ! library_description ! ": " ! error_message))
+			em::null_error_body;
+
+
+		anchor_dictionary =   makelib_state.makelib_session.anchor_dictionary;
+		filename_policy   =   makelib_state.makelib_session.filename_policy;
+		#
+		fun make_freezefile_name ()
+                    =
+                    fp::make_freezefile_name
+                        filename_policy
+                        libfile;
+
+		#
+		fun read_freezefile_contents   (input_stream:  bio::Input_Stream)
+		    =
+		    read_sharable_value  library_sharemap  read_library
+                    where
+		        fun get_library' (makelib_state, p, vo
+                                                            , rb	# MUSTDIE
+                                                            )
+			    =
+			    case (get_library (makelib_state, p, vo
+                                                                , rb	# MUSTDIE
+                                                                ))
+                              
+				#
+				THE lib =>   lib;
+				#
+				NULL =>
+				    {
+					report_error [
+					    "   .../freezefile/freezefile-g.pkg:   Unable to find ",
+					    ad::describe p,
+					    " (",
+					    ad::abbreviate (ad::os_string p),
+					    ")"
+					];
+
+					raise exception upr::FORMAT;
+				    };
+                            esac;
+
+
+			(fetch_pickle  input_stream)
+			    ->
+			    { bytesize =>  dependency_graph_bytesize,
+                              pickle   =>  dependency_graph_pickle
+                            };
+                            
+
+
+			offset_adjustment
+                            =
+                            dependency_graph_bytesize + 4 + library_picklehash_bytesize;			# 64-bit issue XXX BUGGO FIXME
+
+
+			my { charstream, clear_pickle_cache }
+                            =
+                            upr::make_enhanced_charstream_for_string
+                              ( THE dependency_graph_pickle,
+				make_pickle_fetcher  make_freezefile_name
+                              );
+
+			unpickler =   upr::make_unpickler  charstream;
+
+
+			###################################################
+			#
+			#	Allocate Per-Type Backref Maps
+			#
+			# A vanilla recursive treewalk can read and write
+			# simple tree structures, but we must implement special
+			# handling for pickled datastructures with shared
+			# nodes -- nodes with multiple parents.
+			#
+			# If we didn't, shared nodes would be duplicated
+			# by a pickle + unpickle sequence, resulting in some
+			# datastructures potentially coming back exponentially
+			# larger than they started out.  Not good.
+                        #
+                        # To maintain sharing through the pickle + unpickle
+			# sequence we store special backreferences in the
+			# pickles, which upon unpickling (i.e., here) we convert
+			# back into pointers to shared values.  (Pickle backrefs are
+			# a teeny bit like \1 or $1 backrefs in regular expressions,
+			# which serve a vaguely similar purpose.  Hence the name.)
+                        #
+			# To make this work, we need a table of already-unpickled
+			# graph nodes with which to resolve the backreferences as
+			# we encounter them.
+                        #
+			# In fact, to keep the type checker happy, we need a
+			# separate backref table for each type of shared node.
+			#
+			# We call such a table a "Sharemap" because it maps
+			# small ints to shared values of a given type.
+			#
+			# These all incorporate a toplevel refcell so that we can
+			# update them as we read -- they are all MUTABLE STATE.
+			#
+			# Here we create these mutable per-type sharemaps,
+			# each initially empty.
+			#
+			# Note that we can't really have shared values for
+			# some types such as immediate integers, so we don't
+			# waste time or space creating sharemaps for them.
+			#
+			#
+			my far_frozenlib_tome_sharemap:				upr::Sharemap( sg::Far_Frozenlib_Tome )							=  upr::make_sharemap ();
+			my flt_frozenlib_tome_sharemap:				upr::Sharemap(    flt::Frozenlib_Tome )							=  upr::make_sharemap ();
+			my library_thunk_sharemap:				upr::Sharemap( lg::Library_Thunk )							=  upr::make_sharemap ();
+			my list_of_frozenlib_tome_tin_sharemap:			upr::Sharemap( List( sg::Frozenlib_Tome_Tin ) )						=  upr::make_sharemap ();
+			my list_of_list_of_string_sharemap:			upr::Sharemap( List(List(String)) )							=  upr::make_sharemap ();
+			my list_of_string_sharemap:				upr::Sharemap( List( String ) )								=  upr::make_sharemap ();
+			my list_of_void_to_far_frozenlib_tome_sharemap:		upr::Sharemap( List(Void -> sg::Far_Frozenlib_Tome) )					=  upr::make_sharemap ();
+			my makelib_version_intlist_sharemap:			upr::Sharemap( mvi::Makelib_Version_Intlist )						=  upr::make_sharemap ();
+			my nullor__makelib_version_intlist__sharemap:		upr::Sharemap( Null_Or( mvi::Makelib_Version_Intlist ) )				=  upr::make_sharemap ();
+			my nullor_picklehash_sharemap:				upr::Sharemap( Null_Or( ph::Picklehash ) )						=  upr::make_sharemap ();
+			my nullor_symbolset_sharemap:				upr::Sharemap( Null_Or( sys::Set ) )							=  upr::make_sharemap ();
+			my pair__frozenlib_tome_tin__nullor_int__sharemap:	upr::Sharemap( (sg::Frozenlib_Tome_Tin, Null_Or(Int)) )					=  upr::make_sharemap ();
+			my pair__symbol__fat_tome__sharemap:			upr::Sharemap( (sy::Symbol, lg::Fat_Tome) )						=  upr::make_sharemap ();
+			my frozenlib_tome_tin_sharemap:				upr::Sharemap( sg::Frozenlib_Tome_Tin )							=  upr::make_sharemap ();
+			my symbolmap__fat_tome__sharemap:			upr::Sharemap( sym::Map( lg::Fat_Tome ) )						=  upr::make_sharemap ();
+			my symbolset_sharemap:					upr::Sharemap( sys::Set )  								=  upr::make_sharemap ();
+
+# MUSTDIE these are probably both about rb=rebindings
+			my renaming_sharemap:					upr::Sharemap(       ad::Renaming  )							=  upr::make_sharemap ();
+			my list_of_renaming_sharemap:				upr::Sharemap( List( ad::Renaming ))							=  upr::make_sharemap ();
+
+			# These four appear to be typeagnostic -- I cannot
+			# assign them a fixed type. I haven't figured that out
+			# yet.                       -- 2011-01-18 CrT
+			#
+			#
+			my sh_list_sharemap 	  /* :				upr::Sharemap( List( Void -> inter_library_dependency_graph::Library_Thunk ) ) */	=  upr::make_sharemap ();
+			my fat_tome_list_sharemap /* : 				upr::Sharemap( List( Void -> (sy::Symbol, lg::Fat_Tome)) ) dinnae work	*/		=  upr::make_sharemap ();
+			my library_sharemap	  /* :				upr::Sharemap( Int ) */									=  upr::make_sharemap ();
+			my absolute_path_sharemap /* :				upr::Sharemap( lg::Library )	*/							=  upr::make_sharemap ();
+			#
+
+			#
+			fun read_list			sharemap read_element   =  upr::read_list			unpickler sharemap  read_element;
+			read_string						=  upr::read_string			unpickler;
+			fun read_null_or			sharemap read_value	=  upr::read_null_or			unpickler sharemap  read_value;
+			read_int							=  upr::read_int			unpickler;
+#			read_bool							=  upr::read_bool			unpickler;
+			fun read_sharable_value  sharemap  read_value	=  upr::read_sharable_value	unpickler sharemap  read_value;
+			fun read_unsharable_value          read_value   =  upr::read_unsharable_value	unpickler           read_value;
+
+			read_picklehash       =  symbol_and_picklehash_unpickling::read_picklehash  (unpickler, read_string);
+
+							# symbol_and_picklehash_unpickling	is from   src/lib/compiler/front/semantic/pickle/symbol-and-picklehash-unpickling.pkg
+
+			read_list_of_strings      =  read_list  list_of_string_sharemap          read_string;
+			read_list_of_lists_of_strings =  read_list  list_of_list_of_string_sharemap  read_list_of_strings;
+			#
+			fun list2path c sl
+			    =
+			    c (ad::unpickle		# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
+                                  anchor_dictionary
+                                  { pickled     =>  sl,
+                                    relative_to =>  libfile
+                                  }
+                              )
+			    except
+                                ad::FORMAT
+                                    =
+				    {   report_error ["freezefile-g.pkg: list2path: format error"];
+                                        raise exception upr::FORMAT;
+                                    };
+
+			#
+			fun read_absolute_path ()
+			    =
+			    read_sharable_value  absolute_path_sharemap  absolute_path
+                            where
+			        fun absolute_path 'p'
+                                        =>
+                                        list2path   ad::file   (read_list_of_lists_of_strings ());
+
+				    absolute_path _
+                                        =>
+                                        {   report_error ["freezefile-g.pkg: absolute_path: format error"];
+                                            raise exception upr::FORMAT;
+                                        };
+                                end;
+			    end;
+			#
+			fun read_version ()						# version intlist (e.g. "12.3.9" -> [12,3,9])   as in   src/app/makelib/stuff/makelib-version-intlist.pkg
+			    =
+			    read_sharable_value   makelib_version_intlist_sharemap   v
+                            where
+			        fun v 'v'
+                                        =>
+                                        case (mvi::from_string  (read_string ()))
+					    #                                          
+					    THE v =>   v;
+					    #
+					    NULL =>
+						{   report_error ["freezefile-g.pkg: version: format error"];
+						    raise exception upr::FORMAT;
+						};
+                                        esac;
+
+				    v _ =>
+                                        {   report_error ["freezefile-g.pkg: version/2: format error"];
+                                            raise exception upr::FORMAT;
+                                        };
+                                end;
+			    end;
+
+# MUSTDIE (?) -- this is probably all "rb"=="rebinding" shit
+			fun read_renaming ()        #  "rb" == "recursive binding"?  (Almost certainly 'rebinding')
+			    =
+			    read_sharable_value  renaming_sharemap  r
+                            where
+			        fun r 'b'
+                                        =>
+                                        { anchor =>  read_string (),
+					  value  =>  list2path   (fn x = x)  (read_list_of_lists_of_strings ())
+					};
+
+				   r _ =>
+                                       {   report_error ["freezefile-g.pkg: rb: format error"];
+                                           raise exception upr::FORMAT;
+                                       };
+                                end;
+			    end;
+			#
+			fun read_library_thunk ()
+			    =
+			    read_sharable_value  library_thunk_sharemap  xsg
+                            where
+# MUSTDIE
+#			        fun read_it ()
+			        fun read_it get_rbl        #  rbl == "recursive binding list"?  (or rebinding list?)
+				    =
+				    {
+                                        p   =  read_absolute_path ();
+					vo  =  read_null_or   nullor__makelib_version_intlist__sharemap   read_version ();
+					rbl =  get_rbl ();	# MUSTDIE
+					#
+					fun lib_thunk ()
+                                            =
+                                            get_library' (makelib_state, p, vo
+                                                                            , rbl	# MUSTDIE
+                                                                            );
+				    
+					{ libfile       =>  p,
+                                          library_thunk =>  memoize::memoize lib_thunk
+                                        , renamings     =>  rbl	# MUSTDIE
+                                        };
+				    };
+
+#				fun xsg 's' =>  read_it  (); # MUSTDIE (fn () = []);		#  Backward-compatible 
+#				    xsg 'S' =>  read_it  (); # MUSTDIE (list  list_of_renaming_sharemap  rb);
+
+				fun xsg 's' =>  read_it  (fn () = []);		#  Backward-compatible 
+				    xsg 'S' =>  read_it  (read_list  list_of_renaming_sharemap  read_renaming);
+				    xsg _   =>  {   report_error ["freezefile-g.pkg: xsg: format error"];
+                                                    raise exception upr::FORMAT;
+                                                };
+                                end;
+			    end;
+			#
+			fun read_library 'g'
+				=>
+				{   makelib_version_intlist
+					=
+					read_null_or   nullor__makelib_version_intlist__sharemap   read_version  ();
+
+				    sublibraries
+					=
+					read_list  sh_list_sharemap  read_library_thunk  ();
+				    #
+				    fun get_sublib  sublib_index
+					=
+					case (.library_thunk (list::nth (sublibraries, sublib_index))  ())
+					    #					  
+					    lg::LIBRARY x     =>  x;
+					    lg::BAD_LIBRARY =>  em::impossible "load_freezefile: BAD_LIBRARY";
+					esac
+					except
+					    (exceptions::SUBSCRIPT|exceptions::INDEX_OUT_OF_BOUNDS)		# exceptions	is from   src/lib/std/exceptions.pkg
+						=
+						{    report_error ["freezefile-g.pkg: gr: format error"];
+						     raise exception upr::FORMAT;
+						};
+
+				    #
+				    fun context  NULL
+					    =>
+					    {    report_error ["freezefile-g.pkg: context/NULL: format error"];
+						 raise exception upr::FORMAT;
+					    };
+
+					context  (THE  (sublib_index,  symbol))
+					    =>
+					    {   ( get_sublib  sublib_index )
+						    ->
+						    { catalog, ... };
+
+						    
+
+										# symbol_map	is from   src/app/makelib/stuff/symbol-map.pkg
+
+						case (sym::get (catalog, symbol))
+						    #
+						    THE (fat_tome: lg::Fat_Tome)
+							=>
+							case (fat_tome.masked_tome_thunk ())
+							    #
+							    { exports_mask, tome => sg::TOME_IN_FROZENLIB { symbol_and_inlining_mapstacks, ... } }
+								=>
+								ffr::add_symbolmapstack  (symbol_and_inlining_mapstacks.symbolmapstack_thunk ());		# Add to global roster.
+							    #
+							    _   =>
+								{   report_error ["freezefile-g.pkg: context/THE: format error"];
+								    raise exception upr::FORMAT;
+								};
+							esac;
+
+						    #
+						    NULL =>
+							{   report_error ["freezefile-g.pkg: context/THE/NULL: format error"];
+							    raise exception upr::FORMAT;
+							};
+						esac;
+					    };
+				    end;		# fun context
+
+				    ( ups::make_unpicklers   { unpickler, read_list_of_strings }   context)
+					->
+				        { read_inlining_mapstack, read_symbolmapstack, read_symbol, read_list_of_symbols };
+
+				    lazy_symbol_dictionary =  upr::read_lazy  unpickler  read_inlining_mapstack;
+				    lazy_symbolmapstack      =  upr::read_lazy  unpickler  read_symbolmapstack;
+				    #
+				    fun read_symbol_set ()
+					=
+					read_sharable_value  symbolset_sharemap  s
+					where
+					    fun s 's' =>   sys::add_list  (sys::empty, read_list_of_symbols ());
+						s _   =>   {   report_error ["freezefile-g.pkg: read_symbol_set: format error"];
+							       raise exception upr::FORMAT;
+							   };
+					    end;
+					end;
+
+				    exports_mask
+					=
+					read_null_or  nullor_symbolset_sharemap  read_symbol_set;
+				    #
+				    fun read_sharing_mode ()
+					=
+					read_unsharable_value  s
+					where
+					    fun s 'a' =>   shm::SHARE  TRUE;	# sharing_mode	is from   src/app/makelib/stuff/sharing-mode.pkg
+						s 'b' =>   shm::SHARE  FALSE;
+						s 'c' =>   shm::DO_NOT_SHARE;
+						s _   =>   {    report_error ["freezefile-g.pkg: shm: format error"];
+								raise exception upr::FORMAT;
+							   };
+					    end;
+					end;
+
+				    read_null_or_picklehash
+					=
+					read_null_or  nullor_picklehash_sharemap  read_picklehash;
+				    #
+				    fun read_frozenlib_tome ()
+					=
+					read_sharable_value  flt_frozenlib_tome_sharemap  s
+					where
+					    fun s 's'
+						    =>
+						    {   api_or_pkg_file_path =  read_string ();		# E.g. "foo.api" or "../emit/asm-emit.pkg".
+							locs 		     =  read_string ();		# E.g. "$ROOT/src/lib/std/standard.lib:822.2-822.33"	
+
+							byte_offset_in_freezefile  =   read_int () + offset_adjustment;
+							runtime_package_picklehash =   read_null_or_picklehash ();
+
+							sharing_mode              =   read_sharing_mode ();
+							plaint_sink               =   em::error_no_source  error_info  locs;
+							freezefile_name           =   make_freezefile_name ();
+
+							{ libfile,
+							  freezefile_name,
+							  #
+							  plaint_sink,
+							  api_or_pkg_file_path,
+							  byte_offset_in_freezefile,
+							  #
+							  runtime_package_picklehash,
+							  sharing_mode
+							}:                        flt::Frozenlib_Tome;
+						    };
+
+						s _ =>
+						    {    report_error ["freezefile-g.pkg: si: format error"];
+							 raise exception upr::FORMAT;
+						    };
+					    end;
+					end;
+
+				    # This is the place where what used to be
+				    # a THAWEDLIB_TOME changes to a FROZENLIB_TOME:
+				    #
+				    fun read_frozenlib_tome_tin ()
+					=
+					read_sharable_value   frozenlib_tome_tin_sharemap   sn'
+					where
+					    fun sn' 'a'
+						    =>
+						    sg::FROZENLIB_TOME_TIN
+                                                      {
+							frozenlib_tome    =>  read_frozenlib_tome (),
+							near_imports      =>  read_frozenlib_tome_tin_list (),
+							far_import_thunks =>  read_far_frozenlib_tome_thunk_list ()
+						      };
+
+						sn' _
+						    =>
+						    {   report_error ["freezefile-g.pkg: sn: format error"];
+							raise exception upr::FORMAT;
+						    };
+					    end;
+					end
+
+				    also
+				    fun read_frozenlib_tome_tin_list ()
+					=
+					read_list  list_of_frozenlib_tome_tin_sharemap  read_frozenlib_tome_tin  ()
+
+				    # This one changes from far_compiledfile
+				    # to a far_compiledfile_in_lib:
+
+				    also
+				    fun read_tome  ()
+					=
+					read_sharable_value  pair__frozenlib_tome_tin__nullor_int__sharemap  tome'
+					where
+					    fun tome' '2'
+						=>
+						{   sublib_index =  read_int ();
+
+						    symbol = read_symbol ();
+
+						    my { catalog => slexp, ... }
+							=
+							get_sublib sublib_index;
+												# symbol_map	is from   src/app/makelib/stuff/symbol-map.pkg
+
+						    case (sym::get (slexp, symbol))
+							#
+							THE (fat_tome:  lg::Fat_Tome)
+							    =>
+							    case (fat_tome.masked_tome_thunk ())
+								#
+								{ exports_mask, tome => sg::TOME_IN_FROZENLIB { frozenlib_tome_tin, ... } }
+								    =>
+								    (frozenlib_tome_tin, THE sublib_index);
+
+								 _  =>
+								    {   report_error ["freezefile-g.pkg: tome/THE: format error"];
+									raise exception upr::FORMAT;
+								    };
+							    esac;
+
+							#
+							NULL =>
+							    {    report_error ["freezefile-g.pkg: tome/I: format error"];
+								 raise exception upr::FORMAT;
+							    };
+						    esac;
+						};
+
+					       tome' '3' => (read_frozenlib_tome_tin (), NULL);
+					       tome' _    => {    report_error ["freezefile-g.pkg: tome/III: format error"];
+								 raise exception upr::FORMAT;
+							    };
+                                            end;
+					end
+
+				    also
+				    fun read_far_frozenlib_tome ()
+					=
+					read_sharable_value   far_frozenlib_tome_sharemap   f
+					where
+					    fun f 'f'
+						    =>
+						    {   (exports_mask ()) ->   exports_mask;
+							(read_tome    ()) ->   (frozenlib_tome_tin, sublibs_index);
+							#
+							{ exports_mask, frozenlib_tome_tin, sublibs_index };
+						    };
+
+						f x =>
+						    {   report_error ["freezefile-g.pkg: far_tome: format error, expected 'f' but got '", (char::to_string x), "' instead"];
+							raise exception upr::FORMAT;
+						    };
+					    end;
+					end
+
+				    also
+				    fun read_far_frozenlib_tome_thunk_list ()
+					=
+					read_list   list_of_void_to_far_frozenlib_tome_sharemap   read_far_frozenlib_tome_thunk   ()
+
+
+				    also
+				    fun read_far_frozenlib_tome_thunk ()
+					=
+					upr::read_lazy  unpickler  read_far_frozenlib_tome ();
+
+				    #
+				    fun import_export ()
+					=
+					read_sharable_value   pair__symbol__fat_tome__sharemap   ie
+					where
+					    fun ie 'i'
+						    =>
+						    {   symbol =   read_symbol ();
+
+							my far_frozenlib_tome_thunk:	Void -> sg::Far_Frozenlib_Tome
+							    =
+							    read_far_frozenlib_tome_thunk ();							#  Really reads far_bin_nodes! 
+
+							symbolmapstack_thunk   =   lazy_symbolmapstack ();
+							inlining_mapstack_thunk =   lazy_symbol_dictionary ();
+
+							symbolmapstack_picklehash     =   read_picklehash ();
+							inlining_mapstack_picklehash   =   read_picklehash ();
+
+							compiledfile_version        =  read_string ();
+							allsyms			    =  read_symbol_set ();
+							#
+							fun fat_tome_thunk ()
+							    =
+							    {   (far_frozenlib_tome_thunk ()) ->   { exports_mask, frozenlib_tome_tin, sublibs_index };
+
+								symbol_and_inlining_mapstacks
+								  =
+								  { symbolmapstack_thunk,
+								    inlining_mapstack_thunk,
+								    #
+								    symbolmapstack_picklehash,
+								    inlining_mapstack_picklehash,
+								    #
+								    compiledfile_version
+								  };
+
+								{ exports_mask,
+                                                                  tome => sg::TOME_IN_FROZENLIB { frozenlib_tome_tin, symbol_and_inlining_mapstacks, sublibs_index }
+                                                                };
+							    };
+
+												# symbolmapstack__to__tome_symbolmapstack	is from   src/app/makelib/depend/symbolmapstack--to--tome-symbolmapstack.pkg
+
+							e =  symbolmapstack__to__tome_symbolmapstack::convert_memo   symbolmapstack_thunk;
+
+
+							# Put a filter in front to avoid needlessly
+							# querying the FCTENV -- this
+							# avoids spurious module loadings:
+
+							e' =   tst::FILTER (sys::singleton symbol, e);
+
+							( symbol,
+                                                          { masked_tome_thunk =>  memoize::memoize fat_tome_thunk,
+                                                            tome_symbolmapstack =>  e',
+                                                            exports_mask      =>  allsyms
+                                                          } 						# : lg::Fat_Tome
+                                                        );
+						    };
+
+						ie 'j'
+						    =>
+						    {   symbol     =  read_symbol ();
+							node_thunk =  read_far_frozenlib_tome_thunk ();
+							allsyms    =  read_symbol_set ();
+
+							#  "This seems (is?) a bit clumsy... "
+							fun xth ()
+							    =
+							    {
+								(node_thunk ())
+								    ->
+							            { exports_mask       =>  f,
+                                                                      frozenlib_tome_tin =>  n,
+                                                                      sublibs_index      =>  pos
+                                                                    };
+
+								my fat_tome:   lg::Fat_Tome
+								    =
+								    the (sym::get
+									       ( .catalog (get_sublib (the pos)),
+										 symbol
+									 )     )
+								    except
+									_ =  {   report_error ["freezefile-g.pkg: xth: format error"];
+										 raise exception upr::FORMAT;
+									     };
+
+								(f, n, pos, fat_tome.masked_tome_thunk, fat_tome.tome_symbolmapstack);
+							    };
+
+							xth   =   memoize::memoize xth;
+							#
+							fun eth ()
+                                                            =
+                                                            #5 (xth ());
+
+							e' =    tst::FILTER
+								  (
+								    sys::singleton  symbol,
+								    tst::SUSPEND  eth
+								  );
+
+														# symbol_set	is from   src/app/makelib/stuff/symbol-set.pkg
+							#
+							fun fat_tome_thunk ()
+							    =
+							    {   (xth ())
+                                                                    ->
+                                                                    ( exports_mask:       sg::Exports_Mask,
+                                                                      frozenlib_tome_tin: sg::Frozenlib_Tome_Tin,
+								      sublibs_index:      Null_Or( Int ),
+								      masked_tome_thunk:  Void -> sg::Masked_Tome,
+								      _:                  tst::Tome_Symbolmapstack
+                                                                    );
+                                                                    
+
+								symbol_and_inlining_mapstacks
+								    =
+								    case ((masked_tome_thunk()).tome:  sg::Tome)
+									#
+									sg::TOME_IN_FROZENLIB r
+									    =>
+									    r.symbol_and_inlining_mapstacks;
+									#
+								        _  =>
+									    {   report_error ["freezefile-g.pkg: fat_tome_thunk: format error"];
+									        raise exception upr::FORMAT;
+									    };
+                                                                    esac;
+
+								{ exports_mask,
+                                                                  tome => sg::TOME_IN_FROZENLIB { frozenlib_tome_tin, symbol_and_inlining_mapstacks, sublibs_index }
+                                                                };
+							    };
+
+							( symbol,
+							  #
+                                                          { masked_tome_thunk	=>  memoize::memoize  fat_tome_thunk,
+                                                            tome_symbolmapstack	=>  e',
+                                                            exports_mask	=>  allsyms
+                                                          }
+                                                        );
+						    };
+
+						ie _ =>
+						    {   report_error ["freezefile-g.pkg: import_export: format error"];
+							raise exception upr::FORMAT;
+						    };
+					    end;
+
+					end;                                           #  fun import_export 
+
+				    fat_tome_list
+					=
+					read_list  fat_tome_list_sharemap  import_export;
+							#
+				    fun r_exports ()
+					=
+					read_sharable_value   symbolmap__fat_tome__sharemap   e
+					where
+					    fun e 'e'
+						    =>
+						    fold_left
+							sym::set'
+							sym::empty
+							(fat_tome_list ());
+
+						e _ =>
+						    {   report_error ["freezefile-g.pkg: r_exports: format error"];
+							raise exception upr::FORMAT;
+						    };
+					    end;
+					end;
+				    #
+
+				    catalog    =   r_exports  ();
+
+				    lg::LIBRARY
+				      {
+					catalog,
+					sublibraries,
+					#
+					libfile,
+					sources      =>  source_path_map::empty,
+					#
+					more => lg::MAIN_LIBRARY
+						  {
+						    makelib_version_intlist,
+						    frozen_vs_thawed_stuff  =>  lg::FROZENLIB_STUFF { clear_pickle_cache }
+						  }
+				      };
+				};
+
+			    read_library _
+                                =>
+                                {   report_error ["freezefile-g.pkg: work: format error"];
+				    raise exception upr::FORMAT;
+				};
+                        end;			# fun do_library
+		    end;                 	# fun read_freezefile_contents
+	    
+	    end;                          #  load_freezefile 
+
+
+        # Create the actual on-disk freezefile
+        # for LIBRARY, then change its status
+	# from THAWED to FROZEN.
+	#
+	# We get called from   compile_primordial_library()   in
+	#
+	#     src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-g.pkg
+	#
+	# and twice from
+	#
+	#     src/app/makelib/parse/libfile-parser-g.pkg
+	#
+	fun save_freezefile
+		#
+                makelib_state
+		#
+                {
+                  library =>  library_to_freeze  as  lg::LIBRARY  lib_to_freeze,
+                  any_errors
+                , renamings	# MUSTDIE
+                }
+		=>
+		case lib_to_freeze.more
+		    #
+		    lg::MAIN_LIBRARY { frozen_vs_thawed_stuff => lg::THAWEDLIB_STUFF _, makelib_version_intlist }
+			=>
+			case (compile_library  makelib_state  library_to_freeze)							# Compile library code proper.
+			    #
+			    THE (get_compiledfile:   tlt::Thawedlib_Tome  ->  {  compiledfile:         cf::Compiledfile,
+                                                                                 component_bytesizes:  cf::Component_Bytesizes
+                                                                              }
+                                )
+				=>
+				case (list::filter  library_thunk_is_not_frozen  lib_to_freeze.sublibraries)				# Check that all referenced external libraries are frozen.
+				    #
+				    []  =>   save_freezefile'  { get_compiledfile,  makelib_version_intlist };				# All referenced external libraries are frozen, go ahead and write the   foo.lib.frozen   file.
+				    #
+				    unfrozen_sublibraries  =>  report_save_freezefile_failure  unfrozen_sublibraries;			# At least one referenced external library is not frozen, so abort.
+				esac;
+
+			    NULL =>
+				{   any_errors := TRUE;
+				    NULL;
+				};
+			 esac;
+		    #		      
+		    lg::MAIN_LIBRARY { frozen_vs_thawed_stuff => lg::FROZENLIB_STUFF _, ... }
+			=>
+			THE library_to_freeze;								# Library to be frozen is already frozen;  nothing to do, so just return it.
+		    #
+		    lg::SUBLIBRARY _
+			=>
+			em::impossible "save_freezefile: no library";
+		esac
+		where
+		    filename_policy =   makelib_state.makelib_session.filename_policy;
+		    #
+		    fun save_freezefile'
+		        {
+                          makelib_version_intlist:	Null_Or( mvi::Makelib_Version_Intlist ),										# Used only in wrap_sublibraries()
+			  #
+                          get_compiledfile:		tlt::Thawedlib_Tome   ->   { compiledfile: cf::Compiledfile,
+										     component_bytesizes: cf::Component_Bytesizes
+										   }
+                        }
+			=
+			{
+			    {   safely::do
+				    { open_it,
+				      close_it,
+				      cleanup
+				    }
+				   .{   bio::write  (#output_stream, library_picklehash_bytestring);
+					write_int32 (#output_stream, dependency_graph_bytesize    );
+					bio::write  (#output_stream, dependency_graph_pickle      );
+
+					my  {        code_bytesize,
+						     data_bytesize,
+					      symbolmapstack_bytesize,
+					       inlinables_bytesize
+					    }
+					    =
+					    fold_left  (write_compiledfile_for_thawedlib_tome  #output_stream)
+					      {
+						symbolmapstack_bytesize => 0,
+						 inlinables_bytesize => 0,
+						       code_bytesize => 0,
+						       data_bytesize => 0
+					      }
+					      thawedlib_tomes_in_lib;
+
+# 2006-09-11 CrT: This is just noise at present:
+#
+#				        file::vsay ["[code: ",       int::to_string         code_bytesize,
+#					            ", data: ",        int::to_string         data_bytesize,
+#					            ", inlinable: ",   int::to_string   inlinables_bytesize,
+#					            ", symbolmapstack: ", int::to_string  symbolmapstack_bytesize,
+#					            " bytes]\n"
+#                                                  ];
+					();
+				    };
+
+				reload_freezefile ();
+			    }
+			    except
+				any_exception
+				    =
+				    {   em::error_no_file (makelib_state.plaint_sink, any_errors) sm::null_region
+					em::ERROR
+					    (   cat [ "Exception raised while library building ",
+						      ad::describe libfile
+						    ]
+					    )
+					em::null_error_body;
+					NULL;
+				    };
+			}
+			where
+			    lib_to_freeze ->  { libfile, sublibraries, catalog, ... };
+
+			    #
+			    fun force f
+				=
+				f ();
+
+			    library_picklehash
+				=
+				compute_library_picklehash
+                                  (
+                                    libfile,
+				    #
+				    map (.tome o force o .masked_tome_thunk)
+					(sym::vals_list  catalog),
+				    #
+				    sublibraries
+				  );
+			    #
+			    fun write_compiledfile_for_thawedlib_tome
+				#
+				stream
+				#
+                                ( thawedlib_tome:  tlt::Thawedlib_Tome,
+				  #
+                                  { symbolmapstack_bytesize,
+                                     inlinables_bytesize,
+				    	   code_bytesize,
+                                           data_bytesize
+                                  }
+                                )
+				=
+				{   (get_compiledfile  thawedlib_tome)
+					->
+					{ compiledfile, component_bytesizes };
+
+				    component_bytesizes
+					->
+				        { symbolmapstack_bytesize =>  e,
+					   inlinables_bytesize =>  inlining_info,
+					         code_bytesize =>  c,
+					         data_bytesize =>  d
+					};
+
+				    compiler_version_id =  mcv::mythryl_compiler_version.compiler_version_id;		# Something like:   [110, 58, 3, 0, 2].
+
+                                    ignore
+					(cf::write_compiledfile
+					  {
+					    architecture,								# PWRPC32/SPARC32/INTEL32.
+					    compiler_version_id,							# Something like:   [110, 58, 3, 0, 2].  First two go into file 'magic'.
+					    stream,
+					    drop_symbol_and_inlining_mapstacks =>  TRUE,					# We strip symbol table info from foo.lib.frozen files. We keep it in foo.pkg.compiled files -- see src/app/makelib/compile/compile-treewalk-g.pkg
+					    compiledfile
+					  }
+					);
+
+				           code_bytesize +=  c;
+				           data_bytesize +=  d;
+				    symbolmapstack_bytesize +=  e;
+				     inlinables_bytesize +=  inlining_info;
+
+				    { symbolmapstack_bytesize,
+				       inlinables_bytesize,
+					     code_bytesize,
+				             data_bytesize
+				    };
+				};						# fun write_compiledfile_for_thawedlib_tome
+			    #
+			    fun compiledfile_bytesize_on_disk  (thawedlib_tome:  tlt::Thawedlib_Tome)
+				=
+				cf::compiledfile_bytesize_on_disk
+				  {
+				    compiledfile                    =>  (get_compiledfile  thawedlib_tome).compiledfile,
+				    drop_symbol_and_inlining_mapstacks =>  TRUE						# Needs to match above call to cf::write_compiledfile
+				  };
+			    #
+			    fun get_symbolmapstack_picklehash_for_thawedlib_tome  (thawedlib_tome:  tlt::Thawedlib_Tome)
+				=
+				cf::hash_of_symbolmapstack_pickle  (get_compiledfile thawedlib_tome).compiledfile;
+
+
+                            fun abbreviate_filepath  (full_pathname: String)
+                                =
+				# Drop rootdir of the Mythryl sourcetree from filename, thus reducing (say)
+				#	
+				#     /mythryl7/mythryl7.110.58/mythryl7.110.58/src/app/makelib/freezefile/freezefile-g.pkg
+				#
+				# to just
+				#
+				#     src/app/makelib/freezefile/freezefile-g.pkg
+				#
+                                {   root = winix::file::current_directory ();  # "/pub/home/cynbe/src/mythryl/mythryl7/mythryl7.110.58/mythryl7.110.58";
+
+                                    if (string::is_prefix  root  full_pathname)
+					#                                        
+                                        string::extract (full_pathname, string::length root + 1, NULL);
+                                    else
+                                        full_pathname;
+                                    fi;
+                                };
+
+
+			    final_freezefile_name						# "foo.lib" -> "foo.lib.frozen"
+				=
+				fp::make_freezefile_name  filename_policy  libfile;
+
+
+			    temporary_freezefile_name
+				=
+				make_temporary_freezefile_name  final_freezefile_name
+                                where
+				    #
+				    fun make_temporary_freezefile_name  filename		# "foo.lib.frozen" -> "foo.lib.frozen.12345.tmp"
+					=
+					{   pid =  winix::process::get_process_id ();
+					    include sfprintf;
+					    pid =  sprintf' "%d" [ INT pid ];
+
+					    filename + "." + pid + ".tmp";
+					};
+                                end;
+
+			    file::vsay [
+                                "\n                        freezefile-g.pkg:   Creating  freeze file   ",
+                                abbreviate_filepath  final_freezefile_name,
+                                "\n\n"
+                            ];
+#    												   my _ =
+#     2006-09-11 CrT: This is just noise for now:
+#			    if (not (sts::is_empty wrapped_privileges))
+#				#
+#				file::say
+#				   ("freezefile: wrapping the following privileges:\n"
+#				    ! map (fn s = ("  " + s + "\n"))
+#				          (sts::vals_list wrapped_privileges));
+#                           fi;
+
+			    error_info
+				=
+				(makelib_state.plaint_sink, any_errors);		#  Is this ever used? XXX BUGGO FIXME 
+
+
+			    tome_to_sublib_map
+				=
+				make_tome_to_sublib_map  sublibraries;
+
+			    thawedlib_tomes_in_lib' =  REF ([]:  List( tlt::Thawedlib_Tome ));
+
+
+
+			    stipulate
+				tome_offset_map  =  REF  ttm::empty;
+				total_tome_bytes =  REF  0;
+			    herein
+
+				fun compute_tome_offset_in_library
+				      (
+					thawedlib_tome:               tlt::Thawedlib_Tome,
+					compiledfile_size_on_disk:    Int
+				      )
+				    =
+				    case (ttm::get (*tome_offset_map, thawedlib_tome))
+					#					  
+					# This test is necessary because of a tiny chance
+					# that a portion of a pickle needs to be re-done
+					# by the pickler because it underestimated its
+					# size during lazy pickling. Ideally, the pickler
+					# should run without side-effects, but in the
+					# present case all we need is idempotence.
+					#
+					THE tome_offset =>   tome_offset;
+					#
+					NULL =>
+					    {   tome_offset = *total_tome_bytes;
+						#
+						total_tome_bytes  :=  tome_offset + compiledfile_size_on_disk;
+						tome_offset_map   :=  ttm::set (*tome_offset_map, thawedlib_tome, tome_offset);
+						#
+						thawedlib_tomes_in_lib' :=  thawedlib_tome ! *thawedlib_tomes_in_lib';
+						#
+						tome_offset;
+					    };
+				   esac;
+			    end;
+
+			    #
+			    fun prepath2list what p
+				=
+				{   fun warn_relabs (abs, descr)
+					=
+					{   relative_or_absolute
+						=
+						abs  ??  "absolute"
+						     ::  "relative";
+
+					    library_description
+						=
+						ad::describe  libfile;
+					    #
+					    fun ppb pps
+						=
+						{   fun space ()
+							=
+							pp::break pps { spaces=>1, indent_on_wrap=>0 };
+						    #
+						    fun string s
+							=
+							pp::string pps s;
+						    #
+						    fun ss s
+							=
+							{   string s;
+                                                            space ();
+                                                        };
+						    #
+						    fun nl ()
+							=
+							pp::newline pps;
+
+						    nl ();
+						    pp::begin_wrap_box pps;
+
+						    apply ss ["The", "path", "specifying"];
+						    apply ss [what, descr, "is"];
+
+						    string relative_or_absolute; string "."; nl ();
+						    apply ss ["(This", "means", "that", "in", "order",
+							    "to", "be", "able", "to", "use", "the",
+							    "built", "library"];
+
+						    string library_description; ss ", ";
+						    apply ss ["it", "will", "be", "necessary", "to",
+							    "keep", "all", "imported", "libraries",
+							    "with", "names", "derived", "from", "or",
+							    "equal", "to"];
+						    ss descr;
+
+						    apply ss ["in", "the", "same"];
+						    ss relative_or_absolute;
+						    apply ss ["location", "as", "they", "are"];
+						    string "now.)";
+						    pp::end_box pps;
+						};                  #  ppb 
+
+					    em::error_no_file
+						(makelib_state.plaint_sink, any_errors) sm::null_region em::WARNING
+						(library_description + ": uses non-anchored path") ppb;
+					};
+
+				    ad::pickle
+					{ warn        =>  warn_relabs }
+					{ file        =>  p,
+					  relative_to =>  libfile
+					};
+				};
+
+
+			    # Collect all fat_tomes in our lg::LIBRARY.catalog  and build
+			    # a context suitable for pks::symbolmapstack_pickler:
+			    #
+			    my pickling_context:    List( (Null_Or( (Int, sy::Symbol) ), stx::Stampmapstack))
+				=
+				{   fun wrap_list f []      k s =>   k s;
+				        wrap_list f (h ! t) k s =>   f h (wrap_list f t k) s;
+                                    end;
+				    #
+				    fun wrap_tome   (tome: sg::Tome)   k  (s as (bnodes, snodes))
+					=
+					case tome
+					    #
+					    sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN { frozenlib_tome, ... }, symbol_and_inlining_mapstacks, ... }
+						=>
+						{   (tome_to_sublib_map  frozenlib_tome)
+							->
+							( sublib_index,			# Position of sublibrary within lg::LIBRARY.sublibraries list.
+							  symbol			# 'symbol' names an api or package exported by the tome.
+                                                        );
+
+						    bnodes'
+							=
+							ftm::set (bnodes, frozenlib_tome,
+									  ((sublib_index, symbol), symbol_and_inlining_mapstacks.symbolmapstack_thunk));
+
+						    k (bnodes', snodes);
+						};
+
+					    sg::TOME_IN_THAWEDLIB  tome
+						=>
+						wrap_thawedlib_tome_tin   tome   k   s;
+                                        esac
+
+				    also
+                                    fun wrap_thawedlib_tome_tin   (sg::THAWEDLIB_TOME_TIN  tin)   k   (bnodes, snodes)
+					=
+					if (thawedlib_tome_set::member (snodes, tin.thawedlib_tome))
+					    #
+					    k (bnodes, snodes);
+					else
+					    snodes' =   thawedlib_tome_set::add (snodes, tin.thawedlib_tome);
+
+					    wrap_list   wrap_thawedlib_tome_tin   tin.near_imports  (wrap_list   wrap_far_tome   tin.far_imports  k)  (bnodes, snodes');
+					fi
+
+				    also
+                                    fun wrap_far_tome   { exports_mask, tome }   k   s
+					=
+					wrap_tome  tome   k   s;
+
+				    #
+				    fun wrap_fat_tome   (fat_tome: lg::Fat_Tome)   k   s
+					=
+					wrap_far_tome  (fat_tome.masked_tome_thunk ())  k  s;
+
+
+
+				    my fat_tome_catalog:   List( ((Int, sy::Symbol), Void -> syx::Symbolmapstack) )
+					=
+					# Construct an index of our lg::LIBRARY.catalog
+					# contents in the form of a sorted list of values
+					#
+					#     ( ( sublib_index:      Int,				# Int 0..N-1 offset of fat_tome within lg::LIBRARY.sublibrary list.
+					#         api_or_tome_name:  sy::Symbol				# Symbol naming the package or api in fat_tome. (Technically, name of first export -- a fat_tome can have multiple exports.)
+					#       ),
+					#       symbolmapstack_thunk:   Void -> syx::Symbolmapstack		# Thunk constructing symbolmapstack for fat_tome.
+					#     )
+					#
+					# where the sort is on sublib_index.  We also
+					# suppress duplicate entries, so that each
+					# sublib_index should occur exactly once:
+					#
+					list_mergesort::sort
+						     (fn (x, y) =  (#1 (#1 x) > #1 (#1 y)))
+						     (ftm::vals_list  fat_tome_catalog')
+					where
+					    my fat_tome_catalog':   ftm::Map( ((Int, sy::Symbol), Void -> syx::Symbolmapstack)  )
+						=
+						# Construct an index of our lg::LIBRARY.catalog
+						# contents in the form of a map from fat-tome keys
+						# to values as described above:
+						#
+						wrap_list  wrap_fat_tome  (sym::vals_list  catalog)
+						    #1
+						    (ftm::empty, thawedlib_tome_set::empty);
+					end;
+
+
+				    lib_arg (fat_tome_catalog, stx::empty_stampmapstack)
+				    where
+					#
+					fun lib_arg ([], _)
+						=>
+						[];
+
+					    lib_arg ((lsm, ge) ! t, m)
+						=>
+						{   m' =   s2m::collect_all_modtrees_in_symbolmapstack'  (ge (), m);
+						    #
+						    (THE lsm, m') ! lib_arg (t, m');
+						};
+					end;
+				    end;
+				};								# pickling_context:    List( (Null_Or( (Int, sy::Symbol) ), stx::Stampmapstack))
+
+
+
+
+			    stipulate
+				make_symbolmapstack_funtree =   pks::make_symbolmapstack_funtree  (fn _ = ())  (pks::FREEZEFILE_PICKLING  pickling_context);
+				#
+				wrap_symbolmapstack'	  =   pkr::lift_funtree_maker  lifter         make_symbolmapstack_funtree;
+			        wrap_inlining_mapstack'	  =   pkr::lift_funtree_maker  lifter  pks::make_inlining_mapstack_funtree;
+			    herein
+
+				wrap_symbolmapstack_thunk   =  pkr::wrap_thunk  wrap_symbolmapstack';
+				wrap_inlining_mapstack_thunk =  pkr::wrap_thunk  wrap_inlining_mapstack';
+			    end;
+
+			    wrap_symbol      =  psp::wrap_symbol;
+			    wrap_picklehash  =  psp::wrap_picklehash;
+
+			    adhoc_share    =  pkr::adhoc_share;
+
+			    wrap_null_or     =  pkr::wrap_null_or;
+			    wrap_list        =  pkr::wrap_list;
+			    wrap_string      =  pkr::wrap_string;
+#			    wrap_bool        =  pkr::wrap_bool;
+			    wrap_int         =  pkr::wrap_int;
+
+			    #	
+			    fun wrap_symbol_set (symbolset: sys::Set)
+				=
+				adhoc_share  symbol_sets  raw_symbol_set  symbolset
+                                where
+				    mknod =    pkr::make_funtree_node  tag::symbolset;
+				    #
+				    fun raw_symbol_set symbolset
+					=
+					mknod "s" [wrap_list  wrap_symbol (sys::vals_list symbolset)];
+				end;
+
+
+			    wrap_exports_mask =   wrap_null_or  wrap_symbol_set;
+
+			    stipulate	
+			        mknod =    pkr::make_funtree_node  tag::sharing_mode;
+			    herein
+				#
+				fun wrap_sharing_mode (shm::SHARE TRUE )  =>   mknod "a"  [];
+				    wrap_sharing_mode (shm::SHARE FALSE)  =>   mknod "b"  [];
+				    wrap_sharing_mode (shm::DO_NOT_SHARE) =>   mknod "c"  [];
+				end;
+			    end;
+			    #
+			    fun wrap_thawedlib_tome   (tt:  tlt::Thawedlib_Tome)
+				=
+				{   # FIXME: this is not a technical flaw, but perhaps one
+				    # that deserves fixing anyway:  If we only look at
+                                    # api_or_pkg_file_path, then we are losing information
+                                    # about sub-libraries within freezefiles.  However, the
+                                    # api_or_pkg_file_path in flt::Frozenlib_Tome is only used for
+                                    # diagnostics and has no impact on the operation of makelib itself.
+
+
+				    api_or_pkg_file_path   =   ad::os_string_relative  (tlt::sourcepath  tt);						# Sourcefile pathname verbatim from .lib-file, e.g. "foo.api" or "../emit/asm-emit.pkg".
+				    locs                   =   tlt::error_location  makelib_state  tt;							# E.g. "$ROOT/src/lib/std/standard.lib:822.2-822.33"
+				    tome_offset_in_library =   compute_tome_offset_in_library  (tt,  compiledfile_bytesize_on_disk  tt);		# Is this byte_offset_in_freezefile...?
+
+				    my { is_runtime_package, ... }
+                                        =
+                                        tlt::attributes  tt;
+
+				    sharing_mode
+                                        =
+                                        tlt::sharing_mode  tt;
+
+				   mknod =    pkr::make_funtree_node   tag::thawed_tome;
+
+				    runtime_package_picklehash
+					=
+					if   is_runtime_package   THE (get_symbolmapstack_picklehash_for_thawedlib_tome  tt);
+					else                      NULL;
+                                        fi;
+
+				    mknod "s" [ wrap_string  api_or_pkg_file_path,
+						wrap_string  locs,
+						wrap_int  tome_offset_in_library,
+						wrap_null_or  wrap_picklehash  runtime_package_picklehash,
+						wrap_sharing_mode  sharing_mode
+					      ];
+				};
+			    #
+			    fun wrap_absolute_path  (p: ad::File)
+				=
+				{   mknod =    pkr::make_funtree_node   tag::absolute_path;
+				    #	
+				    mknod "p"  [wrap_list (wrap_list wrap_string) (prepath2list "library"
+									    (ad::file_to_basename p))];
+				};
+								# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
+			    #
+			    fun wrap_sourcefile_node  (tome_tin:  sg::Thawedlib_Tome_Tin)			# Compare to wrap_thawedlib_tome_tin (tome_tin:  sg::Thawedlib_Tome_Tin)
+				=
+				adhoc_share  thawedlib_tome_tin_sets  raw_thawedlib_tome_tin  tome_tin
+                                where
+				    mknod =    pkr::make_funtree_node   tag::thawedlib_tome;
+				    #
+				    fun raw_thawedlib_tome_tin (sg::THAWEDLIB_TOME_TIN tin)
+					=
+					mknod "a" [ wrap_thawedlib_tome            tin.thawedlib_tome,
+						    wrap_list  wrap_sourcefile_node  tin.near_imports,
+						    wrap_list  lazy_far_tome'      tin.far_imports
+					          ];
+
+				end
+
+			    # Here we ignore the interface info
+			    # because we will not need it when
+			    # we unpickle:
+			    #
+			    also
+                            fun wrap_tome  (tome:  sg::Tome)
+				=
+				{   mknod =    pkr::make_funtree_node  tag::tome;
+
+				    case tome
+					#
+					sg::TOME_IN_FROZENLIB { frozenlib_tome_tin => sg::FROZENLIB_TOME_TIN { frozenlib_tome, ... }, ... }
+					    =>
+					    {   (tome_to_sublib_map  frozenlib_tome)
+						    ->
+						    (sublib_index, symbol);
+						#
+						mknod "2" [ wrap_int    sublib_index,			# Position within lg::LIBRARY.sublibraries list.
+							    wrap_symbol symbol				# Symbol naming api or package exported by tome.
+							  ];
+					    };
+					#
+				        sg::TOME_IN_THAWEDLIB  tome
+					    =>
+					    mknod "3" [wrap_sourcefile_node  tome];
+                                    esac;
+				}
+
+			    also
+                            fun wrap_masked_tome ({ exports_mask, tome }: sg::Masked_Tome)
+				=
+				{   mknod =    pkr::make_funtree_node  tag::far_tome;
+				    #
+				    mknod "f" [ wrap_exports_mask  exports_mask,
+                                                wrap_tome          tome
+                                              ];
+				}
+
+			    also
+                            fun wrap_masked_tome_thunk  (masked_tome_thunk:  Void -> sg::Masked_Tome)
+                                =
+                                pkr::wrap_thunk  wrap_masked_tome  masked_tome_thunk			# Only use of   wrap_masked_tome.
+
+			    also
+                            fun lazy_far_tome' arg
+                                =
+                                wrap_masked_tome_thunk  .{ arg; };
+
+			    # Here is the place where we 
+			    # need to write interface info:
+			    #
+			    fun wrap_catalog_entry					# Handle one key-val entry pair from lg::LIBRARY.catalog
+                                  ( symbol:    sy::Symbol,
+                                    fat_tome:  lg::Fat_Tome
+				  )
+				=
+				{   mknod =    pkr::make_funtree_node  tag::catalog_entry;
+
+				    case (fat_tome.masked_tome_thunk ())
+					#				      
+					{ exports_mask,  tome => sg::TOME_IN_THAWEDLIB (sg::THAWEDLIB_TOME_TIN { thawedlib_tome, ... } ) }
+					    =>
+					    {   # This is the case of an actual internal node:
+						#
+						(get_symbol_and_inlining_mapstacks  thawedlib_tome)
+						    ->
+						    {   symbolmapstack_thunk,
+						      inlining_mapstack_thunk,
+						        symbolmapstack_picklehash,
+						      inlining_mapstack_picklehash,
+						      compiledfile_version
+						    };
+
+						mknod "i" [ wrap_symbol                symbol,
+							    wrap_masked_tome_thunk     fat_tome.masked_tome_thunk,
+							    wrap_symbolmapstack_thunk    symbolmapstack_thunk,
+							    wrap_inlining_mapstack_thunk  inlining_mapstack_thunk,
+							    wrap_picklehash            symbolmapstack_picklehash,
+							    wrap_picklehash            inlining_mapstack_picklehash,
+							    wrap_string                compiledfile_version,
+							    wrap_symbol_set            fat_tome.exports_mask
+							  ];
+					    };
+
+					{ exports_mask => _,  tome => sg::TOME_IN_FROZENLIB _ }
+					    =>
+					    # This is the case of a simple re-export;
+					    # we avoid pickling any dictionaries here because
+					    # they can be re-fetched from the farlib directly
+					    # when unpickling:
+					    #
+					    mknod "j" [ wrap_symbol             symbol,
+                                                        wrap_masked_tome_thunk  fat_tome.masked_tome_thunk,
+                                                        wrap_symbol_set         fat_tome.exports_mask
+                                                      ];
+                                    esac;
+				};
+			    #
+			    fun wrap_catalog  (catlog: sym::Map( lg::Fat_Tome ))				# lg::LIBRARY.catalog   has type   sym::Map(lg::Fat_Tome)
+				=
+				{   mknod =    pkr::make_funtree_node  tag::catalog;
+				    #
+				    mknod "e" [wrap_list wrap_catalog_entry (sym::keyvals_list  catalog)];
+				};
+			    #
+			    fun wrap_makelib_version_intlist  (makelib_version_intlist:  mvi::Makelib_Version_Intlist)
+				=
+				{   mknod =    pkr::make_funtree_node  tag::makelib_version_intlist;
+				    #
+				    mknod "v" [wrap_string (mvi::to_string  makelib_version_intlist)];
+				};
+
+# MUSTDIE (?) this is probably all rb==rebindings stuff
+			    fun wrap_rebinding { anchor, value }
+				=
+				{   mknod =    pkr::make_funtree_node  tag::rebinding;
+				    #
+				    mknod "b" [ wrap_string anchor,
+					        wrap_list (wrap_list wrap_string)
+						   (prepath2list "anchor naming" value)
+					      ];
+				};
+			    #
+			    fun wrap_library_thunk (lt: lg::Library_Thunk)
+				=
+				{   mknod =    pkr::make_funtree_node  tag::library_thunk;
+				    #
+				    null_or_version_intlist
+					=
+					case (lt.library_thunk ())
+					    #
+					    lg::LIBRARY { more => lg::MAIN_LIBRARY x, ... }
+						=>
+						x.makelib_version_intlist;
+					    #
+					    _   =>   NULL;
+					esac;
+
+				    mknod "S" [ wrap_absolute_path  lt.libfile,
+                                                wrap_null_or  wrap_makelib_version_intlist  null_or_version_intlist
+                                                                         , wrap_list  wrap_rebinding  lt.renamings	# MUSTDIE
+                                              ];
+				};
+			    #
+			    fun wrap_sublibraries ()
+				=
+				{   mknod =    pkr::make_funtree_node  tag::sublibraries;
+
+				    # Pickle the sublibraries first because
+				    # we need to already have them back
+                                    # when we unpickle frozen_compilables:
+				    #
+				    mknod "g" [ wrap_null_or  wrap_makelib_version_intlist  makelib_version_intlist,
+					        wrap_list  wrap_library_thunk  sublibraries,
+					        wrap_catalog  catalog
+					      ];
+				};
+
+			    dependency_graph_pickle   =   byte::string_to_bytes  (pkr::funtree_to_pickle  empty_map  (wrap_sublibraries ()));
+			    dependency_graph_bytesize =   unt8_vector::length   dependency_graph_pickle;
+
+			    offset_adjustment
+                                =
+                                dependency_graph_bytesize + 4 + library_picklehash_bytesize;			# 64-bit issue XXX BUGGO FIXME
+
+			    # We could generate the graph for a freezefile here
+			    # directly by transcribing the original graph.
+			    # 
+			    # However, it is cumbersome and is likely to result
+			    # in a larger memory footprint because we don't get
+			    # the benefit of lazy unpickling of dictionaries.
+			    # 
+			    # It seems easier to simply rely on "load_freezefile"
+			    # to re-fetch the stable graph.
+			    #
+			    fun reload_freezefile ()
+				=
+				{   fun get_library (_, p, _
+                                                            , _	# MUSTDIE
+                                                            )
+					=
+					{   fun the_sublib (lt: lg::Library_Thunk)
+						=
+						ad::compare (p, lt.libfile) == EQUAL;
+					    #
+					    fun force f =   f ();
+
+					    null_or::map
+						(force o .library_thunk)
+						(list::find the_sublib sublibraries);
+					};
+
+				    load_freezefile
+					{ get_library, any_errors }
+					( makelib_state,
+                                          libfile
+                                         , NULL		# version info -- XXX BUGGO DELETEME
+                                        , renamings	# MUSTDIE
+                                        );
+				};
+			    #
+			    fun write_int32   (outstream: bio::Output_Stream,   i: Int)
+				=
+				{   a =   rw_unt8_vector::make_rw_vector (4, 0u0);
+
+				    pack_big_endian_unt32::set  (a, 0, large_unt::from_int i);		# pack_big_endian_unt32		is from   src/lib/std/src/pack-big-endian-unt32.pkg
+
+				    bio::write  (outstream,  rw_unt8_vector::to_vector  a);
+				};
+
+			    thawedlib_tomes_in_lib =   reverse  *thawedlib_tomes_in_lib';
+
+			    library_picklehash_bytestring =   ph::to_bytes  library_picklehash;
+
+			    if (unt8_vector::length library_picklehash_bytestring != library_picklehash_bytesize)
+				#			        
+                                 em::impossible "save_freezefile: library picklehash size wrong";
+			    fi;
+
+
+			    #
+			    fun open_it ()
+				=
+				autodir::open_binary_output  temporary_freezefile_name;			# XXX BUGGO FIXME don't really need autodir:: here.
+
+			    #
+			    fun close_it  stream
+				=
+				{    bio::close_output  stream;
+
+				     # We make writing the freezefile effectively atomic
+				     # by writing it to a temporary name and then renaming
+				     # it to its final name only when done.
+				     #
+                                     # Time to do the rename:
+				     #
+				     winix::file::rename_file
+					 {
+					   from =>  temporary_freezefile_name,
+					   to   =>  final_freezefile_name
+					 };
+				};
+
+			    #
+			    fun cleanup _
+			        =
+                                {   winix::file::remove_file  temporary_freezefile_name
+				    except
+				        _ = ();
+                                };
+
+			end;                                #  fun save_freezefile'   in   fun save_freezefile 
+		    #
+		    fun library_thunk_is_not_frozen (lt: lg::Library_Thunk)
+			=
+			case (lt.library_thunk ())
+			    #
+			    lg::LIBRARY { more => lg::MAIN_LIBRARY { frozen_vs_thawed_stuff => lg::FROZENLIB_STUFF _, ... }, ... }
+				=>
+				FALSE;
+
+			    _   =>   TRUE;
+			esac;
+
+		    # Report    "foo.lib cannot be frozen because the following sub-libraries are not frozen: ..."
+		    #
+		    fun report_save_freezefile_failure  unfrozen_sublibraries
+			=
+			{   be_verb =   case unfrozen_sublibraries
+					    #
+					    [_] =>  "y is";
+					    _   =>  "ies are";
+					esac;
+			    #
+			    fun ppb pps
+				=
+				loop  unfrozen_sublibraries
+				where
+				    fun loop [] =>   ();
+					#
+					loop ((lt: lg::Library_Thunk) ! t)
+					     =>
+					     {  pp::string pps (ad::describe lt.libfile);
+						pp::newline pps;
+						loop t;
+					     };
+				    end;
+
+				    pp::newline pps;
+				    pp::string  pps (cat [ "because the following sub-librar",
+								be_verb,
+								" not frozen:"]
+						     );
+				    pp::newline pps;
+				end;
+
+			     plaint_sink
+				 =
+				 makelib_state.plaint_sink;
+
+			     library_description
+				 =
+				 ad::describe lib_to_freeze.libfile;
+
+			     em::error_no_file (plaint_sink, any_errors)
+				     sm::null_region
+				     em::ERROR
+				     ("src/app/makelib/freezefile/freezefile-g.pkg: " + library_description + " cannot be frozen")
+				     ppb;
+			     NULL;
+			};
+
+		end;
+
+	    save_freezefile _  { library => lg::BAD_LIBRARY, ... }
+		=>
+		NULL;
+        end;								#  end of fun save_freezefile 
+    }; 									#  generic package freezefile_g 
+end;									# stipulate
+
+
+
+
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+

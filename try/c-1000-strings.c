@@ -1,9 +1,9 @@
-/* c-1000-strings.c
- *
- * A simple benchmark that allocates and then frees a lot of strings
- *
- *    gcc c-1000-strings.c -o c-1000-strings;   ./c-1000-strings
- */
+// c-1000-strings.c
+//
+// A simple benchmark that allocates and then frees a lot of strings
+//
+//    gcc -std=c99 c-1000-strings.c -o c-1000-strings;   ./c-1000-strings
+//
 
 #include <stdio.h>
 #include <string.h>

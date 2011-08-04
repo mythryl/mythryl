@@ -1,0 +1,279 @@
+##  make-mythryld-executable.pkg 
+
+# Compiled by:
+#     src/lib/core/internal/interactive-system.lib
+
+# Here we handle generation of a new compiler "executable"
+# heap image, and also start-of-execution of that image, since our
+# image generation primitive (lib7::fork_to_disk f) is like fork()
+# in that it returns one value in the dumping process and another
+# value in the dumped process.
+#
+# At image generation time (aka "link time") this code builds the boot
+# dictionaries, sets default signal handlers, and then dumps a heap.
+# When the heap image restarts, the system goes interactive.
+# 
+# (We do not want to go interactive before dumping the heap because it
+# would mean that dictionaries get loaded unnecessarily.)
+#
+# This code refers directly to package compiler, because by the time it
+# gets compiled, Makelib's conditional compilation facility has already
+# made sure that package compiler refers to the visible compiler
+# for the current architecture. 
+
+
+
+###            "If I had to do it over again?
+###             Hmmm...
+###             I guess I'd spell 'creat()' with an 'e'."
+###
+###                               -- Ken Thompson
+
+
+stipulate
+    package mcc =  makelib_internal::mythryl_compiler_compiler_configuration;		# makelib_internal				is from   src/lib/core/internal/makelib-internal.pkg
+											# mythryl_compiler_compiler_configuration	is from   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-configuration.pkg
+    package mce =  make_mythryl_compiler_etc;						# make_mythryl_compiler_etc			is from   src/lib/core/internal/make-mythryl-compiler-etc.pkg
+    package mcv =  mythryl_compiler_version;						# mythryl_compiler_version			is from   src/lib/core/internal/mythryl-compiler-version.pkg
+    package wix =  winix;								# winix						is from   src/lib/std/winix.pkg
+    package iox =  io_exceptions;							# io_exceptions					is from   src/lib/std/src/io/io-exceptions.pkg
+    package xns =  exceptions;								# exceptions					is from   src/lib/std/exceptions.pkg
+    package mcb =  mythryl_compiler;							# mythryl_compiler				is from   src/lib/core/compiler/set-mythryl_compiler-to-mythryl_compiler_for_intel32_posix.pkg
+    #											# mythryl_compiler_g				is from   src/lib/compiler/toplevel/compiler/mythryl-compiler-g.pkg
+    package rs  =  runtime_signals;							# runtime_signals				is from   src/lib/std/src/nj/runtime-signals.pkg
+herein
+
+    package make_mythryld_executable: (weak)   api { }   {				# No return value -- our 'return value' is the 'mythryld' compiler executable heap image file we generate.
+
+
+
+
+											# file				is from   src/lib/std/src/posix/file.pkg
+
+	my _ = {									# A little trick forcing all our code to execute immediately upon this module being loaded.
+	     
+	    my  { the_do_all_requested_compiles	}					# This is ultimately the return value from
+		=									#        fun read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries'
+		mce::make_mythryl_compiler_etc						# in    src/app/makelib/main/makelib-g.pkg       
+		  {
+		    root_dir_of_mythryl_source_distro
+			=>
+			wix::file::current_directory ()
+		  }
+# Can't we move this exception busywork down into mce:: ?
+		except
+		    e as iox::IO { function, name, cause }
+			=>
+			{   file::write (file::stderr,
+					   cat ["IO exception: file = ", name,
+						   ", function = ", function,
+						   ", cause: ",
+						   xns::exception_message cause,
+						   "\n"]);
+			    raise exception e;
+			};
+
+		   e
+		       =>
+		       {   file::write (file::stderr,
+					       cat ["exception raised during init phase: ",
+						       xns::exception_message e, "\n"]);
+			   raise exception e;
+		       };
+		end;
+
+	    do_all_requested_compiles
+		=
+# Can't we move this busywork down into mce:: ?
+		case the_do_all_requested_compiles		# Ultimately, this is the return value from   fun read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries'	in    src/app/makelib/main/makelib-g.pkg
+		    THE  do_all_requested_compiles		# Defined by "fun do_all_requested_compiles () ..." 										in    src/app/makelib/main/makelib-g.pkg
+			=>
+			do_all_requested_compiles;
+			#
+			# Above does NOT RETURN!	
+
+		    NULL =>
+			raise exception FAIL "make-mythryld-executable.pkg: the_do_all_requested_compiles was NULL?!\n";
+		esac;
+
+
+	    # Establish default signal handlers:
+	    #
+	    fun handle_int  _
+		=
+		*unsafe::toplevel_fate;					# unsafe			is from   src/lib/std/src/unsafe/unsafe.pkg
+
+	    #
+	    fun handle_term _
+		=
+		wix::process::exit  wix::process::failure;
+
+	    #
+	    fun if_signal (signal_name, handler)
+		=
+		case (rs::get_signal_by_name  signal_name)
+		    #
+		    THE s =>
+			{   rs::override_signal_handler
+				(s, rs::HANDLER handler);
+			    ();
+			};
+		    #
+		    _   => ();
+		esac;
+											    	my _ =
+	    {   rs::override_signal_handler (rs::interrupt_signal, rs::HANDLER handle_int );
+		rs::override_signal_handler (rs::terminal_signal,  rs::HANDLER handle_term);
+		if_signal ("QUIT", handle_term);
+	    };
+
+
+	    # Install "read_eval_print_hook" functionality:
+	    /* */										my _ =
+	    read_eval_print_hook::read_eval_print_hook
+		:=
+		mcb::read_eval_print_loops::read_eval_print_from_file;
+
+
+	    # Put lowhalf controls into the main hierarchy of controls:
+	    /* */										my _ =
+	    basic_control::note_subindex
+		( controls::lowhalf::prefix,								# basic_control		is from   src/lib/compiler/front/basics/main/basic-control.pkg
+		  controls::lowhalf::registry,								# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+		  controls::lowhalf::priority
+		);
+
+	    # Add cleanup code that resets the internal timers
+	    # and stats when resuming from fork_to_disk:
+	    #
+	    stipulate
+		#
+		fun reset _
+		    =
+		    {   runtime_internals::reset_timers ();						# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+			compile_statistics::reset ();							# compile_statistics	is from   src/lib/compiler/front/basics/stats/compile-statistics.pkg
+		    };
+	    herein                                                                       my _ =
+		runtime_internals::at::schedule
+		    (
+		      "initialize-timers-and-stats",		# Arbitrary string label.
+		      [ runtime_internals::at::STARTUP ],	# When to run the function.
+		      reset					# Function to run.
+		    );
+	    end;
+
+
+											my _ =
+	    {
+		# Initialize controls.  In particular, this will
+		# (for example) initialize control cm::foo
+		# from the Unix environment variable CM_FOO,
+		# if it exists:
+		#
+		control_index::set_up_controls_from_posix_environment
+		    basic_control::top_index;								# control_index		is from   src/lib/controls/control-index.pkg
+
+
+		# Populate toplevel scripting enviroment with
+		# various handy things, in particular
+		#
+		#     makelib::scripting_globals								# See "package scripting_globals" def in    src/app/makelib/main/makelib-g.pkg
+		#
+		stipulate
+
+		    fun eval_string  code_string
+			=
+			safely::do {	# This should be a supported, exported 'eval' function.
+			  #
+			  open_it  =>   .{ file::open_string  code_string; },
+			  close_it =>   file::close_input,
+			  cleanup  =>   fn _  =  ()
+			}
+			mcb::read_eval_print_loops::read_eval_print_from_stream;
+
+		herein
+		    # Empty the contents of the 'makelib' package
+		    # into the toplevel environment, so we can
+		    # interactively type
+		    #     help ()
+		    # instead of the more verbose
+		    #     makelib::help ()
+		    # and ditto for   show_apis()   &tc.
+								my _ =
+		    { eval_string "include makelib;;";	        print "\n\n"; };
+
+
+		    # Ditto for the 'math' package:
+								my _ =
+		    { eval_string "include math;;";	        print "\n\n"; };
+
+
+		    # Ditto for the 'file' package:
+								my _ =
+		    { eval_string "include file;;";	        print "\n\n"; };
+
+								my _ =
+		    { eval_string "include makelib::scripting_globals;;";	        print "\n\n"; };
+		end;
+
+
+		controls::print::say ("  internal/make-mythryld-executable.pkg:   Generating heap image '" + mcc::mythryld_executable_filename_to_create + "'...\n");
+
+		# Now we do our 'fork-to-disk' call.
+		#
+		#
+		if (lib7::fork_to_disk  mcc::mythryld_executable_filename_to_create)			# Returning Bool here is stoopid. Should return   Fork_Result = AM_PARENT | AM_CHILD;   or such.   XXX BUGGO FIXME
+
+		    # fork_to_disk() returned TRUE,
+		    # so we are the dumped executable (heap image)
+		    # just starting execution after
+		    # being invoked as an application,
+		    # and we need to go do our stuff:
+		    #
+		    mythryld::main  do_all_requested_compiles;						# Does not return.
+
+		else
+		    # fork_to_disk() returned FALSE,
+		    # so we're the 'parent' process generating
+		    # the executable, and we're done:
+
+		    print "  internal/make-mythryld-executable.pkg:   Wrote executable for ";
+		    print mcv::mythryl_interactive_banner;
+		    print "\n";
+		    print "  internal/make-mythryld-executable.pkg:   Done, doing exit (0);\n";
+		    wix::process::exit   wix::process::success;
+		fi;
+													# winix					is from   src/lib/std/winix.pkg
+													# read_eval_print_loops_g		is from   src/lib/compiler/toplevel/interact/read-eval-print-loops-g.pkg
+													# read_eval_print_loop_g		is from   src/lib/compiler/toplevel/interact/read-eval-print-loop-g.pkg
+													# translate_raw_syntax_to_execode_g	is from   src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	    };
+	};												# my _ = 
+    };													# package make_mythryld_executable
+end;													# stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+##  Copyright 1997 by AT&T Bell Laboratories 
+##  Copyright 1998 by Lucent Technologies 
+##  Copyright 1999 by Lucent Technologies 
+##  Copyright 2002 by Lucent Technologies 
+##  Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+##  released under Gnu Public Licence version 3.

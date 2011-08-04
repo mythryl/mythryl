@@ -1,0 +1,1929 @@
+## type-junk.pkg 
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+stipulate
+    package ctt =  core_type_types;		# core_type_types		is from   src/lib/compiler/front/typer-stuff/types/core-type-types.pkg
+    package ds  =  deep_syntax;			# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package em  =  error_message;		# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package ep  =  stamppath;			# stamppath			is from   src/lib/compiler/front/typer-stuff/modules/stamppath.pkg
+    package ip  =  inverse_path;		# inverse_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package ss  =  substring;			# substring			is from   src/lib/std/substring.pkg
+    package sta =  stamp;			# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+    package sy  =  symbol;			# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package ty  =  types;			# types				is from   src/lib/compiler/front/typer-stuff/types/types.pkg
+    package vac =  variables_and_constructors;	# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+    package vh  =  varhome;			# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+    #
+#    include types;
+#    include variables_and_constructors; 
+herein
+
+
+    package   type_junk
+    : (weak)  Type_Junk			# Type_Junk	is from   src/lib/compiler/front/typer-stuff/types/type-junk.api
+    {
+	make_rw_vector =   rw_vector::make_rw_vector;
+	sub            =   rw_vector::get;
+	update         =   rw_vector::set;
+
+	infix val 99  sub ;
+
+	my   -->   =   core_type_types::(-->);
+
+	infix val  --> ;
+
+	say        =   control_print::say;
+        debugging  =   typer_data_controls::type_junk_debugging;		#  REF FALSE 
+
+	fun bug msg
+            =
+            em::impossible("type_junk: " + msg);
+
+	fun equality_property_to_string p
+            =
+	    case p
+		#	      
+		ty::NO            =>  "NO";
+		ty::YES           =>  "YES";
+		ty::INDETERMINATE =>  "INDETERMINATE";
+		ty::CHUNK         =>  "CHUNK";
+		ty::DATA          =>  "DATA";
+		ty::UNDEF         =>  "UNDEF";
+		ty::EQ_ABSTRACT   =>  "EQ_ABSTRACT";
+            esac;
+
+
+	# ************** operations to build type_variables, VARtys **************
+
+	# Make a META type variable for a possibly
+        # agnostically- ("polymorphically-") typed expression.
+        #
+	# This function is local to this file:
+	#
+	fun make_meta_type_variable  fn_nesting
+            =
+	    {
+		if *debugging  printf "src/lib/compiler/front/typer-stuff/types/type-junk.pkg: Creating META typevar fn_nesting==%d\n" fn_nesting; fi;
+
+		ty::META_TYPE_VARIABLE
+		    {
+		      eq    => FALSE,
+		      fn_nesting
+		    };
+	    };
+
+	# Make a variable for an incompletely
+	# specified record (one where "..." was used):
+	#
+	fun make_incomplete_record_type_variable (known_fields, fn_nesting)
+            =
+	    ty::INCOMPLETE_RECORD_TYPE_VARIABLE
+                {
+                  eq           => FALSE,
+                  known_fields,
+                  fn_nesting
+                 };
+
+        # Given  'a return ("a", FALSE),			# Given  X return ("X", FALSE);
+        # given ''a return ("a", TRUE ):			# Given _X return ("X", TRUE );
+	#
+	fun extract_variable_name_information name
+            =
+	    {   name = ss::from_string name;			#  Convert String to Substring.
+
+	        # Strip leading '$' if any:									# 2011-03-05 CrT: This should be long obsolete, we should be able to drop this...? XXX BUGGO FIXME.
+                #
+		name
+                    =
+		    if  (ss::get (name, 0) ==  '$')   ss::drop_first 1 name;
+		    else                                               name;
+                    fi;
+            
+		my (name, eq)
+                    =
+		    if (  ss::get (name, 0) ==  '$'	#  Initial "$" signifies equality			# 2011-03-05 CrT: This should be long obsolete, we should be able to drop this...? XXX BUGGO FIXME.
+		       or ss::get (name, 0) ==  '_'	#  Initial "_" signifies equality
+                       )
+		         (ss::drop_first 1 name,  TRUE);
+		    else (                 name, FALSE);
+                    fi;
+            
+                ( ss::to_string name,			# Convert Substring back to String.
+                  eq					# TRUE iff this is an "equality" typevar.
+                );
+	    };
+
+	# This function is called exactly once, by  typecheck_type_variable()  in
+	#     src/lib/compiler/front/typer/main/type-type.pkg
+	#
+	fun make_user_type_variable (id:  symbol::Symbol)
+            :
+            ty::Type_Variable
+	    =
+	    {   my (name, eq)
+		    =
+                    extract_variable_name_information (symbol::name id);
+	    
+		ty::USER_TYPE_VARIABLE
+                    {
+                      name       => symbol::make_type_variable_symbol  name,
+                      fn_nesting => ty::infinity,
+                      eq
+                    };
+	    };
+
+
+
+	fun make_overloaded_literal_type_variable (
+                kind:                ty::Literal_Kind,
+                source_code_region:  line_number_db::Source_Code_Region,
+                stack:               List(String)
+            )
+            :
+            ty::Type
+            =
+	    ty::TYPE_VARIABLE_REF
+              (
+                ty::make_type_variable_ref
+                  (
+                    ty::LITERAL_TYPE_VARIABLE { kind, source_code_region },
+                    stack
+              )   );
+
+
+
+	# This is called exactly once, from  copy_type_scheme() in
+        #
+        #     src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+	#
+	fun make_overloaded_type_variable_and_type (stack: List(String))
+            :
+            ty::Type
+            =
+            ty::TYPE_VARIABLE_REF
+              (
+                ty::make_type_variable_ref
+                  (
+                    ty::OVERLOADED_TYPE_VARIABLE  FALSE,
+                    stack
+              )   );
+
+
+
+	# make_meta_type_variable_and_type:
+	#
+	# This function returns a type that represents a new meta variable
+	# which does NOT appear in the "context" anywhere.  To do the same
+	# thing for a meta variable which will appear in the context (because,
+	# for example, we are going to assign the resulting type to a program
+	# variable), use make_meta_type_variable_and_type with the appropriate fn_nesting.
+	#
+	fun make_meta_type_variable_and_type
+            (
+              fn_nesting: Int,
+              stack:      List(String)
+            )
+            : ty::Type
+            =
+            ty::TYPE_VARIABLE_REF
+              (
+                ty::make_type_variable_ref
+                  (
+                    make_meta_type_variable  fn_nesting,
+                    stack
+              )   );
+
+
+
+
+	# ************** base ops on typs **************
+
+	fun bug_typ (s: String, typ)
+            =
+ 	    case typ
+		#	      
+		ty::PLAIN_TYP        { path, ... } => bug (s + " PLAIN_TYP " + sy::name (ip::last path));
+		ty::DEFINED_TYP      { path, ... } => bug (s + " DEFINED_TYP " + sy::name (ip::last path));
+		ty::TYP_BY_STAMPPATH { path, ... } => bug (s + " TYP_BY_STAMPPATH " + sy::name (ip::last path));
+		#
+		ty::RECORD_TYP _                   => bug (s + " RECORD_TYP");
+		ty::RECURSIVE_TYPE _               => bug (s + " RECURSIVE_TYPE");
+		ty::FREE_TYPE _                    => bug (s + " FREE_TYPE");
+		ty::ERRONEOUS_TYP                  => bug (s + " ERRONEOUS_TYP");
+            esac;
+
+	#  short (single symbol) name of typ 
+
+	fun typ_name (ty::PLAIN_TYP { path, ... } | ty::DEFINED_TYP { path, ... } | ty::TYP_BY_STAMPPATH { path, ... } )
+		=>
+		ip::last path;
+
+	    typ_name (ty::RECORD_TYP     _) => sy::make_type_symbol "<RECORD_TYP>";
+	    typ_name (ty::RECURSIVE_TYPE _) => sy::make_type_symbol "<RECURSIVE_TYPE>";
+	    typ_name (ty::FREE_TYPE      _) => sy::make_type_symbol "<FREE_TYPE>";
+	    typ_name  ty::ERRONEOUS_TYP     => sy::make_type_symbol "<ERRONEOUS_TYP>";
+        end;
+
+	# Get the stamp of a typ:
+	# 
+	fun typ_stamp (ty::PLAIN_TYP { stamp, ... } | ty::DEFINED_TYP { stamp, ... } ) => stamp;
+	    typ_stamp typ => bug_typ("typ_stamp", typ);
+        end;
+
+	# Full path name of typ,
+        # an inverse_path::path:
+	#
+	fun typ_path
+                ( ty::PLAIN_TYP        { path, ... }
+                | ty::DEFINED_TYP      { path, ... }
+                | ty::TYP_BY_STAMPPATH { path, ... }
+                )
+                => path;
+
+	    typ_path ty::ERRONEOUS_TYP    => ip::INVERSE_PATH [sy::make_type_symbol "Error"];
+	    typ_path typ  => bug_typ("typ_path", typ);
+        end;
+
+	fun typ_stamppath (ty::TYP_BY_STAMPPATH { stamppath, ... } ) => stamppath;
+	    typ_stamppath typ => bug_typ("typ_stamppath", typ);
+        end;
+
+	fun typ_arity (ty::PLAIN_TYP { arity, ... } | ty::TYP_BY_STAMPPATH { arity, ... } ) => arity;
+	    typ_arity (ty::DEFINED_TYP { type_scheme=>ty::TYPE_SCHEME { arity, ... }, ... } ) => arity;
+	    typ_arity (ty::RECORD_TYP l) => length l;
+	    typ_arity (ty::ERRONEOUS_TYP) => 0;
+	    typ_arity typ => bug_typ("typ_arity", typ);
+        end;
+
+	fun set_typ_path (typ, path)
+            =
+	    case typ
+		#
+		ty::PLAIN_TYP { stamp, arity, eq, kind, path => _, stub => _ }
+		    =>
+		    ty::PLAIN_TYP { stamp, arity, eq, kind, path,  stub => NULL };
+
+		ty::DEFINED_TYP { type_scheme, strict, stamp, path=>_}
+		    =>
+		    ty::DEFINED_TYP { type_scheme, path, strict, stamp };
+
+		_   => bug_typ("setTypeConstructorName", typ);
+            esac;
+
+	fun eq_record_labels (NIL, NIL) => TRUE;
+	    eq_record_labels (x ! xs, y ! ys) => symbol::eq (x, y) and eq_record_labels (xs, ys);
+	    eq_record_labels _ => FALSE;
+        end;
+
+
+	fun typs_are_equal (ty::PLAIN_TYP g, ty::PLAIN_TYP g') =>   sta::same_stamp (g.stamp, g'.stamp);
+	    typs_are_equal (ty::ERRONEOUS_TYP, _) => TRUE;
+	    typs_are_equal (_, ty::ERRONEOUS_TYP) => TRUE;
+
+	    # This rule for PATHtyps is conservatively correct,
+	    # but is only an approximation:
+	    #
+	    typs_are_equal ( ty::TYP_BY_STAMPPATH { stamppath=>ep,  ... },
+                             ty::TYP_BY_STAMPPATH { stamppath=>ep', ... }
+                           )
+                =>
+	        ep::same_stamppath (ep, ep');
+
+	    # This last case used for comparing ty::DEFINED_TYP's, RECORD_TYP's.
+	    # Also used in PPBasics to check data constructors of
+	    # a enum.  Used elsewhere?
+	    #
+	    typs_are_equal ( ty::RECORD_TYP l1,
+                             ty::RECORD_TYP l2
+                           )
+                =>
+                eq_record_labels (l1, l2);
+
+	    typs_are_equal _
+	        =>
+                FALSE;
+        end;
+
+		#  for now... 
+	fun make_constructor_type (ty::ERRONEOUS_TYP, _)
+                =>
+                ty::WILDCARD_TYPE;
+
+	    make_constructor_type (typ as ty::DEFINED_TYP { type_scheme, strict, ... }, args)
+		=>
+		ty::TYPCON_TYPE (typ, paired_lists::map
+				  (fn (type, strict) = if strict  type; else ty::WILDCARD_TYPE; fi)
+				  (args, strict));
+
+	    make_constructor_type (typ, args)
+	        =>
+                ty::TYPCON_TYPE (typ, args);
+        end;
+
+
+	fun prune (ty::TYPE_VARIABLE_REF { ref_typevar => tv as REF (ty::RESOLVED_TYPE_VARIABLE type), ... }) :   ty::Type
+		=>
+		{   pruned =  prune type;
+		    #
+		    tv :=  ty::RESOLVED_TYPE_VARIABLE pruned;
+		    #
+		    pruned;
+		};
+
+	    prune  type =>   type;
+        end;
+
+
+	fun typevar_refs_are_equal
+            ( { id => _, ref_typevar => tv1: Ref( ty::Type_Variable ) },
+              { id => _, ref_typevar => tv2: Ref( ty::Type_Variable ) }
+            )
+            =
+            tv1 == tv2;
+
+	fun resolve_type_variables_to_typescheme_slots (type_variables: List( ty::Typevar_Ref )) : Void
+            =
+            loop (type_variables, 0)
+            where
+	        fun loop ([], _)
+                        =>
+                        ();
+
+		    loop ({ ref_typevar, id } ! rest, n)
+                        =>
+		        {   ref_typevar := ty::RESOLVED_TYPE_VARIABLE (ty::TYPE_SCHEME_ARG_I n);
+		            loop (rest, n+1);
+                        };
+                end;
+	    end;
+
+	fun resolve_type_variables_to_typescheme_slots_1 (type_variables: List( ty::Typevar_Ref )):  ty::Type_Scheme_Arg_Eq_Properties
+            =
+            loop (type_variables, 0)
+            where
+	        fun loop ([], _)
+                        =>
+                        [];
+
+		    loop( { id, ref_typevar as REF (ty::USER_TYPE_VARIABLE { eq, ... } ) } ! rest, n)
+			=>
+			{   ref_typevar := ty::RESOLVED_TYPE_VARIABLE (ty::TYPE_SCHEME_ARG_I n);
+			    eq ! loop (rest, n+1);
+			};
+
+		    loop _
+			=>
+			bug "resolve_type_variables_to_typescheme_slots_1: ty::USER_TYPE_VARIABLE";
+                end;
+	    end;
+
+	exception SHARE;
+
+
+	# This function should be merged soon with
+	# instantiate_if_type_scheme    --zsh  XXX BUGGO FIXME **
+	#
+	fun apply_type_scheme (ty::TYPE_SCHEME { arity, body }, args)
+            =
+	    if (arity > 0)
+
+		substitute body
+		except
+		    SHARE
+			=>
+			body;
+
+		    (SUBSCRIPT | INDEX_OUT_OF_BOUNDS)
+			=>
+			bug "apply_type_scheme - not enough arguments";
+		end;
+	    else
+		body;
+	    fi
+	    where
+
+		# We assume that f fails on identity,
+		# i.e. f x raises SHARE instead of 
+		# returning x:
+		#
+		fun share_map f NIL
+			=>
+			raise exception SHARE;
+
+		    share_map f (x ! l)
+			=>
+			(f x) ! ((share_map f l) except SHARE = l)
+			except
+			    SHARE = x ! (share_map f l);
+		end;
+
+                fun substitute (ty::TYPE_SCHEME_ARG_I n)
+                        =>
+                        list::nth (args, n);
+
+		    substitute (ty::TYPCON_TYPE (typ, args))
+                        =>
+                        ty::TYPCON_TYPE (typ, share_map substitute args);
+
+		    substitute (ty::TYPE_VARIABLE_REF { id, ref_typevar as (REF (ty::RESOLVED_TYPE_VARIABLE type)) } )
+                        =>
+                        substitute type;
+
+		    substitute _
+                        =>
+                        raise exception SHARE;
+                end;
+	    end;					# where
+
+	# Transform every
+        #     ty::TYPCON_TYPE.typ
+	# in given type:
+	#
+	fun map_constructor_type_dot_typ  transform
+            =
+            map_type
+            where
+	        fun map_type type
+                    =
+		    case type
+		      
+		         ty::TYPCON_TYPE (typ, types)
+			     => 
+			     make_constructor_type
+                               (
+                                 transform  typ,
+                                 map  map_type  types
+                               );
+
+		         ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+                                            type_scheme => ty::TYPE_SCHEME { arity, body }
+                                          }
+			     =>
+			     ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+						type_scheme
+                                                    =>
+                                                    ty::TYPE_SCHEME { arity,
+								  body  => map_type body
+								}
+					      };
+
+		         ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::RESOLVED_TYPE_VARIABLE type) }
+			     =>
+			     map_type type;
+
+		         _ => type;
+                    esac;
+	    end;
+
+
+	# Same as above, without constructing return value.
+	# Commented out because it is nowhere used -- 2009-07-18 CrT
+	#
+#	fun apply_constructor_type_dot_typ  user_fn
+#            =
+#            apply_type
+#            where
+#
+#	        fun apply_type type
+#                    =
+#		    case type
+#		      
+#		         ty::TYPCON_TYPE (typ, types)
+#			     =>
+#			     {   user_fn  typ;
+#				 apply  apply_type  types;
+#			     };
+#
+#		         ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+#                                            type_scheme => ty::TYPE_SCHEME { arity, body }
+#                                          }
+#			     =>
+#			     apply_type  body;
+#
+#		         ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::RESOLVED_TYPE_VARIABLE type) }
+#			     =>
+#			     apply_type  type;
+#
+#		         _ => ();
+#                    esac;
+#	    end;
+
+
+	exception BAD_TYPE_REDUCTION;
+
+
+	fun reduce_type (ty::TYPCON_TYPE (ty::DEFINED_TYP { type_scheme, ... }, args))
+		=>
+		apply_type_scheme (type_scheme, args);
+
+	    reduce_type (ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties =>  [],
+                                            type_scheme                   =>  ty::TYPE_SCHEME { arity=>0, body }
+                                          }
+                        )
+		=>
+		body;
+
+	    reduce_type (ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::RESOLVED_TYPE_VARIABLE type) } )
+		=>
+		type;
+
+	    reduce_type _
+		=>
+		raise exception BAD_TYPE_REDUCTION;
+        end;
+
+	fun head_reduce_type  type
+            =
+            head_reduce_type (reduce_type  type)
+            except
+                BAD_TYPE_REDUCTION
+		    =
+		    type;
+
+	fun types_are_equal (type, type')
+            =
+            eq (prune type, prune type')
+            where
+
+	        fun eq (ty::TYPE_SCHEME_ARG_I i1, ty::TYPE_SCHEME_ARG_I i2)
+			=>
+			i1 == i2;
+
+		    eq (ty::TYPE_VARIABLE_REF  tv, ty::TYPE_VARIABLE_REF tv')
+			=>
+			typevar_refs_are_equal (tv, tv');
+
+		    eq (   type  as ty::TYPCON_TYPE (typ,  args ),
+                           type' as ty::TYPCON_TYPE (typ', args')
+                       )
+			=>
+			if   (typs_are_equal (typ, typ'))
+			    
+			     paired_lists::all types_are_equal (args, args'); 
+			else
+			     eq (reduce_type type, type')
+			     except
+				 BAD_TYPE_REDUCTION
+				     =
+				     eq (type, reduce_type type')
+				     except
+					 BAD_TYPE_REDUCTION
+					     =
+					     FALSE;
+                        fi;
+
+		    eq (type1 as (ty::TYPE_VARIABLE_REF _ | ty::TYPE_SCHEME_ARG_I _), type2 as ty::TYPCON_TYPE _)
+                        =>
+		        eq (type1, reduce_type type2)
+		        except
+                            BAD_TYPE_REDUCTION
+				=
+				FALSE;
+
+
+		    eq (type1 as ty::TYPCON_TYPE _, type2 as (ty::TYPE_VARIABLE_REF _ | ty::TYPE_SCHEME_ARG_I _))
+                        =>
+		        eq (reduce_type type1, type2)
+		        except
+                            BAD_TYPE_REDUCTION
+				=
+				FALSE;
+
+
+		    eq (ty::WILDCARD_TYPE, _) => TRUE;
+		    eq(_, ty::WILDCARD_TYPE) => TRUE;
+		    eq _ => FALSE;
+                end;
+	    
+	    end;
+
+	stipulate
+
+	    #  Making dummy argument lists to be used in typ_equality 
+
+												# stamp				is from   src/lib/compiler/front/typer-stuff/basics/stamp.pkg
+	    make_fresh_stamp =   sta::make_fresh_stamp_maker ();
+
+	    fun make_dummy_type ()
+                =
+		ty::TYPCON_TYPE
+                  (
+                    ty::PLAIN_TYP {
+			#
+                        stamp =>  make_fresh_stamp (),
+			path  =>  ip::INVERSE_PATH [ symbol::make_type_symbol "Dummy" ],
+			arity =>  0,
+                        eq    =>  REF ty::YES,
+                        stub  =>  NULL,
+		        kind  =>  ty::BASE core_basetype_numbers::basetype_number_truevoid
+                    },
+
+                    []
+                  );
+
+		 # Making dummy type is a temporary hack ! pt_void is not used
+		 # anywhere in the source language ... Requires major clean up 
+		 # in the future. (ZHONG)
+		 # David B MacQueen: shouldn't cause any problem here.  Only thing relevant
+		 # property of the dummy types is that they have different stamps
+		 # and their stamps should not agree with those of any "real" typs.
+
+	    # precomputing dummy argument lists
+	    # -- perhaps a bit of over-optimization here. [dbm]
+
+	    fun makeargs (0, args) =>  args;
+	        makeargs (i, args) =>  makeargs (i - 1, make_dummy_type() ! args);
+            end;
+
+	    args10 = makeargs (10,[]);  #  10 dummys 
+	    args1  = [head args10];
+	    args2  = list::take (args10, 2);
+	    args3  = list::take (args10, 3);  #  rarely need more than 3 args 
+
+	 herein
+
+            fun dummyargs 0 =>  [];    
+		dummyargs 1 =>  args1;
+		dummyargs 2 =>  args2;
+		dummyargs 3 =>  args3;
+
+		dummyargs n
+		    =>
+		    if (n <= 10)
+		        
+			list::take (args10, n);     #  Should be plenty 
+		    else
+			makeargs (n - 10, args10);  #  But make new dummys if needed 
+                    fi;
+            end;
+	end;
+
+	# typ_equality.  This definition deals only partially with types that
+	# contain PATHtyps.  There is no interpretation of the PATHtyps, but
+	# PATHtyps with the same stamppath will be seen as equal because of the
+	# definition on typs_are_equal.
+	#
+	fun typ_equality (ty::ERRONEOUS_TYP, _)   =>   TRUE;
+	    typ_equality (_, ty::ERRONEOUS_TYP)   =>   TRUE;
+
+	    typ_equality (t1, t2)
+		=>
+		{   a1 = typ_arity t1;
+		    a2 = typ_arity t2;
+
+		    if (a1 != a2)
+		        
+			FALSE;
+		    else
+			args = dummyargs a1;
+
+			types_are_equal
+			    ( make_constructor_type (t1, args),
+			      make_constructor_type (t2, args)
+			    );
+		    fi;
+		};
+        end;
+
+	#  Instantiating polytypes 
+	#
+# 2009-04-17 CrT: Following is never actually used.
+# Function  copy_type_scheme()  in   src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+# has an almost identical function, however.
+#	fun make_type_args n
+#            = 
+#	    if   (n > 0)
+#	         make_meta_type_variable_and_type() ! make_type_args (n - 1);
+#	    else [];
+#            fi;
+
+	default_type_variable_property = FALSE;
+
+
+
+	fun make_typeagnostic_api 0
+                =>
+                [];
+
+	    make_typeagnostic_api n
+		=>
+		default_type_variable_property ! make_typeagnostic_api (n - 1);
+        end;
+
+
+	fun datatyp_to_typ (ty::VALCON { type, is_constant, ... } )
+            =
+            f (type, is_constant)
+            where
+		fun f (ty::TYPE_SCHEME_TYPE { type_scheme => ty::TYPE_SCHEME { body, ... }, ... }, b)
+			=>
+			f (body, b);
+
+		    f (ty::TYPCON_TYPE (typ, _), TRUE)
+			=>
+			typ;
+
+		    f (ty::TYPCON_TYPE (_, [_, ty::TYPCON_TYPE (typ, _) ] ), FALSE)
+			=>
+			typ;
+
+		    f _
+			=>
+			bug "datatyp_to_typ";
+                end;
+	    end;
+
+	fun boundargs n
+            = 
+            loop 0
+            where
+	        fun loop (i)
+                    =
+		    if   (i >= n)   NIL;
+		    else            ty::TYPE_SCHEME_ARG_I i ! loop (i+1);
+                    fi;
+	    end;
+
+	fun datatyp_to_type (typ, domain)
+            =
+	    {   arity = typ_arity typ;
+	    
+		case arity
+		  
+		    0   =>  case domain
+
+				 NULL    =>         ty::TYPCON_TYPE (typ, []);
+				 THE dom => dom --> ty::TYPCON_TYPE (typ, []);
+			    esac;
+
+
+		   _ => ty::TYPE_SCHEME_TYPE {
+
+                             type_scheme_arg_eq_properties
+                                 =>
+                                 make_typeagnostic_api  arity,
+
+			     type_scheme
+                                 =>
+                                 ty::TYPE_SCHEME {
+                                     arity,
+		                     body => case domain   NULL    =>         ty::TYPCON_TYPE (typ, boundargs (arity));
+						           THE dom => dom --> ty::TYPCON_TYPE (typ, boundargs (arity));
+                                             esac
+                                 }
+                         };
+                esac;
+	    };
+
+	# Matching a scheme against a
+        # target type -- used declaring
+        # overloadings
+	#
+	fun match_scheme
+            ( ty::TYPE_SCHEME { arity, body }:	ty::Type_Scheme,
+              target:				ty::Type
+            )
+            : ty::Type
+            =
+	    {   tyenv = make_rw_vector (arity, ty::UNDEFINED_TYPE);
+
+		fun match_tyvar (i: Int, type:  ty::Type) : Void
+                    = 
+		    case (tyenv sub i)
+			#		      
+			ty::UNDEFINED_TYPE
+			    =>
+			    update (tyenv, i, type);
+
+			type'
+			    =>
+			    if (not (types_are_equal (type, type')))
+
+				 bug("src/lib/compiler/front/typer-stuff/types/type-junk.pkg: Inconsistent types in overload statement");
+			    fi;
+                    esac;
+
+		fun match ( scheme: ty::Type,
+                            target: ty::Type
+                          )
+                    =
+		    case (prune scheme, prune (target))
+			#		      
+			(ty::WILDCARD_TYPE, _) => ();		#  Wildcards match any type 
+			(_, ty::WILDCARD_TYPE) => ();		#  Wildcards match any type 
+
+			((ty::TYPE_SCHEME_ARG_I i), type)
+			    =>
+                            match_tyvar (i, type);
+
+			(       ty::TYPCON_TYPE (typ1, args1),
+			  pt as ty::TYPCON_TYPE (typ2, args2)
+			)
+			    =>
+			    if (typs_are_equal (typ1, typ2))
+				#
+				paired_lists::apply match (args1, args2);
+			    else
+				match (reduce_type scheme, target)
+				except
+				    BAD_TYPE_REDUCTION
+					=
+					match (scheme, reduce_type pt)
+					except
+					    BAD_TYPE_REDUCTION
+						=
+						bug "match_scheme, match -- types ";
+						#
+						# XXX BUGGO FIXME This error can be triggered by the stimulus program
+						#
+						#	    ## Bug stimulus from Hue White 2011-05-01 
+						#	    package mud { fun moo (i: Int, j: Int) = 1;   };        # The '1' should be '1.0'! 
+						#	    overloaded val / : ((X, X) -> Float) +=  (mud::moo); 
+						#
+						# We need to be producing a much better diagnostic message here! 
+			    fi;
+
+		        _ => bug "match_scheme, match";
+                    esac;
+
+	    
+                case (prune target)
+		    #		  
+		    ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+				       type_scheme => ty::TYPE_SCHEME { arity => arity', body => body' }
+				     }
+			=>
+			{   match (body, body');
+
+			    ty::TYPE_SCHEME_TYPE {
+
+				type_scheme_arg_eq_properties,
+
+				type_scheme => ty::TYPE_SCHEME { arity => arity',
+							     #	
+							     body  => if (arity > 1)	ctt::tuple_type (rw_vector::fold_right (!) NIL tyenv);
+								      else		tyenv sub 0;
+								      fi
+							   }
+			    };
+			};
+
+		    type => 
+			{   match (body, type);
+
+			    arity > 1   ??   ctt::tuple_type (rw_vector::fold_right (!) NIL tyenv)
+					::   tyenv sub 0;
+			};
+                esac;
+	    };
+
+	recursive val  drop_macro_expanded_indirections_from_type
+                =
+		fn t as ty::TYPE_VARIABLE_REF { id => _, ref_typevar as REF (ty::RESOLVED_TYPE_VARIABLE (ty::TYPE_VARIABLE_REF { id => _, ref_typevar => REF v })) }
+		       =>
+		       {   ref_typevar := v;
+			   drop_macro_expanded_indirections_from_type t;
+		       };
+
+
+		   ty::TYPE_VARIABLE_REF { id, ref_typevar as REF (ty::INCOMPLETE_RECORD_TYPE_VARIABLE { known_fields, ... } ) }
+		       =>
+		       apply (drop_macro_expanded_indirections_from_type o #2) known_fields;
+
+
+		   ty::TYPCON_TYPE (typ, tyl)
+		       =>
+		       apply drop_macro_expanded_indirections_from_type tyl;
+
+
+		   ty::TYPE_SCHEME_TYPE { type_scheme => ty::TYPE_SCHEME { body, ... }, ... }
+		       =>
+		       drop_macro_expanded_indirections_from_type body;
+
+		   _ => ();
+	end ;
+
+
+
+
+
+	# For background see the discussion near the top of
+        #
+	#     src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+        #
+	# If argument is not a ty::TYPE_SCHEME_TYPE, return it unchanged.
+        #
+	# Otherwise instantiate body of ty::TYPE_SCHEME_TYPE
+        # with new META type variables, returning the
+        # instantiated body and the list of fresh META
+        # type variables.
+        #
+	#
+	# We are invoked from:
+	#
+        #     new ()
+        #         in
+        #         src/lib/compiler/front/typer/types/resolve-overloaded-variables.pkg
+	#
+        #     eqv_tnsp_type ()
+        #     match_abstract_type_to_actual_type ()
+        #         in
+        #         src/lib/compiler/front/typer/modules/api-match-g.pkg
+	#
+	#     compute_pattern_type ()
+	#     compute_expression_type ()
+        #         in
+        #         src/lib/compiler/front/typer/types/unify-and-generalize-types-g.pkg
+	#
+	fun instantiate_if_type_scheme
+                (
+                  ty::TYPE_SCHEME_TYPE
+                      {
+                        type_scheme_arg_eq_properties,
+                        type_scheme
+                      }
+                )
+                :
+                ( ty::Type,
+                  List( ty::Type )
+                )
+		=>
+		{   # Create N new META type variables given
+		    # a list of N boolean values specifying
+		    # the equality property for them:
+		    #
+                    fresh_meta_type_variables
+                        =
+                        map  f  type_scheme_arg_eq_properties
+                        where
+			    fun f eq
+                                =
+                                ty::TYPE_VARIABLE_REF
+                                    (ty::make_type_variable_ref
+                                        ( ty::META_TYPE_VARIABLE { fn_nesting => ty::infinity, eq },
+                                          ["instantiate_if_type_scheme  from  type-junk.pkg"]
+                                        )
+                                    );
+                        end;
+
+		    ( apply_type_scheme (type_scheme, fresh_meta_type_variables),
+		      fresh_meta_type_variables
+		    );
+		};
+
+	    instantiate_if_type_scheme  type
+		=>
+		(type, []);
+        end;
+
+
+	stipulate 
+
+	    exception CHECKEQ;
+
+	herein
+
+	    fun check_eq_type_api (type,  type_scheme_arg_eq_properties: ty::Type_Scheme_Arg_Eq_Properties)
+                =
+		{   {   eqty  type;
+			TRUE;
+                    }
+                    where
+			fun eqty (ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) } )
+				=>
+				eqty type;
+
+			    eqty (ty::TYPCON_TYPE (ty::DEFINED_TYP { type_scheme, ... }, args))
+				=>
+				eqty (apply_type_scheme (type_scheme, args));
+
+			    eqty (ty::TYPCON_TYPE (ty::PLAIN_TYP { eq, ... }, args))
+				=>
+				case *eq
+				    ty::CHUNK          =>  ();
+				    ty::YES            =>  apply eqty args;
+
+				    ( ty::NO
+				    | ty::EQ_ABSTRACT
+				    | ty::INDETERMINATE
+				    )              =>  raise exception CHECKEQ;
+
+				    p              =>  bug ("checkEqTySig: " + equality_property_to_string p);
+				esac;
+
+			    eqty (ty::TYPCON_TYPE (ty::RECORD_TYP _, args))
+				=>
+				apply eqty args;
+
+			    eqty (ty::TYPE_SCHEME_ARG_I n)
+				=>
+				if (not (list::nth (type_scheme_arg_eq_properties, n)))
+
+				     raise exception CHECKEQ;
+				fi;
+
+			    eqty _ => ();
+			end;
+		    end;
+		}
+		except CHECKEQ = FALSE;
+	end;
+
+	exception COMPARE_TYPES;
+
+	fun compare_type ( spec_type,
+                           spec_api:    ty::Type_Scheme_Arg_Eq_Properties,
+                           actual_type,
+		           actual_api:  ty::Type_Scheme_Arg_Eq_Properties,
+                           actual_arity
+                         )
+                         : Void
+            =
+            compare (spec_type, actual_type)
+            where
+	        type_vector = make_rw_vector (actual_arity, ty::UNDEFINED_TYPE);
+
+		fun compare (type1, type2)
+                    =
+                    compare'
+                      ( head_reduce_type type1,
+                        head_reduce_type type2
+                      )
+
+		also	    
+		fun compare'(ty::WILDCARD_TYPE, _) => ();
+		    compare'(_, ty::WILDCARD_TYPE) => ();
+
+		    compare'(type1, ty::TYPE_SCHEME_ARG_I i)
+			=>
+			case (type_vector sub i)
+			  
+			    ty::UNDEFINED_TYPE
+				=>
+				(   {   eq = list::nth (actual_api, i);
+
+					if  (eq and not (check_eq_type_api (type1, spec_api)))
+					    raise exception COMPARE_TYPES;
+					fi;
+
+					update (type_vector, i, type1);
+				    }
+				    except (SUBSCRIPT|INDEX_OUT_OF_BOUNDS) = ()
+				);
+
+			    type => if (not (types_are_equal (type1, type)))
+
+					 raise exception COMPARE_TYPES;
+				    fi;
+                       esac;
+
+		    compare' (   ty::TYPCON_TYPE (typ1, args1),
+                                 ty::TYPCON_TYPE (typ2, args2)
+                             )
+			=>
+			if (typs_are_equal (typ1, typ2))
+			    #
+			    paired_lists::apply compare (args1, args2);
+			else
+                            raise exception COMPARE_TYPES;
+                        fi;
+
+		   compare' _
+                       =>
+                       raise exception COMPARE_TYPES;
+                end; 
+	    end;
+
+
+
+	#  Return TRUE if package type > api type 
+	#
+	fun pkg_type_matches_api_type
+            {
+	      type_per_api:  ty::Type,
+              type_per_pkg:  ty::Type
+            }
+            : Bool
+            = 
+	    {   type_per_pkg   =   prune type_per_pkg;					# Drop redundant ty::RESOLVED_TYPE_VARIABLE indirections.
+	    
+                case type_per_api
+		    #		  
+		    ty::TYPE_SCHEME_TYPE
+                      {
+			type_scheme_arg_eq_properties => eq_props,
+                        type_scheme => ty::TYPE_SCHEME { body, ... }
+                      }
+                        =>
+			case type_per_pkg
+			    #
+			    ty::TYPE_SCHEME_TYPE
+                              {
+				type_scheme_arg_eq_properties =>  eq_props',
+				#
+				type_scheme =>   ty::TYPE_SCHEME { arity, body => body' }
+			      }
+				=>
+				{   compare_type (body, eq_props, body', eq_props', arity);
+				    TRUE;
+				};
+
+			    ty::WILDCARD_TYPE => TRUE;
+			    _                 => FALSE;
+			esac;
+
+
+		    ty::WILDCARD_TYPE
+                        =>
+                        TRUE;
+
+		    _   =>
+			case type_per_pkg
+			    #			  
+			    ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+					       type_scheme => ty::TYPE_SCHEME { arity, body }
+					     }
+				=>
+				{   compare_type (type_per_api, [], body, type_scheme_arg_eq_properties, arity);
+				    TRUE;
+				};
+
+			    ty::WILDCARD_TYPE =>  TRUE;
+			    _             =>  types_are_equal (type_per_api, type_per_pkg);
+			esac;
+                esac;
+	    }
+            except
+                COMPARE_TYPES
+                =
+                FALSE;
+
+	#  Given a single-type-variable type, extract out the ty::Typevar_Ref 
+	#
+	fun type_variable_of_type (ty::TYPE_VARIABLE_REF (tv as { id, ref_typevar => REF (ty::META_TYPE_VARIABLE              _) } )) =>   tv;
+	    type_variable_of_type (ty::TYPE_VARIABLE_REF (tv as { id, ref_typevar => REF (ty::INCOMPLETE_RECORD_TYPE_VARIABLE _) } )) =>   tv;
+	    type_variable_of_type (ty::TYPE_VARIABLE_REF        { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE t         ) }  ) =>   type_variable_of_type t;
+
+	    type_variable_of_type ty::WILDCARD_TYPE
+                =>
+                # Fake a ty::Typevar_Ref:
+		#
+                ty::make_type_variable_ref
+                    ( make_meta_type_variable  ty::infinity,
+                      ["type_variable_of_type  from  type-junk.pkg"]
+                    );
+
+	    type_variable_of_type (ty::TYPE_SCHEME_ARG_I i) =>   bug "type_variable_of_type: TYPE_SCHEME_ARG_I";
+	    type_variable_of_type (ty::TYPCON_TYPE(_, _))   =>   bug "type_variable_of_type: TYPCON_TYPE";
+	    type_variable_of_type (ty::TYPE_SCHEME_TYPE _)  =>   bug "type_variable_of_type: TYPE_SCHEME_TYPE";
+	    type_variable_of_type  ty::UNDEFINED_TYPE       =>   bug "type_variable_of_type: UNDEFINED_TYPE";
+	    type_variable_of_type _                         =>   bug "type_variable_of_type 124";
+        end; 
+
+	# get_recursive_type_variable_map:  (Int, Type) -> (Int -> Bool) 
+	# See if a bound Typevar_Ref has occurred in some datatypes, e::g. List(X).
+	# This is useful for representation analysis. This function probably
+	# will soon be obsolete. 
+	#
+	fun get_recursive_type_variable_map (n, type)
+            =
+	    {   s = rw_vector::make_rw_vector (n, FALSE);
+
+		fun not_arrow typ
+                    =
+                    not (typs_are_equal (typ, ctt::arrow_typ));
+	       #  or typs_are_equal (typ, fate_type) 
+
+		fun special (typ as ty::PLAIN_TYP { arity, ... } )
+			=>
+			arity != 0 and not_arrow typ;
+
+		    special (ty::RECORD_TYP _) => FALSE;
+		    special typ => not_arrow typ;
+                end;
+
+		fun scan (b, (ty::TYPE_SCHEME_ARG_I n))
+			=>
+			if   b      (update (s, n, TRUE));   fi;
+
+
+		    scan (b, ty::TYPCON_TYPE (typ, args))
+			=> 
+			{   nb = (special typ) or b;
+
+			    apply  (fn t =  scan (nb, t))  args;
+			};
+
+		    scan (b, ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) } )
+			=>
+			scan (b, type);
+
+		    scan _ => ();
+                end;
+		                                                  
+                scan (FALSE, type);
+
+	    
+                fn i =  (   rw_vector::get (s, i)
+                            except
+                                (exceptions::SUBSCRIPT|exceptions::INDEX_OUT_OF_BOUNDS)
+                                =
+			        bug "Strange things in type_junk::get_recursive_type_variable_map"
+                        );
+	    };
+
+	fun label_is_greater_than (a, b)
+            =
+	    {   a' = symbol::name a;
+                b' = symbol::name b;
+
+		a0 = string::get (a', 0);
+                b0 = string::get (b', 0);
+	    
+                if (char::is_digit a0)
+		    
+		    if (char::is_digit b0)
+			(size a' > size b' or size a' == size b' and a' > b');
+		    else
+                        FALSE;
+                    fi;
+		else
+		    if (char::is_digit b0)
+			TRUE;
+		    else
+                        (a' > b');
+                    fi;
+                fi;
+	    };
+
+	#  Tests used to implement the value restriction 
+	#  Based on Ken Cline's version; allows refutable patterns 
+	#  Modified to support CAST, and special naming CASE_EXPRESSION. (ZHONG) 
+
+	# Modified to allow applications of lazy my rec Y combinators to
+	# be nonexpansive. (Taha, David B MacQueen)
+
+
+	# This function is invoked exactly one place
+	# in the codebase, by
+	#     unify_and_generalize_types_g::declaration_type'()
+	# 	
+	fun is_value { inlining_info_says_it_is_pure }
+	    =
+	    is_val
+	    where
+
+		fun is_val (       ds::VARIABLE_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (       ds::VALCON_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (   ds::INT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (   ds::UNT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val ( ds::FLOAT_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (ds::STRING_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (  ds::CHAR_CONSTANT_IN_EXPRESSION     _) =>  TRUE;
+		    is_val (                ds::FN_EXPRESSION     _) =>  TRUE;
+		    is_val (   ds::RECORD_SELECTOR_EXPRESSION(_, e)) =>  is_val e;
+
+		    is_val (ds::RECORD_IN_EXPRESSION fields)
+			=>
+			fold_right  (fn ((_, expression), x) =  x and (is_val expression))
+				    TRUE
+				    fields;
+
+
+		    is_val (ds::VECTOR_IN_EXPRESSION (exps, _))
+			=>
+			fold_right
+			    (fn (expression, x) =  x and (is_val expression))
+			    TRUE
+			    exps;
+
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS NIL) => TRUE;
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS [e]) => is_val e;
+		    is_val (ds::SEQUENTIAL_EXPRESSIONS _)   => FALSE;
+
+		    is_val (ds::APPLY_EXPRESSION (operator, operand))
+			=>
+			{   fun isrefdcon (ty::VALCON { form=>vh::REFCELL_REP, ... } ) =>    TRUE;
+				isrefdcon _						     =>    FALSE;
+			    end;
+
+			    fun iscast (vac::ORDINARY_VARIABLE { inlining_info, ... } )
+				    =>
+				    inlining_info_says_it_is_pure inlining_info;
+
+				iscast _
+				    =>
+				    FALSE;
+			    end;
+
+			    /*
+			    fun iscast (vac::ORDINARY_VARIABLE { inlining_info, ... } ) = ii::pure_info (ii::fromExn inlining_info)
+			      | iscast _ = FALSE
+			     */
+
+			    # LAZY: The following function allows applications of the
+			    # fixed-point combinators generated for lazy my recs to
+			    # be non-expansive.
+
+			    fun issafe (vac::ORDINARY_VARIABLE { path=>(symbol_path::SYMBOL_PATH [s]), ... } )
+				    => 
+				    case (string::explode (symbol::name s))
+					#
+					'Y' ! '$' ! _ =>  TRUE;
+					_             =>  FALSE;
+				    esac;
+
+				issafe _
+				    =>
+				    FALSE;
+			    end;
+
+			    fun iscon (ds::VALCON_IN_EXPRESSION (dcon, _)) => not (isrefdcon dcon);
+				iscon (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)) => iscon e;
+				iscon (ds::VARIABLE_IN_EXPRESSION (REF v, _)) => (iscast v) or (issafe v);
+				iscon _ => FALSE;
+			    end;
+
+			    iscon operator   ??   is_val operand
+					     ::   FALSE;
+			};
+
+		    is_val (ds::TYPE_CONSTRAINT_EXPRESSION (e, _))
+			=>
+			is_val e;
+
+		    is_val (ds::CASE_EXPRESSION (e, (ds::CASE_RULE (p, _)) ! _, FALSE))
+			=> 
+			(is_val e) and (irrefutable p);				#  special bind CASEexps 
+
+		    is_val (ds::LET_EXPRESSION (ds::RECURSIVE_VALUE_DECLARATIONS _, e))
+			=>
+			(is_val e);							#  special NAMED_RECURSIVE_VALUES hacks 
+
+		    is_val (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)) => is_val e;
+		    is_val _ => FALSE;
+		end;
+	    end
+
+	#  Test if a case pattern is irrefutable --- complete 
+	#
+	also
+	fun irrefutable  case_rule_pattern
+	    = 
+	    g  case_rule_pattern
+	    where
+		fun udcon (ty::VALCON { signature => vh::CONSTRUCTOR_SIGNATURE (x, y), ... } )
+			=>
+			(x+y) == 1;
+
+		    udcon _
+			=>
+			FALSE;
+		end;
+
+		fun g (ds::CONSTRUCTOR_PATTERN (dc, _))     =>    udcon dc;
+		    g (ds::APPLY_PATTERN (dc, _, p))   =>   (udcon dc) and (g p);
+
+		    g (ds::RECORD_PATTERN { fields => ps, ... } )
+			=> 
+			h ps
+			where
+			    fun h ((_, p) ! r)
+				    =>
+				    g p   ??   h r
+					  ::   FALSE;
+
+				h _ => TRUE;
+			    end;   
+			end;
+
+		    g (ds::TYPE_CONSTRAINT_PATTERN (p, _))  =>   g p;
+		    g (ds::AS_PATTERN (p1, p2))             =>   (g p1) and (g p2);
+		    g (ds::OR_PATTERN (p1, p2))             =>   (g p1) and (g p2);
+
+		    g (ds::VECTOR_PATTERN (ps, _))
+		       => 
+		       h ps
+		       where
+			   fun h (p ! r)
+				   =>
+				   g p   ??   h r
+					 ::   FALSE;
+
+			       h _ => TRUE;
+			   end;
+		       end;
+
+		    g _ => TRUE;
+		end;
+	    end;
+
+
+	fun is_variable_type (ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) } )
+		=>
+		is_variable_type type;
+
+	    is_variable_type (ty::TYPE_VARIABLE_REF _)
+		=>
+		TRUE;
+
+	    is_variable_type (_)
+		=>
+		FALSE;
+        end;
+
+
+	# sort_fields, map_unzip: Two utility functions used in type checking
+	# (unify-and-generalize-types-g.pkg):
+	#
+	fun sort_fields fields
+            =
+	    list_mergesort::sort
+                      fn ((deep_syntax::NUMBERED_LABEL { number=>n1, ... }, _),
+			  (deep_syntax::NUMBERED_LABEL { number=>n2, ... }, _)) => n1>n2;
+                      end
+		      fields;
+
+	# Given input List( X )
+        # and a function f: X -> (Y, Z),
+        # return (List( Y ), List( Z ))
+        # generated by applying f to all given x:
+	#
+	fun map_unzip f NIL
+		=>
+		(NIL, NIL);
+
+	    map_unzip f (first ! rest)
+		=>
+		{   my (x,  y )  =  f first;
+		    my (xs, ys)  =  map_unzip f rest;
+
+		    (x ! xs, y ! ys);
+		};
+        end;
+
+	fun fold_type_entire f
+            =
+	    {   fun fold_tc (typ, b0)
+                    = 
+		    case typ
+			#		      	
+			ty::PLAIN_TYP { kind, ... }
+			    =>
+			    case kind
+				#
+				ty::DATATYPE {   family => { members=>ms, ... }, ... }
+				    =>
+				    b0;
+
+			#       fold_left (fn ( { dcons, ... }, b) => fold_left foldDcons b dcons) b0 ms 
+
+				ty::ABSTRACT tc
+				    =>
+				    fold_tc (tc, b0);
+
+				_   =>   b0;
+			    esac;
+
+
+			ty::DEFINED_TYP { type_scheme => ty::TYPE_SCHEME { arity, body }, ... }
+			    =>
+			    fold_type (body, b0);
+
+		        _ => b0;
+                    esac
+
+		also
+		fun fold_dcons ( { name, form, domain=>NULL }, b0)
+			=>
+			b0;
+
+		    fold_dcons ( { domain=>THE type, ... }, b0)
+			=>
+			fold_type (type, b0);
+                end 
+
+		also
+		fun fold_type (type, b0)
+                    =
+		    case type
+		      
+			ty::TYPCON_TYPE (tc, tl)
+			    => 
+			    {   b1 = f      (tc, b0);
+				b2 = fold_tc (tc, b1);
+
+				fold_left fold_type b2 tl;
+			    };
+
+			ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties, type_scheme => ty::TYPE_SCHEME { arity, body } }
+			    =>
+			    fold_type (body, b0);
+
+			ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) }
+			    =>
+			    fold_type (type, b0);
+
+			_ => b0;
+                    esac;
+	    
+                fold_type;
+	    };
+
+	fun map_type_entire f
+            =
+	    {   fun map_type type
+                    =
+		    case type
+		      
+			ty::TYPCON_TYPE (tc, tl)
+			    =>
+			    make_constructor_type (f (map_tc, tc), map map_type tl);
+
+			ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties, type_scheme => ty::TYPE_SCHEME { arity, body } }
+			    =>
+			    ty::TYPE_SCHEME_TYPE { type_scheme_arg_eq_properties,
+					       type_scheme => ty::TYPE_SCHEME { arity,
+									    body  => map_type body
+									  }
+					     };
+
+			ty::TYPE_VARIABLE_REF { id, ref_typevar => REF (ty::RESOLVED_TYPE_VARIABLE type) }
+			    =>
+			    map_type type;
+
+			_ => type;
+                    esac
+
+		also
+		fun map_tc typ
+                    = 
+		    case typ
+		      
+			ty::PLAIN_TYP { stamp, arity, eq, path, kind, stub => _ }
+			    =>
+			    case kind
+				#
+				ty::DATATYPE { index, family=> { members, ... }, ... } => typ;
+
+			     /*
+			      *  XXX BUGGO FIXME The following code needs to be rewritten !!! (ZHONG)
+
+					    ty::PLAIN_TYP { stamp, arity, eq, path,
+						    kind=> ty::DATATYPE { index, members=>map mapMb members, 
+								   lambdatyc => REF NULL }}
+			     */
+
+				ty::ABSTRACT tc
+				    =>
+				    ty::PLAIN_TYP {   stamp,
+								   arity,
+								   eq,
+								   path,
+								   kind  => ty::ABSTRACT (map_tc tc),
+								   stub  => NULL
+							       };
+			       _ => typ;
+			   esac;
+
+
+			ty::DEFINED_TYP { stamp, strict, type_scheme, path }
+			    => 
+			    ty::DEFINED_TYP {   stamp,
+							strict,
+							path,
+							type_scheme => map_tf type_scheme
+						    };
+
+			_ => typ;
+                    esac
+
+		also
+		fun map_mb { typ_name, stamp, arity, dcons, lambdatyc }
+		    = 
+		    {   typ_name,
+			stamp,
+			arity, 
+			dcons               => (map map_dcons dcons),
+			lambdatyc           => REF NULL
+		    }
+
+		also
+		fun map_dcons (x as { name, form, domain=>NULL } )
+			=> x;
+
+		    map_dcons (x as { name, form, domain=>THE type } )
+			=> 
+			{   name,
+			    domain => THE (map_type type),
+			    form
+			};
+                end 
+
+		also
+		fun map_tf (ty::TYPE_SCHEME { arity, body } )
+		    = 
+		    ty::TYPE_SCHEME { arity,
+				    body  => map_type body
+				  };
+
+	    
+                map_type;
+	    };
+
+
+	# Using a set implementation should suffice here,
+	# but I am using a binary dictionary instead. (ZHONG)
+	#
+	stipulate
+	    package typ_set= stamp_map;						# stamp_map	is from   src/lib/compiler/front/typer-stuff/basics/stampmap.pkg
+	herein
+
+	    Typ_Set
+                =
+                typ_set::Map( ty::Typ );
+
+	    make_typ_set
+                =
+                fn () =  typ_set::empty;
+
+
+
+	    fun insert_typ_into_set (typ as ty::PLAIN_TYP { stamp, ... }, typset)
+		    => 
+		    typ_set::set (typset, stamp, typ);
+
+	        insert_typ_into_set _
+		    =>
+		    bug "unexpected typs in insert_typ_into_set";
+            end;
+
+
+
+	    fun is_in_typ_set ( typ as ty::PLAIN_TYP { stamp, ... }, typset)
+		    =>
+		    not_null (typ_set::get (typset, stamp));
+
+	        is_in_typ_set _
+                    =>
+                    FALSE;
+            end;
+
+
+
+	    fun filter_typ_set (type, typs)
+		= 
+	        fold_type_entire pass1 (type, [])
+                where
+		    fun in_list (a ! r, tc)
+			    =>
+			    if (typs_are_equal (a, tc))
+			        TRUE;
+			    else
+                                in_list (r, tc);
+                            fi;
+
+		        in_list ([], tc)
+                            =>
+                            FALSE;
+                    end;
+
+		    fun pass1 (tc, tset)
+			= 
+			if (is_in_typ_set (tc, typs))
+
+			    if (in_list (tset, tc))       tset;
+			    else                     tc ! tset;
+			    fi;
+			else
+                            tset;
+                        fi;
+		end;
+
+	    /*
+	      filter_typ_set = fn x =>
+	      compile_statistics::do_phase (compile_statistics::make_phase "Compiler 034 filter_typ_set") filter_typ_set x
+	    */
+
+	end;
+
+
+
+	fun datatype_sibling (n, typ as ty::PLAIN_TYP { kind => ty::DATATYPE dt, ... } )
+		=>
+		{   dt -> { index, stamps, free_typs, root, family as { members, ... } };
+
+		    if (n == index)
+		        typ;
+		    else
+			(vector::get (members, n))
+			    ->
+			    { typ_name,
+			      arity,
+			      constructor_list,
+			      eq,
+			      is_lazy,
+			      an_api
+			    };
+
+
+			stamp = vector::get (stamps, n);
+
+			ty::PLAIN_TYP {   stamp,
+					   arity,
+					   eq,
+					   stub  => NULL,
+					   path  => ip::INVERSE_PATH [ typ_name ],
+					   kind  => ty::DATATYPE { index    => n,
+							       stamps,
+							       free_typs,
+							       root     => NULL /* ! */,
+							       family
+							     }
+				       };
+		    fi;
+		};
+
+	    datatype_sibling _
+                =>
+                bug "datatype_sibling";
+        end;
+
+	# NOTE: this only works (perhaps) for enum declarations, but not           XXX BUGGO FIXME
+	# specifications. The reason: the root field is used to connect mutually
+	# recursive enum specifications together, its information cannot be
+	# fully recovered in datatype_sibling. (ZHONG)
+	#
+	fun extract_datatyp (typ as ty::PLAIN_TYP { kind => ty::DATATYPE dt, ... } )
+		=>
+		map make_datatyp
+                    constructor_list
+                where
+		    dt -> { index, stamps, free_typs, root, family as { members, ... }};
+
+		    my { constructor_list, an_api, is_lazy, ... }
+			=
+			vector::get (members, index);
+
+		    fun expand_typ (ty::TYP_BY_STAMPPATH _)
+			    =>
+			    bug "expandTypeConstructor: TYP_BY_STAMPPATH"; #  use expandTypeConstructor? 
+
+		        expand_typ (ty::RECURSIVE_TYPE n)
+			    =>
+			    datatype_sibling (n, typ);
+
+		        expand_typ (ty::FREE_TYPE n)
+			    => 
+			    ((list::nth (free_typs, n))
+			    except _
+			       =>
+			       bug "unexpected free_typs in extract_datatyp"; end );
+
+		        expand_typ typ
+			    =>
+			    typ;
+                    end;
+
+		    fun expand type
+			=
+			map_constructor_type_dot_typ
+                            expand_typ
+                            type;
+
+
+		    fun make_datatyp ( { name, form, domain } )
+			=
+			ty::VALCON {
+			    name,
+			    form,
+			    signature => an_api,
+			    is_lazy,
+			    type => datatyp_to_type (typ, null_or::map expand domain),
+			    is_constant      => case domain
+						     NULL => TRUE;
+						     _    => FALSE;
+						esac
+			};
+		end;
+
+	    extract_datatyp _
+		=>
+		bug "extract_datatyp";
+        end;
+
+	fun make_strict 0 =>  [];
+	    make_strict n =>  TRUE ! make_strict (n - 1);
+        end;
+
+	# Used in type_api for enum replication specs,
+        # where the typ arg is expected to be
+        # either a PLAIN_TYP/DATATYPE
+        # or a TYP_BY_STAMPPATH.
+	#
+	fun wrap_definition (typ as ty::DEFINED_TYP _, _)
+		=>
+		typ;
+
+	    wrap_definition (typ, s)
+		=>
+		{   arity = typ_arity typ;
+		    name  = typ_name typ;
+		    args  = boundargs arity;
+
+		    ty::DEFINED_TYP {
+			stamp  => s,
+			strict => make_strict arity,
+			path   => ip::INVERSE_PATH [ name ],
+
+			type_scheme => ty::TYPE_SCHEME {   arity,
+							 body  => ty::TYPCON_TYPE (typ, args)
+						     }
+		    };
+		};
+        end;
+
+
+	#  eta-reduce a type function: \args.tc args => tc 
+	#
+	fun unwrap_definition_1 (typ as ty::DEFINED_TYP {
+                                               type_scheme => ty::TYPE_SCHEME {
+                                                                  body => ty::TYPCON_TYPE (typ', args),
+                                                                  arity
+                                                              },
+                                               ...
+                                           }
+                       )
+		=>
+		{   fun formals ((ty::TYPE_SCHEME_ARG_I i) ! rest, j)
+			    =>
+			    (i == j)  ??  formals (rest, j+1)
+				      ::  FALSE;
+
+			formals (NIL, _) => TRUE;
+			formals _        => FALSE;
+		    end;
+
+		    (formals (args, 0))
+		       ??  THE typ'
+		       ::  NULL;
+		};
+
+	    unwrap_definition_1 typ
+                =>
+                NULL;
+        end;
+
+
+	# Closure under iterated eta-reduction 
+	#
+	fun unwrap_definition_star typ
+            =
+	    case (unwrap_definition_1 typ)
+
+		THE typ'
+		    =>
+		    unwrap_definition_star typ';
+
+		NULL
+		    =>
+		    typ;
+	    esac;
+
+    };			# package type_junk 
+end;			# stipulate
+
+
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

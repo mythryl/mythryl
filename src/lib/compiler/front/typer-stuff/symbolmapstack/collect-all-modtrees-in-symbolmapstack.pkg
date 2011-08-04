@@ -1,0 +1,201 @@
+## collect-all-modtrees-in-symbolmapstack.pkg
+## (C) 2001 Lucent Technologies, Bell Labs (Matthias Blume)
+
+# Compiled by:
+#     src/lib/compiler/front/typer-stuff/typecheckdata.sublib
+
+
+
+# Rapid stampmapstack generation from modtrees.
+#
+# stampmapstack instances are defined in
+#
+#     src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+#
+# and created by 
+#
+#     src/lib/compiler/front/typer-stuff/symbolmapstack/collect-all-modtrees-in-symbolmapstack.pkg make_map
+#
+# based on the Modtree instances defined in
+#
+#     src/lib/compiler/front/typer-stuff/modules/module-level-declarations.api
+#
+# and placed in symbol tables during unpickling in
+#
+#     src/lib/compiler/front/semantic/pickle/unpickler-junk.pkg 
+#
+# The idea is that Modtree instances are compact
+# and self-sufficient, hence low-maintainance to
+# keep around, whereas stampmapstack instances are what
+# we really want for module dependency analysis and
+# such:  By storing Modtree instances in our
+# symbol tables and then generating stampmapstacks
+# from them on the fly as needed (afterward promptly
+# discarding them) we get the best of both worlds.
+#
+# NB: This module cannot deal with symbol tables
+#     that did not come out of the unpickler.
+#
+#                 (March 2000, Matthias Blume)
+
+
+stipulate
+    package mld =  module_level_declarations;			# module_level_declarations	is from   src/lib/compiler/front/typer-stuff/modules/module-level-declarations.pkg
+    package stx =  stampmapstack;				# stampmapstack			is from   src/lib/compiler/front/typer-stuff/modules/stampmapstack.pkg
+    package syx =  symbolmapstack;				# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+herein
+
+    api Collect_All_Modtrees_In_Symbolmapstack {
+	#
+	collect_all_modtrees_in_symbolmapstack:    syx::Symbolmapstack                       ->  stx::Stampmapstack;
+	collect_all_modtrees_in_symbolmapstack' : (syx::Symbolmapstack, stx::Stampmapstack)  ->  stx::Stampmapstack;
+    };
+
+    package   collect_all_modtrees_in_symbolmapstack
+    : (weak)  Collect_All_Modtrees_In_Symbolmapstack
+    {
+	fun collect_all_modtrees_in_symbolmapstack'
+	      (
+		symbolmapstack:   syx::Symbolmapstack,
+		initial_map
+	      )
+	    =
+	    syx::fold_full_entries  note_modtree_if_present  initial_map  symbolmapstack
+	    where
+		fun note_modtree_if_present ((_, { entry, modtree => THE modtree }), result) =>   note_modtree (modtree, result);		# Here _ is the symbol naming the     symbol table Full_Entry.
+		    note_modtree_if_present (_,                                      result) =>                          result;		# No-op -- no modtree present in this symbol table Full_Entry.
+		end
+
+		also														# Not actually mutually recursive, I just want 'note_modtree_if_present' first here for readability.
+	        fun note_modtree
+                      ( modtree_node:   mld::Modtree,		# Node whose info should be added to result.
+                        stampmapstack:	stx::Stampmapstack		# Result being constructed.
+                      )
+		    =
+		    case modtree_node
+			#
+			mld::MODTREE_BRANCH node_list
+			    =>
+			    fold_left
+				note_modtree
+				stampmapstack
+				node_list;
+
+			mld::PLAIN_TYP_MODTREE_NODE  plain_typ_record
+			    =>
+			    stx::enter_plain_typ_record_by_typestamp (
+				stampmapstack,
+				stx::typestamp_of       plain_typ_record,
+				plain_typ_record
+			    );
+
+			mld::API_MODTREE_NODE record
+			    =>
+			    note_record (
+				record,
+				.stub,
+				.modtree,
+				record,
+				stx::apistamp_of,
+				stx::enter_api_record_by_apistamp,
+				stx::find_api_record_by_apistamp
+			    );
+
+			mld::PACKAGE_MODTREE_NODE record
+			    =>
+			    note_record (
+				record,
+				.stub,
+				.modtree,
+				record.typechecked_package,
+				stx::packagestamp_of,
+				stx::enter_typechecked_package_by_packagestamp,
+				stx::find_typechecked_package_by_packagestamp
+			    );
+
+			mld::GENERIC_MODTREE_NODE   record
+			    =>
+			    note_record (
+				record,
+				.stub,
+				.modtree,
+				record.typechecked_generic,
+				stx::genericstamp_of,
+				stx::enter_typechecked_generic_by_genericstamp,
+				stx::find_typechecked_generic_by_genericstamp
+			    );
+
+			mld::TYPERSTORE_MODTREE_NODE record => note_record (
+				record,
+				.stub,
+				.modtree,
+				record,
+				stx::typerstorestamp_of,
+				stx::enter_typerstore_record_by_typerstorestamp,
+				stx::find_typerstore_record_by_typerstorestamp
+			    );
+
+		    esac
+		    where
+		        fun note_record (record, stub_of, tree_of, part, stamp_of, insert, get)
+			    =
+			    {   stamp =  stamp_of  record;
+
+				case (get (stampmapstack, stamp))
+				    #
+				    THE _ => stampmapstack;
+
+				    NULL
+					=>
+					{   stampmapstack' = insert (stampmapstack, stamp, part);
+
+					    case (stub_of  part)
+						#
+						THE stub_info
+						    =>
+						    note_modtree  (tree_of stub_info, stampmapstack');
+
+						NULL =>   error_message::impossible  "ModIdSet: no Stub_Info";
+					    esac;
+					};
+				esac;
+			    };
+		    end;
+	    end;                                                       #  fun collect_all_modtrees_in_symbolmapstack'
+
+	collect_all_modtrees_in_symbolmapstack'
+	    =
+	    compile_statistics::do_phase (compile_statistics::make_phase "Compiler 923 genmap")
+	    collect_all_modtrees_in_symbolmapstack';
+
+
+	fun collect_all_modtrees_in_symbolmapstack
+		#
+		symbolmapstack
+	    =
+	    collect_all_modtrees_in_symbolmapstack'
+	      (
+		symbolmapstack,
+		stx::empty_stampmapstack
+	      );
+    };
+end;
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################

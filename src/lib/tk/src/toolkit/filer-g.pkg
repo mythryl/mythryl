@@ -1,0 +1,2018 @@
+## filer-g.pkg
+## Author: ludi
+## (C) 1999, Bremen Institute for Safe Systems, Universitaet Bremen
+
+# Compiled by:
+#     src/lib/tk/src/toolkit/sources.sublib
+
+
+
+# ***************************************************************************
+# Generic filer with clipboard support (class macro filer_g), including a
+# partial instantiation for use without clipboard (class macro simple_filer_g)
+# **************************************************************************
+
+generic package filer_g (
+
+    package options :
+		  api {
+		       icons_path:  Void -> String; #  path to find icons  
+
+		       icons_size:  (Int, Int);      #  width * height      
+                                                      #  of label containing 
+						      #  An icon             
+
+		       root:  Void -> Null_Or( String );     #  root directory 
+
+		       default_pattern:  Null_Or( String ); #  Default         
+		                                          #  filtering of    
+		                                          #  Displayed files 
+
+		      package clipboard:  Write_Only_Clipboard;		# Write_Only_Clipboard	is from   src/lib/tk/src/toolkit/clipboard-g.pkg
+   			#  Clipboard instantiation 
+
+		       filetypes:                      #  known filetypes 
+			  List {
+                              ext:      List( String ),
+			      display:  Null_Or {
+					    comment:      String,
+					    icon:         String,
+					    preview:      Null_Or( {  dir:   String,
+							              file:  String  } -> Void),
+
+					    file_to_obj:  Null_Or( {  dir:   String,
+							              file:  String
+                                                                   }
+                                                                   -> clipboard::Part
+                                                            )
+					}
+			  };
+
+		      package conf:  Filer_Config;		# Filer_Config	is from   src/lib/tk/src/toolkit/filer.api
+                          #  other configurations 
+
+		  };) : (weak) Filer		# Filer	is from   src/lib/tk/src/toolkit/filer.api
+    
+    {
+	include tk;
+
+
+# --- basic declarations ----------------------------------------------------
+
+	exception ERROR  String;
+
+	Preferences = { sort_names:           Bool,
+			sort_types:           Bool,
+			show_hidden_files:    Bool,
+			hide_icons:           Bool,
+			hide_details:         Bool
+                      };
+
+	File = { dir:   String,
+		 file:  String
+               };
+
+	Display_Type = Null_Or { comment:      String,
+				 icon:         String,
+				 preview:      Null_Or( File -> Void),
+				 file_to_obj:  Null_Or( File -> options::clipboard::Part)
+			       }; 
+
+	Filetype = { ext:      List( String ),
+		     display:  Display_Type
+                   };
+
+	file_select_window_id = make_window_id ();
+
+	dir_label_id       = make_widget_id ();
+	pattern_id         = make_widget_id ();
+	toolbar_id         = make_widget_id ();
+	permissions_id     = make_widget_id ();
+	foldersbox_id      = make_widget_id ();
+	foldersboxframe_id = make_widget_id ();
+	filesbox_id        = make_widget_id ();
+	filesboxframe_id   = make_widget_id ();
+	file_entry_id      = make_widget_id ();
+	fold_status_id     = make_widget_id ();
+	file_status_id     = make_widget_id ();
+	updir_id           = make_widget_id ();
+	back_id            = make_widget_id ();
+	forward_id         = make_widget_id ();
+# 	homedirID         = make_widget_id ()
+	reload_id          = make_widget_id ();
+# 	makeDirID           = make_widget_id ()
+	filedel_id         = make_widget_id ();
+
+	current_directory = REF "";
+	chosen_file       = REF NULL:  Ref(  Null_Or(  String ) );
+	sort_names        = REF (options::conf::preferences.sort_names);
+	sort_types        = REF (options::conf::preferences.sort_types);
+	show_hidden       = REF(.show_hidden_files
+				      options::conf::preferences);
+	hide_icons        = REF (options::conf::preferences.hide_icons);
+	hide_details      = REF (options::conf::preferences.hide_details);
+	updir_active      = REF FALSE;
+	inside_updir      = REF FALSE;
+	back_active       = REF FALSE;
+	inside_back       = REF FALSE;
+	forward_active    = REF FALSE;
+	inside_forward    = REF FALSE;
+	mkdir_active      = REF FALSE;
+	reload_active     = REF FALSE;
+	filedel_active    = REF FALSE;
+	enter_file_flag   = REF FALSE;
+	selected          = REF NULL:  Ref(  Null_Or(  Widget_Id ) );
+	exit_status       = REF FALSE;
+
+	dummy_event = TK_EVENT (0, "", 0, 0, 0, 0);
+
+	fun root_dir ()
+	    =
+	    if (not_null (options::root()))
+                 the (options::root());
+            else "/";
+            fi;
+
+	fun max_comment_length ()
+	    =
+	    seek_maxl options::filetypes 0
+            where
+	        fun seek_maxl ((f:  Filetype) . fs) l
+			=>
+			case f.display   
+			    THE { comment, ... }
+                                 => seek_maxl fs (int::max (size comment, l));
+			    NULL => seek_maxl fs l;
+                        esac;
+
+		    seek_maxl _ l
+                        =>
+                        l;
+		end;
+	    end;
+
+	# --- useful functions ------------------------------------------------------
+
+	fun sort (f . fs) ord
+		=>
+		sort (list::filter (not o ord f) fs) ord @ [f] @
+		sort (list::filter (ord f) fs) ord;
+
+	    sort [] _
+		=>
+		[];
+        end;
+
+	fun shortleft a b
+            =
+	    if (size a > b)
+                
+		".." + implode (list::drop (explode a, size a - b + 2));
+	    else
+                a;
+            fi;
+
+	fun shortright a b
+            =
+	    if (size a > b)
+                
+		implode (list::take (explode a, b - 2)) + "..";
+	    else
+                a;
+            fi;
+
+	fun sub_dir p1 p2
+            =
+	    sub_dir' (to_list p1) (to_list p2)
+            where
+	        fun to_list' "/" => [];
+		    to_list' p   => winix::path::file p . to_list'(winix::path::dir p);
+                end;
+
+		fun to_list p
+		    =
+                    reverse (to_list' p);
+
+		fun sub_dir' (x . xs) (y . ys)
+			=>
+			if (not (x == y))  FALSE;
+                        else               sub_dir' xs ys;
+                        fi;
+
+		   sub_dir' _ []            => TRUE;
+		   sub_dir' [] _            => FALSE;
+                end;
+	    end;
+
+	fun ext nm
+            =
+            the (winix::path::ext nm)
+            except
+		_ = "";
+
+	fun busy ()
+            =
+	    {  add_trait filesboxframe_id   [CURSOR (XCURSOR("watch", NULL))];
+	       add_trait foldersboxframe_id [CURSOR (XCURSOR("watch", NULL))];
+            };
+
+	fun ready ()
+            =
+	    {  add_trait filesboxframe_id   [CURSOR (XCURSOR("left_ptr", NULL))];
+	       add_trait foldersboxframe_id [CURSOR (XCURSOR("left_ptr", NULL))];
+            };
+
+
+	# --- icons -----------------------------------------------------------------
+
+	fun system_icons_path ()
+            =
+            winix::path::cat (get_lib_path(), "icons/filer");
+
+	fun noacc_fold_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					   	     file => "noacc_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun acc_fold_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "acc_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun open_fold_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "open_Icon.gif"
+                                                   },
+		      make_image_id());
+
+
+	fun updir_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "updir_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun updir_highlighted_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "updir_highlighted_Icon.gif"
+                        },
+		      make_image_id());
+
+	fun updir_outlined_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "updir_outlined_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun back_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file =>  "back_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun back_highlighted_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "back_highlighted_Icon.gif"},
+		      make_image_id());
+
+	fun back_outlined_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "back_outlined_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun forward_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "forward_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun forward_highlighted_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "forward_highlighted_Icon.gif"
+                        },
+		      make_image_id());
+
+	fun forward_outlined_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "forward_outlined_Icon.gif"
+                                                   },
+		      make_image_id());
+
+#	fun homedir_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file { dir  = system_icons_path(),
+#					   file = "homedir_Icon.gif"},
+#		      make_image_ID())
+#
+#	fun homedir_highlighted_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file
+#		        { dir  = system_icons_path(),
+#			 file = "homedir_highlighted_Icon.gif"},
+#		      make_image_ID())
+#
+#	fun homedir_outlined_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file { dir  = system_icons_path(),
+#					   file = "homedir_outlined_Icon.gif"},
+#		      make_image_ID())
+
+	fun reload_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file =>"reload_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun reload_highlighted_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "reload_highlighted_Icon.gif"
+                        },
+		      make_image_id());
+
+	fun reload_outlined_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "reload_outlined_Icon.gif"
+                        },
+		      make_image_id());
+
+#	fun makeDir_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file { dir  = system_icons_path(),
+#					   file = "makeDir_Icon.gif"},
+#		      make_image_ID())
+#
+#	fun makeDir_highlighted_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file
+#		        { dir  = system_icons_path(),
+#			 file = "makeDir_highlighted_Icon.gif"},
+#		      make_image_ID())
+#
+#	fun makeDir_outlined_Icon()
+#            =
+#	    FILE_IMAGE (winix::path::from_dir_file { dir  = system_icons_path(),
+#					   file = "makeDir_outlined_Icon.gif"},
+#		      make_image_ID())
+
+	fun filedel_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "filedel_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	fun filedel_highlighted_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "filedel_highlighted_Icon.gif"
+                        },
+		      make_image_id());
+
+	fun filedel_outlined_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file
+		        { dir  => system_icons_path(),
+			  file => "filedel_outlined_Icon.gif"
+                        },
+		      make_image_id());
+
+	fun unknown_icon ()
+            =
+	    FILE_IMAGE (winix::path::from_dir_file { dir  => system_icons_path(),
+					             file => "unknown_Icon.gif"
+                                                   },
+		      make_image_id());
+
+	default_type = REF (THE { comment     => "Unknown filetype!",
+				      icon        => "",
+				      preview     => NULL,
+				      file_to_obj => NULL } : Display_Type);
+
+
+	# --- lazy_tree_g instantiation ------------------------------------------------
+
+	package obj       # : Lazy_Tree_Objects
+            =
+	    package {
+
+		Part =
+		    LEAF  (String, String, Icon_Variety, Icon_Variety)
+		  | NODE  (String, String, Icon_Variety, Icon_Variety);
+
+		fun read_fo path
+                    =
+		    {
+			dirstream = winix::file::open_directory_stream path;
+
+			fun read ""
+				=>
+                                [];
+
+			    read new
+				=>
+				if (winix::file::is_directory (winix::path::cat (path, new))
+
+				    except no_acc = FALSE)
+
+				    if (*show_hidden  or  not (hd (explode new) == '.'))
+
+					new ! read (the_else((winix::file::read_directory_entry dirstream), ""));
+				    else
+                                        read (the_else((winix::file::read_directory_entry dirstream), ""));
+                                     fi;
+				else
+                                     read (the_else((winix::file::read_directory_entry dirstream), ""));
+                                fi;
+                        end;
+		    
+			( sort (read    (the_else((winix::file::read_directory_entry dirstream), "")))
+			       (fn x = fn y = string::(<) (x, y))
+                          before
+			  winix::file::close_directory_stream dirstream
+                        );
+		    };
+
+		fun children (node (nm, path, _, _)) =
+		    {
+			fun make_obj nm
+			    =
+			    {   newpath = winix::path::cat (path, nm)
+                                          except
+                                              _ = "/";
+
+				 b = (winix::file::access
+					    (newpath, [winix::file::MAY_EXECUTE,
+						       winix::file::MAY_READ]));
+
+				 objdef =
+				     (shortright nm
+				        options::conf::foldernames_cut,
+				      newpath,
+				      if b  acc_fold_icon();
+				      else noacc_fold_icon();fi,
+				      if b  open_fold_icon();
+				      else noacc_fold_icon();fi);
+			     
+				 if (null (read_fo newpath) except _ = TRUE)
+				      leaf objdef;
+				 else node objdef;
+                                 fi;
+			     };
+		     
+			 map make_obj (read_fo path);
+		     };
+
+		fun is_leaf (leaf _) => TRUE;
+		    is_leaf _        => FALSE;
+                end;
+
+		fun sel_name (leaf (nm, _, _, _)) => nm;
+		    sel_name (node (nm, _, _, _)) => nm;
+                end;
+
+		fun icon (leaf(_, _, ic, _)) => ic;
+		    icon (node(_, _, ic, _)) => ic;
+                end;
+
+		fun selected_icon (leaf(_, _, _, ic)) => ic;
+		    selected_icon (node(_, _, _, ic)) => ic;
+                end;
+
+	    }; #  package Obj 
+
+	package tree = lazy_tree_g (package obj = obj;);
+
+	fun sel_path (obj::leaf(_, p, _, _)) => p;
+	    sel_path (obj::node(_, p, _, _)) => p;
+        end;
+
+
+	# --- make directory --------------------------------------------------------
+
+# 	fun make_dir _ = uw::warning "Not yet implemented!"
+
+
+	# --- toolbar icon management / actions -------------------------------------
+
+	up'       = REF null_callback; #  unschön !!! 
+	back'     = REF null_callback;
+	forward'  = REF null_callback;
+	position' = REF (fn () => tree::hist_empty; end );
+
+	fun updirentered _
+            =
+	    {   if *updir_active
+
+		    set_traits updir_id [ICON (updir_highlighted_icon())];
+
+		    set_event_callbacks updir_id [EVENT_CALLBACK (LEAVE, updirleft),
+				  EVENT_CALLBACK (BUTTON_PRESS (THE 1),
+					 fn _ = *up' ())];
+	        fi;
+
+	        inside_updir := TRUE;
+            }
+
+	also
+        fun updirleft _
+            =
+	    {   if *updir_active
+		    set_traits updir_id [ICON (updir_icon())];
+		    set_event_callbacks updir_id [EVENT_CALLBACK (ENTER, updirentered)];
+	        fi;
+
+	        inside_updir := FALSE;
+           }
+
+	also
+        fun disable_updir ()
+            =
+	    if *updir_active 
+
+		set_traits updir_id [ICON (updir_outlined_icon())];
+
+		set_event_callbacks updir_id [EVENT_CALLBACK (LEAVE, updirleft),
+				 EVENT_CALLBACK (ENTER, updirentered)];
+
+		updir_active := FALSE;
+	    fi
+
+	also fun enable_updir ()
+            =
+	    if (not *updir_active)
+
+	        updir_active := TRUE;
+
+		if *inside_updir   updirentered dummy_event;
+		else               updirleft dummy_event;
+                fi;
+            fi
+
+	also
+        fun backentered _
+            =
+	    {   if *back_active 
+
+		    set_traits back_id [ICON (back_highlighted_icon())];
+
+		    set_event_callbacks back_id [EVENT_CALLBACK (LEAVE, backleft),
+				  EVENT_CALLBACK (BUTTON_PRESS (THE 1),
+					 fn _ = *back' () )];
+	        fi;
+
+	        inside_back := TRUE;
+            }
+
+	also
+        fun backleft _
+            =
+	    {   if *back_active 
+		    set_traits back_id [ICON (back_icon())];
+		    set_event_callbacks back_id [EVENT_CALLBACK (ENTER, backentered)];
+	        fi;
+
+	        inside_back := FALSE;
+            }
+
+	also
+        fun disable_back ()
+            =
+	    if *back_active 
+
+		set_traits back_id [ICON (back_outlined_icon())];
+
+		set_event_callbacks back_id [EVENT_CALLBACK (LEAVE, backleft),
+				EVENT_CALLBACK (ENTER, backentered)];
+
+		back_active := FALSE;
+	    fi
+
+	also
+        fun enable_back ()
+            =
+	    if (not *back_active)
+
+		 back_active := TRUE;
+
+		 if *inside_back 
+		      backentered dummy_event;
+		 else backleft    dummy_event;
+		 fi;
+            fi
+
+	also
+        fun forwardentered _
+            =
+	    {   if *forward_active 
+
+		   set_traits forward_id [ICON (forward_highlighted_icon())];
+
+		   set_event_callbacks forward_id [EVENT_CALLBACK (LEAVE, forwardleft),
+				    EVENT_CALLBACK (BUTTON_PRESS (THE 1),
+					   fn _ = *forward' () )];
+	        fi;
+
+	        inside_forward := TRUE;
+            }
+
+	also
+        fun forwardleft _
+            =
+	    {   if *forward_active 
+
+		    set_traits forward_id [ICON (forward_icon())];
+
+		    set_event_callbacks forward_id [EVENT_CALLBACK (ENTER, forwardentered)];
+	        fi;
+
+	        inside_forward := FALSE;
+            }
+
+	also
+        fun disable_forward ()
+            =
+	    if *forward_active 
+
+		set_traits forward_id [ICON (forward_outlined_icon())];
+
+		set_event_callbacks forward_id [EVENT_CALLBACK (LEAVE, forwardleft),
+				    EVENT_CALLBACK (ENTER, forwardentered)];
+
+		forward_active := FALSE;
+	    fi
+
+	also
+        fun enable_forward ()
+            =
+	    if (not *forward_active)
+
+                forward_active := TRUE;
+
+		*inside_forward 
+		  ?? forwardentered dummy_event
+		  :: forwardleft dummy_event;
+
+            fi;
+
+#	fun makedirentered _
+#            =
+#	    (set_traits makeDirID [ICON (makeDir_highlighted_Icon())];
+#	     set_event_callbacks makeDirID [EVENT_CALLBACK (LEAVE, makedirleft),
+#			      EVENT_CALLBACK (BUTTON_PRESS (THE 1), fn _ => make_dir())])
+#
+#	also
+#        makedirleft _
+#            =
+#	    (set_traits makeDirID [ICON (makeDir_Icon())];
+#	     set_event_callbacks makeDirID [EVENT_CALLBACK (ENTER, makedirentered)])
+#
+#	fun disable_makeDir ()
+#            =
+#	    if *mkdir_active
+#		(set_traits makeDirID [ICON (makeDir_outlined_Icon())];
+#		 set_event_callbacks makeDirID [];
+#		 mkdir_active := FALSE)
+#	    fi
+#
+#	fun enable_makeDir()
+#            =
+#	    if (not *mkdir_active)
+#
+#	          mkdir_active := TRUE;
+#		  makedirleft dummy_event
+#            fi
+
+	fun filedelentered _
+            =
+	    {   set_traits filedel_id [ICON (filedel_highlighted_icon())];
+
+	        set_event_callbacks filedel_id [EVENT_CALLBACK (LEAVE, filedelleft),
+				EVENT_CALLBACK (BUTTON_PRESS (THE 1), del_file)];
+            }
+
+	also
+        fun filedelleft _
+            =
+	    {   set_traits filedel_id [ICON (filedel_icon())];
+
+	        set_event_callbacks filedel_id [EVENT_CALLBACK (ENTER, filedelentered)];
+            }
+
+	also
+        fun disable_filedel ()
+            =
+	    if *filedel_active 
+		set_traits filedel_id [ICON (filedel_outlined_icon())];
+		set_event_callbacks filedel_id [];
+		filedel_active := FALSE;
+	    fi
+
+	also
+        fun enable_filedel ()
+            =
+	    if (not *filedel_active)
+
+	        filedel_active := TRUE;
+		filedelleft dummy_event;
+            fi
+
+#	also homedir _ = uw::warning "Not yet implemented!"
+#
+#	also homedirentered _
+#            =
+#	    (set_traits homedirID [ICON (homedir_highlighted_Icon())];
+#	     set_event_callbacks homedirID [EVENT_CALLBACK (LEAVE, homedirleft),
+#				EVENT_CALLBACK (BUTTON_PRESS (THE 1), homedir)])
+#
+#	also homedirleft _
+#            =
+#	    (set_traits homedirID [ICON (homedir_Icon())];
+#	     set_event_callbacks homedirID [EVENT_CALLBACK (ENTER, homedirentered)])
+
+	also
+        fun reloadentered _
+            =
+	    {   set_traits reload_id [ICON (reload_highlighted_icon())];
+
+	        set_event_callbacks reload_id [EVENT_CALLBACK (LEAVE, reloadleft),
+			       EVENT_CALLBACK (BUTTON_PRESS (THE 1),
+				      fn _ =  show_files TRUE () )];
+            }
+
+	also
+        fun reloadleft _
+            =
+	    {   set_traits reload_id [ICON (reload_icon())];
+
+	        set_event_callbacks reload_id [EVENT_CALLBACK (ENTER, reloadentered)];
+            }
+
+	also
+        fun disable_reload ()
+            =
+	    if *reload_active
+
+		set_traits reload_id [ICON (reload_outlined_icon())];
+
+		set_event_callbacks reload_id [];
+
+		reload_active := FALSE;
+	    fi
+
+	also
+        fun enable_reload ()
+            =
+	    if (not *reload_active)
+
+	        reload_active := TRUE;
+		reloadleft dummy_event;
+            fi
+		
+
+	# --- delete file -----------------------------------------------------------
+
+	also
+        fun del_file _
+            =
+	    {   file = winix::path::from_dir_file { dir  =>  *current_directory,
+					            file =>  the *chosen_file
+                                                  };
+		fun del ()
+                    = 
+		    {   winix::file::remove file;
+		        uw::info (file + " deleted!");
+		        show_files TRUE ();
+                    }
+		    except _ = ();
+	    
+		uw::confirm("Really delete " + file + " ?", del);
+	    }
+
+
+	# --- display files ---------------------------------------------------------
+
+	also
+        fun read_directory_entry ()
+            =
+	    {   dirstream
+                    =
+                    winix::file::open_directory_stream
+                        *current_directory;
+
+		fun displaytype ext (fts:  List( Filetype ))
+                    =
+		    {   ftp
+                            =
+			    list::find (fn ft =
+				       list::exists (fn e =  e == ext)  ft.ext)
+			              fts;
+		    
+			if (not_null ftp)
+
+			    dp =  .display (the ftp);
+
+			    if (not_null dp)   THE (THE (the dp));
+			    else               NULL;
+			    fi;
+
+			else
+			    if   (not_null *default_type)   THE NULL;
+			    else                            NULL;
+			    fi;
+                        fi;
+		    };
+
+		fun read ""
+			=>
+			[];
+
+		    read new
+			=>
+			if (winix::file::is_directory (winix::path::cat (*current_directory,
+							    new))
+			    except no_acc = FALSE)
+
+			    read (the_else((winix::file::read_directory_entry dirstream), ""));
+			else
+			    if (*show_hidden or
+				not (hd (explode new) == '.'))
+
+				dtp =  displaytype (ext new) options::filetypes;
+
+				if (not_null dtp)
+				     (new, the dtp) .
+				     read (the_else((winix::file::read_directory_entry dirstream), ""));
+				else read (the_else((winix::file::read_directory_entry dirstream), ""));
+                                fi;
+
+			    else
+				read (the_else((winix::file::read_directory_entry dirstream), ""));
+			    fi;
+			fi;
+                end;
+
+		fun type_ord e1 e2 ((ft:  Filetype) . fts)
+			=>
+			if (not (e1 == "")
+			    and
+			    list::exists (fn x =  x == e1) ft.ext)
+
+			     THE TRUE;
+			else
+			     if (not (e2 == "")
+				 and
+				 list::exists (fn x =  x == e2) ft.ext)
+
+				 THE FALSE;
+			     else
+				 type_ord e1 e2 fts;
+			     fi;
+		        fi;
+
+		    type_ord _ _ []
+		        =>
+		        NULL;
+                end;
+
+		fun ord (e1:  (String, Display_Type))
+		        (e2:  (String, Display_Type))
+                    =
+		    if *sort_types 
+
+			tord = type_ord (ext(#1 e1)) (ext(#1 e2))
+					    options::filetypes;
+
+			if *sort_names 
+			    if (not_null tord)  the tord;
+			    else                string::(<) (#1 e1, #1 e2);
+			    fi;
+			else
+			    if (not_null tord)  the tord;
+			    else                TRUE;
+			    fi;
+			fi;
+		    else
+			if *sort_names  string::(<) (#1 e1, #1 e2);
+			else            TRUE;
+			fi;
+                    fi;
+	    
+		sort (read (the_else((winix::file::read_directory_entry dirstream), "")))
+                     ord
+                before
+		    winix::file::close_directory_stream dirstream;
+	    }
+
+	also
+        fun show_files pat ()
+            =
+	    {
+		fun enter id _
+                    =
+		    if  (not_null  *selected
+                         and 
+                         id == the *selected
+                        )
+                         ();
+		    else
+                         add_trait id [BACKGROUND GREY, FOREGROUND WHITE];
+                    fi;
+
+		fun leave id _
+                    =
+		    if  (not_null  *selected
+                         and
+                         id == the *selected
+                        )
+                         ();
+		    else
+                         add_trait id [BACKGROUND WHITE, FOREGROUND BLACK];
+                    fi;
+
+		fun comment id com _
+                    =
+		    {   add_trait file_status_id [FOREGROUND BLACK, TEXT com];
+		        enter id ();
+                    };
+
+		fun press nm id _
+                    =
+		    {   if (not *enter_file_flag)
+                            clear_text  file_entry_id;
+                        fi;
+
+		        if (not_null *selected)
+
+			    add_trait (the(*selected)) [RELIEF FLAT,
+						     BACKGROUND WHITE,
+						     FOREGROUND BLACK];
+		        fi;
+
+		        if (winix::file::access (winix::path::from_dir_file
+					    { dir  => *current_directory,
+					     file => nm },
+					  [winix::file::MAY_WRITE])
+                           )
+
+			    enable_filedel();
+			else
+                            disable_filedel();
+                        fi;
+
+			selected := THE id;
+			chosen_file := THE nm;
+
+			add_trait id [RELIEF SUNKEN, BACKGROUND GREY,
+				    FOREGROUND WHITE];
+
+			if (not *enter_file_flag)
+			    insert_text_end file_entry_id nm;
+                        fi;
+                    };
+
+		fun show ((f:  (String, Display_Type)) . fs) y col b
+                    =>
+		    if (get_tcl_text pattern_id == ""
+                        or
+			rex::match (get_tcl_text pattern_id) (#1 f)
+			except
+                            _ = { add_trait file_status_id
+			             [TEXT
+				       "Bad regular expression, ignoring...",
+				      FOREGROUND RED]; 
+			          TRUE;
+                                }
+                        )
+
+
+			busy();
+
+			icon =
+			    if (not_null (#2 f))
+                                
+				FILE_IMAGE
+				  (winix::path::cat (options::icons_path(),
+						  .icon (the(#2 f))),
+				   make_image_id());
+			    else
+				if   (.icon (the *default_type) == "")
+
+				    unknown_icon();
+				else
+				    FILE_IMAGE
+				      (winix::path::cat
+					 (options::icons_path(),
+					  .icon (the *default_type)),
+				       make_image_id());
+				fi;
+                            fi;
+
+			maxwidth
+                            =
+			    (options::conf::filesbox_width - 10)
+			    div (if b  3; else 2;fi);
+
+			fun do_put nm ev
+                            =
+			    {   fun fto ((ft:  Filetype) . fts)
+					=>
+					if (list::exists (fn x =  x == ext nm)
+							ft.ext
+					)
+
+					    if (not_null ft.display and
+						not_null(.file_to_obj
+							 (the
+							    ft.display))
+					    )
+						THE
+						  (the
+						     (.file_to_obj
+							(the ft.display)));
+					    else
+						NULL;
+					    fi;
+					else
+					    fto fts;
+					fi;
+
+				   fto []
+                                       =>
+				       .file_to_obj (the *default_type);
+                                end;
+
+				file_to_obj
+                                    =
+                                    fto options::filetypes;
+			    
+				if (not_null file_to_obj)
+                                    
+				    options::clipboard::put
+				      (the (file_to_obj)
+					{ dir  => if (root_dir() == "/")
+						      *current_directory;
+						  else
+						      winix::path::make_relative {
+							 path => *current_directory,
+							 relative_to => root_dir()
+						        };
+                                                  fi,
+					 file => nm }
+				      )
+                                      ev
+                                      (fn () = ());
+				fi;
+			    };
+
+			fun preview _
+                            =
+			    if (not_null(#2 f))
+                                
+				if (not_null(.preview (the(#2 f))))
+                                    
+				    (the(.preview (the(#2 f))))
+				      { dir  => if (root_dir() == "/")
+						    *current_directory;
+						else
+						    winix::path::make_relative
+						      { path => *current_directory,
+							relative_to => root_dir()
+						      };
+						fi,
+
+				        file => #1 f
+                                      };
+				else
+				    add_trait file_status_id
+				      [TEXT
+				      "No preview function for this filetype!",
+				       FOREGROUND BLUE];fi;
+			    fi;
+
+			entry
+                            =
+			    {   id = make_widget_id();
+				txt = shortright (#1 f)
+				                     options::conf::filenames_cut;
+				com =
+				    if (not_null (#2 f))
+                                        
+					 .comment (the (#2 f));
+				    else .comment (the *default_type);
+                                    fi;
+
+				binds = (EVENT_CALLBACK (LEAVE, leave id) !
+					 (if b  [EVENT_CALLBACK (ENTER, comment id com)];
+					  else [EVENT_CALLBACK (ENTER, enter id)];
+                                          fi))
+                                        @
+					[ EVENT_CALLBACK (BUTTON_PRESS   (THE 1), press (#1 f) id),
+					  EVENT_CALLBACK (BUTTON_RELEASE (THE 1), do_put(#1 f)),
+					  EVENT_CALLBACK (BUTTON_PRESS   (THE 2), preview)
+                                        ];
+			    
+				if b
+
+				    FRAME {
+				        widget_id    => make_widget_id(),
+					packing_hints => [],
+					traits  => [BACKGROUND WHITE],
+					event_callbacks => [],
+				        subwidgets  => PACKED
+							  (   (   if *hide_icons
+                                                                       [];
+							          else [   LABEL {
+									       widget_id    => make_widget_id(),
+									       packing_hints => [],
+									       traits  =>
+										 [BACKGROUND WHITE,
+										  ICON icon,
+										  WIDTH maxwidth],
+									       event_callbacks => binds
+                                                                           }
+                                                                       ];
+                                                                  fi
+                                                              )
+                                                              @
+							      [   LABEL {
+								      widget_id    => id,
+								      packing_hints => [],
+								      traits  =>
+									[TEXT txt,
+									 BACKGROUND WHITE,
+									 FONT
+									   options::conf::icon_font],
+								      event_callbacks => binds
+                                                                  }
+                                                              ]
+                                                          )
+                                   };
+				else
+
+                                        date = date::to_string
+					      (date::from_time_local
+					         (winix::file::last_file_modification_time
+						    (winix::path::from_dir_file
+						       { dir  => *current_directory,
+							 file => #1 f
+                                                       }
+                                              )  )  );
+				    
+					FRAME {
+					    widget_id    => make_widget_id(),
+					    packing_hints => [],
+					    traits  => [BACKGROUND WHITE],
+					    event_callbacks => [],
+					    subwidgets  => PACKED
+						       ((if *hide_icons  [];
+							 else [LABEL
+								 { widget_id    =>
+								    make_widget_id(),
+								  packing_hints =>
+								    [PACK_AT LEFT],
+								  traits  =>
+								    [BACKGROUND WHITE,
+								     ICON icon],
+								  event_callbacks =>
+								    binds } ];fi) @
+							[LABEL
+							   { widget_id    => id,
+							    packing_hints => [PACK_AT LEFT],
+							    traits  =>
+							      ([TEXT txt,
+								BACKGROUND WHITE,
+								WIDTH
+							    options::conf::filenames_cut,
+								FONT
+							      options::conf::icon_font] @
+							       (if *hide_icons 
+								    [ANCHOR WEST];
+								else [];fi)),
+							    event_callbacks => binds },
+							 LABEL
+							   { widget_id    => make_widget_id(),
+							    packing_hints => [PAD_X 8,
+									PACK_AT LEFT],
+							    traits  =>
+							      [TEXT com,
+							       BACKGROUND WHITE,
+							       WIDTH
+								(max_comment_length()),
+								FONT
+							       options::conf::icon_font],
+							    event_callbacks => [] },
+							 LABEL
+							   { widget_id    => make_widget_id(),
+							    packing_hints => [PAD_X 8,
+									PACK_AT LEFT],
+							    traits  =>
+							      [TEXT date,
+							       BACKGROUND WHITE,
+							       FONT
+							       options::conf::icon_font],
+							    event_callbacks => [] } ])
+                                        };
+
+                                  fi;
+			    };
+
+			newcol = 
+			    (col + 1) 
+			    mod (if b  options::conf::filesbox_numcols;
+				 else 1;fi);
+
+			newy =
+			    if (newcol == 0 )
+				if b 
+				    y + 2 +
+				    ( if *hide_icons  0;
+				      else #2 options::icons_size;
+                                      fi
+                                    ) +
+				    options::conf::icon_font_height;
+				else
+                                    y + 2 +
+				    int::max (options::conf::font_height,
+					    if *hide_icons  0;
+					    else #2 options::icons_size;fi);
+					   fi;
+			    else
+                                y;
+                            fi;
+		    
+			add_canvas_item filesbox_id
+			  (CANVAS_WIDGET { citem_id  => make_canvas_item_id(),
+				    coord    => (5 + col * maxwidth, y),
+				    subwidgets  => PACKED [entry],
+				    traits  => [ANCHOR NORTHWEST],
+				    event_callbacks => [] } );
+			  show fs newy newcol b;
+
+		   else 
+                       show fs y col b;
+                   fi;
+
+		   show _ y col b                                      =>
+		    add_trait filesbox_id
+		            [SCROLL_REGION
+			       (0, 0, 0,
+				int::max
+				  (if (col == 0 ) y;
+				   elif b 
+					   y + 2 + (#2 options::icons_size) +
+					   options::conf::icon_font_height;
+				   else y + 2 +
+					    int::max (options::conf::font_height,
+						    #2 options::icons_size);
+                                   fi,
+				   options::conf::boxes_height
+                                  )
+                               )
+                            ];
+                end;				# fun show
+
+		files = read_directory_entry ()
+                        except _ = [];
+	    
+		disable_filedel();
+
+		if (pat and not_null (options::default_pattern) )
+
+		     clear_text pattern_id;
+		     insert_text_end pattern_id (the (options::default_pattern));
+		fi;
+
+		if (*current_directory == root_dir())  disable_updir();
+		else                                    enable_updir();
+                fi;
+
+		add_trait file_status_id [FOREGROUND BLACK,
+				       TEXT "Reading directory..."];
+		selected    := NULL;
+		chosen_file := NULL;
+
+		if (null files and
+		    not (winix::file::access (*current_directory,
+					  [winix::file::MAY_READ]))
+                   )
+
+		    add_trait fold_status_id
+		            [FOREGROUND RED, TEXT "Permission denied."];
+		else
+		    if (winix::file::access (*current_directory,
+					 [winix::file::MAY_WRITE])
+                       )
+
+			(add_trait fold_status_id [TEXT ""] /* ;
+			 enable_makeDir()*/ );
+		    else (add_trait fold_status_id
+			          [FOREGROUND BLACK,
+				   TEXT "Directory is read-only."] /* ;
+			  disable_makeDir()*/);
+                    fi;
+                fi;
+
+		if (not *enter_file_flag)
+                     
+                     clear_text file_entry_id;
+                fi;
+
+		apply (delete_canvas_item filesbox_id)
+		    (map get_canvas_item_id (get_canvas_items (get_widget filesbox_id)));
+
+		if (null files or
+		    list::all (fn f =
+			        (not (rex::match (get_tcl_text pattern_id) (#1 f)))
+				except _ = FALSE)
+		             files)
+
+		     add_canvas_item filesbox_id (CANVAS_TEXT { citem_id  => make_canvas_item_id(),
+						 coord    => (5, 5),
+						 traits  =>
+						   [ANCHOR NORTHWEST,
+						    FONT
+						      options::conf::icon_font,
+						    TEXT "No files."],
+						 event_callbacks => [] } );
+		     add_trait filesbox_id [SCROLL_REGION (0, 0, 0, 0)];
+		else
+                     show files 0 0 (*hide_details);
+                fi;
+
+		add_trait file_status_id [TEXT "Reading directory... ready",
+				       FOREGROUND BLACK];
+		case (*position' ())
+                  
+		    tree::hist_empty  => { disable_back();
+					 disable_forward()/* ;
+					 print "hist_empty\n"*/;};
+
+		    tree::hist_start  => { disable_back();
+					  enable_forward()/* ;
+					  print "hist_start\n"*/;};
+
+		    tree::hist_middle => { enable_back();
+					  enable_forward()/* ;
+					  print "hist_middle\n"*/;};
+
+		    tree::hist_end    => { enable_back();
+					  disable_forward()/* ;
+					  print "hist_end\n"*/;};
+                esac;
+
+		ready();
+	    };
+
+
+	# --- widgets ---------------------------------------------------------------
+
+	fun ch_dir ob
+            =
+	    if   (not_null ob)
+                
+                 enable_reload();
+			       current_directory := sel_path (the ob);
+			       add_trait dir_label_id [TEXT(*current_directory)];
+			       show_files TRUE ();
+	    else
+                  current_directory := "";
+		  apply (delete_canvas_item filesbox_id)
+		      (map get_canvas_item_id (get_canvas_items (get_widget filesbox_id)));
+		  add_trait file_status_id [TEXT ""];
+		  disable_filedel();
+		  disable_updir();
+		  disable_reload() /* ;
+		  disable_makeDir()*/;
+            fi;
+
+	fun cnv ob
+            =
+	    {   my { canvas, selection, up, position, back, forward }
+                    =
+		    tree::tree_list { width              =>
+				      options::conf::foldersbox_width,
+				    height             =>
+				      options::conf::boxes_height,
+				    font               =>
+				      options::conf::icon_font,
+				    selection_notifier => ch_dir };
+	    
+		{ up'       := up;           #  unschön !!! 
+		  back'     := back;
+		  forward'  := forward;
+		  position' := position;
+		  canvas ob;
+                };
+	    };
+
+	topmenu =
+	    {
+		fun toggle_sort_names _   = { sort_names   := not *sort_names;   show_files TRUE (); };
+		fun toggle_sort_types _   = { sort_types   := not *sort_types;   show_files TRUE (); };
+		fun toggle_show_hidden _  = { show_hidden  := not *show_hidden;  show_files TRUE (); };
+		fun toggle_hide_icons _   = { hide_icons   := not *hide_icons ;  show_files TRUE (); };
+		fun toggle_hide_details _ = { hide_details := not *hide_details; show_files TRUE (); };
+	    
+		FRAME {
+                    widget_id    => make_widget_id(),
+		    subwidgets  => PACKED [
+                                      MENU_BUTTON {
+					  widget_id    => make_widget_id(),
+					   mitems   =>
+					     [MENU_COMMAND
+						[TEXT "Quit",
+						 CALLBACK
+						   (fn _ = close_window file_select_window_id)]],
+					   packing_hints => [PACK_AT LEFT],
+					   traits  => [TEXT "File", TEAR_OFF FALSE],
+					   event_callbacks => [] },
+
+			       MENU_BUTTON { widget_id    => make_widget_id(),
+					   mitems   =>
+					     [/*MENU_COMMAND [TEXT "New folder",
+							CALLBACK make_dir],*/
+					      MENU_COMMAND
+					        [TEXT "Delete file",
+						 CALLBACK
+						   (fn() =>
+						      del_file dummy_event; end )]],
+					   packing_hints => [PACK_AT LEFT],
+					   traits  => [TEXT "Edit",
+						       TEAR_OFF FALSE],
+					   event_callbacks => [] },
+
+			       MENU_BUTTON { widget_id    => make_widget_id(),
+					   mitems   =>
+					     [MENU_CHECKBUTTON
+					        [TEXT "Show hidden files",
+						 CALLBACK toggle_show_hidden,
+						 VARIABLE "showhidden"],
+					      MENU_CHECKBUTTON
+					        [TEXT "Hide icons",
+						 CALLBACK toggle_hide_icons,
+						 VARIABLE "hideicons"],
+					      MENU_CHECKBUTTON
+					        [TEXT "Hide details",
+						 CALLBACK toggle_hide_details,
+						 VARIABLE "hidedetails"],
+					      MENU_CHECKBUTTON
+					        [TEXT "Sort filenames",
+						 CALLBACK toggle_sort_names,
+						 VARIABLE "namessort"],
+					      MENU_CHECKBUTTON
+					        [TEXT "Sort filetypes",
+						 CALLBACK toggle_sort_types,
+						 VARIABLE "typessort"]],
+					   packing_hints => [PACK_AT RIGHT],
+					   traits  => [TEXT "Preferences",
+						       TEAR_OFF FALSE],
+					   event_callbacks => [] } ],
+		       packing_hints => [FILL ONLY_X],
+		       traits  => [],
+		       event_callbacks => [] };
+	    }; #  my topmenu 
+
+    fun toolbar () =
+	{
+	    actions =
+		CANVAS { widget_id      => toolbar_id,
+			scrollbars => NOWHERE,
+			citems     =>
+			  [CANVAS_WIDGET
+			     { citem_id  => make_canvas_item_id(),
+			      coord    => (6, 6),
+			      subwidgets  =>
+			        PACKED [LABEL { widget_id    => updir_id,
+					     packing_hints => [],
+					     traits  =>
+					     [ICON (updir_outlined_icon())],
+					     event_callbacks => [] } ],
+			      traits  => [ANCHOR NORTHWEST],
+			      event_callbacks => [] },
+			   CANVAS_WIDGET {
+                               citem_id  => make_canvas_item_id(),
+			       coord    => (39, 6),
+			       traits  => [ANCHOR NORTHWEST],
+			       event_callbacks => [],
+			       subwidgets  => PACKED [
+                                                   LABEL {
+						      widget_id    => back_id,
+						       packing_hints => [],
+						       traits  =>
+							 [ICON (back_outlined_icon())],
+						       event_callbacks => []
+                                                   }
+                                               ]
+                           },
+
+			   CANVAS_WIDGET {
+                               citem_id  => make_canvas_item_id(),
+			       coord    => (72, 6),
+			       subwidgets  => PACKED [
+                                                 LABEL {
+                                                     widget_id    => forward_id,
+					             packing_hints => [],
+					             traits  => [ ICON (forward_outlined_icon())],
+					             event_callbacks => []
+                                                 }
+                                             ],
+				    traits  => [ANCHOR NORTHWEST],
+				    event_callbacks => []
+                           }
+                       ]
+                       @
+/*			  (if (not_null (winix::process::getEnv "HOME")
+			      and sub_dir (the (winix::process::getEnv
+						     "HOME"))
+			                      (root_dir()))
+			       [CANVAS_WIDGET
+				  { citemId  = make_canvas_item_id(),
+				   coord    = (105, 6),
+				   subwidgets  = PACKED [
+                                                  LABEL
+					     { widget_id    = homedirID,
+					      packing_hints = [],
+					      traits  =
+					        [ICON (homedir_Icon())],
+					      event_callbacks =
+					        [EVENT_CALLBACK (ENTER,
+							homedirentered)] } ],
+				   traits  = [ANCHOR NORTHWEST],
+				   event_callbacks = [] } ]
+			   else
+			       [CANVAS_WIDGET
+				  { citemId  = make_canvas_item_id(),
+				   coord    = (105, 6),
+				   subwidgets  = PACKED
+				       [LABEL
+					  { widget_id    = homedirID,
+					   packing_hints = [],
+					   traits  =
+					     [ICON (homedir_outlined_Icon())],
+					   event_callbacks = [] } ],
+				   traits  = [ANCHOR NORTHWEST],
+				   event_callbacks = [] } ]) @
+ */
+			       [CANVAS_WIDGET
+				  { citem_id  => make_canvas_item_id(),
+				   coord    => (/*138*/ 105, 6),
+				   subwidgets  => PACKED [LABEL
+					     { widget_id    => reload_id,
+					      packing_hints => [],
+					      traits  =>
+					        [ICON (reload_outlined_icon())],
+					      event_callbacks => [] } ],
+				   traits  => [ANCHOR NORTHWEST],
+				   event_callbacks => [] },
+/*				CANVAS_WIDGET
+				  { citemId  = make_canvas_item_id(),
+				   coord    = (190, 6),
+				   subwidgets  = PACKED [LABEL
+					     { widget_id    = makeDirID,
+					      packing_hints = [],
+					      traits  =
+					        [ICON (makeDir_outlined_Icon())],
+					      event_callbacks = [] } ],
+				   traits  = [ANCHOR NORTHWEST],
+				   event_callbacks = [] },
+*/
+				CANVAS_WIDGET
+				  { citem_id  => make_canvas_item_id(),
+				   coord    => (/*223*/ 138, 6),
+				   subwidgets  => PACKED [LABEL
+					     { widget_id    => filedel_id,
+					      packing_hints => [],
+					      traits  =>
+					        [ICON
+						   (filedel_outlined_icon())],
+					      event_callbacks => [] } ],
+				   traits  => [ANCHOR NORTHWEST],
+				   event_callbacks => [] } ],
+			packing_hints   => [PACK_AT LEFT],
+			traits    => [HEIGHT 30, WIDTH 250],
+			event_callbacks   => [] };
+	
+	    FRAME { widget_id    => make_widget_id(),
+		   subwidgets  => PACKED [actions],
+		   packing_hints => [FILL ONLY_X],
+		   traits  => [],
+		   event_callbacks => [] };
+	}; #  my toolbar 
+
+    dir_label
+        =
+	FRAME {
+            widget_id    => make_widget_id(),
+	    packing_hints => [PAD_X 30, PAD_Y 2, FILL ONLY_X, EXPAND TRUE],
+	    traits  => [],
+	    event_callbacks => [],
+	    subwidgets  => PACKED [
+                           LABEL {
+                               widget_id    => make_widget_id(),
+			       packing_hints => [PACK_AT LEFT],
+			       traits  => [TEXT "Directory:", WIDTH 10],
+			       event_callbacks => []
+                           },
+		           LABEL {
+                               widget_id    => dir_label_id,
+			       packing_hints => [FILL ONLY_X, EXPAND TRUE],
+			       traits  => [RELIEF SUNKEN, ANCHOR WEST,
+					  FONT options::conf::font],
+			      event_callbacks => []
+                           }
+                       ]
+        };
+
+	pattern =
+	    FRAME { widget_id    => make_widget_id(),
+		   subwidgets  =>
+		     PACKED [LABEL { widget_id    => make_widget_id(),
+				  packing_hints => [PACK_AT LEFT],
+				  traits  => [TEXT "Pattern:", WIDTH 10],
+				  event_callbacks => [] },
+			   TEXT_ENTRY { widget_id    => pattern_id,
+				  packing_hints => [FILL ONLY_X, EXPAND TRUE],
+				  traits  => [BACKGROUND WHITE,
+					      FONT options::conf::font],
+				  event_callbacks => [EVENT_CALLBACK (KEY_PRESS "Return",
+						     fn _ => show_files
+						               FALSE (); end )] } ],
+		   packing_hints => [PAD_X 30, PAD_Y 2, FILL ONLY_X, EXPAND TRUE],
+		   traits  => [],
+		   event_callbacks => [] };
+
+	fun foldersbox ()
+            =
+	    {
+		my { dir, file } = winix::path::to_dir_file (root_dir());
+
+		root_nm     = if (file == "" ) "/"; else file;fi;
+
+		FRAME { widget_id    => foldersboxframe_id,
+		       subwidgets  =>
+		         PACKED [cnv (obj::node (root_nm, root_dir(),
+					     acc_fold_icon(),
+					     open_fold_icon())),
+			       LABEL { widget_id    => fold_status_id,
+				      packing_hints => [FILL ONLY_X, EXPAND TRUE],
+				      traits  => [RELIEF SUNKEN, ANCHOR WEST,
+						  FONT options::conf::font],
+				      event_callbacks => [] } ],
+		       packing_hints => [],
+		       traits  => [],
+		       event_callbacks => [] }
+	    ;};
+
+	filesbox =
+	    FRAME
+	      { widget_id    => filesboxframe_id,
+	       subwidgets  =>
+	         PACKED [CANVAS { widget_id      => filesbox_id,
+			       scrollbars => AT_RIGHT,
+			       citems     => [],
+			       packing_hints   => [],
+			       traits    => [BACKGROUND WHITE,
+					     WIDTH options::conf::filesbox_width,
+					     HEIGHT options::conf::boxes_height],
+			       event_callbacks   => [] },
+		       LABEL { widget_id    => file_status_id,
+			      packing_hints => [FILL ONLY_X, EXPAND TRUE],
+			      traits  => [RELIEF SUNKEN, ANCHOR WEST,
+					  FONT options::conf::font],
+			      event_callbacks => [] } ],
+	       packing_hints => [PACK_AT RIGHT],
+	       traits  => [],
+	       event_callbacks => [] };
+
+	fun ok fate _
+            =
+	    {  if (not (get_tcl_text file_entry_id == ""))
+
+	           chosen_file := THE (get_tcl_text file_entry_id);
+               fi;
+
+	       exit_status := TRUE;
+
+	       close_window file_select_window_id;
+
+	       fate (THE (THE *current_directory, *chosen_file));
+            };
+
+	fun file_entry fate
+            =
+	    FRAME { widget_id    => make_widget_id(),
+		   subwidgets  =>
+		     PACKED [LABEL { widget_id    => make_widget_id(),
+				  packing_hints => [PACK_AT LEFT],
+				  traits  => [TEXT "File:", WIDTH 10],
+				  event_callbacks => [] },
+			   TEXT_ENTRY { widget_id    => file_entry_id,
+				  packing_hints => [FILL ONLY_X, EXPAND TRUE],
+				  traits  => [BACKGROUND WHITE,
+					      FONT options::conf::font],
+				  event_callbacks => [EVENT_CALLBACK (KEY_PRESS "Return",
+						     ok fate)] } ],
+		   packing_hints => [PAD_X 10, PAD_Y 5, PACK_AT LEFT, FILL ONLY_X,
+			       EXPAND TRUE],
+		   traits  => [],
+		   event_callbacks => [] };
+
+	fun buttons fate
+            =
+	    if *enter_file_flag
+
+		BUTTON { widget_id    => make_widget_id(),
+			packing_hints => [PAD_X 5, PACK_AT RIGHT],
+			traits  => [TEXT "Close",
+				    CALLBACK (fn _ = close_window file_select_window_id),
+				    WIDTH 15],
+			event_callbacks => []
+		};
+	    else
+		FRAME { widget_id    => make_widget_id(),
+
+		        subwidgets
+                            =>
+			    PACKED [BUTTON { widget_id    => make_widget_id(),
+					  packing_hints => [],
+					  traits  =>
+					    [TEXT "Ok", CALLBACK (ok fate),
+					     WIDTH 15],
+					  event_callbacks => [] },
+
+				  BUTTON { widget_id    => make_widget_id(),
+					  packing_hints => [],
+					  traits  =>
+					    [TEXT "Cancel",
+					     CALLBACK
+					       (fn _ = {   close_window file_select_window_id;
+							   fate NULL;
+						       }
+					       ),
+					     WIDTH 15],
+					  event_callbacks => [] } ],
+
+		       packing_hints => [PAD_X 5, PAD_Y 5, PACK_AT RIGHT],
+		       traits  => [],
+		       event_callbacks => []
+                };
+	    fi;
+
+
+# --- and go... -------------------------------------------------------------
+
+	fun set_vars ()
+            =
+	    {   if *sort_names    set_var_value "namessort"   "1";  else set_var_value "namessort"   "0";fi;
+		if *sort_types    set_var_value "typessort"   "1";  else set_var_value "typessort"   "0";fi;
+		if *show_hidden   set_var_value "showhidden"  "1";  else set_var_value "showhidden"  "0";fi;
+		if *hide_icons    set_var_value "hideicons"   "1";  else set_var_value "hideicons"   "0";fi;
+		if *hide_details  set_var_value "hidedetails" "1";  else set_var_value "hidedetails" "0";fi;
+            };
+
+	fun set_refs ()
+            =
+	    {   updir_active   := FALSE;
+		inside_updir   := FALSE;
+		back_active    := FALSE;
+		inside_back    := FALSE;
+		forward_active := FALSE;
+		inside_forward := FALSE;
+		mkdir_active   := FALSE;
+		filedel_active := FALSE;
+		reload_active  := FALSE;
+            };
+
+	fun set_default_filetype ((ft:  Filetype) . fts)
+		=>
+		if (list::exists (fn x =  x == "") ft.ext)
+		    
+		    default_type := ft.display;
+		else
+		    set_default_filetype fts;
+		fi;
+
+	    set_default_filetype []
+                =>
+                ();
+        end;
+
+	fun initialize _
+            =
+	    {   current_directory := root_dir();
+		selected := NULL;
+		chosen_file := NULL;
+
+		insert_text_end
+                    pattern_id
+                    if (not_null options::default_pattern)
+			 the options::default_pattern;
+		    else "";
+		    fi;
+
+		set_default_filetype options::filetypes;
+		set_vars();
+            };
+
+	fun file_select_window fate
+            =
+	    make_window
+              { window_id    => file_select_window_id,
+		traits   => [WINDOW_TITLE (if (not_null (options::conf::title) )
+					  the (options::conf::title);
+				      else "File selection";fi)],
+
+		subwidgets  => PACKED ([topmenu, dir_label, pattern, toolbar(),
+			FRAME { widget_id    => make_widget_id(),
+			       subwidgets  => PACKED [filesbox, foldersbox()],
+			       packing_hints => [PAD_X 10, PAD_Y 5],
+			       traits  => [],
+			       event_callbacks => [] } ] @
+		       ({
+			    wids = if *enter_file_flag  [buttons fate];
+				       else [file_entry fate,
+					     buttons fate];fi;
+
+			    [FRAME { widget_id => make_widget_id(),
+				    subwidgets => PACKED wids,
+				    packing_hints => [PAD_X 30, FILL ONLY_X,
+						EXPAND TRUE],
+				    traits  => [],
+				    event_callbacks => [] } ];
+			})),
+		event_callbacks => [],
+		init     => initialize
+	      };
+
+	fun set (x:  { sort_names:           Null_Or( Bool ),
+		      sort_types:           Null_Or( Bool ),
+		      show_hidden_files:    Null_Or( Bool ),
+		      hide_icons:           Null_Or( Bool ),
+		      hide_details:         Null_Or( Bool ) } )
+	    =
+	    {   if (not_null x.sort_names)
+		    sort_names := the x.sort_names;
+		fi;
+
+		if (not_null x.sort_types)
+		    sort_types := the x.sort_types;
+		fi;
+
+		if (not_null x.show_hidden_files)
+		    show_hidden := the x.show_hidden_files;
+		fi;
+
+		if (not_null x.hide_icons)
+                    hide_icons := the x.hide_icons;
+		fi;
+
+		if (not_null x.hide_details )
+		    hide_details := the x.hide_details;
+		fi;
+
+		set_vars();
+	    };
+
+	fun check_paths_of_visible_filetypes ()
+            =
+	    check options::filetypes
+	    where
+		fun check ((x:  Filetype) . xs)
+			=>
+			if (not_null x.display )
+
+			    if (winix::file::access
+				(winix::path::from_dir_file
+				   { dir  => options::icons_path(),
+				    file => .icon (the x.display) },
+				   []) except no_acc = FALSE
+			       )
+
+				check xs;
+			    else
+				print("Could not find " +
+				       winix::path::from_dir_file
+					 { dir => options::icons_path(),
+					  file => .icon (the x.display) } );
+
+				raise exception ERROR("Could not find " +
+					     winix::path::from_dir_file
+					       { dir => options::icons_path(),
+						file => .icon (the x.display) } );
+			    fi;
+			else
+                            check xs;
+			fi;
+
+		    check [] => TRUE;
+		end;
+	    end;
+
+	fun stand_alone ()
+            =
+	    if (check_paths_of_visible_filetypes ())
+                
+		enter_file_flag := FALSE;
+
+		start_tcl [file_select_window (fn _ = () )];
+
+		if *exit_status
+
+		     THE (if (*current_directory == "" ) NULL;
+			 else THE *current_directory;fi, *chosen_file);
+		else
+		     NULL;
+		fi;
+	    else
+                NULL;
+            fi;
+
+	fun file_select fate
+            =
+	    if (check_paths_of_visible_filetypes ())
+                
+		enter_file_flag := FALSE;
+		open_window (file_select_window fate);
+            fi;
+
+#		 if *exit_status
+#		     THE (if (*current_directory = "")
+#                               NULL
+#			  else THE *current_directory, *chosen_file)
+#		 else NULL
+#	    else NULL
+
+	fun enter_file ()
+            =
+	    if (check_paths_of_visible_filetypes ())
+		enter_file_flag := TRUE;
+		open_window (file_select_window (fn _ = ()));
+	    fi;
+
+    };		#  generic package filer_g 
+
+
+	# --- simple filer without clipboard ----------------------------------------
+
+generic package  simple_filer_g (
+
+    package options :
+	 api {
+	      icons_path:       Void -> String;
+	      icons_size:       (Int, Int);
+	      root:             Void -> Null_Or( String );
+	      default_pattern:  Null_Or(  String );
+
+	      filetypes:   List { ext:      List( String ),
+			      display:  Null_Or { comment:      String,
+					 icon:         String,
+					 preview:       Null_Or ( { dir:   String,
+							 file:  String }
+							-> Void),
+
+	/* instantiate with NULL ! */    file_to_obj:  Null_Or ( { dir:   String,
+							 file:  String }
+							-> dummy_cb::Part)
+					               }
+                                        };
+
+	     package conf:  Filer_Config;	# Filer_Config	is from   src/lib/tk/src/toolkit/filer.api
+	 };)
+         : (weak)
+         Filer					# Filer	is from   src/lib/tk/src/toolkit/filer.api
+         =
+	 filer_g (
+             package options {
+
+		 icons_path        = options::icons_path;
+		 icons_size        = options::icons_size;
+		 root              = options::root;
+		 default_pattern   = options::default_pattern;
+		 filetypes         = options::filetypes;
+		 package conf      = options::conf;
+		 package clipboard = dummy_cb;	# dummy_cb	is from   src/lib/tk/src/toolkit/clipboard-g.pkg
+	    };
+         );

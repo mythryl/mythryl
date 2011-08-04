@@ -1,0 +1,481 @@
+## machcode-universals-sparc32-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/back/low/sparc32/backend-sparc32.lib
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+
+
+stipulate
+    package lbl =  codelabel;								# codelabel			is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   machcode_universals_sparc32_g   (
+	#             ============================
+	#
+	package mcf: Machcode_Sparc32;							# Machcode_Sparc32		is from   src/lib/compiler/back/low/sparc32/code/machcode-sparc32.codemade.api
+
+	package tce: Treecode_Eval							# Treecode_Eval			is from   src/lib/compiler/back/low/treecode/treecode-eval.api
+		     where
+			 tcf == mcf::tcf;						# "tcf" == "treecode_form".
+
+	package tch: Treecode_Hash							# Treecode_Hash			is from   src/lib/compiler/back/low/treecode/treecode-hash.api
+		     where
+			 tcf == mcf::tcf;						# "tcf" == "treecode_form".
+    )
+    : (weak) Machcode_Universals								# Machcode_Universals	is from   src/lib/compiler/back/low/code/machcode-universals.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;								# "mcf" == "machcode_form" (abstract machine code).
+	package rgk =  mcf::rgk;								# "rgk" == "registerkinds".
+
+	stipulate
+	    package tcf =  mcf::tcf;							# "tcf" == "treecode_form".
+	herein
+
+	    exception NEGATE_CONDITIONAL;
+
+	    fun error msg
+		=
+		lem::error("machcode_universals_sparc32_g", msg);
+
+	    package k {
+		#
+		Kind = JUMP		# Branches, including returns.
+		     | NOP		# No-ops 
+		     | PLAIN		# Normal instructions 
+		     | COPY		# Parallel copy 
+		     | CALL		# Call instructions 
+		     | CALL_WITH_CUTS	# Call with cut edges 
+		     | PHI		# A phi node.    (For SSA -- static single assignment.) 
+		     | SINK		# A sink node.   (For SSA -- static single assignment.) 
+		     | SOURCE		# A source node. (For SSA -- static single assignment.) 
+		     ;
+	    };
+
+	     Target = LABELLED  lbl::Codelabel
+		    | FALLTHROUGH
+		    | ESCAPES
+		    ;
+
+	    always_zero_register
+		=
+		null_or::the								# We know it exists on sparc32.
+		    (rgk::get_always_zero_register  rkj::INT_REGISTER);
+
+	    r15   = rgk::get_ith_hardware_register_of_kind  rkj::INT_REGISTER  15;
+	    r31   = rgk::get_ith_hardware_register_of_kind  rkj::INT_REGISTER 31;
+
+
+	    # ========================================================================
+	    #  Instruction Kinds
+	    # ========================================================================
+
+	    fun instruction_kind (mcf::NOTE { op, ... } )
+		    =>
+		    instruction_kind  op;
+
+		instruction_kind (mcf::COPY _)
+		    =>
+		    k::COPY;
+
+		instruction_kind (mcf::BASE_OP instruction)
+		    => 
+		    case instruction
+			#
+			(mcf::BICC _)  => k::JUMP;
+			(mcf::FBFCC _) => k::JUMP;
+			(mcf::JMP _)   => k::JUMP;
+			(mcf::RET _)   => k::JUMP;
+			(mcf::BR _)    => k::JUMP;
+			(mcf::BP _)    => k::JUMP;
+			(mcf::TICC { t=>mcf::BA, ... } ) => k::JUMP;		#  trap always 
+			(mcf::CALL { cuts_to=>_ ! _, ... } )  => k::CALL_WITH_CUTS;
+			(mcf::CALL _)   => k::CALL;
+			(mcf::JMPL { cuts_to=>_ ! _, ... } )  => k::CALL_WITH_CUTS;
+			(mcf::JMPL _)   => k::CALL;
+			(mcf::PHI _)    => k::PHI;
+			(mcf::SOURCE _) => k::SOURCE;
+			(mcf::SINK _)   => k::SINK;
+			 _             => k::PLAIN;
+		    esac;
+
+		instruction_kind _ => error "instrKind";
+	    end;
+
+	    fun branch_targets (mcf::NOTE { op, ... } )
+		    =>
+		    branch_targets  op;
+
+		branch_targets (mcf::BASE_OP instruction)
+		    => 
+		    case instruction 
+			#
+			(mcf::BICC { b=>mcf::BA, label, ... } )   =>   [LABELLED label];
+			(mcf::BICC { label, ... } )             =>   [LABELLED label, FALLTHROUGH]; 
+			(mcf::FBFCC { b=>mcf::FBA, label, ... } ) =>   [LABELLED label];
+			(mcf::FBFCC { label, ... } )            =>   [LABELLED label, FALLTHROUGH];
+			(mcf::BR { label, ... } )               =>   [LABELLED label, FALLTHROUGH];
+			(mcf::BP { label, ... } )               =>   [LABELLED label, FALLTHROUGH];
+			(mcf::JMP { labs => [], ... } )         =>   [ESCAPES]; 
+			(mcf::RET _)                            =>   [ESCAPES];
+			(mcf::JMP { labs, ... } )               =>   map LABELLED labs;
+			(mcf::CALL { cuts_to, ... } )           =>   FALLTHROUGH ! map LABELLED cuts_to;
+			(mcf::JMPL { cuts_to, ... } )           =>   FALLTHROUGH ! map LABELLED cuts_to;
+			(mcf::TICC { t=>mcf::BA, ... } )          =>   [ESCAPES];
+			_ => error "branchTargets";
+		    esac;
+
+		branch_targets _  => error "branchTargets";
+	    end;
+
+
+	    fun set_jump_target (mcf::NOTE { note, op }, l)
+		    =>
+		    mcf::NOTE { note, op => set_jump_target (op, l) };
+
+		set_jump_target (mcf::BASE_OP (mcf::BICC { b=>mcf::BA, a, nop, ... } ), l)
+		    => 
+		    mcf::bicc { b=>mcf::BA, a, label=>l, nop };
+
+		set_jump_target _ => error "setJumpTarget";
+	    end;
+
+
+	    fun set_branch_targets { i=>mcf::NOTE { note, op }, t, f }
+		    => 
+		    mcf::NOTE { note, op=>set_branch_targets { i=>op, t, f }};
+
+		set_branch_targets { i=>mcf::BASE_OP (mcf::BICC { b=>mcf::BA, a, nop, ... } ), ... }
+		     =>  
+		     error "setBranchTargets: Bicc";
+
+		set_branch_targets { i=>mcf::BASE_OP (mcf::BICC { b, a, nop, ... } ), t, f }
+		     =>
+		     mcf::bicc { b, a, label=>t, nop };
+
+		set_branch_targets { i=>mcf::BASE_OP (mcf::FBFCC { b, a, nop, ... } ), t, ... }
+		     => 
+		     mcf::fbfcc { b, a, label=>t, nop };
+
+		set_branch_targets { i=>mcf::BASE_OP (mcf::BR { rcond, p, r, a, nop, ... } ), t, ... }
+		     => 
+		     mcf::br { rcond, p, r, a, label=>t, nop };
+
+		set_branch_targets { i=>mcf::BASE_OP (mcf::BP { b, cc, p, a, nop, ... } ), t, ... }
+		     => 
+		     mcf::bp { b, cc, p, a, label=>t, nop };
+
+		set_branch_targets _ => error "setBranchTargets";
+	    end;
+
+	    fun rev_cond mcf::BA   => mcf::BN;
+		rev_cond mcf::BN   => mcf::BA;
+		rev_cond mcf::BNE  => mcf::BE;
+		rev_cond mcf::BE   => mcf::BNE;
+		rev_cond mcf::BG   => mcf::BLE;
+		rev_cond mcf::BLE  => mcf::BG;
+		rev_cond mcf::BGE  => mcf::BL;
+		rev_cond mcf::BL   => mcf::BGE;
+		rev_cond mcf::BGU  => mcf::BLEU;
+		rev_cond mcf::BLEU => mcf::BGU;
+		rev_cond mcf::BCC  => mcf::BCS;
+		rev_cond mcf::BCS  => mcf::BCC;
+		rev_cond mcf::BPOS => mcf::BNEG;
+		rev_cond mcf::BNEG => mcf::BPOS;
+		rev_cond mcf::BVC  => mcf::BVS;
+		rev_cond mcf::BVS  => mcf::BVC;
+	    end;
+
+	    fun rev_fcond mcf::FBA   => mcf::FBN;
+		rev_fcond mcf::FBN   => mcf::FBA;
+		rev_fcond mcf::FBU   => mcf::FBO;
+		rev_fcond mcf::FBG   => mcf::FBULE;
+		rev_fcond mcf::FBUG  => mcf::FBLE;
+		rev_fcond mcf::FBL   => mcf::FBUGE;
+		rev_fcond mcf::FBUL  => mcf::FBGE;
+		rev_fcond mcf::FBLG  => mcf::FBUE;
+		rev_fcond mcf::FBNE  => mcf::FBE;
+		rev_fcond mcf::FBE   => mcf::FBNE;
+		rev_fcond mcf::FBUE  => mcf::FBLG;
+		rev_fcond mcf::FBGE  => mcf::FBUL;
+		rev_fcond mcf::FBUGE => mcf::FBL;
+		rev_fcond mcf::FBLE  => mcf::FBUG;
+		rev_fcond mcf::FBULE => mcf::FBG;
+		rev_fcond mcf::FBO   => mcf::FBU;
+	    end;
+
+	    fun rev_rcond mcf::RZ   => mcf::RNZ;
+		rev_rcond mcf::RLEZ => mcf::RGZ;
+		rev_rcond mcf::RLZ  => mcf::RGEZ;
+		rev_rcond mcf::RNZ  => mcf::RZ;
+		rev_rcond mcf::RGZ  => mcf::RLEZ;
+		rev_rcond mcf::RGEZ => mcf::RLZ;
+	    end;
+
+	    fun rev_p mcf::PT => mcf::PN;
+		rev_p mcf::PN => mcf::PT;
+	    end;
+
+	    fun negate_conditional (mcf::BASE_OP (mcf::BICC { b, a, nop, ... } ), lab)
+		    =>
+		    mcf::bicc { b=>rev_cond b, a, label=>lab, nop };
+
+		negate_conditional (mcf::BASE_OP (mcf::FBFCC { b, a, nop, ... } ), lab)
+		    =>
+		    mcf::fbfcc { b=>rev_fcond b, a, label=>lab, nop }; 
+
+		negate_conditional (mcf::BASE_OP (mcf::BR { p, r, rcond, a, nop, ... } ), lab)
+		    =>
+		    mcf::br { p=>rev_p p, a, r, rcond=>rev_rcond rcond, label=>lab, nop }; 
+
+		negate_conditional (mcf::BASE_OP (mcf::BP { b, cc, p, a, nop, ... } ), lab)
+		    =>
+		    mcf::bp { p=>rev_p p, a, b=>rev_cond b, cc, label=>lab, nop }; 
+
+		negate_conditional (mcf::NOTE { op, note }, lab)
+		    => 
+		    mcf::NOTE { op => negate_conditional (op, lab), note };
+
+		negate_conditional _ => raise exception NEGATE_CONDITIONAL;
+	    end;
+
+	    fun jump label
+		=
+		mcf::bicc { b=>mcf::BA, a=>TRUE, label, nop=>TRUE };
+
+	    immed_range = { lo=> -4096, hi => 4095 };
+
+	    fun load_immed { immed, t }
+		= 
+		mcf::arith
+		  { a=>mcf::OR,
+		    r=>always_zero_register,
+		    i=> if (immed_range.lo <= immed and immed <= immed_range.hi)
+			     mcf::IMMED immed;
+			else mcf::LAB (tcf::LITERAL (integer::from_int immed));
+			fi,
+		    d=>t
+		  };
+
+	    fun load_operand { opn, t }
+		=
+		mcf::arith { a=>mcf::OR, r=>always_zero_register, i=>opn, d=>t };
+
+	    fun move_instruction (mcf::NOTE { op, ... } ) =>  move_instruction  op;
+		move_instruction (mcf::COPY _)	         =>  TRUE;
+		#
+		move_instruction (mcf::LIVE _)            =>  FALSE;
+		move_instruction (mcf::DEAD _)            =>  FALSE;
+		move_instruction _                       =>  FALSE;
+	    end;
+
+	    fun nop ()
+		=
+		mcf::sethi { d=>always_zero_register, i=>0 };
+
+	    # ========================================================================
+	    #  Parallel Move
+	    # ========================================================================
+	    fun move_tmp_r (mcf::COPY { tmp, ... } )
+		    => 
+		    case  tmp 
+			#
+			THE (mcf::DIRECT  r) =>   THE r;
+			THE (mcf::FDIRECT f) =>   THE f;
+			_                   =>   NULL;
+		    esac;
+
+		move_tmp_r (mcf::NOTE { op, ... } ) =>  move_tmp_r  op;
+		move_tmp_r _ => NULL;
+	    end;
+
+
+	    fun move_dst_src (mcf::COPY { dst, src, ... } ) => (dst, src);
+		move_dst_src (mcf::NOTE { op, ... } ) =>  move_dst_src  op;
+		move_dst_src _ => error "move_dst_src";
+	    end;
+
+	    # ========================================================================
+	    #  Equality and hashing
+	    # ========================================================================
+
+	    fun hash_opn (mcf::REG r) => rkj::register_to_hashcode r;
+		hash_opn (mcf::IMMED i) => unt::from_int i;
+		hash_opn (mcf::LAB l) => tch::hash l;
+		hash_opn (mcf::LO l) => tch::hash l;
+		hash_opn (mcf::HI l) => tch::hash l;
+	    end;
+
+	    fun eq_opn (mcf::REG a, mcf::REG b) => rkj::codetemps_are_same_color (a, b);
+		eq_opn (mcf::IMMED a, mcf::IMMED b) => a == b;
+		eq_opn (mcf::LAB a, mcf::LAB b) => tce::(====) (a, b);
+		eq_opn (mcf::LO a, mcf::LO b) => tce::(====) (a, b);
+		eq_opn (mcf::HI a, mcf::HI b) => tce::(====) (a, b);
+		eq_opn _ => FALSE;
+	    end;
+
+	    fun def_use_r instruction
+		=
+		{   fun op (mcf::REG r, def, uses) => (def, r ! uses);
+			op (_, def, uses)        => (def, uses);
+		    end;
+
+		    fun sparc_du instruction
+			=
+			case  instruction 
+			    #	
+			    mcf::LOAD   { r, d, i, ... }  => op (i,[d],[r]);
+			    mcf::STORE  { r, d, i, ... }  => op (i,[],[r, d]);
+			    mcf::FLOAD  { r, d, i, ... }  => op (i,[],[r]);
+			    mcf::FSTORE { r, d, i, ... }  => op (i,[],[r]);
+			    mcf::SETHI  { d,      ... }  => ([d],[]);
+			    mcf::ARITH  { r, i, d, ... }  => op (i,[d],[r]);
+			    mcf::SHIFT  { r, i, d, ... }  => op (i,[d],[r]);
+			    mcf::BR { r, ... }            => ([],[r]);
+			    mcf::MOVICC { i, d, ... }    => op (i,[d],[d]);
+			    mcf::MOVFCC { i, d, ... }    => op (i,[d],[d]);
+			    mcf::MOVR { r, i, d, ... }    => op (i,[d],[r, d]);
+			    mcf::CALL { defs, uses, ... } => (r15 ! rgk::get_int_codetemps defs, rgk::get_int_codetemps uses);
+			    mcf::JMP { r, i, ... }       => op (i,[],[r]);
+			    mcf::RET { leaf=>FALSE, ... } => ([],[r31]);
+			    mcf::RET { leaf=>TRUE, ... }  => ([],[r15]);
+			    mcf::SAVE { r, i, d }       => op (i,[d],[r]);
+			    mcf::RESTORE { r, i, d }    => op (i,[d],[r]);
+			    mcf::TICC { r, i, ... }       => op (i,[],[r]); 
+			    mcf::RDY { d, ... }           => ([d],[]); 
+			    mcf::WRY { r, i, ... }        => op (i,[],[r]); 
+
+			    mcf::JMPL   { defs, uses, d, r, i, ... }
+				=> 
+				op (i, d ! rgk::get_int_codetemps defs, r ! rgk::get_int_codetemps uses);
+
+			    _                         => ([],[]);
+			esac;
+
+		    case instruction
+			#
+			mcf::NOTE { op,   ... } =>  def_use_r  op;
+			mcf::LIVE { regs, ... } =>  ([], rgk::get_int_codetemps regs);
+			mcf::DEAD { regs, ... } =>      (rgk::get_int_codetemps regs, []);
+			#
+			mcf::BASE_OP i => sparc_du i;
+			mcf::COPY { kind, dst, src, tmp, ... }
+			    =>
+			    {   my (d, u)
+				    =
+				    case kind
+					rkj::INT_REGISTER => (dst, src);
+					_            => ([], []);
+				    esac;
+
+				case tmp 
+				   THE (mcf::DIRECT r) => (r ! d, u);
+				   THE (mcf::DISPLACE { base, ... } ) => (d, base ! u);
+				  _ => (d, u);
+				esac;
+			    };
+		    esac;
+		};
+
+	    # Use of FP registers:
+	    #
+	    fun def_use_f instruction
+		=
+		{   fun sparc_du instruction
+			=
+			case  instruction
+			    #
+			    mcf::FLOAD  { r, d, i, ... }    => ([d],[]);
+			    mcf::FSTORE { r, d, i, ... }    => ([],[d]);
+			    mcf::FPOP1  { r, d, ... }       => ([d],[r]);
+			    mcf::FPOP2  { r1, r2, d, ... }  => ([d],[r1, r2]);
+			    mcf::FCMP   { r1, r2, ... }     => ([],[r1, r2]);
+			    mcf::JMPL   { defs, uses, ... } => (rgk::get_float_codetemps defs, rgk::get_float_codetemps uses);
+			    mcf::CALL   { defs, uses, ... } => (rgk::get_float_codetemps defs, rgk::get_float_codetemps uses);
+			    mcf::FMOVICC { r, d, ... }      => ([d],[r, d]);
+			    mcf::FMOVFCC { r, d, ... }      => ([d],[r, d]);
+
+			    _                           => ([],[]);
+			esac;
+
+		    case instruction
+			#
+			mcf::NOTE { op,   ... } =>  def_use_f  op;
+			mcf::LIVE { regs, ... } =>  ([], rgk::get_float_codetemps regs);
+			mcf::DEAD { regs, ... } =>      (rgk::get_float_codetemps regs, []);
+			#
+			mcf::BASE_OP i => sparc_du i;
+
+			mcf::COPY { kind, dst, src, tmp, ... }
+			    =>
+			    {   my (d, u)
+				    =
+				    case  kind
+
+					rkj::FLOAT_REGISTER => (dst, src);
+					_ => ([],[]);
+				    esac;
+
+				case  tmp
+
+				    THE (mcf::FDIRECT f) => (f ! d, u);
+				    _                  => (d, u);
+				esac;
+			    };
+		    esac;
+	    };
+
+	    fun def_use rkj::INT_REGISTER       =>   def_use_r;
+		def_use rkj::FLOAT_REGISTER =>   def_use_f;
+		def_use _                  =>   error "defUse";
+	    end;
+
+
+	    # ========================================================================
+	    #  Annotations 
+	    # ========================================================================*/
+
+	    fun get_notes (mcf::NOTE { op, note } )
+		    => 
+		    {   (get_notes  op) ->   (op, notes);
+			#
+			(op,  note ! notes);
+		    };
+
+		get_notes i
+		    =>
+		    (i, []);
+	    end;
+
+	    fun annotate (op, note)
+		=
+		mcf::NOTE { op, note };
+
+
+	    # ========================================================================
+	    #  Replicate an instruction
+	    # ========================================================================*/
+
+	    fun replicate (mcf::NOTE { op, note } )
+		    =>
+		    mcf::NOTE  { op => replicate op,  note };
+
+		replicate (mcf::COPY { kind, size_in_bits, tmp=>THE _, dst, src } )
+		    =>  
+		    mcf::COPY { kind, size_in_bits, tmp=>THE (mcf::DIRECT (rgk::make_int_codetemp ())), dst, src };
+
+		replicate i =>   i;
+	    end;
+	end;
+    };
+end;
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

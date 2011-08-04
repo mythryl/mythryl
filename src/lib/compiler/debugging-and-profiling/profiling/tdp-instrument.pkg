@@ -1,0 +1,650 @@
+## tdp-instrument.pkg
+#
+# See also:
+#
+#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-byte-counters-to-deep-syntax.pkg	# Looks like an old, broken, discarded version of next.
+#     src/lib/compiler/debugging-and-profiling/profiling/add-per-fun-call-counters-to-deep-syntax.pkg	# Adds a prologue to every function incrementing a counter specific to that function.
+
+# Compiled by:
+#     src/lib/compiler/debugging-and-profiling/debugprof.sublib
+
+# Perform deep_syntax annotations for tracing- debugging- and profiling support.
+#   This adds a tdp_enter at the entry point of each FN_EXPRESSION,
+#   a push-restore sequence (tdp_push) at each non-tail call site of
+#   a non-base function, and a save-restore sequence to each EXCEPT_EXPRESSION.
+#
+
+
+
+
+###        "We didn't have to replicate the problem.
+###         We understood it."
+###                            -- Linus Torvalds
+
+
+
+stipulate
+    package bc  =  basic_control;					# basic_control			is from   src/lib/compiler/front/basics/main/basic-control.pkg
+    package bt  =  core_type_types;					# core_type_types		is from   src/lib/compiler/front/typer-stuff/types/core-type-types.pkg
+    package ci  =  control_index;					# control_index			is from   src/lib/controls/control-index.pkg
+    package cs  =  control_junk;					# control_junk			is from   src/lib/controls/control-junk.pkg
+    package ctl =  control;						# control			is from   src/lib/controls/control.pkg
+    package ds  =  deep_syntax;						# deep_syntax			is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package dss =  deep_syntax_junk;					# deep_syntax_junk		is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax-junk.pkg
+    package em  =  error_message;					# error_message			is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package pci =  per_compile_info;					# per_compile_info		is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+    package ret =  reconstruct_expression_type;				# reconstruct_expression_type	is from   src/lib/compiler/debugging-and-profiling/types/reconstruct-expression-type.pkg
+    package ri  =  runtime_internals;					# runtime_internals		is from   src/lib/std/src/nj/runtime-internals.pkg
+    package sy  =  symbol;						# symbol			is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package syx =  symbolmapstack;					# symbolmapstack		is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
+    package syp =  symbol_path;						# symbol_path			is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package vac =  variables_and_constructors;				# variables_and_constructors	is from   src/lib/compiler/front/typer-stuff/deep-syntax/variables-and-constructors.pkg
+herein
+
+    api Tdp_Instrument {
+	#
+	tdp_instrument_enabled:  Ref(  Bool );
+
+	maybe_instrument_deep_syntax:
+	   (sy::Symbol -> Bool) 	#  isSpecial 
+	   ->
+	   (syx::Symbolmapstack, pci::Per_Compile_Info( ds::Declaration ))
+	   ->
+	   ds::Declaration
+	   ->
+	   ds::Declaration;
+    };
+
+
+    # This package is referenced (only) in:
+    #
+    #     src/lib/compiler/toplevel/main/controls.pkg
+    #     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+    #
+    package   tdp_instrument
+    :         Tdp_Instrument				# Tdp_Instrument	is from   src/lib/compiler/debugging-and-profiling/profiling/tdp-instrument.pkg
+    {
+	priority = [10, 1];
+	obscurity = 1;
+	prefix = "tdp";
+
+	registry
+            =
+            ci::make
+                { help => "tracing/debugging/profiling" };
+								my _ = 
+        bc::note_subindex (prefix, registry, priority);
+
+	convert_boolean
+            =
+            cs::convert::bool;
+
+	tdp_instrument_enabled
+            =
+            ri::tdp::tdp_instrument_enabled;
+
+	p = 0;
+
+	control
+	    =
+	    ctl::make_control
+	      {
+		name      =>  "instrument",
+		pri       =>  [p],
+		obscurity,
+		help      =>  "trace-, debug-, and profiling instrumentation mode",
+		control   =>  tdp_instrument_enabled
+	      };
+								my _ = 
+        ci::note_control
+	    registry
+	    { control         =>  ctl::make_string_control convert_boolean control,
+	      dictionary_name =>  THE "Tdp_Instrument"
+            };
+
+	fun impossible s
+	    =
+	    em::impossible ("tdp_instrument: " + s);
+
+	infix val  --> ;
+	#
+	(-->) = bt::(-->);
+
+
+	i_i_ty    =   bt::int_type --> bt::int_type;
+	ii_v_ty   =   bt::tuple_type [bt::int_type, bt::int_type] --> bt::void_type;
+	ii_v_v_ty =   ii_v_ty --> bt::void_type;
+	v_v_ty    =   bt::void_type --> bt::void_type;
+	v_v_v_ty  =   bt::void_type --> v_v_ty;
+	iiis_v_ty =   bt::tuple_type [bt::int_type, bt::int_type, bt::int_type, bt::void_type] --> bt::void_type;
+
+	fun maybe_instrument_deep_syntax'
+	      #	
+	      is_special									# This lets us recognize the dozen or so special symbols from   src/lib/compiler/front/typer/main/special-symbols.pkg
+	      #
+	      ( symbolmapstack,
+		per_compile_info:	pci::Per_Compile_Info( ds::Declaration )
+	      )
+	      deep_syntax_parsetree
+	    =
+	    {
+		deep_syntax_parsetree
+		    =
+		    i_dec   ([], (0, 0))   deep_syntax_parsetree;
+
+		ds::LOCAL_DECLARATIONS
+		  (
+		    ds::SEQUENTIAL_DECLARATIONS
+		      [
+			value_declarations (tdp_reserve_var, variable_in_expression tdp_reserve),
+			#
+			value_declarations
+			  (
+			    tdp_module_var,
+			    ds::APPLY_EXPRESSION   (variable_in_expression  tdp_reserve_var,   integer_constant_in_expression  *next)
+                          ),
+
+			value_declarations (tdp_save_var,     auexp tdp_save),
+			value_declarations (tdp_push_var,     auexp tdp_push),
+			value_declarations (tdp_nopush_var,   auexp tdp_nopush),
+			value_declarations (tdp_register_var, auexp tdp_register),
+
+			value_declarations (tdp_enter_var,    ds::SEQUENTIAL_EXPRESSIONS (*regexps @ [auexp tdp_enter]))
+                      ],
+
+		    deep_syntax_parsetree
+		  );
+	    }
+	    where
+	        matchstring =   per_compile_info.error_match;
+
+		make_var =   per_compile_info.make_highcode_variable;
+
+		fun make_tmpvar (name, type)
+		    =
+		    {   symbol =   sy::make_value_symbol name;
+
+			vac::ORDINARY_VARIABLE
+			  {
+			    varhome       =>   varhome::named_varhome (symbol, make_var),
+			    inlining_info =>   inlining_information::NULL,
+			    #
+			    path          =>   syp::SYMBOL_PATH [symbol],
+			    var_type      =>   REF type
+			  };
+		    };
+
+
+		fun cons (s, [])
+			=>
+			if (is_special s)   [];
+                        else                [(s, 0)];
+                        fi;
+
+		    cons (s, l as ((s', m) ! t))
+			=>
+			if   (is_special s)      l;
+			elif (sy::eq (s, s'))  (s, m+1) ! t;
+			else                   (s, 0)   ! l;
+                        fi;
+                end;
+
+
+		fun get_core_val s
+		    =
+		    core_access::get_variable (symbolmapstack, s);
+
+
+		fun get_core_con s
+		    =
+		    core_access::get_constructor (symbolmapstack, s);
+
+									# Fetch various values from   src/lib/core/init/core.pkg
+		tdp_reserve  =   get_core_val "tdp_reserve";		# Bump 'next' by n.
+		tdp_register =   get_core_val "tdp_register";		# (Int, Int, Int, String) -> Void
+		tdp_save     =   get_core_val "tdp_save";		# Void -> Void -> Void,
+		tdp_push     =   get_core_val "tdp_push";		# (Int, Int) -> Void -> Void,
+		tdp_nopush   =   get_core_val "tdp_nopush";		# (Int, Int) -> Void,
+		tdp_enter    =   get_core_val "tdp_enter";		# (Int, Int) -> Void,
+
+		matchcon     =   get_core_con "MATCH";
+
+		tdp_register_var =   make_tmpvar ("<tdp_register>", iiis_v_ty);
+		tdp_save_var     =   make_tmpvar ("<tdp_save>",      v_v_v_ty);
+		tdp_push_var     =   make_tmpvar ("<tdp_push>",     ii_v_v_ty);
+		tdp_nopush_var   =   make_tmpvar ("<tdp_nopush>",     ii_v_ty);
+		tdp_enter_var    =   make_tmpvar ("<tdp_enter>",      ii_v_ty);
+		tdp_reserve_var  =   make_tmpvar ("<tdp_reserve>",     i_i_ty);
+		tdp_module_var   =   make_tmpvar ("<tdp_module>", bt::int_type);
+
+		fun variable_in_expression v
+		    =
+		    ds::VARIABLE_IN_EXPRESSION (REF v, []);
+
+		fun integer_constant_in_expression i
+		    =
+		    ds::INT_CONSTANT_IN_EXPRESSION (integer::from_int i, bt::int_type);
+
+		void_expression =   dss::void_expression;
+
+		pushexp         =   ds::APPLY_EXPRESSION (variable_in_expression tdp_push_var, void_expression);
+		saveexp         =   ds::APPLY_EXPRESSION (variable_in_expression tdp_save_var, void_expression);
+
+		fun mkmodidexp fctvar id
+		    =
+		    ds::APPLY_EXPRESSION (variable_in_expression fctvar,
+			      dss::tupleexp [variable_in_expression tdp_module_var, integer_constant_in_expression id]);
+
+		mkenterexp  =   mkmodidexp tdp_enter_var;
+		mkpushexp   =   mkmodidexp tdp_push_var;
+		mknopushexp =   mkmodidexp tdp_nopush_var;
+
+		fun mkregexp (k, id, s)
+		    =
+		    ds::APPLY_EXPRESSION (variable_in_expression tdp_register_var,
+			      dss::tupleexp [variable_in_expression tdp_module_var,
+					   integer_constant_in_expression k, integer_constant_in_expression id, ds::STRING_CONSTANT_IN_EXPRESSION s]);
+
+		regexps =   REF [];
+		next    =   REF 0;
+
+		fun newid k s
+		    =
+		    {   id =   *next;
+
+			next := id + 1;
+			regexps := mkregexp (k, id, s) ! *regexps;
+			id;
+		    };
+
+		mkenter  =   mkenterexp  o newid core::tdp_idk_entry_point;		# "idk" == "id_kind".
+		mkpush   =   mkpushexp   o newid core::tdp_idk_non_tail_call;
+		mknopush =   mknopushexp o newid core::tdp_idk_tail_call;
+
+		fun value_declarations (v, e)
+		    =
+		    ds::VALUE_DECLARATIONS [
+
+			ds::NAMED_VALUE {
+			    pattern => ds::VARIABLE_IN_PATTERN v,
+			    expression => e,
+			    ref_typevar_refs => REF [],
+			    bound_typevar_refs => []
+			}
+		    ];
+
+		fun let_expression (v, e, b)
+		    =
+		    ds::LET_EXPRESSION (value_declarations (v, e), b);
+
+		fun auexp v
+		    =
+		    ds::APPLY_EXPRESSION (variable_in_expression v, void_expression);		#  Apply to void
+
+		fun is_base_expression (ds::VARIABLE_IN_EXPRESSION (REF (vac::ORDINARY_VARIABLE v), _))
+		        =>
+		        inlining_information::is_simple v.inlining_info;
+
+		    is_base_expression (ds::VALCON_IN_EXPRESSION _)
+                        =>
+                        TRUE;
+
+		    is_base_expression (ds::TYPE_CONSTRAINT_EXPRESSION (e, _))
+                        =>
+                        is_base_expression e;
+
+		    is_base_expression (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _))
+                        =>
+                        is_base_expression e;
+
+		    is_base_expression _
+                        =>
+                        FALSE;
+                end;
+
+		fun is_raise_exp (ds::RAISE_EXPRESSION (e, _))
+			=>
+			{   fun is_simple_exn (ds::VARIABLE_IN_EXPRESSION _) => TRUE;
+				is_simple_exn (ds::VALCON_IN_EXPRESSION _) => TRUE;
+				is_simple_exn (ds::TYPE_CONSTRAINT_EXPRESSION (e, _)) => is_simple_exn e;
+				is_simple_exn (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _)) => is_simple_exn e;
+				is_simple_exn (ds::RAISE_EXPRESSION (e, _)) => is_simple_exn e;	#  !! 
+			        is_simple_exn _ => FALSE;
+                            end;
+
+			    is_simple_exn e;
+			};
+
+		    is_raise_exp (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, _) |
+				  ds::TYPE_CONSTRAINT_EXPRESSION (e, _) |
+				  ds::SEQUENTIAL_EXPRESSIONS [e])
+			=>
+			is_raise_exp e;
+
+		    is_raise_exp _
+			=>
+			FALSE;
+                end;
+
+		fun mk_descr ((n, r), what)
+		    =
+		    {   fun name ((s, 0), a) => sy::name s ! a;
+			    name ((s, m), a) => sy::name s ! "[" !
+						int::to_string (m + 1) ! "]" ! a;
+			end;
+
+			fun dot ([z], a) => name (z, a);
+			    dot (h ! t, a) => dot (t, "." ! name (h, a));
+			    dot ([], a) => impossible (what + ": no path");
+			end;
+
+			ms =   matchstring r;
+
+			cat (ms ! ": " ! dot (n, []));
+		    };
+
+		fun i_exp _ loc (ds::RECORD_IN_EXPRESSION l)
+			=>
+			ds::RECORD_IN_EXPRESSION (map (fn (l, e) = (l, i_exp FALSE loc e)) l);
+
+		    i_exp _ loc (ds::RECORD_SELECTOR_EXPRESSION (l, e))
+			=>
+			ds::RECORD_SELECTOR_EXPRESSION (l, i_exp FALSE loc e);
+
+		    i_exp _ loc (ds::VECTOR_IN_EXPRESSION (l, t))
+			=>
+			ds::VECTOR_IN_EXPRESSION (map (i_exp FALSE loc) l, t);
+
+		    i_exp tail loc (ds::ABSTRACTION_PACKING_EXPRESSION (e, t, tcl))
+			=>
+			ds::ABSTRACTION_PACKING_EXPRESSION (i_exp tail loc e, t, tcl);
+
+		    i_exp tail loc (e as ds::APPLY_EXPRESSION (f, a))
+			=>
+			{   mainexp =   ds::APPLY_EXPRESSION (i_exp FALSE loc f, i_exp FALSE loc a);
+
+			    if (is_base_expression f)
+				#			        
+				mainexp;
+			    else
+				if tail
+				    #
+				    ds::SEQUENTIAL_EXPRESSIONS [mknopush (mk_descr (loc, "GOTO")), mainexp];
+				else
+				    type    =   ret::reconstruct_expression_type  e;
+				    result  =   make_tmpvar ("tmpresult", type);
+				    restore =   make_tmpvar ("tmprestore", v_v_ty);
+				    pushexp =   mkpush (mk_descr (loc, "CALL"));
+
+				    let_expression (restore, pushexp,
+					    let_expression (result, mainexp,
+						    ds::SEQUENTIAL_EXPRESSIONS [auexp restore,
+							      variable_in_expression result]));
+				fi;
+			    fi;
+			};
+
+		    i_exp tail loc (ds::EXCEPT_EXPRESSION (e, (rl, t)))
+			=>
+			{   restore =   make_tmpvar ("tmprestore", v_v_ty);
+
+			    fun rule (r as ds::CASE_RULE (p, e))
+				=
+				if   (is_raise_exp e)
+				     r;
+				else ds::CASE_RULE (p, ds::SEQUENTIAL_EXPRESSIONS [auexp restore, i_exp tail loc e]);fi;
+
+			    let_expression (restore, saveexp,
+				    ds::EXCEPT_EXPRESSION (i_exp FALSE loc e, (map rule rl, t)));
+			};
+
+		    i_exp _ loc (ds::RAISE_EXPRESSION (e, t))
+			=>
+			ds::RAISE_EXPRESSION (i_exp FALSE loc e, t);
+
+		    i_exp tail loc (ds::CASE_EXPRESSION (e, rl, b))
+			=>
+			ds::CASE_EXPRESSION (i_exp FALSE loc e, map (i_rule tail loc) rl, b);
+
+		    i_exp tail loc (ds::IF_EXPRESSION { test_case, then_case, else_case } )
+			=>
+			ds::IF_EXPRESSION { test_case => i_exp FALSE loc test_case,
+					      then_case => i_exp tail loc then_case,
+					      else_case => i_exp tail loc else_case
+					    };
+
+		    i_exp tail loc (ds::AND_EXPRESSION (e1, e2))
+			=>
+			ds::AND_EXPRESSION (i_exp FALSE loc e1, i_exp tail loc e2);
+
+		    i_exp tail loc (ds::OR_EXPRESSION (e1, e2))
+			=>
+			ds::OR_EXPRESSION (i_exp FALSE loc e1, i_exp tail loc e2);
+
+		    i_exp _ loc (ds::WHILE_EXPRESSION { test, expression } )
+			=>
+			ds::WHILE_EXPRESSION { test       => i_exp FALSE loc test,
+				     expression => i_exp FALSE loc expression };
+
+		    i_exp tail loc (ds::FN_EXPRESSION (rl, t))
+			=>
+			{   enterexp =   mkenter (mk_descr (loc, "FN"));
+			    arg =   make_tmpvar ("fnvar", t);
+			    rl' =   map (i_rule TRUE loc) rl;
+			    re  =   {   my ds::CASE_RULE (_, lst)
+					   =
+					   list::last rl;
+
+					t =   ret::reconstruct_expression_type  lst;
+
+					ds::RAISE_EXPRESSION (ds::VALCON_IN_EXPRESSION (matchcon, []), t);
+				    };
+
+			    ds::FN_EXPRESSION ([ds::CASE_RULE (ds::VARIABLE_IN_PATTERN arg,
+					      ds::SEQUENTIAL_EXPRESSIONS [enterexp,
+							ds::CASE_EXPRESSION (ds::VARIABLE_IN_EXPRESSION (REF arg, []),
+								   rl', TRUE)]),
+				      ds::CASE_RULE (ds::WILDCARD_PATTERN, re)],
+				     t);
+			};
+
+		    i_exp tail loc (ds::LET_EXPRESSION (d, e)) =>
+		      ds::LET_EXPRESSION (i_dec loc d, i_exp tail loc e);
+
+		    i_exp tail loc (ds::SEQUENTIAL_EXPRESSIONS l) =>
+		      ds::SEQUENTIAL_EXPRESSIONS (#1 (fold_right (fn (e, (l, t)) = (i_exp t loc e ! l, FALSE))
+					  ([], tail) l));
+		    i_exp tail loc (ds::TYPE_CONSTRAINT_EXPRESSION (e, t))
+		       =>
+		       ds::TYPE_CONSTRAINT_EXPRESSION (i_exp tail loc e, t);
+
+		    i_exp tail (n, _) (ds::SOURCE_CODE_REGION_FOR_EXPRESSION (e, r))
+		       =>
+		       ds::SOURCE_CODE_REGION_FOR_EXPRESSION (i_exp tail (n, r) e, r);
+
+		    i_exp _ _ (e as (ds::VARIABLE_IN_EXPRESSION     _ | ds::VALCON_IN_EXPRESSION       _ | ds::INT_CONSTANT_IN_EXPRESSION    _ |
+				     ds::UNT_CONSTANT_IN_EXPRESSION _ | ds::FLOAT_CONSTANT_IN_EXPRESSION _ | ds::STRING_CONSTANT_IN_EXPRESSION _ |
+				     ds::CHAR_CONSTANT_IN_EXPRESSION _)) => e;
+		end 
+
+		also
+		fun i_dec loc (ds::VALUE_DECLARATIONS l) => ds::VALUE_DECLARATIONS (map (i_vb loc) l);
+		    i_dec loc (ds::RECURSIVE_VALUE_DECLARATIONS l) => ds::RECURSIVE_VALUE_DECLARATIONS (map (i_rvb loc) l);
+		    i_dec loc (ds::ABSTRACT_TYPE_DECLARATION { abstract_typs, with_typs, body } ) =>
+		       ds::ABSTRACT_TYPE_DECLARATION { abstract_typs, with_typs,
+				      body => i_dec loc body };
+		    i_dec loc (ds::EXCEPTION_DECLARATIONS        l) => ds::EXCEPTION_DECLARATIONS        (map (i_eb   loc) l);
+		    i_dec loc (ds::PACKAGE_DECLARATIONS          l) => ds::PACKAGE_DECLARATIONS          (map (i_strb loc) l);
+		    i_dec loc (ds::GENERIC_DECLARATIONS          l) => ds::GENERIC_DECLARATIONS          (map (i_fctb loc) l);
+
+		    i_dec loc (ds::LOCAL_DECLARATIONS (d, d'))
+		     =>
+		     ds::LOCAL_DECLARATIONS (i_dec loc d, i_dec loc d');
+
+		    i_dec loc (ds::SEQUENTIAL_DECLARATIONS l) => ds::SEQUENTIAL_DECLARATIONS (map (i_dec loc) l);
+		    i_dec (n, _) (ds::SOURCE_CODE_REGION_FOR_DECLARATION (d, r)) => ds::SOURCE_CODE_REGION_FOR_DECLARATION (i_dec (n, r) d, r);
+		    i_dec _ (d as (ds::TYPE_DECLARATIONS _ | ds::ENUM_DECLARATIONS _ |
+				    ds::API_DECLARATIONS _ | ds::GENERIC_API_DECLARATIONS _ | ds::INCLUDE_DECLARATIONS _ |
+				    ds::OVERLOADED_VARIABLE_DECLARATION _ | ds::FIXITY_DECLARATION _)) => d;
+		end 
+
+		also
+		fun i_rule tail loc (ds::CASE_RULE (p, e))
+                    =
+                    ds::CASE_RULE (p, i_exp tail loc e)
+
+		also
+		fun i_vb (n, r) (named_value as ds::NAMED_VALUE { pattern, expression, bound_typevar_refs, ref_typevar_refs } )				# "i_vb" must be "instrument_value_binding_in_api" or some such.
+		    =
+		    {   fun gv (ds::VARIABLE_IN_PATTERN v) => THE v;
+			    gv (ds::TYPE_CONSTRAINT_PATTERN (p, _)) => gv p;
+			    gv (ds::AS_PATTERN (p, p')) =>
+			       case (gv p)   
+				   THE v =>  THE v;
+				   NULL  =>  gv p';
+                               esac;
+			    gv _ => NULL;
+			end;
+
+			fun recur n
+			    =
+			    ds::NAMED_VALUE
+			      {
+				pattern,
+				expression => i_exp FALSE (n, r) expression,
+				bound_typevar_refs,
+				ref_typevar_refs
+			      };
+
+			case (gv pattern)
+			    #			  
+			    THE (vac::ORDINARY_VARIABLE { path => syp::SYMBOL_PATH [x], inlining_info, ... } )
+				=>
+				if (inlining_information::is_simple inlining_info)   named_value;
+				else                                                 recur (cons (x, n));
+				fi;
+
+			    THE (vac::ORDINARY_VARIABLE { inlining_info, ... } )
+				=>
+				if (inlining_information::is_simple inlining_info)  named_value;
+				else                                                recur n;
+				fi;
+
+			    _ => recur n;
+			esac;
+		    }
+
+		also
+		fun i_rvb (n, r) (ds::NAMED_RECURSIVE_VALUES { variable=>var, expression, bound_typevar_refs, null_or_type, ref_typevar_refs } )	# "i_rvb" must be "instrument recursive value bindings in api". 
+		    =
+		    {   x = case var
+				#
+				vac::ORDINARY_VARIABLE { path => symbol_path::SYMBOL_PATH [x], ... }
+				    =>
+				    x;
+
+			        _ => impossible "RECURSIVE_VALUE_DECLARATIONS";
+                            esac;
+
+			ds::NAMED_RECURSIVE_VALUES
+                          {
+                            variable => var,
+                            expression => i_exp FALSE (cons (x, n), r) expression,
+			    bound_typevar_refs,
+                            null_or_type,
+                            ref_typevar_refs
+                          };
+		    }
+
+		also
+		fun i_eb loc (ds::NAMED_EXCEPTION { exception_constructor=>exn, exception_type=>etype, name_string=>ident } )				# "i_eb" must be "instrument_exception_declaration_in_api".
+		    =>
+		    ds::NAMED_EXCEPTION {
+			exception_constructor => exn,
+			exception_type => etype,
+			name_string    => i_exp FALSE loc ident
+		    };
+
+		    i_eb _ eb => eb;
+                end 
+
+		also
+		fun i_strb (n, r) (ds::NAMED_PACKAGE { name_symbol=>name, a_package, definition=>def } )						# "i_strb" must be "instrument_package_declaration_in_api".
+		    =
+		    ds::NAMED_PACKAGE {
+			name_symbol => name,
+			a_package,
+			definition => i_strexp (cons (name, n), r) def
+		    }
+
+		also
+		fun i_fctb (n, r) (ds::NAMED_GENERIC { name_symbol=>name, a_generic=>fct, definition=>def } )						# "i_fctb" must be "instrument_functor_declaration_in_api". Go figure. "b" for "binding" maybe.
+		    =
+		    ds::NAMED_GENERIC {
+			name_symbol => name,
+			a_generic  => fct,
+			definition => i_fctexp (cons (name, n), r) def
+		    }
+
+		also
+		fun i_strexp loc (ds::PACKAGE_LET { declaration, expression })										# "i_strexp" probably == "instrument structure expression" (== "instrument_package_expression")
+			=>
+			ds::PACKAGE_LET { declaration => i_dec loc declaration,
+					    expression  => i_strexp loc expression
+					  };
+
+		    i_strexp (n, _) (ds::SOURCE_CODE_REGION_FOR_PACKAGE (s, r))
+			=>
+			ds::SOURCE_CODE_REGION_FOR_PACKAGE (i_strexp (n, r) s, r);
+
+		    i_strexp _ s
+                        =>
+                        s;
+                end 
+
+		also
+		fun i_fctexp loc (ds::GENERIC_DEFINITION { parameter, parameter_types, definition=>def } )						# "i_fctexp" probably is "instrument_functor_expression" (== "instrument_generic_package_expression"). 
+			=>
+			ds::GENERIC_DEFINITION {
+			    parameter,
+			    parameter_types,
+			    definition => i_strexp loc def
+			};
+
+		    i_fctexp loc (ds::GENERIC_LET (d, f))
+			=>
+			ds::GENERIC_LET (i_dec loc d, i_fctexp loc f);
+
+		    i_fctexp (n, _) (ds::SOURCE_CODE_REGION_FOR_GENERIC (f, r))
+			=>
+			ds::SOURCE_CODE_REGION_FOR_GENERIC (i_fctexp (n, r) f, r);
+
+		    i_fctexp _ f
+                        =>
+                        f;
+                end;
+
+	    end;																	# fun maybe_instrument_deep_syntax'
+
+	# This fun is called (only) from   maybe_instrument_deep_syntax   in
+	#
+	#     src/lib/compiler/toplevel/main/translate-raw-syntax-to-execode-g.pkg
+	#
+	fun maybe_instrument_deep_syntax  is_special  parameters  d
+	    =
+	    if *tdp_instrument_enabled
+		 maybe_instrument_deep_syntax'  is_special  parameters  d
+		 except
+                     no_core = d;		#  this takes care of core.pkg 
+	    else
+		 d;
+	    fi;
+    };
+
+end; #  with
+
+
+## Author: Matthias Blume (blume@tti-c.org)
+## Copyright (c) 2004 by The Fellowship of SML/NJ
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

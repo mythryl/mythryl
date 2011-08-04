@@ -1,0 +1,4076 @@
+## translate-fatecode-to-treecode-g.pkg --- translate fatecode to treecode (and then all the way on down to execode -- raw binary executable machine code).
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (a polymorphically typed lambda-calculus format) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format) is the second backend code representation, and the first used for optimization.
+#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# This module primarily implements the translation from
+# frontend fatecode ("Continuation Passing Style") to backend
+# "Treecode" code format.  Translation from Treecode down
+# to Intel32 instruction stream format is delegated to one of
+#
+#     src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+#     src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+#     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+# 
+#
+# This module implements the transition between the
+# machine-independent backend tophalf centered on
+# 
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg 
+# 
+# and the machine-dependent backend lowhalf centered on
+# 
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+# 
+# Essentially, we translate code from fatecode
+# (the last of the tophalf intermediate code formats) to
+# machcode_controlflow_graph format, the first of the lower half
+# intermediate code formats, and then call the lower half
+# to take it from there down to binary.
+# 
+# (See src/A.COMPILER.OVERVIEW for more overview.)
+#
+#
+#
+# Our compiletime generic invocation is from
+#
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+#
+# which in particular passes us the
+#
+#     translate_machcode_controlflow_graph_component_to_execode
+#
+# function which is our runtime entrypoint into the
+# back end.
+#
+#
+#
+# Runtime invocation of our (sole)
+#
+#     translate_fatecode_to_execode
+#
+# entrypoint is from
+#
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+#
+# via the short wrapper at the bottom of
+#
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+# 
+# 
+# In terms of lines-of-code, this file is utterly dominated by
+#
+#     fun translate_fatecode_to_execode -- 3500 of 4000 line
+#
+# which in turn is internally domindated by
+#
+#     fun translate_fatecode_connected_component_to_treecode               -- 3200 of 4000 lines.
+# 
+# The core function, and perhaps the best place to start
+# reading, is
+#
+#     translate_fatecode_op_to_treecode
+#
+# This version of translate_fatecode_to_treecode_g also
+# injects heapcleaner ("garbage-collector") types into
+# the backend lowhalf.
+# I've also reorganized it a bit and added a few comments
+# so that I can understand it.
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+
+
+
+
+###                   "Do not say a little in many words,
+###                    but a great deal in a few."
+###
+###                                 -- Pythagoras (582-497 BCE)
+
+
+
+stipulate
+    package ds  =  deep_syntax;							# deep_syntax						is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package em  =  error_message;						# error_message						is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fcf =  fatecode_form;						# fatecode_form						is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+    package pci =  per_compile_info;						# per_compile_info					is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+herein
+
+    api Translate_Fatecode_To_Treecode {
+	#
+	translate_fatecode_to_execode
+	    :
+	    { fatecode_functions:	List( fcf::Function ),
+	      limits:			fcf::Variable				# Given a fun_id
+					  ->					# return
+					  { max_fun_heapwords:	Int,		# max words of heap memory allocated on any path through function body, and
+					    max_fun_ops:	Int		# max fatecode instructions executed on any path through function body.
+					  },
+	      err:			em::Plaint_Sink,
+	      source_name:		String,					# Typically filename, something like "<stdin>" if compiling interactively.
+	      per_compile_info:		pci::Per_Compile_Info( ds::Declaration )
+	    }
+	    ->
+	    (Void -> Int);
+
+	 # The result is a thunk computing the machinecode bytevector
+	 # offset for entrypoint corresponding to the first function
+	 # in fatecode_functions.
+	 #
+	 # The client must call 'finish' before forcing it.
+    };
+end;
+
+
+										# Machine_Properties					is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate
+    package ca  =  cluster_annotation;						# cluster_annotation					is from   src/lib/compiler/back/low/main/main/cluster-annotation.pkg
+    package ds  =  deep_syntax;							# deep_syntax						is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package fcc =  find_connected_components_in_fatecode_callgraph;		# find_connected_components_in_fatecode_callgraph	is from   src/lib/compiler/back/low/main/fatecode/find-connected-components-in-fatecode-callgraph.pkg
+    package fcf =  fatecode_form;						# fatecode_form						is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+    package iht =  int_hashtable;						# int_hashtable						is from   src/lib/src/int-hashtable.pkg
+    package lbl =  codelabel;							# codelabel						is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message					is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhn =  lowhalf_notes;						# lowhalf_notes						is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+#    package p   =  fatecode_form::p;						# Fatecode primitive operators 
+    package pb  =  pseudo_op_basis_type;					# pseudo_op_basis_type					is from   src/lib/compiler/back/low/mcg/pseudo-op-basis-type.pkg
+    package pby =  probability;							# probability						is from   src/lib/compiler/back/low/library/probability.pkg
+    package pci =  per_compile_info;						# per_compile_info					is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+    package pt  =  fatecode_ramregions::pt;					# fatecode_ramregions						is from   src/lib/compiler/back/low/main/fatecode/fatecode-ramregions.pkg
+    package rgn =  fatecode_ramregions;						# fatecode_ramregions					is from   src/lib/compiler/back/low/main/fatecode/fatecode-ramregions.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk					is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    # This generic is invoked from:
+    #
+    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+    #	
+    generic package   translate_fatecode_to_treecode_g   (
+	#             ===============================
+	#            								# machine_properties_intel32				is from   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+	#									# machine_properties_pwrpc32				is from   src/lib/compiler/back/low/main/pwrpc32/machine-properties-pwrpc32.pkg
+	#									# machine_properties_sparc32				is from   src/lib/compiler/back/low/main/sparc32/machine-properties-sparc32.pkg
+	package mp:  Machine_Properties;					# Machine_Properties					is from   src/lib/compiler/back/low/main/main/machine-properties.api
+
+	package trx: Treecode_Extension_Mythryl;				# Treecode_Extension_Mythryl				is from   src/lib/compiler/back/low/main/fatecode/treecode-extension-mythryl.api
+
+	package pri: Platform_Register_Info					# Platform_Register_Info				is from   src/lib/compiler/back/low/main/fatecode/platform-register-info.api
+		    where							# "pri" == "fatecode_registers".
+			 tcf::rgn == fatecode_ramregions 			# "rgn" == "region"
+		    also tcf::lac == late_constant 				# late_constant						is from   src/lib/compiler/back/low/main/fatecode/late-constant.pkg
+		    also tcf::trx == trx;					# "trx" == "treecode_extension".
+										# "tcf" == "treecode_form".
+
+	package cpo: Client_Pseudo_Ops_Mythryl;					# Client_Pseudo_Ops_Mythryl				is from   src/lib/compiler/back/low/main/fatecode/client-pseudo-ops-mythryl.api
+										# "cpo" == "client_pseudo_op".
+	package pop: Pseudo_Ops							# Pseudo_Ops						is from   src/lib/compiler/back/low/mcg/pseudo-op.api
+		     where							# "pop" == "pseudo_ops".
+			  tcf == pri::tcf					# "tcf" == "treecode_form".
+		     also cpo == cpo;						# "cpo" == "client_pseudo_ops".
+
+	package t2m: Translate_Treecode_To_Machcode				# Translate_Treecode_To_Machcode			is from   src/lib/compiler/back/low/treecode/translate-treecode-to-machcode.api
+		     where							# "t2m" == "translate_treecode_to_machcode".
+			  tcs::tcf == pri::tcf					# "tcf" == "treecode_form".
+		     also tcs::cst::pop == pop;					# "pop" == "pseudo_op".
+
+	package mkg								# make_machcode_controlflow_graph_g			is from   src/lib/compiler/back/low/mcg/make-machcode-controlflow-graph-g.pkg
+	      : Make_Machcode_Controlflow_Graph					# Make_Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/make-machcode-controlflow-graph.api
+		where
+		     cst == t2m::tcs::cst					# "cst" == "codestream".
+		also mcf == t2m::mcf						# "mcf" == "machcode_form" (abstract machine code).
+		also mcg == t2m::mcg;					  	# "mcg" == "machcode_controlflow_graph".
+
+										# insert_treecode_heapcleaner_calls_g			is from   src/lib/compiler/back/low/main/fatecode/insert-treecode-heapcleaner-calls-g.pkg
+	package ihc: Insert_Treecode_Heapcleaner_Calls				# Insert_Treecode_Heapcleaner_Calls			is from   src/lib/compiler/back/low/main/fatecode/insert-treecode-heapcleaner-calls.api
+		     where							# "ihc" == "insert_treecode_heapcleaner_calls".
+			  tcs == t2m::tcs					# "tcs" == "treecode_stream".
+		     also mcg == mkg::mcg;					# "mcg" == "machcode_controlflow_graph".
+
+	package rgk: Registerkinds;						# Registerkinds						is from   src/lib/compiler/back/low/code/registerkinds.api
+
+	package cal: Ccalls							# Ccalls						is from   src/lib/compiler/back/low/ccalls/ccalls.api
+	        where								# "cal" == "ccalls".
+                    tcf == pri::tcf;						# "tcf" == "treecode_form".
+
+	translate_machcode_controlflow_graph_component_to_execode
+	    :
+	    pci::Per_Compile_Info( ds::Declaration )
+	    ->
+	    mkg::mcg::Machcode_Controlflow_Graph
+	    ->
+	    Void;
+    )
+    : (weak) Translate_Fatecode_To_Treecode					# Defined above.
+    {
+	stipulate
+	    package cg  =  controls::cg;					# Compiler Control 
+	    package tag =  mp::heap_tags;					# Mythryl heapchunk tagwords.
+	    package tcf =  pri::tcf;						# "tcf" == "treecode_form".
+	    package tcs =  t2m::tcs;						# "tcs" == "treecode_stream".
+
+	    package cfa								# "cfs" == "convert fun arguments"
+		=
+		convert_fatecode_fun_args_to_treecode_g (			# convert_fatecode_fun_args_to_treecode_g		is from   src/lib/compiler/back/low/main/fatecode/convert-fatecode-fun-args-to-treecode-g.pkg
+		    #
+		    package pri =  pri;						# "pri" == "fatecode_registers".
+		    package mp  =  mp;						# "mp"  == "machine_properties".
+		);
+
+	    #  Decompose a compilation unit into clusters:
+	    #
+	    package ffs								# "ffs" == "fatecode_function_stack".
+		=
+		fatecode_function_stack_g ( tcf );				# fatecode_function_stack_g				is from   src/lib/compiler/back/low/main/fatecode/fatecode-function-stack-g.pkg
+
+
+	    package mem_aliasing						# Memory aliasing 
+		=
+		memory_aliasing_g (						# memory_aliasing_g					is from   src/lib/compiler/back/low/main/fatecode/memory-aliasing-g.pkg
+		    #
+		    package rgk = rgk;						# "rgk" == "registerkinds". 
+		);
+
+	    package fatecode_c_calls						#  C-Calls handling 
+		=
+		fatecode_c_calls_g (						# fatecode_c_calls_g					is from   src/lib/compiler/back/low/main/fatecode/fatecode-ccalls-g.pkg
+		    #
+		    package mp  =  mp;						# "mp"  == "machine_properties".
+		    package pri =  pri;						# "pri" == "fatecode_registers".
+		    package t2m =  t2m;						# "t2m" == "translate_treecode_to_machcode".
+		    package rgk =  rgk;						# "rgk" == "registerkinds". 
+		    package cal =  cal; 					# "cal" == "ccalls".
+		);
+	herein
+	    #
+	    fun error msg
+		=
+		lem::error("translate_fatecode_to_treecode_g", msg);
+
+	    #  Debugging: 
+	    #
+	    fun print_fatecode_fun  fatecode_fn
+		=
+		{   controls::print::say "*********************************************** \n";
+		    prettyprint_fatecode::print_fatecode_function fatecode_fn;
+		    controls::print::say "*********************************************** \n";
+		    controls::print::flush();
+		};
+
+	    print =   controls::print::say;
+
+	
+
+
+	    ####################################################################
+	    # Heapcleaner ("garbage collection") safety.
+	    # This stuff matters only if
+	    #	lowhalf_track_heapcleaner_type_info
+	    # is TRUE, which it currently never is:
+
+	    package hr
+		=									# How to annotate heapcleaner (garbage collector) information.
+		codetemps_with_heapcleaner_info_g (					# codetemps_with_heapcleaner_info_g		is from   src/lib/compiler/back/low/gc-safety/codetemps-with-heapcleaner-info-g.pkg
+		    #
+		    package rgk =   rgk;						# "rgk" == "registerkinds".
+		    package chi =  per_codetemp_heapcleaner_info;			# per_codetemp_heapcleaner_info			is from   src/lib/compiler/back/low/main/fatecode/per-codetemp-heapcleaner-info.pkg
+		);
+
+	    i31     = per_codetemp_heapcleaner_info::i31;				# tagged integers 
+	    i32     = per_codetemp_heapcleaner_info::i32;				# untagged integers 
+	    float64 = per_codetemp_heapcleaner_info::float64;				# untagged floats 
+	    ptr     = per_codetemp_heapcleaner_info::ptr;				# Boxed chunks 
+
+	    no_opt = [lhn::no_optimization.x_to_note ()];
+
+	    enter_gc = hr::set_gc_type;
+	    #
+	    fun same_reg_as x y
+		=
+		rkj::same_id (x, y);
+
+	    ptr' = lhn::mark_reg.x_to_note (fn r = enter_gc (r, ptr));
+	    i32' = lhn::mark_reg.x_to_note (fn r = enter_gc (r, i32));
+	    i31' = lhn::mark_reg.x_to_note (fn r = enter_gc (r, i31));
+	    float64' = lhn::mark_reg.x_to_note (fn r = enter_gc (r, float64));
+	    #
+	    fun cty_to_ann fcf::type::INT     => i31'; 
+		cty_to_ann fcf::type::INT32   => i32'; 
+		cty_to_ann fcf::type::FLOAT64 => float64'; 
+		cty_to_ann _                  => ptr';
+	    end; 
+
+	    # Convert kind to heapcleaner type:
+	    #
+	    fun kind_to_gcty (fcf::p::INT 31) =>  i31;
+		kind_to_gcty (fcf::p::UNT 31) =>  i31;
+		kind_to_gcty (    _         ) =>  i32;
+	    end; 
+	    #
+	    fun cty_to_gcty (fcf::type::FLOAT64) => float64;
+		cty_to_gcty (fcf::type::INT    ) => i31;
+		cty_to_gcty (fcf::type::INT32  ) => i32;
+		cty_to_gcty _                    => ptr;
+	    end;
+
+	    #  Make a GC livein/liveout annotation: 
+	    #
+	    fun gc_annotation (an, args, ctys)
+		=
+		an (collect (args, ctys, []))
+		where
+		    fun collect (tcf::INT_EXPRESSION (tcf::REG(_, r)) ! args, cty ! ctys, gctys)
+			    =>
+			    collect (args, ctys, (r, cty_to_gcty cty) ! gctys);
+
+			collect (tcf::FLOAT_EXPRESSION (tcf::FREG(_, r)) ! args, cty ! ctys, gctys)
+			    =>
+			    collect (args, ctys, (r, cty_to_gcty cty) ! gctys);
+
+			collect(_ ! args, _ ! ctys, gctys)
+			    =>
+			    collect (args, ctys, gctys);
+
+			collect([], [], gctys)
+			    =>
+			    gctys;
+
+			collect _
+			    =>
+			    error "gc_annotation";
+		    end;
+		end;
+
+	    # These are the type widths of Mythryl.
+	    # They are hardwired for now.
+	    #
+	    pty = 32;	# Size of Mythryl's pointer		XXX BUGGO FIXME     64-BIT-ISSUE
+	    ity = 32;	# Size of Mythryl's integer 		XXX BUGGO FIXME     64-BIT-ISSUE
+	    fty = 64;	# Size of Mythryl's real number 
+
+	    zero = tcf::LITERAL 0;
+	    one  = tcf::LITERAL 1;
+	    two  = tcf::LITERAL 2;
+
+	    ml_zero =  one;					# Tagged zero.
+	    offp0   =  fcf::SLOT 0; 
+	    #
+	    fun li i = tcf::LITERAL (tcf::mi::from_int   (ity, i));
+	    fun lw w = tcf::LITERAL (tcf::mi::from_unt32 (ity, w));
+
+	    const_base_reg_offset
+		=
+		li  mp::const_base_reg_offset;
+
+	    # The heap allocation pointer -- we allocate
+	    # heap memory just by advancing this pointer.
+	    # This must be a register:
+	    # 
+	    heap_allocation_pointer_r
+		=
+		case pri::heap_allocation_pointer
+		    #
+		    tcf::REG (_, heap_allocation_pointer_r) =>  heap_allocation_pointer_r;
+		    _                                       =>  error "heap_allocation_pointer_r";
+		esac;
+
+	    # Global registers, allocated statically by hand: 
+	    #
+	    global_registers'
+		=
+		map  (fn r = tcf::INT_EXPRESSION   (tcf::REG  (ity, r))) pri::global_int_registers	# On intel32 this is ESP and EDI.
+		@ 
+		map  (fn f = tcf::FLOAT_EXPRESSION (tcf::FREG (fty, f))) pri::global_float_registers;	# On intel32 there are no global float registers -- they are all available to the register allocator.
+
+	    global_registers
+		= 
+		case pri::heap_is_exhausted__test
+		    #
+		    THE cc => tcf::FLAG_EXPRESSION cc ! global_registers';				# "cc" is "condition code" -- zero/parity/overflow/... flag stuff.
+		    NULL   =>                           global_registers'; 
+		esac;
+
+	    # This flag controls whether extra lowhalf
+	    # optimizations should be performed.
+	    #
+	    # By default, this is off:
+	    #
+	    do_extra_lowhalf_optimizations							# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		controls::lowhalf::make_bool							# Defaults to FALSE.
+		  ( "do_extra_lowhalf_optimizations",
+		    "whether to do lowhalf optimizations"
+		  );
+
+	    # If this flag is TRUE then annotate the
+	    # codetemps with heapcleaner type info;
+	    # otherwise use the default behavior.
+	    #
+	    # This flag is always FALSE;  I think
+	    # this is another unfinished project.
+	    # The relevant files appear to be:
+	    #
+	    #     src/lib/compiler/back/low/gc-safety/per-codetemp-heapcleaner-info-template.api
+	    #     src/lib/compiler/back/low/main/fatecode/per-codetemp-heapcleaner-info.api
+	    #     src/lib/compiler/back/low/main/fatecode/per-codetemp-heapcleaner-info.pkg
+	    #     src/lib/compiler/back/low/gc-safety/codetemps-with-heapcleaner-info.api
+	    #     src/lib/compiler/back/low/gc-safety/codetemps-with-heapcleaner-info-g.pkg
+	    #
+	    lowhalf_track_heapcleaner_type_info							# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		controls::lowhalf::make_bool							# Defaults to FALSE.
+		  ( "lowhalf_track_heapcleaner_type_info",
+		    "whether to track heapcleaner type info"
+		  );
+
+	    # If this flag is on then perform optimizations before generating heapcleaner code. 
+	    # If this flag is on then lowhalf_track_heapcleaner_type_info must also be turned on!
+	    # Otherwise use the default behavior.
+	    #
+	    lowhalf_optimize_before_making_heapcleaner_code					# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		controls::lowhalf::make_bool							# Defaults to FALSE.
+		  ( "lowhalf_optimize_before_making_heapcleaner_code",
+		    "whether to optimize before generating heapcleaner code"
+		  );
+
+	    # If this flag is on then split the entry block.
+	    # This should be on for SSA optimizations. 
+	    #
+	    split_entry_block									# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		controls::lowhalf::make_bool
+		  ( "split_entry_block",
+		    "whether to split entry block"
+		  );
+
+	    # This dummy annotation is used to get an empty block  
+	    #
+	    empty_block = lhn::empty_block.x_to_note ();
+
+	    # Convert chunk descriptor to int 
+	    #
+	    dtoi = large_unt::to_int;   
+
+
+	    #  The main code generation function.
+	    #
+	    #  This represents the major entrypoint into
+	    #  the machine-dependent backend lower half
+	    #  from the machine-independent upper half.
+	    #  
+	    #  We are called from   translate_anormcode_to_execode   in
+	    #  
+	    #      src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	    #  
+	    fun translate_fatecode_to_execode
+	          {
+		    fatecode_functions:		List( fcf::Function ),
+		    limits:			fcf::Variable				# Given a fun_id
+						->					# return
+						{ max_fun_heapwords:	Int,		# max words of heap memory allocated on any path from function to next heaplimit check, and
+						  max_fun_ops:		Int		# max fatecode instructions executed on any path from function to next heaplimit check.
+						},
+		    err,
+		    source_name,												# Typically sourcefile name, something like "<stdin>" if compiling interactively.
+		    per_compile_info
+		  }
+		=
+		{   apply  note_entrypoint_label_and_type   fatecode_functions;
+
+		    apply  translate_fatecode_connected_component_to_treecode							# This is where all the work is...
+			#
+			(fcc::find_connected_components_in_fatecode_callgraph  fatecode_functions);
+
+		    finish_compilation_unit  source_name;
+
+		    # Here we construct and return to caller a thunk which computes the
+		    # entrypoint offset into the machinecode bytevector.  (This is the
+		    # address which at linktime will be called with a table of all loaded
+		    # packages; the package will note all needed resources and return
+		    # its own list of exported functions and other values.)
+		    #
+		    # The idea is that in principle this address could be anywhere in the
+		    # compiled code, and the address might not be fixed until the sizes of
+		    # span-depdendent instructions (i.e., pc-relative jumps) has been decided,
+		    # so our caller should finish code generation before calling this thunk.
+		    #
+		    # In practice the entrypoint is always zero, and this whole charade
+		    # could and maybe should be dispensed with:
+		    #
+		    get_entrypoint_offset_of_first_function  fatecode_functions;						# A (Void -> Int) thunk returning entrypoint offset into machinecode bytevector.
+		}														# (In practice this is currently always zero.)
+		where
+			
+
+		    max_fun_heapwords =   .max_fun_heapwords o limits;
+
+		    split_entry_block   =   *split_entry_block;
+
+		    
+		    # These functions generate new codetemps and
+		    # mark expressions with their gc types.
+		    # When the gc-safety feature is turned on, we'll use the
+		    # versions of make_reg that automatically update the GCMap.
+		    # Otherwise, we'll just use the normal version.
+
+		    lowhalf_track_heapcleaner_type_info =   *lowhalf_track_heapcleaner_type_info;
+
+		    my  ( make_reg,
+			  make_reg_with_cty,
+			  make_reg_with_kind,
+			  new_freg
+			)
+			= 
+			if lowhalf_track_heapcleaner_type_info									# Currently ALWAYS FALSE.
+			    #
+			    make_codetemp       =   hr::make_codetemp_of_kind  rkj::INT_REGISTER;				# Currying is important here for efficiency -- make_codetemp_of_kind is slow, but make_codetemp is fast.
+			    make_float_codetemp =   hr::make_codetemp_of_kind  rkj::FLOAT_REGISTER;
+			    #
+			    fun make_reg_with_cty cty
+				=
+				make_codetemp (cty_to_gcty cty);
+			    #
+			    fun make_reg_with_kind kind
+				=
+				make_codetemp (kind_to_gcty kind);
+
+			    ( make_codetemp,
+			      make_reg_with_cty,
+			      make_reg_with_kind,
+			      make_float_codetemp
+			    );
+			else
+			    ( rgk::make_int_codetemp,
+			      rgk::make_int_codetemp,
+			      rgk::make_int_codetemp,
+			      rgk::make_float_codetemp
+			    );
+			fi;
+		    #
+		    fun mark_ptr e =   if lowhalf_track_heapcleaner_type_info  tcf::RNOTE  (e, ptr'    ); else e; fi;
+		    fun mark_i32 e =   if lowhalf_track_heapcleaner_type_info  tcf::RNOTE  (e, i32'    ); else e; fi;
+		    fun mark_flt e =   if lowhalf_track_heapcleaner_type_info  tcf::FNOTE  (e, float64'); else e; fi;
+		    #
+		    fun mark_gc (e, cty)
+			=
+			lowhalf_track_heapcleaner_type_info   ??   tcf::RNOTE (e, cty_to_ann cty)
+					                      ::   e;
+		    #
+		    fun mark_nothing e
+			=
+			e;
+
+		    # All-callers-known functions have parameters passed in fresh temporaries. 
+		    # We also annotate the heapcleaner types of these temporaries.
+		    #
+		    fun translate_function_parameters_from_fatecode_to_treecode_form  [] =>   [];
+
+			translate_function_parameters_from_fatecode_to_treecode_form  (cty ! rest)
+			    =>
+			    case cty
+				#
+				fcf::type::FLOAT64 =>   tcf::FLOAT_EXPRESSION (tcf::FREG (fty, new_freg float64));
+				#
+				fcf::type::INT     =>   tcf::INT_EXPRESSION   (tcf::REG (ity, make_reg i31));
+				fcf::type::INT32   =>   tcf::INT_EXPRESSION   (tcf::REG (ity, make_reg i32));
+				_                  =>   tcf::INT_EXPRESSION   (tcf::REG (pty, make_reg ptr));
+			    esac
+			    !
+			    translate_function_parameters_from_fatecode_to_treecode_form  rest;
+		    end;
+
+		    # label_table is a mapping of function names
+		    # (fcf::lvars) to labels.
+		    #
+		    # If the flag split_entry_block is on, we also
+		    # distinguish between external and internal labels,
+		    # make sure that no directly branches go to the
+		    # external labels. 
+
+		    exception LABEL_BIND;
+		    exception TYPE_TABLE;
+
+		    stipulate
+			my function_label_table:   iht::Hashtable ( lbl::Codelabel )
+				               =   iht::make_hashtable  { size_hint => 32,  not_found_exception => LABEL_BIND };
+		    herein
+			get_function_label  =   iht::get   function_label_table;
+			note_function_label =   iht::set   function_label_table;
+		    end;
+
+		    # type_table is a mapping of fcf::lvars to fatecode types
+		    #
+		    my type_table:   iht::Hashtable ( fcf::Type )
+				 =   iht::make_hashtable  { size_hint => 32,  not_found_exception => TYPE_TABLE };
+
+		    add_type_naming
+		       =
+		       iht::set type_table;
+
+		    # Map fatecode value expressions to fatecode types:
+		    #
+		    typmap =   iht::get  type_table;
+
+		    # note_entrypoint_label_and_type define the labels
+		    # and cty for all fatecode functions:
+		    #
+		    fun note_entrypoint_label_and_type  (callers_info, f, _, _, _)
+			=
+			{   # Internal label:
+			    note_function_label (f, lbl::make_anonymous_codelabel());
+
+			    # External entry label:
+			    #
+			    if split_entry_block
+				#
+				case callers_info
+				    #
+				    (fcf::FATE | fcf::MAY_HAVE_UNKNOWN_CALLERS)
+					=> 
+					note_function_label (-f - 1, lbl::make_codelabel_generator (int::to_string f) ());
+
+				    _ => ();
+				esac;
+			    fi;
+
+			    case callers_info
+				#
+				fcf::FATE =>   add_type_naming (f, fcf::type::FATE);
+				_         =>   add_type_naming (f, fcf::bogus_pointer_type);
+			    esac;
+			};				# fun note_entrypoint_label_and_type
+
+		    my branch_probability:   	fcf::Variable -> Null_Or(pby::Probability)
+		       =
+		       fatecode_branch_probabilities::branch_probability  fatecode_functions;		# Compute probabilities, stash them in a hashtable, return lookup function.
+
+		    #
+		    fun branch_with_prob (br, NULL)	=>   br;
+		        branch_with_prob (br, THE prob) =>   tcf::NOTE (br, lhn::branch_probability.x_to_note  prob);
+		    end;
+
+
+		    # A fatecode register may be implemented as a physical 
+		    # register or a memory location.  This function moves
+		    # a value v into a register or a memory location.
+		    #
+		    fun assign (tcf::REG (type, r),        v) =>  tcf::LOAD_INT_REGISTER (type, r, v);
+			assign (tcf::LOAD (type, ea, mem), v) =>  tcf::STORE_INT (type, ea, v, mem);
+			assign _                              =>  error "assign";
+		    end;
+
+
+		    # Function for generating code for one fatecode cluster.
+		    #
+		    fun translate_fatecode_connected_component_to_treecode
+			#
+			(callgraph_component:   List( fcf::Function ))
+			#
+			: Void				# Results are side-effected onto cluster_list + data_list in src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-sparc32-g.pkg
+			=
+			{   if *controls::debugging
+				apply
+				    prettyprint_fatecode::print_fatecode_function
+				    callgraph_component;
+			    fi;
+
+			    # The treecode stream
+			    #
+			    (t2m::translate_treecode_to_machcode  (mkg::make_machcode_controlflow_graph ()))
+				->
+				treecode_to_machcode_stream
+				as
+				  {
+				    begin_connected_component,		# Start a cluster.
+				    end_connected_component,		# End a cluster.
+				    emit_op,			# Emit Treecode statement.
+				    define_local_label,		# Define a local label 
+				    define_global_label,	# Define an external entry.
+				    end_procedure,		# Mark the end of a procedure 
+				    emit_pseudo_op,		# Emit a pseudo op.
+				    put_bblock_note,		# Add an annotation 
+				    ... 
+				  };
+
+
+			    # If fcf::RAW_C_CALL is present we need to use the virtual frame pointer
+			    #
+			    stipulate
+				#
+				fun has_raw_c_call  ((_, _, _, _, cexp) ! rest)
+					=>
+					fcf::has_raw_c_call  cexp
+					or
+					has_raw_c_call  rest;
+
+				    has_raw_c_call  ([])
+					=>
+					FALSE;
+				end;
+
+			    herein
+
+				use_virtual_framepointer
+				    =
+				    not  mp::frame_ptr_never_virtual
+				    and
+				    has_raw_c_call  callgraph_component;
+
+									my _ =
+				ca::use_virtual_framepointer
+				    :=
+				    use_virtual_framepointer;
+			    end;
+
+
+			    # This is the (heap_allocation_pointer > heap_allocation_limit)
+			    # comparison test used -- when this is TRUE, it is time to
+			    # run the heapcleaner ("garbage collector").
+			    #	
+			    # We have a per-platform choice of signed or unsigned comparisons.
+			    # 
+			    # This usually doesn't matter, but some
+			    # architectures work better in one way
+			    # or the other, so we are given a choice here.
+			    #
+			    heap_is_exhausted__test
+				=
+				tcf::CMP (
+				    pty,
+				    pri::signed_gctest  ??  tcf::GT
+					 	        ::  tcf::GTU, 
+				    pri::heap_allocation_pointer,
+				    pri::heap_allocation_limit  use_virtual_framepointer
+				);
+
+			    component_size =   length  callgraph_component;
+
+
+			    # Per-cluster tables 
+
+			    exception REGISTER_MAP;
+			    exception GEN_TABLE;
+
+			    # gen_table -- is used to retrieve the
+			    # parameter passing conventions once a
+			    # function has been compiled.
+
+
+			    my  gen_table:  iht::Hashtable( ffs::Function )
+			        =
+				iht::make_hashtable  { size_hint => component_size,  not_found_exception => GEN_TABLE };
+
+			    add_gen_table    =   iht::set  gen_table;
+			    lookup_gen_table =   iht::get  gen_table;
+
+
+			    # { fp, gp } RegTable -- mapping of lvars to registers  
+
+
+			    my fp_reg_table:  iht::Hashtable( tcf::Float_Expression )
+					   =  iht::make_hashtable  { size_hint => 2,  not_found_exception => REGISTER_MAP };
+
+
+			    my gp_reg_table:  iht::Hashtable( tcf::Int_Expression )
+					   =  iht::make_hashtable  { size_hint => 32,  not_found_exception => REGISTER_MAP };
+
+
+			    add_exp_naming =   iht::set  gp_reg_table;
+
+			    #
+			    fun add_reg_naming (x, r)
+				=
+				add_exp_naming (x, tcf::REG (ity, r));
+
+			    add_freg_naming =   iht::set fp_reg_table;
+
+			    # The following function is used to translate fatecode into 
+			    # larger trees.  Definitions marked TREEIFY can be forward
+			    # propagated to their (only) use.   This can drastically
+			    # reduce register pressure.
+
+			    Treeify = TREEIFY | TREEIFIED | COMPUTE | DEAD;
+
+			    exception USE_COUNT_TABLE;
+
+			    my use_count_table:  iht::Hashtable( Treeify )
+					      =  iht::make_hashtable  { size_hint => 32,  not_found_exception => USE_COUNT_TABLE };
+			    #
+			    fun treeify i
+				=
+				the_else (iht::find  use_count_table  i,   DEAD);
+
+
+			    add_count_table
+				=
+				iht::set  use_count_table;
+
+			    #
+			    fun mark_as_treeified r
+				=
+				add_count_table (r, TREEIFIED);
+
+			    # Reset the namings and use count tables.
+			    # These tables can be reset at the same time.
+			    #
+			    fun clear_tables ()
+				=
+				{   iht::clear  gp_reg_table; 
+				    iht::clear  fp_reg_table; 
+				    iht::clear  use_count_table;
+				};
+
+			    # Memory disambiguation uses
+			    # the new register counters, 
+			    # so this must be reset here.
+
+			    rgk::reset_codetemp_id_allocation_counters ();
+
+			    mem_disambig
+				=
+				mem_aliasing::analyze  callgraph_component;
+
+			    # Points-to analysis projection.
+			    #
+			    fun projection (x as REF (pt::TOP _), _)
+				    =>
+				    x;
+
+				projection (x, i)
+				    =>
+				    pt::ith_projection (x, i);
+			    end;
+
+			    disambiguate_memory_flag
+				=
+				*cg::disambiguate_memory;
+
+			    #
+			    fun get_region e
+				= 
+				if disambiguate_memory_flag
+				    #
+				    case e
+					fcf::VAR v =>  mem_disambig v;
+					_          =>  rgn::readonly;
+				    esac;
+				else
+				    rgn::memory;
+				fi;
+			    #
+			    fun get_region_projection (e, i)
+				=
+				if disambiguate_memory_flag
+				    #
+				    case e
+					fcf::VAR v =>  projection (mem_disambig v, i);
+					_          =>  rgn::readonly;
+				    esac;
+				else
+				    rgn::memory;
+				fi;
+			    #
+			    fun dataptr_region v
+				=
+				get_region_projection (v, 0);
+
+			    # fun array_region (x as REF (pt::TOP _)) = x;
+			    #     array_region x = pt::weakSubscript x;
+			    # end;
+
+			    # For safety, let's assume it's
+			    # the global memory right now: 
+			    #
+			    fun array_region _
+				=
+				rgn::memory;
+
+			    # This keeps track of all the advanced offset on the heap_ptr
+			    # since the beginning of the fatecode function.
+			    # This is important for generating the correct address offset
+			    # for newly allocated records.
+			    #
+			    advanced_heap_ptr =   REF 0;
+
+			    # Function grabty looks up the fatecode type
+			    # of a value expression in fatecode.
+			    #
+			    fun grabty (fcf::VAR    v) => typmap v;
+				grabty (fcf::LABEL  v) => typmap v;
+				grabty (fcf::INT    _) => fcf::type::INT;
+				grabty (fcf::INT32  _) => fcf::type::INT32;
+				grabty (fcf::TRUEVOID) => fcf::type::FLOAT64;
+				grabty _              => fcf::bogus_pointer_type;
+			    end;
+
+			    # The baseptr contains the start address of the entire 
+			    # compilation unit.  This function generates the address of
+			    # a label that is embedded in the same compilation unit.
+			    #  The generated address is relative to the baseptr.
+			    #
+			    # Note: For heapcleaner safety, we consider this
+			    #       to be a chunk reference.
+			    #
+			    fun make_code_for_label_address (lab, k)
+				=
+				mark_ptr e
+				where
+				    e =   tcf::ADD (
+					      pri::address_width,
+					      pri::baseptr  use_virtual_framepointer,
+					      tcf::LABEL_EXPRESSION (
+						  tcf::ADD (
+						      pri::address_width,
+						      tcf::LABEL lab, 
+						      tcf::LITERAL (
+							  integer::from_int
+							      (k - mp::const_base_reg_offset)
+					  )   )   )   );
+				end;
+
+			    # The following function looks up the Treecodeexpression
+			    # associated with a general purpose value expression. 
+			    #
+			    lookup_gp_reg_table
+				=
+				iht::get   gp_reg_table;
+
+			    # This function resolves address computations of the form
+			    #
+			    #     tcf::LATE_CONSTANT k
+			    #
+			    # where offset is a reference to the kth byte allocated
+			    # since the beginning of the fatecode fn.
+			    #
+			    fun resolve_heap_ptr_offset (tcf::LATE_CONSTANT  absolute_heap_ptr_offset)
+				    =>
+				    {   tmp_r =   make_reg ptr;
+
+					offset =   absolute_heap_ptr_offset - *advanced_heap_ptr;
+
+					emit_op (tcf::LOAD_INT_REGISTER (pty, tmp_r, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li offset)));
+
+					tcf::REG (pty, tmp_r);
+				    };
+
+				resolve_heap_ptr_offset  e
+				    =>
+				    e;
+			    end;
+
+			    #
+			    fun regbind (fcf::VAR   v) => resolve_heap_ptr_offset (lookup_gp_reg_table v);
+				regbind (fcf::INT   i) => li (i+i+1);
+				regbind (fcf::INT32 w) => lw w;
+
+				regbind (fcf::LABEL v)
+				    => 
+				    make_code_for_label_address (get_function_label (split_entry_block  ??  -v - 1  ::  v), 0);
+
+				regbind _
+				    =>
+				    error "regbind";
+			    end;
+
+
+			    # This version allows the value to be further propagated:
+			    #
+			    fun resolve_heap_ptr_offset' (tcf::LATE_CONSTANT (absolute_heap_ptr_offset))
+				=> 
+				{   offset = absolute_heap_ptr_offset - *advanced_heap_ptr;
+
+				    mark_ptr (tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li offset));
+				};
+
+				resolve_heap_ptr_offset'  other
+				    =>
+				    other;
+			    end;
+
+			    #
+			    fun regbind' (fcf::VAR   v) => resolve_heap_ptr_offset'(lookup_gp_reg_table v);
+				regbind' (fcf::INT   i) => li (i+i+1);
+				regbind' (fcf::INT32 w) => lw w;
+
+				regbind' (fcf::LABEL v)
+				    => 
+				    make_code_for_label_address (get_function_label (split_entry_block ?? -v - 1 :: v), 0);
+
+				regbind' _
+				    =>
+				    error "regbind'";
+			    end;
+
+
+			    # The following function looks up
+			    # the Treecode expression associated
+			    # with a floating point value expression:
+			    #
+			    lookup_fp_reg_table
+				=
+				iht::get   fp_reg_table;
+			    #
+			    fun fregbind (fcf::VAR v) =>   lookup_fp_reg_table v;
+				fregbind _           =>   error "fregbind";
+			    end;
+
+			    # On entry to a function the parameters
+			    # are in formal parameter passing registers.
+			    #
+			    # Within the body of the function, they are
+			    # moved immediately to fresh temporary registers.
+			    #
+			    # This ensures that the life time of the
+			    # formal parameters is restricted to the 
+			    # function body and is critical in avoiding
+			    # artificial codetemp interferences:
+			    #
+			    fun initial_register_namings_escaping (vl, rl, tl)
+				= 
+				{   fun e_copy (x ! xs, tcf::INT_EXPRESSION (tcf::REG(_, r)) ! rl, rds, rss, xs', rl')
+					    => 
+					    {   t = make_reg ptr;
+
+						add_reg_naming (x, t); 
+
+						e_copy (xs, rl, t ! rds, r ! rss, xs', rl');
+					    };
+
+					e_copy (x ! xs, r ! rl, rds, rss, xs', rl')
+					    => 
+					    e_copy (xs, rl, rds, rss, x ! xs', r ! rl');
+
+					e_copy([], [], [], [], xs', rl')
+					    =>
+					    (xs', rl');
+
+					e_copy([], [], rds, rss, xs', rl')
+					    => 
+					    {   emit_op (tcf::MOVE_INT_REGISTERS (ity, rds, rss));
+						(xs', rl');
+					    };
+
+					e_copy (([], _ ! _, _, _, _, _) | (_ ! _, [], _, _, _, _))
+					    =>
+					    error "eCopy";
+				    end;
+
+				    #
+				    fun e_other (x ! xs, tcf::INT_EXPRESSION (r) ! rl, xs', rl')
+					    => 
+					    {   t = make_reg ptr;
+
+						add_reg_naming (x, t); emit_op (tcf::LOAD_INT_REGISTER (ity, t, r)); 
+
+						e_other (xs, rl, xs', rl');
+					    };
+
+					e_other (x ! xs, (tcf::FLOAT_EXPRESSION (tcf::FREG(_, f))) ! rl, xs', rl')
+					    => 
+					    e_other (xs, rl, x ! xs', f ! rl');
+
+					e_other([], [], xs, rl)
+					    =>
+					    (xs, rl);
+
+					e_other (_, tcf::FLOAT_EXPRESSION _ ! _, _, _)
+					    =>
+					    error "eOther: FPR but not FREG";
+
+					e_other (_, tcf::FLAG_EXPRESSION _ ! _, _, _)
+					    =>
+					    error "eOther: CCR";
+
+					e_other (([], _ ! _, _, _) | (_ ! _, [], _, _))
+					    =>
+					    error "eOther";
+				    end;
+
+				    #
+				    fun e_fcopy ([], []) => ();
+
+					e_fcopy (xs, rl)
+					    => 
+					    {   fs =   map (fn _ = new_freg float64)
+							   xs;
+
+						paired_lists::apply 
+						    (fn (x, f) = add_freg_naming (x, tcf::FREG (fty, f)))
+						    (xs, fs);
+
+						emit_op (tcf::MOVE_FLOAT_REGISTERS (fty, fs, rl));
+					    };
+				    end;
+
+				    my  (vl', rl')
+					=
+					e_copy (vl, rl, [], [], [], []);
+
+				    e_fcopy (e_other (vl', rl', [], []));
+
+				    paired_lists::apply add_type_naming (vl, tl);
+				};
+
+	#		    fun initial_register_namings_known (vl, rl, tl)
+	#                        = 
+	#			{   fun f (v, tcf::INT_EXPRESSION (reg  as tcf::REG _ )) =   addExpNaming  (v, reg )
+	#			      | f (v, tcf::FLOAT_EXPRESSION (freg as tcf::FREG _)) =   addFregNaming (v, freg)
+	#			      | f _ = error "initial_register_namings_known::f";
+	#
+	#                            paired_lists::apply f (vl, rl);
+	#
+	#			    paired_lists::apply add_type_naming (vl, tl);
+	#			};
+
+
+			    # Keep allocation pointer aligned on odd boundary. 
+			    # Note: We have accounted for the extra space this
+			    # eats up in pkg pick_fatecode_funs_for_heaplimit_checks:	# pick_fatecode_funs_for_heaplimit_checks	is from   src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
+			    #
+			    fun update_heap_pointer  heap_ptr
+				= 
+				{   fun adv_by heap_ptr
+					= 
+					{   advanced_heap_ptr := *advanced_heap_ptr + heap_ptr;
+					    #
+					    emit_op (tcf::LOAD_INT_REGISTER (pty, heap_allocation_pointer_r, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li heap_ptr)));
+					};
+
+				    if (heap_ptr != 0)
+					#
+					if (unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0)   adv_by (heap_ptr+4);
+					else 							     adv_by (heap_ptr  );
+					fi;
+				    fi;
+				};
+			    #
+			    fun test_limit  heap_ptr
+				= 
+				{   fun assign_cc (tcf::CC(_, cc), v)
+					    =>
+					    emit_op (tcf::LOAD_INT_REGISTER_FROM_FLAGS_REGISTER (cc, v));
+
+					assign_cc _
+					    =>
+					    error "test_limit::assign";
+				    end;
+
+				    update_heap_pointer  heap_ptr;
+
+				    case pri::heap_is_exhausted__test
+					#
+					THE cc =>  assign_cc (cc, heap_is_exhausted__test);
+					NULL   =>  (); 
+				    esac;
+				};
+
+
+			    # Function to allocate an integer record
+			    #   x <- [descriptor ... fields]
+			    #
+			    fun ea (r, 0) => r;
+				ea (r, n) => tcf::ADD (pri::address_width, r, li n);
+			    end;
+			    #
+			    fun index_ea (r, 0) => r;
+				index_ea (r, n) => tcf::ADD (pri::address_width, r, li (n*4));
+			    end;
+			    #
+			    fun alloc_record (mark_comp, mem, desc, fields, heap_ptr)
+				=  
+				{   fun get_field (v, e, fcf::SLOT 0) => e;
+					get_field (v, e, fcf::SLOT n) => tcf::ADD (pri::address_width, e, li (4*n));
+					get_field (v, e, p         ) => get_path (get_region v, e, p);
+				    end 
+
+				    also
+				    fun get_path (mem, e, fcf::SLOT n)
+					    =>
+					    index_ea (e, n);
+
+					get_path (mem, e, fcf::VIA_SLOT (n, fcf::SLOT 0))
+					    =>
+					    mark_comp (tcf::LOAD (ity, index_ea (e, n), projection (mem, n)));
+
+					get_path (mem, e, fcf::VIA_SLOT (n, p))
+					    =>
+					    {   mem =   projection (mem, n);
+
+						get_path (mem, mark_ptr (tcf::LOAD (ity, index_ea (e, n), mem)), p);
+					    };
+				    end;
+				    #
+				    fun store_fields ([], heap_ptr, element)
+					    =>
+					    heap_ptr;
+
+					store_fields((v, p) ! fields, heap_ptr, element)
+					    =>  
+					    {   emit_op (tcf::STORE_INT (ity, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li heap_ptr),
+						     get_field (v, regbind' v, p), projection (mem, element)));
+
+						store_fields (fields, heap_ptr+4, element+1);
+					    };
+				    end;
+
+
+				    emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr), desc, projection (mem, -1)));
+				    store_fields (fields, heap_ptr+4, 0);
+				    heap_ptr+4;
+				};
+
+
+
+			    # Allocate a floating point record
+			    #   x <- [descriptor ... fields]
+			    #
+			    fun alloc_frecord (mem, desc, fields, heap_ptr)
+				= 
+				{   fun fea (r, 0) => r;
+					fea (r, n) => tcf::ADD (pri::address_width, r, li (n*8));
+				    end;
+				    #
+				    fun fget_field (v, fcf::SLOT 0) =>  fregbind v;
+					fget_field (v, fcf::SLOT _) =>  error "allocFrecord::fgetField";
+					fget_field (v, p         ) =>  fget_path (get_region v, regbind' v, p);
+				    end 
+
+
+				    also
+				    fun fget_path (mem, e, fcf::SLOT _)
+					    =>
+					    error "allocFrecord::fgetPath";
+
+					fget_path (mem, e, fcf::VIA_SLOT (n, fcf::SLOT 0))
+					    =>
+					    mark_flt (tcf::FLOAD (fty, fea (e, n), projection (mem, n)));
+
+					fget_path (mem, e, fcf::VIA_SLOT (n, p))
+					    =>
+					    {   mem =   projection (mem, n);
+
+						fget_path (mem, mark_ptr (tcf::LOAD (ity, index_ea (e, n), mem)), p);
+					    };
+				    end;
+
+				    #
+				    fun fstore_fields ([], heap_ptr, element)
+					    =>
+					    heap_ptr;
+
+					fstore_fields((v, p) ! fields, heap_ptr, element)
+					    =>  
+					    {   emit_op (tcf::STORE_FLOAT (fty, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li heap_ptr),
+							   fget_field (v, p), projection (mem, element)));
+
+						fstore_fields (fields, heap_ptr+8, element+1);
+					    };
+				    end;
+
+
+				    emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr), desc, projection (mem, -1)));
+
+				    fstore_fields (fields, heap_ptr+4, 0);
+
+				    heap_ptr+4;
+				};
+
+
+			    # Allocate a header pair for vector or rw_vector
+			    #
+			    fun alloc_header_pair (hdr_desc, mem, data_ptr, len, heap_ptr)
+				=
+				{   emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr), li hdr_desc, projection (mem,-1)));
+
+				    emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr+4), 
+						 tcf::REG (ity, data_ptr), projection (mem, 0)));
+
+				    emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr+8), li (len+len+1),
+						 projection (mem, 1)));
+				    heap_ptr+4;
+				};
+
+
+			    # Int 31 tag optimizations.
+			    # Note: if the tagging scheme changes
+			    # then we'll have to redo these. XXX BUGGO FIXME
+			    #
+			    fun add_tag e   =   tcf::ADD        (ity, e, one);
+			    fun strip_tag e =   tcf::SUB        (ity, e, one);
+			    fun or_tag e    =   tcf::BITWISE_OR (ity, e, one);
+			    #
+			    fun tag (FALSE, e) => tag_unsigned e; 
+				tag (TRUE,  e) => tag_signed   e;
+			    end 
+
+			    also
+			    fun tag_unsigned e
+				= 
+				{   fun double r
+					=
+					tcf::ADD (ity, r, r);
+
+				    case e 
+					#
+					tcf::REG _
+					    =>
+					    add_tag (double e);
+
+				       _ => {   tmp =   make_reg ptr;		#  XXX ??? 
+
+						tcf::LET ( tcf::LOAD_INT_REGISTER (ity, tmp, e),
+							 add_tag (double (tcf::REG (ity, tmp)))
+						       );
+					    };
+				    esac;
+				}
+
+			    also
+			    fun tag_signed e
+				= 
+				{   fun double r
+					=
+					tcf::ADDT (ity, r, r);
+
+				    case e 
+					#
+					tcf::REG _
+					    =>
+					    add_tag (double e);
+
+					_ => {   tmp =   make_reg ptr;		#  XXX ??? 
+
+						 tcf::LET ( tcf::LOAD_INT_REGISTER (ity, tmp, e),
+							  add_tag (double (tcf::REG (ity, tmp)))
+							);
+					     };
+				    esac;
+				};
+			    #
+			    fun untag (TRUE,  e) => untag_signed e; 
+				untag (FALSE, e) => untag_unsigned e;
+			    end 
+
+			    also
+			    fun untag_unsigned (fcf::INT i) =>  li i;
+				untag_unsigned v            =>  tcf::RIGHT_SHIFT_U (ity, regbind v, one);
+			    end 
+
+			    also
+			    fun untag_signed (fcf::INT i) =>  li i;
+				untag_signed v            =>  tcf::RIGHT_SHIFT (ity, regbind v, one);
+			    end;
+
+
+
+			    # Integer operators 
+			    #
+			    fun int31add (add_op, fcf::INT k, w     ) =>  add_op (ity, li (k+k), regbind w);
+				int31add (add_op, w, v as fcf::INT _) =>  int31add (add_op, v, w);
+				int31add (add_op, v, w              ) =>  add_op (ity, regbind v, strip_tag (regbind w));
+			    end;
+			    #
+			    fun int31sub (sub_op, fcf::INT k, w) =>  sub_op (ity, li (k+k+2), regbind w);
+				int31sub (sub_op, v, fcf::INT k) =>  sub_op (ity, regbind v, li (k+k));
+				int31sub (sub_op, v, w         ) =>  add_tag (sub_op (ity, regbind v, regbind w));
+			    end;
+			    #
+			    fun int31xor (fcf::INT k, w     ) =>  tcf::BITWISE_XOR (ity, li (k+k), regbind w);
+				int31xor (w, v as fcf::INT _) =>  int31xor (v, w);
+				int31xor (v, w              ) =>  add_tag (tcf::BITWISE_XOR (ity, regbind v, regbind w));
+			    end;
+			    #
+			    fun int31mul (signed, mul_op, v, w)
+				= 
+				{   fun f (fcf::INT k, fcf::INT j) =>   (li (k+k), li (j));
+					f (fcf::INT k, w)         =>   (untag (signed, w), li (k+k));
+					f (v, w as fcf::INT _)    =>   f (w, v);
+					f (v, w)                 =>   (strip_tag (regbind v), untag (signed, w));
+				    end;
+
+				    my  (v, w) =   f (v, w);
+
+				    add_tag (mul_op (ity, v, w));
+				};
+			    #
+			    fun int31div (signed, drm, v, w)
+				= 
+				{   my  (v, w)
+					= 
+					case (v, w)
+					    #
+					    (fcf::INT k, fcf::INT j) =>   (li k, li j);
+					    (fcf::INT k, w)          =>   (li k, untag (signed, w));
+					    #
+					    (v, fcf::INT k)          =>   (untag (signed, v), li (k));
+					    (v, w)                   =>   (untag (signed, v), untag (signed, w));
+					esac;
+
+				    # The only way a 31-bit div can overflow
+				    # is when the result gets retagged so
+				    # we can use tcf::DIVS instead of tcf::DIVT:
+				    #
+				    tag ( signed, 
+					  signed  ??  tcf::DIVS (drm, ity, v, w)
+						  ::  tcf::DIVU (ity, v, w)
+					);
+				};
+			    #
+			    fun int31rem (signed, drm, v, w)
+				=
+				{   my  (v, w)
+					=
+					case (v, w)
+					    #
+					    (fcf::INT k, fcf::INT j) =>   (li k, li j);
+					    (fcf::INT k, w)         =>   (li k, untag (signed, w));
+					    #
+					    (v, fcf::INT k)         =>   (untag (signed, v), li (k));
+					    (v, w)                 =>   (untag (signed, v), untag (signed, w));
+					esac;
+
+				    # Will not overflow, so
+				    # we tag like unsigned:
+				    #
+				    tag ( FALSE,
+					  signed  ??  tcf::REMS (drm, ity, v, w)
+						  ::  tcf::REMU (ity, v, w)
+					);
+				};
+			    #
+			    fun int31lshift (fcf::INT k, w)
+				    =>
+				    add_tag (tcf::LEFT_SHIFT (ity, li (k+k), untag_unsigned (w)));
+
+			       int31lshift (v, fcf::INT k)
+				    => 
+				    add_tag (tcf::LEFT_SHIFT (ity, strip_tag (regbind v), li (k)));
+
+			       int31lshift (v, w)
+				    => 
+				    add_tag (tcf::LEFT_SHIFT (ity, strip_tag (regbind v), untag_unsigned (w)));
+			    end;
+
+			    #
+			    fun int31rshift (rshift_op, v, fcf::INT k)
+				    =>  
+				    or_tag (rshift_op (ity, regbind v, li (k)));
+
+				int31rshift (rshift_op, v, w)
+				    =>
+				    or_tag (rshift_op (ity, regbind v, untag_unsigned (w)));
+			    end;
+
+			    # For tagword definitions see   src/c/h/heap-tags.h
+			    #
+			    fun get_heapchunk_tagword (v)
+				= 
+				tcf::LOAD (ity, tcf::SUB (pty, regbind v, li (4)), get_region_projection (v, -1));	# Possible 64-BIT-ISSUE -- I think we're assuming (4) is word-length-in-bytes here.
+
+
+			    # Compare to   GET_LENGTH_FROM_TAGWORD   from   src/c/h/heap-tags.h
+			    # Here we are also fetching the tagword:
+			    #
+			    fun get_heapchunk_length  v								# Length-in-words, I think.
+				= 
+				tcf::RIGHT_SHIFT_U (ity, get_heapchunk_tagword (v), li (tag::tag_width - 1));		# Why "-1"? Is this to leave us with an Int31 value, or ...?
+
+
+
+			    # Note: Because formals are moved
+			    # into fresh temporaries,
+			    #     (formals intersect actuals)
+			    # is empty. 
+			    #
+			    # Do the treeified computation first so as to prevent extra
+			    # interferences from being created. 
+			    #
+			    fun call_setup (formals, actuals)
+				= 
+				gather (formals, actuals, [], [], [], [], [])
+				where
+				    #
+				    fun is_treeified (fcf::VAR r) =>   treeify r == TREEIFIED;
+					is_treeified _           =>   FALSE;
+				    end;
+				    #
+				    fun gather ([], [], cp_rd, cp_rs, fcopies, treeified, moves)
+					    => 
+					    {   apply emit_op treeified;
+
+						case (cp_rd, cp_rs) 
+						    #
+						    ([],[]) => (); 
+						    _ => emit_op (tcf::MOVE_INT_REGISTERS (ity, cp_rd, cp_rs));
+						esac;
+
+						case fcopies
+						    #
+						    [] => (); 
+						    _  => emit_op (tcf::MOVE_FLOAT_REGISTERS (fty, map #1 fcopies, map #2 fcopies));
+						esac;
+
+						apply emit_op moves;
+					    };
+
+					gather (tcf::INT_EXPRESSION (tcf::REG (type, rd)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+					    => 
+					    case (regbind act)
+						#
+						tcf::REG(_, rs)
+						    =>
+						    gather (fmls, acts, rd ! cp_rd, rs ! cp_rs, f, t, m);
+
+						e => if   (is_treeified act)
+							  gather (fmls, acts, cp_rd, cp_rs, f,    tcf::LOAD_INT_REGISTER (type, rd, e) ! t, m);
+						     else gather (fmls, acts, cp_rd, cp_rs, f, t, tcf::LOAD_INT_REGISTER (type, rd, e) ! m);
+						     fi;
+					     esac;
+
+					gather (tcf::INT_EXPRESSION (tcf::LOAD (type, ea, r)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+					    =>
+					    #  Always store them early! 
+					    gather (fmls, acts, cp_rd, cp_rs, f,
+						   tcf::STORE_INT (type, ea, regbind act, r) ! t, m);
+
+					gather (tcf::FLOAT_EXPRESSION (tcf::FREG (type, fd)) ! fmls, act ! acts, cp_rd, cp_rs, f, t, m)
+					    => 
+					    case (fregbind act)
+
+						tcf::FREG(_, fs) => 
+						    gather (fmls, acts, cp_rd, cp_rs, (fd, fs) ! f, t, m);
+
+						e => 
+						    if (is_treeified act)
+							gather (fmls, acts, cp_rd, cp_rs, f, tcf::LOAD_FLOAT_REGISTER (type, fd, e) ! t, m);
+						    else
+							gather (fmls, acts, cp_rd, cp_rs, f, t, tcf::LOAD_FLOAT_REGISTER (type, fd, e) ! m);
+						    fi;
+					     esac;
+
+
+					gather _
+					    =>
+					    error "call_setup::gather";
+				    end;
+				end;
+
+
+			    # Scale-and-add:
+			    #
+			    fun scale1 (a, fcf::INT 0) => a;
+				scale1 (a, fcf::INT k) => tcf::ADD (ity, a, li (k));
+				scale1 (a, i         ) => tcf::ADD (ity, a, untag_signed (i));
+			    end;
+			    #
+			    fun scale4 (a, fcf::INT 0) => a;
+				scale4 (a, fcf::INT i) => tcf::ADD (ity, a, li (i*4));
+				scale4 (a, i         ) => tcf::ADD (ity, a, tcf::LEFT_SHIFT (ity, untag_signed (i), two));
+			    end;
+			    #
+			    fun scale8 (a, fcf::INT 0) => a;
+				scale8 (a, fcf::INT i) => tcf::ADD (ity, a, li (i*8));
+				scale8 (a, i         ) => tcf::ADD (ity, a, tcf::LEFT_SHIFT (ity, strip_tag (regbind i), li (2)));
+			    end;
+
+
+
+			    # Zero-extend and sign-extend:
+			    #
+			    fun zx32 (size, e)
+				=
+				tcf::ZERO_EXTEND (32, size, e);
+
+				#  tcf::RIGHT_SHIFT_U (32, tcf::LEFT_SHIFT (32, e, li (32 - size)), li (32 - size)) 
+			    #
+			    fun sx32 (size, e)
+				=
+				tcf::SIGN_EXTEND (32, size, e);
+
+				#  tcf::RIGHT_SHIFT (32, tcf::LEFT_SHIFT (32, e, li (32 - size)), li (32 - size)) 
+
+			    # Add to storelist, the address
+			    # where a boxed update has occurred:
+			    #
+			    fun record_store (tmp, heap_ptr)
+				=
+				{   emit_op (tcf::STORE_INT (pty, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr)),
+							   tmp, rgn::storelist));
+
+				    emit_op (tcf::STORE_INT (pty, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr+4)),		# probable 64-bit issue -- '4' is probably 'bytes-per-word'.
+							   pri::heap_changelog_pointer  use_virtual_framepointer, rgn::storelist));
+
+				    emit_op (assign (pri::heap_changelog_pointer  use_virtual_framepointer, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr))));
+				};
+			    #
+			    fun unsigned_compare op
+				= 
+				case op
+				    fcf::p::GT  => tcf::GTU;   fcf::p::GE  => tcf::GEU; 
+				    fcf::p::LT  => tcf::LTU;   fcf::p::LE  => tcf::LEU;
+				    fcf::p::EQL => tcf::EQ;    fcf::p::NEQ => tcf::NE;
+				esac;
+			    #
+			    fun signed_compare op
+				= 
+				case op
+				    fcf::p::GT  => tcf::GT;   fcf::p::GE  => tcf::GE;   
+				    fcf::p::LT  => tcf::LT;   fcf::p::LE  => tcf::LE;
+				    fcf::p::NEQ => tcf::NE;   fcf::p::EQL => tcf::EQ;
+				esac;
+			    #
+			    fun float64cmp (op, v, w)
+				= 
+				tcf::FCMP (64, fcond, fregbind v, fregbind w)
+				where
+				    fcond = case op
+						fcf::p::f::EQ  => tcf::FEQ;  	# XXX BUGGO FIXME should make these name sets identical (do we need both?)
+						fcf::p::f::ULG => tcf::FNEU; 
+						fcf::p::f::UN  => tcf::FUO;   
+						fcf::p::f::LEG => tcf::FGLE; 
+						fcf::p::f::GT  => tcf::FGT;   
+						fcf::p::f::GE  => tcf::FGE;  
+						fcf::p::f::UGT => tcf::FGTU; 
+						fcf::p::f::UGE => tcf::FGEU; 
+						fcf::p::f::LT  => tcf::FLT;   
+						fcf::p::f::LE  => tcf::FLE;  
+						fcf::p::f::ULT => tcf::FLTU; 
+						fcf::p::f::ULE => tcf::FLEU; 
+						fcf::p::f::LG  => tcf::FNE;  
+						fcf::p::f::UE  => tcf::FEQU;
+					    esac ;
+				end;
+			    #
+			    fun branch_to_label label
+				=
+				tcf::GOTO (tcf::LABEL label, []);
+
+
+
+			    # This function initializes a fatecode fn before we generate
+			    # code for it.   Its tasks include:
+			    #
+			    #     1. Add type namings for each definition. This is used to determine
+			    #        the parameter passing convention for standard functions.
+			    #
+			    #     2. Compute the number of uses for each variable.
+			    #        This is used in the forward propagation logic.
+			    #
+			    #     3. Check whether the base pointer is needed.  
+			    #          It is needed iff 
+			    #           a.  There is a reference to fcf::LABEL
+			    #           b.  It uses SWITCH (the jumptable requires the basepointer)
+			    #
+			    #     4. Generate the heapcleaner tests for STANDARD and KNOWN functions
+			    #
+			    #     5. Check to see if floating point allocation is being performed
+			    #        in the function.  If so, we will align the heap_allocation_pointer.
+			    #
+			    fun translate_fatecode_function_to_treecode (function_label, kind, f, parameters, formals, tys, e)
+				= 
+				{   add =   add_type_naming;
+				    #
+				    fun add_use v
+					=
+					case (treeify v)
+					    #
+					    DEAD    =>  add_count_table (v, TREEIFY);
+					    TREEIFY =>  add_count_table (v, COMPUTE);
+					    #
+					    COMPUTE =>  ();
+					    _       =>  error "add_use";
+					esac;
+
+
+				    has_floats    =   REF FALSE;		#  Default is no 
+				    need_base_ptr =   REF FALSE;
+
+				    #
+				    fun add_value (fcf::VAR v)   =>   add_use v; 
+					add_value (fcf::LABEL _) =>   need_base_ptr := TRUE;
+					add_value _              =>   ();
+				    end;
+
+				    #
+				    fun add_values []                  => ();
+					add_values (fcf::VAR v ! vs)   => { add_use v; add_values vs;};
+					add_values (fcf::LABEL _ ! vs) => { need_base_ptr := TRUE; add_values vs;};
+					add_values(_ ! vs)             => add_values vs;
+				    end;
+
+				    #
+				    fun add_record_values []              => ();
+					add_record_values((fcf::VAR v, _) ! l) => { add_use v; add_record_values l;};
+
+					add_record_values((fcf::LABEL v, _) ! l)
+					    => 
+					    {   need_base_ptr := TRUE;
+						add_record_values l;
+					    };
+
+					add_record_values(_ ! l)
+					    =>
+					    add_record_values l;
+				    end;
+
+				    #
+				    fun init e
+					= 
+					case e
+					    #
+					    fcf::DEFINE_RECORD { kind, fields, name, fate }
+						=> 
+						{   case kind
+							#
+							(fcf::rk::FCONT | fcf::rk::FBLOCK)
+							    =>
+							    has_floats := TRUE;
+
+							_ => ();
+						    esac;
+
+						    add_record_values  fields;
+						    add (name, fcf::bogus_pointer_type);
+						    init fate;
+						};
+
+					    fcf::GET_FIELD_I   { record, name, type, fate, ... }
+						=>
+						{   add_value record;
+						    add (name, type);
+						    init fate;
+						};
+
+					    fcf::GET_ADDRESS_OF_FIELD_I { record, name, fate, ... }
+						=>
+						{   add_value record;
+						    add (name, fcf::bogus_pointer_type);
+						    init fate;
+						};
+
+					    fcf::JUMPTABLE { i, fates, ... }
+						 => 
+						 {   need_base_ptr := TRUE;
+						     add_value i;
+						     apply init fates;
+						 };
+
+					    fcf::STORE_TO_RAM { args, fate, ... }
+						 =>
+						 {   add_values args;
+						     init fate;
+						 };
+
+					    fcf::FETCH_FROM_RAM { op, args, name, type, fate }
+						 => 
+						{   add_values args;
+
+						    # float-read cannot move past a float-write.
+						    # For now read operations cannot be treeified.
+						    # This is hacked by making it (falsely) used 
+						    # more than once.
+
+						    case op
+							#
+							( fcf::p::NUMSUBSCRIPT { kindbits=>fcf::p::FLOAT _}
+							| fcf::p::RAWLOAD      { kindbits=>fcf::p::FLOAT _}
+							)
+							    =>
+							    add_count_table (name, COMPUTE);
+
+							_ => ();
+						    esac;
+
+						    add (name, type);
+
+						    init fate;
+						};
+
+					    fcf::MATH { args, name, type, fate, ... }
+						=>
+						{   add_values args;
+						    add (name, type);
+						    init fate;
+						};
+
+					    fcf::RAW_C_CALL { args, results, fate, ... }
+						=>
+						{   add_values args;
+						    apply add results;
+						    init fate;
+						};
+
+					    fcf::PURE { op, args, name, type, fate }
+						=> 
+						{   case op
+							#
+							fcf::p::FWRAP =>  has_floats := TRUE;
+							_             =>  ();
+						    esac;
+
+						    add_values args;
+						    add (name, type);
+						    init fate;
+						};
+
+					    fcf::IF_THEN_ELSE r
+						=>
+						{   add_values r.args;
+						    init       r.thenfate;
+						    init       r.elsefate;
+						};
+
+					    fcf::TAIL_CALL r
+						=>
+						{   add_value  r.func;
+						    add_values r.args;
+						};
+
+					    _ => error "translate_fatecode_function_to_treecode";
+					esac;
+
+
+				    # Print debugging information 
+				    #
+				    if *cg::printit
+					#
+					print_fatecode_fun (kind, f, parameters, tys, e);
+				    fi;
+
+
+				    # Move parameters 
+				    #
+				    case kind
+					#
+					fcf::ALL_CALLERS_KNOWN
+					    =>
+					    {   define_local_label  function_label;
+						init e;
+						initial_register_namings_escaping (parameters, formals, tys);
+					    };
+
+					fcf::ALL_CALLERS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK
+					    =>
+					    {   define_local_label  function_label;
+
+						#  gc test 
+
+						known_function_check
+						    =
+						    if (*do_extra_lowhalf_optimizations
+                                                    and *lowhalf_optimize_before_making_heapcleaner_code)   ihc::optimized_known_function_check_limit;
+						    else  						    ihc::known_function_check_limit;
+						    fi;
+
+						known_function_check
+						    #
+						    treecode_to_machcode_stream
+						    #
+						    { max_fun_heapbytes => 4 * (max_fun_heapwords f),	# 64-bit issue XXX BUGGO FIXME. The '4' here is 4-bytes-per-heap-word; will need to be 8 for 64-bit heap words.
+						      regfmls   => formals,
+
+						      regtys    => tys, 
+						      return    => branch_to_label function_label
+						    };
+
+						init e;
+						initial_register_namings_escaping (parameters, formals, tys);
+					    };
+
+					_ =>
+					    # Standard function:
+					    #
+					    {   regfmls = formals;
+
+						my (linkreg, regfmls_tl)
+						    =
+						    case formals
+							#
+							(tcf::INT_EXPRESSION linkreg ! regfmls_tl)
+							    =>
+							    (linkreg, regfmls_tl);
+
+							_ => error "no linkreg for standard function";
+						    esac;
+
+						entry_label
+						    = 
+						    split_entry_block
+							??   get_function_label (-f - 1)
+							::   function_label;
+
+						if split_entry_block
+						    #
+						    define_global_label entry_label; 
+						    put_bblock_note    empty_block;
+						    define_local_label function_label;
+						else 
+						    define_global_label function_label;
+						fi;
+
+						clear_tables();
+						init e;
+
+						if *need_base_ptr
+						    #
+						    baseval
+							= 
+							tcf::ADD
+                                                          ( pri::address_width,
+                                                            linkreg, 
+							    tcf::LABEL_EXPRESSION
+                                                              ( tcf::SUB
+                                                                  ( pri::address_width,
+								    const_base_reg_offset,
+								    tcf::LABEL  entry_label
+                                                                  )
+                                                              )
+                                                          );
+
+						    emit_op (assign (pri::baseptr  use_virtual_framepointer, baseval));
+						fi;
+
+						ihc::standard_function_check_limit
+						    #
+						    treecode_to_machcode_stream
+						    #
+						    { max_fun_heapbytes => 4 * (max_fun_heapwords f),	# 64-bit issue XXX BUGGO FIXME. The '4' here is 4-bytes-per-heap-word; will need to be 8 for 64-bit heap words.
+						      regfmls, 
+						      regtys   => tys,
+						      return   => tcf::GOTO (linkreg,[])
+						    };
+
+						initial_register_namings_escaping
+						  (
+						    list::tail  parameters,
+						    regfmls_tl,
+						    list::tail  tys
+						  );
+					    };
+				    esac;
+
+				    # Align the allocation
+				    # pointer if necessary:
+				    #
+				    if *has_floats
+					#
+					emit_op (tcf::LOAD_INT_REGISTER  (pty, heap_allocation_pointer_r,
+					      tcf::BITWISE_OR (pty, pri::heap_allocation_pointer, li 4)));				# probable 64-bit issue -- '4' is probably bytes-per-word.
+				    fi;
+
+				    # Generate code:
+				    #
+				    advanced_heap_ptr := 0;
+				    translate_fatecode_op_to_treecode (e, 0);
+				}
+
+			    also
+			    fun define (r, x, e, k, heap_ptr)		# Generate code for   x := e;   k
+				= 
+				{   add_reg_naming (x, r);
+				    emit_op (tcf::LOAD_INT_REGISTER (ity, r, e));  
+				    translate_fatecode_op_to_treecode (k, heap_ptr);
+				}
+
+			    also
+			    fun def (gc, x, e, k, heap_ptr)
+				=
+				define (make_reg gc, x, e, k, heap_ptr)
+
+			    also
+			    fun def_with_cty (cty, x, e, k, heap_ptr)
+				=
+				define (make_reg_with_cty cty, x, e, k, heap_ptr)
+
+			    also
+			    fun def_with_kind (kind, x, e, k, heap_ptr)
+				= 
+				define (make_reg_with_kind kind, x, e, k, heap_ptr)
+
+			    also fun def_i31   (x, e, k, heap_ptr) =   def (i31, x, e, k, heap_ptr)
+			    also fun def_i32   (x, e, k, heap_ptr) =   def (i32, x, e, k, heap_ptr)
+			    also fun def_boxed (x, e, k, heap_ptr) =   def (ptr, x, e, k, heap_ptr)
+
+			    also
+			    fun treeify_def (x, e, cty, k, heap_ptr)		# Generate code for x:  cty := e; k
+				= 
+				case (treeify x)
+
+				    COMPUTE => def_with_cty (cty, x, e, k, heap_ptr);
+
+				    TREEIFY => {   mark_as_treeified x;
+						   add_exp_naming (x, mark_gc (e, cty));
+						   translate_fatecode_op_to_treecode (k, heap_ptr);
+					       };
+
+				    DEAD    => translate_fatecode_op_to_treecode (k, heap_ptr);
+
+				    _       => error "treeifyDef";
+				esac
+
+			    # Generate code for
+			    #    x := heap_allocation_pointer + offset; k
+			    # where offset is the address offset of a newly allocated record.
+			    # If x is only used once, we try to propagate that to its use.
+			    #
+			    also
+			    fun def_alloc (x, offset, k, heap_ptr)
+				= 
+				def_boxed (x, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li offset), k, heap_ptr)
+
+
+			    # Generate code for
+			    #    x := heap_allocation_pointer + offset;
+			    #    k
+			    # Forward propagate until it is used.
+			    #
+			    also
+			    fun treeify_alloc (x, offset, k, heap_ptr)
+				= 
+				case (treeify x)
+				    #
+				    COMPUTE => def_alloc (x, offset, k, heap_ptr);
+
+				    TREEIFY
+					 =>
+					 # Note, don't mark this as treeified since it has low
+					 # register pressure.
+
+					 {   absolute_alloc_offset =   offset + *advanced_heap_ptr;
+
+					     add_exp_naming (x, tcf::LATE_CONSTANT (absolute_alloc_offset));
+
+					     translate_fatecode_op_to_treecode (k, heap_ptr);
+					 };
+
+				    DEAD => translate_fatecode_op_to_treecode (k, heap_ptr);
+				    _    => error "treeifyAlloc";
+				esac
+
+			    also
+			    fun computef64 (x, e, k, heap_ptr)
+				=
+				{   f =   new_freg float64;
+
+				    add_freg_naming (x, tcf::FREG (fty, f));  
+				    emit_op (tcf::LOAD_FLOAT_REGISTER (fty, f, e));  
+				    translate_fatecode_op_to_treecode (k, heap_ptr);
+				}
+
+			    also
+			    fun treeify_def_f64 (x, e, k, heap_ptr)		#   x <- e   where e contains a floating-point value
+				= 
+				case (treeify x)
+				    #
+				    DEAD    => translate_fatecode_op_to_treecode (k, heap_ptr);
+
+				    TREEIFY => {   mark_as_treeified x; 
+						   add_freg_naming (x, e);
+						   translate_fatecode_op_to_treecode (k, heap_ptr);
+					       };
+
+				    COMPUTE => computef64 (x, e, k, heap_ptr);
+
+				    _       => error "treeifyDefF64";
+				esac
+
+			    also
+			    fun nop (x, v, e, heap_ptr)
+				=
+				def_i31 (x, regbind v, e, heap_ptr)
+
+			    also
+			    fun copy (gc, x, v, k, heap_ptr)
+				= 
+				{   dst =   make_reg gc;
+
+				    add_reg_naming (x, dst);
+
+				    case (regbind v)
+					#
+					tcf::REG(_, src)
+					    =>
+					    emit_op (tcf::MOVE_INT_REGISTERS (ity, [dst], [src]));
+
+					e => emit_op (tcf::LOAD_INT_REGISTER (ity, dst, e));
+				    esac;
+
+				    translate_fatecode_op_to_treecode (k, heap_ptr);
+				}
+
+			    also
+			    fun copy_m (31, x, v, k, heap_ptr)  =>  copy (i31, x, v, k, heap_ptr);
+				copy_m ( _, x, v, k, heap_ptr)  =>  copy (i32, x, v, k, heap_ptr);
+			    end 
+
+			    also
+			    fun eq_val (fcf::VAR  x,   fcf::VAR y)   =>   x == y; 
+				eq_val (fcf::LABEL x, fcf::LABEL y)   =>   x == y; 
+				eq_val (fcf::INT   x,   fcf::INT y)   =>   x == y;
+				eq_val _ => FALSE;
+			    end     
+
+			    also
+			    fun branch (cv, compare, [v, w], yes, no, heap_ptr)	#  normal branches 
+				    => 
+				    {   true_lab =   lbl::make_anonymous_codelabel ();
+
+					# Is single assignment great or what! 
+					#
+					emit_op (branch_with_prob
+						  (tcf::IF_GOTO (tcf::CMP (32, compare, regbind v, regbind w), true_lab), 
+						   branch_probability cv));
+
+					gen_cont (no, heap_ptr);
+					genlab (true_lab, yes, heap_ptr);
+				    };
+
+			       branch _
+				   =>
+				   error "branch";
+			    end 
+
+
+			    also
+			    fun branch_on_boxed (cv, x, yes, no, heap_ptr)		 # Branch if x is boxed
+				= 
+				{   lab =   lbl::make_anonymous_codelabel ();
+
+				    compare =   tcf::CMP (32, tcf::NE, tcf::BITWISE_AND (ity, regbind x, one), zero);
+
+				    emit_op (branch_with_prob (tcf::IF_GOTO (compare, lab), branch_probability cv));
+
+				    gen_cont (yes, heap_ptr);
+
+				    genlab (lab, no, heap_ptr);
+				}
+
+
+			    also
+			    fun branch_streq (n, v, w, yes, no, heap_ptr)		 #  Branch if are identical strings v, w of length n 
+				=
+				{   n' =   ((n+3) / 4) * 4;
+
+				    false_lab =   lbl::make_anonymous_codelabel ();
+
+				    r1 =   make_reg i32;
+				    r2 =   make_reg i32;
+				    #
+				    fun compare_word (i)
+					= 
+					tcf::CMP (32, tcf::NE, 
+					      tcf::LOAD (ity, tcf::ADD (ity, tcf::REG (ity, r1), i), rgn::readonly), 
+					      tcf::LOAD (ity, tcf::ADD (ity, tcf::REG (ity, r2), i), rgn::readonly));
+				    #
+				    fun unroll i
+					= 
+					if (i != n')
+					    #
+					    emit_op (tcf::IF_GOTO (compare_word (li (i)), false_lab));
+					    #
+					    unroll (i+4);
+					fi;
+
+
+				    emit_op (tcf::LOAD_INT_REGISTER (ity, r1, tcf::LOAD (ity, regbind v, rgn::readonly)));
+				    emit_op (tcf::LOAD_INT_REGISTER (ity, r2, tcf::LOAD (ity, regbind w, rgn::readonly)));
+				    unroll 0;
+				    gen_cont (yes, heap_ptr);
+				    genlab (false_lab, no, heap_ptr);
+				}
+
+
+			    also
+			    fun condmove (op, args, x, t, e, heap_ptr)		 #  Conditional move 
+				= 
+				{    fun signed (op, v, w)
+					 =
+					 tcf::CMP (32, signed_compare op, regbind v, regbind w);
+				     #
+				     fun unsigned (op, v, w)
+					 = 
+					 tcf::CMP (32, unsigned_compare op, regbind v, regbind w);
+				     #	
+				     fun equal (v, w)
+					 = 
+					 tcf::CMP (32, tcf::EQ, regbind v, regbind w);
+				     #
+				     fun notequal (v, w)
+					 = 
+					 tcf::CMP (32, tcf::NE, regbind v, regbind w);
+				     #
+				     fun unboxed x
+					 = 
+					 tcf::CMP (32, tcf::NE, tcf::BITWISE_AND (ity, regbind x, one), zero);
+				     #
+				     fun boxed x
+					 = 
+					 tcf::CMP (32, tcf::EQ, tcf::BITWISE_AND (ity, regbind x, one), zero);
+
+				     my (compare, a, b)
+					 = 
+					 case (op, args)
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::INT 31 },[v, w, a, b])
+						 =>
+						 (signed (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },[v, w, a, b])
+						 =>
+						 (unsigned (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::INT 32 },[v, w, a, b])
+						 =>
+						 (signed (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 },[v, w, a, b])
+						 =>
+						 (unsigned (op, v, w), a, b);
+
+					     (fcf::p::FCMP { op, size=>64 },[v, w, a, b])
+						 =>
+						 (float64cmp (op, v, w), a, b);
+
+					    (fcf::p::PEQL,[v, w, a, b])  => (equal    (v, w), a, b);
+					    (fcf::p::PNEQ,[v, w, a, b])  => (notequal (v, w), a, b);
+					    (fcf::p::BOXED,[v, a, b])    => (boxed v, a, b);
+					    (fcf::p::UNBOXED,[v, a, b])  => (unboxed v, a, b);
+
+					    _ => error "condmove";
+					esac;
+
+				    case t
+					#
+					fcf::type::FLOAT64 => computef64
+						    (x, tcf::FCOND (64, compare, fregbind a, fregbind b), e, heap_ptr);
+
+					_    => def_with_cty
+						    (t, x, tcf::COND (32, compare, regbind a, regbind b), e, heap_ptr);
+				    esac;
+				}
+
+			    also
+			    fun arith (gc, op, v, w, x, e, heap_ptr)
+				= 
+				def (gc, x, op (ity, regbind v, regbind w), e, heap_ptr)
+
+			    also
+			    fun arith32 (op, v, w, x, e, heap_ptr)
+				= 
+				arith (i32, op, v, w, x, e, heap_ptr) 
+
+			    also
+			    fun logical (gc, op, v, w, x, e, heap_ptr)
+				= 
+				def (gc, x, op (ity, regbind v, untag_unsigned (w)), e, heap_ptr)
+
+			    also
+			    fun logical31 (op, v, w, x, e, heap_ptr)
+				= 
+				logical (i31, op, v, w, x, e, heap_ptr) 
+
+			    also
+			    fun logical32 (op, v, w, x, e, heap_ptr)
+				= 
+				logical (i32, op, v, w, x, e, heap_ptr) 
+
+			    also
+			    fun gen_cont (e, heap_ptr)
+				= 
+				{   save =   *advanced_heap_ptr;
+
+				    translate_fatecode_op_to_treecode (e, heap_ptr);
+
+				    advanced_heap_ptr := save;
+				}
+
+			    also
+			    fun genlab (lab, e, heap_ptr)
+				=
+				{   define_local_label lab;
+				    translate_fatecode_op_to_treecode (e, heap_ptr);
+				}
+
+			    also
+			    fun genlab_cont (lab, e, heap_ptr)
+				=
+				{   define_local_label lab;
+				    gen_cont (e, heap_ptr);
+				}
+
+
+			    also
+			    fun make_record (vl, w, e, heap_ptr)		 #  Allocate a normal record 
+				= 
+				{   len =   length vl;
+
+				    desc =   dtoi (tag::make_tagword (len, tag::pairs_and_records_btag));
+
+				    treeify_alloc (
+				       w, 
+				       alloc_record (mark_ptr, mem_disambig w, li desc, vl, heap_ptr), 
+				       e,
+				       heap_ptr + 4 + len*4
+				    );
+				}
+
+
+			    also
+			    fun make_i32block (vl, w, e, heap_ptr)		 #  Allocate a record with I32 components 
+				= 
+				{   len  =   length vl;
+				    tagword =   dtoi (tag::make_tagword (len, tag::four_byte_aligned_nonpointer_data_btag));
+
+				    treeify_alloc (
+					w,
+					alloc_record (mark_i32, mem_disambig w, li tagword, vl, heap_ptr),
+					e,
+					heap_ptr + 4 + len*4
+				    );
+				}
+
+
+			    also
+			    fun make_fblock (vl, w, e, heap_ptr)			 #  Allocate a floating point record 
+				=
+				{   len =   list::length vl;
+
+				    tagword =   dtoi (tag::make_tagword (len+len, tag::eight_byte_aligned_nonpointer_data_btag));
+
+				    # At initialization the allocation pointer is aligned on
+				    # an odd-word boundary, and the heap offset set to zero. If an
+				    # odd number of words have been allocated then the heap pointer
+				    # is misaligned for this record creation.
+				    #
+				    heap_ptr
+					=
+					unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0
+					  ??  heap_ptr + 4
+					  ::  heap_ptr;
+
+
+				    # The components are floating point 
+				    #
+				    treeify_alloc (
+					w,
+					alloc_frecord (mem_disambig w, li tagword, vl, heap_ptr),
+					e,
+					heap_ptr + 4 + len*8
+				    );
+				}
+
+
+			    also
+			    fun make_vector (vl, w, e, heap_ptr)			 #  Allocate a vector 
+				= 
+				{   len       =   length vl;
+
+				    hdr_tagword  =   dtoi (tag::typeagnostic_ro_vector_tagword);
+				    data_tagword =   dtoi (tag::make_tagword (len, tag::ro_vector_data_btag));
+
+				    data_ptr  =   make_reg ptr;
+				    mem       = mem_disambig w;
+				    heap_ptr' = heap_ptr + 4 + len*4;
+
+				    # The components are boxed. 
+				    # Allocate the data:
+
+				    alloc_record (mark_ptr, mem, li data_tagword, vl, heap_ptr);
+
+				    emit_op (tcf::LOAD_INT_REGISTER (pty, data_ptr, ea (pri::heap_allocation_pointer, heap_ptr+4)));
+
+				    # Now allocate the header pair:
+				    #
+				    treeify_alloc (
+					w, 
+					alloc_header_pair (hdr_tagword, mem, data_ptr, len, heap_ptr+4+len*4), 
+					e,
+					heap_ptr'+12
+				    );
+				}
+
+			    also
+			    fun fselect (i, v, x, e, heap_ptr)		 #  Floating point select: 
+				= 
+				treeify_def_f64 (
+				    x, 
+				    tcf::FLOAD (fty, scale8 (regbind v, fcf::INT i), rgn::real),
+				    e,
+				    heap_ptr
+				)
+
+			    also
+			    fun select (i, v, x, t, e, heap_ptr)		 #  Non-floating point select: 
+				=
+				treeify_def (
+				    x, 
+				    tcf::LOAD (ity, scale4 (regbind v, fcf::INT i), get_region_projection (v, i)),
+				    t,
+				    e,
+				    heap_ptr
+				)
+
+			    also
+			    fun funny_select (i, k, x, t, e, heap_ptr)		 #  Funny select; I don't know that this does: 
+				=
+				{   unboxedfloat =   mp::unboxed_floats;
+				    #
+				    fun is_flt t
+					= 
+					if (not unboxedfloat)
+					    #
+                                            FALSE;
+					else
+					    case t    fcf::type::FLOAT64 => TRUE;
+                                                      _                 => FALSE;
+					    esac;
+                                        fi;
+				    #
+				    fun falloc_sp (x, e, heap_ptr)
+					=
+					{   add_freg_naming  (x,  tcf::FREG  (fty,  new_freg  float64));
+					    #
+					    translate_fatecode_op_to_treecode (e, heap_ptr);
+					};
+
+				    # WARNING: the following generated code should never be executed!
+				    # It is semantic nonsense! XXX BUGGO FIXME
+				    #
+				    if  (is_flt t)
+					 falloc_sp (x, e, heap_ptr);
+				    else def_i32 (x, li k, e, heap_ptr);		#  BOGUS 
+				    fi;					
+				}
+
+
+			    also
+			    fun external_app (f, args, heap_ptr)			 #  Call an external function: 
+				= 
+				{   ctys =   map grabty args;
+
+				    formals
+					=
+					cfa::convert_standard_fatecode_fun_args_to_treecode
+					  {
+					    use_virtual_framepointer,
+					    fn_type => typmap f,
+					    argument_types => ctys
+					  };
+
+				    dest =  case formals
+						(tcf::INT_EXPRESSION dest ! _)
+						    =>
+						    dest;
+
+						_   => error "external_app: dest";
+					    esac;
+
+
+				    call_setup (formals, args);
+
+
+				    if lowhalf_track_heapcleaner_type_info
+					#
+					put_bblock_note (
+					    gc_annotation (
+						hr::gcliveout.x_to_note, 
+						formals,
+						ctys
+					    )
+					);
+				    fi;
+
+				    test_limit heap_ptr;
+
+				    emit_op (tcf::GOTO (dest, []));
+
+				    end_procedure (formals @ global_registers);
+				}
+
+
+			    also
+			    fun internal_app (f, args, heap_ptr)		 #  Call an internal function: 
+				= 
+				case (lookup_gen_table f)
+				    #
+				    ffs::ALL_CALLERS_KNOWN (REF (ffs::TREECODE_FORM formals))
+					=> 
+					{   update_heap_pointer  heap_ptr;
+					    call_setup (formals, args); 
+					    emit_op (branch_to_label (get_function_label f));
+					};
+
+				   ffs::ALL_CALLERS_KNOWN (r as REF (ffs::FATECODE_FORM (fun_id, fun_parameters, fun_parameter_types, fun_body)))
+					=> 
+					{   parameters_in_treecode_form =  translate_function_parameters_from_fatecode_to_treecode_form  fun_parameter_types;
+					    fun_label = get_function_label fun_id;
+					    r := ffs::TREECODE_FORM parameters_in_treecode_form;
+					    update_heap_pointer  heap_ptr;
+					    call_setup (parameters_in_treecode_form, args);
+					    translate_fatecode_function_to_treecode (fun_label, fcf::ALL_CALLERS_KNOWN, fun_id, fun_parameters, parameters_in_treecode_form, fun_parameter_types, fun_body);
+					};
+
+				   ffs::ALL_CALLERS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK (r as REF (ffs::FATECODE_FORM (fun_id, fun_parameters, fun_parameter_types, fun_body)))
+					=> 
+					{   parameters_in_treecode_form
+						= 
+						mp::fixed_arg_passing
+						  ??  cfa::convert_fixed_fatecode_fun_args_to_treecode { argument_types=>fun_parameter_types, use_virtual_framepointer }
+						  ::  translate_function_parameters_from_fatecode_to_treecode_form  fun_parameter_types;
+
+					    fun_label =  get_function_label  fun_id;
+
+					    r := ffs::TREECODE_FORM parameters_in_treecode_form;
+					    call_setup (parameters_in_treecode_form, args);
+					    test_limit heap_ptr;
+					    translate_fatecode_function_to_treecode (fun_label, fcf::ALL_CALLERS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK, fun_id, fun_parameters, parameters_in_treecode_form, fun_parameter_types, fun_body);
+					};
+
+				   ffs::ALL_CALLERS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK (REF (ffs::TREECODE_FORM parameters_in_treecode_form))
+					=> 
+					{   call_setup (parameters_in_treecode_form, args); 
+					    test_limit heap_ptr;
+					    emit_op (branch_to_label (get_function_label f));
+					};
+
+				   ffs::STANDARD { fml_typs, ... }
+					=> 
+					{   parameters_in_treecode_form
+						=
+						cfa::convert_standard_fatecode_fun_args_to_treecode
+						  {
+						    fn_type        => typmap f,
+						    argument_types => fml_typs,
+						    use_virtual_framepointer
+						  };
+
+					    call_setup (parameters_in_treecode_form, args);
+					    test_limit heap_ptr;
+					    emit_op (branch_to_label (get_function_label f));
+					};
+				esac
+
+			    also
+			    fun rawload ((fcf::p::INT 32 | fcf::p::UNT 32), i, x, e, heap_ptr)
+				    =>
+				    def_i32 (x, tcf::LOAD (32, i, rgn::memory), e, heap_ptr);
+
+				rawload (fcf::p::INT (size as (8 | 16)), i, x, e, heap_ptr)
+				    =>
+				    def_i32 (x, sx32 (size, tcf::LOAD (size, i, rgn::memory)), e, heap_ptr);
+
+				rawload (fcf::p::UNT (size as (8 | 16)), i, x, e, heap_ptr)
+				    =>
+				    def_i32 (x, zx32 (size, tcf::LOAD (size, i, rgn::memory)), e, heap_ptr);
+
+				rawload ((fcf::p::UNT size | fcf::p::INT size), _, _, _, _)
+				    =>
+				    error ("rawload: unsupported size: " + int::to_string size);
+
+				rawload (fcf::p::FLOAT 64, i, x, e, heap_ptr)
+				    =>
+				    treeify_def_f64 (x, tcf::FLOAD (64, i, rgn::memory), e, heap_ptr);
+
+				rawload (fcf::p::FLOAT 32, i, x, e, heap_ptr)
+				    =>
+				    treeify_def_f64 (x, tcf::CONVERT_FLOAT_TO_FLOAT (64, 32, tcf::FLOAD (32, i, rgn::memory)),
+						   e, heap_ptr);
+
+				rawload (fcf::p::FLOAT size, _, _, _, _)
+				    =>
+				    error ("rawload: unsupported float size: " + int::to_string size);
+			    end 
+
+			    also
+			    fun rawstore ((fcf::p::UNT (size as (8 | 16 | 32)) |
+					   fcf::p::INT (size as (8 | 16 | 32))), i, x)
+				    =>
+				    # Both address and value are 32-bit values;
+				    # only size bits of the value are being stored:
+				    #
+				    emit_op (tcf::STORE_INT (size, i, regbind x, rgn::memory));
+
+				rawstore ((fcf::p::UNT size | fcf::p::INT size), _, _)
+				    =>
+				    error ("rawstore: unsupported int size: " + int::to_string size);
+
+				rawstore (fcf::p::FLOAT (size as (32 | 64)), i, x)
+				    =>
+				    emit_op (tcf::STORE_FLOAT (size, i, fregbind x, rgn::memory));
+
+				rawstore (fcf::p::FLOAT size, _, _)
+				    =>
+				    error ("rawstore: unsupported float size: " + int::to_string size);
+			    end 
+
+
+
+			    # Generate code 
+
+
+
+			    # fcf::DEFINE_RECORD
+			    also
+			    fun translate_fatecode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::FCONT,    fields, name, fate }, heap_ptr)   =>   make_fblock   (fields, name, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::FBLOCK,   fields, name, fate }, heap_ptr)   =>   make_fblock   (fields, name, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::VECTOR,   fields, name, fate }, heap_ptr)   =>   make_vector   (fields, name, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::I32BLOCK, fields, name, fate }, heap_ptr)   =>   make_i32block (fields, name, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::DEFINE_RECORD { kind => _,                 fields, name, fate }, heap_ptr)   =>   make_record   (fields, name, fate, heap_ptr);
+
+
+
+				###############################
+				# fcf::GET_FIELD_I:
+
+				translate_fatecode_op_to_treecode (fcf::GET_FIELD_I { i, record => fcf::INT k, name, type,                        fate }, heap_ptr)   =>   funny_select (i, k,      name, type, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::GET_FIELD_I { i, record,               name, type => fcf::type::FLOAT64,  fate }, heap_ptr)   =>   fselect      (i, record, name,       fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::GET_FIELD_I { i, record,               name, type,                        fate }, heap_ptr)   =>   select       (i, record, name, type, fate, heap_ptr);
+
+
+
+				###############################
+				# fcf::GET_ADDRESS_OF_FIELD_I:
+
+				translate_fatecode_op_to_treecode (fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, fate }, heap_ptr)
+				    =>
+				    def_boxed (name, scale4 (regbind record, fcf::INT i), fate, heap_ptr);
+						     #
+						     # 64-bit issue XXX BUGGO FIXME this may need to be scale8 on 64-bit architectures.
+
+
+
+				###############################
+				# fcf::TAIL_CALL:
+
+				translate_fatecode_op_to_treecode (fcf::TAIL_CALL { func => fcf::INT   k, args }, heap_ptr) =>  update_heap_pointer  heap_ptr;
+				translate_fatecode_op_to_treecode (fcf::TAIL_CALL { func => fcf::VAR   f, args }, heap_ptr) =>  external_app (f, args, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::TAIL_CALL { func => fcf::LABEL f, args }, heap_ptr) =>  internal_app (f, args, heap_ptr);
+
+
+
+				###############################
+				# fcf::JUMPTABLE:
+
+				translate_fatecode_op_to_treecode (fcf::JUMPTABLE { i => fcf::INT _, ... }, heap_ptr)
+				    =>
+				    error "JUMPTABLE";	# Jumptables keying on a constant should have been optimized out in   src/lib/compiler/back/top/improve-fatecode/clean-fatecode-g.pkg
+
+				translate_fatecode_op_to_treecode (fcf::JUMPTABLE { i, fates, ... }, heap_ptr)
+				     => 
+				     {   lab  =   lbl::make_anonymous_codelabel ();
+					 labs =   map (fn _ = lbl::make_anonymous_codelabel()) fates;
+
+					 tmp_r =   make_reg i32;
+					 tmp  =   tcf::REG (ity, tmp_r);
+
+					 emit_op (tcf::LOAD_INT_REGISTER (ity, tmp_r, make_code_for_label_address (lab, 0)));
+					 emit_op (tcf::GOTO (tcf::ADD (pri::address_width, tmp, tcf::LOAD (pty, scale4 (tmp, i), 
+									      rgn::readonly)), labs));
+					 emit_pseudo_op (pb::DATA_READ_ONLY);
+					 emit_pseudo_op (pb::EXT (cpo::JUMPTABLE { base=>lab, targets=>labs } ));
+					 emit_pseudo_op (pb::TEXT);
+
+					 paired_lists::apply
+					     (fn (lab, e) = genlab_cont (lab, e, heap_ptr))
+					     (labs, fates);
+				     };
+
+
+				###############################
+				# fcf::PURE:
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::CONVERT_FLOAT { from=>fcf::p::INT 31, to=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    fate,
+						    ...
+						  },
+				      heap_ptr
+				    )
+				    =>  treeify_def_f64 (name, tcf::CONVERT_INT_TO_FLOAT (fty, ity, untag_signed (v)), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::CONVERT_FLOAT { from=>fcf::p::INT 32, to=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    fate,
+						    ...
+						  },
+				      heap_ptr
+				    )
+				    =>
+				    treeify_def_f64 (name, tcf::CONVERT_INT_TO_FLOAT (fty, ity, regbind v), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::PURE_ARITH { op, kindbits=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    fate,
+						    ...
+						  },
+				      heap_ptr
+				    )
+				    =>
+				    {   r = fregbind v;
+
+					  case op   
+					      fcf::p::NEGATE =>   treeify_def_f64 (name, tcf::FNEG  (fty, r),        fate, heap_ptr);
+					      fcf::p::ABS    =>   treeify_def_f64 (name, tcf::FABS  (fty, r),        fate, heap_ptr);
+					      fcf::p::FSQRT  =>   treeify_def_f64 (name, tcf::FSQRT (fty, r),        fate, heap_ptr);
+
+					      fcf::p::FSIN   =>   computef64 (name, tcf::FEXT (fty, trx::FSINE    r), fate, heap_ptr);
+					      fcf::p::FCOS   =>   computef64 (name, tcf::FEXT (fty, trx::FCOSINE  r), fate, heap_ptr);
+					      fcf::p::FTAN   =>   computef64 (name, tcf::FEXT (fty, trx::FTANGENT r), fate, heap_ptr);
+
+					      _ => error "unexpected baseop in pure unary float64";
+					  esac;
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::PURE_ARITH { op, kindbits=>fcf::p::FLOAT 64 },
+						    args =>  [v, w],
+						    name,
+						    fate,
+						    ...
+						  },
+				      heap_ptr
+				    )
+				    => 
+				    {   v = fregbind v; 
+					w = fregbind w;
+
+					type =  case op   
+						    fcf::p::ADD      => tcf::FADD (fty, v, w);
+						    fcf::p::MULTIPLY => tcf::FMUL (fty, v, w);
+						    fcf::p::SUBTRACT => tcf::FSUB (fty, v, w);
+						    fcf::p::DIVIDE   => tcf::FDIV (fty, v, w);
+						    _ => error "unexpected baseop in pure binary float64";
+						esac;
+
+					treeify_def_f64 (name, type, fate, heap_ptr);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_OR, kindbits },  args => [v, w],  name, fate, ... }, heap_ptr)
+				    => 
+				    def_with_kind (kindbits, name, tcf::BITWISE_OR (ity, regbind v, regbind w), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_AND, kindbits },  args => [v, w],  name, fate, ... }, heap_ptr)
+				    => 
+				    def_with_kind (kindbits, name, tcf::BITWISE_AND (ity, regbind v, regbind w), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode ( fcf::PURE { op   =>  fcf::p::PURE_ARITH { op, kindbits },
+						  args =>  [v, w],
+						  name =>  x,
+						  type,
+						  fate => e
+						},
+				      heap_ptr
+				    )
+				    => 
+				    case kindbits
+					#
+					fcf::p::INT 31
+					    =>
+					    case op   
+						fcf::p::BITWISE_XOR => def_i31 (x, int31xor    (                 v, w), e, heap_ptr);
+						fcf::p::LSHIFT      => def_i31 (x, int31lshift (                 v, w), e, heap_ptr);
+						fcf::p::RSHIFT      => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT, v, w), e, heap_ptr);
+
+						fcf::p::ADD         => def_i31 (x, int31add (      tcf::ADD,     v, w), e, heap_ptr);
+						fcf::p::SUBTRACT    => def_i31 (x, int31sub (      tcf::SUB,     v, w), e, heap_ptr);
+						fcf::p::MULTIPLY    => def_i31 (x, int31mul (TRUE, tcf::MULS,    v, w), e, heap_ptr);
+
+						_ => error "translate_fatecode_op_to_treecode: fcf::PURE fcf::INT 31";
+					    esac;
+
+				       fcf::p::INT 32
+					   =>
+					   case op   
+					       fcf::p::BITWISE_XOR  => arith32   (tcf::BITWISE_XOR, v, w, x, e, heap_ptr);
+					       fcf::p::LSHIFT       => logical32 (tcf::LEFT_SHIFT,   v, w, x, e, heap_ptr);
+					       fcf::p::RSHIFT       => logical32 (tcf::RIGHT_SHIFT,  v, w, x, e, heap_ptr);
+
+					       _ => error "translate_fatecode_op_to_treecode: fcf::PURE fcf::INT 32";
+					   esac;
+
+				       fcf::p::UNT 31
+					   =>
+					   case op   
+					       fcf::p::ADD      => def_i31 (x, int31add (       tcf::ADD,  v, w), e, heap_ptr);
+					       fcf::p::SUBTRACT => def_i31 (x, int31sub (       tcf::SUB,  v, w), e, heap_ptr);
+					       fcf::p::MULTIPLY => def_i31 (x, int31mul (FALSE, tcf::MULU, v, w), e, heap_ptr);
+
+					       fcf::p::DIVIDE   => # This is not really a pure 
+							      # operation -- oh well:
+							      #
+							      {   update_heap_pointer heap_ptr;
+								  def_i31 (x, int31div (FALSE, tcf::d::ROUND_TO_ZERO, v, w), e, 0);
+							      };
+
+					       fcf::p::REM =>      #  Neither is this -- oh well 
+							      #
+							      {   update_heap_pointer heap_ptr;
+								  def_i31 (x, int31rem (FALSE, tcf::d::ROUND_TO_ZERO, v, w), e, 0);
+							      };
+
+					       fcf::p::BITWISE_XOR => def_i31 (x, int31xor (                     v, w), e, heap_ptr);
+					       fcf::p::LSHIFT      => def_i31 (x, int31lshift (                  v, w), e, heap_ptr);
+
+					       fcf::p::RSHIFT      => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT,  v, w), e, heap_ptr);
+					       fcf::p::RSHIFTL     => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT_U, v, w), e, heap_ptr);
+					       _ => error "translate_fatecode_op_to_treecode: fcf::PURE UINT 31";
+					   esac;
+
+				       fcf::p::UNT 32
+					   =>
+					   case op   
+					       fcf::p::ADD       => arith32 (tcf::ADD,  v, w, x, e, heap_ptr);
+					       fcf::p::SUBTRACT  => arith32 (tcf::SUB,  v, w, x, e, heap_ptr);
+					       fcf::p::MULTIPLY  => arith32 (tcf::MULU, v, w, x, e, heap_ptr);
+
+					       fcf::p::DIVIDE    => {   update_heap_pointer heap_ptr; 
+								   arith32 (tcf::DIVU, v, w, x, e, 0);
+							       };
+
+					       fcf::p::REM       => {   update_heap_pointer heap_ptr;
+								   arith32 (tcf::REMU, v, w, x, e, 0);
+							       };
+
+					       fcf::p::BITWISE_XOR => arith32   (tcf::BITWISE_XOR,  v, w, x, e, heap_ptr);
+					       fcf::p::LSHIFT      => logical32 (tcf::LEFT_SHIFT,    v, w, x, e, heap_ptr);
+
+					       fcf::p::RSHIFT      => logical32 (tcf::RIGHT_SHIFT,   v, w, x, e, heap_ptr);
+					       fcf::p::RSHIFTL     => logical32 (tcf::RIGHT_SHIFT_U,  v, w, x, e, heap_ptr);
+
+					       _ => error "translate_fatecode_op_to_treecode: fcf::PURE UINT 32";
+					   esac;
+
+				       _ => error "unexpected numkind in pure binary arithop";
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_NOT, kindbits }, args => [v], name, fate, ... }, heap_ptr)
+				    =>
+				    case kindbits 
+					#
+					(fcf::p::UNT 32 | fcf::p::INT 32)
+					    =>
+					    def_i32 (name, tcf::BITWISE_XOR (ity, regbind v,  lw 0uxFFFFFFFF), fate, heap_ptr);
+
+					(fcf::p::UNT 31 | fcf::p::INT 31)
+					    =>
+					    def_i31 (name, tcf::SUB (ity, zero, regbind v), fate, heap_ptr);
+
+					_ =>   error "unexpected numkind in pure bitwise_not arithop";
+
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::NEGATE, kindbits }, args => [v], name, fate, ... }, heap_ptr)
+				    =>
+				    case kindbits   
+					#
+					(fcf::p::UNT 32 | fcf::p::INT 32)
+					    =>
+					    def_i32 (name, tcf::SUB (ity, zero, regbind v), fate, heap_ptr);
+
+					(fcf::p::UNT 31 | fcf::p::INT 31)
+					    =>
+					    def_i31 (name, tcf::SUB (ity, li 2, regbind v), fate, heap_ptr);
+
+					_ => error "unexpected numkind in pure ~ baseop";
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::COPY ft, args => [v], name, fate, ... }, heap_ptr)
+				    =>
+				    case ft   
+					#
+				       (31, 32)
+					   =>
+					   def_i32 (name, tcf::RIGHT_SHIFT_U (ity, regbind v, one), fate, heap_ptr);
+
+				       (8, 31)
+					   =>
+					   copy (i31, name, v, fate, heap_ptr);
+
+				       (8, 32)
+					   =>
+					   def_i32 (name, tcf::RIGHT_SHIFT_U (ity, regbind v, one), fate, heap_ptr);
+
+				       (n, m) => if (n == m)   copy_m (m, name, v, fate, heap_ptr); 
+						 else          error "translate_fatecode_op_to_treecode: fcf::PURE: copy";
+						 fi;
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::COPY_TO_INTEGER _, ... }, heap_ptr)
+				    =>
+				    error "translate_fatecode_op_to_treecode: fcf::PURE: copy_inf";
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::STRETCH ft, args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    case ft   
+					(8, 31) => def_i31 (name, tcf::RIGHT_SHIFT (ity, tcf::LEFT_SHIFT (ity, regbind v, li 23), li 23), fate, heap_ptr);
+
+					(8, 32) => def_i32 (name, tcf::RIGHT_SHIFT (ity, tcf::LEFT_SHIFT (ity, regbind v, li 23), li 24), fate, heap_ptr);
+
+				       (31, 32) => def_i32 (name, tcf::RIGHT_SHIFT (ity, regbind v, one),                                fate, heap_ptr);
+
+				       (n, m) => if (n == m)  copy_m (m, name, v, fate, heap_ptr); 
+						 else         error "translate_fatecode_op_to_treecode: fcf::PURE: extend";
+						 fi;
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::STRETCH_TO_INTEGER _, ... }, heap_ptr)
+				    =>
+				    error "translate_fatecode_op_to_treecode: fcf::PURE: extend_inf";
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::CHOP ft, args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    case ft
+					#
+					(32, 31) => 
+					    def_i31 (name, tcf::BITWISE_OR (ity, tcf::LEFT_SHIFT (ity, regbind v, one), one), fate, heap_ptr);
+
+					(31, 8) =>
+					     def_i32 (name, tcf::BITWISE_AND (ity, regbind v, li 0x1ff), fate, heap_ptr);
+
+					(32, 8) =>
+					    def_i32 (name, tag_unsigned (tcf::BITWISE_AND (ity, regbind v, li 0xff)), fate, heap_ptr);
+
+				       (n, m) => if (n == m)  copy_m (m, name, v, fate, heap_ptr); 
+						 else         error "translate_fatecode_op_to_treecode: fcf::PURE: trunc";
+						 fi;
+				    esac;
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::CHOP_INTEGER _, ... }, heap_ptr)
+				    =>
+				    error "translate_fatecode_op_to_treecode: fcf::PURE: trunc_inf";
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::CHUNK_LENGTH, args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    def_i31 (name, or_tag (get_heapchunk_length (v)), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::LENGTH, args => [v], name, type, fate }, heap_ptr)
+				    =>
+				    select (1, v, name, type, fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::SUBSCRIPTV, args => [v, fcf::INT i], name, fate, ... }, heap_ptr)
+				    => 
+				    {   #  get data pointer 
+					mem  = dataptr_region v;
+					a    = mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' = array_region mem;
+
+					def_boxed (name, tcf::LOAD (ity, scale4 (a, fcf::INT i), mem'), fate, heap_ptr);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::SUBSCRIPTV, args => [v, w], name, fate, ... }, heap_ptr)
+				    => 
+				    {   # Get data pointer:
+					# 
+					mem  = dataptr_region v;
+					a    = mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' = array_region mem;
+
+					def_boxed (name, tcf::LOAD (ity, scale4 (a, w), mem'), fate, heap_ptr);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_NUMSUBSCRIPT { kindbits=>fcf::p::INT 8 }, args => [v, i], name, fate, ... }, heap_ptr)
+				    =>
+				    {   # Get data pointer:
+					#
+					mem  = dataptr_region v;
+					a    = mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' = array_region mem;
+
+					def_i31 (name, tag_unsigned (tcf::LOAD (8, scale1 (a, i), mem')), fate, heap_ptr);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::GET_BTAG_FROM_TAGWORD, args => [v], name, fate, ... }, heap_ptr)
+				     => 
+				     def_i31 (name, tag_unsigned (tcf::BITWISE_AND (ity, get_heapchunk_tagword (v), li (tag::pow_tag_width - 1))), fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::MAKE_SPECIAL, args => [i, v], name, fate, ... }, heap_ptr)
+				    => 
+				    {   tagword = case i
+						      fcf::INT n => li (dtoi (tag::make_tagword (n, tag::weak_pointer_or_suspension_btag)));
+
+						      _     => tcf::BITWISE_OR (ity, tcf::LEFT_SHIFT (ity, untag_signed(i), li tag::tag_width),
+								  li (dtoi tag::weak_pointer_or_suspension_tagword));
+						  esac;
+
+					# What gc types are the components? 
+					#
+					treeify_alloc
+					  ( name,
+					    alloc_record (mark_nothing, mem_disambig name, tagword, [(v, offp0)], heap_ptr),
+					    fate,
+					    heap_ptr+8
+					  );
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::MAKE_REFCELL, args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    {   tag = li (dtoi tag::refcell_tagword);
+					mem = mem_disambig name;
+
+					emit_op (tcf::STORE_INT (ity, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li heap_ptr    ), tag,        mem));
+					emit_op (tcf::STORE_INT (ity, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr+4)), regbind' v, mem));	# probable 64-bit issue, '4' is probably 'bytes-per-word'.
+
+					treeify_alloc (name, heap_ptr+4, fate, heap_ptr+8);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::FWRAP,   args =>[u], name, fate, ... }, heap_ptr) =>   make_fblock([(u, offp0)], name, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::FUNWRAP, args =>[u], name, fate, ... }, heap_ptr) =>   fselect (0, u,            name, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::IWRAP,   ... }, _)  =>   error "iwrap not implemented";
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::IUNWRAP, ... }, _)  =>   error "iunwrap not implemented";
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::I32WRAP, args =>[u], name, fate, ... }, heap_ptr)
+				    => 
+				    make_i32block([(u, offp0)], name, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::I32UNWRAP, args =>[u], name, fate, ... }, heap_ptr)
+				    => 
+				    select (0, u, name, fcf::type::INT32, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::WRAP,   args => [u], name, fate, ... }, heap_ptr) => copy (ptr, name, u, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::UNWRAP, args => [u], name, fate, ... }, heap_ptr) => copy (i32, name, u, fate, heap_ptr);
+
+				# Note: the gc type is unsafe! XXX BUGGO FIXME 
+				#
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::CAST, args =>[u], name, fate, ... }, heap_ptr) => copy (ptr, name, u, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::GETCON,     args => [u],  name, type, fate }, heap_ptr) =>   select (0, u, name, type, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::GETEXN,     args => [u],  name, type, fate }, heap_ptr) =>   select (0, u, name, type, fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::GETSEQDATA, args => [u],  name, type, fate }, heap_ptr) =>   select (0, u, name, type, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::RECSUBSCRIPT, args => [v, fcf::INT w], name, type, fate }, heap_ptr)
+				    => 
+				    select (w, v, name, type, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::RECSUBSCRIPT, args => [v, w], name, fate, ... }, heap_ptr)
+				    =>
+				    # No indirection! 
+				    #
+				    {   mem = array_region (get_region v);
+
+					def_i31 (name, tcf::LOAD (ity, scale4 (regbind v, w), mem), fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::RAW64SUBSCRIPT, args => [v, i], name, fate, ... }, heap_ptr)
+				    =>
+				    {   mem = array_region (get_region v);
+
+					treeify_def_f64 (name, tcf::FLOAD (fty, scale8 (regbind v, i), mem), fate, heap_ptr);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::NEWARRAY0, args => [_], name, fate, ... }, heap_ptr)
+				    => 
+				    {   hdr_tagword  =   dtoi (tag::typeagnostic_rw_vector_tagword);
+					data_tagword =   dtoi  tag::refcell_tagword;
+
+					data_ptr  =   make_reg ptr;
+					hdr_m     =   mem_disambig name;
+
+					my (tag_m, val_m)
+					 = (hdr_m, hdr_m);		#  Allen 
+
+					# Generate code to allocate "REF()" for rw_vector data 
+					#
+					emit_op (tcf::STORE_INT (ity, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li heap_ptr), li data_tagword, tag_m));
+
+					emit_op (tcf::STORE_INT (ity, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr+4)), ml_zero, val_m));		# probable 64-bit issue, '4' is probably bytes-per-word.
+
+					emit_op (tcf::LOAD_INT_REGISTER (pty, data_ptr, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, li (heap_ptr+4))));		# probable 64-bit issue, '4' is probably bytes-per-word.
+
+					# Generate code to allocate rw_vector header:
+
+					treeify_alloc (name, 
+					   alloc_header_pair (hdr_tagword, hdr_m, data_ptr, 0, heap_ptr+8),
+					      fate, heap_ptr+20);
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::RAWRECORD NULL, args => [fcf::INT n], name, fate, ... }, heap_ptr)
+				    =>
+				    #  Allocate space for fatecode spilling 
+				    #
+				    treeify_alloc (name, heap_ptr, fate, heap_ptr+n*4);	# No tag! 
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::RAWRECORD (THE rk), args => [fcf::INT n], name, fate, ... }, heap_ptr)
+				    => 
+				    #  Allocate an uninitialized record with a tag 
+				    #
+				    {   my (tag, fp)
+					   =			#  tagged version 
+					   case rk
+					       #
+					      (fcf::rk::FCONT | fcf::rk::FBLOCK) =>   (tag::eight_byte_aligned_nonpointer_data_btag, TRUE);
+					       fcf::rk::I32BLOCK                 =>   (tag::four_byte_aligned_nonpointer_data_btag, FALSE);
+					       #
+					       fcf::rk::VECTOR                   =>   error "rawrecord VECTOR unsupported";
+					       #
+					       _                                 =>   (tag::pairs_and_records_btag, FALSE);
+					   esac;
+
+					len =   if fp  n+n;		# Len of record in 32-bit words. 
+						else   n;
+						fi;
+
+					tagword =   dtoi (tag::make_tagword (len, tag));	#  record tagword 
+
+					#  Align floating point 
+
+					heap_ptr = if  (fp   and
+							unt::bitwise_and (unt::from_int heap_ptr, 0u4) != 0u0
+						   )    heap_ptr+4;
+						   else heap_ptr;
+						   fi;
+
+					mem =   mem_disambig name;
+
+					#  store tag now! 
+
+					emit_op (tcf::STORE_INT (ity, ea (pri::heap_allocation_pointer, heap_ptr), li tagword, projection (mem, -1)));
+
+					treeify_alloc (name, heap_ptr+4, fate, heap_ptr+len*4+4);	#  Assign the address to 'name' # probable 64-bit issue: '4' is probably bytes-per-word.
+				    };
+
+
+				translate_fatecode_op_to_treecode (fcf::PURE { op => fcf::p::CONDMOVE compare, args => vw, name, type, fate }, heap_ptr)
+				    => 
+				    condmove (compare, vw, name, type, fate, heap_ptr);
+
+				########	
+				# fcf::MATH
+				########	
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 31, op=>fcf::p::NEGATE },
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    {   update_heap_pointer heap_ptr;
+
+					def_i31 (name, tcf::SUBT (ity, li 2, regbind v), fate, 0);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 31, op },
+						  args =>  [v, w],
+						  name,
+						  fate,
+						  ...
+						},
+				     heap_ptr)
+				    => 
+				    {   update_heap_pointer heap_ptr; 
+
+					type =  case op
+						    #
+						    fcf::p::ADD      =>   int31add (tcf::ADDT, v, w);
+						    fcf::p::SUBTRACT =>   int31sub (tcf::SUBT, v, w);
+
+						    fcf::p::MULTIPLY =>   int31mul (TRUE, tcf::MULT,         v, w);
+						    fcf::p::DIVIDE   =>   int31div (TRUE, tcf::d::ROUND_TO_ZERO,   v, w);	# This is the native instruction on Intel32
+
+						    fcf::p::DIV      =>   int31div (TRUE, tcf::d::ROUND_TO_NEGINF, v, w);	# This will be slower on Intel32 -- has to be faked.
+						    fcf::p::REM      =>   int31rem (TRUE, tcf::d::ROUND_TO_ZERO,   v, w);	# This is the native instruction on Intel32
+						    fcf::p::MOD      =>   int31rem (TRUE, tcf::d::ROUND_TO_NEGINF, v, w);	# This will be slower on Intel32 -- has to be faked.
+
+						    _   => error "translate_fatecode_op_to_treecode: fcf::MATH fcf::INT 31";
+						esac;
+
+					def_i31 (name, type, fate, 0);
+				    };
+
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 32, op },
+						  args =>  [v, w],
+						  name,
+						  fate,
+						  ... 
+						},
+				      heap_ptr
+				    )
+				    =>
+				    {   update_heap_pointer heap_ptr;
+
+					case op   
+					    fcf::p::ADD       => arith32 (tcf::ADDT, v, w, name, fate, 0);
+					    fcf::p::SUBTRACT  => arith32 (tcf::SUBT, v, w, name, fate, 0);
+					    fcf::p::MULTIPLY  => arith32 (tcf::MULT, v, w, name, fate, 0);
+
+					    fcf::p::DIVIDE    => arith32 (fn (type, x, y) = tcf::DIVT (tcf::d::ROUND_TO_ZERO, type, x, y),
+							      v, w, name, fate, 0);
+
+					    fcf::p::DIV => arith32 (fn (type, x, y) = tcf::DIVT (tcf::d::ROUND_TO_NEGINF, type, x, y),
+							      v, w, name, fate, 0);
+
+					    fcf::p::REM => arith32 (fn (type, x, y) = tcf::REMS (tcf::d::ROUND_TO_ZERO, type, x, y),
+							      v, w, name, fate, 0);
+
+					    fcf::p::MOD => arith32 (fn (type, x, y) = tcf::REMS (tcf::d::ROUND_TO_NEGINF, type, x, y),
+							      v, w, name, fate, 0);
+
+					    _ => error "fcf::p::MATH { kindbits=fcf::INT 32, op }, [v, w], ...";
+					 esac;
+				     };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 32, op=>fcf::p::NEGATE },
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    =>
+				    {   update_heap_pointer  heap_ptr;
+					#
+					def_i32 (name, tcf::SUBT (ity, zero, regbind v), fate, 0);
+				    };
+
+				# Note: for testu operations we use a somewhat arcane method
+				# to generate traps on overflow conditions. A better approach
+				# would be to generate a trap-if-negative instruction available
+				# on a variety of machines, e.g. sparc (maybe others).			XXX BUGGO FIXME (Actually traps are too expensive, we should use a conditional jump. -- CrT)
+				#
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_UNT (32, 32),
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    {   xreg = make_reg i32;
+					vreg = regbind v;
+
+					update_heap_pointer heap_ptr;
+
+					emit_op (tcf::LOAD_INT_REGISTER (ity, xreg, tcf::ADDT (ity, vreg, regbind (fcf::INT32 0ux80000000))));
+
+					def_i32 (name, vreg, fate, 0);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_UNT (31, 31),
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    {   xreg = make_reg i31;
+					vreg = regbind v;
+
+					update_heap_pointer heap_ptr;
+
+					emit_op (tcf::LOAD_INT_REGISTER (ity, xreg, tcf::ADDT (ity, vreg, regbind (fcf::INT32 0ux80000000))));
+
+					def_i31 (name, vreg, fate, 0);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_UNT (32, 31),
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    {   vreg = regbind v;
+					tmp = make_reg i32;
+					tmp_r = tcf::REG (ity, tmp);
+					lab = lbl::make_anonymous_codelabel ();
+
+					emit_op (tcf::LOAD_INT_REGISTER (ity, tmp, regbind (fcf::INT32 0ux3fffffff)));
+
+					update_heap_pointer heap_ptr;
+
+					emit_op (branch_with_prob (tcf::IF_GOTO (tcf::CMP (32, tcf::LEU, vreg, tmp_r), lab), THE probability::likely));
+
+					emit_op (tcf::LOAD_INT_REGISTER (ity, tmp, tcf::LEFT_SHIFT (ity, tmp_r, one)));
+					emit_op (tcf::LOAD_INT_REGISTER (ity, tmp, tcf::ADDT (ity, tmp_r, tmp_r)));
+
+					define_local_label lab;
+
+					def_i31 (name, tag_unsigned (vreg), fate, 0);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::MATH { op => fcf::p::SHRINK_UNT _, ... }, heap_ptr)
+				    => 
+				    error "translate_fatecode_op_to_treecode: fcf::MATH: testu with unexpected precisions (not implemented)";
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op => fcf::p::SHRINK_INT (32, 31), args => [v], name, fate, ... },
+				      heap_ptr
+				    )
+				    => 
+				    {   update_heap_pointer heap_ptr;
+					def_i31 (name, tag_signed (regbind v), fate, 0);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_INT (n, m),
+						  args =>  [v],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    if (n == m)   copy_m (m, name, v, fate, heap_ptr);
+				    else          error "translate_fatecode_op_to_treecode: fcf::MATH: test";
+				    fi;
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_INTEGER _, ... },
+				      heap_ptr
+				    )
+				    =>
+				    error "translate_fatecode_op_to_treecode: fcf::MATH: test_inf";
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { op, kindbits=>fcf::p::FLOAT 64 },
+						  args =>  [v, w],
+						  name,
+						  fate,
+						  ...
+						},
+				      heap_ptr
+				    )
+				    => 
+				    {   v = fregbind v;
+					w = fregbind w;
+
+					t = case op
+						#
+						fcf::p::ADD      => tcf::FADD (fty, v, w);
+						fcf::p::MULTIPLY => tcf::FMUL (fty, v, w);
+						fcf::p::SUBTRACT => tcf::FSUB (fty, v, w);
+						fcf::p::DIVIDE   => tcf::FDIV (fty, v, w);
+						_ => error "unexpected baseop in binary float64";
+					    esac;
+
+					treeify_def_f64 (name, t, fate, heap_ptr);
+				    };
+
+				#########
+				# fcf::FETCH_FROM_RAM
+				#########
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::BANG, args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    {   mem =   array_region (get_region v);
+
+					def_boxed (name, tcf::LOAD (ity, regbind v, mem), fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::SUBSCRIPT, args => [v, w], name, fate, ... }, heap_ptr)
+				    => 
+				    {   # Get data pointer: 
+
+					mem  = dataptr_region v;
+					a    = mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' = array_region mem;
+
+					def_boxed (name, tcf::LOAD (ity, scale4 (a, w), mem'), fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::NUMSUBSCRIPT { kindbits => fcf::p::INT 8 }, args => [v, i], name, fate, ... }, heap_ptr)
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   dataptr_region v;
+					a    =   mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' =   array_region mem;
+
+					def_i31 (name, tag_unsigned (tcf::LOAD (8, scale1 (a, i), mem')), fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::NUMSUBSCRIPT { kindbits => fcf::p::FLOAT 64 }, args => [v, i], name, fate, ... }, heap_ptr)
+				    =>
+				    {   # Get data pointer:
+
+					mem  = dataptr_region v;
+					a    = mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' = array_region mem;
+
+					treeify_def_f64 (name, tcf::FLOAD (fty, scale8 (a, i), mem'), fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_EXCEPTION_HANDLER,       args =>  [], name, fate, ... }, heap_ptr)
+				    =>
+				    def_boxed (name, pri::exnptr  use_virtual_framepointer, fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_CURRENT_THREAD_REGISTER, args =>  [], name, fate, ... }, heap_ptr)
+				    =>
+				    def_boxed (name, pri::current_thread_ptr  use_virtual_framepointer, fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::DEFLVAR,                     args =>  [], name, fate, ... }, heap_ptr)
+				    =>
+				    def_boxed (name, zero, fate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_STATE_OF_SPECIAL,        args => [v], name, fate, ... }, heap_ptr)
+				    => 
+				    def_boxed (name, or_tag (tcf::RIGHT_SHIFT (ity, get_heapchunk_tagword(v),
+								   li (tag::tag_width - 1))), 
+					       fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::PSEUDOREG_GET,               args => [i], name, fate, ... }, heap_ptr)
+				    => 
+				    {
+    #                                   print "getpseudo not implemented\n";
+					nop (name, i, fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::RAWLOAD { kindbits },        args => [i], name, fate, ... }, heap_ptr)
+				    =>
+				    rawload (kindbits, regbind i, name, fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::RAWLOAD { kindbits },        args => [i, j], name, fate, ... }, heap_ptr)
+				    =>
+				    rawload (kindbits, tcf::ADD (pri::address_width, regbind i, regbind j), name, fate, heap_ptr);
+
+				#########
+				# fcf::STORE_TO_RAM
+				#########
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWUPDATE fcf::type::FLOAT64,
+							  args =>  [v, i, w],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    =>
+				    {   emit_op (tcf::STORE_FLOAT (fty, scale8 (regbind' v, i), fregbind w, rgn::memory));
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>   fcf::p::RAWUPDATE _,
+							  args =>  [v, i, w],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   #  XXX BUGGO FIXME Assumes 32-bit. Needs 64-bit support later! 
+
+					emit_op (tcf::STORE_INT (ity, scale4 (regbind' v, i), regbind' w, rgn::memory)); 	# 64-bit issue XXX BUGGO FIXME this probably needs to be scale8 on 64-bit architectures.
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::ASSIGN,
+							  args =>  [a as fcf::VAR arr, v],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   ea = regbind a;
+					mem = array_region (get_region a);
+					#
+					record_store (ea, heap_ptr);
+					emit_op (tcf::STORE_INT (ity, ea, regbind v, mem));
+					translate_fatecode_op_to_treecode (fate, heap_ptr+8);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_INT_REFCELL,
+							  args =>  [a, v],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   mem =   array_region (get_region a);
+					#
+					emit_op (tcf::STORE_INT (ity, regbind a, regbind v, mem));
+					#
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::UPDATE,			# I think this does v[i] := w, overwriting i-th slot in pre-existing vector (and maybe also refcell?) 'v'.
+							  args =>  [v, i, w],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem   =   dataptr_region v;
+					a     =   mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					tmp_r =   rgk::make_int_codetemp ();				#  Derived pointer! 
+					tmp   =   tcf::REG (ity, tmp_r);
+					ea    =   scale4 (a, i);					#  Address of updated register 	# 64-bit issue XXX BUGGO FIXME this may need to be scale8 on 64-bit architectures.
+					mem'  =   array_region (mem);
+
+					emit_op (tcf::LOAD_INT_REGISTER (ity, tmp_r, ea));
+
+					record_store( tmp, heap_ptr);
+
+					emit_op (tcf::STORE_INT (ity, tmp, regbind w, mem'));
+
+					translate_fatecode_op_to_treecode (fate, heap_ptr+8);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM  { op => fcf::p::BOXED_SET, args, fate },
+				      heap_ptr
+				    )
+				    => 
+				    translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::UPDATE, args, fate }, heap_ptr);
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::UNBOXED_SET,
+							  args =>  [v, i, w],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   dataptr_region v;
+					a    =   mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' =   array_region mem;
+
+					emit_op (tcf::STORE_INT (ity, scale4 (a, i), regbind w, mem'));					# 64-bit issue XXX BUGGO FIXME this may need to be scale8 on 64-bit architectures.
+
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::NUMUPDATE { kindbits => fcf::p::INT 8 },
+							  args =>  [s, i, v],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   dataptr_region v;
+					a    =   mark_ptr (tcf::LOAD (ity, regbind s, mem));
+					ea   =   scale1 (a, i);
+					mem' =   array_region mem;
+
+					emit_op (tcf::STORE_INT (8, ea, untag_unsigned (v), mem'));
+
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::NUMUPDATE { kindbits => fcf::p::FLOAT 64 },
+							  args =>  [v, i, w],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   dataptr_region v;
+					a    =   mark_ptr (tcf::LOAD (ity, regbind v, mem));
+					mem' =   array_region mem;
+
+					emit_op (tcf::STORE_FLOAT (fty, scale8 (a, i), fregbind w, mem'));
+
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_STATE_OF_SPECIAL,
+							  args =>  [v, i],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   ea =   tcf::SUB (ity, regbind v, li 4);
+
+					i' =    case i 
+						    #
+						    fcf::INT k => li (dtoi (tag::make_tagword (k, tag::weak_pointer_or_suspension_btag)));
+
+						    _ => tcf::BITWISE_OR (ity, tcf::LEFT_SHIFT (ity, untag_signed (i), 
+									li tag::tag_width),
+							     li (dtoi tag::weak_pointer_or_suspension_tagword));
+					       esac;
+
+					mem =   get_region_projection (v, 0);
+
+					emit_op (tcf::STORE_INT (ity, ea, i', mem));
+
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_EXCEPTION_HANDLER,
+							  args =>  [x],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   emit_op (assign (pri::exnptr  use_virtual_framepointer, regbind x));
+					#
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_CURRENT_THREAD_REGISTER,
+							  args =>  [x],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    => 
+				    {   emit_op (assign (pri::current_thread_ptr  use_virtual_framepointer, regbind x));
+					#
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::USELVAR,       args => [x], fate }, heap_ptr)   =>   translate_fatecode_op_to_treecode (fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::ACCLINK,       args =>  _,  fate }, heap_ptr)   =>   translate_fatecode_op_to_treecode (fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::SETMARK,       args =>  _,  fate }, heap_ptr)   =>   translate_fatecode_op_to_treecode (fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::FREE,          args => [x], fate }, heap_ptr)   =>   translate_fatecode_op_to_treecode (fate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::PSEUDOREG_SET, args =>  _,  fate }, heap_ptr)   =>   translate_fatecode_op_to_treecode (fate, heap_ptr);
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWSTORE { kindbits },
+							  args =>  [i, x],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    =>
+				    {   rawstore (kindbits, regbind i, x);
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWSTORE { kindbits },
+							  args =>  [i, j, x],
+							  fate
+							},
+				      heap_ptr
+				    )
+				    =>
+				    {   rawstore (kindbits, tcf::ADD (pri::address_width, regbind i, regbind j), x); 
+					translate_fatecode_op_to_treecode (fate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, fate }, heap_ptr)
+				    => 
+				    {   my  { result, heap_ptr }
+					    = 
+					    fatecode_c_calls::ccall
+						#
+						{ treecode_to_machcode_stream, regbind, fregbind, typmap, use_virtual_framepointer, heap_ptr }
+						#
+						(kind, cfun_name, cfun_type, args, results, fate);
+
+					case (result, results)
+					    #
+					    ([], [(w, _)]) => def_i31 (w, ml_zero, fate, heap_ptr);
+
+					    ([tcf::FLOAT_EXPRESSION x],[(w, fcf::type::FLOAT64)])     =>   treeify_def_f64 (w, x, fate, heap_ptr);
+
+						#  more sanity checking here ? 
+
+					    ([tcf::INT_EXPRESSION x],[(w, fcf::type::INT32    )]) =>   def_i32   (w, x, fate, heap_ptr);
+					    ([tcf::INT_EXPRESSION x],[(w, fcf::type::POINTER _)]) =>   def_boxed (w, x, fate, heap_ptr);
+
+					    ([tcf::INT_EXPRESSION x1, tcf::INT_EXPRESSION x2],[(w1, fcf::type::INT32), (w2, fcf::type::INT32)])
+						=>
+						{   r1 =  make_reg  i32;
+						    r2 =  make_reg  i32;
+
+						    add_reg_naming (w1, r1);
+						    add_reg_naming (w2, r2);
+
+						    emit_op (tcf::LOAD_INT_REGISTER (ity, r1, x1));
+						    emit_op (tcf::LOAD_INT_REGISTER (ity, r2, x2));
+
+						    translate_fatecode_op_to_treecode (fate, heap_ptr);
+						};
+
+					    _ =>   error "fcf::RAW_C_CALL: bad results";
+					esac;
+				    };
+
+				#########
+				# fcf::IF_THEN_ELSE
+				#########
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::INT 31 },
+							  args =>  [fcf::INT v, fcf::INT k],
+							  thenfate,
+							  elsefate,
+							  ...
+							},
+				      heap_ptr
+				    )
+				    =>
+				    if   case op   					# We're comparing two Int constants:  Optimize to just 'then' or 'else' branch.
+					     fcf::p::GT    =>   v >  k; 
+					     fcf::p::GE    =>   v >= k; 
+					     fcf::p::LT    =>   v <  k; 
+					     fcf::p::LE    =>   v <= k;
+					     fcf::p::EQL   =>   v == k; 
+					     fcf::p::NEQ   =>   v != k;
+					 esac
+					 translate_fatecode_op_to_treecode (thenfate, heap_ptr);
+				    else translate_fatecode_op_to_treecode (elsefate, heap_ptr);
+				    fi;
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::INT 32 },
+							  args => [ fcf::INT32 v, fcf::INT32 k ],
+							  thenfate,
+							  elsefate,
+							  ...
+							},
+				      heap_ptr
+				    )
+				    =>
+				    {   v' =   unt32::to_large_int_x v;		# We're comparing two Int32 constants:  Optimize to just 'then' or 'else' branch.
+					k' =   unt32::to_large_int_x k;
+
+					if    case op   
+						  fcf::p::GT    =>   v >  k; 
+						  fcf::p::GE    =>   v >= k; 
+						  fcf::p::LT    =>   v <  k; 
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					      esac
+
+					     translate_fatecode_op_to_treecode (thenfate, heap_ptr);
+					else translate_fatecode_op_to_treecode (elsefate, heap_ptr);
+					fi;
+				    };
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::INT 31 }, args, xvar, thenfate, elsefate },
+				      heap_ptr
+				    )
+				    => 
+				    branch (xvar, signed_compare op, args, thenfate, elsefate, heap_ptr);
+
+
+				translate_fatecode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },
+						    args => [fcf::INT v', fcf::INT k'], 
+						    thenfate,
+						    elsefate,
+						    ...
+						  },
+				      heap_ptr
+				    )
+				    =>
+				    {   include unt;				# We're comparing two Unt constants:  Optimize to just 'then' or 'else' branch.
+
+					v =   from_int v';
+					k =   from_int k';
+
+					if    case op   
+						  fcf::p::GT    =>   v >  k;   
+						  fcf::p::GE    =>   v >= k;  
+						  fcf::p::LT    =>   v <  k;   
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					     esac
+
+					     translate_fatecode_op_to_treecode (thenfate, heap_ptr);
+					else translate_fatecode_op_to_treecode (elsefate, heap_ptr);
+					fi;
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },   args, xvar, thenfate, elsefate }, heap_ptr)
+				    => 
+				    branch (xvar, unsigned_compare op, args, thenfate, elsefate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 }, args => [fcf::INT32 v, fcf::INT32 k], thenfate, elsefate, ... }, heap_ptr)
+				    => 
+				    {   include unt32;				# We're comparing two Unt32 constants:  Optimize to just 'then' or 'else' branch.
+
+					if   case op   
+						  fcf::p::GT    =>   v >  k;   
+						  fcf::p::GE    =>   v >= k;  
+						  fcf::p::LT    =>   v <  k;   
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					     esac
+
+					     translate_fatecode_op_to_treecode (thenfate, heap_ptr);
+					else translate_fatecode_op_to_treecode (elsefate, heap_ptr);
+					fi;
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 }, args, xvar, thenfate, elsefate }, heap_ptr)
+				    => 
+				    branch (xvar, unsigned_compare op, args, thenfate, elsefate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::INT 32 }, args, xvar, thenfate, elsefate }, heap_ptr)
+				    => 
+				    branch (xvar, signed_compare op, args, thenfate, elsefate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::FCMP { op, size=>64 }, args => [v, w], thenfate, elsefate, ... }, heap_ptr)
+				    =>
+				    {   true_label =   lbl::make_anonymous_codelabel ();
+					compare  =   float64cmp (op, v, w);
+					#
+					emit_op (tcf::IF_GOTO (compare, true_label));
+					#
+					gen_cont (elsefate, heap_ptr);
+					genlab (true_label, thenfate, heap_ptr);
+				    };
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::PEQL, args, xvar, thenfate, elsefate }, heap_ptr)   =>   branch (xvar, tcf::EQ, args, thenfate, elsefate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::PNEQ, args, xvar, thenfate, elsefate }, heap_ptr)   =>   branch (xvar, tcf::NE, args, thenfate, elsefate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::STRNEQ, args => [fcf::INT n, v, w], thenfate, elsefate, ... }, heap_ptr)
+				    => 
+				    branch_streq (n, v, w, elsefate, thenfate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::STREQ, args => [fcf::INT n, v, w], thenfate, elsefate, ... }, heap_ptr)
+				    => 
+				    branch_streq (n, v, w, thenfate, elsefate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::BOXED,   args => [x], xvar, thenfate, elsefate }, heap_ptr)   =>   branch_on_boxed (xvar, x, thenfate, elsefate, heap_ptr);
+				translate_fatecode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::UNBOXED, args => [x], xvar, thenfate, elsefate }, heap_ptr)   =>   branch_on_boxed (xvar, x, elsefate, thenfate, heap_ptr);
+
+				translate_fatecode_op_to_treecode (e, heap_ptr)
+				    =>
+				    {   prettyprint_fatecode::print_fatecode_expression e;
+					print "\n";
+					error "translate_fatecode_connected_component_to_treecode::translate_fatecode_op_to_treecode";
+				    };
+			    end;
+
+
+			    #
+			    fun compile_all_pushed_functions ()
+				= 
+				compile_one_function (ffs::pop_function ())
+				where
+				    fun compile_next_function ()
+					=
+					compile_one_function (ffs::pop_function())
+
+				    also
+				    fun compile_one_function  NULL => ();
+					#
+					compile_one_function (THE(_, ffs::ALL_CALLERS_KNOWN                           _)                       ) =>  compile_next_function();
+					compile_one_function (THE(_, ffs::ALL_CALLERS_KNOWN_AND_NEEDS_HEAPLIMIT_CHECK _)                       ) =>  compile_next_function();
+					compile_one_function (THE(_, ffs::STANDARD { func=>REF NULL, ... } )                                   ) =>  compile_next_function();
+
+					compile_one_function (THE (fun_codelabel, ffs::STANDARD { func as REF (THE (zz as (callers_info, fun_id, fun_parameters, fun_parameter_types, fun_body))), ... }))
+					    => 
+					    {   parameters_in_treecode_form =   cfa::convert_standard_fatecode_fun_args_to_treecode { fn_type=>typmap fun_id, argument_types=>fun_parameter_types, use_virtual_framepointer };
+						func := NULL;
+						emit_pseudo_op (pb::ALIGN_SIZE 2);
+						#
+						translate_fatecode_function_to_treecode (fun_codelabel, callers_info, fun_id, fun_parameters, parameters_in_treecode_form, fun_parameter_types, fun_body);
+						#
+						compile_next_function ();
+					    };
+				    end;
+				end;                              # fun compile_all_pushed_functions 
+
+			    # Execution starts at the first fatecode function:
+			    #	
+			    fun push_fatecode_functions (first_function ! remaining_functions:  List( fcf::Function ))
+				    =>
+				    {	apply  push_fatecode_function  remaining_functions;
+					#
+					push_fatecode_function  first_function;
+				    }
+				    where
+				        fun push_fatecode_function (function as (_, fun_id, _, _, _))
+					    = 
+					    add_gen_table (fun_id, ffs::push_fatecode_function (function, get_function_label fun_id));
+				    end;	
+
+			       push_fatecode_functions []
+				    =>
+				    error "push_fatecode_functions";
+			    end;
+
+			    # Create cluster annotations.
+			    # Currently, we only need
+			    # to enter the appropriate
+			    # gc map information.
+			    #	
+			    fun create_cluster_annotations ()
+				=
+				{   registerinfo
+					=
+					if lowhalf_track_heapcleaner_type_info				# Currently ALWAYS FALSE -- this appears to be an unfinished project.
+					    #
+					    fun enter (tcf::REG(_, r), type) =>  enter_gc (r, type);
+						enter _                      =>  ();
+					    end;
+
+					    enter_gc (heap_allocation_pointer_r, per_codetemp_heapcleaner_info::HEAP_ALLOCATION_POINTER);
+					    enter (pri::heap_allocation_limit  use_virtual_framepointer, per_codetemp_heapcleaner_info::HEAP_ALLOCATION_LIMIT);
+					    enter (pri::baseptr   use_virtual_framepointer, ptr);
+					    enter (pri::stdlink   use_virtual_framepointer, ptr);
+
+					    [   lhn::print_register_info.x_to_note (hr::print_type)   ];
+					else
+					    [];
+					fi;
+
+				    use_virtual_framepointer
+				      ??  lhn::uses_virtual_framepointer.set ((), registerinfo)
+				      ::                                          registerinfo ;
+				};
+
+			    push_fatecode_functions  callgraph_component;
+			    begin_connected_component 0;
+			    emit_pseudo_op  pb::TEXT;
+			    compile_all_pushed_functions ();
+
+			    ihc::emit_longjump_heapcleaner_calls   treecode_to_machcode_stream;
+
+			    translate_machcode_controlflow_graph_component_to_execode			# def in    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+				per_compile_info
+				(end_connected_component (create_cluster_annotations()));
+
+			};                                            # fun translate_fatecode_connected_component_to_treecode
+		    #
+		    fun finish_compilation_unit file
+			=
+			{   stream =   t2m::translate_treecode_to_machcode  (mkg::make_machcode_controlflow_graph ());
+
+			    stream ->  { begin_connected_component, emit_pseudo_op, end_connected_component, ... };
+
+			    rgk::reset_codetemp_id_allocation_counters();
+
+			    ca::use_virtual_framepointer := FALSE;
+			    begin_connected_component 0; 
+			    emit_pseudo_op  pb::TEXT;
+			    ihc::emit_heapcleaner_calls_for_package stream;
+			    emit_pseudo_op  (pb::DATA_READ_ONLY);
+			    emit_pseudo_op  (pb::EXT (cpo::FILENAME file));
+
+			    translate_machcode_controlflow_graph_component_to_execode
+				per_compile_info
+				(end_connected_component  no_opt);
+			};
+		    #
+		    fun get_entrypoint_offset_of_first_function ((_, f, _, _, _) ! _) ()
+			    =>
+			    lbl::get_codelabel_address (get_function_label f);
+
+		       get_entrypoint_offset_of_first_function [] ()
+			    =>
+			    error "entrypoint: no functions";
+		    end;
+
+
+		end;							# fun translate_fatecode_to_execode
+	end;
+    };									# generic package translate_fatecode_to_treecode_g 
+end;
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1996 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

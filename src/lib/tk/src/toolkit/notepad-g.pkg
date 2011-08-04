@@ -1,0 +1,808 @@
+## notepad-g.pkg
+## (C) 1996, 1998, Bremen Institute for Safe Systems, Universitaet Bremen
+## Author: cxl, and a tiny bit bu
+
+# Compiled by:
+#     src/lib/tk/src/toolkit/sources.sublib
+
+
+
+# ***************************************************************************
+# A generic graphical user interface. 
+#
+# See <a href=file:../../doc/manual.html>the documentation</a> for more
+# details.  
+#
+# "tests+examples/simpleinst.pkg" contains a small example of how to
+# use this package.
+# **************************************************************************
+
+
+
+###         "Follow the masters!
+###
+###          But why should one follow them?
+###
+###          The only reason they are masters
+###          is that they didn't follow anybody!"
+###
+###                       -- Paul Gauguin
+
+
+
+generic package notepad_g (package appl: Notepad_Application; )		# Notepad_Application	is from   src/lib/tk/src/toolkit/appl.api
+/* :  Generated_GUI *//* where type Part_Ilk     = appl::Part_Ilk
+                also type New_Part = appl::New_Part */
+
+{
+    
+    stipulate
+
+        include tk;
+        include basic_utilities;
+        include global_configuration;
+    herein
+
+    default_printmode= { mode => print::long,
+                           printdepth=>100,
+                           height=>NULL,
+                           width=>NULL };  #  the value is temporary 
+    fun name2string x = appl::string_of_name 
+                            (appl::name_of x)
+                                default_printmode;
+
+
+# ************************************************************************ *
+# 
+# Parameters 
+#
+#
+
+
+    # The trashcan
+
+    trashcan_cid      = make_tagged_canvas_item_id("trashcan"); 
+
+    fun trashcan_citem ()
+        =
+	# The trashcan does _not_ have an entry you can change 
+	#
+	CANVAS_ICON { citem_id=>trashcan_cid, coord=>appl::conf::trashcan_coord, 
+              icon_variety=>icons::get_normal_variety (appl::conf::trashcan_icon()),
+              traits => [ANCHOR NORTHWEST], event_callbacks => [] };
+
+     Item = OBJ  (Window_Id, Widget_Id, Canvas_Item_Id, Box, appl::Part_Ilk)
+                  | TRASHCAN  Box;
+
+
+    #  the widget id of the canvas all the items are placed on 
+    backdrop_id = make_tagged_widget_id("backdrop");
+
+
+
+    # Assorted global references (ah, the joys of functional programming). 
+
+    place_obj = REF (fn (c: Widget_Id)=> fn (i: Item)=> (); end;  end);
+    del_obj   = REF (fn (c: Widget_Id)=> fn (i: Item)=> (); end;  end);
+    over_dz   = REF (fn (c: Widget_Id)=> fn (r: Box)=> ([]:List( Item )); end; end);
+
+    # point to the functions to place and delete items on the d/d canvas,
+    # and to check dropzones as exported by the drag&drop module. 
+
+
+    #  ``Subtypes'' -- a subtype is a type with a mode.  
+
+     Subtype = (appl::Part_Type, appl::Mode);
+    
+    sel_subtype = pair (appl::part_type, appl::mode o appl::part_type);
+
+
+
+    exception GENERATE_GUI_FN  String;
+		
+    fun is_trashcan (trashcan _)    => TRUE;
+       is_trashcan _              => FALSE; end;
+
+    #  selector functions 
+
+    fun sel_canvas   (obj x)       => #2 x;
+       sel_canvas   (trashcan _)  => backdrop_id; end;
+	
+    fun sel_drop_zone (obj x)       => #4 x;
+       sel_drop_zone (trashcan dz) => dz; end;
+
+    fun get_canvas_item_id   (obj x)       => #3 x;
+       get_canvas_item_id   (trashcan _)  => trashcan_cid; end;
+
+    fun sel_obj      (obj x)       = #5 x;
+
+    fun item_coords oo = hd (get_tcl_canvas_item_coordinates (sel_canvas oo) (get_canvas_item_id oo))
+	                except EMPTY => coordinate (0, 0); end ;
+
+    fun bitmap_cid   cid = make_sub_canvas_item_id (cid, "xIcon");
+    fun widget_cid   cid = make_sub_canvas_item_id (cid, "xWidId");
+    fun pop_up_menu_id cid = make_sub_widget_id (canvas_item_id_to_widget_id cid, "xKuckuck");
+
+
+
+    fun set_obj_img  which ca cit oo = 
+	                     add_canvas_item_traits ca (bitmap_cid cit)
+			           [ICON (which (not (appl::outline oo)) 
+					        (appl::icon (appl::part_type oo)))];
+
+    fun set_item_img which (obj(_, ca, cit, _, oo)) => 
+	                     set_obj_img which ca cit oo;
+       set_item_img which (trashcan _) =>
+                             add_canvas_item_traits backdrop_id trashcan_cid
+                                   [ICON ((which TRUE) 
+				          (appl::conf::trashcan_icon()))]; end;
+
+    hilite_icon  = set_item_img (fn _ => icons::get_highlighted_variety; end );
+    reset_icon   = set_item_img (fn no=> if no  icons::get_normal_variety; 
+					  else icons::get_outlined_variety;fi; end );
+    outline_icon = set_item_img (fn _ => icons::get_outlined_variety; end );
+
+
+    fun debugmsg msg = debug::print 11 ("Notepad: " + msg);
+
+    fun anchor_to_dir NORTH     => coordinate (0, -1);
+       anchor_to_dir NORTHEAST => coordinate (1, -1);
+       anchor_to_dir EAST      => coordinate (1, 0);
+       anchor_to_dir SOUTHEAST => coordinate (1, 1);
+       anchor_to_dir SOUTH     => coordinate (0, 1);
+       anchor_to_dir SOUTHWEST => coordinate(-1, 1);
+       anchor_to_dir WEST      => coordinate(-1, 0);
+       anchor_to_dir NORTHWEST => coordinate(-1, -1);
+       anchor_to_dir CENTER    => coordinate (0, 0); end;
+
+    #
+    # Find a place to put the new object
+    # 
+    # Currently, this function just wanders off into the direction given until
+    # it either finds a free space or wanders off the canvas. 
+    # It would be nice if it would be a bit more clever and eg. if it at 
+    # first can't find something in Direction NE, first try N, then E, and
+    # then go further NE etc.
+
+
+    fun get_drop_zone icn (x, y)
+        = 
+	((x, y), (x+icons::get_width icn, y+icons::get_height icn));
+                        /* the drop zone is always in relation to
+			 * the _first_ sub-item, here the bitmap */
+
+    fun find_nice_place cnv (nu_ob, wh, shift)
+        =
+	{   exception OFF;
+
+	    # Width and height of canvas:
+
+	    canrect = make_box((0, 0), (get_width cnv, get_height cnv));
+	    fun off_canvas (x, y) = not (inside (coordinate (x, y)) canrect);
+
+            #  get dropzone of new object 
+	    dz      = get_drop_zone (appl::icon (appl::part_type nu_ob));
+
+	    #  Check for another dropzone 
+
+	    fun no_other_dz r
+                =
+                null (*over_dz cnv r);
+
+
+	    fun place_it whr CENTER
+                    =>
+                    whr;
+
+	        place_it whr sh
+                    =>
+		    if (off_canvas whr)  raise exception OFF;
+		    else if (no_other_dz (dz whr) ) whr;
+			 else  debugmsg ("Can't place at " $
+					 (show_coordinate [coordinate whr]));
+			       place_it ((add_coordinates (coordinate whr))
+					(scale_coordinate (anchor_to_dir sh) 
+					 appl::conf::delta)) sh;
+                         fi;
+                   fi;
+            end;
+	
+
+	    place_it wh shift
+            except
+                OFF = wh;
+	};
+ 
+    fun set_obj_icon cnv cid no_out st
+        =
+	add_canvas_item_traits cnv (bitmap_cid cid)
+	[ICON ((if no_out  icons::get_normal_variety; else icons::get_outlined_variety;fi)
+	       (appl::icon st))]
+
+    also
+    fun rename_action window frmid namid ob
+        =
+        appl::label_action { obj=> ob, 
+                             cc => fn txt= {   appl::rename txt ob;
+                                               #  update the object 
+                                               set_object_name window frmid namid txt ob;
+                                           }
+                                           # update its visual appearance.
+                           } 
+
+    also
+    fun mon_op_menu window cnv frmid namid cid dz ob
+        =
+	{ #  standard operations menue 
+	    obt = appl::part_type ob;
+
+	    fun op_std_mitem (opn, name)
+                =
+		MENU_COMMAND [TEXT name, CALLBACK (fn () => opn ob; end )];
+
+	    fun std_ops cnv cid dz 
+		=
+                (appl::std_ops obt) @
+		  [(rename_action window frmid namid, "Rename"),
+		   (fn ob = { *(del_obj) cnv (obj (window, cnv, cid, dz, ob));
+		             appl::delete ob;}, "Delete")];
+
+	    # Setting the mode
+	    # ATTENTION: this piece of code _assumes_ that the icons of all
+	    #            modes have exactly the same size
+
+	    fun set_mode ob m  = (fn _=> { appl::set_mode (ob, m); 
+					 set_obj_icon cnv cid (not (appl::outline ob)) 
+					 (appl::part_type ob);}; end ,
+				 appl::mode_name m);
+	    subtype_menu = map (op_std_mitem o (set_mode ob)) (appl::modes obt);
+
+	    # Customized extra menu:
+	    #
+	    fun op_menu_item ob (opn, name)
+                =
+	        MENU_COMMAND [ TEXT name,
+			       CALLBACK (fn () = opn (ob, 
+						    hd (get_tcl_canvas_item_coordinates cnv cid))
+				                   (place_on_area window cnv)
+                                      )
+                             ];
+	    more_op_list = map (op_menu_item ob) (appl::mon_ops obt);
+	    menu_list   = (map op_std_mitem (std_ops cnv cid dz)) @
+		                   (if ((length subtype_menu)<= 1)  [];
+				    else MENU_SEPARATOR . subtype_menu;fi) @
+		                   (if (null more_op_list)  [];
+			            else MENU_SEPARATOR . more_op_list;fi);
+        
+	    POPUP { widget_id   => pop_up_menu_id cid,
+		   mitems  => menu_list,
+		   traits => [TEAR_OFF FALSE] };
+	}
+    
+    also fun pop_up_mon_op_menu cid (TK_EVENT(_, _, _, _, xr, yr))
+        =
+	pop_up_menu (pop_up_menu_id cid) (THE 0) (coordinate (xr, yr))
+	 
+    also fun object_namings window cnv cid dz ob
+        =
+         {   fun w_here ()
+                 =
+                 hd (get_tcl_canvas_item_coordinates cnv cid);
+
+             fun rep_act w_here nu_ob
+                 =
+                 { *del_obj cnv (obj (window, cnv, cid, dz, ob));
+                                       place_on_area_at window cnv w_here nu_ob;};
+
+             fun out_act ()
+                 =
+                 set_obj_img
+                     (fn _ =  icons::get_outlined_variety)
+                     cnv
+                     cid
+                     ob;
+
+             [ EVENT_CALLBACK
+                   (
+                     events::activate_event(),             
+
+		     fn e =  appl::object_action 
+                                  { window,
+                                    obj => ob,
+                                    replace_object_action => rep_act (w_here()),
+                                    outline_object_action => out_act
+                                  }
+                   ),  
+
+	       EVENT_CALLBACK
+                   (
+                     events::object_menu_event (), 
+
+		     fn e =  if (not (appl::is_locked_object ob))
+                                  pop_up_mon_op_menu cid e; 
+                             fi
+                   )
+	     ];
+         }
+   
+    also
+    fun set_object_name window frmid labelid name ob
+        =
+	{   # The name-printing should be done elsewhere once and for all - 
+            # some day in obj2objtree-fun . . . >>>
+
+            lab_len   = 10;		# Ad hoc value !!!
+
+            lab_pm    = { mode   =>  print::short, printdepth=>100,
+                          height =>  THE (lab_len div 2), width=>THE lab_len
+                        }; 
+
+            fun blk txt
+                =
+                if (size txt > lab_len)
+
+                     substring (txt, 0, lab_len) . 
+                                 blk (substring (txt, lab_len, size (txt)-lab_len));
+                else
+                     [txt];
+                fi;
+
+            fun block txt
+                =
+                {   tt = blk txt; 
+                    fold_left
+                        (fn (a, b) =  b $ "\n" $ a)
+                        (hd tt)
+                        (tl tt);
+                };
+
+            fun height txt
+                =
+                ((size txt) div lab_len) + 1;
+         
+            fun col_lab TRUE  =>  BACKGROUND (*(colors::config.background_sel));
+                col_lab FALSE =>  BACKGROUND (*(colors::config.background));
+            end;
+
+            fun hilite b _
+                =
+                (add_trait labelid [col_lab (b)] );
+
+            fun activate _
+                =
+                (appl::label_action { obj=> ob, 
+                                      cc =>fn txt=>
+                                          { appl::rename txt ob;
+                                           {  txt = appl::string_of_name
+                                                            (appl::name_of ob) 
+                                                               lab_pm;
+                                                tt = TEXT txt;
+                                                cc = col_lab (FALSE);
+                                                hh = HEIGHT (height txt);
+                                      #  update the object 
+                                              add_trait labelid [tt, cc, hh];
+                                           };}; end 
+                                      /* update its visual appearance */} );
+
+            fun label name
+                =
+                LABEL { widget_id=>labelid, packing_hints => [], 
+                              event_callbacks=> [EVENT_CALLBACK (events::activate_event(),
+                                                activate),
+                                         EVENT_CALLBACK (ENTER, hilite TRUE),
+                                         EVENT_CALLBACK (LEAVE, hilite FALSE)
+                                        ],
+			      traits=>  [ TEXT name, col_lab FALSE,
+                                         FONT  appl::conf::icon_name_font,
+					 WIDTH appl::conf::icon_name_width,
+                                         HEIGHT (height name) 
+                                        ] };
+	    # yes, we do have to delete the widget and replace it because
+	    # we want the packer to center the label within the (invisible)
+	    # frame
+
+            appl::rename name ob;
+
+            { name = appl::string_of_name (appl::name_of ob) lab_pm;
+              debugmsg("Renaming " $ (widget_id_to_string labelid) $ " to " $ name);
+	        if (widget_exists labelid)  delete_widget labelid; fi;
+	        add_widget window frmid (label name);
+            };	    
+	}
+
+    also
+    fun place_obj_as_item window cnv (x, y) nu_ob
+        =
+	{   cid   = make_canvas_item_id();
+	    frmid = make_widget_id();
+	    namid = make_widget_id();
+	    icn   = appl::icon (appl::part_type nu_ob);
+	    selimg= if (not (appl::outline nu_ob))  icons::get_normal_variety; 
+			else icons::get_outlined_variety;fi;
+	    bm_w  = icons::get_width icn;
+	    bm_h  = icons::get_height icn;
+	    te_x  = (bm_w - appl::conf::icon_name_width) div 2;
+	    dz    = make_box (get_drop_zone icn (0, 0));
+	    nm    = appl::string_of_name 
+                             (appl::name_of nu_ob)
+                             { mode => print::short, printdepth=>100,
+                              height=>NULL, width=>NULL }; #  WHY ??? bu 
+
+	    #  the CItems representing the object 
+	    bm_ci  = CANVAS_ICON { citem_id=> bitmap_cid cid, 
+			      coord=> coordinate (x, y), 
+			      icon_variety=>selimg icn,
+			      traits=> [ANCHOR NORTHWEST], 
+			      event_callbacks=> object_namings window cnv cid dz nu_ob };
+
+	    te_ci  = CANVAS_WIDGET {
+                            citem_id => widget_cid cid, 
+			    coord => coordinate (x+te_x, y+bm_h),
+			    event_callbacks=> object_namings window cnv cid dz nu_ob,
+			    traits => [WIDTH appl::conf::icon_name_width,
+				     ANCHOR NORTHWEST # , FILL_COLOR (*(Colors::config.background)) 
+                                   ],
+			    subwidgets => PACKED [
+                                             FRAME {
+                                                 widget_id => frmid, 
+						 packing_hints => [], 
+						 traits=> [BACKGROUND (*(colors::config.background))],
+						 event_callbacks => [],
+					         subwidgets => PACKED
+
+								[/* Entry (entryWId cid, [Expand TRUE],
+								[Font appl::Conf::iconNameFont],
+								textEntryNamings window nuOb cid), */
+								mon_op_menu window cnv frmid namid cid 
+									    dz nu_ob]
+
+                                               }
+                                         ]
+
+                        };
+	    tag_ci = CANVAS_TAG { citem_id=>cid, 
+			     citem_ids=> [bitmap_cid cid, widget_cid cid] }; 
+	  { apply (add_canvas_item cnv) [bm_ci, te_ci, tag_ci];
+	     set_object_name window frmid namid nm nu_ob;
+	     obj (window, cnv, cid, dz, nu_ob);};
+	}
+
+    also
+    fun place_on_area_at window cnv w_here nu_ob
+        = 
+	*place_obj cnv (place_obj_as_item window cnv w_here nu_ob)
+
+    also
+    fun place_on_area window cnv (nu_ob, (wh, shift))
+        = 
+           place_on_area_at window cnv (find_nice_place cnv (nu_ob, wh, shift)) nu_ob; 
+
+    
+    package dd=
+	package {
+	     Item = Item;
+	     Il   = List( Item );
+		
+	    get_canvas_item_id    = get_canvas_item_id;
+	    sel_drop_zone  = sel_drop_zone;
+		
+# 	    fun isImmobile x = isOpen (get_canvas_item_ID x)  
+            fun is_immobile x = not (is_trashcan x) and
+                               appl::is_locked_object (sel_obj x); 
+		
+	    fun grab it = 
+		if (not appl::conf::move_opaque )
+		    outline_icon it;
+		fi;
+		    
+	    release  = reset_icon;
+		
+	    select   = hilite_icon; 
+		
+	    deselect = reset_icon;
+		
+	    fun move it delta
+                =
+		if appl::conf::move_opaque  
+
+		    move_canvas_item (sel_canvas it) (get_canvas_item_id it) delta;
+		fi;
+		    
+	    fun enter e_it entering
+                =
+		if (list::exists is_trashcan entering)
+
+		    FALSE;
+		else
+		    case e_it   
+
+		       trashcan d =>  { hilite_icon (trashcan d); TRUE;};
+
+		       obj (_, _, cit, dz, ob)
+                           =>
+			   {   olt = appl::objlist_type (map sel_obj entering);
+			       ot  = appl::part_type ob;
+
+			       if (appl::is_locked_object ob) 
+
+				    # Entered object is currently open in
+				    # construction area-- no opns poss.
+
+				    FALSE;
+			       else
+                                    case olt   
+
+				        NULL => FALSE;
+
+				        THE lt
+                                            =>
+					    case (appl::bin_ops (ot, lt))   
+					        NULL    => FALSE;
+					        THE f  => { hilite_icon e_it; TRUE;};
+                                            esac;
+                                    esac;
+                               fi;
+			    };
+                    esac;
+                fi;
+			
+	    leave = reset_icon;
+		
+		    
+	    fun drop (trashcan _) trash
+		    =>
+		    { apply appl::delete (map sel_obj trash); FALSE;};
+
+	        drop (obj (window, cnv, cid, dz, ob)) dropped
+		    =>
+		    {   ot  = appl::part_type ob;
+			olt = appl::objlist_type (map sel_obj dropped);
+
+		        if (appl::is_locked_object ob)
+
+                            FALSE;		#  object dropped onto currently open in the con::area 
+
+			else
+
+                            case olt   
+
+				NULL   => raise exception GENERATE_GUI_FN "Illegal 'drop'";
+
+				THE lt
+                                    =>
+				    case (appl::bin_ops (appl::part_type ob, lt))   
+
+					 NULL => raise exception GENERATE_GUI_FN "Illegal 'drop'";
+
+					 THE f
+                                             =>
+                                             {  f ( ob, 
+						    hd (get_tcl_canvas_item_coordinates cnv cid),
+						    map sel_obj dropped,
+						    fn nuob = place_on_area window cnv nuob
+                                                  ); 
+
+						  TRUE;
+                                             };
+                                    esac;
+                            esac;
+                        fi;
+		    };
+            end;
+	    
+            Item_List = List( Item );
+            fun  item_list_rep x = x;
+            fun  item_list_abs x = x;	
+	
+	    package clipboard = #  Clipboard_g (class type Part= item end) 
+		package {
+		     Part= Item_List;
+			
+		    fun  put it ev cb = 
+			appl::clipboard::put (appl::cb_objects_abs (fn ()=> map sel_obj it; end )) ev cb;
+		};
+	};
+    
+    package objects_dd
+        =
+        drag_and_drop_g( dd );
+
+    Part_Ilk   = appl::Part_Ilk;
+    Cb_Objects = appl::Cb_Objects;
+    New_Part   = appl::New_Part;
+    Gui_State  = List( New_Part );
+
+    #  the clipboard 
+    package clipboard= appl::clipboard;
+
+
+    #  redisplay all the icons 
+    fun redisplay_icons which
+        =
+	{ fun set_icon (obj(_, cnv, cid, _, ob))= 
+	           set_obj_icon cnv cid (not (appl::outline ob)) (appl::part_type ob);
+	    fun filt (obj(_, _, _, _, ob))=> which ob;
+	       filt (trashcan _)         => FALSE; end;
+	 apply set_icon (list::filter filt (objects_dd::all_items backdrop_id));
+	};
+
+
+    fun enter_area window bd (ev as TK_EVENT(_, _, x, y, _, _))
+        =
+	ignore (list::fold_right (fn (ob, (x, y))=> 
+			   { objects_dd::place bd 
+			    (place_obj_as_item window bd (x, y) ob);
+			    (x+ 5, y+ 5);}; end ) (x, y) ((appl::cb_objects_rep (clipboard::get ev))()))
+	/* if there's more than one object, put the following ones slightly
+	 * lower and to the right */
+	except clipboard::EMPTY => (); end ;
+
+
+    fun area_namings window bd
+        =
+	[   EVENT_CALLBACK (ENTER, enter_area window bd),
+            EVENT_CALLBACK (#  Events::object_menu_event() 
+                SHIFT (DOUBLE (BUTTON_PRESS (THE 1))),  #  HACK ! 
+		fn TK_EVENT(_, _, x, y, _, _)
+                   => 
+                   {   print "IN FUTURE: CreationMenu\n";
+                       (fst (hd appl::create_actions)) {
+                           pos => (x, y),
+                           tag => "folder"
+                       }
+                   ;}; end 
+            )
+        ];
+ 
+    fun place_trashcan bd
+        = 
+	{   tci = appl::conf::trashcan_icon();
+            tcw = icons::get_width tci;
+            tch = icons::get_height tci;
+	
+            if ((icons::is_no_icon tci) or 
+	        ((tcw == 0) and (tch == 0))
+            )
+                 ();  #  no icon-- no trashcan 
+	    else
+                 add_canvas_item bd (trashcan_citem());
+		 objects_dd::place bd (trashcan ((0, 0), (tcw, tch)));
+	    fi;
+	};
+ 
+
+    fun init_refs ()
+        = 
+	{   place_obj := (fn cnv=> objects_dd::place cnv; end );
+	    del_obj   := (fn cnv=> objects_dd::delete cnv; end );
+	    over_dz   := (fn cnv=> objects_dd::drop_zones_in_box cnv; end );
+	    debugmsg "Refs init'd.";
+	};
+                                                             my
+    backdrop_window_id = REF (make_window_id());
+	
+    fun main_wid window
+        =
+	{
+            backdrop_window_id := window;
+
+            ass_area
+                =
+                CANVAS {
+                    widget_id => backdrop_id, 
+		    scrollbars => NOWHERE,
+                    citems => [],
+		    packing_hints => [ EXPAND TRUE,
+                                      FILL XY,
+				      PACK_AT TOP
+                                    ],
+
+		    traits => [   WIDTH appl::conf::width, 
+				 HEIGHT appl::conf::height, 
+				 RELIEF GROOVE,
+                                 BACKGROUND (*(.background 
+                                                        colors::config))
+                             ], 
+		    event_callbacks => area_namings window backdrop_id
+                };
+	
+            ass_area;
+	};
+
+
+                                                              my
+    initial_state = appl::init;
+	
+    fun init state
+        =
+	{                                                   my
+            bd = objects_dd::init backdrop_id;
+	
+            {   init_refs();
+		place_trashcan bd;
+		apply (place_on_area *backdrop_window_id bd) state;
+		register_signal_callback (fn() = objects_dd::reset backdrop_id);
+		();
+	    }
+	    except
+                objects_dd::DRAG_AND_DROP error
+                    =
+		    raise exception GENERATE_GUI_FN ("D/D error:" $ error);
+	};
+
+    # Some thought needed here.
+    # If we ever want to place objects in
+    # areas other than the backdrop, we need
+    # to pass this the Window_ID and Widget_ID 
+    # of the respective canvas.
+    # This becomes vital once we start exporting
+    # configurations with more than one canvas -- i.e. folders. 
+
+    fun intro nu_ob
+        =
+        place_on_area
+            *backdrop_window_id
+            backdrop_id
+            nu_ob;
+
+    fun elim ob
+        =
+        {   fun ft x
+                =
+                (not (is_trashcan x) and 
+                        appl::ord (sel_obj x, ob) == EQUAL);
+
+            case (list::find ft (objects_dd::selected_items ()))
+              
+                 NULL
+                     =>
+                     case (list::find ft 
+                                  (objects_dd::all_items backdrop_id))
+                       
+                          NULL   =>  ();
+                          THE it =>  *del_obj (backdrop_id) (it);
+                     esac;
+
+                THE it
+                    =>
+                    *del_obj (backdrop_id) (it);
+            esac;
+        };
+
+    fun state ()
+        = 
+	{   fun item2nu_obj (obj (window, wid, cid, dz, ob))
+		    =>
+		    THE (ob, (hd (get_tcl_canvas_item_coordinates wid cid)
+					       except EMPTY=> (0, 0); end, CENTER));
+
+	       item2nu_obj (trashcan _)
+                   =>
+                   NULL;
+            end;
+	    
+	
+	    bla = list::map_maybe_null_fn item2nu_obj (objects_dd::all_items backdrop_id) @
+
+
+	    # This just forgets abouts the trashcan-- so it always appears
+	    # in the same position on startup. One may or may
+	    # not want to change that. 
+
+	    list::map_maybe_null_fn item2nu_obj (objects_dd::selected_items ());  
+
+
+	    # Do not forget the selected or grabbed items ! ! !
+
+	    print ("Notepad::state:" $
+		 (string::cat (list::map (name2string o fst) bla)) + ":\n"); bla;
+
+  
+	};
+    end; #  with
+
+};
+
+
+
+

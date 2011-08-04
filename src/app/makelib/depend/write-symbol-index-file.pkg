@@ -1,0 +1,201 @@
+## write-symbol-index-file.pkg -- dump listing mapping toplevel symbols to the files that define them.
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+# See also comments in
+#    src/app/makelib/depend/write-symbol-index-file.api
+
+# RUNTIME CONTEXT:
+# 
+#     Our write_symbol_index_file entrypoint is (only) invoked from:
+#
+#         src/app/makelib/stuff/raw-libfile.pkg
+#
+#     a trivial (pointless?) wrapper which in turn
+#     is (only) invoked from
+#
+#         src/app/makelib/parse/libfile-grammar-actions.pkg
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;						# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package em  =  error_message;						# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fp  =  filename_policy;						# filename_policy			is from   src/app/makelib/main/filename-policy.pkg
+    package lg  =  inter_library_dependency_graph;				# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package mld =  makelib_defaults;						# makelib_defaults			is from   src/app/makelib/stuff/makelib-defaults.pkg
+    package ms  =  makelib_state;						# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+    package sym =  symbol_map;							# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+    package tlt =  thawedlib_tome;						# thawedlib_tome			is from   src/app/makelib/compilable/thawedlib-tome.pkg
+herein
+
+    package   write_symbol_index_file
+    :         Write_Symbol_Index_File						# Write_Symbol_Index_File		is from   src/app/makelib/depend/write-symbol-index-file.api
+    {
+	fun write_symbol_index_file (
+		#
+		makelib_state:   ms::Makelib_State,
+		#
+		group,
+		#
+		{ imports:		sym::Map( lg::Fat_Tome ),
+		  localdefs:		sym::Map( tlt::Thawedlib_Tome ),
+		  sublibraries,
+		  #
+		  masked_tomes,							# Unused.
+		  sources							# Unused.
+		}
+	    )
+	    =
+	    if (mld::generate_index.get ())
+		#
+
+		# Get name of file to create: 
+		#
+		index_file_name
+		    =
+		    fp::make_indexfile_name
+			makelib_state.makelib_session.filename_policy
+			group;
+
+		fun localinfo i
+		    =
+		    ( ad::os_string_relative  (thawedlib_tome::sourcepath  i),
+		      FALSE
+		    );
+
+		fun globalinfo (symbol, _)
+		    =
+		    find sublibraries
+		    where
+			fun find []
+				=>
+				em::impossible "write-symbol-index-file.pkg: globalinfo not found";
+
+			    find ( ( g,
+				     lg::LIBRARY { catalog, ... }
+				     , _	# MUSTDIE
+				 ) ! r)
+				=>
+				if (sym::contains_key (catalog, symbol))
+				    #
+				    (ad::describe g, TRUE);
+				else
+				    find r;
+				fi;
+
+			    find (_ ! r)
+				=>
+				find r;
+			end;
+		    end;
+
+		local_index    =   sym::map        localinfo   localdefs;
+		global_index   =   sym::keyed_map  globalinfo  imports;
+
+		fun combine ((local_symbol, _), (global_symbol, _))
+		    =
+		    (   cat [local_symbol, " (overrides ", global_symbol, ")"],
+			FALSE
+		    );
+
+		combined_index
+		    =
+		    sym::union_with
+			combine
+			(local_index, global_index);
+
+		# Generate one line like
+		#
+		#     api Posix_Signal: $ROOT/src/lib/std/standard.lib
+
+		fun oneline (symbol, (s, f), result_list)
+		    =
+		    (   cat [   symbol::name_space_to_string (symbol::name_space symbol),
+				   " ",
+				   symbol::name symbol,
+				   ": ",
+				   s,
+				   "\n"
+			       ],
+			f
+		    )
+		    ! result_list;
+
+								   # symbol		is from   src/lib/compiler/front/basics/map/symbol.pkg
+								   # symbol_map		is from   src/app/makelib/stuff/symbol-map.pkg
+								   # list_mergesort	is from   src/lib/src/list-mergesort.pkg
+
+		line_list
+		    =
+		    sym::keyed_fold_left oneline  []  combined_index;
+
+		fun gt ((_,        TRUE ), (_, FALSE))   =>   TRUE;
+		    gt ((_,        FALSE), (_, TRUE ))   =>   FALSE;
+		    gt ((x: String,    _), (y, _    ))   =>   x > y;
+		end;
+
+		sorted_list
+		    =
+		    list_mergesort::sort  gt  line_list;
+
+
+								   # autodir	is from   src/app/makelib/stuff/autodir.pkg
+								   # file		is from   src/lib/std/src/posix/file.pkg
+								   # winix		is from   src/lib/std/winix.pkg
+								   # safely	is from   src/lib/std/safely.pkg
+
+		safely::do
+		    { open_it  =>   .{ autodir::open_text_output  index_file_name; },
+		      close_it =>   file::close_output,
+		      cleanup  =>   fn _ =  winix::file::remove_file  index_file_name
+		    }
+		   .{   fun out x
+			    =
+			    file::write (#stream, x);
+
+			fun bottomhalf [] => ();
+			    bottomhalf ((x, _) ! r)   =>   { out x;   bottomhalf r;};
+			end;
+
+			fun tophalf [] => ();
+			    tophalf ((x, FALSE) ! r)   =>   { out x;   tophalf r;};
+			    tophalf ((x, TRUE ) ! r)
+				=>
+				{   out "--------------IMPORTS--------------\n";
+				    out x;
+				    bottomhalf r;
+				};
+			end;
+
+			out "---------LOCAL DEFINITIONS---------\n";
+			tophalf sorted_list;
+		    };
+	    fi;
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright (c) 2001 by Lucent Technologies, Bell Laboratories
+## author: Matthias Blume (blume@research.bell-labs.com)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

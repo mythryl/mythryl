@@ -1,0 +1,380 @@
+#
+# The control flow graph representation used for optimizations.
+#
+# -- Allen Leung
+
+# If there's nothing here not also in
+#     src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+# we should delete this file.   -- 2011-06-11 CrT   XXX SUCKO FIXME
+
+generic package   machcode_controlflow_graph   (
+    #             =========================
+    #
+    package i:  Machcode
+    package pseudo_op:  Pseudo_Ops
+    package meg:  Make_Empty_Graph
+    package machcode_universals:  Machcode_Universals
+    package asm_emitter:  Instruction_Emitter
+       sharing asm_emitter::I = machcode_universals::I = I
+       sharing asm_emitter::P = pseudo_op
+   )
+
+: Machcode_Controlflow_Graph
+
+{
+    package i = I
+    package p = pseudo_op
+    package c = i::C
+    package w = Freq
+    package g = graph
+    package l = graph_layout
+    package a = Annotations
+    package s = asm_emitter::S
+   
+    type weight = w::freq
+
+    enum block_kind = 
+        START          #  entry node 
+      | STOP           #  exit node 
+      | NORMAL         #  normal node 
+      | HYPERBLOCK     #  hyperblock 
+
+    and data = LABEL  of label::label
+             | PSEUDO of p::pseudo_op
+ 
+    and block = 
+       BLOCK of
+       {  id:           Int,                        #  Block id 
+          kind:         block_kind,                 #  Block kind 
+          freq:         Ref( weight ),                 /* execution frequency */ 
+          data:         REF(  List(  data ) ),              /* data preceding block */ 
+          labels:       REF(  List(  label::label ) ),       /* labels on blocks */ 
+          instructions:        REF(  List(  i::instruction ) ),     #  in reverse order 
+          annotations:  REF( Annotations::annotations ) #  Annotations 
+       }
+
+    and edge_kind = ENTRY           /* entry edge */ 
+                  | EXIT            #  exit edge 
+                  | JUMP            #  unconditional jump 
+                  | FALLSTHRU       /* falls through to next block */  
+                  | BRANCH of Bool  /* branch */ 
+                  | SWITCH of Int   /* computed goto */   
+                  | SIDEEXIT of Int /* side exit */   
+   
+    and edge_info = EDGE of { k:  edge_kind,                  #  edge kind 
+                              w:  Ref( weight ),                 #  edge freq 
+                              a:  REF( Annotations::annotations ) #  Annotations 
+                            }
+
+    type edge = graph::edge( edge_info )
+    type node = graph::node( block )
+
+    enum info = 
+        INFO of { annotations:  Ref( Annotations::annotations ),
+                  first_block:   Ref( Int ),
+                  reorder:      Ref( Bool )
+                }
+
+    type mcg = graph::graph( block, edge_info, info) 
+
+    fun error msg = lowhalf_error_message::error("machcode_controlflow_graph", msg)
+
+    # ========================================================================
+    #
+    #  Various kinds of annotations 
+    #
+    # ========================================================================
+              #  escaping live out information 
+    LIVEOUT = note::make_notekind 
+          (THE (fn c => "Liveout: " $
+                        (LineBreak::lineBreak 75 
+                            (c::Registerset::to_string c))))
+    exception Changed of String * (Void -> Void) 
+    CHANGED = note::make_notekind'
+          { create=Changed,
+           get=fn Changed x => x | e => raise exception e,
+           to_string=fn (name, _) => "CHANGED:"$name
+          }
+
+    # ========================================================================
+    #
+    #  Methods for manipulating basic blocks
+    #
+    # ========================================================================
+    fun define_local_label (BLOCK { labels=REF (l . _), ... } ) = l
+      | define_local_label (BLOCK { labels, ... } ) = let l = label::newLabel ""
+                                         in  labels := [l]; l end
+    fun instructions (BLOCK { instructions, ... } ) = instructions
+    fun freq (BLOCK { freq, ... } ) = freq
+
+    fun newBlock'(id, kind, instructions, freq) =
+        BLOCK { id          = id,
+               kind        = kind,
+               freq        = freq,
+               data        = REF [],
+               labels      = REF [],
+               instructions       = REF instructions,
+               annotations = REF []
+             }
+
+    fun copyBlock (id, BLOCK { kind, freq, data, labels, instructions, annotations, ... } ) =
+        BLOCK { id          = id,
+               kind        = kind,
+               freq        = REF *freq,
+               data        = REF *data,
+               labels      = REF [],
+               instructions       = REF *instructions,
+               annotations = REF *annotations
+             }
+
+    fun newBlock (id, freq) = newBlock'(id, NORMAL,[], freq)
+    fun newStart (id, freq) = newBlock'(id, START,[], freq)
+    fun newStop (id, freq) = newBlock'(id, STOP,[], freq)
+
+    fun branchOf (EDGE { k=BRANCH b, ... } ) = THE b
+      | branchOf _ = NULL
+    fun edgeDir(_, _, e) = branchOf e
+
+    # ========================================================================
+    #
+    #  Emit a basic block
+    #
+    # ========================================================================
+    fun kindName START          = "START"
+      | kindName STOP           = "STOP"
+      | kindName HYPERBLOCK     = "Hyperblock"
+      | kindName NORMAL         = "Block"
+
+    fun nl () = file::write(*asm_stream::asmOutStream, "\n")
+
+    fun emitHeader (s::STREAM { comment, annotation, ... } ) 
+                   (BLOCK { id, kind, freq, annotations, ... } ) = 
+       (comment (kindName kind + "[" + int::to_string id  + 
+                    "] (" + w::to_string *freq + ")");
+        nl();
+        apply annotation *annotations
+       ) 
+
+    fun emitFooter (s::STREAM { comment, ... } ) (BLOCK { annotations, ... } ) = 
+        (case LIVEOUT.get *annotations of
+            THE s => 
+            let regs = string::tokens char::is_space (c::Registerset::to_string s)
+                K = 7
+                fun f (_,[], s, l)    = s . l
+                  | f (0, vs, s, l)    = f (K, vs, "   ", s . l)
+                  | f (n,[v], s, l)   = v + s . l
+                  | f (n, v . vs, s, l) = f (n - 1, vs, s + " " + v, l)
+                text = reverse (f(K, regs, "",[]))
+            in  apply (fn c => (comment c; nl())) text
+            end
+         |  NULL => ()
+        ) except OVERFLOW => print("Bad footer\n")
+
+    fun emitStuff outline annotations 
+           (block as BLOCK { instructions, data, labels, ... } ) =
+       let my S as s::STREAM { pseudoOp, define_local_label, emit, ... } = 
+               asm_emitter::make_stream annotations
+       in  emitHeader S block;
+           apply (fn PSEUDO p => pseudoOp p
+                 | LABEL l  => define_local_label l) *data;
+           apply define_local_label *labels;
+           if outline then () else apply emit (reverse *instructions);
+           emitFooter S block
+       end
+
+    emit = emitStuff FALSE 
+    emitOutline = emitStuff TRUE []
+ 
+    ##########################################################################
+    #
+    #  Methods for manipulating machcode_controlflow_graph
+    #
+    ##########################################################################
+
+    fun mcg info
+	=
+	meg::make_empty_graph
+	  {
+	    graph_name	    	=>  "CFG",		# Arbitrary client name for graph, for human-display purposes.
+	    graph_info	    	=>  info,		# Arbitrary client value to associate with graph.
+	    expected_node_count  =>  10			# Hint for initial sizing of internal graph vectors.  This is not a hard limit.
+	  };
+
+    fun new () =
+        let info = INFO { annotations = REF [],
+                             first_block  = REF 0,
+                             reorder     = REF FALSE
+                           }
+        in  mcg info end
+
+    fun subgraph (CFG as g::GRAPH { graph_info=INFO graph_info, ... } ) =
+        let info = INFO { annotations = REF [],
+                             first_block  = graph_info.first_block,
+                             reorder     = graph_info.reorder
+                           }
+        in  update_graph_info::update CFG info end
+
+    fun init (g::GRAPH mcg) =
+        (case mcg.entries () of
+           [] =>
+           let i     = mcg.new_id ()
+               start = newStart (i, REF 0)
+               mcg.add_node (i, start)
+               j     = mcg.new_id ()
+               stop  = newStop (j, REF 0)
+               mcg.add_node (j, stop) 
+           in  mcg.add_edge (i, j, EDGE { k=ENTRY, w=REF 0, a=REF [] } );
+               mcg.set_entries [i];
+               mcg.set_exits [j]
+           end
+        |  _ => () 
+        )
+
+    fun changed (g::GRAPH { graph_info=INFO { reorder, annotations, ... }, ... } ) = 
+        let fun signal [] = ()
+              | signal (Changed(_, f) . an) = (f (); signal an)
+              | signal(_ . an) = signal an
+        in  signal *annotations;
+            reorder := TRUE
+        end 
+
+    fun annotations (g::GRAPH { graph_info=INFO { annotations=a, ... }, ... } ) = a
+
+    fun liveOut (BLOCK { annotations, ... } ) = 
+         case LIVEOUT.get *annotations of
+            THE s => s
+         |  NULL => c::empty
+    fun fallsThruFrom (g::GRAPH mcg, b) =
+        let fun f [] = NULL
+              | f((i, _, EDGE { k=BRANCH FALSE, ... } ) . _) = THE i
+              | f((i, _, EDGE { k=FALLSTHRU, ... } ) . _) = THE i
+              | f(_ . es) = f es
+        in  f (mcg.in_edges b)
+        end
+    fun fallsThruTo (g::GRAPH mcg, b) =
+        let fun f [] = NULL
+              | f((_, j, EDGE { k=BRANCH FALSE, ... } ) . _) = THE j
+              | f((_, j, EDGE { k=FALLSTHRU, ... } ) . _) = THE j
+              | f(_ . es) = f es
+        in  f (mcg.out_edges b)
+        end
+    fun removeEdge CFG (i, j, EDGE { a, ... } ) =
+        graph::remove_edge' CFG (i, j, fn EDGE { a=a', ... } => a = a')
+
+    fun setBranch (CFG as g::GRAPH mcg, b, cond) =
+    let fun loop ((i, j, EDGE { k=BRANCH cond', w, a } ) . es, es', x, y) =
+            if cond' == cond then 
+               loop (es, (i, j, EDGE { k=JUMP, w=w, a=a } ) . es', j, y)
+            else
+               loop (es, es', x, j)
+          | loop([], es', target, elim) = (es', target, elim)
+          | loop _ = error "setBranch"
+        outEdges = mcg.out_edges b
+        my (outEdges', target, elim) = loop (outEdges,[],-1,-1)
+        if elim < 0 then error "setBranch: bad edges" 
+        lab = define_local_label (mcg.node_info target) 
+        jmp = machcode_universals::jump lab
+        instructions = instructions (mcg.node_info b) 
+    in  mcg.set_out_edges (b, outEdges');
+        case *instructions of
+          []      => error "setBranch: missing branch"
+        | branch . rest => 
+           case machcode_universals::instrKind branch of
+             machcode_universals::IK_JUMP => instructions := jmp . rest
+           | _ => error "setBranch: bad branch instruction";
+        jmp
+    end
+
+   # ========================================================================
+   #
+   #  Miscellaneous 
+   #
+   # ========================================================================
+   fun cdgEdge (EDGE { k, ... } ) = 
+        case k of
+           (JUMP | FALLSTHRU) => FALSE
+        |  _ => TRUE
+
+   # ========================================================================
+   #
+   #  Pretty Printing and Viewing 
+   #
+   # ========================================================================
+   fun show_edge (EDGE { k, w, a, ... } ) = 
+       let kind = case k of
+                         JUMP      => ""
+                      |  FALLSTHRU => "fallsthru"
+                      |  BRANCH b => bool::to_string b
+                      |  SWITCH i => int::to_string i
+                      |  ENTRY    => "entry"
+                      |  EXIT     => "exit"
+                      |  SIDEEXIT i => "sideexit(" + int::to_string i + ")"
+           weight = "(" + w::to_string *w + ")"
+       in  kind + weight 
+       end 
+
+   fun get_string f x = 
+   let buffer = StringOutStream::mkStreamBuf()
+       S      = StringOutStream::openStringOut buffer
+       asm_stream::with_stream S f x 
+   in  StringOutStream::get_string buffer end
+
+   fun show_block an block = 
+   let text = get_string (emit an) block
+   in  fold_right (fn (x, "") => x | (x, y) => x + " " + y) ""
+            (string::tokens (fn ' ' => TRUE | _ => FALSE) text)
+   end
+
+   fun headerText block = get_string 
+        (fn b => emitHeader (asm_emitter::make_stream []) b) block
+   fun footerText block = get_string 
+        (fn b => emitFooter (asm_emitter::make_stream []) b) block
+
+   fun getStyle a = (case l::STYLE.get *a of THE l => l | NULL => [])
+
+   green = l::COLOR "green"
+   red   = l::COLOR "red"
+   yellow = l::COLOR "yellow"
+
+   fun edgeStyle (i, j, e as EDGE { k, a, ... } ) = 
+   let a = l::LABEL (show_edge e) . getStyle a
+   in  case k of 
+         (ENTRY | EXIT) => green . a
+       | (FALLSTHRU | BRANCH FALSE) => yellow . a
+       | _ => red . a
+   end 
+
+   view_outline = LowhalfControl::getFlag "view_outline"
+
+   fun viewStyle mcg =
+   let an     = *(annotations mcg)
+       fun node (n, b as BLOCK { annotations, ... } ) = 
+           if *view_outline then
+              l::LABEL (get_string emitOutline b) . getStyle annotations
+           else
+              l::LABEL (show_block an b) . getStyle annotations
+   in  { graph = fn _ => [],
+         edge  = edgeStyle,
+         node  = node
+       } 
+   end
+
+   fun viewLayout mcg = l::makeLayout (viewStyle mcg) mcg
+
+   fun subgraphLayout { mcg, subgraph = g::GRAPH subgraph } =
+   let an     = *(annotations mcg)
+       fun node (n, b as BLOCK { annotations, ... } ) = 
+          if subgraph.has_node n then
+             l::LABEL (show_block an b) . getStyle annotations
+          else
+             l::COLOR "lightableue" . l::LABEL (headerText b) . getStyle annotations
+       fun edge (i, j, e) = 
+            if subgraph.has_edge (i, j) then edgeStyle (i, j, e)
+            else [l::EDGEPATTERN "dotted"]
+   in  l::makeLayout { graph = fn _ => [],
+                     edge  = edge,
+                     node  = node } mcg
+   end
+
+}
+

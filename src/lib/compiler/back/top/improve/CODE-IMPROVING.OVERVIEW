@@ -1,0 +1,147 @@
+-*- mode: outline; tab-width: 4 -*-
+
+* Sequentially dependent tests
+
+* Ordering issues
+** Specialize -> Wrap -> Reify
+	Neither Wrap nor Specialize can be done after Reify.
+	I don't know whether Specialize works after Wrap, but I wouldn't bet on it
+	and in any case, I can't think of a reason why you'd want to do that.
+** Lambda Split
+	Should take place right after a `improve_mutually_recursive_anormcode_functions'
+    so as to have good inlining annotations.  Also, Split should be done
+    before Reify and Wrap since	both slightly change the language.
+** Loopify
+	Loopify does not consider mutually recursive functions,
+    so you want to have a `improve_mutually_recursive_anormcode_functions'
+    before to eliminate apparent mutual recursion.
+	Also, to inline small loops, you want to run
+    improve_mutually_recursive_anormcode_functions afterwards to
+	analyze the newly introduced preheaders.
+
+* Current ordering
+** lcontract
+	Because the input code has lot and lots of called-once functions and
+	fcontract is much slower at inlining them.
+** improve_mutually_recursive_anormcode_functions+fcontract
+	Do a first pass of inlining and careful contraction.
+	The fixfix also reduces mutual recursion, which later helps loopify.
+** specialize
+	Might as well do it now to get rid of some of those pesky TYPEFUN/APPLY_TYPEFUN.
+** loopify+improve_mutually_recursive_anormcode_functions+(split+)fcontract
+	Introduce loop headers and do the best job you can before `wrap'.
+	Split needs to be done before going through `wrap', so the earlier
+	we can do the various optimizations, the better.
+	Even more true for `reify' since we want to do optimizations on a
+	really type-safe language rather than on a pseudo-typed language such
+	as post-reify-FLINT.
+** wrap+fcontract+reify
+	Representation analysis, cleanup and "reification" (introduces runtime
+	types: turns TYPEFUN into FCT, APPLY_TYPEFUN into APPLY, ...)
+** fcontract+improve_mutually_recursive_anormcode_functions+fcontract+eta
+	We finally got rid of all TYPEFUN/APPLY_TYPEFUN so we can at last inline/uncurry
+	typeagnostic functions.  We also introduce eta-wrappers for escaping
+	functions, which is used by closure conversion.
+
+* FPS
+	After FPS conversion, we need to clean up the code a little.
+** last_contract
+	`contract' would work as well, since it basically does the same, but
+	`first_contract' doesn't cut it because we need to be able to drop unused
+	arguments.  This is because of functions that always raise an exception and
+	hence don't use their fate argument.  This optimization cannot be
+	done in the A-normal form and doesn't seem particularly important on
+	benchmarks, but it is crucial to avoid blowing up the register allocator
+	when compiling mythryl.grammar.pkg (from about 150MB to 400MB).
+** minexpand
+	The FPS conversion phase does a good bit more work than just convert
+	from A-normal to FPS form.  Among other things, it also compiles SWITCHes.
+	This can introduce new functions, f.ex. when
+
+		SWITCH v
+	     1 => bla
+		 3 => bli
+		 _ => foo
+
+	is turned into
+
+		def(_) = foo
+		if v < 1 then def(0) else
+		if v > 2 then def(0) else
+		case v
+		 1 => bla
+		 2 => def(0)
+		 3 => bli
+
+	Ideally, new functions like `def' should go through the usual
+	optimizations, but there really isn't much to optimize there.  The only
+	useful thing we might want to do is inline them.  This is particularly true
+	if `def' is a trivial function.  `minexpand' hence goes through one pass of
+	`expand' with unrolling and loop-preheaders turned off and with a max
+	size-increase of 0 (we only inline if the body is as big as the function
+	call).  Again, this is really only useful to avoid blowing up the register
+	allocator when compiling ml.grammar.pkg (from about 150MB down to 80MB).
+** exception handling
+	FPS-contract does some optimization of exception handling.  Sadly, it
+	does it pretty slowly, so this requires many passes.  For example,
+	to eliminate the construction of an unused exception chunk, we need:
+	First "contract" cancels out obvious sethandler-gethandler pairs.
+	Second "etasplit" makes the exception handler into a known function (this
+	is necessary for optimizations such as dropargs to be effective).
+	Third, "contract" does the dropargs elimination.
+	Forth, "contract" removes the chunk contraction that became dead
+	at the previous round (but wasn't removed because the counters are not
+	properly updated for this specific case).
+	
+* Problems
+	The presence of types introduces some difficulties.
+** LET([...], RAISE ..., lexp)
+	Fcontract cannot drop the `lexp' although it is dead.  The problem is that
+	fcontract would need to know the type of `lexp' to update the type
+	annotation on RAISE, but fcontract does not have this info.
+	Interestingly, even using `recover_type_info' would not provide fcontract with the
+	necessary type.
+** Inlining/Uncurrying in the presence of TYPEFUN
+	Many small inlinable loops are typeagnostic (think of map, fold, ...).
+	Flintopt currently cannot inline TFNs which is why we need a
+    `improve_mutually_recursive_anormcode_functions' phase after reify.
+    Sadly, inlining TFNs would not completely solve the problem
+	because the inlining heuristic relies on conditional inlining:
+
+		TYPEFUN(map, FIX([(map, [f], body)], map), ...)
+
+	Here `map' might be big enough that we don't want to always inline it.
+	Instead we only want to inline it when the `f' argument is a known
+	function.  But that means that when we see APPLY_TYPEFUN(map, tic), we can't know
+	whether to inline `map' or not until we see the corresponding(s) APPLY(s).
+	Better yet, we don't want to inline at the APPLY_TYPEFUN site but at the APPLY site.
+
+	So one way to solve this would be to extend fcontract so that it expands
+	the APPLY_TYPEFUN in its environment (allowing inlining at the APPLY site) but not in
+	the code.
+
+	Another way is to simply always inline at the APPLY_TYPEFUN site if the body
+	of the TYPEFUN is something potentially inlinable.  It would introduce
+	unnecessary code duplication in some cases, but since TFNs are typically
+	only applied a small number of times, it shouldn't be too bad.
+	The problem is that there are some very big and never-inlined functions
+	that are marked as `potentially inlinable'.  My guess is that this should
+	work just fine and might be "easily" doable inside `specialize'.
+	Of course, ordering issues would then come up: for the small loop to be
+	marked as `maybe-inline', we might need to run
+    loopify + improve_mutually_recursive_anormcode_functions beforespecialize,
+** WCAST
+	As noted earlier, we currently work around the above problem by adding
+	a `improve_mutually_recursive_anormcode_functions' phase after reify.
+    Sadly, this does not always work because sometimes reify translates
+    a TYPEFUN into:
+
+		MUTUALLY_RECURSIVE_FNS(f2[] = FN(...))
+		f1 = f2[]
+		f = PRIMOP(wcast, f1)
+
+	Here again, we get stuck because the relationship between `f1' and `f' is
+	obfuscated by the WCAST.  The knuth-bendix benchmark suffers a more then
+	20% slowdown because of this problem.
+	Solving the above problem would solve this one as well, but eliminating
+	WCAST (which has been planned for some time now) would also help.

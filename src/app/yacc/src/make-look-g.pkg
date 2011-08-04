@@ -1,0 +1,274 @@
+#  Mythryl-Yacc Parser Generator (c) 1989 Andrew W. Appel, David R. Tarditi 
+
+# Compiled by:
+#     src/app/yacc/src/mythryl-yacc.lib
+
+###        "In the beginning we must simplify the subject,
+###         thus unavoidably falsifying it, and later we must
+###         sophisticate away the falsely simple beginning."
+###
+###                                    -- Maimonides
+
+
+
+generic package make_look_g (
+    package internal_grammar:  Internal_Grammar;		# Internal_Grammar	is from   src/app/yacc/src/internal-grammar.api
+)
+: (weak) Look							# Look			is from   src/app/yacc/src/look.api
+{
+    include rw_vector;
+    include list;
+
+    infix val 9 sub;
+
+    package grammar=   internal_grammar::grammar;		# internal_grammar	is from   src/app/yacc/src/grammar.pkg
+    package internal_grammar =   internal_grammar;
+
+    include grammar;
+    include internal_grammar;
+
+    package term_set
+        =
+        list_ord_set_g (
+	    package {
+		 Element = Terminal;
+
+		eq = eq_term;
+		gt = gt_term;
+	    }
+        );
+
+    union    =   term_set::union;
+    make_set =   term_set::make_set;
+
+    fun pr_look (term_to_string, print)
+        =
+	f
+        where 
+
+	    print_term = print o term_to_string;
+
+	    fun f NIL       =>   print " ";
+		f (a ! b) =>   { print_term a;   print " ";   f b; };
+            end;
+	end;
+
+    package nonterm_set
+        =
+        list_ord_set_g (
+	    package {
+		 Element = Nonterminal;
+
+		eq = eq_nonterm;
+		gt = gt_nonterm;
+	    }
+        );
+
+    fun mk_funcs { rules:     List( Rule ),
+                  nonterms:  Int,
+		  produces:  Nonterminal -> List( Rule )
+                }
+	=
+	{ nullable, first => prefix }
+        where 
+
+	    # nullable: create a function which tells if a nonterminal is nullable
+	    # or not.
+	    #
+	    # Method: Keep an rw_vector of booleans.  The nth entry is TRUE if
+	    # NONTERM i is nullable.  If is FALSE if we don't know whether NONTERM i
+	    # is nullable.
+	    #
+	    # Keep a list of rules whose remaining rhs we must prove to be
+	    # null.  First, scan the list of rules and remove those rules
+	    # whose rhs contains a terminal.  These rules are not nullable.
+	    # 
+	    # Now iterate through the rules that were left:
+	    #      (1) If there is no remaining rhs we have proved that
+	    #          the rule is nullable, mark the nonterminal for the
+	    #          rule as nullable
+	    #      (2) If the first element of the remaining rhs is
+	    #             nullable, place the rule back on the list with
+	    #             the rest of the rhs
+	    #      (3) If we don't know whether the nonterminal is nullable,
+	    #             place it back on the list
+	    #      (4) Repeat until the list does not change.
+	    #
+	    # We have found all the possible nullable rules. 
+
+            stipulate
+		fun add_rule (RULE { lhs, rhs, ... }, r)
+		    =
+		    {   fun add_nt (TERMINAL _,         _         ) =>   NULL;
+			    add_nt (_,              NULL      ) =>   NULL;
+			    add_nt (NONTERMINAL (NONTERM i), THE ntlist) =>   THE (i ! ntlist);
+                        end;
+
+			case (fold_right add_nt (THE []) rhs)
+                          
+			     NULL       =>   r;
+			     THE ntlist =>   (lhs, ntlist) ! r;
+                        esac;
+		    };
+
+		items     =   list::fold_right   add_rule   []   rules;
+		nullablev =   make_rw_vector (nonterms, FALSE);
+
+		fun f ((NONTERM i, NIL), (l, _))
+                        =>
+                        {   set (nullablev, i, TRUE);
+			    (l, TRUE);
+                        };
+
+		    f (a as (lhs, (h ! t)), (l, change))
+                        =>
+		        case (nullablev[ h ])
+                          
+			      FALSE =>   (a ! l, change);
+			      TRUE  =>   ((lhs, t) ! l, TRUE);
+                        esac;
+                end;
+
+		fun prove (l, TRUE) =>   prove (list::fold_right f (NIL, FALSE) l);
+		    prove(_, FALSE) =>   ();
+                end;
+
+		my _ = prove (items, TRUE);
+            herein
+		fun nullable (NONTERM i)
+                    =
+                    nullablev[ i ];
+            end;
+
+	    # scanRhs:  get at a list of symbols, scanning past nullable
+	    # nonterminals, applying addSymbol to the symbols scanned
+
+	    fun scan_rhs add_symbol
+		=
+		f
+                where 
+
+		    fun f (NIL, result)
+                            =>
+                            result;
+
+		        f ((symbol as NONTERMINAL nt) ! rest, result)
+                            =>
+			    if   (nullable nt)
+                                
+                                 f (rest, add_symbol (symbol, result));
+			    else
+                                 add_symbol (symbol, result);
+                            fi;
+
+		        f ((symbol as TERMINAL _) ! _, result)
+                            =>
+                            add_symbol (symbol, result);
+                    end;
+		end;
+
+	    # accumulate: get at the start of the right-hand-sides of rules,
+	    # looking past nullable nonterminals, applying addChunk to the visible
+	    # symbols.
+
+	    fun accumulate (rules, empty, add_chunk)
+                =
+	        list::fold_right
+                    (fn (RULE { rhs, ... }, r) =>(scan_rhs add_chunk) (rhs, r); end )
+                    empty
+                    rules;
+
+
+	    fun nonterm_memo f
+		=
+                (fn (NONTERM j) =  lookup[ j ])
+                where 
+
+		    lookup = make_rw_vector (nonterms, NIL);
+
+		    fun g i
+                        =
+                        if   (i != nonterms)
+                            
+			     set (lookup, i, f (NONTERM i));
+                             g (i+1);
+                        fi;
+
+		    g 0;
+		end;
+
+	    # first1: the FIRST set of a nonterminal in the grammar. Only looks
+	    # at other terminals, but it is clever enough to move past nullable
+	    # nonterminals at the start of a production.
+
+	    fun first1 nt
+                =
+                accumulate (
+                    produces nt,
+                    term_set::empty,
+
+		    fn (TERMINAL t, set) =>   term_set::set (t, set);
+		      (_,          set) =>   set; end 
+                );
+
+	    first1 =  nonterm_memo (first1);
+
+	    # starters1: given a nonterminal "nt", return the set of nonterminals
+	    # which can start its productions. Looks past nullables, but doesn't
+	    # recurse
+
+	    fun starters1 nt
+                =
+                accumulate (
+                    produces nt,
+                    NIL,
+
+		    fn (NONTERMINAL nt, set) =>   nonterm_set::set (nt, set);
+		      (_,              set) =>   set; end 
+                );
+
+	   starters1 =   nonterm_memo (starters1);
+
+	   # first: maps a nonterminal to its first-set. Get all the starters of
+	   # the nonterminal, get the first1 terminal set of each of these,
+	   # union the whole lot together
+
+	    fun first nt
+                =
+		list::fold_right
+                    (fn (a, r) => term_set::union (r, first1 a); end )
+		    []
+                    (nonterm_set::closure (nonterm_set::singleton nt, starters1));
+
+	    first =   nonterm_memo (first);
+
+	    #  prefix: all possible terminals starting a symbol list 
+
+	    fun prefix symbols
+                =
+		scan_rhs
+                    (   fn (   TERMINAL  t, r) =>   term_set::set (t, r);
+			  (NONTERMINAL nt, r) =>   term_set::union (first nt, r); end 
+                    )
+		    (symbols, NIL);
+
+	    fun nullable_string ((TERMINAL t) ! r)
+                    =>
+                    FALSE;
+
+	        nullable_string ((NONTERMINAL nt) ! r)
+                    =>
+		    case (nullable nt)
+		      
+			 TRUE =>   nullable_string r;
+			 f    =>   f;
+                    esac;
+
+	        nullable_string NIL
+                    =>
+                    TRUE;
+            end;
+
+
+	end;		# fun mkFuncs
+};

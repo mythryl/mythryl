@@ -1,0 +1,642 @@
+## make-dependency-graph.pkg
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+
+# Compiled by:
+#     src/app/makelib/makelib.sublib
+
+
+
+# Build the dependency graph for a library.
+
+
+
+stipulate
+    package ad  =  anchor_dictionary;				# anchor_dictionary			is from   src/app/makelib/paths/anchor-dictionary.pkg
+    package em  =  error_message;				# error_message				is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package lg  =  inter_library_dependency_graph;		# inter_library_dependency_graph	is from   src/app/makelib/depend/inter-library-dependency-graph.pkg
+    package mds =  module_dependencies_summary;			# module_dependencies_summary		is from   src/app/makelib/compilable/module-dependencies-summary.pkg
+    package ms  =  makelib_state;				# makelib_state				is from   src/app/makelib/main/makelib-state.pkg
+    package sg  =  intra_library_dependency_graph;		# intra_library_dependency_graph	is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
+    package sm  =  symbol_map;					# symbol_map				is from   src/app/makelib/stuff/symbol-map.pkg
+    package sp  =  symbol_path;					# symbol_path				is from   src/lib/compiler/front/typer-stuff/basics/symbol-path.pkg
+    package sy  =  symbol;					# symbol				is from   src/lib/compiler/front/basics/map/symbol.pkg
+    package sys =  symbol_set;					# symbol_set				is from   src/app/makelib/stuff/symbol-set.pkg
+    package tlt =  thawedlib_tome;				# thawedlib_tome			is from   src/app/makelib/compilable/thawedlib-tome.pkg
+    package ttm =  thawedlib_tome_map;				# thawedlib_tome_map			is from   src/app/makelib/compilable/thawedlib-tome-map.pkg
+    package tst =  tome_symbolmapstack;		 		# tome_symbolmapstack			is from   src/app/makelib/depend/tome-symbolmapstack.pkg
+herein
+
+    package   make_dependency_graph
+    :         Make_Dependency_Graph				# Make_Dependency_Graph			is from   src/app/makelib/depend/make-dependency-graph.api
+    {
+	Looker =   sy::Symbol -> tst::Tome_Symbolmapstack;
+
+	# NB: 'e' (exports) is a      tst::Tome_Symbolmapstack
+	#     all through the following code.
+	#     See src/app/makelib/depend/tome-symbolmapstack.pkg
+
+	# Find and return NAMING value for 'symbol'
+        # in given tome_symbolmapstack if present,
+        # otherwise return (otherwise symbol):
+	#
+	fun get otherwise  tst::EMPTY  symbol
+		=>
+		otherwise symbol;
+
+	    get otherwise (tst::NAMING (symbol', value)) symbol
+		=>
+		if (sy::eq (symbol, symbol'))   value;
+		else                            otherwise symbol;
+		fi;
+
+	    get otherwise (tst::LAYER (e, e')) symbol
+		=>
+		get (get otherwise e') e symbol;
+
+	    get otherwise (tst::FCTENV looker) symbol
+		=>
+		case (looker symbol)
+		    #              
+		    NULL  =>  otherwise symbol;
+		    THE v =>  v;
+		esac;
+
+	    get otherwise (tst::FILTER (symbol_set, e)) symbol
+		=>
+		if (sys::member (symbol_set, symbol))   get otherwise e symbol;
+		else                                          otherwise symbol;
+		fi;
+
+	    get otherwise (tst::SUSPEND ethunk) symbol						# "eth" == "exports thunk"
+		=>
+		get otherwise (ethunk ()) symbol;
+	end;
+
+	#
+	fun exports_of_module_dependencies_summary  lookimport
+	    =
+	    exports_of_modules_dependencies_summary'
+	    where
+		#  Build the lookup function for sg::dictionary 
+		#
+		lookup =   get  lookimport;
+		#
+		fun get_symbol_path e (sp::SYMBOL_PATH [])
+			=>
+			tst::EMPTY;
+
+		    get_symbol_path e (sp::SYMBOL_PATH (p as (h ! t)))
+			=>
+			{   # Again, if we don't find it here we just ignore
+			    # the problem and let the compiler catch it later.
+
+			    lookup' =   get (fn _ =  tst::EMPTY);
+			    #	
+			    fun loop (e,    []) =>  e;
+				loop (e, h ! t) =>  loop (lookup' e h, t);
+			    end;
+
+			    loop (lookup e h, t);
+			};
+		end;
+
+		#
+		fun exports_of_modules_dependencies_summary'
+                        module_dependencies_summary
+		    =
+		    compute_decl  tst::EMPTY  module_dependencies_summary
+		    where
+			fun compute_decl e (mds::BIND (name, def))
+				=>
+				tst::NAMING (name, compute_module_expression e def);
+
+			    compute_decl e (mds::LOCAL (d1, d2))
+				=>
+				compute_decl (tst::LAYER (compute_decl e d1, e)) d2;
+
+			    compute_decl e (mds::SEQ l)
+				=>
+				compute_seq_decl e l;
+
+			    compute_decl e (mds::PAR [])
+				=>
+				tst::EMPTY;
+
+			    compute_decl e (mds::PAR (h ! t))
+				=>
+				fold_left
+				    (fn (x, r) =  tst::LAYER (compute_decl e x, r))
+				    (compute_decl e h)
+				    t;
+
+			    compute_decl e (mds::OPEN s)
+				=>
+				compute_module_expression e s;
+
+			    compute_decl e (mds::REF s)
+				=>
+				{   sys::apply (ignore o lookup e) s;
+				    tst::EMPTY;
+				};
+			end 
+
+			also
+			fun compute_seq_decl e []
+				=>
+				tst::EMPTY;
+
+			    compute_seq_decl e (h ! t)
+				=>
+				{   fun one (d, e')
+					=
+					tst::LAYER (compute_decl (tst::LAYER (e', e)) d, e');
+
+				    fold_left one (compute_decl e h) t;
+				};
+			end 
+
+			also
+			fun compute_module_expression  e  (mds::VARIABLE  symbol_path)
+				=>
+				get_symbol_path  e  symbol_path;
+
+			    compute_module_expression  e  (mds::DECL list)
+				=>
+				compute_seq_decl e list;
+
+			    compute_module_expression  e  (mds::LET (d, m))
+				=>
+				compute_module_expression  (tst::LAYER (compute_seq_decl e d, e))  m;
+
+			    compute_module_expression e (mds::IGN1 (m1, m2))
+				=>
+				{   ignore (compute_module_expression e m1);
+				    compute_module_expression e m2;
+				};
+			 end;
+		    end;
+	    end;
+
+	#
+	fun describe_symbol (symbol, strings)
+	    =
+	    sy::name_space_to_string (sy::name_space symbol)
+	      ! " "
+	      ! sy::name symbol
+	      ! strings
+              ;
+
+
+	# Invoked (only) from:
+	#
+	#     src/app/makelib/stuff/raw-libfile.pkg
+	#
+	fun make_dependency_graph
+	      (
+		libfile,
+		filter:			sys::Set,
+		makelib_state:		ms::Makelib_State,
+		pervasive_far_tome:	sg::Masked_Tome
+	      )
+	    =
+	    {   libfile
+		  ->
+		  { imports:		sm::Map( lg::Fat_Tome ),
+		    masked_tomes:	List(   (tlt::Thawedlib_Tome, sys::Set) ),
+		    localdefs:          sm::Map( tlt::Thawedlib_Tome ),
+		    sublibraries,		# :       X,
+		    sources			# :       Y
+		  };
+
+		per_file_exports
+		    =
+		    fold_left
+			(fn ((p, s), m) =  ttm::set (m, p, s))
+			ttm::empty
+			masked_tomes;			# (tome, exported_symbols_set) pairs.
+
+
+		blackboard =   REF  (ttm::empty:  ttm::Map( Null_Or( ((sg::Thawedlib_Tome_Tin, tst::Tome_Symbolmapstack)))));								# Used for cycle detection and results posting.
+		#
+		fun lock     tome      =   blackboard := ttm::set (*blackboard, tome, NULL);
+		fun release (tome, r)  = { blackboard := ttm::set (*blackboard, tome, THE r);    r; };
+		fun fetch    tome      =  ttm::get (*blackboard, tome);
+
+
+		# We collect all imported symbols so that
+		# we can then narrow the list of libraries.
+		#
+		far_import_symbols
+		    =
+		    REF  sys::empty;
+		#
+		fun add_far_import_symbol  symbol
+		    =
+		    far_import_symbols
+			:=
+			sys::add (*far_import_symbols, symbol);
+
+
+		# NB: In the rest of this file, "i" and "i'" variables
+		#     almost always mean "info node", which is to say,
+		#     thawedlib_tome instances, or close relatives.
+
+
+		#  - get the result from the blackboard if it is there 
+		#  - otherwise trigger analysis 
+		#  - detect cycles using locking 
+		#  - maintain root set 
+		#
+		fun get_result (thawedlib_tome, history)
+		    =
+		    case  (fetch  thawedlib_tome)
+			#		  
+			NULL => {   lock thawedlib_tome;
+				    release (thawedlib_tome, analyze (thawedlib_tome, history));
+				};
+			#	
+			THE (THE r) =>   r;
+			#	
+			THE NULL
+			    =>
+			    {   #  Cycle found --> error message 
+				f = tlt::sourcepath thawedlib_tome;
+				#
+				fun pphist pps
+				    =
+				    {   prettyprint::newline pps;
+					#
+					recur (ad::describe f, history);
+				    }
+				    where	
+				        fun recur (_, [])
+						=>
+						();	# Shouldn't happen.
+
+					    recur (n'', (symbol, thawedlib_tome') ! r)
+						 =>
+						 {   f' =  tlt::sourcepath thawedlib_tome';
+						     n' =  ad::describe f';
+
+						     if (not (tlt::same_thawedlib_tome (thawedlib_tome, thawedlib_tome')))
+							 #   
+							 recur (n', r);
+						     fi;
+
+						     strings = n'
+                                                             ! " refers to "
+							     !  describe_symbol (symbol, [" defined in ", n'']);
+
+						     apply  (prettyprint::string pps)  strings;
+
+						     prettyprint::newline  pps;
+						 };
+					end;
+				    end;
+
+ 				tlt::error makelib_state  thawedlib_tome  em::ERROR  "cyclic Mythryl dependencies"  pphist;
+
+				release (
+				    #
+				    thawedlib_tome,
+				    #
+				    ( sg::THAWEDLIB_TOME_TIN
+					{
+					  thawedlib_tome,
+					  near_imports  =>  [],
+					  far_imports =>  []
+					},
+				      #	
+				      tst::EMPTY
+				    )
+				);
+			  };
+		    esac
+
+
+		# Do the actual analysis of a source file
+		# and generate the corresponding node:
+		#
+		also
+		fun analyze
+                      ( thawedlib_tome:   tlt::Thawedlib_Tome,
+                        history
+                      )
+		    : ( sg::Thawedlib_Tome_Tin,					# Our 'thawedlib_tome' input rebuilt with updated near_imports and far_imports fields.
+                        tst::Tome_Symbolmapstack
+		      )
+		    =
+		    {   near_imports =  REF [];
+			far_imports  =  REF [ pervasive_far_tome ];		# Every package automatically has access to the pervasive package.
+
+
+			fun note_near_import  node
+			    =
+			    if (not (list::exists  (fn node' =  sg::same_thawedlib_tome_tin (node, node'))  *near_imports))
+				#     
+				near_imports :=  node ! *near_imports;
+			    fi;
+
+
+			# NB:  Need to maintain filter sets: 
+			#
+			fun note_far_import (symbol, { exports_mask => filter, tome => node })
+			    =
+			    {   fun same_node { exports_mask, tome => node' }
+				    =
+				    sg::same_tome (node, node');
+
+				add_far_import_symbol  symbol;
+
+				case (list::find  same_node  *far_imports)
+				    #			      
+				    NULL =>
+					far_imports :=  { exports_mask => filter, tome => node } ! *far_imports;		# Brand new 
+				    #
+				    THE { exports_mask => NULL, tome => node' }
+					=>
+					();				# No filter -> no change 
+				    #
+				    THE { exports_mask => THE filter', tome => node' }
+					=>
+					{   # There is a filter:
+					    # Calculate "union", see if there is a change,
+					    # and if so, replace the filter:
+					    #
+					    fun replace filt
+						=
+						far_imports :=  { exports_mask => filt, tome => node }
+								!
+								list::filter (not o same_node) *far_imports;
+
+					    case filter
+						#
+						NULL  => replace NULL;
+						#
+						THE filter
+						    =>
+						    if (not (sys::equal (filter, filter')))
+							#  
+							replace (THE (sys::union (filter, filter')));
+						    fi;
+					    esac;
+				       };
+				esac;
+			    };					# fun global_import
+
+			f = tlt::sourcepath thawedlib_tome;		# 'f' must be 'filename' or something close.
+
+			fun is_self  thawedlib_tome'
+			    =
+			    tlt::same_thawedlib_tome (thawedlib_tome, thawedlib_tome');
+
+
+
+			# A lookup function for things not defined in the same Mythryl file.
+			# As a side effect, this function registers local and global imports.
+			#
+			fun lookimport symbol
+			    =
+			    {   fun dontcomplain symbol
+				    =
+				    tst::EMPTY;
+
+				fun lookfar ()
+				    =
+				    case (sm::get (imports, symbol))
+					#				  
+					THE (t: lg::Fat_Tome)
+					    =>
+					    {   note_far_import (symbol, t.masked_tome_thunk ());
+						get  dontcomplain  t.tome_symbolmapstack  symbol;
+					    };
+
+					NULL => tst::EMPTY;
+					    #
+					    # We could complain here about an undefined
+					    # name.  However, since makelib doesn't have the
+					    # proper source locations available, it is
+					    # better to handle this case silently and
+					    # have the compiler catch the problem later.
+				    esac;
+
+				case (sm::get (localdefs, symbol))
+				    #			      
+				    THE thawedlib_tome'
+					=>
+					if (is_self thawedlib_tome')
+					    #
+					    lookfar ();
+					else
+					    my (n, e)
+						=
+						get_result (thawedlib_tome', (symbol, thawedlib_tome) ! history);
+
+					    note_near_import n;
+					    get dontcomplain e symbol;
+					fi;
+
+				    NULL =>   lookfar ();
+				esac;
+			    };				# fun lookimport
+
+			compute_exports_of
+			    =
+			    exports_of_module_dependencies_summary  lookimport;
+
+			module_dependencies_summary_exports
+			    =
+			    case (tlt::module_dependencies_summary  makelib_state  thawedlib_tome)
+				#			  
+				THE module_dependencies_summary =>  compute_exports_of  module_dependencies_summary;
+				NULL                            =>  tst::EMPTY;
+			    esac;
+
+			tin =   sg::THAWEDLIB_TOME_TIN
+				  {
+				    thawedlib_tome,
+				    near_imports =>  *near_imports,
+				    far_imports  =>  *far_imports
+				  };
+
+			( tin,
+			  module_dependencies_summary_exports
+			);
+		    };
+
+
+
+
+		apply  do_source_file  masked_tomes				# Run the analyses.
+		where
+		    fun do_source_file (tome: tlt::Thawedlib_Tome,  exported_symbols: sys::Set)			# (tome, exported_symbols_set) pair.
+			=
+			# Run the analysis on one Mythryl .api or .pkg file -- causing
+			# the blackboard to be updated accordingly:
+			#
+			ignore (get_result (tome, []));
+		end;
+
+		# Invert the "localdefs" map
+		# so that each thawedlib_tome
+		# is mapped to the corresponding
+		# _set_ of symbols:
+		#
+		stipulate
+		    fun add (symbol, i, info_map)
+			=
+			case (ttm::get (info_map, i))
+			    #
+			    NULL           =>   ttm::set (info_map, i, sys::singleton        symbol );
+			    THE symbol_set =>   ttm::set (info_map, i, sys::add (symbol_set, symbol));
+			esac;
+		herein
+		    inverse_localdefs
+			=
+			symbol_map::keyed_fold_left
+			    add
+			    ttm::empty
+			    localdefs;
+		end;
+
+		#
+		fun add_dummy_filt i
+		    =
+		    {   my (sn, tome_symbolmapstack)
+			    =
+			    the (the (fetch i));
+
+			sbn  =  sg::TOME_IN_THAWEDLIB  sn;
+
+			fsbn =  { exports_mask => ttm::get (per_file_exports, i),
+				  tome => sbn
+				};
+
+
+			#  We also thunkify the fsbn so that
+			#  the result is an import_export. 
+			#
+			{ masked_tome_thunk =>  fn () =  fsbn,
+			  tome_symbolmapstack,
+			  exports_mask	    =>  the (ttm::get (inverse_localdefs, i))
+			};
+		    };
+
+
+
+		# First we make a map of all symbols defined 
+		# locally  to the local "far sb node"
+		# but with only a dummy filter attached.
+		#
+		# This makes it consistent with the current state
+		# of "imports" where there can be filters, but
+		# where those filters are not yet strengthened
+		# according to filter:
+
+		localmap
+		    =
+		    sm::map  add_dummy_filt  localdefs;
+
+
+		exports
+		    =
+		    sys::fold_left
+			add_node_for
+			sm::empty
+			symbol_set
+
+		    where
+
+			symbol_set
+			    =
+			    filter;
+
+
+			# We now always have an exports_mask.
+			#
+			# We export only the things in the exports_mask.
+			#
+			# They can be taken from either localmap
+			# or else from imports.
+			#
+			# In either case, it is necessary to strengthen
+			# the filter attached to each node:
+			#
+			fun strengthen_exports_mask  (t: lg::Fat_Tome)
+			    =
+			    {   (t.masked_tome_thunk ()) ->   { exports_mask => fopt', tome => sbn };
+
+				new_fopt =  case fopt'
+						#				  
+						NULL            =>  THE symbol_set;
+						THE symbol_set' =>  THE (sys::intersection (symbol_set, symbol_set'));
+					    esac;
+				#
+				fun masked_tome_thunk ()
+				    =
+				    { exports_mask => new_fopt, tome => sbn };
+
+				{ masked_tome_thunk,
+				  tome_symbolmapstack =>  tst::FILTER (symbol_set, t.tome_symbolmapstack),
+				  exports_mask      =>  sys::intersection (t.exports_mask, symbol_set)
+				};
+			    };
+
+			#
+			fun add_node_for  (symbol,  symbol_map)
+			    =
+			    case (sm::get (localmap, symbol))
+				#			  
+				THE node_thunk
+				    =>
+				    sm::set  (symbol_map,  symbol,  strengthen_exports_mask node_thunk);
+				#
+				NULL =>
+				    case (sm::get (imports, symbol))
+					#
+					THE node_thunk
+					    =>
+					    {   add_far_import_symbol  symbol;
+						sm::set  (symbol_map,  symbol,  strengthen_exports_mask node_thunk);
+					    };
+
+					NULL => em::impossible "build: undefined export";
+					    #
+					    # This should never happen since we
+					    # checked beforehand during
+					    # parsing/semantic analysis.
+				    esac;
+			   esac;
+		    end;
+
+		check_sharing::check (exports, makelib_state);
+
+		{ exports, imported_symbols => *far_import_symbols };
+	    };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## (C) 1999 Lucent Technologies, Bell Laboratories
+## Author: Matthias Blume (blume@kurims.kyoto-u.ac.jp)
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

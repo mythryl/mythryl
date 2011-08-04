@@ -1,0 +1,922 @@
+## improve-anormcode-quickly.pkg 		"lcontract.pkg"  in SML/NJ   ("lcontract" == "lambda contraction")
+#
+# This is one of the A-Normal Form compiler passes --
+# for context see the comments in
+#
+#     src/lib/compiler/back/top/anormcode/anormcode-form.api
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+
+
+
+#   "This is a simple cleanup phase that inlines called-once
+#    functions to their sole calling location and flattens
+#    the let bindings by applying the let-associativity rule
+#        let x = let y = e1 = e2 in e3
+#        =>
+#        let y = e1 in let x = e2 in e3
+#
+#   "This phase does a subset of what fcontract does.
+#    It does a much less thorough job, but is much faster
+#    and was kept to do the first cleanup after translation
+#    from [lambdacode]."
+#
+#
+#                   -- Stefan Monnier, "Principled Compilation and Scavanging"
+
+
+
+###          "The mathematical sciences particularly exhibit
+###           order, symmetry, and limitation; and these are
+###           the greatest forms of the beautiful."
+###
+###                                     -- Aristotle
+
+
+
+stipulate
+    package acf =  anormcode_form;				# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+herein
+
+    api Improve_Anormcode_Quickly {
+	#
+	improve_anormcode_quickly:  acf::Function ->  acf::Function;
+    }; 
+end;
+
+
+
+stipulate
+    package acf =  anormcode_form;				# anormcode_form		is from   src/lib/compiler/back/top/anormcode/anormcode-form.pkg
+    package acj =  anormcode_junk;				# anormcode_junk		is from   src/lib/compiler/back/top/anormcode/anormcode-junk.pkg
+    package di  =  debruijn_index;				# debruijn_index		is from   src/lib/compiler/front/typer/basics/debruijn-index.pkg
+    package hbo =  highcode_baseops;				# highcode_baseops		is from   src/lib/compiler/back/top/highcode/highcode-baseops.pkg
+    package hcf =  highcode_form;				# highcode_form			is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hct =  highcode_type;				# highcode_type			is from   src/lib/compiler/back/top/highcode/highcode-type.pkg
+    package hcv =  highcode_var;				# highcode_var			is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package hut =  highcode_uniq_types;				# highcode_uniq_types		is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package iht =  int_hashtable;				# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package vh  =  varhome;					# varhome			is from   src/lib/compiler/front/typer-stuff/basics/varhome.pkg
+herein
+
+    package   improve_anormcode_quickly
+    : (weak)  Improve_Anormcode_Quickly				# Improve_Anormcode_Quickly	is from   src/lib/compiler/back/top/improve/improve-anormcode-quickly.pkg
+    {
+	fun bug s
+	    =
+	    error_message::impossible ("LContract: " + s);
+
+	say   = control_print::say;
+
+	ident = fn x = x;
+
+	fun all p (a ! r) =>  p a and all p r;
+	    all p NIL     =>  TRUE;
+	end;
+
+	fun is_diffs (vs, us)
+	    = 
+	    list::all h us
+            where
+	        fun h (acf::VAR x) =>  list::all (fn y = (y!=x)) vs;
+		    h _            =>  TRUE;
+		end;
+	    end;
+
+	fun is_eqs (vs, us)
+	    = 
+	    h (vs, us)
+            where
+	        fun h (v ! r, (acf::VAR x) ! z) => if (v == x)   h (r, z);   else FALSE;   fi;
+		    h ([], []) => TRUE;
+		    h _ => FALSE;
+		end;
+	    end;
+
+	Info
+	  = SIMPLE_VALUE	     acf::Value
+	  | LIST_EXPRESSION  List( acf::Value )
+	  | FUN_EXPRESSION   (List( hcv::Variable ), acf::Expression)
+	  | CON_EXPRESSION   (acf::Dcon, List( hut::Uniqtyp ), acf::Value)
+	  | STD_EXPRESSION
+          ;
+
+	exception LCONTRACT_PASS1;
+
+	fun pass1 fdec
+	    = 
+	    {   my debruijn_depth_hashtable:  iht::Hashtable( Null_Or( di::Debruijn_Depth ))
+                    =
+                    iht::make_hashtable  { size_hint => 32,  not_found_exception => LCONTRACT_PASS1 };
+
+		add = iht::set  debruijn_depth_hashtable;
+		get = iht::get  debruijn_depth_hashtable;
+
+		fun rmv i
+                    =
+                    ignore (iht::remove debruijn_depth_hashtable i) except _ = ();
+
+		fun enter (x, d)
+                    =
+                    add (x, THE d);
+
+		fun kill x
+                    =
+                    {   get x;
+                        rmv x;
+                    }
+                    except _ = ();
+
+
+		fun mark nd x
+                    = 
+		    {   s = get x;
+		        rmv x;
+
+		        case s
+			    THE _ => add (x, NULL);  #  Depth no longer matters 
+			    NULL  => ();
+
+#			    THE d => if (d==nd)   add (x, NULL) fi;
+
+		        esac;
+
+		    } except _ = ();
+
+
+		fun cand x
+		    =
+		    {   get x;
+			TRUE;
+		    }
+		    except _ = FALSE;
+
+
+		fun lpfd d ( { loop_info=>THE _, ... }, v, vts, e)
+                        =>
+                        lple d e;
+
+		    lpfd d (_, v, vts, e)
+                        =>
+                        {   enter (v, d);
+                            lple d e;
+                        };
+		end 
+
+		also
+		fun lple d e
+		    = 
+		    pse e
+		    where
+			fun psv (acf::VAR x) => kill x;
+			    psv _ => ();
+			end 
+
+			also
+			fun pst (tfk, v, vks, e)
+                            =
+                            lple (di::next d) e
+
+			also
+			fun pse (acf::RET vs) => apply psv vs;
+			    pse (acf::LET (vs, e1, e2)) => { pse e1; pse e2;};          
+			    pse (acf::MUTUALLY_RECURSIVE_FNS (fdecs, e)) => { apply (lpfd d) fdecs; pse e;}; 
+			    pse (acf::APPLY (acf::VAR x, vs)) => { mark d x; apply psv vs;};
+			    pse (acf::APPLY (v, vs)) => { psv v; apply psv vs;};
+			    pse (acf::TYPEFUN (tfdec, e)) => { pst tfdec; pse e;};
+			    pse (acf::APPLY_TYPEFUN (v, _)) => psv v;
+			    pse (acf::RECORD(_, vs, _, e)) => { apply psv vs; pse e;};
+			    pse (acf::SELECT (u, _, _, e)) => { psv u; pse e;};
+			    pse (acf::CONSTRUCTOR(_, _, u, _, e)) => { psv u; pse e;};
+
+			    pse (acf::SWITCH (u, _, ces, oe))
+                                =>
+			        {   psv u;
+
+                                    apply (fn (_, x) = pse x)  ces; 
+
+				    case oe
+                                        THE x => pse x;
+                                        NULL => ();
+                                    esac;
+                                };
+
+			    pse (acf::RAISE _) => ();
+			    pse (acf::EXCEPT (e, v)) => { pse e; psv v;};
+			    pse (acf::BRANCH(_, vs, e1, e2)) => { apply psv vs; pse e1; pse e2;}; 
+			    pse (acf::BASEOP(_, vs, _, e)) => { apply psv vs; pse e;};
+		       end;
+		    end;
+
+		lpfd  di::top  fdec;
+
+		( cand,
+		  fn () =  iht::clear  debruijn_depth_hashtable
+		);
+	    };								# fun pass1 
+
+
+
+	########################################################################
+	#                      THE MAIN FUNCTION
+	########################################################################
+
+	fun improve_anormcode_quickly (fdec, init)
+	    = 
+	    { 
+		# In pass1, we calculate the list of functions that are the candidates
+		# for contraction. To be such a candidate, a function must be called 
+		# only once, and furthermore, the call site must be at the same 
+		# depth as the definition site. (ZHONG)
+		#
+		# Being at the same depth is not strictly necessary, we'll relax this
+		# constraint in the future.		XXX BUGGO FIXME
+
+		my  (is_contraction_candidate, clean_up)
+		    = 
+		    if init   (fn _ = FALSE, fn () = ());
+		    else      pass1 fdec;
+                    fi;
+
+		exception LCONTRACT;
+
+		my info_hashtable
+                    :  iht::Hashtable( (Ref( Int ), Info))
+                    =  iht::make_hashtable  { size_hint => 32,  not_found_exception => LCONTRACT };
+
+		enter = iht::set  info_hashtable;
+		get   = iht::get  info_hashtable;
+
+		fun kill i
+		    =
+		    ignore (iht::remove info_hashtable i)
+			   except
+			       _ = ();
+
+		fun check_in (v, info)
+		    =
+		    enter (v, (REF 0, info));
+
+		# Is variable dead?
+		#
+		fun dead v
+		    =
+		    case (get v)
+			(REF 0, _) => TRUE;
+			_          => FALSE;
+		    esac
+		    except _ = FALSE;
+
+		fun once v
+		    =
+		    case (get v)
+			(REF 1, _) => TRUE;
+			 _         => FALSE;
+		    esac
+		    except
+			_ = FALSE;
+
+
+		# Are all variables dead?
+		#
+		fun alldead [     ] => TRUE;
+		    alldead (v ! r) => if (dead v)  alldead r;
+				       else         FALSE;
+				       fi;
+		end; 
+
+		# Rename a value:
+		#
+		fun rename (u as (acf::VAR v))
+			=> 
+			case (get v)
+			    #	
+			    (_, SIMPLE_VALUE sv) => rename sv;
+			    (x, _              ) => {   x := *x + 1;
+						        u;
+						    };
+			esac
+			except
+			     _ = u;
+
+		    rename u => u;
+		end;
+
+
+		# Selecting a field from a
+                # potentially known record:
+		#
+		fun select_info  (acf::VAR v,  i)
+			=> 
+			case (get v)
+			    #
+			    (_, SIMPLE_VALUE u)
+				=>
+				select_info (u, i);
+
+			    (_, LIST_EXPRESSION vs)
+				=> 
+				{   nv = list::nth (vs, i)
+					 except
+					     _ = bug "unexpected list::nth in select_info";
+
+				    THE nv;
+				};
+
+			   _ => NULL;
+			esac
+			except
+                            _ = NULL;
+
+		    select_info _
+			=>
+			NULL;
+		end;
+
+		# Apply a switch to a data constructor:
+		#
+		fun swi_info (acf::VAR v, ces, oe)
+			=> 
+			case (get v)
+			    #
+			    (_, SIMPLE_VALUE u)
+				=>
+				swi_info (u, ces, oe);
+
+			    (_, CON_EXPRESSION (dc as (_, representation, _), ts, u))
+				=>
+				h ces
+				where
+				    fun h ((acf::VAL_CASETAG (dc as (_, nrep, _), ts, x), e) ! r)
+                                            =>
+					    if (representation==nrep)   THE (acf::LET([x], acf::RET [u], e));
+                                            else                        h r;
+                                            fi;
+
+					h (_ ! r)
+                                            =>
+                                            bug "unexpected case in swi_info";
+
+					h [] => oe;
+				    end;
+				end;
+
+
+			    _ => NULL;
+			esac
+			except _ = NULL;
+
+		    swi_info _
+			=>
+			NULL;
+		end;
+
+
+		# Contract a function application 
+		#
+		fun apply_info (acf::VAR v)
+			=>
+			case (get v)
+			    (REF 0, FUN_EXPRESSION (vs, e)) => THE (vs, e);
+			   _ => NULL;
+			esac
+			except _ = NULL;
+
+		    apply_info _
+			=>
+			NULL;
+		end;
+
+
+		# A very ad-hoc implementation of
+		# branch/switch eliminations   XXX SUCKO FIXME
+		#
+		stipulate
+
+		    fun is_bool_lty lt
+			= 
+			case (hcf::unpack_arrow_uniqtype lt)
+			    #
+			    (_, [at], [rt])
+                                =>
+			        hcf::same_uniqtype (at, hcf::void_uniqtype)
+                                and
+                                hcf::same_uniqtype (rt, hcf::bool_uniqtype);
+
+			  _ => FALSE;
+			esac; 
+
+		    fun is_bool
+			    TRUE
+			    ( acf::RECORD (acf::RK_TUPLE _, [], x,   acf::CONSTRUCTOR((_, vh::CONSTANT 1, lt), [], acf::VAR x', v, acf::RET [acf::VAR v']))
+			    )
+			    => 
+			    (x == x') and (v == v') and (is_bool_lty lt);
+
+			is_bool
+			    FALSE
+			    ( acf::RECORD (acf::RK_TUPLE _, [], x,   acf::CONSTRUCTOR((_, vh::CONSTANT 0, lt), [], acf::VAR x', v, acf::RET [acf::VAR v']))
+			    )
+			    => 
+			    (x == x') and (v == v') and (is_bool_lty lt);
+
+			is_bool _ _
+			    =>
+			    FALSE;
+		    end;
+
+		    # Functions that do the branch optimizations 
+		    #
+		    fun bool_dcon ( (acf::VAL_CASETAG((_, vh::CONSTANT 1, lt1),[], v1), e1), 
+				    (acf::VAL_CASETAG((_, vh::CONSTANT 0, lt2),[], v2), e2)
+                                  )
+			    => 
+			    if (is_bool_lty lt1
+			    and is_bool_lty lt2)
+				# 
+				THE ( acf::RECORD (acj::rk_tuple,[], v1, e1),
+				      acf::RECORD (acj::rk_tuple,[], v2, e2)
+				    );
+			    else
+				NULL;
+			    fi;
+
+			bool_dcon
+                            ( ce1 as (acf::VAL_CASETAG((_, vh::CONSTANT 0, _),[], _), _), 
+			      ce2 as (acf::VAL_CASETAG((_, vh::CONSTANT 1, _),[], _), _)
+                            )
+			    =>
+			    bool_dcon (ce2, ce1);
+
+			bool_dcon _
+			    =>
+			    NULL;
+		    end;
+
+		    fun ssplit (acf::LET (vs, e1, e2))
+			    =>
+			    ( fn x = acf::LET (vs, x, e2),
+			      e1
+			    );
+
+			ssplit e
+			    =>
+			    (ident, e);
+		    end;
+
+		herein
+
+		    fun branchopt ([v], e1 as (acf::BRANCH (p, us, e11, e12)), e2)			# Here we appear to be converting  'case bool  TRUE => e1; FALSE => e2; esac'  ->   'if bool  e1; else e2; fi'
+			    => 
+			    {   (ssplit e2) ->   (header, se2);
+
+				case se2 
+				    #
+				    acf::SWITCH (acf::VAR nv, _, [ce1, ce2], NULL)
+					=>
+					if ( once v							# If 'v' is only referenced once.
+                                        and  nv == v
+                                        and  is_bool TRUE  e11 
+					and  is_bool FALSE e12
+					)
+					    case (bool_dcon (ce1, ce2))
+						#
+						THE (e21, e22)
+						    =>
+						    THE (header (acf::BRANCH (p, us, e21, e22)));
+
+						NULL => NULL;
+					    esac;
+					else
+					    NULL;
+					fi;
+
+				    _ => NULL;
+				esac;
+			    };
+
+		        branchopt _
+                            =>
+                            NULL;
+		    end;
+
+		end; #  Branchopt local 
+
+
+		# The main transformation function:
+		#	 
+		fun lpacc (vh::HIGHCODE_VARIABLE v)
+			=> 
+			case (lpsv (acf::VAR v))
+			    #
+			    acf::VAR w =>  vh::HIGHCODE_VARIABLE w;
+			    _          =>  bug "unexpected in lpacc";
+			esac;
+
+		    lpacc _
+			=>
+			bug "unexpected path in lpacc";
+		end 
+
+		also
+		fun lpdc (s, vh::EXCEPTION acc, t) =>  (s, vh::EXCEPTION (lpacc acc), t);
+		    lpdc (s, representation,    t) =>  (s, representation,            t);
+		end 
+
+		also
+		fun lpcon (acf::VAL_CASETAG (dc, ts, v))
+			=>
+			acf::VAL_CASETAG (lpdc dc, ts, v);
+
+		    lpcon c => c;
+		end 
+
+		also
+		fun lpdt { default=>v, table=>ws }
+		    =
+		    {   fun h x
+			    = 
+			    case (rename (acf::VAR x))    acf::VAR nv =>  nv;
+							  _           =>  bug "unexpected acse in lpdt";
+			    esac;
+
+			THE { default =>  h v,
+			      table   =>  map  (fn (ts, w) = (ts, h w))  ws
+			    };
+		    }
+
+		also
+		fun lpsv x
+		    =
+		    case x      acf::VAR v =>  rename x;
+			        _          =>  x;
+		    esac
+
+		also
+		fun lpfd ( { loop_info, all_callers_known, inlining_hint, call_as }, v, vts, e)
+		    = 
+		    # The function body might have changed
+		    # so we need to reset the inlining hint:
+		    #
+		    ( { loop_info,
+			all_callers_known,
+			inlining_hint =>  acf::INLINE_IF_SIZE_SAFE,
+			call_as
+		      },
+		      v,
+		      vts,
+		      #1 (loop e)
+		    )
+
+		also
+		fun lplet								# Here we appear to simplifying  'let x=y in e' to just 'e' if x is unused in e.
+                      ( header: acf::Expression -> acf::Expression,			# This appears to convert 'e' back to 'let x=y in e'.
+			pure,
+			v:      hcv::Variable,
+			info:   Info,
+			e
+		    )									# Our return value appears to be (simplified_expression, is_pure)...?
+		    = 
+		    {   check_in (v, info);
+
+			(loop e) ->   (ne, b);
+
+			if pure   (dead v   ??  (ne, b)  :: (header ne, b));
+			else      (header ne, FALSE);
+			fi;
+		    }
+
+		also
+		fun loop le								# 'le' may be something like 'lambda expression'.
+		    =
+		    case le
+			#
+			acf::RET vs
+			    =>
+			    (acf::RET (map lpsv vs), TRUE);
+
+			acf::LET (vs, acf::RET us, e)
+			    =>
+			    {   paired_lists::apply check_in (vs, map SIMPLE_VALUE us);
+				loop e;
+			    };
+
+
+			acf::LET (vs, acf::LET (us, e1, e2), e3)
+			    => 
+			    loop (acf::LET (us, e1, acf::LET (vs, e2, e3)));
+
+
+			acf::LET (vs, acf::MUTUALLY_RECURSIVE_FNS (fdecs, e1), e2)
+			    =>
+			    loop (acf::MUTUALLY_RECURSIVE_FNS (fdecs, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, acf::TYPEFUN (tfd, e1), e2)
+			    => 
+			    loop (acf::TYPEFUN (tfd, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, acf::CONSTRUCTOR (dc, ts, u, v, e1), e2)
+			    =>
+			    loop (acf::CONSTRUCTOR (dc, ts, u, v, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, acf::RECORD (rk, us, v, e1), e2)
+			    => 
+			    loop (acf::RECORD (rk, us, v, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, acf::SELECT (u, i, v, e1), e2)
+			    => 
+			    loop (acf::SELECT (u, i, v, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, acf::BASEOP (p, us, v, e1), e2)
+			    =>
+			    loop (acf::BASEOP (p, us, v, acf::LET (vs, e1, e2)));
+
+
+			acf::LET (vs, e1, e2 as (acf::RET us))
+			    =>
+			    if (is_eqs (vs, us))
+				#
+				loop e1;
+			    else
+				(loop e1) ->   (ne1, b1);
+
+				nus = map lpsv us;
+
+				if ((is_diffs (vs, nus)) and b1)  (acf::RET nus, TRUE);
+				else                              (acf::LET (vs, ne1, acf::RET nus), b1);
+				fi;
+			    fi;
+
+
+			acf::LET (vs, e1, e2)
+			    => 
+			    {   apply  (fn v = check_in (v, STD_EXPRESSION))
+				       vs;
+
+				(loop e1) ->   (ne1, b1);
+				(loop e2) ->   (ne2, b2);
+
+				if ((alldead vs) and b1)
+				    #
+				    (ne2, b2);
+				else
+				    case (branchopt (vs, ne1, ne2))
+					#
+					THE xx
+					    =>
+					    (xx, b1 and b2);
+
+					NULL => 
+					    case ne2 
+						#
+						acf::RET us
+						    => 
+						    if (is_eqs (vs, us))  (ne1, b1);
+						    else                  (acf::LET (vs, ne1, ne2), b1);
+						    fi;
+
+						_   =>
+						    ( acf::LET (vs, ne1, ne2),
+						      b1 and b2
+						    );
+					    esac;
+				    esac;
+				fi;
+			   };
+
+
+			acf::MUTUALLY_RECURSIVE_FNS (fdecs, e)
+			    =>
+			    {   apply g fdecs
+				where
+				    fun g ( { loop_info=>THE _, ... }: acf::Function_Notes,   v, _, _)
+					    =>
+					    check_in (v, STD_EXPRESSION);
+
+					g ((_, v, vts, xe):  acf::Function)
+					    => 
+					    check_in  ( v,
+							#	
+							if (is_contraction_candidate v)  FUN_EXPRESSION (map #1 vts, xe); 
+							else                             STD_EXPRESSION;
+							fi
+						      );
+				    end;
+				end;
+
+				(loop e) ->   (ne, b);
+
+				if (alldead (map #2 fdecs))   (ne, b);
+				else                          (acf::MUTUALLY_RECURSIVE_FNS (map lpfd fdecs, ne), b);
+				fi;
+			    };
+
+
+			acf::APPLY (u, us)
+			    => 
+			    case (apply_info u)
+				#
+				THE (vs, e)
+				    => 
+				    {   ne = acf::LET (vs, acf::RET us, e);
+					loop ne;
+				    };
+
+				_ => (acf::APPLY (lpsv u, map lpsv us), FALSE);
+			    esac;
+
+
+			acf::TYPEFUN (tfdec as (tfk, v, tvks, xe), e)
+			    => 
+			    lplet ( (fn z = acf::TYPEFUN((tfk, v, tvks, #1 (loop xe)), z)), 
+				    TRUE,							# Pure?
+                                    v,								# Variable
+                                    STD_EXPRESSION,						# Info
+                                    e
+                                  );
+
+
+			acf::APPLY_TYPEFUN (u, ts)
+			    =>
+			    (acf::APPLY_TYPEFUN (lpsv u, ts), TRUE);
+
+
+			acf::CONSTRUCTOR (c, ts, u, v, e)					# This could be made more fine-grain. XXX BUGGO FIXME
+			    => 
+			    lplet ( (fn z = acf::CONSTRUCTOR (lpdc c, ts, lpsv u, v, z)), 
+				    TRUE,							# Pure?
+                                    v,								# Variable
+                                    CON_EXPRESSION (c, ts, u),					# Info
+                                    e
+                                  );
+
+			acf::SWITCH (v, cs, ces, oe)
+			    => 
+			    case (swi_info (v, ces, oe))
+				#
+				THE ne => loop ne;
+
+				 _   =>
+				    {   nv = lpsv v;
+
+					fun h ((c, e), (es, b))
+					    = 
+					    {   (lpcon c) ->   nc;
+						(loop  e) ->   (ne, nb);
+						#
+						((nc, ne) ! es, nb and b);
+					    };
+
+					my (nces, ncb)
+					    =
+					    fold_right h ([], TRUE) ces; 
+
+					my (noe, nb)
+					    = 
+					    case oe 
+						NULL  => (NULL, ncb);
+						#
+						THE e => {   (loop e) ->   (ne, b);
+							     (THE ne, b and ncb);
+							  };
+					    esac;
+
+					(acf::SWITCH (nv, cs, nces, noe), nb);
+				    };
+			    esac;
+
+
+			acf::RECORD (rk, us, v, e)
+			    => 
+			    lplet ( (fn z = acf::RECORD (rk, map lpsv us, v, z)), 
+				    TRUE,							# Pure?
+                                    v,								# Variable
+                                    LIST_EXPRESSION us,						# Info
+                                    e
+                                  );
+
+
+			acf::SELECT (u, i, v, e)
+			    => 
+			    case (select_info (u, i))
+				#
+				THE nv =>   {   check_in (v, SIMPLE_VALUE nv);
+						loop e;
+					    };
+
+				NULL => lplet ( (fn z = acf::SELECT (lpsv u, i, v, z)), 
+					        TRUE,						# Pure?
+                                                v,						# Variable
+                                                STD_EXPRESSION,					# Info
+                                                e
+                                              );
+			    esac;
+
+
+			acf::RAISE (v, ts)
+			    =>
+			    (acf::RAISE (lpsv v, ts), FALSE);
+
+
+			acf::EXCEPT (e, v)
+			    => 
+			    {   (loop e) ->   (ne, b);
+				#
+				if b    (ne,                         TRUE) ;
+				else    (acf::EXCEPT (ne, lpsv v),   FALSE);
+				fi;
+			    };
+
+			acf::BRANCH (px as (d, p, lt, ts), vs, e1, e2)
+			    =>
+			    {   (loop e1) ->   (ne1, b1);
+				(loop e2) ->   (ne2, b2);
+
+				( acf::BRANCH
+				    ( case d    NULL  => px; 
+						THE d => (lpdt d, p, lt, ts);
+				      esac, 
+
+				      map lpsv vs,
+				      ne1,
+				      ne2
+				    ),
+
+				  FALSE
+				);
+			   };
+
+			acf::BASEOP (px as (dt, p, lt, ts), vs, v, e)
+			    => 
+			    lplet
+			      ( (fn z = acf::BASEOP
+					  ( case dt 
+						NULL  =>  px; 
+						THE d =>  (lpdt d, p, lt, ts);
+					    esac, 
+
+					    map lpsv vs,
+					    v,
+					    z
+					  )
+				), 
+				FALSE,  # hbo::purePrimop p				# Pure?
+				v,							# Variable
+				STD_EXPRESSION,						# Info
+				e
+			      );
+		     esac;
+
+		d = di::top;
+
+		fdec -> (fk, f, vts, e);
+
+		(fk, f, vts, #1 (loop e))
+		before
+                    {   iht::clear info_hashtable;
+                        clean_up();
+                    };
+	    };						# fun improve_anormcode_quickly
+
+	# Run the lambda contraction twice:
+	# 
+	improve_anormcode_quickly
+            =
+            fn fdec
+                =
+                improve_anormcode_quickly (improve_anormcode_quickly (fdec, TRUE), FALSE);
+
+    };										# package lcontract 
+end;										# toplevel stipulate
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

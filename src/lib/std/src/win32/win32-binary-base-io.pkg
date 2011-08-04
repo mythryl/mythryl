@@ -1,0 +1,256 @@
+## win32-binary-base-io.pkg
+
+
+
+# Implementation of Win32 binary primitive io.
+
+
+
+local
+    package file_position = file_position_guts
+    package os = winix_guts
+in
+package Win32BinPrimIO:  Os_Base_Io {
+
+	package base_io = binary_base_io
+
+	package W32FS = Win32::file_system
+	package W32IO = Win32::IO
+	package W32G = Win32::general
+
+	package v = unt8_vector
+
+	type File_Descriptor = W32G::hndl
+
+	pfi = file_position::from_int
+	pti = file_position::toInt
+	pfw = file_position::from_int o W32G::unt::toInt
+	ptw = W32G::unt::from_int o file_position::toInt
+	    
+	say = W32G::logMsg
+
+	fun announce s x y = (
+# *	    say "Win32BinPrimIO: "; say (s: String); say "\n";  *
+	    x y)
+
+	bufferSzB = 4096
+
+	seek = pfw o W32IO::setFilePointer'
+
+	fun posFns iod = 
+	    if (winix::io::kind iod == winix::io::Kind::file) then 
+		let my pos:  Ref( file_position::Int ) = REF (pfi 0)
+		    fun getPos () : file_position::Int = *pos
+		    fun setPos p = 
+			pos := announce "setPos: seek" 
+			         seek (W32FS::IODToHndl iod,
+				       ptw p,
+				       W32IO::FILE_BEGIN)
+		    fun endPos () : file_position::Int = 
+			(case W32FS::getLowFileSize (W32FS::IODToHndl iod) of
+			     THE w => pfw w
+			   | _ => raise exception winix::RUNTIME_EXCEPTION("endPos: no file size", NULL))
+		    fun verifyPos () = 
+			(pos := announce "verifyPos: seek"
+			          seek (W32FS::IODToHndl iod,
+					0wx0,
+					W32IO::FILE_CURRENT);
+			 *pos)
+		in
+		    ignore (verifyPos());
+		    { pos=pos,
+		      getPos=THE getPos,
+		      setPos=THE setPos,
+		      endPos=THE endPos,
+		      verifyPos=THE verifyPos
+		    }
+		end
+	    else { pos=REF (pfi 0),
+		   getPos=NULL, setPos=NULL, endPos=NULL, verifyPos=NULL
+		 }
+
+	fun addCheck f (THE g) = THE (f g)
+	  | addCheck _ NULL = NULL
+
+	fun mkReader { initablekMode=FALSE, ... } = 
+	    raise exception io::NONBLOCKING_IO_NOT_SUPPORTED
+	  | mkReader { fd, name, initablekMode } = 
+	    let closed = REF FALSE
+		fun ensureOpen f x = 
+		    if *closed then raise exception io::CLOSED_IO_STREAM else f x
+		blocking = REF initablekMode
+		iod = W32FS::hndlToIOD fd
+		my { pos, getPos, setPos, endPos, verifyPos } = posFns iod
+		fun incPos k = pos := position.+(*pos, pfi k)
+		fun readVec n = 
+		    let	v = announce "read" 
+			          W32IO::readVec (W32FS::IODToHndl iod, n)
+		    in  incPos (v::length v); v
+		    end
+		fun readArr arg = 
+		    let k = announce "readBuf" 
+			          W32IO::readArr (W32FS::IODToHndl iod, arg)
+		    in	incPos k; k
+		    end
+		fun close () = 
+		    if *closed then ()
+		    else (closed:=TRUE; announce "close" 
+			                  W32IO::close (W32FS::IODToHndl iod))
+		fun avail () = 
+		    if *closed then THE 0
+		    else (case W32FS::getLowFileSize (W32FS::IODToHndl iod) of
+			      THE w => THE (position.-(pfw w,*pos))
+			    | NULL => NULL
+			 )
+	    in
+		base_io::RD {
+		    name = name,
+		    chunkSize = bufferSzB,
+		    readVec = THE (ensureOpen readVec),
+		    readArr = THE (ensureOpen readArr),
+		    readVecNB = NULL,
+		    readArrNB = NULL,
+		    block = NULL,
+		    can_read = NULL,
+		    avail = avail,
+		    getPos = getPos,
+		    setPos = addCheck ensureOpen setPos,
+		    endPos = addCheck ensureOpen endPos,
+		    verifyPos = addCheck ensureOpen verifyPos,
+		    close = close,
+		    ioDesc = THE iod
+		}
+	    end
+
+	shareAll = W32G::unt::bitwise_or (W32IO::FILE_SHARE_READ,
+				     W32IO::FILE_SHARE_WRITE)
+
+	fun checkHndl name h = 
+	    if W32G::isValidHandle h then h
+	    else 
+		raise exception winix::RUNTIME_EXCEPTION ("win32-binary-base-io: checkHndl: "$name$": failed", NULL)
+
+	fun openRd name = 
+	    mkReader {
+	        fd = checkHndl "openRd" 
+		               (announce ("openRd: createFile:"$name)
+				         W32IO::createFile {
+				             name=name,
+					     access=W32IO::GENERIC_READ,
+					     share=shareAll,
+					     mode=W32IO::OPEN_EXISTING,
+					     attributes=0wx0
+				         } ),
+		name = name,
+		initablekMode = TRUE
+	    }
+
+	fun mkWriter { initablekMode=FALSE, ... } =
+	    raise exception io::NONBLOCKING_IO_NOT_SUPPORTED
+	  | mkWriter { fd, name, initablekMode, appendMode, chunkSize } = 
+	    let closed = REF FALSE
+		blocking = REF initablekMode
+		fun ensureOpen f x = 
+		    if *closed then raise exception io::CLOSED_IO_STREAM else f x
+		iod = W32FS::hndlToIOD fd
+		my { pos, getPos, setPos, endPos, verifyPos } = posFns iod
+		fun incPos k = pos := position.+(*pos, pfi k)
+		fun writeVec v = 
+		    let k = announce "writeVec" 
+			          W32IO::writeVec (W32FS::IODToHndl iod, v)
+		    in  incPos k; k
+		    end
+		fun writeArr v = 
+		    let k = announce "writeArr" 
+			          W32IO::writeArr (W32FS::IODToHndl iod, v)
+		    in  incPos k; k
+		    end
+		fun close () = 
+		    if *closed then ()
+		    else (closed:=TRUE; 
+			  announce "close" 
+			    W32IO::close (W32FS::IODToHndl iod))
+	  in
+	    base_io::WR {
+		name = name,
+		chunkSize = chunkSize,
+		writeVec = THE (ensureOpen writeVec),
+		writeArr = THE (ensureOpen writeArr),
+		writeVecNB = NULL,
+		writeArrNB = NULL,
+		block = NULL,
+		canOutput = NULL,
+		getPos = getPos,
+		setPos = addCheck ensureOpen setPos,
+		endPos = addCheck ensureOpen endPos,
+		verifyPos = addCheck ensureOpen verifyPos,
+		close = close,
+		ioDesc = THE iod
+	      }
+	  end
+
+	fun openWr name = 
+	    mkWriter {
+	        fd = checkHndl "openWr" 
+		               (announce ("openWr: createFile:"$name)
+				         W32IO::createFile {
+					     name=name,
+					     access=W32IO::GENERIC_WRITE,
+					     share=shareAll,
+					     mode=W32IO::CREATE_ALWAYS,
+					     attributes=W32FS::FILE_ATTRIBUTE_NORMAL
+					 } ),
+		name = name,
+		initablekMode = TRUE,
+		appendMode = FALSE,
+		chunkSize = bufferSzB
+	    }
+
+	fun openApp name = 
+	    let h = checkHndl "openApp" 
+		                  (announce ("openApp: createFile:"$name)
+				            W32IO::createFile {
+					        name=name,
+						access=W32IO::GENERIC_WRITE,
+					        share=shareAll,
+					        mode=W32IO::OPEN_EXISTING,
+					        attributes=W32FS::FILE_ATTRIBUTE_NORMAL
+					    } )
+		announce "setFilePointer'"
+		                 W32IO::setFilePointer' (h, 0wx0, W32IO::FILE_END)
+	    in
+		mkWriter {
+		    fd = h,
+		    name = name,
+		    initablekMode = TRUE,
+		    appendMode = TRUE,
+		    chunkSize = bufferSzB
+	        }
+	    end
+
+    };
+end
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 1996 Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

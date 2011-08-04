@@ -1,0 +1,464 @@
+## memory-aliasing-g.pkg
+# 
+# Perform memory aliasing analysis.
+#
+# The old memory disambiguation module discards aliasing information
+# across fatecode function boundaries, which made
+# it not very useful for the optimizations I have in mind.
+#
+# This is an alternative module that (hopefully) does the right thing.
+# The algorithm is inspired by Steensgaard's work on flow insensitive
+# points-to analysis, but has been hacked to deal with target level issues.
+#
+# Some target level issues
+# ------------------------
+# In the source level two fatecode allocations cannot be aliased by definition.
+# However, when allocations are translated into target code, they become
+# stores to fixed offsets from the heap pointer.  Two allocation stores 
+# that may write to the same offset are aliased.  Allocation stores that are
+# in disjoint program paths may be assigned the same heap allocation offset.
+# We have to mark these as aliased since we want to allow speculative writes
+# to the allocation space.
+#
+# Representing heap offsets 
+# -------------------------
+#
+# 
+# Language 
+# --------
+# e ::= x <- v.i; k		# select
+#    |  x <- v+i; k		# offset
+#    |  x <- [v1, ...vn]^hp; k	# record allocation at heap pointer hp
+#    |  x <- *v; k		# Dereference
+#    |  v1 := v2; k		# update
+#    |  f (v1, ..., vn)		# tail call
+#
+# Since the analysis is flow insensitive, the branch constructs are 
+# irrelevant.
+#
+# -- Allen Leung
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+stipulate
+    package fcf =  fatecode_form;				# fatecode_form			is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+herein
+
+    api Memory_Aliasing {
+	#
+	analyze:  List( fcf::Function )
+                  ->
+                  (fcf::Variable -> fatecode_ramregions::Ramregion);
+    };
+end;
+
+
+
+stipulate
+    package fcf =  fatecode_form;				# fatecode_form			is from   src/lib/compiler/back/top/fatecode/fatecode-form.pkg
+    package iht =  int_hashtable;				# int_hashtable			is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;			# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package p   =  fcf::p;
+    package pt  =  points_to;					# points_to			is from   src/lib/compiler/back/low/aliasing/points-to.pkg
+    package rkj =  registerkinds_junk;				# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+    # This generic is invoked (only) in:
+    #
+    #     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+    #
+    generic package   memory_aliasing_g   (
+	#             =================
+	#
+	package rgk: Registerkinds;				# Registerkinds			is from   src/lib/compiler/back/low/code/registerkinds.api
+    )
+    : (weak)        Memory_Aliasing				# Memory_Aliasing		is from   src/lib/compiler/back/low/main/fatecode/memory-aliasing-g.pkg
+    {
+	fun error msg
+	    =
+	    lem::error("memory_aliasing_g", msg);
+
+	# The following functions advances the heap pointer.
+	# These functions are highly dependent on the runtime system and
+	# how data structures are represented.
+	# IMPORTANT: we are assuming that the new rw_vector representation is used.
+
+	fun record_size (n, hp)
+	    =
+	    n * 4 + 4 + hp;
+
+	fun frecord_size (n, hp)
+	    = 
+	    {   hp = if (unt::bitwise_and (unt::from_int hp, 0u4) != 0u0 ) hp+8; else hp+4;fi;
+		8*n + hp;
+	    };
+
+	fun vector_size (n, hp)
+	    =
+	    n * 4 + 16 + hp; 
+
+	fun alloc_record (fcf::rk::FBLOCK, vs, hp) => frecord_size (length vs, hp);
+	    alloc_record (fcf::rk::FCONT, vs, hp)  => frecord_size (length vs, hp);
+	    alloc_record (fcf::rk::VECTOR, vs, hp) => vector_size (length vs, hp);
+	    alloc_record(_, vs, hp) => record_size (length vs, hp);
+	end;
+
+	store_list_size = 8;
+	array0size    = 20;
+
+	exception NOT_FOUND;
+
+	top =   fatecode_ramregions::memory;
+
+
+	# Analyze a set of fatecode functions
+	#
+	fun analyze  fatecode_functions
+	    = 
+	    {   fun size_of (fcf::DEFINE_RECORD { kind, fields, fate, ... }, hp) => size_of (fate, alloc_record (kind, fields, hp));
+		    #
+		    size_of (fcf::GET_FIELD_I		 { fate, ... }, hp) => size_of (fate, hp);
+		    size_of (fcf::GET_ADDRESS_OF_FIELD_I { fate, ... }, hp) => size_of (fate, hp);
+		    #
+		    size_of (fcf::TAIL_CALL _, hp) => hp;
+		    size_of (fcf::DEFINE_FUNS _, hp) => error "sizeOf: fcf::DEFINE_FUNS";
+		    size_of (fcf::JUMPTABLE { fates, ... }, hp) => size_ofs (fates, hp);
+		    size_of (fcf::IF_THEN_ELSE { thenfate, elsefate, ... }, hp) => int::max (size_of (thenfate, hp), size_of (elsefate, hp));
+		    #
+		    size_of (fcf::STORE_TO_RAM   { op => p::ASSIGN,    fate, ... }, hp) =>  size_of (fate, hp+store_list_size);
+		    size_of (fcf::STORE_TO_RAM   { op => p::UPDATE,    fate, ... }, hp) =>  size_of (fate, hp+store_list_size);
+		    size_of (fcf::STORE_TO_RAM   { op => p::BOXED_SET, fate, ... }, hp) =>  size_of (fate, hp+store_list_size);
+		    size_of (fcf::STORE_TO_RAM   { op => _,            fate, ... }, hp) =>  size_of (fate, hp                );
+		    size_of (fcf::FETCH_FROM_RAM { op => _,            fate, ... }, hp) =>  size_of (fate, hp                );
+		    size_of (fcf::MATH           {                     fate, ... }, hp) =>  size_of (fate, hp                );
+		    size_of (fcf::RAW_C_CALL     {                     fate, ... }, hp) =>  size_of (fate, hp                );
+		    #
+		    size_of (fcf::PURE { op => p::FWRAP,        fate, ... }, hp) => size_of (fate, frecord_size (1, hp));
+		    size_of (fcf::PURE { op => p::MAKE_SPECIAL, fate, ... }, hp) => size_of (fate, hp+8);
+		    size_of (fcf::PURE { op => p::MAKE_REFCELL, fate, ... }, hp) => size_of (fate, hp+8);
+		    size_of (fcf::PURE { op => p::I32WRAP,      fate, ... }, hp) => size_of (fate, hp+8);
+		    size_of (fcf::PURE { op => p::NEWARRAY0,    fate, ... }, hp) => size_of (fate, hp+array0size);
+		    size_of (fcf::PURE { op => p,               fate, ... }, hp) => size_of (fate, hp);
+		    #
+		end 
+
+		also
+		fun size_ofs ([], hp)    => hp;
+		    size_ofs (k ! ks, hp) => int::max (size_of (k, hp), size_ofs (ks, hp));
+		end;
+
+		loc_map =  iht::make_hashtable  { size_hint => 37,  not_found_exception => NOT_FOUND };		#  Variable -> loc 
+		get     =  iht::get  loc_map;
+		bind    =  iht::set  loc_map;
+
+		new_mem =  rgk::make_codetemp_of_kind  rkj::RAM_BYTE;
+
+		pt::reset new_mem;
+
+		fun new_ref _
+		    =
+		    REF (pt::SCELL (new_mem(), REF []));
+
+		exnptr             = pt::new_sref ();		#  exception handler 
+		current_thread_ptr = pt::new_sref ();		# 
+
+		fun lookup x
+		    =
+		    get x
+		    except
+			_ => {   r = new_ref ();
+				 bind (x, r);
+				 r;
+			     }; end ;
+
+
+		fun define_function (fk, f, args, _, cexp)
+		    = 
+		    bind (f, pt::make_fn  xs)
+		    where
+			xs =   map (fn x = {   r =   new_ref ();
+					       bind (x, r);
+					       r;
+					   }
+				   )
+				   args;
+		    end;
+
+		off0 =   fcf::SLOT 0;
+
+		fun process (fk, f, args, _, cexp)
+		    = 
+		    infer (cexp, 0)
+		    where 
+
+			#  Create a table of allocation offset locations 
+
+			table =   rw_vector::tabulate (size_of (cexp, 0) / 4, new_ref);
+
+			fun select (i, fcf::VAR v, x) =>   bind (x, pt::ith_projection (lookup v, i));
+			    select (i, _, x)        =>   ();
+			end;
+
+			fun offset (i, fcf::VAR v, x) =>   bind (x, pt::ith_offset (lookup v, i));
+			    offset (i, _,          x) =>   ();
+			end;
+
+			fun value (fcf::VAR v) =>   lookup v;
+			    value _          =>   new_ref ();
+			end;
+
+			fun apply (fcf::VAR f, args) =>   pt::apply (lookup f, map value args);
+			    apply _                =>   ();
+			end;
+
+			fun get_path (v, fcf::SLOT 0)         =>   value v;
+			    get_path (v, fcf::SLOT n)         =>   pt::ith_offset (value v, n);
+			    get_path (v, fcf::VIA_SLOT (n, path)) =>   pt::ith_projection (get_path (v, path), n);
+			end;
+
+			fun get_paths ([], hp) =>   [];
+
+			    get_paths((v, path) ! vs, hp)
+				=> 
+				{   r  =    rw_vector::get (table, hp);
+				    r' =    get_path (v, path);
+
+				    pt::unify (r, r');
+
+				    r ! get_paths (vs, hp+1);
+				};
+			end;
+
+			fun get_f64paths ([], hp) =>   [];
+
+			    get_f64paths((v, path) ! vs, hp)
+				=> 
+				{   r1  =   rw_vector::get (table, hp);
+				    r2  =   rw_vector::get (table, hp+1);
+				    r'  =   get_path (v, path);
+
+				    pt::unify (r1, r');
+				    pt::unify (r2, r');
+
+				    r' ! get_f64paths (vs, hp+2); 
+				};
+			end;
+
+			# How to make a record 
+			#
+			stipulate
+
+			    fun make_rec (f, get_paths, x, vs, hp)
+				= 
+				{   i =   unt::to_int (unt::(>>) (unt::from_int hp, 0u2));
+				    r =   f (THE (rw_vector::get (table, i)), get_paths (vs, i+1));
+
+				    bind (x, r);
+				};
+			herein	
+
+			    fun make_frecord       (x, vs, hp) =   make_rec (pt::make_record, get_f64paths, x, vs, hp);
+			    fun make_vector        (x, vs, hp) =   make_rec (pt::make_record, get_paths,    x, vs, hp);
+			    fun make_normal_record (x, vs, hp) =   make_rec (pt::make_record, get_paths,    x, vs, hp);
+
+			end;
+
+			fun make_record (fcf::rk::FBLOCK, x, vs, hp) =>   make_frecord (x, vs, hp);
+			    make_record (fcf::rk::FCONT,  x, vs, hp) =>   make_frecord (x, vs, hp);
+			    make_record (fcf::rk::VECTOR, x, vs, hp) =>   make_vector (x, vs, hp); 
+			    make_record (_,            x, vs, hp) =>   make_normal_record (x, vs, hp);
+			end;
+
+			fun make_top (m)
+			    =
+			    {   pt::unify (m, top);
+				top;
+			    };
+
+
+			# fatecode pure base ops:
+
+			fun arrayptr v
+			    =
+			    pt::ith_projection (value v, 0);
+
+			fun make_special (x, v, hp) =   make_normal_record (x,[(v, off0)], hp);
+			fun fwrap     (x, v, hp) =   make_frecord      (x,[(v, off0)], hp);
+			fun i32wrap   (x, v, hp) =   make_normal_record (x,[(v, off0)], hp);
+			fun makeref   (x, v, hp) =   make_normal_record (x,[(v, off0)], hp);
+
+			fun newarray0 (x, hp)
+			    = 
+			    bind (x, pt::make_record (NULL,[pt::make_record (NULL,[])]));
+
+			fun chunklength (x, v) = bind (x, pt::ith_projection (value v, -1));
+			fun length      (x, v) = bind (x, pt::ith_projection (value v,  1));
+			fun gettag      (x, v) = bind (x, pt::ith_projection (value v, -1));
+			fun getcon      (x, v) = bind (x, pt::ith_projection (value v,  0));
+			fun getexn      (x, v) = bind (x, pt::ith_projection (value v,  0));
+
+			fun arraysub          (x, a, i) = make_top (pt::weak_get (arrayptr a));
+			fun subscriptv        (x, a, i) = arraysub (x, a, i);
+			fun subscript         (x, a, i) = arraysub (x, a, i);
+			fun pure_numsubscript (x, a, i) = arraysub (x, a, i);
+			fun numsubscript8     (x, a, i) = arraysub (x, a, i);
+			fun numsubscriptf64   (x, a, i) = arraysub (x, a, i);
+			fun recsubscript      (x, a, i) = arraysub (x, a, i);
+			fun raw64subscript    (x, a, i) = arraysub (x, a, i);
+
+
+
+			# fatecode "looker" base ops:
+
+			fun deref (x, v) = make_top (pt::strong_get (value v, 0));
+
+			fun gethandler x = bind (x, pt::strong_get (exnptr, 0));
+			fun get_current_thread_register  x = bind (x, pt::strong_get (current_thread_ptr, 0));
+
+
+
+			# fatecode "setter" base ops:
+
+			fun supdate (a, x) = pt::strong_set (value a, 0, make_top (value x));
+			fun wupdate (a, x) = pt::weak_set (value a, make_top (value x));
+
+			fun arrayupdate (a, i, x) = pt::weak_set (arrayptr a, value x);
+
+			fun assign        (a, x) = supdate (a, x);
+			fun unboxedassign (a, x) = supdate (a, x);
+
+			fun update        (a, i, x) = arrayupdate (a, i, x);
+			fun boxedupdate   (a, i, x) = arrayupdate (a, i, x);
+			fun unboxed_set (a, i, x) = arrayupdate (a, i, x);
+			fun numupdate     (a, i, x) = arrayupdate (a, i, x);
+			fun numupdate_f64  (a, i, x) = arrayupdate (a, i, x);
+
+			fun sethandler                  x = pt::strong_set (exnptr,             0, value x);
+			fun set_current_thread_register x = pt::strong_set (current_thread_ptr, 0, value x);
+
+			# I don't know whether the following makes any sense...  XXX BUGGO FIXME
+			# Basically, I want to ignore this aliasing analysis
+			# as far as raw access is concerned.  (The invariant is
+			# that raw access NEVER occurs to any memory location
+			# that Mythryl "knows" about.  -- Blume (2000/1/1)
+
+			fun rawstore (a, x) = ();
+			fun rawload  (a, x) = top;
+
+			fun infer (fcf::DEFINE_RECORD { kind, fields, name, fate }, hp)
+				=> 
+				{   make_record (kind, name, fields, hp);
+				    infer (fate, alloc_record (kind, fields, hp));
+				};
+
+			    infer (fcf::GET_FIELD_I		{ i, record, name, fate, ... }, hp) =>   { select (i, record, name); infer (fate, hp); };
+			    infer (fcf::GET_ADDRESS_OF_FIELD_I	{ i, record, name, fate      }, hp) =>   { offset (i, record, name); infer (fate, hp); };
+			    #
+			    infer (fcf::TAIL_CALL		{ func, args },                 hp) =>   apply (func, args);
+			    infer (fcf::DEFINE_FUNS _,            hp) =>   error "infer: fcf::DEFINE_FUNS";
+			    #
+			    infer (fcf::JUMPTABLE { fates, ... },    hp) =>   infers (fates, hp);
+			    infer (fcf::IF_THEN_ELSE { thenfate, elsefate, ... }, hp)
+				=>
+				{   infer (thenfate, hp);
+				    infer (elsefate, hp);
+				};
+
+
+			     # These things are misnamed! There is nothing pure about them!   XXX BUGGO FIXME
+
+			    infer ( fcf::PURE { op   =>  p::CHUNK_LENGTH,
+						args =>  [arg],
+						name,
+						fate,
+                                                ...
+					      },
+                                    hp
+                                  )
+				=> 
+				{   chunklength (name, arg);
+				    infer (fate, hp);
+				};
+
+			    infer (fcf::PURE { op => p::LENGTH,                                   args => [v],    name, fate, ...}, hp) =>  { length            (name, v);     infer (fate, hp);}; 
+			    infer (fcf::PURE { op => p::SUBSCRIPTV,                               args => [a, i], name, fate, ...}, hp) =>  { subscriptv        (name, a, i);  infer (fate, hp);};
+			    infer (fcf::PURE { op => p::PURE_NUMSUBSCRIPT { kindbits=>p::INT 8 }, args => [a, i], name, fate, ...}, hp) =>  { pure_numsubscript (name, a, i);  infer (fate, hp);};
+			    infer (fcf::PURE { op => p::GET_BTAG_FROM_TAGWORD,                    args => [v],    name, fate, ...}, hp) =>  { gettag            (name, v);     infer (fate, hp);};
+			    infer (fcf::PURE { op => p::MAKE_SPECIAL,                             args => [i, v], name, fate, ...}, hp) =>  { make_special      (name, v, hp); infer (fate, hp+8);};
+			    infer (fcf::PURE { op => p::MAKE_REFCELL,                             args => [v],    name, fate, ...}, hp) =>  { makeref           (name, v, hp); infer (fate, hp+8);};
+			    infer (fcf::PURE { op => p::FWRAP,                                    args => [v],    name, fate, ...}, hp) =>  { fwrap             (name, v, hp); infer (fate, frecord_size (1, hp));};
+			    infer (fcf::PURE { op => p::I32WRAP,                                  args => [v],    name, fate, ...}, hp) =>  { i32wrap           (name, v, hp); infer (fate, hp+8);};
+			    infer (fcf::PURE { op => p::GETCON,                                   args => [v],    name, fate, ...}, hp) =>  { getcon            (name, v);     infer (fate, hp);};
+			    infer (fcf::PURE { op => p::GETEXN,                                   args => [v],    name, fate, ...}, hp) =>  { getexn            (name, v);     infer (fate, hp);};
+			    infer (fcf::PURE { op => p::RECSUBSCRIPT,                             args => [a, i], name, fate, ...}, hp) =>  { recsubscript      (name, a, i);  infer (fate, hp);};
+			    infer (fcf::PURE { op => p::RAW64SUBSCRIPT,                           args => [a, i], name, fate, ...}, hp) =>  { raw64subscript    (name, a, i);  infer (fate, hp);};
+			    infer (fcf::PURE { op => p::NEWARRAY0,                                args => _,      name, fate, ...}, hp) =>  { newarray0         (name, hp);    infer (fate, hp+array0size);};
+			    infer (fcf::PURE { op => p,                                           args => vs,     name, fate, ...}, hp) =>                                     infer (fate, hp);
+			    infer (fcf::MATH { fate, ... },                                                                         hp) =>                                     infer (fate, hp);
+
+			    # Things that access the contents of ram:
+			    #
+			    infer (fcf::FETCH_FROM_RAM { op => p::BANG,                                  args => [v],    name, fate, ... }, hp) =>   { deref (name, v);				infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::GET_EXCEPTION_HANDLER,                 args => [],     name, fate, ... }, hp) =>   { gethandler name;				infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::SUBSCRIPT,                             args => [a, i], name, fate, ... }, hp) =>   { subscript (name, a, i);			infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::NUMSUBSCRIPT { kindbits=>p::INT 8    },args => [a, i], name, fate, ... }, hp) =>   { numsubscript8  (name, a, i);		infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::NUMSUBSCRIPT { kindbits=>p::FLOAT 64 },args => [a, i], name, fate, ... }, hp) =>   { numsubscriptf64 (name, a, i);		infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::GET_CURRENT_THREAD_REGISTER,           args => [],     name, fate, ... }, hp) =>   { get_current_thread_register name;	infer (fate, hp);};
+			    infer (fcf::FETCH_FROM_RAM { op => p::DEFLVAR,                               args => [],     name, fate, ... }, hp) =>						infer (fate, hp);		#  nop! 
+			    infer (fcf::FETCH_FROM_RAM { op => p::RAWLOAD _,                             args => [a],    name, fate, ... }, hp) =>   { rawload (name, a);			infer (fate, hp);};
+
+			    # Things that change the contents of ram:
+			    #
+			    infer (fcf::STORE_TO_RAM   { op => p::ASSIGN,                                args => [a, v],    fate }, hp) => { assign (a, v);                 infer (fate, hp+store_list_size);};
+			    infer (fcf::STORE_TO_RAM   { op => p::SET_INT_REFCELL,                       args => [a, v],    fate }, hp) => { unboxedassign (a, v);          infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::UPDATE,                                args => [a, i, v], fate }, hp) => { update (a, i, v);              infer (fate, hp+store_list_size);};
+			    infer (fcf::STORE_TO_RAM   { op => p::BOXED_SET,                             args => [a, i, v], fate }, hp) => { boxedupdate (a, i, v);         infer (fate, hp+store_list_size);};
+			    infer (fcf::STORE_TO_RAM   { op => p::UNBOXED_SET,                           args => [a, i, v], fate }, hp) => { unboxed_set (a, i, v);         infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::NUMUPDATE { kindbits=>p::INT _},       args => [a, i, v], fate }, hp) => { numupdate (a, i, v);           infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::NUMUPDATE { kindbits=>p::FLOAT 64 },   args => [a, i, v], fate }, hp) => { numupdate_f64 (a, i, v);       infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::SET_EXCEPTION_HANDLER,                 args => [x],       fate }, hp) => { sethandler x;                  infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::SET_CURRENT_THREAD_REGISTER,           args => [x],       fate }, hp) => { set_current_thread_register x; infer (fate, hp                );};
+			    infer (fcf::STORE_TO_RAM   { op => p::RAWSTORE _,                            args => [a, x],    fate }, hp) => { rawstore (a, x);               infer (fate, hp                );};
+			    #	
+			    # Apparently these are nops -- see
+			    #     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+			    #
+			    infer (fcf::STORE_TO_RAM { op => p::USELVAR,                             args => [x],       fate }, hp) =>                                  infer (fate, hp                );
+			    infer (fcf::STORE_TO_RAM { op => p::ACCLINK,                             args => _,         fate }, hp) =>                                  infer (fate, hp                );
+			    infer (fcf::STORE_TO_RAM { op => p::SETMARK,                             args => _,         fate }, hp) =>                                  infer (fate, hp                );
+			    infer (fcf::STORE_TO_RAM { op => p::FREE,                                args => [x],       fate }, hp) =>                                  infer (fate, hp                );
+			    #
+			    infer (fcf::STORE_TO_RAM { op => p::PSEUDOREG_SET,                       args => _,         fate }, hp) =>				        infer (fate, hp                );
+
+			    infer (e, hp)
+				=>
+				{   prettyprint_fatecode::print_fatecode_expression  e;
+				    print "\n";
+				    error "infer";
+				};
+			end 
+
+			also
+			fun infers ([],     hp) =>  ();
+			    infers (k ! ks, hp) =>  {  infer  (k,  hp);
+						       infers (ks, hp);
+						    };
+			end;
+		    end;
+
+		if *controls::cg::disambiguate_memory
+		    #
+		    fatecode_ramregions::reset ();
+
+		    apply  define_function  fatecode_functions;
+		    apply  process          fatecode_functions;
+
+		    fn r =  get r
+			    except _ = top;
+		else
+		    (fn _ = top);
+		fi;
+	    };
+    };
+end;

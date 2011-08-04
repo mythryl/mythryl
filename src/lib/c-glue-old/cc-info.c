@@ -1,10 +1,10 @@
-/* 
- *
- * COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
- *
- * generates, on stdout, a "cc-info" file for the Lib7 C interface
- * using the data sizes of the compiling C compiler.
- */
+//
+//
+// COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
+//
+// generates, on stdout, a "cc-info" file for the Lib7 C interface
+// using the data sizes of the compiling C compiler.
+
 
 #include <stdio.h>
 

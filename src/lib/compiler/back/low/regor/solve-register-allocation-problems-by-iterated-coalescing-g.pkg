@@ -1,0 +1,655 @@
+## solve-register-allocation-problems-by-iterated-coalescing-g.pkg			"regor" is a contraction of "register allocator"
+#
+# This is the new register allocator based on
+# the 'iterated register coalescing' scheme described 
+# in POPL'96, and TOPLAS v18 #3, pp325-353. 
+#
+#         Allen is likely referring to:
+#
+#            Iterated register coalescing
+# 	     Lal George, Andrew W. Appel
+#            TOPLAS 1996
+#            Volume 18 Issue 3, May 1996
+#            http://www.cs.cmu.edu/afs/cs/academic/class/15745-s07/www/papers/george.pdf
+#
+#         While searching for that I also :-) found:
+#
+#            Minimum Cost Interprocedural Register Allocation 1996
+#            Steven M. Kurlander ,  Charles N. Fischer
+#            http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.48.5914
+#
+#           -- 2011-06-21 CrT
+#         
+# Now with numerous extensions:
+#
+#   0. Dead copy elimination (optional)
+#   1. Priority based coalescing
+#   2. Priority based freezing
+#   3. Priority based spilling
+#   4. Biased selection (optional)
+#   5. Spill Coalescing (optional)
+#   6. Spill Propagation (optional)
+#   7. Spill Coloring (optional)
+#
+# For details, please see the paper from
+#
+#    http://cm.bell-labs.com/cm/cs/what/smlnj/compiler-notes/index.html
+#
+# The basic structure of this register allocator is as follows:
+#
+#   1.  codetemp_interference_graph.  This module enscapsulates the interference graph 
+#       datatype (adjacency list + interference graph + node table)
+#       and contains nothing architecture specific.
+#
+#   2.  iterated_register_coalescing.  This module
+#       implements the main part of the iterated coalescing
+#       algorithm, with frequency enhancements.
+#
+#   3.  Regor_View_Of_Machcode_Controlflow_Graph.
+#       This register allocator is parameterized
+#       with respect to this api.  This basically abstracts out
+#       the representation of the program flowgraph, and provides
+#       a few services to the main allocator, such as building the 
+#       interference graph, rewriting the flowgraph after spilling,
+#       and rebuilding the interference graph after spilling.  
+#       This module is responsible for caching any information necessary 
+#       to make spilling fast.
+#
+#   4.  This generic.  This generic drives the entire process.
+#
+# -- Allen Leung (leunga@cs.nyu.edu)
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+###         "It wasn't as easy to get programs right as we thought."
+###
+###                                   -- Wilkes, 1949
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/regor/regor-risc-g.pkg
+#     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+
+stipulate
+    package geh =  graph_by_edge_hashtable;						# graph_by_edge_hashtable			is from   src/lib/std/src/graph-by-edge-hashtable.pkg
+    package iht =  int_hashtable;							# int_hashtable					is from   src/lib/src/int-hashtable.pkg
+    package irc =  iterated_register_coalescing;					# iterated_register_coalescing			is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+    package lem =  lowhalf_error_message;						# lowhalf_error_message				is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package cig =  codetemp_interference_graph;						# codetemp_interference_graph			is from   src/lib/compiler/back/low/regor/codetemp-interference-graph.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk				is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;								# rw_vector					is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    generic package   solve_register_allocation_problems_by_iterated_coalescing_g							# "regor" == "register allocator"
+	#             ===========================================================
+	#										# register_spilling_per_chaitin_heuristic	is from   src/lib/compiler/back/low/regor/register-spilling-per-chaitin-heuristic.pkg
+        (rsx: Register_Spilling_Per_Xxx_Heuristic)					# Register_Spilling_Per_Xxx_Heuristic		is from   src/lib/compiler/back/low/regor/register-spilling-per-xxx-heuristic.api
+	
+        (flo: Regor_View_Of_Machcode_Controlflow_Graph					# Regor_View_Of_Machcode_Controlflow_Graph	is from   src/lib/compiler/back/low/regor/regor-view-of-machcode-controlflow-graph.api
+	      where
+		  rgk == registerkinds_junk)						# XXX BUGGO FIXME why are we equating these two? Should one be renamed?
+
+    : (weak) Solve_Register_Allocation_Problems						# Solve_Register_Allocation_Problems		is from   src/lib/compiler/back/low/regor/solve-register-allocation-problems.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  flo::mcf;							# "mcf" == "machcode_form" (abstract machine code).
+	package rgk =  mcf::rgk;							# "rgk" == "registerkinds".
+	package flo =  flo;
+
+	Getreg = { preferred_registers:		List( rkj::Universal_Register_Id ),
+		   register_is_taken:		rwv::Rw_Vector( Int ),
+		   true_value:			Int					# Speedhack: register is taken iff   register_is_taken[ register ] == true_value.
+		 }
+		 ->
+		 rkj::Universal_Register_Id;
+
+	Mode = Unt;
+
+	Spill_To == cig::Spill_To;
+
+	# For a given machcode controlflow graph we will usually
+	# be solving two separate register allocation problems:
+	# one for int registers, one for float registers.
+	# This record defines one such problem:
+	#
+	Register_Allocation_Problem
+	    =
+	    { registerkind:		rkj::Registerkind,			# Kind of register.
+	      spill_prohibitions:	List( rkj::Codetemp_Info ),			# Don't spill these.
+	      ramregs:			List( rkj::Codetemp_Info ),			# Ram registers.
+
+	      hardware_registers_we_may_use:	Int,				# E.g. 6 int regs on intel32.  Number of colors for our graph-colorer -- this number is the center of our life during register allocation.
+
+	      is_globally_allocated_register_or_codetemp:	Int -> Bool,	# Marks globally allocated registers (e.g., esp and edi on intel32) -- the register allocator is not allowed to play with these.
+	      pick_available_hardware_register:	Getreg,				# Select among free hardware registers.
+										# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+	      copy_instr:		flo::spl::Copy_Instr,			# How to make a copy.
+	      spill:			flo::spl::Spill,			# Spill callback.
+	      spill_src:		flo::spl::Spill_Src,			# Spill callback.
+	      spill_copy_tmp:		flo::spl::Spill_Copy_Tmp,		# Spill callback.
+	      reload:			flo::spl::Reload,			# Reload callback.
+	      reload_dst:		flo::spl::Reload_Dst,			# Reload callback.
+	      rename_src:		flo::spl::Rename_Src,			# Rename callback.
+	      mode:             	Mode					# Mode.
+	    }; 
+
+	debug = FALSE;
+
+	no_optimization        = 0ux0;
+	dead_copy_elim         = irc::dead_copy_elim;
+	biased_selection       = irc::biased_selection;
+	has_parallel_copies    = irc::has_parallel_copies;
+	spill_coalescing       = 0ux100;
+	spill_coloring         = 0ux200;
+	spill_propagation      = 0ux400;
+
+	fun is_on (flag, mask)
+	    =
+	    unt::bitwise_and (flag, mask)  !=  0u0;
+
+#	    include cig;
+
+
+	fun error msg =   lem::error("regor", msg);
+
+
+	# Debugging flags + counters
+
+	dump_machcode_controlflow_graph_before_regor
+	    =
+	    lowhalf_control::make_bool (
+		"dump_machcode_controlflow_graph_before_regor",
+		"whether CFG is shown before RA"
+	    );
+
+	dump_machcode_controlflow_graph_after_regor
+	    =
+	    lowhalf_control::make_bool (
+		"dump_machcode_controlflow_graph_after_regor",
+		"whether CFG is shown after RA"
+	    );
+
+	dump_machcode_controlflow_graph_after_register_spilling
+	    =
+	    lowhalf_control::make_bool (
+		"dump_machcode_controlflow_graph_after_register_spilling",
+		"whether CFG is shown after spill phase"
+	    );
+
+	dump_machcode_controlflow_graph_before_all_regor
+	    =
+	    lowhalf_control::make_bool (
+		"dump_machcode_controlflow_graph_before_all_regor",
+		"whether CFG is shown before all RA"
+	    );
+
+	dump_machcode_controlflow_graph_after_all_regor
+	    =
+	    lowhalf_control::make_bool (
+		"dump_machcode_controlflow_graph_after_all_regor",
+		"whether CFG is shown after all RA"
+	    );
+
+	dump_codetemp_interference_graph
+	    =
+	    lowhalf_control::make_bool (
+		"dump_codetemp_interference_graph",
+		"whether interference graph is shown"
+	    );
+
+	register_spill_debugging
+	    =
+	    lowhalf_control::make_bool (
+		"register_spill_debugging",
+		"debug mode for spill phase"
+	    );
+
+	regor_count
+	    =
+	    lowhalf_control::make_counter (
+		"regor_count",
+		"RA counter"
+	    );
+
+	regor_rebuild_count
+	    =
+	    lowhalf_control::make_counter (
+		"regor_rebuild_count",
+		"RA build counter"
+	    );
+
+
+    #   count_dead        = LowhalfControl::getFlag "ra-count-dead-code"
+    #   dead              = LowhalfControl::getCounter "ra-dead-code"
+
+	debug_stream      = lowhalf_control::debug_stream;
+
+
+	# Optimization flags
+
+
+    #   rematerialization = LowhalfControl::getFlag "ra-rematerialization"
+
+
+	exception NODE_TABLE;
+
+
+	# This rw_vector is used for pick_available_hardware_register.			# pick_available_hardware_register_by_round_robin_g	is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+	# We allocate it once and then cache it in our
+	# codetemp interference graph for use by
+	# iterated_register_coalescing:							# iterated_register_coalescing				is from   src/lib/compiler/back/low/regor/iterated-register-coalescing.pkg
+	#
+	register_is_taken =  rwv::make_rw_vector (rgk::codetemp_id_if_above, -1);
+
+
+	# Register allocator.  
+	#    spill_prohibitions is a list of registers that are not candidates for spills.
+	#	
+	# We are called (only) from:
+	#
+	#     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+	#     src/lib/compiler/back/low/regor/regor-risc-g.pkg
+	#     src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-recursive-partition-g.pkg
+	#
+	fun solve_register_allocation_problems  register_allocation_problems  machcode_controlflow_graph
+	    =
+	    {
+											maybe_dump_flowgraph (dump_machcode_controlflow_graph_before_all_regor, "before register allocation");
+		apply
+		    solve_one_register_allocation_problem
+		    #
+		    register_allocation_problems;
+											maybe_dump_flowgraph (dump_machcode_controlflow_graph_after_all_regor, "after register allocation");
+		machcode_controlflow_graph;
+	    }
+	    where
+		(flo::services  machcode_controlflow_graph)
+		    ->
+		    { build=>build_method, spill=>spill_method, ... };			# Flowgraph methods.
+		    
+
+		spill_loc = REF 1;							# global spill location counter 
+		    #
+		    # Note: spill_loc cannot be zero as negative locations are
+		    # returned to the client to indicate spill locations.
+
+
+		fun maybe_dump_flowgraph (flag, title)
+		    =
+		    if *flag   flo::dump_flowgraph (title, machcode_controlflow_graph,*debug_stream);   fi;
+
+
+		fun solve_one_register_allocation_problem
+		      {
+			pick_available_hardware_register,						# pick_available_hardware_register_by_round_robin_g		is from   src/lib/compiler/back/low/regor/pick-available-hardware-register-by-round-robin-g.pkg
+			hardware_registers_we_may_use,							# E.g. 6 int regs on intel32.  Number of colors for our graph-colorer -- this number is the center of our life during register allocation.
+			is_globally_allocated_register_or_codetemp,					# Identifies globally allocated registers (e.g., esp and edi on intel32) -- the register allocator is not allowed to play with these.
+			copy_instr,
+			spill,
+			spill_src,
+			spill_copy_tmp,
+			rename_src,
+			reload,
+			reload_dst,
+			spill_prohibitions,
+			registerkind,
+			mode, 
+			ramregs
+		      }
+		    =
+		    {   nodes_to_color = rgk::get_codetemps_made_count_for_kind  registerkind  (); 
+
+			if (nodes_to_color != 0)
+			    #				
+			    node_hashtable								# The nodes table.
+				=
+				iht::make_hashtable  { size_hint => nodes_to_color,  not_found_exception => NODE_TABLE }; 
+
+			    mode   = if (is_on (has_parallel_copies, mode))
+					 #
+					 unt::bitwise_or (irc::save_copy_temps, mode); 
+				     else
+					 mode;
+				     fi;
+
+			    codetemp_interference_graph
+				=
+				cig::make_codetemp_interference_graph					# Create an empty interference graph.
+				  {
+				    node_hashtable, 
+				    hardware_registers_we_may_use,
+				    is_globally_allocated_register_or_codetemp,
+				    nodes_to_color,
+				    get_next_codetemp_id_to_allot => rgk::get_next_codetemp_id_to_allot,			# Used to get highest codetemp id allotted -- this is 512 more than nodes_to_color.
+				    show_reg => rkj::register_to_string,
+				    pick_available_hardware_register,
+				    pick_available_hardware_registerpair => fn _ = error "allocate_register_pair",	# Stillborn idea.
+				    codetemp_id_if_above => rgk::codetemp_id_if_above,
+				    register_is_taken,
+				    spill_loc,
+				    ramregs,
+				    mode=>unt::bitwise_or (flo::mode,
+					  unt::bitwise_or (mode, rsx::mode))
+				   };
+
+			    codetemp_interference_graph
+				->
+				cig::CODETEMP_INTERFERENCE_GRAPH { spilled_regs, pseudo_count, spill_flag, ... };
+
+			    has_been_spilled = iht::find  spilled_regs;
+
+			    has_been_spilled
+				= 
+				fn r =  case (has_been_spilled  r)
+					    #
+					    THE _ => TRUE;
+					    NULL => FALSE;
+					esac;
+
+			    fun maybe_log_graph (header, codetemp_interference_graph)
+				= 
+				if *dump_codetemp_interference_graph
+				    #
+				    file::write(*debug_stream,
+					"-------------" + header + "-----------\n");
+				    irc::dump_codetemp_interference_graph codetemp_interference_graph *debug_stream; 
+				fi;
+
+
+			    fun fill_in_codetemp_interference_graph  codetemp_interference_graph
+				= 
+				{   if debug  print "build..."; fi;
+
+				    moves = build_method (codetemp_interference_graph, registerkind);
+
+				    worklists
+					= 
+					(irc::init_work_lists codetemp_interference_graph) { moves }; 
+
+											maybe_log_graph("build", codetemp_interference_graph);
+
+				    if debug
+					#	
+					codetemp_interference_graph -> cig::CODETEMP_INTERFERENCE_GRAPH
+						 {
+						   edge_hashtable =>  REF (geh::GRAPH_BY_EDGE_HASHTABLE { edge_count, ... } ),
+						   ...
+						 };
+
+
+					print ("done: nodes=" + int::to_string (iht::vals_count  node_hashtable) + 
+						    " edges=" + int::to_string *edge_count +
+						    " moves=" + int::to_string (length moves) +
+						    "\n");
+				    fi; 
+				    worklists;
+				};
+
+
+			    # Potential spill phase
+			    #
+			    fun choose_victim { spill_worklist }
+				=
+				{   fun print_spill_candidates  spill_worklist
+					=
+					{   print "Spill candidates:\n";
+
+					    apply
+						(fn n =  print (irc::show codetemp_interference_graph n + " "))
+						spill_worklist;
+
+					    print "\n";
+					};
+
+				    # Initialize if it is the first time we spill:
+				    #
+				    if (not *spill_flag)  rsx::init ();   fi;
+
+				    # Choose a node:
+				    #
+				    my { node, cost, spill_worklist }
+					=
+					rsx::choose_spill_node
+					  {
+					    codetemp_interference_graph,
+					    has_been_spilled,
+					    spill_worklist
+					  }
+					except
+					    rsx::NO_CANDIDATE
+						=
+						{   irc::dump_codetemp_interference_graph codetemp_interference_graph *debug_stream;
+						    print_spill_candidates spill_worklist;
+						    error "choose_victim";
+						};
+
+				    if *register_spill_debugging
+					#	
+					case node
+					    #
+					    THE (best as cig::NODE { defs, uses, ... } )
+						=>
+						print("Spilling node " + irc::show codetemp_interference_graph best +
+						      " cost=" + float::to_string cost +
+						      " defs=" + int::to_string (length *defs) +
+						      " uses=" + int::to_string (length *uses) + "\n"
+						);
+
+					    NULL => ();
+					esac;
+				    fi;
+
+				    { node, cost, spill_worklist };
+				}; 
+
+
+			    fun mark_nodes_as_spilled  nodes_to_spill
+				=
+				loop  nodes_to_spill
+				where
+				    marker = cig::SPILLED;
+
+				    fun loop (cig::NODE { color, ... } ! ns) => { color := marker; loop ns;};
+					loop [] => ();
+				    end;
+				end;
+
+			    # Mark nodes that are immediately aliased to mem regs;
+			    # These are nodes that need also to be spilled
+			    #
+			    fun mark_ramregs []
+				    =>
+				    ();
+
+				mark_ramregs (cig::NODE { id => r,
+							  color as REF (cig::ALIASED (cig::NODE { color=>REF (col as cig::RAMREG _),
+												  ...
+												}
+										     )
+								       ),
+							  ...
+							}
+					       ! ns
+					     )
+				    =>
+				    {   color := col;
+					mark_ramregs ns;
+				    };
+
+				mark_ramregs (_ ! ns)
+				    =>
+				    mark_ramregs ns;
+			    end;
+
+
+			    # Actual spill phase.  
+			    #   Insert spill node and incrementally 
+			    #   update the interference graph. 
+			    #
+			    fun actual_spills { spills }
+				= 
+				{   if   debug      print "spill...";   fi; 
+
+				    if (is_on ( mode, 
+						spill_coalescing+
+						spill_propagation+
+						spill_coloring
+					      )
+				       )
+
+					 mark_nodes_as_spilled  spills;
+				    fi;
+
+				    if (is_on (mode, spill_propagation+spill_coalescing))
+					#	
+					irc::init_mem_moves codetemp_interference_graph; 
+				    fi;
+
+													maybe_log_graph("actual spill", codetemp_interference_graph);
+
+				    my { simplify_worklist, freeze_worklist, move_worklist, spill_worklist }
+					=  
+					irc::init_work_lists codetemp_interference_graph
+					    { moves=>spill_method { graph=>codetemp_interference_graph, registerkind,
+							       spill, spill_src,
+							       spill_copy_tmp,
+							       rename_src,
+							       reload, reload_dst,
+							       copy_instr, nodes=>spills
+							      }
+					    };
+
+													maybe_dump_flowgraph (dump_machcode_controlflow_graph_after_register_spilling, "after spilling");
+													maybe_log_graph("rebuild", codetemp_interference_graph);
+													if debug  print "done\n"; fi;
+				    regor_rebuild_count := *regor_rebuild_count + 1;
+				    (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, []);
+				};
+
+
+			    # Main loop of the algorithm
+			    #
+			    fun main codetemp_interference_graph
+				=
+				loop (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, [])
+				where 
+				    # Main loop:
+				    #
+				    fun loop (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack)
+					=
+					{   iterated_coal = irc::iterated_coalescing codetemp_interference_graph;
+					    potential_spill = irc::potential_spill_node codetemp_interference_graph;
+
+					    # simplify/coalesce/freeze/potential spill phases 
+					    #    simplifyWkl -- non-move related nodes with low degree 
+					    #    moveWkl     -- moves to be considered for coalescing
+					    #    freezeWkl   -- move related nodes (with low degree)
+					    #    spillWkl    -- potential spill nodes
+					    #    stack       -- simplified nodes
+
+					    fun iterate (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack)
+						=
+						{   # Do iterated coalescing 
+
+						    my { stack }
+							=
+							iterated_coal { simplify_worklist,
+									       move_worklist,
+									       freeze_worklist,
+									       stack };
+						    case spill_worklist
+
+							 []  => stack; #  nothing to spill 
+
+							 _   => 
+							     if (*pseudo_count == 0)	 #  All nodes simplified 
+								  stack; 
+							     else
+								  my { node, cost, spill_worklist }
+								      = 
+								      choose_victim { spill_worklist };
+
+								  case node
+
+								       THE node  #  spill node and continue 
+									   =>
+									   {   if  debug    print "-";  fi; 
+
+									       my { move_worklist, freeze_worklist, stack }
+										   = 
+										   potential_spill { node,
+												  cost,
+												  stack };
+
+									       iterate([], move_worklist, freeze_worklist, spill_worklist, stack);
+									   }; 
+
+								       NULL => stack; #  nothing to spill 
+								  esac;
+							     fi;
+						    esac;
+						};
+
+					    my { spills }
+						= 
+						if (hardware_registers_we_may_use == 0)
+						    #
+						    { spills => spill_worklist };
+						else 
+						    #  simplify the nodes 
+						    stack = iterate (simplify_worklist, move_worklist, freeze_worklist, spill_worklist, stack);
+
+						    #  Color the nodes 
+						    (irc::select codetemp_interference_graph) { stack }; 
+						fi;
+
+					    # Check for actual spills:
+					    #
+					    case spills
+						#
+						[]     =>  ();
+						spills =>  loop (actual_spills { spills });
+					    esac;
+					};
+
+				    (fill_in_codetemp_interference_graph  codetemp_interference_graph)
+					->
+					{ simplify_worklist, move_worklist, freeze_worklist, spill_worklist };
+				end;
+
+			    fun init_spill_proh  registers
+				= 
+				{   mark_as_spilled =  iht::set  spilled_regs;
+
+				    fun mark r
+					=
+					mark_as_spilled  (rkj::interkind_register_id_of  r,  TRUE);
+
+				    apply mark registers;
+				};
+
+										maybe_dump_flowgraph (dump_machcode_controlflow_graph_before_regor, "before register allocation");
+			    init_spill_proh spill_prohibitions;
+			    main codetemp_interference_graph;											# main loop 
+
+			    # Update the colors for all registers:
+			    #
+										maybe_log_graph("done", codetemp_interference_graph);
+
+			    irc::update_register_colors       codetemp_interference_graph;
+			    irc::mark_dead_copies_as_spilled  codetemp_interference_graph;
+
+			    regor_count := *regor_count + 1;
+										maybe_dump_flowgraph (dump_machcode_controlflow_graph_after_regor, "after register allocation");
+
+			    rsx::init(); 										# Clean up spilling. 
+			fi;
+		    };													# fun regalloc
+
+	    end;													# fun allocate_registers
+    };															# generic package solve_register_allocation_problems_by_iterated_coalescing_g
+end;

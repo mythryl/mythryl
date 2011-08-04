@@ -1,0 +1,178 @@
+# pseudo-instructions-sparc32-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/mythryl-compiler-support-for-sparc32.lib
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+
+stipulate
+    package lem =  lowhalf_error_message;						# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    generic package   pseudo_instructions_sparc32_g   (
+	#             =============================
+	#
+	mcf: Machcode_Sparc32								# Machcode_Sparc32		is from   src/lib/compiler/back/low/sparc32/code/machcode-sparc32.codemade.api
+	     where
+		 rgn == fatecode_ramregions						# "rgn" == "region".
+    )
+    : (weak) Pseudo_Instruction_Sparc32							# Pseudo_Instruction_Sparc32	is from   src/lib/compiler/back/low/sparc32/treecode/pseudo-instructions-sparc32.api
+    {
+	# Export to client packages:
+	#
+	package mcf =  mcf;								# "mcf" == "machcode_form" (abstract machine code).
+
+	stipulate
+	    package rgk =  mcf::rgk;							# "rgk" == "registerkinds".
+	herein
+
+	    Format1 =
+		 ( { r: rkj::Codetemp_Info,
+		     i: mcf::Operand,
+		     d: rkj::Codetemp_Info
+		   } ,
+		   (mcf::Operand -> rkj::Codetemp_Info)
+		 )
+		 -> List( mcf::Machine_Op );
+
+	    Format2 =
+		 ( { i: mcf::Operand,
+		     d: rkj::Codetemp_Info
+		   } ,
+		   (mcf::Operand -> rkj::Codetemp_Info)
+		 )
+		 -> List( mcf::Machine_Op );
+
+	    fun error msg
+		=
+		lem::impossible ("pseudo_instructions_sparc32_g." + msg);
+
+	    delta = machine_properties_sparc32::framesize;	#  initial value of %fp - %sp 
+
+	    # runtime system dependent; the numbers are relative to %sp but
+	    # we need offsets relative to %fp, hence the adjustment by delta
+	    #
+	    float_tmp_offset = mcf::IMMED (88 - delta);
+	    umul_offset = mcf::IMMED (80 - delta);
+	    smul_offset = mcf::IMMED (72 - delta);
+	    udiv_offset = mcf::IMMED (84 - delta);
+	    sdiv_offset = mcf::IMMED (76 - delta);
+
+	    stack = fatecode_ramregions::stack;
+
+	    native = TRUE;  #  use native versions of the instructions? 
+
+	    fun umul_native ( { r, i, d }, reduce_operand) =
+		[mcf::arith { a=>mcf::UMUL, r, i, d } ];
+
+	    tne = mcf::ticc { t=>mcf::BNE, cc=>mcf::ICC, r=>rgk::r0, i=>mcf::IMMED 7 };
+	    tvs = mcf::ticc { t=>mcf::BVS, cc=>mcf::ICC, r=>rgk::r0, i=>mcf::IMMED 7 };
+
+		#  overflows iff Y != (d >>> 31) 
+	    fun smult_native ( { r, i, d }, reduce_operand)
+		=
+		{   t1 = rgk::make_int_codetemp ();
+		    t2 = rgk::make_int_codetemp ();
+
+		    [mcf::arith { a=>mcf::SMUL, r, i, d },
+		     mcf::shift { s=>mcf::SRA, r=>d, i=>mcf::IMMED 31, d=>t1 },
+		     mcf::rdy { d=>t2 },
+		     mcf::arith { a=>mcf::SUBCC, r=>t1, i=>mcf::REG t2, d=>rgk::r0 },
+		     tne
+		    ]; 
+		};
+
+	    fun smul_native ( { r, i, d }, reduce_operand)
+		=
+		[mcf::arith { a=>mcf::SMUL, r, i, d } ];
+
+	    fun udiv_native ( { r, i, d }, reduce_operand)
+		= 
+		[mcf::wry { r=>rgk::r0, i=>mcf::REG rgk::r0 },
+		 mcf::arith { a=>mcf::UDIV, r, i, d } ];
+
+	     #  May overflow if MININT div -1 
+	    fun sdivt_native ( { r, i, d }, reduce_operand)
+		= 
+		{   t1 = rgk::make_int_codetemp ();
+
+		    [mcf::shift { s=>mcf::SRA, r, i=>mcf::IMMED 31, d=>t1 },
+		     mcf::wry { r=>t1, i=>mcf::REG rgk::r0 },
+		     mcf::arith { a=>mcf::SDIVCC, r, i, d },
+		     tvs
+		    ];
+		};
+
+	    fun sdiv_native ( { r, i, d }, reduce_operand)
+		=
+		{   t1 = rgk::make_int_codetemp ();
+
+		    [ mcf::shift { s=>mcf::SRA, r, i=>mcf::IMMED 31, d=>t1 },
+		      mcf::wry { r=>t1, i=>mcf::REG rgk::r0 },
+		      mcf::arith { a=>mcf::SDIV, r, i, d }
+		    ];
+		};
+
+	    # 
+	    # Registers %o2, %o3 are used to pass arguments to ml_mul and ml_div 
+	    # Result is returned in %o2.
+
+	    r10 = rgk::get_ith_int_hardware_register 10;
+	    r11 = rgk::get_ith_int_hardware_register 11;
+
+	    fun call_routine (offset, reduce_operand, r, i, d)
+		=
+		{   address = rgk::make_int_codetemp ();
+		    defs = rgk::add_codetemp_to_appropriate_kindlist (r10, rgk::empty_codetemplists); 
+		    uses = rgk::add_codetemp_to_appropriate_kindlist (r10, rgk::add_codetemp_to_appropriate_kindlist (r11, rgk::empty_codetemplists));
+
+		    fun copy { dst, src, tmp }
+			= 
+			mcf::COPY { kind => rkj::INT_REGISTER, size_in_bits => 32, dst, src, tmp };				# 64-bit issue XXX BUGGO FIXME
+
+		    [copy { src => [r, reduce_operand i], dst => [r10, r11], tmp=>THE (mcf::DIRECT (rgk::make_int_codetemp ())) },
+		     mcf::load { l=>mcf::LD, r=>rgk::frameptr_r, i=>offset, d=>address, ramregion=>stack },
+		     mcf::jmpl { r=>address, i=>mcf::IMMED 0, d=>rgk::link_reg, defs, uses, cuts_to => [], nop=>TRUE, ramregion=>stack },
+		     copy { src => [r10], dst => [d], tmp=>NULL }
+		    ];
+		};
+
+	    fun umul ( { r, i, d }, reduce_operand) = call_routine (umul_offset, reduce_operand, r, i, d);
+	    fun smultrap ( { r, i, d }, reduce_operand) = call_routine (smul_offset, reduce_operand, r, i, d);
+	    fun udiv ( { r, i, d }, reduce_operand) = call_routine (udiv_offset, reduce_operand, r, i, d);
+	    fun sdivtrap ( { r, i, d }, reduce_operand) = call_routine (sdiv_offset, reduce_operand, r, i, d);
+
+	    fun cvti2d ( { i, d }, reduce_operand)
+		= 
+		[ mcf::store { s=>mcf::ST, r=>rgk::frameptr_r, i=>float_tmp_offset, d=>reduce_operand i, ramregion=>stack },
+		  mcf::fload { l=>mcf::LDF, r=>rgk::frameptr_r, i=>float_tmp_offset, d, ramregion=>stack },
+		  mcf::fpop1 { a=>mcf::FITOD, r=>d, d }
+		];
+
+	    fun cvti2s _ = error "cvti2s";
+	    fun cvti2q _ = error "cvti2q";
+
+	       #  Generate native versions of the instructions 
+	    umul32 = if native  umul_native; else umul;fi;
+
+	    my smul32:  Format1
+		     =	if native  smul_native; else (fn _ = error "smul32"); fi;
+
+	    smul32trap = if native  smult_native; else smultrap;fi;
+	    udiv32 = if native  udiv_native; else udiv;fi;
+
+	    my sdiv32:  Format1
+		=
+		if native  sdiv_native; else (fn _ = error "sdiv32"); fi;
+
+	    sdiv32trap = if native  sdivt_native; else sdivtrap;fi;
+
+	    overflowtrap32 = #  tvs 0x7 
+				 [mcf::ticc { t=>mcf::BVS, cc=>mcf::ICC, r=>rgk::r0, i=>mcf::IMMED 7 } ];
+	    overflowtrap64 = []; #  not needed 
+	end;
+    };
+end;

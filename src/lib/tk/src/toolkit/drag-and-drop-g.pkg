@@ -1,0 +1,682 @@
+/* ***************************************************************************
+
+# Compiled by:
+#     src/lib/tk/src/toolkit/sources.sublib
+
+   A small drag&drop package for tk. 
+
+   It is generic over drag&items as given by api Drag_And_Drop_Items.
+  
+   See the documentation for more details. 
+   "tests+examples/boxes.pkg" contains a small example of how to use this 
+   package. 
+ 
+
+   $Date: 2001/03/30 13:39:38 $
+   $Revision: 3.0 $
+
+   Author: cxl (Last modification $Author: 2cxl $)
+
+   (C) 1996, 1998, Bremen Institute for Safe Systems, Universitaet Bremen
+ 
+  ************************************************************************** */
+
+
+generic package   drag_and_drop_g (
+    #
+    drag_and_drop_items: Drag_And_Drop_Items						# Drag_And_Drop_Items	is from   src/lib/tk/src/toolkit/drag-and-drop.api
+)
+: (weak) Drag_And_Drop									# Drag_And_Drop		is from   src/lib/tk/src/toolkit/drag-and-drop.api
+#  where type item = drag_and_drop_items::item 
+
+{ 
+    include tk;
+    include basic_utilities;
+
+    Item =   drag_and_drop_items::Item;
+
+    Dd_Canvas =  Widget_Id;
+
+    exception  DRAG_AND_DROP String;
+
+
+    #  local variables 
+
+
+    drop_zones      = REF ([]:  List( (Widget_Id, Item, Box) ) );
+
+    fun print_drop_zones ()
+        =
+        ddebug ("dropZones " + 
+				  (string::join ", " 
+				   ((map (canvas_item_id_to_string o drag_and_drop_items::get_canvas_item_id o #2) 
+					       *drop_zones))))
+
+    also
+    fun ddebug (str)      = debug::print 11 ("DD: " + str);
+
+    Grab_Item  = (Item, null_or::Null_Or (Box), Coordinate);
+
+    grab_items  = REF ([]: List( Grab_Item ));
+    sel_items   = REF ([]: List( Item ));
+    lasso      = REF (NULL:  Null_Or( (Canvas_Item_Id, Coordinate) ) ); 
+    old_pos     = REF (coordinate (0, 0));
+    can_drop    = REF FALSE;
+    grab_pos    = REF (coordinate (0, 0));
+
+    Enter_Status = ENTERED  Item 
+		 | NOTHING_ENTERED
+		 | LEFT_CANVAS;
+
+    entered_item    = REF nothing_entered;
+
+    #  initialize all the references above 
+    fun init_refs ()
+        =
+        {    drop_zones   := [];
+	     grab_items   := [];
+	     sel_items    := [];
+	     lasso       := NULL;
+	     old_pos      := (0, 0);
+	     can_drop     := FALSE;
+	     grab_pos     := (0, 0);
+	     entered_item := nothing_entered;
+        };
+
+    # Equality for items:
+
+    fun eq item1 item2
+	=
+	(   (drag_and_drop_items::get_canvas_item_id  item1)   ==
+	    (drag_and_drop_items::get_canvas_item_id  item2)
+	);
+
+    #  Apply function on items on grabItem list 
+
+    fun app_it f
+	=
+	apply
+            (fn (it, _, _) = f it);
+
+    fun over_drop_zone cnv coords
+	=
+	map #2 (list::filter (fn (c0, _, r) = 
+			   (inside coords r) and (c0 == cnv))
+		(*drop_zones));
+
+       # This could be done in a much more efficient way, eg.
+       # use btrees or something (oh aye ;-) 
+
+    #  find all items inside rectangle r on canvas cnv 
+    fun drop_zones_in_box cnv r
+	=
+	map #2 (list::filter (fn (c0, _, r0) =
+			     (intersect r0 r) and (c0 == cnv))
+		*drop_zones);
+
+    # Get current drop zone (i.e. on-the-canvas coordinates) of item
+    # it (taken from *dropZones for efficiency, wow).
+    # Note that c_item id's are global, so there's no need to check
+    # the widget it (I hope :-) 
+
+    fun get_current_drop_zone it
+        =
+	null_or::map #3 (list::find ((eq it) o #2)  *drop_zones);
+
+    #  Delete item from drop zone list 
+    fun del_drop_zone item
+	=
+	drop_zones
+            :=
+            list::filter (not o (eq item) o #2)  *drop_zones;
+
+
+    # Not clear wethere we want event_callbacks on *all* items of CANVAS_TAG or
+    # just the first one.. currently the former:
+
+    fun add_tag_naming wid id event_callbacks
+	=
+	{   item = get_canvas_item wid id;
+
+	    case item   
+	      CANVAS_TAG { citem_ids=>ls, ... } => apply (fn id=> add_tag_naming wid id event_callbacks; end ) ls;
+	     _                     => add_canvas_item_event_callbacks wid id event_callbacks; esac;
+	};
+
+
+    # "private" version of delete_canvas_item, this one deletes 
+    # `subitems' of CANVAS_TAG-items (delete_canvas_item _doesn't_).
+
+    fun rec_delete wid cid
+	= 
+	{   cit = get_canvas_item wid cid;	    
+
+	    { delete_canvas_item wid cid;
+	       case cit    
+		   CANVAS_TAG { citem_ids=>subitems, ... } => apply (rec_delete wid) subitems;
+		  _                           => (); esac
+	      ;};
+	};
+
+
+    # default cursors
+
+    #  the "hand" appearing when you are ready to grab an item 
+    enter_cursor = CURSOR (XCURSOR (make_cursor_name("hand1"), NULL));
+
+    #  the crosshair for dragging an item 
+    drag_cursor = CURSOR (XCURSOR (make_cursor_name("fleur"), NULL));
+
+    # the clipboard -- unless we reexport it, this class is just 
+    # a shortcut
+    package clipboard = drag_and_drop_items::clipboard; 
+
+    # unfortunately, we cinnae use set_canvas_item_coordinates with CANVAS_TAG(..) items,
+    # so we have to move_canvas_item the buggers-- hence the following function:
+
+    fun move_item dd id w_here
+	= 
+	move_canvas_item dd id (subtract_coordinates w_here (hd (get_tcl_canvas_item_coordinates dd id)));
+
+
+    fun btwyc dd (item, dz, old_item_pos)
+	=
+	# "back to whence you came",
+	# reinstall a grabbed item and dropZone at original position 
+
+	{   case dz
+              
+                 NULL   =>  (); 
+		 THE dz =>  drop_zones :=  (dd, item, dz) . *drop_zones;
+            esac;
+
+	    move_item
+                dd
+                (drag_and_drop_items::get_canvas_item_id item)
+                old_item_pos;
+
+	    drag_and_drop_items::release  item;
+	};
+
+    fun move_grab_it dd off (item, THE dz, old_item_pos)
+	=>
+	# move a grabbed item, plus its drop zone, to a new position.	 
+
+	btwyc dd (item, THE (move_box dz off), add_coordinates old_item_pos off);
+       move_grab_it dd off (item, NULL, old_item_pos) =>
+	btwyc dd (item, NULL, add_coordinates old_item_pos off); end;
+
+
+    # enter/leave are bound to particular canvas items 
+    # these _should_ only be called when there's no grab. Unfortunately,
+    # the wish seems to generate spurious enter/leave events, so we better 
+    # check. Defensive programming an' aw.
+
+    fun enter_item dd_canvas it _
+	=
+	 if  (   not (drag_and_drop_items::is_immobile  it)
+	     and null *grab_items
+             )
+
+	     add_trait dd_canvas [ enter_cursor ];
+	     entered_item := entered it;
+	     ddebug ("Entered "  +  canvas_item_id_to_string  (drag_and_drop_items::get_canvas_item_id  it));
+	 fi
+
+    # Some wish´s (e.g. Tk8.0 under Linux KDE) generate Leave-Events
+    # if you press the button while over a Canvas_Item when the PressButton is bound
+    # to the canvas below, before they generate a PressButton event (if you
+    # can follow, I admit it confused either me or Tcl as well). Hence,
+    # we only generate a "leave" here if we have really left (i.e. the
+    # coordinates are outside the dropzone of the item). 
+
+    also
+    fun leave_item dd_canvas it (TK_EVENT(_, _, x, y, _, _))
+	=
+	if (null *grab_items)
+	    
+	     case (get_current_drop_zone it)
+               
+	          THE dz
+                      =>
+                      if  (not (inside (x, y) dz))
+
+		          add_trait dd_canvas [ CURSOR NO_CURSOR ]; 
+			  entered_item := nothing_entered;
+
+			  ddebug ("Left "  +  canvas_item_id_to_string  (drag_and_drop_items::get_canvas_item_id  it));
+
+		      fi;
+
+		  NULL => ();
+             esac;
+	fi
+
+    #  press/releaseGrabButton are bound to the canvas 
+    also
+    fun press_sel_button dd_canvas (TK_EVENT(_, _, x, y, _, _))
+	=
+	case *entered_item
+
+	     entered over_it
+	         =>
+		 if (not (list::exists (eq over_it) *sel_items))
+
+		      sel_items := over_it . *sel_items;
+		      drag_and_drop_items::select over_it;
+		      ddebug ("selected item: "  +  canvas_item_id_to_string (drag_and_drop_items::get_canvas_item_id  over_it));
+		 fi;
+
+	     nothing_entered
+	         =>
+		 {   #  Click over empty canvas: deselect items 
+		     apply drag_and_drop_items::deselect  *sel_items;
+		     sel_items := [];
+		 };
+
+	     _   => ();
+        esac
+
+    also
+    fun press_grab_button dd_canvas (TK_EVENT(_, _, x, y, _, _))
+	=
+	case *entered_item
+	  
+             entered over_it
+	         =>
+		{   fun w_here it
+                        =
+                        hd (get_tcl_canvas_item_coordinates dd_canvas 
+					  (drag_and_drop_items::get_canvas_item_id it));
+		    #  lose grabbed item if also selected: 
+
+		    items     = (list::filter (not o (eq over_it))  *sel_items);
+
+		    # Grab a selected item 
+		    #
+		    fun grab_it it
+                        = 
+			{   cur_dz = get_current_drop_zone it;
+
+			    del_drop_zone it;
+
+                            (it, cur_dz, w_here it);
+			};
+
+		  {  # Reverse map of grabbed items, since
+		     # they are "the wrong way around" --
+                     # last ones selected first:
+		     #	
+		     grab_items    := reverse (map grab_it (over_it . items));
+		     entered_item  := nothing_entered;
+		     old_pos       := coordinate (x, y);
+		     grab_pos      := coordinate (x, y);
+		     sel_items     := [];
+
+		     add_trait dd_canvas [drag_cursor];
+		     app_it drag_and_drop_items::grab  *grab_items;
+
+		     ddebug ("grabbed items: " +
+			     (string::join " "
+			      (map (canvas_item_id_to_string o drag_and_drop_items::get_canvas_item_id o #1) 
+				    *grab_items)));
+		    };
+		};
+
+	   _ => #  start new lasso. 
+		{   rid       = make_canvas_item_id();
+
+		    lasso_box = CANVAS_BOX { citem_id=> rid,
+					       coord1=> coordinate (x, y),
+					       coord2=> coordinate (x, y),
+					       traits=> [WIDTH 2],
+					       event_callbacks=> [] };
+
+		     add_canvas_item dd_canvas lasso_box;
+
+		     lasso := THE (rid, coordinate (x, y));
+		};
+        esac
+
+    also
+    fun grabbed_motion dd_canvas (TK_EVENT(_, _, x, y, _, _))
+	=
+	if   (null *grab_items)
+	     
+	     case *lasso
+	       
+		  THE (box_id, lhc)
+		      => 
+		      set_canvas_item_coordinates dd_canvas box_id [lhc, coordinate (x, y)];
+
+		  NULL => ();
+             esac; 
+	else
+	     grab_ids =  map #1 *grab_items;
+
+	     fun mv_grab_item it
+		 =
+		 drag_and_drop_items::move it (subtract_coordinates (coordinate (x, y)) 
+						  *old_pos);
+
+	     cs = coordinate (x, y); 
+
+	     apply mv_grab_item grab_ids;
+	     old_pos := cs;
+
+	     case *entered_item
+
+		   entered it
+		      => 
+		      case (get_current_drop_zone it)
+
+			  THE dz
+			      => 
+			      if (not (inside *old_pos dz))
+
+				  # Have left entered item:
+				  # 
+				  entered_item := nothing_entered;
+				  if *can_drop  drag_and_drop_items::leave it; fi;
+				  can_drop := FALSE;
+			      fi;
+
+			   NULL => ();
+		      esac;                               
+
+		_ => #  Have we entered an item? 
+		     {   over =  over_drop_zone dd_canvas  cs;
+
+			 case over
+
+			      oo . _
+				  =>
+				  {   entered_item := entered oo;
+				      can_drop := drag_and_drop_items::enter oo grab_ids;
+
+				      ddebug ( "have entered " +
+					       (canvas_item_id_to_string (drag_and_drop_items::get_canvas_item_id oo)) +
+					  ": " + (bool::to_string *can_drop));
+				  };
+
+			     []   => ();
+			 esac;
+		     };
+	      esac;
+         fi
+
+    also
+    fun release_grab_button dd_canvas (ev as TK_EVENT(_, _, x, y, _, _))
+	=
+	if   (null *grab_items)
+	     
+	     case *lasso
+               
+		  THE (rid, llc as (x0, y0))
+                      =>
+		      {   # Delete lasso:
+			  #
+			  delete_canvas_item dd_canvas rid;
+			  lasso := NULL;
+
+			  # throw lasso: if the lasso has not been thrown 
+			  # further than five units, ignore it. (This is 
+			  # in particular to avoid having the release-event after
+			  # a double-click causing a lasso throw-- we always end
+			  # up with the construction object selected!) 
+			  #	
+			  if ((int::abs (x0- x) > 5)  and
+			      (int::abs (y0- y) > 5)
+			  )
+			      # valid throw: find selected items, delete lasso
+			      #
+			      selits= drop_zones_in_box dd_canvas 
+				 (make_box (llc, coordinate (x, y)));
+
+			      apply drag_and_drop_items::select selits;
+
+			      sel_items := *sel_items @ selits;
+
+			      ddebug ("Caught " + (string::join ", " 
+						 (map (canvas_item_id_to_string o 
+						       drag_and_drop_items::get_canvas_item_id) 
+						  selits)));
+			 else
+			     ddebug("Invalid lasso throw: not far enough");
+			 fi;
+		    };
+
+		  NULL => ();
+           esac;
+	else
+	    case *entered_item
+	       
+                 entered it
+		     =>
+		     if *can_drop
+
+			   # First, do the drop operation:
+                           #
+			   if (drag_and_drop_items::drop it (map #1 *grab_items) )
+
+			       # Non-destructive drop, reinstall item
+			       # at original position 
+                               #
+			       apply (btwyc dd_canvas) *grab_items;
+			   else
+			       #  Destructive, argument items vanish:
+                               #
+			       app_it ((rec_delete dd_canvas) o drag_and_drop_items::get_canvas_item_id)
+								 *grab_items;
+                           fi;
+
+			   # Don't need to delete dropZone 
+			   # generate leaving event for entered item:
+                           # 
+			   drag_and_drop_items::leave it;
+		      else
+			   # Can't drop, reinstall at grab position 
+			   # w/ original dropzone:
+                           #
+			   apply (btwyc dd_canvas) *grab_items;
+                      fi;		   
+
+		nothing_entered
+                    =>
+		    #  Have note entered anything, so we must move the items:
+                    # 
+		    apply (move_grab_it dd_canvas (subtract_coordinates (coordinate (x, y))
+						*grab_pos))  *grab_items;
+		left_canvas
+                    =>
+		    # off the canvas, put items into clipboard 
+		    # This is awkward -- we reinstall the item on the 
+		    # DDcanvas, complete with dropZone, and have it
+		    # deleted by the callback function of the clipboard.
+		    # Thus, only objects appearing elsewhere are
+		    # deleted from the DDcanvas. 
+		    #
+		    {   fun del_it it
+                            =
+			   {   del_drop_zone it;
+			       rec_delete dd_canvas (drag_and_drop_items::get_canvas_item_id it);
+			       #  except exceptions here ?! 
+			   };
+
+		        {   apply (btwyc dd_canvas) *grab_items;
+			    drag_and_drop_items::clipboard::put (drag_and_drop_items::item_list_abs (map #1 *grab_items)) ev 
+					(fn() = app_it del_it *grab_items);
+			};
+		    };
+             esac;
+
+	     # In any case, reset variables and the cursor.
+	     #
+	     entered_item :=  nothing_entered;
+	     grab_items   :=  [];
+	     can_drop     :=  FALSE;
+
+	     add_trait dd_canvas [CURSOR (NO_CURSOR)];
+        fi
+
+
+    also
+    fun dd_item_namings can_id item
+	=
+	[ EVENT_CALLBACK (ENTER, enter_item can_id item),
+	  EVENT_CALLBACK (LEAVE, leave_item can_id item)
+	]
+
+    also
+    fun place dd_canvas item
+	= 
+	{   cid  =  drag_and_drop_items::get_canvas_item_id item;
+	    wher =  get_tcl_canvas_item_coordinates dd_canvas cid;
+	    nudz =  move_box (drag_and_drop_items::sel_drop_zone item) (hd wher);
+				   #  (hd (get_tcl_canvas_item_coordinates ddCanvas cid)) 
+
+	    ddebug ("place " + (canvas_item_id_to_string cid) + ", dropZone " + (show_box nudz));
+	    drop_zones := (dd_canvas, item, nudz) . *drop_zones;
+	    add_tag_naming  dd_canvas  cid  (dd_item_namings dd_canvas item);
+	};
+
+
+    fun leave_canvas _
+	=
+	entered_item := left_canvas;
+
+#    I forget why I thought this function was necessary :-) 
+#    Anyway, it´s definitely harmful since some wish´s seem to generate an enter
+#    event for the canvas widget when pressing the button over a canvas item
+#    (see the comments above-- I can´t see no sense in this sense either)
+#   
+#	fun enterCanvas _ =
+#	    enteredItem := NothingEntered
+#     plus
+#	    EVENT_CALLBACK (MODIFIER_BUTTON (1, ENTER),   enterCanvas)]; 
+#     below.
+#
+
+    # Reset the drag&drop module -- i.e. don't reset it
+    # to initial value, but reset the grabbed items etc. to some sane
+    # values so we can continue. 
+    # This function can be bound to an interrupt handler, and called 
+    # if the drag&drop for some reason buggers up. Since it's very state-
+    # based, and makes assumptions on the order in which events are generated
+    # which may not hold on a particular wish, this may happen.
+
+    fun reset dd_canvas
+	= 
+	{   #  reset currently grabbed items 
+	    apply (btwyc dd_canvas) *grab_items;
+	    grab_items := [];
+
+	    /* reset enteredItem */ 
+	    case *entered_item    entered eit => drag_and_drop_items::leave eit;  _ => (); esac;
+	    entered_item := nothing_entered;
+
+	    #  Deselect items 
+	    apply drag_and_drop_items::deselect *sel_items;
+	    sel_items := [];		 
+	    can_drop := FALSE;
+	    add_trait dd_canvas [CURSOR NO_CURSOR];
+
+	    #  Delete lasso 
+	    case *lasso    THE (rid, _) => delete_canvas_item dd_canvas rid;  NULL => (); esac; 
+	    lasso := NULL	 
+	;};
+
+
+    fun canvas_event_callbacks can_id
+	=
+	[ EVENT_CALLBACK (BUTTON_PRESS   (THE 1),   press_grab_button can_id),
+	  EVENT_CALLBACK (BUTTON_RELEASE (THE 1), release_grab_button can_id),
+	  EVENT_CALLBACK (BUTTON_PRESS   (THE 2),   press_sel_button can_id),
+	  EVENT_CALLBACK (MODIFIER_BUTTON (1, MOTION),  grabbed_motion can_id),
+	  EVENT_CALLBACK (MODIFIER_BUTTON (1, LEAVE),   leave_canvas)
+	];
+
+
+    fun init canvas_id
+	= 
+	/* Raises an exception of passed a widget which isnae a canvas, or 
+	 * a canvas wi' items on it. 
+	 */
+	case (get_widget canvas_id)
+	     CANVAS { widget_id=>wid, citems=>cids, ... }
+	     =>
+	    { map ((tk::delete_canvas_item wid) o tk::get_canvas_item_id) cids;
+	     # fast remove of citems in DD 
+	     init_refs();
+	     #  implicit remove of potential items in dragZone 
+	     add_event_callbacks wid (canvas_event_callbacks wid);
+	     #  DropZones := []; should be superfluous - initRefs!. bu 
+	     ddebug("init " + (widget_id_to_string wid));
+	     wid;};
+/*	|  CANVAS { widget_id=wid, citems= x . xs, ... } =>
+		raise exception DRAG_AND_DROP "init: called with non-empty canvas."
+CHANGED - bu
+*/
+	  w => raise exception DRAG_AND_DROP "init: argument not a canvas."; esac;
+
+    fun delete dd_canvas item
+	= 
+	{   case *entered_item 
+              
+		entered it => if (eq item it ) 
+		    { entered_item := nothing_entered;
+		     add_trait dd_canvas [CURSOR (NO_CURSOR)]
+		     ;};
+			      fi;
+	       _ => ();
+            esac;
+
+	    grab_items :=  list::filter (not o (eq item) o #1) *grab_items;
+	    sel_items  :=  list::filter (not o (eq item))      *sel_items;
+
+	    if   (null *grab_items)
+	        
+		 add_trait dd_canvas [CURSOR (NO_CURSOR)];
+	    fi;
+
+	    del_drop_zone item;
+
+	    #  And delete the Canvas_Item: 
+	    rec_delete
+                dd_canvas
+                (drag_and_drop_items::get_canvas_item_id   item);
+	};
+
+    fun selected_items ()
+	=
+	*sel_items
+        @
+	(map
+            (fn (x, _, _) = x)
+            *grab_items
+        );
+
+    fun all_items dd_canvas
+	= 
+	map #2 (list::filter (fn (cnv, _, _) =   cnv == dd_canvas) *drop_zones);
+
+
+    # --- Some implementation notes. ------------------------------- 
+    #
+    #     - Although it would undoubtedly be better to export DDCanvas as an
+    #     abstract enum, this is not possible because generate_gui_g uses the fact
+    #     that DDCanvas is a widget to install forward references to the
+    #     exported functions from within the argument class of D&D.
+    #
+    #     - More than one d&d canvas: I'm note sure this works the way the 
+    #     d&d module is implemented just now. One might have to do some more checks
+    #     to ensure that grabbing/entering etc. does only effect items on the same
+    #     canvas. (All of this would be very easy indeed if SML had dynamic modules. 
+    #     Oh well.) 
+    #
+    #     ---cxl. 
+
+
+};
+
+

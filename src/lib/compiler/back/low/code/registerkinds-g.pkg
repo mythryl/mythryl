@@ -1,0 +1,346 @@
+## registerkinds-g.pkg
+#
+# This generic is applied to create the   registerkinds_xxx
+# package for an  architecture
+#
+# See overview comments in:
+# 
+#     src/lib/compiler/back/low/code/registerkinds.api
+
+# Compiled by:
+#     src/lib/compiler/back/low/lib/lowhalf.lib
+
+
+
+
+###             "When I was a boy of fourteen, my father was so ignorant
+###              I could hardly stand to have the old man around. But when
+###              I got to be twenty-one, I was astonished at how much he
+###              had learned in seven years."
+###
+###                                           -- Mark Twain
+
+
+
+stipulate
+    package lem =  lowhalf_error_message;						# lowhalf_error_message		is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package rkj =  registerkinds_junk;							# registerkinds_junk		is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+    package rwv =  rw_vector;								# rw_vector			is from   src/lib/std/src/rw-vector.pkg
+herein
+
+    # This generic is invoked (only) from:
+    #
+    #     src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+    #     src/lib/compiler/back/low/pwrpc32/code/registerkinds-pwrpc32.codemade.pkg
+    #     src/lib/compiler/back/low/sparc32/code/registerkinds-sparc32.codemade.pkg
+    #
+    generic package   registerkinds_g   (
+	#             ===============
+	#
+	exception NO_SUCH_PHYSICAL_REGISTER;
+	#
+	codetemp_id_if_above:		Int;						# Hardware registers have small ids; all ids greaer than this number are codetemps to be assigned to hardware registers (or spilled). Currently 256 on all supported architectures.
+	#
+	registerkind_infos:	List( (rkj::Registerkind, rkj::Registerkind_Info) );	# More icky thread-hostile global mutable state :-( XXX SUCKO FIXME
+    )
+    : (weak) Registerkinds								# Registerkinds			is from   src/lib/compiler/back/low/code/registerkinds.api
+    {
+	exception NO_SUCH_PHYSICAL_REGISTER = NO_SUCH_PHYSICAL_REGISTER;
+
+	fun error msg
+	    =
+	    lem::error (exception_name NO_SUCH_PHYSICAL_REGISTER, msg);
+
+#	all_registerkinds    =  map   (fn (kind, _) = kind)   registerkind_infos;	# Apparently never referenced.
+
+	codetemp_id_if_above =  codetemp_id_if_above;					# In practice this is currently 256 on all supported architectures.
+
+	# Most registers are allocated locally and automatically by the
+	# register allocator, but some are allocated globally, statically
+	# and manually, such as ESP and EDI on intel32.
+	# 
+	# We also codetemps to be allocated globally, statically and
+	# manually.  The only current example of this is is the
+	# virtual_framepointer on intel32:  This is a placeholder which
+	# eventually gets deleted everywhere.  We want its codetemp id
+	# to be constant across all code generated, so we make it a
+	# statically allocated global. For details see   src/lib/compiler/back/low/omit-frameptr/free-up-framepointer-in-machcode.api
+	#
+	# Here we provide for allocation of up to 256 global, static codetemps:
+	#
+	max_global_codetemps = 256;							# XXX SUCKO FIXME This number should be in a tweakable-parameters package somewhere, not buried in the code.
+
+	# Regular dynamically-generated codetemps are issued ids
+	# starting at the end of the reserved global-codetemps
+	# id space:
+	# 
+	first_codetemp_id_to_allot =  codetemp_id_if_above + max_global_codetemps;
+	next_codetemp_id_to_allot  =  REF first_codetemp_id_to_allot;					# XXX BUGGO FIXME more thread-hostile global mutable storage. :-(
+
+     #    register_counter = next_codetemp_id_to_allot ;
+
+	/* For each register kind, set
+	 *
+	 *     REGISTERKIND_INFO.hardware_registers
+	 *
+	 * to a suitably long vector of suitably
+	 * initialized REGISTER records:
+         */										my _ =
+	apply
+	    create_and_initialize__hardware_registers__vector
+	    #
+	    registerkind_infos
+	    #
+	    where
+		fun create_and_initialize__hardware_registers__vector
+		        ( _,
+			  kind as rkj::REGISTERKIND_INFO { hardware_registers, min_register_id, max_register_id, ... }
+                        )
+		       =
+		       {   n = max_register_id - min_register_id + 1;
+
+			   if (n > 0)
+				#
+				hardware_registers := v
+				where
+				    v = rwv::tabulate (
+					  n,
+					  fn nth
+					      =
+					      {   reg = nth + min_register_id;
+
+						  rkj::CODETEMP_INFO
+						    {
+						      id    => reg,
+						      color => REF (rkj::MACHINE reg), 
+						      notes => REF [],
+						      kind
+						    }; 
+					      }
+					);
+				end;
+			   fi;
+		       };
+	    end;
+
+	fun info_for (registerkind:  rkj::Registerkind)
+	    =
+	    loop  registerkind_infos
+	    where
+		fun loop((kind, info) ! defs)
+			=>
+			if (kind == registerkind)   info;
+                        else                         loop defs;
+                        fi;
+
+		    loop [] =>   error("missing info for " + rkj::name_of_registerkind  registerkind);
+		end;
+	    end;
+
+	info_for_registerkind = info_for;						# Called (only) from   src/lib/compiler/back/low/treecode/operand-table-g.pkg
+
+	fun get_id_range_for_physical_register_kind  registerkind
+	    = 
+	    {   (info_for  registerkind) ->   rkj::REGISTERKIND_INFO { min_register_id, max_register_id, ... };
+
+		{ min_register_id, max_register_id };
+	    };
+
+	fun get_ith_hardware_register_of_kind  registerkind
+	    =
+	    {   (info_for  registerkind) ->   rkj::REGISTERKIND_INFO { kind, hardware_registers, ... };
+		#		    
+		fn nth =  rwv::get(*hardware_registers, nth)
+			  except
+			      _ = raise exception NO_SUCH_PHYSICAL_REGISTER;
+	    };
+
+	fun get_hardware_registers_of_kind  registerkind
+	    #
+	    # Same as above, but fetches a range of registers.
+	    # Used (for example) to enumerate all remregs in    src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	    # In fact, that is about all it is used for.  ;-)
+	    =
+	    loop
+	    where
+		get_hardware_register
+		    =
+		    get_ith_hardware_register_of_kind  registerkind;
+
+		fun loop { from, to, step }
+		    =
+		    if (from > to)
+			#
+			[];
+		    else
+			get_hardware_register  from
+			!
+			loop { from=>from+step, to, step };
+		    fi;
+	    end;
+
+
+	get_ith_int_hardware_register   =  get_ith_hardware_register_of_kind   rkj::INT_REGISTER;
+	get_ith_float_hardware_register =  get_ith_hardware_register_of_kind   rkj::FLOAT_REGISTER;
+
+
+	fun make_codetemp_of_kind  registerkind		# E.g., rkj::INT_REGISTER
+	    = 
+	    {   (info_for registerkind) ->   kind as rkj::REGISTERKIND_INFO { codetemps_made_count, ... };
+
+		fn _ =
+		    {   id =  *next_codetemp_id_to_allot;		# Allot an id which is globally unique among codetemps of all kinds (and hardware registers too).
+			       next_codetemp_id_to_allot := id + 1; 
+			#
+			codetemps_made_count := *codetemps_made_count + 1;		# Also track how many codetemps of this kind we've created.
+			#
+			rkj::CODETEMP_INFO { id, color=>REF rkj::CODETEMP, notes=>REF [], kind };
+		    };
+	    };
+
+	stipulate
+	    (info_for rkj::INT_REGISTER) ->   kind as rkj::REGISTERKIND_INFO { codetemps_made_count, ... };
+	herein
+	   fun make_int_codetemp  _								# Oh boy, does THIS one get called a lot!
+	       = 										# The ignored arg here is (sometimes?) Heapcleaner_Info -- see  src/lib/compiler/back/low/main/fatecode/per-codetemp-heapcleaner-info.api
+	       {   id =   *next_codetemp_id_to_allot;						# Allot an id which is globally unique among codetemps of all kinds (and hardware registers too).
+		           next_codetemp_id_to_allot := id + 1; 
+		   #
+		   codetemps_made_count := *codetemps_made_count + 1;				# Also track how many codetemps of this kind we've created.
+		   #
+		   rkj::CODETEMP_INFO { id, color=>REF rkj::CODETEMP, notes=>REF [], kind };
+	       };
+	end;
+
+	stipulate
+	    (info_for rkj::FLOAT_REGISTER) ->   kind as rkj::REGISTERKIND_INFO { codetemps_made_count, ... };
+	herein
+	    fun make_float_codetemp _
+		=  										# The ignored arg here is (sometimes?) Heapcleaner_Info -- see  src/lib/compiler/back/low/main/fatecode/per-codetemp-heapcleaner-info.api
+		{   id = *next_codetemp_id_to_allot;						# Allot an id which is globally unique among codetemps of all kinds (and hardware registers too).
+		          next_codetemp_id_to_allot := id + 1;
+		    #
+		    codetemps_made_count := *codetemps_made_count + 1;				# Also track how many codetemps of this kind we've created.
+		    #
+		    rkj::CODETEMP_INFO { id, color=>REF rkj::CODETEMP, notes=>REF [], kind };
+		};
+	end;
+
+	fun make_global_codetemp_of_kind  registerkind							# 'kind' is rkj::INT_REGISTER in practice. :-)
+	    #
+	    # This is called (only) from:
+	    #
+	    #     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+	    #
+	    # where it is used once to generate an ID for   virtual_framepointer.
+	    #
+	    # For more info on this see			  src/lib/compiler/back/low/omit-frameptr/free-up-framepointer-in-machcode.api
+	    = 
+	    {   (info_for registerkind) ->   kind as rkj::REGISTERKIND_INFO { global_codetemps_created_so_far, ... };
+
+		fn _ =
+		    {   d = *global_codetemps_created_so_far;
+			     global_codetemps_created_so_far := d + 1; 
+			#
+			# We currently pre-allocate 256 register ids for
+			# global codetemps -- see max_global_codetemps
+			# above -- and never use more than one:
+			#
+			if (d >= max_global_codetemps)    error "too many global codetemps";
+			else				  rkj::CODETEMP_INFO { id=>codetemp_id_if_above+d, color=>REF rkj::CODETEMP, notes=>REF [], kind };
+			fi;
+		    };
+	    };
+
+	# This is called (only) in:
+	#
+	#     src/lib/compiler/back/low/regor/register-spilling-g.pkg
+	#     src/lib/compiler/back/low/regor/register-spilling-with-renaming-g.pkg
+	#
+	fun clone_codetemp  (rkj::CODETEMP_INFO { kind, notes, ... } )	# See comments in   src/lib/compiler/back/low/code/registerkinds.api
+	    =
+	    {   id =   *next_codetemp_id_to_allot;
+		        next_codetemp_id_to_allot := id + 1; 
+
+		rkj::CODETEMP_INFO { id, color=>REF rkj::CODETEMP, notes => REF *notes, kind };
+	    };
+
+	fun get_codetemps_made_count_for_kind
+		#
+		registerkind								# In practice this will be either rkj::INT_REGISTER or rkj::FLOAT_REGISTER
+	    =
+	    # We get called two places:
+	    #
+	    #     src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+	    #     src/lib/compiler/back/low/regor/solve-register-allocation-problems-by-iterated-coalescing-g.pkg
+	    #
+	    # The latter case is the main one -- we want to know
+	    # how many nodes are in the graph we're going to color.
+	    #
+	    {   (info_for registerkind) ->   rkj::REGISTERKIND_INFO { codetemps_made_count, ... };
+
+		.{ *codetemps_made_count; };
+	    };
+
+	fun get_next_codetemp_id_to_allot ()					# Return max codetemp ID in use +1 -- used to presize hashtables.
+	    =
+	    *next_codetemp_id_to_allot;
+
+	fun reset_codetemp_id_allocation_counters ()
+	    = 
+	    {   apply
+		    (fn (_, rkj::REGISTERKIND_INFO { codetemps_made_count, ... } ) =   codetemps_made_count := 0)
+		    registerkind_infos;
+
+		next_codetemp_id_to_allot := first_codetemp_id_to_allot;
+	    };
+
+
+
+	#################################################################
+	# Codetemplists support imported from registerkinds-junk:
+	# We use these to maintain (for example) lists of spilled codetemps,
+	# with int codetemps segregated from float codetemps:
+	#
+	Codetemplists = rkj::cls::Codetemplists;
+
+	empty_codetemplists =  rkj::cls::empty_codetemplists;
+
+	fun get_codetemps_for_kind		(k:  rkj::Registerkind) =  rkj::cls::get_codetemps_for_kindinfo     (info_for k);
+#	fun update_registerset_for_kind		(k:  rkj::Registerkind) =  rkj::cls::replace_codetemps_for_kindinfo		(info_for k);
+
+	get_int_codetemps   =  get_codetemps_for_kind   rkj::INT_REGISTER;
+	get_float_codetemps =  get_codetemps_for_kind rkj::FLOAT_REGISTER;
+
+	add_codetemp_to_appropriate_kindlist    =  rkj::cls::add_codetemp_to_appropriate_kindlist;			# This fn is used for both float and int.
+	drop_codetemp_from_codetemplists =  rkj::cls::drop_codetemp_from_codetemplists; 		# This fn is used for both float and int.	
+
+
+
+
+	#################################################################
+	# Misc 
+
+	fun get_always_zero_register  registerkind				# Intel32 and Pwrpc32 don't have hardwired-to-zero registers, but sparc32 does (and other RISC machines right back to the CDC 6400).
+	    = 
+	    {   (info_for registerkind) ->   rkj::REGISTERKIND_INFO d;
+		#
+		case d.always_zero_register
+		    #
+		    THE r =>  THE (rwv::get (*d.hardware_registers, r));
+		    NULL  =>  NULL;
+		esac; 
+	    };
+
+	# Dummy values for now; these get redefined
+	# per-architecture, for example:
+	#
+	#     stackptr_r = reg_int_register 4;    in   src/lib/compiler/back/low/intel32/code/registerkinds-intel32.codemade.pkg
+	#     stackptr_r = reg_int_register 1;    in   src/lib/compiler/back/low/pwrpc32/code/registerkinds-pwrpc32.codemade.pkg
+	#     stackptr_r = reg_int_register 14;   in   src/lib/compiler/back/low/sparc32/code/registerkinds-sparc32.codemade.pkg
+	# 
+	stackptr_r =  get_ith_int_hardware_register   0;
+	asm_tmp_r  =  get_ith_int_hardware_register   0;
+	fasm_tmp   =  get_ith_float_hardware_register 0;
+    };
+end;

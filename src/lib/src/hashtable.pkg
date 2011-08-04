@@ -1,0 +1,367 @@
+## hashtable.pkg
+#
+# Typeagnostic hashtables.
+#
+# See also:
+#
+#     src/lib/src/int-hashtable.pkg
+#     src/lib/src/unt-hashtable.pkg
+#     src/lib/src/quickstring-hashtable.pkg
+#     src/lib/src/typelocked-hashtable-g.pkg
+#     src/lib/src/typelocked-double-keyed-hashtable-g.pkg
+
+# Compiled by:
+#     src/lib/std/standard.lib
+
+
+
+###               "The sciences do not try to explain, they hardly
+###                even try to interpret, they mainly make models.
+###
+###                By a model is meant a mathematical construct which,
+###                with the addition of certain verbal interpretations,
+###                describes observed phenomena.
+###
+###                The justification of such a mathematical construct
+###                is solely and precisely that it is expected to work."
+###
+###                                         -- Johnny von Neuman
+
+
+
+stipulate
+    package rep =  hashtable_representation;			# hashtable_representation	is from   src/lib/src/hashtable-rep.pkg
+herein
+
+    package   hashtable
+    : (weak)  Hashtable					# Hashtable			is from   src/lib/src/hashtable.api
+    {
+	Hashtable (X, Y)
+	    =
+	    HASHTABLE
+	      {
+		hash_g:		X -> Unt,
+		eq_pred:	(X, X) -> Bool,
+		not_found:	Exception,
+		table:		Ref( rep::Table( X, Y ) ),
+		n_items:	Ref( Int )
+	      };
+
+	fun index (i, size)
+	    =
+	    unt::to_int_x (unt::bitwise_and (i, unt::from_int size - 0u1));
+
+
+	# Find smallest power of 2 (>= 32) that is >= n 
+	#
+	fun round_up n
+	    =
+	    f 32
+	    where
+
+	      fun f i
+		  =
+		  if   (i >= n)   i;
+		  else            f (i * 2);   fi;
+	    end;
+
+	# Create a new table; the
+	# int is a size hint and the
+	# exception is to be raised by find.
+	#
+	fun make_hashtable (hash, eq) (size_hint, not_found)
+	    =
+	    HASHTABLE {
+		hash_g => hash,
+		eq_pred => eq,
+		not_found,
+		table => REF (rep::alloc size_hint),
+		n_items => REF 0
+	    };
+
+
+	# Remove all elements from the table 
+	#
+	fun clear (HASHTABLE { table, n_items, ... } )
+	    =
+	    {   rep::clear *table;
+		n_items := 0;
+	    };
+
+	# Insert an item.  If the key already has an item associated with it,
+	# then the old item is discarded.
+	#
+	fun set (my_table as HASHTABLE { hash_g, eq_pred, table, n_items, ... } ) (key, item)
+	    =
+	    {   arr = *table;
+		size = rw_vector::length arr;
+		hash = hash_g key;
+		index = index (hash, size);
+
+		fun get rep::NIL
+			=>
+			{   rw_vector::set (arr, index, rep::BUCKET (hash, key, item, rw_vector::get (arr, index)));
+			    n_items := *n_items + 1;
+			    rep::grow_table_if_needed (table, *n_items);
+			    rep::NIL;
+			};
+
+		    get (rep::BUCKET (h, k, v, r))
+			=>
+			if (hash == h  and  eq_pred (key, k))
+			    #
+			    rep::BUCKET (hash, key, item, r);
+			else
+			    case (get r)
+				#
+				rep::NIL =>  rep::NIL;
+				rest     =>  rep::BUCKET (h, k, v, rest);
+			    esac;
+			fi;
+		end;
+
+		case (get (rw_vector::get (arr, index)))
+		    #
+		    rep::NIL =>  ();
+		    b        =>  rw_vector::set (arr, index, b);
+		esac;
+	    };
+
+
+
+	# Return TRUE, if the key is in the domain of the table 
+	#
+	fun contains_key (HASHTABLE { hash_g, eq_pred, table, ... } ) key
+	    =
+	    get (rw_vector::get (arr, index))
+	    where
+		arr   =  *table;
+		hash  =  hash_g key;
+		index =  index (hash, rw_vector::length arr);
+
+
+		fun get (rep::BUCKET (h, k, v, r))
+			=> 
+			(hash == h  and  eq_pred (key, k))    or
+			get r;
+
+		    get rep::NIL
+			=>
+			FALSE;
+		end;
+	    end;
+
+
+
+	# Find an item;  if it is missing raise the table's not-found exception.
+	#
+	fun lookup (HASHTABLE { hash_g, eq_pred, table, not_found, ... } ) key
+	    =
+	    get (rw_vector::get (arr, index))
+	    where
+		arr   =  *table;
+		size  =  rw_vector::length arr;
+
+		hash  =  hash_g key;
+		index =  index (hash, size);
+
+
+		fun get (rep::BUCKET (h, k, v, r))
+			=>
+			if   (hash == h   and   eq_pred (key, k))   v;
+			else                                        get r;
+                        fi;
+		    
+                    get rep::NIL
+			=>
+			raise exception not_found;
+		end;
+	    end;
+
+
+
+	# Find an item;  if it is missing return NULL.
+	#
+	fun find (HASHTABLE { hash_g, eq_pred, table, ... } ) key
+	    =
+	    get (rw_vector::get (arr, index))
+	    where
+		arr =  *table;
+		size  =  rw_vector::length arr;
+
+		hash  =  hash_g key;
+		index =  index (hash, size);
+
+		fun get (rep::BUCKET (h, k, v, r))
+			=>
+			if   (hash == h  and  eq_pred (key, k))   THE v;
+			else                                      get r;
+			fi;
+			#
+		    get rep::NIL
+			=>
+			NULL;
+		end;
+	    end;
+
+	# Remove an item;  if is it missing raise the table's not-found exception.
+	#
+	fun remove (HASHTABLE { hash_g, eq_pred, not_found, table, n_items } ) key
+	    =
+	    item
+	    where
+		arr =  *table;
+		size  =  rw_vector::length arr;
+
+		hash  =  hash_g key;
+		index =  index (hash, size);
+
+		fun get (rep::BUCKET (h, k, v, r))
+			=>
+			if (hash == h  and  eq_pred (key, k))
+			    #
+			    (v, r);
+			else
+			    (get r) ->   (item, r');
+			    #	
+			    (item,  rep::BUCKET (h, k, v, r'));
+			fi;
+			#
+		    get rep::NIL
+			=>
+			raise exception not_found;
+		end;
+
+		my (item, bucket)
+		    =
+		    get (rw_vector::get (arr, index));
+
+		rw_vector::set (arr, index, bucket);
+
+		n_items := *n_items - 1;
+	    end;
+
+
+	# Return the number of items in the table:
+	#
+	fun vals_count (HASHTABLE { n_items, ... } )
+	    =
+	    *n_items;
+
+
+	# Return a list of the items in the table.
+	#
+	fun vals_list (HASHTABLE { table => REF arr, n_items, ... } )
+	    =
+	    rep::vals_list (arr, n_items);
+
+	fun keyvals_list (HASHTABLE { table => REF arr, n_items, ... } )
+	    =
+	    rep::keyvals_list (arr, n_items);
+
+
+	# Apply a function to the entries of the table:
+	#
+	fun keyed_apply f (HASHTABLE { table, ... } ) =  rep::keyed_apply f *table;
+	fun       apply f (HASHTABLE { table, ... } ) =  rep::apply       f *table;
+
+	# Map a table to a new table that has the same keys and exception:
+	#
+	fun keyed_map f (HASHTABLE { hash_g, eq_pred, table, n_items, not_found } )
+	    =
+	    HASHTABLE
+	      {
+		hash_g,
+		eq_pred,
+		table   =>  REF (rep::keyed_map f *table),
+		n_items =>  REF *n_items,
+		not_found
+	      };
+
+	# Map a table to a new table that has the same keys and exception:
+	#
+	fun map f (HASHTABLE { hash_g, eq_pred, table, n_items, not_found } )
+	    =
+	    HASHTABLE
+	      {
+		hash_g,
+		eq_pred,
+		table   =>  REF (rep::map f *table),
+		n_items =>  REF *n_items,
+		not_found
+	      };
+
+
+	# Fold a function over the entries of the table:
+	#
+	fun foldi f init (HASHTABLE { table, ... } ) =  rep::foldi f init *table;
+	fun fold  f init (HASHTABLE { table, ... } ) =  rep::fold  f init *table;
+
+
+	# Modify the hashtable items in place: 
+	#
+	fun modifyi f (HASHTABLE { table, ... } ) =  rep::modifyi f *table;
+	fun modify  f (HASHTABLE { table, ... } ) =  rep::modify  f *table;
+
+
+	# Remove any hashtable items that do
+	# not satisfy the given predicate.
+	#
+	fun keyed_filter prior (HASHTABLE { table, n_items, ... } )
+	    =
+	    n_items := rep::keyed_filter prior *table;
+
+	fun filter prior (HASHTABLE { table, n_items, ... } )
+	    = 
+	    n_items := rep::filter prior *table;
+
+
+	#  Create a copy of a hashtable 
+	#
+	fun copy (HASHTABLE { hash_g, eq_pred, table, n_items, not_found } )
+	    =
+	    HASHTABLE
+	      {
+		hash_g,
+		eq_pred,
+		table   =>  REF (rep::copy *table),
+		n_items =>  REF *n_items,
+		not_found
+	      };
+
+	# Return a list of the sizes of the various buckets.
+	# This is to allow users to gauge the quality of
+	# their hashing function:
+	#
+	fun bucket_sizes (HASHTABLE { table, ... } )
+	    =
+	    rep::bucket_sizes *table;
+    };									# package hashtable 
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## AUTHOR:   John Reppy
+##	    AT&T Bell Laboratories
+##	    Murray Hill, NJ 07974
+##	    jhr@research.att.com
+## COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.
