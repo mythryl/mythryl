@@ -90,7 +90,7 @@
 #define heap_allocation_limit	REGOFF(12,ESP)			// heapcleaner gets run when heap_allocation_pointer reaches this point.
 								// Needs to match   heap_allocation_limit    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
-#define pc			REGOFF(16,ESP)			// Needs?to match   gc_link		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#define pc			REGOFF(16,ESP)			// Needs?to match   heapcleaner_link	     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 #define unused_1		REGOFF(20,ESP)
 

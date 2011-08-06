@@ -117,7 +117,7 @@
 #define 	stackptr		sp
 
 #define		heap_allocation_pointer	r14
-#define 	heap_allocation_limit		r15
+#define 	heap_allocation_limit	r15
 #define 	heap_changelog_ptr	r16
 #define		stdlink			r17
 #define 	stdclos			r18
@@ -128,8 +128,7 @@
 #define		miscreg0		r24
 #define		miscreg1		r25
 #define 	miscreg2		r26
-
-#define		pc		r28
+#define		pc		        r28
 
 
 #define       	atmp1 r29
