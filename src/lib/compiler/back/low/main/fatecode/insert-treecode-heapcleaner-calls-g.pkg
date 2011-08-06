@@ -193,7 +193,7 @@ herein
 	    #
 	    calleesaves												# On Intel32 this is [ ebx, ecx, edx ].
 		=
-		list::take (pri::miscregs, mp::num_callee_saves);
+		list::take_n (pri::miscregs, mp::num_callee_saves);
 
 
 	    # Registers that are roots for the heapcleaner --
@@ -599,16 +599,16 @@ herein
 		    make_and_save_heaplimit_check_for__ccomponent_ref   { ccomponent_ref => ccomponent_heapcleaner_blocks, all_callers_known => FALSE, optimized => FALSE };
 
 
-		# Check-limit for known functions,
-		# i.e.~functions with entries from
-		# within the same ccomponent.
+		# Check-limit for all-callers-known functions,
+		# i.e.~functions called only from within the
+		# same callgraph connected component:
 		#
 		make_and_save_heaplimit_check_for_all_callers_known_function
 		    =
 		    make_and_save_heaplimit_check_for__ccomponent_ref { ccomponent_ref => all_callers_known_heapcleaner_blocks, all_callers_known => TRUE, optimized => FALSE };
 
 
-		# Check-limit for optimized, known functions.  
+		# Same as above, but for functions which are to be optimized:
 		#
 		make_and_save_heaplimit_check_for_optimized_all_callers_known_function
 		    =
@@ -618,14 +618,16 @@ herein
 	    # A rw_vector for checking cycles:
 	    #
 	    stipulate
-		nnn = 1 + fold_right
-			      (fn (register, n) =  int::max (rkj::intrakind_register_id_of  register,  n)) 
-			      0
-			      heapcleaner_root_set.regs;
+		max_root_register_id_plus_1
+		    =
+		    1 + fold_right
+			(fn (register, n) =  int::max (rkj::intrakind_register_id_of  register,  n)) 
+			0
+			heapcleaner_root_set.regs;
 	    herein
 
-		client_roots__global = rwv::make_rw_vector (nnn, -1);				# More icky thread-hostile mutable global state.  XXX SUCKO FIXME
-		stamp__global        = REF 0;							# More icky thread-hostile mutable global state.  XXX SUCKO FIXME
+		client_roots__global = rwv::make_rw_vector (max_root_register_id_plus_1, -1);			# More icky thread-hostile mutable global state.  XXX SUCKO FIXME
+		stamp__global        = REF 0;									# More icky thread-hostile mutable global state.  XXX SUCKO FIXME
 	    end;
 
 
@@ -655,23 +657,23 @@ herein
 		    # Currently no architectures -- including Intel32 -- use
 		    # the LOAD(...) form, so we are safe.
 		    #	
-		    fun bind (tcf::REG (32, r       )) =>   REG r;
-			bind (tcf::LOAD (32, ea, mem)) =>   MEM (ea, mem);  #  XXX 
-			bind (_)                       =>   error "bind";
+		    fun bind (tcf::REG  (32, r            )) =>   REG r;
+			bind (tcf::LOAD (32, ea, ramregion)) =>   MEM (ea, ramregion);  #  XXX 
+			bind (_)                             =>   error "bind";
 		    end;
 
 		    fun fbind (tcf::FREG (64, r)) =>   FREG r;
 			fbind (_)                 =>   error "fbind";
 		    end;
 
-		    st     = *stamp__global;
-		    cyclic = st + 1;
+		    stamp  =  *stamp__global;
+		    cyclic =   stamp + 1;
 
-		    if (st > 100000)   stamp__global := 0;
-		    else               stamp__global := st + 2;
+		    if (stamp > 100000)   stamp__global := 0;
+		    else                  stamp__global := stamp + 2;
 		    fi;
 
-		    nnn =   rwv::length  client_roots__global;
+		    client_root_count =   rwv::length  client_roots__global;
 
 
 		    fun mark_clients []
@@ -682,9 +684,9 @@ herein
 			    => 
 			    {   rx =  rkj::intrakind_register_id_of  register;
 
-				if (rx < nnn)
+				if (rx < client_root_count)
 				    #
-				    rwv::set (client_roots__global, rx, st);
+				    rwv::set (client_roots__global, rx, stamp);
 				fi;
 
 				mark_clients rs;
@@ -700,20 +702,20 @@ herein
 			    =>
 			    ();
 
-			mark_heapcleaner_roots (tcf::REG(_, register) ! rs)
+			mark_heapcleaner_roots (tcf::REG(_, register) ! rest)
 			    => 
 			    {   rx = rkj::intrakind_register_id_of  register;
 
-				if  (rwv::get (client_roots__global, rx) == st)
+				if  (rwv::get (client_roots__global, rx) == stamp)
 				     rwv::set (client_roots__global, rx, cyclic);
 				fi; 
 
-				mark_heapcleaner_roots rs;
+				mark_heapcleaner_roots rest;
 			    };
 
-			mark_heapcleaner_roots(_ ! rs)
+			mark_heapcleaner_roots(_ ! rest)
 			    =>
-			    mark_heapcleaner_roots rs;
+			    mark_heapcleaner_roots rest;
 		    end;
 
 		    mark_clients  boxed;
@@ -722,8 +724,9 @@ herein
 		    mark_heapcleaner_roots  heapcleaner_roots;
 
 
-		    # First, we pack all unboxed roots,
-		    # if any, into a record:
+		    # First, generate code to
+		    # pack all unboxed roots
+		    # (if any) into a record:
 		    #
 		    boxed_stuff
 			= 
@@ -735,14 +738,14 @@ herein
 
 			    _
 				=>
-				# Align the heap_allocation_pointer if we
-				# have floating point roots:
+				# Align the heap_allocation_pointer
+				# if we have floating point roots:
 				#
 				{   case float
 					#
 					[] => ();
 
-					_  => emit_op  ( tcf::LOAD_INT_REGISTER
+					_  => emit_op  ( tcf::LOAD_INT_REGISTER			# heap_allocation_pointer |= 4;
 							   ( pri::address_width,
 							     heap_allocation_pointer_register,
 							     #	 
@@ -756,34 +759,36 @@ herein
 				    esac;
 
 				    # If we have int32 or floating point stuff, package them
-				    # up into a raw record.  Floating point stuff have to come first.
+				    # up into a raw record.  Float64 stuff (more generally,
+				    # 64-bit stuff) has to come first, while we still have
+				    # 64-bit alignment guaranteed.
+				    #
+				    qwords =   length float + (length int32 + 1) / 2;	# 64-bit issue. We'll be using int64 not int32 in 64-bit mode.
+				    #
+				    RECORD
+				      {
+					is_boxed =>  FALSE,
+					reg      =>  rgk::make_int_codetemp (), 
+					reg_tmp  =>  rgk::make_int_codetemp (),
 
+					words    =>  qwords + qwords,
+					fields   =>  map fbind float  @  map bind int32
+				      } 
+				      !
+				      map bind boxed;
 
-				    {   qwords =   length float + (length int32 + 1) / 2;	# 64-bit issue. We'll be using int64 not int32 in 64-bit mode.
-
-					RECORD
-				          {
-					    is_boxed =>  FALSE,
-					    reg      =>  rgk::make_int_codetemp (), 
-					    reg_tmp  =>  rgk::make_int_codetemp (),
-
-					    words    =>  qwords + qwords,
-					    fields   =>  map fbind float  @  map bind int32
-					  } 
-					  !
-					  map bind boxed;
-				    };
 				};
 			esac;
 
+
 		    # Then, we check whether we have enough
 		    # heapcleaner roots to store boxed_stuff.
-		    # If so, we are safe.
-		    # Otherwise, we have to pack up some of
-		    # the  boxed stuff into a record too.
-		    #
-		    n_boxed_stuff	=   length boxed_stuff;
-		    n_heapcleaner_roots	=   length heapcleaner_roots;
+		    # If so, we are safe; otherwise, we have
+		    # to pack up some of the  boxed stuff into
+		    # a record too.
+
+		    n_boxed_stuff	=   length  boxed_stuff;
+		    n_heapcleaner_roots	=   length  heapcleaner_roots;
 
 		    namings
 			= 
@@ -794,8 +799,8 @@ herein
 			    # Package up some of the boxed stuff:
 
 			    extra         =  n_boxed_stuff - n_heapcleaner_roots + 1;
-			    pack_up       =  list::take (boxed_stuff, extra);
-			    don't_pack_up =  list::drop (boxed_stuff, extra);
+			    pack_up       =  list::take_n (boxed_stuff, extra);
+			    don't_pack_up =  list::drop_n (boxed_stuff, extra);
 
 			    RECORD
 			      {
