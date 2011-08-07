@@ -7,6 +7,21 @@
 #
 #     src/A.GARBAGE-COLLECTOR.OVERVIEW
 #
+#
+#
+# Nomenclature:
+#
+#     A (heapcleaner) "root" is a live pointer into the heap.
+#     which is to say, the root of a tree of live heap values
+#     which the heapcleaner ("garbage collector") must NOT
+#     recycle.  Much of the work in this consists of making
+#     sure that all roots get passed to the heapcleaner.
+#
+#     In this file we occasionally mildly abuse the word "root"
+#     to refer to any live register, since just about any
+#     register might contain a pointer into the heap.
+#
+#
 # We insert heaplimit checks at points determined by
 #
 #     src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
@@ -15,12 +30,62 @@
 #
 #     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
 #
-# This new version is derived from the generic CallGC.
-# It can handle derived pointers as roots and it can also be used as 
-# callbacks.  These extra facilities are neccessary for global optimizations  
-# in the presence of heapcleaning.  
+# The basic idea here is to buy time and space efficiency
+# by structuring the heapcleaner ("garbage collector")
+# invocation logic as a three-level hierarchy:
 # 
-# -- Allen Leung
+#     Level 1:
+#         In every loop, we have a test like
+#             if (heapcleaner_allocation_pointer > heapcleaner_allocation_limit)  longjump_to_heapcleaner_call();
+#         In assembly code, that looks like
+#             cmp heapcleaner_allocation_pointer, heapcleaner_allocation_limit
+#             bgt longjump_to_heapcleaner_call					# "bgt" == "branch if greater-than"
+#         We want the latter to be as small and fast as possible,
+#         so on Intel32 these will typically be two-byte ops:
+#         one byte of opcode and one byte of address.
+#         On 32-bit RISCS they will have two bytes of address.
+#         (On 32-bit RISCS with delay slots we try to further
+#         optimize by putting the CMP instruction in a delay slot
+#         and the BGT in the next block.)
+#
+#     Level 2:
+#         Longjumps to the actual code to call the heapcleaner.
+#         These will generally need to have a full 32-bit address.
+#         One such longjump can be shared among multiple Level-1 branches.
+# 
+#     Level 3:
+#         Blocks of logic to actually call the heapcleaner.
+#         
+#	      The major problem to be solved by these blocks is that
+#         at different points in the code we have live data in
+#         different sets of registers, and the types of data in
+#         those registers also varies -- for example at one point
+#         EAX may hold 32-bit integer, but at another point it may
+#         hold a pointer to a binary tree.  The garbage collector
+#         needs to have all live pointers to keep it from recycling
+#	      a value we're using when it runs.
+#         
+#         Thus, the main purpose of the heapcleaner-call blocks is to:
+#         
+#	        o Pack the live register contents into a standard
+#             form intelligible to the heapcleaner. Unused
+#             registers also need to be nulled out at this point.
+#
+#           o Call the heapcleaner.
+#
+#           o Unpack the original register contents back into
+#             the registers, and resume execution.
+#
+#
+#
+#                -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#                "This new version is derived from the generic CallGC.
+#                 It can handle derived pointers as roots and it can also be used as 
+#                 callbacks.  These extra facilities are neccessary for global optimizations  
+#                 in the presence of heapcleaning."
+# 
+#                        -- Allen Leung
 
 # Compiled by:
 #     src/lib/compiler/core.sublib
@@ -96,8 +161,8 @@ herein
 	      =
 	      { max_heapbytes_allocated_before_next_heaplimit_check:		Int,
 		#
-		regfmls:	List( tcf::Expression ),	# "fmls" is probably "formals", i.e. parameters.
-		regtys:		List( fcf::Type ),		# "tys" is probably "types", most likely parameter types.
+		live_registers:	List( tcf::Expression ),
+		live_register_types:		List( fcf::Type ),
 		return:		tcf::Void_Expression
 	      };
 
@@ -135,29 +200,35 @@ herein
 	    #    heapcleaner_label:
 	    #		      The codelabel on the call-heapcleaner block.
 	    #
-	    #    regfmls:     The roots -- all live registers.
+	    #    live_registers:   The heapcleaner "roots" -- actually, all live registers.
 	    #
-	    #    boxed, float, int32:
-	    #		  Roots partitioned by types.
+	    #    boxed_roots, float_roots, int32_roots:
+	    #		      live_registers partitioned into three classes:
+	    #                   o Registers containing integers.
+	    #                   o Registers containing floats.
+	    #                   o Registers containing pointers.
 	    #
 	    #    return:      How to return from the call-heapcleaner block.
 	    #
 	    Heapcleaner_Info
 	      #	
-	      = HEAPCLEANER_INFO 
-		  { all_callers_known:	Bool,					# Known function ? 
-		    optimized:		Bool,					# Optimized? 
-		    heapcleaner_label:	Ref( lbl::Codelabel ),			# Label to invoke heapcleaner.
-		    boxed:		List( tcf::Int_Expression ),		# Locations with boxed chunks.
-		    int32:		List( tcf::Int_Expression ),		# Locations with int32 chunks.			# 64-bit issue.
-		    float:		List( tcf::Float_Expression ),		# Locations with float chunks.
-		    regfmls:		List( tcf::Expression ),		# All live registers.
-		    return:		tcf::Void_Expression			# How to return.
+	      = HEAPCLEANER_CALL
+		  { all_callers_known:	    Bool,					# Known function ? 
+		    optimized:		    Bool,					# Optimized? 
+		    label_on_heapcleaner_call:	Ref( lbl::Codelabel ),			# The longjumps jump to this codelabel.
+		    #
+		    live_registers:			List( tcf::Expression ),		# All live registers.
+		    #
+		    boxed_roots:		List( tcf::Int_Expression ),		# Live registers holding boxed values.
+		    int32_roots:		List( tcf::Int_Expression ),		# Live registers holding int32 values.			# 64-bit issue.
+		    float_roots:		List( tcf::Float_Expression ),		# Live registers holding float values.
+		    #
+		    return:			tcf::Void_Expression			# How to return.
 		  }
 
-	      | MODULE 
-		  { info:		Heapcleaner_Info,
-		    addresses:		Ref(  List(  lbl::Codelabel ) )		#  Addresses associated with long jump 
+	      | LONGJUMP_TO_HEAPCLEANER_CALL 
+		  { heapcleaner_call:	    Heapcleaner_Info,				# It appears that in practice this must always be a HEAPCLEANER_CALL, never a LONGJUMP_TO_HEAPCLEANER_CALL. 
+		    labels_on_longjump:	    Ref(  List(  lbl::Codelabel ) )		# One codelabel for each branch that jumps to us.
 		  }
 	      ;
 
@@ -308,12 +379,12 @@ herein
 
 
 	    ######################################################################
-	    # Private state
+	    # Private state									# All three of these are:  More icky thread-hostile mutable global state. XXX SUCKO FIXME
 	    ######################################################################
 
-	    ccomponent_heapcleaner_blocks	 =    REF  ([]:  List(Heapcleaner_Info));	# Info needed for standard functions within the ccomponent.		# More icky thread-hostile mutable global state. XXX SUCKO FIXME
-	    all_callers_known_heapcleaner_blocks =    REF  ([]:  List(Heapcleaner_Info));	# Info needed for all-callers-known functions within the component.	# More icky thread-hostile mutable global state. XXX SUCKO FIXME
-	    module_heapcleaner_blocks		 =    REF  ([]:  List(Heapcleaner_Info));	# Info needed for modules.						# More icky thread-hostile mutable global state. XXX SUCKO FIXME
+	    cccomponent_heapcleaner_blocks	 =    REF  ([]:  List(Heapcleaner_Info));	# Info needed for standard functions within the ccomponent.
+	    all_callers_known_heapcleaner_blocks =    REF  ([]:  List(Heapcleaner_Info));	# Info needed for all-callers-known functions within the component.
+	    longjumps_to_heapcleaner_calls	 =    REF  ([]:  List(Heapcleaner_Info));	# These must actually all be LONGJUMP_TO_HEAPCLEANER_CALL, not HEAPCLEANER_CALL.  
 
 
 
@@ -532,11 +603,11 @@ herein
 	    #
 	    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
 	    #
-	    fun clear__ccomponent_heapcleaner_blocks__all_callers_known_heapcleaner_blocks__and__module_heapcleaner_blocks ()
+	    fun clear__cccomponent_heapcleaner_blocks__all_callers_known_heapcleaner_blocks__and__longjumps_to_heapcleaner_calls  ()
 		=
-		{   ccomponent_heapcleaner_blocks	    :=  [];
+		{   cccomponent_heapcleaner_blocks	    :=  [];
 		    all_callers_known_heapcleaner_blocks    :=  [];
-		    module_heapcleaner_blocks		    :=  [];
+		    longjumps_to_heapcleaner_calls	    :=  [];
 		};
 
 
@@ -546,9 +617,9 @@ herein
 	    #    o Int32
 	    #    o Float
 	    #
-	    fun split_into_boxed_int32_float ([], [], boxed, int32, float)
+	    fun split_into_boxed_int32_float ([], [], boxed_roots, int32_roots, float_roots)
 		    => 
-		    { boxed, int32, float };
+		    { boxed_roots, int32_roots, float_roots };
 
 		split_into_boxed_int32_float (tcf::INT_EXPRESSION   r ! rl, fcf::type::FLOAT64 ! tl, b, i, f) =>   error "split_into_boxed_int32_float: tcf::INT_EXPRESSION";
 		split_into_boxed_int32_float (tcf::INT_EXPRESSION   r ! rl, fcf::type::INT32   ! tl, b, i, f) =>   split_into_boxed_int32_float (rl, tl,     b, r ! i,     f);	# 64-bit issue: Assumes INT32 is the natural word size.
@@ -562,28 +633,28 @@ herein
 		fun make_and_save_heaplimit_check_for__ccomponent_ref
 			{ ccomponent_ref, all_callers_known, optimized }
 			({ emit_op, begin_connected_component, end_connected_component, emit_pseudo_op, define_local_label, define_global_label, emit_comment, put_bblock_note, get_notes, end_procedure }: Stream)
-			{ max_heapbytes_allocated_before_next_heaplimit_check, regfmls, regtys, return }
+			{ max_heapbytes_allocated_before_next_heaplimit_check, live_registers, live_register_types, return }
 		    =
 		    {   # Partition the root set into the appropriate root flavors:
 			#
-			(split_into_boxed_int32_float (regfmls, regtys, [], [], []))
+			(split_into_boxed_int32_float (live_registers, live_register_types, [], [], []))
 			    ->
-			    { boxed, int32, float };
+			    { boxed_roots, int32_roots, float_roots };
 
 
 			# Generate a heaplimit check and push it on 'component_ref':
 			#
 			ccomponent_ref
 			    := 
-			    HEAPCLEANER_INFO
+			    HEAPCLEANER_CALL
 			      {
 				all_callers_known,
 				optimized,
-				heapcleaner_label =>  REF (emit_heaplimit_check_and_branch (emit_op, max_heapbytes_allocated_before_next_heaplimit_check)),
-				boxed,
-				int32,
-				float,
-				regfmls,
+				label_on_heapcleaner_call =>  REF (emit_heaplimit_check_and_branch (emit_op, max_heapbytes_allocated_before_next_heaplimit_check)),
+				boxed_roots,
+				int32_roots,
+				float_roots,
+				live_registers,
 				return
 			    }
 			    !
@@ -596,7 +667,7 @@ herein
 		#
 		make_and_save_heaplimit_check_for_standard_function
 		    =
-		    make_and_save_heaplimit_check_for__ccomponent_ref   { ccomponent_ref => ccomponent_heapcleaner_blocks, all_callers_known => FALSE, optimized => FALSE };
+		    make_and_save_heaplimit_check_for__ccomponent_ref   { ccomponent_ref => cccomponent_heapcleaner_blocks, all_callers_known => FALSE, optimized => FALSE };
 
 
 		# Check-limit for all-callers-known functions,
@@ -631,11 +702,19 @@ herein
 	    end;
 
 
-	    # This function packs boxed, int32 and float into heapcleaner_roots.
-	    # heapcleaner_roots must be non-empty.
-	    # Returns a function to unpack.
+	    # This function packs boxed_roots, int32_roots and
+	    # float_roots into heapcleaner_roots.  If the registers
+	    # to pass (first three) outnumber the registers available
+	    # (heapcleaner_roots) then we pack stuff into a heap
+	    # record and pass a pointer to the rectord.
 	    #
-	    fun pack (emit_op, heapcleaner_roots, boxed, int32, float)
+	    # heapcleaner_roots must be non-empty -- we can't pass
+	    # anything to the heapcleaner in zero registers!
+	    #
+	    # We return a function to unpack everything back into
+	    # the original registers after heapcleaning is complete.
+	    #
+	    fun pack (emit_op, heapcleaner_roots, boxed_roots, int32_roots, float_roots)
 		=
 		{   # Datatype naming describes the contents a heapcleaner root.
 		    #
@@ -718,8 +797,8 @@ herein
 			    mark_heapcleaner_roots rest;
 		    end;
 
-		    mark_clients  boxed;
-		    mark_clients  int32;
+		    mark_clients  boxed_roots;
+		    mark_clients  int32_roots;
 
 		    mark_heapcleaner_roots  heapcleaner_roots;
 
@@ -730,18 +809,18 @@ herein
 		    #
 		    boxed_stuff
 			= 
-			case (int32, float)
+			case (int32_roots, float_roots)
 			    #
 			    ([], [])
 				=>
-				map bind boxed;
+				map bind boxed_roots;
 
 			    _
 				=>
 				# Align the heap_allocation_pointer
 				# if we have floating point roots:
 				#
-				{   case float
+				{   case float_roots
 					#
 					[] => ();
 
@@ -763,7 +842,7 @@ herein
 				    # 64-bit stuff) has to come first, while we still have
 				    # 64-bit alignment guaranteed.
 				    #
-				    qwords =   length float + (length int32 + 1) / 2;	# 64-bit issue. We'll be using int64 not int32 in 64-bit mode.
+				    qwords =   length float_roots + (length int32_roots + 1) / 2;	# 64-bit issue. We'll be using int64 not int32 in 64-bit mode.
 				    #
 				    RECORD
 				      {
@@ -772,10 +851,10 @@ herein
 					reg_tmp  =>  rgk::make_int_codetemp (),
 
 					words    =>  qwords + qwords,
-					fields   =>  map fbind float  @  map bind int32
+					fields   =>  map fbind float_roots  @  map bind int32_roots
 				      } 
 				      !
-				      map bind boxed;
+				      map bind boxed_roots;
 
 				};
 			esac;
@@ -799,8 +878,9 @@ herein
 			    # Package up some of the boxed stuff:
 
 			    extra         =  n_boxed_stuff - n_heapcleaner_roots + 1;
-			    pack_up       =  list::take_n (boxed_stuff, extra);
-			    don't_pack_up =  list::drop_n (boxed_stuff, extra);
+
+			    pack_up       =  list::take_n (boxed_stuff, extra);		# First 'extra' elements of boxed_stuff list.
+			    don't_pack_up =  list::drop_n (boxed_stuff, extra);		# Remaining     elements of boxed_stuff list.
 
 			    RECORD
 			      {
@@ -814,13 +894,8 @@ herein
 			      don't_pack_up; 
 			fi;
 
-		    fun copy ([], _)
-			    =>
-			    ();
-
-			copy (dst, src)
-			    =>
-			    emit_op (tcf::MOVE_INT_REGISTERS (32, dst, src));
+		    fun copy ( [],   _) =>   ();
+			copy (dst, src) =>   emit_op (tcf::MOVE_INT_REGISTERS (32, dst, src));		# Parallel copy of N source registers to N destination registers, possibly overlapping.
 		    end;
 
 
@@ -828,22 +903,22 @@ herein
 		    # We have to make sure that cycles are correctly handled 
 		    # so we can't do a copy at a time!  But see XXX below.
 		    #
-		    fun prolog (hp, unused_roots, [], rds, rss)
+		    fun prolog (hp, unused_roots, [], rds, rss)						# "rds" == "destination registers";   "rss" == "source registers".
 			    => 
-			    {   fun init [] => ();
+			    {   fun set_registers_to_void [] => ();
 				    #
-				    init (tcf::REG (type, rd      ) ! roots) =>   { emit_op (tcf::LOAD_INT_REGISTER (type, rd, void));	init roots; };
-				    init (tcf::LOAD (type, ea, mem) ! roots) =>   { emit_op (tcf::STORE_INT (type, ea, void, mem));	init roots; };
+				    set_registers_to_void (tcf::REG  (type, rd     ) ! roots) =>   { emit_op (tcf::LOAD_INT_REGISTER (type, rd, void));	set_registers_to_void roots; };
+				    set_registers_to_void (tcf::LOAD (type, ea, mem) ! roots) =>   { emit_op (tcf::STORE_INT (type, ea, void, mem));	set_registers_to_void roots; };
 				    #
-				    init _ => error "init";
+				    set_registers_to_void _ => error "set_registers_to_void";
 				end;
 
 
-				# Update the heap pointer if we have done any allocation 
-
+				# Update the heap pointer if we have done any allocation:
+				#
 				if (hp > 0)
 				    #
-				    emit_op ( tcf::LOAD_INT_REGISTER
+				    emit_op ( tcf::LOAD_INT_REGISTER					# heap_allocation_pointer += hp;
                                                 ( pri::address_width,
                                                   heap_allocation_pointer_register, 
 					          tcf::ADD
@@ -857,30 +932,30 @@ herein
 
 				# Emit the parallel copies:
 				#
-				copy (rds, rss);
+				copy (rds, rss);							# "rds" == "destination registers";   "rss" == "source registers".
 
 				# Any unused heapcleaner roots
 				# must be cleared to void.
 				# The following MUST come last:
 				#
-				init  unused_roots;
+				set_registers_to_void  unused_roots;
 			    };
 
 
-			prolog (hp, tcf::REG(_, rd) ! roots, REG rs ! bs, rds, rss)
+			prolog (hp,  tcf::REG(_, rd) ! roots,  REG rs ! bs,                       rds, rss)
 			    => 
 			    # Copy client root rs into heapcleaner root rd  
 			    #
 			    prolog (hp, roots, bs, rd ! rds, rs ! rss);
 
 
-			prolog (hp, tcf::REG(_, rd) ! roots, RECORD (r as { reg, ... } ) ! bs, rds, rss)
+			prolog (hp,  tcf::REG(_, rd) ! roots,  RECORD (r as { reg, ... } ) ! bs,  rds, rss)
 			    => 
 			    {    # Make a record then copy:
 
 				 hp =   make_record (hp, r);
 
-				 prolog (hp, roots, bs, rd ! rds, reg ! rss);
+				 prolog  (hp,  roots,  bs,  rd ! rds,  reg ! rss);
 			    };
 
 	     #          prolog (hp, tcf::LOAD(_, ea, mem) ! roots, b ! bs, rds, rss)    # XXX
@@ -908,52 +983,57 @@ herein
 		    also
 		    fun make_record (hp, { is_boxed, words, reg, fields, ... } )
 			= 
-			{   fun disp n
+			{   fun disp n											# heap_allocation_pointer + n
 				=
 				tcf::ADD  (pri::address_width,  pri::heap_allocation_pointer,  make_int_literal n);
 
-			    fun alloci (hp, e)
-				=
-				emit_op (tcf::STORE_INT (32, disp hp, e, frr::memory));		# Probable 64-bit issue.
 
-			    fun allocf (hp, e)
+			    fun alloci (hp, e)										# heap_allocation_pointer[hp] = e
+				=
+				emit_op (tcf::STORE_INT (32, disp hp, e, frr::memory));					# 64-bit issue: '32' is wordsize-in-bits.
+
+
+
+			    fun allocf (hp, e)										# heap_allocation_pointer[hp] = e
 				=
 				emit_op (tcf::STORE_FLOAT (64, disp hp, e, frr::memory));
 
 
-			    fun alloc (hp, [])
+
+			    fun alloc (hp, [])										# Store given list of registers and records at successive locations starting at 'hp' (=="heap pointer").
 				    =>
 				    ();
 
-				alloc (hp, b ! bs)
+				alloc (hp, what ! rest)
 				    => 
-				    case b
+				    case what
 					#
 					REG r
 					    =>
-					    {   alloci (hp, tcf::REG (32, r));
-						alloc (hp+4, bs);
+					    {   alloci (hp, tcf::REG (32, r));						# heap_allocation_pointer[hp] = r
+						alloc (hp+4, rest);							# 64-bit issue: '32' is wordsize-in-bytes.
 					    };
 
 					RECORD { reg, ... }
 					    => 
-					    {   alloci (hp, tcf::REG (32, reg));
-						alloc (hp+4, bs);
+					    {   alloci (hp, tcf::REG (32, reg));					# heap_allocation_pointer[hp] = reg
+						alloc (hp+4, rest);							# 64-bit issue: '32' is wordsize-in-bytes.
 					    };
 
 					MEM (ea, m)
 					    =>
-					    {   alloci (hp, tcf::LOAD (32, ea, m));
-						alloc (hp+4, bs);
+					    {   alloci (hp, tcf::LOAD (32, ea, m));					# heap_allocation_pointer[hp] = *m
+						alloc (hp+4, rest);							# 64-bit issue: '32' is wordsize-in-bytes.
 					    };
 
 					FREG r
 					    =>
-					    {   allocf (hp, tcf::FREG (64, r));
-						alloc (hp+8, bs);
+					    {   allocf (hp, tcf::FREG (64, r));						# heap_allocation_pointer[hp] = r
+						alloc (hp+8, rest);
 					    };
 				     esac;
 			    end;
+
 
 			    fun evaluate_args ([], hp)
 				    =>
@@ -975,11 +1055,23 @@ herein
 			    tagword =   is_boxed  ??    make_boxed_tagword  words
 					          ::  make_unboxed_tagword  words;
 
-			    emit_op (tcf::STORE_INT (32,  disp hp,  make_int_literal tagword,  frr::memory));		# 64-bit issue: '32' is probably bits-per-word.
-			    alloc (hp+4, fields);									# 64-bit issue:  '4' is probably bytes-per-word.
-			    emit_op (tcf::LOAD_INT_REGISTER (pri::address_width, reg, disp (hp+4))); 			# 64-bit issue:  '4' is probably bytes-per-word.
-			    hp + 4 + unt::to_int_x (unt::(<<) (unt::from_int words, 0u2)); 				# 64-bit issue:  '4' is probably bytes-per-word.
-			};
+			    # Write record/rawrec tagword:
+			    # 
+			    emit_op (tcf::STORE_INT (32,  disp hp,  make_int_literal tagword,  frr::memory));		# 64-bit issue: '32' is bits-per-word.
+
+			    # Write record fields:
+			    #	
+			    alloc (hp+4, fields);									# 64-bit issue:  '4' is bytes-per-word.
+
+			    # Save record address in register:
+			    #
+			    emit_op (tcf::LOAD_INT_REGISTER (pri::address_width, reg, disp (hp+4))); 			# 64-bit issue:  '4' is bytes-per-word.
+
+			    # Return new top-of-heap:
+			    #
+			    hp + 4 + unt::to_int_x (unt::(<<) (unt::from_int words, 0u2)); 				# 64-bit issue:  '4' is bytes-per-word.
+			};												# fun make_record
+
 
 		    # Copy the heapcleaner roots back to client roots. 
 		    # Again, to avoid potential cycles we
@@ -1036,7 +1128,7 @@ herein
 			    fun fsel n =   tcf::FLOAD (64, disp n, frr::memory);
 
 
-			    nnn =   rwv::length  client_roots__global;
+			    client_root_count =   rwv::length  client_roots__global;
 
 			    # Unpack normal fields:
 			    #
@@ -1069,7 +1161,7 @@ herein
 				    => 
 				    {   rdx =   rkj::intrakind_register_id_of  rd;
 
-					if (rdx < nnn and rwv::get (client_roots__global, rdx) == cyclic)
+					if (rdx < client_root_count  and  rwv::get (client_roots__global, rdx) == cyclic)
 					    #
 					    tmp_r =   rgk::make_int_codetemp ();
 
@@ -1098,7 +1190,7 @@ herein
 					    =
 					    unpack (reg_tmp, fields, rds, rss);
 
-					unpack_nested (n+4, bs, rds, rss);							# Probable 64-bit issue.
+					unpack_nested (n+4, bs, rds, rss);							# 64-bit issue: '4' is bytes-per-word.
 				    };
 
 				unpack_nested (n, FREG _ ! bs, rds, rss)
@@ -1136,22 +1228,22 @@ herein
 	    # records, calls the heapcleaner routine, then
 	    # unpacks the roots from the record.
 	    #
-	    fun emit_heapcleaner_call'
+	    fun emit_heapcleaner_call''
                   {
 		    stream => { emit_op, put_bblock_note, define_local_label, ... }: Stream,
 		    all_callers_known,
-		    boxed,
-		    int32,
-		    float,
+		    boxed_roots,
+		    int32_roots,
+		    float_roots,
 		    return
                   }
 		=
 		{   fun convert_rootset_to_treecode { regs, mem }
 			=
-			map (fn r = tcf::REG (32, r))												# 64-bit issue: '32' is probably supposed to be bits-per-word.
+			map (fn r = tcf::REG (32, r))												# 64-bit issue: '32' is bits-per-word.
 			    regs
 			@ 
-			map (fn i = tcf::LOAD (32, tcf::ADD (pri::address_width, pri::frameptr vfp, make_int_literal i), frr::memory))		# 64-bit issue: '32' is probably supposed to be bits-per-word.
+			map (fn i = tcf::LOAD (32, tcf::ADD (pri::address_width, pri::frameptr vfp, make_int_literal i), frr::memory))		# 64-bit issue: '32' is bits-per-word.
 			    mem;
 
 
@@ -1160,14 +1252,14 @@ herein
 		    # we can remove this root since it will be correctly
 		    # targetted. 
 		    #
-		    # boxed_roots are the boxed roots that
+		    # boxed_roots' are the boxed roots that
 		    # we have to move to the appropriate registers.
 		    #
 		    # heapcleaner_root_set are the registers that are
-		    # available for communicating to the collector.
+		    # available for communicating to the heapcleaner.
 		    #
-		    boxed_set    =   split_expression_list_into_register_vs_ram_lists  boxed;
-		    boxed_roots  =   difference (boxed_set, heapcleaner_root_set);			# Roots.
+		    boxed_set    =   split_expression_list_into_register_vs_ram_lists  boxed_roots;
+		    boxed_roots' =   difference (boxed_set, heapcleaner_root_set);			# Roots.
 
 		    available_heapcleaner_roots =   difference (heapcleaner_root_set, boxed_set);	# Available heapcleaner_roots.
 
@@ -1179,7 +1271,7 @@ herein
                               ( call,
                                 lhn::comment.x_to_note
 				    ( "roots="  + rootset_to_string  available_heapcleaner_roots
-				    + " boxed=" + rootset_to_string  boxed_roots
+				    + " boxed=" + rootset_to_string  boxed_roots'
 				    )
                               );
 			else
@@ -1188,16 +1280,19 @@ herein
 
 		    #  Convert them back to Treecode 
 		    #
-		    boxed             =   convert_rootset_to_treecode   boxed_roots                ;
+		    boxed_roots             =   convert_rootset_to_treecode   boxed_roots'               ;
 		    heapcleaner_roots =   convert_rootset_to_treecode   available_heapcleaner_roots;
 
-		    # If we have any remaining roots
+		    # If we have any remaining client roots
 		    # after the above trick, we have to 
-		    # make sure that heapcleaner_roots is not empty.
+		    # make sure that heapcleaner_roots is not empty
+		    # -- we need at least one heapcleaner root register
+		    # in which to pass the remaining client roots to
+		    # the heapcleaner:
 		    #
-		    my  (heapcleaner_roots, boxed)
+		    my  (heapcleaner_roots, boxed_roots)
 			= 
-			case (heapcleaner_roots, int32, float, boxed)
+			case (heapcleaner_roots, int32_roots, float_roots, boxed_roots)
 			    #
 			    ([], [], [], [])
 				=>
@@ -1205,15 +1300,15 @@ herein
 
 			    ([], _, _, _)
 				=>
-				([a_root_reg], boxed @ [a_root_reg]); 
+				([a_root_reg], boxed_roots @ [a_root_reg]); 
 
 			    # We put a_root_reg last to reduce
 			    # register pressure  during unpacking.
 
-			    _  => (heapcleaner_roots, boxed);
+			    _  => (heapcleaner_roots, boxed_roots);
 			esac;
 
-		    unpack =   pack (emit_op, heapcleaner_roots, boxed, int32, float);
+		    unpack =   pack (emit_op, heapcleaner_roots, boxed_roots, int32_roots, float_roots);
 
 		    put_bblock_note  heapcleaner_call_note;
 		    put_bblock_note  no_optimization_note; 
@@ -1231,19 +1326,19 @@ herein
 		    unpack ();
 
 		    emit_op  return;
-		};
+		};												# fun emit_heapcleaner_call''
 
 
 	    # The following function is responsible
 	    # for generating only the call_heapcleaner code.
 	    #
-#	    fun emit_heapcleaner_call  stream  { regfmls, regtys, return }					# Commented out 2011-08-05 CrT because it is never called.
+#	    fun emit_heapcleaner_call  stream  { live_registers, live_register_types, return }					# Commented out 2011-08-05 CrT because it is never called.
 #		=
-#		{   (split_into_boxed_int32_float (regfmls, regtys, [], [], []))
+#		{   (split_into_boxed_int32_float (live_registers, live_register_types, [], [], []))
 #			->
-#			{ boxed, int32, float };
+#			{ boxed_roots, int32_roots, float_roots };
 #
-#		    emit_heapcleaner_call' { stream, all_callers_known=>TRUE, boxed, int32, float, return };
+#		    emit_heapcleaner_call'' { stream, all_callers_known=>TRUE, boxed_roots, int32_roots, float_roots, return };
 #		};
 #
 
@@ -1252,14 +1347,14 @@ herein
 	    # that prettyprints the root set.
 	    # This is used for debugging only.
 	    #
-	    fun root_set_to_string { boxed, int32, float }
+	    fun root_set_to_string { boxed_roots, int32_roots, float_roots }
 		= 
-		{   fun extract (tcf::REG (32, r)) => r;
-			extract _ => error "extract";
+		{   fun extract_reg (tcf::REG (32, r)) =>  r;							# Peel an int register.
+			extract_reg _                  =>  error "extract_reg";
 		    end;
 
-		    fun fextract (tcf::FREG (64, f)) => f;
-			fextract _ => error "fextract";
+		    fun extract_freg (tcf::FREG (64, f)) => f;							# Peel a float register.
+			extract_freg _                   => error "extract_freg";
 		    end;
 
 		    fun listify title f []
@@ -1276,36 +1371,36 @@ herein
 					(cos::make_colorset  l) + " ";
 		    end;
 
-		    listify     "boxed=" rkj::register_to_string (map extract boxed)
-		    +   listify "int32=" rkj::register_to_string (map extract int32)
-		    +   listify "float=" rkj::register_to_string (map fextract float);
+		    listify  "boxed="  rkj::register_to_string  (map  extract_reg   boxed_roots)    +
+		    listify  "int32="  rkj::register_to_string  (map  extract_reg   int32_roots)    +
+		    listify  "float="  rkj::register_to_string  (map  extract_freg  float_roots);
 		};
 
 
 	    # The following function is responsible for generating actual
 	    # heapcleaner-calling code, with entry labels and return information.
 	    #
-	    fun invoke_heapcleaner
-                  ( stream  as { emit_op, define_local_label, define_global_label, end_procedure, put_bblock_note, ... },
+	    fun emit_heapcleaner_call'
+                  { stream  as { emit_op, define_local_label, define_global_label, end_procedure, put_bblock_note, ... },
 		    external_entry
-                  )
+                  }
                   heapcleaner_info
 		= 
-		{   my  { all_callers_known, optimized, boxed, int32, float, regfmls, return, heapcleaner_label }
+		{   my  { all_callers_known, optimized, boxed_roots, int32_roots, float_roots, live_registers, return, label_on_heapcleaner_call }
 			=
 			case heapcleaner_info
 			    #
-			    HEAPCLEANER_INFO info                       =>  info;
-			    MODULE { info=>HEAPCLEANER_INFO info, ... } =>  info;
+			    HEAPCLEANER_CALL info                           =>  info;
+			    LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call =>  HEAPCLEANER_CALL info, ... } =>  info;
 			    #
-			    _ => error "invoke_heapcleaner: heapcleaner_info";
+			    _ => error "emit_heapcleaner_call': heapcleaner_info";
 			esac;
 
 		    liveout =   optimized  ??  []
-					   ::  regfmls;
+					   ::  live_registers;
 
-		    if external_entry     define_global_label *heapcleaner_label;
-		    else                  define_local_label  *heapcleaner_label;
+		    if external_entry     define_global_label  *label_on_heapcleaner_call;
+		    else                  define_local_label   *label_on_heapcleaner_call;
 		    fi;
 
 		    # When an all-callers-known block is to be optimized,
@@ -1313,13 +1408,13 @@ herein
 		    #
 		    if (not optimized)
 			#
-			emit_heapcleaner_call' { stream, all_callers_known, boxed, int32, float, return };
+			emit_heapcleaner_call'' { stream, all_callers_known, boxed_roots, int32_roots, float_roots, return };
 		    else
 			put_bblock_note (
 			    #
 			    lhn::heapcleaner_safepoint.x_to_note
 				#
-				(*debug_heapcleaner  ??  root_set_to_string { boxed, int32, float }
+				(*debug_heapcleaner  ??  root_set_to_string { boxed_roots, int32_roots, float_roots }
 					             ::  ""
 				)
 			);
@@ -1343,28 +1438,37 @@ herein
 	    # same calling convention.
 	    #
 	    fun same_calling_convention
-		    ( HEAPCLEANER_INFO { boxed=>b1, int32=>i1, float=>f1, return=>tcf::GOTO (ret1, _), ... },		# Possible 64-BIT-ISSUE
-		      HEAPCLEANER_INFO { boxed=>b2, int32=>i2, float=>f2, return=>tcf::GOTO (ret2, _), ... }		# Possible 64-BIT-ISSUE
+		    ( HEAPCLEANER_CALL { boxed_roots=>b1, int32_roots=>i1, float_roots=>f1, return=>tcf::GOTO (ret1, _), ... },
+		      HEAPCLEANER_CALL { boxed_roots=>b2, int32_roots=>i2, float_roots=>f2, return=>tcf::GOTO (ret2, _), ... }
 		    )
 		    =>
-		    {   fun eq_ea (tcf::REG(_, r1), tcf::REG(_, r2))
+		    {   fun eq_ea ( tcf::REG(_, r1),
+                                    tcf::REG(_, r2)
+                                  )
 				=>
 				rkj::codetemps_are_same_color (r1, r2);
 
-			    eq_ea (tcf::ADD(_, tcf::REG(_, r1), tcf::LITERAL i),
-				   tcf::ADD(_, tcf::REG(_, r2), tcf::LITERAL j))
+			    eq_ea ( tcf::ADD(_, tcf::REG(_, r1), tcf::LITERAL i),
+				    tcf::ADD(_, tcf::REG(_, r2), tcf::LITERAL j)
+                                  )
 				=>  
-				rkj::codetemps_are_same_color (r1, r2) and tcf::mi::eq (32, i, j);		# Possible 64-BIT-ISSUE
+				rkj::codetemps_are_same_color (r1, r2)
+                                and
+                                tcf::mi::eq (32, i, j);								# 64-bit issue: '32' is 'wordbits'.
 
 			    eq_ea _ => FALSE;
 			end;
 
 
-			fun eq_r (tcf::REG(_, r1), tcf::REG(_, r2))
+			fun eq_r ( tcf::REG (_, r1),
+                                   tcf::REG (_, r2)
+                                 )
 				=>
 				rkj::codetemps_are_same_color (r1, r2);
 
-			    eq_r (tcf::LOAD(_, ea1, _), tcf::LOAD(_, ea2, _))
+			    eq_r ( tcf::LOAD(_, ea1, _),
+                                   tcf::LOAD(_, ea2, _)
+                                 )
 				=>
 				eq_ea (ea1, ea2);
 
@@ -1374,11 +1478,15 @@ herein
 			end;
 
 
-			fun eq_f (tcf::FREG(_, f1), tcf::FREG(_, f2))
+			fun eq_f ( tcf::FREG(_, f1),
+                                   tcf::FREG(_, f2)
+                                 )
 				=>
 				rkj::codetemps_are_same_color (f1, f2);
 
-			    eq_f (tcf::FLOAD(_, ea1, _), tcf::FLOAD(_, ea2, _))
+			    eq_f ( tcf::FLOAD(_, ea1, _),
+                                   tcf::FLOAD(_, ea2, _)
+                                 )
 				=>
 				eq_ea (ea1, ea2);
 
@@ -1386,20 +1494,28 @@ herein
 			end;
 
 
-			fun all predicate
+			# Compare two lists; return TRUE iff
+			# they compare pairwise equal per 'predicate'
+			# and are the same length:
+			#
+			fun lists_match  predicate
 			    = 
-			    f
+			    all'
 			    where
-				fun f (a ! x, b ! y) =>   predicate (a, b) and f (x, y);
-				    f (   [],    []) =>   TRUE;
-				    f _              =>   FALSE;
+				fun all' ( a ! resta,
+                                           b ! restb
+                                         )           =>   predicate (a, b)   and   all' (resta, restb);
+				    all' ([],    []) =>   TRUE;
+				    all' _           =>   FALSE;
 				end;
 			    end;
 
-			same_int_expression =   all eq_r;
+			same_int_expression =   lists_match  eq_r;
 
-			same_int_expression (b1, b2) and eq_r (ret1, ret2) and 
-			same_int_expression (i1, i2) and all eq_f (f1, f2);
+			same_int_expression (b1,   b2  )   and
+                        eq_r                (ret1, ret2)   and 
+			same_int_expression (i1,   i2  )   and
+                        lists_match  eq_f   (f1,   f2  );
 		    };
 
 		same_calling_convention _
@@ -1409,11 +1525,12 @@ herein
 
 
 	    # The following function is called once
-	    # at the end of compiling a ccomponent.
+	    # at the end of compiling a cccomponent.							# "cccomponent" == "callgraph connected-component".
 	    #
 	    # It generates long jumps to the end
 	    # of the module unit for standard functions,
-	    # and directly invokes the heapcleaner for known functions.
+	    # and directly invokes the heapcleaner for
+	    # all-callers-known functions.
 	    #
 	    # The actual heapcleaner invocation code is not generated yet.
 	    #
@@ -1433,14 +1550,14 @@ herein
 		{   # Heapcleaner code can be shared if the calling convention is the same.
 		    # Use linear search to find the heapcleaner function.
 		    #
-		    fun find (info as HEAPCLEANER_INFO { heapcleaner_label as REF hc_label, ... } )
+		    fun find (heapcleaner_call as HEAPCLEANER_CALL { label_on_heapcleaner_call as REF heapcleaner_label, ... } )
 			    =>
-			    search *module_heapcleaner_blocks
+			    search *longjumps_to_heapcleaner_calls
 			    where 
-				fun search (MODULE { info=>info', addresses } ! rest)
+				fun search (LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call=>heapcleaner_call', labels_on_longjump } ! rest)
 					=>
-					if (same_calling_convention (info, info'))   addresses := hc_label ! *addresses; 
-					else					     search rest;
+					if (same_calling_convention (heapcleaner_call, heapcleaner_call'))   labels_on_longjump :=  heapcleaner_label ! *labels_on_longjump; 
+					else					                             search rest;
 					fi;
 
 				    search []
@@ -1449,13 +1566,13 @@ herein
 
 					    label =   lbl::make_anonymous_codelabel ();
 
-					    heapcleaner_label :=   label;
+					    label_on_heapcleaner_call :=   label;
 
-					    module_heapcleaner_blocks
+					    longjumps_to_heapcleaner_calls
 						:=
-						MODULE { info, addresses => REF [hc_label] }
+						LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call, labels_on_longjump => REF [ heapcleaner_label ] }
 						!
-						*module_heapcleaner_blocks;
+						*longjumps_to_heapcleaner_calls;
 					};
 
 				    search _
@@ -1468,38 +1585,40 @@ herein
 		    end;
 
 
-		    # Generate a long jump to all external call-heapcleaner routines 
+		    # Generate long jumps to all external call-heapcleaner routines:
 		    #
-		    fun long_jumps (MODULE { addresses=>REF [], ... } )
+		    fun emit_long_jumps (LONGJUMP_TO_HEAPCLEANER_CALL { labels_on_longjump=>REF [], ... } )
 			    =>
 			    ();
 
-			long_jumps (MODULE { info=>HEAPCLEANER_INFO { heapcleaner_label, boxed, int32, float, ... }, addresses } )			# 64-BIT_ISSUE
+			emit_long_jumps (LONGJUMP_TO_HEAPCLEANER_CALL { labels_on_longjump, heapcleaner_call=>HEAPCLEANER_CALL { label_on_heapcleaner_call, boxed_roots, int32_roots, float_roots, ... }  } )
 			    =>
-			    {   reg_roots  =   map tcf::INT_EXPRESSION (int32 @ boxed);									# 64-BIT_ISSUE
-				freg_roots =   map tcf::FLOAT_EXPRESSION float;
+			    {   reg_roots  =   map  tcf::INT_EXPRESSION    (int32_roots @ boxed_roots);
+				freg_roots =   map  tcf::FLOAT_EXPRESSION  float_roots;
+
 				live_out   =   reg_roots @ freg_roots;
 
-				apply  define_local_label  *addresses
+				apply  define_local_label  *labels_on_longjump
 				before
-				    addresses := [];
+				    labels_on_longjump := [];
 
-				emit_op (tcf::GOTO (tcf::LABEL *heapcleaner_label, []));
-				end_procedure live_out;
+				emit_op (tcf::GOTO (tcf::LABEL *label_on_heapcleaner_call, []));
+
+				end_procedure  live_out;
 			    };
 
-			long_jumps _
+			emit_long_jumps _
 			    =>
-			    error "long_jumps";
+			    error "emit_long_jumps";
 		    end;
 
-		    apply  find  *ccomponent_heapcleaner_blocks
+		    apply  find  *cccomponent_heapcleaner_blocks
 		    before
-			ccomponent_heapcleaner_blocks := [];
+			cccomponent_heapcleaner_blocks := [];
 
-		    apply  long_jumps  *module_heapcleaner_blocks;
+		    apply  emit_long_jumps  *longjumps_to_heapcleaner_calls;
 
-		    apply  (invoke_heapcleaner (stream, FALSE))  *all_callers_known_heapcleaner_blocks
+		    apply   (emit_heapcleaner_call' { stream, external_entry => FALSE })   *all_callers_known_heapcleaner_blocks
 		    before
 			all_callers_known_heapcleaner_blocks := [];
 		};																	# fun emit_longjump_heapcleaner_calls
@@ -1511,9 +1630,9 @@ herein
 	    #
 	    fun emit_heapcleaner_calls_for_package  stream
 		=
-		apply  (invoke_heapcleaner (stream, TRUE))  *module_heapcleaner_blocks
+		apply   (emit_heapcleaner_call' { stream, external_entry => TRUE })   *longjumps_to_heapcleaner_calls
 		before
-		    module_heapcleaner_blocks := [];
+		    longjumps_to_heapcleaner_calls := [];
 
 	end;
     };
