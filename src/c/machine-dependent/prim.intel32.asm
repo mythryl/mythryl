@@ -90,7 +90,7 @@
 #define heap_allocation_limit	REGOFF(12,ESP)			// heapcleaner gets run when heap_allocation_pointer reaches this point.
 								// Needs to match   heap_allocation_limit    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
-#define pc			REGOFF(16,ESP)			// Needs?to match   heapcleaner_link	     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#define program_counter		REGOFF(16,ESP)			// Needs?to match   heapcleaner_link	     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 #define unused_1		REGOFF(20,ESP)
 
@@ -101,7 +101,7 @@
 #define current_thread_ptr	REGOFF(28,ESP)
 
 #define run_heapcleaner_ptr	REGOFF(32,ESP)			// Needs to match   run_heapcleaner__offset  in  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
-								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/fatecode/insert-treecode-heapcleaner-calls-g.pkg
+								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/fatecode/emit-treecode-heapcleaner-calls-g.pkg
 								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner (below) which returns a REQUEST_CLEANING to
 								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/cleaner/call-cleaner.c
@@ -181,13 +181,13 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 
 // 2011-02-01 CrT: I'm guessing 'JB(9f)'  branches to 9: with 'f' for 'forward',
 //                 and that     'JMP(1b)' branches to 1: with 'b' for 'backward'.
-#define CHECKLIMIT				\
- 1:;						\
-	MOVE(stdlink, temp, pc)	;		\
+#define CHECKLIMIT							\
+ 1:;									\
+	MOVE(stdlink, temp, program_counter);				\
 	CMP_L(heap_allocation_limit, heap_allocation_pointer);		\
-	JB(9f);					\
-	CALL(CSYM(call_heapcleaner));			\
-	JMP(1b);				\
+	JB(9f);								\
+	CALL(CSYM(call_heapcleaner));					\
+	JMP(1b);							\
  9:
 
 // *********************************************************************
@@ -199,7 +199,7 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 LIB7_CODE_HDR( return_from_signal_handler_asm)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
-	MOV_L(CONST(HEAP_VOID),pc)
+	MOV_L(CONST(HEAP_VOID),program_counter)
 	MOV_L(CONST(REQUEST_RETURN_FROM_SIGNAL_HANDLER), request_w)
 	JMP(CSYM(set_request))
 
@@ -219,7 +219,7 @@ LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
 	MOV_L(CONST(REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER), request_w)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
-	MOV_L(CONST(HEAP_VOID),pc)
+	MOV_L(CONST(HEAP_VOID),program_counter)
 	JMP(CSYM(set_request))
 
 // Here we pick up execution from where we were
@@ -240,7 +240,7 @@ ENTRY( resume_after_handling_software_generated_periodic_event )
 //
 LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), request_w)
-	MOVE(stdlink,temp,pc)
+	MOVE(stdlink,temp,program_counter)
 	JMP(CSYM(set_request))
 
 
@@ -272,7 +272,7 @@ LIB7_CODE_HDR(return_to_c_level_asm)
 	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), request_w)
 	MOV_L(CONST(HEAP_VOID),stdlink)
 	MOV_L(CONST(HEAP_VOID),stdclos)
-	MOV_L(CONST(HEAP_VOID),pc)
+	MOV_L(CONST(HEAP_VOID),program_counter)
 	JMP(CSYM(set_request))
 
 
@@ -286,7 +286,7 @@ LIB7_CODE_HDR(return_to_c_level_asm)
 ENTRY(request_fault)
 	CALL(CSYM(FPEEnable))          // Does not trash any general regs.
 	MOV_L(CONST(REQUEST_FAULT), request_w)
-	MOVE(stdlink,temp,pc)
+	MOVE(stdlink,temp,program_counter)
 	JMP(CSYM(set_request))
 
 // find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
@@ -323,7 +323,7 @@ LIB7_CODE_HDR(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.p
 // This is the entry point called from Mythryl to start a heapcleaning.
 //						Allen 6/5/1998
 ENTRY(call_heapcleaner)
-	POP_L(pc)
+	POP_L(program_counter)
 	MOV_L(CONST(REQUEST_CLEANING), request_w)
 	//
 	// FALL INTO set_request
@@ -352,7 +352,7 @@ ENTRY(set_request)
 	MOVE (exnfate,			temp2, REGOFF(        exception_fate_byte_offset_in_task_struct, temp )) 
 	MOVE (stdclos,			temp2, REGOFF(               closure_byte_offset_in_task_struct, temp ))
 	MOVE (stdlink,			temp2, REGOFF(         link_register_byte_offset_in_task_struct, temp ))
-	MOVE (pc,			temp2, REGOFF(       program_counter_byte_offset_in_task_struct, temp ))
+	MOVE (program_counter,		temp2, REGOFF(       program_counter_byte_offset_in_task_struct, temp ))
 	MOVE (heap_changelog_ptr,	temp2, REGOFF(        heap_changelog_byte_offset_in_task_struct, temp ))
 	MOVE (current_thread_ptr,	temp2, REGOFF(                thread_byte_offset_in_task_struct, temp ))
 #undef	temp2	
@@ -378,8 +378,8 @@ ENTRY(asm_run_mythryl_task)
 #if defined(OPSYS_DARWIN)
         // MacOS X frames must be 16-byte aligned.
         // We have 20 bytes on the stack for the
-	// return PC and callee-saves, so we need
-        // a 12-byte pad:
+	// return program_counter and callee-saves,
+        // so we need a 12-byte pad:
         //
 	SUB_L (CONST(LIB7_FRAME_SIZE+12), ESP)
 #else
@@ -409,13 +409,13 @@ ENTRY(asm_run_mythryl_task)
 	MOVE	(REGOFF(        link_register_byte_offset_in_task_struct, temp),  temp2, stdlink)
 	MOVE	(REGOFF(              closure_byte_offset_in_task_struct, temp),  temp2, stdclos)
 
-	// PC:
-	MOVE    (REGOFF(      program_counter_byte_offset_in_task_struct, temp), temp2, pc)
+	// program_counter:
+	MOVE    (REGOFF(      program_counter_byte_offset_in_task_struct, temp),  temp2, program_counter)
 #undef	temp2
 
 	// Load Mythryl registers:
 	//
-	MOV_L(REGOFF(             heap_allocation_pointer_byte_offset_in_task_struct, temp), heap_allocation_pointer)
+	MOV_L(REGOFF( heap_allocation_pointer_byte_offset_in_task_struct, temp), heap_allocation_pointer)
 	MOV_L(REGOFF(                    fate_byte_offset_in_task_struct, temp), stdfate)
 	MOV_L(REGOFF(                argument_byte_offset_in_task_struct, temp), stdarg)
 	MOV_L(REGOFF( callee_saved_register_0_byte_offset_in_task_struct, temp), misc0)
@@ -516,7 +516,7 @@ LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
 #undef  temp2
 3:
 	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR), request_w)
-	MOVE	(stdlink, temp, pc)
+	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 	
 
@@ -559,7 +559,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 2:
 	POP_L(misc0)						// Restore temp1.
 	MOV_L(CONST(REQUEST_ALLOCATE_FLOAT64_VECTOR), request_w)
-	MOVE	(stdlink, temp, pc)
+	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 #undef temp1
 
@@ -603,7 +603,7 @@ LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 #undef  temp1
 2:
 	MOV_L(CONST(REQUEST_ALLOCATE_BYTE_VECTOR), request_w)
-	MOVE	(stdlink, temp, pc)
+	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 
 
@@ -647,7 +647,7 @@ LIB7_CODE_HDR(make_string_asm)
 	CONTINUE
 2:
 	MOV_L(CONST(REQUEST_ALLOCATE_STRING), request_w)
-	MOVE	(stdlink, temp, pc)
+	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 
 // make_vector_asm:  (Int, List(X)) -> Vector(X)			// (length_in_slots, initializer_list) -> result_vector
@@ -707,7 +707,7 @@ LIB7_CODE_HDR(make_vector_asm)
 	POP_L(misc1)
 	POP_L(misc0)
 	MOV_L(CONST(REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR), request_w)
-	MOVE	(stdlink, temp, pc)
+	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 #undef  temp1
 #undef  temp2	

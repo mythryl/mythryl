@@ -72,7 +72,7 @@
 #define  MISCREG0			%g2
 #define  MISCREG1			%g3
 #define  MISCREG2			%o0
-#define        PC			%o7		// program_counter
+#define  PROGRAM_COUNTER		%o7		// program_counter
 
 #define   ASMTMP			%o2		// Assembly temporary used in Mythryl.
 #define   TMPREG1			ASMTMP
@@ -144,12 +144,12 @@
             jmp     STDFATE;			\
             subcc   HEAP_ALLOCATION_POINTER,HEAP_ALLOCATION_LIMIT,%g0
 
-#define CHECKLIMIT(label)			\
-		blu	label;			\
-		nop;				\
- 		mov	STDLINK,PC;		\
+#define CHECKLIMIT(label)				\
+		blu	label;				\
+		nop;					\
+ 		mov	STDLINK,PROGRAM_COUNTER;	\
 		ba	CSYM(call_heapcleaner);		\
-		nop;				\
+		nop;					\
 	label:
 
 
@@ -161,7 +161,7 @@
 LIB7_CODE_HDR(return_from_signal_handler_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
-	set	HEAP_VOID,PC
+	set	HEAP_VOID,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_RETURN_FROM_SIGNAL_HANDLER,TMPREG3		// (delay slot)
 
@@ -171,7 +171,7 @@ LIB7_CODE_HDR(return_from_signal_handler_asm)
 // fate (stdfate).
 //
 ENTRY(resume_after_handling_signal)
-	mov	STDLINK,PC
+	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_RESUME_SIGNAL_HANDLER,TMPREG3		// (delay slot)
 
@@ -182,7 +182,7 @@ ENTRY(resume_after_handling_signal)
 LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
-	set	HEAP_VOID,PC
+	set	HEAP_VOID,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER,TMPREG3	// (delay slot)
 
@@ -191,7 +191,7 @@ LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
 // periodic event:
 //
 ENTRY(resume_after_handling_software_generated_periodic_event)
-	mov	STDLINK,PC
+	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER,TMPREG3	// (delay slot)
 
@@ -204,7 +204,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 // and src/c/cleaner/import-heap.c
 //
 LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
-	mov	STDLINK,PC
+	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_HANDLE_UNCAUGHT_EXCEPTION,TMPREG3		// (delay slot)
 
@@ -234,12 +234,12 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 LIB7_CODE_HDR(return_to_c_level_asm)
 	set	HEAP_VOID,STDLINK
 	set	HEAP_VOID,STDCLOS
-	set	HEAP_VOID,PC
+	set	HEAP_VOID,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_RETURN_TO_C_LEVEL,TMPREG3		// (delay slot)
 
 ENTRY(request_fault)
-	mov	STDLINK,PC
+	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_FAULT,TMPREG3		// (delay slot)
 
@@ -281,7 +281,7 @@ LIB7_CODE_HDR(call_cfun_asm)
 //						Allen 6/5/1998
 //
 ENTRY(call_heapcleaner0)
-	add	PC, 8, PC
+	add	PROGRAM_COUNTER, 8, PROGRAM_COUNTER
 ENTRY(call_heapcleaner)
 	set	REQUEST_CLEANING,TMPREG3
 
@@ -295,7 +295,7 @@ set_request:
 	st	HEAP_ALLOCATION_LIMIT,[TMPREG2+heap_allocation_limit_byte_offset_in_task_struct]
 	st	HEAP_CHANGELOG_PTR,[TMPREG2+heap_changelog_byte_offset_in_task_struct]	// Save heap changelog pointer.
 	st	STDLINK,[TMPREG2+link_register_byte_offset_in_task_struct]
-	st	PC,[TMPREG2+program_counter_byte_offset_in_task_struct]			// PC of called function.
+	st	PROGRAM_COUNTER,[TMPREG2+program_counter_byte_offset_in_task_struct]	// Program counter of called function.
 	st	STDARG,[TMPREG2+argument_byte_offset_in_task_struct]			// Save stdarg.
 	st	STDCLOS,[TMPREG2+closure_byte_offset_in_task_struct]			// Save closure.
 	st	STDFATE,[TMPREG2+fate_byte_offset_in_task_struct]			// Save stdfate.
@@ -333,7 +333,7 @@ ENTRY(asm_run_mythryl_task)
 	ld	[ Task + heap_allocation_pointer_byte_offset_in_task_struct ], HEAP_ALLOCATION_POINTER
 	ld	[ Task +   heap_allocation_limit_byte_offset_in_task_struct ], HEAP_ALLOCATION_LIMIT
 	ld	[ Task +          heap_changelog_byte_offset_in_task_struct ], HEAP_CHANGELOG_PTR
-	ld	[ Task +         program_counter_byte_offset_in_task_struct ], PC
+	ld	[ Task +         program_counter_byte_offset_in_task_struct ], PROGRAM_COUNTER
 	ld	[ Task +                argument_byte_offset_in_task_struct ], STDARG  
 	ld	[ Task +                    fate_byte_offset_in_task_struct ], STDFATE
 	ld	[ Task +                 closure_byte_offset_in_task_struct ], STDCLOS     
@@ -352,7 +352,7 @@ ENTRY(asm_run_mythryl_task)
 	bne	pending_sigs
 	nop
 CSYM(ml_go):					// Invoke the Mythryl code.
-	jmp	PC
+	jmp	PROGRAM_COUNTER
 	subcc	HEAP_ALLOCATION_POINTER,HEAP_ALLOCATION_LIMIT,%g0		// Heap limit test (delay slot)
 
 pending_sigs:					// There are pending signals.
@@ -423,7 +423,7 @@ LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
 	CONTINUE
 
 3:	// here we do off-line allocation for big arrays
- 	mov	STDLINK,PC
+ 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_MAKE_TYPEAGNOSTIC_RW_VECTOR,TMPREG3	    			// (delayslot)
 
@@ -461,7 +461,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	CONTINUE
 
 1:	// off-line allocation of big realarrays
- 	mov	STDLINK,PC
+ 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_ALLOCATE_FLOAT64_VECTOR,TMPREG3			// (delayslot)
 
@@ -497,7 +497,7 @@ LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 	CONTINUE
 
 1:	// Here we do off-line allocation for big bytearrays
- 	mov	STDLINK,PC
+ 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_ALLOCATE_BYTE_VECTOR,TMPREG3			// (delayslot)
 
@@ -537,7 +537,7 @@ LIB7_CODE_HDR(make_string_asm)
 	CONTINUE
 
 1:	// Here we do off-line allocation for big strings.
- 	mov	STDLINK,PC
+ 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_ALLOCATE_STRING,TMPREG3			// (delayslot)
 
@@ -588,7 +588,7 @@ LIB7_CODE_HDR(make_vector_asm)
 	CONTINUE
 
 1:	// Off-line allocation of big vectors:	
- 	mov	STDLINK,PC
+ 	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
 	set	REQUEST_MAKE_TYPEAGNOSTIC_RO_VECTOR,TMPREG3			// (delayslot)
 

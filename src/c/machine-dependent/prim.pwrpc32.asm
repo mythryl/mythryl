@@ -128,7 +128,7 @@
 #define		miscreg0		r24
 #define		miscreg1		r25
 #define 	miscreg2		r26
-#define		pc		        r28
+#define		program_counter	        r28
 
 
 #define       	atmp1 r29
@@ -208,7 +208,7 @@
 #define savearea		(23*4+4)	// lr,cr,1,2,13-31,padding
 #define framesize		8192
 #define TASK_OFFSET	 	4096
-#define RUN_HEAPCLEANER__OFFSET		4100		// Offset relative to framepointer of pointer to function which starts a heapcleaning ("garbage collection").
+#define RUN_HEAPCLEANER__OFFSET	4100		// Offset relative to framepointer of pointer to function which starts a heapcleaning ("garbage collection").
 #define CVTI2D_OFFSET		4104
 #define FLOOR_OFFSET		4120
 
@@ -227,15 +227,15 @@
 #define CRESULT1 	r3
 
 
-#define CONTINUE					\
+#define CONTINUE									\
 	    cmpl	CR0,heap_allocation_pointer,heap_allocation_limit __SC__	\
-	    mtlr	stdfate __SC__			\
+	    mtlr	stdfate __SC__							\
 	    blr
 
-#define CHECKLIMIT(label)	 			\
-	    bt		CR0_LT, label __SC__		\
-	    addi	pc, stdlink,0 __SC__		\
-	    b		CSYM(call_heapcleaner) __SC__	\
+#define CHECKLIMIT(label)	 				\
+	    bt		CR0_LT, label __SC__			\
+	    addi	program_counter, stdlink,0 __SC__	\
+	    b		CSYM(call_heapcleaner) __SC__		\
     label:
 
 #if defined (USE_TOC)
@@ -264,9 +264,9 @@ cvti2d_CONST:
 //
 LIB7_CODE_HDR( return_from_signal_handler_asm )
 	li 	atmp4,REQUEST_RETURN_FROM_SIGNAL_HANDLER
-	li	stdlink, HEAP_VOID
-	li	stdclos, HEAP_VOID
-	li	pc, HEAP_VOID
+	li	stdlink,         HEAP_VOID
+	li	stdclos,         HEAP_VOID
+	li	program_counter, HEAP_VOID
 	b	set_request
 
 // Here we pick up execution from where we were
@@ -282,9 +282,9 @@ ENTRY( resume_after_handling_signal )
 //
 LIB7_CODE_HDR( return_from_software_generated_periodic_event_handler_asm )
 	li	atmp4,REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER
-	li	stdlink, HEAP_VOID
-	li	stdclos, HEAP_VOID
-	li	pc, HEAP_VOID
+	li	stdlink,         HEAP_VOID
+	li	stdclos,         HEAP_VOID
+	li	program_counter, HEAP_VOID
 	b	set_request
 
 // Here we pick up execution from where we were
@@ -305,7 +305,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 //
 LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 	li	atmp4,REQUEST_HANDLE_UNCAUGHT_EXCEPTION
-	addi	pc, stdlink, 0
+	addi	program_counter, stdlink, 0
 	b	set_request
 
 
@@ -333,15 +333,15 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 //
 LIB7_CODE_HDR(return_to_c_level_asm)
 	li	atmp4,REQUEST_RETURN_TO_C_LEVEL
-	li	stdlink, HEAP_VOID
-	li	stdclos, HEAP_VOID
-	li	pc, HEAP_VOID
+	li	stdlink,         HEAP_VOID
+	li	stdclos,         HEAP_VOID
+	li	program_counter, HEAP_VOID
 	b	set_request
 
 
 ENTRY(request_fault)
 	li	atmp4,REQUEST_FAULT
-	addi	pc, stdlink, 0
+	addi	program_counter, stdlink, 0
 	b	set_request
 
 
@@ -378,7 +378,7 @@ LIB7_CODE_HDR(call_cfun_asm)
 //						Allen 6/5/1998
 ENTRY(call_heapcleaner)
 	li	atmp4, REQUEST_CLEANING
-	mflr	pc
+	mflr	program_counter
 
 	// FALL THROUGH
 
@@ -391,7 +391,7 @@ set_request:
 	stw	heap_allocation_limit,heap_allocation_limit_byte_offset_in_task_struct(atmp3)
 	stw	heap_changelog_ptr,heap_changelog_byte_offset_in_task_struct(atmp3)
 	stw	stdlink,link_register_byte_offset_in_task_struct(atmp3)
-	stw	pc,program_counter_byte_offset_in_task_struct(atmp3)
+	stw	program_counter,program_counter_byte_offset_in_task_struct(atmp3)
 	stw	stdarg,argument_byte_offset_in_task_struct(atmp3)
 	stw	stdfate,fate_byte_offset_in_task_struct(atmp3)
 	stw	stdclos,closure_byte_offset_in_task_struct(atmp3)
@@ -572,7 +572,7 @@ make_typeagnostic_rw_vector_a_1:
 	CONTINUE
 make_typeagnostic_rw_vector_a_large:				// Offline allocation
 	li	atmp4,REQ_ALLOC_ARRAY
-	addi	pc, stdlink,0
+	addi	program_counter, stdlink,0
 	b	set_request
 
 // make_unt8_rw_vector : Int -> Unt8_Rw_Vector
@@ -610,7 +610,7 @@ LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 
 make_unt8_rw_vector_a_large:				// Offline allocation.
 	li 	atmp4,REQUEST_ALLOCATE_BYTE_VECTOR
-	addi	pc, stdlink,0
+	addi	program_counter, stdlink,0
 	b	set_request
 
 
@@ -647,7 +647,7 @@ LIB7_CODE_HDR(make_string_asm)
 
 make_string_a_large:			// Offline allocation.
 	li	atmp4,REQUEST_ALLOCATE_STRING
-	addi	pc, stdlink,0
+	addi	program_counter, stdlink,0
 	b	set_request
 
 
@@ -685,7 +685,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	CONTINUE
 make_float64_rw_vector_a_large:			// Offline allocation.
 	li	atmp4,REQUEST_ALLOCATE_FLOAT64_VECTOR
-	addi	pc, stdlink,0
+	addi	program_counter, stdlink,0
 	b	set_request
 
 
@@ -736,7 +736,7 @@ make_vector_a_1:
 
 make_vector_a_large:
 	li	atmp4,REQ_ALLOC_VECTOR
-	addi	pc, stdlink,0
+	addi	program_counter, stdlink,0
 	b	set_request
 
 
