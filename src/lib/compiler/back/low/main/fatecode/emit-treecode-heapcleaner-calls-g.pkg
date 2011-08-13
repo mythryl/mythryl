@@ -1,12 +1,59 @@
 # emit-treecode-heapcleaner-calls-g.pkg
 #
-# This module is responsible for generating code to
-# invoke the  heapcleaner ("garbage collector").
-#
 # For general background see
 #
 #     src/A.GARBAGE-COLLECTOR.OVERVIEW
 #
+# This package is responsible for generating code
+# to invoke the  heapcleaner ("garbage collector").
+# It is essentially dedicated support infrastructure for
+#
+#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+#
+# We get called at four points during compiles:
+#
+#    1) Before beginning compilation of a package, to reset our
+#       worklists.
+#
+#    2) While emitting code for a given package cccomponent,
+#       to deposit actual heaplimit checks looking like
+#
+#           if (heap_allocation_pointer > heap_allocation_limit)  goto ...
+#
+#       using our three entrypoints
+#
+#	    emit_heaplimit_check_and_push_heapcleaner_call_spec_for_public_fn
+#	    emit_heaplimit_check_and_push_heapcleaner_call_spec_for_unoptimized_private_fn
+#	    emit_heaplimit_check_and_push_heapcleaner_call_spec_for_optimized_private_fn
+#
+#       For each heaplimit check so generated, we save a description
+#       of the live registers at that point.  These go on one of two
+#       private worklists:
+#
+#	     public_fn_heaplimit_checks__global
+#	    private_fn_heaplimit_checks__global
+#
+#    3) When code generation for a given package cccomponent
+#       is complete we get called via our entrypoint
+#
+#	    emit_all_publicfn_heapcleaner_longjumps_and_all_privatefn_heapcleaner_calls_for_cccomponent
+#
+#       At this point we process the above two __global lists and
+#       emit heapcleaner calls for the private fns and longjumps
+#	to (as-yet-nonexistent) heapcleaner calls for the public fns.
+#
+#       We save specs for the latter heapclaner calls on a third private worklist
+#
+#           longjumps_to_heapcleaner_calls__global
+#
+#    4) When code generation for cccomponents in a given package is complete
+#       we get called via our entrypoint
+#
+#           emit_all_publicfn_heapcleaner_calls_for_package
+#
+#       At this point we process the third worklist, emitting all
+#       public-fn heapcleaner-call codeblocks.  To save codespace, when
+#       possible we share these codeblocks between multiple heaplimit checks.
 #
 #
 # Nomenclature:
@@ -19,7 +66,7 @@
 #
 #
 #
-# We insert heaplimit checks at points determined by
+# We areinsert heaplimit checks at points determined by
 #
 #     src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
 #
@@ -40,10 +87,14 @@
 #         We want the latter to be as small and fast as possible,
 #         so on Intel32 these will typically be two-byte ops:
 #         one byte of opcode and one byte of address.
+# 
 #         On 32-bit RISCS they will have two bytes of address.
 #         (On 32-bit RISCS with delay slots we try to further
 #         optimize by putting the CMP instruction in a delay slot
 #         and the BGT in the next block.)
+#
+#	  (For private fns these heapchecks branch directly to
+#         the heapcleaner calls, bypassing the level-2 longjumps.)
 #
 #     Level 2:
 #         Longjumps to the actual code to call the heapcleaner.
@@ -157,13 +208,19 @@ herein
 
 	    Fun_Info
 	      =
-	      { max_heapbytes_eaten_before_next_heaplimit_check:		Int,
+	      { max_heapbytes_eaten_before_next_heaplimit_check:	Int,
 		#
-		live_registers:		List( tcf::Expression ),
-		live_register_types:	List( fcf::Type ),
+		live_registers:						List( tcf::Expression ),
+		live_register_types:					List( fcf::Type ),
 		#
-		return:			tcf::Void_Expression
+		return:							tcf::Void_Expression
 	      };
+		# 
+		# This type is used (only) as an argument for:
+		# 
+		#     emit_heaplimit_check_and_push_heapcleaner_call_spec_for_public_fn
+		#     emit_heaplimit_check_and_push_heapcleaner_call_spec_for_unoptimized_private_fn
+		#     emit_heaplimit_check_and_push_heapcleaner_call_spec_for_optimized_private_fn
 
 	    Stream = tcs::Treecode_Stream
 		      (
@@ -210,14 +267,14 @@ herein
 	    #
 	    #    return:      How to return from the call-heapcleaner block.
 	    #
-	    Heapcleaner_Call
+	    Spec_For_Heapcleaner_Call							# "spec" == "specification".
 		=
-	        HEAPCLEANER_CALL
+	        SPEC_FOR_HEAPCLEANER_CALL
 		  {
 		    fn_is_private:		Bool,					# Known function ? 
-		    optimized:			Bool,					# Optimized? 
+		    fn_will_be_optimized:	Bool,					# Optimized? 
 		    #
-		    label_on_heapcleaner_call:	Ref( lbl::Codelabel ),			# The longjumps to this heapcleaner call jump to this codelabel.
+		    label_on_heapcleaner_call:	Ref( lbl::Codelabel ),			# The heaplimit checks branch either directly to this codelabel, or else branch to a longjump which jumps to it.
 		    #
 		    live_registers:		List( tcf::Expression ),		# All live registers.
 		    #
@@ -228,11 +285,11 @@ herein
 		    return:			tcf::Void_Expression			# How to return.
 		  };
 
-	    Longjump_To_Heapcleaner_Call
+	    Spec_For_Longjump_To_Heapcleaner_Call
 		=
-	        LONGJUMP_TO_HEAPCLEANER_CALL 
+	        SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL
 		  {
-		    heapcleaner_call:		Heapcleaner_Call,			# 
+		    spec_for_heapcleaner_call:	Spec_For_Heapcleaner_Call,			# 
 		    labels_on_longjump:		Ref(  List(  lbl::Codelabel ) )		# One codelabel for each branch that jumps to us.
 		  };
 
@@ -409,10 +466,36 @@ herein
 	    # Private state											# All three of these are:  More icky thread-hostile mutable global state. XXX SUCKO FIXME
 	    ######################################################################
 
-	     public_fn_heapcleaner_call_specs	=   REF ([]:  List( Heapcleaner_Call		 ));	# 
-	    private_fn_heapcleaner_call_specs	=   REF ([]:  List( Heapcleaner_Call		 ));	# 
+	    # The first thing we do is emit code for the
 	    #
-	    longjumps_to_heapcleaner_calls	=   REF ([]:  List( Longjump_To_Heapcleaner_Call ));	# 
+	    #     if (heap_allocation_pointer > heap_allocation_limit)  goto(label);
+	    #
+	    # checks in the code.  The code we're jumping to does't actually
+	    # exist at this point -- it is represented only by 'label'. This
+	    # label has lead to a heapcleaner call, and in particular to a
+	    # heapcleaner call customized for the particular pattern of
+	    # registers contents which are alive at the point where the
+	    # compare-and-branch is done.
+	    #
+	    # To make this work we push all each such label on a list as
+	    # we create it, together with a specification of the heapcleaner
+	    # call which it needs to lead to.
+	    # 
+	    # We segregate these collected label-plus-specs into two lists,
+	    # one for heaplimit checks in public functions (basic code blocks) and
+	    # one for heaplimit checks in private functions.
+	    #
+	    # In a later pass (emit_longjump_heapcleaner_calls) we scan these lists,
+	    # emitting label definitions plus appropriate code:
+	    #
+	     public_fn_heaplimit_checks__global	=   REF ([]:  List( Spec_For_Heapcleaner_Call	 ));		# 
+	    private_fn_heaplimit_checks__global	=   REF ([]:  List( Spec_For_Heapcleaner_Call	 ));		# 
+
+	    # During the above-mentioned   emit_longjump_heapcleaner_calls
+	    # pass we consume the above two lists and in turn emit longjump
+	    # specs which get collected on this list:
+	    #
+	    longjumps_to_heapcleaner_calls__global	=   REF ([]:  List( Spec_For_Longjump_To_Heapcleaner_Call ));	# 
 
 
 
@@ -430,7 +513,7 @@ herein
 	    # We need this mainly(?) because Intel32 is so register-starved
 	    # that we use memory words for some of our "registers":
 	    #
-	    fun split_registers_list_into_regs_plus_ramregs_lists  registers
+	    fun split_registers_list_into_rregs_lists  registers						# "rregs" == "regs_plus_ramregs".
 		=
 		{   the_vfp =   pri::virtual_framepointer;
 
@@ -464,13 +547,13 @@ herein
 			split_regs_from_ram (tcf::LOAD(_, tcf::REG(_, fp), _) ! rest, regs, mem)					# Ram "register" -- add to 'mem" resultlist.
 			    =>
 			    if (is_frame_ptr fp)   split_regs_from_ram (rest, regs, 0 ! mem);
-			    else                   error "split_registers_list_into_regs_plus_ramregs_lists: LOAD32";
+			    else                   error "split_registers_list_into_rregs_lists: LOAD32";
 			    fi;
 
 			split_regs_from_ram (tcf::LOAD(_, tcf::ADD(_, tcf::REG(_, fp), tcf::LITERAL i), _) ! rest, regs, mem)		# Ram "register" -- add to 'mem" resultlist.
 			    =>
 			    if (is_frame_ptr fp)   split_regs_from_ram (rest, regs, tcf::mi::to_int (32, i) ! mem);									# 64-bit issue: '32' is bits-per-word.
-			    else                   error "split_registers_list_into_regs_plus_ramregs_lists: LOAD32";
+			    else                   error "split_registers_list_into_rregs_lists: LOAD32";
 			    fi;
 
 			split_regs_from_ram _
@@ -487,15 +570,15 @@ herein
 		    };
 		};
 	    #
-	    fun difference (   { regs=>r1, mem=>m1 },
-			       { regs=>r2, mem=>m2 }
-			   )
+	    fun rregs_difference (   { regs=>r1, mem=>m1 },
+			             { regs=>r2, mem=>m2 }
+			         )
 		=
 		{ regs =>   cos::difference_of_colorsets (r1, r2),
 		  mem  =>    sl::difference              (m1, m2)
 		};
 	    #
-	    fun regs_plus_ramregs_to_string { regs, mem }
+	    fun rregs_to_string { regs, mem }
 		#
 		= "{ "
 		+   fold_right   (fn (reg, s) =   rkj::register_to_string reg + " " + s)   ""   regs
@@ -508,14 +591,14 @@ herein
 	    # root pointers to the heapcleaner via the
 	    # following set of registers and ram cells:
 	    #
-	    heapcleaner_arg_regs_plus_ramregs							# On Intel32 this is:   ([esi, ebp, ebx, ecx, edx],  [vreg 0, vreg 1]).
+	    heapcleaner_arg_rregs							# On Intel32 this is:   ([esi, ebp, ebx, ecx, edx],  [vreg 0, vreg 1]).
 		=
-		split_registers_list_into_regs_plus_ramregs_lists  heapcleaner_arg_registers;
+		split_registers_list_into_rregs_lists  heapcleaner_arg_registers;
 
 	    # Later we'll need an arbitrary element of the
 	    # arg-registers list, so we create it here:
 	    #
-	    a_heapcleaner_arg_reg  =   tcf::REG (32, head heapcleaner_arg_regs_plus_ramregs.regs);								# 64-BIT ISSUE: '32' is bits-per-word.
+	    a_heapcleaner_arg_reg  =   tcf::REG (32, head heapcleaner_arg_rregs.regs);								# 64-BIT ISSUE: '32' is bits-per-word.
 
 
 	    # This function emits a heaplimit check-and-branch.
@@ -525,16 +608,16 @@ herein
 	    #
 	    fun emit_heaplimit_check_and_branch (emit, max_heapbytes_eaten_before_next_heaplimit_check)
 		=
-		call_heapcleaner__codelabel
+		heaplimit_branch_target_label
 		where
-		    call_heapcleaner__codelabel =   lbl::make_anonymous_codelabel ();
+		    heaplimit_branch_target_label =   lbl::make_anonymous_codelabel ();
 		    #
 		    fun emit__call_heapcleaner_if						# Emit code which tests for heap-exhausted and runs the heapcleaner if it is.
 			    #
 			    heap_is_exhausted__test						# Some way of testing whether  (heap_allocation_pointer > heap_allocation_limit)
 			=									#  -- see src/lib/compiler/back/low/main/fatecode/platform-register-info.api
 			emit  (tcf::NOTE
-				( tcf::IF_GOTO (heap_is_exhausted__test, call_heapcleaner__codelabel),
+				( tcf::IF_GOTO (heap_is_exhausted__test, heaplimit_branch_target_label),
                                   unlikely
                                 )
                               );
@@ -553,8 +636,8 @@ herein
 			#     (heap_allocation_pointer > heap_allocation_limit)
 			#
 			# comparison at this point, but rather just checking
-			# preserved status-register bits generated by the
-			# compare generated in
+			# preserved status-register bits produced by the
+			# delay-slot compare generated in
 			#
 			#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg 
 			#
@@ -597,9 +680,25 @@ herein
 	    #     "The baseptr contains the start address 											# The baseptr appears to be used only in:
 	    #      of the entire compilation unit."												#
 	    #																	#        src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+	    # Here we basically generate code equivalent to:
+	    #
+	    #      return_label:
+	    #	       baseptr = heapcleaner_link + (baseptr_offset - return_label);
+	    #	
+	    # On Intel32   baseptr_offset   is zero, so this reduces to:
+	    #	
+	    #      return_label:
+	    #	       baseptr = heapcleaner_link - return_label;
+	    #	
+	    # If 'return_label' is our offset relative to start
+	    # of current package's compiled binary code, and
+	    # if 'heapcleaner_link' is essentially current pc,
+	    # then the difference will give the start of the
+	    # current package's compiled binary code.
+	    #	
 	    baseptr_offset =   tcf::LITERAL  (integer::from_int   mp::const_base_reg_offset);
 	    #
-	    fun emit_baseptr_update  (emit,  define_local_label,  put_bblock_note)
+	    fun emit_baseptr_update  (emit,  emit_private_label,  emit_bblock_note)
 		=
 		{   return_label =   lbl::make_anonymous_codelabel ();
 
@@ -616,16 +715,16 @@ herein
 					)
 				  );
 
-		    define_local_label  return_label;
+		    emit_private_label  return_label;
 
-		    put_bblock_note  zero_freq_note; 
+		    emit_bblock_note  zero_freq_note; 
 
-		    emit    case (pri::baseptr vfp)												# "The baseptr contains the start address of the entire compilation unit."
-				#
-				tcf::REG  (type, baseptr_reg)       =>  tcf::LOAD_INT_REGISTER (type, baseptr_reg,  baseptr_expression);	# baseptr_reg =  heapcleaner_link + (baseptr_offset - return_label)
-				tcf::LOAD (type, baseptr_addr, mem) =>  tcf::STORE_INT         (type, baseptr_addr, baseptr_expression, mem);
-				_                                   =>  error "emit_baseptr_update";
-			    esac;
+		    case (pri::baseptr vfp)													# "The baseptr contains the start address of the entire compilation unit."
+			#
+			tcf::REG  (bits, baseptr_reg)       =>  emit (tcf::LOAD_INT_REGISTER (bits, baseptr_reg,  baseptr_expression));		# baseptr_reg =  heapcleaner_link + (baseptr_offset - return_label)
+			tcf::LOAD (bits, baseptr_addr, mem) =>  emit (tcf::STORE_INT         (bits, baseptr_addr, baseptr_expression, mem));
+			_                                   =>  error "emit_baseptr_update";
+		    esac;
 		};
 
 
@@ -639,9 +738,9 @@ herein
 	    #
 	    fun clear__public_fn_heapcleaner_call_specs__private_fn_heapcleaner_call_specs__and__longjumps_to_heapcleaner_calls  ()
 		=
-		{   public_fn_heapcleaner_call_specs	:=  [];
-		    private_fn_heapcleaner_call_specs	:=  [];
-		    longjumps_to_heapcleaner_calls	:=  [];
+		{   public_fn_heaplimit_checks__global		:=  [];
+		    private_fn_heaplimit_checks__global		:=  [];
+		    longjumps_to_heapcleaner_calls__global	:=  [];
 		};
 
 
@@ -668,9 +767,10 @@ herein
 	    stipulate
 		fun emit_heaplimit_check_and_push_heapcleaner_call_spec
 			{
-			  heapcleaner_call_specs,					# This will be either   public_fn_heapcleaner_call_specs   or   private_fn_heapcleaner_call_specs.
+			  heapcleaner_call_specs,					# Where to push the callspec -- this will be either   public_fn_heapcleaner_call_specs   or   private_fn_heapcleaner_call_specs.
+speclist_name,
 			  fn_is_private,
-			  optimized
+			  fn_will_be_optimized
 			}
 			( { emit_op, ... }: Stream)
 			{ max_heapbytes_eaten_before_next_heaplimit_check, live_registers, live_register_types, return }
@@ -687,15 +787,23 @@ herein
 
 
 			# Generate a heaplimit check
-			# and push spec for its call:
+			# and push spec for its call.
+			#
+			# We assume initially that the heaplimit check
+			# will branch directly to the heapcleaner call,
+			# and set 'label_on_heapcleaner_call' accordingly.
+			#
+			# In the case of public fns, we will later change
+			# this so the heaplimit check branches to a longjump
+			# which then jumps to the heapcleaner call proper:
 			#
 			heapcleaner_call_specs
 			    := 
-			    HEAPCLEANER_CALL
+			    SPEC_FOR_HEAPCLEANER_CALL
 			      {
 				fn_is_private,
-				optimized,
-				label_on_heapcleaner_call =>  REF (emit_heaplimit_check_and_branch (emit_op, max_heapbytes_eaten_before_next_heaplimit_check)),
+				fn_will_be_optimized,
+				label_on_heapcleaner_call =>   REF (emit_heaplimit_check_and_branch  (emit_op,  max_heapbytes_eaten_before_next_heaplimit_check)),
 				rootholding_registers,
 				intholding_registers,
 				floatholding_registers,
@@ -715,24 +823,42 @@ herein
 		#
 		emit_heaplimit_check_and_push_heapcleaner_call_spec_for_public_fn
 		    =
-		    emit_heaplimit_check_and_push_heapcleaner_call_spec   { heapcleaner_call_specs => public_fn_heapcleaner_call_specs, fn_is_private => FALSE, optimized => FALSE };
+		    emit_heaplimit_check_and_push_heapcleaner_call_spec
+		      {
+			heapcleaner_call_specs =>  public_fn_heaplimit_checks__global,
+speclist_name => "public_fn_heaplimit_checks__global",
+			fn_is_private          =>  FALSE,
+			fn_will_be_optimized   =>  FALSE
+                      };
 
 
 		# Check-limit for "private" functions, i.e..
-		# those for which we explicitly know that all
+		# those for which we explicitly know all
 		# possible callers, and consequently can optimize
 		# the calling register protocol:
 		#
 		emit_heaplimit_check_and_push_heapcleaner_call_spec_for_unoptimized_private_fn
 		    =
-		    emit_heaplimit_check_and_push_heapcleaner_call_spec { heapcleaner_call_specs => private_fn_heapcleaner_call_specs, fn_is_private => TRUE, optimized => FALSE };
+		    emit_heaplimit_check_and_push_heapcleaner_call_spec
+		      {
+			heapcleaner_call_specs =>  private_fn_heaplimit_checks__global,
+speclist_name => "private_fn_heaplimit_checks__global",
+			fn_is_private          =>  TRUE,
+			fn_will_be_optimized   =>  FALSE
+		      };
 
 
 		# Same as above, but for functions which are to be optimized:
 		#
 		emit_heaplimit_check_and_push_heapcleaner_call_spec_for_optimized_private_fn
 		    =
-		    emit_heaplimit_check_and_push_heapcleaner_call_spec { heapcleaner_call_specs => private_fn_heapcleaner_call_specs, fn_is_private => TRUE, optimized => TRUE };
+		    emit_heaplimit_check_and_push_heapcleaner_call_spec
+		      {
+			heapcleaner_call_specs =>  private_fn_heaplimit_checks__global,
+speclist_name => "private_fn_heaplimit_checks__global",
+			fn_is_private          =>  TRUE,
+			fn_will_be_optimized   =>  TRUE
+		      };
 	    end;
 
 	    # Allocate a rw_vector for checking for overlaps
@@ -745,7 +871,7 @@ herein
 		    fold_right
 			(fn (register, n) =  int::max (rkj::intrakind_register_id_of  register,  n)) 
 			0
-			heapcleaner_arg_regs_plus_ramregs.regs;
+			heapcleaner_arg_rregs.regs;
 	    herein
 		# This is the usual hack where instead of taking time
 		# to clear our vector to zero each run, we just increment
@@ -758,33 +884,7 @@ herein
 	    end;
 
 
-	    # This function emits code to pack
-	    #
-	    #     intholding_registers
-	    #     floatholding_registers
-	    #     rootholding_registers
-	    #
-	    # into
-	    #
-	    #     heapcleaner_arg_registers
-	    #
-	    # The contents of the first two are nonpointer data of
-	    # no interest to the heapcleaner, so they get saved on
-	    # the heap in a new records (which becomes a new member
-	    # of rootholding_registers).
-	    #
-	    # If the registers-to-pass (rootholding_registers) outnumber
-	    # the registers-available (available_heapcleaner_arg_registers)
-	    # then we pack the overflow into a heap record, which
-	    # likewise becomes a new root to be passed to the heapcleaner.
-	    #
-	    # heapcleaner_arg_registers must be non-empty -- we can't pass
-	    # anything to the heapcleaner in zero registers!
-	    #
-	    # We return a function to unpack everything back into
-	    # the original registers after heapcleaning is complete.
-	    #
-	    fun emit_code_to_load_all_roots_int_heapcleaner_arg_registers
+	    fun emit_code_to_load_all_roots_into_heapcleaner_arg_registers
                   ( emit_op,
 		    #
 		    available_heapcleaner_arg_registers,
@@ -794,6 +894,31 @@ herein
 		    floatholding_registers
 		  )
 		=
+		# This function emits code to pack
+		#
+		#     intholding_registers
+		#     floatholding_registers
+		#     rootholding_registers
+		#
+		# into
+		#
+		#     heapcleaner_arg_registers
+		#
+		# The contents of the first two are nonpointer data of
+		# no interest to the heapcleaner, so they get saved on
+		# the heap in a new records (which becomes a new member
+		# of rootholding_registers).
+		#
+		# If the registers-to-pass (rootholding_registers) outnumber
+		# the registers-available (available_heapcleaner_arg_registers)
+		# then we pack the overflow into a heap record, which
+		# likewise becomes a new root to be passed to the heapcleaner.
+		#
+		# heapcleaner_arg_registers must be non-empty -- we can't pass
+		# anything to the heapcleaner in zero registers!
+		#
+		# We return a function to unpack everything back into
+		# the original registers after heapcleaning is complete.
 		{   Heapcleaner_Flavor						# Classify register contents per heapcleaner's view of the world.
 		      #
 		      = REG      rkj::Codetemp_Info				# Integer register.
@@ -808,7 +933,7 @@ herein
 				};
 
 
-		    # Translate int_expression/float_expression into namings.
+		    # Translate int_expression/float_expression into heapcleaner flavor.
 		    # Note: client roots from memory (XXX) should NOT be used without
 		    # fixing a potential cycle problem in the parallel copies below.		XXX SUCKO FIXME
 		    # Currently no architectures -- including Intel32 -- use
@@ -1287,10 +1412,9 @@ herein
 		    end 
 
 
-		    # Emit code to unpack the fields in a record
-		    # created by emit__allocate_record, putting
-		    # them back in the registers the mutator
-		    # had them in originally:
+		    # Emit code to unpack the register contents saved
+		    # in a record created by emit__allocate_record,
+		    # loading them back into their original registers:
 		    #
 		    also
 		    fun emit__unpack_record (record_r, fields, to_regs, from_regs)
@@ -1428,7 +1552,7 @@ herein
 	    #
 	    fun emit_heapcleaner_call''
                   {
-		    stream => { emit_op, put_bblock_note, define_local_label, ... }: Stream,
+		    stream => { emit_op, emit_bblock_note, emit_private_label, ... }: Stream,
 		    fn_is_private,
 		    rootholding_registers,
 		    intholding_registers,
@@ -1436,7 +1560,7 @@ herein
 		    return
                   }
 		=
-		{   fun convert_regs_plus_ramregs_to_treecode { regs, mem }
+		{   fun convert_rregs_to_treecode { regs, mem }
 			=
 			map (fn r = tcf::REG (32, r))												# 64-bit issue: '32' is bits-per-word.
 			    regs
@@ -1453,51 +1577,57 @@ herein
 		    # rootholding_registers' are the boxed roots that
 		    # we have to move to the appropriate registers.
 		    #
-		    # heapcleaner_arg_regs_plus_ramregs are the registers that
+		    # heapcleaner_arg_rregs are the registers that
 		    # are available for communicating to the heapcleaner.
 		    #
-		    rootholding_regs_plus_ramregs
+		    rootholding_rregs
 			=
-			split_registers_list_into_regs_plus_ramregs_lists  rootholding_registers;
+			split_registers_list_into_rregs_lists  rootholding_registers;
 
-		    homeless_rootholding_regs_plus_ramregs											# We need to find a way to pass these to the heapcleaner.
-			=
-			difference (rootholding_regs_plus_ramregs, heapcleaner_arg_regs_plus_ramregs);						# Roots.
 
-		    available_heapcleaner_arg_registers												# These are available to pass homeless roots to the heapcleaner.
+		    homeless_rootholding_rregs											# We need to find a way to pass these to the heapcleaner.
 			=
-			difference (heapcleaner_arg_regs_plus_ramregs, rootholding_regs_plus_ramregs);						# Available heapcleaner_arg_registers.
+			rregs_difference (rootholding_rregs, heapcleaner_arg_rregs);						# 
+
+
+		    available_heapcleaner_arg_registers										# These are available to pass homeless roots to the heapcleaner.
+			=
+			rregs_difference (heapcleaner_arg_rregs, rootholding_rregs);						# 
+
 		    #
-		    fun maybe_add_debug_comment_wrapper  call
+		    fun maybe_add_debug_comment_wrapper  treecode_which_calls_heapcleaner_via_frameptr
 			=
 			if (not *debug_heapcleaner)
 			    #
-			    call;
+			    treecode_which_calls_heapcleaner_via_frameptr;
 			else
 			    tcf::NOTE
-                              ( call,
+                              ( treecode_which_calls_heapcleaner_via_frameptr,
+				#
                                 lhn::comment.x_to_note
-				    ( "roots="  + regs_plus_ramregs_to_string  available_heapcleaner_arg_registers
-				    + " boxed=" + regs_plus_ramregs_to_string  homeless_rootholding_regs_plus_ramregs
+				    ( "roots="  + rregs_to_string  available_heapcleaner_arg_registers
+				    + " boxed=" + rregs_to_string  homeless_rootholding_rregs
 				    )
                               );
 			fi;
 
 		    #  Convert them back to Treecode 
 		    #
-		    homeless_rootholding_regs_plus_ramregs      =   convert_regs_plus_ramregs_to_treecode   homeless_rootholding_regs_plus_ramregs;
-		    available_heapcleaner_arg_regs_plus_ramregs =   convert_regs_plus_ramregs_to_treecode   available_heapcleaner_arg_registers;
+		    homeless_rootholding_rregs      =   convert_rregs_to_treecode   homeless_rootholding_rregs;
+		    available_heapcleaner_arg_rregs =   convert_rregs_to_treecode   available_heapcleaner_arg_registers;
 
 		    # If we have any remaining client roots
 		    # after the above trick, we have to 
-		    # make sure that available_heapcleaner_arg_regs_plus_ramregs is not empty
+		    # make sure that available_heapcleaner_arg_rregs is not empty
 		    # -- we need at least one heapcleaner root register
 		    # in which to pass the remaining client roots to
 		    # the heapcleaner:
 		    #
-		    my  (available_heapcleaner_arg_regs_plus_ramregs, homeless_rootholding_regs_plus_ramregs)
+		    my  ( available_heapcleaner_arg_rregs,
+			  homeless_rootholding_rregs
+			)
 			= 
-			case (available_heapcleaner_arg_regs_plus_ramregs, intholding_registers, floatholding_registers, homeless_rootholding_regs_plus_ramregs)
+			case (available_heapcleaner_arg_rregs, intholding_registers, floatholding_registers, homeless_rootholding_rregs)
 			    #
 			    ([], [], [], [])
 				=>
@@ -1505,37 +1635,37 @@ herein
 
 			    ([], _, _, _)
 				=>
-				([a_heapcleaner_arg_reg], homeless_rootholding_regs_plus_ramregs @ [a_heapcleaner_arg_reg]); 
+				([a_heapcleaner_arg_reg], homeless_rootholding_rregs @ [a_heapcleaner_arg_reg]); 
 				#
 				# We put   a_heapcleaner_arg_reg   last to
 				# reduce register pressure  during unpacking.
 
-			    _  => (available_heapcleaner_arg_regs_plus_ramregs, homeless_rootholding_regs_plus_ramregs);
+			    _  => (available_heapcleaner_arg_rregs, homeless_rootholding_rregs);
 			esac;
 
 		    emit_code_to_restore_all_registers
 			=
-			emit_code_to_load_all_roots_int_heapcleaner_arg_registers
+			emit_code_to_load_all_roots_into_heapcleaner_arg_registers
 			  (
 			    emit_op,
-			    available_heapcleaner_arg_regs_plus_ramregs,
-			    homeless_rootholding_regs_plus_ramregs,
+			    available_heapcleaner_arg_rregs,
+			    homeless_rootholding_rregs,
 			    intholding_registers,
 			    floatholding_registers
 			  );
 
-		    put_bblock_note  heapcleaner_call_note;
-		    put_bblock_note  no_optimization_note; 
-		    put_bblock_note  zero_freq_note;
+		    emit_bblock_note  heapcleaner_call_note;
+		    emit_bblock_note  no_optimization_note; 
+		    emit_bblock_note  zero_freq_note;
 
 		    emit_op  (maybe_add_debug_comment_wrapper  treecode_which_calls_heapcleaner_via_frameptr);
 
 		    if fn_is_private
 			#
-			emit_baseptr_update (emit_op, define_local_label, put_bblock_note);
+			emit_baseptr_update (emit_op, emit_private_label, emit_bblock_note);
 		    fi;
 
-		    put_bblock_note  no_optimization_note;
+		    emit_bblock_note  no_optimization_note;
 
 		    emit_code_to_restore_all_registers ();
 
@@ -1558,7 +1688,7 @@ herein
 
 
 	    # This function emits a comment
-	    # that prettyprints the root set.
+	    # that stringifies the root set.
 	    # This is used for debugging only.
 	    #
 	    fun root_set_to_string { rootholding_registers, intholding_registers, floatholding_registers }
@@ -1596,30 +1726,30 @@ herein
 	    # heapcleaner-calling code, with entry labels and return information.
 	    #
 	    fun emit_heapcleaner_call'
-                  { stream  as { emit_op, define_local_label, define_global_label, end_procedure, put_bblock_note, ... },
-		    external_entry
+                  { stream  as { emit_op, emit_private_label, emit_public_label, emit__end_of_fn__mark, emit_bblock_note, ... },
+		    fn_is_public
                   }
                   heapcleaner_call
 		= 
 		{   heapcleaner_call
 			->
-			HEAPCLEANER_CALL { fn_is_private, optimized, rootholding_registers, intholding_registers, floatholding_registers, live_registers, return, label_on_heapcleaner_call };
+			SPEC_FOR_HEAPCLEANER_CALL { fn_is_private, fn_will_be_optimized, rootholding_registers, intholding_registers, floatholding_registers, live_registers, return, label_on_heapcleaner_call };
 
-		    liveout =   optimized  ??  []
-					   ::  live_registers;
+		    liveout =   fn_will_be_optimized  ??  []
+					              ::  live_registers;
 
-		    if external_entry     define_global_label  *label_on_heapcleaner_call;
-		    else                  define_local_label   *label_on_heapcleaner_call;
+		    if fn_is_public     emit_public_label    *label_on_heapcleaner_call;
+		    else                emit_private_label   *label_on_heapcleaner_call;
 		    fi;
 
-		    # When an all-callers-known block is to be optimized,
-		    # no actual code is generated until later:						# If there any code in place to actually do this, I can't find it. -- 2011-08-10 CrT.
-		    #
-		    if (not optimized)
+		    if (not fn_will_be_optimized)
 			#
 			emit_heapcleaner_call'' { stream, fn_is_private, rootholding_registers, intholding_registers, floatholding_registers, return };
 		    else
-			put_bblock_note (
+			# When a private fn is to be optimized,
+			# no actual code is generated until later:						# If there any code in place to actually do this, I can't find it. -- 2011-08-10 CrT.
+			#
+			emit_bblock_note (
 			    #
 			    lhn::heapcleaner_safepoint.x_to_note
 				#
@@ -1631,24 +1761,31 @@ herein
 			emit_op  return;
 		    fi;
 
-		    end_procedure (
+		    
+		    case pri::heap_is_exhausted__test
 			#
-			case pri::heap_is_exhausted__test
-			    #
-			    THE platform_specific__heap_is_exhausted__test =>   tcf::FLAG_EXPRESSION platform_specific__heap_is_exhausted__test ! liveout;
-			    NULL                                           =>                                                                     liveout; 
-			esac
-		    );
+			THE platform_specific__heap_is_exhausted__test =>   emit__end_of_fn__mark ( tcf::FLAG_EXPRESSION platform_specific__heap_is_exhausted__test ! liveout);
+			NULL                                           =>   emit__end_of_fn__mark (                                                                   liveout);
+		    esac;
 		};
 
 
 	    # The following function checks
-	    # whether two rootsets have the
-	    # same calling convention.
+	    # whether heapcleaner call specs
+	    # describe equivalent code, such
+	    # that we can generate just one
+	    # shared codeblock for both.
 	    #
-	    fun same_calling_convention
-		    ( HEAPCLEANER_CALL { rootholding_registers=>b1, intholding_registers=>i1, floatholding_registers=>f1, return=>tcf::GOTO (ret1, _), ... },
-		      HEAPCLEANER_CALL { rootholding_registers=>b2, intholding_registers=>i2, floatholding_registers=>f2, return=>tcf::GOTO (ret2, _), ... }
+	    # This requires that they have equivalent
+	    # patterns of live-register types, and
+	    # also equivalent logic to return-to-caller,
+	    # in particular by both returning via an
+	    # indirect jump through the same register.
+	    #
+	    fun heapcleaner_callspecs_are_equivalent
+		    (
+		      SPEC_FOR_HEAPCLEANER_CALL { rootholding_registers=>b1, intholding_registers=>i1, floatholding_registers=>f1, return=>tcf::GOTO (ret1, _), ... },
+		      SPEC_FOR_HEAPCLEANER_CALL { rootholding_registers=>b2, intholding_registers=>i2, floatholding_registers=>f2, return=>tcf::GOTO (ret2, _), ... }
 		    )
 		    =>
 		    {   fun eq_ea ( tcf::REG(_, r1),
@@ -1727,7 +1864,7 @@ herein
                         lists_match  eq_f   (f1,   f2  );
 		    };
 
-		same_calling_convention _
+		heapcleaner_callspecs_are_equivalent _
 		    =>
 		    FALSE;
 	    end;
@@ -1736,10 +1873,11 @@ herein
 	    # The following function is called once
 	    # at the end of compiling a cccomponent.							# "cccomponent" == "callgraph connected-component".
 	    #
-	    # It generates long jumps to the end
-	    # of the module unit for public functions,
-	    # and directly invokes the heapcleaner for
-	    # private functions.
+	    # For public fns we have the heaplimit checks						# Why the difference?  Possibly because public-fn calls use a standardized arg-passing
+	    # branch to longjumps which in turn jump to their						# which makes sharing of heap-cleaner calls a plausible prospect, but private-fn calls use
+	    # (possibly shared) actual heapcleaner-call codeblock,					# customized arg-passing protocols which may not match often enough to make heapcleaner-call
+	    # but for private functions we have the heaplimit checks						# sharing attempts worth the effort...? -- 2011-08-12 CrT
+	    # branch directly to their heapcleaner-call codeblocks.
 	    #
 	    # The actual heapcleaner invocation code is not generated yet.
 	    #
@@ -1747,57 +1885,93 @@ herein
 	    #
 	    #     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
 	    #
-	    fun emit_longjump_heapcleaner_calls
+	    fun emit_all_publicfn_heapcleaner_longjumps_and_all_privatefn_heapcleaner_calls_for_cccomponent
 		(
 		  stream as { emit_op,
-			      define_local_label,
-			      end_procedure,
+			      emit_private_label,
+			      emit__end_of_fn__mark,
 			      ...
 			    }
 		)
 		=
-		{   # Heapcleaner code can be shared if the calling convention is the same.
-		    # Use linear search to find the heapcleaner function.
+		{   apply  merge_identical_heapcleaner_calls   *public_fn_heaplimit_checks__global;					    public_fn_heaplimit_checks__global  := [];
 		    #
-		    fun find (heapcleaner_call as HEAPCLEANER_CALL { label_on_heapcleaner_call as REF heapcleaner_label, ... } )
+		    apply  emit_longjump  *longjumps_to_heapcleaner_calls__global;
+		    #
+		    apply   (emit_heapcleaner_call' { stream, fn_is_public => FALSE })   *private_fn_heaplimit_checks__global;		    private_fn_heaplimit_checks__global := [];
+		}
+		where
+		    # The idea here is that we have many heaplimit branch-and-checks
+		    # (which are small -- two machine instructions) but that making
+		    # separate heapcleaner-call blocks (which are large -- dozens of instructions)
+		    # for them all would be a lot of code, and not needed because
+		    # many of those heapcleaner-call blocks would be identical anyhow.
+		    #
+		    # So here we in essence merge all duplicate heapcleaner-call blocks
+		    # to save codespace.  Since we haven't actually generated the heapcleaner-call
+		    # blocks as yet, "merging" them actually just involves making a pass over
+		    # our   public_fn_heaplimit_checks__global	list.
+		    #
+		    # Here 'heaplimit_branch_target_label' is the codelabel to which
+		    # one heaplimit check will jump.  We need to put it on a longjump
+		    # which jumps to a compatible heapcleaner-call, where 'compatible'
+		    # means it has the same pattern of live register contents.
+		    #	
+		    # We scan the (initially empty)   longjumps_to_heapcleaner_calls__global
+		    # list of longjump specs; if we find a longjump to a compatible heapcleaner call
+		    # we use it, eitherwise we create a new one and push it to the list:
+		    #
+		    fun merge_identical_heapcleaner_calls (hcs as SPEC_FOR_HEAPCLEANER_CALL { label_on_heapcleaner_call as REF heaplimit_branch_target_label, ... } )	# Heaplimit-check (not -call!) to process.
 			=
-			search  *longjumps_to_heapcleaner_calls
+			merge_identical_heapcleaner_calls'  *longjumps_to_heapcleaner_calls__global
 			where 
-			    fun search (LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call=>heapcleaner_call', labels_on_longjump } ! rest)
+			    fun merge_identical_heapcleaner_calls' (SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL { spec_for_heapcleaner_call=>hcs', labels_on_longjump } ! rest)
 				    =>
-				    if (same_calling_convention (heapcleaner_call, heapcleaner_call'))   labels_on_longjump :=  heapcleaner_label ! *labels_on_longjump;
-				    else					                         search  rest;
+				    if (heapcleaner_callspecs_are_equivalent (hcs, hcs'))    labels_on_longjump :=  heaplimit_branch_target_label  !  *labels_on_longjump;
+				    else					              merge_identical_heapcleaner_calls'  rest;
 				    fi;
 
-				search []
+				merge_identical_heapcleaner_calls' []
 				    => 
-				    {   # No matching convention:
+				    {   # No compatible longjump, create and push a new one:
 
-					label =   lbl::make_anonymous_codelabel ();
+					# The existing codelabel on the heapcleaner-call spec
+					# is about to be put on the longjump spec, so give
+					# the heapcleaner-spec a new one of its own:
+					#
+					label_on_heapcleaner_call :=   lbl::make_anonymous_codelabel ();
 
-					label_on_heapcleaner_call :=   label;
-
-					longjumps_to_heapcleaner_calls
+					# Create and push a new longjump spec configured
+					# to jump to our heapcleaner spec; put heaplimit_branch_target_label
+					# onto it so the heaplimit check will branch to this longjump:
+					#
+					longjumps_to_heapcleaner_calls__global
 					    :=
-					    LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call, labels_on_longjump => REF [ heapcleaner_label ] }
+					    SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL
+					      {
+						spec_for_heapcleaner_call =>  hcs,
+						labels_on_longjump    =>  REF [ heaplimit_branch_target_label ]
+                                              }
 					    !
-					    *longjumps_to_heapcleaner_calls;
+					    *longjumps_to_heapcleaner_calls__global;
 				    };
 			    end;
 			end;
 
 
-		    # Generate long jumps to all external call-heapcleaner routines:
+		    # Generate a longjump to a heapcleaner-call routine:
 		    #
-		    fun emit_long_jumps (LONGJUMP_TO_HEAPCLEANER_CALL { labels_on_longjump => REF [], ... } )
+		    fun emit_longjump (SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL { labels_on_longjump => REF [], ... } )
 			    =>
-			    ();
-
-			emit_long_jumps
-                            (LONGJUMP_TO_HEAPCLEANER_CALL
+			    ();													# We've already done this one. This can happen because our lists get cleared
+																# once per sourcefile but emit_longjump_heapcleaner_calls() gets called once
+																# per callgraph connected component within the file -- we're sharing longjumps
+																# and heapcleaner calls between the cccomponents.
+			emit_longjump
+                            (SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL
 			      {
 				labels_on_longjump,
-				heapcleaner_call =>  HEAPCLEANER_CALL { label_on_heapcleaner_call, rootholding_registers, intholding_registers, floatholding_registers, ... }
+				spec_for_heapcleaner_call =>  SPEC_FOR_HEAPCLEANER_CALL { label_on_heapcleaner_call, rootholding_registers, intholding_registers, floatholding_registers, ... }
                               }
                             )
 			    =>
@@ -1807,46 +1981,35 @@ herein
 						    live_float_regs =   map  tcf::FLOAT_EXPRESSION  floatholding_registers;
 						end;
 
-				apply  define_local_label  *labels_on_longjump
-				before
-				    labels_on_longjump := [];
+				apply  emit_private_label  *labels_on_longjump;
+
+				labels_on_longjump := [];												# Remember we've done this one.
 
 				emit_op (tcf::GOTO (tcf::LABEL *label_on_heapcleaner_call, []));
 
-				end_procedure  live_out;
+				emit__end_of_fn__mark  live_out;
 			    };
 		    end;
+		end;																	# fun emit_longjump_heapcleaner_calls
 
-		    apply  find  *public_fn_heapcleaner_call_specs;
-
-		    public_fn_heapcleaner_call_specs := [];
-
-		    apply  emit_long_jumps  *longjumps_to_heapcleaner_calls;
-
-		    apply   (emit_heapcleaner_call' { stream, external_entry => FALSE })   *private_fn_heapcleaner_call_specs;
-
-		    private_fn_heapcleaner_call_specs := [];
-		};																	# fun emit_longjump_heapcleaner_calls
-
-	    # Generate module-specific heapcleaner-invocation code.
-	    # We are called (only) from:
-	    #
-	    #     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
-	    #
-	    fun emit_heapcleaner_calls_for_package  stream
+	    fun emit_all_publicfn_heapcleaner_calls_for_package  stream
 		=
-		apply   (emit_heapcleaner_call' { stream, external_entry => TRUE })   heapcleaner_calls
+		# We are called (only) from:
+		#
+		#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+		#
+		apply   (emit_heapcleaner_call' { stream, fn_is_public => TRUE })   heapcleaner_call_specs
 		where
-		    heapcleaner_calls
+		    heapcleaner_call_specs
 			=
-			map   heapcleaner_call_for_longjump   *longjumps_to_heapcleaner_calls
+			map   heapcleaner_call_spec_for_longjump   *longjumps_to_heapcleaner_calls__global
 			where
-			    fun heapcleaner_call_for_longjump   (LONGJUMP_TO_HEAPCLEANER_CALL { heapcleaner_call, ... })
+			    fun heapcleaner_call_spec_for_longjump   (SPEC_FOR_LONGJUMP_TO_HEAPCLEANER_CALL { spec_for_heapcleaner_call, ... })
 				=
-				heapcleaner_call;
+				spec_for_heapcleaner_call;
 			end;
 
-		    longjumps_to_heapcleaner_calls := [];
+		    longjumps_to_heapcleaner_calls__global := [];
 		end;
 	end;
     };
