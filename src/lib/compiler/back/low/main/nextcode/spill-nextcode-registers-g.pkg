@@ -1,0 +1,1643 @@
+## spill-nextcode-registers-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the nextcode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+#
+# This is a complete rewrite of the old Spill module.
+# The old module suffers from some serious performance problem but
+# I cannot decipher the old code fully, so instead of patching the problems up,
+# I'm reimplementing it with a different algorithm.  The new code is more 
+# modular, smaller when compiled, and substantially faster 
+# (O (n log n) time and O (n) space).  
+# 
+# As far as I can tell, the purpose of this module is to make sure the 
+# number of live variables at any program point (the bandwidth) 
+# does not exceed a certain limit, which is determined by the 
+# size of the spill area.  
+# 
+# When the bandwidth is too large, we decrease the register pressure by 
+# packing live variables into spill records.  How we achieve this is
+# completely different from what we did in the old code.
+# 
+# First, there is something that translate_nextcode_to_treecode_g
+# does  that we should be aware of:
+# 
+# o  translate_nextcode_to_treecode_g
+#    performs code motion!
+#  
+#    In particular, it will move floating point computations and
+#    address computations involving only the heap pointer to 
+#    their use sites (if there is only a single use).  
+#    What this means is that if we have a nextcode record construction
+#    statement
+#  
+#        RECORD (k, vl, w, e)
+#  
+#    we should never count the new record address w as live if w 
+#    has only one use (which is often the case).
+#  
+#    We should do something similar to floating point, but the transformation
+#    there is much more complex, so I won't deal with that.
+# 
+# Secondly, there are now two new nextcode primops at our disposal:
+# 
+#  1. rawrecord of Null_Or( record_kind )
+#     This pure operator allocates some uninitialized storage from the heap.
+#     There are two forms:
+#  
+#      rawrecord NULL [INT n]  allocates a tagless record of length n
+#      rawrecord (THE rk) [INT n] allocates a tagged record of length n
+#                                  and initializes the tag.
+#  
+#  2. rawupdate of cty
+#       rawupdate cty (v, i, x) 
+#       Assigns to x to the ith component of record v.
+#       The storelist is not updated.
+#  
+# We use these new primops for both spilling and increment record construction.
+#  
+#  1. Spilling.
+#     
+#     This is implemented with a linear scan algorithm (but generalized
+#     to trees).  The algorithm will create a single spill record at the
+#     beginning of the nextcode function and use rawupdate to spill to it,
+#     and SELECT or SELP to reload from it.  So both spills and reloads
+#     are fine-grain operations.  In contrast, in the old algorithm 
+#     "spills" have to be bundled together in records.  
+#  
+#     Ideally, we should sink the spill record construction to where
+#     it is needed.  We can even split the spill record into multiple ones
+#     at the places where they are needed.  But nextcode is not a good
+#     representation for global code motion, so I'll keep it simple and
+#     am not attempting this.
+#  
+#  2. Incremental record construction (aka record splitting).
+# 
+#     Records with many values which are simulatenously live
+#     (recall that single use record addresses are not considered to 
+#      be live) are constructed with rawrecord and rawupdate.
+#     We allocate space on the heap with rawrecord first, then gradually
+#     fill it in with rawupdate.  This is the technique suggested to me
+#     by Matthias.
+#  
+#     Some restrictions on when this is applicable:
+#     1. It is not a VECTOR record.  The code generator currently 
+#        does not handle this case. VECTOR record uses double 
+#        indirection like arrays.
+#     2. All the record component values are defined in the same "basic block" 
+#        as the record constructor.  This is to prevent speculative 
+#        record construction. 
+#
+# -- Allen Leung
+
+
+###                "Anyone can learn to draw, anyone can learn to play the piano,
+###                 anyone can learn to write, but only a few learn it with passion
+###                 and go on to inspire others."
+###
+###                                                 -- Shari Jones
+
+
+stipulate
+    package fcf =  nextcode_form;							# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+herein
+
+    api Spill {
+	#
+	spill_nextcode_registers:  List(fcf::Function) -> List(fcf::Function);
+    };
+end;
+
+
+
+stipulate
+    package fcf =  nextcode_form;							# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package p   =  nextcode_form::p;
+    package lv  =  highcode_var;							# highcode_var		is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package iht =  int_hashtable;							# int_hashtable		is from   src/lib/src/int-hashtable.pkg
+
+    debug          = FALSE;
+    max_bandwidth  = 100;    		# Kick in spilling when this many values 
+			     		# are live at the same time.
+
+    split_large_records = TRUE;		# TRUE to enable record splitting.
+    max_record_length   = 16;		# Split record of this size or larger.
+herein
+
+    # We are invoked (only) from:
+    #
+    #    src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+											# Machine_Properties	is from   src/lib/compiler/back/low/main/main/machine-properties.api
+    generic package   spill_nextcode_registers_g   (
+	#             ==========================
+	#
+        mp:  Machine_Properties								# Typically 		          src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+    ) 
+
+    : (weak) Spill									# Spill			is from   src/lib/compiler/back/low/main/nextcode/spill-nextcode-registers-g.pkg
+
+    {
+
+	debug_nextcode_spill      = controls::lowhalf::make_bool ("debug_nextcode_spill",      "Nextcode spill debug mode");
+	debug_nextcode_spill_info = controls::lowhalf::make_bool ("debug_nextcode_spill_info", "Nextcode spill info debug mode");
+
+	infix val 70  \/ ; 
+	infix val 80  /\ ;
+#	infix val 60  -- ;
+
+	error = error_message::impossible;
+	pr    = controls::print::say;
+	i2s   = int::to_string;
+
+	maxgpfree
+            = 
+	    int::min (mp::spill_area_size / (2 * mp::value_size), max_bandwidth);
+
+	maxfpfree
+            = 
+	    int::min (mp::spill_area_size / (2 * mp::float_size_in_bytes), max_bandwidth);
+
+	# Prettyprinting:
+	#
+	fun dump (title, nextcode_fun)
+            =
+	    if *debug_nextcode_spill
+                 pr ("------------ " + title + " the spill phase ---------- \n");
+		 prettyprint_nextcode::print_nextcode_function  nextcode_fun;
+		 pr "--------------------------------------\n\n";
+	    fi;
+
+
+	# The following data package groups
+        # together type specific functions.
+	#
+	Type_Info
+            = 
+	    TYPE_INFO  
+	    { max_live:     Int,				# Max live values allowed.
+	      is_variable:  fcf::Variable -> Bool,	# Is variable a candidate for spilling? 
+	      item_size:    Int					# Number of words per item.
+	    };
+
+	Spill_Candidate
+            =
+	    SPILL_CANDIDATE 
+	      { highcode_variable:  fcf::Variable,
+		cty:                fcf::Type,
+		rank:               Int          		# Distance to next use.
+	      };
+
+	# Cheap set representation:
+	#
+	package simple_set {
+
+		package set = int_red_black_set; 
+
+		my (\/) = set::union;
+		my (/\) = set::intersection;
+#		my (--) = set::difference;
+
+		ooo     = set::empty;       
+		card    = set::vals_count;			#  Cardinality 
+
+		fun rmv (s, x)
+                    =
+                   set::delete (s, x)
+                   except
+                       _ = s;
+	};
+
+	# Spill candidates set representation;
+        # this one has to be ranked:
+	#
+	package ranked_set {
+
+		package set
+                    =
+                    red_black_set_g (
+
+			Key = Spill_Candidate;
+
+			fun compare (SPILL_CANDIDATE { rank=>r1, highcode_variable=>v1, ... },
+				     SPILL_CANDIDATE { rank=>r2, highcode_variable=>v2, ... } )
+                            = 
+			    case (int::compare (r1, r2))
+				EQUAL => int::compare (v1, v2);
+				ord   => ord;
+                            esac;
+		    );
+
+		exception ITEM  set::Item;
+
+		# As priority queue 
+		#
+		fun next s
+                    = 
+		    set::fold_right
+                        (fn (x, _) =  raise exception ITEM x)
+                        NULL
+                        s 
+		    except
+                        ITEM x =  THE (x, set::delete (s, x));
+
+		# Abbreviations for set operations:
+		#
+		my (\/) = set::union;
+		my (/\) = set::intersection;
+#		my (--) = set::difference;
+
+		ooo     = set::empty;       
+		card  = set::vals_count;     #  Cardinality 
+
+		fun rmv (s, x)
+		    =
+		    set::delete (s, x)
+		    except
+			_ =  s;
+	};
+
+	fun rk_to_cty (fcf::rk::FCONT | fcf::rk::FBLOCK) =>   fcf::type::FLOAT64;
+	    rk_to_cty _                              =>   fcf::bogus_pointer_type;
+	end;
+
+	fun splittable fcf::rk::VECTOR =>   FALSE;	# Not supported in backend (yet)  XXX BUGGO FIXME
+	    splittable _             =>   TRUE;
+	end;
+
+	###########################################################################
+	#
+	# All nextcode functions can be independently processed.
+	#
+	# Some complexity assumptions: 
+	#   Hashing is O (1)
+	#   N = max { number of lvars, size of nextcode function }
+	#
+	###########################################################################
+
+	###########################################################################
+	# markFpAndRec
+	# =============
+	# Mark all floating point variables and return a hashtable
+	# 
+	# This is needed because we do spilling of integer and floating
+	# point stuff separately.
+	#
+	# This function takes O (N) time and space
+	###########################################################################
+
+	fun mark_fp_and_rec  (nextcode_fun:  fcf::Function)
+	    = 
+	    {   nextcode_fun ->   (callers_info, f, args, arg_types, body);
+
+		include simple_set;
+
+		exception FLOAT_SET;
+
+		float_set
+		   =
+		   iht::make_hashtable  { size_hint => 32,  not_found_exception => FLOAT_SET };
+
+		add_to_float_set
+		    =
+		    iht::set float_set;
+
+		fun fp (r, fcf::type::FLOAT64) =>   add_to_float_set (r, TRUE);
+		    fp (r, _)                  =>   ();
+		end;
+
+		exception RECORD_SET;
+
+		record_set =   iht::make_hashtable  { size_hint => 32,  not_found_exception => RECORD_SET };
+
+		markrec   =   iht::set record_set;
+		findrec   =   iht::find   record_set;
+
+		#  Mark all record uses:
+
+		rec_uses
+		    = 
+		    apply
+                        fn (fcf::VAR v, _)
+			    => 
+			    case (findrec v)   
+				#
+			        THE n =>  markrec (v, n+1);
+			        NULL  =>  ();                 	# Not a record address.
+			    esac;
+
+			    _ => ();
+                        end;
+
+
+		fun mark_pure (p, w)
+		    =
+		    case p
+			#                      
+		        # These "pure" operators actually allocate storage! 
+			#
+			( p::FWRAP | p::IWRAP | p::I32WRAP | p::NEWARRAY0
+			| p::MAKE_REFCELL | p::MAKE_SPECIAL | p::RAWRECORD _
+			)
+			    =>
+			    markrec (w, 0); 
+
+			_ => ();
+                    esac;
+
+		fun markfp e
+		    = 
+		    case e
+			#
+			fcf::TAIL_CALL _                                        =>   ();
+			fcf::JUMPTABLE r                                        =>   apply  markfp  r.nexts; 
+			#
+			fcf::GET_FIELD_I	    { type,   name, next, ... } =>   { fp (name, type);                        markfp   next; };
+			fcf::GET_ADDRESS_OF_FIELD_I {               next, ... } =>                                             markfp   next;
+			#
+			fcf::DEFINE_RECORD	    { fields, name, next, ... } =>   { rec_uses fields;   markrec (name, 0);   markfp   next; };
+			#
+			fcf::STORE_TO_RAM	    {              next, ... } =>                                             markfp   next;
+			fcf::FETCH_FROM_RAM	    {  name, type, next, ... } =>   { fp (name, type);                        markfp   next; };
+			#
+			fcf::MATH		    {  name, type, next, ... } =>   { fp (name, type);                        markfp   next; };
+			#
+			fcf::PURE	         { op, name, type, next, ... } =>   { mark_pure (op, name); fp (name, type);  markfp   next; };
+
+			fcf::RAW_C_CALL			{ results, next, ... } =>   { apply fp results;                         markfp   next; };
+			#
+			fcf::IF_THEN_ELSE { then_next, else_next, ... }
+			    =>
+			    {   markfp  then_next;
+				markfp  else_next;
+			    };
+
+			fcf::DEFINE_FUNS _ =>   error "fcf::DEFINE_FUNS in Spill::markfp";
+		    esac;
+
+		paired_lists::apply fp (args, arg_types);		# Mark function parameters.
+		markfp body;					# Mark function body.
+
+
+		# Filter out multiple uses of record values because these
+		# are not forward propagated by the backend.
+
+		if debug
+
+                    iht::keyed_apply
+                        (fn (v, n)
+			    =
+			    if (n >= 2)
+                                pr (lv::name_of_highcode_variable v + " uses=" + i2s n + "\n");
+			    fi
+			)
+			record_set;
+		fi;
+
+		iht::filter
+                    (fn n =   n <= 1)
+                    record_set;
+
+		(float_set, record_set);
+	    };
+
+        ###########################################################################
+	# needsSpilling
+	# =============
+	# This function checks whether we need to perform spilling for 
+	# the current type, which is either gpr or fpr. 
+	# Parameterized by type info.  This is supposed to be a cheap check
+	# since most of the time this function should return FALSE,
+	# so no information is saved.
+	#
+	# This function takes O (N log N) time and O (N) space.
+        ###########################################################################
+
+	fun needs_spilling   (TYPE_INFO { max_live, is_variable, ... } )   (nextcode_fun:  fcf::Function)
+	    = 
+	    {   nextcode_fun ->   (callers_info, f, args, arg_types, body);
+
+		include simple_set;
+
+		exception TOO_MANY;
+
+		bandwidth =   REF 0;
+
+		# Make sure |s| is not too large. 
+		# Note: card is a O (1) operation.
+
+		fun check s
+		    = 
+		    {   n =   card s;
+
+			if (n > *bandwidth)
+                            bandwidth := n;
+			fi;
+
+			if (n >= max_live)  raise exception TOO_MANY;
+			else                s;
+                        fi;
+		    };
+
+		# This function inserts lvars of
+                # the current type into set s:
+ 		#
+		fun uses (vs, s)
+		    = 
+		    f (vs, s)
+                    where
+		        fun f ((fcf::VAR x) ! vs, s)
+				=> 
+				f ( vs,
+                                    is_variable x  ??  set::add (s, x)
+                                                   ::  s
+                                  );
+
+			    f (_ ! vs, s)
+				=>
+				f (vs, s);
+
+			    f ([], s)
+				=>
+				check s;
+                        end;
+		    end;
+
+		# Remove w (a definition) from s.  
+		#
+		fun def (w, s)
+		    =
+		    rmv (s, w);
+
+		# Union of a list of sets S_1, ..., S_n.
+		#
+		# Runs in O (m \log m) time and space 
+		# where m = \sum_{ i=1\ldots n } |S_i|
+		#
+		unions
+                    =
+                    list::fold_right   (\/)   ooo;
+
+
+		# Compute the set of free vars at each program point.
+		# Raise exception TOO_MANY if the live set exceeds maxLive.
+		# This phase runs in total O (N log N) time and O (N) space.
+		#
+		fun freevars e
+		    =
+		    case e
+			#
+			fcf::TAIL_CALL		    { func, args }		=> uses (func ! args, ooo);
+			fcf::JUMPTABLE		    { i, nexts, ... }		=> uses ([i], unions (map freevars nexts));
+			#
+			fcf::GET_FIELD_I	    { record, name, next, ... } =>  uses([record], def (name, freevars next));
+			fcf::GET_ADDRESS_OF_FIELD_I { record, name, next, ... } =>  uses([record], def (name, freevars next));
+			#
+			fcf::DEFINE_RECORD	    { fields, name, next, ... } =>  uses ((map #1 fields), def (name, freevars next));
+			#
+			fcf::STORE_TO_RAM	    {         args, next, ... } =>  uses (args,            freevars next );
+			fcf::FETCH_FROM_RAM	    {   name, args, next, ... } =>  uses (args, def (name, freevars next));
+			#
+			fcf::MATH		    {   name, args, next, ... } =>  uses (args, def (name, freevars next));
+			fcf::PURE		    {   name, args, next, ... } =>  uses (args, def (name, freevars next));
+
+			fcf::RAW_C_CALL    { results, args, next, ... }
+			    =>
+			    uses ( args,
+
+				   fold_left
+				       (fn((w, _), s) = def (w, s))
+				       (freevars next)
+				       results
+				 );
+
+			fcf::IF_THEN_ELSE { args, then_next, else_next, ... }
+			    =>
+			    uses (args, freevars then_next \/ freevars else_next);
+
+			fcf::DEFINE_FUNS _ => error "fcf::DEFINE_FUNS in Spill::freevars";
+		   esac;
+
+		needs_spilling
+		    =
+		    {   freevars body;
+			FALSE;
+		    }
+		    except
+			TOO_MANY = TRUE;
+
+		{ needs_spilling,
+		  bandwidth     => *bandwidth
+		};
+
+	    };			#  needsSpilling 
+
+	############################################################################
+	# linearScan
+	# ==========
+	#
+	# Perform the actual spilling.
+	#
+	# The algorithm is derived from linear-scan RA algorithms. 
+	# But since we are dealing with trees, (and because of immutable
+	# data structures), we'll do this in multiple passes rather than
+	# a single pass.
+	#
+	# What spilling means in nextcode is transforming:
+	#    
+	#
+	#   v <- f(...)  # Definition
+	#   ....
+	#   ... <- g(... v ...)  # use
+	#
+	# into:
+	#
+	#   spilled <- rawrecord NULL m    # Create an uninitialized spill record of length m
+	#   ....
+	#   v <- f(...) # Definition
+	#   rawupdate (spilled, v_offset, v) 
+	#   ...
+	#   ... <- g(... SELP (spilled, v_offset) ...)    # reload
+	#
+	# Important notes:
+	#  1. The spill record is never live beyond the 
+	#     nextcode function, so we never even have to assign
+	#     its record tag.  
+	#
+	#  2. We spill all tagged/untagged values into a spill record,
+	#     without segregating them by their types, so we are mixing 
+	#     32-bit integers, 31-bit tagged ints, and pointers together.  
+	#     This is safe because of (1).
+	#
+	# This function takes a total of O (N log N) time and O (N) space. 
+	###########################################################################
+
+	fun linear_scan   (TYPE_INFO { max_live, is_variable, item_size, ... } )   (nextcode_fun:  fcf::Function)
+	    = 
+	    {   nextcode_fun ->   (callers_info, f, args, arg_types, body);
+
+		include ranked_set;
+
+		dump("before", nextcode_fun);
+
+		#  Information about each highcode_variable 
+
+		Lvar_Info
+		    = 
+		    LVAR_INFO  
+		    { use_count:   Ref( Int ),			# Number of uses in this function.
+		      def_point:   Int,				# Level of definition.
+		      def_block:   Int,				# Block of definition.
+		      cty:         fcf::Type,
+		      nearest_use: Ref( Int )			# min { level (x) | x in uses (v) } 
+		    }; 
+
+		exception LVAR_INFO_EXCEPTION;
+
+		if *debug_nextcode_spill_info
+		    pr "Nextcode Spill: linearScan\n";
+                fi;
+
+		lvar_info   =   iht::make_hashtable  { size_hint => 32,  not_found_exception => LVAR_INFO_EXCEPTION };
+		lookup_lvar =   iht::get  lvar_info;
+
+		fun spill_cand v
+		    = 
+		    {   my LVAR_INFO { nearest_use, use_count, def_point, cty, ... }
+			   =
+			   lookup_lvar v;
+
+			dist =   *nearest_use - def_point;
+
+			rank =   dist;			#  for now 
+
+			SPILL_CANDIDATE { highcode_variable=>v, cty, rank };
+		    };
+
+		# ----------------------------------------------------------------------
+		# Gather information about each highcode_variable
+		# We partition the nextcode function into blocks.  
+		#     A block is a continuous group of statements without
+		#     controlflow or store updates. 
+		# This phase runs in O (N) time and space.
+		# ---------------------------------------------------------------------
+		stipulate 
+
+		    infinity  =   10000000;
+		    enter_lvar =   iht::set lvar_info;
+
+		    fun def (v, t, b, n)
+			= 
+			enter_lvar (v, LVAR_INFO { use_count => REF 0, 
+						   def_point => n,
+						   def_block => b,
+						   cty => t,
+						   nearest_use =>REF infinity
+						 }
+				   );
+
+		    fun use (fcf::VAR v, n)
+			    => 
+			    if (is_variable v)
+
+				my  LVAR_INFO { use_count, nearest_use, ... }
+				    =
+				    lookup_lvar v; 
+
+				use_count :=   *use_count + 1;
+
+				nearest_use :=   int::min(*nearest_use, n);
+			    fi;
+
+		        use _
+			    =>
+			    ();
+                    end;
+
+		    fun uses ([],     n) =>  ();
+		        uses (v ! vs, n) =>  { use(v, n); uses (vs, n);};
+                    end;
+
+		    fun gather (e, b, n)
+			=
+			{   fun gathers ([], b, n)
+				    =>
+				    ();
+
+			        gathers (e ! es, b, n)
+				    =>
+				    {   gather (e, b, n);
+					gathers (es, b, n);
+				    };
+                            end;
+
+			    fun f0 (vl, e)
+				=
+				{   uses (vl, n);
+
+				    gather (e, b+1, n+1);
+				};
+
+			    fun f1 (v, w, t, e)
+				=
+				{   use(v, n);
+				    def (w, t, b, n);
+				    gather (e, b, n+1);
+				};
+
+			    fun fx (vl, w, t, e, b)
+				=
+				{   uses (vl, n);
+				    def (w, t, b, n);
+				    gather (e, b, n+1);
+				};
+
+			    case e
+				fcf::TAIL_CALL		    { func, args }			=>   uses (func ! args, n);
+				fcf::JUMPTABLE		    { i, nexts, ... }			=>   { use(i, n);   gathers (nexts, b+1, n+1); };
+				#
+				fcf::GET_FIELD_I	    { record, name, type, next, ... }	=>   f1 (record, name, type,                    next);
+				fcf::GET_ADDRESS_OF_FIELD_I { record, name,       next, ... }	=>   f1 (record, name, fcf::bogus_pointer_type, next);
+				#
+				fcf::DEFINE_RECORD	    { fields, name,       next, ... }	=>   fx (map #1 fields, name, fcf::bogus_pointer_type, next, b);
+				#
+				fcf::STORE_TO_RAM	    { args,               next, ... }	=>   f0 (args, next);
+				fcf::FETCH_FROM_RAM	    { args, name, type,   next, ... }	=>   fx (args, name, type, next, b);
+				#
+				fcf::MATH		    { args, name, type,   next, ... }	=>   fx (args, name, type, next, b);
+				fcf::PURE		    { args, name, type,   next, ... }	=>   fx (args, name, type, next, b);
+				#
+				fcf::RAW_C_CALL { args, results, next, ... }
+				    =>
+				    {   b = b+1;
+
+					uses (args, n);
+
+					apply (fn (w, t) =  def (w, t, b, n)) 
+                                              results;
+
+					gather (next, b, n+1);
+				    };
+
+				fcf::IF_THEN_ELSE { args, then_next, else_next, ... }
+				    =>
+				    {   uses (args, n);
+					gathers( [then_next, else_next], b+1, n+1 );
+				    };
+
+				fcf::DEFINE_FUNS _
+				    =>
+				    error "fcf::DEFINE_FUNS in Spill::gather";
+                            esac;
+			};
+
+		herein
+
+                    # Always remember to define the arguments! 
+		    #
+		    my () =  paired_lists::apply  (fn (v, t) = def (v, t, 0, 0))  (args, arg_types);
+		    my () =  gather (body, 1, 1);
+
+		end;			# Gather 
+
+		my () = if *debug_nextcode_spill  pr "Nextcode Spill: gather done\n"; fi;
+
+		# -----------------------------------------------------------------
+		# 
+		# Spill tables and utilities
+		#
+		# -----------------------------------------------------------------
+
+		exception SPILL_TABLE;
+
+		spill_table
+		    =
+		    iht::make_hashtable  { size_hint => 32,  not_found_exception => SPILL_TABLE } :
+			     iht::Hashtable ((fcf::Value, Int, fcf::Type)); 
+			    #
+			    #  Variable -> spillRecord * spill offset * cty 
+
+		enter_spill  = iht::set spill_table;   
+		find_spill   = iht::find spill_table;
+		is_spilled   = iht::contains_key spill_table;
+
+		current_spill_record = REF (NULL:   Null_Or( (fcf::Variable, fcf::Value) ));
+
+
+		# Generate a new spill record variable:
+
+		fun gen_spill_rec ()
+		    = 
+		    case *current_spill_record
+		      
+			 THE x
+			     =>
+			     x;
+
+			 NULL
+			     => 
+			     {   v =   lv::make_named_highcode_variable
+					   (symbol::make_value_symbol "spillrec");
+
+				 e =   fcf::VAR v;
+
+				 current_spill_record
+				     :=
+				     THE (v, e);
+
+                                 (v, e);
+			     };
+		    esac;
+
+
+		# This function finds up to m good
+		# spill candidates from the live set:
+
+		fun find_good_spills (0, lll, sp_off)
+		       =>
+		       (lll, sp_off);
+
+		    find_good_spills (m, lll, sp_off)
+			=>
+			case (next lll)
+			  
+			    NULL => (lll, sp_off);		       #  no more spill candidates! 
+
+			    THE (SPILL_CANDIDATE { highcode_variable, cty, rank, ... }, lll)
+				=>
+				{   offset =   sp_off;				# Should align when we have 64-bit values. XXX BUGGO FIXME
+
+				    my (_, sp_rec_expression)
+				       =
+				       gen_spill_rec ();
+
+				    enter_spill (highcode_variable, (sp_rec_expression, offset, cty));
+
+				    fun inc (sp_off, cty)
+					=
+					sp_off + 1;	         # Should get at cty 
+								    # when we have 64-bit values  XXX BUGGO FIXME
+
+				    # OK: It is actually live and
+                                    # has not been spilled:
+				    #
+				    if *debug_nextcode_spill
+					 pr("Spilling " + lv::name_of_highcode_variable highcode_variable + " rank=" + i2s rank + "\n");
+				    fi;
+
+				    find_good_spills (m - 1, lll, inc (sp_off, cty));
+				};
+			esac;
+		end;
+
+
+		# Can and should the record be split?  
+		# Split if,
+		#  1. we can handle the record type
+		#  2. if it has >= max_record_length live lvars as arguments
+		#  3. All its arguments are defined in the same block as the record.
+		#
+		fun should_split_record (rk, vl, b)
+		    = 
+		    split_large_records
+		    and
+		    splittable rk and f (vl, 0)
+                    where
+		        fun ok_path (fcf::VIA_SLOT (i, p)) =>   ok_path p;
+			    ok_path (fcf::SLOT 0)      =>   TRUE;
+			    ok_path _                 =>   FALSE;
+                        end;
+
+			fun f ([], n)
+				=>
+				n >= max_record_length; 
+
+			    f((fcf::VAR v, p) ! vl, n)
+				=>
+				{   my  LVAR_INFO { def_block, ... }
+					=
+					lookup_lvar v;
+
+				    def_block == b and
+				    ok_path p      and
+
+				    if (is_variable v and not (is_spilled v))   f (vl, n+1);
+				    else                                        f (vl, n  );
+                                    fi;
+
+				};
+
+			    f ((_, fcf::SLOT 0) ! vl, n)
+				=>
+				f (vl, n);
+
+			    f _
+				=>
+				FALSE;
+                        end;
+		    end;
+
+
+		# Tables for splitting a record 
+
+		exception RECORD_TABLE;
+
+		Split_Record_Item 
+		    =
+		    SPLIT_RECORD_ITEM 
+		     { record:    fcf::Variable,
+		       kind:      fcf::Record_Kind,
+		       len:       Int,
+		       offset:    Int,
+		       path:      fcf::Fieldpath,
+		       num_vars:  Ref( Int ),
+		       consts:    List( (Int, fcf::Value) )
+		     };
+
+		record_alloc_table =   iht::make_hashtable  { size_hint => 16,  not_found_exception => RECORD_TABLE };
+		split_record_table =   iht::make_hashtable  { size_hint => 16,  not_found_exception => RECORD_TABLE };
+
+		find_record_item   =   iht::find   record_alloc_table;
+		enter_record_item  =   iht::set record_alloc_table;
+		mark_split_record  =   iht::set split_record_table;
+
+		fun insert_record_item (v, x)
+		    =
+		    enter_record_item (v, x ! the_else (find_record_item v,[]));
+
+
+		# Mark record w as being split.  
+		# Enter the appropriate info to all its arguments.
+
+		fun split_record_construction (rk, vl, w)
+		    =
+		    {   fun f (i, (fcf::VAR v, offp) ! vl, vars, consts)
+				=> 
+				f (i+1, vl, (i, v, offp) ! vars, consts);
+
+			    f (i, (c, fcf::SLOT 0) ! vl, vars, consts)
+				=> 
+				f (i+1, vl, vars, (i, c) ! consts);
+
+			    f (_, [], vars, consts)
+				=>
+				(vars, consts);
+
+			    f _ =>
+				error "Nextcode Spill::split_record_construction";
+                        end;
+
+			my  (vars, consts)
+			    =
+			    f (0, vl, [], []);
+
+			n =  length vars;
+
+			if (n == 0)
+			    error "Nextcode Spill: splitting constant record";
+			fi;
+
+			if *debug_nextcode_spill_info
+			     pr("Splitting record " + lv::name_of_highcode_variable w + " len=" + i2s n + "\n");
+			fi;
+
+			len     =   length vl;
+			num_vars =   REF n;
+
+			fun enter (i, v, path)
+			    =
+			    {   item = SPLIT_RECORD_ITEM {
+
+					   record  => w,
+					   kind    => rk,
+					   len,
+					   offset  => i, 
+					   path, 
+					   num_vars,
+					   consts
+				       };
+
+			       insert_record_item (v, item);
+			    };
+
+			apply enter vars;
+			mark_split_record (w, TRUE);
+		    };
+
+		# -----------------------------------------------------------------
+		#  Linear scan spilling.
+		#  This function marks all spill/reload sites.
+		# 
+		#  Parameters:
+		#   e     --- nextcode expression
+		#   b     --- current block
+		#   spOff --- current available spill offset
+		# 
+		#  Return:
+		#   live      --- the set of live lvars in e 
+		#   spills --- the number of spills
+		#    
+		#  This phase takes O (N log N) time and O (N) space
+		# -----------------------------------------------------------------
+		fun scan (e, b, sp_off)
+		    = 
+		    {   # Add uses to live set:
+			#
+			fun add_uses ([], live)
+				=>
+				live;
+
+			    add_uses (fcf::VAR v ! vs, live)
+				=>
+				add_uses (
+
+				    vs,
+
+				    if   (is_variable v and not (is_spilled v))
+					 set::add (live, spill_cand v);
+				    else live;fi
+				);
+
+			    add_uses(_ ! vs, live)
+				=>
+				add_uses (vs, live);
+                        end;
+
+			#  This function kills a definition 
+			#
+			fun kill (w, live)
+			    =
+			    is_variable w  ??  rmv (live, spill_cand w)
+			                   ::  live;
+
+			# This function finds
+                        # things to spill: 
+			#
+			fun gen_spills (live, sp_off)
+			    = 
+			    {   to_spills =   card live - max_live;
+
+				if (to_spills > 0)  find_good_spills (to_spills, live, sp_off);
+				else                (live, sp_off);
+                                fi;
+			    };
+
+			#  This function visits a list of fates and
+			#  gathers up the info 
+
+			fun scan_list es
+			    = 
+			    f es
+                            where
+			        b =   b + 1;
+
+				fun f [] => (ooo, 0);
+				    f [e] => scan (e, b, sp_off);
+
+				    f (e ! es)
+					=> 
+					{   my (lll1, sp_off1) =   scan (e, b, sp_off);
+					    my (lll2, sp_off2) =   f es;
+
+					    (lll1 \/ lll2, int::max (sp_off1, sp_off2));
+					};
+                                end;
+			    end;
+
+			# This function scans normal nextcode operators 
+			# with one definition and one fate
+			# 
+			#   w:  t <- f vs; e
+			#
+			fun scan_op (vs, w, e, b)
+			    =
+			    {   my (lll, sp_off) =   scan (e, b, sp_off);	# Do fate.
+				lll          =   kill (w, lll);			# Remove definition.
+				lll          = add_uses (vs, lll);		# Add uses.
+				my (lll, sp_off) = gen_spills (lll, sp_off);	# Find spill.
+				(lll, sp_off);
+			    };
+
+			# This function scans statements
+                        # with multiple fates:
+			#
+			fun scan_statement (vs, es)
+			    =
+			    {   my (lll, sp_off) =   scan_list es;		# Do fate.
+				lll          =   add_uses (vs, lll);		# Add uses.
+				my (lll, sp_off) =   gen_spills (lll, sp_off);	# Find spills.
+				(lll, sp_off);
+			    };
+
+			# This function scans
+			# record constructors:
+			#
+			fun scan_rec (rk, vl, w, e)
+			    = 
+			    {   my  (lll, sp_off)
+				    =
+				    scan (e, b, sp_off);		#  Do fate 
+
+				my  (lll, sp_off)
+				    =
+				    if (should_split_record (rk, vl, b))
+
+					split_record_construction (rk, vl, w);
+					(lll, sp_off);
+				    else
+					lll =   kill (w, lll);
+					lll =   add_uses (map #1 vl, lll);
+					gen_spills (lll, sp_off);
+				    fi;
+
+				(lll, sp_off);
+			    };
+
+			my (lll, num_spills)
+			   = 
+			   case e
+			       fcf::TAIL_CALL		    { func, args }		=>  scan_statement (func ! args, []);
+			       fcf::JUMPTABLE		    { i, nexts, ... }		=>  scan_statement([i], nexts);
+			       #	
+			       fcf::GET_FIELD_I		    { record, name, next, ... } =>  scan_op([record], name, next, b);
+			       fcf::GET_ADDRESS_OF_FIELD_I  { record, name, next, ... } =>  scan_op([record], name, next, b);
+			       #	
+			       fcf::DEFINE_RECORD	    { kind, fields, name, next }=>  scan_rec (kind, fields, name, next);
+			       #	
+			       fcf::STORE_TO_RAM	    { args,       next, ... }	=>  scan_statement (args, [next]);
+			       fcf::FETCH_FROM_RAM	    { args, name, next, ... }	=>  scan_op (args, name, next, b);
+			       #	
+			       fcf::MATH		    { args, name, next, ... }	=>  scan_op (args, name, next, b);
+			       fcf::PURE		    { args, name, next, ... }	=>  scan_op (args, name, next, b);
+
+			       fcf::RAW_C_CALL { args, results, next, ... }
+				   =>
+				   {   b =   b+1;
+
+				       (scan (next, b, sp_off))
+					   ->
+                                           (lll, sp_off);
+
+				       lll =   fold_left
+                                                   (fn ((w, _), lll) =  kill (w, lll))
+                                                   lll
+                                                   results;
+
+				       lll =   add_uses (args, lll);
+
+				       (gen_spills (lll, sp_off))
+					   ->
+					   (lll, sp_off);
+					   
+
+				       (lll, sp_off);
+				   };
+
+			       fcf::IF_THEN_ELSE r
+				   =>
+				   scan_statement (r.args, [r.then_next, r.else_next]);
+
+			       fcf::DEFINE_FUNS _ =>   error "fcf::DEFINE_FUNS in Spill::scan";
+                           esac;
+
+			(lll, num_spills);
+		    };
+
+		# Scan the body 
+		#
+		my (lll, num_spills)
+		    =
+		    scan (body, 1, 0);
+
+
+		if *debug_nextcode_spill
+		    pr("Nextcode Spill: scan done. Spilling " + i2s num_spills + "\n");
+		fi;
+
+
+		#  Generate reloads for a list of arguments.
+		#  Returns:
+		#     the rewritten list of arguments
+		#     a function for inserting selects.
+		#
+		fun put_reloads vs
+		    =
+		    g (vs, [], fn e = e)
+		    where
+		        fun g ([], vs', f)
+                                =>
+                                (reverse vs', f);
+
+			    g ((v as fcf::VAR x) ! vs, vs', f)
+				=>
+				case (find_spill x)
+				    #
+				    NULL => g (vs, v ! vs', f);
+				    #	
+				    THE (spill_rec, off, cty)
+					=>
+					{   x'   = lv::copy_highcode_variable x;
+					    v'   = fcf::VAR x';
+
+					    fun f' next
+						=
+						fcf::GET_FIELD_I  { i      =>  off,
+								    record =>  spill_rec,
+								    name   =>  x',
+								    type   =>  cty,
+								    next   =>  f next
+								  };
+
+					    g (vs, v' ! vs', f'); 
+					};
+                                esac;
+
+			    g (v ! vs, vs', f)
+                                =>
+                                g (vs, v ! vs', f);
+                        end;
+		    end;
+
+
+		#  Generate reloads for record paths
+		#  Returns:
+		#     the rewritten list of record paths
+		#
+		fun put_path_reloads vl
+		    =
+		    f (vl, [])
+                    where
+		        fun f ([], vl')
+                                =>
+                                reverse vl';
+
+			    f((v as fcf::VAR x, p) ! vl, vl')
+			        =>
+			        case (find_spill x)
+				    #
+				    NULL
+					=>
+					f (vl, (v, p) ! vl');
+				    #	
+				    THE (spill_rec, off, cty)
+					=> 
+					f (vl, (spill_rec, fcf::VIA_SLOT (off, p)) ! vl');
+                                esac;
+
+			    f (v ! vl, vl')
+				=>
+				f (vl, v ! vl');
+                        end;
+		    end;
+
+		# This function generate
+                # spill code for variable w 
+		#
+		fun put_spill (w, next)
+		    = 
+		    case (find_spill w)
+			#
+			THE (spill_record, off, cty)
+			    => 
+			    fcf::STORE_TO_RAM { op   =>  p::RAWUPDATE cty,
+                                                args =>  [ spill_record, fcf::INT off, fcf::VAR w ],
+                                                next
+                                              };
+
+			NULL => next;
+                    esac;
+
+
+		# Emit spill record code
+		#
+		fun create_spill_record (0, next)
+                        =>
+                        next;
+
+		    create_spill_record (num_spills, next)
+			=> 
+			{   (gen_spill_rec ())
+				->
+				(spill_rec_lvar, _);
+				
+
+			    m =   num_spills * item_size;
+
+			    next = fcf::PURE  { op   =>  p::RAWRECORD NULL,
+						args =>  [fcf::INT m],
+						name =>  spill_rec_lvar,
+						type =>  fcf::bogus_pointer_type,
+						next
+					      };
+
+			    current_spill_record := NULL;		#  Clear 
+
+			    next;
+			};
+                end;
+
+		record_is_split       =   iht::contains_key split_record_table;
+		find_split_record_arg =   iht::find record_alloc_table;
+
+
+		# Proj (v, path, e) ==> w <- v::path ; e[w/v]
+		#
+		fun proj (v, fcf::SLOT 0, e) =>   e v;
+
+		    proj (v, fcf::VIA_SLOT (i, p), e)
+			=>
+			{   v'   =   lv::make_highcode_variable ();
+			    next =   e v';
+
+			    fcf::GET_FIELD_I { i, record => fcf::VAR v, name => v', type => fcf::bogus_pointer_type, next };
+			};
+
+		    proj _ =>   error "spill_g: proj";
+		end;
+
+
+		# Generate
+		#     record::offset <- v::path ; e
+		#
+		fun init_record_item (record, rk, offset, v, path, next)
+		    = 
+		    proj
+                      ( v,
+                        path, 
+			fn x =  fcf::STORE_TO_RAM
+                                  {
+				    op   =>  p::RAWUPDATE (rk_to_cty rk),
+				    args =>  [ fcf::VAR record,  fcf::INT offset,  fcf::VAR x ],
+                                    next
+                                  }
+                      );
+
+
+		# Generate code to create a record.
+		#
+		fun create_record (record, rk, len, consts, next)
+		    =
+		    {   next =   put_spill (record, next);
+
+			op =   p::RAWUPDATE (rk_to_cty rk);
+
+			fun init ((i, c), next)
+			    =
+			    fcf::STORE_TO_RAM
+                              { op,
+                                args =>  [fcf::VAR record, fcf::INT i, c],
+                                next
+                              };
+
+			next =   fold_right  init  next  consts;
+
+			next =  fcf::PURE { op   =>  p::RAWRECORD (THE rk),
+					    args =>  [fcf::INT len],
+					    name =>  record,
+					    type =>  fcf::bogus_pointer_type,
+                                            next
+                                          };
+
+			next;
+		    };
+
+
+		# It is the definition of highcode_variable v.
+		# Check to see if v is some component of split records.
+		# If so, generate code.
+		#
+		fun assign_to_split_record (v, e)
+		    = 
+		    case (find_split_record_arg v)
+		      
+			THE inits
+			    =>
+			    fold_right gen e inits
+                            where
+			        fun gen (SPLIT_RECORD_ITEM
+					 { record, kind, len, offset, 
+					  path, num_vars, consts, ... }, e)
+				    =
+				    {   e =   init_record_item (record, kind, offset, v, path, e);
+					n =   *num_vars - 1;
+
+					num_vars := n;
+
+					if (n == 0)
+					     create_record (record, kind, len, consts, e);
+					else
+					     e;
+					fi;
+				    };
+			    end;
+
+			NULL => e;
+		    esac;
+
+		# -----------------------------------------------------------------
+		#  Rebuild
+		# 
+		#  This function rewrites the nextcode expression and insert spill/reload
+		#  code.
+		# 
+		#  This phase takes O (N) time and O (N) space
+		# -----------------------------------------------------------------
+
+		fun rebuild e
+		    = 
+		    {   fun rewrite_statement (vs, es, f)
+			    =
+			    {   es =   map rebuild es;
+
+				my (vs, g)
+				   =
+				   put_reloads vs;
+
+				g (f(vs, es));
+			    };
+
+			fun rewrite (vs, w, e, f)
+			    =
+			    {   e =   rebuild e;
+				e =   put_spill (w, e);
+				e =   assign_to_split_record (w, e);
+
+				my  (vs, g)
+				    =
+				    put_reloads vs;
+
+				g (f(vs, w, e));
+			    };
+
+			fun rewrite'(vs, wl, e, f)
+			    =
+			    {   e =   rebuild e;
+				e =   fold_left put_spill e wl;
+				e =   fold_left assign_to_split_record e wl;
+
+				my  (vs, g)
+				    =
+				    put_reloads vs;
+
+				g (f (vs, wl, e));
+			    };
+
+			fun rewrite_rec (vl, w, e, f)
+			    =
+			    {   e =   rebuild e;
+				e =   put_spill (w, e);
+				e =   assign_to_split_record (w, e);
+
+				if (record_is_split w)
+				     e;
+				else f (put_path_reloads vl, w, e);fi;
+			    };
+
+			# Wrappers -- make the match compiler shut up 
+
+			fun s1 f (v ! vs, es) => f (v, vs, es);
+			    s1 _ _ => error "Spill: s1";
+                        end;
+
+			fun e1 f ([v], w, e) => f (v, w, e);
+			    e1 _ _ => error "Spill: e1";
+                        end;
+
+			fun s'1 f (vs, [e]) => f (vs, e);
+			    s'1 _ _ => error "Spill: s'1";
+                        end;
+
+			fun s'2 f (vs, [x, y]) => f (vs, x, y);
+			    s'2 _ _ => error "Spill: s'2";
+                        end;
+
+
+			# Rewrite the expression
+			#
+			e = case e
+
+				fcf::TAIL_CALL { func, args }
+				    => 
+				    rewrite_statement
+                                      ( func ! args,
+                                        [],
+                                        s1  (fn (func, args, _) =  fcf::TAIL_CALL { func, args })
+                                      );
+
+				fcf::JUMPTABLE { i, xvar, nexts }
+				    => 
+				    rewrite_statement( [i],  nexts,  s1 (fn (i, _, nexts) = fcf::JUMPTABLE { i, xvar, nexts }));
+
+				fcf::GET_FIELD_I { i, record, name, type, next }
+				    =>  
+				    rewrite( [record],
+                                             name,
+                                             next,
+                                             e1  (fn (record, name, next) =  fcf::GET_FIELD_I { i, record, name, type, next })
+                                           );
+
+				fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, next }
+				    =>    
+				    rewrite( [record],
+                                             name,
+                                             next,
+                                             e1  (fn (record, name, next) = fcf::GET_ADDRESS_OF_FIELD_I { i, record, name,      next }));
+
+				fcf::DEFINE_RECORD { kind, fields, name, next }
+				    =>     
+				    rewrite_rec (fields, name, next, fn (fields, name, next) = fcf::DEFINE_RECORD { kind, fields, name, next });
+
+				fcf::STORE_TO_RAM { op, args, next }
+				    => 
+				    rewrite_statement (args, [e], s'1 (fn (args, next) = fcf::STORE_TO_RAM { op, args, next }));
+
+				fcf::FETCH_FROM_RAM { op, args, name, type, next } =>  rewrite (args, name, next,   fn (args, name, next) = fcf::FETCH_FROM_RAM { op, args, name, type, next });
+				fcf::MATH           { op, args, name, type, next } =>  rewrite (args, name, next,   fn (args, name, next) = fcf::MATH           { op, args, name, type, next });
+				fcf::PURE           { op, args, name, type, next } =>  rewrite (args, name, next,   fn (args, name, next) = fcf::PURE           { op, args, name, type, next });
+
+				fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, next }
+				    =>  
+				    rewrite'
+				      (
+					args,
+					map #1 results,
+					next,
+					fn (args, wl, next)
+					    =
+					    fcf::RAW_C_CALL
+					      {
+						kind, cfun_name, cfun_type, args,
+						results => paired_lists::map
+						             (fn (w, (_, t)) = (w, t))
+						             (wl, results),
+						next
+					      }
+				      );
+
+				fcf::IF_THEN_ELSE { op, args, xvar, then_next, else_next }
+				    => 
+				    rewrite_statement
+                                      ( args,
+                                        [then_next, else_next],
+                                        s'2  (fn (args, then_next, else_next) =  fcf::IF_THEN_ELSE { op, args, xvar, then_next, else_next })
+                                      );
+
+				fcf::DEFINE_FUNS _
+				    =>
+				    error "fcf::DEFINE_FUNS in Spill::rebuild";
+                            esac;
+
+			e;
+		    };			# Rebuild 
+
+		# Insert spill/reload code:
+ 		#
+		body = rebuild body;
+		body = fold_right put_spill body args;			# Spill code for arguments.
+		body = create_spill_record (num_spills, body);		# Insert spill record creation code:
+
+		if *debug_nextcode_spill_info
+		    pr("Nextcode Spill: linearScan done " + i2s num_spills + " spilled\n");
+		fi;
+
+		nextcode_fun
+                    =
+                   (callers_info, f, args, arg_types, body);
+
+		dump("after", nextcode_fun);
+
+		nextcode_fun;
+	    };				# fun linear_scan 
+
+	# -------------------------------------------------------------------------
+	# spillOne
+	# ========
+	#
+	# This is the driver to process only one nextcode function.
+	#
+	# This routine takes a total of O (N log N) time and O (N) space
+	#
+	# -------------------------------------------------------------------------
+	fun spill_one  nextcode_fun
+	    = 
+	    {   # Perform spilling.
+		#
+		fun spill_it type_info  nextcode_fun
+		    =
+		    {   my  { needs_spilling, bandwidth, ... }
+			    =
+			    needs_spilling  type_info  nextcode_fun; 
+
+			if *debug_nextcode_spill_info
+			     pr("Nextcode Spill bandwidth=" + i2s bandwidth + "\n");
+			fi;
+
+			if needs_spilling    linear_scan type_info  nextcode_fun;
+			else                                        nextcode_fun;
+                        fi;
+		    };
+
+		# If we have unboxed floats then
+		# we have to distinguish between
+		# fpr and gpr registers.  
+
+
+		(mark_fp_and_rec  nextcode_fun)				#  Collect fp type info 
+		    ->
+		    (fp_table, record_table);
+
+		is_moveable_rec =   iht::contains_key record_table;
+
+		nextcode_fun
+		    = 
+		    if  mp::unboxed_floats
+			#
+			is_fp =   iht::contains_key fp_table;
+
+			fun is_gp r
+			    =
+			    not (is_fp r)            and
+			    not (is_moveable_rec r);
+
+			fp =   TYPE_INFO { is_variable=>is_fp, max_live=>maxfpfree, item_size=>2 };
+			gp =   TYPE_INFO { is_variable=>is_gp, max_live=>maxgpfree, item_size=>1 };
+
+			nextcode_fun =   spill_it  fp  nextcode_fun;			# Do fp spills first 
+			nextcode_fun =   spill_it  gp  nextcode_fun;			# Do gp spills 
+
+			nextcode_fun;
+		    else 
+			fun is_gp r
+			    =
+			    not (is_moveable_rec r);
+
+			spill_it
+                            (TYPE_INFO { is_variable=>is_gp, max_live=>maxgpfree, item_size=>1 })
+                            nextcode_fun;
+		    fi;
+
+		nextcode_fun;
+	    };				# fun spill_one 
+
+
+	# Main entry point:
+	#
+	spill_nextcode_registers
+	    =
+	    map  spill_one;
+    };					# spill_nextcode_registers_g 
+end;					# stipulate
+
+
+## Copyright 2002 by Bell Laboratories
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

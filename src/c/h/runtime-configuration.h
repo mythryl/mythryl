@@ -125,7 +125,7 @@
     //     src/c/cleaner/call-cleaner.c
     //     src/c/cleaner/multicore-cleaning-stuff.c
     //
-    #define PERIODIC_EVENT_TIME_GRANULARITY_IN_FATECODE_INSTRUCTIONS   (1 << 10)     // Must be power of 2.
+    #define PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS   (1 << 10)     // Must be power of 2.
 #endif
 
 #endif // RUNTIME_CONFIGURATION_H

@@ -9,7 +9,7 @@
 // most entries is indicated using the register map convention (via
 // ArgRegMap); these entries are valid (and live) iff the corresponding
 // bit in the register mask is set (see fps/generic.pkg).  N_ARG_REGS
-// gives the number of such entries. The pc, exnfate, current_thread_ptr, and baseptr
+// gives the number of such entries. The pc, exnfate, current_thread_ptr, and base_pointer
 // (if defined) are always valid roots, and the icounter (if defined) never is.
 //
 // This file gets #included in only one other file:
@@ -65,7 +65,7 @@
 #elif defined(TARGET_SPARC32)
 
 #   define NROOTS		23		// pc, %i0-i5, %g7, %g1-%g3, %l0-%l7, %o0-%o1 %o3-%o4
-#   define N_ARG_REGS		19		// exclude baseptr
+#   define N_ARG_REGS		19		// exclude base_pointer
 #   define N_PSEUDO_REGS	2
 #   define PC_INDEX		6
 #   define EXN_INDEX		7		// %g7

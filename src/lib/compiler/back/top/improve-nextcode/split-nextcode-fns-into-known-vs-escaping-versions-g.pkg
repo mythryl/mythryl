@@ -1,0 +1,383 @@
+## split-nextcode-fns-int-known-vs-escaping-versions-g.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the nextcode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+
+#    "Introduces eta-redexes such that all functions fall
+#     into one of two categories:  Either all of their call
+#     sites are known or none of their call sites are known.
+#
+#    "I.e., if a function f is not in one of those two categories,
+#     a new function f' = \x.fx is introduced and all places where
+#     f "escapes" (i.e., is passed as a higher function argument
+#     rather than being directly called) are redirected to use f'."
+#
+#     [...]
+#
+#    "The need for etasplit is avoided by using slightly
+#     different formulations of the relevant optimizations."
+#
+#          -- Principled Compilation and Scavenging
+#             Stefan Monnier, 2003 [PhD Thesis, U Montreal]
+#             http://www.iro.umontreal.ca/~monnier/master.ps.gz 
+
+
+
+# Perform the "eta-split" transformation on nextcode expressions.
+# Its purpose is to give two entry points to functions which
+# both escape and which are called at known points.
+#
+# The function is split into two functions:
+#
+#     A known function that is used for calls.
+#
+#     A strictly escaping function used for all
+#     escaping occurrences of the original function.
+#
+# The new escaping function simply calls the new known function.
+#
+# I do not bother to split known functions, or functions that only
+# escape.  Furthermore, no fates are split.  I expect that
+# the majority of fates are escaping, except for a few known
+# fates that were created for reasons of space complexity (as
+# the join of two branches, for example).  I doubt there are many
+# fates which both escape and have known calls.  -- Trevor Jim
+
+
+stipulate
+    package fcf =  nextcode_form;				# nextcode_form				is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package hct =  highcode_type;				# highcode_type				is from   src/lib/compiler/back/top/highcode/highcode-type.pkg
+    package hut =  highcode_uniq_types;				# highcode_uniq_types			is from   src/lib/compiler/back/top/highcode/highcode-uniq-types.pkg
+    package iht =  int_hashtable;				# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+herein
+
+    api Split_Nextcode_Fns_Into_Known_Vs_Escaping_Versions {
+	#
+	split_nextcode_fns_into_known_vs_escaping_versions
+	  :
+	  { function:	fcf::Function,
+	    table:	iht::Hashtable( hut::Uniqtype ),
+	    click:	String -> Void
+          }
+          ->
+          fcf::Function;
+    };
+end;
+
+
+
+# We are invoked from:
+#
+#     src/lib/compiler/back/top/improve-nextcode/run-optional-nextcode-improvers-g.pkg
+
+						 		# Machine_Properties			is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate
+    package fcf =  nextcode_form;				# nextcode_form				is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package hcf =  highcode_form;				# highcode_form				is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+    package hcv =  highcode_var;				# highcode_var				is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package iht =  int_hashtable;				# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+herein
+
+
+    generic package   split_nextcode_fns_into_known_vs_escaping_versions_g   (
+	#             ====================================================
+	#
+	machine_properties:  Machine_Properties			# Typically 					  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+    )
+    : (weak)  Split_Nextcode_Fns_Into_Known_Vs_Escaping_Versions		# Split_Nextcode_Fns_Into_Known_Vs_Escaping_Versions	is from   src/lib/compiler/back/top/improve-nextcode/split-nextcode-fns-into-known-vs-escaping-versions-g.pkg
+    {
+
+	fun share_name (x, fcf::VAR y) => hcv::share_name (x, y); 
+	    share_name _ => ();
+        end;
+
+	fun split_nextcode_fns_into_known_vs_escaping_versions
+              {
+                function => (fkind, fvar, fargs, ctyl, cexp),
+		table    => typtable,
+		click
+              }
+            =
+	    {   debug =   *controls::cg::debugnextcode;					# FALSE 
+
+		fun debugprint s  =  if debug  controls::print::say s;    fi;
+		fun debugflush () =  if debug  controls::print::flush();  fi;
+
+		rep_flag = machine_properties::representations;
+		type_flag = *controls::cg::checknextcode1 and rep_flag;
+
+
+		exception SPLIT1;
+
+		fun getty v
+		    = 
+		    if type_flag 
+			#
+			(iht::get  typtable  v)
+			except
+			    _ =
+				 {   controls::print::say ("SPLIT1: Can't find the variable " +
+					     (int::to_string v) + " in the typtable ***** \n");
+				     raise exception SPLIT1;
+				 };
+		    else
+			hcf::truevoid_uniqtype;
+                    fi;
+
+		fun addty (f, t)
+                    =
+                    if type_flag  iht::set typtable (f, t); fi;
+
+		fun copy_lvar v
+                    =
+                    {   x = hcv::copy_highcode_variable (v);
+			addty (x, getty v);
+                        x;
+		    };
+
+		stipulate
+
+		    exception SPLIT2;
+
+		    my m:  iht::Hashtable( fcf::Value )
+                        =
+                        iht::make_hashtable  { size_hint => 32,  not_found_exception => SPLIT2 };
+
+		herein
+
+		    fun makealias x
+			=
+		        {   share_name x;
+			    iht::set m x;
+		        };
+
+		    fun alias (fcf::VAR v)
+                            =>
+                            (THE (iht::get  m  v))
+                            except
+                                SPLIT2 = NULL;
+
+		        alias _ => NULL;
+                    end;
+		end;
+
+		stipulate
+
+                    exception SPLIT3;
+
+		    my m:  iht::Hashtable { used:  Ref( Int ), called:  Ref( Int ) }
+			 =
+			 iht::make_hashtable  { size_hint => 32,  not_found_exception => SPLIT3 };
+
+		herein
+
+                    get = iht::get  m;
+
+		    fun enter_fn (_, f, _, _, _)
+                        =
+			iht::set m (f,{ used=>REF 0, called=>REF 0 } );
+			#
+		        # Perhaps I shouldn't bother to enter_fn fates?
+
+		    fun use (fcf::VAR v)
+			    =>
+			    {   (get v) ->   { used, ... };
+				used := *used + 1;
+			    }
+			    except
+				SPLIT3 = ();
+
+			use _ => ();
+                    end;
+
+		    fun call (fcf::VAR v)
+                            =>
+		            {   (get v) ->   { used, called };
+		                used   :=  *used   + 1;
+                                called :=  *called + 1;
+		             }
+                             except
+                                 SPLIT3 = ();
+
+		        call _ => ();
+                    end;
+		end;
+
+
+
+		# Get usage information and
+                # mark whether or not we will
+		# be doing any splits.
+
+		found_split = REF FALSE;
+
+		recursive val pass1
+		    = 
+		    fn  fcf::DEFINE_RECORD	    { fields, next, ... }  =>   {   apply (use o #1) fields;   pass1 next;   };
+			fcf::GET_FIELD_I	    { record, next, ... }  =>   {   use record;                pass1 next;   };
+			fcf::GET_ADDRESS_OF_FIELD_I { record, next, ... }  =>   {   use record;                pass1 next;   };
+			#
+			fcf::JUMPTABLE { i, nexts, ... } => { use i; apply pass1 nexts;};
+			#
+			fcf::IF_THEN_ELSE { args, then_next, else_next, ... }
+			    =>
+			    {   apply use args;
+				pass1 then_next;
+				pass1 else_next;
+			    };
+			#
+			fcf::STORE_TO_RAM    { args, next, ... } => { apply use args;  pass1 next; };
+			fcf::FETCH_FROM_RAM  { args, next, ... } => { apply use args;  pass1 next; };
+			#
+			fcf::MATH       { args, next, ... } => {  apply use args;  pass1 next;  };
+			fcf::PURE       { args, next, ... } => {  apply use args;  pass1 next;  };
+			fcf::RAW_C_CALL { args, next, ... } => {  apply use args;  pass1 next;  };
+			#
+			fcf::TAIL_CALL { func, args } =>   { call func;  apply use args; };
+
+			fcf::DEFINE_FUNS { funs, next }
+                            =>
+			    {   # Any changes to dosplit() (below)
+                                # must be reflected here:
+				#
+			        fun checksplit NIL
+                                        =>
+                                        ();
+
+				    checksplit ((fcf::FATE, _, _, _, _) ! tl)
+                                        =>
+                                        checksplit tl;
+
+				    checksplit ((_, f, _, _, _) ! tl)
+				        =>
+				        {   (get f) ->  { used=>REF u, called=>REF c };
+
+					    if (u!=c and c!=0)   found_split := TRUE;
+					    else                 checksplit tl;
+                                            fi;
+				       };
+                                end;
+
+			        apply enter_fn  funs;
+
+			        apply (fn (_, _, _, _, body) =  pass1 body)
+                                     funs;
+
+			        pass1 next;
+
+			        if (not *found_split)  checksplit funs;   fi;
+			   };
+                    end;
+
+		recursive val reduce
+                    = 
+		    fn  fcf::DEFINE_RECORD { kind, fields, name, next                }
+                     => fcf::DEFINE_RECORD { kind, fields, name, next => reduce next };
+		        #
+			fcf::GET_FIELD_I   { i, record, name, type, next                }
+                     => fcf::GET_FIELD_I   { i, record, name, type, next => reduce next };
+			#
+			fcf::GET_ADDRESS_OF_FIELD_I { i, record, name,       next } 
+                     => fcf::GET_ADDRESS_OF_FIELD_I { i, record, name,       next => reduce next };
+			#
+			fcf::JUMPTABLE { i, xvar, nexts }
+                     => fcf::JUMPTABLE { i, xvar, nexts => map reduce nexts };
+			#
+			fcf::IF_THEN_ELSE { op, args, xvar, then_next,                   else_next                    }
+		     => fcf::IF_THEN_ELSE { op, args, xvar, then_next => reduce then_next, else_next => reduce else_next };
+			#
+			fcf::MATH { op, args, name, type, next }      =>  fcf::MATH { op, args, name, type,  next => reduce next  };
+			fcf::PURE { op, args, name, type, next }      =>  fcf::PURE { op, args, name, type,  next => reduce next  };
+			#
+			fcf::FETCH_FROM_RAM { op, args, name, type, next } =>  fcf::FETCH_FROM_RAM { op, args, name, type, next => reduce next };
+			fcf::STORE_TO_RAM   { op, args,             next } =>  fcf::STORE_TO_RAM   { op, args,             next => reduce next };
+			#
+			fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results,  next                 }
+                     => fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results,  next => reduce next  };
+
+			(e as fcf::TAIL_CALL { func, args })
+			    => 
+			    case (alias func)
+				#
+				THE func =>  fcf::TAIL_CALL { func, args };
+				NULL     =>  e;
+			    esac;
+
+			fcf::DEFINE_FUNS { funs, next }
+			    =>
+			    {   fun dosplit NIL =>   NIL;
+
+				    dosplit ((hd as (fcf::PUBLIC, f, vl, cl, body)) ! tl)
+					=>
+					{   (get f) ->   { used=>REF u, called=>REF c };
+
+					    if (u!=c and c!=0)
+						#
+						# Function escapes AND
+						# has known call sites:
+						#
+						f'  = copy_lvar f;
+						vl' = map copy_lvar vl;
+						click "S";
+						makealias (f, fcf::VAR f');
+
+						( (fcf::NO_INLINE_INTO,           f, vl', cl, fcf::TAIL_CALL { func => fcf::VAR f', args => map fcf::VAR vl' })
+						! (fcf::PUBLIC, f', vl, cl, body)
+                                                ! (dosplit tl)
+                                                );
+
+					    else hd ! (dosplit tl);
+					    fi;
+					};
+
+				    dosplit (hd ! tl) => hd ! (dosplit tl);
+				end;
+
+				funs' = dosplit funs;
+
+				# Could check for NO_INLINE_INTO in reduce_body, so
+				# that we don't reduce in the body of something we've
+				# just split; but we might be using NO_INLINE_INTO
+				# for something else (e.g. UNCURRY).
+
+				fun reduce_body (fk, f, vl, cl, body)
+				    =
+				    (fk, f, vl, cl, reduce body);
+
+				fcf::DEFINE_FUNS  { funs =>  map reduce_body funs',
+						    next =>  reduce next
+						  };
+			   };
+                  end ;
+
+	        # Body of split_known_escaping_functions 
+
+		debugprint "Etasplit: ";
+		pass1 cexp;
+
+		if *found_split   (fkind, fvar, fargs, ctyl, reduce cexp);
+		else              (fkind, fvar, fargs, ctyl, cexp);
+                fi
+		before
+                    debugprint "\n";
+
+	    };						# fun split_known_escaping_functions 
+    };							# generic package  split_known_escaping_functions_g 
+end;							# stipulate
+
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

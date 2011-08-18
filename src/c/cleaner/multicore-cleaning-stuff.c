@@ -77,7 +77,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 		debug_say ("(with PollFreq=%d) ", pollFreq);
 		#endif
 
-		task->heap_allocation_limit =  alloc_base + pollFreq * PERIODIC_EVENT_TIME_GRANULARITY_IN_FATECODE_INSTRUCTIONS;
+		task->heap_allocation_limit =  alloc_base + pollFreq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 
 		task->heap_allocation_limit
 		    =

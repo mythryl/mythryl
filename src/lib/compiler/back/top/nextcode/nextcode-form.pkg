@@ -1,0 +1,629 @@
+## nextcode-form.pkg 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+###             "He who walks with truth makes life."
+###
+###                                 -- Sumerian saying
+
+
+
+stipulate
+    package cty =  ctypes;						# ctypes			is from   src/lib/compiler/back/low/ccalls/ctypes.pkg
+    package hbt =  highcode_basetypes;					# highcode_basetypes		is from   src/lib/compiler/back/top/highcode/highcode-basetypes.pkg
+
+    fun bug s
+	=
+	error_message::impossible ("nextcode:" + s);
+herein
+
+
+    package nextcode_form {						# Not sure why we don't seal here with   src/lib/compiler/back/top/nextcode/nextcode-form.api
+        #
+
+	package rk {
+	    Record_Kind
+	      = VECTOR
+	      | RECORD
+	      | SPILL
+	      | ESCAPE
+	      | CONT
+	      | FCONT
+	      | KNOWN
+	      | BLOCK
+	      | FBLOCK
+	      | I32BLOCK
+	      ;
+	};
+	Record_Kind = rk::Record_Kind;
+
+	Pkind = VPT | RPT  Int | FPT  Int;
+
+	package type {
+	    Type
+	      = INT		# 31-bit int?
+	      | INT32		# 32-bit int?
+	      | POINTER Pkind	# Pointer?
+	      | FUN		# Unsigned int?
+	      | FLOAT64		# Float?
+	      | FATE		# Fate?
+	      | DSP		#
+	      ;
+	};
+	Type = type::Type;
+
+	package p {
+	    #
+	    Number_Kind_And_Bits
+	      #
+	      = INT   Int			# Fixed-length   signed-integer type.
+	      | UNT   Int 			# Fixed-length unsigned-integer type.
+	      | FLOAT Int			# Fixed-length floating-point   type.	
+	      ;
+
+	    Arithop
+	      = ADD
+	      | SUBTRACT
+	      | MULTIPLY
+	      #	
+	      | DIVIDE				# Round-to-zero division -- this is the native instruction on Intel32.
+              | DIV				# Round-to-negative-infinity division  -- this will be much slower on Intel32, has to be faked.
+	      #	
+	      | REM				# Round-to-zero remainder -- this is the native instruction on Intel32.
+              | MOD				# Round-to-negative-infinity remainder -- this will be much slower on Intel32, has to be faked.
+	      #	
+	      | NEGATE
+	      | ABS 
+	      | FSQRT
+	      | FSIN
+	      | FCOS
+	      | FTAN 
+	      | LSHIFT
+              | RSHIFT
+              | RSHIFTL
+              | BITWISE_AND
+              | BITWISE_OR
+              | BITWISE_XOR
+              | BITWISE_NOT
+              ;
+
+	    Compare_Op = GT | GE | LT | LE | EQL | NEQ;
+
+	    # fcmpop conforms to the IEEE std 754 predicates.
+	    #
+	    package f {
+		Ieee754_Floating_Point_Compare_Op 
+		  = EQ		#  = 
+		  | ULG		#  ?<> 
+		  | UN		#  ? 
+		  | LEG		#  <=>
+		  | GT		#  > 
+		  | GE		#  >= 
+		  | UGT		#  ?> 
+		  | UGE		#  ?>=
+		  | LT		#  < 
+		  | LE		#  <= 
+		  | ULT		#  ?< 
+		  | ULE		#  ?<=
+		  | LG		#  <> 
+		  | UE		#  ?= 
+		  ;
+	    };
+	    Ieee754_Floating_Point_Compare_Op = f::Ieee754_Floating_Point_Compare_Op;
+
+	    # These are two-way branches
+	    # dependent on pure inputs:
+	    #
+	    Branch
+	      = CMP  { op: Compare_Op, kindbits: Number_Kind_And_Bits }    #  numkind cannot be FLOAT 
+	      | FCMP  { op: Ieee754_Floating_Point_Compare_Op, size: Int }
+	      | BOXED
+              | UNBOXED
+              | PEQL
+              | PNEQ
+	      | STREQ
+              | STRNEQ
+              ; 
+		  # streq (n, a, b) is defined only if strings a and b have
+		  # exactly the same length n > 1 
+
+	    # These overwrite existing values in ram.
+	    # (The "ram" might possibly be cached in registers.)
+	    #
+	    Store_To_Ram
+	      = NUMUPDATE  { kindbits: Number_Kind_And_Bits }
+	      | UNBOXED_SET
+              | BOXED_SET
+	      | UPDATE						# v[i] := w	-- overwrites i-th slot in vector v.
+	      | SET_INT_REFCELL					# a := v.	-- Int-refcell stores are special because they don't need to be logged for the heapcleaner.
+              | ASSIGN						# a := v
+	      | SET_EXCEPTION_HANDLER
+              | SET_CURRENT_THREAD_REGISTER			# Dedicated 'register'. (Actually in ram on intel32.)
+              | USELVAR
+              | SET_STATE_OF_SPECIAL
+	      | FREE
+              | ACCLINK
+              | PSEUDOREG_SET
+              | SETMARK
+	      | RAWSTORE  { kindbits: Number_Kind_And_Bits }
+	      | RAWUPDATE  Type					# v[i] := w	-- 64-bit writes for FLOAT64, 32-bit writes otherwise.
+              ;
+
+	    # These fetch from the store, never
+            # have functions as arguments:
+	    #
+	    Fetch_From_Ram
+	      = BANG
+              | SUBSCRIPT
+              | NUMSUBSCRIPT  { kindbits: Number_Kind_And_Bits }
+              | GET_STATE_OF_SPECIAL
+              | DEFLVAR
+	      | GET_RUNTIME_ASM_PACKAGE_RECORD
+              | GET_EXCEPTION_HANDLER
+              | GET_CURRENT_THREAD_REGISTER
+              | PSEUDOREG_GET
+	      | RAWLOAD  { kindbits: Number_Kind_And_Bits }
+              ;
+
+	    # These might raise exception exceptions, never
+            # have functions as arguments:
+	    #
+	    Arith
+	      = MATH  { op: Arithop, kindbits: Number_Kind_And_Bits }
+	      | SHRINK_INT  (Int, Int)
+	      | SHRINK_UNT  (Int, Int)
+	      | SHRINK_INTEGER  Int
+	      | ROUND  { floor: Bool, from: Number_Kind_And_Bits, to: Number_Kind_And_Bits }
+              ;
+
+	    # These don't raise exceptions
+            # and don't access the store:
+	    #
+	    Pure
+	      = PURE_ARITH  { op: Arithop, kindbits: Number_Kind_And_Bits }
+	      | PURE_NUMSUBSCRIPT  { kindbits: Number_Kind_And_Bits }
+	      | LENGTH
+              | CHUNK_LENGTH
+              | MAKE_REFCELL
+	      | STRETCH  (Int, Int)
+	      | CHOP  (Int, Int)
+	      | COPY  (Int, Int)
+	      | STRETCH_TO_INTEGER Int
+	      | CHOP_INTEGER       Int
+	      | COPY_TO_INTEGER    Int
+	      | CONVERT_FLOAT  { from: Number_Kind_And_Bits, to: Number_Kind_And_Bits }
+	      | SUBSCRIPTV
+	      | GET_BTAG_FROM_TAGWORD
+              | MAKE_SPECIAL
+              | WRAP
+              | UNWRAP
+              | CAST
+              | GETCON
+              | GETEXN
+	      | FWRAP		# Float
+              | FUNWRAP		# Float
+              | IWRAP		# Int
+              | IUNWRAP		# Int
+              | I32WRAP
+              | I32UNWRAP
+	      | GETSEQDATA
+	      | RECSUBSCRIPT
+              | RAW64SUBSCRIPT
+              | NEWARRAY0
+	      | RAWRECORD  Null_Or( Record_Kind )					# Allocate uninitialized words from the heap.
+	      | CONDMOVE  Branch
+              ;
+
+	    stipulate 
+
+		fun ioper (GT : Compare_Op)  => (LE : Compare_Op);
+		    ioper LE  => GT;
+		    ioper LT  => GE; 
+		    ioper GE  => LT;
+		    ioper EQL => NEQ; 
+		    ioper NEQ => EQL;
+		end;
+
+		fun foper f::EQ   => f::ULG;
+		    foper f::ULG  => f::EQ;
+		    foper f::GT   => f::ULE;
+		    foper f::GE   => f::ULT;
+		    foper f::LT   => f::UGE;
+		    foper f::LE   => f::UGT;
+		    foper f::LG   => f::UE;
+		    foper f::LEG  => f::UN;
+		    foper f::UGT  => f::LE;
+		    foper f::UGE  => f::LT;
+		    foper f::ULT  => f::GE;
+		    foper f::ULE  => f::GT;
+		    foper f::UE   => f::LG;
+		    foper f::UN   => f::LEG;
+		end;
+
+	    herein 
+
+		fun opp BOXED   => UNBOXED; 
+		    opp UNBOXED => BOXED;
+		    opp STRNEQ  => STREQ; 
+		    opp STREQ   => STRNEQ;
+		    opp PEQL    => PNEQ; 
+		    opp PNEQ    => PEQL;
+		    opp ( CMP { op, kindbits } ) =>  CMP { op=>ioper op, kindbits };
+		    opp (FCMP { op, size } ) => FCMP { op=>foper op, size };
+		end;
+	    end;
+
+	    iadd = MATH { op => ADD,      kindbits=>INT 31 };
+	    isub = MATH { op => SUBTRACT, kindbits=>INT 31 };
+	    imul = MATH { op => MULTIPLY, kindbits=>INT 31 };
+	    idiv = MATH { op => DIVIDE,   kindbits=>INT 31 };
+	    ineg = MATH { op => NEGATE,   kindbits=>INT 31 };
+
+	    fadd = MATH { op => ADD,      kindbits=>FLOAT 64 };
+	    fsub = MATH { op => SUBTRACT, kindbits=>FLOAT 64 };
+	    fmul = MATH { op => MULTIPLY, kindbits=>FLOAT 64 };
+	    fdiv = MATH { op => DIVIDE,   kindbits=>FLOAT 64 };
+	    fneg = MATH { op => NEGATE,   kindbits=>FLOAT 64 };
+
+	    ieql = CMP { op=>EQL, kindbits=>INT 31 };
+	    ineq = CMP { op=>NEQ, kindbits=>INT 31 };
+	    igt  = CMP { op=>GT,  kindbits=>INT 31 };
+	    ige  = CMP { op=>GE,  kindbits=>INT 31 };
+	    ile  = CMP { op=>LE,  kindbits=>INT 31 };
+	    ilt  = CMP { op=>LT,  kindbits=>INT 31 };
+	/*  iltu = CMP { op=>LTU, kindbits=>INT 31 } 
+	    igeu = CMP { op=>GEU, kindbits=>INT 31 }
+	*/
+	    feql =FCMP { op=>f::EQ, size=>64 };
+	    fneq =FCMP { op=>f::LG, size=>64 };
+	    fgt  =FCMP { op=>f::GT, size=>64 };
+	    fge  =FCMP { op=>f::GE, size=>64 };
+	    fle  =FCMP { op=>f::LE, size=>64 };
+	    flt  =FCMP { op=>f::LT, size=>64 };
+
+	    fun arity NEGATE => 1;
+		arity _      => 2;
+	    end;
+
+	};			# package p
+
+								# highcode_var	is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+
+	Variable
+	    =
+            highcode_var::Variable;
+
+	Value 
+	  = VAR     Variable
+	  | LABEL   Variable
+	  | INT     Int
+	  | INT32   unt32::Unt
+	  | FLOAT64 String
+	  | STRING  String
+	  | CHUNK   unsafe::unsafe_chunk::Chunk
+	  | TRUEVOID
+	  ;
+
+	Fieldpath 									# How do we access the value of a given RECORD slot?
+	  = SLOT		Int							# Directly, as slot six or whatever.
+	  | VIA_SLOT		(Int, Fieldpath)					# Indirectly through a series of fetches, starting with slot six or whatever.
+          ;
+
+	# See copious comments in:  src/lib/compiler/back/top/nextcode/nextcode-form.api
+	#
+	Callers_Info
+	  = FATE									# Fate (=="continuation") functions. Fate functions are never recursive; there is at most one per fcf::DEFINE_FUNS.
+	  | PRIVATE									# A fun is 'private' if we known all possible callers -- this lets us optimize the calling register conventions for it.
+	  | PRIVATE_RECURSIVE								# Private recursive functions.
+	  | PRIVATE_NEEDS_HEAPLIMIT_CHECK						# Private functions that need a heap limit check.
+	  | PRIVATE_TAIL_RECURSIVE							# Private tail-recursive kernel functions.
+	  | PRIVATE_FATE								# Private fate ("continuation") functions.
+	  | PUBLIC									# Before the closure phase: any user function; After  the closure phase: Any externally visible fun. (=> requires std call protocol.)
+	  | NO_INLINE_INTO
+          ;
+
+	Instruction									# One or more instructions chained through 'next'.
+	  #
+          = DEFINE_RECORD								# Define 'name' as a 'kind' record with 'fields', then execute 'next'.
+	      { kind:		Record_Kind,						# record / fate / ... 
+		fields:		List( (Value, Fieldpath) ),
+		name:		Variable,
+		next:		Instruction						# Next instruction to execute.
+	      }
+	  | GET_FIELD_I									# Get field 'i' of 'type' from 'record' and give it 'name', then execute 'next'.
+	      { i:		Int,
+		record:		Value,
+		name:		Variable,
+		type:		Type,
+		next:		Instruction						# Next instruction to execute.
+	      }
+	  | GET_ADDRESS_OF_FIELD_I							# Compute address of 'i'-th field of 'record' and give it 'name', then execute 'next'.
+	      { i:		Int,
+		record:		Value,
+		name:		Variable,
+		next:		Instruction						# Next instruction to execute.
+	      }
+          | TAIL_CALL   { func: Value, args: List(Value) }				# Apply 'fn' to 'args'. Nextcode fns don't return so there's no 'next' field -- this is essentially a "jump with arguments".
+          | DEFINE_FUNS { funs: List(Function), next: Instruction }			# Define 'funs', then execute 'next'. Often a single fun is defined, but potentially a set of mutually recursive fns.
+          | JUMPTABLE   { i: Value, xvar: Variable, nexts: List(Instruction) }		# Evaluate i-th of N nexts. xvar is used for def/use accounting -- created fresh at start of nextcode, discarded at end.
+	  | IF_THEN_ELSE								# If 'op'('args') do 'then_next' else 'else_next'.
+	      { op:		p::Branch,						# Specifies comparison (GT, LE...), bit resolution etc.
+		args:		List(Value),
+		xvar:		Variable,						# xvar is for branch-probability estimation via def/use accounting -- created at start of nextcode, discarded at end.
+		then_next:	Instruction,						# Next instruction to execute if condition is TRUE.
+		else_next:	Instruction						# Next instruction to execute if condition is FALSE.
+	      }
+
+	  | STORE_TO_RAM
+	      { op:   		p::Store_To_Ram,					# Are we storing into a refcell, rw_vector, or something weird?  Are we storing a pointer or an immediate value?
+		args:		List(Value),						# Actual value to store.
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | FETCH_FROM_RAM								# Define my ('name': 'type') = 'op'('args') during execution of 'fate'. Our 'op' never has functions as arguments.
+	      { op:		p::Fetch_From_Ram,					# Are we fetching from a refcell, rw_vector, globally allocated register...?
+		args:		List(Value),						# Typically [v,i] if we're fetching v[i] -- depends on 'op'.
+		name:		Variable,						# We publish fetch result under this name during execution of 'fate'.
+		type:		Type,							# We publish fetch result under this type during execution of 'fate'.
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | MATH									# Compute 'op'('args'), give result 'name' of 'type' during execution of 'fate'.
+	      { op:		p::Arith,
+		args:		List(Value),
+		name:		Variable,
+		type:		Type,
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | PURE
+	      { op:		p::Pure,
+		args:		List(Value),
+		name:		Variable,
+		type:		Type,
+		next:		Instruction						# Next instruction to execute.
+	      }
+
+	  | RAW_C_CALL									# Invoke C function 'linkage' with 'args', publish return values as 'results' during execution of 'fate'.
+	      {
+		kind:		Rcc_Kind,
+		cfun_name:	String,
+		cfun_type:	cty::Cfun_Type,						# Either "" or else linkage info as   "shared_library_name/name_of_the_C_function".
+		args:		List(Value),
+		results:	List( (Variable, Type) ),				# Like 'name' above, but a list of (Variable,Type) pairs instead of a single Variable.
+		next:		Instruction						# Next instruction to execute.
+	      }
+		#
+	        # Experimental "raw C call" (Blume, 1/2001) -- see comments in   src/lib/compiler/back/top/nextcode/nextcode-form.api
+
+	also
+        Rcc_Kind
+            =
+            FAST_RCC | REENTRANT_RCC
+
+	withtype
+            Function
+                =
+                ( Callers_Info,								# E.g., if all callers are known, we can construct a custom calling convention for better time and space performance.
+                  Variable,
+                  List( Variable ),
+                  List( Type ),
+                  Instruction
+                );
+
+	fun has_raw_c_call  cexp
+	    =
+	    case cexp
+		#		  
+		RAW_C_CALL _                      =>  TRUE;
+		TAIL_CALL  _                      =>  FALSE;
+		#
+		DEFINE_RECORD		{ next, ... }     =>  has_raw_c_call next;
+		GET_FIELD_I		{ next, ... }     =>  has_raw_c_call next;
+		GET_ADDRESS_OF_FIELD_I	{ next, ... }     =>  has_raw_c_call next;
+		STORE_TO_RAM		{ next, ... }     =>  has_raw_c_call next;
+		FETCH_FROM_RAM		{ next, ... }     =>  has_raw_c_call next;
+		MATH			{ next, ... }     =>  has_raw_c_call next;
+		PURE			{ next, ... }     =>  has_raw_c_call next;
+		#
+		IF_THEN_ELSE		{ then_next, else_next, ... } =>  has_raw_c_call  then_next
+                                                                  or  has_raw_c_call  else_next;
+		#
+		JUMPTABLE		{ nexts, ... }	  =>  check_list  nexts;
+		#
+		DEFINE_FUNS { funs, next }
+		    =>
+		    has_raw_c_call  next
+                    or
+		    check_list
+			(map  (fn (_, _, _, _, e) = e)  funs);
+	    esac
+	    where
+		fun check_list (c ! rest) =>  has_raw_c_call (c) or check_list (rest);
+		    check_list []         =>  FALSE;
+                end;
+	    end;
+
+	fun size_in_bits   type::FLOAT64 =>  64; 
+	    size_in_bits ( type::INT
+                         | type::INT32
+                         | type::POINTER _
+                         | type::FUN
+                         | type::FATE
+                         | type::DSP
+                         ) => 32;				# 64-bit issue XXX BUGGO FIXME
+	end;
+
+	fun is_float  type::FLOAT64         =>  TRUE;
+	    is_float ( type::INT
+                     | type::INT32
+                     | type::POINTER _
+                     | type::FUN
+                     | type::FATE
+                     | type::DSP
+                     )                           => FALSE;
+	end;
+
+	fun is_tagged ( type::FLOAT64
+                      | type::INT32
+                      )                          =>  FALSE;
+	    is_tagged ( type::INT
+                      | type::POINTER _
+                      | type::FUN
+                      | type::FATE
+                      | type::DSP
+                      )                          =>  TRUE;
+	end;
+
+	fun cty_to_string  type::INT              =>  "[I]";
+	    cty_to_string  type::INT32            =>  "[I32]";
+	    cty_to_string  type::FLOAT64          =>  "[R]";
+	    cty_to_string (type::POINTER (RPT k)) =>  ("[PR" + (int::to_string (k)) + "]");
+	    cty_to_string (type::POINTER (FPT k)) =>  ("[PF" + (int::to_string (k)) + "]");
+	    cty_to_string (type::POINTER  VPT )   =>  "[PV]";
+	    cty_to_string  type::FUN              =>  "[F]";
+	    cty_to_string  type::FATE             =>  "[C]";
+	    cty_to_string  type::DSP              =>  "[D]";
+	end;
+
+	fun combinepaths (p, SLOT 0)
+		=>
+		p;
+
+	    combinepaths (p, q)
+		=> 
+		comb p
+                where
+		    recursive val comb
+			=
+			fn (SLOT 0)
+                               =>
+                               q;
+
+			   (SLOT i)
+                               =>
+                               case q   
+				   (SLOT j) => SLOT (i+j);
+				   (VIA_SLOT (j, p)) => VIA_SLOT (i+j, p);
+			       esac;
+
+			   (VIA_SLOT (i, p))
+                              =>
+                              VIA_SLOT (i, comb p);
+                        end;
+		end;
+	end;
+
+	fun lenp (SLOT _) => 0;
+	    lenp (VIA_SLOT(_, p)) => 1 + lenp p;
+	end;
+
+	bogus_pointer_type = type::POINTER VPT;  #  Bogus pointer type whose length is unknown 
+
+	stipulate
+	    package hcf = highcode_form;				# highcode_form		is from   src/lib/compiler/back/top/highcode/highcode-form.pkg
+	    #
+	    tc_float64 =  hcf::float64_uniqtyp;
+	    lt_float64 =  hcf::float64_uniqtype;
+	herein
+
+	    fun tcflt tc = if (hcf::same_uniqtyp      (tc, tc_float64))  TRUE; else FALSE; fi;
+	    fun ltflt lt = if (hcf::same_uniqtype (lt, lt_float64))  TRUE; else FALSE; fi;
+
+	    fun rtyc (f, []) => RPT 0;
+
+		rtyc (f, ts)
+                    =>
+		    loop (ts, TRUE, 0)
+                    where
+		        fun loop (a ! r, b, len)
+				=> 
+				if (f a)   loop (r,     b, len+1);
+				else       loop (r, FALSE, len+1);
+				fi;
+
+			    loop ([], b, len)
+                                =>
+                                if b   FPT len;
+                                else   RPT len;
+                                fi;
+                        end;  
+		    end;
+	    end;
+
+	    fun ctyc tc
+		=
+		hcf::if_uniqtyp_is_basetype (
+
+                   tc, 
+
+		   fn pt =   if   (pt == hbt::basetype_int31)    type::INT;
+			     elif (pt == hbt::basetype_int32)    type::INT32;
+			     elif (pt == hbt::basetype_float64)  type::FLOAT64;
+			     else                                bogus_pointer_type;
+                             fi,
+
+		   fn tc
+		       =
+		       hcf::if_uniqtyp_is_tuple (
+			   tc,
+			   fn ts = type::POINTER (rtyc (tcflt, ts)),
+
+			   fn tc = if   (hcf::uniqtyp_is_arrow tc)  type::FUN;
+				   elif (hcf::uniqtyp_is_fate  tc)  type::FATE;
+				   else                             bogus_pointer_type;
+				   fi
+		       )
+	       );
+
+	    fun ctype lt
+		= 
+		hcf::if_uniqtype_is_typ (
+
+                    lt,
+
+                    fn tc =  ctyc tc,
+
+		    fn lt =  hcf::if_uniqtype_is_package (
+
+                                 lt,
+
+                                 fn ts =  type::POINTER (rtyc (fn _ = FALSE, ts)), 
+
+			         fn lt =  if   (hcf::uniqtype_is_generic_package  lt)   type::FUN;
+				          elif (hcf::uniqtype_is_fate lt)               type::FATE;
+					  else                                          bogus_pointer_type;
+                                          fi
+                             )
+                );
+
+	end;		# local ctype 
+    };			# package nextcode
+end;			# stipulate
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

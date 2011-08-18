@@ -8,7 +8,7 @@
 #     2)  Deep Syntax is the second and final frontend code representation.
 #     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
 #     4)  Anormcode (A-Normal format)  is the second backend code representation, and the first used for optimization.
-#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     5)  Nextcode is the third and chief backend tophalf code representation.
 #     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
 #     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
 #     8)  Execode is absolute executable binary machine instructions for the target architecture.
@@ -23,7 +23,7 @@
 #
 # Our runtime invocation is from
 #
-#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
 
 # Compiled by:
 #     src/lib/compiler/back/low/sparc32/backend-sparc32.lib
@@ -112,8 +112,8 @@ herein
 	    package rgk =  mcf::rgk;						# "rgk" == "registerkinds".
 	herein
 
-	    Codestream = tcs::Treecode_Stream( mcf::Machine_Op, rgk::Codetemplists,		mcg::Machcode_Controlflow_Graph );
-	    Treecode_Stream    = tcs::Treecode_Stream( tcf::Void_Expression,    List( tcf::Expression ),	mcg::Machcode_Controlflow_Graph );
+	    Codebuffer = tcs::Treecode_Codebuffer( mcf::Machine_Op, rgk::Codetemplists,		mcg::Machcode_Controlflow_Graph );
+	    Treecode_Codebuffer    = tcs::Treecode_Codebuffer( tcf::Void_Expression,    List( tcf::Expression ),	mcg::Machcode_Controlflow_Graph );
 
 	    fun to_int n = tcf::mi::to_int (32, n);
 	    fun li i = tcf::LITERAL (tcf::mi::from_int (32, i));
@@ -292,20 +292,39 @@ herein
 
 
 
-	    fun translate_treecode_to_machcode  (codestream  as  { emit_op, define_local_label, define_global_label, emit_pseudo_op, put_bblock_note, get_notes, begin_connected_component, end_connected_component, end_procedure, emit_comment, ... })
+	    fun make_treecode_to_machcode_codebuffer
+		    #
+		    buf
+		    #
+		    # 'buf' is our interface to
+		    #
+		    #     src/lib/compiler/back/low/mcg/make-machcode-codebuffer-g.pkg
+		    #
+		    # which constructs a machine-code graph driven by our 'put commands:
+		    # basically we do a lot of
+		    #
+		    #     buf.put_op 
+		    #
+		    # calls to construct the graph and then one
+		    # 
+		    #     resultgraph = buf.get_completed_cccomponent
+		    #
+		    # call to get the resulting machcode controlflow graph.
 		=
 		{
-		    emit_op'		 = emit_op o mcf::BASE_OP;
+		    put_base_op =  buf.put_op  o  mcf::BASE_OP;
 		    #  Flags 
-		    use_br          = *use_br;
-		    registerwindow = *registerwindow;
+		    use_br      =  *use_br;
+
+		    registerwindow =  *registerwindow;
 
 		    trap32  = psi::overflowtrap32; 
 		    trap64  = psi::overflowtrap64; 
 
 		    zero_r   = rgk::r0;
-		    make_int_codetemp  = rgk::make_int_codetemp;
-		    make_float_codetemp = rgk::make_float_codetemp;
+
+		    make_int_codetemp   =  rgk::make_int_codetemp;
+		    make_float_codetemp =  rgk::make_float_codetemp;
 
 		    fun immed13 n
 			=
@@ -379,8 +398,8 @@ herein
 			annotate (op, note ! notes) =>   annotate (mcf::NOTE { op, note }, notes);
 		    end;
 
-		    fun mark'(i, notes) =   emit_op (annotate (i, notes)); 
-		    fun mark (i, notes) =   emit_op (annotate (mcf::BASE_OP i, notes)); 
+		    fun mark'(i, notes) =   buf.put_op (annotate (i, notes)); 
+		    fun mark (i, notes) =   buf.put_op (annotate (mcf::BASE_OP i, notes)); 
 
 		    # Convert an operand into a register:
 		    #
@@ -390,7 +409,7 @@ herein
 			reduce_opn i
 			    => 
 			    {   d = make_int_codetemp (); 
-				emit_op' (mcf::ARITH { a=>mcf::OR, r=>zero_r, i, d } );
+				put_base_op (mcf::ARITH { a=>mcf::OR, r=>zero_r, i, d } );
 				d;
 			    };
 		    end;
@@ -459,7 +478,7 @@ herein
 				     mark (mcf::SETHI { i=>hi, d }, notes); gen_cmp0 (cc, d);
 				 else
 				     t = make_int_codetemp ();
-				     emit_op' (mcf::SETHI { i=>hi, d=>t } );
+				     put_base_op (mcf::SETHI { i=>hi, d=>t } );
 				     mark (mcf::ARITH { a=>or_op, r=>t, i=>mcf::IMMED lo, d }, notes);
 				 fi;
 			    fi;
@@ -494,8 +513,9 @@ herein
 			    esac;
 
 			    case trap
+				#
 				[] => ();
-				_  => apply emit_op trap;
+				_  => apply  buf.put_op  trap;
 			    esac; 
 			}   
 
@@ -530,13 +550,14 @@ herein
 					_ = gen( { r, i=>opn (tcf::LITERAL i), d }, reduce_opn);
 			       };
 
-			    instrs = case (comm, e1, e2)   
-					 (_,       e1,           tcf::LITERAL i) => const (e1, i);
-					 (COMMUTE, tcf::LITERAL i, e2          ) => const (e2, i);
-					 _                                     => nonconst (e1, e2);
-				     esac;
+			    ops =   case (comm, e1, e2)
+					#
+					(_,       e1,           tcf::LITERAL i) => const (e1, i);
+					(COMMUTE, tcf::LITERAL i, e2          ) => const (e2, i);
+					_                                     => nonconst (e1, e2);
+				    esac;
 
-			    apply emit_op instrs; 
+			    apply  buf.put_op  ops; 
 
 			    gen_cmp0 (cc, d);
 			}
@@ -569,15 +590,14 @@ herein
 					_ = [annotate (mcf::arith { a, r, i=>opn (tcf::LITERAL i), d }, notes)];
 				};
 
-			    instrs
-			       =
-			       case (comm, e1, e2)   
-				   (_,       e1,           tcf::LITERAL i) => const (e1, i);
-				   (COMMUTE, tcf::LITERAL i, e2          ) => const (e2, i);
-				   _                                     => nonconst (e1, e2);
-			       esac;
+			    ops =   case (comm, e1, e2)
+					#
+				        (_,       e1,           tcf::LITERAL i) =>     const (e1, i);
+				        (COMMUTE, tcf::LITERAL i, e2          ) =>     const (e2, i);
+				        _                                       =>  nonconst (e1, e2);
+				    esac;
 
-			    apply emit_op instrs; 
+			    apply  buf.put_op  ops; 
 
 			    gen_cmp0 (cc, d);
 			}
@@ -773,7 +793,7 @@ herein
 					  _  => error "fbranch";
 				     esac;
 
-				emit_op' (mcf::FCMP { cmp, r1=>float_expression a, r2=>float_expression b, nop=>TRUE } );
+				put_base_op (mcf::FCMP { cmp, r1=>float_expression a, r2=>float_expression b, nop=>TRUE } );
 				mark (mcf::FBFCC { b=>fcond cond, a=>FALSE, label=>lab, nop=>TRUE }, notes);
 			    };
 
@@ -839,22 +859,25 @@ herein
 			    call (funct, targets, defs, uses, region, cuts_to, notes, pops);
 
 			void_expression (tcf::RET _, notes) => mark (mcf::RET { leaf=>not registerwindow, nop=>TRUE }, notes);
-			void_expression (tcf::STORE_INT (8, a, d, ramregion), notes)   => store (mcf::STB, a, d, ramregion, notes);
-			void_expression (tcf::STORE_INT (16, a, d, ramregion), notes)  => store (mcf::STH, a, d, ramregion, notes);
-			void_expression (tcf::STORE_INT (32, a, d, ramregion), notes)  => store (mcf::ST, a, d, ramregion, notes);
+
+			void_expression (tcf::STORE_INT ( 8, a, d, ramregion), notes) =>  store (mcf::STB, a, d, ramregion, notes);
+			void_expression (tcf::STORE_INT (16, a, d, ramregion), notes) =>  store (mcf::STH, a, d, ramregion, notes);
+			void_expression (tcf::STORE_INT (32, a, d, ramregion), notes) =>  store (mcf::ST,  a, d, ramregion, notes);
 
 			void_expression (tcf::STORE_INT (64, a, d, ramregion), notes)
 			    => 
 			    store (if v9  mcf::STX; else mcf::STD;fi, a, d, ramregion, notes);
 
-			void_expression (tcf::STORE_FLOAT (32, a, d, ramregion), notes) => fstore (mcf::STF, a, d, ramregion, notes);
-			void_expression (tcf::STORE_FLOAT (64, a, d, ramregion), notes) => fstore (mcf::STDF, a, d, ramregion, notes);
+			void_expression (tcf::STORE_FLOAT (32, a, d, ramregion), notes) =>  fstore (mcf::STF, a, d, ramregion, notes);
+			void_expression (tcf::STORE_FLOAT (64, a, d, ramregion), notes) =>  fstore (mcf::STDF, a, d, ramregion, notes);
 
-			void_expression (tcf::IF_GOTO (cc, lab), notes) => branch (cc, lab, notes);
-			void_expression (tcf::DEFINE l, _) => define_local_label l;
-			void_expression (tcf::NOTE (s, a), notes) => void_expression (s, a ! notes);
-			void_expression (tcf::EXT s, notes) => txc::compile_sext (reducer()) { void_expression=>s, notes };
-			void_expression (s, notes) => do_stmts (tct::compile_void_expression s);
+			void_expression (tcf::IF_GOTO (cc, lab), notes) =>  branch (cc, lab, notes);
+			void_expression (tcf::DEFINE l, _)		=>  buf.put_private_label l;
+
+			void_expression (tcf::NOTE (s, a), notes)	=>  void_expression (s, a ! notes);
+			void_expression (tcf::EXT s, notes)		=>  txc::compile_sext (reducer()) { void_expression=>s, notes };
+
+			void_expression (s, notes)			=>  do_stmts (tct::compile_void_expression s);
 		    end 
 
 		    also
@@ -1023,7 +1046,8 @@ herein
 			    tcf::MULT (64, a, b)
 				=> 
 				{   muldiv64 (mcf::MULX, mult64::multiply, a, b, d, CC_REG, COMMUTE, notes);
-				    apply emit_op trap64;
+				    #
+				    apply  buf.put_op  trap64;
 				};
 
 			    tcf::DIVU (64, a, b)
@@ -1066,8 +1090,8 @@ herein
 		    # Generate a comparison with zero:
 		    # 
 		    also
-		    fun gen_cmp0 (REG, _) => ();
-			gen_cmp0 (_,   d) => emit_op' (mcf::ARITH { a=>mcf::SUBCC, r=>d, i=>zero_opn, d=>zero_r } );
+		    fun gen_cmp0 (REG, _) =>  ();
+			gen_cmp0 (_,   d) =>  put_base_op (mcf::ARITH { a=>mcf::SUBCC, r=>d, i=>zero_opn, d=>zero_r } );
 		    end 
 
 		    # Convert an expression into
@@ -1129,7 +1153,7 @@ herein
 
 			    # Floating point to floating point:
 			    #
-			    tcf::CONVERT_FLOAT_TO_FLOAT (type, type', e)
+			    tcf::FLOAT_TO_FLOAT (type, type', e)
 				=>
 				case (type, type')
 				    #
@@ -1147,9 +1171,9 @@ herein
 
 			    # Integer to floating point:
 			    # 
-			    tcf::CONVERT_INT_TO_FLOAT ( 32, 32, e) =>   apply emit_op (psi::cvti2s( { i=>opn e, d }, reduce_opn));
-			    tcf::CONVERT_INT_TO_FLOAT ( 64, 32, e) =>   apply emit_op (psi::cvti2d( { i=>opn e, d }, reduce_opn));
-			    tcf::CONVERT_INT_TO_FLOAT (128, 32, e) =>   apply emit_op (psi::cvti2q( { i=>opn e, d }, reduce_opn));
+			    tcf::INT_TO_FLOAT ( 32, 32, e) =>   apply  buf.put_op  (psi::cvti2s( { i=>opn e, d }, reduce_opn));
+			    tcf::INT_TO_FLOAT ( 64, 32, e) =>   apply  buf.put_op  (psi::cvti2d( { i=>opn e, d }, reduce_opn));
+			    tcf::INT_TO_FLOAT (128, 32, e) =>   apply  buf.put_op  (psi::cvti2q( { i=>opn e, d }, reduce_opn));
 
 			    tcf::FNOTE (e, lnt::MARKREG f) => { f d; do_float_expression (e, d, notes);};
 			    tcf::FNOTE (e, a)            => do_float_expression (e, d, a ! notes);
@@ -1224,36 +1248,39 @@ herein
 		    fun reducer ()
 			=
 			tcs::REDUCER
-			  { reduce_int_expression   => expr,
-			    reduce_float_expression => float_expression,
+			  { reduce_int_expression   =>  expr,
+			    reduce_float_expression =>  float_expression,
 
-			    reduce_flag_expression =>  cc_expr,
-			    reduce_void_expression      =>  void_expression,
+			    reduce_flag_expression  =>  cc_expr,
+			    reduce_void_expression  =>  void_expression,
 
-			    operand        => opn,
-			    reduce_operand => reduce_opn,
+			    operand	    =>  opn,
+			    reduce_operand  =>  reduce_opn,
 
-			    address_of     => address,
-			    emit_op        => emit_op o annotate,
+			    address_of	    =>  address,
+			    put_op	    =>  buf.put_op  o  annotate,
 
-			    codestream,
-			    treecode_stream  => self()
+			    codestream	    =>  buf,
+			    treecode_stream =>  self ()
 			  }
 
 		    also
 		    fun self ()
 			= 
 			{
-			  begin_connected_component,
-			  end_connected_component,
-			  emit_op           => do_void_expression,
-			  emit_pseudo_op,
-			  define_local_label,
-			  define_global_label,
-			  emit_comment,
-			  put_bblock_note,
-			  get_notes,
-			  end_procedure     => fn regs = end_procedure (registerset regs)
+			  start_new_cccomponent	=>  buf.start_new_cccomponent,
+			  get_completed_cccomponent	=>  buf.get_completed_cccomponent,
+
+			  put_op		=>  do_void_expression,
+
+			  put_pseudo_op		=>  buf.put_pseudo_op,
+			  put_private_label	=>  buf.put_private_label,
+			  put_public_label	=>  buf.put_public_label,
+			  put_comment		=>  buf.put_comment,
+			  put_bblock_note	=>  buf.put_bblock_note,
+			  get_notes		=>  buf.get_notes,
+
+			  put__end_of_fn__mark	=>  fn regs =  buf.put__end_of_fn__mark  (registerset regs)
 			};
 
 		    self();

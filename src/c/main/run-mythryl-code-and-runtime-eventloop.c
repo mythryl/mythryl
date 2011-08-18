@@ -233,9 +233,9 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 #else
 		if (need_to_clean_heap( task, 4 * ONE_K_BINARY )) {					// 64-bit issue -- '4' here is 'bytes-per-word'.
 													// This 4*ONE_K_BINARY number has(?) to match   max_heapwords_to_allocate_between_heaplimit_checks
-													//     in src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
+													//     in src/lib/compiler/back/low/main/nextcode/pick-nextcode-funs-for-heaplimit-checks.pkg
 													// This 4*ONE_K_BINARY number has(?) to match   skid_pad_size_in_bytes
-													//     in   src/lib/compiler/back/low/main/fatecode/emit-treecode-heapcleaner-calls-g.pkg
+													//     in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 		    clean_heap (task, 0);
                 }
 		task->argument	     =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c

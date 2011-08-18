@@ -1,0 +1,457 @@
+## guess-nextcode-branch-probabilities.pkg
+#
+# See also:
+#
+#     src/lib/compiler/back/low/frequencies/guess-machcode-loop-probabilities-g.pkg
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+# The "Ball-Larus" mentioned below is presumably
+# that mentioned in    src/lib/compiler/back/low/doc/latex/lowhalf.bib
+#
+#     Branch Prediction for Free
+#     T.~Ball and J.~Larus"
+#     Proceedings of the SIGPLAN`93 Conference on Programming Language Design and Implementation
+#     June 1993
+#     http://research.microsoft.com/en-us/um/people/tball/papers/pldi93.pdf
+#
+#     -- 2011-08-15 CrT
+#
+#
+# 		Implements the following Ball Larus heuristic
+# 		estimates for branch prediction.
+# 		
+# 		PH (pointer heuristic) 
+# 		   boxed and unboxed tests
+#		
+#		 OH (op-code heuristic) 
+#		    comparisons of <=0, =0, =constant will fail.
+#		
+#		 RH (return heuristic)
+#		    block containing a return is unlikely
+#		    block with a goto is likely.
+#		
+#		 Unlikely:
+#		    bounds check, raising an exception, <any others>
+
+
+
+###             "The laws of probability,
+###              so true in general, so
+###              fallacious in particular."
+###
+###                   -- Edward Gibbon (1737-1794)
+###                      [British historian]
+
+
+
+stipulate
+    package fcf =  nextcode_form;								# nextcode_form				is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package pby =  probability;									# probability				is from   src/lib/compiler/back/low/library/probability.pkg
+herein
+    api Guess_Nextcode_Branch_Probabilities {
+	#
+	exception NEXTCODE_PROBABILITIES_TABLE;
+	#
+	guess_nextcode_branch_probabilities
+	    :
+	    List( fcf::Function )
+	    ->
+	    (fcf::Variable -> Null_Or( pby::Probability ) );					# Map from functions to branch probabilities.
+    };
+end;
+
+stipulate
+    package fcf =  nextcode_form;								# nextcode_form				is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package iht =  int_hashtable;								# int_hashtable				is from   src/lib/src/int-hashtable.pkg
+    package lem =  lowhalf_error_message;							# lowhalf_error_message			is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package pby =  probability;									# probability				is from   src/lib/compiler/back/low/library/probability.pkg
+herein
+
+    package   guess_nextcode_branch_probabilities
+    : (weak)  Guess_Nextcode_Branch_Probabilities						# Guess_Nextcode_Branch_Probabilities	is from   src/lib/compiler/back/low/main/nextcode/guess-nextcode-branch-probabilities.pkg
+    {
+	disable_nextcode_branch_probability_computation
+	   = 
+	   lowhalf_control::make_bool								# Defaults to FALSE.
+	     ("disable_nextcode_branch_probability_computation",
+	      "Turn off nextcode branch probability computation");
+
+	# Keep track of variables that hold a:
+	#	chunk length,
+	#	fate, or
+	#     handler/handler-code-pointer
+	#
+	Info
+	  = CHUNKLEN 			# Chunk length 
+	  | FATE 			# Fate 
+	  | HANDLER			# exception handler 
+	  | HANDLER_CODEPTR		# exception handler code pointer 
+	  ;
+
+	# Condensed nextcode flow graph 
+	#
+	Condensed
+	  = BLOCK				# Ordinary code block.
+	  | RETURN				# Call a fate.
+	  | ESCAPE				# Call a function.
+	  | GOTO				# Call to known function.
+	  | RAISE				# Raise an exception.
+	  | SWITCH  List( Condensed )
+	  | BRANCH
+	      ( fcf::p::Branch,
+		List( fcf::Value ),
+		fcf::Variable,
+		Condensed,
+		Condensed
+	      )
+	  ;
+
+	exception INFO_TABLE;
+	exception NEXTCODE_PROBABILITIES_TABLE;
+
+	fun error msg
+	    =
+	    lem::error ("nextcode-branch-probabilities", msg);
+
+
+	# We are called (only) from:
+	#
+	#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	#
+	fun guess_nextcode_branch_probabilities
+		#
+		nextcode_functions
+	    =
+	    {   my info_table:   iht::Hashtable( Info )
+			     =   iht::make_hashtable  { size_hint => 32,  not_found_exception => INFO_TABLE };
+
+		insert_info  =   iht::set   info_table;
+		find_info    =   iht::find  info_table;
+
+
+		my branch_probability_hashtable:  iht::Hashtable( pby::Probability )
+				               =  iht::make_hashtable  { size_hint => 32,  not_found_exception => NEXTCODE_PROBABILITIES_TABLE };
+
+		fun build_info (fk, f, args, tys, e)
+		    =
+		    {   # Record how the function returns:
+
+			fun return ()
+			    = 
+			    case fk
+				#
+				fcf::FATE
+				    => 
+				    case args
+					#
+					_ ! stdfate ! _ => insert_info (stdfate, FATE);
+					_ => error "return";
+				    esac;
+
+				fcf::PUBLIC
+				    => 
+				    case args
+					#
+					_ ! _ ! stdfate ! _ => insert_info (stdfate, FATE);
+					_ => error "escape";
+				    esac;
+
+				_   => 
+				    #  Check if any of the arguments has a fcf::type::FATE:
+				    #
+				    paired_lists::apply 
+					#
+					fn (x, fcf::type::FATE) =>  insert_info (x, FATE);
+                                            _                   =>  ();
+                                        end
+					#
+					(args, tys);
+			    esac;
+
+
+			fun cexp (fcf::DEFINE_RECORD { next, ... })
+				=>
+				cexp next;
+
+			    cexp (fcf::GET_FIELD_I { i => 0, record => fcf::VAR v, name, next, ... })
+				=>
+				case (find_info v)
+				    #
+				    THE HANDLER =>  {   insert_info (name, HANDLER_CODEPTR);
+							cexp next;
+						    };
+				    #
+				    _           =>      cexp next;
+				esac;
+
+			    cexp (fcf::GET_FIELD_I		{ next, ... }) =>  cexp next;
+			    cexp (fcf::GET_ADDRESS_OF_FIELD_I	{ next, ... }) =>  cexp next;
+
+			    cexp (fcf::TAIL_CALL { func, ... })
+				=> 
+				case func
+				    #
+				    fcf::VAR v
+					=> 
+					case (find_info v)
+					    #
+					    THE FATE            =>   RETURN;
+					    THE HANDLER_CODEPTR =>   RAISE;
+					    _                   =>   ESCAPE;
+					esac;
+
+
+				    fcf::LABEL _ => GOTO;
+				    _            => BLOCK;
+				esac;
+
+
+			    cexp (fcf::JUMPTABLE { nexts, ... })
+				=>
+				SWITCH (list::map cexp nexts);
+
+			    cexp (fcf::IF_THEN_ELSE { op, args, xvar,      then_next,      else_next })
+				=>
+				BRANCH ( op, args, xvar, cexp then_next, cexp else_next);
+
+			    cexp (fcf::FETCH_FROM_RAM { op => fcf::p::GET_EXCEPTION_HANDLER, args => [], name, next, ... })
+				=>
+				{   insert_info (name, HANDLER);
+				    #
+				    cexp next;
+				};
+
+			    cexp (fcf::FETCH_FROM_RAM r) =>   cexp r.next;
+			    cexp (fcf::STORE_TO_RAM   r) =>   cexp r.next;
+			    cexp (fcf::MATH           r) =>   cexp r.next;
+			    cexp (fcf::RAW_C_CALL     r) =>   cexp r.next;
+
+			    cexp (fcf::PURE { op => pure, name, next, ... })
+				=> 
+				{   case pure
+					#
+					fcf::p::CHUNK_LENGTH => insert_info (name, CHUNKLEN);
+					fcf::p::LENGTH       => insert_info (name, CHUNKLEN);
+					_               => ();
+				    esac;
+
+				    cexp next;
+				};
+
+			    cexp fix_ =>   error "cexp: FIX";
+		       end;
+
+		       return ();
+
+		       cexp e; 
+		    };
+
+		# PH = 80 means that 80% of the time the prediction was a hit.
+		#  ... and similarly for the others.
+
+		ph = pby::percent 80;	not_ph = pby::not (ph);		#  "ph" == "pointer heuristic "
+		oh = pby::percent 84;	not_oh = pby::not (oh);		#  "oh" == "opcode heuristic":
+		rh = pby::percent 72;	not_rh = pby::not (rh);		#  "rh" == "return heuristic":
+
+		unlikely = pby::prob (1, 100);
+		likely   = pby::not (pby::likely);
+
+
+		fun assign (SWITCH cs)
+			=>
+			list::apply assign cs;
+
+		    assign (BRANCH (test, args, x, c1, c2))
+			=>
+			{   fun ph_fn ()		#  ph == "pointer heuristic "
+				= 
+				case test
+				    #
+				    fcf::p::BOXED   => THE ph;
+				    fcf::p::UNBOXED => THE not_ph;
+				    fcf::p::PEQL    => THE not_ph;
+				    fcf::p::PNEQ    => THE ph;
+				    _ => NULL;
+				esac;
+
+			    fun oh_fn ()		#  "oh" == "opcode heuristic":
+				=
+				{    Num = ZERO | NUM | OTHER;
+
+				    fun number (fcf::INT     0) =>   ZERO;
+					number (fcf::INT     _) =>   NUM;
+					number (fcf::INT32 0u0) =>   ZERO;
+					number (fcf::INT32   _) =>   NUM;
+					number (fcf::FLOAT64 r) =>   if (r == "0.0")  ZERO; else NUM;fi;
+					number _               =>   OTHER;
+				    end;
+
+
+				    case  (test, args)
+					#
+					(fcf::p::CMP { op, kindbits },   [v1, v2])
+					    => 
+					    case (op,  number v1,  number v2)
+						#
+						(fcf::p::LT, _, ZERO) =>  THE not_oh;
+						(fcf::p::LE, _, ZERO) =>  THE not_oh;
+						(fcf::p::EQL, _, NUM) =>  THE not_oh;
+						#
+						(fcf::p::LT, ZERO, _) =>  THE oh;
+						(fcf::p::LE, ZERO, _) =>  THE oh;
+						(fcf::p::EQL, NUM, _) =>  THE not_oh;
+						#	
+						#	
+						(fcf::p::GT, _, ZERO) =>  THE oh;
+						(fcf::p::GE, _, ZERO) =>  THE oh;
+						(fcf::p::NEQ, _, NUM) =>  THE oh;
+						#
+						(fcf::p::GT, ZERO, _) =>  THE not_oh;
+						(fcf::p::GE, ZERO, _) =>  THE not_oh;
+						(fcf::p::NEQ, NUM, _) =>  THE oh;
+						#
+						_                =>  NULL;
+					     esac;
+
+
+					(fcf::p::FCMP { op, size },   [v1, v2])
+					    => 
+					    # I'd guess the "wu-larus paper" below is:
+					    #     Statis Branch Frequency and Program Profile Analysis
+					    #     Youfeng Wu + James R Larus
+					    #     http://www.cs.wisc.edu/techreports/1994/TR1248.pdf 
+					    # or a close relative thereof. -- 2011-08-15 CrT
+					    #
+					    #     "The wu-larus paper does not mention floating point,
+					    #      but what the hey ...
+					    #      Note that the negation of LT is UGL, so we wont
+					    #      bother with all those."
+					    #
+					    case (op, number v1, number v2)
+						#
+						(fcf::p::f::LT, _, ZERO) =>   THE not_oh;
+						(fcf::p::f::LE, _, ZERO) =>   THE not_oh;
+						(fcf::p::f::EQ, _, NUM ) =>   THE not_oh;
+						#
+						(fcf::p::f::LT, ZERO, _) =>   THE oh;
+						(fcf::p::f::LE, ZERO, _) =>   THE oh;
+						(fcf::p::f::EQ, NUM,  _) =>   THE not_oh;
+						#
+						_ => NULL;
+					    esac;
+
+
+					_ => NULL;
+				   esac;
+
+			      };
+
+			    fun rh_fn ()		  # "rh" == "return heuristic":
+				= 
+				case (c1, c2)
+				    #
+				    (RETURN, RETURN) => NULL;
+				    (RETURN, _)      => THE not_rh;
+				    (_, RETURN)      => THE rh;
+				    _                => NULL;
+				esac;
+
+			    fun raise_exn ()
+				=
+				case (c1, c2)
+				    #
+				    (RAISE, _) => THE unlikely;
+				    (_, RAISE) => THE likely;
+				    _          => NULL;
+				esac;
+
+
+			    fun bounds_check ()
+				= 
+				case  (test, args)
+				    #
+				    (fcf::p::CMP { op=> fcf::p::LT, kindbits=>fcf::p::UNT 31 }, [v1, fcf::VAR v2])
+					=>
+					case (find_info v2)
+					    #
+					    THE CHUNKLEN =>  THE likely;
+					    _            =>  NULL;
+					esac;
+
+				    _ => NULL;
+				esac;
+
+
+			    fun combine (f, true_prob)
+				= 
+				case (f(), true_prob)
+				    #
+				    (NULL, NULL)       =>   NULL;
+				    (NULL, p as THE _) =>   p;
+				    (p as THE _, NULL) =>   p;
+				    #
+				    (THE taken_p, THE true_p)
+					=> 
+					(THE (.t (probability::combine_prob2 { true_prob=>true_p, taken_prob=>taken_p } )))
+					except
+					    e =  {   print (sfprintf::sprintf' "TRUE=%s, taken=%s\n"
+							[sfprintf::STRING (probability::to_string true_p),
+							 sfprintf::STRING (probability::to_string taken_p)]);
+						     raise exception e;
+						 };
+				esac;
+
+
+			    case (list::fold_left combine NULL [ph_fn, oh_fn, rh_fn, raise_exn, bounds_check])
+				#
+				THE prob =>   iht::set  branch_probability_hashtable  (x, prob);
+				NULL     =>   ();
+			    esac;
+
+			    assign  c1;
+			    assign  c2;
+			};
+
+		    assign _ => ();
+		end;
+
+
+		if *disable_nextcode_branch_probability_computation
+		    #
+		    (fn _ = NULL);
+		else
+		    condensed =  list::map  build_info  nextcode_functions;
+		    #
+		    list::apply  assign  condensed;
+		    #
+		    iht::find  branch_probability_hashtable; 
+		fi;
+	    };
+    };
+end;
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+## COPYRIGHT (c) 2002 Bell Labs, Lucent Technologies
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

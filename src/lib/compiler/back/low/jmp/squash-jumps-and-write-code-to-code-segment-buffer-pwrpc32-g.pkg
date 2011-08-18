@@ -21,7 +21,7 @@ herein
     generic package   squash_jumps_and_make_machinecode_bytevector_pwrpc32_g   (
 	#             ======================================================
 	#
-	package xe:  Instruction_Emitter;					# Instruction_Emitter				is from   src/lib/compiler/back/low/emit/instruction-emitter.api
+	package xe:  Machcode_Codebuffer;					# Machcode_Codebuffer				is from   src/lib/compiler/back/low/emit/machcode-codebuffer.api
 										# "xe"  == "execode_emitter".
 	package mcg: Machcode_Controlflow_Graph					# Machcode_Controlflow_Graph			is from   src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
 		     where
@@ -64,9 +64,9 @@ herein
 		| LABEL   lbl::Codelabel
 		| CODE    List( Code );
 
-	    Cluster								# In the -intel32 file, eliminating this wrapper type worked fine.
-		=
-		CLUSTER  List( Compressed );
+	    Cccomponent								# In the -intel32 file, eliminating this wrapper type worked fine.
+		=								# "cccomponent" == "callgraph connected component" -- our normal unit of compilation during the nextcode passes and later.
+		CCCOMPONENT  List( Compressed );
 
 
 	    # The assembly-language "text segment" will contain all machine instructions;
@@ -75,7 +75,7 @@ herein
 	    # (We need this even if we are generating machine-code directly			# We currently generate assembly-code only for human display.
 	    # without going through an assembly-code pass.)
 	    #
-	    my textseg_list:  Ref( List( Cluster        ) )   = REF [];		# More icky thread-hostile mutable global state. XXX BUGGO FIXME
+	    my textseg_list:  Ref( List( Cccomponent        ) )   = REF [];		# More icky thread-hostile mutable global state. XXX BUGGO FIXME
 	    my dataseg_list:  Ref( List( pop::Pseudo_Op ) )   = REF [];		# More icky thread-hostile mutable global state. XXX BUGGO FIXME
 
 	    fun clear__textseg_list__and__dataseg_list ()
@@ -107,7 +107,7 @@ herein
 		      blocks												# The order in which all basic blocks should be concatenated to produce final machine-code bytevector.
 		    )
 		= 
-		{   textseg_list :=   CLUSTER (compress blocks)  !  *textseg_list;
+		{   textseg_list :=   CCCOMPONENT (compress blocks)  !  *textseg_list;
 		    #
 		    dataseg_list :=   *dataseg_pseudo_ops @ *dataseg_list;
 		}
@@ -207,61 +207,60 @@ herein
 			    (pos, chgd);
 		    end;
 
-		    fun cluster_labels clusters
+		    fun cccomponent_labels cccomponents
 			=
-			{   fun f (CLUSTER cl, (pos, chgd))
+			{   fun f (CCCOMPONENT cl, (pos, chgd))
 				=
 				labels (cl, pos, chgd);
 
-			    list::fold_left  f  (0, FALSE)  clusters;
+			    list::fold_left  f  (0, FALSE)  cccomponents;
 			};
 
 		    fun fixpoint zl
 			=
 			{   my (size, changed)
 				=
-				cluster_labels zl;
+				cccomponent_labels zl;
 
-			    if   changed      fixpoint zl;
-					   else   size;        fi;
+			    if changed    fixpoint zl;
+			    else          size;
+			    fi;
 			};
 
-		    (xe::make_stream  [])
-			->
-			 { emit_op, define_local_label, begin_connected_component, emit_pseudo_op, ... };
+		    buf =  xe::make_codebuffer  [];
 
-
-		    fun emit_cluster  (CLUSTER comp,  loc)
+		    fun put_cccomponent  (CCCOMPONENT comp,  loc)
 			=
 			fold_left  process  loc  comp
 			where
 			    fun process (PSEUDO pseudo_op, loc)
 				    =>
-				    {   emit_pseudo_op  pseudo_op;
+				    {   buf.put_pseudo_op  pseudo_op;
 					loc  +  pop::current_pseudo_op_size_in_bytes (pseudo_op, loc);
 				    };
 
-				process (LABEL lab, loc)
+				process (LABEL label, loc)
 				    =>
-				    {   define_local_label lab;
+				    {   buf.put_private_label label;
+					#
 					loc;
 				    };
 
 				process (CODE code, loc)
 				    =>
-				    {   fun emit_instrs ops
+				    {   fun put_ops  ops
 					    =
-					    apply emit_op ops;
+					    apply  buf.put_op  ops;
 
 					fun e (FIXED { ops, size, ... }, loc)
 						=>
-						{   emit_instrs ops;
+						{   put_ops ops;
 						    loc + size;
 						};
 
 					    e (SDI { size, instruction }, loc)
 						=> 
-						{   emit_instrs (jmp::instantiate_span_dependent_op   { sdi =>  instruction,
+						{   put_ops (jmp::instantiate_span_dependent_op   { sdi =>  instruction,
 													size_in_bytes =>  *size,
 													at            =>  loc
 												      }
@@ -275,7 +274,7 @@ herein
 			    end;
 			end;
 
-		    fun init_labels  clusters
+		    fun init_labels  cccomponents
 			=
 			{   fun init  (PSEUDO p ! rest,  loc)
 				    => 
@@ -315,34 +314,29 @@ herein
 			    end;
 
 			    list::fold_left 
-				(fn (CLUSTER (cl), loc) =  init (cl, loc))
+				(fn (CCCOMPONENT (cl), loc) =  init (cl, loc))
 				0
-				clusters;
+				cccomponents;
 			};			# fun init_labels
 
 		    # The data list is in reverse order
-		    # and the clusters are in reverse:
+		    # and the cccomponents are in reverse:
 		    #	
-		    fun data_cluster ([], acc)
-			    =>
-			    CLUSTER acc;
-
-			data_cluster (d ! dl, acc)
-			    =>
-			    data_cluster (dl, PSEUDO d ! acc);
+		    fun data_cccomponent ([],  results) =>  CCCOMPONENT results;
+			data_cccomponent (d ! dl,  results) =>  data_cccomponent  (dl,  PSEUDO d ! results);
 		    end;
 
 		    compressed
 			= 
-			reverse (data_cluster (*dataseg_list, []) ! *textseg_list)
+			reverse (data_cccomponent (*dataseg_list, []) ! *textseg_list)
 			before
 			    clear__textseg_list__and__dataseg_list ();
 
 		    init_labels (compressed);
 
-		    begin_connected_component (fixpoint compressed);
+		    buf.start_new_cccomponent (fixpoint compressed);
 
-		    fold_left  emit_cluster  0  compressed; 
+		    fold_left  put_cccomponent  0  compressed; 
 		    ();
 
 		};								# fun finish

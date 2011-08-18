@@ -11,7 +11,7 @@
 //  Much implicit knowledge about heapchunk sizing
 //  is buried in the max_words function in:
 // 
-//      src/lib/compiler/back/low/main/fatecode/pick-fatecode-funs-for-heaplimit-checks.pkg
+//      src/lib/compiler/back/low/main/nextcode/pick-nextcode-funs-for-heaplimit-checks.pkg
 // 
 //  Changes which invalidate this knowledge could
 //  result in subtle heap-corruption bugs.
@@ -232,7 +232,7 @@
     //
     // WARNING: The above two appear to have hardwired clones in
     //
-    //     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+    //     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
 
 #endif // TAGS_H
 

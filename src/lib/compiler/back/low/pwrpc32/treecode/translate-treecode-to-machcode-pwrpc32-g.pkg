@@ -8,7 +8,7 @@
 #     2)  Deep Syntax is the second and final frontend code representation.
 #     3)  Lambdacode (polymorphically typed lambda calculus) is the first backend code representation, used only transitionally.
 #     4)  Anormcode (A-Normal format) is the second backend code representation, and the first used for optimization.
-#     5)  Fatecode is the third and chief backend tophalf code representation.
+#     5)  Nextcode is the third and chief backend tophalf code representation.
 #     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
 #     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
 #     8)  Execode is absolute executable binary machine instructions for the target architecture.
@@ -23,7 +23,7 @@
 #
 # Our runtime invocation is from
 #
-#     src/lib/compiler/back/low/main/main/translate-fatecode-to-treecode-g.pkg
+#     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
 
 # Compiled by:
 #     src/lib/compiler/back/low/pwrpc32/backend-pwrpc32.lib
@@ -87,8 +87,8 @@ herein
 		=
 		lem::error("translate_treecode_to_machcode_pwrpc32_g", msg);
 
-	    Codestream  = tcs::Treecode_Stream (mcf::Machine_Op, rkj::cls::Codetemplists, mcg::Machcode_Controlflow_Graph);
-	    Treecode_Stream     = tcs::Treecode_Stream (tcf::Void_Expression,    List(tcf::Expression), mcg::Machcode_Controlflow_Graph); 
+	    Codebuffer     = tcs::Treecode_Codebuffer (mcf::Machine_Op, rkj::cls::Codetemplists, mcg::Machcode_Controlflow_Graph);
+	    Treecode_Codebuffer = tcs::Treecode_Codebuffer (tcf::Void_Expression,    List(tcf::Expression), mcg::Machcode_Controlflow_Graph); 
 
 
 	    my (int_type, natural_widths)
@@ -199,9 +199,26 @@ herein
 	      )
 	      (signed = TRUE;);
 
-	    fun translate_treecode_to_machcode  (codestream  as  { emit_op, emit_comment, get_notes, define_local_label, define_global_label, emit_pseudo_op, put_bblock_note, begin_connected_component, end_connected_component, end_procedure, ... })
+	    fun make_treecode_to_machcode_codebuffer
+		    #
+		    buf
+		    #
+		    # 'buf' is our interface to
+		    #
+		    #     src/lib/compiler/back/low/mcg/make-machcode-codebuffer-g.pkg
+		    #
+		    # which constructs a machine-code graph driven by our 'put commands:
+		    # basically we do a lot of
+		    #
+		    #     buf.put_op 
+		    #
+		    # calls to construct the graph and then one
+		    # 
+		    #     resultgraph = buf.get_completed_cccomponent
+		    #
+		    # call to get the resulting machcode controlflow graph.
 		= 
-		{   emit_op' = emit_op o mcf::BASE_OP;
+		{   put_base_op =   buf.put_op  o  mcf::BASE_OP;
 
 		    # Annotate an instruction:
 		    #
@@ -209,8 +226,8 @@ herein
 			annotate (op, note ! notes) =>  annotate (mcf::NOTE { op, note }, notes);
 		    end;
 
-		    fun mark'(instruction, notes) = emit_op (annotate (instruction, notes));
-		    fun mark (instruction, notes) = emit_op (annotate (mcf::BASE_OP instruction, notes));
+		    fun mark'(instruction, notes) =  buf.put_op (annotate (instruction, notes));
+		    fun mark (instruction, notes) =  buf.put_op (annotate (mcf::BASE_OP instruction, notes));
 
 		    # Label where trap is generated.   
 		    # For overflow trapping instructions, we generate a branch 
@@ -278,13 +295,14 @@ herein
 				notes
 			     );
 
-		    fun emit_branch { bo, bf, bit, address, lk }
+		    fun put_branch { bo, bf, bit, address, lk }
 			= 
 			{   fall_thr_lab = lbl::make_anonymous_codelabel();
 			    fall_thr_operand = mcf::LABEL_OP (tcf::LABEL fall_thr_lab);
 
-			    emit_op' (mcf::BC { bo, bf, bit, address, lk, fall=>fall_thr_operand } );
-			    define_local_label fall_thr_lab;
+			    put_base_op (mcf::BC { bo, bf, bit, address, lk, fall=>fall_thr_operand } );
+
+			    buf.put_private_label fall_thr_lab;
 			};
 
 		    fun split n
@@ -313,7 +331,7 @@ herein
 
 				if (lo != 0)
 				    #
-				    emit_op' (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>rt, im=>mcf::IMMED_OP lo } );
+				    put_base_op (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>rt, im=>mcf::IMMED_OP lo } );
 				fi;
 			    };
 		    end;
@@ -400,7 +418,7 @@ herein
 
 				    tmp_r = make_int_codetemp ();
 
-				    emit_op' (mcf::ARITHI { oper=>mcf::ADDIS, rt=>tmp_r, ra, im=>mcf::IMMED_OP hi } );
+				    put_base_op (mcf::ARITHI { oper=>mcf::ADDIS, rt=>tmp_r, ra, im=>mcf::IMMED_OP hi } );
 
 				    (tmp_r, mcf::IMMED_OP lo);
 				fi;
@@ -466,7 +484,7 @@ herein
 			void_expression (tcf::GOTO (int_expression, labs), notes)
 			    =>
 			    {   rs = expr (int_expression);
-				emit_op' (mtlr (rs));
+				put_base_op (mtlr (rs));
 				mark (mcf::BCLR { bo=>mcf::ALWAYS, bf=>cr0, bit=>mcf::LT, lk=>FALSE, labels=>labs }, notes);
 			    };
 
@@ -478,18 +496,21 @@ herein
 					cut_to), notes) => 
 			   call (funct, targets, defs, uses, region, cut_to, notes, pops); 
 
-			void_expression (tcf::RET flow, notes) => mark (ret, notes);
-			void_expression (tcf::STORE_INT (type, ea, data, mem), notes) => store (type, ea, data, mem, notes);
-			void_expression (tcf::STORE_FLOAT (type, ea, data, mem), notes) => fstore (type, ea, data, mem, notes);
-			void_expression (tcf::IF_GOTO (cc, lab), notes) => branch (cc, lab, notes);
-			void_expression (tcf::DEFINE l, _) => define_local_label l;
-			
-			void_expression (tcf::LIVE s, notes) => mark'(mcf::LIVE { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
-			void_expression (tcf::DEAD s, notes) => mark'(mcf::DEAD { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
+			void_expression (tcf::RET flow, notes) =>  mark (ret, notes);
 
-			void_expression (tcf::NOTE (s, a), notes) => void_expression (s, a ! notes);
-			void_expression (tcf::EXT s, notes) => txc::compile_sext (reducer()) { void_expression=>s, notes };
-			void_expression (s, _) => do_stmts (tct::compile_void_expression s);
+			void_expression (tcf::STORE_INT   (type, ea, data, mem), notes) =>   store (type, ea, data, mem, notes);
+			void_expression (tcf::STORE_FLOAT (type, ea, data, mem), notes) =>  fstore (type, ea, data, mem, notes);
+
+			void_expression (tcf::IF_GOTO (cc, lab), notes) =>  branch (cc, lab, notes);
+			void_expression (tcf::DEFINE l, _)              =>  buf.put_private_label l;
+			
+			void_expression (tcf::LIVE s, notes) =>  mark'(mcf::LIVE { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
+			void_expression (tcf::DEAD s, notes) =>  mark'(mcf::DEAD { regs=>registerset s, spilled=>rgk::empty_codetemplists }, notes);
+
+			void_expression (tcf::NOTE (s, a), notes) =>  void_expression (s, a ! notes);
+			void_expression (tcf::EXT s, notes)       =>  txc::compile_sext (reducer()) { void_expression=>s, notes };
+
+			void_expression (s, _) =>   do_stmts (tct::compile_void_expression s);
 		    end 
 
 		    also
@@ -498,7 +519,7 @@ herein
 			    {   defs =  registerset (defs);
 				uses =  registerset (uses);
 
-				emit_op' (mtlr (expr funct));
+				put_base_op (mtlr (expr funct));
 
 				mark (mcf::CALL { def=>defs, uses, cuts_to, ramregion }, notes);
 			    };
@@ -544,7 +565,7 @@ herein
 				fun default ()
 				    = 
 				    {   do_flag_expression (cmp, ccreg, []);
-					emit_branch { bo, bf=>ccreg, bit=>cf, address, lk=>FALSE };
+					put_branch { bo, bf=>ccreg, bit=>cf, address, lk=>FALSE };
 				    };
 
 				case (e1, e2)
@@ -557,11 +578,11 @@ herein
 
 						(ra, mcf::REG_OP rb)
 						    =>
-						    emit_op' (mcf::ARITH { oper=>mcf::AND, ra, rb, rt=>make_int_codetemp (), rc=>TRUE, oe=>FALSE } );
+						    put_base_op (mcf::ARITH { oper=>mcf::AND, ra, rb, rt=>make_int_codetemp (), rc=>TRUE, oe=>FALSE } );
 
 						(ra, operand)
 						    =>
-						    emit_op' (mcf::ARITHI { oper=>mcf::ANDI_RC, ra, im=>operand, rt=>make_int_codetemp () } );
+						    put_base_op (mcf::ARITHI { oper=>mcf::ANDI_RC, ra, im=>operand, rt=>make_int_codetemp () } );
 					    esac;
 
 					    branch (tcf::CC (cond, cr0), lab, notes);
@@ -579,7 +600,7 @@ herein
 
 				fun branch (bo, bit)
 				    = 
-				    emit_branch { bo, bf=>cr, bit, address, lk=>FALSE };
+				    put_branch { bo, bf=>cr, bit, address, lk=>FALSE };
 
 				case cc    
 				    tcf::EQ => branch (mcf::TRUE, mcf::EQ);
@@ -604,14 +625,14 @@ herein
 
 				fun branch (bo, bf, bit)
 				    = 
-				    emit_branch { bo, bf, bit, address=>lab_op, lk=>FALSE };
+				    put_branch { bo, bf, bit, address=>lab_op, lk=>FALSE };
 
 				fun test2bits (bit1, bit2)
 				    = 
 				    {   ba=(ccreg, bit1);
 					bb=(ccreg, bit2);
 					bt=(ccreg, mcf::FL);
-					emit_op' (mcf::CCARITH { oper=>mcf::CROR, bt, ba, bb } );
+					put_base_op (mcf::CCARITH { oper=>mcf::CROR, bt, ba, bb } );
 					branch (mcf::TRUE, ccreg, mcf::FL);
 				    };
 
@@ -734,7 +755,7 @@ herein
 					THE l => l;
 				    esac;
 
-			    emit_branch { bo=>mcf::TRUE, bf=>cr0, bit=>mcf::SO, lk=>FALSE,
+			    put_branch { bo=>mcf::TRUE, bf=>cr0, bit=>mcf::SO, lk=>FALSE,
 				       address=>mcf::LABEL_OP (tcf::LABEL label) };
 			}
 
@@ -855,15 +876,13 @@ herein
 					_ = nonconst (tcf::REG (type, r), tcf::LITERAL i);
 				};
 
-			    instrs
-				=
-				case (e1, e2)   
-				    (_, tcf::LITERAL i) => const (e1, i);
-				    (tcf::LITERAL i, _) => const (e2, i);
-				    _            => nonconst (e1, e2);
-				esac;
+			    ops =   case (e1, e2)   
+					(_, tcf::LITERAL i) => const (e1, i);
+					(tcf::LITERAL i, _) => const (e2, i);
+					_            => nonconst (e1, e2);
+				    esac;
 
-			    apply emit_op instrs;
+			    apply  buf.put_op  ops;
 			}
 
 		    also
@@ -889,15 +908,17 @@ herein
 
 			    fun const (e, i)
 				=
-				{ r = expr e;
-				  apply emit_op (gen_div { r, i=>to_int (i), d=>rt } )
-				    except _ => nonconst (tcf::REG (type, r), tcf::LITERAL i); end ;
+				{   r = expr e;
+				    #
+				    apply  buf.put_op  (gen_div { r, i=>to_int (i), d=>rt } )
+				    except
+					_ =  nonconst (tcf::REG (type, r), tcf::LITERAL i);
 				};
 
 			    case (e1, e2)
 				#
 				(_, tcf::LITERAL i) =>    const (e1,  i);
-				_            => nonconst (e1, e2);
+				_                   => nonconst (e1, e2);
 			    esac;
 			}
 
@@ -911,7 +932,7 @@ herein
 			reduce_opn opn
 			    =>
 			    {   rt = make_int_codetemp ();
-				emit_op' (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>opn } );
+				put_base_op (mcf::ARITHI { oper=>mcf::ADDI, rt, ra=>zero_r, im=>opn } );
 				rt;
 			    };
 		    end 
@@ -1145,7 +1166,7 @@ herein
 			    tcf::FMUL (64, e1, e2) =>  fbinary (mcf::FMUL, e1, e2, ft, notes);
 			    tcf::FDIV (64, e1, e2) =>  fbinary (mcf::FDIV, e1, e2, ft, notes);
 
-			    tcf::CONVERT_INT_TO_FLOAT (64, _, e) =>  apply emit_op (pop::cvti2d { reg=>expr e, fd=>ft } );
+			    tcf::INT_TO_FLOAT (64, _, e) =>  apply  buf.put_op  (pop::cvti2d { reg=>expr e, fd=>ft } );
 
 			    # Single/double precision support:
 			    #
@@ -1154,11 +1175,11 @@ herein
 			    tcf::FSQRT (32, e)    =>  funary (mcf::FSQRTS, e, ft, notes);
 			    tcf::FSQRT (64, e)    =>  funary (mcf::FSQRT, e, ft, notes);
 
-			    tcf::CONVERT_FLOAT_TO_FLOAT (64, 32, e) =>  do_float_expression (e, ft, notes); #  32->64 is a nop 
-			    tcf::CONVERT_FLOAT_TO_FLOAT (32, 32, e) =>  do_float_expression (e, ft, notes);
-			    tcf::CONVERT_FLOAT_TO_FLOAT (64, 64, e) =>  do_float_expression (e, ft, notes);
+			    tcf::FLOAT_TO_FLOAT (64, 32, e) =>  do_float_expression (e, ft, notes); #  32->64 is a nop 
+			    tcf::FLOAT_TO_FLOAT (32, 32, e) =>  do_float_expression (e, ft, notes);
+			    tcf::FLOAT_TO_FLOAT (64, 64, e) =>  do_float_expression (e, ft, notes);
 			    #	
-			    tcf::CONVERT_FLOAT_TO_FLOAT (32, 64, e) =>  funary (mcf::FRSP, e, ft, notes);
+			    tcf::FLOAT_TO_FLOAT (32, 64, e) =>  funary (mcf::FRSP, e, ft, notes);
 
 			    #  Misc 
 			    tcf::FNOTE (e, lcn::MARKREG f) => { f ft; do_float_expression (e, ft, notes);};
@@ -1232,33 +1253,34 @@ herein
 			esac
 
 		    also
-		    fun emit_trap ()
+		    fun put_trap ()
 			=
-			emit_op' (mcf::TW { to=>31, ra=>zero_r, si=>mcf::IMMED_OP 0 } ) 
+			put_base_op (mcf::TW { to=>31, ra=>zero_r, si=>mcf::IMMED_OP 0 } ) 
 
 		    also
-		    fun begin_connected_component' _
+		    fun start_new_cccomponent' _
 			=
 			{   trap_label := NULL;
-			    begin_connected_component 0;
+			    #
+			    buf.start_new_cccomponent 0;				# The '0' is a dummy value here;  in other contexts it is used to pre-size the codesegment buffer.
 			}
 
 		    also
-		    fun end_connected_component' a
+		    fun get_completed_cccomponent' a
 			=
 			{   case *trap_label
 				#
 				NULL      =>    ();
 				#
-				THE label =>    {   define_local_label  label;
+				THE label =>    {   buf.put_private_label  label;
 						    #
-						    emit_trap ();
+						    put_trap ();
 						    #
 						    trap_label := NULL;
 						}; 
 			    esac;
 
-			    end_connected_component a;
+			    buf.get_completed_cccomponent  a;
 			}
 
 		    also
@@ -1271,30 +1293,30 @@ herein
 			    reduce_void_expression      =>  void_expression,
 			    operand                     =>  (fn _ = error "operand"),
 			    #
-			    reduce_operand  =>  reduce_opn,
-			    address_of      =>  (fn _ = error "address_of"),
-			    emit_op         =>  emit_op o annotate,
-			    treecode_stream =>  self (),
+			    reduce_operand		=>  reduce_opn,
+			    address_of			=>  (fn _ = error "address_of"),
+			    put_op			=>  buf.put_op  o  annotate,
+			    treecode_stream		=>  self (),
 			    #
-			    codestream
+			    codestream			=>  buf
 			  }
 
 		    also
 		    fun self ()
 			= 
 			{
-			  begin_connected_component =>  begin_connected_component',
-			  end_connected_component   =>  end_connected_component',
-			  emit_op       =>  do_void_expression,
+			  start_new_cccomponent =>  start_new_cccomponent',
+			  get_completed_cccomponent   =>  get_completed_cccomponent',
+			  put_op                =>  do_void_expression,
 			  #
-			  emit_pseudo_op,
-			  define_local_label,
-			  define_global_label,
-			  emit_comment,
-			  put_bblock_note,
-			  get_notes,
+			  put_pseudo_op		=>  buf.put_pseudo_op,
+			  put_private_label	=>  buf.put_private_label,
+			  put_public_label	=>  buf.put_public_label,
+			  put_comment		=>  buf.put_comment,
+			  put_bblock_note	=>  buf.put_bblock_note,
+			  get_notes		=>  buf.get_notes,
 			  #
-			  end_procedure =>  fn lowhalf = end_procedure (registerset lowhalf)
+			  put__end_of_fn__mark	=>  fn lowhalf =  buf.put__end_of_fn__mark (registerset lowhalf)
 			};
 
 		    self ();

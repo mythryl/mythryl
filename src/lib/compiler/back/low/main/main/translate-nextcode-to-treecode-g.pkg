@@ -1,0 +1,4554 @@
+## translate-nextcode-to-treecode-g.pkg --- translate nextcode to treecode (and then all the way on down to execode -- raw binary executable machine code).
+#
+# CONTEXT:
+#
+#     The Mythryl compiler code representations used are, in order:
+#
+#     1)  Raw Syntax is the initial frontend code representation.
+#     2)  Deep Syntax is the second and final frontend code representation.
+#     3)  Lambdacode (a polymorphically typed lambda-calculus format) is the first backend code representation, used only transitionally.
+#     4)  Anormcode (A-Normal format) is the second backend code representation, and the first used for optimization.
+#     5)  Nextcode is the third and chief backend tophalf code representation.
+#     6)  Treecode is the backend tophalf/lowhalf transitional code representation. It is typically slightly specialized for each target architecture, e.g. Intel32 (x86).
+#     7)  Machcode abstracts the target architecture machine instructions. It gets specialized for each target architecture.
+#     8)  Execode is absolute executable binary machine instructions for the target architecture.
+#
+# For general context, see
+#
+#     src/A.COMPILER.OVERVIEW
+#
+# This package implements the transition from the
+# machine-independent backend tophalf centered on
+# 
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg 
+# 
+# to the machine-dependent backend lowhalf centered on
+# 
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+# 
+# The lowhalf started out as MLRISC, a compiler-agnostic backend,
+# and consequently knows nothing of such Mythryl-specific details
+# as Int31 tagging and heap-record tagging and layout, so much of
+# our work in this file consists of translating such constructs
+# into the low-level load/store/add/branch/... machinecode idiom.
+#
+# In more concrete terms, this package implements the translation
+# from frontend Nextcode ("Continuation Passing Style") to backend
+# "Treecode" code format.  Translation from Treecode down to
+# Intel32 machcode format is delegated to one of
+#
+#     src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+#     src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+#     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+#
+#
+# Specific tasks performed in this file include:
+#
+#
+#  o  Convert fun bodies from linear-sequence-of-instructions
+#     form to tree form -- this lets us later use the Sethi-Ullman
+#     algorithm to re-linearize in such a way as to minimize
+#     register pressure, basically by, for each binary math op,
+#     computing the more complex operand first -- see
+#         src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+#     We also use Sethi-Ullman in:
+#         src/lib/compiler/back/low/intel32/regor/regor-intel32-g.pkg
+#     The tophalf has a (broken, unused) version in:
+#         src/lib/compiler/back/top/lambdacode/generalized-sethi-ullman-reordering.pkg
+#
+#
+#  o  Compile Int31 arithmetic operations down into sequences
+#     of vanilla 32-bit integer operations.
+#
+#
+#  o  Generate code to log all boxed updates to heap_changelog.
+#     The heap_changelog is essentially a list of CONS cells
+#     recording all stores of pointers into the heap; the 
+#     heapcleaner uses it to track all pointers from old
+#     heap generations into younger ones -- multigeneration
+#     heapcleaning ("garbage collection") is impossible without
+#     this information.
+#
+#
+#  o  The Nextcode distinction between signed and unsigned operands
+#     goes away in Treecode, so the un/signed-agnostic Nextcode
+#     binary operators get replaced by Treecode binary operators
+#     which are explicitly signed or unsigned.
+#
+#
+#  o  We try to pack closures into registers, but some won't fit,
+#     so in general a closure can be a heap record.  In fact, we
+#     share parts of some closures, so a complete closure can be
+#     a tree of heap records. (Technically, a "lattice" of heap
+#     records, since we have node sharing.)
+#
+#     Nextcode refers to closure slots abstractly, suppressing
+#     the lattice structure, but Treecode knows nothing about our
+#     closure structure, so as part of Nextcode -> Treecode translateion
+#     we must translate each closure-slot reference into a concrete
+#     series of load and add instructions that do the right memory
+#     fetches from the right record offsets to return the desired value.
+#     (Closures are read-only so we don't have to handle slot writes.)
+#
+#
+# Our compiletime generic invocation is from
+#
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+#
+# which in particular passes us the
+#
+#     translate_machcode_cccomponent_to_execode					# "machcode" == "(abstract) machine code"
+#										# "cccomponent" == "callgraph connected-component" (we compile them one at a time).
+# function which is our runtime entrypoint into the
+# back end.
+#
+#
+#
+# Runtime invocation of our (sole)
+#
+#     translate_nextcode_to_execode
+#
+# entrypoint is from
+#
+#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+#
+# via the short wrapper at the bottom of
+#
+#     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+# 
+# 
+# In terms of lines-of-code, this file is utterly dominated by
+#
+#     fun translate_nextcode_to_execode -- 3500 of 4000 line
+#
+# which in turn is internally domindated by
+#
+#     fun translate_nextcode_cccomponent_to_treecode               -- 3200 of 4000 lines.
+# 
+# The core function, and perhaps the best place to start
+# reading, is
+#
+#     translate_nextcode_op_to_treecode
+#
+#     "This version of translate_nextcode_to_treecode_g also
+#      injects heapcleaner ("garbage-collector") types into
+#      the backend lowhalf.
+#      I've also reorganized it a bit and added a few comments
+#      so that I can understand it."
+#				-- Allen Leung (?)
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+
+
+
+
+###                   "Do not say a little in many words,
+###                    but a great deal in a few."
+###
+###                                 -- Pythagoras (582-497 BCE)
+
+
+
+stipulate
+    package ds  =  deep_syntax;							# deep_syntax						is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package em  =  error_message;						# error_message						is from   src/lib/compiler/front/basics/errormsg/error-message.pkg
+    package fcf =  nextcode_form;						# nextcode_form						is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package pci =  per_compile_info;						# per_compile_info					is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+herein
+
+    api Translate_Nextcode_To_Treecode {
+	#
+	translate_nextcode_to_execode
+	  :
+	  { nextcode_functions:		List( fcf::Function ),
+	    err:			em::Plaint_Sink,
+	    source_name:		String,						# Typically filename, something like "<stdin>" if compiling interactively.
+	    per_compile_info:		pci::Per_Compile_Info( ds::Declaration ),
+
+	    fun_id__to__max_resource_consumption					# Given
+	        :									# a
+		fcf::Variable								# fun_id
+		->									# return
+		{ max_heapwords_possibly_allocated_before_next_heaplimit_check:	Int,		# max possible words of heap memory allocated on any path through function body, and
+		  max_nextcode_ops_possibly_run_before_next_heaplimit_check:	Int		# max possible nextcode instructions executed on any path through function body.
+		}
+	  }
+	  ->
+	  (Void -> Int);
+
+	 # The result is a thunk computing the machinecode bytevector
+	 # offset for entrypoint corresponding to the first function
+	 # in nextcode_functions.
+	 #
+	 # The client must call 'finish' before forcing it.
+    };
+end;
+
+
+										# Machine_Properties					is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate
+    package chi =  per_codetemp_heapcleaner_info;				# per_codetemp_heapcleaner_info				is from   src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.pkg
+    package cn  =  cccomponent_note;						# cccomponent_note					is from   src/lib/compiler/back/low/main/main/cccomponent-note.pkg
+    package ctl =  controls;							# controls						is from   src/lib/compiler/toplevel/main/controls.pkg
+    package ds  =  deep_syntax;							# deep_syntax						is from   src/lib/compiler/front/typer-stuff/deep-syntax/deep-syntax.pkg
+    package fbp =  guess_nextcode_branch_probabilities;				# guess_nextcode_branch_probabilities			is from   src/lib/compiler/back/low/main/nextcode/guess-nextcode-branch-probabilities.pkg
+    package fcf =  nextcode_form;						# nextcode_form						is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package ffc =  find_nextcode_cccomponents;					# find_nextcode_cccomponents				is from   src/lib/compiler/back/low/main/nextcode/find-nextcode-cccomponents.pkg
+    package iht =  int_hashtable;						# int_hashtable						is from   src/lib/src/int-hashtable.pkg
+    package lbl =  codelabel;							# codelabel						is from   src/lib/compiler/back/low/code/codelabel.pkg
+    package lem =  lowhalf_error_message;					# lowhalf_error_message					is from   src/lib/compiler/back/low/control/lowhalf-error-message.pkg
+    package lhn =  lowhalf_notes;						# lowhalf_notes						is from   src/lib/compiler/back/low/code/lowhalf-notes.pkg
+    package pb  =  pseudo_op_basis_type;					# pseudo_op_basis_type					is from   src/lib/compiler/back/low/mcg/pseudo-op-basis-type.pkg
+    package pby =  probability;							# probability						is from   src/lib/compiler/back/low/library/probability.pkg
+    package pci =  per_compile_info;						# per_compile_info					is from   src/lib/compiler/front/typer-stuff/main/per-compile-info.pkg
+    package pl  =  paired_lists;						# paired_lists						is from   src/lib/std/src/paired-lists.pkg
+    package ppf =  prettyprint_nextcode;					# prettyprint_nextcode					is from   src/lib/compiler/back/top/nextcode/prettyprint-nextcode.pkg
+    package pt  =  nextcode_ramregions::pt;					# nextcode_ramregions					is from   src/lib/compiler/back/low/main/nextcode/nextcode-ramregions.pkg
+    package rgn =  nextcode_ramregions;						# nextcode_ramregions					is from   src/lib/compiler/back/low/main/nextcode/nextcode-ramregions.pkg
+    package rkj =  registerkinds_junk;						# registerkinds_junk					is from   src/lib/compiler/back/low/code/registerkinds-junk.pkg
+herein
+
+    # This generic is invoked from:
+    #
+    #     src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+    #	
+    generic package   translate_nextcode_to_treecode_g   (
+	#             ================================
+	#            								# machine_properties_intel32				is from   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+	#									# machine_properties_pwrpc32				is from   src/lib/compiler/back/low/main/pwrpc32/machine-properties-pwrpc32.pkg
+	#									# machine_properties_sparc32				is from   src/lib/compiler/back/low/main/sparc32/machine-properties-sparc32.pkg
+	package mp:  Machine_Properties;					# Machine_Properties					is from   src/lib/compiler/back/low/main/main/machine-properties.api
+
+	package trx: Treecode_Extension_Mythryl;				# Treecode_Extension_Mythryl				is from   src/lib/compiler/back/low/main/nextcode/treecode-extension-mythryl.api
+
+	package pri: Platform_Register_Info					# Platform_Register_Info				is from   src/lib/compiler/back/low/main/nextcode/platform-register-info.api
+		    where							# "pri" == "nextcode_registers".
+			 tcf::rgn == nextcode_ramregions 			# "rgn" == "region"
+		    also tcf::lac == late_constant 				# late_constant						is from   src/lib/compiler/back/low/main/nextcode/late-constant.pkg
+		    also tcf::trx == trx;					# "trx" == "treecode_extension".
+										# "tcf" == "treecode_form".
+
+	package cpo: Client_Pseudo_Ops_Mythryl;					# Client_Pseudo_Ops_Mythryl				is from   src/lib/compiler/back/low/main/nextcode/client-pseudo-ops-mythryl.api
+										# "cpo" == "client_pseudo_op".
+	package pop: Pseudo_Ops							# Pseudo_Ops						is from   src/lib/compiler/back/low/mcg/pseudo-op.api
+		     where							# "pop" == "pseudo_ops".
+			  tcf == pri::tcf					# "tcf" == "treecode_form".
+		     also cpo == cpo;						# "cpo" == "client_pseudo_ops".
+
+	package t2m: Translate_Treecode_To_Machcode				# Translate_Treecode_To_Machcode			is from   src/lib/compiler/back/low/treecode/translate-treecode-to-machcode.api
+		     where							# "t2m" == "translate_treecode_to_machcode".
+			  tcs::tcf == pri::tcf					# "tcf" == "treecode_form".
+		     also tcs::cst::pop == pop;					# "pop" == "pseudo_op".
+
+	package mkg								# make_machcode_codebuffer_g				is from   src/lib/compiler/back/low/mcg/make-machcode-codebuffer-g.pkg
+	      : Make_Machcode_Codebuffer					# Make_Machcode_Codebuffer				is from   src/lib/compiler/back/low/mcg/make-machcode-codebuffer.api
+		where
+		     cst == t2m::tcs::cst					# "cst" == "codestream".
+		also mcf == t2m::mcf						# "mcf" == "machcode_form" (abstract machine code).
+		also mcg == t2m::mcg;					  	# "mcg" == "machcode_controlflow_graph".
+
+										# put_treecode_heapcleaner_calls_g			is from   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
+	package ihc: Emit_Treecode_Heapcleaner_Calls				# Emit_Treecode_Heapcleaner_Calls			is from   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls.api
+		     where							# "ihc" == "insert_treecode_heapcleaner_calls".
+			  tcs == t2m::tcs					# "tcs" == "treecode_stream".
+		     also mcg == mkg::mcg;					# "mcg" == "machcode_controlflow_graph".
+
+	package rgk: Registerkinds;						# Registerkinds						is from   src/lib/compiler/back/low/code/registerkinds.api
+
+	package cal: Ccalls							# Ccalls						is from   src/lib/compiler/back/low/ccalls/ccalls.api
+	        where								# "cal" == "ccalls".
+                    tcf == pri::tcf;						# "tcf" == "treecode_form".
+
+	translate_machcode_cccomponent_to_execode
+	    :
+	    pci::Per_Compile_Info( ds::Declaration )
+	    ->
+	    mkg::mcg::Machcode_Controlflow_Graph
+	    ->
+	    Void;
+    )
+    : (weak) Translate_Nextcode_To_Treecode					# Defined above.
+    {
+	stipulate
+	    package cg  =  ctl::cg;						# Compiler Control 
+	    package tag =  mp::heap_tags;					# Mythryl heapchunk tagwords.
+	    package tcf =  pri::tcf;						# "tcf" == "treecode_form".
+	    package tcs =  t2m::tcs;						# "tcs" == "treecode_stream".
+
+	    package cfa								# "cfs" == "convert fun arguments"
+		=
+		convert_nextcode_fun_args_to_treecode_g (			# convert_nextcode_fun_args_to_treecode_g		is from   src/lib/compiler/back/low/main/nextcode/convert-nextcode-fun-args-to-treecode-g.pkg
+		    #
+		    package pri =  pri;						# "pri" == "nextcode_registers".
+		    package mp  =  mp;						# "mp"  == "machine_properties".
+		);
+
+	    # Decompose a package ("compilation unit")
+	    # callgraph into connected components:
+	    #
+	    package ffs								# "ffs" == "nextcode_function_stack".
+		=
+		nextcode_function_stack_g ( tcf );				# nextcode_function_stack_g				is from   src/lib/compiler/back/low/main/nextcode/nextcode-function-stack-g.pkg
+
+
+	    package ma								# Memory aliasing 
+		=
+		memory_aliasing_g (						# memory_aliasing_g					is from   src/lib/compiler/back/low/main/nextcode/memory-aliasing-g.pkg
+		    #
+		    package rgk = rgk;						# "rgk" == "registerkinds". 
+		);
+
+	    package fcc								#  C-Calls handling 
+		=
+		nextcode_c_calls_g (						# nextcode_c_calls_g					is from   src/lib/compiler/back/low/main/nextcode/nextcode-ccalls-g.pkg
+		    #
+		    package mp  =  mp;						# "mp"  == "machine_properties".
+		    package pri =  pri;						# "pri" == "nextcode_registers".
+		    package t2m =  t2m;						# "t2m" == "translate_treecode_to_machcode".
+		    package rgk =  rgk;						# "rgk" == "registerkinds". 
+		    package cal =  cal; 					# "cal" == "ccalls".
+		);
+	herein
+	    #
+	    fun error msg
+		=
+		lem::error("translate_nextcode_to_treecode_g", msg);
+
+	    #  Debugging: 
+	    #
+	    fun print_nextcode_fun  nextcode_fn
+		=
+		{   ctl::print::say "*********************************************** \n";
+		    ppf::print_nextcode_function nextcode_fn;
+		    ctl::print::say "*********************************************** \n";
+		    ctl::print::flush();
+		};
+
+	    print =   ctl::print::say;
+
+	
+
+
+	    ####################################################################
+	    # Heapcleaner ("garbage collection") safety.
+	    # This stuff matters only if
+	    #	lowhalf_track_heapcleaner_type_info
+	    # is TRUE, which it currently never is:
+
+	    package hr
+		=									# How to annotate heapcleaner (garbage collector) information.
+		codetemps_with_heapcleaner_info_g (					# codetemps_with_heapcleaner_info_g		is from   src/lib/compiler/back/low/heapcleaner-safety/codetemps-with-heapcleaner-info-g.pkg
+		    #
+		    package rgk =   rgk;						# "rgk" == "registerkinds".
+		    package chi =  chi;							# "chi" == "per_codetemp_heapcleaner_info".
+		);
+
+
+	    no_opt = [lhn::no_optimization.x_to_note ()];
+
+	    #
+	    fun same_reg_as  x  y
+		=
+		rkj::same_id (x, y);
+
+	    ptr_type =  lhn::mark_reg.x_to_note (fn r = hr::set_heapcleaner_info_on_codetemp (r, chi::ptr_type));				# Boxed chunks 
+	    i32_type =  lhn::mark_reg.x_to_note (fn r = hr::set_heapcleaner_info_on_codetemp (r, chi::i32_type));				# untagged integers 
+	    i31_type =  lhn::mark_reg.x_to_note (fn r = hr::set_heapcleaner_info_on_codetemp (r, chi::i31_type));				# tagged integers 
+	    f64_type =  lhn::mark_reg.x_to_note (fn r = hr::set_heapcleaner_info_on_codetemp (r, chi::f64_type));				# untagged floats 
+	    #
+	    fun fcftype_to_note fcf::type::INT     => i31_type; 
+		fcftype_to_note fcf::type::INT32   => i32_type; 
+		fcftype_to_note fcf::type::FLOAT64 => f64_type; 
+		fcftype_to_note _                  => ptr_type;
+	    end; 
+
+	    # Convert kind+bitsize to heapcleaner type.
+	    # Kind is INT/UNT/FLOAT:
+	    #
+	    fun kindbits_to_heapcleaner_type (fcf::p::INT 31) =>  chi::i31_type;									# 64-bit issue: '31' is bits-per-tagged-int.
+		kindbits_to_heapcleaner_type (fcf::p::UNT 31) =>  chi::i31_type;									# 64-bit issue: '31' is bits-per-tagged-unt.
+		kindbits_to_heapcleaner_type (fcf::p::INT 32) =>  chi::i32_type;									# 64-bit issue: '31' is bits-per-tagged-int.
+		kindbits_to_heapcleaner_type (fcf::p::UNT 32) =>  chi::i32_type;									# 64-bit issue: '31' is bits-per-tagged-unt.
+		#
+		kindbits_to_heapcleaner_type (_             ) =>  error "kindbits_to_heapcleaner_type";
+	    end; 
+	    #
+	    fun fcftype_to_heapcleaner_type (fcf::type::FLOAT64) => chi::f64_type;
+		fcftype_to_heapcleaner_type (fcf::type::INT    ) => chi::i31_type;
+		fcftype_to_heapcleaner_type (fcf::type::INT32  ) => chi::i32_type;
+		fcftype_to_heapcleaner_type _                    => chi::ptr_type;
+	    end;
+
+	    # Make a heapcleaner livein/liveout annotation. 
+	    # This is a list of  (register_id, heapcleaner_type) pairs:
+	    #	
+	    fun make_heapcleaner_liveinliveout_note
+		  (
+		    an,
+		    args,			# Formal args (i.e., parameters).
+		    fcftypes			# Types of formal args -- this list will always be same length as 'args'.
+		  )
+		=
+		an (collect (args, fcftypes, []))
+		where
+		    fun collect   (  tcf::INT_EXPRESSION ( tcf::REG(_, r)) ! args,   fcftype ! fcftypes,   results) =>    collect  (args,  fcftypes,   (r, fcftype_to_heapcleaner_type fcftype) ! results);
+			collect   (tcf::FLOAT_EXPRESSION (tcf::FREG(_, r)) ! args,   fcftype ! fcftypes,   results) =>    collect  (args,  fcftypes,   (r, fcftype_to_heapcleaner_type fcftype) ! results);
+
+			collect (_ ! args, _ ! fcftypes,   results)
+			    =>
+			    collect (args, fcftypes,      results);
+
+			collect ([], [],   results)
+			    =>
+			    results;
+
+			collect _ =>   error "make_heapcleaner_liveinliveout_note";
+		    end;
+		end;
+
+	    # These are the type widths of Mythryl.
+	    # They are hardwired for now.
+	    #
+	    ptr_bitsize = 32;	# Size of Mythryl's pointer		XXX SUCKO FIXME     64-BIT ISSUE
+	    int_bitsize = 32;	# Size of Mythryl's integer 		XXX SUCKO FIXME     64-BIT ISSUE
+	    flt_bitsize = 64;	# Size of Mythryl's real number 
+
+	    zero = tcf::LITERAL 0;
+	    one  = tcf::LITERAL 1;
+	    two  = tcf::LITERAL 2;
+
+	    tagged_zero =  one;
+	    offp0       =  fcf::SLOT 0; 
+	    #
+	    fun int i =  tcf::LITERAL (tcf::mi::from_int   (int_bitsize, i));		# "li" == "int-literal".
+	    fun unt u =  tcf::LITERAL (tcf::mi::from_unt32 (int_bitsize, u));		# "lu" == "unt-literal".
+
+	    const_base_pointer_reg_offset
+		=
+		int  mp::const_base_pointer_reg_offset;
+
+
+	    # The heap allocation pointer -- we allocate
+	    # heap memory just by advancing this pointer.
+	    # It must be in a true hardware register:								# i.e., not in an Intel32 ramreg -- a stack slot used as a workaround for the register shortage on that architecture.
+	    # 
+	    heap_allocation_pointer_register
+		=
+		case pri::heap_allocation_pointer
+		    #
+		    tcf::REG (_, heap_allocation_pointer_register) =>  heap_allocation_pointer_register;
+		    _                                              =>  error "heap_allocation_pointer_register";
+		esac;
+
+
+	    # Global registers, allocated statically by hand: 
+	    #
+	    global_registers
+		=
+		map  (fn r = tcf::INT_EXPRESSION   (tcf::REG  (int_bitsize, r))) pri::global_int_registers	# On intel32 this is ESP and EDI.
+		@ 
+		map  (fn f = tcf::FLOAT_EXPRESSION (tcf::FREG (flt_bitsize, f))) pri::global_float_registers;	# On intel32 there are no globally allocated float registers -- they are all available to the register allocator.
+
+
+	    # Remember that on sparc32 and pwrpc32 we also globally
+	    # dedicate a condition code register to heaplimit checks:
+	    # 
+	    global_registers
+		= 
+		case pri::heap_is_exhausted__test
+		    #
+		    THE cc => tcf::FLAG_EXPRESSION cc ! global_registers;					# "cc" is "condition code" -- zero/parity/overflow/... flag stuff.
+		    NULL   =>                           global_registers; 
+		esac;
+
+
+	    do_extra_lowhalf_optimizations									# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		ctl::lowhalf::make_bool										# Defaults to FALSE.
+		  ( "do_extra_lowhalf_optimizations",
+		    "whether to do lowhalf optimizations"
+		  );
+		#
+		# This flag controls whether extra lowhalf
+		# optimizations should be performed.
+		#
+		# By default, this is off:
+
+
+	    track_types_for_heapcleaner										# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		ctl::lowhalf::make_bool										# Defaults to FALSE.
+		  ( "track_types_for_heapcleaner",
+		    "whether to track heapcleaner type info"
+		  );
+		#
+		# If this flag is TRUE then annotate the
+		# codetemps with heapcleaner type info;
+		# otherwise use the default behavior.
+		#
+		# This flag is always FALSE;  I think
+		# this is another unfinished project.
+		# The relevant files appear to be:
+		#
+		#     src/lib/compiler/back/low/heapcleaner-safety/per-codetemp-heapcleaner-info-template.api
+		#     src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.api
+		#     src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.pkg
+		#     src/lib/compiler/back/low/heapcleaner-safety/codetemps-with-heapcleaner-info.api
+		#     src/lib/compiler/back/low/heapcleaner-safety/codetemps-with-heapcleaner-info-g.pkg
+
+
+	    lowhalf_optimize_before_making_heapcleaner_code							# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		ctl::lowhalf::make_bool										# Defaults to FALSE.
+		  ( "lowhalf_optimize_before_making_heapcleaner_code",
+		    "whether to optimize before generating heapcleaner code"
+		  );
+		#
+		# If this flag is on then we do optimizations before generating heapcleaner code. 
+		# If this flag is on then track_types_for_heapcleaner must also be turned on!
+		# Otherwise use the default behavior.
+
+
+	    split_entry_block											# XXX BUGGO FIXME icky thread-hostile global mutable state.
+		=
+		ctl::lowhalf::make_bool										# Defaults to FALSE.
+		  ( "split_entry_block",
+		    "whether to split entry block"
+		  );
+		#
+		# If this flag is on then split the entry block.
+		# This should be on for SSA optimizations. 
+
+
+	    empty_block    =  lhn::empty_block.x_to_note ();							# Dummy annotation used to get an empty block.
+
+	    tagword_to_int =  large_unt::to_int;   						# Converts heap-record tagword to int. 
+
+
+	    #  The main code generation function.
+	    #
+	    #  This represents the major entrypoint into
+	    #  the machine-dependent backend lower half
+	    #  from the machine-independent upper half.
+	    #  
+	    #  We are called from   translate_anormcode_to_execode   in
+	    #  
+	    #      src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	    #  
+	    fun translate_nextcode_to_execode
+	          {
+		    nextcode_functions:		List( fcf::Function ),								# All the functions for a complete package ("compilation unit").
+
+		    fun_id__to__max_resource_consumption									# Given
+			:													# a
+			fcf::Variable												# fun_id
+			->													# return
+			{ max_heapwords_possibly_allocated_before_next_heaplimit_check:	Int,					# max possible words of heap memory allocated before next heaplimit check, and
+			  max_nextcode_ops_possibly_run_before_next_heaplimit_check:	Int					# max possible nextcode instructions executed before next heaplimit check.
+			},
+		    err,
+		    source_name,												# Typically sourcefile name, something like "<stdin>" if compiling interactively.
+		    per_compile_info
+		  }
+		=
+		{   apply  note_entrypoint_label_and_type   nextcode_functions;
+
+		    cccomponents =  ffc::find_nextcode_cccomponents  nextcode_functions;					# Break the 'nextcode_functions' callgraph up into connected components.
+
+		    apply  translate_nextcode_cccomponent_to_treecode    cccomponents;						# This is where all the work is...
+
+		    finish_compilation_unit  source_name;
+
+		    # Here we construct and return to caller a thunk which computes the
+		    # entrypoint offset into the machinecode bytevector.  (This is the
+		    # address which at linktime will be called with a table of all loaded
+		    # packages; the package will note all needed resources and return
+		    # its own list of exported functions and other values.)
+		    #
+		    # The idea is that in principle this address could be anywhere in the
+		    # compiled code, and the address might not be fixed until the sizes of
+		    # span-depdendent instructions (i.e., pc-relative jumps) has been decided,
+		    # so our caller should finish code generation before calling this thunk.
+		    #
+		    # In practice the entrypoint is always zero, and this whole charade
+		    # could and maybe should be dispensed with:
+		    #
+		    get_entrypoint_offset_of_first_function  nextcode_functions;						# A (Void -> Int) thunk returning entrypoint offset into machinecode bytevector.
+		}														# (In practice this is currently always zero.)
+		where
+			
+
+		    max_heapwords_possibly_allocated_before_next_heaplimit_check
+			=
+			.max_heapwords_possibly_allocated_before_next_heaplimit_check  o  fun_id__to__max_resource_consumption;
+
+
+		    split_entry_block   =   *split_entry_block;
+
+		    
+		    # These functions generate new codetemps and
+		    # mark expressions with their heapcleaner types.
+		    #
+		    # When the heapcleaner-safety feature is turned on,
+		    # we'll use the versions of make_int_codetemp that automatically
+		    # update the GCMap.
+		    #
+		    # Otherwise, we'll just use the normal version.
+
+		    track_types_for_heapcleaner =   *track_types_for_heapcleaner;
+
+		    my  ( make_int_codetemp,
+			  make_int_codetemp_with_fcftype,
+			  make_int_codetemp_with_kindbits,
+			  make_float_codetemp
+			)
+			= 
+			if (not track_types_for_heapcleaner)									# Currently track_types_for_heapcleaner is ALWAYS FALSE.
+			    #
+			    ( rgk::make_int_codetemp,										# We're not tracking heapcleaner types for the backend lowhalf, so no extra work to do here.
+			      rgk::make_int_codetemp,
+			      rgk::make_int_codetemp,
+			      rgk::make_float_codetemp
+			    );
+
+			else
+			    # We're tracking heapcleaner types for the backend lowhalf,
+			    # so redefine our make-codetemp fns to track heapcleaner info:
+			    #
+			    make_int_codetemp   =   hr::make_codetemp_of_kind  rkj::INT_REGISTER;				# Currying is important here for efficiency -- make_codetemp_of_kind is slow, but make_codetemp is fast.
+			    make_float_codetemp =   hr::make_codetemp_of_kind  rkj::FLOAT_REGISTER;
+			    #
+			    fun make_int_codetemp_with_fcftype  fcftype
+				=
+				make_int_codetemp (fcftype_to_heapcleaner_type  fcftype);
+			    #
+			    fun make_int_codetemp_with_kindbits  kindbits
+				=
+				make_int_codetemp (kindbits_to_heapcleaner_type  kindbits);
+
+			    ( make_int_codetemp,
+			      make_int_codetemp_with_fcftype,
+			      make_int_codetemp_with_kindbits,
+			      make_float_codetemp
+			    );
+			fi;
+
+		    # Maybe wrap heapcleaner type around ptr/i32/flt:
+		    #
+		    fun hc_ptr e =   if track_types_for_heapcleaner  tcf::RNOTE  (e, ptr_type);    else e;   fi;
+		    fun hc_i32 e =   if track_types_for_heapcleaner  tcf::RNOTE  (e, i32_type);    else e;   fi;
+		    fun hc_flt e =   if track_types_for_heapcleaner  tcf::FNOTE  (e, f64_type);    else e;   fi;
+		    #
+		    fun maybe_note_type_for_heapcleaner (e, fcftype)
+			=
+			track_types_for_heapcleaner   ??   tcf::RNOTE (e, fcftype_to_note  fcftype)
+					              ::   e;
+		    #
+		    fun mark_nothing e
+			=
+			e;
+
+		    # Private ("all-callers-known") functions have
+		    # parameters passed in fresh temporaries. 
+		    #	
+		    # We (may) also annotate the heapcleaner types of these temporaries:
+		    #
+		    fun translate_function_formal_args_from_nextcode_to_treecode_form  []
+			    =>
+			    [];
+
+			translate_function_formal_args_from_nextcode_to_treecode_form  (fcftype ! rest)
+			    =>
+			    case fcftype
+				#
+				fcf::type::FLOAT64 =>   tcf::FLOAT_EXPRESSION (tcf::FREG (flt_bitsize, make_float_codetemp  chi::f64_type));
+				#
+				fcf::type::INT     =>   tcf::INT_EXPRESSION   (tcf::REG  (int_bitsize, make_int_codetemp    chi::i31_type));
+				fcf::type::INT32   =>   tcf::INT_EXPRESSION   (tcf::REG  (int_bitsize, make_int_codetemp    chi::i32_type));
+				_                  =>   tcf::INT_EXPRESSION   (tcf::REG  (ptr_bitsize, make_int_codetemp    chi::ptr_type));
+			    esac
+			    !
+			    translate_function_formal_args_from_nextcode_to_treecode_form  rest;
+		    end;
+
+		    # fun_id__to__codelabel__hashtable maps function ids
+		    # (fcf::lvars -- in practice, ints) to the codelabels
+		    # for those functions.
+		    #
+		    # If the flag   split_entry_block   is on we also
+		    # distinguish between public and privatel labels,
+		    # making sure that no branches go directly to the
+		    # public labels. 
+
+		    exception LABEL_BIND;
+		    exception TYPE_TABLE;
+
+		    stipulate
+			my fun_id__to__codelabel__hashtable:   iht::Hashtable ( lbl::Codelabel )
+				                           =   iht::make_hashtable  { size_hint => 32,  not_found_exception => LABEL_BIND };
+		    herein
+			get_codelabel_for_fun_id =   iht::get   fun_id__to__codelabel__hashtable;
+			set_codelabel_for_fun_id =   iht::set   fun_id__to__codelabel__hashtable;
+		    end;
+
+		    # type_table is a mapping of fcf::lvars to nextcode types
+		    #
+		    stipulate
+			my type_hashtable:   iht::Hashtable ( fcf::Type )
+				         =   iht::make_hashtable  { size_hint => 32,  not_found_exception => TYPE_TABLE };
+		    herein
+			set_fcftype_for_var_id =  iht::set  type_hashtable;
+			get_fcftype_for_var_id =  iht::get  type_hashtable;				# This maps nextcode value expressions to nextcode types.
+		    end;
+
+		    # note_entrypoint_label_and_type
+		    # defines the labels and fcftype for
+		    # all nextcode functions:
+		    #
+		    fun note_entrypoint_label_and_type  (callers_info, fun_id, _, _, _)
+			=
+			{   set_codelabel_for_fun_id (fun_id, lbl::make_anonymous_codelabel());			# Private label.
+
+			    if split_entry_block								# Public  label.
+				#
+				case callers_info
+				    #
+				    (fcf::FATE | fcf::PUBLIC)
+					=> 
+					set_codelabel_for_fun_id (-fun_id - 1, lbl::make_codelabel_generator (int::to_string fun_id) ());		# This -fun_id - 1 crap could be simplified to just -f if we just
+																			# guaranteed that all valid labels are nonzero. XXX SUCKO FIXME.
+				    _ => ();
+				esac;
+			    fi;
+
+			    case callers_info
+				#
+				fcf::FATE =>   set_fcftype_for_var_id (fun_id, fcf::type::FATE);
+				_         =>   set_fcftype_for_var_id (fun_id, fcf::bogus_pointer_type);
+			    esac;
+			};												# fun note_entrypoint_label_and_type
+
+		    my fun_id__to__branch_probability:   	fcf::Variable -> Null_Or(pby::Probability)
+		       =
+		       fbp::guess_nextcode_branch_probabilities  nextcode_functions;					# Compute probabilities, stash them in a hashtable, return lookup function.
+
+		    #
+		    fun branch_with_probability (branch, THE probability) =>   tcf::NOTE  (branch,  lhn::branch_probability.x_to_note probability);
+		        branch_with_probability (branch, NULL           ) =>   branch;
+		    end;
+
+
+		    # A nextcode register may be implemented as a physical 
+		    # register or a memory location.  This function moves
+		    # a value v into a register or a memory location.							# "rreg" == "reg_or_ramreg".
+		    #
+		    fun set_rreg (tcf::REG (type, r),        v) =>  tcf::LOAD_INT_REGISTER (type, r, v);
+			set_rreg (tcf::LOAD (type, ea, mem), v) =>  tcf::STORE_INT (type, ea, v, mem);
+			set_rreg _                              =>  error "set_rreg";
+		    end;
+
+
+		    # Translate one nextcode cccomponent to								# "cccomponent" == "callgraph connected-component".
+		    # treecode (and thence immediately to machcode):
+		    #
+		    fun translate_nextcode_cccomponent_to_treecode
+			#
+			(cccomponent:   List( fcf::Function ))
+			#
+			: Void				# Void because results are side-effected :-( onto   dataseg_list   and   textseg_list   in
+			#				#
+			#				#     src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-intel32-g.pkg
+			#				#     src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-pwrpc32-g.pkg
+			=				#     src/lib/compiler/back/low/jmp/squash-jumps-and-write-code-to-code-segment-buffer-sparc32-g.pkg
+			{   if *ctl::debugging
+				#
+				apply
+				    ppf::print_nextcode_function
+				    cccomponent;
+			    fi;
+
+			    (t2m::make_treecode_to_machcode_codebuffer  (mkg::make_machcode_codebuffer ()))
+				->
+				buf;
+				#
+				# The above constructs the wrapped codebuffer which
+				# translates treecode to machine code and then holds
+				# the resulting machcode until asked to regurgitate it.
+				#
+				# We're going to do lots of
+				#
+				#     buf.put_op( treecode_expression ) 
+				#
+				# calls to construct our machine-code controlflow
+				# graph (while simultaneously translating from treecode
+				# to machcode) and then one
+				#
+				#     result =  buf.get_completed_cccomponent ...
+				#
+				# call to retrieve the resulting controlflow graph.
+				#
+				# The treecode_expression is translated to abstract machinecode by one of
+				#
+				#     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+				#     src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+				#     src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+				#
+				# which in turn use put_* commands which drive
+				#
+				#     src/lib/compiler/back/low/mcg/make-machcode-codebuffer-g.pkg 
+				#
+				# to construct an actual machine code controlflow graph, i.e. an instance of one of
+				#
+				#     machcode_controlflow_graph_intel32   from   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+				#     machcode_controlflow_graph_pwrpc32   from   src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+				#     machcode_controlflow_graph_sparc32   from   src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+				#
+				# all of which are generated by
+				#
+				#     src/lib/compiler/back/low/mcg/machcode-controlflow-graph-g.pkg
+				# per src/lib/compiler/back/low/mcg/machcode-controlflow-graph.api
+
+
+			    # If fcf::RAW_C_CALL is present we need
+			    # to use the virtual frame pointer:
+			    #
+			    stipulate
+				#
+				fun has_raw_c_call  ((_, _, _, _, cexp) ! rest)				# There HAS to be a better way of tracking this information than
+					=>								# doing a complete code pass here to get one bit of information.  XXX SUCKO FIXME.
+					fcf::has_raw_c_call  cexp
+					or
+					has_raw_c_call  rest;
+
+				    has_raw_c_call  ([])
+					=>
+					FALSE;
+				end;
+
+			    herein
+
+				use_virtual_framepointer
+				    =
+				    not  mp::frame_ptr_never_virtual
+				    and
+				    has_raw_c_call  cccomponent;
+
+			    end;
+
+			    cn::use_virtual_framepointer						# This gets read (only) one place -- fun stack_basepointer ()
+				:=									# in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+				use_virtual_framepointer;
+
+
+			    # This is the (heap_allocation_pointer > heap_allocation_limit)
+			    # comparison test used -- when this is TRUE, it is time to
+			    # run the heapcleaner ("garbage collector").
+			    #	
+			    # We have a per-platform choice of signed or unsigned comparisons.
+			    # 
+			    # This usually doesn't matter, but some
+			    # architectures work better in one way
+			    # or the other, so we are given a choice here.
+			    #
+			    heap_is_exhausted__test
+				=
+				tcf::CMP (
+				    ptr_bitsize,
+				    pri::signed_gctest  ??  tcf::GT
+					 	        ::  tcf::GTU, 
+				    pri::heap_allocation_pointer,
+				    pri::heap_allocation_limit  use_virtual_framepointer
+				);
+
+
+
+			    #############################################################
+			    # Per-cccomponent tables 
+
+			    exception REGISTER_MAP;
+			    exception GEN_TABLE;
+
+
+
+			    stipulate
+				my  fun_id__to__callers_info__hashtable:  iht::Hashtable( ffs::Callers_Info )
+				    =
+				    iht::make_hashtable  { size_hint => length cccomponent,  not_found_exception => GEN_TABLE };
+				    #
+				    # Used to retrieve the arg passing convention
+				    # once a function has been compiled.
+			    herein
+				set__callers_info__for__fun_id =   iht::set  fun_id__to__callers_info__hashtable;
+				get__callers_info__for__fun_id =   iht::get  fun_id__to__callers_info__hashtable;
+			    end;	
+
+			    # { fp, gp } RegTable -- mapping of lvars to registers  
+
+
+			    my lvar_to_float_reg_hashtable:  iht::Hashtable( tcf::Float_Expression )
+					   =  iht::make_hashtable  { size_hint => 2,  not_found_exception => REGISTER_MAP };
+
+
+			    my lvar_to_int_reg_hashtable:  iht::Hashtable( tcf::Int_Expression )
+					   =  iht::make_hashtable  { size_hint => 32,  not_found_exception => REGISTER_MAP };
+
+
+			    set_int_reg_for_lvar =   iht::set  lvar_to_int_reg_hashtable;
+
+			    #
+			    fun set_int_reg_for_lvar' (x, r)
+				=
+				set_int_reg_for_lvar (x, tcf::REG (int_bitsize, r));
+
+			    set_float_reg_for_lvar =   iht::set lvar_to_float_reg_hashtable;
+
+
+			    # To do Sethi-Ullman register-use minimization  -- see
+			    #
+			    #     src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+			    #
+			    # -- we now need to convert our linear
+			    # code blocks into expression trees.
+			    # To do this, we first classify each subexpression
+			    # according to the number of times its value is used:
+			    #
+			    Expression_Usage
+			      #
+			      = DEAD		# Expression result is never used -- it can be discarded if pure.
+                              | TREEIFY		# Expression result is used exactly once -- we can grow the tree by inlining the expression at its reference point.
+                              | COMPUTE		# Expression result is used two or more times -- we have to leave it in place.
+                              | TREEIFIED	# Expression result has been inlined at its reference point.
+                              ;
+
+			    # The following function is used to translate nextcode into
+			    # larger trees.  Definitions marked TREEIFY can be forward
+			    # propagated to their (only) use.   This can drastically
+			    # reduce register pressure.
+
+			    stipulate
+				exception EXPRESSION_USAGE_HASHTABLE;
+			    herein
+				my expression_usage_hashtable:  iht::Hashtable( Expression_Usage )
+							     =  iht::make_hashtable  { size_hint => 32,  not_found_exception => EXPRESSION_USAGE_HASHTABLE };
+			    end;
+
+			    #
+			    fun get_expression_usage i
+				=
+				the_else (iht::find  expression_usage_hashtable  i,   DEAD);
+
+
+			    set_expression_usage
+				=
+				iht::set  expression_usage_hashtable;
+
+			    #
+			    fun mark_expression_as_treeified r
+				=
+				set_expression_usage (r, TREEIFIED);
+
+			    # Reset the register and expression-usage hashtables:
+			    #
+			    fun clear_hashtables ()
+				=
+				{   iht::clear  lvar_to_int_reg_hashtable; 
+				    iht::clear  lvar_to_float_reg_hashtable; 
+				    iht::clear  expression_usage_hashtable;
+				};
+
+			    # Memory disambiguation uses
+			    # the new register counters, 
+			    # so those must be reset here.
+
+			    rgk::reset_codetemp_id_allocation_counters ();
+
+			    mem_disambig
+				=
+				ma::analyze_memory_aliasing_of_nextcode_functions  cccomponent;
+
+			    # Points-to analysis projection.
+			    #
+			    fun projection (x as REF (pt::TOP _), _)
+				    =>
+				    x;
+
+				projection (x, i)
+				    =>
+				    pt::ith_projection (x, i);
+			    end;
+
+			    stipulate
+				must_disambiguate_memory			# Normally FALSE.
+				    =
+				    *cg::disambiguate_memory;
+			    herein
+				#
+				fun get_ramregion  e
+				    = 
+				    if must_disambiguate_memory
+					#
+					case e
+					    fcf::VAR v =>  mem_disambig v;
+					    _          =>  rgn::readonly;
+					esac;
+				    else
+					rgn::memory;
+				    fi;
+
+				#
+				fun get_ramregion_projection (e, i)
+				    =
+				    if must_disambiguate_memory
+					#
+					case e
+					    fcf::VAR v =>  projection (mem_disambig v, i);
+					    _          =>  rgn::readonly;
+					esac;
+				    else
+					rgn::memory;
+				    fi;
+			    end;
+	
+			    #
+			    fun get_dataptr_ramregion v
+				=
+				get_ramregion_projection (v, 0);
+
+
+			    # fun get_rw_vector_ramregion (x as REF (pt::TOP _)) = x;
+			    #     get_rw_vector_ramregion x = pt::weakSubscript x;
+			    # end;
+			    #
+			    # For safety, let's assume it's
+			    # the global memory right now: 
+			    #
+			    fun get_rw_vector_ramregion _
+				=
+				rgn::memory;
+
+			    # This keeps track of the accumulated advances of the
+			    # heap_allocation_pointer since the start of the nextcode fn.
+			    # This is important for generating the correct address offset
+			    # for newly allocated records.
+			    #
+			    advanced_heap_ptr =   REF 0;
+
+			    # Return the nextcode type for
+			    # a nextcode value expression:
+			    #
+			    fun fcftype_of (fcf::VAR    v) =>  get_fcftype_for_var_id v;
+				fcftype_of (fcf::LABEL  v) =>  get_fcftype_for_var_id v;
+				fcftype_of (fcf::INT    _) =>  fcf::type::INT;
+				fcftype_of (fcf::INT32  _) =>  fcf::type::INT32;
+				fcftype_of (fcf::TRUEVOID) =>  fcf::type::FLOAT64;			# What?? -- 2011-08-16 CrT fcf::TRUEVOID comes only from a line in src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg
+				fcftype_of _               =>  fcf::bogus_pointer_type;
+			    end;
+
+			    # The base_pointer contains the start address
+			    # of the entire  compilation unit.
+			    #
+			    # Here we generate the address of a label that
+			    # is embedded in the same compilation unit.
+			    # The generated address is relative to the base_pointer.
+			    #
+			    # For heapcleaner safety, we consider
+			    # this to be a chunk reference.
+			    #
+			    fun make_code_for_label_address (codelabel, k)
+				=
+				hc_ptr e
+				where
+				    e =   tcf::ADD (							# base_pointer + (codelabel + (k - mp::const_base_pointer_reg_offset))
+					      pri::address_width,
+					      pri::base_pointer  use_virtual_framepointer,
+					      tcf::LABEL_EXPRESSION (
+						  tcf::ADD (
+						      pri::address_width,
+						      tcf::LABEL codelabel, 
+						      tcf::LITERAL (
+							  integer::from_int
+							      (k - mp::const_base_pointer_reg_offset)
+					  )   )   )   );
+				end;
+
+			    # The following function looks up the Treecode expression
+			    # associated with a general purpose value expression. 
+			    #
+			    get_int_reg_for_lvar
+				=
+				iht::get   lvar_to_int_reg_hashtable;
+
+			    # This function resolves address computations of the form
+			    #
+			    #     tcf::LATE_CONSTANT k
+			    #
+			    # where offset is a reference to the kth byte allocated
+			    # since the beginning of the nextcode fn.
+			    #
+			    fun resolve_heap_ptr_offset (tcf::LATE_CONSTANT  absolute_heap_ptr_offset)
+				    =>
+				    {   tmp_r =   make_int_codetemp  chi::ptr_type;
+
+					offset =   absolute_heap_ptr_offset - *advanced_heap_ptr;
+
+					buf.put_op					# tmp_r :=  heap_allocation_pointer + offset;
+					    (tcf::LOAD_INT_REGISTER
+					      (
+						ptr_bitsize,
+						tmp_r,
+						tcf::ADD
+						  (
+						    pri::address_width,
+						    pri::heap_allocation_pointer,
+						    int  offset
+					    ) )   );
+
+					tcf::REG (ptr_bitsize, tmp_r);
+				    };
+
+				resolve_heap_ptr_offset  e
+				    =>
+				    e;
+			    end;
+
+			    #
+			    fun ireg_for (fcf::VAR   v) =>  resolve_heap_ptr_offset (get_int_reg_for_lvar v);
+				ireg_for (fcf::INT   i) =>  int (i+i+1);
+				ireg_for (fcf::INT32 u) =>  unt u;
+
+				ireg_for (fcf::LABEL v)
+				    => 
+				    make_code_for_label_address (get_codelabel_for_fun_id (split_entry_block  ??  -v - 1  ::  v), 0);
+
+				ireg_for _
+				    =>
+				    error "ireg_for";
+			    end;
+
+
+			    # This version allows the value to be further propagated:
+			    #
+			    fun resolve_heap_ptr_offset'  (tcf::LATE_CONSTANT  absolute_heap_ptr_offset)
+				=> 
+				{   offset =  absolute_heap_ptr_offset - *advanced_heap_ptr;
+				    #
+				    hc_ptr (tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int offset));		# heap_allocation_pointer + offset
+				};
+
+				resolve_heap_ptr_offset'  other
+				    =>
+				    other;
+			    end;
+
+			    #
+			    fun ireg_for' (fcf::VAR   v) =>  resolve_heap_ptr_offset'(get_int_reg_for_lvar v);
+				ireg_for' (fcf::INT   i) =>  int (i+i+1);
+				ireg_for' (fcf::INT32 u) =>  unt u;
+
+				ireg_for' (fcf::LABEL v)
+				    => 
+				    make_code_for_label_address (get_codelabel_for_fun_id (split_entry_block ?? -v - 1 :: v), 0);
+
+				ireg_for' _
+				    =>
+				    error "ireg_for'";
+			    end;
+
+
+			    # The following function looks up
+			    # the Treecode expression associated
+			    # with a floating point value expression:
+			    #
+			    get_float_reg_for_lvar
+				=
+				iht::get   lvar_to_float_reg_hashtable;
+			    #
+			    fun freg_for (fcf::VAR v) =>   get_float_reg_for_lvar v;
+				freg_for _            =>   error "freg_for";
+			    end;
+
+			    # On entry to a function the parameters
+			    # are in formal parameter passing registers.
+			    #
+			    # Within the body of the function, they are
+			    # moved immediately to fresh temporary registers.
+			    #
+			    # This ensures that the life time of the
+			    # formal parameters is restricted to the 
+			    # function body and is critical in avoiding
+			    # artificial codetemp interferences:
+			    #
+			    fun initial_register_namings_escaping (vl, rl, tl)			# == (parameters, formals, types) -- we're copying 'formals' to 'parameters'.
+				= 
+				{   (e_copy (vl, rl, [], [], [], []))				# == (parameters, formals, destregs, srcregs, parameters', formals')
+					->
+					(vl', rl');
+
+				    e_fcopy (e_other (vl', rl', [], []));
+
+				    pl::apply  set_fcftype_for_var_id  (vl, tl);
+				}
+				where
+				    fun e_copy([], [], [], [], xs', rl')
+					    =>
+					    (xs', rl');						# Done.
+
+					e_copy (x ! xs, tcf::INT_EXPRESSION (tcf::REG(_, r)) ! rl, rds, rss, xs', rl')		# "rds" = "dst registers";   "rss" == "src registers".
+					    => 
+					    {   t = make_int_codetemp  chi::ptr_type;
+						#
+						set_int_reg_for_lvar' (x, t); 
+						#
+						e_copy   (xs,  rl,   t ! rds,  r ! rss,   xs',  rl');
+					    };
+
+					e_copy  (x ! xs,  r ! rl,  rds,  rss,  xs',  rl')
+					    => 
+					    e_copy  (xs,  rl,  rds,  rss,  x ! xs',  r ! rl');
+
+					e_copy([], [], rds, rss, xs', rl')
+					    => 
+					    {   buf.put_op (tcf::MOVE_INT_REGISTERS (int_bitsize, rds, rss));
+						(xs', rl');
+					    };
+
+					e_copy (([], _ ! _, _, _, _, _) | (_ ! _, [], _, _, _, _))
+					    =>
+					    error "e_copy";
+				    end;
+
+				    #
+				    fun e_other([], [], xs, rl)
+					    =>
+					    (xs, rl);
+
+					e_other  (x ! xs,  (tcf::INT_EXPRESSION r) ! rl,  xs', rl')
+					    => 
+					    {   t =  make_int_codetemp  chi::ptr_type;
+
+						set_int_reg_for_lvar' (x, t);
+
+						buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, t, r)); 
+
+						e_other (xs, rl, xs', rl');
+					    };
+
+					e_other  (x ! xs,  (tcf::FLOAT_EXPRESSION (tcf::FREG(_, f))) ! rl,  xs', rl')
+					    => 
+					    e_other (xs, rl,  x ! xs',  f ! rl');
+
+					e_other (_, tcf::FLOAT_EXPRESSION _ ! _, _, _)
+					    =>
+					    error "e_other: FPR but not FREG";
+
+					e_other (_, tcf::FLAG_EXPRESSION _ ! _, _, _)
+					    =>
+					    error "e_other: FLAG_EXPRESSION";
+
+					e_other (([], _ ! _, _, _) | (_ ! _, [], _, _))
+					    =>
+					    error "e_other";
+				    end;
+
+				    #
+				    fun e_fcopy ([], [])
+					    =>
+					    ();
+
+					e_fcopy (xs, rl)
+					    => 
+					    {   fs =   map (fn _ =  make_float_codetemp  chi::f64_type)
+							   xs;
+
+						pl::apply 
+						    (fn (x, f) =  set_float_reg_for_lvar  (x,  tcf::FREG (flt_bitsize, f)))
+						    (xs, fs);
+
+						buf.put_op (tcf::MOVE_FLOAT_REGISTERS (flt_bitsize, fs, rl));
+					    };
+				    end;
+				end;
+
+	#		    fun initial_register_namings_known (vl, rl, tl)
+	#                        = 
+	#			{   fun f (v, tcf::INT_EXPRESSION (reg  as tcf::REG _ )) =   addExpNaming  (v, reg )
+	#			      | f (v, tcf::FLOAT_EXPRESSION (freg as tcf::FREG _)) =   addFregNaming (v, freg)
+	#			      | f _ = error "initial_register_namings_known::f";
+	#
+	#                            pl::apply f (vl, rl);
+	#
+	#			    pl::apply set_fcftype_for_var_id (vl, tl);
+	#			};
+
+
+			    #############################################################################
+			    # Nomenclature: "hap_offset" == "heap_allocation_pointer_offset".
+			    #
+			    # Motivation:
+			    # On x86 heap_allocation_pointer permanently owns the EDI register -- see
+			    #
+			    #     src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+			    # 
+			    # (Other platforms are similar.)
+			    # 
+			    # In principle we allocate heapspace by sequences like
+			    # 
+			    #     *heap_allocation_pointer_offset++ = record_tagword;
+			    #     *heap_allocation_pointer_offset++ = field_1;
+			    #     *heap_allocation_pointer_offset++ = field_2;
+			    #      ...
+			    #     *heap_allocation_pointer_offset++ = field_n;
+			    #
+			    # In practice that is too slow -- the pointer-increments take ALU resources,
+			    # and also introduce data dependencies which inhibit multiple instruction
+			    # issue (on-the-fly parallelism) on modern microprocessors, so it is better to do
+			    #
+			    #     heap_allocation_pointer_offset[0] = record_tagword;
+			    #     heap_allocation_pointer_offset[1] = field_1;
+			    #     heap_allocation_pointer_offset[2] = field_2;
+			    #      ...
+			    #     heap_allocation_pointer_offset[n] = field_n;
+			    #     heap_allocation_pointer_offset += n+1;
+			    #
+			    # If the different fields are being generated by a complex of functions,
+			    # the latter approach requires that we keep track of how much heapspace
+			    # has been allocated since the last update to the heap_allocation_pointer.
+			    # That is the function of the 'hap_offet' values used in this package.
+			    #############################################################################
+
+
+			    fun update_heap_allocation_pointer  hap_offset							# "hap_offset" == "heap_allocation_pointer offset".
+				= 
+				# We've allocated a number of words of heap memory;
+				# now it is time to wrap up the allocation burst and
+				# bring heap_allocation_pointer up to date by doing	
+				#
+				#     heap_allocation_pointer += hap_offset;
+				#
+				# We keep heap_allocation_pointer aligned on odd 32-bit
+				# boundary so that after allocating a 32-bit tagword we
+				# will be correctly aligned for 64-bit data.
+				#
+				# (We have accounted for the extra space this eats up
+				# in pkg pick_nextcode_funs_for_heaplimit_checks.)	# pick_nextcode_funs_for_heaplimit_checks	is from   src/lib/compiler/back/low/main/nextcode/pick-nextcode-funs-for-heaplimit-checks.pkg
+				#
+				if (hap_offset != 0)
+				    #
+				    if (unt::bitwise_and (unt::from_int hap_offset, 0u4) != 0u0)   advance_by (hap_offset+4);	# 64-bit issue -- this alignment shouldn't be needed on 64-bit implementation, at all.
+				    else 							   advance_by (hap_offset  );	# 64-bit issue -- '4' above is presumably 'bytes-per-word' here.
+				    fi;
+				fi
+				where
+				    fun advance_by  hap_offset
+					= 
+					{   advanced_heap_ptr := *advanced_heap_ptr + hap_offset;
+					    #
+					    buf.put_op  (tcf::LOAD_INT_REGISTER							# heap_allocation_pointer_register += hap_offset;
+							  (
+							    ptr_bitsize,
+							    heap_allocation_pointer_register,
+							    tcf::ADD
+							      (
+								pri::address_width,
+								pri::heap_allocation_pointer,
+								int hap_offset
+							) )   );
+					};
+				end;
+
+
+			    fun test_heap_allocation_limit  hap_offset								# "hap_offset" == "heap_allocation_pointer offset".
+				= 
+				{   update_heap_allocation_pointer  hap_offset;
+
+				    # This next is a nop on Intel32; on Pwrpc32 and Sparc32
+				    # it loads a register with bits from a status register
+				    # loaded by a previous (delay-slot) comparison
+				    #
+				    #     heaplimit_allocation_pointer > heaplimit_allocation_limit
+				    #												# heap_is_exhausted__test	def in   src/lib/compiler/back/low/main/sparc32/backend-lowhalf-sparc32.pkg
+				    case pri::heap_is_exhausted__test								# heap_is_exhausted__test	def in   src/lib/compiler/back/low/main/pwrpc32/backend-lowhalf-pwrpc32.pkg
+					#
+					THE cc =>  assign_cc (cc, heap_is_exhausted__test);					# "cc" == "condition-code" -- the ZERO/OVERFLOW/... status-register bits.
+					#
+					NULL   =>  ();										# The Intel32 case.
+				    esac
+				    where
+					fun assign_cc  (tcf::CC (_, cc),  v)
+						=>
+						buf.put_op  (tcf::LOAD_INT_REGISTER_FROM_FLAGS_REGISTER  (cc, v));
+
+					    assign_cc _ =>   error "test_heap_allocation_limit::assign_cc";
+					end;
+				    end;
+				};
+
+
+			    # r+n;
+			    #	
+			    fun ea (r, 0) =>  r;
+				ea (r, n) =>  tcf::ADD  (pri::address_width, r, int n);
+			    end;
+
+			    # r + 4*n;
+			    #
+			    fun index_ea (r, 0) =>  r;
+				index_ea (r, n) =>  tcf::ADD  (pri::address_width, r, int (n*4));				# 64-bit issue -- '4' is presumably 'bytes-per-word' here.
+			    end;
+
+			    # Function to heap-allocate an integer record
+			    #
+			    #   x <- [tagword, field_values... ]
+			    #
+			    # at heap_allocation_pointer + hap_offset:
+			    #
+			    fun alloc_record (mark_comp, mem, tagword, field_values, hap_offset)
+				=  
+				{   buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset), tagword, projection (mem, -1)));	# Store tagword at start of new record.
+				    #
+				    store_fields (field_values, hap_offset+4, 0);										# 64-bit issue: '4' is 'bytes-per-word'.
+				    #
+				    hap_offset + 4;														# 64-bit issue: '4' is 'bytes-per-word'.
+				}
+				where
+				    fun get_field (v, e, fcf::SLOT 0) =>  e;
+					get_field (v, e, fcf::SLOT n) =>  tcf::ADD (pri::address_width, e, int (4*n));
+					get_field (v, e, p          ) =>  get_path (get_ramregion v, e, p);
+				    end 
+
+				    also
+				    fun get_path (mem, e, fcf::SLOT n)
+					    =>
+					    index_ea (e, n);
+
+					get_path (mem, e, fcf::VIA_SLOT (n, fcf::SLOT 0))
+					    =>
+					    mark_comp (tcf::LOAD (int_bitsize, index_ea (e, n), projection (mem, n)));
+
+					get_path (mem, e, fcf::VIA_SLOT (n, p))
+					    =>
+					    {   mem =   projection (mem, n);
+						#
+						get_path  (mem,  hc_ptr (tcf::LOAD (int_bitsize, index_ea (e, n), mem)),  p);
+					    };
+				    end;
+				    #
+				    fun store_fields ([], hap_offset, element)
+					    =>
+					    hap_offset;
+
+					store_fields ((v, p) ! field_values, hap_offset, element)
+					    =>  
+					    {   buf.put_op													# heap_allocation_pointer[ hap_offset ] = v.p (?);
+						    (tcf::STORE_INT
+						      (
+							int_bitsize,
+							tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int hap_offset),				# heap_allocation_pointer + hap_offset;
+							get_field (v, ireg_for' v, p),
+							projection (mem, element)
+						      )
+                                                    );
+						#
+						store_fields (field_values, hap_offset+4, element+1);								# 64-bit issue: '4' is 'bytes-per-word'.
+					    };
+				    end;
+				end;
+
+
+
+
+			    # Same as above, except for floating point instead of int record:
+			    #
+			    #   x <- [tagword, field_values... ]
+			    #
+			    fun alloc_frecord (mem, tagword, field_values, hap_offset)
+				= 
+				{   buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset), tagword, projection (mem, -1)));
+				    #
+				    fstore_fields (field_values, hap_offset+4, 0);									# 64-bit issue: '4' is presumably 'bytes-per-word'.
+				    #
+				    hap_offset+4;													# 64-bit issue: '4' is presumably 'bytes-per-word'.
+				}
+				where
+				    fun fea (r, 0) =>  r;
+					fea (r, n) =>  tcf::ADD (pri::address_width, r, int (n*8));
+				    end;
+
+				    #
+				    fun fget_field (v, fcf::SLOT 0) =>  freg_for v;
+					fget_field (v, fcf::SLOT _) =>  error "alloc_frecord::fget_field";
+					fget_field (v, p          ) =>  fget_path (get_ramregion v, ireg_for' v, p);
+				    end 
+
+
+				    also
+				    fun fget_path (mem, e, fcf::SLOT _)
+					    =>
+					    error "alloc_frecord::fget_path";
+
+					fget_path (mem, e, fcf::VIA_SLOT (n, fcf::SLOT 0))
+					    =>
+					    hc_flt (tcf::FLOAD (flt_bitsize, fea (e, n), projection (mem, n)));
+
+					fget_path (mem, e, fcf::VIA_SLOT (n, p))
+					    =>
+					    {   mem =   projection (mem, n);
+
+						fget_path (mem, hc_ptr (tcf::LOAD (int_bitsize, index_ea (e, n), mem)), p);
+					    };
+				    end;
+
+				    #
+				    fun fstore_fields ([], hap_offset, element)
+					    =>
+					    hap_offset;
+
+					fstore_fields((v, p) ! field_values, hap_offset, element)
+					    =>  
+					    {   buf.put_op
+						    (tcf::STORE_FLOAT
+						      (
+							flt_bitsize,
+							tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int hap_offset),
+							fget_field (v, p),
+							projection (mem, element)
+						    ) );
+
+						fstore_fields (field_values, hap_offset+8, element+1);
+					    };
+				    end;
+				end;
+
+
+
+			    # Allocate a header pair for vector or rw_vector:
+			    #
+			    #     heap_allocation_pointer[ hap_offset     ] =  hdr_tagword;
+			    #     heap_allocation_pointer[ hap_offset + 4 ] =  data_ptr;
+			    #     heap_allocation_pointer[ hap_offset + 8 ] =  len;
+			    #
+			    fun alloc_header_pair (hdr_tagword, mem, data_ptr, len, hap_offset)
+				=
+				{   buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset), int hdr_tagword, projection (mem,-1)));
+
+				    buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset+4), 							# 64-bit issue: '4' is 'bytes-per-word'.
+						 tcf::REG (int_bitsize, data_ptr), projection (mem, 0)));
+
+				    buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset+8), int (len+len+1),					# 64-bit issue: '8' is '2*bytes-per-word'.
+						 projection (mem, 1)));
+
+				    hap_offset+4;					# Why isn't this '+12'? -- 2011-08-16 CrT						# 64-bit issue: '4' is 'bytes-per-word'.
+				};
+
+
+
+
+			    #####################################################################	
+			    # Int31-arithmetic implementation.
+			    #
+			    # We store Int31 values in-pointer, marked
+			    # by having the low bit set to 1.
+			    #
+			    # (We keep all heap values word-aligned, so all valid
+			    # heap pointers will always have the low two bits zero.
+			    # Consequently the heapcleaner can always distinguish
+			    # Int31 values from valid pointers when processing a
+			    # heapchunk, allowing it to ignore Int31 values rather
+			    # than treat them as valid pointers and maybe segfault.)
+			    #
+			    # The low-bit tagging of Int31 values
+			    # means that to naively do (say)
+			    #
+			    #     k = i + j;
+			    #
+			    # on Int31 values we must actually do
+			    #
+			    #     k = (((i >> 1) + (j >> 1))   <<   1) + 1;
+			    #
+			    # In practice, in specific situations, we can
+			    # often find equivalent expressions with fewer
+			    # shifts.  For example, the above is arithmetically
+			    # equal to:
+			    #
+			    #     k = (i - 1) + j;
+			    #
+			    #####################################################################	
+
+			    fun add_int31_tag e   =   tcf::ADD        (int_bitsize, e, one);
+			    fun strip_int31_tag e =   tcf::SUB        (int_bitsize, e, one);
+			    fun or_int31_tag e    =   tcf::BITWISE_OR (int_bitsize, e, one);
+			    #
+			    fun tag (FALSE, e) => tag_unsigned e; 
+				tag (TRUE,  e) => tag_signed   e;
+			    end 
+
+			    also
+			    fun tag_unsigned e												# Tag unsigned value 'e' as an int31.
+				= 
+				{   fun double r
+					=
+					tcf::ADD (int_bitsize, r, r);
+
+				    case e 
+					#
+					tcf::REG _
+					    =>
+					    add_int31_tag (double e);									# e = (e << 1) + 1;
+
+				       _ => {   tmp =   make_int_codetemp  chi::ptr_type;						#  XXX ??? 
+
+						tcf::LET  ( tcf::LOAD_INT_REGISTER (int_bitsize, tmp, e),				# tmp = (e << 1) + 1;
+							    #
+							    add_int31_tag (double (tcf::REG (int_bitsize, tmp)))
+						          );
+					    };
+				    esac;
+				}
+
+			    also
+			    fun tag_signed e												# Same as above, but with int OVERFLOW CHECKING.
+				= 
+				{   fun double r
+					=
+					tcf::ADDT (int_bitsize, r, r);
+
+				    case e 
+					#
+					tcf::REG _
+					    =>
+					    add_int31_tag (double e);									# e = (e << 1) + 1;	WITH OVERFLOW TRAPPING.
+
+					_ => {  tmp =   make_int_codetemp chi::ptr_type;						#  XXX ??? 
+
+						tcf::LET  ( tcf::LOAD_INT_REGISTER (int_bitsize, tmp, e),				# tmp = (e << 1) + 1;	WITH OVERFLOW CHECKING
+							    #
+							    add_int31_tag (double (tcf::REG (int_bitsize, tmp)))
+							  );
+					    };
+				    esac;
+				};
+			    #
+			    fun untag (TRUE,  e) =>  untag_signed   e; 
+				untag (FALSE, e) =>  untag_unsigned e;
+			    end 
+
+			    also
+			    fun untag_unsigned (fcf::INT i) =>  int i;
+				untag_unsigned v            =>  tcf::RIGHT_SHIFT_U (int_bitsize, ireg_for v, one);	# v >> 1;	# Without sign extension.
+			    end 
+
+			    also
+			    fun untag_signed   (fcf::INT i) =>  int i;
+				untag_signed   v            =>  tcf::RIGHT_SHIFT   (int_bitsize, ireg_for v, one);	# v >> 1;	# With   sign extension.
+			    end;
+
+
+
+			    #########################################
+			    # Int31-arithmetic ops.
+
+			    fun int31add (add_op, fcf::INT k, w     ) =>  add_op (int_bitsize, int (k+k), ireg_for w);	# w + (k + k)
+				int31add (add_op, w, v as fcf::INT _) =>  int31add (add_op, v, w);
+				int31add (add_op, v, w              ) =>  add_op  ( int_bitsize,					# v + (w - 1)
+										                     ireg_for  v,		# Why don't we strip v here?
+										    strip_int31_tag (ireg_for  w)
+										  );
+			    end;
+
+			    #
+			    fun int31sub (sub_op, fcf::INT k, w) =>  sub_op (int_bitsize, int (k+k+2), ireg_for w);
+				int31sub (sub_op, v, fcf::INT k) =>  sub_op (int_bitsize, ireg_for v, int (k+k));
+				int31sub (sub_op, v, w         ) =>  add_int31_tag (sub_op (int_bitsize, ireg_for v, ireg_for w));
+			    end;
+
+			    #
+			    fun int31xor (fcf::INT k, w     ) =>  tcf::BITWISE_XOR (int_bitsize, int (k+k), ireg_for w);
+				int31xor (w, v as fcf::INT _) =>  int31xor (v, w);
+				int31xor (v, w              ) =>  add_int31_tag (tcf::BITWISE_XOR ( int_bitsize,
+												    ireg_for  v,
+												    ireg_for  w
+										)                 );
+			    end;
+
+			    #
+			    fun int31mul (signed, mul_op, v, w)
+				= 
+				{   fun f (fcf::INT k, fcf::INT j) =>   (int (k+k), int j);
+					f (fcf::INT k, w)          =>   (untag (signed, w), int (k+k));
+					f (v, w as fcf::INT _)     =>   f (w, v);
+					f (v, w)                   =>   (strip_int31_tag (ireg_for v), untag (signed, w));
+				    end;
+
+				    (f (v, w)) ->   (v, w);
+
+				    add_int31_tag (mul_op (int_bitsize, v, w));
+				};
+
+			    #
+			    fun int31div (signed, drm, v, w)
+				= 
+				{   my  (v, w)
+					= 
+					case (v, w)
+					    #
+					    (fcf::INT k, fcf::INT j) =>   (int k, int j);
+					    (fcf::INT k, w)          =>   (int k, untag (signed, w));
+					    #
+					    (v, fcf::INT k)          =>   (untag (signed, v), int k);
+					    (v, w)                   =>   (untag (signed, v), untag (signed, w));
+					esac;
+
+				    # The only way a 31-bit div can overflow
+				    # is when the result gets retagged so
+				    # we can use tcf::DIVS instead of tcf::DIVT:
+				    #
+				    tag ( signed, 
+					  signed  ??  tcf::DIVS (drm, int_bitsize, v, w)
+						  ::  tcf::DIVU (     int_bitsize, v, w)
+					);
+				};
+			    #
+			    fun int31rem (signed, drm, v, w)
+				=
+				{   my  (v, w)
+					=
+					case (v, w)
+					    #
+					    (fcf::INT k, fcf::INT j) =>   (int k, int j);
+					    (fcf::INT k, w)          =>   (int k, untag (signed, w));
+					    #
+					    (v, fcf::INT k)          =>   (untag (signed, v), int (k));
+					    (v, w)                   =>   (untag (signed, v), untag (signed, w));
+					esac;
+
+				    # Will not overflow, so
+				    # we tag like unsigned:
+				    #
+				    tag ( FALSE,
+					  signed  ??  tcf::REMS (drm, int_bitsize, v, w)
+						  ::  tcf::REMU (int_bitsize, v, w)
+					);
+				};
+			    #
+			    fun int31lshift (fcf::INT k, w)
+				    =>
+				    add_int31_tag (tcf::LEFT_SHIFT (int_bitsize, int (k+k), untag_unsigned w));
+
+			       int31lshift (v, fcf::INT k)
+				    => 
+				    add_int31_tag (tcf::LEFT_SHIFT (int_bitsize, strip_int31_tag (ireg_for v), int k));
+
+			       int31lshift (v, w)
+				    => 
+				    add_int31_tag (tcf::LEFT_SHIFT (int_bitsize, strip_int31_tag (ireg_for v), untag_unsigned w));
+			    end;
+
+			    #
+			    fun int31rshift (rshift_op, v, fcf::INT k)
+				    =>  
+				    or_int31_tag (rshift_op (int_bitsize, ireg_for v, int k));
+
+				int31rshift (rshift_op, v, w)
+				    =>
+				    or_int31_tag (rshift_op (int_bitsize, ireg_for v, untag_unsigned w));
+			    end;
+
+
+
+			    ###########################################################################
+			    # Heapchunk tags and related support.
+			    # For tagword definitions see   src/c/h/heap-tags.h
+			    ###########################################################################
+
+			    fun get_heapchunk_tagword v								# return v[-1];
+				= 
+				tcf::LOAD ( int_bitsize,
+					    tcf::SUB (ptr_bitsize, ireg_for v, int 4),				# 64-bit issue: '4' is 'bytes-per-word'.
+					    get_ramregion_projection (v, -1)
+					  );
+
+			    # Compare to   GET_LENGTH_FROM_TAGWORD   from   src/c/h/heap-tags.h
+			    # Here we are also fetching the tagword:
+			    #
+			    fun get_heapchunk_length_as_int31  v								# Length-in-words, I think.
+				= 
+				or_int31_tag
+				    (tcf::RIGHT_SHIFT_U
+				      (
+					int_bitsize,
+					get_heapchunk_tagword v,
+					int (tag::tag_width - 1)						# "-1": This leaves a garbage bit at the bottom; the above or_int31_tag then produces a valid Int31 value.
+				    ) );
+
+
+
+			    fun set_up_args_for_fn_call (formal_args, actual_args)
+				= 
+				# Here we generate code to execute immediately before
+				# jumping to the entrypoint for a function.
+				#
+				# We're given the formal argument list -- what the callee expects to get -- 
+				# and also the actual argument list -- what the caller is actually giving.
+				# 
+				# Our task here is to construct copies from the
+				# codetemps currently holding them to the registers
+				# the caller wants them in.  (Later on the register
+				# allocator will attempt to eliminate as many as possible
+				# of these copies by appropriate assignement of codetemps
+				# to registers, but that is not our concern here.)
+				# 
+				# Note that
+				#
+				#     formal_args  intersect  actual_args
+				#
+				# is always empty because our formal args are
+				# immediately copied to fresh codetemps:
+				#
+				gather
+				  ( formal_args,
+                                    actual_args,
+				    [], [],			# dst regs, src regs:  In these two we accumulate args for a tcf::MOVE_INT_REGISTERS parallel register-copy.
+                                    [],				# In this one we accumulate args for a tcf::MOVE_FLOAT_REGISTERS parallel register-copy.
+                                    [],				# In this one we construct a "tree-ified" ... (something).
+                                    []				# In this one we accumulate loads from ram (as opposed to the preceding reg-to-reg copies).
+                                  )
+				where
+				    #
+				    fun is_treeified (fcf::VAR r) =>   get_expression_usage r  ==  TREEIFIED;
+					is_treeified _            =>   FALSE;
+				    end;
+				    #
+				    fun gather ([], [], cp_rd, cp_rs, float_copies, treeified, loads)
+					    => 
+					    {   apply  buf.put_op  treeified;
+
+						case (cp_rd, cp_rs) 
+						    #
+						    ([],[]) =>   (); 
+
+						    _ =>   buf.put_op (tcf::MOVE_INT_REGISTERS (int_bitsize, cp_rd, cp_rs));
+						esac;
+
+						case float_copies
+						    #
+						    [] =>  (); 
+						    _  =>  buf.put_op (tcf::MOVE_FLOAT_REGISTERS (flt_bitsize, map #1 float_copies, map #2 float_copies));
+						esac;
+
+						apply  buf.put_op  loads;
+					    };
+
+					gather ( tcf::INT_EXPRESSION (tcf::REG (type, rd))  !  formal_args,
+                                                                                actual_arg  !  actual_args,
+                                                 cp_rd, cp_rs,
+						 float_copies,
+						 treeified,
+                                                 loads
+                                               )
+					    => 
+					    case (ireg_for  actual_arg)
+						#
+						tcf::REG (_, rs)
+						    =>
+						    gather (formal_args, actual_args,   rd ! cp_rd,   rs ! cp_rs,   float_copies,  treeified,  loads);
+
+						e => if (is_treeified  actual_arg)
+							  gather (formal_args, actual_args,   cp_rd, cp_rs, float_copies,    tcf::LOAD_INT_REGISTER (type, rd, e) ! treeified,                                        loads);
+						     else gather (formal_args, actual_args,   cp_rd, cp_rs, float_copies,                                           treeified, tcf::LOAD_INT_REGISTER (type, rd, e) ! loads);
+						     fi;
+					     esac;
+
+					gather ( tcf::INT_EXPRESSION (tcf::LOAD (type, ea, r))   !   formal_args,
+                                                                                    actual_arg   !   actual_args,
+                                                 cp_rd, cp_rs,
+						 float_copies,
+						 treeified,
+                                                 loads
+                                               )
+					    =>
+					    # Always store them early!
+					    # 
+					    gather ( formal_args, actual_args,
+                                                     cp_rd, cp_rs,
+                                                     float_copies,
+						     tcf::STORE_INT (type, ea, ireg_for actual_arg, r)   !   treeified,
+                                                     loads
+                                                   );
+
+					gather ( tcf::FLOAT_EXPRESSION (tcf::FREG (type, fd))   !   formal_args,
+										   actual_arg   !   actual_args,
+                                                 cp_rd, cp_rs,
+                                                 float_copies,
+                                                 treeified,
+                                                 loads
+                                               )
+					    => 
+					    case (freg_for  actual_arg)
+						#
+						tcf::FREG (_, fs)
+						    => 
+						    gather (formal_args, actual_args,   cp_rd, cp_rs,   (fd, fs) ! float_copies,  treeified,  loads);
+
+						e => 
+						    if (is_treeified  actual_arg)
+							gather (formal_args, actual_args,   cp_rd, cp_rs,   float_copies,   tcf::LOAD_FLOAT_REGISTER (type, fd, e) ! treeified,   loads);
+						    else
+							gather (formal_args, actual_args,   cp_rd, cp_rs,   float_copies,   treeified,   tcf::LOAD_FLOAT_REGISTER (type, fd, e) ! loads);
+						    fi;
+					     esac;
+
+
+					gather _
+					    =>
+					    error "set_up_args_for_fn_call/gather";
+				    end;
+				end;
+
+
+
+			    #############################################################################
+			    # Scale-and-add -- return   a + i*k   for k = 1,4,8.
+			    # These are (were?) important because the Intel32
+			    # effective address logic is hardwired to compute them,
+			    # and independently because we use them a lot to load
+			    # byte, word and float values from heap records.
+
+			    #
+			    fun add_ix1 (a, fcf::INT 0) =>  a;
+				add_ix1 (a, fcf::INT k) =>  tcf::ADD (int_bitsize, a, int k);
+				add_ix1 (a, i         ) =>  tcf::ADD (int_bitsize, a, untag_signed i);
+			    end;
+			    #
+			    fun add_ix4 (a, fcf::INT 0) =>  a;
+				add_ix4 (a, fcf::INT i) =>  tcf::ADD (int_bitsize, a, int (i*4));						
+				add_ix4 (a, i         ) =>  tcf::ADD (int_bitsize, a, tcf::LEFT_SHIFT (int_bitsize, untag_signed i, two));
+			    end;
+			    #
+			    fun add_ix8 (a, fcf::INT 0) =>  a;
+				add_ix8 (a, fcf::INT i) =>  tcf::ADD (int_bitsize, a, int (i*8));
+				add_ix8 (a, i         ) =>  tcf::ADD (int_bitsize, a, tcf::LEFT_SHIFT (int_bitsize, strip_int31_tag (ireg_for i), int 2));
+			    end;
+
+
+
+			    ###################################################################
+			    # Zero-extend and sign-extend:
+			    #
+			    fun zero_extend_32 (size, e)
+				=
+				tcf::ZERO_EXTEND (32, size, e);
+
+				#  tcf::RIGHT_SHIFT_U (32, tcf::LEFT_SHIFT (32, e, int (32 - size)), int (32 - size)) 
+			    #
+			    fun sign_extend_32 (size, e)
+				=
+				tcf::SIGN_EXTEND (32, size, e);
+
+				#  tcf::RIGHT_SHIFT (32, tcf::LEFT_SHIFT (32, e, int (32 - size)), int (32 - size)) 
+
+
+
+			    fun log_boxed_update_to_heap_changelog (updated_address, hap_offset)
+				=
+				# Add to heap changelog the address
+				# where a boxed update has occurred.
+				#
+				# The heap changelog is basically a
+				# a list of CONS cells, to which we
+				# are prepending a new cell.
+				#
+				# We generate code equivalent to:
+				#
+				#     heap_allocation_pointer[0] =  updated_address;
+				#     heap_allocation_pointer[4] =  heap_changelog_pointer;
+				#
+				#     heap_changelog_pointer     =  heap_allocation_pointer;
+				#
+				{   buf.put_op (tcf::STORE_INT (ptr_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int hap_offset),
+							         updated_address, rgn::heap_changelog));											# 
+
+				    buf.put_op (tcf::STORE_INT (ptr_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int (hap_offset+4)),		# 64-bit issue -- '4' is 'bytes-per-word'.
+							   pri::heap_changelog_pointer  use_virtual_framepointer, rgn::heap_changelog));
+
+				    buf.put_op (set_rreg (pri::heap_changelog_pointer  use_virtual_framepointer, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int hap_offset)));
+				};
+
+
+
+			    #########################################################
+			    #    Nextcode-to-Treecode COMPARE OP translation.
+			    #
+			    # Nextcode compare operators are un/signed agnostic;
+			    # in Nextcode un/signed type information is carried
+			    # by the operands.  In Treecode operands carry no	
+			    # unsigned information; instead binary operators are
+			    # explicitly divided into signed and unsigned flavors.
+			    # Here we implement the translation:
+			    #########################################################
+
+			    #
+			    fun to_tcf_unsigned_compare  op
+				= 
+				case op
+				    fcf::p::GT  => tcf::GTU;   fcf::p::GE  => tcf::GEU; 
+				    fcf::p::LT  => tcf::LTU;   fcf::p::LE  => tcf::LEU;
+				    fcf::p::EQL => tcf::EQ;    fcf::p::NEQ => tcf::NE;
+				esac;
+
+			    #
+			    fun to_tcf_signed_compare  op
+				= 
+				case op
+				    fcf::p::GT  => tcf::GT;   fcf::p::GE  => tcf::GE;   
+				    fcf::p::LT  => tcf::LT;   fcf::p::LE  => tcf::LE;
+				    fcf::p::NEQ => tcf::NE;   fcf::p::EQL => tcf::EQ;
+				esac;
+
+			    #
+			    fun float64cmp (op, v, w)
+				= 
+				tcf::FCMP (64, fcond, freg_for v, freg_for w)
+				where
+				    fcond = case op
+						fcf::p::f::EQ  => tcf::FEQ;  	# XXX BUGGO FIXME We should make these name sets identical (do we need both?)
+						fcf::p::f::ULG => tcf::FNEU; 	# (I presume this is just a relic of when SML/NJ and MLRISC were separate codebases.)
+						fcf::p::f::UN  => tcf::FUO;   
+						fcf::p::f::LEG => tcf::FGLE; 
+						fcf::p::f::GT  => tcf::FGT;   
+						fcf::p::f::GE  => tcf::FGE;  
+						fcf::p::f::UGT => tcf::FGTU; 
+						fcf::p::f::UGE => tcf::FGEU; 
+						fcf::p::f::LT  => tcf::FLT;   
+						fcf::p::f::LE  => tcf::FLE;  
+						fcf::p::f::ULT => tcf::FLTU; 
+						fcf::p::f::ULE => tcf::FLEU; 
+						fcf::p::f::LG  => tcf::FNE;  
+						fcf::p::f::UE  => tcf::FEQU;
+					    esac ;
+				end;
+
+			    #
+			    fun go_to_label  label
+				=
+				tcf::GOTO (tcf::LABEL label, []);
+
+
+
+			    fun translate_nextcode_function_to_treecode (function_label, kind, f, parameters, formals, tys, e)
+				= 
+				# This function initializes a nextcode fn before we generate
+				# code for it.   Its tasks include:
+				#
+				#     1. Add type namings for each definition. This is used to determine
+				#        the parameter passing convention for public functions.
+				#
+				#     2. Compute the number of uses for each variable.
+				#        This is used in the forward propagation logic.
+				#
+				#     3. Check whether the base pointer is needed.  
+				#          It is needed iff 
+				#           a.  There is a reference to fcf::LABEL
+				#           b.  It uses SWITCH (the jumptable requires the basepointer)
+				#
+				#     4. Generate the heapcleaner tests for PUBLIC and PRIVATE functions.
+				#
+				#     5. Check to see if floating point allocation is being performed
+				#        in the function.  If so, we will align the heap_allocation_pointer.
+				#
+				{   fun note_use  v
+					=
+					case (get_expression_usage v)
+					    #
+					    DEAD    =>  set_expression_usage (v, TREEIFY);
+					    TREEIFY =>  set_expression_usage (v, COMPUTE);
+					    #
+					    COMPUTE =>  ();
+					    _       =>  error "note_use";
+					esac;
+
+
+				    has_floats    =   REF FALSE;		#  Default is no 
+				    need_base_pointer =   REF FALSE;
+
+				    #
+				    fun note_value (fcf::VAR v)   =>   note_use v; 
+					note_value (fcf::LABEL _) =>   need_base_pointer := TRUE;
+					note_value _              =>   ();
+				    end;
+
+				    #
+				    fun note_values []                    =>  ();
+					note_values (fcf::VAR v   ! rest) =>  { note_use v;             note_values rest; };
+					note_values (fcf::LABEL _ ! rest) =>  { need_base_pointer := TRUE;  note_values rest; };
+					note_values (_            ! rest) =>  {                         note_values rest; };
+				    end;
+
+				    #
+				    fun note_record_values []
+					    =>
+					    ();
+
+					note_record_values ((fcf::VAR v, _) ! l)
+					    =>
+					    {   note_use v;
+						#
+						note_record_values l;
+					    };
+
+					note_record_values((fcf::LABEL v, _) ! l)
+					    => 
+					    {   need_base_pointer := TRUE;
+						#
+						note_record_values l;
+					    };
+
+					note_record_values(_ ! l)
+					    =>
+					    note_record_values l;
+				    end;
+
+				    #
+				    fun init e
+					= 
+					case e
+					    #
+					    fcf::DEFINE_RECORD { kind, fields, name, next }
+						=> 
+						{   case kind
+							#
+							(fcf::rk::FCONT | fcf::rk::FBLOCK)
+							    =>
+							    has_floats := TRUE;
+
+							_ => ();
+						    esac;
+
+						    note_record_values  fields;
+						    set_fcftype_for_var_id (name, fcf::bogus_pointer_type);
+						    init next;
+						};
+
+					    fcf::GET_FIELD_I   { record, name, type, next, ... }
+						=>
+						{   note_value record;
+						    set_fcftype_for_var_id (name, type);
+						    init next;
+						};
+
+					    fcf::GET_ADDRESS_OF_FIELD_I { record, name, next, ... }
+						=>
+						{   note_value record;
+						    set_fcftype_for_var_id (name, fcf::bogus_pointer_type);
+						    init next;
+						};
+
+					    fcf::JUMPTABLE { i, nexts, ... }
+						 => 
+						 {   need_base_pointer := TRUE;
+						     note_value i;
+						     apply init nexts;
+						 };
+
+					    fcf::STORE_TO_RAM { args, next, ... }
+						 =>
+						 {   note_values args;
+						     init next;
+						 };
+
+					    fcf::FETCH_FROM_RAM { op, args, name, type, next }
+						 => 
+						{   note_values args;
+
+						    # float-read cannot move past a float-write.
+						    # For now read operations cannot be treeified.
+						    # This is hacked by making it (falsely) used 
+						    # more than once.
+
+						    case op
+							#
+							( fcf::p::NUMSUBSCRIPT { kindbits=>fcf::p::FLOAT _}
+							| fcf::p::RAWLOAD      { kindbits=>fcf::p::FLOAT _}
+							)
+							    =>
+							    set_expression_usage (name, COMPUTE);
+
+							_ => ();
+						    esac;
+
+						    set_fcftype_for_var_id (name, type);
+
+						    init next;
+						};
+
+					    fcf::MATH { args, name, type, next, ... }
+						=>
+						{   note_values args;
+						    set_fcftype_for_var_id (name, type);
+						    init next;
+						};
+
+					    fcf::RAW_C_CALL { args, results, next, ... }
+						=>
+						{   note_values args;
+						    apply  set_fcftype_for_var_id  results;
+						    init next;
+						};
+
+					    fcf::PURE { op, args, name, type, next }
+						=> 
+						{   case op
+							#
+							fcf::p::FWRAP =>  has_floats := TRUE;
+							_             =>  ();
+						    esac;
+
+						    note_values args;
+						    set_fcftype_for_var_id (name, type);
+						    init next;
+						};
+
+					    fcf::IF_THEN_ELSE r
+						=>
+						{   note_values r.args;
+						    init       r.then_next;
+						    init       r.else_next;
+						};
+
+					    fcf::TAIL_CALL r
+						=>
+						{   note_value  r.func;
+						    note_values r.args;
+						};
+
+					    _ => error "translate_nextcode_function_to_treecode";
+					esac;
+
+
+				    # Print debugging information 
+				    #
+				    if *cg::printit
+					#
+					print_nextcode_fun (kind, f, parameters, tys, e);
+				    fi;
+
+
+				    # Move parameters 
+				    #
+				    case kind
+					#
+					fcf::PRIVATE
+					    =>
+					    {   buf.put_private_label  function_label;
+						#
+						init e;
+						#
+						initial_register_namings_escaping (parameters, formals, tys);
+					    };
+
+					fcf::PRIVATE_NEEDS_HEAPLIMIT_CHECK
+					    =>
+					    {   buf.put_private_label  function_label;
+
+						#  gc test 
+
+						put_check
+						    =
+						    if (*do_extra_lowhalf_optimizations
+                                                    and *lowhalf_optimize_before_making_heapcleaner_code)   ihc::put_heaplimit_check_and_push_heapcleaner_call_spec_for_optimized_private_fn;
+						    else  						    ihc::put_heaplimit_check_and_push_heapcleaner_call_spec_for_unoptimized_private_fn;
+						    fi;
+
+						put_check
+						    #
+						    buf
+						    #
+						    { max_heapbytes_eaten_before_next_heaplimit_check => 4 * (max_heapwords_possibly_allocated_before_next_heaplimit_check f),		# 64-bit issue: '4' is 'bytes-per-word'.
+						      # 
+						      live_registers	    =>  formals,
+						      live_register_types   =>  tys,
+						      # 
+						      return		    =>  go_to_label  function_label
+						    };
+
+						init e;
+
+						initial_register_namings_escaping (parameters, formals, tys);
+					    };
+
+					_ =>
+					    # Public function:
+					    #
+					    {   regfmls = formals;
+
+						my (linkreg, regfmls_tail)
+						    =
+						    case formals
+							#
+							(tcf::INT_EXPRESSION linkreg ! regfmls_tail)
+							    =>
+							    (linkreg, regfmls_tail);
+
+							_ => error "no linkreg for standard function";
+						    esac;
+
+						entry_label
+						    = 
+						    split_entry_block
+							??   get_codelabel_for_fun_id (-f - 1)
+							::   function_label;
+
+						if split_entry_block
+						    #
+						    buf.put_public_label   entry_label; 
+						    buf.put_bblock_note    empty_block;
+						    buf.put_private_label  function_label;
+						else 
+						    buf.put_public_label function_label;
+						fi;
+
+						clear_hashtables ();
+
+						init e;
+
+						if *need_base_pointer
+						    #
+						    baseval									# baseval = linkreg + (const_base_pointer_reg_offset - entry_label)
+							= 
+							tcf::ADD
+                                                          ( pri::address_width,
+                                                            linkreg, 
+							    tcf::LABEL_EXPRESSION
+                                                              ( tcf::SUB
+                                                                  ( pri::address_width,
+								    const_base_pointer_reg_offset,
+								    tcf::LABEL  entry_label
+                                                                  )
+                                                              )
+                                                          );
+
+						    buf.put_op (set_rreg (pri::base_pointer  use_virtual_framepointer, baseval));		# base_pointer = linkreg + (const_base_pointer_reg_offset - entry_label)
+						fi;
+
+						ihc::put_heaplimit_check_and_push_heapcleaner_call_spec_for_public_fn
+						    #
+						    buf
+						    #
+						    { max_heapbytes_eaten_before_next_heaplimit_check => 4 * (max_heapwords_possibly_allocated_before_next_heaplimit_check f),			# 64-bit issue -- '4' is bytes-per-word
+						      #
+						      live_registers      =>  regfmls, 
+						      live_register_types =>  tys,
+						      #
+						      return   => tcf::GOTO (linkreg,[])
+						    };
+
+						initial_register_namings_escaping
+						  (
+						    list::tail  parameters,
+						    regfmls_tail,
+						    list::tail  tys
+						  );
+					    };
+				    esac;
+
+				    # Align the allocation
+				    # pointer if necessary:
+				    #
+				    if *has_floats
+					#
+					buf.put_op
+					    (tcf::LOAD_INT_REGISTER					# heap_allocation_pointer |=  4;
+					      (
+						ptr_bitsize,
+						heap_allocation_pointer_register,
+					        tcf::BITWISE_OR
+						  (
+						    ptr_bitsize,
+						    pri::heap_allocation_pointer,
+						    int 4
+					    ) )   );							# 64-bit issue -- this alignment is not needed (or correct) for 64-bit code.
+				    fi;
+
+				    # Generate code:
+				    #
+				    advanced_heap_ptr := 0;
+				    translate_nextcode_op_to_treecode (e, 0);
+				}
+
+			    also
+			    fun define (r, x, e, k, hap_offset)		# Generate code for   x := e;   k
+				= 
+				{   set_int_reg_for_lvar' (x, r);
+				    buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, r, e));  
+				    translate_nextcode_op_to_treecode (k, hap_offset);
+				}
+
+			    also
+			    fun def (gc, x, e, k, hap_offset)
+				=
+				define (make_int_codetemp gc, x, e, k, hap_offset)
+
+			    also
+			    fun def_with_fcftype (fcftype, x, e, k, hap_offset)
+				=
+				define  (make_int_codetemp_with_fcftype fcftype,  x,  e,  k,  hap_offset)
+
+			    also
+			    fun def_with_kind (kindbits, x, e, k, hap_offset)
+				= 
+				define (make_int_codetemp_with_kindbits kindbits, x, e, k, hap_offset)
+
+			    also fun def_i31   (x, e, k, hap_offset) =   def (chi::i31_type, x, e, k, hap_offset)
+			    also fun def_i32   (x, e, k, hap_offset) =   def (chi::i32_type, x, e, k, hap_offset)
+			    also fun def_boxed (x, e, k, hap_offset) =   def (chi::ptr_type, x, e, k, hap_offset)
+
+			    also
+			    fun treeify_def (x, e, fcftype, k, hap_offset)		# Generate code for x:  fcftype := e; k
+				= 
+				case (get_expression_usage x)
+				    #
+				    COMPUTE => def_with_fcftype (fcftype, x, e, k, hap_offset);
+
+				    TREEIFY => {   mark_expression_as_treeified x;
+						   set_int_reg_for_lvar (x, maybe_note_type_for_heapcleaner (e, fcftype));
+						   translate_nextcode_op_to_treecode (k, hap_offset);
+					       };
+
+				    DEAD    => translate_nextcode_op_to_treecode (k, hap_offset);
+
+				    _       => error "treeifyDef";
+				esac
+
+			    # Generate code for
+			    #    x := heap_allocation_pointer + offset; k
+			    # where offset is the address offset of a newly allocated record.
+			    # If x is only used once, we try to propagate that to its use.
+			    #
+			    also
+			    fun def_alloc (x, offset, k, hap_offset)
+				= 
+				def_boxed (x, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int offset), k, hap_offset)
+
+
+			    # Generate code for
+			    #    x := heap_allocation_pointer + offset;
+			    #    k
+			    # Forward propagate until it is used.
+			    #
+			    also
+			    fun treeify_alloc (x, offset, k, hap_offset)
+				= 
+				case (get_expression_usage x)
+				    #
+				    COMPUTE => def_alloc (x, offset, k, hap_offset);
+
+				    TREEIFY
+					=>
+					# Note, don't mark this as treeified
+					# because it has low register pressure.
+					#
+					{   absolute_alloc_offset =   offset + *advanced_heap_ptr;
+					    #
+					    set_int_reg_for_lvar  (x,  tcf::LATE_CONSTANT absolute_alloc_offset);
+					    #
+					    translate_nextcode_op_to_treecode  (k,  hap_offset);
+					};
+
+				    DEAD => translate_nextcode_op_to_treecode (k, hap_offset);
+
+				    _    =>  error "treeify_alloc";
+				esac
+
+			    also
+			    fun computef64 (x, e, k, hap_offset)
+				=
+				{   f =   make_float_codetemp  chi::f64_type;
+				    #
+				    set_float_reg_for_lvar (x, tcf::FREG (flt_bitsize, f));
+				    #
+				    buf.put_op (tcf::LOAD_FLOAT_REGISTER (flt_bitsize, f, e));
+				    #
+				    translate_nextcode_op_to_treecode (k, hap_offset);
+				}
+
+			    also
+			    fun treeify_def_f64 (x, e, k, hap_offset)		#   x <- e   where e contains a floating-point value
+				= 
+				case (get_expression_usage x)
+				    #
+				    DEAD    => translate_nextcode_op_to_treecode (k, hap_offset);
+
+				    TREEIFY => {   mark_expression_as_treeified x; 
+						   set_float_reg_for_lvar (x, e);
+						   translate_nextcode_op_to_treecode (k, hap_offset);
+					       };
+
+				    COMPUTE => computef64 (x, e, k, hap_offset);
+
+				    _       => error "treeifyDefF64";
+				esac
+
+			    also
+			    fun nop (x, v, e, hap_offset)
+				=
+				def_i31 (x, ireg_for v, e, hap_offset)
+
+			    also
+			    fun copy (gc, x, v, k, hap_offset)
+				= 
+				{   dst =   make_int_codetemp gc;
+
+				    set_int_reg_for_lvar' (x, dst);
+
+				    case (ireg_for v)
+					#
+					tcf::REG(_, src)
+					    =>
+					    buf.put_op (tcf::MOVE_INT_REGISTERS (int_bitsize, [dst], [src]));
+
+					e =>  buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, dst, e));
+				    esac;
+
+				    translate_nextcode_op_to_treecode (k, hap_offset);
+				}
+
+			    also
+			    fun copy_m (31, x, v, k, hap_offset)  =>  copy (chi::i31_type, x, v, k, hap_offset);
+				copy_m ( _, x, v, k, hap_offset)  =>  copy (chi::i32_type, x, v, k, hap_offset);
+			    end 
+
+			    also
+			    fun eq_val (fcf::VAR  x,   fcf::VAR y)   =>   x == y; 
+				eq_val (fcf::LABEL x, fcf::LABEL y)   =>   x == y; 
+				eq_val (fcf::INT   x,   fcf::INT y)   =>   x == y;
+				eq_val _ => FALSE;
+			    end     
+
+			    also
+			    fun branch (cv, compare, [v, w], yes, no, hap_offset)	#  normal branches 
+				    => 
+				    {   true_lab =   lbl::make_anonymous_codelabel ();
+
+					# Is single assignment great or what! 
+					#
+					buf.put_op (branch_with_probability
+						  (tcf::IF_GOTO (tcf::CMP (32, compare, ireg_for v, ireg_for w), true_lab), 
+						   fun_id__to__branch_probability cv));
+
+					gen_cont (no, hap_offset);
+					genlab (true_lab, yes, hap_offset);
+				    };
+
+			       branch _
+				   =>
+				   error "branch";
+			    end 
+
+
+			    also
+			    fun branch_on_boxed (cv, x, yes, no, hap_offset)		 # Branch if x is boxed
+				= 
+				{   lab =   lbl::make_anonymous_codelabel ();
+
+				    compare =   tcf::CMP (32, tcf::NE, tcf::BITWISE_AND (int_bitsize, ireg_for x, one), zero);
+
+				    buf.put_op (branch_with_probability (tcf::IF_GOTO (compare, lab), fun_id__to__branch_probability cv));
+
+				    gen_cont (yes, hap_offset);
+
+				    genlab (lab, no, hap_offset);
+				}
+
+
+			    also
+			    fun branch_streq (n, v, w, yes, no, hap_offset)		 #  Branch if are identical strings v, w of length n 
+				=
+				{   n' =   ((n+3) / 4) * 4;
+
+				    false_lab =   lbl::make_anonymous_codelabel ();
+
+				    r1 =   make_int_codetemp chi::i32_type;
+				    r2 =   make_int_codetemp chi::i32_type;
+				    #
+				    fun compare_word (i)
+					= 
+					tcf::CMP (32, tcf::NE, 
+					      tcf::LOAD (int_bitsize, tcf::ADD (int_bitsize, tcf::REG (int_bitsize, r1), i), rgn::readonly), 
+					      tcf::LOAD (int_bitsize, tcf::ADD (int_bitsize, tcf::REG (int_bitsize, r2), i), rgn::readonly));
+				    #
+				    fun unroll i
+					= 
+					if (i != n')
+					    #
+					    buf.put_op (tcf::IF_GOTO (compare_word (int i), false_lab));
+					    #
+					    unroll (i+4);
+					fi;
+
+
+				    buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, r1, tcf::LOAD (int_bitsize, ireg_for v, rgn::readonly)));
+				    buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, r2, tcf::LOAD (int_bitsize, ireg_for w, rgn::readonly)));
+				    unroll 0;
+				    gen_cont (yes, hap_offset);
+				    genlab (false_lab, no, hap_offset);
+				}
+
+
+			    also
+			    fun condmove (op, args, x, t, e, hap_offset)		 #  Conditional move 
+				= 
+				{    fun signed (op, v, w)
+					 =
+					 tcf::CMP (32, to_tcf_signed_compare op, ireg_for v, ireg_for w);
+				     #
+				     fun unsigned (op, v, w)
+					 = 
+					 tcf::CMP (32, to_tcf_unsigned_compare op, ireg_for v, ireg_for w);
+				     #	
+				     fun equal (v, w)
+					 = 
+					 tcf::CMP (32, tcf::EQ, ireg_for v, ireg_for w);
+				     #
+				     fun notequal (v, w)
+					 = 
+					 tcf::CMP (32, tcf::NE, ireg_for v, ireg_for w);
+				     #
+				     fun unboxed x
+					 = 
+					 tcf::CMP (32, tcf::NE, tcf::BITWISE_AND (int_bitsize, ireg_for x, one), zero);
+				     #
+				     fun boxed x
+					 = 
+					 tcf::CMP (32, tcf::EQ, tcf::BITWISE_AND (int_bitsize, ireg_for x, one), zero);
+
+				     my (compare, a, b)
+					 = 
+					 case (op, args)
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::INT 31 },[v, w, a, b])
+						 =>
+						 (signed (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },[v, w, a, b])
+						 =>
+						 (unsigned (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::INT 32 },[v, w, a, b])
+						 =>
+						 (signed (op, v, w), a, b);
+
+					     (fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 },[v, w, a, b])
+						 =>
+						 (unsigned (op, v, w), a, b);
+
+					     (fcf::p::FCMP { op, size=>64 },[v, w, a, b])
+						 =>
+						 (float64cmp (op, v, w), a, b);
+
+					    (fcf::p::PEQL,[v, w, a, b])  => (equal    (v, w), a, b);
+					    (fcf::p::PNEQ,[v, w, a, b])  => (notequal (v, w), a, b);
+					    (fcf::p::BOXED,[v, a, b])    => (boxed v, a, b);
+					    (fcf::p::UNBOXED,[v, a, b])  => (unboxed v, a, b);
+
+					    _ => error "condmove";
+					esac;
+
+				    case t
+					#
+					fcf::type::FLOAT64 => computef64
+						    (x, tcf::FCOND (64, compare, freg_for a, freg_for b), e, hap_offset);
+
+					_    => def_with_fcftype
+						    (t, x, tcf::COND (32, compare, ireg_for a, ireg_for b), e, hap_offset);
+				    esac;
+				}
+
+			    also
+			    fun arith (gc, op, v, w, x, e, hap_offset)
+				= 
+				def (gc, x, op (int_bitsize, ireg_for v, ireg_for w), e, hap_offset)
+
+			    also
+			    fun arith32 (op, v, w, x, e, hap_offset)
+				= 
+				arith (chi::i32_type, op, v, w, x, e, hap_offset) 
+
+			    also
+			    fun logical (gc, op, v, w, x, e, hap_offset)
+				= 
+				def (gc, x, op (int_bitsize, ireg_for v, untag_unsigned (w)), e, hap_offset)
+
+			    also
+			    fun logical31 (op, v, w, x, e, hap_offset)
+				= 
+				logical (chi::i31_type, op, v, w, x, e, hap_offset) 
+
+			    also
+			    fun logical32 (op, v, w, x, e, hap_offset)
+				= 
+				logical (chi::i32_type, op, v, w, x, e, hap_offset) 
+
+			    also
+			    fun gen_cont (e, hap_offset)
+				= 
+				{   save =   *advanced_heap_ptr;
+
+				    translate_nextcode_op_to_treecode (e, hap_offset);
+
+				    advanced_heap_ptr := save;
+				}
+
+			    also
+			    fun genlab (label, e, hap_offset)
+				=
+				{   buf.put_private_label label;
+				    #
+				    translate_nextcode_op_to_treecode (e, hap_offset);
+				}
+
+			    also
+			    fun genlab_cont (label, e, hap_offset)
+				=
+				{   buf.put_private_label label;
+				    #
+				    gen_cont (e, hap_offset);
+				}
+
+
+			    also
+			    fun make_record (vl, w, e, hap_offset)		 #  Allocate a normal record 
+				= 
+				{   len =   length vl;
+
+				    desc =   tagword_to_int (tag::make_tagword (len, tag::pairs_and_records_btag));
+
+				    treeify_alloc (
+				       w, 
+				       alloc_record (hc_ptr, mem_disambig w, int desc, vl, hap_offset), 
+				       e,
+				       hap_offset + 4 + len*4															# 64-bit issue: '4' is presumably 'bytes-per-word'.
+				    );
+				}
+
+
+			    also
+			    fun make_i32block (vl, w, e, hap_offset)		 #  Allocate a record with I32 components 
+				= 
+				{   len  =   length vl;
+				    tagword =   tagword_to_int (tag::make_tagword (len, tag::four_byte_aligned_nonpointer_data_btag));
+
+				    treeify_alloc (
+					w,
+					alloc_record (hc_i32, mem_disambig w, int tagword, vl, hap_offset),
+					e,
+					hap_offset + 4 + len*4															# 64-bit issue: '4' is presumably 'bytes-per-word'.
+				    );
+				}
+
+
+			    also
+			    fun make_fblock (vl, w, e, hap_offset)			 #  Allocate a floating point record 
+				=
+				{   len =   list::length vl;
+
+				    tagword =   tagword_to_int (tag::make_tagword (len+len, tag::eight_byte_aligned_nonpointer_data_btag));
+
+				    # At initialization the allocation pointer is aligned on
+				    # an odd-word boundary, and the heap offset set to zero. If an
+				    # odd number of words have been allocated then the heap pointer
+				    # is misaligned for this record creation.
+				    #
+				    hap_offset
+					=
+					unt::bitwise_and (unt::from_int hap_offset, 0u4) != 0u0
+					  ??  hap_offset + 4															# 64-bit issue: '4' is presumably 'bytes-per-word'.
+					  ::  hap_offset;
+
+
+				    # The components are floating point 
+				    #
+				    treeify_alloc (
+					w,
+					alloc_frecord (mem_disambig w, int tagword, vl, hap_offset),
+					e,
+					hap_offset + 4 + len*8															# 64-bit issue: '4' is presumably 'bytes-per-word'.
+				    );
+				}
+
+
+			    also
+			    fun make_vector (vl, w, e, hap_offset)			 #  Allocate a vector 
+				= 
+				{   len       =   length vl;
+
+				    hdr_tagword  =   tagword_to_int  tag::typeagnostic_ro_vector_tagword;
+				    data_tagword =   tagword_to_int (tag::make_tagword (len, tag::ro_vector_data_btag));
+
+				    data_ptr  =  make_int_codetemp chi::ptr_type;
+				    mem       =  mem_disambig w;
+				    hap_offset' =  hap_offset + 4 + len*4;													# 64-bit issue: '4' is presumably 'bytes-per-word'.
+
+				    # The components are boxed. 
+				    # Allocate the data:
+
+				    alloc_record (hc_ptr, mem, int data_tagword, vl, hap_offset);
+
+				    buf.put_op (tcf::LOAD_INT_REGISTER (ptr_bitsize, data_ptr, ea (pri::heap_allocation_pointer, hap_offset+4)));				# 64-bit issue: '4' is presumably 'bytes-per-word'.
+
+				    # Now allocate the header pair:
+				    #
+				    treeify_alloc (
+					w, 
+					alloc_header_pair (hdr_tagword, mem, data_ptr, len, hap_offset+4+len*4), 									# 64-bit issue: '4' is presumably 'bytes-per-word'.
+					e,
+					hap_offset'+12																# 64-bit issue: '12' is presumably '3*bytes-per-word'.
+				    );
+				}
+
+			    also
+			    fun fselect (i, v, x, e, hap_offset)		 #  Floating point select: 
+				= 
+				treeify_def_f64 (
+				    x, 
+				    tcf::FLOAD (flt_bitsize, add_ix8 (ireg_for v, fcf::INT i), rgn::real),
+				    e,
+				    hap_offset
+				)
+
+			    also
+			    fun select (i, v, x, t, e, hap_offset)		 #  Non-floating point select: 
+				=
+				treeify_def (
+				    x, 
+				    tcf::LOAD (int_bitsize, add_ix4 (ireg_for v, fcf::INT i), get_ramregion_projection (v, i)),
+				    t,
+				    e,
+				    hap_offset
+				)
+
+			    also
+			    fun funny_select (i, k, x, t, e, hap_offset)		 #  Funny select; I don't know that this does: 
+				=
+				{   unboxedfloat =   mp::unboxed_floats;
+				    #
+				    fun is_flt t
+					= 
+					if (not unboxedfloat)
+					    #
+                                            FALSE;
+					else
+					    case t    fcf::type::FLOAT64 => TRUE;
+                                                      _                 => FALSE;
+					    esac;
+                                        fi;
+				    #
+				    fun falloc_sp (x, e, hap_offset)
+					=
+					{   set_float_reg_for_lvar  (x,  tcf::FREG  (flt_bitsize,  make_float_codetemp chi::f64_type));
+					    #
+					    translate_nextcode_op_to_treecode (e, hap_offset);
+					};
+
+				    # WARNING: the following generated code should never be executed!
+				    # It is semantic nonsense! XXX BUGGO FIXME
+				    #
+				    if (is_flt t)   falloc_sp (x, e, hap_offset);
+				    else	    def_i32 (x, int k, e, hap_offset);		#  BOGUS 
+				    fi;					
+				}
+
+
+			    also
+			    fun external_app (fun_id, args, hap_offset)			 #  Call an external function: 
+				= 
+				{   fcftypes_for_args =   map  fcftype_of  args;
+
+				    formals
+					=
+					cfa::convert_nextcode_public_fun_args_to_treecode
+					  {
+					    use_virtual_framepointer,
+					    fcftype_for_fun => get_fcftype_for_var_id  fun_id,
+					    fcftypes_for_args
+					  };
+
+				    dest =  case formals
+						(tcf::INT_EXPRESSION dest ! _)
+						    =>
+						    dest;
+
+						_   => error "external_app: dest";
+					    esac;
+
+
+				    set_up_args_for_fn_call (formals, args);
+
+
+				    if track_types_for_heapcleaner
+					#
+					buf.put_bblock_note
+                                            (
+						make_heapcleaner_liveinliveout_note
+						  (
+						    hr::gcliveout.x_to_note, 
+						    formals,
+						    fcftypes_for_args
+						  )
+					    );
+				    fi;
+
+				    test_heap_allocation_limit  hap_offset;
+
+				    buf.put_op (tcf::GOTO (dest, []));
+
+				    buf.put__end_of_fn__mark (formals @ global_registers);
+				}
+
+
+			    also
+			    fun internal_app  (fun_id,  args,  hap_offset)		 #  Call an internal function.
+				= 
+				case (get__callers_info__for__fun_id  fun_id)
+				    #
+				    ffs::PRIVATE (REF (ffs::TREECODE_FORM formals))
+					=> 
+					{   update_heap_allocation_pointer  hap_offset;
+					    #
+					    set_up_args_for_fn_call (formals, args); 
+					    #
+					    buf.put_op (go_to_label (get_codelabel_for_fun_id  fun_id));
+					};
+
+				   ffs::PRIVATE (r as REF (ffs::NEXTCODE_FORM (fun_id, fun_formal_args, fcftypes_for_args, fun_body)))
+					=> 
+					{   formal_args_in_treecode_form
+						=
+						translate_function_formal_args_from_nextcode_to_treecode_form
+						    #
+						    fcftypes_for_args;
+
+					    fun_label = get_codelabel_for_fun_id fun_id;
+
+					    r := ffs::TREECODE_FORM formal_args_in_treecode_form;
+
+					    update_heap_allocation_pointer  hap_offset;
+
+					    set_up_args_for_fn_call (formal_args_in_treecode_form, args);
+
+					    translate_nextcode_function_to_treecode
+					      (
+						fun_label,
+						fcf::PRIVATE,
+						fun_id,
+						fun_formal_args,
+						formal_args_in_treecode_form,
+						fcftypes_for_args,
+						fun_body
+					      );
+					};
+
+				   ffs::PRIVATE_AND_NEEDS_HEAPLIMIT_CHECK (r as REF (ffs::NEXTCODE_FORM (fun_id, fun_formal_args, fcftypes_for_args, fun_body)))
+					=> 
+					{   formal_args_in_treecode_form
+						= 
+						mp::fixed_arg_passing
+						  ??  cfa::convert_fixed_nextcode_fun_args_to_treecode { fcftypes_for_args, use_virtual_framepointer }
+						  ::  translate_function_formal_args_from_nextcode_to_treecode_form  fcftypes_for_args;
+
+					    fun_label =  get_codelabel_for_fun_id  fun_id;
+
+					    r := ffs::TREECODE_FORM formal_args_in_treecode_form;
+					    set_up_args_for_fn_call (formal_args_in_treecode_form, args);
+					    test_heap_allocation_limit  hap_offset;
+					    translate_nextcode_function_to_treecode (fun_label, fcf::PRIVATE_NEEDS_HEAPLIMIT_CHECK, fun_id, fun_formal_args, formal_args_in_treecode_form, fcftypes_for_args, fun_body);
+					};
+
+				   ffs::PRIVATE_AND_NEEDS_HEAPLIMIT_CHECK (REF (ffs::TREECODE_FORM formal_args_in_treecode_form))
+					=> 
+					{   set_up_args_for_fn_call (formal_args_in_treecode_form, args); 
+					    #
+					    test_heap_allocation_limit  hap_offset;
+					    #
+					    buf.put_op (go_to_label (get_codelabel_for_fun_id  fun_id));
+					};
+
+				   ffs::PUBLIC { fml_typs, ... }
+					=> 
+					{   formal_args_in_treecode_form
+						=
+						cfa::convert_nextcode_public_fun_args_to_treecode
+						  {
+						    fcftype_for_fun   => get_fcftype_for_var_id  fun_id,
+						    fcftypes_for_args => fml_typs,
+						    use_virtual_framepointer
+						  };
+
+					    set_up_args_for_fn_call (formal_args_in_treecode_form, args);
+
+					    test_heap_allocation_limit  hap_offset;
+
+					    buf.put_op (go_to_label (get_codelabel_for_fun_id  fun_id));
+					};
+				esac
+
+			    also
+			    fun rawload ((fcf::p::INT 32 | fcf::p::UNT 32), i, x, e, hap_offset)
+				    =>
+				    def_i32 (x, tcf::LOAD (32, i, rgn::memory), e, hap_offset);
+
+				rawload (fcf::p::INT (size as (8 | 16)), i, x, e, hap_offset)
+				    =>
+				    def_i32 (x, sign_extend_32 (size, tcf::LOAD (size, i, rgn::memory)), e, hap_offset);
+
+				rawload (fcf::p::UNT (size as (8 | 16)), i, x, e, hap_offset)
+				    =>
+				    def_i32 (x, zero_extend_32 (size, tcf::LOAD (size, i, rgn::memory)), e, hap_offset);
+
+				rawload ((fcf::p::UNT size | fcf::p::INT size), _, _, _, _)
+				    =>
+				    error ("rawload: unsupported size: " + int::to_string size);
+
+				rawload (fcf::p::FLOAT 64, i, x, e, hap_offset)
+				    =>
+				    treeify_def_f64 (x, tcf::FLOAD (64, i, rgn::memory), e, hap_offset);
+
+				rawload (fcf::p::FLOAT 32, i, x, e, hap_offset)
+				    =>
+				    treeify_def_f64 (x, tcf::FLOAT_TO_FLOAT (64, 32, tcf::FLOAD (32, i, rgn::memory)), e, hap_offset);
+
+				rawload (fcf::p::FLOAT size, _, _, _, _)
+				    =>
+				    error ("rawload: unsupported float size: " + int::to_string size);
+			    end 
+
+			    also
+			    fun rawstore ((fcf::p::UNT (size as (8 | 16 | 32)) |
+					   fcf::p::INT (size as (8 | 16 | 32))), i, x)
+				    =>
+				    # Both address and value are 32-bit values;
+				    # only size bits of the value are being stored:
+				    #
+				    buf.put_op (tcf::STORE_INT (size, i, ireg_for x, rgn::memory));
+
+				rawstore ((fcf::p::UNT size | fcf::p::INT size), _, _)
+				    =>
+				    error ("rawstore: unsupported int size: " + int::to_string size);
+
+				rawstore (fcf::p::FLOAT (size as (32 | 64)), i, x)
+				    =>
+				    buf.put_op (tcf::STORE_FLOAT (size, i, freg_for x, rgn::memory));
+
+				rawstore (fcf::p::FLOAT size, _, _)
+				    =>
+				    error ("rawstore: unsupported float size: " + int::to_string size);
+			    end 
+
+
+
+			    # Generate code 
+
+
+
+			    # fcf::DEFINE_RECORD
+			    also
+			    fun translate_nextcode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::FCONT,    fields, name, next }, hap_offset)   =>   make_fblock   (fields, name, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::FBLOCK,   fields, name, next }, hap_offset)   =>   make_fblock   (fields, name, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::VECTOR,   fields, name, next }, hap_offset)   =>   make_vector   (fields, name, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::DEFINE_RECORD { kind => fcf::rk::I32BLOCK, fields, name, next }, hap_offset)   =>   make_i32block (fields, name, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::DEFINE_RECORD { kind => _,                 fields, name, next }, hap_offset)   =>   make_record   (fields, name, next, hap_offset);
+
+
+
+				###############################
+				# fcf::GET_FIELD_I:
+
+				translate_nextcode_op_to_treecode (fcf::GET_FIELD_I { i, record => fcf::INT k, name, type,                        next }, hap_offset)   =>   funny_select (i, k,      name, type, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::GET_FIELD_I { i, record,               name, type => fcf::type::FLOAT64,  next }, hap_offset)   =>   fselect      (i, record, name,       next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::GET_FIELD_I { i, record,               name, type,                        next }, hap_offset)   =>   select       (i, record, name, type, next, hap_offset);
+
+
+
+				###############################
+				# fcf::GET_ADDRESS_OF_FIELD_I:
+
+				translate_nextcode_op_to_treecode (fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, next }, hap_offset)
+				    =>
+				    def_boxed (name, add_ix4 (ireg_for record, fcf::INT i), next, hap_offset);
+						     #
+						     # 64-bit issue XXX BUGGO FIXME this may need to be add_ix8 on 64-bit architectures.
+
+
+
+				###############################
+				# fcf::TAIL_CALL:
+
+				translate_nextcode_op_to_treecode (fcf::TAIL_CALL { func => fcf::INT   k, args }, hap_offset) =>  update_heap_allocation_pointer  hap_offset;
+				translate_nextcode_op_to_treecode (fcf::TAIL_CALL { func => fcf::VAR   f, args }, hap_offset) =>  external_app (f, args, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::TAIL_CALL { func => fcf::LABEL f, args }, hap_offset) =>  internal_app (f, args, hap_offset);
+
+
+
+				###############################
+				# fcf::JUMPTABLE:
+
+				translate_nextcode_op_to_treecode (fcf::JUMPTABLE { i => fcf::INT _, ... }, hap_offset)
+				    =>
+				    error "JUMPTABLE";	# Jumptables keying on a constant should have been optimized out in   src/lib/compiler/back/top/improve-nextcode/clean-nextcode-g.pkg
+
+				translate_nextcode_op_to_treecode (fcf::JUMPTABLE { i, nexts, ... }, hap_offset)
+				     => 
+				     {   lab  =   lbl::make_anonymous_codelabel ();
+					 labs =   map (fn _ = lbl::make_anonymous_codelabel()) nexts;
+
+					 tmp_r =   make_int_codetemp chi::i32_type;
+					 tmp  =   tcf::REG (int_bitsize, tmp_r);
+
+					 buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, tmp_r, make_code_for_label_address (lab, 0)));
+					 buf.put_op (tcf::GOTO (tcf::ADD (pri::address_width, tmp, tcf::LOAD (ptr_bitsize, add_ix4 (tmp, i), 
+									      rgn::readonly)), labs));
+					 buf.put_pseudo_op (pb::DATA_READ_ONLY);
+					 buf.put_pseudo_op (pb::EXT (cpo::JUMPTABLE { base=>lab, targets=>labs } ));
+					 buf.put_pseudo_op (pb::TEXT);
+
+					 pl::apply
+					     (fn (lab, e) = genlab_cont (lab, e, hap_offset))
+					     (labs, nexts);
+				     };
+
+
+				###############################
+				# fcf::PURE:
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::CONVERT_FLOAT { from=>fcf::p::INT 31, to=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    next,
+						    ...
+						  },
+				      hap_offset
+				    )
+				    =>  treeify_def_f64 (name, tcf::INT_TO_FLOAT (flt_bitsize, int_bitsize, untag_signed (v)), next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::CONVERT_FLOAT { from=>fcf::p::INT 32, to=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    next,
+						    ...
+						  },
+				      hap_offset
+				    )
+				    =>
+				    treeify_def_f64 (name, tcf::INT_TO_FLOAT (flt_bitsize, int_bitsize, ireg_for v), next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::PURE_ARITH { op, kindbits=>fcf::p::FLOAT 64 },
+						    args =>  [v],
+						    name,
+						    next,
+						    ...
+						  },
+				      hap_offset
+				    )
+				    =>
+				    {   r = freg_for v;
+
+					case op
+					    #
+					    fcf::p::NEGATE =>   treeify_def_f64 (name, tcf::FNEG  (flt_bitsize, r),         next, hap_offset);
+					    fcf::p::ABS    =>   treeify_def_f64 (name, tcf::FABS  (flt_bitsize, r),         next, hap_offset);
+					    fcf::p::FSQRT  =>   treeify_def_f64 (name, tcf::FSQRT (flt_bitsize, r),         next, hap_offset);
+					    #
+					    fcf::p::FSIN   =>   computef64 (name, tcf::FEXT (flt_bitsize, trx::FSINE    r), next, hap_offset);
+					    fcf::p::FCOS   =>   computef64 (name, tcf::FEXT (flt_bitsize, trx::FCOSINE  r), next, hap_offset);
+					    fcf::p::FTAN   =>   computef64 (name, tcf::FEXT (flt_bitsize, trx::FTANGENT r), next, hap_offset);
+					    #
+					    _ => error "unexpected baseop in pure unary float64";
+					esac;
+				    };
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::PURE   { op   =>  fcf::p::PURE_ARITH { op, kindbits=>fcf::p::FLOAT 64 },
+						    args =>  [v, w],
+						    name,
+						    next,
+						    ...
+						  },
+				      hap_offset
+				    )
+				    => 
+				    {   v = freg_for v; 
+					w = freg_for w;
+
+					type =  case op   
+						    fcf::p::ADD      => tcf::FADD (flt_bitsize, v, w);
+						    fcf::p::MULTIPLY => tcf::FMUL (flt_bitsize, v, w);
+						    fcf::p::SUBTRACT => tcf::FSUB (flt_bitsize, v, w);
+						    fcf::p::DIVIDE   => tcf::FDIV (flt_bitsize, v, w);
+						    _ => error "unexpected baseop in pure binary float64";
+						esac;
+
+					treeify_def_f64 (name, type, next, hap_offset);
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_OR, kindbits },  args => [v, w],  name, next, ... }, hap_offset)
+				    => 
+				    def_with_kind (kindbits, name, tcf::BITWISE_OR (int_bitsize, ireg_for v, ireg_for w), next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_AND, kindbits },  args => [v, w],  name, next, ... }, hap_offset)
+				    => 
+				    def_with_kind (kindbits, name, tcf::BITWISE_AND (int_bitsize, ireg_for v, ireg_for w), next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode ( fcf::PURE { op   =>  fcf::p::PURE_ARITH { op, kindbits },
+						  args =>  [v, w],
+						  name =>  x,
+						  type,
+						  next => e
+						},
+				      hap_offset
+				    )
+				    => 
+				    case kindbits
+					#
+					fcf::p::INT 31
+					    =>
+					    case op   
+						fcf::p::BITWISE_XOR => def_i31 (x, int31xor    (                  v, w), e, hap_offset);
+						fcf::p::LSHIFT      => def_i31 (x, int31lshift (                  v, w), e, hap_offset);
+						fcf::p::RSHIFT      => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT, v, w), e, hap_offset);
+
+						fcf::p::ADD         => def_i31 (x, int31add (      tcf::ADD,      v, w), e, hap_offset);
+						fcf::p::SUBTRACT    => def_i31 (x, int31sub (      tcf::SUB,      v, w), e, hap_offset);
+						fcf::p::MULTIPLY    => def_i31 (x, int31mul (TRUE, tcf::MULS,     v, w), e, hap_offset);
+
+						_ => error "translate_nextcode_op_to_treecode: fcf::PURE fcf::INT 31";
+					    esac;
+
+					fcf::p::INT 32
+					    =>
+					    case op   
+						fcf::p::BITWISE_XOR  => arith32   (tcf::BITWISE_XOR,  v, w, x, e, hap_offset);
+						fcf::p::LSHIFT       => logical32 (tcf::LEFT_SHIFT,   v, w, x, e, hap_offset);
+						fcf::p::RSHIFT       => logical32 (tcf::RIGHT_SHIFT,  v, w, x, e, hap_offset);
+
+						_ => error "translate_nextcode_op_to_treecode: fcf::PURE fcf::INT 32";
+					    esac;
+
+					fcf::p::UNT 31
+					    =>
+					    case op   
+						fcf::p::ADD      => def_i31 (x, int31add (       tcf::ADD,  v, w), e, hap_offset);
+						fcf::p::SUBTRACT => def_i31 (x, int31sub (       tcf::SUB,  v, w), e, hap_offset);
+						fcf::p::MULTIPLY => def_i31 (x, int31mul (FALSE, tcf::MULU, v, w), e, hap_offset);
+
+						fcf::p::DIVIDE   => # This is not really a pure 
+							       # operation -- oh well:
+							       #
+							       {   update_heap_allocation_pointer hap_offset;
+								   def_i31 (x, int31div (FALSE, tcf::d::ROUND_TO_ZERO, v, w), e, 0);
+							       };
+
+						fcf::p::REM =>      #  Neither is this -- oh well 
+							       #
+							       {   update_heap_allocation_pointer hap_offset;
+								   def_i31 (x, int31rem (FALSE, tcf::d::ROUND_TO_ZERO, v, w), e, 0);
+							       };
+
+						fcf::p::BITWISE_XOR => def_i31 (x, int31xor (                       v, w), e, hap_offset);
+						fcf::p::LSHIFT      => def_i31 (x, int31lshift (                    v, w), e, hap_offset);
+
+						fcf::p::RSHIFT      => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT,   v, w), e, hap_offset);
+						fcf::p::RSHIFTL     => def_i31 (x, int31rshift (tcf::RIGHT_SHIFT_U, v, w), e, hap_offset);
+						#
+						_ => error "translate_nextcode_op_to_treecode: fcf::PURE UINT 31";
+					    esac;
+
+					fcf::p::UNT 32
+					    =>
+					    case op   
+						fcf::p::ADD       => arith32 (tcf::ADD,  v, w, x, e, hap_offset);
+						fcf::p::SUBTRACT  => arith32 (tcf::SUB,  v, w, x, e, hap_offset);
+						fcf::p::MULTIPLY  => arith32 (tcf::MULU, v, w, x, e, hap_offset);
+
+						fcf::p::DIVIDE    => {   update_heap_allocation_pointer hap_offset; 
+								    arith32 (tcf::DIVU, v, w, x, e, 0);
+								};
+
+						fcf::p::REM       => {   update_heap_allocation_pointer hap_offset;
+								    arith32 (tcf::REMU, v, w, x, e, 0);
+								};
+
+						fcf::p::BITWISE_XOR => arith32   (tcf::BITWISE_XOR,  v, w, x, e, hap_offset);
+						fcf::p::LSHIFT      => logical32 (tcf::LEFT_SHIFT,    v, w, x, e, hap_offset);
+
+						fcf::p::RSHIFT      => logical32 (tcf::RIGHT_SHIFT,   v, w, x, e, hap_offset);
+						fcf::p::RSHIFTL     => logical32 (tcf::RIGHT_SHIFT_U,  v, w, x, e, hap_offset);
+
+						_ => error "translate_nextcode_op_to_treecode: fcf::PURE UINT 32";
+					    esac;
+
+					_ => error "unexpected numkind in pure binary arithop";
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::BITWISE_NOT, kindbits }, args => [v], name, next, ... }, hap_offset)
+				    =>
+				    case kindbits 
+					#
+					(fcf::p::UNT 32 | fcf::p::INT 32)
+					    =>
+					    def_i32 (name, tcf::BITWISE_XOR (int_bitsize, ireg_for v,  unt 0uxFFFFFFFF), next, hap_offset);
+
+					(fcf::p::UNT 31 | fcf::p::INT 31)
+					    =>
+					    def_i31 (name, tcf::SUB (int_bitsize, zero, ireg_for v), next, hap_offset);
+
+					_ =>   error "unexpected numkind in pure bitwise_not arithop";
+
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_ARITH { op=>fcf::p::NEGATE, kindbits }, args => [v], name, next, ... }, hap_offset)
+				    =>
+				    case kindbits   
+					#
+					(fcf::p::UNT 32 | fcf::p::INT 32)
+					    =>
+					    def_i32 (name, tcf::SUB (int_bitsize, zero, ireg_for v), next, hap_offset);
+
+					(fcf::p::UNT 31 | fcf::p::INT 31)
+					    =>
+					    def_i31 (name, tcf::SUB (int_bitsize, int 2, ireg_for v), next, hap_offset);
+
+					_ => error "unexpected numkind in pure ~ baseop";
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::COPY ft, args => [v], name, next, ... }, hap_offset)
+				    =>
+				    case ft   
+					#
+				       (31, 32)
+					   =>
+					   def_i32 (name, tcf::RIGHT_SHIFT_U (int_bitsize, ireg_for v, one), next, hap_offset);
+
+				       (8, 31)
+					   =>
+					   copy (chi::i31_type, name, v, next, hap_offset);
+
+				       (8, 32)
+					   =>
+					   def_i32 (name, tcf::RIGHT_SHIFT_U (int_bitsize, ireg_for v, one), next, hap_offset);
+
+				       (n, m) => if (n == m)   copy_m (m, name, v, next, hap_offset); 
+						 else          error "translate_nextcode_op_to_treecode: fcf::PURE: copy";
+						 fi;
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::COPY_TO_INTEGER _, ... }, hap_offset)
+				    =>
+				    error "translate_nextcode_op_to_treecode: fcf::PURE: copy_inf";
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::STRETCH ft, args => [v], name, next, ... }, hap_offset)
+				    => 
+				    case ft   
+					(8, 31) => def_i31 (name, tcf::RIGHT_SHIFT (int_bitsize, tcf::LEFT_SHIFT (int_bitsize, ireg_for v, int 23), int 23), next, hap_offset);
+
+					(8, 32) => def_i32 (name, tcf::RIGHT_SHIFT (int_bitsize, tcf::LEFT_SHIFT (int_bitsize, ireg_for v, int 23), int 24), next, hap_offset);
+
+				       (31, 32) => def_i32 (name, tcf::RIGHT_SHIFT (int_bitsize, ireg_for v, one),                                next, hap_offset);
+
+				       (n, m) => if (n == m)  copy_m (m, name, v, next, hap_offset); 
+						 else         error "translate_nextcode_op_to_treecode: fcf::PURE: extend";
+						 fi;
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::STRETCH_TO_INTEGER _, ... }, hap_offset)
+				    =>
+				    error "translate_nextcode_op_to_treecode: fcf::PURE: extend_inf";
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::CHOP ft, args => [v], name, next, ... }, hap_offset)
+				    => 
+				    case ft
+					#
+					(32, 31) => 
+					    def_i31 (name, tcf::BITWISE_OR (int_bitsize, tcf::LEFT_SHIFT (int_bitsize, ireg_for v, one), one), next, hap_offset);
+
+					(31, 8) =>
+					     def_i32 (name, tcf::BITWISE_AND (int_bitsize, ireg_for v, int 0x1ff), next, hap_offset);
+
+					(32, 8) =>
+					    def_i32 (name, tag_unsigned (tcf::BITWISE_AND (int_bitsize, ireg_for v, int 0xff)), next, hap_offset);
+
+				       (n, m) => if (n == m)  copy_m (m, name, v, next, hap_offset); 
+						 else         error "translate_nextcode_op_to_treecode: fcf::PURE: trunc";
+						 fi;
+				    esac;
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::CHOP_INTEGER _, ... }, hap_offset)
+				    =>
+				    error "translate_nextcode_op_to_treecode: fcf::PURE: trunc_inf";
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::CHUNK_LENGTH, args => [v], name, next, ... }, hap_offset)
+				    => 
+				    def_i31 (name, get_heapchunk_length_as_int31 v, next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::LENGTH, args => [v], name, type, next }, hap_offset)
+				    =>
+				    select (1, v, name, type, next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::SUBSCRIPTV, args => [v, fcf::INT i], name, next, ... }, hap_offset)
+				    => 
+				    {   #  get data pointer 
+					mem  = get_dataptr_ramregion v;
+					a    = hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' = get_rw_vector_ramregion mem;
+
+					def_boxed (name, tcf::LOAD (int_bitsize, add_ix4 (a, fcf::INT i), mem'), next, hap_offset);
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::SUBSCRIPTV, args => [v, w], name, next, ... }, hap_offset)
+				    => 
+				    {   # Get data pointer:
+					# 
+					mem  = get_dataptr_ramregion v;
+					a    = hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' = get_rw_vector_ramregion mem;
+
+					def_boxed (name, tcf::LOAD (int_bitsize, add_ix4 (a, w), mem'), next, hap_offset);
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::PURE_NUMSUBSCRIPT { kindbits=>fcf::p::INT 8 }, args => [v, i], name, next, ... }, hap_offset)
+				    =>
+				    {   # Get data pointer:
+					#
+					mem  = get_dataptr_ramregion v;
+					a    = hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' = get_rw_vector_ramregion mem;
+
+					def_i31 (name, tag_unsigned (tcf::LOAD (8, add_ix1 (a, i), mem')), next, hap_offset);
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::GET_BTAG_FROM_TAGWORD, args => [v], name, next, ... }, hap_offset)
+				     => 
+				     def_i31 (name, tag_unsigned (tcf::BITWISE_AND (int_bitsize, get_heapchunk_tagword (v), int (tag::pow_tag_width - 1))), next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::MAKE_SPECIAL, args => [i, v], name, next, ... }, hap_offset)
+				    => 
+				    {   tagword = case i
+						      fcf::INT n => int (tagword_to_int (tag::make_tagword (n, tag::weak_pointer_or_suspension_btag)));
+
+						      _     => tcf::BITWISE_OR (int_bitsize, tcf::LEFT_SHIFT (int_bitsize, untag_signed(i), int tag::tag_width),
+								  int (tagword_to_int tag::weak_pointer_or_suspension_tagword));
+						  esac;
+
+					# What gc types are the components? 
+					#
+					treeify_alloc
+					  ( name,
+					    alloc_record (mark_nothing, mem_disambig name, tagword, [(v, offp0)], hap_offset),
+					    next,
+					    hap_offset+8
+					  );
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::MAKE_REFCELL, args => [v], name, next, ... }, hap_offset)
+				    => 
+				    {   tag = int (tagword_to_int tag::refcell_tagword);
+					mem = mem_disambig name;
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int  hap_offset   ), tag,                       mem));
+					buf.put_op (tcf::STORE_INT (int_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int (hap_offset+4)), ireg_for' v, mem));	# 64-bit issue: 4==bytes-per-word.
+
+					treeify_alloc (name, hap_offset+4, next, hap_offset+8);														# 64-bit issue: 4==bytes-per-word.
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::FWRAP,   args =>[u], name, next, ... }, hap_offset) =>   make_fblock([(u, offp0)], name, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::FUNWRAP, args =>[u], name, next, ... }, hap_offset) =>   fselect (0, u,            name, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::IWRAP,   ... }, _)  =>   error "iwrap not implemented";
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::IUNWRAP, ... }, _)  =>   error "iunwrap not implemented";
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::I32WRAP, args =>[u], name, next, ... }, hap_offset)
+				    => 
+				    make_i32block([(u, offp0)], name, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::I32UNWRAP, args =>[u], name, next, ... }, hap_offset)
+				    => 
+				    select (0, u, name, fcf::type::INT32, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::WRAP,   args => [u], name, next, ... }, hap_offset) => copy (chi::ptr_type, name, u, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::UNWRAP, args => [u], name, next, ... }, hap_offset) => copy (chi::i32_type, name, u, next, hap_offset);
+
+				# Note: the gc type is unsafe! XXX BUGGO FIXME 
+				#
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::CAST, args =>[u], name, next, ... }, hap_offset) => copy (chi::ptr_type, name, u, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::GETCON,     args => [u],  name, type, next }, hap_offset) =>   select (0, u, name, type, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::GETEXN,     args => [u],  name, type, next }, hap_offset) =>   select (0, u, name, type, next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::GETSEQDATA, args => [u],  name, type, next }, hap_offset) =>   select (0, u, name, type, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::RECSUBSCRIPT, args => [v, fcf::INT w], name, type, next }, hap_offset)
+				    => 
+				    select (w, v, name, type, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::RECSUBSCRIPT, args => [v, w], name, next, ... }, hap_offset)
+				    =>
+				    # No indirection! 
+				    #
+				    {   mem = get_rw_vector_ramregion (get_ramregion v);
+					#
+					def_i31 (name, tcf::LOAD (int_bitsize, add_ix4 (ireg_for v, w), mem), next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::RAW64SUBSCRIPT, args => [v, i], name, next, ... }, hap_offset)
+				    =>
+				    {   mem = get_rw_vector_ramregion (get_ramregion v);
+					#
+					treeify_def_f64 (name, tcf::FLOAD (flt_bitsize, add_ix8 (ireg_for v, i), mem), next, hap_offset);
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::NEWARRAY0, args => [_], name, next, ... }, hap_offset)
+				    => 
+				    {   hdr_tagword  =   tagword_to_int  tag::typeagnostic_rw_vector_tagword;
+					data_tagword =   tagword_to_int  tag::refcell_tagword;
+
+					data_ptr  =   make_int_codetemp  chi::ptr_type;
+					hdr_m     =   mem_disambig  name;
+
+					my (tag_m, val_m)
+					 = (hdr_m, hdr_m);		#  Allen 
+
+					# Generate code to allocate "REF()" for rw_vector data 
+					#
+					buf.put_op (tcf::STORE_INT (int_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int hap_offset), int data_tagword, tag_m));
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int (hap_offset+4)), tagged_zero, val_m));		# 64-bit issue, '4' is bytes-per-word.
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (ptr_bitsize, data_ptr, tcf::ADD (pri::address_width, pri::heap_allocation_pointer, int (hap_offset+4))));	# 64-bit issue, '4' is bytes-per-word.
+
+					# Generate code to allocate rw_vector header:
+
+					treeify_alloc (name, 
+					   alloc_header_pair (hdr_tagword, hdr_m, data_ptr, 0, hap_offset+8),									# 64-bit issue,  '8' is 2*bytes-per-word.
+					      next, hap_offset+20);														# 64-bit issue, '20' is 5*bytes-per-word.
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::RAWRECORD NULL, args => [fcf::INT n], name, next, ... }, hap_offset)
+				    =>
+				    #  Allocate space for nextcode spilling 
+				    #
+				    treeify_alloc (name, hap_offset, next, hap_offset+n*4);	# No tag! 
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::RAWRECORD (THE rk), args => [fcf::INT n], name, next, ... }, hap_offset)
+				    => 
+				    #  Allocate an uninitialized record with a tag 
+				    #
+				    {   my (tag, fp)
+					   =			#  tagged version 
+					   case rk
+					       #
+					      (fcf::rk::FCONT | fcf::rk::FBLOCK) =>   (tag::eight_byte_aligned_nonpointer_data_btag, TRUE);
+					       fcf::rk::I32BLOCK                 =>   (tag::four_byte_aligned_nonpointer_data_btag, FALSE);
+					       #
+					       fcf::rk::VECTOR                   =>   error "rawrecord VECTOR unsupported";
+					       #
+					       _                                 =>   (tag::pairs_and_records_btag, FALSE);
+					   esac;
+
+					len =   if fp  n+n;		# Len of record in 32-bit words. 											# 64-bit issue.
+						else   n;
+						fi;
+
+					tagword =   tagword_to_int (tag::make_tagword (len, tag));	#  record tagword 
+
+					#  Align floating point 
+
+					hap_offset  =   if (fp   and   unt::bitwise_and (unt::from_int hap_offset, 0u4) != 0u0)
+							     #
+							     hap_offset + 4;															# 64-bit issue: '4' == bytes-per-word.
+							else hap_offset;
+							fi;
+
+					mem =   mem_disambig name;
+
+					#  store tag now! 
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, ea (pri::heap_allocation_pointer, hap_offset), int tagword, projection (mem, -1)));
+
+					treeify_alloc (name, hap_offset+4, next, hap_offset+len*4+4);	#  Assign the address to 'name' 							# 64-bit issue: '4' == bytes-per-word.
+				    };
+
+
+				translate_nextcode_op_to_treecode (fcf::PURE { op => fcf::p::CONDMOVE compare, args => vw, name, type, next }, hap_offset)
+				    => 
+				    condmove (compare, vw, name, type, next, hap_offset);
+
+				########	
+				# fcf::MATH
+				########	
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 31, op=>fcf::p::NEGATE },
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   update_heap_allocation_pointer  hap_offset;
+					#
+					def_i31 (name, tcf::SUBT (int_bitsize, int 2, ireg_for v), next, 0);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 31, op },
+						  args =>  [v, w],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   update_heap_allocation_pointer  hap_offset; 
+					#
+					type =  case op
+						    #
+						    fcf::p::ADD      =>   int31add (tcf::ADDT, v, w);
+						    fcf::p::SUBTRACT =>   int31sub (tcf::SUBT, v, w);
+
+						    fcf::p::MULTIPLY =>   int31mul (TRUE, tcf::MULT,         v, w);
+						    fcf::p::DIVIDE   =>   int31div (TRUE, tcf::d::ROUND_TO_ZERO,   v, w);	# This is the native instruction on Intel32
+
+						    fcf::p::DIV      =>   int31div (TRUE, tcf::d::ROUND_TO_NEGINF, v, w);	# This will be slower on Intel32 -- has to be faked.
+						    fcf::p::REM      =>   int31rem (TRUE, tcf::d::ROUND_TO_ZERO,   v, w);	# This is the native instruction on Intel32
+						    fcf::p::MOD      =>   int31rem (TRUE, tcf::d::ROUND_TO_NEGINF, v, w);	# This will be slower on Intel32 -- has to be faked.
+
+						    _   => error "translate_nextcode_op_to_treecode: fcf::MATH fcf::INT 31";
+						esac;
+
+					def_i31 (name, type, next, 0);
+				    };
+
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 32, op },
+						  args =>  [v, w],
+						  name,
+						  next,
+						  ... 
+						},
+				      hap_offset
+				    )
+				    =>
+				    {   update_heap_allocation_pointer  hap_offset;
+					#
+					case op   
+					    fcf::p::ADD       => arith32 (tcf::ADDT, v, w, name, next, 0);
+					    fcf::p::SUBTRACT  => arith32 (tcf::SUBT, v, w, name, next, 0);
+					    fcf::p::MULTIPLY  => arith32 (tcf::MULT, v, w, name, next, 0);
+
+					    fcf::p::DIVIDE    => arith32 (fn (type, x, y) = tcf::DIVT (tcf::d::ROUND_TO_ZERO, type, x, y),
+							      v, w, name, next, 0);
+
+					    fcf::p::DIV => arith32 (fn (type, x, y) = tcf::DIVT (tcf::d::ROUND_TO_NEGINF, type, x, y),
+							      v, w, name, next, 0);
+
+					    fcf::p::REM => arith32 (fn (type, x, y) = tcf::REMS (tcf::d::ROUND_TO_ZERO, type, x, y),
+							      v, w, name, next, 0);
+
+					    fcf::p::MOD => arith32 (fn (type, x, y) = tcf::REMS (tcf::d::ROUND_TO_NEGINF, type, x, y),
+							      v, w, name, next, 0);
+
+					    _ => error "fcf::p::MATH { kindbits=fcf::INT 32, op }, [v, w], ...";
+					 esac;
+				     };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::MATH { kindbits=>fcf::p::INT 32, op=>fcf::p::NEGATE },
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    =>
+				    {   update_heap_allocation_pointer  hap_offset;
+					#
+					def_i32 (name, tcf::SUBT (int_bitsize, zero, ireg_for v), next, 0);
+				    };
+
+				# Note: for testu operations we use a somewhat arcane method
+				# to generate traps on overflow conditions. A better approach
+				# would be to generate a trap-if-negative instruction available
+				# on a variety of machines, e.g. sparc (maybe others).			XXX BUGGO FIXME (Actually traps are too expensive, we should use a conditional jump. -- CrT)
+				#
+				translate_nextcode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_UNT (32, 32),
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   xreg = make_int_codetemp chi::i32_type;
+					vreg = ireg_for v;
+
+					update_heap_allocation_pointer  hap_offset;
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, xreg, tcf::ADDT (int_bitsize, vreg, ireg_for (fcf::INT32 0ux80000000))));
+
+					def_i32 (name, vreg, next, 0);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::SHRINK_UNT (31, 31),
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   xreg = make_int_codetemp chi::i31_type;
+					vreg = ireg_for v;
+
+					update_heap_allocation_pointer  hap_offset;
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, xreg, tcf::ADDT (int_bitsize, vreg, ireg_for (fcf::INT32 0ux80000000))));
+
+					def_i31 (name, vreg, next, 0);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::SHRINK_UNT (32, 31),
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   vreg = ireg_for v;
+					tmp = make_int_codetemp chi::i32_type;
+					tmp_r = tcf::REG (int_bitsize, tmp);
+					label = lbl::make_anonymous_codelabel ();
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, tmp, ireg_for (fcf::INT32 0ux3fffffff)));
+
+					update_heap_allocation_pointer  hap_offset;
+
+					buf.put_op (branch_with_probability (tcf::IF_GOTO (tcf::CMP (32, tcf::LEU, vreg, tmp_r), label), THE probability::likely));
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, tmp, tcf::LEFT_SHIFT (int_bitsize, tmp_r, one)));
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, tmp, tcf::ADDT (int_bitsize, tmp_r, tmp_r)));
+
+					buf.put_private_label  label;
+
+					def_i31 (name, tag_unsigned vreg, next, 0);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::MATH { op => fcf::p::SHRINK_UNT _, ... }, hap_offset)
+				    => 
+				    error "translate_nextcode_op_to_treecode: fcf::MATH: testu with unexpected precisions (not implemented)";
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op => fcf::p::SHRINK_INT (32, 31), args => [v], name, next, ... },
+				      hap_offset
+				    )
+				    => 
+				    {   update_heap_allocation_pointer  hap_offset;
+					#
+					def_i31 (name, tag_signed (ireg_for v), next, 0);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::MATH { op   =>  fcf::p::SHRINK_INT (n, m),
+						  args =>  [v],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    if (n == m)   copy_m (m, name, v, next, hap_offset);
+				    else          error "translate_nextcode_op_to_treecode: fcf::MATH: test";
+				    fi;
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::SHRINK_INTEGER _, ... },
+				      hap_offset
+				    )
+				    =>
+				    error "translate_nextcode_op_to_treecode: fcf::MATH: test_inf";
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::MATH { op   =>  fcf::p::MATH { op, kindbits=>fcf::p::FLOAT 64 },
+						  args =>  [v, w],
+						  name,
+						  next,
+						  ...
+						},
+				      hap_offset
+				    )
+				    => 
+				    {   v = freg_for v;
+					w = freg_for w;
+
+					t = case op
+						#
+						fcf::p::ADD      => tcf::FADD (flt_bitsize, v, w);
+						fcf::p::MULTIPLY => tcf::FMUL (flt_bitsize, v, w);
+						fcf::p::SUBTRACT => tcf::FSUB (flt_bitsize, v, w);
+						fcf::p::DIVIDE   => tcf::FDIV (flt_bitsize, v, w);
+						_ => error "unexpected baseop in binary float64";
+					    esac;
+
+					treeify_def_f64 (name, t, next, hap_offset);
+				    };
+
+				#########
+				# fcf::FETCH_FROM_RAM
+				#########
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::BANG, args => [v], name, next, ... }, hap_offset)
+				    => 
+				    {   mem =   get_rw_vector_ramregion (get_ramregion v);
+
+					def_boxed (name, tcf::LOAD (int_bitsize, ireg_for v, mem), next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::SUBSCRIPT, args => [v, w], name, next, ... }, hap_offset)
+				    => 
+				    {   # Get data pointer: 
+
+					mem  = get_dataptr_ramregion v;
+					a    = hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' = get_rw_vector_ramregion mem;
+
+					def_boxed (name, tcf::LOAD (int_bitsize, add_ix4 (a, w), mem'), next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::NUMSUBSCRIPT { kindbits => fcf::p::INT 8 }, args => [v, i], name, next, ... }, hap_offset)
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   get_dataptr_ramregion v;
+					a    =   hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' =   get_rw_vector_ramregion mem;
+
+					def_i31 (name, tag_unsigned (tcf::LOAD (8, add_ix1 (a, i), mem')), next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::NUMSUBSCRIPT { kindbits => fcf::p::FLOAT 64 }, args => [v, i], name, next, ... }, hap_offset)
+				    =>
+				    {   # Get data pointer:
+
+					mem  = get_dataptr_ramregion v;
+					a    = hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' = get_rw_vector_ramregion mem;
+
+					treeify_def_f64 (name, tcf::FLOAD (flt_bitsize, add_ix8 (a, i), mem'), next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_EXCEPTION_HANDLER,       args =>  [], name, next, ... }, hap_offset)
+				    =>
+				    def_boxed (name, pri::exnptr  use_virtual_framepointer, next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_CURRENT_THREAD_REGISTER, args =>  [], name, next, ... }, hap_offset)
+				    =>
+				    def_boxed (name, pri::current_thread_ptr  use_virtual_framepointer, next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::DEFLVAR,                     args =>  [], name, next, ... }, hap_offset)
+				    =>
+				    def_boxed (name, zero, next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::GET_STATE_OF_SPECIAL,        args => [v], name, next, ... }, hap_offset)
+				    => 
+				    def_boxed (name, or_int31_tag (tcf::RIGHT_SHIFT (int_bitsize, get_heapchunk_tagword(v),
+								   int (tag::tag_width - 1))), 
+					       next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::PSEUDOREG_GET,               args => [i], name, next, ... }, hap_offset)
+				    => 
+				    {
+    #                                   print "getpseudo not implemented\n";
+					nop (name, i, next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::RAWLOAD { kindbits },        args => [i], name, next, ... }, hap_offset)
+				    =>
+				    rawload (kindbits, ireg_for i, name, next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::FETCH_FROM_RAM { op => fcf::p::RAWLOAD { kindbits },        args => [i, j], name, next, ... }, hap_offset)
+				    =>
+				    rawload (kindbits, tcf::ADD (pri::address_width, ireg_for i, ireg_for j), name, next, hap_offset);
+
+				#########
+				# fcf::STORE_TO_RAM
+				#########
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWUPDATE fcf::type::FLOAT64,
+							  args =>  [v, i, w],
+							  next
+							},
+				      hap_offset
+				    )
+				    =>
+				    {   buf.put_op (tcf::STORE_FLOAT (flt_bitsize, add_ix8 (ireg_for' v, i), freg_for w, rgn::memory));
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>   fcf::p::RAWUPDATE _,
+							  args =>  [v, i, w],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   #  XXX BUGGO FIXME Assumes 32-bit. Needs 64-bit support later! 
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, add_ix4 (ireg_for' v, i), ireg_for' w, rgn::memory)); 	# 64-bit issue: Must change add_ix4 to add_ix8 on 64-bit.
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::ASSIGN,
+							  args =>  [a as fcf::VAR arr, v],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   ea = ireg_for a;
+					mem = get_rw_vector_ramregion (get_ramregion a);
+					#
+					log_boxed_update_to_heap_changelog (ea, hap_offset);
+					buf.put_op (tcf::STORE_INT (int_bitsize, ea, ireg_for v, mem));
+					translate_nextcode_op_to_treecode (next, hap_offset+8);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::SET_INT_REFCELL,
+							  args =>  [a, v],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   mem =   get_rw_vector_ramregion (get_ramregion a);
+					#
+					buf.put_op (tcf::STORE_INT (int_bitsize, ireg_for a, ireg_for v, mem));
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::UPDATE,			# I think this does v[i] := w, overwriting i-th slot in pre-existing vector (and maybe also refcell?) 'v'.
+							  args =>  [v, i, w],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem   =   get_dataptr_ramregion v;
+					a     =   hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					tmp_r =   rgk::make_int_codetemp ();				#  Derived pointer! 
+					tmp   =   tcf::REG (int_bitsize, tmp_r);
+					ea    =   add_ix4 (a, i);					#  Address of updated register 	# 64-bit issue XXX BUGGO FIXME this may need to be add_ix8 on 64-bit architectures.
+					mem'  =   get_rw_vector_ramregion (mem);
+
+					buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, tmp_r, ea));
+
+					log_boxed_update_to_heap_changelog (tmp, hap_offset);
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, tmp, ireg_for w, mem'));
+
+					translate_nextcode_op_to_treecode (next, hap_offset+8);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM  { op => fcf::p::BOXED_SET, args, next },
+				      hap_offset
+				    )
+				    => 
+				    translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::UPDATE, args, next }, hap_offset);
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::UNBOXED_SET,
+							  args =>  [v, i, w],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   get_dataptr_ramregion v;
+					a    =   hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' =   get_rw_vector_ramregion mem;
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, add_ix4 (a, i), ireg_for w, mem'));		# 64-bit issue XXX BUGGO FIXME this may need to be add_ix8 on 64-bit architectures.
+
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::NUMUPDATE { kindbits => fcf::p::INT 8 },
+							  args =>  [s, i, v],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   # Get data pointer: 
+
+					mem  =   get_dataptr_ramregion v;
+					a    =   hc_ptr (tcf::LOAD (int_bitsize, ireg_for s, mem));
+					ea   =   add_ix1 (a, i);
+					mem' =   get_rw_vector_ramregion mem;
+
+					buf.put_op (tcf::STORE_INT (8, ea, untag_unsigned (v), mem'));
+
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::NUMUPDATE { kindbits => fcf::p::FLOAT 64 },
+							  args =>  [v, i, w],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   # Get data pointer:
+					#
+					mem  =   get_dataptr_ramregion  v;
+					a    =   hc_ptr (tcf::LOAD (int_bitsize, ireg_for v, mem));
+					mem' =   get_rw_vector_ramregion  mem;
+
+					buf.put_op (tcf::STORE_FLOAT (flt_bitsize, add_ix8 (a, i), freg_for w, mem'));
+
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::STORE_TO_RAM { op   =>  fcf::p::SET_STATE_OF_SPECIAL,
+							  args =>  [v, i],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   ea =   tcf::SUB (int_bitsize, ireg_for v, int 4);
+
+					i' =    case i 
+						    #
+						    fcf::INT k =>  int (tagword_to_int (tag::make_tagword (k, tag::weak_pointer_or_suspension_btag)));
+
+						    _          =>   tcf::BITWISE_OR
+								      (
+									int_bitsize,
+
+									tcf::LEFT_SHIFT   (int_bitsize,   untag_signed i,   int tag::tag_width),
+
+									int  (tagword_to_int  tag::weak_pointer_or_suspension_tagword)
+								      );
+					       esac;
+
+					mem =   get_ramregion_projection (v, 0);
+
+					buf.put_op (tcf::STORE_INT (int_bitsize, ea, i', mem));
+
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_EXCEPTION_HANDLER,
+							  args =>  [x],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   buf.put_op (set_rreg (pri::exnptr  use_virtual_framepointer, ireg_for x));
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::SET_CURRENT_THREAD_REGISTER,
+							  args =>  [x],
+							  next
+							},
+				      hap_offset
+				    )
+				    => 
+				    {   buf.put_op (set_rreg (pri::current_thread_ptr  use_virtual_framepointer, ireg_for x));
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::USELVAR,       args => [x], next }, hap_offset)   =>   translate_nextcode_op_to_treecode (next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::ACCLINK,       args =>  _,  next }, hap_offset)   =>   translate_nextcode_op_to_treecode (next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::SETMARK,       args =>  _,  next }, hap_offset)   =>   translate_nextcode_op_to_treecode (next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::FREE,          args => [x], next }, hap_offset)   =>   translate_nextcode_op_to_treecode (next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::STORE_TO_RAM { op => fcf::p::PSEUDOREG_SET, args =>  _,  next }, hap_offset)   =>   translate_nextcode_op_to_treecode (next, hap_offset);
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWSTORE { kindbits },
+							  args =>  [i, x],
+							  next
+							},
+				      hap_offset
+				    )
+				    =>
+				    {   rawstore (kindbits, ireg_for i, x);
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::STORE_TO_RAM { op   =>  fcf::p::RAWSTORE { kindbits },
+							  args =>  [i, j, x],
+							  next
+							},
+				      hap_offset
+				    )
+				    =>
+				    {   rawstore (kindbits, tcf::ADD (pri::address_width, ireg_for i, ireg_for j), x);
+					#
+					translate_nextcode_op_to_treecode (next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, next }, hap_offset)
+				    => 
+				    {   my  { result, hap_offset }
+					    = 
+					    fcc::ccall
+					      #
+					      { treecode_to_machcode_stream => buf,
+						get_int_reg_for_fcfval => ireg_for,
+						get_float_reg_for_fcfvar => freg_for,
+						get_fcftype_for_var_id,
+						use_virtual_framepointer,
+						hap_offset
+					      }
+					      #
+					      (kind, cfun_name, cfun_type, args, results, next);
+
+					case (result, results)
+					    #
+					    ([], [(w, _)]) => def_i31 (w, tagged_zero, next, hap_offset);
+
+					    ([tcf::FLOAT_EXPRESSION x],[(w, fcf::type::FLOAT64)])     =>   treeify_def_f64 (w, x, next, hap_offset);
+
+						#  more sanity checking here ? 
+
+					    ([tcf::INT_EXPRESSION x],[(w, fcf::type::INT32    )]) =>   def_i32   (w, x, next, hap_offset);
+					    ([tcf::INT_EXPRESSION x],[(w, fcf::type::POINTER _)]) =>   def_boxed (w, x, next, hap_offset);
+
+					    ([tcf::INT_EXPRESSION x1, tcf::INT_EXPRESSION x2],[(w1, fcf::type::INT32), (w2, fcf::type::INT32)])
+						=>
+						{   r1 =  make_int_codetemp  chi::i32_type;
+						    r2 =  make_int_codetemp  chi::i32_type;
+
+						    set_int_reg_for_lvar' (w1, r1);
+						    set_int_reg_for_lvar' (w2, r2);
+
+						    buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, r1, x1));
+						    buf.put_op (tcf::LOAD_INT_REGISTER (int_bitsize, r2, x2));
+
+						    translate_nextcode_op_to_treecode (next, hap_offset);
+						};
+
+					    _ =>   error "fcf::RAW_C_CALL: bad results";
+					esac;
+				    };
+
+				#########
+				# fcf::IF_THEN_ELSE
+				#########
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::INT 31 },
+							  args =>  [fcf::INT v, fcf::INT k],
+							  then_next,
+							  else_next,
+							  ...
+							},
+				      hap_offset
+				    )
+				    =>
+				    if   case op   					# We're comparing two Int constants:  Optimize to just 'then' or 'else' branch.
+					     fcf::p::GT    =>   v >  k; 
+					     fcf::p::GE    =>   v >= k; 
+					     fcf::p::LT    =>   v <  k; 
+					     fcf::p::LE    =>   v <= k;
+					     fcf::p::EQL   =>   v == k; 
+					     fcf::p::NEQ   =>   v != k;
+					 esac
+					 translate_nextcode_op_to_treecode (then_next, hap_offset);
+				    else translate_nextcode_op_to_treecode (else_next, hap_offset);
+				    fi;
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::INT 32 },
+							  args => [ fcf::INT32 v, fcf::INT32 k ],
+							  then_next,
+							  else_next,
+							  ...
+							},
+				      hap_offset
+				    )
+				    =>
+				    {   v' =   unt32::to_large_int_x v;		# We're comparing two Int32 constants:  Optimize to just 'then' or 'else' branch.
+					k' =   unt32::to_large_int_x k;
+
+					if    case op   
+						  fcf::p::GT    =>   v >  k; 
+						  fcf::p::GE    =>   v >= k; 
+						  fcf::p::LT    =>   v <  k; 
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					      esac
+
+					     translate_nextcode_op_to_treecode (then_next, hap_offset);
+					else translate_nextcode_op_to_treecode (else_next, hap_offset);
+					fi;
+				    };
+
+				translate_nextcode_op_to_treecode
+				    (
+				      fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::INT 31 }, args, xvar, then_next, else_next },
+				      hap_offset
+				    )
+				    => 
+				    branch (xvar, to_tcf_signed_compare op, args, then_next, else_next, hap_offset);
+
+
+				translate_nextcode_op_to_treecode
+				    ( fcf::IF_THEN_ELSE { op   => fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },
+						    args => [fcf::INT v', fcf::INT k'], 
+						    then_next,
+						    else_next,
+						    ...
+						  },
+				      hap_offset
+				    )
+				    =>
+				    {   include unt;				# We're comparing two Unt constants:  Optimize to just 'then' or 'else' branch.
+
+					v =   from_int v';
+					k =   from_int k';
+
+					if    case op   
+						  fcf::p::GT    =>   v >  k;   
+						  fcf::p::GE    =>   v >= k;  
+						  fcf::p::LT    =>   v <  k;   
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					     esac
+
+					     translate_nextcode_op_to_treecode (then_next, hap_offset);
+					else translate_nextcode_op_to_treecode (else_next, hap_offset);
+					fi;
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 31 },   args, xvar, then_next, else_next }, hap_offset)
+				    => 
+				    branch (xvar, to_tcf_unsigned_compare op, args, then_next, else_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 }, args => [fcf::INT32 v, fcf::INT32 k], then_next, else_next, ... }, hap_offset)
+				    => 
+				    {   include unt32;				# We're comparing two Unt32 constants:  Optimize to just 'then' or 'else' branch.
+
+					if   case op   
+						  fcf::p::GT    =>   v >  k;   
+						  fcf::p::GE    =>   v >= k;  
+						  fcf::p::LT    =>   v <  k;   
+						  fcf::p::LE    =>   v <= k;
+						  fcf::p::EQL   =>   v == k; 
+						  fcf::p::NEQ   =>   v != k;
+					     esac
+
+					     translate_nextcode_op_to_treecode (then_next, hap_offset);
+					else translate_nextcode_op_to_treecode (else_next, hap_offset);
+					fi;
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::UNT 32 }, args, xvar, then_next, else_next }, hap_offset)
+				    => 
+				    branch (xvar, to_tcf_unsigned_compare op, args, then_next, else_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::CMP { op, kindbits=>fcf::p::INT 32 }, args, xvar, then_next, else_next }, hap_offset)
+				    => 
+				    branch (xvar, to_tcf_signed_compare op, args, then_next, else_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::FCMP { op, size=>64 }, args => [v, w], then_next, else_next, ... }, hap_offset)
+				    =>
+				    {   true_label =   lbl::make_anonymous_codelabel ();
+					compare  =   float64cmp (op, v, w);
+					#
+					buf.put_op (tcf::IF_GOTO (compare, true_label));
+					#
+					gen_cont (else_next, hap_offset);
+					genlab (true_label, then_next, hap_offset);
+				    };
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::PEQL, args, xvar, then_next, else_next }, hap_offset)   =>   branch (xvar, tcf::EQ, args, then_next, else_next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::PNEQ, args, xvar, then_next, else_next }, hap_offset)   =>   branch (xvar, tcf::NE, args, then_next, else_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::STRNEQ, args => [fcf::INT n, v, w], then_next, else_next, ... }, hap_offset)
+				    => 
+				    branch_streq (n, v, w, else_next, then_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::STREQ, args => [fcf::INT n, v, w], then_next, else_next, ... }, hap_offset)
+				    => 
+				    branch_streq (n, v, w, then_next, else_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::BOXED,   args => [x], xvar, then_next, else_next }, hap_offset)   =>   branch_on_boxed (xvar, x, then_next, else_next, hap_offset);
+				translate_nextcode_op_to_treecode (fcf::IF_THEN_ELSE { op => fcf::p::UNBOXED, args => [x], xvar, then_next, else_next }, hap_offset)   =>   branch_on_boxed (xvar, x, else_next, then_next, hap_offset);
+
+				translate_nextcode_op_to_treecode (e, hap_offset)
+				    =>
+				    {   ppf::print_nextcode_expression e;
+					print "\n";
+					error "translate_nextcode_to_treecode::translate_nextcode_op_to_treecode";
+				    };
+			    end;
+
+
+			    #
+			    fun compile_all_pushed_functions ()
+				= 
+				compile_one_function (ffs::pop_function ())
+				where
+				    fun compile_next_function ()
+					=
+					compile_one_function (ffs::pop_function())
+
+				    also
+				    fun compile_one_function  NULL => ();
+					#
+					compile_one_function (THE(_, ffs::PRIVATE                           _)                       ) =>  compile_next_function();
+					compile_one_function (THE(_, ffs::PRIVATE_AND_NEEDS_HEAPLIMIT_CHECK _)                       ) =>  compile_next_function();
+					compile_one_function (THE(_, ffs::PUBLIC { func => REF NULL, ... }   )                       ) =>  compile_next_function();
+
+					compile_one_function (THE (fun_codelabel, ffs::PUBLIC { func as REF (THE (zz as (callers_info, fun_id, fun_formal_args, fcftypes_for_args, fun_body))), ... }))
+					    => 
+					    {   formal_args_in_treecode_form
+						    =
+						    cfa::convert_nextcode_public_fun_args_to_treecode
+						      {
+							fcftype_for_fun =>  get_fcftype_for_var_id  fun_id,
+							fcftypes_for_args,
+							use_virtual_framepointer
+						      };
+
+						func := NULL;
+						buf.put_pseudo_op (pb::ALIGN_SIZE 2);
+						#
+						translate_nextcode_function_to_treecode (fun_codelabel, callers_info, fun_id, fun_formal_args, formal_args_in_treecode_form, fcftypes_for_args, fun_body);
+						#
+						compile_next_function ();
+					    };
+				    end;
+				end;                              # fun compile_all_pushed_functions 
+
+			    # Execution starts at the first nextcode function:
+			    #	
+			    fun push_nextcode_functions (first_function ! remaining_functions:  List( fcf::Function ))
+				    =>
+				    {	apply  push_nextcode_function  remaining_functions;
+					#
+					push_nextcode_function  first_function;
+				    }
+				    where
+				        fun push_nextcode_function (function as (_, fun_id, _, _, _))
+					    = 
+					    set__callers_info__for__fun_id (fun_id, ffs::push_nextcode_function (function, get_codelabel_for_fun_id fun_id));
+				    end;	
+
+			       push_nextcode_functions []
+				    =>
+				    error "push_nextcode_functions";
+			    end;
+
+			    # Create callgraph connected-component annotations.
+			    # Currently, we only need
+			    # to enter the appropriate
+			    # heapcleaner map information.
+			    #	
+			    fun create_cccomponent_annotations ()
+				=
+				{   registerinfo
+					=
+					if track_types_for_heapcleaner				# Currently ALWAYS FALSE -- this appears to be an unfinished project.
+					    #
+					    fun set_heapcleaner_info_on_codetemp (tcf::REG(_, r), type) =>  hr::set_heapcleaner_info_on_codetemp (r, type);
+						set_heapcleaner_info_on_codetemp _                      =>  ();
+					    end;
+
+					    hr::set_heapcleaner_info_on_codetemp (heap_allocation_pointer_register, chi::HEAP_ALLOCATION_POINTER);
+
+					    set_heapcleaner_info_on_codetemp (pri::heap_allocation_limit  use_virtual_framepointer, chi::HEAP_ALLOCATION_LIMIT);
+					    set_heapcleaner_info_on_codetemp (pri::base_pointer           use_virtual_framepointer, chi::ptr_type);
+					    set_heapcleaner_info_on_codetemp (pri::stdlink                use_virtual_framepointer, chi::ptr_type);
+
+					    [   lhn::print_register_info.x_to_note (hr::print_type)   ];
+					else
+					    [];
+					fi;
+
+				    use_virtual_framepointer
+				      ??  lhn::uses_virtual_framepointer.set ((), registerinfo)
+				      ::                                          registerinfo ;
+				};
+
+			    push_nextcode_functions  cccomponent;
+
+			    buf.start_new_cccomponent  0;				# Here the zero is a dummy; in other contexts it is used to size the codebuffer.
+			    buf.put_pseudo_op          pb::TEXT;
+
+			    compile_all_pushed_functions ();
+
+			    ihc::put_all_publicfn_heapcleaner_longjumps_and_all_privatefn_heapcleaner_calls_for_cccomponent
+				#
+				buf;
+
+			    translate_machcode_cccomponent_to_execode			# def in    src/lib/compiler/back/low/main/main/backend-lowhalf-g.pkg
+				per_compile_info
+				(buf.get_completed_cccomponent (create_cccomponent_annotations()));
+
+			};										# fun translate_nextcode_cccomponent_to_treecode
+		    #
+		    fun finish_compilation_unit file
+			=
+			{   buf =   t2m::make_treecode_to_machcode_codebuffer  (mkg::make_machcode_codebuffer ());
+
+													# 'buf' implementation	is in   src/lib/compiler/back/low/intel32/treecode/translate-treecode-to-machcode-intel32-g.pkg
+													# 'buf' implementation  is in   src/lib/compiler/back/low/pwrpc32/treecode/translate-treecode-to-machcode-pwrpc32-g.pkg
+													# 'buf' implementation  is in   src/lib/compiler/back/low/sparc32/treecode/translate-treecode-to-machcode-sparc32-g.pkg
+			    rgk::reset_codetemp_id_allocation_counters();
+
+			    cn::use_virtual_framepointer := FALSE;
+
+			    buf.start_new_cccomponent 0; 				# The 0 is a dummy here; in some applications the arg is used to size 'buf'.
+
+			    buf.put_pseudo_op  pb::TEXT;
+
+			    ihc::put_all_publicfn_heapcleaner_calls_for_package  buf;
+
+			    buf.put_pseudo_op  (pb::DATA_READ_ONLY);
+			    buf.put_pseudo_op  (pb::EXT (cpo::FILENAME file));
+
+			    translate_machcode_cccomponent_to_execode
+				per_compile_info
+				(buf.get_completed_cccomponent  no_opt);
+			};
+		    #
+		    fun get_entrypoint_offset_of_first_function ((_, f, _, _, _) ! _) ()
+			    =>
+			    lbl::get_codelabel_address (get_codelabel_for_fun_id f);
+
+		       get_entrypoint_offset_of_first_function [] ()
+			    =>
+			    error "entrypoint: no functions";
+		    end;
+		end;							# fun translate_nextcode_to_execode
+	end;
+    };									# generic package translate_nextcode_to_treecode_g 
+end;
+
+
+
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## COPYRIGHT (c) 1996 AT&T Bell Laboratories.
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

@@ -1,0 +1,4432 @@
+## make-nextcode-closures-g.pkg
+#
+# Closures in Mythryl correspond to stackframes in C;
+# they hold the parameters and temporaries needed by
+# a function while it is executing.
+#
+# One major difference between our closures and
+# C stackframes is that our closures are conceptually
+# allocated on the heap and then garbage-collected.
+# Among other advantages, this makes tail recursion
+# and concurrent programming via 'call/cc' very
+# simple to implement and quick to execute.
+#
+# Allocating closures on the heap is potentially
+# much slower than conventional stack allocation.
+# Modern multi-generation garbage collection
+# largely solves this problem.  (For an extended
+# discussion of this topic see Chapter 5 of
+# Zhong Shao's 1994 PhD thesis, cited below.)
+#
+# We can also reduce the cost of "heap"-allocated
+# closures by a variety of compiler-centric
+# strategies such as allocating all or part of
+# a given closure in registers or sharing a single
+# closure between multiple function calls.
+#
+# Our job in this file is to implement such
+# closure-representation optimizations.
+#
+# For background, see:
+#
+#     Chapter 4, "Space Efficient Closure Representations"
+#     of Zhong Shao's 1994 PhD thesis, which starts on page 74:
+#     Compiling Standard ML for Efficient Execution on Modern Machines 
+#     http://flint.cs.yale.edu/flint/publications/zsh-thesis.html
+#
+#     Space-Efficient Closure Reprentations
+#     Zhong Shao, Andrew W Appel
+#     1994, 12p
+#     http://flint.cs.yale.edu/flint/publications/closure.ps.gz
+#
+#     Typed Closure Conversion
+#     Yasuhiko Minamide, Greg Morrisett, Robert Harper
+#     1996, 13p
+#     http://www.eecs.harvard.edu/~greg/papers/closure-summary.ps
+#
+#     Efficient and Safe-for-Space Closure Conversion
+#     Zhong Shao, Andrew Appel
+#     2000, 33p
+#     http://flint.cs.yale.edu/flint/publications/escc.html 
+
+# Compiled by:
+#     src/lib/compiler/core.sublib
+
+
+
+# This file implements one of the nextcode transforms.
+# For context, see the comments in
+#
+#     src/lib/compiler/back/top/highcode/highcode-form.api
+
+
+
+
+
+
+
+############################################################################
+#
+#  ASSUMPTIONS: (1) Five possible combinations of bindings in the same
+#                   fcf::DEFINE_FUNS:
+#                       private,
+#                       escape,
+#                       next,
+#                       private-next,
+#                       private+escape;
+# 
+#               (2) Next function is never recursive; there is 
+#                   at most ONE next function definition per
+#                   fcf::DEFINE_FUNS.
+# 
+#               (3) The outermost function is always a non-recursive
+#                   escaping function.
+# 
+############################################################################
+
+
+
+stipulate
+    package fcf =  nextcode_form;						# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+herein
+
+    api Make_Nextcode_Closures {
+	#
+	make_nextcode_closures:  fcf::Function -> fcf::Function;
+    };
+end;
+
+										# Machine_Properties	is from   src/lib/compiler/back/low/main/main/machine-properties.api
+stipulate 
+    #
+    package fcf =  nextcode_form;						# nextcode_form		is from   src/lib/compiler/back/top/nextcode/nextcode-form.pkg
+    package cgo =  controls::cg;						# controls		is from   src/lib/compiler/toplevel/main/controls.pkg
+    package hcv =  highcode_var;						# highcode_var		is from   src/lib/compiler/back/top/highcode/highcode-var.pkg
+    package iht =  int_hashtable;						# int_hashtable		is from   src/lib/src/int-hashtable.pkg
+
+    include alloc_prof;
+    include sorted_list;
+
+
+    remember_highcode_variable_names  = hcv::remember_highcode_variable_names;
+    copy_highcode_variable            = hcv::copy_highcode_variable;
+    make_highcode_variable            = hcv::make_highcode_variable;
+
+    offp0 = fcf::SLOT 0;
+
+    dumcs = NULL;              #  Dummy callee-save reg contents 
+    zip   = paired_lists::zip;
+    pr    = controls::print::say;
+    #
+    fun inc (ri as REF i)
+	=
+	ri := i+1;
+herein 
+
+    generic package   make_nextcode_closures_g   (
+	#             ========================
+	#
+	machine_properties:  Machine_Properties					# Typically 					  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
+	#
+    )
+    : (weak)  Make_Nextcode_Closures						# Make_Nextcode_Closures		is from   src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg
+    {
+	# This generic is (only) invoked from:
+	#
+	#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+
+	package mp = machine_properties;					# Local synonym.
+
+	package sprof
+	    =
+	    static_closure_size_profiling_g ( mp );				# static_closure_size_profiling_g	is from   src/lib/compiler/back/top/closures/static-closure-size-profiling-g.pkg
+	#
+	fun bug s
+            =
+            error_message::impossible ("Closure: " + s);
+
+	# **************************************************************************
+	#                    MISC UTILITY FUNCTIONS                                *
+	# **************************************************************************
+	#
+	fun partition f l
+            = 
+	    fold_right
+                (fn (e, (a, b))
+                    =
+                    f e   ??   (e ! a,       b)
+                          ::   (    a,   e ! b)
+                )
+                ([], [])
+                l;
+	#
+	fun sublist test
+            =
+            subl
+            where
+	        fun subl arg
+                    = 
+                    s (arg, NIL)
+                    where
+		        fun s (a ! r, l)
+                                =>
+                                test a   ??   s (r,  a ! l)
+                                         ::   s (r,      l);
+
+			    s (NIL,   l)
+                                =>
+                                reverse l;
+                        end;
+		    end;
+	    end;
+	#
+	fun formap f
+            =
+            iter o (fn l = (l, 0))
+            where
+	        fun iter (NIL, _)     =>  NIL;
+		    iter (hd ! tl, i) =>  f (hd, i) ! iter (tl, i+1);
+                end;
+	    end;
+
+	#
+	fun clean l							# Clean reverses the order of the argument list.
+            = 
+            vars (NIL, l)
+            where
+	        fun vars (l, fcf::VAR x ! rest) => vars (x ! l, rest);
+		    vars (l, _ ! rest) => vars (l, rest);
+		    vars (l, NIL) => l;
+                end;
+	    end;
+
+	#
+	fun uniqvar l
+            =
+            uniq (clean l);
+
+	#
+	fun entervar (fcf::VAR v, l) => enter (v, l);
+	    entervar (_,          l) => l;
+        end;
+	#
+	fun member l (v: Int)
+            =
+            f l
+            where
+	        fun f []      =>  FALSE;
+
+		    f (a ! r) =>  a < v   ??   f r
+                                          ::   v == a;
+                end;
+	    end;
+	#
+	fun member3 l (v: Int)
+            = 
+            h l
+            where
+	        fun h [] =>   FALSE;
+
+		    h ((a, _, _) ! rest)
+                        =>
+                        a < v   ??   h rest
+                                ::   a == v;
+                end;
+	    end;
+	#
+	fun merge_v (l1: List( (fcf::Variable, Int, Int) ), l2)
+            =
+            h (l1, l2)
+            where
+	        fun h (  l1 as ((u1 as (x1, a1, b1)) ! r1),
+                         l2 as ((u2 as (x2, a2, b2)) ! r2)
+                      )
+			=>
+			if   (x1 < x2)   u1 ! (h (r1, l2));
+			elif (x1 > x2)   u2 ! (h (l1, r2));
+			else             (x1, int::min (a1, a2), int::max (b1, b2)) ! (h (r1, r2));
+			fi;
+
+		   h (l1,[]) =>  l1;
+		   h([], l2) =>  l2;
+                end;
+	    end;
+
+	#
+	fun add_v (vl, m, n, l)
+            =
+            merge_v (map (fn x = (x, m, n)) vl, l);
+
+	#
+	fun uniq_v z
+            = 
+            h (z, [])
+            where
+	        fun h (   [], l) =>  l;
+		    h (a ! r, l) =>  h (r, merge_v([a], l));
+                end;
+	    end;
+
+	#
+	fun remove_v (vl:  List( fcf::Variable ), l)
+            = 
+            h (vl, l)
+            where
+	        fun h (l1 as (x1 ! r1), l2 as ((u2 as (x2, _, _)) ! r2))
+                    => 
+		    if   (x2 < x1)    u2 ! (h (l1, r2));
+		    elif (x2 > x1)          h (r1, l2);
+		    else                    h (r1, r2);
+                    fi;
+
+		    h ([], l2) =>  l2;
+		    h (l1, []) =>  [];
+                end;
+	    end;
+
+	#
+	fun accum_v ([], _)
+                =>
+                ([], 1000000, 0, 0);
+
+	    accum_v (vl, free)
+		=> 
+		fold_right h ([], 1000000, 0, 0) free
+                where
+		    fun h ( (v, m, n), (z, i, j, k) )
+			= 
+			if   (member vl v)
+			    
+			     (v ! z, int::min (m, i), int::max (n, j), k+1); 
+			else
+			     (z, i, j, k);
+                        fi;
+		end;
+        end;
+	#
+	fun partition_namings fl
+            = 
+            h (fl,[],[],[],[],[])
+            where
+	        fun h ((fe as (fcf::PUBLIC,                 _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, fe ! el, kl, rl, cl, jl);
+		    h ((fe as (fcf::PRIVATE,                _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, el, fe ! kl, rl, cl, jl);
+		    h ((fe as (fcf::PRIVATE_RECURSIVE,      _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, el, fe ! kl, fe ! rl, cl, jl);
+
+		    h ((fe as (fcf::FATE,                   _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, el, kl, rl, fe ! cl, jl);
+		    h ((fe as (fcf::PRIVATE_FATE,           _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, el, kl, rl, fe ! cl, fe ! jl);
+		    h ((fe as (fcf::PRIVATE_TAIL_RECURSIVE, _, _, _, _))    ! r, el, kl, rl, cl, jl) =>  h (r, el, fe ! kl, rl, cl, jl);
+
+		    h (_ ! r, el, kl, rl, cl, jl) => bug "partition_namings in closure phase 231";
+		    h ([], el, kl, rl, cl, jl) => (el, kl, rl, cl, jl);
+                end;
+	    end;
+
+	closure_lvar
+            = 
+	    {   save    =  *remember_highcode_variable_names
+                           before
+                           remember_highcode_variable_names :=  TRUE;
+
+		closure =  hcv::make_named_highcode_variable (symbol::make_value_symbol "closure");
+	    
+                remember_highcode_variable_names := save;
+
+                fn () =  copy_highcode_variable  closure;
+	    };
+
+
+	# Build a list of k dummy cells:
+	#
+	fun extra_dummy (k)
+            =
+            ec (k, [])
+            where
+	        fun ec (k, l)
+                    =
+                    k <= 0   ??   l
+                             ::   ec (k - 1, dumcs ! l);
+	    end;
+	#
+	fun extra_lvar (k, t)
+            = 
+            h (k,[],[])
+            where
+	        fun h (n, l, z)
+                    =
+                    n < 1   ??   (reverse l, z)
+                            ::   h (n - 1, (make_highcode_variable() ! l), t ! z);
+	    end;
+
+	#
+	fun cuthead (n,[])					# Cut out the first n elements from a list.
+                =>
+                [];
+
+	    cuthead (n, l as (_ ! r))
+		=>
+		n <= 0   ??   l
+		         ::   cuthead (n - 1, r);
+        end;
+
+	#
+	fun cuttail (n, l)					# Cut out the last n elements from a list.
+            =
+            reverse (cuthead (n, reverse l));
+
+	#
+	fun sortlud0 x						# Sort according to each variable's life time etc. 
+            =
+            list_mergesort::sort
+                (fn ((_, _, i:  Int), (_, _, j))
+                    =
+                    i > j
+                )
+                x;
+
+	#
+	fun sortlud1 x
+            = 
+            list_mergesort::sort  ludfud1  x
+            where
+	        fun ludfud1 ((_, m: Int, i: Int), (_, n, j))
+                    = 
+		   (i >  j)   or
+                   (i == j and m > n);
+	    end;
+
+	#
+	fun sortlud2 (l, vl)
+            = 
+	    {   fun h (v, m, i)
+                    = 
+		    member vl v   ??   i*1000 + m*10
+                                  ::   i*1000 + m*10 + 1;
+		#
+		fun ludfud2 ((_, m, v), (_, n, w))
+                    = 
+		    (m >  n)   or
+                    (m == n and v < w);
+
+		nl = map (fn (u as (v, _, _)) = (u, h u, v))
+                         l;
+	    
+                map #1 (list_mergesort::sort ludfud2 nl);
+	    };
+
+	#
+	fun partvnum (l, n)						# Cut out the first n elements, returning both the header and the rest.
+            =
+            h ([], l, n)
+            where
+	        fun h (vl, [], n)
+			=>
+			(vl,[]);
+
+		    h (vl, s as ((a, _, _) ! r), n)
+			=> 
+			n <= 0   ??   (vl, s)
+				 ::   h (enter (a, vl), r, n - 1);
+                end;
+	    end;
+
+	#
+	fun spill_free (free, n, vbase, sbase)				# Spill (into sbase) if too many free variables (>n).
+            = 
+	    {   len = length free;
+	    
+                if (len < n)
+		    #	
+                    ( merge (map #1 free, vbase),
+                      sbase
+                    );
+		else
+		    (partvnum (sortlud1 free, n))
+			->
+			(nfree, nspill);
+
+		    ( merge (nfree, vbase),
+		      uniq_v (nspill @ sbase)
+		    );
+                fi;
+	    };
+
+	#
+	fun get_vn ([], v)
+                =>
+                NULL;
+
+	    get_vn((a, m, n) ! r, v:  fcf::Variable)
+		=> 
+		if    (v >  a)   get_vn (r, v); 
+		elif  (v == a)   THE (m, n);
+	        else             NULL;
+                fi;
+        end;
+
+	#
+	fun subset (x, y)										# See if x is a subset of y.   x and y must be sorted lists.
+            =
+	    case (difference (x, y))
+		#	      
+		[] => TRUE;
+		_  => FALSE;
+	    esac;
+
+	#
+	fun small_chunk (fcf::type::FLOAT64 | fcf::type::INT) =>   TRUE;				# See if a nextcode type is a small constant size chunk.
+	    small_chunk _                                     =>   FALSE;
+        end;
+
+	#
+	fun sharable ((fcf::rk::CONT|fcf::rk::FCONT), (fcf::PUBLIC|fcf::PRIVATE))			# See if a record_kind is sharable by a function with given callers_info.
+		=>
+		not (mp::quasi_stack);
+
+	    sharable _ =>   TRUE;
+        end;
+
+	# Given a callers_info return the appropriate unboxed closure kind 
+	# need runtime support for fcf::rk::FCONT (new tags etc.)   CURRENTLY NOT SUPPORTED XXX BUGGO FIXME 
+	#
+	fun unboxed_kind (fcf::FATE | fcf::PRIVATE_FATE) =>   fcf::rk::FCONT;
+	    unboxed_kind _                               =>   fcf::rk::FBLOCK;
+        end;
+
+	# Given a fix kind return the 
+        # appropriate boxed closure kind
+	#
+	fun boxed_kind (fcf::FATE | fcf::PRIVATE_FATE) =>  fcf::rk::CONT; 
+	    boxed_kind fcf::PRIVATE                    =>  fcf::rk::KNOWN;
+	    boxed_kind _                               =>  fcf::rk::ESCAPE;
+        end;
+	#
+	fun comment f
+            =
+            if *cgo::comment
+                f();
+                ();
+            fi;
+
+
+	# **************************************************************************
+	#                    CLOSURE REPRESENTATIONS                               *
+	# **************************************************************************
+
+	Csregs = Null_Or( (List( fcf::Value ), List( fcf::Value )) ); 
+
+	Closure_Rep = CLOSURE_REP  (Int, Closure) 
+
+	withtype
+	Closure = {   functions:  List( (fcf::Variable, fcf::Variable) ),
+		      values:     List( fcf::Variable ),
+		      closures:   List( (fcf::Variable, Closure_Rep) ),
+
+		      kind:   fcf::Record_Kind,
+		      core:   List( fcf::Variable ),
+		      free:   List( fcf::Variable ),
+
+		      stamp:  fcf::Variable
+		  };
+
+	Knownfun_Rep
+            =
+            { label:   fcf::Variable,
+	      gpfree:  List( fcf::Variable ), 
+	      fpfree:  List( fcf::Variable ),
+	      csdef:   Null_Or( (List( fcf::Value ),  List( fcf::Value )) )
+            };
+
+	Callee_Rep
+            =
+            (fcf::Value,  List( fcf::Value ), List( fcf::Value ));
+
+	Chunk = VALUE     fcf::Type
+	      | CALLEE    Callee_Rep
+	      | CLOSURE   Closure_Rep
+	      | FUNCTION  Knownfun_Rep
+              ;
+
+	Access = DIRECT
+	       | PATH  (fcf::Variable, fcf::Fieldpath,  List ((fcf::Variable, Closure_Rep)))
+               ;
+
+
+	# **************************************************************************
+	#        UTILITY FUNCTIONS FOR ELIMINATING THE CLOSURE OFFSET              *
+	# **************************************************************************
+
+	# Should we adjust the offset 
+	#
+	fun adj_off (i, off)
+            = 
+	    if   (i   >  0)   1; 
+	    elif (off == 0)   0;
+            else              bug "unexpected case in adj_off";
+            fi;
+
+	# Should we treat the mutually recursive functions specially 
+	#
+	fun mut_rec []  => FALSE;
+	    mut_rec [_] => FALSE;
+	    mut_rec _   => TRUE;
+        end;
+
+	# If no_offset is FALSE, use the following versions:
+        #
+	#   fun adjOff (i, off) = i - off
+	#   fun mutRec _ = FALSE 
+
+
+	# ************************************************************************
+	#                         SYMBOL TABLE                              	 *
+	# ************************************************************************
+
+	abstype Dictionary = DICTIONARY  (List( fcf::Variable ),                # Values 
+			       List( (fcf::Variable, Closure_Rep) ),   # Closures 
+			       List( fcf::Variable ),                # Disposable cells
+			       iht::Hashtable( Chunk ))	# What map 
+	with
+
+	    # *************************************************************************
+	    # Dictionary Initializations and Augmentations                            *
+	    # *************************************************************************
+
+	    exception NOT_BOUND;
+	    #
+	    fun empty_dictionary ()
+                =
+                DICTIONARY ([],[],[], iht::make_hashtable  { size_hint => 32,  not_found_exception => NOT_BOUND });
+
+
+
+	    # Add a new chunk to a dictionary: 
+	    #
+	    fun augment (m as (v, chunk), e as DICTIONARY (value_l, closure_l, disp_l, what_map))
+                =
+		{   iht::set what_map m;
+
+		    case   chunk
+                      
+		        VALUE _
+			    =>
+			    DICTIONARY (v ! value_l, closure_l, disp_l, what_map);
+
+		        CLOSURE cr
+                            =>
+                            DICTIONARY (value_l, (v, cr) ! closure_l, disp_l, what_map);
+
+		        _ => e;
+                    esac;
+               };
+
+
+
+	    # Add a simple program variable "v" with type t into dictionary 
+	    #
+	    fun aug_value (v, t, dictionary)
+                =
+                augment ((v, VALUE t), dictionary);
+
+
+
+	    # Add a list of value variables into dictionary 
+	    #
+	    fun faug_value ([],[], dictionary) => dictionary;
+		faug_value (a ! r, t ! z, dictionary) => faug_value (r, z, aug_value (a, t, dictionary));
+		faug_value _ => bug "faugValue in closure.249";
+            end;
+
+
+
+	    # Add a callee-save fate chunk into dictionary 
+	    #
+	    fun aug_callee (v, c, csg, csf, dictionary)
+                =
+                augment ( (v, CALLEE (c, csg, csf)), dictionary);
+
+
+
+	    # Add a known fate function chunk into dictionary: 
+	    #
+	    fun aug_kcont (v, l, gfree, ffree, csg, csf, dictionary)
+                = 
+		{   kchunk = FUNCTION {   label  => l,
+                                            gpfree => gfree,
+                                            fpfree => ffree,
+					    csdef  => THE (csg, csf)
+                                        };
+		
+                    augment ( (v, kchunk), dictionary);
+		};
+
+	    # Add a general known function chunk into dictionary 
+	    #
+	    fun aug_known (v, l, gfree, ffree, dictionary)
+                = 
+		{   kchunk = FUNCTION {   label  => l,
+                                            gpfree => gfree,
+                                            fpfree => ffree,
+                                            csdef  => NULL
+                                        };
+		
+                    augment ( (v, kchunk), dictionary);
+		};
+
+	    # Add an escaping function chunk into dictionary:
+	    #
+	    fun aug_esc_fun (v, i, CLOSURE_REP (off, x), dictionary)
+                = 
+	        {   clo = CLOSURE (CLOSURE_REP (off+i, x));
+	        
+                    augment ( (v, clo), dictionary);
+	        };
+
+	    ###########################################################################
+	    # Dictionary Printing (for debugging)
+	    ###########################################################################
+
+	    my im:  Int -> String
+                =
+                int::to_string;
+
+	    vp   =   pr o highcode_var::name_of_highcode_variable;
+	    #
+	    fun vp' (v, m, n)
+                =
+                {   vp v;
+                    pr " fd=";
+                    pr (im m);
+                    pr " ld=";
+		    pr (im n);
+                };
+	    #
+	    fun ifkind fcf::PRIVATE_TAIL_RECURSIVE =>  pr " PRIVATE_AND_TAIL_RECURSIVE ";
+		ifkind fcf::PRIVATE                =>  pr " PRIVATE ";
+		ifkind fcf::PRIVATE_RECURSIVE      =>  pr " PRIVATE_AND_RECURSIVE ";
+		#
+		ifkind fcf::PUBLIC		   =>  pr " MAY_HAVE_UNKNOWN_CALLERS ";
+		ifkind fcf::FATE  	       	   =>  pr " FATE ";
+		ifkind fcf::PRIVATE_FATE  	   =>  pr " PRIVATE_AND_FATE ";
+		#
+		ifkind _			   =>  pr " STRANGE_KIND ";
+            end;
+	    #
+	    fun plist p l
+                =
+                {   apply (fn v = {   pr " ";   p v;  })
+                          l;
+
+                    pr "\n";
+                };
+
+	    ilist   =  plist  vp;
+	    i_vlist =  plist  vp';
+	    i_klist =  plist  ifkind;
+	    #
+	    fun sayv (fcf::VAR     v) =>   vp v;
+		sayv (fcf::LABEL   v) =>  { pr "(L)"; vp v;};
+		sayv (fcf::INT     i) =>  { pr "(I)"; pr (int::to_string i);};
+		sayv (fcf::INT32   i) =>  { pr "(I32)"; pr (unt32::to_string i);};
+		sayv (fcf::FLOAT64 r) =>    pr r;
+		sayv (fcf::STRING  s) =>  { pr "\""; pr s; pr "\"";};
+		sayv (fcf::CHUNK   _) =>    pr "**CHUNK**";
+		sayv (fcf::TRUEVOID ) =>    pr "**TRUEVOID**";
+            end;
+
+	    vallist   =   plist sayv;
+	    #
+	    fun print_dictionary (DICTIONARY (value_l, closure_l, disp_l, what_map))
+                =
+		{   fun ip (i:  Int)
+                        =
+                        pr (int::to_string i);
+
+		    tlist
+                        =
+                        plist   (fn (a, b) =   { vp a;   pr "/";   sayv (fcf::LABEL b);});
+		    #
+		    fun fp (v, FUNCTION { label, gpfree, fpfree, ... } )
+			    =>
+			    {   vp v;
+				pr "/known ";
+				sayv (fcf::LABEL label);
+				pr " -"; 
+				ilist (gpfree@fpfree);
+			    };
+
+		        fp _ => ();
+                    end;
+		    #
+		    fun cp (v, CALLEE (v', gl, fl))
+			    =>
+			    {   vp v;
+				pr "/callee (G) ";
+				sayv v';
+				pr " -";
+				vallist gl; 
+				vp v;
+				pr "/callee (F) ";
+				sayv v';
+				pr " -";
+				vallist fl;
+			    };
+
+		       cp _ => ();
+                    end;
+		    #
+		    fun p (indent, l, seen)
+                        =
+			{   fun c (v, CLOSURE_REP (off, { functions, values, closures, stamp, kind, ... } ) )
+                                =
+			        {   indent();
+                                    pr "Closure ";
+                                    vp v;
+                                    pr "/";
+                                    ip stamp;
+			            pr "@_";
+                                    ip off;
+
+			            if   (member seen stamp)
+			                
+                                         pr "(seen)\n";
+			            else
+					 pr ":\n";
+
+					 case functions
+					     NIL =>  ();
+					     _   =>  { indent(); pr "  Funs:"; tlist functions;};
+					 esac;
+
+					 case values
+					     NIL =>   ();
+					     _   =>   { indent();   pr "  Vals:";   ilist values; };
+					 esac;
+
+					 p (   fn() =  {   indent();
+							   pr "  ";
+						       },
+					       closures,
+					       enter (stamp, seen)
+					   );
+
+                                     fi;
+                                };
+			
+                            apply c l;
+			};
+
+		
+                    pr "Values:";                   ilist value_l;
+		    pr "Closures:\n";               p (fn () => (); end, closure_l, NIL);
+		    pr "Disposable records:\n";     ilist disp_l;
+		    pr "Known function mapping:\n"; iht::keyed_apply fp what_map;
+
+		    pr "Callee-save fate mapping:\n";
+		    iht::keyed_apply cp what_map;
+		};
+
+	    ##########################################################################
+	    # Dictionary Lookup (whatIs, returning chunk type)
+	    ##########################################################################
+
+	    exception LOOKUP  (fcf::Variable, Dictionary);
+	    #
+	    fun what_is (dictionary as DICTIONARY (_, _, _, what_map), v)
+                =
+	        iht::get  what_map  v
+                except
+                    NOT_BOUND =  raise exception LOOKUP (v, dictionary);
+
+
+
+	    # Add v to the access dictionary.
+            # v must be in what_map already:
+	    #
+	    fun augvar (v, e as DICTIONARY (value_l, closure_l, disp_l, what_map))
+                = 
+		case (what_is (e, v))
+		    #                  
+		    VALUE _    => DICTIONARY (v ! value_l,       closure_l, disp_l, what_map);
+		    CLOSURE cr => DICTIONARY (value_l, (v, cr) ! closure_l, disp_l, what_map);
+		    _          => bug "augvar in nextcode/make-nextcode-closures-g.pkg:77";
+                esac;
+
+	    ##########################################################################
+	    # Dictionary Access (whereIs, returning chunk access path)
+	    #
+	    fun where_is (dictionary as DICTIONARY (value_l, closure_l, _, what_map), target)
+                =
+		{   fun bfs (NIL, NIL)   =>   raise exception LOOKUP (target, dictionary);
+		        bfs (NIL, next)  =>   bfs (next, NIL);
+
+		        bfs ((h, ox as (_, CLOSURE_REP (off, { functions, values, closures, stamp, ... } ))) ! m, next)
+			    =>
+			    {   fun cls (NIL, _, next)
+					=>
+					bfs (m, next);
+
+				    cls ((u as (v, cr)) ! t, i, next)
+					=>
+					if (target == v)
+					    #
+					    h (fcf::VIA_SLOT (i, fcf::SLOT 0), []);
+					else
+					    nh = fn (p, z) =  h (fcf::VIA_SLOT (i, p), u ! z);
+					    #
+					    cls (t, i+1, (nh, u) ! next);
+					fi;
+				end;
+
+				#
+				fun vls (NIL,  i)
+                                        =>
+                                        cls (closures, i, next);
+
+				    vls (v ! t, i)
+					=>
+					if (target == v)
+					    #
+					    h (fcf::VIA_SLOT (i, fcf::SLOT 0), []);
+					else 
+					    vls (t, i+1);
+					fi;
+				end;
+
+				#
+				fun fns (NIL, i)
+					=>
+					vls (values, adj_off (i, off));
+
+				    fns ((v, l) ! t, i)
+					=>
+					if (target == v)
+					    #
+					    i == off   ??   h (fcf::SLOT 0,       [])
+						       ::   h (fcf::SLOT (i-off),[ox]);
+					else
+					    fns (t, i+1);
+					fi;
+				end;
+
+
+				if (target == stamp)
+				    #
+				    off == 0   ??   h (fcf::SLOT 0,       [])
+					       ::   h (fcf::SLOT(-off), [ox]);
+				else
+				    fns (functions, 0);
+				fi;
+			    };
+                    end;
+
+		    #
+		    fun search closures
+                        =
+			{   s = map  (fn x =  (fn (p, z) =  (#1 x, p, z), x))
+                                     closures;
+			
+                            PATH (bfs (s, NIL));
+			};
+
+		    #
+		    fun with_tgt (v, CLOSURE_REP (_, { free, ... } ))
+                        =
+                        member free target;
+
+		    #
+		    fun get_c ((v, cr) ! tl)
+			    =>
+			    if (target == v)
+			        #
+				DIRECT; 
+			    else
+				case cr
+				    #
+				    CLOSURE_REP(_, { functions => [], ... } )
+				        =>
+					get_c tl;
+				    #
+				    CLOSURE_REP (off, { functions, ... } )
+					=>
+					{   my (y, _) = list::nth (functions, off);
+
+					    if ((target==y))	 PATH (v, fcf::SLOT 0, []);
+					    else		 get_c tl;
+					    fi;
+					};
+				esac;
+			    fi;
+
+		        get_c NIL
+			    =>
+			    search (sublist with_tgt closure_l);
+                    end;
+		    #
+		    fun get_v (v ! tl)
+			    =>
+			    target == v   ??   DIRECT
+					  ::   get_v tl;
+
+			get_v NIL
+                            =>
+                            search closure_l;
+                    end;
+
+		
+                    case (what_is (dictionary, target))
+			#		      
+                        FUNCTION _ =>  DIRECT;
+		        CALLEE _   =>  DIRECT;
+		        CLOSURE _  =>  get_c closure_l;
+		        VALUE _    =>  get_v value_l;
+                    esac;
+		};
+
+
+	    ##########################################################################
+	    # Dictionary Filtering (get the set of current reusable closures)
+	    ##########################################################################
+
+
+	    # Extract all closures at
+            # top n levels, containing
+            # duplicates. 
+	    #
+	    fun extract_closures (l, n, base)
+                = 
+                s (h (n, l, l@base), [], [])
+                where
+		    fun g (_, CLOSURE_REP(_, { closures, ... } ))
+                        =
+                        closures;
+
+		    #
+		    fun h (k,[], z)
+                            =>
+                            z;
+
+		        h (k, r, z)
+			    => 
+			    if (k <= 0)
+				#
+				z;
+			    else
+				nl = list::cat (map g r);
+
+				h (k - 1, nl, nl @ z);
+                            fi;
+                    end;
+
+		    #
+		    fun s ([], vl, r)
+                            =>
+                            r;
+
+		        s ((u as (v, _)) ! z, vl, r)
+			    => 
+			    member vl v   ??   s (z,            vl,     r)
+			                  ::   s (z, enter (v, vl), u ! r);
+                    end;
+		end; 
+
+
+	    # Fetch all free variables
+            # residing above level n
+            # in the closure cr:
+	    #
+	    fun fetch_free (v, CLOSURE_REP (_, { closures, functions, values, ... } ), n)
+                = 
+	        if (n <= 0)
+		    #
+                    [v];
+	        else
+		    fold_right   g   (uniq (v ! values@(map #1 functions)))   closures
+		    where
+			 fun g ((x, cr), z)
+				=
+				merge (fetch_free (x, cr, n - 1), z);
+		    end;
+               fi;
+
+
+	    # Filter out all closures in 
+            # the current dictionary that are
+            # safe to reuse:
+	    #
+	    fun fetch_closures (dictionary as DICTIONARY (_, closure_l, _, _), lives, fkind)
+                =
+		{   my (closlist, lives)
+                        = 
+			fold_right
+                            (   fn (v, (z, l))
+				   =
+				   case (what_is (dictionary, v) )
+                                     
+				       (CLOSURE (cr as (CLOSURE_REP (_, { free, ... } ))))
+					   => 
+					   ((v, cr) ! z,   merge (free, l));
+
+				       _ => (z, l);
+                                   esac
+                            )
+                            ([], lives)
+                            lives;
+		    #
+		    fun reusable (v, CLOSURE_REP (_, { core, kind, ... } ))
+                        = 
+			(   (sharable (kind, fkind))
+                            and 
+			    (   (subset (core, lives))
+                                or
+                                (member lives v)
+                            )
+                        );
+
+		    #
+		    fun reusable2 (_, CLOSURE_REP (_, { kind, ... } ))
+                        =
+                        sharable (kind, fkind);
+
+		    #
+		    fun fblock (_, CLOSURE_REP (_, { kind => (fcf::rk::FBLOCK | fcf::rk::FCONT), ... } ))
+			    =>
+			    TRUE;
+
+		        fblock _
+			    =>
+                            FALSE;
+		    end;
+
+		    level = 4;							#  Should be made adjustable in the future XXX BUGGO FIXME 
+
+		    closlist = extract_closures (closure_l, level, closlist);
+
+		    my (fclist, gclist)
+                        =
+                        partition fblock closlist; 
+
+		
+                    ( sublist reusable  gclist,
+                      sublist reusable2 fclist
+                    );
+		};
+
+	    # Return the immediately enclosing
+            # closure, if any.  This is a hack:
+	    #
+	    fun get_immed_closure (DICTIONARY (_, closure_l, _, _))
+                =
+                getc closure_l
+                where
+		    fun getc ([z])    =>   THE z;
+		        getc (_ ! tl) =>   getc tl;
+		        getc NIL      =>   NULL;
+                    end;
+		end;
+
+	    ##########################################################################
+	    # Fate Frames Book-keeping (in support of quasi-stack frames)      *
+	    ##########################################################################
+
+	    # vl is a list of fate frames
+            # that were reused along this path
+	    #
+	    fun recover_frames (vl, DICTIONARY (value_l, closure_l, disp_l, what_map))
+                = 
+                DICTIONARY (value_l, closure_l, ndisp_l, what_map)
+                where
+		    fun h (a, l)
+                        =
+                        if  (member vl a)     l;
+                        else              a ! l;
+                        fi;
+
+		    ndisp_l   =   fold_right h [] disp_l;
+		end;
+
+	    # Save the fate closure
+            # "v" and its descendants:
+	    #
+	    fun save_frames (v, CLOSURE_REP (_, { free, kind => (fcf::rk::CONT | fcf::rk::FCONT), ... } ), dictionary)
+		    => 
+		    recover_frames (free, dictionary);
+
+	        save_frames (_, _, dictionary)
+                    =>
+                    dictionary;
+            end;
+
+
+	    # Install the set of live frames at
+            # the entrance of this fate:
+	    #
+	    fun install_frames (newd, dictionary as DICTIONARY (value_l, closure_l, disp_l, what_map))
+                = 
+		DICTIONARY (value_l, closure_l, newd @ disp_l, what_map);
+
+
+	    # Split the current disposable frame 
+            # list into two based on the context:
+	    #
+	    fun split_dictionary (DICTIONARY (value_l, closure_l, disp_l, w), inherit)
+                = 
+		{   my (d1, d2)   =   partition inherit disp_l;
+		
+                    (   DICTIONARY ([],     [],       d1, w),
+                        DICTIONARY (value_l, closure_l, d2, w)
+                    ); 
+		};
+
+
+
+	    # Return the set of disposable frames: 
+	    #
+	    fun dead_frames (DICTIONARY (_, _, disp_l, _))
+                =
+                disp_l;
+
+	end;                       #  Abstype dictionary 
+
+	Frags = List ( ( fcf::Callers_Info,				# If all callers are known, calling convention can be customized for space and time efficiency.
+			 fcf::Variable,					# fun_id -- an Int uniquely identifying the function.
+			 List( fcf::Variable ),				# fun_parameters.
+			 List( fcf::Type ),				# fun_parameter_types.
+			 fcf::Instruction,				# fun_body.
+			 Dictionary,
+			 Int,
+			 List( fcf::Value ),
+			 List( fcf::Value ),
+			 Null_Or( fcf::Variable )
+                       )
+		     );
+                     
+
+	##########################################################################
+	#               UTILITY FUNCTIONS FOR CALLEE-SAVE REGISTERS
+	##########################################################################
+
+	# It doesnot take the looping freevar
+        # into account, NEEDS MORE WORK.      XXX BUGGO FIXME
+	#
+	fun fetch_csregs (c, m, n, dictionary)
+            = 
+	    case (what_is (dictionary, c) )
+		#              
+	        CALLEE (_, csg, csf)
+		    => 
+		    (   cuthead (m, csg),
+			cuthead (n, csf)
+		    );
+		#
+	        FUNCTION { csdef => THE (csg, csf), ... }
+		    =>
+		    (   cuthead (m, csg),
+			cuthead (n, csf)
+		    );
+
+	        _ => ([], []);
+	    esac;
+
+	# Fetch m csgpregs and n csfpgregs 
+        # from the default fate c:
+	#
+	fun fetch_csvars (c, m, n, dictionary)
+            = 
+	    {   my (gpregs, fpregs)
+                    =
+                    fetch_csregs (c, m, n, dictionary);
+	    
+                ( uniqvar gpregs,
+                  uniqvar fpregs
+                );
+	    };
+
+
+
+	# Fill the empty csgpregs
+        # with the closure: 
+	#
+	fun fill_csregs (csg, c)
+            = 
+	    {   fun g (  [],  l) =>   l;
+		    g (a ! r, l) =>   g (r, a ! l);
+                end;
+		#
+		fun h (NULL ! r, x, c) =>  g (x, c ! r);
+		    h (   u ! r, x, c) =>  h (r, u ! x, c);
+		    h (      [], x, c) =>  bug "no empty slot in fillCSregs in make-nextcode-closures-g.pkg";
+                end;
+	    
+                h (csg, [], c);
+	    };
+
+
+	# Fill the empty cs formals
+        # with new variables,
+        # augment the dictionary:
+	#
+	fun fill_csformals (gpbase, fpbase, dictionary, ft)
+            =
+            fold_right   h   (fold_right g (dictionary,[],[]) fpbase)   gpbase
+            where
+	        fun h (THE v, (e, a, c))
+                        =>
+                        (augvar (v, e),   v ! a,   (ft v) ! c);
+
+		    h (NULL,   (e, a, c))
+			=>
+			{   v = make_highcode_variable ();
+
+			    (aug_value (v, fcf::bogus_pointer_type, e),   v ! a,   fcf::bogus_pointer_type ! c);
+			};
+                end;
+		#
+		fun g (THE v, (e, a, c))
+                        =>
+                        (augvar (v, e),   v ! a,   fcf::type::FLOAT64 ! c);
+
+		    g (NULL,   (e, a, c))
+			=>
+			{   v = make_highcode_variable ();
+
+			    (aug_value (v, fcf::type::FLOAT64, e),   v ! a,   fcf::type::FLOAT64 ! c);
+			};
+                end;
+	    end;
+
+
+	# Get all free variables in cs regs,
+        # augment the dictionary:
+	#
+	fun vars_csregs (gpbase, fpbase, dictionary)
+            =
+	    {   fun h (NULL,  (e, l))   =>   (e, l);
+		    h (THE v, (e, l))   =>   (augvar (v, e),   enter (v, l));
+                end;
+
+		my   (dictionary, gfree)   =   fold_right h (dictionary,[]) gpbase;
+		my   (dictionary, ffree)   =   fold_right h (dictionary,[]) fpbase;
+	    
+                (gfree, ffree, dictionary);
+	    };
+
+	# Get all free variables
+        # covered by the cs regs
+	#
+	fun freev_csregs (gpbase, dictionary)
+            =
+            fold_right h [] gpbase
+            where
+	        fun h (NULL,  l)
+			=>
+                        l;
+
+		    h (THE v, l)
+			=>
+			case (what_is (dictionary, v) )
+			    #			  
+			    (CLOSURE (CLOSURE_REP (_, { free, kind => (fcf::rk::CONT | fcf::rk::FCONT), ... } )))
+				=>
+				(merge (free, l));
+			    #	
+			    _ => l;
+			esac;
+                end;
+	    end;
+
+	# Partnull cuts out the head
+        # of csregs till the first
+        # empty position:
+	#
+	fun partition_to_null l
+            = 
+            h (l, [])
+            where
+	        fun h (      [], r)   =>   bug "partitionToNull. no empty position in closure 343";
+		    h (NULL ! z, r)   =>   (reverse (NULL ! r), z);
+		    h (   u ! z, r)   =>   h (z, u ! r);
+                end;
+	    end;
+
+	# Create a template of the
+        # base callee-save registers
+        # (n: extra cs regs)
+	#
+	fun make_base (regs, free, n)
+            = 
+            fold_right   h   (extra_dummy (n), [])   regs
+            where
+	        fun h (fcf::VAR v,  (r, z))
+			=> 
+			member free v   ??  ((THE v) ! r,  enter (v, z))
+					::  (  dumcs ! r,  z           );
+
+		    h (_, (r, z))
+			=>
+			(dumcs ! r, z);
+                end;
+	    end;
+
+	# Modify the base, retain only 
+        # those variables in free:
+	#
+	fun modify_base (base, free, n)
+            = 
+            fold_right   h   ([], free, n)   base
+            where
+	        fun h (s as (THE v), (r, z, m))
+			=> 
+			if (member free v)
+			    #
+			    (s ! r,   rmv (v, z),   m);
+			else
+			    if (m > 0)
+				#
+				(    s ! r,   z,   m - 1);
+			    else
+				(dumcs ! r,   z,   m    );
+			    fi;
+			fi;
+
+		    h (NULL, (r, z, m))
+			=>
+			(NULL ! r, z, m);
+                end;
+	    end;
+
+
+	# Fill the empty callee-save registers,
+        # assuming newv can be put in base:
+	#
+	fun fill_base (base, newv)
+            = 
+            h (base, [], newv)
+            where
+	        fun g (   [], s)   =>   s;
+		    g (a ! r, s)   =>   g (r, a ! s);
+                end;
+		#
+		fun h (                 s, l,    [])   =>   g (l, s);
+		    h (          NULL ! z, l, a ! r)   =>   h (z, (THE a) ! l, r);
+		    h ((u as (THE _)) ! z, l,     r)   =>   h (z,        u ! l, r);
+		    h (                [], l,     _)   =>   bug "no enough slots: fillBase 398 in make-nextcode-closures-g.pkg";
+                end;
+	    end;
+
+	##########################################################################
+	#                  VARIABLE ACCESS PATH LOOKUP
+	##########################################################################
+
+	# Simulating the OFFSET operation
+        # by reconstructing the closures:
+	#
+	fun offset ( (z, CLOSURE_REP (n, { functions, values, closures, ... } )), i, u, x, dictionary)
+            = 
+	    {   # Invariant: length functions > 1 
+
+		my (_, l)  =  list::nth (functions, n+i);                          
+
+		case u
+		    #
+		    fcf::VAR z'
+			=>
+			if  (z != z')  bug "unexpected case in offset 1";   fi;
+
+	             _   =>            bug "unexpected case in offset 2";
+                esac;
+
+		lab   =   (fcf::LABEL l, offp0);
+
+		vl  = 
+		    case (closures, values) 
+			#
+		        (([(v, _)], []) | ([], [v]))   =>   [lab, (fcf::VAR v, offp0)];
+		        ([], [])                       =>   [lab];
+		        _                              =>   bug "unexpected case in offset 3";
+                    esac;
+
+		my (header, dictionary)
+                    =
+                    record_el (fcf::rk::ESCAPE, vl, x, dictionary);
+	    
+                (header, dictionary);
+	    }
+
+	# If no_offset is FALSE, use this version
+        #
+	#   fun offset (_, i, record, name, dictionary)
+        #       =
+	#       {   header =   fn next =  fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, next };
+        #          (header, dictionary);
+	#       };
+
+
+	# Build the header by partially 
+        # following an access path:
+
+	also
+	fun pfollow (p, dictionary, header)
+            =
+	    case p
+		#
+		(v, np as ((fcf::SLOT 0)   |   (fcf::VIA_SLOT(_, fcf::SLOT 0))), [])
+		    =>
+		    ((fcf::VAR v, np), dictionary, header);
+
+		(v, np as (fcf::SLOT i), [c as (_, cr as CLOSURE_REP (n, z))])
+		    => 
+		    {   w           =  closure_lvar ();
+			my (nh, dictionary)  =  offset (c, i, fcf::VAR v, w, dictionary);
+			dictionary        =  augment ((w, CLOSURE (CLOSURE_REP (n+i, z))), dictionary);
+
+			((fcf::VAR w, fcf::SLOT 0), dictionary, header o nh);
+		    };
+
+		(v, fcf::VIA_SLOT (i, np),   (name, cr) ! z)
+		    => 
+		    {   dictionary =   augment ((name, CLOSURE cr), dictionary);
+			nhdr       =   fn next =  fcf::GET_FIELD_I { i, record => fcf::VAR v, name, type => fcf::bogus_pointer_type, next };
+			#
+			pfollow ((name, np, z), dictionary, header o nhdr);
+		    };
+
+		_ => bug "pfollow on an inconsistent path";
+	    esac
+
+
+	# Build the header by 
+        # following an access path:
+
+	also
+	fun follow (rootvar, type)
+            =
+            g
+            where  
+		#
+	        fun g ((v, fcf::SLOT 0, []), dictionary, h)
+			=>
+			(dictionary, h o (fn next = fcf::GET_ADDRESS_OF_FIELD_I { i => 0, record => fcf::VAR v, name => rootvar, next }));
+
+		    g ((v, fcf::SLOT i, [c]), dictionary, h)
+			=>
+			{   my (nh, dictionary)   =   offset (c, i, fcf::VAR v, rootvar, dictionary);
+
+			    #  Dictionary is updated by the client of "follow" 
+
+			    (dictionary, h o nh);
+			};
+
+		    g ((v, fcf::VIA_SLOT (i, fcf::SLOT 0), []), dictionary, h)
+			=>
+			(dictionary, h o (fn next = fcf::GET_FIELD_I { i, record => fcf::VAR v, name => rootvar, type, next }));
+
+		    g ((v, fcf::VIA_SLOT (i, p), (name, cr) ! z), dictionary, h)
+			=>
+			{   dictionary = augment ((name, CLOSURE cr), dictionary);
+			    #
+			    g ( (name, p, z),
+                                dictionary,
+                                h  o  (fn next =  fcf::GET_FIELD_I {  i,  record => fcf::VAR v,  name,  type => fcf::bogus_pointer_type,  next })
+                              );
+			}; 
+
+		    g _ => bug "follow on an inconsistent path";
+
+                end;
+	    end
+
+	##########################################################################
+	# recordEl finds the complete access paths for elements of a record.
+	# It returns a header for profiling purposes if needed.
+	##########################################################################
+
+	also
+	fun record_el (kind, l, name, dictionary)
+            =
+	    {   fun g (u as (fcf::VAR v, fcf::SLOT 0), (l, cl, header, dictionary))
+                    =>
+		    {   dictionary = case  (what_is (dictionary, v))		# May be unnecessary 
+				         #			          
+					 CLOSURE cr =>   save_frames (v, cr, dictionary);
+					 _          =>   dictionary;
+				     esac;
+
+			my (m, cost, nhdr, dictionary)
+                            =
+                            case (where_is (dictionary, v))
+				#			      
+			        DIRECT => (u, 0, header, dictionary);
+				#
+			        PATH (np as (start, path, _))
+				    => 
+				    {   n = fcf::lenp path;
+
+					nhdr =  if *cgo::static_closure_size_profiling
+						    #
+						    sprof::incln  n;
+
+						    header o (fn next =  fcf::STORE_TO_RAM { op   =>  fcf::p::ACCLINK,
+                                                                                             args =>  [fcf::INT n, fcf::VAR start],
+                                                                                             next
+                                                                                           }
+                                                             );
+						else
+						    header;
+						fi;
+
+					my (u, dictionary, nhdr)
+					    = 
+					    if (*cgo::sharepath)
+						#
+						pfollow (np, dictionary, nhdr);
+					    else
+						((fcf::VAR start, path), dictionary, nhdr);
+					    fi;
+
+					(u, n, nhdr, dictionary);
+				    };
+
+                            esac;
+		    
+                        (m ! l, cost ! cl, nhdr, dictionary);
+		    };
+
+		    g (u as (fcf::VAR _, _), _) => bug "unexpected case in recordEl";
+		    g (u, (l, cl, header, dictionary))  => (u ! l, 0 ! cl, header, dictionary);
+                end;
+
+		my (fields, cl, header, dictionary)
+                    =
+                    fold_right   g   (NIL, NIL, fn ce => ce; end, dictionary)   l;
+
+		header =    if (*cgo::allocprof)   header o (prof_rec_links cl);
+			    else			 header;
+			    fi;
+
+		nhdr =    fn next =  header (fcf::DEFINE_RECORD { kind, fields, name, next });
+	    
+                (nhdr, dictionary);
+	    };
+
+	############################################################################
+	# fix_access finds the access path to a variable.  A header to select the
+	# variable from the dictionary is returned, along with a new dictionary
+	# that reflects the actions of the header (this last implements a "lazy
+	# display").  fixAccess actually causes renamings -- the variable
+	# requested is rebound if it is not immediately available in the
+	# dictionary, these renamings are later eliminated by an "unrebind" pass
+	# which basically does the alpha convertions.
+	#
+	fun fix_access (args, dictionary)
+            = 
+            fold_right   access   (dictionary, fn x => x; end )   args
+            where
+		#
+	        fun access (fcf::VAR rootvar, (dictionary, header))
+			=>
+			{   what = what_is (dictionary, rootvar);
+
+			    my (dictionary, t)
+				=
+				case what 
+				    #
+				    VALUE x     =>  (dictionary, x);
+				    CLOSURE cr  =>  (save_frames (rootvar, cr, dictionary), fcf::bogus_pointer_type);
+				    _           =>  bug "Callee or Known in fixAccess closure";
+                                esac;
+
+
+			    case (where_is (dictionary, rootvar))
+				#
+				DIRECT => (dictionary, header);
+				#
+				PATH (p as (_, path, _))
+				    =>
+				    {   my (dictionary, header)
+					    =
+					    follow (rootvar, t) (p, dictionary, header);
+
+					dictionary = augment ((rootvar, what), dictionary);
+					#
+					fun prof_l (n)
+					    = 
+					    if (not *cgo::allocprof)
+						#
+						if (n > 0   and   *cgo::static_closure_size_profiling)
+						    #
+						    sprof::incln (n);
+
+						    fn next =  fcf::STORE_TO_RAM { op   =>  fcf::p::ACCLINK,
+                                                                                   args =>  [fcf::INT n, fcf::VAR rootvar],
+                                                                                   next
+                                                                                 };
+						else
+						    fn ce = ce;
+						fi;
+					    else
+						prof_links  n;
+					    fi;
+
+					( dictionary,
+					  header o prof_l (fcf::lenp path)
+					);
+				    };
+			    esac;
+			};
+
+		    access (_, y) => y;
+                end;
+	    end;
+
+	##########################################################################
+	# fixArgs is a slightly modified version of fixAccess. It's used to find
+	# the access path of function arguments in the APPLY expressions
+	#
+	fun fix_args (args, dictionary)
+            =
+            fold_right   access   ([], dictionary, fn x = x)   args
+            where
+	        fun access (z as (fcf::VAR rootvar), (result, dictionary, h))
+			=>
+			{   what = what_is (dictionary, rootvar);
+
+			    my (dictionary, t)
+				=
+				case what 
+				    #
+				    VALUE x    =>  (dictionary, x);
+				    CLOSURE cr =>  (save_frames (rootvar, cr, dictionary), fcf::bogus_pointer_type);
+				    _          =>  (dictionary, fcf::bogus_pointer_type);
+                                esac;
+
+
+			    case what
+				#
+				FUNCTION _   =>   bug "Known in fixArgs make-nextcode-closures-g.pkg";
+
+				CALLEE (l, csg, csf)
+				    => 
+				    {   nargs = (l ! csg)@csf@result;
+
+					my (dictionary, header)   =   fix_access (nargs, dictionary);
+
+					(nargs, dictionary, h o header);
+				    };
+
+
+			       _ =>     case (where_is (dictionary, rootvar))
+					    #
+					    DIRECT   =>   (z ! result, dictionary, h);
+					    #
+					    PATH (p as (_, path, _))
+						=>
+						{   my (dictionary, header)
+							=
+							follow (rootvar, t) (p, dictionary, h);
+
+						    dictionary = augment ((rootvar, what), dictionary);
+						    #
+						    fun prof_l (n)
+							= 
+							if (not *cgo::allocprof)
+							    #
+							    if (n > 0   and   *cgo::static_closure_size_profiling)
+								#
+								sprof::incln (n);
+
+								fn next =  fcf::STORE_TO_RAM { op   =>  fcf::p::ACCLINK,
+                                                                                               args => [fcf::INT n, fcf::VAR rootvar],
+                                                                                               next
+                                                                                             };
+							    else
+								fn ce = ce;
+							    fi;
+							else
+							    prof_links  n;
+							fi;
+
+
+						    (z ! result, dictionary, header o prof_l (fcf::lenp path));
+						};
+					esac;
+			     esac;
+			};
+
+		    access (z, (result, dictionary, h))
+			=>
+			(z ! result, dictionary, h);
+                end;
+	    end; 
+
+	##########################################################################
+	#                        CLOSURE DISPOSAL
+	##########################################################################
+
+	#  Dispose the set of dead fate closures 
+	#
+	fun dispose_frames (dictionary)
+            = 
+	    if mp::quasi_stack
+		#
+		vl = dead_frames (dictionary);
+
+		my (dictionary, header)
+		    =
+		    fix_access (map fcf::VAR vl, dictionary);
+		#
+		fun g (v ! r, h)
+			=>
+			g (r, h o (fn next = fcf::STORE_TO_RAM { op   =>  fcf::p::FREE,
+                                                                 args => [fcf::VAR v],
+                                                                 next
+                                                               }
+                          )       );
+
+		    g ([], h)
+			=>
+			if (*cgo::allocprof)   ((prof_ref_cell (length vl)) o header o h);
+			else			     header o h;
+			fi;
+		end;
+
+		(dictionary, g (vl, header));
+	    else
+                (dictionary, fn ce = ce);
+            fi;
+
+	##########################################################################
+	#                       CLOSURE STRATEGIES
+	##########################################################################
+
+	# Produce the nextcode header and
+        # modify the dictionary for
+        # the new closure:
+	#
+	fun make_closure (cname, contents, cr, record_kind, fkind, dictionary)
+            =
+	    {   if *cgo::static_closure_size_profiling 
+		    #
+		    sprof::incfk (fkind, length contents);
+                fi;
+
+
+		l   =   map   (fn v =  (v, offp0))   contents;
+
+		my (header, dictionary)
+                    =
+                    record_el (record_kind, l, cname, dictionary);
+
+		nhdr
+                    = 
+		    if *cgo::allocprof
+			#
+			prof = case fkind
+				    fcf::PRIVATE        =>  prof_kclosure;
+				    fcf::PUBLIC =>  prof_closure;
+				    _                             =>  prof_cclosure;
+			       esac;
+
+			(prof (length contents)) o header;
+		    else
+                        header;
+                    fi;
+
+		dictionary = augment ((cname, CLOSURE cr), dictionary);
+
+	    
+                case fkind
+		    #
+                    (fcf::FATE|fcf::PRIVATE_FATE) =>  (nhdr, dictionary, [cname]);
+		    _                             =>  (nhdr, dictionary, [     ]);
+                esac;
+	    };
+
+	# Build an unboxed closure,
+        # currently not disposable even if fkind==fate.
+	# Place int32's after floats for proper alignment
+	#
+	fun closure_ub_fn (cn, free, rk, fk, dictionary)
+            =
+	    {   nfree = map (fn (v, _, _) = v) free;
+
+		ul =  map  fcf::VAR  nfree;
+
+		cr = CLOSURE_REP (   0,
+                                {   functions => [],
+                                    closures  => [],
+                                    values    => nfree,
+			            core      => [],
+                                    free      => enter (cn, nfree),
+                                    kind      => rk,
+                                    stamp     => cn
+                                }
+                            );
+	    
+                ( make_closure (cn, ul, cr, rk, fk, dictionary),
+                  cr
+                );
+	    };
+	#
+	fun closure_unboxed (cn, int32free, otherfree, fk, dictionary)
+            =
+	    case (int32free, otherfree)
+		#
+		([], []) => bug "unexpected case in closureUnboxed 333";
+
+		([], _)
+		    => 
+		    {   rk = unboxed_kind (fk);
+
+			#1 (closure_ub_fn (cn, otherfree, rk, fk, dictionary));
+		    };
+
+		(_, [])
+		    =>
+		    {   rk = fcf::rk::I32BLOCK;
+
+			#1 (closure_ub_fn (cn, int32free, rk, fk, dictionary));
+		    };
+
+	       _ 
+		    => 
+		    {   rk1 = unboxed_kind (fk);
+			cn1 = closure_lvar();
+
+			(closure_ub_fn (cn1, otherfree, rk1, fk, dictionary))
+			    ->
+			    ((nh1, dictionary, nf1), cr1);
+			    
+
+			rk2 = fcf::rk::I32BLOCK;
+			cn2 = closure_lvar();
+
+			(closure_ub_fn (cn2, int32free, rk2, fk, dictionary))
+			    ->
+			    ((nh2, dictionary, nf2), cr2);
+
+			rk    = boxed_kind (fk);
+			nfree = map (fn (v, _, _) = v) (int32free@otherfree);
+			nfs   = [cn1, cn2];
+
+			ncs   = [(cn1, cr1), (cn2, cr2)];
+			ul    = map  fcf::VAR  nfs;
+
+			cr    = CLOSURE_REP (   0,
+					   {   functions => [],
+					       closures  => ncs,
+					       values    => [],
+					       core      => [],
+					       free      => enter (cn, nfs @ nfree),
+					       kind      => rk,
+					       stamp     => cn
+					   }
+				       );
+
+			(make_closure (cn, ul, cr, rk, fk, dictionary))
+			    ->
+			    (nh, dictionary, nfs);
+
+			(nh1 o nh2 o nh, dictionary, nfs);
+		    };
+	    esac;
+
+
+
+	# old code
+	#
+	# let nfree = map (fn (v, _, _) => v) (otherfree @ int32free)
+	#     ul = map  fcf::VAR  nfree   
+	#     rk = unboxedKind (fk)  
+	#     rk = case (int32free, otherfree) 
+	#               of ([], _) => rk
+	#                | (_,[]) => fcf::rk::I32BLOCK
+	#                | _ => bug "unimplemented int32 + float (nclosure.1)"
+	#     cr = CLOSURE_REP (0,{ functions=[], closures=[], values=nfree,
+	#                    core=[], free=enter (cn, nfree), kind=rk, stamp=cn } )
+	#  in makeClosure (cn, ul, cr, rk, fk, dictionary)
+	# end
+	
+
+	# Partition a set of free variables
+        # into small frames:
+	#
+	fun partition_by_frame (free)
+            = 
+	    if (not (mp::quasi_stack))
+		#                
+                (free, []);
+	    else 
+		size = mp::quasi_frame_size;
+		#
+		fun h ([ ], n, t)   =>      (t,[]);
+		    h ([v], n, t)   =>   (v ! t,[]);
+
+		    h (z as (v ! r), n, t)
+			=> 
+			if (n <= 1)
+			    #
+			    my (nb, nt)
+				=
+				h (z, size, []);
+
+			    cn = closure_lvar ();
+
+			    (cn ! t, (cn, nb) ! nt);
+			else
+			    h (r, n - 1, v ! t);
+			fi;
+		end;
+
+		h (free, size, []);
+            fi;
+
+	# Partition the free variables into
+        # closures and non-closures:
+	#
+	fun partition_by_kind (cfree, dictionary)
+            = 
+            fold_right   g   (NIL, NIL, NIL, NIL)   cfree
+            where
+	        fun g (v, (vls, cls, fv, cv))
+                    =
+		    {   chunk = what_is (dictionary, v);
+		    
+                        case chunk
+			    #                          
+			    VALUE t
+				=>
+				( v ! vls,
+				  cls,
+				  enter (v, fv),
+				  (small_chunk t)   ??   cv   ::   enter (v, cv)
+				);
+
+			    CLOSURE (cr as CLOSURE_REP (_, { free, core, ... } ))
+				=> 
+				( vls,
+				  (v, cr) ! cls,
+				  merge (free, fv),
+				  merge (core, cv)
+				);
+
+			    _   =>   bug "unexpected chunk in kind in nextcode/make-nextcode-closures-g.pkg";
+                        esac;
+		    };  
+	    end;
+
+
+	# Closure strategy:  flat 
+	#
+	fun flat (dictionary, cfree, rk, fk)
+            =
+	    {   my (topfv, clist)
+                    =
+                    case rk 
+			#
+			(fcf::rk::CONT | fcf::rk::FCONT)
+			    =>
+			    partition_by_frame (cfree);
+
+		        _ => (cfree, []);
+                    esac;
+
+		#
+		fun g ((cn, free), (dictionary, header, nf))
+                    = 
+		    {   my (vls, cls, fvs, cvs)
+                            =
+                            partition_by_kind (free, dictionary);
+
+			cr = CLOSURE_REP (   0,
+                                        {   functions => [],
+                                            values    => vls,
+                                            closures  => cls,
+				            kind      => rk,
+                                            stamp     => cn,
+                                            core      => cvs,
+                                            free      => enter (cn, fvs)
+                                        }
+                                    );
+
+			ul   =   (map fcf::VAR vls)   @   (map (fcf::VAR o #1) cls);
+
+			my (nh, dictionary, nf2)
+                            =
+                            make_closure (cn, ul, cr, rk, fk, dictionary);
+
+		    
+                        ( dictionary,
+                          header o nh,
+                          nf2 @ nf
+                        );
+		    };
+
+		my (dictionary, header, frames)
+                    =
+                    fold_right   g   (dictionary, fn ce => ce; end, [])   clist;
+
+		my (values, closures, fvars, cvars)
+                    =
+                    partition_by_kind (topfv, dictionary);
+
+	    
+                (closures, values, header, dictionary, fvars, cvars, frames); 
+	    };
+
+	# Closure strategy:  linked 
+	#
+	fun link (dictionary, cfree, rk, fk)
+	    =
+	    case (get_immed_closure  dictionary)
+		#
+		NULL => flat (dictionary, cfree, rk, fk);
+		#
+		THE (z, CLOSURE_REP(_,{ free, ... } ))
+		    =>
+		    {   not_in = sublist (not o (member free)) cfree;
+
+			if (length (not_in) == length (cfree))   flat (dictionary,           cfree,  rk, fk);
+			else                                     flat (dictionary, enter (z, cfree), rk, fk);
+			fi;
+		    };
+            esac;
+
+	# Partition a set of free variables
+        # into layered groups based on their
+        # lud:
+	#
+	fun partition_into_layers (free, ccl)
+            =
+	    {   fun find (r, (v, all) ! z)
+			=>
+			if (subset (r, all))   THE v;
+			else                   find (r, z);
+			fi;
+
+		    find (r, [])   =>   NULL;
+                end;
+
+		#  Current limit of a new layer:  3 
+		#
+		fun m ([],     t, b) =>  bug "unexpected case in partitionIntoLayers in closure";
+		    m ([v],    t, b) =>  (enter (v, t),           b);
+		    m ([v, w], t, b) =>  (enter (v, enter (w, t)), b);
+
+		    m (r, t, b)
+		        =>
+			case  (find (r, ccl))
+			   #
+			   NULL => 
+			       {   nc = closure_lvar ();
+
+				   ( enter (nc, t),
+				     (nc, r) ! b
+				   );
+			       };
+
+			   THE v =>
+			       (enter(v,t),  b);
+		       esac;
+                end;
+
+		#  Process the rest groups in free: 
+		#
+		fun h ([], i: Int, r, t, b)
+                        =>
+                        m (r, t, b);
+
+		    h ((v, _, j) ! z, i, r, t, b)
+			=> 
+			if (j == i)
+			    #			    
+			    h (z, i, enter (v, r), t, b);
+			else
+			    my (nt, nb) = m (r, t, b);
+
+			    h (z, j, [v], nt, nb);
+			fi;
+                end;
+
+
+		# Cut out the top group and
+                # then process the rest:
+		#
+		fun g ((v, _, i) ! z, j, t)
+			=> 
+			if (i == j)   g (z, j, enter (v, t));
+			else          h (z, i, [v], t, []);
+                        fi; 
+
+		    g ( [], j, t)
+			=>
+			(t, []);
+                end;
+
+
+		my (topfv, botclos)
+                    = 
+		    case (sortlud0 free) 
+			#
+			[] => ([], []);
+
+			(u as ((_, _, j) ! _))
+			    =>
+			    g (u, j, []);
+                    esac;
+	    
+		(topfv, botclos);
+	    };		                  #  fun partition_into_layers 
+
+
+
+	# Closure strategy:  layered 
+	#
+	fun layer (dictionary, cfree, rk, fk, ccl)
+            = 
+	    {   my (topfv, clist)
+                    =
+                    partition_into_layers (cfree, ccl);
+
+		#
+		fun g ((cn, vfree), (bh, dictionary, nf))
+                    = 
+		    {   my (cls, vls, nh1, dictionary, fvs, cvs, nf1)
+                            =
+                            flat (dictionary, vfree, rk, fk);
+
+			cr = CLOSURE_REP (   0,
+                                        {   functions => [],
+                                            values    => vls,
+                                            closures  => cls,
+				            kind      => rk,
+                                            stamp     => cn,
+                                            core      => cvs,
+                                            free      => enter (cn, fvs)
+                                        }
+                                    );
+
+			ul   =   (map fcf::VAR vls)   @   (map (fcf::VAR o #1) cls);
+
+			my (nh2, dictionary, nf2)
+                            =
+                            make_closure (cn, ul, cr, rk, fk, dictionary);
+		    
+                        ( bh o nh1 o nh2,
+                          dictionary,
+                          nf2 @ nf1 @ nf
+                        );
+		    };
+
+		my (header, dictionary, frames)
+                    =
+                    fold_right   g   (fn ce = ce, dictionary, [])   clist;
+
+		my (cls, vls, nh, dictionary, fvs, cvs, nfr)
+                    =
+                    flat (dictionary, topfv, rk, fk);
+
+	    
+                (cls, vls, header o nh, dictionary, fvs, cvs, nfr @ frames);
+
+	    };				# fun layer 
+
+
+	# Build a general closure, 
+        # cg_options::closure_strategy matters:
+	#
+	fun closure_boxed (cn, fns, free, fk, ccl, dictionary)
+            =
+	    {   rk = boxed_kind  fk;
+
+		my (cls, vls, header, dictionary, fvs, cvs, frames)
+                    =
+		    case *cgo::closure_strategy
+			#
+		        (4|3) =>   link  (dictionary, map #1 free, rk, fk);
+		        (2|1) =>   flat  (dictionary, map #1 free, rk, fk);
+		        _     =>   layer (dictionary,        free, rk, fk, ccl);
+                    esac;
+
+		my (cls, vls, header, dictionary, fvs, cvs, frames, labels)
+                    = 
+		    if (mut_rec fns)					# Invariants length fns > 1
+			#
+			nlabs = [ fcf::LABEL (#2 (head fns)) ];		#  No sharing. 
+
+			case (cls, vls)
+			    #
+			    (([],[_]) | ([_],[]) | ([],[]))
+				=> 
+				(cls, vls, header, dictionary, fvs, cvs, frames, nlabs);
+
+			    _ => {   nv = closure_lvar();
+				     ul = (map fcf::VAR vls) @ (map (fcf::VAR o #1) cls);
+				     nfvs = enter (nv, fvs);
+
+				     cr = CLOSURE_REP (0,{ functions => [], values => vls, closures => cls,
+						    kind => rk, stamp => nv, core => cvs, free => nfvs } );
+
+				     my (nh, nenv, nf) = make_closure (nv, ul, cr, rk, fk, dictionary);
+
+				     ( [(nv, cr)],
+				       [],
+				       header o nh,
+				       nenv,
+				       nfvs, 
+				       cvs,
+				       nf @ frames,
+				       nlabs
+				     );
+				 };
+		        esac;
+		    else
+                        (cls, vls, header, dictionary, fvs, cvs, frames, map (fcf::LABEL o #2) fns);
+                    fi;
+
+		nfvs   =   fold_right enter (enter (cn, fvs)) (map #1 fns);
+
+		cr = CLOSURE_REP ( 0,
+			  { functions => fns,
+			    values    => vls,
+			    closures  => cls,
+			    kind      => rk,
+			    stamp     => cn,
+			    core      => cvs,
+			    free      => nfvs
+			  }
+		        );
+
+		ul   =   labels   @   (map fcf::VAR vls)   @   (map (fcf::VAR o #1) cls);
+
+		my (nh, nenv, nf)
+                    =
+                    make_closure (cn, ul, cr, rk, fk, dictionary);
+	    
+                ( header o nh,
+                  nenv,
+                  cr,
+                  nf @ frames
+                );
+	    };            #  function closure_boxed 
+
+
+	##########################################################################
+	#                 CLOSURE SHARING VIA THINNING
+	##########################################################################
+
+	# Check if some free variables
+        # are really not necessary:
+	#
+	fun shorten_free ([], [], _)
+                =>
+                ([], []);
+
+	    shorten_free (gpfree, fpfree, cclist)
+		=> 
+		{   fun g ((v, free), l)
+                        =
+		        member3 gpfree v   ??   merge (rmv (v, free), l)
+                                           ::   l;
+
+		    all = fold_right g [] cclist;
+
+		    ( remove_v (all, gpfree),
+		      remove_v (all, fpfree)
+		    );
+		};
+        end;
+
+	# Check if ok to share with
+        # some closures in the
+        # enclosing dictionary:
+	#
+	fun thin_free (vfree, vlen, closlist, limit)
+            = 
+	    {   fun g (v, (l, m, n))
+                    = 
+		    if   (member3 vfree v   )   (v ! l, m+1, n);
+                    else                        (    l, m, n+1);
+                    fi;
+		#
+		fun h ((v, cr as CLOSURE_REP (_, { free, ... } )), x)
+                    = 
+		    {   my (zl, m, n)
+                            =
+                            fold_right   g   ([], 0, 0)   free;
+		    
+                        if (m < limit)                       x;
+                        else            (v, zl, m*10000-n) ! x;
+                        fi; 
+		    };
+		#
+		fun worse ((_, _, i), (_, _, j))
+                    =
+                    i < j; 
+		#
+		fun m ([], s, r, k)
+                        =>
+                        (s, r);
+
+		    m((v, x, _) ! y, s, r, k)
+			=> 
+			if (k < limit)
+			    #			    
+			    (s, r);
+			else
+			    my (nx, i, n, len)
+			       =
+			       accum_v (x, r);
+
+			    if (len < limit)
+				#
+				m (y, s, r, k);
+			    else
+				m ( y,
+				    add_v ([v], i, n, s),
+				    remove_v (nx, r),
+				    k - len
+				  );
+			    fi;
+                        fi;
+                end;
+
+		clist =   list_mergesort::sort worse (fold_right h [] closlist);
+	    
+                m (clist, [], vfree, vlen);
+	    };
+	#
+	fun thin_fp_free (free, closlist)
+            =
+            thin_free (free, length free, closlist, 1);
+
+	#
+	fun thin_gp_free (free, closlist)
+            =
+	    {   len = length free;
+
+		my (spill, free)
+                    = 
+		    if (len <= 1)   ([], free);
+		    else            thin_free (free, len, closlist, int::min (3, len));
+                    fi;
+	    
+                merge_v (spill, free);
+	    };
+
+	# Check if there is a closure
+        # containing all the free variables:
+	#
+	fun thin_all (         [], _, _)   =>   [];
+	    thin_all (free as [v], _, _)   =>   free;
+
+	    thin_all (free, cclist, n)
+		=> 
+		{   vfree
+			=
+			map (fn (v, _, _) => v; end ) free;
+		    #	
+		    fun g ((v, nfree), (x, y))
+			= 
+			if (not (subset (vfree, nfree)))
+			    #			    
+			    (x, y);
+			else
+			    len   =   length (difference (nfree, vfree));
+
+			    len < y   ??   (THE v, len)
+				      ::   (x, y);
+			fi;
+
+		    my (result, _)
+			=
+			fold_right g (NULL, 100000) cclist;
+
+
+		    case result
+			#
+			NULL  => free;
+			THE u => [(u, n, n)];
+                    esac;
+		};
+	end;
+
+	##########################################################################
+	# Generating the true free variables (freeAnalysis), each knownfunc is
+	# replaced by its free variables and each fate by its callee-save
+	# registers. Finally, if two free variables are functions from the same
+	# closure, just one of them is sufficient to access both.
+	##########################################################################
+	#
+	fun same_closure_opt (free, dictionary)
+            =
+	    case *cgo::closure_strategy
+		#
+	        1 => free;				# Flat   without aliasing.  
+	        3 => free;				# Linked without aliasing.  
+		#
+                _ => map #1 (uniq (map g free))		# All others have aliasing. 
+		     where
+			 fun g (v as (z, _, _))
+			     =
+			     (v, what_is (dictionary, z));
+			#
+			 fun uniq ((hd as (v, CLOSURE (CLOSURE_REP (_, { stamp => s1, ... } )))) ! tl)
+				 =>
+				 {   m' = uniq tl;
+				     #
+				     fun h (_, CLOSURE (CLOSURE_REP (_, { stamp => s2, ... } )))
+					     =>
+					     s1 == s2;
+
+					 h _ => FALSE;
+				     end;
+
+
+				     list::exists h m'   ??   m'
+							 ::   (hd ! m');
+				 };
+
+			     uniq (hd ! tl)  =>   hd ! uniq tl;
+			     uniq      NIL   =>   NIL;
+			 end;
+		     end;
+            esac;
+
+	fun free_analysis (gfree, ffree, dictionary)
+            =
+	    {   fun g (w as (v, m, n), (x, y))
+                    =
+		    case (what_is (dictionary, v))
+			#                      
+		        CALLEE (u, csg, csf)
+			    => 
+			    {   gv = add_v (entervar (u, uniqvar csg), m, n, x);
+
+				fv = add_v (uniqvar csf, m, n, y);
+
+				(gv, fv);
+			    };
+
+		        FUNCTION { gpfree, fpfree, ... }
+			    => 
+			    (   add_v (gpfree, m, n, x),
+				add_v (fpfree, m, n, y)
+			    );
+
+		        _ => (merge_v ([w], x), y);
+                    esac;
+
+		my  (ngfree, nffree)
+                     =
+                     fold_right g ([], ffree) gfree;
+
+	    
+                ( same_closure_opt (ngfree, dictionary),
+                  nffree
+                );
+	    };
+
+
+	##########################################################################
+	#                               MAIN FUNCTION
+	#
+	# This fun is called (only) from
+	#
+	#     src/lib/compiler/back/top/main/backend-tophalf-g.pkg
+	#
+	# where it constitutes one of the phases.
+	#
+	fun make_nextcode_closures (fk, f, vl, cl, ce)
+            =
+	    {
+
+		# **************************************************************************
+		# utility functions that depends on register configurations                *
+		# **************************************************************************
+
+
+
+		#  Get the current register configuration: 
+		#
+		maxgpregs    =  mp::num_int_regs;
+		maxfpregs    =  mp::num_float_regs - 2;  #  need 1 or 2 temps 
+		num_csgpregs =  mp::num_callee_saves;
+		num_csfpregs =  mp::num_float_callee_saves;
+		unboxedfloat =  mp::unboxed_floats;
+		untaggedint  =  mp::untagged_int;
+
+
+
+		# Check the validity of the callee-save configurations: 
+		#
+		my (num_csgpregs, num_csfpregs)
+                    = 
+		    if (num_csgpregs <= 0)
+			#		        
+			if (num_csfpregs > 0)   bug "Wrong CS config 434 - make-nextcode-closures-g.pkg";
+			else			(0, 0);
+			fi;
+
+		    else
+			if (num_csfpregs >= 0)  (num_csgpregs, num_csfpregs);
+			else			(num_csgpregs, 0);
+			fi;
+                    fi;
+
+		
+		base_dictionary = empty_dictionary ();				#  Initialize the base dictionary.
+
+		# Find out the nextcode type of an arbitrary program variable 
+		#
+		fun get_cty v          #  So "cty" == "nextcode type"? -- CrT 
+                    =
+                    case (what_is (base_dictionary, v))
+                        #  
+                        VALUE t =>  t;
+                        _       =>  fcf::bogus_pointer_type;
+                    esac;
+
+
+		# Check if a variable is a float number: 
+		#
+		is_flt
+                    =
+                    if unboxedfloat
+
+			 fn v = case (get_cty v)
+				    #	
+				    fcf::type::FLOAT64 => TRUE;
+				   _    => FALSE;
+				esac;
+		    else
+                         fn _ = FALSE;
+                    fi;
+
+		#
+		fun is_flt3 (v, _, _)
+                    =
+                    is_flt v;
+
+
+		#  Check if a variable is of boxed type --- no longer used! 
+		#
+		# isBoxed3 = 
+		#   if untaggedint then
+		#     (fn (v, _, _) => 
+		#        (case (get_cty v)
+		# 	 of fcf::type::FLOAT64 => bug "isBoxed never applied to floats in make-nextcode-closures-g.pkg"
+		# 	  | fcf::type::INT => FALSE
+		# 	  | _ => TRUE))
+		#   else 
+		#     (fn (v, _, _) =>
+		#        ((case (get_cty v)
+		# 	  of INT32t => FALSE
+		# 	   | _ => TRUE) except _ => TRUE))
+
+
+
+		#  Check if a variable is an int32: 
+		#
+		fun is_int32 (v, _, _)
+                    =
+                    case (get_cty v)
+                      	#
+                        fcf::type::INT32 =>  TRUE;
+                        _               =>  FALSE;
+                    esac;  
+
+
+
+		# Count the number of GP and FP
+                # registers needed for a
+                # list of lvars:
+		#
+		fun is_flt_cty fcf::type::FLOAT64  =>   unboxedfloat; 
+		    is_flt_cty _                   =>   FALSE;
+                end;
+		#
+		fun numgp (m, fcf::type::FATE ! z)   =>   numgp (m-num_csgpregs - 1, z);
+		    #
+		    numgp (m,    x ! z)   =>   if (is_flt_cty x)   numgp (m,  z);
+                                               else                numgp (m - 1, z);
+					       fi;
+
+		    numgp (m,       [])   =>   m;
+                end;
+
+		#
+		fun numfp (m, fcf::type::FATE ! z) =>   numfp (m-num_csfpregs, z);
+		    #	
+		    numfp (m,    x ! z)            =>   if (is_flt_cty x)   numfp (m - 1, z);
+                                                        else                numfp (m,     z);
+                                                        fi;
+
+		    numfp (m,      [])             =>   m;
+                end;
+
+
+
+		# **************************************************************
+		# Check the formal arguments of a function and replace the     *
+		# fate variable with a set of variables representing   *
+		# its callee- save register dictionary variables.              *
+		# **************************************************************
+
+		adjust_args
+                    = 
+		    {   fun adjust1 (args, l, dictionary)
+                            =
+                            fold_right   g   (NIL, NIL, NIL, NIL, NULL, dictionary)   (zip (args, l))
+                            where
+			        fun g ((a, t), (al, cl, cg, cf, rt, dictionary))
+                                    =
+				    if (t == fcf::type::FATE)
+                                        
+					 w   =   copy_highcode_variable a;
+
+					 my   (csg, clg)   =   extra_lvar (num_csgpregs, fcf::bogus_pointer_type);
+					 my   (csf, clf)   =   extra_lvar (num_csfpregs, fcf::type::FLOAT64);
+
+					 csgv   =   map fcf::VAR csg;
+					 csfv   =   map fcf::VAR csf;
+
+					 dictionary   =   aug_callee (a, fcf::VAR w, csgv, csfv, dictionary);
+
+					 nargs  =   w ! (csg @ csf);
+					 ncl    =   fcf::type::FATE ! (clg @ clf);
+
+					 dictionary   =   faug_value (nargs, ncl, dictionary);
+
+
+					 case   rt
+					     NULL   =>  (nargs @ al, ncl @ cl, csgv, csfv, THE a, dictionary);
+					     THE _  =>  bug "closure/adjustArgs: >1 fate";
+					 esac;
+				    else
+                                         (   a ! al,
+                                             t ! cl,
+                                             cg,
+                                             cf,
+                                             rt,
+                                             aug_value (a, t, dictionary)
+                                         );
+                                    fi;
+			    end;
+			#
+			fun adjust2 (args, l, dictionary)
+                            =
+                            fold_right   g   (NIL, NIL, NIL, NIL, NULL, dictionary)   (zip (args, l))
+                            where
+			        fun g ((a, t), (al, cl, cg, cf, rt, dictionary))
+                                    =
+				    (   a ! al,
+                                        t ! cl,
+                                        cg,
+                                        cf,
+                                        rt,
+                                        aug_value (a, t, dictionary)
+                                    );
+			    end;
+
+		  
+                        num_csgpregs > 0   ??   adjust1
+                                           ::   adjust2;
+		    };
+
+
+
+		# ***************************************************************************
+		# FreeClose::freemapClose calculates the set of free variables and their    *
+		# live range for each function naming. (check freeclose.pkg)               *
+		# ***************************************************************************
+
+		my ((fk, f, vl, cl, ce), snum, nfreevars, ekfuns)
+                    = 
+		    free_close::freemap_close (fk, f, vl, cl, ce);
+
+
+		#  old freevars code, now obsolete, but left here for debugging 
+		#  my (ofreevars, _, _) = FreeMap::freemapClose ce 
+
+
+
+		# *************************************************************************
+		# makenv: create the dictionaries for functions in a fcf::DEFINE_FUNS.                 *
+		#    here bcsg and bcsf are the current contents of callee-save registers *
+		#    bret is the default return fates, sn is the stage number of  *
+		#    the enclosing function, initDict has the same "whatIs" table as the  *
+		#    the base_dictionary, however it has the different "whereIs" table.   *
+		# *************************************************************************
+		fun makenv (init_dictionary, namings, bsn, bcsg, bcsf, bret)
+                    =
+                    {
+
+			/*** >  
+			#
+			fun checkfree (v) = 
+			  let free = ofreevars v
+			      my { fv=nfree, lv=loopv, size=_} = nfreevars v
+			      nfree = map #1 nfree
+			      if (free != nfree) 
+				      then (pr "^^^^ wrong free variable subset ^^^^ \n"; 
+					    pr "OFree in "; vp v; pr ":"; ilist free;
+					    pr "NFree in "; vp v; pr ":"; ilist nfree;
+					    pr "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ \n")
+				      else ()
+			      case loopv 
+				       of NULL => ()
+					| THE sfree =>
+					    (if subset (sfree, nfree) then ()
+					     else (pr "****wrong free variable subset*** \n"; 
+						   pr "Free in "; vp v; pr ":"; ilist nfree;
+						   pr "SubFree in "; vp v; pr ":";ilist sfree;
+						   pr "*************************** \n"))
+			   in () 
+			  end
+			apply checkfree (map #2 namings)
+
+			<***/
+
+			/*** > 
+
+			comment (fn() => (pr "BEGINNING MAKENV.\nFunctions: ";
+				   ilist (map #2 namings); pr "Initial dictionary:\n";
+				   printDict initDict; pr "\n"))
+
+			comment (fn() => (pr "BASE CALLEE SAVE REGISTERS: ";
+				   vallist bcsg; vallist bcsf; pr "\n"))
+			<***/
+
+			# Partition the function namings 
+                        # into different callers_info flavors:
+
+			my (escape_b, known_b, rec_b, callee_b, kcont_b)
+                            =
+                            partition_namings  namings;
+
+			# For the "numCSgpregs = 0" case,
+                        # treat kcontB and calleeB as escapeB:
+
+			my (escape_b, callee_b, kcont_b)
+                            = 
+			    num_csgpregs > 0   ??  (escape_b,            callee_b, kcont_b)
+			                       ::  (escape_b @ callee_b, [],       []     );
+
+			escape_v =   uniq (map #2 escape_b);
+			known_v  =   uniq (map #2 known_b );
+			#
+			fun knownlvar3 (v, _, _)
+                            =
+                            member known_v v;
+
+			# Check whether the basic
+                        # closure assumptions are
+                        # valid or not:
+
+			my (fix_kind, nret)
+                            = 
+			    case (escape_b, known_b, callee_b, rec_b, kcont_b) 
+
+			        ([], _,[ ], _,[ ]) => (fcf::PRIVATE,          bret      );
+				([],[],[v],[],[_]) => (fcf::PRIVATE_FATE, THE(#2 v));
+				([],[],[v],[],[ ]) => (fcf::FATE,                       THE(#2 v));
+				( _, _,[ ], _,[ ]) => (fcf::PUBLIC,   bret      );
+
+				_   =>   {   pr "^^^ Assumption No.2 is violated in closure phase  ^^^\n";
+					     pr "KNOWN namings: "; ilist (map #2 known_b);
+					     pr "ESCAPE namings: "; ilist (map #2 escape_b);
+					     pr "FATE namings: "; ilist (map #2 callee_b);
+					     pr "KNOWN_FATE namings: "; ilist (map #2 kcont_b);
+					     pr "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ \n"; 
+					     bug "Violating basic closure conventions make-nextcode-closures-g.pkg";
+                                         };
+                            esac;
+
+
+			# **************************************************************************
+			# Initial processing of known functions                                    *
+			# **************************************************************************
+
+			/*** >
+			comment (fn() => (pr "Known functions:"; ilist (map #2 knownB);
+						 pr "                "; iKlist (map #1 knownB)))
+			<***/
+
+			/* Get the call graph of all
+                         * known functions in this fcf::DEFINE_FUNS:
+                         */
+			known_b
+                            =
+			    map (   fn (fe as (_, v, _, _, _))
+				       =
+				       {   my { fv=>vn, lv=>lpv, size=>s } = nfreevars v;
+					   my (fns, other) = partition knownlvar3 vn;
+				       
+					  (   {   v,
+						  fe,
+						  other,
+						  fsz   => s,
+						  lpv
+					      },
+					      length fns,
+					      fns
+					  );
+				       }
+                                )
+                                known_b;
+
+			# Compute the closure of the call
+                        # graph of the known functions:
+			#
+			known_b
+                            = 
+                            close_call_graph  known_b
+                            where
+			        fun close_call_graph g
+                                    =
+				    {   fun get_neighbors l
+                                            =
+					    fold_right
+                                                  (fn (( { v, fe, other, fsz, lpv }, _, nbrs), n)
+                                                      =
+						      if (member3 l v)   merge_v (nbrs, n);
+                                                      else               n;
+                                                      fi
+                                                  )
+                                                  l
+                                                  g;
+					#
+					fun traverse ((x, len, nbrs), (l, change))
+                                            =
+					    {   nbrs' = get_neighbors nbrs;
+						len'  = length nbrs';
+					    
+                                                ((x, len', nbrs') ! l, change or len!=len');
+					    };
+
+					my (g', change)
+                                            =
+                                            fold_right traverse (NIL, FALSE) g;
+				    
+                                        change   ??  close_call_graph g'
+                                                 ::                   g';
+				    };
+			    end;
+
+
+			# Compute the closure of the
+                        # set of free variables:
+			#
+			known_b
+                            = 
+			    {   fun gather_nbrs l init
+                                    =
+				    fold_right
+                                        (fn (( { v, other, ... }, _, _), free)
+					     =
+					     case (get_vn (l, v))
+
+						  NULL => free;
+
+						  THE (m, n)
+						      => 
+						      merge_v (map (   fn (z, i, j)
+									 => 
+									 (   z,
+									     int::min (i, m),
+									     int::max (n, j)
+									 ); end 
+								  )
+								  other,
+								  free
+							 );
+					      esac
+                                          )
+					  init
+                                          known_b;
+			    
+                                map (fn ( { v, fe => (k, _, args, cl, body), other, fsz, lpv }, _, fns)
+                                        =
+				        {   v,
+                                            kind => k,
+                                            args,
+                                            cl,
+                                            body,
+                                            lpv,
+                                            fsz,
+					    other => gather_nbrs fns other, fns
+                                        }
+                                    )
+                                    known_b;
+			    };
+
+			# See which known function requires a closure, pass 1. 
+			#
+			my (known_b, recursive_flag)
+                            =
+                            fold_right
+			        (fn ((x as { v, kind, args, cl, other, fns, fsz, lpv, body } ), (zz, flag))
+                                    =
+				    {   free = remove_v (escape_v, other);
+
+					callc = (length other) != (length free);   #  Calls escaping-funs 
+
+					# If its arguments do not contain
+                                        # a return fate, supply one:
+					#
+					def_cont
+                                            =
+                                            case (kind, bret) 
+						#
+						(fcf::PRIVATE_TAIL_RECURSIVE, THE z)
+                                                    => 
+						    member3 free z   ??   bret
+                                                                     ::   NULL;   #  Issue warnings. 
+						 _  => NULL;
+                                            esac;
+
+					# Find out the true set
+                                        # of free variables:
+
+					my   (fpfree, gpfree)   =   partition is_flt3 free;
+					my   (gpfree, fpfree)   =   free_analysis (gpfree, fpfree, init_dictionary);
+
+					/*** > 
+					comment (fn() => (pr "*** Current Known Free Variables: ";
+						   iVlist gpfree; pr "\n"))
+					<***/
+
+					# Some free variables must stay
+                                        # in registers for fcf::KNOWN_TAIL:
+
+					my (rcsg, rcsf) = case def_cont 
+							       NULL  =>  ([],[]);
+							       THE k =>  fetch_csvars (k, #1 fsz, #2 fsz, init_dictionary);
+                                                          esac;
+
+					gpfree   =   remove_v (rcsg, gpfree);
+					fpfree   =   remove_v (rcsf, fpfree);
+
+					# The stage number of
+                                        # the current function:
+
+
+					sn = snum v;
+					#
+					fun deep1 (_, _, n)   =   (n > sn);
+					fun deep2 (_, m, n)   =   (m > sn);
+
+					/*** >
+					comment (fn() => (pr "*** Current Stage number and fun kind: ";
+						   ilist [sn]; ifkind kind; pr "\n"))
+					<***/
+
+					# For recursive functions, always
+                                        # spill deeper level free variables:
+                                        #
+					my ((gp_spill, gpfree), (fp_spill, fpfree), nflag)
+                                            =
+                                            case lpv 
+						#
+						THE _
+						    => 
+						    {   fun h ((v, _, _), l)
+							    = 
+							    case (what_is (init_dictionary, v))
+
+								(CLOSURE (CLOSURE_REP (_, { free, ... } )))
+								    =>
+								    merge (rmv (v, free), l);
+
+							       _ => l;
+							    esac;
+
+							gpfree  =  remove_v (fold_right h [] gpfree, gpfree);
+
+							gpfree_part
+							    = 
+							    if   (length (gpfree) < num_csgpregs)
+
+								 ([], gpfree);
+							    else
+								 partition deep1 gpfree;
+							    fi;
+
+							(   gpfree_part,
+							    partition deep1 fpfree,
+							    TRUE
+							);
+						    };
+
+						NULL
+						    =>
+						    if (ekfuns v)        ( (gpfree, []),
+									   (fpfree, []),
+									   flag
+									 );
+						    else                 ( partition deep2 gpfree,
+									   partition deep2 fpfree,
+									   flag
+									 );
+						    fi;
+                                            esac;
+
+					 /*** >
+					 comment (fn() => (pr "*** Current Spilled Known Free Variables: ";
+						    iVlist gp_spill; pr "\n"))
+					 <***/
+
+
+
+					#  Find out the register limit for this known function: 
+
+					my (gpnmax, fpnmax)
+                                            =
+                                            (maxgpregs, maxfpregs);       #  reglimit v 
+
+
+
+					# Does the set of free variables
+                                        # fit into FP registers?
+					#
+					n   =   int::min (numfp (maxfpregs - 1, cl), fpnmax) - length (rcsf);
+
+					my (fpfree, fp_spill)
+                                            =
+                                            spill_free (fpfree, n, rcsf, fp_spill);
+
+
+
+					# Does the set of free variables
+                                        # fit into GP registers?
+					#
+					m   =   int::min (numgp (maxgpregs - 1, cl), gpnmax) - length (rcsg);
+
+					my (gpfree, gp_spill)
+                                            =
+                                            spill_free (gpfree, m, rcsg, gp_spill);
+				    
+					( case (gp_spill, fp_spill) 
+
+					       ([], [])
+						   =>
+						   (x, gpfree, fpfree, [], [], callc, sn, fns) ! zz;
+				   /*
+					       | ([(z, _, _)],[])
+						 => 
+						 if   callc
+						 then 
+						      ( (x,           gpfree,  fpfree, gp_spill, [], callc, sn, fns) ! zz)
+						 else ( (x, enter (z, gpfree), fpfree,        [],[], FALSE, sn, fns) ! zz)
+				    */
+
+						_ => ( (x, gpfree, fpfree, gp_spill, fp_spill, TRUE, sn, fns) ! zz);
+					  esac,
+
+                                          nflag
+                                        );
+				    }
+                                )			# fn
+                                ([], FALSE)
+                                known_b;
+
+
+
+			#  See which known functions require a closure, pass 2. 
+
+			my (known_b, gpcollected, fpcollected)
+                            = 
+                            fold_right g ([],[],[]) known_b
+                            where
+			        fun check_nbrs l init
+                                    =
+				    fold_right
+                                          (fn (( { v, ... }, _, _, _, _, callc, _, _), c)
+                                              =
+					      c or (callc and (member3 l v))
+                                          )
+                                          init
+                                          known_b;
+				#
+				fun g (   (   { kind, v, args, cl, body, fns, fsz, lpv, other },
+                                              gpfree,
+                                              fpfree,
+                                              gp_spill,
+				              fp_spill,
+                                              callc,
+                                              sn,
+                                              zfns
+                                          ),
+                                          (z, gv, fv)
+                                      )
+                                    =
+				    {   callc = check_nbrs zfns callc;
+					l = copy_highcode_variable v;
+				    
+                                        ( { kind, sn, v, l, args, cl, body, gpfree, fpfree, callc }
+                                          !
+                                          z,
+
+                                          merge_v (gp_spill, gv),
+					  merge_v (fp_spill, fv)
+                                        );
+				    };
+			    end;
+
+
+
+			# **************************************************************************
+			# Initial processing of escaping functions                                 *
+			# **************************************************************************
+
+			/*** >
+			comment (fn() => (pr "Escaping functions:"; ilist (map #2 escapeB)))
+			<***/
+
+			# Get the set of free variables 
+                        # for escaping functions:
+
+			my (escape_b, escape_free)
+                            = 
+                            fold_right g ([],[]) escape_b
+                            where
+			        fun g ((k, v, a, cl, b), (z, c))
+                                    = 
+				    {   free = .fv (nfreevars v);
+					l    = copy_highcode_variable v;
+				    
+                                        ( { kind => k,
+                                            v,
+                                            l,
+                                            args => a,
+                                            cl,
+                                            body => b
+                                          }
+                                          !
+                                          z,
+
+                                          merge_v (free, c)
+                                        );
+				    };
+			    end;
+
+
+			# Get the true set of free variables
+                        # for escaping functions:
+			#
+			my (gpfree, fpfree)
+                            = 
+                            free_analysis (gpfree, fpfree, init_dictionary)
+                            where
+			        my (fns, other)
+                                     =
+                                     partition knownlvar3 (remove_v (escape_v, escape_free));
+
+				my (fpfree, gpfree)
+                                    =
+                                    partition is_flt3 other;
+
+				my (gpfree, fpfree)
+                                    = 
+				    fold_right
+                                        (fn ( { v, gpfree=>gv, fpfree=>fv, ... }, (x, y))
+                                            =
+					    case (get_vn (fns, v))
+
+						NULL => (x, y);
+
+						THE (m, n)
+						     =>
+						     ( add_v (gv, m, n, x),
+						       add_v (fv, m, n, y)
+						     );
+					    esac
+                                          )
+					  (gpfree, fpfree)
+                                          known_b;
+			    end;
+
+
+
+			# Here are all free variables that
+                        # ought to be put in the closure:
+
+			gp_free   =   merge_v (gpfree, gpcollected);
+			fp_free   =   merge_v (fpfree, fpcollected);
+
+
+
+
+			# *************************************************************************
+			# Initial processing of callee-save fate functions                *
+			# *************************************************************************
+
+			/*** >
+			comment (fn() => (pr "CS fates:"; ilist (map #2 calleeB);
+						 pr "                 "; iKlist (map #1 calleeB)))
+			<***/
+
+			# Get the set of free variables
+                        # for fate functions:
+
+			my (callee_b, callee_free, gpn, fpn, p_f)
+                            = 
+			    {   fun g ( (k, v, a, cl, b), (z, c, gx, fx, pf))
+                                    = 
+				    {   my { fv=>free, lv=>_, size=>(gsz, fsz) }
+                                            =
+                                            nfreevars v;
+
+					l    =   copy_highcode_variable v;
+					sn   =   snum v;
+
+					my (gpn, fpn, pflag)
+                                            =
+                                            case k 
+						#
+					        fcf::PRIVATE_FATE
+						    => 
+						    if (gsz > 0)
+							#
+							(0, 0, FALSE);   #  A temporary gross hack XXX BUGGO FIXME. 
+						    else 
+							x = numgp (maxgpregs - 1, fcf::type::FATE ! cl);
+							y = numfp (maxfpregs - 1, fcf::type::FATE ! cl);
+
+							(   int::min (x, gx),
+							    int::min (y, fx),
+							    FALSE
+							);
+						    fi;
+
+					        _ => (0, 0, sn == bsn+1);
+                                            esac;
+				    
+                                        ( { kind => k,
+                                            sn,
+                                            v,
+                                            l,
+                                            args => a,
+                                            cl,
+                                            body => b
+                                          }
+                                          !
+                                          z,
+
+                                          merge_v (free, c),
+					  int::min (gpn, gx),
+                                          int::min (fpn, fx),
+                                          pflag
+                                        );
+				    };
+
+			    
+                                case callee_b 
+				    #				  
+				    []  =>  ([],[], 0, 0, TRUE);
+				    _   =>  fold_right g ([],[], maxgpregs, maxfpregs, TRUE) callee_b;
+                                esac;
+			    };
+
+
+
+			# Get the true set of free variables
+                        # for fate functions:
+			#
+			my (fpcallee, gpcallee)   =   partition is_flt3 callee_free;
+			my (gpcallee, fpcallee)   =   free_analysis (gpcallee, fpcallee, init_dictionary);
+
+
+			# Get all sharable closures from
+                        # the enclosing dictionary:
+			#
+			my (gpclist, fpclist)
+                            = 
+                            fetch_closures (init_dictionary, lives, fix_kind)
+                            where
+			        lives = merge (   map #1 gpcallee,
+						  map #1 gp_free
+					      );
+
+				lives = case (known_b, escape_b) 
+					    #
+					    ( [ { gpfree => gv, ... } ],  [])
+						=>
+						merge (gv, lives);
+
+					   _ => lives;
+					esac;
+			    end;
+
+
+
+			#  Initialize the callee-save register default: 
+			#
+			safev = merge (   uniq (map #1 gpclist),
+					  uniq (map #1 fpclist)
+				      );
+
+			my (gpbase, gp_src) = make_base (bcsg, merge (safev, map #1 gpcallee), gpn);
+			my (fpbase, fp_src) = make_base (bcsf,               map #1 fpcallee, fpn);
+
+
+
+			# Thinning the set of free variables
+                        # based on each's contents:
+
+			my cclist    #  For user function, be more conservative 
+                            =
+			    case callee_b 
+				#
+				[]  =>   map (fn (v, cr) =   (v, fetch_free (v, cr, 2)))   (fpclist @ gpclist); 
+				_   =>   map (fn (v, CLOSURE_REP (_, { free, ... } )) =  (v, free)) (fpclist @ gpclist);
+                            esac;
+
+			my (gpcallee, fpcallee)
+                            =
+                            shorten_free (gpcallee, fpcallee, cclist);
+
+			my (gp_free, fp_free)
+                            =
+                            recursive_flag   ??   (gp_free, fp_free)
+			                     ::   shorten_free (gp_free, fp_free, cclist);
+
+
+
+			# *************************************************************************
+			# Targeting callee-save registers for fate functions              *
+			# *************************************************************************
+
+			# Decide which variables to put
+                        # into FP callee-save registers:
+
+			my (gp_spill, fp_spill, fpbase)
+                            = 
+			    {   numv =   length fpcallee;
+				numr =   num_csfpregs + fpn;
+			    
+                                if (numv <= numr)
+				    #                                     
+				    fpv = map #1 fpcallee;
+				    p   = if p_f  numr-numv; else 0;fi;
+
+				    my (fpbase, fpv, _) = modify_base (fpbase, fpv, p);
+
+				    nbase = fill_base (fpbase, fpv);
+
+				    ([], [], nbase);
+				else
+				    #  Need spill: 
+
+				    my (gpfree, fpcallee) = thin_fp_free (fpcallee, fpclist);
+
+				    numv = length fpcallee;
+
+				    if (numv <= numr)
+					#
+					fpv = map #1 fpcallee;
+					p = if p_f  numr-numv; else 0;fi;
+					my (fpbase, fpv, _) = modify_base (fpbase, fpv, p); 
+					nbase = fill_base (fpbase, fpv);
+
+					(gpfree, [], nbase);
+				    else 
+					fpfree = sortlud2 (fpcallee, fp_src);
+					my (cand, rest) = partvnum (fpfree, numr);
+					my (nbase, ncand, _) = modify_base (fpbase, cand, 0); 
+					nbase = fill_base (nbase, ncand);
+
+					(gpfree, uniq_v rest, nbase);
+				    fi;
+                                fi;
+			    };
+
+
+
+			# INT32: here is a place to filter out all the variables with INT32 types,
+			# they have to be put into closure (gp_spill), because by default, callee-save
+			# registers always contain pointer values.
+
+			my (i32gpcallee, gpcallee) =  partition  is_int32  gpcallee;
+			my (i32gp_free,   gp_free) =  partition  is_int32  gp_free;
+
+
+
+			# Collect all the FP free variables and
+                        # build a closure if necessary:
+
+			allfp_free   =   merge_v (fp_spill, fp_free);
+
+			my (gp_spill, gp_free, fpc_info)
+                            =
+                            case allfp_free 
+				#
+				[] => (gp_spill, gp_free, NULL);
+				#
+				_  =>   {   my (gpextra, ufree)   =   thin_fp_free (allfp_free, fpclist);
+
+					    my (gpextra, fpc)
+						= 
+						case ufree
+						    #
+						    [] => (gpextra, NULL);
+						    #
+						    ((_, m, n) ! r)
+							=> 
+							{   fun h ((_, x, y), (i, j))
+								=
+								(int::min (x, i), int::max (y, j));
+
+							    my (m, n)  =  fold_right h (m, n) r;
+
+							    cname   =   closure_lvar (); 
+
+							    gpextra
+								=
+								merge_v ( [ (cname, m, n) ], gpextra);
+
+							    ( gpextra,
+							      THE (cname, ufree)
+							    );
+							};
+						esac;
+
+					    case fix_kind
+						#
+						(fcf::FATE | fcf::PRIVATE_FATE)
+						    =>
+						    ( merge_v (gpextra, gp_spill),
+						      gp_free,
+						      fpc
+						    );
+
+						_ => ( gp_spill,
+						       merge_v (gpextra, gp_free),
+						       fpc
+						     );
+					    esac;
+					};
+                            esac;
+
+			# Here are free variables that should be
+                        # put in GP callee-save registers by
+			# convention: gp_spill must not contain
+                        # any int32 variables !
+
+			gpcallee   =   merge_v (gp_spill, gpcallee);
+
+			my (gpcallee, fpc_info)
+                            =
+                            case (i32gpcallee, fpc_info)
+				#
+				([], _)
+				    =>
+				    (gpcallee, fpc_info);
+				#
+				((_, m, n) ! r, NULL)
+				    =>
+				    {   fun h ((_, x, y), (i, j))
+					    =
+					    (int::min (x, i), int::max (y, j));
+
+					my (m, n) =  fold_right h (m, n) r;
+
+					cname = closure_lvar();
+
+					( merge_v ( [ (cname, m, n) ],
+						    gpcallee
+						  ),
+
+					  THE (cname, i32gpcallee)
+					);
+				    };
+				#
+				(vs, THE (cname, ufree))
+				    =>
+				    ( gpcallee,
+				      THE (cname, merge_v (vs, ufree))
+				    );
+                            esac;
+
+			    /*
+			       | (_, THE (cname, ufree))
+                                 =>
+                                 bug "unimplemented int32 + float (nclosure.2)"
+			    */
+
+			# If gp_spill is not null,
+                        # there must be an empty
+                        # position in gpbase:
+
+			my (gp_spill, gpbase)
+                            = 
+			    {   numv = length gpcallee;
+				numr = num_csgpregs + gpn; 
+			    
+                                if (numv <= numr)
+				    #                                    
+				    gpv = map #1 gpcallee;
+
+				    p   =   if   p_f      numr - numv;
+							    else   0;fi;
+
+				    my (gpbase, gpv, _)
+					=
+					modify_base (gpbase, gpv, p);
+
+				    nbase = fill_base (gpbase, gpv);
+
+				    ([], nbase);
+				else 
+				    gpcallee  =   thin_gp_free (gpcallee, gpclist);
+				    numv      =   length gpcallee; 
+
+				    if (numv <= numr)
+					#
+					gpv   =   map #1 gpcallee;
+
+					p   =   if   p_f      numr - numv;
+								else   0;fi;
+
+					my (gpbase, gpv, _)
+					    =
+					    modify_base (gpbase, gpv, p);
+
+					nbase = fill_base (gpbase, gpv);
+
+				        ([], nbase);
+				    else 
+					gpfree   =   sortlud2 (gpcallee, gp_src);
+
+					my (cand, rest)      =   partvnum (gpfree, numr - 1);
+
+					my (nbase, ncand, _) =   modify_base (gpbase, cand, 0);
+
+					my (nbhd, nbtl)      =   partition_to_null (nbase);
+
+					nbtl   =   fill_base (nbtl, ncand);
+
+					(uniq_v rest, nbhd@nbtl);
+				    fi;
+                                fi;
+			    };
+
+
+			# *************************************************************************
+			# Building the closures for all namings in this fcf::DEFINE_FUNS                      *
+			# *************************************************************************
+
+			# Collect all GP free variables that should be put in closures.
+			# Assumption: gp_spill does not contain any Int32s; they should
+			#	       not be put into gpcallee anyway.
+
+
+			allgp_free   =   merge_v (gp_spill, gp_free);
+
+			unboxed_free   =   i32gp_free;
+
+			# Filter out all unboxed-values.
+
+			# INT32: here is the place to filter out all 32-bit integers, 
+			# put them into unboxedFree, then you have to find a way to put both
+			# 32-bit integers and unboxed float numbers in the same record. 
+			# Currently, I use fcf::rk::FBLOCK to denote this kind of record_kind,
+			# you might want to put all floats ahead of all 32-bit ints.
+
+			#  my (allgpFree, unboxedFree) = partition isBoxed3 allgpFree 
+
+			my (allgp_free, fpc_info)
+                            = 
+			    case (fpc_info, unboxed_free)
+				#
+				(NULL, []) => (allgp_free, fpc_info);
+				#
+				(NULL, (_, m, n) ! r)
+				    =>
+				    {    c = closure_lvar();
+					#
+					 fun h ((_, x, y), (i, j))
+					     =
+					     (int::min (x, i), int::max (y, j));
+
+					 my (m, n) = fold_right h (m, n) r;
+
+					 ( merge_v ( [ (c, m, n) ],   allgp_free ),
+					   THE (c, unboxed_free)
+					 );
+				    };
+
+				(THE (c, a), r)
+				    =>
+				    (allgp_free, THE (c, merge_v (a, r)));
+                            esac;
+
+
+
+			#  Actually building the closure for unboxed values: 
+			#
+			my (fphdr, dictionary, nframes)
+                            =
+			    case fpc_info
+				#
+			        NULL => (fn ce = ce, init_dictionary,[]);
+				#
+				THE (c, a)
+				    =>
+				    {   my (int32a, a)
+					    =
+					    partition is_int32 a;
+
+					closure_unboxed (c, int32a, a, fix_kind, init_dictionary);
+				    };
+                            esac;
+
+
+
+			#  Sharing with the enclosing closures if possible: 
+			#
+			my (allgp_free, ccl)    #  For recursive function, be more conservative 
+                            =
+			    if recursive_flag      (thin_all      (allgp_free, cclist, bsn),  cclist);
+			    else                   (thin_gp_free  (allgp_free, gpclist),          []);
+                            fi;
+
+
+
+			#  Actually building the closure for all GP (or boxed) values: 
+			#
+			my (closure_info, closure_name, dictionary, gphdr, nframes)
+                            = 
+			    case (escape_b, allgp_free) 
+				#
+				([], [])
+				    =>
+				    (NULL, NULL, dictionary, fphdr, nframes);
+				#
+				([], [ (v, _, _) ])
+				    =>
+				    (NULL, THE v, dictionary, fphdr, nframes);
+				#
+				_ => 
+				    {   fns = map  (fn { v, l, ... } =  (v, l))  escape_b;
+
+					cn = closure_lvar();
+
+					my (header, dictionary, cr, nf)
+					    =
+					    closure_boxed (cn, fns, allgp_free, fix_kind, ccl, dictionary);
+
+					( THE cr,
+					  THE cn,
+					  dictionary,
+					  fphdr o header,
+					  nf @ nframes
+					);
+				    };
+                            esac;
+
+
+
+			# *************************************************************************
+			# Final construction of the dictionary for each known function:           *
+			# *************************************************************************
+
+			#  Add new known functions to the dictionary (side-efffect) 
+
+			nenv
+                            =
+                            case closure_name 
+				#
+				NULL
+				    => 
+				    fold_right
+					(fn ( { v, l, gpfree, fpfree, ... },   dictionary)
+					    =
+					    aug_known (v, l, gpfree, fpfree, dictionary)
+					)
+					dictionary
+					known_b;
+				#
+				THE cname
+				    =>
+				    fold_right
+					  (fn ( { v, l, gpfree, fpfree, callc, ... }, dictionary)
+					      =
+					      if callc   aug_known (v, l, enter (cname, gpfree), fpfree, dictionary);
+					      else       aug_known (v, l,               gpfree,  fpfree, dictionary);
+                                              fi
+					  )
+					  dictionary
+					  known_b;
+                            esac;
+
+			my known_frags:  Frags
+                            =
+                            fold_right g [] known_b
+                            where
+			        fun g ( { kind, sn, v, l, args, cl, body, gpfree, fpfree, callc }, z)
+                                    =
+				    {   dictionary = base_dictionary;   #  Empty whereIs map but same whatMap as nenv 
+
+					dictionary = fold_right augvar dictionary gpfree;
+					dictionary = fold_right augvar dictionary fpfree;
+
+					my (ngpfree, dictionary)
+                                            =
+					    case (callc, closure_name)
+						#
+						(FALSE, _)
+						    =>
+						    {   inc cgo::known_function;
+							(gpfree, dictionary);
+						    };
+						#
+						(TRUE, THE cn)
+						    =>
+						    {   inc cgo::known_cl_function;
+
+							(   enter  (cn, gpfree),
+							    augvar (cn, dictionary)
+							);
+						    };
+						#
+						(TRUE, NULL)
+						    =>
+						    bug "unexpected 23324 in closure";
+                                            esac;
+
+					my (nargs, ncl, ncsg, ncsf, nret, dictionary)
+                                            =
+                                            adjust_args (args, cl, dictionary);
+
+					nargs =   nargs @ ngpfree @ fpfree;
+
+					ncl   =   ncl   @   (map get_cty ngpfree)   @   (map get_cty fpfree);
+
+			    /*** >
+					comment (fn () => (pr "\nDictionary in known ";
+							vp v; pr ":\n"; printDict dictionary))
+			    <***/
+				    
+                                        case nret 
+					    #
+					    NULL  => ((fcf::PRIVATE, l, nargs, ncl, body, dictionary, sn, bcsg, bcsf, bret) ! z);
+					    THE _ => ((fcf::PRIVATE, l, nargs, ncl, body, dictionary, sn, ncsg, ncsf, nret) ! z);
+                                        esac;
+				    };
+			    end;
+
+
+
+			# ************************************************************************
+			# Final construction of the dictionary for each escaping function        *
+			# ************************************************************************
+
+			# The what_map in nenv is side-effected
+                        # with new escape namings:
+			#
+			my escape_frags:  Frags
+                            = 
+			    case (closure_info, escape_b)
+				#
+			        (_, [])   =>   [];
+				#
+			        (NULL, _) => bug "unexpected 23422 in closure";
+				#
+			        (THE cr, _)
+				    => 
+				    formap f escape_b
+				    where 
+					dictionary = base_dictionary;   #  Empty whereIs map but same whatMap as nenv 
+					#
+					fun f ( { kind, v, l, args, cl, body }, i)
+					    =
+					    {   my_cname = v;         #  My closure name 
+
+						dictionary = aug_esc_fun (my_cname, i, cr, dictionary);
+
+						my (nargs, ncl, ncsg, ncsf, nret, dictionary)
+						    =
+						    adjust_args (args, cl, dictionary);
+
+						nargs  =   make_highcode_variable() ! my_cname ! nargs;
+						ncl    =   fcf::bogus_pointer_type ! fcf::bogus_pointer_type ! ncl;
+						sn     =   snum v;
+			      /*** >
+						comment (fn () => (pr "\nDictionary in escaping ";
+							    vp v; pr ":\n";printDict dictionary))
+			      <***/
+
+						inc cgo::escape_function;    #  nret must not be NULL 
+
+						case nret
+						    #	
+						    THE _  =>  (kind, l, nargs, ncl, body, dictionary, sn, ncsg, ncsf, nret);
+						    NULL   =>  bug "no fate in escapefun in make-nextcode-closures-g.pkg";
+						esac;
+					    };
+
+				    end;
+                            esac;
+
+
+
+			###########################################################################
+			# Final construction of the dictionary for each callee-save fate
+			###########################################################################
+
+			# The what_map in nenv is side-effected
+                        # with new callee namings:
+			#
+			my (nenv, callee_frags:  Frags)
+                            = 
+			    case callee_b 
+				#
+			        []  => (nenv, []);
+				#
+				_   => 
+				    {   gpbase
+					    =
+					    case closure_name 
+						 NULL  => gpbase;
+						 THE _ => fill_csregs (gpbase, closure_name);
+					    esac;
+
+					ncsg   =   map  (fn (THE v) => fcf::VAR v;  NULL => fcf::INT 0;     end)  gpbase;
+					ncsf   =   map  (fn (THE v) => fcf::VAR v;  NULL => fcf::TRUEVOID ; end)  fpbase;	# This is the only place in the codebase where fcf::TRUEVOID is introduced.
+
+					my (benv, nenv)
+					    =
+					    split_dictionary (nenv, member (freev_csregs (gpbase, nenv)));
+					#
+					fun g ( { kind, sn, v, l, args, cl, body }, z)
+					    = 
+					    {   dictionary = install_frames (nframes, benv);
+
+						my (nk, dictionary, nargs, ncl, csg, csf)
+						    = 
+						    case kind 
+						       #
+							fcf::FATE
+							    => 
+							    {   dictionary = aug_callee (v, fcf::LABEL l, ncsg, ncsf, dictionary);
+
+								my (dictionary, a, c)
+								    = 
+								    fill_csformals (gpbase, fpbase, dictionary, get_cty);
+
+
+								( fcf::FATE,
+								  dictionary,
+								  (make_highcode_variable ())   !   (a @ args),
+								  fcf::bogus_pointer_type   !   (c @ cl),
+								  ncsg,
+								  ncsf
+								);
+							    };
+
+							fcf::PRIVATE_FATE
+							    => 
+							    {   (vars_csregs (gpbase, fpbase, dictionary))
+								    ->
+								    (gfv, ffv, dictionary);
+
+								csg  = cuttail (gpn, ncsg);
+								csf  = cuttail (fpn, ncsf);
+								dictionary = aug_kcont (v, l, gfv, ffv, csg, csf, dictionary);
+								gcl  = map get_cty gfv;
+								fcl  = map (fn _ = fcf::type::FLOAT64) ffv;
+
+								( fcf::PRIVATE,
+								  dictionary,
+								  args @ gfv @ ffv,
+								  cl   @ gcl @ fcl,
+								  csg,
+								  csf
+								);
+							    };
+
+
+							_ => bug "callee_frags in make-nextcode-closures-g.pkg 748";
+						    esac;
+
+						dictionary   =   faug_value (args, cl, dictionary);
+			      /*** >
+						comment (fn () =>
+							  (pr "\nDictionary in callee-save fate ";
+							   vp v; pr ":\n"; printDict dictionary))
+			      <***/
+
+						inc cgo::callee_function;
+
+						( nk,
+						  l,
+						  nargs,
+						  ncl,
+						  body,
+						  dictionary,
+						  sn,
+						  csg,
+						  csf,
+						  bret
+						)
+						!
+						z;
+					    };			# fun g
+
+
+					( nenv,
+					  fold_right g [] callee_b
+					);
+				    };
+                            esac;
+
+			frags   =   escape_frags @ known_frags @ callee_frags;
+
+			/*** >
+			comment (fn () => (pr "\nDictionary after fcf::DEFINE_FUNS:\n";
+						  printDict nenv; pr "MAKENV DONE.\n\n"));
+			<***/
+
+		    
+		        ( gphdr,
+                          frags,
+                          nenv,
+                          nret
+                        );
+		    };                              #  function makenv 
+
+
+
+		# **************************************************************************
+		#                         MAIN LOOP (closefix and close)                   *
+		# **************************************************************************
+		#
+		fun closefix (
+                        fk,
+                        f,
+                        vl,
+                        cl,
+                        ce,
+                        dictionary,
+                        sn,
+                        csg,
+                        csf,
+                        ret
+                    )
+                    =
+		    (   fk,
+			f,
+			vl,
+			cl,
+			close (
+			   ce,
+			   dictionary,
+			   sn,
+			   csg,
+			   csf,
+			   ret
+			)
+		    )
+		    except
+			LOOKUP (v, dictionary)
+			=
+			{   pr "LOOKUP FAILS on ";
+			    vp v;
+			    pr "\nin dictionary:\n";
+			    print_dictionary dictionary;
+			    pr "\nin function:\n";
+			    prettyprint_nextcode::print_nextcode_expression ce;
+			    bug "Lookup failure in nextcode/make-nextcode-closures-g.pkg";
+			}
+
+
+		also
+		fun close (ce, dictionary, sn, csg, csf, ret)
+                    =
+		    case ce
+			#
+			fcf::DEFINE_FUNS { funs, next }
+			    =>
+			    {   (makenv (dictionary, funs, sn, csg, csf, ret))
+				    ->
+				    (header, frags, nenv, nret);
+
+				fcf::DEFINE_FUNS
+                                  {
+				    funs =>  map closefix frags,
+				    next =>  header (close (next, nenv, sn, csg, csf, nret))
+				  };
+			    };
+
+			fcf::TAIL_CALL { func, args }
+			    =>
+			    {   chunk
+				    =
+				    case func
+					fcf::VAR v =>   what_is (dictionary, v);
+					_          =>   VALUE fcf::bogus_pointer_type;
+				    esac;
+
+				case chunk
+				    #
+				    CLOSURE (CLOSURE_REP (off, { functions, ... } ))
+					=>
+					{   my   (dictionary, h)   =   fix_access ( [func], dictionary );
+
+					    my   (nargs, dictionary, nh)   =   fix_args (args, dictionary);
+
+					    my   (dictionary, dh)   =   dispose_frames (dictionary);
+
+					    my   (_, label)    =   list::nth (functions, off);
+
+					    call =  fcf::TAIL_CALL
+                                                      {
+							func =>  fcf::LABEL label,
+							args =>  fcf::LABEL label ! func ! nargs
+						      };
+
+
+					    if (not *cgo::allocprof)
+						#
+						h (nh (dh (call)));
+					    else
+						h (nh (dh  case args
+							       [_] =>  prof_cntk_call call;
+								_  =>  prof_stdk_call call;
+							   esac
+						      )
+						  );
+					    fi;
+					};
+
+				    FUNCTION { label, gpfree, fpfree, csdef }
+					=>
+					{   (map fcf::VAR (gpfree @ fpfree))              ->    free;
+
+					    (fix_args (args @ free,  dictionary))         ->   (args, dictionary, h);
+
+					    (dispose_frames dictionary)                   ->   (dictionary, nh);
+
+					    (fcf::TAIL_CALL { func => fcf::LABEL(label), args })  ->   call;
+
+
+					    if (not *cgo::allocprof)
+						#
+						h (nh call);
+					    else
+						case csdef
+						    #
+						    NULL => h (nh (prof_known_call  call));
+						    _    => h (nh (prof_cscntk_call call));
+						esac;
+					    fi;
+					};
+
+				    CALLEE (label, ncsg, ncsf)
+					=>
+					{   (ncsg @ ncsf @ args)                     ->    nargs;
+
+					    (fix_access (label ! nargs, dictionary)) ->   (dictionary, h);
+
+					    (dispose_frames dictionary)              ->   (dictionary, nh);
+
+					    (fcf::TAIL_CALL { func =>  label,
+                                                          args =>  label ! nargs })  ->    call;
+
+
+					    if (not *cgo::allocprof)
+						#
+						h (nh call);
+					    else
+						case label 
+						    #
+						    fcf::LABEL _ =>  h (nh (prof_cscntk_call call));
+						    _            =>  h (nh (prof_cscnt_call  call));
+						esac;
+					    fi;
+					};
+
+				    VALUE t
+					=>
+					{   my   (dictionary, h)   =   fix_access ([func], dictionary);
+
+					    my   (nargs, dictionary, nh)   =   fix_args (args, dictionary);
+
+					    my   (dictionary,  dh)   =   dispose_frames (dictionary);
+
+					    l   =   make_highcode_variable();
+
+					    call   =   fcf::GET_FIELD_I {
+								i      =>  0,
+								record =>  func,
+								name   =>  l,
+								type   =>  t,
+								next   =>  (fcf::TAIL_CALL { func => fcf::VAR(l),
+                                                                                             args => fcf::VAR(l) ! func ! nargs
+                                                                                           }
+                                                                           )
+							     };
+
+					    if (not *cgo::allocprof)
+						#
+						h (nh (dh (call)));
+					    else
+						h (nh (dh (prof_std_call call)));
+					    fi;
+					};
+				esac;
+			     };
+
+			fcf::JUMPTABLE { i, xvar, nexts }
+			    =>
+			    {   (fix_access ([i], dictionary))
+				    ->
+				    (dictionary, header);
+
+				header (
+				    fcf::JUMPTABLE {
+				       i,
+				       xvar,
+				       nexts =>   map   (fn c =  close (c, dictionary, sn, csg, csf, ret))   nexts
+				    }
+				);
+			    };
+
+			fcf::DEFINE_RECORD { kind as fcf::rk::FBLOCK, fields, name, next }
+			    =>    
+			    {   my (dictionary, header)
+				    =
+				    fix_access (map #1 fields, dictionary);
+
+				dictionary = aug_value (name, fcf::bogus_pointer_type, dictionary);
+
+				header (
+				    fcf::DEFINE_RECORD {
+					kind,
+					fields,
+					name,
+					next => close (next, dictionary, sn, csg, csf, ret)
+				    }
+				);
+			    };
+
+			fcf::DEFINE_RECORD { kind, fields, name, next }
+			    =>
+			    {   (record_el (kind, fields, name, dictionary))
+				    ->
+				    (header, dictionary);
+
+				 nc =    header (
+					   close (
+					       next,
+					       aug_value (name, fcf::bogus_pointer_type, dictionary),
+					       sn,
+					       csg,
+					       csf,
+					       ret
+					   )
+					);
+
+
+				if (not *cgo::allocprof)   nc;
+				else                       prof_record (length fields) nc;
+				fi;
+			    };
+
+			fcf::GET_FIELD_I { i, record, name, type, next }
+			    =>
+			    {   (fix_access ([record], dictionary))
+				    ->
+				    (dictionary, header);
+
+				next =   close ( next,
+						 aug_value (name, type, dictionary),
+						 sn,
+						 csg,
+						 csf,
+						 ret
+					       );
+
+
+				header  (fcf::GET_FIELD_I { i, record, name, type, next });
+			    };
+
+			fcf::GET_ADDRESS_OF_FIELD_I { i, record, name, next }
+			    =>
+			    bug "GET_ADDRESS_OF_FIELD_I in pre-closure in nextcode/make-nextcode-closures-g.pkg";
+
+			fcf::IF_THEN_ELSE { op, args, xvar, then_next, else_next }
+			    =>
+			    {   (fix_access (args, dictionary)) ->   (dictionary, header);
+
+				then_next =   close (then_next, dictionary, sn, csg, csf, ret);
+				else_next =   close (else_next, dictionary, sn, csg, csf, ret);
+
+				header  (fcf::IF_THEN_ELSE { op, args, xvar, then_next, else_next });
+			    };
+
+			fcf::STORE_TO_RAM { op, args, next }
+			    =>
+			    {   (fix_access (args, dictionary))
+				     ->
+				    (dictionary, header);
+
+				next =   close (next, dictionary, sn, csg, csf, ret);
+
+
+				header (fcf::STORE_TO_RAM { op, args, next });
+			    };
+
+			fcf::FETCH_FROM_RAM { op, args, name, type, next }
+			    =>
+			    {   (fix_access (args, dictionary))
+				    ->
+				    (dictionary, header);
+
+				next = close (
+					    next,
+					    aug_value (name, type, dictionary),
+					    sn,
+					    csg,
+					    csf,
+					    ret
+					);
+
+				header (fcf::FETCH_FROM_RAM { op, args, name, type, next });
+			    };
+
+			fcf::MATH { op, args, name, type, next }
+			    =>
+			    {   (fix_access (args, dictionary))
+				    ->
+                                    (dictionary, header);
+
+				next =  close (
+					   next,
+					   aug_value (name, type, dictionary),
+					   sn,
+					   csg,
+					   csf,
+					   ret
+					);
+
+				header (fcf::MATH { op, args, name, type, next });
+			    };
+
+			fcf::PURE { op, args, name, type,  next  }
+			    =>
+			    {   (fix_access (args, dictionary))
+				    ->
+                                    (dictionary, header);
+				      
+
+				next =  close (
+					    next,
+					    aug_value (name, type, dictionary),
+					    sn,
+					    csg,
+					    csf,
+					    ret
+					);
+
+				header (fcf::PURE { op, args, name, type, next  });
+			    };
+
+			fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, next }
+			    =>
+			    {   (fix_access (args, dictionary))
+				    ->
+				    (dictionary, header);
+
+				next =  close (
+					    next,
+					    fold_left
+						(fn ((w, t), dictionary)
+						    =
+						    aug_value (w, t, dictionary)
+						)
+						dictionary
+						results,
+					    sn,
+					    csg,
+					    csf,
+					    ret
+					);
+
+				header (fcf::RAW_C_CALL { kind, cfun_name, cfun_type, args, results, next });
+			    };
+                  esac;
+
+		############################################################################
+		# Calling the "close" on the nextcode expression with proper initializations
+		#
+		nfe = 
+		    {                                                             
+                        if *cgo::static_closure_size_profiling   sprof::initfk ();   fi;
+
+			my (nvl, ncl, csg, csf, ret, dictionary)
+                            =
+                            adjust_args (vl, cl, base_dictionary);
+
+			dictionary = aug_value (f, fcf::bogus_pointer_type, dictionary);
+
+			nce = close (
+				ce,
+				dictionary,
+				snum f,
+				csg,
+				csf,
+				ret
+			      );
+		    
+                        ( fk,
+                          make_highcode_variable (),
+                          make_highcode_variable () ! f ! nvl,
+                          fcf::bogus_pointer_type ! fcf::bogus_pointer_type ! ncl,
+                          nce
+                        );
+		    };
+
+		# Temporary hack: measuring static		XXX BUGGO FIXME
+                # allocation sizes of closures.
+		# Previous calls to incfk and initfk
+                # are also part of this hack.
+		#                                                      		
+                if *cgo::static_closure_size_profiling
+		    #
+                    sprof::reportfk ();
+                fi;
+	     
+		un_rebind::unrebind nfe;
+
+	    };							# fun make_nextcode_closures
+    };								# generic package make_nextcode_closures_g 
+end;								# stipulate
+
+
+
+
+
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[{ \t]*\\(fun \\)"			 		 #
+# End:									 #
+##########################################################################
+
+
+
+## Copyright 1996 by Bell Laboratories 
+## Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+## released under Gnu Public Licence version 3.

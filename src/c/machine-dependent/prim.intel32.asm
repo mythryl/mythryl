@@ -84,7 +84,7 @@
 
 	// Stack frame.
 #define tempmem			REGOFF(0,ESP)
-#define baseptr			REGOFF(4,ESP)			// Needs to match   baseptr                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#define base_pointer			REGOFF(4,ESP)			// Needs to match   base_pointer                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 #define exnfate			REGOFF(8,ESP)			// Needs to match   exnptr		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 #define heap_allocation_limit	REGOFF(12,ESP)			// heapcleaner gets run when heap_allocation_pointer reaches this point.
@@ -101,7 +101,7 @@
 #define current_thread_ptr	REGOFF(28,ESP)
 
 #define run_heapcleaner_ptr	REGOFF(32,ESP)			// Needs to match   run_heapcleaner__offset  in  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
-								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/fatecode/emit-treecode-heapcleaner-calls-g.pkg
+								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner (below) which returns a REQUEST_CLEANING to
 								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/cleaner/call-cleaner.c
