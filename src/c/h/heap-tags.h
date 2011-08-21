@@ -11,7 +11,7 @@
 //  Much implicit knowledge about heapchunk sizing
 //  is buried in the max_words function in:
 // 
-//      src/lib/compiler/back/low/main/nextcode/pick-nextcode-funs-for-heaplimit-checks.pkg
+//      src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
 // 
 //  Changes which invalidate this knowledge could
 //  result in subtle heap-corruption bugs.
@@ -230,9 +230,11 @@
 #define GET_LENGTH_FROM_TAGWORD(tagword)	 (((Val_Sized_Unt)(tagword)) >> TAGWORD_LENGTH_FIELD_SHIFT)
 #define   GET_BTAG_FROM_TAGWORD(tagword)	((((Val_Sized_Unt)(tagword)) ANDOP BTAG_MASK) >> BTAG_SHIFT_IN_BITS)
     //
-    // WARNING: The above two appear to have hardwired clones in
-    //
+    // WARNING: There is a hardwired GET_BATAG_FROM_TAGWORD in
     //     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+    // Also, poly_equal () in src/lib/core/init/core.pkg
+    // also has implicit knowledge of a-tag and b-tag size and layout,
+    // as does rep() in src/lib/std/src/unsafe/unsafe-chunk.pkg
 
 #endif // TAGS_H
 

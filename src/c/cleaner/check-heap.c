@@ -97,7 +97,7 @@ static void   check_record_sib   (Sib* ap) {
 	    return;
 	}
 
-	switch (GET_BTAG_FROM_TAGWORD(tagword)) {
+	switch (GET_BTAG_FROM_TAGWORD tagword) {
 	    //
 	case PAIRS_AND_RECORDS_BTAG:
 	    len = GET_LENGTH_FROM_TAGWORD(tagword);
