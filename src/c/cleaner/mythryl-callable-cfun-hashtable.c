@@ -564,7 +564,7 @@ Val   get_cfun_address_from_heapfile_cfun_table   (Heapfile_Cfun_Table* table,  
     //
     // Given an external reference, return its address.
 
-    int	index = GET_LENGTH_FROM_TAGWORD(xref);
+    int	index = GET_LENGTH_IN_WORDS_FROM_TAGWORD(xref);
 
 //  debug_say("get_cfun_address_from_heapfile_cfun_table: %#x: %d --> %#x\n", xref, index, table->all_entries[index]->addr);
 

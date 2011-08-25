@@ -1255,7 +1255,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));									// FOLLOW_FWDCHUNK				def in   src/c/h/heap.h
 
 	    case PAIRS_AND_RECORDS_BTAG:
-		len = GET_LENGTH_FROM_TAGWORD( tagword );
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		break;
 
 	    default:
@@ -1336,7 +1336,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	        //
-		len = GET_LENGTH_FROM_TAGWORD( tagword );
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_ILK ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
@@ -1345,7 +1345,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 		//
-		len = GET_LENGTH_FROM_TAGWORD( tagword );
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_ILK ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
@@ -1384,7 +1384,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case RW_VECTOR_DATA_BTAG:
 		//
-		len = GET_LENGTH_FROM_TAGWORD( tagword );
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		break;
 
 	    case WEAK_POINTER_OR_SUSPENSION_BTAG:
@@ -1500,7 +1500,7 @@ static Val          forward_special_chunk   (
     new_chunk = sib->next_tospace_word_to_allocate;
     sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
 
-    switch (GET_LENGTH_FROM_TAGWORD(tagword)) {
+    switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {
         //
     case EVALUATED_LAZY_SUSPENSION_CTAG:
     case UNEVALUATED_LAZY_SUSPENSION_CTAG:
@@ -1629,7 +1629,7 @@ static Val          forward_special_chunk   (
     default:
 	die ( "strange/unexpected special chunk @ %#x; tagword = %#x\n", chunk, tagword );
         exit(1);										// Cannot execute -- just to quiet gcc -Wall.
-    }												// switch (GET_LENGTH_FROM_TAGWORD(tagword))
+    }												// switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword))
 
     chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
     chunk[ 0] =  (Val) (Punt) new_chunk;

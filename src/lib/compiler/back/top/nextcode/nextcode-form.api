@@ -126,25 +126,25 @@ herein
 	      | PUBLIC_FN
 	      | PRIVATE_FN
 	      | NEXT_FN
-	      | F64_NEXT_FN	# A NEXT_FN which happens to contain only float data, I think. We use this for 
-				# ncf::NEXT_FN|ncf::PRIVATE_NEXT_FN fns and F64_BLOCK for all other fns	in   src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg 
+	      | FLOAT64_NEXT_FN		# A NEXT_FN which happens to contain only float data, I think. We use this for 
+					# ncf::NEXT_FN|ncf::PRIVATE_NEXT_FN fns and FLOAT64_BLOCK for all other fns	in   src/lib/compiler/back/top/closures/make-nextcode-closures-g.pkg 
 	      #	
 	      #	
 	      #	
-	      | BLOCK
-	      | I32_BLOCK
-	      | F64_BLOCK	# We use this for records which happen to contain only floats		in   src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
-				# We use this to contain spilled float values				in   src/lib/compiler/back/top/nextcode/nextcode-preimprover-transform-g.pkg
+	      | INT32_BLOCK
+	      #	
+	      | FLOAT64_BLOCK		# We      use this for records which happen to contain only floats		in   src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+	      #				# We also use this to contain spilled float values				in   src/lib/compiler/back/top/nextcode/nextcode-preimprover-transform-g.pkg
 	      #	
 	      ;
 	};
 
 	Record_Kind = rk::Record_Kind;	
 
-	Pkind
-	  = VPT
-	  | RPT  Int
-	  | FPT  Int
+	Pointer_Kind			# Here used only by POINTER below.  Constructors used very rarely; this appears to be more code which died a-borning.
+	  = VPT				# Outside of this file, used only once, for 'ptr_type' (label for any pointer...?) in another file that died aborning:    src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.pkg
+	  | FPT  Int			# The 'Int' is length; appears to designate a pointer to a FLOAT64_BLOCK (packed Float64 data in a record/vector).
+	  | RPT  Int			# The 'Int' is length; appears to designate a pointer to a vanilla record.
 	  ;
 
 	package type: api {
@@ -164,9 +164,9 @@ herein
 	    #
 	    Number_Kind_And_Bits		# A clone of   Number_Kind_And_Bits   from   src/lib/compiler/back/top/highcode/highcode-baseops.api
 	      #
-	      = INT   Int			# Fixed-length   signed-integer type.
-	      | UNT   Int 			# Fixed-length unsigned-integer type.
-	      | FLOAT Int			# Fixed-length floating-point   type.	
+	      = INT   Int			# Fixed-length   signed-integer type.  We mainly have INT 8, INT 31 (tagged ints) and INT 32 (untagged word-length ints);  Very occasionally also INT 16.
+	      | UNT   Int 			# Fixed-length unsigned-integer type.  We mainly have UNT 31 and UNT32; very occasionally UNT 8 and UNT 16.
+	      | FLOAT Int			# Fixed-length floating-point   type.  We mainly have FLOAT 64; very occasionally FLOAT 32.
 	      ;
 
 	    Arithop
@@ -220,16 +220,20 @@ herein
 	    # Two-way branches dependent on pure inputs:
 	    #
 	    Branch
-	      = CMP  { op: Compare_Op, kindbits: Number_Kind_And_Bits }
-	      | FCMP  { op: Ieee754_Floating_Point_Compare_Op, size: Int }
-	      | BOXED
-	      | UNBOXED
-	      | PEQL
-	      | PNEQ
-	      | STREQ
-	      | STRNEQ
-	      ;
-		  # streq (n, a, b) is defined only if strings a and b have
+	      = COMPARE		{  op: Compare_Op,                         kindbits: Number_Kind_And_Bits }
+	      | COMPARE_FLOATS	{  op: Ieee754_Floating_Point_Compare_Op,  size:     Int                  }
+	      #
+	      | IS_BOXED						# ((i & 1) == 0)	TRUE  for pointers, FALSE for tagged ints -- see fun   'boxed' in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	      | IS_UNBOXED						# ((i & 1) != 1)	FALSE for pointers, TRUE  for tagged ints -- see fun 'unboxed' in   src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
+	      #
+	      | POINTER_EQL						# Compiles to regular int EQ comparison.
+	      | POINTER_NEQ						# Compiles to regular int EQ comparison.
+	      #
+	      | STRING_EQL						# Compares two strings of known length via fully-unrolled word-compare loop.
+	      | STRING_NEQ						# Compares two strings of known length via fully-unrolled word-compare loop.
+	      ;								# Introduced (only) by  do_switch_fn  in   src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+		  # STRING_EQL (n, a, b) is defined only
+		  # if strings a and b have exactly
 		  # exactly the same length n>1 
 
 	    # These overwrite existing values in ram.
@@ -239,41 +243,58 @@ herein
 	    #     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
 	    #
 	    Store_To_Ram
-	      = NUMUPDATE  { kindbits: Number_Kind_And_Bits }		# s[i] := v;	-- Updates on strings and floatvectors. (Perhaps special because they don't need heapcleaner logging?)
-	      | UNBOXED_SET						# v[i] := w;
-	      | BOXED_SET						# Code emitted is same as for 'UPDATE' (next).
-	      | UPDATE							# v[i] := w;	-- overwrites i-th slot in vector v.
-	      | SET_INT_REFCELL						# a := v;	-- Int-refcell stores are special because they don't need to be logged for the heapcleaner.
-	      | ASSIGN							# a := v;	-- For initializing records being constructed at top-of-heap...? (Seems to involve heap_ptr)
-	      | SET_EXCEPTION_HANDLER					# Global 'register'. (Actually in ram on intel32.)
-	      | SET_CURRENT_THREAD_REGISTER				# Global 'register'. (Actually in ram on intel32.)
-	      | SET_STATE_OF_SPECIAL					# Update tagword of weak pointer or 
+	      = SET_VECSLOT								# v[i] := w;	-- overwrites i-th slot in vector v.							Logs the update in heap changelog.
+	      | SET_VECSLOT_TO_BOXED_VALUE						# v[i] := w; Produces same code as 'SET_VECSLOT'. Used to store String and Float64 values. 		Logs the update in heap changelog.
 	      #
-	      | USELVAR							# Appears to generate no actual runtime code.
-	      | FREE							# Appears to generate no actual runtime code.
-	      | ACCLINK							# Appears to generate no actual runtime code.
-	      | PSEUDOREG_SET						# Appears to generate no actual runtime code.
-	      | SETMARK							# Appears to generate no actual runtime code.
+	      | SET_VECSLOT_TO_INT31_VALUE						# v[i] := w;										       Does NOT	log  the update in heap changelog.
+	      | SET_VECSLOT_TO_NUMERIC_VALUE { kindbits: Number_Kind_And_Bits }		# v[i] := w; Store to byte and float vectors.						       Does NOT	log  the update in heap changelog.
+	      # 
+	      | SET_REFCELL								# a := v;	-- Implements the ':=' op.								Logs the update in heap changelog.
+	      | SET_REFCELL_TO_INT31_VALUE						# a := v;	-- Implements the ':=' op for Ref(Int31) refcells.			       Does NOT	log  the update in heap changelog.
 	      #
-	      | RAWSTORE  { kindbits: Number_Kind_And_Bits }		# i      := x
-									# *(i+j) := x	-- (No scaling of i or j.)  Different ops depending on whether 'args' list length is 2 or 3.
-	      | RAWUPDATE  Type						# v[i]   := w	-- 64-bit writes for FLOAT64, 32-bit writes otherwise.
-	      ;								# These are presumably part of Matthias Blume's call-to-raw-C-function hack.
+	      | SET_EXCEPTION_HANDLER_REGISTER						# Global 'register'. (Actually in ram on intel32.)
+	      | SET_CURRENT_THREAD_REGISTER						# Global 'register'. (Actually in ram on intel32.)
+	      #
+	      | SET_STATE_OF_WEAK_POINTER_OR_SUSPENSION					# Update tagword of weak pointer or suspension.
+	      #
+	      | USELVAR									# Appears to generate no actual runtime code.
+	      | FREE									# Appears to generate no actual runtime code.
+	      | ACCLINK									# Appears to generate no actual runtime code.
+	      | PSEUDOREG_SET								# Appears to generate no actual runtime code.
+	      | SETMARK									# Appears to generate no actual runtime code.
+	      #
+	      # I think the next two are intended to allow writing
+	      # to random non-heap memory (e.g., malloc'd C stuff).
+	      # So far as I can see, nothing currently generates
+	      # SET_NONHEAP_RAMSLOT (presumably c-kit/c-glue might), but
+	      # SET_NONHEAP_RAM does get generated by    src/lib/compiler/back/top/nextcode/translate-anormcode-to-nextcode-g.pkg
+	      # One or both of these might also be intended to work
+	      # with RAWRECORDs on the heap:
+	      #
+	      | SET_NONHEAP_RAM  { kindbits: Number_Kind_And_Bits }			# i      := x													Does NOT update heap changelog.
+											# *(i+j) := x	-- (No scaling of i or j.)  Different ops depending on whether 'args' list length is 2 or 3.	Does NOT update heap changelog.
+
+	      | SET_NONHEAP_RAMSLOT  Type						# v[i]   := w	-- 64-bit writes for FLOAT64, 32-bit writes otherwise.						Does NOT update heap changelog.
+	      ;										# These are presumably part of Matthias Blume's call-to-raw-C-function hack.
 
 	    # These fetch from the store,
 	    # never have functions as arguments:
 	    #
 	    Fetch_From_Ram
-	      = BANG							# Presumably dref a refcell.
-	      | SUBSCRIPT						# Presumably fetch from a tuple/vector
-	      | NUMSUBSCRIPT  { kindbits: Number_Kind_And_Bits }	# Presumably fetch from a bytevector/floatvector etc.
-	      | GET_STATE_OF_SPECIAL					# Presumably get state of weak reference / ... (what were the other specials? thunks?)
-	      | DEFLVAR
-	      | GET_RUNTIME_ASM_PACKAGE_RECORD
-	      | GET_EXCEPTION_HANDLER
-	      | GET_CURRENT_THREAD_REGISTER
-	      | PSEUDOREG_GET
-	      | RAWLOAD  { kindbits: Number_Kind_And_Bits }
+	      = GET_REFCELL_CONTENTS							# Implements *ptr op.
+	      | GET_VECSLOT_CONTENTS							# Used to fetch 4-byte pointers from a tuple/vector
+	      | GET_VECSLOT_NUMERIC_CONTENTS  { kindbits: Number_Kind_And_Bits }	# Used to fetch 1-byte Int31 values and 8-byte floats from a vector.
+	      #	
+	      | GET_STATE_OF_WEAK_POINTER_OR_SUSPENSION					# Returns C-tag for given heapchunk:  (v[-1] >> tagbits-1) | 1 -- fetch tagword, right-shift six bits, set lowbit to 1 to make it a valid Int31.
+	      | DEFLVAR									# Seems to return zero.  This may be more dead code.
+	      #
+	      | GET_RUNTIME_ASM_PACKAGE_RECORD						# I can find no evidence that this actually generates code.  I suspect it is dead code.
+	      #
+	      | GET_EXCEPTION_HANDLER_REGISTER						# Load dedicated register.  (A ram "register" on x86.)
+	      | GET_CURRENT_THREAD_REGISTER						# Load dedicated register.  (A ram "register" on x86.)
+	      #
+	      | PSEUDOREG_GET								# Returns Int31; looks like dead code.
+	      | GET_FROM_NONHEAP_RAM  { kindbits: Number_Kind_And_Bits }		# Or maybe raw records on the heap?  Unclear.
 	      ;
 
 	    # These might raise exceptions,
@@ -291,41 +312,53 @@ herein
 	    # and don't access the store:
 	    #
 	    Pure
-	      = PURE_ARITH  { op: Arithop, kindbits: Number_Kind_And_Bits }
-	      | PURE_NUMSUBSCRIPT  { kindbits: Number_Kind_And_Bits }
-	      | LENGTH
-	      | CHUNK_LENGTH
+	      = PURE_ARITH  			   { op: Arithop, kindbits: Number_Kind_And_Bits }
+	      | PURE_GET_VECSLOT_NUMERIC_CONTENTS  { 		  kindbits: Number_Kind_And_Bits }
+	      #
+	      | VECTOR_LENGTH_IN_SLOTS
+	      | HEAPCHUNK_LENGTH_IN_WORDS			# Length excludes tagword itself.
+	      #	
 	      | MAKE_REFCELL
+	      #	
 	      | STRETCH  (Int, Int)
-	      | CHOP  (Int, Int)
-	      | COPY  (Int, Int)
+	      | CHOP     (Int, Int)
+	      | COPY     (Int, Int)
+	      #
 	      | STRETCH_TO_INTEGER  Int
-	      | CHOP_INTEGER  Int
+	      | CHOP_INTEGER        Int
+	      #
 	      | COPY_TO_INTEGER  Int
 	      | CONVERT_FLOAT { from: Number_Kind_And_Bits, to: Number_Kind_And_Bits }
-	      | SUBSCRIPTV
+	      | GET_RO_VECSLOT_CONTENTS
 
-	      | GET_BTAG_FROM_TAGWORD			# Get (b-tag << 2 | a-tag) from a tagword by doing (tagword & 0x7F).
-							# Used in rep()		in   src/lib/std/src/unsafe/unsafe-chunk.pkg
-							# Used in poly_equal()	in   src/lib/core/init/core.pkg
-	      | MAKE_SPECIAL
-	      | WRAP
-	      | UNWRAP
-	      | CAST
-	      | GETCON
-	      | GETEXN
-	      | FWRAP
-	      | FUNWRAP
-	      | IWRAP
-	      | IUNWRAP
-	      | I32WRAP
-	      | I32UNWRAP
-	      | GETSEQDATA
-	      | RECSUBSCRIPT
-	      | RAW64SUBSCRIPT
-	      | NEWARRAY0
-	      | RAWRECORD	    Null_Or( Record_Kind )	# Allocate uninitialized heapchunk; optionally initialize tag.
-	      | CONDITIONAL_MOVE    Branch			# Conditional move 
+	      | GET_BTAG_FROM_TAGWORD				# Get (b-tag << 2 | a-tag) from a tagword by doing (tagword & 0x7F).
+								# Used in rep()		in   src/lib/std/src/unsafe/unsafe-chunk.pkg
+								# Used in poly_equal()	in   src/lib/core/init/core.pkg
+	      | MAKE_WEAK_POINTER_OR_SUSPENSION
+	      #
+	      | CAST						# chi::ptr_type		These three produce identical code -- essentially just a copy. They differ only in the heapcleaner type.
+	      | WRAP						# chi::ptr_type
+	      | UNWRAP						# chi::i32_type
+	      #
+	      | GETCON						# Presumably "get value of a constructor".		These three produce identical code -- essentially just  *x  (fetch what arg points to).
+	      | GETEXN						# Presumably "get value of an exception".
+	      | GETSEQDATA					# Presumably "get data-part of a vector".
+	      #
+	      | WRAP_FLOAT64					# Store float in  a  fresh Float64 heap record.
+	      | UNWRAP_FLOAT64					# Fetch float value from a Float64 heap record.
+	      #
+	      | IWRAP						# Currently unimplemented.
+	      | IUNWRAP						# Currently unimplemented.
+	      #
+	      | WRAP_INT32					# Store 32-bit value in a fresh Int32 heap record.
+	      | UNWRAP_INT32					# Fetch 32-bit value  from  an  Int32 heap record.
+	      #
+	      | GET_RECSLOT_CONTENTS
+	      | GET_RAW64SLOT_CONTENTS
+	      #
+	      | MAKE_ZERO_LENGTH_VECTOR
+	      | ALLOT_RAW_RECORD    Null_Or( Record_Kind )	# Allocate uninitialized heapchunk; optionally initialize tag.
+	      | CONDITIONAL_LOAD    Branch			# If A then load B else load C -- done without branching.
 	      ;
 
 	     opp:  Branch -> Branch;
@@ -534,8 +567,8 @@ herein
 
 	cty_to_string:   Type       -> String;
 	has_raw_c_call:  Instruction -> Bool;
-	size_in_bits:    Type       -> Int;		# Size of its representation in bits.
-	is_float:        Type       -> Bool;		# Is it a floating point type? 
+	size_in_bits:    Type       -> Int;						# Size of its representation in bits.
+	is_float:        Type       -> Bool;						# Is it a floating point type? 
 	is_tagged:       Type       -> Bool; 
 
 	bogus_pointer_type:  Type;
@@ -551,9 +584,9 @@ end;
 # [1]  RECORD(kind,elements,result,fate).
 #      kind:     Record_Kind                        distinguishes vector / closure / ...
 #      elements: List( (Value, Fieldpath) )  lists all record elements, giving value and how to access that value.
-#      result:   Codetemp                           constructed record will be available bound to this variable in 'fate'.
-#      fate:     Instruction			    The "continuation" to be executed afterward.
-#      Note that the type of 'result' is not specified here but can always be reconstructed.
+#      to_temp:   Codetemp                           constructed record will be available bound to this variable in 'fate'.
+#      next:     Instruction			    The "continuation" to be executed afterward.
+#      Note that the type of 'to_temp' is not specified here but can always be reconstructed.
 #           -- Paraphrased from p49 of http://flint.cs.yale.edu/flint/publications/zsh-thesis.pdf
 
 ## Copyright 1996 by Bell Laboratories 

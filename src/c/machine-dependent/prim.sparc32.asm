@@ -339,7 +339,7 @@ ENTRY(asm_run_mythryl_task)
 	ld	[ Task +                 closure_byte_offset_in_task_struct ], STDCLOS     
 	ld 	[ Task +                  thread_byte_offset_in_task_struct ], CURRENT_THREAD_PTR
 	ld	[ Task +           link_register_byte_offset_in_task_struct ], STDLINK
-	ld	[ Task +          exception_fate_byte_offset_in_task_struct ], EXNFATE					// Restore exnptr.
+	ld	[ Task +          exception_fate_byte_offset_in_task_struct ], EXNFATE					// Restore exception_handler_register.
 	ld	[ Task + callee_saved_register_0_byte_offset_in_task_struct ], MISCREG0
 	ld	[ Task + callee_saved_register_1_byte_offset_in_task_struct ], MISCREG1
 	ld	[ Task + callee_saved_register_2_byte_offset_in_task_struct ], MISCREG2

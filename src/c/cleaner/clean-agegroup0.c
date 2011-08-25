@@ -380,7 +380,7 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v)   {
     switch (GET_BTAG_FROM_TAGWORD( tagword )) {
 	//
     case PAIRS_AND_RECORDS_BTAG:
-	len = GET_LENGTH_FROM_TAGWORD( tagword );
+	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 
 	#ifdef NO_PAIR_STRIP							// Nowhere else mentioned in codebase.
 	    sib = ag1->sib[RECORD_ILK];
@@ -413,21 +413,21 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v)   {
 
     case RW_VECTOR_DATA_BTAG:
 	//
-	len = GET_LENGTH_FROM_TAGWORD( tagword );
+	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
 	sib = ag1->sib[ VECTOR_ILK ];
 	break;
 
     case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	//
-	len = GET_LENGTH_FROM_TAGWORD( tagword );
+	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
 	sib = ag1->sib[ STRING_ILK ];
 	break;
 
     case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	//
-	len = GET_LENGTH_FROM_TAGWORD( tagword );
+	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
 	sib = ag1->sib[ STRING_ILK ];
 	//
@@ -485,7 +485,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
     sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
 
-    switch (GET_LENGTH_FROM_TAGWORD( tagword )) {
+    switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword )) {
         //
     case EVALUATED_LAZY_SUSPENSION_CTAG:
     case UNEVALUATED_LAZY_SUSPENSION_CTAG:
@@ -576,7 +576,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
             "strange/unexpected special chunk @ %#x; tagword = %#x\n",
             chunk, tagword
 	);
-    }								// switch (GET_LENGTH_FROM_TAGWORD(tagword))
+    }								// switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword))
 
     chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
     chunk[ 0] =  (Val) (Punt) new_chunk;

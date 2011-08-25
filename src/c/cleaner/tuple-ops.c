@@ -34,7 +34,7 @@ static int   GetLen   (Val r)   {
 	d = CHUNK_TAGWORD(r);
 	t = GET_BTAG_FROM_TAGWORD(d);
 	//
-	if (t == PAIRS_AND_RECORDS_BTAG)   return GET_LENGTH_FROM_TAGWORD( d );
+	if (t == PAIRS_AND_RECORDS_BTAG)   return GET_LENGTH_IN_WORDS_FROM_TAGWORD( d );
 	else	 			   return -1;
 
     case PAIR_KIND:
@@ -43,7 +43,7 @@ static int   GetLen   (Val r)   {
     case RECORD_KIND:
 	d = CHUNK_TAGWORD(r);
 	t = GET_BTAG_FROM_TAGWORD(d);
-	if (t == PAIRS_AND_RECORDS_BTAG)  return GET_LENGTH_FROM_TAGWORD(d);
+	if (t == PAIRS_AND_RECORDS_BTAG)  return GET_LENGTH_IN_WORDS_FROM_TAGWORD(d);
 	else				  return -1;
 
     default:

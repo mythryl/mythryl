@@ -100,14 +100,16 @@ static void   check_record_sib   (Sib* ap) {
 	switch (GET_BTAG_FROM_TAGWORD tagword) {
 	    //
 	case PAIRS_AND_RECORDS_BTAG:
-	    len = GET_LENGTH_FROM_TAGWORD(tagword);
+	    #
+	    len =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );			// Length excludes tagword.
+	    #
 	    for (i = 0;  i < len;  i++, p++) {
 		w = *p;
 		if (IS_TAGWORD(w)) {
 		    ERROR;
 		    debug_say (
 			"** @%#x: unexpected tagword %#x in slot %d of %d\n",
-			p, w, i, GET_LENGTH_FROM_TAGWORD(tagword));
+			p, w, i, GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword));
 		    return;
 		}
 		else if (IS_POINTER(w)) {
@@ -119,7 +121,7 @@ static void   check_record_sib   (Sib* ap) {
 	case RW_VECTOR_HEADER_BTAG:
 	case RO_VECTOR_HEADER_BTAG:
 	    //
-	    switch (GET_LENGTH_FROM_TAGWORD(tagword)) {
+	    switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {
 		//
 	    case TYPEAGNOSTIC_VECTOR_CTAG:
 		if (GET_BTAG_FROM_TAGWORD(tagword) == RW_VECTOR_HEADER_BTAG)	    check_pointer (p, *p, gen, RECORD_KIND, CHUNKC_ARRFLG);
@@ -138,7 +140,7 @@ static void   check_record_sib   (Sib* ap) {
 	    default:
 		ERROR;
 		debug_say ("** @%#x: strange sequence kind %d in record sib\n",
-		    p-1, GET_LENGTH_FROM_TAGWORD(tagword));
+		    p-1, GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword));
 		return;
 	    }
 
@@ -226,7 +228,7 @@ static void   check_string_sib   (Sib* ap)   {
 	        //
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	    case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
-		len = GET_LENGTH_FROM_TAGWORD(tagword);
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		break;
 
 	    default:
@@ -297,7 +299,7 @@ static void   check_vector_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_Map* 
 	switch (GET_BTAG_FROM_TAGWORD(tagword)) {
 	    //
 	case RW_VECTOR_DATA_BTAG:
-	    len = GET_LENGTH_FROM_TAGWORD(tagword);
+	    len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 	    break;
 
 	case WEAK_POINTER_OR_SUSPENSION_BTAG:
@@ -318,7 +320,7 @@ static void   check_vector_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_Map* 
 		ERROR;
 		debug_say (
 		    "** @%#x: Unexpected tagword %#x in rw_vector slot %d of %d\n",
-		    p, w, i, GET_LENGTH_FROM_TAGWORD(tagword));
+		    p, w, i, GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword));
 		for (p -= (i+1), j = 0;  j <= len;  j++, p++) {
 		    debug_say ("  %#x: %#10x\n", p, *p);
 		}

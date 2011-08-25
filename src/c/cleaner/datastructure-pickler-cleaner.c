@@ -708,7 +708,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));	        // This chunk has already been forwarded.
 
 	    default:
-		len = GET_LENGTH_FROM_TAGWORD(tagword);
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 	    }
 	    sib =  heap->agegroup[ gen-1 ]->sib[ RECORD_ILK ];
 	}
@@ -753,11 +753,11 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
 
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
-		len = GET_LENGTH_FROM_TAGWORD(tagword);
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		break;
 
 	    case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
-		len = GET_LENGTH_FROM_TAGWORD(tagword);
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
 			    if (((Punt) sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
@@ -788,7 +788,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));		// This chunk has already been forwarded.
 
 	    case RW_VECTOR_DATA_BTAG:
-		len = GET_LENGTH_FROM_TAGWORD(tagword);
+		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		break;
 
 	    case WEAK_POINTER_OR_SUSPENSION_BTAG:

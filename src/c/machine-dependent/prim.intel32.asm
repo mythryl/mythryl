@@ -84,8 +84,8 @@
 
 	// Stack frame.
 #define tempmem			REGOFF(0,ESP)
-#define base_pointer			REGOFF(4,ESP)			// Needs to match   base_pointer                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
-#define exnfate			REGOFF(8,ESP)			// Needs to match   exnptr		     in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#define base_pointer		REGOFF(4,ESP)			// Needs to match   base_pointer                  in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
+#define exnfate			REGOFF(8,ESP)			// Needs to match   exception_handler_register    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg
 
 #define heap_allocation_limit	REGOFF(12,ESP)			// heapcleaner gets run when heap_allocation_pointer reaches this point.
 								// Needs to match   heap_allocation_limit    in   src/lib/compiler/back/low/main/intel32/backend-lowhalf-intel32-g.pkg

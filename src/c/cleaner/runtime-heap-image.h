@@ -166,7 +166,7 @@ typedef struct {
 // External references.
 //
 #define IS_EXTERNAL_TAG( w )	(IS_TAGWORD( w ) && (GET_BTAG_FROM_TAGWORD( w ) == EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG))
-#define EXTERNAL_ID(     w )	GET_LENGTH_FROM_TAGWORD( w )
+#define EXTERNAL_ID(     w )	GET_LENGTH_IN_WORDS_FROM_TAGWORD( w )
 
 // Pointer tagging operations:  When saving and loading
 // heapgraphs on disk in
