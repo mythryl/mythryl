@@ -73,7 +73,7 @@ void   set_up_fault_handlers    (Task* task)   {
     //
     if (*SetConsoleCtrlHandler(ctrl_c_handler, TRUE)) {
 	//
-        die("cygwin:set_up_fault_handlers: can't install ctrl-c-handler\n");
+        die ("cygwin:set_up_fault_handlers: can't install ctrl-c-handler\n");
     }
 
     SET_UP_FLOATING_POINT_EXCEPTION_HANDLING ();    // Initialize the floating-point unit.
@@ -94,7 +94,7 @@ static int  page_fault_handler   (EXCEPTION_RECORD* exn,  void* foo,  CONTEXT* c
 
     if (*SELF_PTHREAD->executing_mythryl_code) {
 	//
-        die("cygwin:fault_handler: bogus fault not in Lib7: %#x\n", code);
+        die ("cygwin:fault_handler: bogus fault not in Lib7: %#x\n", code);
     }
 
     switch (code) {
@@ -114,7 +114,7 @@ static int  page_fault_handler   (EXCEPTION_RECORD* exn,  void* foo,  CONTEXT* c
 	break;
 
     default:
-	die("cygwin:fault_handler: unexpected fault @%#x, code=%#x", pc, code);
+	die ("cygwin:fault_handler: unexpected fault @%#x, code=%#x", pc, code);
     }
 
     return FALSE;

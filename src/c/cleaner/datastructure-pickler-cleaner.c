@@ -798,7 +798,16 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 		break;
 
 	    default:
-		die ("bad rw_vector tag %d, chunk = %#x, tagword = %#x", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
+		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword of chunk = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/cleaner/datastructure-pickler-cleaner.c",
+		      GET_BTAG_FROM_TAGWORD( tagword ),
+		      chunk,
+		      tagword,
+		      FORWARDED_CHUNK_BTAG,
+		      RW_VECTOR_DATA_BTAG,
+		      WEAK_POINTER_OR_SUSPENSION_BTAG
+		    );
+
+                exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
 	    sib =  heap->agegroup[ gen-1 ]->sib[ VECTOR_ILK ];

@@ -247,7 +247,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		    break;
 
 		default:
-		    die ("strange hugechunk state %d @ %#x in agegroup %d\n", dp->hugechunk_state, dp, age);
+		    die ("Strange hugechunk state %d @ %#x in agegroup %d\n", dp->hugechunk_state, dp, age);
                     exit(1);										// Cannot execute -- just to quiet gcc -Wall.
 		}
 	    }
@@ -791,7 +791,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 
 	    if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {
 		//
-		die("unable to allocate minimum size\n");							// Let's be more specific here! XXX BUGGO FIXME.
+		die("Unable to allocate minimum size\n");							// Let's be more specific here! XXX BUGGO FIXME.
 	    }
 	}
 
@@ -1259,7 +1259,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		break;
 
 	    default:
-		die ("bad record b-tag %#x, chunk = %#x, tagword = %#x", GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
+		die ("Bad record b-tag %#x, chunk = %#x, tagword = %#x", GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
@@ -1363,7 +1363,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		break;
 
 	    default:
-		die ("bad string b-tag %#x, chunk = %#x, tagword = %#x",  GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
+		die ("Bad string b-tag %#x, chunk = %#x, tagword = %#x",  GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
         }
@@ -1391,7 +1391,15 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		return forward_special_chunk( heap, max_sibid, chunk, sibid, tagword );
 
 	    default:
-		die ("bad rw_vector tag %#x, chunk = %#x, tagword = %#x", GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword );
+		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/cleaner/clean-n-agegroups.c",
+		      GET_BTAG_FROM_TAGWORD( tagword ),
+		      chunk,
+		      tagword,
+		      FORWARDED_CHUNK_BTAG,
+		      RW_VECTOR_DATA_BTAG,
+		      WEAK_POINTER_OR_SUSPENSION_BTAG
+		    );
+
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 

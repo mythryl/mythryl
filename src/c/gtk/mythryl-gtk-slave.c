@@ -159,7 +159,7 @@ static char text_buf[ 1024 ];
 static void   moan_and_die   (void)   {
     //        ============
     //
-    printf( "FATAL src/c/gtk/mythryl-gtk-slave.c: %s  exit(1)ing.\n", text_buf );
+    printf( "src/c/gtk/mythryl-gtk-slave.c:  Fatal error:  %s  exit(1)ing.\n", text_buf );
     fprintf( log_fd, "FATAL: %s   exit(1)ing.\n", text_buf );
     fclose(  log_fd );
     exit(1);
