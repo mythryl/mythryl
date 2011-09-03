@@ -131,7 +131,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
     // Allocate the vector.
     // Note that this might cause a GC:
     //
-    Val vec = allocate_nonempty_int32_vector( task, BYTES_TO_WORDS (nbytes) );
+    Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS (nbytes) );
 
     if (ReadFile( h, PTR_CAST(void*, vec), nbytes, &n, NULL)) {
 
@@ -144,7 +144,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
 
         if (n < nbytes) {
 	    //
-            shrink_fresh_int32_vector( task, vec, BYTES_TO_WORDS(n) );
+            shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );
         }
 
         /* Allocate header: */
@@ -201,7 +201,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
   // Allocate the vector.
   / Note that this might cause a GC.
   //
-  vec = allocate_nonempty_int32_vector( task, BYTES_TO_WORDS (nbytes) );
+  vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS (nbytes) );
 
   if (IS_CONIN(h)) {
     flag = ReadConsole(h,PTR_CAST(void*,vec),nbytes,&n,NULL);
@@ -226,7 +226,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
       return ZERO_LENGTH_STRING_GLOBAL;
     }
     if (n < nbytes) {
-        shrink_fresh_int32_vector( task, vec, BYTES_TO_WORDS(n) );
+        shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );
     }
     // Allocate header:
     SEQHDR_ALLOC (task, res, STRING_TAGWORD, vec, n);

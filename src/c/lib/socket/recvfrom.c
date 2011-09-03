@@ -58,7 +58,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     // Allocate the vector.
     // Note that this might cause a clean, moving things around:
     //
-    Val vec = allocate_nonempty_int32_vector( task, BYTES_TO_WORDS(nbytes) );
+    Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(nbytes) );
 
     int n;
 
@@ -88,7 +88,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     } else {
 
 	if (n < nbytes) {
-	    shrink_fresh_int32_vector( task, vec, BYTES_TO_WORDS(n) );		// Shrink the vector.
+	    shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );		// Shrink the vector.
 	}
 	SEQHDR_ALLOC (task, result, STRING_TAGWORD, vec, n);
     }

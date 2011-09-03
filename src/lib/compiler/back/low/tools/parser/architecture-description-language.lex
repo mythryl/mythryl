@@ -5,7 +5,7 @@
 #
 # Architecture Description Language is the syntax used in our architecture description files
 #
-#     src/lib/compiler/back/low/intel32/int32.architecture-description
+#     src/lib/compiler/back/low/intel32/int1.architecture-description
 #     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description
 #     src/lib/compiler/back/low/sparc32/sparc32.architecture-description
 #     src/lib/compiler/back/low/tools/basis.adl

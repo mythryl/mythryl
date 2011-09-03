@@ -18,8 +18,8 @@ Val   _lib7_Ncurses_move   (Task* task,  Val arg)   {    // : (Int, Int) -> Void
     //==================
     //
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
-	int y = INT32_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 0) );
-	int x = INT32_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 1) );
+	int y = INT1_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 0) );
+	int x = INT1_LIB7toC( GET_TUPLE_SLOT_AS_INT(arg, 1) );
 
 	int result = move( y, x );
 

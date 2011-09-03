@@ -43,15 +43,15 @@ typedef struct {
     // leading to our odump7 utility -- once it is written. :)
     //
     Unt8	magic[16];	                // Magic number.
-    Int32	number_of_imported_picklehashes;
-    Int32	number_of_exported_picklehashes;
-    Int32	bytes_of_import_tree;		// Bytes of references to values in other compiled_files.
-    Int32	bytes_of_dependency_info;	// The size of the makelib dependency information area.
-    Int32	bytes_of_inlinable_code;	// Nubmer of bytes of  inlinable intermediate code.
-    Int32	reserved;			// Reserved for future use.
-    Int32	pad;	        		// Padding for code segment alignment.
-    Int32	bytes_of_compiled_code;
-    Int32	bytes_of_symbolmapstack;		// Holds type the information for our exported values.
+    Int1	number_of_imported_picklehashes;
+    Int1	number_of_exported_picklehashes;
+    Int1	bytes_of_import_tree;		// Bytes of references to values in other compiled_files.
+    Int1	bytes_of_dependency_info;	// The size of the makelib dependency information area.
+    Int1	bytes_of_inlinable_code;	// Nubmer of bytes of  inlinable intermediate code.
+    Int1	reserved;			// Reserved for future use.
+    Int1	pad;	        		// Padding for code segment alignment.
+    Int1	bytes_of_compiled_code;
+    Int1	bytes_of_symbolmapstack;		// Holds type the information for our exported values.
     //
 }   Compiledfile_Header;
 

@@ -408,8 +408,8 @@
 
 
 
-typedef int __int32_t;
-typedef unsigned  __uint32_t;
+typedef int __int1_t;
+typedef unsigned  __uint1_t;
 
 
 
@@ -458,8 +458,8 @@ typedef unsigned long long  __uint64_t;
 
 
 
-typedef __int32_t __psint_t;
-typedef __uint32_t __psunsigned_t;
+typedef __int1_t __psint_t;
+typedef __uint1_t __psunsigned_t;
 
 
 
@@ -471,8 +471,8 @@ typedef __uint32_t __psunsigned_t;
 
 
  
-typedef __int32_t __scint_t;
-typedef __uint32_t __scunsigned_t;
+typedef __int1_t __scint_t;
+typedef __uint1_t __scunsigned_t;
 
 
 
@@ -897,7 +897,7 @@ typedef	char *		caddr_t;
 typedef	long		daddr_t;	 
 
 typedef	long		pgno_t;		 
-typedef	__uint32_t	pfn_t;		 
+typedef	__uint1_t	pfn_t;		 
 typedef	short		count_t;		 
 typedef unsigned long	basictime_t;
 typedef __int64_t	micro_t;
@@ -905,7 +905,7 @@ typedef __int64_t	micro_t;
 
 
 
-typedef __int32_t	pgcnt_t;	 
+typedef __int1_t	pgcnt_t;	 
 
 typedef enum { B_FALSE, B_TRUE } boolean_t;
 
@@ -952,7 +952,7 @@ typedef	ushort_t o_uid_t;
 typedef	o_uid_t	o_gid_t;		 
 typedef	short	o_nlink_t;		 
 typedef short	o_pid_t;		 
-typedef __uint32_t o_ino_t;		 
+typedef __uint1_t o_ino_t;		 
 
 
 typedef	unsigned long	mode_t;		 
@@ -1079,7 +1079,7 @@ typedef __scunsigned_t	bitlen_t;
 typedef int processorid_t;		 
 typedef int toid_t;			 
 typedef	long *qaddr_t;		       
-typedef __uint32_t inst_t;		 
+typedef __uint1_t inst_t;		 
 
  
 
@@ -1092,7 +1092,7 @@ typedef unsigned machreg_t;
  
 
 
-typedef __uint32_t fpreg_t;
+typedef __uint1_t fpreg_t;
 
 
 
@@ -1109,8 +1109,8 @@ typedef signed char             int8_t;
 typedef unsigned char           uint8_t;
 typedef signed short            int16_t;
 typedef unsigned short          uint16_t;
-typedef signed int              int32_t;
-typedef unsigned int            uint32_t;
+typedef signed int              int1_t;
+typedef unsigned int            uint1_t;
 typedef __int64_t 		int64_t;
 typedef __uint64_t		uint64_t;
 typedef __int64_t 		intmax_t;
@@ -1125,7 +1125,7 @@ typedef unsigned long int       uintptr_t;
 
 typedef	unsigned char	u_int8_t;
 typedef	unsigned short	u_int16_t;
-typedef	__uint32_t	u_int32_t;
+typedef	__uint1_t	u_int1_t;
 
 
  
@@ -1396,7 +1396,7 @@ typedef	long	fd_mask;
 
 
 typedef struct {                 
-        __uint32_t sigbits[2];
+        __uint1_t sigbits[2];
 } k_sigset_t;
 
 

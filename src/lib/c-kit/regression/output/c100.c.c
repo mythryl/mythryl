@@ -1,12 +1,12 @@
 
-typedef int __int32_t_t67;
-typedef unsigned int __uint32_t_t68;
+typedef int __int1_t_t67;
+typedef unsigned int __uint1_t_t68;
 typedef long long __int64_t_t69;
 typedef unsigned long long __uint64_t_t70;
-typedef __int32_t_t67 __psint_t_t71;
-typedef __uint32_t_t68 __psunsigned_t_t72;
-typedef __int32_t_t67 __scint_t_t73;
-typedef __uint32_t_t68 __scunsigned_t_t74;
+typedef __int1_t_t67 __psint_t_t71;
+typedef __uint1_t_t68 __psunsigned_t_t72;
+typedef __int1_t_t67 __scint_t_t73;
+typedef __uint1_t_t68 __scunsigned_t_t74;
 typedef unsigned int size_t_t75;
 typedef long fpos_t_t76;
 typedef __int64_t_t69 off64_t_t77;

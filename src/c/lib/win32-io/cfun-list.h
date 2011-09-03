@@ -26,7 +26,7 @@ CFUNC("write_vector","write_vector",      _lib7_win32_IO_write_vec,     "(unt32*
 CFUNC("write_rw_vector","write_rw_vector",      _lib7_win32_IO_write_arr,     "(unt32*word8array.Rw_Vector*int*int)->int")
 CFUNC("write_vec_txt","write_vec_txt",      _lib7_win32_IO_write_vec_txt,     "(unt32*word8vector.vector*int*int)->int")
 CFUNC("write_arr_txt","write_arr_txt",      _lib7_win32_IO_write_arr_txt,     "(unt32*word8array.Rw_Vector*int*int)->int")
-CFUNC("poll","poll", _lib7_win32_OS_poll,"unt32 list * (int32.Int * int) option -> unt32 list")
+CFUNC("poll","poll", _lib7_win32_OS_poll,"unt32 list * (int1.Int * int) option -> unt32 list")
 
 
 // COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies

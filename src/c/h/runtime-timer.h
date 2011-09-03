@@ -12,8 +12,8 @@
 // but others do not.
 //
 typedef struct {
-    Int32	seconds;
-    Int32	uSeconds;
+    Int1	seconds;
+    Int1	uSeconds;
 } Time;
 
 extern void  get_cpu_time             (Time* user_t,  Time* sys_t);

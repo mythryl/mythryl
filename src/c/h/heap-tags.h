@@ -128,7 +128,7 @@
 #define UNT8_VECTOR_CTAG	HEXLIT( 1 )
 #define UNT16_VECTOR_CTAG	HEXLIT( 2 )
 #define TAGGED_INT_VECTOR_CTAG	HEXLIT( 3 )
-#define INT32_VECTOR_CTAG	HEXLIT( 4 )	// Never used.
+#define INT1_VECTOR_CTAG	HEXLIT( 4 )	// Never used.
 #define FLOAT32_VECTOR_CTAG	HEXLIT( 5 )
 #define FLOAT64_VECTOR_CTAG	HEXLIT( 6 )
     //
@@ -139,7 +139,7 @@
     //    unt8_vector_ctag	  = 1;
     //    unt16_vector_ctag       = 2;
     //    tagged_int_vector_ctag       = 3;
-    //    int32_vector_ctag       = 4;
+    //    int1_vector_ctag       = 4;
     //    float32_vector_ctag     = 5;
     //    float64_vector_ctag     = 6;
     //

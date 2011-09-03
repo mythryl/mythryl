@@ -18,7 +18,7 @@
 Val   _lib7_Date_make_time   (Task* task,  Val arg) {
     //=================
     //
-    // Mythryl type:  (Int, Int, Int, Int, Int, Int, Int, Int, Int)   ->    int32::Int
+    // Mythryl type:  (Int, Int, Int, Int, Int, Int, Int, Int, Int)   ->    int1::Int
     //
     // This takes a 9-tuple with the fields: tm_sec, tm_min, tm_hour, tm_mday,
     // tm_mon, tm_year, tm_wday, tm_yday, tm_isdst, and returns the corresponding
@@ -50,7 +50,7 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 
 	Val result;
 
-	INT32_ALLOC(task, result, t);
+	INT1_ALLOC(task, result, t);
 
 	return result;
     }

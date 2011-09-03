@@ -67,7 +67,7 @@ static Val   LIB7_Poll   (Task *task, Val poll_list, struct timeval *timeout);
 Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     //=============
     //
-    // Mythryl type:   (List (Int, Unt), Null_Or(int32::Int, Int)) -> List( (Int, Unt)  )
+    // Mythryl type:   (List (Int, Unt), Null_Or(int1::Int, Int)) -> List( (Int, Unt)  )
     //
     // 'poll' is the Unix System V equivalent to BSD 'select'.
     //
@@ -88,7 +88,7 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
 
     timeout	= OPTION_GET(timeout);
 
-    tv.tv_sec	= TUPLE_GET_INT32(       timeout, 0 );
+    tv.tv_sec	= TUPLE_GET_INT1(       timeout, 0 );
     tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );
 
     tvp = &tv;

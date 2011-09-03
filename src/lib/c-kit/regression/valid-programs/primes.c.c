@@ -346,8 +346,8 @@
 
 
 
-typedef int __int32_t;
-typedef unsigned  __uint32_t;
+typedef int __int1_t;
+typedef unsigned  __uint1_t;
 
 
 
@@ -396,8 +396,8 @@ typedef unsigned long long  __uint64_t;
 
 
 
-typedef __int32_t __psint_t;
-typedef __uint32_t __psunsigned_t;
+typedef __int1_t __psint_t;
+typedef __uint1_t __psunsigned_t;
 
 
 
@@ -409,8 +409,8 @@ typedef __uint32_t __psunsigned_t;
 
 
  
-typedef __int32_t __scint_t;
-typedef __uint32_t __scunsigned_t;
+typedef __int1_t __scint_t;
+typedef __uint1_t __scunsigned_t;
 
 
 

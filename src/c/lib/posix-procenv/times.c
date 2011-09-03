@@ -40,11 +40,11 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
 
     if (t == -1)   return RAISE_SYSERR(task, -1);
 
-    INT32_ALLOC(task, e, t);
-    INT32_ALLOC(task, u, ts.tms_utime);
-    INT32_ALLOC(task, s, ts.tms_stime);
-    INT32_ALLOC(task, cu, ts.tms_cutime);
-    INT32_ALLOC(task, cs, ts.tms_cstime);
+    INT1_ALLOC(task, e, t);
+    INT1_ALLOC(task, u, ts.tms_utime);
+    INT1_ALLOC(task, s, ts.tms_stime);
+    INT1_ALLOC(task, cu, ts.tms_cutime);
+    INT1_ALLOC(task, cs, ts.tms_cstime);
     REC_ALLOC5(task, v, e, u, s, cu, cs);
 
     return v;

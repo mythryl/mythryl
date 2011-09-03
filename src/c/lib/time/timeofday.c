@@ -112,7 +112,7 @@ int   _lib7_time_gettimeofday   (int* microseconds)   {
 Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
     //====================
     //
-    // Mythryl type:   Void -> (int32::Int, Int)
+    // Mythryl type:   Void -> (int1::Int, Int)
     //
     // Return the time of day.
     // NOTE: gettimeofday() is not POSIX (time() returns seconds, and is POSIX and ISO C).
@@ -126,7 +126,7 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
 
     int c_seconds = _lib7_time_gettimeofday( &c_microseconds );
 
-    INT32_ALLOC(task, lib7_seconds, c_seconds);
+    INT1_ALLOC(task, lib7_seconds, c_seconds);
 
     Val		      result;
     REC_ALLOC2( task, result, lib7_seconds, TAGGED_INT_FROM_C_INT(c_microseconds) );

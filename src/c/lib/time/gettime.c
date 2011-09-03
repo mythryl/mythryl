@@ -16,7 +16,7 @@
 Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     //==================
     //
-    // Mythryl type: Void -> (int32::Int, Int, int32::Int, Int, int32::Int, Int)
+    // Mythryl type: Void -> (int1::Int, Int, int1::Int, Int, int1::Int, Int)
     //
     // Return this process's CPU time consumption
     // so far, broken down as:
@@ -44,9 +44,9 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
 								// On win32: get_cpu_time()     def in   src/c/main/win32-timers.c
     get_cpu_time (&usr, &sys);
 
-    INT32_ALLOC (task, usr_seconds, usr.seconds            );
-    INT32_ALLOC (task, sys_seconds, sys.seconds            );
-    INT32_ALLOC (task, gc_seconds,  pthread->cumulative_cleaning_cpu_time->seconds);
+    INT1_ALLOC (task, usr_seconds, usr.seconds            );
+    INT1_ALLOC (task, sys_seconds, sys.seconds            );
+    INT1_ALLOC (task, gc_seconds,  pthread->cumulative_cleaning_cpu_time->seconds);
 
     REC_ALLOC6 (task, result,
 	usr_seconds, TAGGED_INT_FROM_C_INT(usr.uSeconds),

@@ -78,7 +78,7 @@ print_if("setitimer.c: Turning OFF SIGALRM interval timer\n");
 	tmp = OPTION_GET(arg);
 
 	new_itv.it_interval.tv_sec	=
-	new_itv.it_value.tv_sec		= TUPLE_GET_INT32(tmp, 0);
+	new_itv.it_value.tv_sec		= TUPLE_GET_INT1(tmp, 0);
 
 	new_itv.it_interval.tv_usec	=
 	new_itv.it_value.tv_usec	= GET_TUPLE_SLOT_AS_INT(tmp, 1);
@@ -100,7 +100,7 @@ print_if("setitimer.c: Turning ON SIGALRM interval itimer, sec,usec = (%d,%d)\n"
     } else {
 
 	Val	tmp = OPTION_GET(arg);
-	int		mSecs = TUPLE_GET_INT32(tmp,0) * 1000 + GET_TUPLE_SLOT_AS_INT(tmp,1) / 1000;
+	int		mSecs = TUPLE_GET_INT1(tmp,0) * 1000 + GET_TUPLE_SLOT_AS_INT(tmp,1) / 1000;
 
 	if (mSecs <= 0)   return RAISE_ERROR( task, "win32 setitimer: invalid resolution");
 	else {

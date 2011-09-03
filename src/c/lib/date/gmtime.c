@@ -18,7 +18,7 @@
 Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
     //=================
     //
-    // Mythryl type:  int32::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
+    // Mythryl type:  int1::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
     //
     // Takes a UTC time value (in seconds), and converts it to a 9-tuple with
     // the fields:  tm_sec, tm_min, tm_hour, tm_mday, tm_mon, tm_year, tm_wday,
@@ -28,7 +28,7 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
-    time_t t =  (time_t) INT32_LIB7toC(arg);
+    time_t t =  (time_t) INT1_LIB7toC(arg);
 
     struct tm* tm =  gmtime (&t);
 

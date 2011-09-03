@@ -93,7 +93,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
 
 	int	    n = BYTES_TO_WORDS(len+1);				// Count "\0" too.
 
-	Val result = allocate_nonempty_int32_vector( task, n );
+	Val result = allocate_nonempty_int1_vector( task, n );
 
 	// Zero the last word to allow fast (word) string comparisons,
 	// and to guarantee 0 termination:
@@ -142,7 +142,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
 
     ASSERT(len > 0);
 
-    Val result = allocate_nonempty_int32_vector( task, nwords );
+    Val result = allocate_nonempty_int1_vector( task, nwords );
 
     // Zero the last word to allow fast (word) string comparisons,
     // and to guarantee 0 termination:
@@ -155,7 +155,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
 }
 
 
-Val   allocate_nonempty_int32_vector   (Task* task,  int nwords)   {
+Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
     //==============================
     // 
     // Allocate an uninitialized vector of 32-bit slots.
@@ -201,10 +201,10 @@ Val   allocate_nonempty_int32_vector   (Task* task,  int nwords)   {
     return result;
 }
 
-void   shrink_fresh_int32_vector   (Task* task,  Val v,  int new_length_in_words)   {
+void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)   {
     // =========================
     // 
-    // Shrink a freshly allocated int32 vector.
+    // Shrink a freshly allocated int1 vector.
     // This is used by the input routines that must pessimistically
     // pre-allocate space for more input than actually gets read.
 
@@ -341,7 +341,7 @@ Val   allocate_nonempty_unt8_vector   (Task* task,  int len)   {
 
     int		nwords = BYTES_TO_WORDS(len);
 
-    Val	result =  allocate_nonempty_int32_vector( task, nwords );
+    Val	result =  allocate_nonempty_int1_vector( task, nwords );
 
     // Zero the last word to allow fast (word)
     // string comparisons, and to guarantee 0

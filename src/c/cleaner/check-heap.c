@@ -131,7 +131,7 @@ static void   check_record_sib   (Sib* ap) {
 	    case UNT8_VECTOR_CTAG:
 	    case UNT16_VECTOR_CTAG:
 	    case TAGGED_INT_VECTOR_CTAG:
-	    case INT32_VECTOR_CTAG:
+	    case INT1_VECTOR_CTAG:
 	    case FLOAT32_VECTOR_CTAG:
 	    case FLOAT64_VECTOR_CTAG:
 		check_pointer (p, *p, gen, RECORD_KIND, CHUNKC_STRFLG);

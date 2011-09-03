@@ -207,7 +207,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		#endif
 
 		Val               result;
-		INT32_ALLOC(task, result, i);
+		INT1_ALLOC(task, result, i);
 
 		LIST_CONS(task, stk, result, stk);
 		space_available -= 2*WORD_BYTESIZE;

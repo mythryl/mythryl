@@ -41,9 +41,9 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     //    gid       : word
     //    sizehi    : word
     //    sizelo    : word
-    //    atime     : int32.Int
-    //    mtime     : int32.Int
-    //    ctime     : int32.Int
+    //    atime     : int1.Int
+    //    mtime     : int1.Int
+    //    ctime     : int1.Int
 
     int ftype;
     //
@@ -83,9 +83,9 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     #endif
 
     WORD_ALLOC (task, low_32_bits_of_size, (Val_Sized_Unt)(buf->st_size));
-    INT32_ALLOC (task, atime, buf->st_atime);
-    INT32_ALLOC (task, mtime, buf->st_mtime);
-    INT32_ALLOC (task, ctime, buf->st_ctime);
+    INT1_ALLOC (task, atime, buf->st_atime);
+    INT1_ALLOC (task, mtime, buf->st_mtime);
+    INT1_ALLOC (task, ctime, buf->st_ctime);
 
     // Allocate the stat record:
     //

@@ -55,7 +55,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     // Allocate the vector.
     // Note that this might cause a cleaning, moving things around:
     //
-    Val vec = allocate_nonempty_int32_vector( task, BYTES_TO_WORDS(nbytes) );
+    Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(nbytes) );
 
     print_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
     errno = 0;
@@ -73,7 +73,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     if (n == 0)   return ZERO_LENGTH_STRING_GLOBAL;
 
     if (n < nbytes) {
-	shrink_fresh_int32_vector( task, vec, BYTES_TO_WORDS(n) );        // Shrink the vector.
+	shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );        // Shrink the vector.
     }
 
     Val	                result;

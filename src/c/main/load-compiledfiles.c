@@ -635,7 +635,7 @@ static void   read_n_bytes_from_file   (FILE* file,  void* buf,  int nbytes,  co
 
 
 
-static Int32   read_packed_int32   (FILE* file,  const char* filename)   {
+static Int1   read_packed_int1   (FILE* file,  const char* filename)   {
     //         =================
     //
     // Read an integer in "packed" format.
@@ -660,7 +660,7 @@ static Int32   read_packed_int32   (FILE* file,  const char* filename)   {
 	if (!(c & 0x80)) break;
     }
 
-    return ((Int32)n);
+    return ((Int1)n);
 
     // XXX BUGGO FIXME this whole boyz-very-own-file-compression
     // nonsense is terminally silly.  If we need file compression,
@@ -714,9 +714,9 @@ static int   fetch_imports   (
 
     // How many children of 'tree_node' should we visit?
     //
-    Int32  kid_count
+    Int1  kid_count
         =
-        read_packed_int32 (file, filename);
+        read_packed_int1 (file, filename);
 
     if (!kid_count) {
 
@@ -734,7 +734,7 @@ static int   fetch_imports   (
 
             // Which child should we visit next?
             //
-	    Int32 kid_selector =  read_packed_int32( file, filename );
+	    Int1 kid_selector =  read_packed_int1( file, filename );
 
             // Visit it:
             //
@@ -792,8 +792,8 @@ static void   load_compiled_file   (
 
     Picklehash	export_picklehash;
 
-    Int32         segment_bytesize;
-    Int32         entrypoint_offset_in_bytes;
+    Int1         segment_bytesize;
+    Int1         entrypoint_offset_in_bytes;
 
     size_t          archive_offset;
     char*           compiledfile_filename = filename;
@@ -1035,15 +1035,15 @@ static void   load_compiled_file   (
     // The entrypoint offset of this first segment is always
     // zero, which is why we ignore it here:
     //
-    read_n_bytes_from_file( file, &segment_bytesize, sizeof(Int32), filename );
+    read_n_bytes_from_file( file, &segment_bytesize, sizeof(Int1), filename );
     //
     segment_bytesize = BIGENDIAN_TO_HOST( segment_bytesize );
     //
-    read_n_bytes_from_file( file, &entrypoint_offset_in_bytes, sizeof(Int32), filename );
+    read_n_bytes_from_file( file, &entrypoint_offset_in_bytes, sizeof(Int1), filename );
     //	
     // entrypoint_offset_in_bytes = BIGENDIAN_TO_HOST( entrypoint_offset_in_bytes );
 
-    bytes_of_code_remaining -=  segment_bytesize + 2 * sizeof(Int32);
+    bytes_of_code_remaining -=  segment_bytesize + 2 * sizeof(Int1);
     //
     if (bytes_of_code_remaining < 0) {
 	//
@@ -1088,17 +1088,17 @@ static void   load_compiled_file   (
 	//
         // Read the size and entry point for this code chunk:
 
-	read_n_bytes_from_file( file, &segment_bytesize, sizeof(Int32), filename );
+	read_n_bytes_from_file( file, &segment_bytesize, sizeof(Int1), filename );
       
 	segment_bytesize =  BIGENDIAN_TO_HOST( segment_bytesize );
 
-	read_n_bytes_from_file( file, &entrypoint_offset_in_bytes, sizeof(Int32), filename );
+	read_n_bytes_from_file( file, &entrypoint_offset_in_bytes, sizeof(Int1), filename );
 
 	entrypoint_offset_in_bytes =  BIGENDIAN_TO_HOST( entrypoint_offset_in_bytes );
 
         // How much more?
         //
-	bytes_of_code_remaining -=  segment_bytesize + 2 * sizeof(Int32);
+	bytes_of_code_remaining -=  segment_bytesize + 2 * sizeof(Int1);
 	//
 	if (bytes_of_code_remaining < 0)   die ("format error (code size mismatch) in .compiled file \"%s\"", filename);
 

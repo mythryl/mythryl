@@ -155,8 +155,8 @@ void   get_cpu_time   (Time* usrT,  Time* sysT)   {
     elapsed_timeb.millitm = now_timeb.millitm - start_timeb.millitm;
 
     if (usrT != NULL) {
-	usrT->seconds = (Int32) elapsed_timeb.time;
-	usrT->uSeconds = ((Int32) elapsed_timeb.millitm) * 1000;
+	usrT->seconds = (Int1) elapsed_timeb.time;
+	usrT->uSeconds = ((Int1) elapsed_timeb.millitm) * 1000;
     }
     if (sysT != NULL) {
         sysT->seconds = sysT->uSeconds = 0;

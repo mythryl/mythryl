@@ -15,7 +15,7 @@
 #include "win32-fault.h"
 
 
-/* _lib7_win32_OS_poll : unt32 list * (int32.Int * int) option -> unt32 list
+/* _lib7_win32_OS_poll : unt32 list * (int1.Int * int) option -> unt32 list
  */
 Val _lib7_win32_OS_poll (Task *task, Val arg)
 {
@@ -35,7 +35,7 @@ Val _lib7_win32_OS_poll (Task *task, Val arg)
     dwMilliseconds = INFINITE;
   else {
     timeout = OPTION_GET(timeout);
-    sec = TUPLE_GET_INT32(timeout,0);
+    sec = TUPLE_GET_INT1(timeout,0);
     usec = GET_TUPLE_SLOT_AS_INT(timeout,1);
     dwMilliseconds = (sec*1000)+(usec/1000);
   }

@@ -21,7 +21,7 @@ Val   _lib7_Ncurses_getch   (Task* task,  Val arg)   {	// : Void -> Char
 
 	    Val result;
 
-	    INT32_ALLOC(task, result, getch());
+	    INT1_ALLOC(task, result, getch());
 
 	    return result;
     #else

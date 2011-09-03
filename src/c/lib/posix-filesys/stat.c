@@ -39,9 +39,9 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     //    uid       : word
     //    gid       : word
     //    size      : int
-    //    atime     : int32.Int
-    //    mtime     : int32.Int
-    //    ctime     : int32.Int
+    //    atime     : int1.Int
+    //    mtime     : int1.Int
+    //    ctime     : int1.Int
 
     int  ftype;
     Val  mode, ino, dev, uid, gid, nlink, sr, atime, mtime, ctime;
@@ -69,9 +69,9 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     WORD_ALLOC (task, nlink, (Val_Sized_Unt)(buf->st_nlink));
     WORD_ALLOC (task, uid, (Val_Sized_Unt)(buf->st_uid));
     WORD_ALLOC (task, gid, (Val_Sized_Unt)(buf->st_gid));
-    INT32_ALLOC (task, atime, buf->st_atime);
-    INT32_ALLOC (task, mtime, buf->st_mtime);
-    INT32_ALLOC (task, ctime, buf->st_ctime);
+    INT1_ALLOC (task, atime, buf->st_atime);
+    INT1_ALLOC (task, mtime, buf->st_mtime);
+    INT1_ALLOC (task, ctime, buf->st_ctime);
 
     // Allocate the stat record:
     //

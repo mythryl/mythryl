@@ -1,12 +1,12 @@
 
-typedef int __int32_t_t284;
-typedef unsigned int __uint32_t_t285;
+typedef int __int1_t_t284;
+typedef unsigned int __uint1_t_t285;
 typedef long long __int64_t_t286;
 typedef unsigned long long __uint64_t_t287;
-typedef __int32_t_t284 __psint_t_t288;
-typedef __uint32_t_t285 __psunsigned_t_t289;
-typedef __int32_t_t284 __scint_t_t290;
-typedef __uint32_t_t285 __scunsigned_t_t291;
+typedef __int1_t_t284 __psint_t_t288;
+typedef __uint1_t_t285 __psunsigned_t_t289;
+typedef __int1_t_t284 __scint_t_t290;
+typedef __uint1_t_t285 __scunsigned_t_t291;
 typedef unsigned int size_t_t292;
 typedef long fpos_t_t293;
 typedef __int64_t_t286 off64_t_t294;

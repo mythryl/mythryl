@@ -22,7 +22,7 @@
 // and the following types:
 //
 // Int16	-- 16-bit signed integer
-// Int32	-- 32-bit signed integer
+// Int1	-- 32-bit signed integer
 // Int64	-- 64-bit signed integer (64-bit machines only)
 // Unt16	-- 16-bit unsigned integer
 // Unt32	-- 32-bit unsigned integer
@@ -61,14 +61,14 @@
 
 #include <stdlib.h>
 
-typedef  Int32  Bool;
+typedef  Int1  Bool;
 
 #ifndef TRUE		// Some systems already define TRUE and FALSE.
     #define TRUE  1
     #define FALSE 0
 #endif
 
-typedef Int32 Status;
+typedef Int1 Status;
 
 #define SUCCESS 1
 #define FAILURE 0

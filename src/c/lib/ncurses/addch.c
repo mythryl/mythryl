@@ -18,7 +18,7 @@ Val   _lib7_Ncurses_addch   (Task* task,  Val arg)   {	//  : Void -> Bool
     //===================
     //
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
-	int ch     = INT32_LIB7toC(arg);    
+	int ch     = INT1_LIB7toC(arg);    
 	int result = addch( ch );
 	if (result == ERR)     return RAISE_ERROR(task, "addch");
 	return HEAP_VOID;

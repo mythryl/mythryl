@@ -31,7 +31,7 @@
 Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
     //=====================
     //
-    // Mythryl type: (String, int32::Int, int32::Int) -> Void
+    // Mythryl type: (String, int1::Int, int1::Int) -> Void
     //                name    actime      modtime
     //
     // Sets file access and modification times.
@@ -43,8 +43,8 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-filesys-64.pkg
 
     Val	    path    =  GET_TUPLE_SLOT_AS_VAL(     arg, 0);
-    time_t  actime  =  TUPLE_GET_INT32(arg, 1);
-    time_t  modtime =  TUPLE_GET_INT32(arg, 2);
+    time_t  actime  =  TUPLE_GET_INT1(arg, 1);
+    time_t  modtime =  TUPLE_GET_INT1(arg, 2);
 
     int status;
 

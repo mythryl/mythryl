@@ -160,9 +160,9 @@
 	__task->heap_allocation_pointer = __p;				\
     }
 #define TUPLE_GETWORD(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Val_Sized_Unt*, p, i))
-#define INT32_LIB7toC(i)		(*PTR_CAST(Int32*, i))
-#define INT32_ALLOC(task, p, i)	WORD_ALLOC(task, p, i)
-#define TUPLE_GET_INT32(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Int32*, p, i))
+#define INT1_LIB7toC(i)		(*PTR_CAST(Int1*, i))
+#define INT1_ALLOC(task, p, i)	WORD_ALLOC(task, p, i)
+#define TUPLE_GET_INT1(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Int1*, p, i))
 
 
 //////////////////
@@ -210,8 +210,8 @@ extern Val  allocate_nonempty_code_chunk			(Task* task,  int len);					// alloca
 //
 extern Val  make_nonempty_rw_vector				(Task* task,  int len, Val initial_value);		// make_nonempty_rw_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  make_nonempty_ro_vector				(Task* task,  int len, Val initial_values);		// make_nonempty_ro_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_int32_vector		        (Task* task,  int length_in_words);			// allocate_nonempty_int32_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
-extern void shrink_fresh_int32_vector				(Task* task,  Val v, int new_length_in_words);		// shrink_fresh_int32_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_int1_vector		        (Task* task,  int length_in_words);			// allocate_nonempty_int1_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
+extern void shrink_fresh_int1_vector				(Task* task,  Val v, int new_length_in_words);		// shrink_fresh_int1_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
 //
 extern Val  allocate_nonempty_float64_vector			(Task* task,  int len);					// allocate_nonempty_float64_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_int64_vector				(Task* task,  int length_in_int64s);			// allocate_int64_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
