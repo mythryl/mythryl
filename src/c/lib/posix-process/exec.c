@@ -44,7 +44,7 @@ Val    _lib7_P_Process_exec   (Task* task,  Val arg)   {
 	//
 	// 8-byte align it:
 	//
-	cp = (char **)ROUNDUP((Unt64)cp, POINTER_BYTESIZE);
+	cp = (char **)ROUNDUP((Unt2)cp, POINTER_BYTESIZE);
     #endif
 
     char** argv =  cp;

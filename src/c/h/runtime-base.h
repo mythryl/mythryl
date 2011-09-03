@@ -26,7 +26,7 @@
 // Int64	-- 64-bit signed integer (64-bit machines only)
 // Unt16	-- 16-bit unsigned integer
 // Unt1	-- 32-bit unsigned integer
-// Unt64	-- 64-bit unsigned integer (64-bit machines only)
+// Unt2	-- 64-bit unsigned integer (64-bit machines only)
 // Unt8		-- Unsigned 8-bit integer.
 // Val_Sized_Unt	-- Unsigned integer large enough for a Lib7 value.
 // Val_Sized_Int	--   Signed integer large enough for a Lib7 value.

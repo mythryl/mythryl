@@ -139,7 +139,7 @@ int   main   (void)   {
     #if (defined(SIZES_C_64_MYTHRYL_32) || defined(SIZES_C_64_MYTHRYL_64))
 	//
 	fprintf(fd, "typedef %s Int64;\n", i64);
-	fprintf(fd, "typedef unsigned %s Unt64;\n", i64);
+	fprintf(fd, "typedef unsigned %s Unt2;\n", i64);
     #endif
 
     fprintf (fd, "\n");
@@ -149,13 +149,13 @@ int   main   (void)   {
 	//
 	fprintf(fd, "typedef Unt1 Val_Sized_Unt;\n");
 	fprintf(fd, "typedef Int1      Val_Sized_Int;\n");
-	fprintf(fd, "typedef Unt64 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
+	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
 	//
     #elif defined(SIZES_C_64_MYTHRYL_64)
 	//
-	fprintf(fd, "typedef Unt64 Val_Sized_Unt;\n");
+	fprintf(fd, "typedef Unt2 Val_Sized_Unt;\n");
 	fprintf(fd, "typedef Int64      Val_Sized_Int;\n");
-	fprintf(fd, "typedef Unt64 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
+	fprintf(fd, "typedef Unt2 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
 	//
     #else	// SIZES_C_32_MYTHRYL_32
 	//
