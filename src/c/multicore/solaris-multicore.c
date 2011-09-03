@@ -34,7 +34,7 @@
 #include "pthread.h"
 
 
-#define INT_LIB7inc(n,i)  ((Val)INT31_FROM_C_INT(INT31_TO_C_INT(n) + (i)))
+#define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
  static Lock 	 allocate_lock	();
@@ -94,7 +94,7 @@ void   mc_initialize   ()   {
     mc_cleaner_barrier_global	= allocate_barrier(); 
     tasks_local			= initialize_task_vector();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT31_FROM_C_INT(1) );
+    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
     #ifdef MP_NONBLOCKING_IO
         MP_InitStdInReader  ();
@@ -675,7 +675,7 @@ Val   mc_acquire_pthread   (Task* task, Val arg)   {
 
     if (i == pthread_count_global) {
 	//
-        if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL )  ==  INT31_FROM_C_INT( MAX_PTHREADS )) {
+        if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    mc_release_lock(mp_pthread_lock_local);
 	    say_error("[processors maxed]\n");
@@ -781,7 +781,7 @@ int   mc_active_pthread_count   (void)   {
     //
     mc_acquire_lock(mp_pthread_lock_local);
         //
-        int ap = INT31_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ));
+        int ap = TAGGED_INT_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ));
 	//
     mc_release_lock(mp_pthread_lock_local);
     //

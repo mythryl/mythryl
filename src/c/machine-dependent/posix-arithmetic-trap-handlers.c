@@ -73,9 +73,9 @@ void   set_up_fault_handlers   (Task* task)   {
 
 	// Map the signal to the appropriate Mythryl exception:
         //
-	if (INT_OVFLW(signal, code)) {
+	if (INT_OVFLW(signal, code)) {								// INT_OVFLW	is from   src/c/h/system-dependent-signal-get-set-etc.h 
 
-	    task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;
+	    task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;					// OVERFLOW_EXCEPTION_GLOBAL	is from   src/c/h/runtime-globals.h
 	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else if (INT_DIVZERO(signal, code)) {

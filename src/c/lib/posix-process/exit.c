@@ -34,7 +34,7 @@ Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
 
-    print_stats_and_exit( INT31_TO_C_INT( arg ) );				// Doesn't return.	def in   src/c/main/runtime-main.c
+    print_stats_and_exit( TAGGED_INT_TO_C_INT( arg ) );				// Doesn't return.	def in   src/c/main/runtime-main.c
 
     exit(0);									// Cannot execute; just to suppress a gcc warning.
 }

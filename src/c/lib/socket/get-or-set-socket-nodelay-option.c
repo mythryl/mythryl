@@ -47,7 +47,7 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
 
     } else {
 
-	flag = (Bool) INT31_TO_C_INT(OPTION_GET(ctl));
+	flag = (Bool) TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
 	status = setsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, sizeof(int));
     }

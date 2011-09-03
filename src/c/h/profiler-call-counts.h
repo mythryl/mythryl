@@ -17,10 +17,10 @@ extern Val	time_profiling_rw_vector_global;		// This gets set in   src/c/lib/spa
 //
 //     src/lib/std/src/nj/runtime-profiling-control.pkg
 //
-#define PROF_RUNTIME		INT31_FROM_C_INT(0)		// Must match    runtime_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define PROF_MINOR_CLEANING	INT31_FROM_C_INT(1)		// Must match    minor_cleaning_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define PROF_MAJOR_CLEANING	INT31_FROM_C_INT(2)		// Must match    major_cleaning_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define PROF_OTHER		INT31_FROM_C_INT(3)		// Must match    other_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define PROF_RUNTIME		TAGGED_INT_FROM_C_INT(0)		// Must match    runtime_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define PROF_MINOR_CLEANING	TAGGED_INT_FROM_C_INT(1)		// Must match    minor_cleaning_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define PROF_MAJOR_CLEANING	TAGGED_INT_FROM_C_INT(2)		// Must match    major_cleaning_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define PROF_OTHER		TAGGED_INT_FROM_C_INT(3)		// Must match    other_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
 
 #endif // PROFILER_CALL_COUNTS_H
 

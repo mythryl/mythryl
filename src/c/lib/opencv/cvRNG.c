@@ -27,7 +27,7 @@ _lib7_OpenCV_cvRNG (Task *task, Val arg)
 
 #if HAVE_OPENCV_CV_H && HAVE_LIBCV
 
-    int init = INT31_TO_C_INT( arg );
+    int init = TAGGED_INT_TO_C_INT( arg );
     CvRNG rng = cvRNG( (unsigned) init);
 
     Val data   =  make_int64_vector_sized_in_bytes( task, &rng, sizeof(rng) );

@@ -32,7 +32,7 @@ Val   _lib7_P_ProcEnv_isatty   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return (isatty(INT31_TO_C_INT(arg)) ? HEAP_TRUE : HEAP_FALSE);
+    return (isatty(TAGGED_INT_TO_C_INT(arg)) ? HEAP_TRUE : HEAP_FALSE);
 }
 
 

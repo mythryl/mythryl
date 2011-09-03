@@ -62,7 +62,7 @@ Val   _lib7_P_Signal_osval   (Task* task,  Val arg)   {
 
     if (!result)	return RAISE_ERROR(task, "system constant not defined");
 
-    return   INT31_FROM_C_INT( result->val );
+    return   TAGGED_INT_FROM_C_INT( result->val );
 }
 
 

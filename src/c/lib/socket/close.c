@@ -33,7 +33,7 @@ Val   _lib7_Sock_close   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
 
     int		status;
-    int         fd      =  INT31_TO_C_INT(arg);
+    int         fd      =  TAGGED_INT_TO_C_INT(arg);
 
     // XXX BUGGO FIXME:  Architecture dependencies code should probably moved to       sockets-osdep.h
 

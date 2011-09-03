@@ -33,7 +33,7 @@ Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
 
     int state = get_signal_state (task->pthread, GET_TUPLE_SLOT_AS_INT(arg, 0));
     //
-    return INT31_FROM_C_INT(state);
+    return TAGGED_INT_FROM_C_INT(state);
 }
 
 

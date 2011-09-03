@@ -69,13 +69,13 @@ typedef struct {
 } lib7_string_t;
 
 										// STRING_TAGWORD			def in   src/c/h/heap-tags.h
-										// INT31_FROM_C_INT			def in   src/c/h/runtime-values.h 
+										// TAGGED_INT_FROM_C_INT			def in   src/c/h/runtime-values.h 
 
 #define LIB7_STRING(id, s)					\
     lib7_string_t id = {					\
 	STRING_TAGWORD,						\
 	s,							\
-	INT31_FROM_C_INT(sizeof(s)-1)				\
+	TAGGED_INT_FROM_C_INT(sizeof(s)-1)				\
     }
 
 										// CONCAT				def in   src/c/h/runtime-base.h
@@ -115,7 +115,7 @@ typedef struct {
 #define LIB7_STRING(id,s)					\
     static char CONCAT(id,_data)[] = s;				\
     lib7_string_t id = {					\
-	STRING_TAGWORD, HEAP_VOID, INT31_FROM_C_INT(sizeof(s)-1)	\
+	STRING_TAGWORD, HEAP_VOID, TAGGED_INT_FROM_C_INT(sizeof(s)-1)	\
     }
 
 #define PATCH_LIB7_STRING(id)					\
@@ -215,8 +215,8 @@ Val		runtime_package_global = HEAP_VOID;
 // Aggregate vectors of length zero:
 //
 const char zero_length_string_global_data[ 1 ] =  { 0 };
-Val        zero_length_string_global[ 3 ]      =  { STRING_TAGWORD,  PTR_CAST( Val,  zero_length_string_global_data ), INT31_FROM_C_INT(0) };
-Val        zero_length_vector_global[ 3 ]      =  { TYPEAGNOSTIC_RO_VECTOR_TAGWORD, HEAP_VOID, INT31_FROM_C_INT(0) };
+Val        zero_length_string_global[ 3 ]      =  { STRING_TAGWORD,  PTR_CAST( Val,  zero_length_string_global_data ), TAGGED_INT_FROM_C_INT(0) };
+Val        zero_length_vector_global[ 3 ]      =  { TYPEAGNOSTIC_RO_VECTOR_TAGWORD, HEAP_VOID, TAGGED_INT_FROM_C_INT(0) };
 
 LIB7_EXNID( divide_exception_global,	"DIVIDE_BY_ZERO"	);
 LIB7_EXNID( overflow_exception_global,	"OVERFLOW"		);

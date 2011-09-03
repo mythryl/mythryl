@@ -82,7 +82,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 #define INSERT(req, l) {					\
 	Val	__p = (l);				\
 	while (__p != LIST_NIL) {				\
-	    fds[i].fd = INT31_TO_C_INT(LIST_HEAD(__p));		\
+	    fds[i].fd = TAGGED_INT_TO_C_INT(LIST_HEAD(__p));		\
 	    fds[i].events = (req);				\
 	    i++;						\
 	    __p = LIST_TAIL(__p);					\
@@ -157,7 +157,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 	while ((status > 0) && (n > 0)) {				\
 	    if (fds[i].revents != 0) {				\
 		status--;						\
-		LIST_CONS(task, l, INT31_FROM_C_INT(fds[i].fd), l);	\
+		LIST_CONS(task, l, TAGGED_INT_FROM_C_INT(fds[i].fd), l);	\
 	    }							\
 	    n--;  i++;						\
 	}							\
@@ -194,7 +194,7 @@ static fd_set*   ListToFDSet   (Val fdl,  fd_set* fds,  int* width)   {
 
     FD_ZERO(fds);
     while (fdl != LIST_NIL) {
-	fd = INT31_TO_C_INT(LIST_HEAD(fdl));
+	fd = TAGGED_INT_TO_C_INT(LIST_HEAD(fdl));
 	if (fd > maxfd)
 	    maxfd = fd;
 	FD_SET (fd, fds);
@@ -227,7 +227,7 @@ static Val   FDSetToList   (Task* task,  fd_set* fds,  int width)   {
 	//
 	if (FD_ISSET(i, fds)) {
 	    //
-	    LIST_CONS (task, p, INT31_FROM_C_INT(i), p);
+	    LIST_CONS (task, p, TAGGED_INT_FROM_C_INT(i), p);
         }
     }
 

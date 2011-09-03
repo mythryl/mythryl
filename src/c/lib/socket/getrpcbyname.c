@@ -44,7 +44,7 @@ Val   _lib7_NetDB_getrpcbyname   (Task* task,  Val arg)   {
     Val aliases =  make_ascii_strings_from_vector_of_c_strings( task, rentry->r_aliases);
 
     Val	               result;
-    REC_ALLOC3(  task, result, name, aliases, INT31_FROM_C_INT(rentry->r_number));
+    REC_ALLOC3(  task, result, name, aliases, TAGGED_INT_FROM_C_INT(rentry->r_number));
     OPTION_THE( task, result, result);
     return             result;
 }

@@ -85,7 +85,7 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     SEQHDR_ALLOC (task, address, UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
     Val	             result;
-    REC_ALLOC2(task, result, INT31_FROM_C_INT(n), address);
+    REC_ALLOC2(task, result, TAGGED_INT_FROM_C_INT(n), address);
     return           result;
 }
 

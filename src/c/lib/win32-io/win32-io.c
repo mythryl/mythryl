@@ -272,7 +272,7 @@ Val _lib7_win32_IO_read_arr(Task *task, Val arg)
     if (n == 0)
       debug_say("_lib7_win32_IO_read_arr: eof on device\n");
 #endif
-    return INT31_FROM_C_INT(n);
+    return TAGGED_INT_FROM_C_INT(n);
   } 
 #ifdef WIN32_DEBUG
   debug_say("_lib7_win32_IO_read_arr: failing\n");
@@ -316,13 +316,13 @@ Val _lib7_win32_IO_read_arr_txt(Task *task, Val arg)
 #ifdef WIN32_DEBUG
     debug_say("_lib7_win32_IO_read_arr_txt: eof on device\n");
 #endif
-    return INT31_FROM_C_INT(n);
+    return TAGGED_INT_FROM_C_INT(n);
   } else {
     if ((h == win32_stdin_handle) &&             /* input from stdin */
 	(GetFileType(h) == FILE_TYPE_PIPE) &&    /* but not console */
         (GetLastError() == ERROR_BROKEN_PIPE)) { /* and pipe broken */
       /* this is an EOF on redirected stdin (ReadFile failed) */
-      return INT31_FROM_C_INT(0);
+      return TAGGED_INT_FROM_C_INT(0);
     } 
   }
 #ifdef WIN32_DEBUG
@@ -378,7 +378,7 @@ Val _lib7_win32_IO_write_buf(Task *task, Val arg)
     if (n == 0)
       debug_say("_lib7_win32_IO_write_buf: eof on device\n");
 #endif
-    return INT31_FROM_C_INT(n);
+    return TAGGED_INT_FROM_C_INT(n);
   }
 #ifdef WIN32_DEBUG
   debug_say("_lib7_win32_IO_write_buf: failing\n");

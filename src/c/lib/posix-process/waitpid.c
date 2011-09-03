@@ -72,7 +72,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
     }
 
     Val              result;
-    REC_ALLOC3(task, result, INT31_FROM_C_INT(pid), INT31_FROM_C_INT(how), INT31_FROM_C_INT(val));
+    REC_ALLOC3(task, result, TAGGED_INT_FROM_C_INT(pid), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val));
     return           result;
 }
 

@@ -46,14 +46,14 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
 
     } else {
 
-	size = INT31_TO_C_INT( OPTION_GET( ctl ));
+	size = TAGGED_INT_TO_C_INT( OPTION_GET( ctl ));
 
 	status = setsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, sizeof(int));
     }
 
     if (status < 0)     return RAISE_SYSERR( task, status );
 
-    return   INT31_FROM_C_INT( size );
+    return   TAGGED_INT_FROM_C_INT( size );
 }
 
 

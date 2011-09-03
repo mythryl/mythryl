@@ -49,9 +49,9 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     INT32_ALLOC (task, gc_seconds,  pthread->cumulative_cleaning_cpu_time->seconds);
 
     REC_ALLOC6 (task, result,
-	usr_seconds, INT31_FROM_C_INT(usr.uSeconds),
-	sys_seconds, INT31_FROM_C_INT(sys.uSeconds),
-	gc_seconds,  INT31_FROM_C_INT(pthread->cumulative_cleaning_cpu_time->uSeconds)
+	usr_seconds, TAGGED_INT_FROM_C_INT(usr.uSeconds),
+	sys_seconds, TAGGED_INT_FROM_C_INT(sys.uSeconds),
+	gc_seconds,  TAGGED_INT_FROM_C_INT(pthread->cumulative_cleaning_cpu_time->uSeconds)
     );
 
     return result;

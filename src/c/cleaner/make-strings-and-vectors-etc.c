@@ -553,7 +553,7 @@ Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int i
     for (int i = 0;  i < table->constants_count;  i++) {
 	if (table->consts[i].id == id) {
 	    name = make_ascii_string_from_c_string (task, table->consts[i].name);
-	    REC_ALLOC2 (task, result, INT31_FROM_C_INT(id), name);
+	    REC_ALLOC2 (task, result, TAGGED_INT_FROM_C_INT(id), name);
 	    return result;
 	}
     }
@@ -561,7 +561,7 @@ Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int i
     // Here, we did not find the constant:
     //
     name = make_ascii_string_from_c_string (task, "<UNKNOWN>");
-    REC_ALLOC2 (task, result, INT31_FROM_C_INT(-1), name);
+    REC_ALLOC2 (task, result, TAGGED_INT_FROM_C_INT(-1), name);
     return result;
 }
 
@@ -581,7 +581,7 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 	//
 	Val name = make_ascii_string_from_c_string (task, table->consts[i].name);
         Val                            system_constant;
-	REC_ALLOC2( task,              system_constant, INT31_FROM_C_INT(table->consts[i].id), name);
+	REC_ALLOC2( task,              system_constant, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
 	LIST_CONS(  task, result_list, system_constant, result_list );
     }
 

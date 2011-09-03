@@ -34,7 +34,7 @@ Val   _lib7_P_IO_fsync   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
-    int fd = INT31_TO_C_INT(arg);
+    int fd = TAGGED_INT_TO_C_INT(arg);
 
     int status = fsync(fd);
 

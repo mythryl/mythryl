@@ -31,7 +31,7 @@ Val   _lib7_Sock_getATMARK   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
     //
     int	                                                          n;
-    int status = ioctl (INT31_TO_C_INT(arg), SIOCATMARK, (char*) &n );
+    int status = ioctl (TAGGED_INT_TO_C_INT(arg), SIOCATMARK, (char*) &n );
     //
     if (status < 0)     return RAISE_SYSERR( task, status );
 

@@ -23,7 +23,7 @@ Val   _lib7_P_Process_alarm   (Task* task,  Val arg)   {
     //
     // Set a process alarm clock
     //
-    return INT31_FROM_C_INT( alarm( INT31_TO_C_INT( arg )));
+    return TAGGED_INT_FROM_C_INT( alarm( TAGGED_INT_TO_C_INT( arg )));
 }
 
 

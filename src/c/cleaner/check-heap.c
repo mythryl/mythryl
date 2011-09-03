@@ -130,7 +130,7 @@ static void   check_record_sib   (Sib* ap) {
 
 	    case UNT8_VECTOR_CTAG:
 	    case UNT16_VECTOR_CTAG:
-	    case INT31_VECTOR_CTAG:
+	    case TAGGED_INT_VECTOR_CTAG:
 	    case INT32_VECTOR_CTAG:
 	    case FLOAT32_VECTOR_CTAG:
 	    case FLOAT64_VECTOR_CTAG:
@@ -144,7 +144,7 @@ static void   check_record_sib   (Sib* ap) {
 		return;
 	    }
 
-	    if (*IS_INT31(p[1])) {
+	    if (*IS_TAGGED_INT(p[1])) {
 		ERROR;
 		debug_say ("** @%#x: sequence header length field not an in (%#x)\n",
 		    p+1, p[1]);

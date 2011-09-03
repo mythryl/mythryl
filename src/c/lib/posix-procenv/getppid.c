@@ -32,7 +32,7 @@ Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return INT31_FROM_C_INT(getppid());
+    return TAGGED_INT_FROM_C_INT(getppid());
 }
 
 

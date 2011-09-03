@@ -323,7 +323,7 @@ Val   get_signal_mask   (Task* task)   {		// Called from src/c/lib/signal/getsig
 	        //
 		name = make_ascii_string_from_c_string (task, SigInfo[i].name);
 
-		REC_ALLOC2(task, sig, INT31_FROM_C_INT(SigInfo[i].id), name);
+		REC_ALLOC2(task, sig, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 
 		LIST_CONS(task, sigList, sig, sigList);
 	    }

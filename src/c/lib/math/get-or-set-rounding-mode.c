@@ -14,17 +14,17 @@
     // Mapping between the Mythryl and C representations of rounding modes.
     //	
     #if defined(RMODE_C_EQ_LIB7)
-        #define RMODE_CtoLib7(m)	INT31_FROM_C_INT(m)
-        #define RMODE_LIB7toC(m)	INT31_TO_C_INT(m)
+        #define RMODE_CtoLib7(m)	TAGGED_INT_FROM_C_INT(m)
+        #define RMODE_LIB7toC(m)	TAGGED_INT_TO_C_INT(m)
     #else
         #define RMODE_CtoLib7(m)						\
-	  (RMODE_EQ(m, FE_TONEAREST) ? INT31_FROM_C_INT(0)				\
-	    : (RMODE_EQ(m, FE_TOWARDZERO) ? INT31_FROM_C_INT(1)			\
-	      : (RMODE_EQ(m, FE_UPWARD) ? INT31_FROM_C_INT(2) : INT31_FROM_C_INT(3))))
+	  (RMODE_EQ(m, FE_TONEAREST) ? TAGGED_INT_FROM_C_INT(0)				\
+	    : (RMODE_EQ(m, FE_TOWARDZERO) ? TAGGED_INT_FROM_C_INT(1)			\
+	      : (RMODE_EQ(m, FE_UPWARD) ? TAGGED_INT_FROM_C_INT(2) : TAGGED_INT_FROM_C_INT(3))))
 	static fe_rnd_mode_t ModeMap[4] = {
 		FE_TONEAREST, FE_TOWARDZERO, FE_UPWARD, FE_DOWNWARD
 	    };
-        #define RMODE_LIB7toC(m)	ModeMap[INT31_TO_C_INT(m)]
+        #define RMODE_LIB7toC(m)	ModeMap[TAGGED_INT_TO_C_INT(m)]
     #endif
 #endif /* !NO_ROUNDING_MODE_CTL */
 

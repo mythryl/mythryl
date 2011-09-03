@@ -25,7 +25,7 @@
 
 #ifdef _ASM_
 
-    #define INT31_FROM_C_INT(n)		(((n)*2)+1)
+    #define TAGGED_INT_FROM_C_INT(n)		(((n)*2)+1)
 
 #else
 
@@ -42,8 +42,8 @@
 	#define PTR_CAST(ty, p)		((ty)(p))
     #endif
 
-    #define INT31_TO_C_INT(n)		(((Val_Sized_Int)(n)) >> 1)
-    #define INT31_FROM_C_INT(n)		((Val)(((n) << 1) + 1))
+    #define TAGGED_INT_TO_C_INT(n)		(((Val_Sized_Int)(n)) >> 1)
+    #define TAGGED_INT_FROM_C_INT(n)		((Val)(((n) << 1) + 1))
 
 #endif // _ASM_
 
@@ -59,7 +59,7 @@
 //
 #define GET_TUPLE_SLOT_AS_VAL(p, i)	  ((PTR_CAST(Val*, (p)))[i])
 #define GET_TUPLE_SLOT_AS_PTR(ty, p, i)	    PTR_CAST(ty,  GET_TUPLE_SLOT_AS_VAL( (p), (i) ))
-#define GET_TUPLE_SLOT_AS_INT(p, i)	    INT31_TO_C_INT( GET_TUPLE_SLOT_AS_VAL( (p), (i) ))
+#define GET_TUPLE_SLOT_AS_INT(p, i)	    TAGGED_INT_TO_C_INT( GET_TUPLE_SLOT_AS_VAL( (p), (i) ))
 
 // Extract the components of a
 // ro_vector or rw_vector header:
@@ -82,10 +82,10 @@
 
 // Some basic Mythryl values:
 //
-#define HEAP_VOID		INT31_FROM_C_INT(0)
-#define HEAP_FALSE		INT31_FROM_C_INT(0)
-#define HEAP_TRUE		INT31_FROM_C_INT(1)
-#define HEAP_NIL		INT31_FROM_C_INT(0)
+#define HEAP_VOID		TAGGED_INT_FROM_C_INT(0)
+#define HEAP_FALSE		TAGGED_INT_FROM_C_INT(0)
+#define HEAP_TRUE		TAGGED_INT_FROM_C_INT(1)
+#define HEAP_NIL		TAGGED_INT_FROM_C_INT(0)
 
 #endif  // RUNTIME_VALUES_H
 

@@ -117,7 +117,7 @@
 	Val	*__p = __task->heap_allocation_pointer;			\
 	*__p++ = (desc);					\
 	*__p++ = (data);					\
-	*__p++ = INT31_FROM_C_INT(len);				\
+	*__p++ = TAGGED_INT_FROM_C_INT(len);				\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
 	__task->heap_allocation_pointer = __p;				\
     }
@@ -172,7 +172,7 @@
 #define LIST_TAIL(p)			GET_TUPLE_SLOT_AS_VAL(p, 1)
 #define LIST_CONS(task, r, a, b)	REC_ALLOC2(task, r, a, b)
 //
-#define LIST_NIL			INT31_FROM_C_INT(0)
+#define LIST_NIL			TAGGED_INT_FROM_C_INT(0)
 #define LIST_IS_NULL(p)			((p) == LIST_NIL)
 
 
@@ -186,7 +186,7 @@
 //////////////////
 // Mythryl options (Null_Or):
 //
-#define OPTION_NULL			INT31_FROM_C_INT(0)
+#define OPTION_NULL			TAGGED_INT_FROM_C_INT(0)
 #define OPTION_THE(task, r, a)		REC_ALLOC1(task, r, a)
 #define OPTION_GET(r)			GET_TUPLE_SLOT_AS_VAL(r, 0)
     //

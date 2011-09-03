@@ -41,7 +41,7 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 
     } else {
 
-	flag = INT31_TO_C_INT(OPTION_GET(ctl));
+	flag = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
     }
 

@@ -41,7 +41,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 
     int pollFreq
 	=
-	INT31_TO_C_INT(
+	TAGGED_INT_TO_C_INT(
 	    DEREF(
 		SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL
 	    )

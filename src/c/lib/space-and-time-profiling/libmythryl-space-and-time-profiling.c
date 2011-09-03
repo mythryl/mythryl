@@ -186,7 +186,7 @@ static Val   get_sigvtalrm_interval_in_microseconds   (Task* task,  Val arg)   {
     //
     //     src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg	
     //
-    return INT31_FROM_C_INT( MICROSECONDS_PER_SIGVTALRM );			// From   src/c/h/profiler-call-counts.h
+    return TAGGED_INT_FROM_C_INT( MICROSECONDS_PER_SIGVTALRM );			// From   src/c/h/profiler-call-counts.h
 }
 
 

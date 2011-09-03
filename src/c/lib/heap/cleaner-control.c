@@ -58,8 +58,8 @@ Val   _lib7_cleaner_control   (Task* task,  Val arg)   {
 	if      (STREQ("DoGC",  op))	    clean_i_agegroups   (task, cell, &arg);
 	else if (STREQ("AllGC", op))	    clean_all_agegroups (task, &arg);
         //
-	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled_global = (INT31_TO_C_INT(DEREF(cell)) > 0);
-	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled_global       = (INT31_TO_C_INT(DEREF(cell)) <= 0);
+	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled_global = (TAGGED_INT_TO_C_INT(DEREF(cell)) > 0);
+	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled_global       = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
         //
         else if (STREQ("set_max_retained_idle_fromspace_agegroup", op))	    set_max_retained_idle_fromspace_agegroup (task, cell);
     }
@@ -73,7 +73,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (
     Task*   task,
     Val     arg
 ) {
-    int age =  INT31_TO_C_INT(DEREF( arg ));
+    int age =  TAGGED_INT_TO_C_INT(DEREF( arg ));
 
     Heap*  heap  =  task->heap;
 
@@ -90,7 +90,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (
 	}
     }
 
-    ASSIGN( arg, INT31_FROM_C_INT(heap->oldest_agegroup_keeping_idle_fromspace_buffers) );
+    ASSIGN( arg, TAGGED_INT_FROM_C_INT(heap->oldest_agegroup_keeping_idle_fromspace_buffers) );
 
     heap->oldest_agegroup_keeping_idle_fromspace_buffers
 	=
@@ -109,7 +109,7 @@ static void   clean_i_agegroups   (
 
     Heap* heap  =  task->heap;
 
-    int   age =  INT31_TO_C_INT( DEREF( arg ) );
+    int   age =  TAGGED_INT_TO_C_INT( DEREF( arg ) );
 
     // Clamp 'age' to sane range:
     //

@@ -75,7 +75,7 @@ Val   _lib7_P_IO_osval   (Task* task,  Val arg)   {
 
     name_val_t* result = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 
-    if (result)   return INT31_FROM_C_INT(result->val);
+    if (result)   return TAGGED_INT_FROM_C_INT(result->val);
     else          return RAISE_ERROR(task, "system constant not defined");
 }
 

@@ -27,7 +27,7 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-    int	socket =  INT31_TO_C_INT( arg );
+    int	socket =  TAGGED_INT_TO_C_INT( arg );
 
     socklen_t	opt_size = sizeof(int);
 

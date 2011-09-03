@@ -57,8 +57,8 @@ void   handle_uncaught_exception   (Val e)   {
     Val name      =  GET_TUPLE_SLOT_AS_VAL( to_name, 0 );
 
 
-    if (IS_INT31(val)) {
-	sprintf (buf, "%ld\n", (long int) INT31_TO_C_INT(val));
+    if (IS_TAGGED_INT(val)) {
+	sprintf (buf, "%ld\n", (long int) TAGGED_INT_TO_C_INT(val));
     } else {
 	Val	desc = CHUNK_TAGWORD(val);
 	if (desc == STRING_TAGWORD)

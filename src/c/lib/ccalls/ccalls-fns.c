@@ -129,7 +129,7 @@ static Val   save_state   (
 	index = 2;
     }
 
-    LIB7_AllocWrite( task, index++, INT31_FROM_C_INT( task -> lib7_liveRegMask )           );
+    LIB7_AllocWrite( task, index++, TAGGED_INT_FROM_C_INT( task -> lib7_liveRegMask )           );
     LIB7_AllocWrite( task, index++,               task -> program_counter        );
     LIB7_AllocWrite( task, index++,               task -> exception_fate         );
     LIB7_AllocWrite( task, index++,               task -> thread         );

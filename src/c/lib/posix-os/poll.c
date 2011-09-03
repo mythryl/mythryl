@@ -174,7 +174,7 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
 		    if ((fdp->revents & POLLOUT   ) != 0)  flag |= WRITABLE_BIT;
 		    if ((fdp->revents & POLL_ERROR) != 0)  flag |= OOBDABLE_BIT;
 		    //
-		    REC_ALLOC2(task, item, INT31_FROM_C_INT(fdp->fd), INT31_FROM_C_INT(flag));
+		    REC_ALLOC2(task, item, TAGGED_INT_FROM_C_INT(fdp->fd), TAGGED_INT_FROM_C_INT(flag));
 		    LIST_CONS(task, l, item, l);
 		}
 	    }
@@ -271,7 +271,7 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
 		resFlag |= OOBDABLE_BIT;
             }
 	    if (resFlag != 0) {
-		REC_ALLOC2 (task, item, INT31_FROM_C_INT(fd), INT31_FROM_C_INT(resFlag));
+		REC_ALLOC2 (task, item, TAGGED_INT_FROM_C_INT(fd), TAGGED_INT_FROM_C_INT(resFlag));
 		resVec[i++] = item;
 	    }
 	}

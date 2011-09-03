@@ -76,14 +76,14 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     // Allocate the stat record:
     //
     LIB7_AllocWrite(task,  0, MAKE_TAGWORD(11, PAIRS_AND_RECORDS_BTAG));
-    LIB7_AllocWrite(task,  1, INT31_FROM_C_INT(ftype));
+    LIB7_AllocWrite(task,  1, TAGGED_INT_FROM_C_INT(ftype));
     LIB7_AllocWrite(task,  2, mode);
     LIB7_AllocWrite(task,  3, ino);
     LIB7_AllocWrite(task,  4, dev);
     LIB7_AllocWrite(task,  5, nlink);
     LIB7_AllocWrite(task,  6, uid);
     LIB7_AllocWrite(task,  7, gid);
-    LIB7_AllocWrite(task,  8, INT31_FROM_C_INT(buf->st_size));
+    LIB7_AllocWrite(task,  8, TAGGED_INT_FROM_C_INT(buf->st_size));
     LIB7_AllocWrite(task,  9, atime);
     LIB7_AllocWrite(task, 10, mtime);
     LIB7_AllocWrite(task, 11, ctime);
@@ -142,7 +142,7 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    int           fd = INT31_TO_C_INT(arg);
+    int           fd = TAGGED_INT_TO_C_INT(arg);
     struct stat   buf;
 
     int status =  fstat( fd, &buf );

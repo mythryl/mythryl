@@ -29,7 +29,7 @@
 // #define ARENA_FNAME  tmpnam(0)
 #define ARENA_FNAME  "/tmp/sml-mp.lock-arena"
 
-#define INT_LIB7inc(n,i)  ((Val)INT31_FROM_C_INT(INT31_TO_C_INT(n) + (i)))
+#define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
 static Lock      AllocLock ();        
@@ -68,7 +68,7 @@ void   mc_initialize   () {
     mc_timer_lock_global	= AllocLock ();
     mc_cleaner_barrier_global	= AllocBarrier();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT31_FROM_C_INT(1) );
+    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
 
 
@@ -304,7 +304,7 @@ Val   mc_acquire_pthread   (Task* task, Val arg)   {
 
     if (i == pthread_count_global) {
         //
-	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ) == INT31_FROM_C_INT( MAX_PTHREADS )) {
+	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    mc_release_lock( MP_ProcLock );
 	    say_error("[processors maxed]\n");
@@ -427,7 +427,7 @@ int   mc_active_pthread_count   ()   {
     int ap;
 
     mc_acquire_lock(MP_ProcLock);
-        ap = INT31_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL) );
+        ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL) );
     mc_release_lock(MP_ProcLock);
 
     return ap;

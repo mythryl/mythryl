@@ -41,7 +41,7 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        flag = fcntl(INT31_TO_C_INT(arg), F_GETFD);
+        flag = fcntl(TAGGED_INT_TO_C_INT(arg), F_GETFD);
 
 /*  } while (flag < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

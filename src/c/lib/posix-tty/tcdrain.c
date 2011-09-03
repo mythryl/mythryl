@@ -36,7 +36,7 @@ Val   _lib7_P_TTY_tcdrain   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
 
 
-    int fd     =  INT31_TO_C_INT( arg );
+    int fd     =  TAGGED_INT_TO_C_INT( arg );
     int status =  tcdrain( fd );
 
     CHECK_RETURN_UNIT(task, status)

@@ -168,7 +168,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
 								print_if( "socket.c/bot: socket d=%d errno d=%d\n", sock, errno );
     if (sock < 0)   return RAISE_SYSERR(task, status);		// RAISE_SYSERR is defined in src/c/lib/lib7-c.h
 								// 'status' looks bogus here (ignored except on MacOS). XXX BUGGO FIXME
-    return  INT31_FROM_C_INT( sock );
+    return  TAGGED_INT_FROM_C_INT( sock );
 }
 
 

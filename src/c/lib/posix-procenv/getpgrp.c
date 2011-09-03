@@ -31,7 +31,7 @@ Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return INT31_FROM_C_INT( getpgrp() );
+    return TAGGED_INT_FROM_C_INT( getpgrp() );
 }
 
 

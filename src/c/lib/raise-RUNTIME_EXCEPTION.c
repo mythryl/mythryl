@@ -75,13 +75,13 @@ Val   RaiseSysError (
 
     } else if ((msg = strerror(error_number)) != NULL) {
 
-	OPTION_THE (task, null_or_errno, INT31_FROM_C_INT(error_number))
+	OPTION_THE (task, null_or_errno, TAGGED_INT_FROM_C_INT(error_number))
 
     } else {
 
 	sprintf(buf, "<unknown error %d>", error_number);
 	msg = buf;
-	OPTION_THE(task, null_or_errno, INT31_FROM_C_INT(error_number));
+	OPTION_THE(task, null_or_errno, TAGGED_INT_FROM_C_INT(error_number));
     }
 
     #if (defined(DEBUG_OS_INTERFACE) || defined(DEBUG_TRACE_CCALL))

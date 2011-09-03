@@ -43,7 +43,7 @@ Val   _lib7_P_IO_pipe   (Task* task,  Val arg)   {
     } else {
 
         Val        chunk;
-        REC_ALLOC2 (task, chunk, INT31_FROM_C_INT(fds[0]), INT31_FROM_C_INT(fds[1]));
+        REC_ALLOC2 (task, chunk, TAGGED_INT_FROM_C_INT(fds[0]), TAGGED_INT_FROM_C_INT(fds[1]));
         return chunk;
     }
 }

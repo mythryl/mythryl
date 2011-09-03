@@ -33,7 +33,7 @@ Val   _lib7_P_Process_sleep   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
 
-    return INT31_FROM_C_INT( sleep(INT31_TO_C_INT(arg)) );
+    return TAGGED_INT_FROM_C_INT( sleep(TAGGED_INT_TO_C_INT(arg)) );
 }
 
 

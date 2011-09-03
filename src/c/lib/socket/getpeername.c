@@ -42,7 +42,7 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     socklen_t  address_len =  MAX_SOCK_ADDR_BYTESIZE;
 
-    if (getpeername (INT31_TO_C_INT(arg), (struct sockaddr *)addr, &address_len) < 0)   return RAISE_SYSERR(task, status);
+    if (getpeername (TAGGED_INT_TO_C_INT(arg), (struct sockaddr *)addr, &address_len) < 0)   return RAISE_SYSERR(task, status);
 
 
     Val cdata =  make_int64_vector_sized_in_bytes( task, addr, address_len );

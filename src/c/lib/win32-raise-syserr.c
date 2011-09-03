@@ -34,7 +34,7 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
         errno = (int) GetLastError();
 	sprintf(buf, "<win32 error code %d>", errno);
 	msg = buf;
-	OPTION_THE(task, syserror, INT31_FROM_C_INT(errno));
+	OPTION_THE(task, syserror, TAGGED_INT_FROM_C_INT(errno));
     }
 
     s = make_ascii_string_from_c_string (task, msg);

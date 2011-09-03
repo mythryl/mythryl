@@ -32,7 +32,7 @@ _lib7_OpenCV_cvRandInt (Task *task, Val arg)
         =
         cvRandInt( rng );
 
-    return INT31_FROM_C_INT( result );
+    return TAGGED_INT_FROM_C_INT( result );
 
 #else
 

@@ -35,7 +35,7 @@ Val   _lib7_P_IO_dup   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
-    int             fd0 = INT31_TO_C_INT(arg);
+    int             fd0 = TAGGED_INT_TO_C_INT(arg);
     int             fd1;
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c

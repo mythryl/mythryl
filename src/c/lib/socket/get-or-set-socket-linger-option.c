@@ -65,7 +65,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
 	    optVal.l_onoff = 0;	    // Argument is THE(NULL); disable linger.
 	} else {
 	    optVal.l_onoff = 1;	    // argument is THE t; enable linger.
-	    optVal.l_linger = INT31_TO_C_INT(OPTION_GET(ctl));
+	    optVal.l_linger = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	}
 	status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
     }
@@ -74,7 +74,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
     if (optVal.l_onoff == 0)    return OPTION_NULL;
 
     Val	             result;
-    OPTION_THE(task, result, INT31_FROM_C_INT( optVal.l_linger ));
+    OPTION_THE(task, result, TAGGED_INT_FROM_C_INT( optVal.l_linger ));
     return           result;
 }
 

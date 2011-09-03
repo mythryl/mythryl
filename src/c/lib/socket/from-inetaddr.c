@@ -56,7 +56,7 @@ Val   _lib7_Sock_frominetaddr   (Task* task,  Val arg)   {
     SEQHDR_ALLOC( task, inAddr, UNT8_RO_VECTOR_TAGWORD, data, sizeof(struct in_addr) );
 
     Val               result;
-    REC_ALLOC2 (task, result, inAddr, INT31_FROM_C_INT(ntohs(addr->sin_port)));
+    REC_ALLOC2 (task, result, inAddr, TAGGED_INT_FROM_C_INT(ntohs(addr->sin_port)));
     return            result;
 }
 

@@ -644,7 +644,7 @@ Val   _lib7_Gtk_number_of_queued_callbacks   (Task* task,  Val arg)   {
     //
     int result =  number_of_queued_callbacks ();
     //
-    return INT31_FROM_C_INT( result );
+    return TAGGED_INT_FROM_C_INT( result );
 }
 
 // gtk.api        type:   (None -- not exported to gtk.api level.)
@@ -654,7 +654,7 @@ Val   _lib7_Gtk_type_of_next_queued_callback   (Task* task,  Val arg)   {
     //======================================
     int result =  type_of_next_queued_callback ();
     //
-    return INT31_FROM_C_INT( result );
+    return TAGGED_INT_FROM_C_INT( result );
 }
 
 // gtk.api        type:   (None -- not exported to gtk.api level.)
@@ -671,7 +671,7 @@ Val   _lib7_Gtk_get_queued_void_callback   (Task* task,  Val arg)   {
         moan_and_die();
     }
     //
-    return INT31_FROM_C_INT( e.callback_number );
+    return TAGGED_INT_FROM_C_INT( e.callback_number );
 }
 
 
@@ -689,7 +689,7 @@ Val   _lib7_Gtk_get_queued_bool_callback   (Task *task,  Val arg)   {
     }
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
     LIB7_AllocWrite(  task, 2, e.entry.bool_value ?  HEAP_TRUE : HEAP_FALSE );
     //
     return LIB7_Alloc(task, 2);
@@ -715,7 +715,7 @@ Val   _lib7_Gtk_get_queued_float_callback   (Task* task, Val arg)  {
     REAL64_ALLOC(task, boxed_double, d);	// Defined in src/c/h/make-strings-and-vectors-etc.h
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
     LIB7_AllocWrite(  task, 2, boxed_double );
     return LIB7_Alloc(task, 2);
 }
@@ -744,13 +744,13 @@ Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
     REAL64_ALLOC(task, boxed_y, y);
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                    );
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number              ));
-    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( e.entry.button_press.widget_id ));
-    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( e.entry.button_press.button    ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number              ));
+    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.button_press.widget_id ));
+    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.button_press.button    ));
     LIB7_AllocWrite(  task, 4, boxed_x                                      );
     LIB7_AllocWrite(  task, 5, boxed_y                                      );
-    LIB7_AllocWrite(  task, 6, INT31_FROM_C_INT( e.entry.button_press.time      ));
-    LIB7_AllocWrite(  task, 7, INT31_FROM_C_INT( e.entry.button_press.modifiers ));
+    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.button_press.time      ));
+    LIB7_AllocWrite(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.button_press.modifiers ));
     return LIB7_Alloc(task, 7);
 
 }
@@ -772,11 +772,11 @@ Val   _lib7_Gtk_get_queued_key_press_callback   (Task *task,  Val arg)   {
     }
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 5)                 );
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number           ));
-    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( e.entry.key_press.key       ));
-    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( e.entry.key_press.keycode   ));
-    LIB7_AllocWrite(  task, 4, INT31_FROM_C_INT( e.entry.key_press.time      ));
-    LIB7_AllocWrite(  task, 5, INT31_FROM_C_INT( e.entry.key_press.modifiers ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
+    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.key_press.key       ));
+    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.key_press.keycode   ));
+    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.key_press.time      ));
+    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.key_press.modifiers ));
     //
     return LIB7_Alloc(task, 5);
 }
@@ -807,12 +807,12 @@ Val   _lib7_Gtk_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
     REAL64_ALLOC(task, boxed_y, y);
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                     );
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number               ));
-    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( e.entry.motion_notify.widget_id ));
-    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( e.entry.motion_notify.time      ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number               ));
+    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.widget_id ));
+    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.time      ));
     LIB7_AllocWrite(  task, 4, boxed_x                                       );
     LIB7_AllocWrite(  task, 5, boxed_y                                       );
-    LIB7_AllocWrite(  task, 6, INT31_FROM_C_INT( e.entry.motion_notify.modifiers ));
+    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.modifiers ));
     LIB7_AllocWrite(  task, 7, e.entry.motion_notify.is_hint ? HEAP_TRUE : HEAP_FALSE );
     //
     return LIB7_Alloc(task, 7);
@@ -835,13 +835,13 @@ Val   _lib7_Gtk_get_queued_expose_callback   (Task *task,  Val arg)   {
     }
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)              );
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number        ));
-    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( e.entry.expose.widget_id ));
-    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( e.entry.expose.count     ));
-    LIB7_AllocWrite(  task, 4, INT31_FROM_C_INT( e.entry.expose.area_x    ));
-    LIB7_AllocWrite(  task, 5, INT31_FROM_C_INT( e.entry.expose.area_y    ));
-    LIB7_AllocWrite(  task, 6, INT31_FROM_C_INT( e.entry.expose.area_wide ));
-    LIB7_AllocWrite(  task, 7, INT31_FROM_C_INT( e.entry.expose.area_high ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number        ));
+    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.expose.widget_id ));
+    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.expose.count     ));
+    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.expose.area_x    ));
+    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.expose.area_y    ));
+    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.expose.area_wide ));
+    LIB7_AllocWrite(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.expose.area_high ));
     //
     return LIB7_Alloc(task, 7);
 }
@@ -863,12 +863,12 @@ Val   _lib7_Gtk_get_queued_configure_callback   (Task *task, Val arg)   {
     }
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 6)                 );
-    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( e.callback_number           ));
-    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( e.entry.configure.widget_id ));
-    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( e.entry.configure.x         ));
-    LIB7_AllocWrite(  task, 4, INT31_FROM_C_INT( e.entry.configure.y         ));
-    LIB7_AllocWrite(  task, 5, INT31_FROM_C_INT( e.entry.configure.wide      ));
-    LIB7_AllocWrite(  task, 6, INT31_FROM_C_INT( e.entry.configure.high      ));
+    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number           ));
+    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.configure.widget_id ));
+    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.configure.x         ));
+    LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( e.entry.configure.y         ));
+    LIB7_AllocWrite(  task, 5, TAGGED_INT_FROM_C_INT( e.entry.configure.wide      ));
+    LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.configure.high      ));
     //
     return LIB7_Alloc(task, 6);
 }
@@ -880,7 +880,7 @@ Val   _lib7_Gtk_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
 	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
@@ -890,10 +890,10 @@ Val   _lib7_Gtk_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
 	int high =  w0->allocation.height;
 
 	LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 4));
-	LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( x          ));
-	LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( y          ));
-	LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( wide       ));
-	LIB7_AllocWrite(  task, 4, INT31_FROM_C_INT( high       ));
+	LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+	LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+	LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( wide       ));
+	LIB7_AllocWrite(  task, 4, TAGGED_INT_FROM_C_INT( high       ));
 	return LIB7_Alloc(task, 4);
     #else
 	extern char* no_gtk_support_in_runtime;
@@ -907,7 +907,7 @@ Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget ->
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
 	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
@@ -919,9 +919,9 @@ Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget ->
     /*      GdkWindow* result_window = */  gdk_window_get_pointer (GDK_WINDOW(w0), &x, &y, &modifiers); 
 
 	    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	    LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( x          ));
-	    LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( y          ));
-	    LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( modifiers  ));
+	    LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( x          ));
+	    LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( y          ));
+	    LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( modifiers  ));
 	    return LIB7_Alloc(task, 3);
 	}
     #else
@@ -946,9 +946,9 @@ Val   _lib7_Gtk_make_dialog   (Task* task,  Val arg)   {	//  Void -> (Int, Int, 
 	action_area = find_free_widget_slot ();   widget[action_area] = GTK_DIALOG( widget[dialog] )->action_area;
 	//
 	LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 3));
-	LIB7_AllocWrite(  task, 1, INT31_FROM_C_INT( dialog     ));
-	LIB7_AllocWrite(  task, 2, INT31_FROM_C_INT( vbox       ));
-	LIB7_AllocWrite(  task, 3, INT31_FROM_C_INT( action_area));
+	LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( dialog     ));
+	LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( vbox       ));
+	LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( action_area));
 	return LIB7_Alloc(task, 3);
     #else
 	extern char* no_gtk_support_in_runtime;
@@ -963,7 +963,7 @@ Val   _lib7_Gtk_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void    
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
 	g_object_unref( G_OBJECT( w0 ) );
 
@@ -983,7 +983,7 @@ Val   _lib7_Gtk_run_eventloop_once   (Task *task, Val arg)   {	// : Bool -> Bool
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	int block_until_event = INT31_TO_C_INT(arg);
+	int block_until_event = TAGGED_INT_TO_C_INT(arg);
 
 	int quit_called = gtk_main_iteration_do( block_until_event );
 
@@ -1013,7 +1013,7 @@ Val   _lib7_Gtk_make_window   (Task* task, Val arg)
 
     widget[slot] = gtk_window_new( GTK_WINDOW_TOPLEVEL );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1037,7 +1037,7 @@ Val   _lib7_Gtk_make_label   (Task* task, Val arg)
 
     widget[slot] = gtk_label_new( /*label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1060,7 +1060,7 @@ Val   _lib7_Gtk_make_status_bar_context_id   (Task* task, Val arg)
 
     int result = gtk_statusbar_get_context_id( GTK_STATUSBAR(/*status_bar*/w0), /*description*/s1);
 
-    return INT31_FROM_C_INT(result);
+    return TAGGED_INT_FROM_C_INT(result);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1083,7 +1083,7 @@ Val   _lib7_Gtk_make_menu   (Task* task, Val arg)
 
     widget[slot] = gtk_menu_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1106,7 +1106,7 @@ Val   _lib7_Gtk_make_option_menu   (Task* task, Val arg)
 
     widget[slot] = gtk_option_menu_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1129,7 +1129,7 @@ Val   _lib7_Gtk_make_menu_bar   (Task* task, Val arg)
 
     widget[slot] = gtk_menu_bar_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1152,7 +1152,7 @@ Val   _lib7_Gtk_make_combo_box   (Task* task, Val arg)
 
     widget[slot] = gtk_combo_box_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1175,7 +1175,7 @@ Val   _lib7_Gtk_make_text_combo_box   (Task* task, Val arg)
 
     widget[slot] = gtk_combo_box_new_text ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1199,7 +1199,7 @@ Val   _lib7_Gtk_make_frame   (Task* task, Val arg)
 
     widget[slot] = gtk_frame_new (*/*label*/s0 ? /*label*/s0 : NULL);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1222,7 +1222,7 @@ Val   _lib7_Gtk_make_button   (Task* task, Val arg)
 
     widget[slot] = gtk_button_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1246,7 +1246,7 @@ Val   _lib7_Gtk_make_button_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_button_new_with_label( /*label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1270,7 +1270,7 @@ Val   _lib7_Gtk_make_button_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1293,7 +1293,7 @@ Val   _lib7_Gtk_make_toggle_button   (Task* task, Val arg)
 
     widget[slot] = gtk_toggle_button_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1317,7 +1317,7 @@ Val   _lib7_Gtk_make_toggle_button_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_toggle_button_new_with_label( /*label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1341,7 +1341,7 @@ Val   _lib7_Gtk_make_toggle_button_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_toggle_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1364,7 +1364,7 @@ Val   _lib7_Gtk_make_check_button   (Task* task, Val arg)
 
     widget[slot] = gtk_check_button_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1388,7 +1388,7 @@ Val   _lib7_Gtk_make_check_button_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_check_button_new_with_label ( /*label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1412,7 +1412,7 @@ Val   _lib7_Gtk_make_check_button_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_check_button_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1435,7 +1435,7 @@ Val   _lib7_Gtk_make_menu_item   (Task* task, Val arg)
 
     widget[slot] = gtk_menu_item_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1459,7 +1459,7 @@ Val   _lib7_Gtk_make_menu_item_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_menu_item_new_with_label( /*label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1483,7 +1483,7 @@ Val   _lib7_Gtk_make_menu_item_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_menu_item_new_with_mnemonic( /*mnemonic_label*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1506,7 +1506,7 @@ Val   _lib7_Gtk_make_first_radio_button   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new (NULL);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1530,7 +1530,7 @@ Val   _lib7_Gtk_make_next_radio_button   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new_from_widget (GTK_RADIO_BUTTON(/*sib*/w0));
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1554,7 +1554,7 @@ Val   _lib7_Gtk_make_first_radio_button_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new_with_label(NULL,/*label*/s0);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1579,7 +1579,7 @@ Val   _lib7_Gtk_make_next_radio_button_with_label   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new_with_label_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1603,7 +1603,7 @@ Val   _lib7_Gtk_make_first_radio_button_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new_with_mnemonic(NULL,/*label*/s0);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1628,7 +1628,7 @@ Val   _lib7_Gtk_make_next_radio_button_with_mnemonic   (Task* task, Val arg)
 
     widget[slot] = gtk_radio_button_new_with_mnemonic_from_widget ( GTK_RADIO_BUTTON(/*sib*/w0), /*label*/s1 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1653,7 +1653,7 @@ Val   _lib7_Gtk_make_arrow   (Task* task, Val arg)
 
     widget[slot] = gtk_arrow_new( int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i0), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i1) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1702,7 +1702,7 @@ Val   _lib7_Gtk_make_horizontal_box   (Task* task, Val arg)
 
     widget[slot] = gtk_hbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1727,7 +1727,7 @@ Val   _lib7_Gtk_make_vertical_box   (Task* task, Val arg)
 
     widget[slot] = gtk_vbox_new ( /*homogeneous*/b0, /*spacing*/i1 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1750,7 +1750,7 @@ Val   _lib7_Gtk_make_horizontal_button_box   (Task* task, Val arg)
 
     widget[slot] = gtk_hbutton_box_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1773,7 +1773,7 @@ Val   _lib7_Gtk_make_vertical_button_box   (Task* task, Val arg)
 
     widget[slot] = gtk_vbutton_box_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1799,7 +1799,7 @@ Val   _lib7_Gtk_make_table   (Task* task, Val arg)
 
     widget[slot] = gtk_table_new ( /*rows*/i0, /*cols*/i1, /*homogeneous*/b2 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1822,7 +1822,7 @@ Val   _lib7_Gtk_make_event_box   (Task* task, Val arg)
 
     widget[slot] = gtk_event_box_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1846,7 +1846,7 @@ Val   _lib7_Gtk_make_image_from_file   (Task* task, Val arg)
 
     widget[slot] = gtk_image_new_from_file( /*filename*/s0 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1869,7 +1869,7 @@ Val   _lib7_Gtk_make_horizontal_separator   (Task* task, Val arg)
 
     widget[slot] = gtk_hseparator_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1892,7 +1892,7 @@ Val   _lib7_Gtk_make_vertical_separator   (Task* task, Val arg)
 
     widget[slot] = gtk_vseparator_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1915,7 +1915,7 @@ Val   _lib7_Gtk_make_layout_container   (Task* task, Val arg)
 
     widget[slot] = gtk_layout_new (NULL, NULL);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -1988,7 +1988,7 @@ Val   _lib7_Gtk_make_fixed_container   (Task* task, Val arg)
 
     widget[slot] = gtk_fixed_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2067,7 +2067,7 @@ Val   _lib7_Gtk_make_adjustment   (Task* task, Val arg)
 
     widget[slot] = (GtkWidget*) gtk_adjustment_new ( /*value*/f0, /*lower*/f1, /*upper*/f2, /*step_increment*/f3, /*page_increment*/f4, /*page_size*/f5 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2092,7 +2092,7 @@ Val   _lib7_Gtk_make_viewport   (Task* task, Val arg)
 
     widget[slot] = gtk_viewport_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2117,7 +2117,7 @@ Val   _lib7_Gtk_make_scrolled_window   (Task* task, Val arg)
 
     widget[slot] = gtk_scrolled_window_new( GTK_ADJUSTMENT(/*null_or_widget_to_int horizontal_adjustment*/w0), GTK_ADJUSTMENT(/*null_or_widget_to_int vertical_adjustment*/w1) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2140,7 +2140,7 @@ Val   _lib7_Gtk_make_horizontal_ruler   (Task* task, Val arg)
 
     widget[slot] = gtk_hruler_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2163,7 +2163,7 @@ Val   _lib7_Gtk_make_vertical_ruler   (Task* task, Val arg)
 
     widget[slot] = gtk_vruler_new ();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2187,7 +2187,7 @@ Val   _lib7_Gtk_make_vertical_scrollbar   (Task* task, Val arg)
 
     widget[slot] = gtk_vscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2211,7 +2211,7 @@ Val   _lib7_Gtk_make_horizontal_scrollbar   (Task* task, Val arg)
 
     widget[slot] = gtk_hscrollbar_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2235,7 +2235,7 @@ Val   _lib7_Gtk_make_vertical_scale   (Task* task, Val arg)
 
     widget[slot] = gtk_vscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2259,7 +2259,7 @@ Val   _lib7_Gtk_make_horizontal_scale   (Task* task, Val arg)
 
     widget[slot] = gtk_hscale_new( GTK_ADJUSTMENT(/*null_or_widget_to_int adjustment*/w0) );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2285,7 +2285,7 @@ Val   _lib7_Gtk_make_vertical_scale_with_range   (Task* task, Val arg)
 
     widget[slot] = gtk_vscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2311,7 +2311,7 @@ Val   _lib7_Gtk_make_horizontal_scale_with_range   (Task* task, Val arg)
 
     widget[slot] = gtk_hscale_new_with_range( /*min*/f0, /*max*/f1, /*step*/f2 );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2334,7 +2334,7 @@ Val   _lib7_Gtk_make_drawing_area   (Task* task, Val arg)
 
     widget[slot] = gtk_drawing_area_new();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2360,7 +2360,7 @@ Val   _lib7_Gtk_make_pixmap   (Task* task, Val arg)
 
     widget[slot] = (GtkWidget*) gdk_pixmap_new( GDK_DRAWABLE(/*window*/w0), /*wide*/i1, /*high*/i2, -1);
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2383,7 +2383,7 @@ Val   _lib7_Gtk_make_status_bar   (Task* task, Val arg)
 
     widget[slot] = gtk_statusbar_new();
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -2407,7 +2407,7 @@ Val   _lib7_Gtk_push_text_on_status_bar   (Task* task, Val arg)
 
     int result = gtk_statusbar_push( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*text*/s2);
 
-    return INT31_FROM_C_INT(result);
+    return TAGGED_INT_FROM_C_INT(result);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3342,7 +3342,7 @@ Val   _lib7_Gtk_get_scale_value_digits_shown   (Task* task, Val arg)
 
     int result = gtk_scale_get_digits( GTK_SCALE(/*scale*/w0) );
 
-    return INT31_FROM_C_INT(result);
+    return TAGGED_INT_FROM_C_INT(result);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3504,7 +3504,7 @@ Val   _lib7_Gtk_get_white_graphics_context   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3528,7 +3528,7 @@ Val   _lib7_Gtk_get_black_graphics_context   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3552,7 +3552,7 @@ Val   _lib7_Gtk_get_current_foreground_graphics_context   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3576,7 +3576,7 @@ Val   _lib7_Gtk_get_current_background_graphics_context   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3600,7 +3600,7 @@ Val   _lib7_Gtk_get_widget_window   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3728,7 +3728,7 @@ Val   _lib7_Gtk_get_viewport_vertical_adjustment   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3752,7 +3752,7 @@ Val   _lib7_Gtk_get_viewport_horizontal_adjustment   (Task* task, Val arg)
 
     int slot = get_widget_id( widget );
 
-    return INT31_FROM_C_INT(slot);
+    return TAGGED_INT_FROM_C_INT(slot);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3863,13 +3863,13 @@ Val   _lib7_Gtk_set_clicked_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "clicked", G_CALLBACK( run_clicked_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3886,13 +3886,13 @@ Val   _lib7_Gtk_set_pressed_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "pressed", G_CALLBACK( run_pressed_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3909,13 +3909,13 @@ Val   _lib7_Gtk_set_release_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "release", G_CALLBACK( run_release_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3932,13 +3932,13 @@ Val   _lib7_Gtk_set_enter_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "enter", G_CALLBACK( run_enter_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3955,13 +3955,13 @@ Val   _lib7_Gtk_set_leave_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "leave", G_CALLBACK( run_leave_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -3978,13 +3978,13 @@ Val   _lib7_Gtk_set_activate_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( GTK_MENU_ITEM(widget), "activate", G_CALLBACK( run_activate_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4001,13 +4001,13 @@ Val   _lib7_Gtk_set_destroy_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "destroy", G_CALLBACK( run_destroy_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4024,13 +4024,13 @@ Val   _lib7_Gtk_set_realize_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "realize", G_CALLBACK( run_realize_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4047,13 +4047,13 @@ Val   _lib7_Gtk_set_button_press_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "button_press_event", G_CALLBACK( run_button_press_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4070,13 +4070,13 @@ Val   _lib7_Gtk_set_button_release_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "button_release_event", G_CALLBACK( run_button_release_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4093,13 +4093,13 @@ Val   _lib7_Gtk_set_scroll_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "scroll_event", G_CALLBACK( run_scroll_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4116,13 +4116,13 @@ Val   _lib7_Gtk_set_motion_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "motion_notify_event", G_CALLBACK( run_motion_notify_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4139,13 +4139,13 @@ Val   _lib7_Gtk_set_delete_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "delete_event", G_CALLBACK( run_delete_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4162,13 +4162,13 @@ Val   _lib7_Gtk_set_expose_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "expose_event", G_CALLBACK( run_expose_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4185,13 +4185,13 @@ Val   _lib7_Gtk_set_key_press_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "key_press_event", G_CALLBACK( run_key_press_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4208,13 +4208,13 @@ Val   _lib7_Gtk_set_key_release_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "key_release_event", G_CALLBACK( run_key_release_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4231,13 +4231,13 @@ Val   _lib7_Gtk_set_enter_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "enter_notify_event", G_CALLBACK( run_enter_notify_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4254,13 +4254,13 @@ Val   _lib7_Gtk_set_leave_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "leave_notify_event", G_CALLBACK( run_leave_notify_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4277,13 +4277,13 @@ Val   _lib7_Gtk_set_configure_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "configure_event", G_CALLBACK( run_configure_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4300,13 +4300,13 @@ Val   _lib7_Gtk_set_focus_in_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "focus_in_event", G_CALLBACK( run_focus_in_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4323,13 +4323,13 @@ Val   _lib7_Gtk_set_focus_out_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "focus_out_event", G_CALLBACK( run_focus_out_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4346,13 +4346,13 @@ Val   _lib7_Gtk_set_map_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "map_event", G_CALLBACK( run_map_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4369,13 +4369,13 @@ Val   _lib7_Gtk_set_unmap_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "unmap_event", G_CALLBACK( run_unmap_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4392,13 +4392,13 @@ Val   _lib7_Gtk_set_property_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "property_notify_event", G_CALLBACK( run_property_notify_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4415,13 +4415,13 @@ Val   _lib7_Gtk_set_selection_clear_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "selection_clear_event", G_CALLBACK( run_selection_clear_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4438,13 +4438,13 @@ Val   _lib7_Gtk_set_selection_request_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "selection_request_event", G_CALLBACK( run_selection_request_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4461,13 +4461,13 @@ Val   _lib7_Gtk_set_selection_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "selection_notify_event", G_CALLBACK( run_selection_notify_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4484,13 +4484,13 @@ Val   _lib7_Gtk_set_proximity_in_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "proximity_in_event", G_CALLBACK( run_proximity_in_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4507,13 +4507,13 @@ Val   _lib7_Gtk_set_proximity_out_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "proximity_out_event", G_CALLBACK( run_proximity_out_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4530,13 +4530,13 @@ Val   _lib7_Gtk_set_client_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "client_event", G_CALLBACK( run_client_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4553,13 +4553,13 @@ Val   _lib7_Gtk_set_no_expose_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "no_expose_event", G_CALLBACK( run_no_expose_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4576,13 +4576,13 @@ Val   _lib7_Gtk_set_window_state_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "window_state_event", G_CALLBACK( run_window_state_event_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4599,13 +4599,13 @@ Val   _lib7_Gtk_set_toggled_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "toggled", G_CALLBACK( run_toggled_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);
@@ -4622,13 +4622,13 @@ Val   _lib7_Gtk_set_value_changed_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 =    (GtkWidget*)      widget[ INT31_TO_C_INT(arg) ];
+    GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
 
     int id   =  find_free_callback_id ();
 
     g_signal_connect( G_OBJECT(widget), "value_changed", G_CALLBACK( run_value_changed_callback ), (void*)id );
 
-    return INT31_FROM_C_INT(id);
+    return TAGGED_INT_FROM_C_INT(id);
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);

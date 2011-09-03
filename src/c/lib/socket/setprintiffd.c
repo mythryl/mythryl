@@ -30,7 +30,7 @@ Val   _lib7_Sock_setprintiffd   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-    int fd      =  INT31_TO_C_INT(arg);
+    int fd      =  TAGGED_INT_TO_C_INT(arg);
 
     print_if_fd = fd;
 

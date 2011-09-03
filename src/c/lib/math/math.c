@@ -59,7 +59,7 @@ Val c_exp(Task *task, Val arg)
     errno = 0;
     d = exp(*(PTR_CAST(double*,arg)));
     REAL_ALLOC(task,result,d);
-    REC_ALLOC2(task,result,result,INT31_FROM_C_INT(errno));
+    REC_ALLOC2(task,result,result,TAGGED_INT_FROM_C_INT(errno));
     Restore_LIB7_FPState();
     return result;
 }

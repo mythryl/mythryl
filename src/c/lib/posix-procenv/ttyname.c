@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    char* name = ttyname(INT31_TO_C_INT(arg));
+    char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
     //
     if (name == NULL)   return RAISE_ERROR(task, "not a terminal device");
     //  

@@ -133,7 +133,7 @@ static inline void  forward_pointee_if_in_fromspace   (Heap* heap,  Sibid* b2s, 
 
     Val pointee =  *pointer;
 
-    if (IS_POINTER( pointee )) {								// Ignore Int31 values.
+    if (IS_POINTER( pointee )) {								// Ignore Tagged_Int values.
 	//
 	Sibid  sibid =  SIBID_FOR_POINTER(b2s, pointee );
 	//

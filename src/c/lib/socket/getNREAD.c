@@ -31,11 +31,11 @@ Val   _lib7_Sock_getNREAD   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
 
     int	                                                        n;
-    int status = ioctl( INT31_TO_C_INT(arg), FIONREAD, (char*) &n );
+    int status = ioctl( TAGGED_INT_TO_C_INT(arg), FIONREAD, (char*) &n );
     //
     if (status < 0)     return RAISE_SYSERR( task, status );
 
-    return   INT31_FROM_C_INT( n );
+    return   TAGGED_INT_FROM_C_INT( n );
 }
 
 

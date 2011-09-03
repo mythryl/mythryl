@@ -72,7 +72,7 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
     if (status < 0)   return RAISE_SYSERR(task, status);
 
     Val	             result;
-    REC_ALLOC2(task, result, INT31_FROM_C_INT(socket[0]), INT31_FROM_C_INT(socket[1]));
+    REC_ALLOC2(task, result, TAGGED_INT_FROM_C_INT(socket[0]), TAGGED_INT_FROM_C_INT(socket[1]));
     return           result;
 }
 

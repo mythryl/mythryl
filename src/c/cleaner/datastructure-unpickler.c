@@ -244,7 +244,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 			//
 		        Val w = *p;
 
-		        if (! IS_INT31(w)) {
+		        if (! IS_TAGGED_INT(w)) {
 			    //
 			    if (IS_EXTERNAL_TAG(w)) {
 				//

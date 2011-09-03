@@ -194,7 +194,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("[%2d]: INT(%d)\n", pc-5, i);
 		#endif
 
-		LIST_CONS(task, stk, INT31_FROM_C_INT(i), stk);
+		LIST_CONS(task, stk, TAGGED_INT_FROM_C_INT(i), stk);
 	    }
 	    break;
 

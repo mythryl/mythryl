@@ -62,11 +62,11 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
         return RAISE_SYSERR(task, status);
 
     REC_ALLOC5(task, chunk,
-	INT31_FROM_C_INT(flock.l_type),
-	INT31_FROM_C_INT(flock.l_whence), 
-	INT31_FROM_C_INT(flock.l_start),
-	INT31_FROM_C_INT(flock.l_len),
-	INT31_FROM_C_INT(flock.l_pid));
+	TAGGED_INT_FROM_C_INT(flock.l_type),
+	TAGGED_INT_FROM_C_INT(flock.l_whence), 
+	TAGGED_INT_FROM_C_INT(flock.l_start),
+	TAGGED_INT_FROM_C_INT(flock.l_len),
+	TAGGED_INT_FROM_C_INT(flock.l_pid));
 
     return chunk;
 }

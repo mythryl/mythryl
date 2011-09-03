@@ -80,7 +80,7 @@ Val RaiseSysError (Task *task, const char *alt_msg, const char *at);
 //
 #define CHECK_RETURN(task,status)	{				\
 	int	__sts = (status);					\
-	CHECK_RETURN_VAL((task), __sts, INT31_FROM_C_INT(__sts))	\
+	CHECK_RETURN_VAL((task), __sts, TAGGED_INT_FROM_C_INT(__sts))	\
     }
 
 // Return Void to the calling Lib7 code,

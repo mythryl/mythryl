@@ -263,14 +263,14 @@ Val _lib7_win32_FS_get_file_time(Task *task, Val arg)
 	Val rec;
 
 	REC_ALLOC8(task,rec,
-		   INT31_FROM_C_INT((int)st.wYear),
-		   INT31_FROM_C_INT((int)st.wMonth),
-		   INT31_FROM_C_INT((int)st.wDayOfWeek),
-		   INT31_FROM_C_INT((int)st.wDay),
-		   INT31_FROM_C_INT((int)st.wHour),
-		   INT31_FROM_C_INT((int)st.wMinute),
-		   INT31_FROM_C_INT((int)st.wSecond),
-		   INT31_FROM_C_INT((int)st.wMilliseconds));
+		   TAGGED_INT_FROM_C_INT((int)st.wYear),
+		   TAGGED_INT_FROM_C_INT((int)st.wMonth),
+		   TAGGED_INT_FROM_C_INT((int)st.wDayOfWeek),
+		   TAGGED_INT_FROM_C_INT((int)st.wDay),
+		   TAGGED_INT_FROM_C_INT((int)st.wHour),
+		   TAGGED_INT_FROM_C_INT((int)st.wMinute),
+		   TAGGED_INT_FROM_C_INT((int)st.wSecond),
+		   TAGGED_INT_FROM_C_INT((int)st.wMilliseconds));
 	OPTION_THE(task,res,rec);
       }
     }

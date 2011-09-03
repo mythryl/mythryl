@@ -33,7 +33,7 @@ static Val   dummy_root_local =   HEAP_VOID;			// Empty root for garbage collect
 
 #define MK_SOME(task,v) recAlloc1(task,v)
 
-#define NULLARY_VALCON  INT31_FROM_C_INT(0)
+#define NULLARY_VALCON  TAGGED_INT_FROM_C_INT(0)
 
 #define LIB7ADDR_CODE          '@'
 #define LIB7ARRAY_CODE         'A'
@@ -792,7 +792,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
         break;
 
     case LIB7CHAR_CODE:
-	*(*(Unt8 **)p)++ = (Unt8) INT31_TO_C_INT(val);
+	*(*(Unt8 **)p)++ = (Unt8) TAGGED_INT_TO_C_INT(val);
 	break;
 
     case LIB7FLOAT_CODE: 
@@ -1035,7 +1035,7 @@ static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* ro
 
     case LIB7CHAR_CODE:
 	tag = LIB7CHAR_TAG;
-	mlval = INT31_FROM_C_INT(**(Unt8 **)p);
+	mlval = TAGGED_INT_FROM_C_INT(**(Unt8 **)p);
 	(*(Unt8 **)p)++;
 	break;
 
@@ -1207,7 +1207,7 @@ handle_int:
 	die("word_CtoLib7: Cannot yet handle type\n");
     }
 
-    REC_ALLOC2(task,result,INT31_FROM_C_INT(tag),mlval);
+    REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(tag),mlval);
 
     return result;
 }
@@ -1233,12 +1233,12 @@ Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,
 	//
     case LIB7DOUBLE_CODE:
 	result = double_CtoLib7(task, *(double *)p);
-	REC_ALLOC2(task,result,INT31_FROM_C_INT(LIB7DOUBLE_TAG),result);
+	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG),result);
 	break;
 
     case LIB7FLOAT_CODE:
 	result = double_CtoLib7(task, (double) (*(float *)p));
-	REC_ALLOC2(task,result,INT31_FROM_C_INT(LIB7FLOAT_TAG),result);
+	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG),result);
 	break;
 
     default:
@@ -1358,13 +1358,13 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     case LIB7DOUBLE_CODE:
 	result = double_CtoLib7(task,call_double_g((double (*)())f,n_cargs,vals));
 	//
-	REC_ALLOC2(task,result,INT31_FROM_C_INT(LIB7DOUBLE_TAG),result);
+	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG),result);
 	break;
 
     case LIB7FLOAT_CODE:
 	result = double_CtoLib7(task,  (double) call_float_g((float(*)())f,n_cargs,vals));
 	//
-	REC_ALLOC2(task,result,INT31_FROM_C_INT(LIB7FLOAT_TAG),result);
+	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG),result);
 	break;
 
     case LIB7CHAR_CODE:

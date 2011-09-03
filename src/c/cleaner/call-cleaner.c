@@ -425,7 +425,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
     #if (defined(MULTICORE_SUPPORT) && defined(COMMENT_MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS))
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
-	|| (INT31_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))
+	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))
 	//
     #elif defined(MULTICORE_SUPPORT)
 	//
@@ -449,7 +449,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	int poll_frequency
 	    = 
-	    INT31_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL is #defined in src/c/h/runtime-globals.h
+	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL is #defined in src/c/h/runtime-globals.h
 											    	// in terms of software_generated_periodic_event_interval_refcell_global from src/c/main/construct-runtime-package.c
 	Heap* heap =  task->heap;
 

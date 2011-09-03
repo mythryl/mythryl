@@ -257,7 +257,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 
 	Val pointee = *pointer;								// Get contents of updated refcell/vectorslot.
 
-	if (!IS_POINTER( pointee ))   continue;						// Ignore refcells and vectorslots containing Int31 values.
+	if (!IS_POINTER( pointee ))   continue;						// Ignore refcells and vectorslots containing Tagged_Int values.
 
 	Sibid src_sibid =  SIBID_FOR_POINTER(b2s, pointer );				// Get the Sibid tag for the ram-book containing the refcell/vectorslot.	Sibid  def in    src/c/h/sibid.h
 
@@ -540,7 +540,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
 			// The forwarded version of weak chunks are threaded
 			// via their tagword fields.  We mark the chunk
-			// reference field to make it look like an Int31
+			// reference field to make it look like an Tagged_Int
 			// so that the to-space sweeper does not follow
 			// the weak reference.
 

@@ -35,7 +35,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-    int		socket = INT31_TO_C_INT(arg);
+    int		socket = TAGGED_INT_TO_C_INT(arg);
 
     char	address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;

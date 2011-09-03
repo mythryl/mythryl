@@ -47,7 +47,7 @@
 //
 #define  POINTER_ATAG	HEXLIT(0)	//   00 - Pointers.
 #define  TAGWORD_ATAG	HEXLIT(2)	//   10 - Tagwords.
-#define    INT31_ATAG	HEXLIT(1)	//   01, 11 - 31-bit immediate integers.
+#define    TAGGED_INT_ATAG	HEXLIT(1)	//   01, 11 - 31-bit immediate integers.
 
 #define ATAG_MASK	HEXLIT(3)	// Bits 0-1 are the A-tag.
 
@@ -127,7 +127,7 @@
 #define TYPEAGNOSTIC_VECTOR_CTAG	HEXLIT( 0 )
 #define UNT8_VECTOR_CTAG	HEXLIT( 1 )
 #define UNT16_VECTOR_CTAG	HEXLIT( 2 )
-#define INT31_VECTOR_CTAG	HEXLIT( 3 )
+#define TAGGED_INT_VECTOR_CTAG	HEXLIT( 3 )
 #define INT32_VECTOR_CTAG	HEXLIT( 4 )	// Never used.
 #define FLOAT32_VECTOR_CTAG	HEXLIT( 5 )
 #define FLOAT64_VECTOR_CTAG	HEXLIT( 6 )
@@ -138,7 +138,7 @@
     //    typeagnostic_vector_ctag = 0;
     //    unt8_vector_ctag	  = 1;
     //    unt16_vector_ctag       = 2;
-    //    int31_vector_ctag       = 3;
+    //    tagged_int_vector_ctag       = 3;
     //    int32_vector_ctag       = 4;
     //    float32_vector_ctag     = 5;
     //    float64_vector_ctag     = 6;
@@ -218,11 +218,11 @@
 
 // Tests on words:
 //   IS_POINTER(W)   -- TRUE iff lower two bits are binary 00
-//   IS_INT31(W)     -- TRUE iff lower bit is 1.
+//   IS_TAGGED_INT(W)     -- TRUE iff lower bit is 1.
 //   IS_TAGWORD(W)   -- TRUE iff lower two bits are binary 10
 //
 #define IS_POINTER(W)	(((Val_Sized_Unt)(W) & ATAG_MASK) == POINTER_ATAG)
-#define IS_INT31(W)	(((Val_Sized_Unt)(W) &         1) ==   INT31_ATAG)
+#define IS_TAGGED_INT(W)	(((Val_Sized_Unt)(W) &         1) ==   TAGGED_INT_ATAG)
 #define IS_TAGWORD(W)	(((Val_Sized_Unt)(W) & ATAG_MASK) == TAGWORD_ATAG)
 
 // Extract tagword fields:
