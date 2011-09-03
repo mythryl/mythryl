@@ -23,7 +23,7 @@
 //
 // Int16	-- 16-bit signed integer
 // Int1	-- 32-bit signed integer
-// Int64	-- 64-bit signed integer (64-bit machines only)
+// Int2	-- 64-bit signed integer (64-bit machines only)
 // Unt16	-- 16-bit unsigned integer
 // Unt1	-- 32-bit unsigned integer
 // Unt2	-- 64-bit unsigned integer (64-bit machines only)

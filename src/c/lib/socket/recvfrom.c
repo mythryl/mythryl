@@ -78,7 +78,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     if (n < 0)     return RAISE_SYSERR(task, status);
 
 
-    Val	data =  make_int64_vector_sized_in_bytes( task, addrBuf, address_len );
+    Val	data =  make_int2_vector_sized_in_bytes( task, addrBuf, address_len );
     Val	result;
 
     if (n == 0) {

@@ -32,7 +32,7 @@ _lib7_OpenCV_cvCreateImage (Task *task, Val arg)
 
     IplImage img;
 
-    Val data   =  make_int64_vector_sized_in_bytes(  task, &img, sizeof(img));
+    Val data   =  make_int2_vector_sized_in_bytes(  task, &img, sizeof(img));
 
     Val result;    SEQHDR_ALLOC(task, result, UNT8_RO_VECTOR_TAGWORD, data, sizeof(img));
 

@@ -51,7 +51,7 @@ Val   _lib7_Sock_frominetaddr   (Task* task,  Val arg)   {
 
     ASSERT( addr->sin_family == AF_INET );
 
-    data =  make_int64_vector_sized_in_bytes( task, &(addr->sin_addr), sizeof(struct in_addr) );
+    data =  make_int2_vector_sized_in_bytes( task, &(addr->sin_addr), sizeof(struct in_addr) );
 
     SEQHDR_ALLOC( task, inAddr, UNT8_RO_VECTOR_TAGWORD, data, sizeof(struct in_addr) );
 

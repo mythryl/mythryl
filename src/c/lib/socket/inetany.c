@@ -45,7 +45,7 @@ Val   _lib7_Sock_inetany   (Task* task,  Val arg)   {
     addr.sin_addr.s_addr =  htonl( INADDR_ANY );
     addr.sin_port        =  htons( TAGGED_INT_TO_C_INT( arg ) );
 
-    Val data =  make_int64_vector_sized_in_bytes( task, &addr, sizeof(struct sockaddr_in) );
+    Val data =  make_int2_vector_sized_in_bytes( task, &addr, sizeof(struct sockaddr_in) );
 
 
     Val                 result;

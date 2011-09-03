@@ -388,8 +388,8 @@ typedef unsigned  __uint1_t;
 
 
 	 
-typedef long long __int64_t;
-typedef unsigned long long  __uint64_t;
+typedef long long __int2_t;
+typedef unsigned long long  __uint2_t;
 
 
 
@@ -436,13 +436,13 @@ typedef long		fpos_t;
 
 
  
-typedef	__int64_t	off64_t;	 
+typedef	__int2_t	off64_t;	 
 
 
 
 
  
-typedef	__int64_t	fpos64_t;
+typedef	__int2_t	fpos64_t;
 
 
 
@@ -692,11 +692,11 @@ extern FILE	*freopen64(const char *, const char *, FILE *);
 extern int	fseek64(FILE *, off64_t, int);
 extern int	fseeko64(FILE *, off64_t, int);
  
-extern int	fseeko(FILE *, __int64_t, int);
+extern int	fseeko(FILE *, __int2_t, int);
 extern int	fsetpos64(FILE *, const fpos64_t *);
 extern off64_t	ftell64(FILE *);
  
-extern __int64_t ftello(FILE *);
+extern __int2_t ftello(FILE *);
 extern off64_t	ftello64(FILE *);
 extern FILE	*tmpfile64(void);
 

@@ -79,7 +79,7 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
 
     if (n < 0)   return RAISE_SYSERR(task, status);
 
-    Val	data =  make_int64_vector_sized_in_bytes( task, address_buf, address_len );
+    Val	data =  make_int2_vector_sized_in_bytes( task, address_buf, address_len );
 
     Val	                address;
     SEQHDR_ALLOC (task, address, UNT8_RO_VECTOR_TAGWORD, data, address_len);

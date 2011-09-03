@@ -231,7 +231,7 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
     PTR_CAST(Val*, v)[-1] = MAKE_TAGWORD(new_length_in_words, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
 }
 
-Val   allocate_int64_vector   (Task* task,  int nelems)   {
+Val   allocate_int2_vector   (Task* task,  int nelems)   {
     //===================== 
     // 
     // Allocate an uninitialized chunk of raw64 data.
@@ -360,7 +360,7 @@ Val   allocate_nonempty_float64_vector   (Task* task,  int len)   {
     // 
     // Allocate an uninitialized Mythryl Float64 vector.  Assume that len > 0.
 
-    Val result =  allocate_int64_vector( task, len );
+    Val result =  allocate_int2_vector( task, len );
 
     SEQHDR_ALLOC( task, result, FLOAT64_RW_VECTOR_TAGWORD, result, len );
 
@@ -589,19 +589,19 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 }
 
 
-Val   allocate_int64_vector_sized_in_bytes   (Task* task,  int nbytes)   {
+Val   allocate_int2_vector_sized_in_bytes   (Task* task,  int nbytes)   {
     //====================================
     //
     // Allocate a 64-bit aligned raw data chunk (to store abstract C data).
     //
     // This function is nowhere invoked.
     //
-    return  allocate_int64_vector( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int64) and dispatch.
+    return  allocate_int2_vector( task, (nbytes+7)>>2 );		// Round size up to a multiple of sizeof(Int2) and dispatch.
 }
 
 
 
-Val   make_int64_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
+Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
     //================================
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
@@ -612,7 +612,7 @@ Val   make_int64_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes) 
 
     } else {
 
-        Val chunk =  allocate_int64_vector( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int64).
+        Val chunk =  allocate_int2_vector( task, (nbytes +7) >> 2 );	// Round size up to a multiple of sizeof(Int2).
 
 	memcpy (PTR_CAST(void*, chunk), data, nbytes);
 

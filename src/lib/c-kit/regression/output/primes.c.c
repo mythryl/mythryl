@@ -1,16 +1,16 @@
 
 typedef int __int1_t_t101;
 typedef unsigned int __uint1_t_t102;
-typedef long long __int64_t_t103;
-typedef unsigned long long __uint64_t_t104;
+typedef long long __int2_t_t103;
+typedef unsigned long long __uint2_t_t104;
 typedef __int1_t_t101 __psint_t_t105;
 typedef __uint1_t_t102 __psunsigned_t_t106;
 typedef __int1_t_t101 __scint_t_t107;
 typedef __uint1_t_t102 __scunsigned_t_t108;
 typedef unsigned int size_t_t109;
 typedef long fpos_t_t110;
-typedef __int64_t_t103 off64_t_t111;
-typedef __int64_t_t103 fpos64_t_t112;
+typedef __int2_t_t103 off64_t_t111;
+typedef __int2_t_t103 fpos64_t_t112;
 typedef char *va_list_t113;
 struct __file_s_t114 {
   int _count;
@@ -101,10 +101,10 @@ extern FILE_t115 * fopen64 (char *,char *);
 extern FILE_t115 * freopen64 (char *,char *,FILE_t115 *);
 extern int fseek64 (FILE_t115 *,off64_t_t111,int);
 extern int fseeko64 (FILE_t115 *,off64_t_t111,int);
-extern int fseeko (FILE_t115 *,__int64_t_t103,int);
+extern int fseeko (FILE_t115 *,__int2_t_t103,int);
 extern int fsetpos64 (FILE_t115 *,fpos64_t_t112 *);
 extern off64_t_t111 ftell64 (FILE_t115 *);
-extern __int64_t_t103 ftello (FILE_t115 *);
+extern __int2_t_t103 ftello (FILE_t115 *);
 extern off64_t_t111 ftello64 (FILE_t115 *);
 extern FILE_t115 * tmpfile64 (void);
 extern int __semputc (int,FILE_t115 *);

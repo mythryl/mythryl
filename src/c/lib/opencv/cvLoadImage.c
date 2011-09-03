@@ -43,12 +43,12 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 
 	Val result;
 
-        header_data  =  make_int64_vector_sized_in_bytes(  task, ipl_image, sizeof(IplImage));
+        header_data  =  make_int2_vector_sized_in_bytes(  task, ipl_image, sizeof(IplImage));
         SEQHDR_ALLOC(task, header, UNT8_RO_VECTOR_TAGWORD, header_data, sizeof(IplImage));
 
 	c_roots_global[c_roots_count_global++] = &header;			// Protect header from garbage collection while allocating image.
 
-	image_data   =  make_int64_vector_sized_in_bytes(  task, ipl_image->imageData, ipl_image->imageSize);
+	image_data   =  make_int2_vector_sized_in_bytes(  task, ipl_image->imageData, ipl_image->imageSize);
         SEQHDR_ALLOC(task, image, UNT8_RO_VECTOR_TAGWORD, image_data, ipl_image->imageSize);
         
 	--c_roots_count_global;

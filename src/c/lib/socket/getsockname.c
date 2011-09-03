@@ -47,7 +47,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 
     Val	data
 	=
-	make_int64_vector_sized_in_bytes(				// make_int64_vector_sized_in_bytes	def in    src/c/cleaner/make-strings-and-vectors-etc.c
+	make_int2_vector_sized_in_bytes(				// make_int2_vector_sized_in_bytes	def in    src/c/cleaner/make-strings-and-vectors-etc.c
 	    //
 	    task,
 	    address_buf,

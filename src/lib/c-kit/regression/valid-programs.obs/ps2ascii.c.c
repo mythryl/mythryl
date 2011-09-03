@@ -450,8 +450,8 @@ typedef unsigned  __uint1_t;
 
 
 	 
-typedef long long __int64_t;
-typedef unsigned long long  __uint64_t;
+typedef long long __int2_t;
+typedef unsigned long long  __uint2_t;
 
 
 
@@ -498,13 +498,13 @@ typedef long		fpos_t;
 
 
  
-typedef	__int64_t	off64_t;	 
+typedef	__int2_t	off64_t;	 
 
 
 
 
  
-typedef	__int64_t	fpos64_t;
+typedef	__int2_t	fpos64_t;
 
 
 
@@ -754,11 +754,11 @@ extern FILE	*freopen64(const char *, const char *, FILE *);
 extern int	fseek64(FILE *, off64_t, int);
 extern int	fseeko64(FILE *, off64_t, int);
  
-extern int	fseeko(FILE *, __int64_t, int);
+extern int	fseeko(FILE *, __int2_t, int);
 extern int	fsetpos64(FILE *, const fpos64_t *);
 extern off64_t	ftell64(FILE *);
  
-extern __int64_t ftello(FILE *);
+extern __int2_t ftello(FILE *);
 extern off64_t	ftello64(FILE *);
 extern FILE	*tmpfile64(void);
 
@@ -900,7 +900,7 @@ typedef	long		pgno_t;
 typedef	__uint1_t	pfn_t;		 
 typedef	short		count_t;		 
 typedef unsigned long	basictime_t;
-typedef __int64_t	micro_t;
+typedef __int2_t	micro_t;
  
 
 
@@ -969,7 +969,7 @@ typedef dev_t	vertex_hdl_t;
 
 typedef	unsigned long	ino_t;		 
 
-typedef __uint64_t	ino64_t;	 
+typedef __uint2_t	ino64_t;	 
 
 
 typedef long		off_t;		 
@@ -984,9 +984,9 @@ typedef __scoff_t	scoff_t;
 
 
 	 
-typedef	__int64_t	blkcnt64_t;
-typedef	__uint64_t	fsblkcnt64_t;
-typedef	__uint64_t	fsfilcnt64_t;
+typedef	__int2_t	blkcnt64_t;
+typedef	__uint2_t	fsblkcnt64_t;
+typedef	__uint2_t	fsfilcnt64_t;
 
 
 
@@ -1011,9 +1011,9 @@ typedef signed short 	moduleid_t;
 typedef unsigned int 	lock_t;		 
 typedef	signed short	cpuid_t;	 
 typedef	unsigned char	pri_t;		 
-typedef __uint64_t	accum_t;	 
-typedef __int64_t	prid_t;		 
-typedef __int64_t	ash_t;		 
+typedef __uint2_t	accum_t;	 
+typedef __int2_t	prid_t;		 
+typedef __int2_t	ash_t;		 
 typedef int		cell_t;	 
 
 
@@ -1111,10 +1111,10 @@ typedef signed short            int16_t;
 typedef unsigned short          uint16_t;
 typedef signed int              int1_t;
 typedef unsigned int            uint1_t;
-typedef __int64_t 		int64_t;
-typedef __uint64_t		uint64_t;
-typedef __int64_t 		intmax_t;
-typedef __uint64_t		uintmax_t;
+typedef __int2_t 		int2_t;
+typedef __uint2_t		uint2_t;
+typedef __int2_t 		intmax_t;
+typedef __uint2_t		uintmax_t;
 typedef signed long int         intptr_t;
 typedef unsigned long int       uintptr_t;
 
