@@ -150,10 +150,10 @@ fun hex    (err,s,pos) =  scan err (int::scan number_string::HEX)    (s,strip 2 
 fun octal  (err,s,pos) =  scan err (int::scan number_string::OCTAL)  (s,strip 2 s) int pos;
 fun binary (err,s,pos) =  scan err (int::scan number_string::BINARY) (s,strip 2 s) int pos;
 
-fun decimalinf (err,s,pos) =  scan err (integer::scan number_string::DECIMAL) (s,s)         intinf pos;
-fun hexinf     (err,s,pos) =  scan err (integer::scan number_string::HEX)     (s,strip 2 s) intinf pos;
-fun octalinf   (err,s,pos) =  scan err (integer::scan number_string::OCTAL)   (s,strip 2 s) intinf pos;
-fun binaryinf  (err,s,pos) =  scan err (integer::scan number_string::BINARY)  (s,strip 2 s) intinf pos;
+fun decimalinf (err,s,pos) =  scan err (integer::scan number_string::DECIMAL) (s,s)         integer pos;
+fun hexinf     (err,s,pos) =  scan err (integer::scan number_string::HEX)     (s,strip 2 s) integer pos;
+fun octalinf   (err,s,pos) =  scan err (integer::scan number_string::OCTAL)   (s,strip 2 s) integer pos;
+fun binaryinf  (err,s,pos) =  scan err (integer::scan number_string::BINARY)  (s,strip 2 s) integer pos;
 
 fun string (err,s,pos)
     = 
