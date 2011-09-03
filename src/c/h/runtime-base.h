@@ -25,7 +25,7 @@
 // Int1	-- 32-bit signed integer
 // Int64	-- 64-bit signed integer (64-bit machines only)
 // Unt16	-- 16-bit unsigned integer
-// Unt32	-- 32-bit unsigned integer
+// Unt1	-- 32-bit unsigned integer
 // Unt64	-- 64-bit unsigned integer (64-bit machines only)
 // Unt8		-- Unsigned 8-bit integer.
 // Val_Sized_Unt	-- Unsigned integer large enough for a Lib7 value.
@@ -92,7 +92,7 @@ typedef Int1 Status;
     //
 #elif defined(BYTE_ORDER_LITTLE)
     //
-    extern Unt32 swap_word_bytes (Unt32 x);
+    extern Unt1 swap_word_bytes (Unt1 x);
     #define BIGENDIAN_TO_HOST(x)	swap_word_bytes(x)
     //
 #else
@@ -126,7 +126,7 @@ typedef Int1 Status;
 //
 #ifdef SIZES_C_64_MYTHRYL_32
     //
-    typedef Unt32  Val;
+    typedef Unt1  Val;
 #else
     //
     typedef   struct { Val_Sized_Unt v[1]; }   Valchunk;	// Just something for a Val to point to.

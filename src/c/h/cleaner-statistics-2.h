@@ -5,7 +5,7 @@
 #define CLEANER_STATISTICS_2_H
 
 #ifndef RUNTIME_BASE_H
-    typedef  unsigned int  Unt32;
+    typedef  unsigned int  Unt1;
 #endif
 
 #include "runtime-timer.h"
@@ -15,14 +15,14 @@
 //
 typedef struct {
     Time	start_time;			// Time of initialization.
-    Unt32	mask;				// Bitmask telling which things were measured.
-    Unt32	is_new_runtime;			// TRUE iff this is the new runtime new runtime parameters.
-    Unt32	agegroup0_buffer_bytesize;	// Size of the allocation space.
-    Unt32	active_agegroups;		// Number of agegroups.
+    Unt1	mask;				// Bitmask telling which things were measured.
+    Unt1	is_new_runtime;			// TRUE iff this is the new runtime new runtime parameters.
+    Unt1	agegroup0_buffer_bytesize;	// Size of the allocation space.
+    Unt1	active_agegroups;		// Number of agegroups.
     //						// Old runtime parameters.
-    Unt32	softmax;
-    Unt32	ratio;
-    Unt32	pad[8];				// Pad to 64 bytes.
+    Unt1	softmax;
+    Unt1	ratio;
+    Unt1	pad[8];				// Pad to 64 bytes.
     //
 } Cleaner_Statistics_Header;
 
@@ -31,10 +31,10 @@ typedef struct {
 //
 typedef struct {
     Bigcounter	bytes_allocated;		// Allocation count in bytes.
-    Unt32	active_agegroups;		// Number of agegroups cleaned.
+    Unt1	active_agegroups;		// Number of agegroups cleaned.
     Time	start_time;	
     Time	stop_time;	
-    Unt32	pad[9];				// Pad to 64 bytes.
+    Unt1	pad[9];				// Pad to 64 bytes.
     //
 } Cleaner_Statistics;
 

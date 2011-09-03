@@ -91,21 +91,21 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
 
     #if (SIZEOF_STRUCT_FLOCK_L_START > 4)				// As above.
 	//
-        WORD_ALLOC (task, starthi, (Unt32) (flock.l_start >> 32));
+        WORD_ALLOC (task, starthi, (Unt1) (flock.l_start >> 32));
     #else
-        WORD_ALLOC (task, starthi, (Unt32) 0);
+        WORD_ALLOC (task, starthi, (Unt1) 0);
     #endif
-    WORD_ALLOC (task, startlo, (Unt32) flock.l_start);
+    WORD_ALLOC (task, startlo, (Unt1) flock.l_start);
 
 
     #if (SIZEOF_STRUCT_FLOCK_L_LEN > 4)					// As above.
 	//
-        WORD_ALLOC (task, lenhi, (Unt32) (flock.l_len >> 32));
+        WORD_ALLOC (task, lenhi, (Unt1) (flock.l_len >> 32));
     #else
-        WORD_ALLOC (task, lenhi, (Unt32) 0);
+        WORD_ALLOC (task, lenhi, (Unt1) 0);
     #endif
 
-    WORD_ALLOC (task, lenlo, (Unt32) flock.l_len);
+    WORD_ALLOC (task, lenlo, (Unt1) flock.l_len);
 
 
     LIB7_AllocWrite   (task, 0, MAKE_TAGWORD (PAIRS_AND_RECORDS_BTAG, 7));

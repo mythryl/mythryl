@@ -44,7 +44,7 @@ loop:
 Val   _lib7_win32_FS_find_next_file   (Task* task,  Val arg)   {
     //=============================
     //
-    // Mythryl type:   Unt32 -> Null_Or(String)
+    // Mythryl type:   Unt1 -> Null_Or(String)
     //
     HANDLE h = (HANDLE) WORD_LIB7toC(arg);
     //
@@ -56,7 +56,7 @@ Val   _lib7_win32_FS_find_next_file   (Task* task,  Val arg)   {
 Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
     //==============================
     //
-    // Mythryl type:   String ->  (Unt32, Null_Or(String))
+    // Mythryl type:   String ->  (Unt1, Null_Or(String))
 
     HANDLE h = FindFirstFile(HEAP_STRING_AS_C_STRING(arg),&wfd);
     Val fname_opt, fname, w, res;
@@ -75,7 +75,7 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
     return res;
 }
 
-/* _lib7_win32_FS_find_close: unt32 -> Bool
+/* _lib7_win32_FS_find_close: unt1 -> Bool
  */
 Val _lib7_win32_FS_find_close(Task *task, Val arg)
 {
@@ -117,7 +117,7 @@ Val _lib7_win32_FS_remove_directory(Task *task, Val arg)
   return RemoveDirectory(HEAP_STRING_AS_C_STRING(arg)) ? HEAP_TRUE : HEAP_FALSE;
 }
 
-/* _lib7_win32_FS_get_file_attributes: String -> (unt32 option)
+/* _lib7_win32_FS_get_file_attributes: String -> (unt1 option)
  */
 Val _lib7_win32_FS_get_file_attributes(Task *task, Val arg)
 {
@@ -139,7 +139,7 @@ Val _lib7_win32_FS_get_file_attributes(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_FS_get_file_attributes_by_handle: unt32 -> (unt32 option)
+/* _lib7_win32_FS_get_file_attributes_by_handle: unt1 -> (unt1 option)
  */
 Val _lib7_win32_FS_get_file_attributes_by_handle(Task *task, Val arg)
 {
@@ -171,7 +171,7 @@ Val _lib7_win32_FS_get_full_path_name(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_FS_get_file_size: unt32 -> (unt32 * unt32)
+/* _lib7_win32_FS_get_file_size: unt1 -> (unt1 * unt1)
  */
 Val _lib7_win32_FS_get_file_size(Task *task, Val arg)
 {
@@ -185,7 +185,7 @@ Val _lib7_win32_FS_get_file_size(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_FS_get_low_file_size: unt32 -> (unt32 option)
+/* _lib7_win32_FS_get_low_file_size: unt1 -> (unt1 option)
  */
 Val _lib7_win32_FS_get_low_file_size(Task *task, Val arg)
 {
@@ -202,7 +202,7 @@ Val _lib7_win32_FS_get_low_file_size(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_FS_get_low_file_size_by_name: String -> (unt32 option)
+/* _lib7_win32_FS_get_low_file_size_by_name: String -> (unt1 option)
  */
 Val _lib7_win32_FS_get_low_file_size_by_name(Task *task, Val arg)
 {

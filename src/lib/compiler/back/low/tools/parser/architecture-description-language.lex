@@ -131,14 +131,14 @@ fun scan err fmt (s,s') tok pos
 
 fun wdecimal (err,s,pos)
     = 
-    scan err (unt32::scan number_string::DECIMAL) (s,strip 2 s) unt pos;
+    scan err (unt1::scan number_string::DECIMAL) (s,strip 2 s) unt pos;
 
 fun whex (err,s,pos)
     = 
-    scan err (unt32::scan number_string::HEX) (s,strip 3 s) unt pos;
+    scan err (unt1::scan number_string::HEX) (s,strip 3 s) unt pos;
 
-fun woctal  (err,s,pos) =  scan err (unt32::scan number_string::OCTAL)   (s,strip 3 s) unt  pos;
-fun wbinary (err,s,pos) =  scan err (unt32::scan number_string::BINARY)  (s,strip 3 s) unt  pos;
+fun woctal  (err,s,pos) =  scan err (unt1::scan number_string::OCTAL)   (s,strip 3 s) unt  pos;
+fun wbinary (err,s,pos) =  scan err (unt1::scan number_string::BINARY)  (s,strip 3 s) unt  pos;
 fun decimal (err,s,pos) =  scan err (int::scan   number_string::DECIMAL) (s,s)         int  pos;
 
 fun real (err,s,pos)

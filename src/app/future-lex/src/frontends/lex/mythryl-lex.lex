@@ -30,7 +30,7 @@ fun dec r = if *inquote then () else r := *r - 1
 
 package SIS = RegExp::SymSet
 fun uniChar s = let
-      fun toW32 (c : char::char) : unt32::word = 
+      fun toW32 (c : char::char) : unt1::word = 
 	(case c of '0' => 0w0 | '1' => 0w1 | '2' => 0w2 | '3' => 0w3
 	 	 | '4' => 0w4 | '5' => 0w5 | '6' => 0w6 | '7' => 0w7
 	 	 | '8' => 0w8 | '9' => 0w9 | 'a' => 0w10 | 'A' => 0w10

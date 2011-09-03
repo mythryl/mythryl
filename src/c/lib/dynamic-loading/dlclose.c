@@ -18,7 +18,7 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-Val   _lib7_U_Dynload_dlclose   (Task* task, Val lib7_handle)   {	// : unt32::Unt -> Void
+Val   _lib7_U_Dynload_dlclose   (Task* task, Val lib7_handle)   {	// : unt1::Unt -> Void
     //=======================
     //
     // Close dynamically loaded library.

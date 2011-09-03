@@ -46,9 +46,9 @@
 typedef struct {				// The magic number and other version info.
     //
     char     shebang[ SHEBANG_SIZE ];		//
-    Unt32    byte_order;			// ORDER tag.
-    Unt32    magic;				// Magic number.
-    Unt32    kind;				// EXPORT_HEAP_IMAGE, etc.
+    Unt1    byte_order;			// ORDER tag.
+    Unt1    magic;				// Magic number.
+    Unt1    kind;				// EXPORT_HEAP_IMAGE, etc.
     char     arch[  12 ];			// Exporting machine's architecture.
     char     opsys[ 12 ];			// Exporting machine's operating system.
     //
@@ -77,9 +77,9 @@ typedef struct {
 // Header for a pickled-datastructure image:
 //
 typedef struct {
-    Unt32    smallchunk_sibs_count;				// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
-    Unt32    hugechunk_sibs_count;				// The number of hugechunk kinds. (Currently just 1, for codechunks.)
-    Unt32    hugechunk_ramregion_count;				// The number of hugechunk multipage-ram-regions in the exporting address space.
+    Unt1    smallchunk_sibs_count;				// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
+    Unt1    hugechunk_sibs_count;				// The number of hugechunk kinds. (Currently just 1, for codechunks.)
+    Unt1    hugechunk_ramregion_count;				// The number of hugechunk multipage-ram-regions in the exporting address space.
     Bool     contains_code;					// TRUE iff the pickle contains code.
     Val	     root_chunk;					// The pickle's root chunk.
 } Pickle_Header;
@@ -123,7 +123,7 @@ typedef struct {
 typedef struct {
     int	   age;						// Agegroup of this sib:  0 <= age < heap->active_agegroups.
     int	   chunk_ilk;					// Sib buffer contents -- one of  RECORD_ILK, PAIR_ILK, STRING_ILK, VECTOR_ILK   from   src/c/h/sibid.h
-    Unt32  offset;					// File position at which this sib buffer starts.
+    Unt1  offset;					// File position at which this sib buffer starts.
     //
     union {						// Additional info.
 	struct {					// Info for regular sibs.

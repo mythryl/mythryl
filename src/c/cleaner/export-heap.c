@@ -370,7 +370,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    p->info.o.bytesize	    = (Punt)(ap->next_tospace_word_to_allocate) - p->info.o.base_address;
 	    p->info.o.rounded_bytesize = ROUND_UP_TO_POWER_OF_TWO(p->info.o.bytesize, pagesize);
 	    //
-	    p->offset =  (Unt32) offset;
+	    p->offset =  (Unt1) offset;
 	    offset   +=  p->info.o.rounded_bytesize;
 	}
 
@@ -396,7 +396,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    p->info.bo.hugechunk_count        =  chunks;
 	    p->info.bo.hugechunk_quanta_count =  quanta;
 	    //
-	    p->offset = (Unt32)offset;
+	    p->offset = (Unt1)offset;
 
 	    offset   +=  chunks * sizeof( Hugechunk_Header )			// Hugechunk_Header			def in    src/c/cleaner/runtime-heap-image.h
 		         +

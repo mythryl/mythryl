@@ -641,7 +641,7 @@ static Int1   read_packed_int1   (FILE* file,  const char* filename)   {
     // Read an integer in "packed" format.
     // (Small numbers only require 1 byte.)
 
-    Unt32	n = 0;
+    Unt1	n = 0;
 
     // High bit of each byte is 'more bytes to come' flag,
     // low seven bits contain integer data.

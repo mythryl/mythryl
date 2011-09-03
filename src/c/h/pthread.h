@@ -59,7 +59,7 @@ struct pthread {
     Time*	cpu_time_at_start_of_last_cleaning;		// The cumulative CPU time at the start of the last clean -- see src/c/main/timers.c
     Time*	cumulative_cleaning_cpu_time;		// The cumulative cleaning time.
 
-    Unt32	ccall_limit_pointer_mask;			// For raw-C-call interface.
+    Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #ifdef MULTICORE_SUPPORT
 	Pid	        pid;	       				// Our kernel thread's kernel process identifier ("pid").

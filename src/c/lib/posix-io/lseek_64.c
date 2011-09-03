@@ -32,7 +32,7 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
     //
     // Mythryl type is:
     //
-    //      (Int, Unt32, Unt32, Int) -> (Unt32, Unt32)
+    //      (Int, Unt1, Unt1, Int) -> (Unt1, Unt1)
     //
     // This fn gets bound as   lseek'   in:
     //
@@ -59,14 +59,14 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
 
     #if (SIZEOF_OFF_T > 4)					// As above.
         Val               poshi;
-        WORD_ALLOC (task, poshi, (Unt32) (pos >> 32));
+        WORD_ALLOC (task, poshi, (Unt1) (pos >> 32));
     #else
         Val               poshi;
-        WORD_ALLOC (task, poshi, (Unt32) 0);
+        WORD_ALLOC (task, poshi, (Unt1) 0);
     #endif
 
     Val               poslo;
-    WORD_ALLOC (task, poslo, (Unt32) pos);
+    WORD_ALLOC (task, poslo, (Unt1) pos);
 
     Val               chunk; 
     REC_ALLOC2 (task, chunk, poshi, poslo);			// What fools these mortals be.

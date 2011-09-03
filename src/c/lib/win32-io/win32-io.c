@@ -20,7 +20,7 @@
 #define IS_CONIN(h) (((h) == win32_stdin_handle) && \
 		     (GetFileType(h) == FILE_TYPE_CHAR))
 
-/* _lib7_win32_IO_get_std_handle: unt32 -> unt32
+/* _lib7_win32_IO_get_std_handle: unt1 -> unt1
  * interface to win32 GetStdHandle
  */
 Val _lib7_win32_IO_get_std_handle(Task *task, Val arg)
@@ -36,7 +36,7 @@ Val _lib7_win32_IO_get_std_handle(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_IO_close: unt32 -> Void
+/* _lib7_win32_IO_close: unt1 -> Void
  * close a handle
  */
 Val _lib7_win32_IO_close(Task *task, Val arg)
@@ -55,7 +55,7 @@ Val _lib7_win32_IO_close(Task *task, Val arg)
 }
 
 
-/* _lib7_win32_IO_set_file_pointer: (unt32 * unt32 * unt32) -> unt32
+/* _lib7_win32_IO_set_file_pointer: (unt1 * unt1 * unt1) -> unt1
  *                                 handle   dist     how
  */
 Val _lib7_win32_IO_set_file_pointer(Task *task, Val arg)
@@ -113,7 +113,7 @@ static Bool CRLF_EOFscan(char *buf,int *np)
   return sawEOF;
 }
 
-/* _lib7_win32_IO_read_vec : (unt32 * int) -> word8vector.Vector
+/* _lib7_win32_IO_read_vec : (unt1 * int) -> word8vector.Vector
  *                          handle   nbytes
  *
  * Read the specified number of bytes from the specified handle,
@@ -182,7 +182,7 @@ static void check_cntrl_c(BOOL read_OK,int bytes_read)
   }
 }
 
-/* _lib7_win32_IO_read_vec_txt : (unt32 * int) -> char8vector.Vector
+/* _lib7_win32_IO_read_vec_txt : (unt1 * int) -> char8vector.Vector
  *                             handle   nbytes
  *
  * Read the specified number of bytes from the specified handle,
@@ -249,7 +249,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
   }
 }
 
-/* _lib7_win32_IO_read_arr : (unt32*word8array.Rw_Vector*int*int) -> int
+/* _lib7_win32_IO_read_arr : (unt1*word8array.Rw_Vector*int*int) -> int
  *                          handle buffer           n   start
  *
  * Read n bytes of data from the specified handle into the given array, 
@@ -280,7 +280,7 @@ Val _lib7_win32_IO_read_arr(Task *task, Val arg)
   return RAISE_SYSERR(task,-1);
 }
 
-/* _lib7_win32_IO_read_arr_txt : (unt32*char8array.Rw_Vector*int*int) -> int
+/* _lib7_win32_IO_read_arr_txt : (unt1*char8array.Rw_Vector*int*int) -> int
  *                              handle buffer           n   start
  *
  * Read n bytes of data from the specified handle into the given array, 
@@ -332,7 +332,7 @@ Val _lib7_win32_IO_read_arr_txt(Task *task, Val arg)
 }
 
 
-/* _lib7_win32_IO_create_file: (String*unt32*word32*unt32*word32) -> unt32 
+/* _lib7_win32_IO_create_file: (String*unt1*word32*unt1*word32) -> unt1 
  *                            name   access share  create attribute       handle
  *
  * create file "name" with access, share, create, and attribute flags
@@ -356,7 +356,7 @@ Val _lib7_win32_IO_create_file(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_IO_write_buf : (unt32*word8vector.Vector*int*int) -> int
+/* _lib7_win32_IO_write_buf : (unt1*word8vector.Vector*int*int) -> int
  *                           handle buf                n   offset
  *
  * generic routine for writing n byes from buf to handle starting at offset

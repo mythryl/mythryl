@@ -9,8 +9,8 @@
 #define ONE_MILLION	1000000
 
 typedef struct {
-    Unt32	millions;
-    Unt32	ones;
+    Unt1	millions;
+    Unt1	ones;
 } Bigcounter;
 
 // Add one to given Bigcounter.

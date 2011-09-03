@@ -134,7 +134,7 @@ int   main   (void)   {
     fprintf(fd, "typedef %s Int16;\n", i16);
     fprintf(fd, "typedef unsigned %s Unt16;\n", i16);
     fprintf(fd, "typedef %s Int1;\n", i32);
-    fprintf(fd, "typedef unsigned %s Unt32;\n", i32);
+    fprintf(fd, "typedef unsigned %s Unt1;\n", i32);
 
     #if (defined(SIZES_C_64_MYTHRYL_32) || defined(SIZES_C_64_MYTHRYL_64))
 	//
@@ -147,7 +147,7 @@ int   main   (void)   {
 
     #if defined(SIZES_C_64_MYTHRYL_32)								// Are we ever going to actually use this?  (No existing file #defines this symbol.)  If not, Punt and Val_Sized_Unt can be combined. XXX BUGGO FIXME.
 	//
-	fprintf(fd, "typedef Unt32 Val_Sized_Unt;\n");
+	fprintf(fd, "typedef Unt1 Val_Sized_Unt;\n");
 	fprintf(fd, "typedef Int1      Val_Sized_Int;\n");
 	fprintf(fd, "typedef Unt64 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
 	//
@@ -159,9 +159,9 @@ int   main   (void)   {
 	//
     #else	// SIZES_C_32_MYTHRYL_32
 	//
-	fprintf(fd, "typedef Unt32 Val_Sized_Unt;\n");
+	fprintf(fd, "typedef Unt1 Val_Sized_Unt;\n");
 	fprintf(fd, "typedef Int1      Val_Sized_Int;\n");
-	fprintf(fd, "typedef Unt32 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
+	fprintf(fd, "typedef Unt1 Punt;	// \"Punt\" == \"Pointer sized Unt\"\n");
     #endif
 
     {   struct stat stat;

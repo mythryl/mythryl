@@ -14,8 +14,8 @@
 #define CLIB_DATE	"October 11, 1996"
 #endif
 
-CFUNC("get_const","get_const",	   _lib7_win32_get_const,	"String -> unt32")
-CFUNC("get_last_error","get_last_error",    _lib7_win32_get_last_error, "Void -> unt32")
+CFUNC("get_const","get_const",	   _lib7_win32_get_const,	"String -> unt1")
+CFUNC("get_last_error","get_last_error",    _lib7_win32_get_last_error, "Void -> unt1")
 CFUNC("debug","debug",             _lib7_win32_debug, "String -> Void")
 
 

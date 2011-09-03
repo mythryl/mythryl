@@ -32,7 +32,7 @@
 Val   _lib7_P_FileSys_ftruncate_64   (Task* task,  Val arg)   {
     //============================
     //
-    // Mythryl type: (Int, Unt32,    Unt32) -> Void
+    // Mythryl type: (Int, Unt1,    Unt1) -> Void
     //                fd   lengthhi  lengthlo
     //
     // Make a directory.

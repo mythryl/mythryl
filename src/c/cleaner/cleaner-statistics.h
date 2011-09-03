@@ -18,7 +18,7 @@
     //
     inline void   note_when_cleaning_started            (Heap* heap)               {}
     inline void   note_when_cleaning_completed          (void)                     {}
-    inline void   note_active_agegroups_count_for_this_timesample (Unt32 active_agegroups)   {} 
+    inline void   note_active_agegroups_count_for_this_timesample (Unt1 active_agegroups)   {} 
 
 #else					// KEEP_CLEANER_PAUSE_STATISTICS
 
@@ -64,7 +64,7 @@
 	}
     }
 
-    inline void   note_active_agegroups_count_for_this_timesample   (Unt32 active_agegroups) {
+    inline void   note_active_agegroups_count_for_this_timesample   (Unt1 active_agegroups) {
         //
         // Called (only) from:    src/c/cleaner/clean-n-agegroups.c
 	//

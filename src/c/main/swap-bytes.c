@@ -26,7 +26,7 @@
     }
 #endif 
 
-Unt32   swap_word_bytes   (Unt32 x)   {
+Unt1   swap_word_bytes   (Unt1 x)   {
     //  ===============
     //
     unsigned int	b0 = x & 0x000000FF;

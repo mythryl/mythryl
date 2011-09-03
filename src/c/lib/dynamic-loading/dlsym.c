@@ -19,7 +19,7 @@ extern void dlerror_set (const char *fmt, const char *s);
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (unt32::Unt * String) -> unt32::Unt
+Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (unt1::Unt * String) -> unt1::Unt
     //=====================
     //
     // Extract symbol from dynamically loaded library.
