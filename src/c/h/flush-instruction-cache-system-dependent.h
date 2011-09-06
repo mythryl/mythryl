@@ -11,7 +11,7 @@
     //
     # define flush_instruction_cache(addr, size)
 
-#elif (defined(TARGET_PWRPC32))&& defined(OPSYS_AIX))
+#elif ((defined(TARGET_PWRPC32)) && defined(OPSYS_AIX))
 
     #include <sys/cache.h>
     #define flush_instruction_cache(addr, size)	_sync_cache_range((addr), (size))

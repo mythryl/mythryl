@@ -67,7 +67,7 @@ static Val   LIB7_Poll   (Task *task, Val poll_list, struct timeval *timeout);
 Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     //=============
     //
-    // Mythryl type:   (List (Int, Unt), Null_Or(int1::Int, Int)) -> List( (Int, Unt)  )
+    // Mythryl type:   (List (Int, Unt), Null_Or(one_word_int::Int, Int)) -> List( (Int, Unt)  )
     //
     // 'poll' is the Unix System V equivalent to BSD 'select'.
     //

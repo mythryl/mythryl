@@ -684,7 +684,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	addi	heap_allocation_pointer,heap_allocation_pointer,8	// heap_allocation_pointer += 2
 	CONTINUE
 make_float64_rw_vector_a_large:			// Offline allocation.
-	li	atmp4,REQUEST_ALLOCATE_FLOAT64_VECTOR
+	li	atmp4,REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS
 	addi	program_counter, stdlink,0
 	b	set_request
 

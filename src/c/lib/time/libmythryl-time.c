@@ -10,7 +10,7 @@
 // This file defines the "time" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
-//     my  get_time_of_day:  Void -> (int1::Int, Int)
+//     my  get_time_of_day:  Void -> (one_word_int::Int, Int)
 //         =
 //	   mythryl_callable_c_library_interface::find_c_function { lib_name => "time", fun_name => "timeofday" };
 // 

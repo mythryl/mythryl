@@ -16,7 +16,7 @@
 Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     //==================
     //
-    // Mythryl type: Void -> (int1::Int, Int, int1::Int, Int, int1::Int, Int)
+    // Mythryl type: Void -> (one_word_int::Int, Int, one_word_int::Int, Int, one_word_int::Int, Int)
     //
     // Return this process's CPU time consumption
     // so far, broken down as:

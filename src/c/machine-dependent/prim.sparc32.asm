@@ -463,7 +463,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 1:	// off-line allocation of big realarrays
  	mov	STDLINK,PROGRAM_COUNTER
 	ba	set_request
-	set	REQUEST_ALLOCATE_FLOAT64_VECTOR,TMPREG3			// (delayslot)
+	set	REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS,TMPREG3			// (delayslot)
 
 // make_unt8_rw_vector:  Int -> Unt8_Rw_Vector
 // Create a bytearray of the given length.

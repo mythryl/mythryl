@@ -18,7 +18,7 @@
 Val   _lib7_runtime_allocate_codechunk   (Task* task,  Val arg) {
     //================================
     //
-    // Mythryl type:   Int -> rw_unt8_vector::Rw_Vector
+    // Mythryl type:   Int -> rw_vector_of_one_byte_unts::Rw_Vector
     //
     // Allocate a code chunk of the given size-in-bytes.
     //

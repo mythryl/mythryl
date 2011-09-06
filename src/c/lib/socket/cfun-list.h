@@ -63,7 +63,7 @@ CFUNC("inetany","inetany",	_lib7_Sock_inetany,	"int -> addr")
 CFUNC("fromInetAddr","fromInetAddr",	_lib7_Sock_frominetaddr,	"addr -> (in_addr*int)")
 CFUNC("toInetAddr","toInetAddr",	_lib7_Sock_toinetaddr,	"(in_addr*int) -> addr")
 
-CFUNC("accept","accept",		_lib7_Sock_accept,	"socket -> (socket * unt8_vector.Vector)")
+CFUNC("accept","accept",		_lib7_Sock_accept,	"socket -> (socket * vector_of_one_byte_unts.Vector)")
 CFUNC("bind","bind",		_lib7_Sock_bind,		"")
 CFUNC("connect","connect",	_lib7_Sock_connect,	"")
 CFUNC("listen","listen",		_lib7_Sock_listen,	"")

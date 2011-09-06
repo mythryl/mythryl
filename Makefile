@@ -357,7 +357,7 @@ src/lib/c-glue-lib/c.lib.frozen:   src/lib/c-glue-lib/internals/c-internals.lib.
 # This is a hack to make sure the backend code-synthesis logic
 # gets exercised every build cycle even though the makelib::make
 # logic is broken that would enable the
-#     : shell (source: ../intel32/int1.architecture-description options:shared sh/make-sourcecode-for-backend-intel32)
+#     : shell (source: ../intel32/one_word_int.architecture-description options:shared sh/make-sourcecode-for-backend-intel32)
 # logic in
 #     src/lib/compiler/back/low/intel32/backend-intel32.lib
 # to function correctly:

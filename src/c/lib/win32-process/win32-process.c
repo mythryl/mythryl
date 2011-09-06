@@ -15,7 +15,7 @@
 #include "lib7-c.h"
 
 
-/* _lib7_win32_PS_create_process : String -> unt1
+/* _lib7_win32_PS_create_process : String -> one_word_unt
  * 
  * Note: This function returns the handle to the created process
  *       This handle will need to be freed before the system releases
@@ -67,7 +67,7 @@ Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
 }  
     
 
-/* _lib7_win32_PS_system : String -> unt1
+/* _lib7_win32_PS_system : String -> one_word_unt
  *                       command
  *
  */
@@ -80,7 +80,7 @@ Val _lib7_win32_PS_system(Task *task, Val arg)
   return res;
 }
 
-/* _lib7_win32_PS_exit_process : unt1 -> 'a
+/* _lib7_win32_PS_exit_process : one_word_unt -> 'a
  *                             exit code
  *
  */
@@ -111,7 +111,7 @@ Val _lib7_win32_PS_get_environment_variable(Task *task, Val arg)
 #undef GEV_BUF_SZ
 }
 
-/* _lib7_win32_PS_sleep : unt1 -> Void
+/* _lib7_win32_PS_sleep : one_word_unt -> Void
  *
  * Suspend execution for interval in MILLIseconds.
  */

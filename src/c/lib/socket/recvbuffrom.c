@@ -32,7 +32,7 @@
 Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     //======================
     //
-    // Mythryl type:   (Socket, rw_unt8_vector::Rw_Vector, Int, Int, Bool, Bool) -> (Int, Addr)
+    // Mythryl type:   (Socket, rw_vector_of_one_byte_unts::Rw_Vector, Int, Int, Bool, Bool) -> (Int, Addr)
     //
     // The arguments are:
     //     socket,

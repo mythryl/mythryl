@@ -31,7 +31,7 @@
 Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     //===============
     //
-    // Mythryl type: (Socket, Int, Bool, Bool) -> unt8_vector::Vector
+    // Mythryl type: (Socket, Int, Bool, Bool) -> vector_of_one_byte_unts::Vector
     //
     // The arguments are: socket, number of bytes, OOB flag and peek flag.
     // The result is the vector of bytes received.

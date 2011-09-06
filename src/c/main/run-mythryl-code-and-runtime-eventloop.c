@@ -352,12 +352,12 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		break;
 
 	    case REQUEST_ALLOCATE_BYTE_VECTOR:
-		task->argument =   allocate_nonempty_unt8_vector( task, TAGGED_INT_TO_C_INT(task->argument) );
+		task->argument =   allocate_nonempty_vector_of_one_byte_unts( task, TAGGED_INT_TO_C_INT(task->argument) );
 		SET_UP_RETURN( task );
 		break;
 
-	    case REQUEST_ALLOCATE_FLOAT64_VECTOR:
-		task->argument =   allocate_nonempty_float64_vector( task, TAGGED_INT_TO_C_INT(task->argument) );
+	    case REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS:
+		task->argument =   allocate_nonempty_vector_of_eight_byte_floats( task, TAGGED_INT_TO_C_INT(task->argument) );
 		SET_UP_RETURN( task );
 		break;
 

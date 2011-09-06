@@ -42,7 +42,7 @@ fun inc (i_ref : Ref Int) =   i_ref := *i_ref + 1;
 
 fun chr i = string::from_char(char::from_int i);
 fun ord s = char::to_int(string::get(s, 0));
-fun explode s = char_vector::fold_right (fn (c, l) =  str c ! l) [] s;
+fun explode s = vector_of_chars::fold_right (fn (c, l) =  str c ! l) [] s;
 fun implode str_list = string::cat str_list;
 
 fun hd [] => {   print "c.lex: hd of empty\n";
@@ -66,18 +66,25 @@ fun make_string charlist = (implode(reverse *charlist) before charlist := NIL);
 
 fun make_hex_int (s,a,b,err_warn: Err_Warn)
     =
-   (  case (number_string::scan_string
+    case (number_string::scan_string
                (large_int::scan  number_string::HEX)
                s
-      )
+         )
 
-	   THE i =>  i;
-	   _     =>  { err_warn.err(a,b,"trouble in parsing int");int::to_large(0);};
+	THE i =>    i;
+	_     =>    {   err_warn.err(a,b,"trouble in parsing int");
+			#	
+			int::to_multiword_int  0;
+		    };
       esac
-      except OVERFLOW =  {   err_warn.err(a,b,"large int const");
-                             int::to_large(0);
-                         }
-   );
+      except
+	OVERFLOW
+	    =
+	    {   err_warn.err(a,b,"large int const");
+		#
+		int::to_multiword_int  0;
+	    };
+
 
 fun make_hex_char (args as (s, a, b, err_warn: Err_Warn)): Int /* returns a character sized integer */
     = 
@@ -85,9 +92,9 @@ fun make_hex_char (args as (s, a, b, err_warn: Err_Warn)): Int /* returns a char
 
 	  if (i>255)  
 	       err_warn.warn (a,b,"overflow in hexadecimal escape sequence");
-	       integer::to_int(i % 256);
+	       multiword_int::to_int(i % 256);
 	  else
-       	    integer::to_int i;
+       	    multiword_int::to_int i;
           fi;
         };
 
@@ -100,15 +107,17 @@ fun make_oct_int (s,a,b,err_warn: Err_Warn)
 
 		 THE i => i;
 
-		 _ => {   err_warn.err(a,b,"trouble in parsing int");
-                           int::to_large(0);
-                       };
+		 _ =>   {   err_warn.err(a,b,"trouble in parsing int");
+			    #
+                            int::to_multiword_int  0;
+			};
         esac
 	except
             OVERFLOW
                 =
                 {   err_warn.err(a,b,"large int const");
-                    int::to_large(0);
+		    #
+                    int::to_multiword_int  0;
                 }
    );
 
@@ -119,37 +128,39 @@ fun make_oct_char (args as (s, a, b, err_warn: Err_Warn)) /* returns a character
 
 	  if (i>255)  
 	       err_warn.warn (a,b,"overflow in octal escape sequence");
-	       integer::to_int(i % 256);
+	       multiword_int::to_int(i % 256);
 	  else
-       	    integer::to_int i;
+       	    multiword_int::to_int i;
           fi;
         };
 
 fun make_int (s,a,b,err_warn: Err_Warn)
     =
-    (   case (number_string::scan_string
+    case (number_string::scan_string
                  (large_int::scan number_string::DECIMAL)
                  s
-        )
+         )
 
-	     THE i => i;
+	THE i => i;
 
-	      _ => {   err_warn.err(a,b,"trouble in parsing int");
-                       int::to_large(0);
-                   };
-        esac 
+	 _ =>   {   err_warn.err(a,b,"trouble in parsing int");
+		    #
+		    int::to_multiword_int  0;
+	        };
+    esac 
 	except
             OVERFLOW
                 =
                 {   err_warn.err(a,b,"large int const");
-                    int::to_large(0);
-                }
-    );
+		    #
+                    int::to_multiword_int  0;
+                };
+
 
 fun make_real_num (s,a,b,err_warn: Err_Warn)
     =
     (   case (number_string::scan_string
-                 float::scan
+                 eight_byte_float::scan
                  s
         )
 
@@ -299,22 +310,22 @@ directive = #(.)*\n;
 + size(yytext)));
 
 <initial>"'\\"{octdigit}{1,3}"'"	=> ({ s = substring(yytext, 2, size(yytext) - 3);
-				              tokens::cconst(integer::from_int (make_oct_char(s,yypos,yypos+size(yytext),err_warn)),
+				              tokens::cconst(multiword_int::from_int (make_oct_char(s,yypos,yypos+size(yytext),err_warn)),
 						      yypos,
 					      yypos+size(yytext));
                                             });
 
 <initial>"'\\x"{hexdigit}+"'"	=>  ({ s = substring(yytext, 3, size(yytext) - 4);
-				      tokens::cconst(integer::from_int (make_hex_char(s,yypos,yypos+size(yytext),err_warn)),
+				      tokens::cconst(multiword_int::from_int (make_hex_char(s,yypos,yypos+size(yytext),err_warn)),
 						      yypos,
 						      yypos+size(yytext));
 	                             });
 
 
 <initial>{simplecharconst}	=> ({ cval = ordof(yytext,1);
-	                              tokens::cconst(int::to_large cval,yypos,yypos+size(yytext));
+	                              tokens::cconst(int::to_multiword_int cval, yypos, yypos+size(yytext));
                                     });
-<initial>{escapecharconst} => (tokens::cconst(integer::from_int(special_char(substring(yytext,1,size(yytext) - 2),yypos,yypos+size(yytext),err_warn)), yypos, yypos+size(yytext)));
+<initial>{escapecharconst} => (tokens::cconst(multiword_int::from_int(special_char(substring(yytext,1,size(yytext) - 2),yypos,yypos+size(yytext),err_warn)), yypos, yypos+size(yytext)));
 <initial>{id}        	=> (tok_table::check_token(yytext,yypos));
 <initial>.        	=> (continue());
 

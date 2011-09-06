@@ -19,7 +19,7 @@
 Val   _lib7_runtime_make_package_literals_via_bytecode_interpreter   (Task* task,  Val arg)   {
     //============================================================
     //
-    // Mythryl type:   unt8_vector::Vector -> Vector(Chunk)
+    // Mythryl type:   vector_of_one_byte_unts::Vector -> Vector(Chunk)
     //
     // This fn gets bound as
     //

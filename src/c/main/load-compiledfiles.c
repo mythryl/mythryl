@@ -73,7 +73,7 @@
 //      Pervasive_Package_Pickle_List
 //	  #
 //        = NIL						# NIL and CONS are traditional LISP terms for final and nonfinal (respectively) linklist nodes.
-//	  | CONS  ( unt8_vector::Vector,		# 16-byte hash of chunk -- "picklehash".
+//	  | CONS  ( vector_of_one_byte_unts::Vector,		# 16-byte hash of chunk -- "picklehash".
 //                  unsafe_chunk::Chunk,		# Arbitrary ram-chunk on Mythryl heap -- a "pickle" to be exported.
 //                  Pervasive_Package_Pickle_List	# Linklist 'next' pointer.
 //                )
@@ -83,7 +83,7 @@
 //
 //     src/lib/std/src/unsafe/unsafe.api
 //
-// where 'unt8_vector::Vector' is the 16-byte hash of 'unsafe_chunk::Chunk'.
+// where 'vector_of_one_byte_unts::Vector' is the 16-byte hash of 'unsafe_chunk::Chunk'.
 //
 #define PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL	(*PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL ))
 

@@ -88,13 +88,13 @@ hash_string
     hash_string::hash_string;
 
 							# number_string		is from   src/lib/std/src/number-string.pkg
-							# integer		is from   src/lib/std/integer.pkg
+							# integer		is from   src/lib/std/multiword-int.pkg
 							# substring		is from   src/lib/std/substring.pkg
 stipulate
 
     fun convert radix (s, i)
         =
-	#1 (the (integer::scan radix substring::getc (substring::drop_first i (substring::from_string s))));
+	#1 (the (multiword_int::scan radix substring::getc (substring::drop_first i (substring::from_string s))));
 herein
     # At some point we should support underbars in integer constants.
     # Just doing a s/_//g at this point should do, at least as a first cut.  XXX BUGGO FIXME
@@ -492,7 +492,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>{num}	         => (yybegin postfix; tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
 <initial>[-]{num}        => (yybegin postfix; tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
 <initial>"0x"{hexnum}    => (yybegin postfix; tokens::int0(xtoi(yytext, 2),yypos,yypos+size yytext));
-<initial>[-]"0x"{hexnum} => (yybegin postfix; tokens::int0(integer::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
+<initial>[-]"0x"{hexnum} => (yybegin postfix; tokens::int0(multiword_int::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
 <initial>"0u"{num}       => (yybegin postfix; tokens::unt(atoi(yytext, 2),yypos,yypos+size yytext));
 <initial>"0ux"{hexnum}   => (yybegin postfix; tokens::unt(xtoi(yytext, 3),yypos,yypos+size yytext));
 
@@ -724,7 +724,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <postfix>{num}	         => (tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
 <postfix>[-]{num}        => (tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
 <postfix>"0x"{hexnum}    => (tokens::int0(xtoi(yytext, 2),yypos,yypos+size yytext));
-<postfix>[-]"0x"{hexnum} => (tokens::int0(integer::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
+<postfix>[-]"0x"{hexnum} => (tokens::int0(multiword_int::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
 <postfix>"0u"{num}       => (tokens::unt(atoi(yytext, 2),yypos,yypos+size yytext));
 <postfix>"0ux"{hexnum}   => (tokens::unt(xtoi(yytext, 3),yypos,yypos+size yytext));
 <postfix>\"	=> (stringlist := [""]; stringstart := yypos;

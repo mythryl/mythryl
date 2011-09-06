@@ -204,7 +204,7 @@
 extern Val  make_ascii_string_from_c_string			(Task* task,  const char* string);			// make_heap_string_from_c_string		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  make_ascii_strings_from_vector_of_c_strings		(Task* task,  char** strings);				// make_ascii_strings_from_vector_of_c_strings	def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_nonempty_ascii_string			(Task* task,  int len);					// allocate_nonempty_ascii_string		def in   src/c/cleaner/make-strings-and-vectors-etc.c
-extern Val  allocate_nonempty_unt8_vector			(Task* task,  int len);					// allocate_nonempty_unt8_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_vector_of_one_byte_unts			(Task* task,  int len);					// allocate_nonempty_vector_of_one_byte_unts		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 //
 extern Val  allocate_nonempty_code_chunk			(Task* task,  int len);					// allocate_nonempty_code_chunk			def in   src/c/cleaner/make-strings-and-vectors-etc.c
 //
@@ -213,7 +213,7 @@ extern Val  make_nonempty_ro_vector				(Task* task,  int len, Val initial_values
 extern Val  allocate_nonempty_int1_vector		        (Task* task,  int length_in_words);			// allocate_nonempty_int1_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern void shrink_fresh_int1_vector				(Task* task,  Val v, int new_length_in_words);		// shrink_fresh_int1_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
 //
-extern Val  allocate_nonempty_float64_vector			(Task* task,  int len);					// allocate_nonempty_float64_vector		def in   src/c/cleaner/make-strings-and-vectors-etc.c
+extern Val  allocate_nonempty_vector_of_eight_byte_floats	(Task* task,  int len);					// allocate_nonempty_vector_of_eight_byte_floats		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_int2_vector				(Task* task,  int length_in_int2s);			// allocate_int2_vector			def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  allocate_int2_vector_sized_in_bytes  		(Task* task,  int length_in_bytes/*gets rounded up*/);	// allocate_int2_vector_sized_in_bytes		def in   src/c/cleaner/make-strings-and-vectors-etc.c
 extern Val  make_int2_vector_sized_in_bytes        		(Task* task,  void* data, int nbytes);			// make_int2_vector_sized_in_bytes		def in   src/c/cleaner/make-strings-and-vectors-etc.c

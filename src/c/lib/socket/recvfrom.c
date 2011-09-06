@@ -30,7 +30,7 @@
 Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
     //===================
     //
-    // Mythryl type is:   (Socket, Int, Bool, Bool) -> (unt8_vector::Vector, Internet_Address)
+    // Mythryl type is:   (Socket, Int, Bool, Bool) -> (vector_of_one_byte_unts::Vector, Internet_Address)
     //
     // The arguments are:
     //      socket,

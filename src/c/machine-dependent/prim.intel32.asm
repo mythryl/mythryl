@@ -558,7 +558,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	CONTINUE
 2:
 	POP_L(misc0)						// Restore temp1.
-	MOV_L(CONST(REQUEST_ALLOCATE_FLOAT64_VECTOR), request_w)
+	MOV_L(CONST(REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS), request_w)
 	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
 #undef temp1

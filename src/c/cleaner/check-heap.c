@@ -128,12 +128,12 @@ static void   check_record_sib   (Sib* ap) {
 		else					    check_pointer (p, *p, gen, RECORD_KIND, CHUNKC_RECFLG|CHUNKC_PAIRFLG);
 		break;
 
-	    case UNT8_VECTOR_CTAG:
+	    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:
 	    case UNT16_VECTOR_CTAG:
 	    case TAGGED_INT_VECTOR_CTAG:
 	    case INT1_VECTOR_CTAG:
-	    case FLOAT32_VECTOR_CTAG:
-	    case FLOAT64_VECTOR_CTAG:
+	    case VECTOR_OF_FOUR_BYTE_FLOATS_CTAG:
+	    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:
 		check_pointer (p, *p, gen, RECORD_KIND, CHUNKC_STRFLG);
 		break;
 

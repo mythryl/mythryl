@@ -19,7 +19,7 @@
 Val   _lib7_runtime_pickle_datastructure   (Task* task,  Val arg)   {
     //=======================
     //
-    // Mythryl type:  X -> unt8_vector::Vector
+    // Mythryl type:  X -> vector_of_one_byte_unts::Vector
     //
     // Translate a heap chunk into a linear representation (vector of bytes).
     //

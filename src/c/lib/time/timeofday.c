@@ -112,7 +112,7 @@ int   _lib7_time_gettimeofday   (int* microseconds)   {
 Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
     //====================
     //
-    // Mythryl type:   Void -> (int1::Int, Int)
+    // Mythryl type:   Void -> (one_word_int::Int, Int)
     //
     // Return the time of day.
     // NOTE: gettimeofday() is not POSIX (time() returns seconds, and is POSIX and ISO C).

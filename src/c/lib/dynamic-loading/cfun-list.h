@@ -13,9 +13,9 @@
 #define CLIB_DATE	"January 1, 2001"
 #endif
 
-CFUNC("dlopen","dlopen",  _lib7_U_Dynload_dlopen,  "(Null_Or(String), Bool, Bool) -> unt1::Unt")
-CFUNC("dlsym","dlsym",   _lib7_U_Dynload_dlsym,   "(unt1::Unt, String) -> unt1::Unt")
-CFUNC("dlclose","dlclose", _lib7_U_Dynload_dlclose, "unt1::Unt -> Void")
+CFUNC("dlopen","dlopen",  _lib7_U_Dynload_dlopen,  "(Null_Or(String), Bool, Bool) -> one_word_unt::Unt")
+CFUNC("dlsym","dlsym",   _lib7_U_Dynload_dlsym,   "(one_word_unt::Unt, String) -> one_word_unt::Unt")
+CFUNC("dlclose","dlclose", _lib7_U_Dynload_dlclose, "one_word_unt::Unt -> Void")
 CFUNC("dlerror","dlerror", _lib7_U_Dynload_dlerror, "Void -> Null_Or(String)")
 
 

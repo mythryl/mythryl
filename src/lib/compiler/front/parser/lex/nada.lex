@@ -103,7 +103,7 @@ fun make_string charlist
 stipulate
     fun convert radix (s, i)
         =
-        #1 (the (integer::scan radix substring::getc (substring::drop_first i (substring::from_string s))));
+        #1 (the (multiword_int::scan radix substring::getc (substring::drop_first i (substring::from_string s))));
 herein
     atoi   =   convert number_string::DECIMAL;
     xtoi   =   convert number_string::HEX;
@@ -334,7 +334,7 @@ hexnum =[0-9A-F]+;
 <initial>-{num}	       => (tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
 
 <initial>"0x"{hexnum}  => (tokens::int0(xtoi(yytext, 2),yypos,yypos+size yytext));
-<initial>"-0x"{hexnum} => (tokens::int0(integer::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
+<initial>"-0x"{hexnum} => (tokens::int0(multiword_int::(-_)(xtoi(yytext, 3)),yypos,yypos+size yytext));
 
 <initial>"0u"{num}     => (tokens::unt(atoi(yytext, 2),yypos,yypos+size yytext));
 <initial>"0ux"{hexnum} => (tokens::unt(xtoi(yytext, 3),yypos,yypos+size yytext));

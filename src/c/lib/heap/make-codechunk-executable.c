@@ -19,7 +19,7 @@
 Val   _lib7_runtime_make_codechunk_executable   (Task* task,  Val arg)   {
     //=======================================
     //
-    // Mythryl type:  (rw_unt8_vector::Rw_Vector, Int) -> (Chunk -> Chunk)	// The Int is the entrypoint offset within the bytevector of executable machine code -- currently always zero in practice.
+    // Mythryl type:  (rw_vector_of_one_byte_unts::Rw_Vector, Int) -> (Chunk -> Chunk)	// The Int is the entrypoint offset within the bytevector of executable machine code -- currently always zero in practice.
     //
     // Turn a previously constructed machine-code bytvector into a closure.
     // This requires that we flush the I-cache. (This is a no-op on intel32.)

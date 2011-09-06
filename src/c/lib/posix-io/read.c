@@ -41,7 +41,7 @@
 Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     //===============
     //
-    // Mythryl type:   (Int, Int) -> unt8_vector::Vector
+    // Mythryl type:   (Int, Int) -> vector_of_one_byte_unts::Vector
     //                  fd   nbytes
     //
     // Read the specified number of bytes from the specified file,

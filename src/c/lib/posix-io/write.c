@@ -27,7 +27,7 @@
 Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //================
     //
-    // Mythryl type:  (Int, unt8_vector::Vector, Int) -> Int
+    // Mythryl type:  (Int, vector_of_one_byte_unts::Vector, Int) -> Int
     //
     // Write the number of bytes of data from the given vector,
     // starting at index 0, to the specified file.  Return the

@@ -125,23 +125,23 @@
 // and pretty-printing code.
 //
 #define TYPEAGNOSTIC_VECTOR_CTAG	HEXLIT( 0 )
-#define UNT8_VECTOR_CTAG	HEXLIT( 1 )
+#define VECTOR_OF_ONE_BYTE_UNTS_CTAG	HEXLIT( 1 )
 #define UNT16_VECTOR_CTAG	HEXLIT( 2 )
 #define TAGGED_INT_VECTOR_CTAG	HEXLIT( 3 )
 #define INT1_VECTOR_CTAG	HEXLIT( 4 )	// Never used.
-#define FLOAT32_VECTOR_CTAG	HEXLIT( 5 )
-#define FLOAT64_VECTOR_CTAG	HEXLIT( 6 )
+#define VECTOR_OF_FOUR_BYTE_FLOATS_CTAG	HEXLIT( 5 )
+#define VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG	HEXLIT( 6 )
     //
     // WARNING: Thes above must track the
     //     src/lib/compiler/back/low/main/main/heap-tags.pkg
     // definitions
     //    typeagnostic_vector_ctag = 0;
-    //    unt8_vector_ctag	  = 1;
+    //    vector_of_one_byte_unts_ctag	  = 1;
     //    unt16_vector_ctag       = 2;
     //    tagged_int_vector_ctag       = 3;
     //    int1_vector_ctag       = 4;
-    //    float32_vector_ctag     = 5;
-    //    float64_vector_ctag     = 6;
+    //    vector_of_four_byte_floats_ctag     = 5;
+    //    vector_of_eight_byte_floats_ctag     = 6;
     //
 
 
@@ -174,12 +174,12 @@
 // These ones (ab)use the length
 // field to hold a C-tag:
 //
-#define     FLOAT64_RW_VECTOR_TAGWORD	MAKE_TAGWORD(     FLOAT64_VECTOR_CTAG,   RW_VECTOR_HEADER_BTAG )
+#define     FLOAT64_RW_VECTOR_TAGWORD	MAKE_TAGWORD(     VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG,   RW_VECTOR_HEADER_BTAG )
 #define TYPEAGNOSTIC_RW_VECTOR_TAGWORD	MAKE_TAGWORD( TYPEAGNOSTIC_VECTOR_CTAG,  RW_VECTOR_HEADER_BTAG )
 #define TYPEAGNOSTIC_RO_VECTOR_TAGWORD	MAKE_TAGWORD( TYPEAGNOSTIC_VECTOR_CTAG,  RO_VECTOR_HEADER_BTAG )
-#define        UNT8_RW_VECTOR_TAGWORD	MAKE_TAGWORD(        UNT8_VECTOR_CTAG,   RW_VECTOR_HEADER_BTAG )
-#define        UNT8_RO_VECTOR_TAGWORD	MAKE_TAGWORD(        UNT8_VECTOR_CTAG,   RO_VECTOR_HEADER_BTAG )
-#define                STRING_TAGWORD	MAKE_TAGWORD(        UNT8_VECTOR_CTAG,   RO_VECTOR_HEADER_BTAG )	// Yes, identical to preceding line.
+#define        UNT8_RW_VECTOR_TAGWORD	MAKE_TAGWORD(        VECTOR_OF_ONE_BYTE_UNTS_CTAG,   RW_VECTOR_HEADER_BTAG )
+#define        UNT8_RO_VECTOR_TAGWORD	MAKE_TAGWORD(        VECTOR_OF_ONE_BYTE_UNTS_CTAG,   RO_VECTOR_HEADER_BTAG )
+#define                STRING_TAGWORD	MAKE_TAGWORD(        VECTOR_OF_ONE_BYTE_UNTS_CTAG,   RO_VECTOR_HEADER_BTAG )	// Yes, identical to preceding line.
 
 #define FORWARDED_CHUNK_TAGWORD	        MAKE_TAGWORD(0, FORWARDED_CHUNK_BTAG)					// Used during cleaning (garbage collection).
 

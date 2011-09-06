@@ -22,7 +22,7 @@
 Val   _lib7_P_ProcEnv_time   (Task* task,  Val arg)   {
     //====================
     //
-    // Mythryl type:  Void -> int1::Int
+    // Mythryl type:  Void -> one_word_int::Int
     //
     // Return time in seconds from 00:00:00 UTC, January 1, 1970
     //

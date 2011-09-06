@@ -39,9 +39,9 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
     //    uid       : word
     //    gid       : word
     //    size      : int
-    //    atime     : int1.Int
-    //    mtime     : int1.Int
-    //    ctime     : int1.Int
+    //    atime     : one_word_int.Int
+    //    mtime     : one_word_int.Int
+    //    ctime     : one_word_int.Int
 
     int  ftype;
     Val  mode, ino, dev, uid, gid, nlink, sr, atime, mtime, ctime;

@@ -5,7 +5,7 @@
 #
 # Architecture Description Language is the syntax used in our architecture description files
 #
-#     src/lib/compiler/back/low/intel32/int1.architecture-description
+#     src/lib/compiler/back/low/intel32/one_word_int.architecture-description
 #     src/lib/compiler/back/low/pwrpc32/pwrpc32.architecture-description
 #     src/lib/compiler/back/low/sparc32/sparc32.architecture-description
 #     src/lib/compiler/back/low/tools/basis.adl
@@ -131,29 +131,29 @@ fun scan err fmt (s,s') tok pos
 
 fun wdecimal (err,s,pos)
     = 
-    scan err (unt1::scan number_string::DECIMAL) (s,strip 2 s) unt pos;
+    scan err (one_word_unt::scan number_string::DECIMAL) (s,strip 2 s) unt pos;
 
 fun whex (err,s,pos)
     = 
-    scan err (unt1::scan number_string::HEX) (s,strip 3 s) unt pos;
+    scan err (one_word_unt::scan number_string::HEX) (s,strip 3 s) unt pos;
 
-fun woctal  (err,s,pos) =  scan err (unt1::scan number_string::OCTAL)   (s,strip 3 s) unt  pos;
-fun wbinary (err,s,pos) =  scan err (unt1::scan number_string::BINARY)  (s,strip 3 s) unt  pos;
+fun woctal  (err,s,pos) =  scan err (one_word_unt::scan number_string::OCTAL)   (s,strip 3 s) unt  pos;
+fun wbinary (err,s,pos) =  scan err (one_word_unt::scan number_string::BINARY)  (s,strip 3 s) unt  pos;
 fun decimal (err,s,pos) =  scan err (int::scan   number_string::DECIMAL) (s,s)         int  pos;
 
 fun real (err,s,pos)
     =
-    scan err (float::scan) (s,s) 
-                       (fn (x,y,z) =  real_t(float::to_string x, y, z)) pos;
+    scan err (eight_byte_float::scan) (s,s) 
+                       (fn (x,y,z) =  real_t(eight_byte_float::to_string x, y, z)) pos;
 
 fun hex    (err,s,pos) =  scan err (int::scan number_string::HEX)    (s,strip 2 s) int pos;
 fun octal  (err,s,pos) =  scan err (int::scan number_string::OCTAL)  (s,strip 2 s) int pos;
 fun binary (err,s,pos) =  scan err (int::scan number_string::BINARY) (s,strip 2 s) int pos;
 
-fun decimalinf (err,s,pos) =  scan err (integer::scan number_string::DECIMAL) (s,s)         integer pos;
-fun hexinf     (err,s,pos) =  scan err (integer::scan number_string::HEX)     (s,strip 2 s) integer pos;
-fun octalinf   (err,s,pos) =  scan err (integer::scan number_string::OCTAL)   (s,strip 2 s) integer pos;
-fun binaryinf  (err,s,pos) =  scan err (integer::scan number_string::BINARY)  (s,strip 2 s) integer pos;
+fun decimalinf (err,s,pos) =  scan err (multiword_int::scan number_string::DECIMAL) (s,s)         integer pos;
+fun hexinf     (err,s,pos) =  scan err (multiword_int::scan number_string::HEX)     (s,strip 2 s) integer pos;
+fun octalinf   (err,s,pos) =  scan err (multiword_int::scan number_string::OCTAL)   (s,strip 2 s) integer pos;
+fun binaryinf  (err,s,pos) =  scan err (multiword_int::scan number_string::BINARY)  (s,strip 2 s) integer pos;
 
 fun string (err,s,pos)
     = 

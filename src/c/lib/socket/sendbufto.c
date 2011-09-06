@@ -36,8 +36,8 @@ Val   _lib7_Sock_sendbufto   (Task* task,  Val arg)   {
     // Mythryl type:   (Socket, Bytes, Int, Int, Bool, Bool, Addr) -> Int
     //
     // Send data from the buffer; bytes is either
-    // a rw_unt8_vector::Rw_Vector,
-    // or a unt8_vector::Vector.
+    // a rw_vector_of_one_byte_unts::Rw_Vector,
+    // or a vector_of_one_byte_unts::Vector.
     //
     // The arguments are:
     //     socket

@@ -28,7 +28,7 @@
 Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
     //===================
     //
-    // Mythryl type:   (Int, rw_unt8_vector::Rw_Vector, Int, Int) -> Int
+    // Mythryl type:   (Int, rw_vector_of_one_byte_unts::Rw_Vector, Int, Int) -> Int
     //                  fd    data                      nbytes start              
     //
     // Write nbytes of data from the given rw_vector to the specified file, 

@@ -15,7 +15,7 @@
 #include "win32-fault.h"
 
 
-/* _lib7_win32_OS_poll : unt1 list * (int1.Int * int) option -> unt1 list
+/* _lib7_win32_OS_poll : one_word_unt list * (one_word_int.Int * int) option -> one_word_unt list
  */
 Val _lib7_win32_OS_poll (Task *task, Val arg)
 {

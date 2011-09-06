@@ -31,7 +31,7 @@
 Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
     //=====================
     //
-    // Mythryl type: (String, int1::Int, int1::Int) -> Void
+    // Mythryl type: (String, one_word_int::Int, one_word_int::Int) -> Void
     //                name    actime      modtime
     //
     // Sets file access and modification times.

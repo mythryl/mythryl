@@ -18,7 +18,7 @@
 Val   _lib7_Date_local_time   (Task* task,  Val arg) {
     //====================
     //
-    // Mythryl type:  int1::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
+    // Mythryl type:  one_word_int::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
     //
     // Takes a local time value (in seconds), and converts it to a 9-tuple with
     // the fields:  tm_sec, tm_min, tm_hour, tm_mday, tm_mon, tm_year, tm_wday,

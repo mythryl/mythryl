@@ -56,8 +56,8 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     //     ->
     //     Int
     //
-    // Send data from the buffer; bytes is either a rw_unt8_vector.Rw_Vector, or
-    // a unt8_vector.vector.  The arguments are: socket, data buffer, start
+    // Send data from the buffer; bytes is either a rw_vector_of_one_byte_unts.Rw_Vector, or
+    // a vector_of_one_byte_unts.vector.  The arguments are: socket, data buffer, start
     // position, number of bytes, OOB flag, and don't_route flag.
     //
     // This fn gets bound as   send_v, send_a   in:

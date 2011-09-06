@@ -204,7 +204,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)   {
     // =========================
     // 
-    // Shrink a freshly allocated int1 vector.
+    // Shrink a freshly allocated one_word_int vector.
     // This is used by the input routines that must pessimistically
     // pre-allocate space for more input than actually gets read.
 
@@ -334,7 +334,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 }
 
 
-Val   allocate_nonempty_unt8_vector   (Task* task,  int len)   {
+Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
     //=============================
     // 
     // Allocate an uninitialized Lib7 bytearray.  Assume that len > 0.
@@ -355,7 +355,7 @@ Val   allocate_nonempty_unt8_vector   (Task* task,  int len)   {
 }
 
 
-Val   allocate_nonempty_float64_vector   (Task* task,  int len)   {
+Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
     //================================
     // 
     // Allocate an uninitialized Mythryl Float64 vector.  Assume that len > 0.
