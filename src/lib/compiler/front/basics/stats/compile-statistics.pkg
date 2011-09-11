@@ -15,12 +15,14 @@
 
 
 stipulate
-    package tm =  time;					# time			is from   src/lib/std/time.pkg
-    package at =  runtime_internals::at;		# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+    package at  =  runtime_internals::at;					# runtime_internals	is from   src/lib/std/src/nj/runtime-internals.pkg
+    package cp  =  control_print;						# control_print		is from   src/lib/compiler/front/basics/print/control-print.pkg
+    package ct  =  cpu_timer;							# cpu_timer		is from   src/lib/std/src/cpu-timer.pkg
+    package tm  =  time;							# time			is from   src/lib/std/time.pkg
 herein
 
     package   compile_statistics
-    :         Compile_Statistics			# Compile_Statistics	is from   src/lib/compiler/front/basics/stats/compile-statistics.api
+    :         Compile_Statistics						# Compile_Statistics	is from   src/lib/compiler/front/basics/stats/compile-statistics.api
     {
 	time_to_string
 	    =
@@ -29,35 +31,40 @@ herein
 	Counter
 	    =
 	    COUNTER
-	      { c:   Ref( Int ),
-		cs:  List( Counter )
+	      { count:			Ref( Int ),				# Primary count associated with the counter.
+		secondary_counters:	List( Counter )				# We also increment these whenever we increment the primary value.
 	      };
 
-	Stat = STAT  {   name: String,
-			 tot: List( Counter )
-		     };
+	Counterssum
+	    =
+	    COUNTERSSUM
+	      { name:			String,
+		counters:			List( Counter )
+	      };
 
-	all_stats = REF (NIL:  List( Stat ));		# More icky thread-hostile mutable global state. :-(	XXX BUGGO FIXME
+	all_statistics = REF (NIL:  List( Counterssum ));			# More icky thread-hostile mutable global state. :-(	XXX BUGGO FIXME
 
 
-	# Search by name in a list of stats (in practice, all_stats),
+	# Search by name in a list of counterssum (in practice, all_statistics),
 	# return NULL if not found:
 	#
-	fun find_stat (name, NIL)
+	fun find_statistic (name, NIL)
 		=>
 		NULL;
 
-	    find_stat (name, (p as STAT { name=>n, ... } ) ! rest)
+	    find_statistic (name, (p as COUNTERSSUM { name=>n, ... } ) ! rest)
 		=> 
 		if (name == n)   THE p;
-		else             find_stat (name, rest);
+		else             find_statistic (name, rest);
 		fi;
 	end;
 
 
-	# Add stat to a list (in practice, all_stats):
+	# Add statistic to a list (in practice, all_statistics):
 	#
-	fun insert (p as STAT { name=>pn, ... }, (q as STAT { name=>qn, ... } ) ! rest)
+	fun insert ( p as COUNTERSSUM { name => pn, ... },
+		    (q as COUNTERSSUM { name => qn, ... } )  !  rest
+		   )
 		=>
 		if (pn < qn)   p ! q ! rest;
 		else           q ! insert (p, rest);
@@ -69,50 +76,55 @@ herein
 	end;
 
 
-	fun new_counter cs
+	fun make_counter secondary_counters
 	    =
-	    COUNTER { c=>REF 0, cs };
+	    COUNTER { count => REF 0,
+                      secondary_counters
+                    };
 
-	fun add_counter (COUNTER { c, cs } ) n
+	fun increment_counter_by  (COUNTER { count, secondary_counters })  n
 	    =
-	    {   c := *c + n;
-		apply  (fn c =  add_counter c n)  cs;
+	    {   count :=  *count + n;						# Increment our primary count.
+		#
+		apply								# Increment any secondary counts we were given.
+		    (fn count =  increment_counter_by count n)
+                    secondary_counters;
 	    };
 
-	fun get_counter (COUNTER { c=>REF c, ... } )
+	fun get_counter_value (COUNTER { count => REF counter_value, ... } )
 	    =
-	    c;
+	    counter_value;
 
-	fun new_stat (name, cs)
+	fun make_counterssum (name, counters)
 	    =
-	    STAT { name, tot=>cs };
+	    COUNTERSSUM { name, counters };
 
-	fun register_stat (p as STAT { name, tot } )
+	fun note_counterssum (p as COUNTERSSUM { name, counters } )
 	    = 
-	    case (find_stat (name,*all_stats))
+	    case (find_statistic (name, *all_statistics))
 		#
 		THE p =>  ();
-		NULL  =>  all_stats := insert (p,*all_stats);
+		NULL  =>  all_statistics :=  insert (p, *all_statistics);
 	    esac;
 
-	fun make_stat name
+	fun make_counterssum'  name
 	    =
-	    case (find_stat (name,*all_stats))
+	    case (find_statistic (name, *all_statistics))
 		#	  
 		THE p =>  p;
 		#
-		NULL  =>  {   p =  new_stat (name, [new_counter []]);
-
-			      all_stats :=  insert (p,*all_stats); p;
-			  };
+		NULL => {   p =  make_counterssum (name, [ make_counter [] ]);
+			    #
+			    all_statistics :=  insert (p,*all_statistics); p;
+			};
 	    esac;
 
-	fun add_stat (STAT { tot => (c ! _), ... } ) n =>  add_counter c n;
-	    add_stat (STAT { tot => [],      ... } ) _ =>  ();
+	fun increment_counterssum_by  (COUNTERSSUM { counters => (counter ! _), ... } )  n  =>   increment_counter_by counter n;
+	    increment_counterssum_by  (COUNTERSSUM { counters => [],            ... } )  _  =>   ();
 	end;
 
-	say   =  control_print::say;
-	flush =  control_print::flush;
+	say   =  cp::say;
+	flush =  cp::flush;
 
 	# NOTE: we should be able to rewrite this using the timer package   XXX BUGGO FIXME
 
@@ -126,74 +138,79 @@ herein
 		  gc  =>  tm::zero_time
 		};
 
-	Phase = PHASE  { name:   String,
-			 accum:  Ref( Times ),
-			 this:   Ref( Times )
-		       };
+	Compiler_Phase
+	    =
+	    COMPILER_PHASE
+	      { name:	    String,
+		cumulative: Ref( Times ),
+		this:	    Ref( Times )
+	      };
 
 
-	all_phases =  REF (NIL:  List(Phase));					# XXX BUGGO FIXME Another icky bit of global mutable state.
+	all_compiler_phases =  REF (NIL:  List(Compiler_Phase));					# XXX BUGGO FIXME Another icky bit of global mutable state.
 
 
 
 	stipulate
-	    # Search by name in all_phases, return phase else NULL:
+	    # Search by name in all_compiler_phases, return compiler_phase else NULL:
 	    #
-	    fun find_phase (name, NIL)
+	    fun find_compiler_phase (name, NIL)
 		    =>
 		    NULL;
 
-		find_phase (name, (p as PHASE { name=>n, ... } ) ! rest)
+		find_compiler_phase (name, (p as COMPILER_PHASE { name=>n, ... } ) ! rest)
 		    => 
 		    if (name == n)   THE p;
-		    else             find_phase (name, rest);
+		    else             find_compiler_phase (name, rest);
 		    fi;
 	    end;
 
-	    # Add named phase to all_phases:
+	    # Add named compiler_phase to all_compiler_phases:
 	    #
-	    fun insert_phase (p as PHASE { name=>pn, ... }, (q as PHASE { name=>qn, ... } ) ! rest)
+	    fun insert_compiler_phase (  p as COMPILER_PHASE { name=>pn, ... },
+			                (q as COMPILER_PHASE { name=>qn, ... } ) ! rest
+			     )
 		    =>
 		    if (pn < qn)    p ! q ! rest;
-		    else            q ! insert_phase (p, rest);
+		    else            q ! insert_compiler_phase (p, rest);
 		    fi;
 
-		insert_phase (p, NIL)
+		insert_compiler_phase (p, NIL)
 		    =>
 		    p ! NIL;
 	    end;
 	herein
 
-	    fun make_phase name
+	    fun make_compiler_phase name
 		=
-		case (find_phase (name, *all_phases))
+		case (find_compiler_phase (name, *all_compiler_phases))
 		    #	  
 		    THE p =>  p;
 		    #
 		    NULL  =>  p
 			      where
-				  p = PHASE {   name,
-						accum => REF zeros,
+				  p = COMPILER_PHASE {   name,
+						cumulative => REF zeros,
 						this  => REF zeros
 					    };
 
-				  all_phases :=  insert_phase (p, *all_phases);
+				  all_compiler_phases :=  insert_compiler_phase (p, *all_compiler_phases);
 			      end;
 		esac;
 	end;
 
-	current		 =  REF (make_phase "Other");		# Global mutable state.	XXX BUGGO FIXME
+	current		 =  REF (make_compiler_phase "Other");		# Global mutable state.	XXX BUGGO FIXME
 
 	keep_time	 =  REF TRUE;				# Global mutable state.	XXX BUGGO FIXME
 	approx_time	 =  REF TRUE;				# Global mutable state.	XXX BUGGO FIXME
 	#
 	# At the moment these three are controlled by hardwired logic in
 	#     src/app/makelib/compile/compile-in-dependency-order-g.pkg
-	# -- look for show_compile_phase_runtimes_for():
+	# -- look for show_compile_compiler_phase_runtimes_for():
 	#
-	say_begin	 =  REF FALSE;			# By default, do not narrate start of each compile phase.									# Global mutable state.	XXX BUGGO FIXME
-	say_end		 =  REF FALSE;			# By default, do not narrate end   of each compile phase, with CPU seconds used.						# Global mutable state.	XXX BUGGO FIXME
-	say_when_nonzero =  REF FALSE;			# By default, even if previous is *TRUE, do not narrate end of compile phases with 0.00 seconds of CPU usage.			# Global mutable state.	XXX BUGGO FIXME
+	say_begin	 =  REF FALSE;			# By default, do not narrate start of each compiler phase.									# Global mutable state.	XXX BUGGO FIXME
+	say_end		 =  REF FALSE;			# By default, do not narrate end   of each compiler phase, with CPU seconds used.						# Global mutable state.	XXX BUGGO FIXME
+	say_when_nonzero =  REF FALSE;			# By default, even if previous is *TRUE, do not narrate end of compiler phases with 0.00 seconds of CPU usage.			# Global mutable state.	XXX BUGGO FIXME
 
 	infix val 70 +++ ;   my (+++) = time::(+) ;
 	infix val 70 --- ;   my (---) = time::(-) ;
@@ -224,12 +241,13 @@ herein
 	stipulate
 	    fun gettime ()
 		=
-		{   my { nongc, gc }
-			=
-			cpu_timer::get_elapsed_gc_and_nongc_usr_and_sys_cpu_times (cpu_timer::get_cpu_timer());
+		{   (ct::get_elapsed_gc_and_nongc_usr_and_sys_cpu_times (ct::get_cpu_timer ()))
+			->
+			{ nongc, gc };
+		
 
 		    # This is a hack.
-		    # (This module deserves a complete rewrite!!) XXX BUGGO FIXME
+		    # (This module deserves a complete rewrite!!)			XXX SUCKO FIXME
 
 		    { usr =>  nongc.usr,
 		      sys =>  time::(+) (nongc.sys, gc.sys),
@@ -237,26 +255,28 @@ herein
 		    };
 		};
 
-	    last   = REF (gettime());				# Global mutable state.	XXX BUGGO FIXME
+	    last   = REF (gettime());							# More icky thread-hostile global mutable state.		XXX SUCKO FIXME
 	herein 
 	    fun reset ()
 		=
-		{   last := gettime();
+		{   last :=  gettime ();
 
 		    apply
-			(fn PHASE { this, accum, ... } =  { this := zeros;   accum := zeros; }) 
-			*all_phases;
+			(fn COMPILER_PHASE { this, cumulative, ... } =  { this := zeros;   cumulative := zeros; }) 
+			*all_compiler_phases;
 
+		    # Zero all counts, both primary and secondary counters:
+		    #
 		    apply
-			(fn STAT { tot, ... } =  apply  (fn COUNTER { c, ... } =  c:=0)  tot)
-			*all_stats;
+			(fn COUNTERSSUM { counters, ... } =   apply  (fn COUNTER { count, ... } =  count := 0)  counters)
+			*all_statistics;
 		};
 
 
 										    my _ = 
 	    at::schedule
 		(
-		  "CompilerStats",				# Arbitrary label
+		  "CompilerStatistics",				# Arbitrary label
 
 		  [ at::FORK_TO_DISK,			# When to run the function
 		    at::SPAWN_TO_DISK,
@@ -264,7 +284,7 @@ herein
 		  ],
 
 		  fn at::STARTUP =>  reset();		# Function to run.
-		     _              =>  last := zeros;
+		     _           =>  last := zeros;
 		  end 
 		);
 
@@ -293,7 +313,7 @@ herein
 
 	end;							# stipulate
 
-	# Call f(x) n times:
+	# Call f(x) n times:					# Shouldn't this move to standard.lib somewhere?
 	#
 	fun repeat 0 f x
 		=>
@@ -306,12 +326,10 @@ herein
 		};
 	end;
 
-	# Print 'string', pad to length 'n'
-	# with trailing blanks:
-	#
-	fun sayfield (n, string)
+	fun sayfield (n, string)				# Print 'string', pad to length 'n' with trailing blanks.
 	    =
 	    {    say string;
+		#
 		 repeat (int::max (0, n - size(string)))  say " ";
 	    };
 
@@ -319,30 +337,31 @@ herein
 	# Call f(x) while tracking and maybe
 	# printing its CPU time consumption:
 	#
-	fun do_phase (p as PHASE { name, this, accum }) f x
+	fun do_compiler_phase (p as COMPILER_PHASE { name, this, cumulative }) f x
 	    =
 	    {   (*current)
 		    ->
-		    prev as PHASE { this=>t', ... };
+		    prev as COMPILER_PHASE { this=>t', ... };
 
-		fun end_time()
+		fun end_time ()
 		    =
-		    {   my x as { usr, sys, gc }
-			    =
-			    since() ++++ *this;
+		    {   (since() ++++ *this)
+			    ->
+			    x as { usr, sys, gc };
 
-			this := zeros;
-			accum := *accum ++++ x;
+			this  :=  zeros;
+			cumulative :=  *cumulative ++++ x;
+
 			usr +++ sys +++ gc;
 		    };
 
-		fun finish()
+		fun finish ()
 		    =
-		    {   current := prev;
-
+		    {   current :=  prev;
+			#
 			if *say_end
 			    #
-			    time = time_to_string (end_time());
+			    time = time_to_string (end_time ());
 			    #
 			    if (time != "0.00" or *say_when_nonzero)
 				#
@@ -354,8 +373,6 @@ herein
 				fi;
 
 				flush();
-			    else
-				();
 			    fi;
 			else
 			    end_time();
@@ -364,10 +381,11 @@ herein
 		    };
 
 		if *keep_time
-		    t' := since() ++++ *t';
+		    #
+		    t' :=  since() ++++ *t';
 		fi;
 
-		current := p;
+		current :=  p;
 
 		if *say_begin
 		    #
@@ -385,52 +403,54 @@ herein
 		    finish ();
 	    };
 
-	fun get_stat (STAT { tot, ... } )
+	fun compute_sum_of_counters (COUNTERSSUM { counters, ... } )			# Sum primary values of our counters.
 	    =
 	    fold_left
-		(fn (c, s) =  get_counter c + s)
+		(fn (counter, sum) =   get_counter_value counter  +  sum)
 		0
-		tot;
+		counters;
 
-	fun show_stat (s as STAT { name, tot } )
+	fun show_statistic (s as COUNTERSSUM { name, counters } )
 	    =
 	    {   sayfield (40, name);
-		say (int::to_string (get_stat s));
+		say (int::to_string (compute_sum_of_counters s));
 		say "\n";
 	    };
 
-	fun show_phase (PHASE { name, this, accum } )
+	fun show_compiler_phase (COMPILER_PHASE { name, this, cumulative } )
 	    =
-	    {   my { usr, sys, gc }
-		    =
-		    *this ++++ *accum;
+	    {   (*this ++++ *cumulative)
+		    ->
+		    { usr, sys, gc };
 
 		sayfield (40, name); 
+
 		say (time_to_string usr);  say "u  ";
 		say (time_to_string sys);  say "s  ";
 		say (time_to_string gc );  say "g  ";
+
 		say "\n";
 	    };
 
 	fun summary ()
 	    =
 	    {   sum = fold_right
-			  (fn (PHASE { accum, ... }, t) = *accum ++++ t)
+			  (fn (COMPILER_PHASE { cumulative, ... }, t) =  *cumulative ++++ t)
 			  zeros
-			  *all_phases;
+			  *all_compiler_phases;
 
-		apply  show_stat  *all_stats; 
+		apply  show_statistic  *all_statistics; 
 
 		apply
-		    show_phase
-		    (*all_phases @ [PHASE { name=>"TOTAL", this=>REF zeros, accum=>REF sum } ]);
+		    show_compiler_phase
+		    (*all_compiler_phases @ [COMPILER_PHASE { name=>"TOTAL", this=>REF zeros, cumulative=>REF sum } ]);
 	    };
 
-	fun show_phase_sp (PHASE { name, this, accum } )
+	fun show_compiler_phase_sp (COMPILER_PHASE { name, this, cumulative } )
 	    =
-	    {   my { usr, sys, gc }
-		    =
-		    *this ++++ *accum;
+	    {   (*this ++++ *cumulative)
+		    ->
+		    { usr, sys, gc };
 
 		case (tm::compare (usr+++sys+++gc, tm::zero_time))
 		    #
@@ -448,24 +468,24 @@ herein
 	fun summary_sp ()								# Apparently never called.  No clue what "sp" means.
 	    =
 	    {   sum = fold_right
-			  (fn (PHASE { accum, ... }, t) =  *accum++++t)
+			  (fn (COMPILER_PHASE { cumulative, ... }, t) =   *cumulative++++t)
 			  zeros
-			  *all_phases;
+			  *all_compiler_phases;
 
-		apply show_stat *all_stats; 
+		apply show_statistic *all_statistics; 
 
-		apply show_phase_sp
-		  (   *all_phases
+		apply show_compiler_phase_sp
+		  (   *all_compiler_phases
 		      @
-		      [ PHASE {   name  => "TOTAL",
-				  this  => REF zeros,
-				  accum => REF sum
-			      }
+		      [ COMPILER_PHASE { name  =>  "TOTAL",
+					 this  =>  REF zeros,
+					 cumulative =>  REF sum
+				       }
 		      ]
 		  );
 	    };
 
-    }; #  package compile_statistics 
+    };											# package compile_statistics 
 end;
 
 
