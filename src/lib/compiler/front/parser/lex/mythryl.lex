@@ -28,7 +28,7 @@ Lex_Result      =  tokens::Token( Semantic_Value, Source_Position );
 Lex_Arg = { comment_nesting_depth : Ref Int, 
 	    line_number_db        : line_number_db::Sourcemap,
 	    stringlist            : Ref List String,
-
+	    #
 	    stringtype            : Ref Bool,
 	    stringstart           : Ref Int,            #  Start of current string or comment
 	    brack_stack           : Ref List Ref Int,   #  For frags 
@@ -206,18 +206,35 @@ fun dec (ri as REF i)   =   (ri := i - 1);
 #         foo::bar::Zot
 #         foo::bar::zot
 #         foo::var::ZOT
-#     can be distinguished, and different reductions done,
+#     can be distinguished and different reductions done
 #     if they are single tokens resolved in the lexer, but
 #     if they are sequences of tokens resolved in the parser,
 #     then they all look like just "foo" for lookahead
 #     purposes, which is to say, identical, and various rules
 #     that now work become shift/reduce errors.
 
+# NB:	I found that
+#           <initial>"#PRE"{uppercase_id}{ws}	=> (yybegin pre_compile_code;  continue());
+#	compiled ok but that when I did
+#	    <initial>"#PRE_COMPILE_CODE"{ws}	=> (yybegin pre_compile_code;  continue());
+#	and did "make compiler" I get a linktime segfault:
+#	 	 ...
+#                load-compiledfiles.c:   Reading   file          COMPILED_FILES_TO_LOAD
+#                /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryl-runtime-ia32: Fatal error:  Bogus fault not in Mythryl: sig = 11, code = 0x805879b, pc = 0x805879b)
+#                sh/make-compiler-executable:   Compiler link failed, no mythryld executable
+#	It appears that we may have hit some sort of 64K type limit here;
+#	attempting to add
+#           <initial>"#PRE_{uppercase_id}{ws}	=> (yybegin postcompile_code;  continue());
+#           <initial>"#POST"{uppercase_id}{ws}	=> (yybegin postcompile_code;  continue());
+#	also produced a segfault. :-(	XXX BUGGO FIXME -- 2011-09-11 CrT
+#
+#       In the meantime, I switched to just #DO for #PRE_COMPILE_CODE and dropped #POSTCOMPILE_CODE entirely.
+
 
 
 %% 
 %reject
-%s aaa comment string char stringgap backticks dot_backticks dot_qquotes dot_quotes dot_brokets dot_barets dot_slashets dot_hashets qqq aq lll ll llc llcq postfix;
+%s aaa comment string char stringgap backticks dot_backticks dot_qquotes dot_quotes dot_brokets dot_barets dot_slashets dot_hashets qqq aq lll ll llc llcq postfix pre_compile_code;
 %header (generic package mythryl_lex_g(package tokens : Mythryl_Tokens;));
 %arg ( {
   comment_nesting_depth,
@@ -507,6 +524,9 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>"#\t"  => (yybegin comment;  continue());
 <initial>\#\!	=> (yybegin comment;  continue());
 <initial>\#\#	=> (yybegin comment;  continue());
+
+<initial>"#DO"{ws}	=> (yybegin pre_compile_code;  continue());
+
 <initial>\h	=> (err (yypos,yypos) ERROR "non-Ascii character"
 		        null_error_body;
 		    continue());
@@ -762,8 +782,13 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <lll,llc,llcq>.    => (err (*stringstart, yypos+1) WARNING 
                        "ill-formed /*#line...*/ taken as comment" null_error_body;
                      yybegin aaa; continue());
+
 <comment>{eol}	=> (line_number_db::newline line_number_db yypos; yybegin initial; continue());
-<comment>.		=> (continue());
+<comment>.	=> (continue());
+
+<pre_compile_code>{eol}	=> (line_number_db::newline line_number_db yypos; yybegin initial; continue());
+<pre_compile_code>.	=> (continue());
+
 
 <aaa>"/*"[*=#-]*	=> (inc comment_nesting_depth; continue());
 <aaa>{eol}	=> (line_number_db::newline line_number_db yypos; continue());
@@ -828,11 +853,12 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <string>({idchars}|{symbol_sans_backslash}|\[|\]|\(|\)|{backtick}|{hash}|[',.;^{}])+|.  => (add_string(stringlist,yytext); continue());
 
 
-<backticks>(\\\\)*\`        => ( { s = make_string stringlist;
-                        t = (s,*stringstart,yypos + size yytext);
-                     yybegin initial;
-                       tokens::backticks t;
-                    });
+<backticks>(\\\\)*\` =>   ( {   s = make_string stringlist;
+				t = (s,*stringstart,yypos + size yytext);
+				yybegin initial;
+				tokens::backticks t;
+			    }
+			  );
 
 
 <backticks>({ws}|{eol}|[\000-\031]|{idchars}|{symbol_sans_backslash}|\[|\]|\(|\)|{hash}|[',.;^{}])+|.  => (add_string(stringlist,yytext); continue());
