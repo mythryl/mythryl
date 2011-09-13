@@ -260,7 +260,7 @@ full_sym={symbol};
 num=[0-9]+;
 frac="."{num};
 exp=[eE]([-]?){num};
-real=([-]?)(({num}{frac}?{exp})|({num}{frac}{exp}?));
+float=([-]?)(({num}{frac}?{exp})|({num}{frac}{exp}?));
 hexnum=[0-9a-fA-F]+;
 
 uppercase_path=({lowercase_id}::)+{uppercase_id};
@@ -503,7 +503,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                                    continue()
                              );
 
-<initial>{real}	         => (yybegin postfix; tokens::real(yytext, yypos, yypos + size yytext));
+<initial>{float}         => (yybegin postfix; tokens::float(yytext, yypos, yypos + size yytext));
 <initial>[1-9][0-9]*     => (yybegin postfix; tokens::int(atoi(yytext, 0),yypos,yypos+size yytext));
 <initial>"0"{num}        => (yybegin postfix; tokens::int0(otoi(yytext, 1),yypos,yypos+size yytext));
 <initial>{num}	         => (yybegin postfix; tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
@@ -525,7 +525,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <initial>\#\!	=> (yybegin comment;  continue());
 <initial>\#\#	=> (yybegin comment;  continue());
 
-<initial>"#DO"{ws}	=> (yybegin pre_compile_code;  continue());
+<initial>"#DO"{ws}[^;\013\010]+ =>  (tokens::pre_compile_code ((substring::to_string (substring::drop_first 4 (substring::from_string yytext))), yypos+4, yypos + size yytext));
 
 <initial>\h	=> (err (yypos,yypos) ERROR "non-Ascii character"
 		        null_error_body;
@@ -738,7 +738,7 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
                                    continue()
                              );
 
-<postfix>{real}	         => (tokens::real(yytext,yypos,yypos+size yytext));
+<postfix>{float}         => (tokens::float(yytext,yypos,yypos+size yytext));
 <postfix>[1-9][0-9]*     => (tokens::int(atoi(yytext, 0),yypos,yypos+size yytext));
 <postfix>"0"{num}        => (tokens::int0(otoi(yytext, 1),yypos,yypos+size yytext));
 <postfix>{num}	         => (tokens::int0(atoi(yytext, 0),yypos,yypos+size yytext));
@@ -786,16 +786,13 @@ operators_path=({lowercase_id}::)+( \("_"?{symbol}+"_"?\) | "(|_|)" | "(<_>)" | 
 <comment>{eol}	=> (line_number_db::newline line_number_db yypos; yybegin initial; continue());
 <comment>.	=> (continue());
 
-<pre_compile_code>{eol}	=> (line_number_db::newline line_number_db yypos; yybegin initial; continue());
-<pre_compile_code>.	=> (continue());
 
+<aaa>"/*"[*=#-]* => (inc comment_nesting_depth; continue());
+<aaa>{eol}	 => (line_number_db::newline line_number_db yypos; continue());
+<aaa>"*/"	 => (dec comment_nesting_depth; if (*comment_nesting_depth==0 ) yybegin initial; fi; continue());
+<aaa>.		 => (continue());
 
-<aaa>"/*"[*=#-]*	=> (inc comment_nesting_depth; continue());
-<aaa>{eol}	=> (line_number_db::newline line_number_db yypos; continue());
-<aaa>"*/" => (dec comment_nesting_depth; if (*comment_nesting_depth==0 ) yybegin initial; fi; continue());
-<aaa>.		=> (continue());
-
-<string>\"        => ( { s = make_string stringlist;
+<string>\"       => ( { s = make_string stringlist;
                          s = if (size s != 1 and not *stringtype)
                                        err (*stringstart,yypos) ERROR
                                             "character constant not length 1"
