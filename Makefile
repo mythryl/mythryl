@@ -173,6 +173,9 @@ compiler: compiler-libraries compiler-executable
 
 compiler-soon: compiler-libraries-soon compiler-executable
 
+benchmarks:
+	@MYTHRYL_ROOT=`pwd` sh/make-benchmarks
+
 
 
 # Re/build everything but the compiler
