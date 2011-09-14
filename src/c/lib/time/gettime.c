@@ -27,7 +27,7 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     //
     // This fn gets bound as   gettime'   in:
     //
-    //     src/lib/std/src/internal-cpu-timer.pkg 
+    //     src/lib/std/src/internal-cpu-timer.pkg
 
     Time		usr;					// User-mode   time consumption as reported by os.
     Time		sys;					// Kernel-mode time consumption as reported by os.
