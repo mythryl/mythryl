@@ -980,7 +980,7 @@ static void   load_compiled_file   (
     // Seek to the first "code segment" within our compiledfile image.
     // This contains bytecoded instructions interpretable by
     // make-package-literals-via-bytecode-interpreter.c which construct all the needed constant
-    // lists &tc for this compiledfile.  (If we stored them as actual
+    // lists etc for this compiledfile.  (If we stored them as actual
     // lists, we'd have to do relocations on all the pointers in
     // those structures at this point.  The bytecode solution seems
     // simpler.)
@@ -1216,7 +1216,7 @@ static Val   picklehash_to_exports_tree   (Picklehash* picklehash)   {
     // we have loaded into memory.
     //
     // Each entry in the list maps the picklehash naming that
-    // compiledfile to the tree of values (functions &tc)
+    // compiledfile to the tree of values (functions etc)
     // exported by the compiledfile for use by other compiled_files.
     //
     // Here we look up the export tree associated with a given

@@ -4,7 +4,7 @@
 # the following sequence of commands in the root
 # directory (that containing the INSTALL file):
 # 
-#     make compiler		# Build the end-user compiler + libraries &tc.
+#     make compiler		# Build the end-user compiler + libraries etc.
 #     make rest			# Build x-kit, c-kit, thread-kit ...
 #     sudo make install		# Install new executables in /usr/bin so 'make check' will use them.
 #     make check		# Verify basic sub/system operationality.
@@ -474,7 +474,7 @@ configure: src/c/o/Makefile
 
 
 # Run GNU autotools (autoconfig, mostly) to build
-# site-customized makefiles, Configure file &tc.
+# site-customized makefiles, Configure file etc.
 #
 # THIS IS RISKY unless you're the principal maintainer,
 # or confident that you've got the same versions of the

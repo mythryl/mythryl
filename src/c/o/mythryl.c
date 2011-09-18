@@ -40,7 +40,7 @@
 
 #include "../config.h"
 
-#include <stdio.h>		// For fopen() &tc.
+#include <stdio.h>		// For fopen() etc.
 #include <stdlib.h>		// For exit().
 #include <signal.h>		// For sigaction(), kill().
 
