@@ -1130,7 +1130,7 @@ static void         forward_remaining_live_values                      (Heap* he
     // In essence, we have copied to to-space the root nodes of
     // various trees;  now we need to copy the rest of those trees.
     //
-    // In principle we could do this via a simple recursive graphwalk,
+    // In principle we could do this via a simple recursive dagwalk,
     // but cleaning happens precisely when we do not have a lot
     // of spare ram, so to avoid using potentially a lot of stackspace
     // we treat to-space as a queue of values to process, and sweep
