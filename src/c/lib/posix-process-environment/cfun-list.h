@@ -12,8 +12,8 @@
 // 
 // We get #included by both:
 //
-//     src/c/lib/posix-procenv/libmythryl-posix-process-environment.c
-//     src/c/lib/posix-procenv/cfun-proto-list.h
+//     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
+//     src/c/lib/posix-process-environment/cfun-proto-list.h
 //
 // This table ultimately gets searched by
 //

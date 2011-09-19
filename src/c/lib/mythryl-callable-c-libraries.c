@@ -94,7 +94,7 @@
 //     src/c/lib/socket/cfun-list.h
 //     src/c/lib/signal/cfun-list.h
 //     src/c/lib/posix-tty/cfun-list.h
-//     src/c/lib/posix-procenv/cfun-list.h
+//     src/c/lib/posix-process-environment/cfun-list.h
 //     src/c/lib/opencv/cfun-list.h
 //     src/c/lib/posix-process/cfun-list.h
 //     src/c/lib/win32-process/cfun-list.h

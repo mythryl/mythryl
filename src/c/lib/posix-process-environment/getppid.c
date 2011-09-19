@@ -1,4 +1,4 @@
-// setpgid.c
+// getppid.c
 
 
 
@@ -6,7 +6,6 @@
 
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "lib7-c.h"
 #include "cfun-proto-list.h"
 
 #if HAVE_UNISTD_H
@@ -16,26 +15,24 @@
 
 
 // One of the library bindings exported via
-//     src/c/lib/posix-procenv/cfun-list.h
+//     src/c/lib/posix-process-environment/cfun-list.h
 // and thence
-//     src/c/lib/posix-procenv/libmythryl-posix-process-environment.c
+//     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 
 
 
-Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
+Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
     //=======================
     //
-    // Mythryl type:  (Int, Int) -> Void
+    // Mythryl type:   Void -> Int
     //
-    // Set user id
+    // Return the process id of the parent process.
     //
-    // This fn gets bound as   set_process_group_id   in:
+    // This fn gets bound as   get_parent_process_id   in:
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    int status =  setpgid( GET_TUPLE_SLOT_AS_INT(arg,0), GET_TUPLE_SLOT_AS_INT(arg,1) );
-    //
-    CHECK_RETURN_UNIT( task, status )
+    return TAGGED_INT_FROM_C_INT(getppid());
 }
 
 

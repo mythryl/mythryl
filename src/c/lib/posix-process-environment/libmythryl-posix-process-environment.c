@@ -16,7 +16,7 @@
 
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {
-#include "cfun-list.h"													// Actual function list is in   src/c/lib/posix-procenv/cfun-list.h
+#include "cfun-list.h"													// Actual function list is in   src/c/lib/posix-process-environment/cfun-list.h
 	CFUNC_NULL_BIND
     };
 #undef CFUNC

@@ -1,5 +1,4 @@
-// getppid.c
-
+// getpgrp.c
 
 
 #include "../../config.h"
@@ -15,24 +14,24 @@
 
 
 // One of the library bindings exported via
-//     src/c/lib/posix-procenv/cfun-list.h
+//     src/c/lib/posix-process-environment/cfun-list.h
 // and thence
-//     src/c/lib/posix-procenv/libmythryl-posix-process-environment.c
+//     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 
 
 
-Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
-    //=======================
+Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
+    //========================
     //
     // Mythryl type:   Void -> Int
     //
-    // Return the process id of the parent process.
+    // Return process group.
     //
-    // This fn gets bound as   get_parent_process_id   in:
+    // This fn gets bound as   get_process_group   in:
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return TAGGED_INT_FROM_C_INT(getppid());
+    return TAGGED_INT_FROM_C_INT( getpgrp() );
 }
 
 

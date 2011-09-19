@@ -47,9 +47,9 @@ static name_val_t   values[]   = {
 
 
 // One of the library bindings exported via
-//     src/c/lib/posix-procenv/cfun-list.h
+//     src/c/lib/posix-process-environment/cfun-list.h
 // and thence
-//     src/c/lib/posix-procenv/libmythryl-posix-process-environment.c
+//     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 
 
 

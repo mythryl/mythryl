@@ -9,10 +9,10 @@
 // External definitions for the "posix_process_environment"
 // library C functions.  This file gets #included by:
 //
-//     src/c/lib/posix-procenv/libmythryl-posix-process-environment.c
+//     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_PROTO(NAME, FUNC, LIB7TYPE)
-#include "cfun-list.h"								// Actual function list is in   src/c/lib/posix-procenv/cfun-list.h
+#include "cfun-list.h"								// Actual function list is in   src/c/lib/posix-process-environment/cfun-list.h
 #undef CFUNC
 
 #endif // _CFUN_PROTO_LIST_

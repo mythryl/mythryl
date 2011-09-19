@@ -11,7 +11,7 @@
 #
 # This script is invoked by:
 #     src/c/lib/posix-filesys/Makefile
-#     src/c/lib/posix-procenv/Makefile
+#     src/c/lib/posix-process-environment/Makefile
 
 # redefine PATH so that we get the right versions of the various tools
 #
