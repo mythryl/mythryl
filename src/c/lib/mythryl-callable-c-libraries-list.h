@@ -28,7 +28,7 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Opencv				)		// Libmythryl_Opencv			def i
 #ifdef HAS_POSIX_LIBRARIES
 
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Error			)		// Libmythryl_Posix_Error		def in    src/c/lib/posix-error/libmythryl-posix-error.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Filesys			)		// Libmythryl_Posix_Filesys		def in    src/c/lib/posix-filesys/libmythryl-posix-filesys.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Filesys			)		// Libmythryl_Posix_Filesys		def in    src/c/lib/posix-file-system/libmythryl-posix-file-system.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Io				)		// Libmythryl_Posix_Io			def in    src/c/lib/posix-io/libmythryl-posix-io.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Process_Environment	)		// Libmythryl_Posix_Process_Environment	def in    src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Process			)		// Libmythryl_Posix_Process		def in    src/c/lib/posix-process/libmythryl-posix-process.c
@@ -46,7 +46,7 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Posix_Os				)		// Libmythryl_Posix_Os			d
 
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32				)		// Libmythryl_Win32			def in    src/c/lib/win32/libmythryl-win32.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Io				)		// Libmythryl_Win32_Io			def in    src/c/lib/win32-io/libmythryl-win32-io.c
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Filesys			)		// Libmythryl_Win32_Filesys		def in    src/c/lib/win32-filesys/libmythryl-win32-filesys.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Filesys			)		// Libmythryl_Win32_Filesys		def in    src/c/lib/win32-file-system/libmythryl-win32-file-system.c
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Process			)		// Libmythryl_Win32_Process		def in    src/c/lib/win32-process/libmythryl-win32-process.c
 
 #endif

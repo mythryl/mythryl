@@ -10,7 +10,7 @@
 # Usage: generate-posix-names.sh <prefix> <outfile>
 #
 # This script is invoked by:
-#     src/c/lib/posix-filesys/Makefile
+#     src/c/lib/posix-file-system/Makefile
 #     src/c/lib/posix-process-environment/Makefile
 
 # redefine PATH so that we get the right versions of the various tools

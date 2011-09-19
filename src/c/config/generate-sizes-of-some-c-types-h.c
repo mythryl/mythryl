@@ -165,7 +165,7 @@ int   main   (void)   {
     #endif
 
     {   struct stat stat;
-	fprintf(fd, "#define SIZEOF_STRUCT_STAT_ST_SIZE %d  // sizeof(struct stat.st_size), for src/c/lib/posix-filesys/stat_64.c\n", sizeof(stat.st_size));	// Added 2010-11-15 CrT
+	fprintf(fd, "#define SIZEOF_STRUCT_STAT_ST_SIZE %d  // sizeof(struct stat.st_size), for src/c/lib/posix-file-system/stat_64.c\n", sizeof(stat.st_size));	// Added 2010-11-15 CrT
     }
 
     {   struct flock flock;
