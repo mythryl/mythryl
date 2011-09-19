@@ -2446,7 +2446,7 @@ herein
 	    #
 	    fun compile_all_needed_libraries_in_dependency_order
 		  {
-		    root_library => (root_library as lg::LIBRARY  { catalog, ... } ),		# Root node for our dagwalk.
+		    root_library => (root_library as lg::LIBRARY  { catalog, ... } ),		# Root node for our dagwalk.			("dagwalk" == "directed-acyclic-graph walk".)
 		    #
 		    maybe_drop_thawedlib_tome_from_linker_map,					# A dummy or   drop_thawedlib_tome_from_linker_map()
 		    #										# from   src/app/makelib/compile/link-in-dependency-order-g.pkg
@@ -2455,9 +2455,9 @@ herein
 		  }
 		    =>
 		    { compile_library_catalog_and_return_symbol_and_inlining_mapstacks,
-
-		      all_libraries,
-
+		      #	
+		      compile_all_tomes_in_library,
+		      #	
 		      exports =>   sym::map  make_export  catalog
 		    }
 		    where
@@ -2562,79 +2562,107 @@ herein
 														# symbol_map	is from   src/app/makelib/stuff/symbol-map.pkg
 
 			#
-			fun all_libraries  makelib_state
+			fun compile_all_tomes_in_library  makelib_state
 			    =
-			    {   # A little helper function for all_exported_symbols().
-				# It takes an entry from a library.sublibraries list
-				# and adds the library to our libraries-left-to-do list:
-				#
-				fun add_library  (lt: lg::Library_Thunk,  libraries_left)
+			    not_null
+				(concurrently_compile_tomes
+				    (makelib_state, all_tomes_in_library)
+				)
+			    where
+				all_tomes_in_library								# All .api and .pkg files in library (including its sublibraries but of course not external libraries).
 				    =
-				    lt.library_thunk ()   !   libraries_left;
+				    find_all_tomes_in_library
+				      {
+					libraries_to_do =>  [root_library],
+					libraries_done  =>  sps::empty,
+					fat_tomes_found =>  []
+				      }
+				    where
+					# A little helper function for find_all_tomes_in_library().
+					# It takes an entry from a library.sublibraries list
+					# and adds the library to our libraries_to_do list:
+					#
+					fun add_library  (lt: lg::Library_Thunk,  libraries_left)
+					    =
+					    lt.library_thunk ()   !   libraries_left;
 
 
-				# all_exported_symbols() constructs a list of all .exports-ed symbols
-				# of a makefile/library node plus its direct and indirect sublibraries.
-				#
-				# First argument is the list of library graph nodes yet to process.
-				# Initially, this is just the root library of the .sublibraries tree.
-				#
-				# Second argument is the set of library graph nodes already processed,
-				# so we can avoid processing a given node more than once.
-				#
-				# Third argument is the accumulating result list of
-				# symbols exported via the library .exports lists. -- CrT
-				#
-				fun all_exported_symbols
-				      (
-					lg::LIBRARY r ! libraries_left,
-					libraries_done,
-					result_so_far:	List( lg::Fat_Tome )
-				      )
-					=>
-					if (sps::member( libraries_done, r.libfile))
-					    #
-					    all_exported_symbols ( libraries_left, libraries_done, result_so_far );			# Skip library -- already done it.
-					else
-					    all_exported_symbols (
-
-						# Add all sublibraries of this lib to our left-to-do list:
+					# find_all_tomes_in_library() constructs a list of all fat tomes
+					# (in essence, all .api and .pkg files) in a given library by
+					# processing the library plus its sublibraries, direct and indirect.
+					#
+					# First argument is the list of library graph nodes yet to process.
+					# Initially, this is just the root library of the .sublibraries tree.
+					#
+					# Second argument is the set of library graph nodes already processed,
+					# so we can avoid processing a given node more than once.
+					#
+					# Third argument is the accumulating result list of
+					# symbols exported via the library .exports lists. -- CrT
+					#
+					fun find_all_tomes_in_library { libraries_to_do => [],  fat_tomes_found, ... }
+						=>
+						# Done:
 						#
-						fold_left
-						    add_library
-						    libraries_left
-						    r.sublibraries,
+						fat_tomes_found:	List( lg::Fat_Tome );
 
-						sps::add (libraries_done, r.libfile),						# Remember we've processed this library.
+					    find_all_tomes_in_library
+					      {
+						libraries_to_do => lg::LIBRARY lib ! libraries_to_do,
+						libraries_done,
+						fat_tomes_found
+					      }
+						=>
+						if (sps::member (libraries_done, lib.libfile))
+						    #
+						    # Skip library -- we've already done it:
+						    #
+						    find_all_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+						else
 
-						# Add all exports of this library to our results:
+						    # Add all .api and .pkg files in this library to our result:
+						    #
+						    fat_tomes_found
+							=
+							sym::fold_left
+							    (!)
+							    fat_tomes_found
+							    lib.catalog;
+
+
+						    # Add all sublibraries of this lib to our left-to-do list:
+						    #
+						    libraries_to_do
+							=
+							fold_left
+							    add_library
+							    libraries_to_do
+							    lib.sublibraries;
+
+						    # Remember we've processed this library:
+						    #
+						    libraries_done =  sps::add (libraries_done, lib.libfile);
+
+						    # Process remaining libraries_to_do recursively:
+						    #
+						    find_all_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+						fi;
+
+
+
+					    find_all_tomes_in_library
+						  {
+						    libraries_to_do => lg::BAD_LIBRARY ! libraries_to_do,			# This sub/library had errors, but we continue processing to report any other errors this run.
+						    libraries_done,
+						    fat_tomes_found
+						  }
+						=>
+						# Ignore bogus entry on libraries_to_do list:
 						#
-						sym::fold_left
-						    (!)
-						    result_so_far
-						    r.catalog
-					    );
-					fi;
-
-				    all_exported_symbols ([], _,   result_so_far)
-					=>
-					result_so_far;
-
-
-				    all_exported_symbols (lg::BAD_LIBRARY ! left,   done,   result)
-					=>
-					all_exported_symbols (left, done, result);							# Ignore bogus entry on left-to-do list.
-				end;
-
-				my  exported_symbols_list:       List( lg::Fat_Tome )
-				    =
-				    all_exported_symbols  ([root_library], sps::empty, []);
-
-				not_null
-				    (concurrently_compile_tomes
-					(makelib_state, exported_symbols_list)
-				    );
-			    };        			                            #  fun all_libraries 
+						find_all_tomes_in_library { libraries_to_do, libraries_done, fat_tomes_found };
+					end;
+				    end;
+			    end;        			                            #  fun compile_all_tomes_in_library
 
 			#
 			fun make_export  ie  makelib_state
@@ -2647,14 +2675,14 @@ herein
 		    end;
 
 		compile_all_needed_libraries_in_dependency_order { root_library => lg::BAD_LIBRARY, ... }
-		    =>
-		    { compile_library_catalog_and_return_symbol_and_inlining_mapstacks
+		  =>
+		  { compile_library_catalog_and_return_symbol_and_inlining_mapstacks
 			=>
 			fn _ = NULL,
 
-		       all_libraries                 =>   fn _ = FALSE,
-		       exports                       =>   sym::empty
-		    };
+		     compile_all_tomes_in_library  =>   fn _ = FALSE,
+		     exports                       =>   sym::empty
+		  };
 	    end;                                                               #  compile_all_needed_libraries_in_dependency_order 
 
 
