@@ -141,11 +141,12 @@ stipulate
     package lms =  list_mergesort;					# list_mergesort				is from   src/lib/src/list-mergesort.pkg
     package lsi =  library_source_index;				# library_source_index				is from   src/app/makelib/stuff/library-source-index.pkg
     package lt  =  linking_mapstack;					# linking_mapstack				is from   src/lib/compiler/execution/linking-mapstack/linking-mapstack.pkg
-    package mc  =  makelib_client;					# makelib_client				is from   src/app/makelib/concurrency/makelib-client.pkg
+    package mcq =  makelib_client_queen;				# makelib_client_queen				is from   src/app/makelib/concurrency/makelib-client-queen.pkg
     package mcc =  mythryl_compiler_compiler_configuration;		# mythryl_compiler_compiler_configuration	is from   src/app/makelib/mythryl-compiler-compiler/mythryl-compiler-compiler-configuration.pkg
     package mcv =  mythryl_compiler_version;				# mythryl_compiler_version			is from   src/lib/core/internal/mythryl-compiler-version.pkg
     package mld =  makelib_defaults;					# makelib_defaults				is from   src/app/makelib/stuff/makelib-defaults.pkg
     package ms  =  makelib_state;					# makelib_state					is from   src/app/makelib/main/makelib-state.pkg
+    package mtq =  makelib_thread_queen;				# makelib_thread_queen				is from   src/app/makelib/concurrency/makelib-thread-queen.pkg
     package ph  =  picklehash;						# picklehash					is from   src/lib/compiler/front/basics/map/picklehash.pkg
     package plp =  platform_properties;					# platform_properties				is from   src/lib/std/src/nj/platform-properties.pkg
     package ps  =  pervasive_symbol;					# pervasive_symbol				is from   src/app/makelib/main/pervasive-symbol.pkg
@@ -261,7 +262,7 @@ herein
 			 = REF (fn _ = ());
 
 
-												# makelib_client				is from   src/app/makelib/concurrency/makelib-client.pkg
+												# makelib_client_queen				is from   src/app/makelib/concurrency/makelib-client-queen.pkg
 						
 	    package cdo										# "cdo" == 'compile_(in_)dependency_order".
 		=
@@ -274,9 +275,16 @@ herein
 			=
 			*read_eval_print_from_stream_hook   stream;
 		    #
-		    remote_compile_attempt_succeeds
+		    remote_compile_attempt_succeeds						# Returns TRUE iff makelib servers available and compile is error-free.
 			=
-			mc::compile_api_or_pkg_file   o   ad::encode;				# Returns TRUE iff makelib servers available and compile is error-free.
+			(fn (makelib_client_queen, file)
+			    =
+			    mcq::compile_api_or_pkg_file
+				#
+				makelib_client_queen
+				#
+				(ad::encode file)
+			);
 		);
 
 	    package t2c										# "t2c" == "thawedlib_tome to compiledfile".
@@ -315,15 +323,22 @@ herein
 	    end;
 
 	    #
-	    fun set_up_servers (lg::LIBRARY { libfile, ... } )
+	    fun set_up_servers
+		    #	
+		    (makelib_state:  ms::Makelib_State)
+		    #	
+		    (lg::LIBRARY { libfile, ... } )
 		    =>
-		    mc::set_up_all_makelib_servers_for_new_make
+		    mcq::set_up_all_makelib_servers_for_new_make
+		      #	
+		      makelib_state.makelib_session.makelib_client_queen
+		      #	
 		      {
 			platform,
 			libfile => ad::encode libfile
 		      };
 
-	       set_up_servers lg::BAD_LIBRARY
+	       set_up_servers _ lg::BAD_LIBRARY
 		    =>
 		    ();
 	    end;
@@ -339,7 +354,7 @@ herein
 		    #
 		    (root_library:     	lg::Inter_Library_Dependency_Graph) 			# Freshly read in by parse_libfile_tree_and_return_interlibrary_dependency_graph from   src/app/makelib/parse/libfile-parser-g.pkg
 		=
-		{   set_up_servers  root_library;						# This is a no-op in the typical case where we have started no server subprocesses.
+		{   set_up_servers  makelib_state   root_library;				# This is a no-op in the typical case where we have started no server subprocesses.
 
 		    my { compile_library_catalog_in_dependency_order, ... }
 			=
@@ -355,7 +370,12 @@ herein
 				fn _ = ()							# Dummy.
 			  };
 
-		    not_null  (mc::with_servers  (fn () =   compile_library_catalog_in_dependency_order  makelib_state))
+		    not_null (mcq::with_servers
+				#
+				makelib_state.makelib_session.makelib_client_queen
+				#
+				(fn () =   compile_library_catalog_in_dependency_order  makelib_state)
+			     )
 		    before
 			ltw::cleanup makelib_state;
 		};
@@ -382,7 +402,7 @@ herein
                           get__compiledfile__for__thawedlib_tome
                         };
 
-		    set_up_servers  root_library;
+		    set_up_servers  makelib_state   root_library;
 
 
 		    # Both of the next two calls return
@@ -410,7 +430,12 @@ herein
 			);
 
 
-		    case (mc::with_servers   .{   compile_my_library  makelib_state;   })
+		    case (mcq::with_servers
+			     #
+			     makelib_state.makelib_session.makelib_client_queen
+			     #
+			     .{   compile_my_library  makelib_state;   }
+			 )
 			#
 			NULL => FALSE;
 			#
@@ -742,15 +767,21 @@ herein
 			=
 			raise exception FAIL "                     makelib-g.pkg: primordial_library_hook not initialized";
 		#
-		fun make_makelib_session  we_are_a_server_process
+		fun make_makelib_session  { we_are_a_server_process,  keep_going_after_compile_errors }
 		    =
-		    { filename_policy,
-		      anchor_dictionary,
-		      platform,
-		      we_are_a_server_process => REF we_are_a_server_process,
-		      #	
-		      find_makelib_preprocessor_symbol =>   mps::find_makelib_preprocessor_symbol,
-		      keep_going_after_compile_errors  =>   mld::keep_going_after_compile_errors.get ()
+		    {   makelib_thread_queen = mtq::make_makelib_thread_queen ();
+			makelib_client_queen = mcq::make_makelib_client_queen makelib_thread_queen;
+			#
+			{ filename_policy,
+			  anchor_dictionary,
+			  platform,
+			  we_are_a_server_process => REF we_are_a_server_process,
+			  #	
+			  find_makelib_preprocessor_symbol =>   mps::find_makelib_preprocessor_symbol,
+			  keep_going_after_compile_errors, 
+			  makelib_client_queen,
+			  makelib_thread_queen
+			};
 		    };
 
 		primordial_library
@@ -778,7 +809,14 @@ herein
 		      load_plugin,
 		      library_source_index,
 
-		      makelib_session      =>  make_makelib_session  we_are_a_server_process,
+		      makelib_session
+			  =>
+			  make_makelib_session
+			    {
+			      we_are_a_server_process,
+			      keep_going_after_compile_errors =>  mld::keep_going_after_compile_errors.get ()
+			    },
+
 		      freeze_policy,								# See explanation in   src/app/makelib/parse/freeze-policy.api
 
 		      primordial_library    =>  primordial_library (),
@@ -928,13 +966,37 @@ herein
 		# (Or as makelib::freeze
 		# in which case the 'recursively' boolean arg is implicit.)
 		#
-		fun freeze'   { recursively }   root
+		fun freeze'
+			#
+			{ recursively }
+			#
+			root
 		    =
-		    {
+		    {   # Since we are a toplevel interactive entrypoint,
+			# allocate a fresh makelib state:
+			#
+			makelib_state
+			  =
+			  { library_source_index =>  lsi::make_library_source_index (),
+			    plaint_sink          =>  err::default_plaint_sink (),
+			    #	
+			    timestamp_of_youngest_sourcefile_in_library
+				=>
+				REF timestamp::ancient,						# Set up to track most recent (known) edit of any sourcefile in the library.
+
+			    makelib_session
+				=>
+				make_makelib_session
+				  {
+				    we_are_a_server_process         =>  FALSE,
+				    keep_going_after_compile_errors =>  mld::keep_going_after_compile_errors.get ()
+				  }
+			  };
+
 		        fun dagwalker_for_freeze_command  makelib_state  g
 			    =
 			    {
-			        set_up_servers  g;
+			        set_up_servers   makelib_state   g;
 
 				my { compile_all_fat_tomes_in_library_in_dependency_order, ... }
 				    =
@@ -952,10 +1014,13 @@ herein
 
 								    # compile_dagwalk			def is    above.
 								    # linking_dagwalk			def is    above.
-								    # makelib_client			is from   src/app/makelib/concurrency/makelib-client.pkg
+								    # makelib_client_queen			is from   src/app/makelib/concurrency/makelib-client-queen.pkg
 
-				mc::with_servers
-				    .{   compile_all_fat_tomes_in_library_in_dependency_order  makelib_state;   };
+				mcq::with_servers
+				    #
+				    makelib_state.makelib_session.makelib_client_queen
+				    #
+				   .{   compile_all_fat_tomes_in_library_in_dependency_order  makelib_state;   };
 			    };
 
 			#
@@ -997,9 +1062,9 @@ herein
 			# clean up our queues in case of an
 			# interrupt or error.
 
-			if (mc::no_servers ())
+			if (mcq::no_servers  makelib_state.makelib_session.makelib_client_queen)
 			    #
-			    mc::with_servers phase2;
+			    mcq::with_servers   makelib_state.makelib_session.makelib_client_queen   phase2;
 			else
 			    # We do this in two phases:
 			    #
@@ -1111,9 +1176,9 @@ herein
 		    {   policy
 			    =
 			    case platform
-
-				 NULL                    =>  filename_policy;
-				 THE architecture_and_os =>  fp::policy;
+				#
+				NULL                    =>  filename_policy;
+				THE architecture_and_os =>  fp::policy;
 			    esac;
 
 								    # filename_policy	is from   src/app/makelib/main/filename-policy.pkg
@@ -1360,15 +1425,15 @@ herein
 			(mps::find_makelib_preprocessor_symbol "MAKELIB_SERVER_MODE").set			# Nothing ever tests for this (unlike CMB_SERVER_MODE and CMB_REBUILD).
 			     (THE 1);
 
-											# makelib_preprocessor_state_g		def in    src/app/makelib/main/makelib-preprocessor-state-g.pkg
-											# makelib_server			is from   src/app/makelib/main/makelib-server.pkg
+														# makelib_preprocessor_state_g		def in    src/app/makelib/main/makelib-preprocessor-state-g.pkg
+														# makelib_server			is from   src/app/makelib/main/makelib-server.pkg
 
-			makelib_server::enter_makelib_server_loop			# This never returns: it runs the compile-server loop indefinitely, then exit()s.
+			makelib_server::enter_makelib_server_loop						# This never returns: it runs the compile-server loop indefinitely, then exit()s.
 			  {
 			    anchor_dictionary,
 			    parse_libfile_tree_and_return_interlibrary_dependency_graph,
 			    #	
-			    platform,							# 'platform' string gives architecture+OS: "intel32-linux" or such. 
+			    platform,										# 'platform' string gives architecture+OS: "intel32-linux" or such. 
 			    make,
 			    compile_tome_tin_after_dependencies
 				=>
@@ -1512,12 +1577,13 @@ herein
 		# the heap image which becomes the
 		# mythryld "executable":
 		#
-		fun read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries' (
-			#
+		fun read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries'
+		      {
 			root_directory,		# Contains src/ bin/ sh/ etc.
 			linking_mapstack,
-			run_commandline
-		    )  
+			run_commandline,
+			makelib_state
+		      }  
 		    =
 		    {
     # print ("src/app/makelib/main/makelib-g.pkg/read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries'/AAA: root_directory = " + root_directory + " cwd= " + (psx::current_directory()) + "\n");
@@ -1716,27 +1782,6 @@ herein
 												# library_source_index			is from   src/app/makelib/stuff/library-source-index.pkg
 												# timestamp				is from   src/app/makelib/paths/timestamp.pkg
 
-			makelib_state
-			  =
-			  { library_source_index =>  lsi::make_library_source_index (),
-			    plaint_sink          =>  err::default_plaint_sink (),
-			    #	
-			    timestamp_of_youngest_sourcefile_in_library
-				=>
-				REF timestamp::ancient,						# Set up to track most recent (known) edit of any sourcefile in the library.
-
-			    makelib_session
-			      =>
-			      { filename_policy,
-				anchor_dictionary,
-				platform,
-				#	
-				we_are_a_server_process		 =>  REF FALSE,
-				#	
-				find_makelib_preprocessor_symbol =>  mps::find_makelib_preprocessor_symbol,
-				keep_going_after_compile_errors  =>  FALSE
-			      }
-			  };
 												# freezefile is defined above, via freezefile_g().
 			fun load_primordial_library ()
 			    =
@@ -2099,6 +2144,24 @@ herein
 		)
 		=
 		{
+		    makelib_state
+		      =
+		      { library_source_index =>  lsi::make_library_source_index (),
+			plaint_sink          =>  err::default_plaint_sink (),
+			#	
+			timestamp_of_youngest_sourcefile_in_library
+			    =>
+			    REF timestamp::ancient,						# Set up to track most recent (known) edit of any sourcefile in the library.
+
+			makelib_session
+			    =>
+			    make_makelib_session
+			      {
+				we_are_a_server_process         =>  FALSE,
+				keep_going_after_compile_errors =>  FALSE
+			      }
+		      };
+
 		    fun eval_string  code_string			# This should be a supported, exported 'eval' function. XXX BUGGO FIXME
 			=
 			safely::do
@@ -2271,16 +2334,16 @@ herein
 									    # string		is from   src/lib/std/string.pkg
 									    # char		is from   src/lib/std/char.pkg
 									    # winix		is from   src/lib/std/winix.pkg
-									    # makelib_client	is from   src/app/makelib/concurrency/makelib-client.pkg
+									    # makelib_client_queen	is from   src/app/makelib/concurrency/makelib-client-queen.pkg
 			    end;
 			    #
 			    fun start_makelib_servers ()
 				=
 				{
 				    root = the (ad::get_anchor(ad::dictionary, "ROOT"));
-				    mc::start_makelib_server { name => "Compile Server A", priority => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
-				    mc::change_directory (psx::current_directory());
-    #                               mc::start_makelib_server { name => "Compile Server B", priority => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
+				    mcq::start_makelib_server makelib_state.makelib_session.makelib_client_queen { name => "Compile Server A", priority => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
+				    mcq::change_directory makelib_state.makelib_session.makelib_client_queen (psx::current_directory());
+    #                               mcq::start_makelib_server { name => "Compile Server B", priority => 0, path_translator => NULL, cmd => (root + "/bin/mythryld", ["--compile-server"]) }; 
 				    ad::schedule_notification ();
 				};
 
@@ -2429,9 +2492,9 @@ herein
 
 
 					# Currently we use
-					#     mc::interact::read_eval_print_from_script
+					#     mcq::interact::read_eval_print_from_script
 					# to execute Mythryl scripts, and
-					#     mc::interact::read_eval_print_from_user
+					#     mcq::interact::read_eval_print_from_user
 					# to handle interactive input by a user.
 					# We invoke the former by returning to
 					#     src/lib/core/internal/make-mythryld-executable.pkg
@@ -2440,12 +2503,12 @@ herein
 					#  
 					# XXX BUGGO FIXME 
 					# This could all use some cleanup.
-					# If the mc::interact::read_eval_print_from_user
+					# If the mcq::interact::read_eval_print_from_user
 					# proves stable, we should probably
 					# kill the interactive-prompt logic in
 					#     src/lib/compiler/front/parser/main/mythryl-parser-guts.pkg
 					# With a trifle more work, we can probably also kill off
-					#     mc::interact::read_eval_print_from_script
+					#     mcq::interact::read_eval_print_from_script
 					# entirely.
 
   if (not *just_return )
@@ -2478,11 +2541,13 @@ herein
 			:=
 			read_eval_print_from_stream;
 
-		    read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries' (
+		    read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries'
+		      {
 			root_directory,
 			linking_mapstack,
-			run_commandline
-		    );
+			run_commandline,
+			makelib_state
+		      };
 		};                                                         		#  fun read_''library_contents''_and_compile_''init_cmi''_and_preload_libraries 
 	    #
 	    fun help ()
@@ -2549,7 +2614,7 @@ herein
 
 											# makelib_defaults			is from   src/app/makelib/stuff/makelib-defaults.pkg
 											# libfile_parser_g			is from   src/app/makelib/parse/libfile-parser-g.pkg
-											# makelib_client			is from   src/app/makelib/concurrency/makelib-client.pkg
+											# makelib_client_queen			is from   src/app/makelib/concurrency/makelib-client-queen.pkg
 		package control {
 		    #
 		    verbose                 =  mld::verbose;
@@ -2591,24 +2656,24 @@ herein
 		    dump_latex  = latex_dump_api_reference;
 		};
 
-		package makelib_client {
+		package makelib_client_queen {
 		    #
-		    Makelib_Server =   mc::Makelib_Server;
+		    Makelib_Server =   mcq::Makelib_Server;
 		    #
 		    fun start_a_makelib_server x
 			=
-			mc::start_makelib_server x
+			mcq::start_makelib_server x
 			before
 			    ad::schedule_notification ();
 
-		    stop_a_makelib_server =  mc::stop_makelib_server;
-		    kill_a_makelib_server =  mc::kill_makelib_server;
-		    makelib_server_name   =  mc::makelib_server_name;
+		    stop_a_makelib_server =  mcq::stop_makelib_server;
+		    kill_a_makelib_server =  mcq::kill_makelib_server;
+		    makelib_server_name   =  mcq::makelib_server_name;
 		};
 
 		help          =  help;
-		make          =  make;					# Defined above by    my make     = ...
-		compile       =  compile;				# Defined above by    my compile  = ...
+		make          =  make;							# Defined above by    my make     = ...
+		compile       =  compile;						# Defined above by    my compile  = ...
 		freeze        =  freeze' { recursively => TRUE };
 		freeze'       =  freeze';
 

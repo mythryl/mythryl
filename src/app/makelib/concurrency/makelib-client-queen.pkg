@@ -1,4 +1,4 @@
-## makelib-client.pkg
+## makelib-client-queen.pkg
 
 # Compiled by:
 #     src/app/makelib/concurrency/makelib-concurrency.sublib
@@ -58,15 +58,15 @@
 stipulate
     package ad  =  anchor_dictionary;					# anchor_dictionary	is from   src/app/makelib/paths/anchor-dictionary.pkg
     package im  =  int_map;						# int_map		is from   src/app/makelib/stuff/int-map.pkg
-    package mtb =  makelib_thread_boss;					# makelib_thread_boss	is from   src/app/makelib/concurrency/makelib-thread-boss.pkg
+    package mtq =  makelib_thread_queen;				# makelib_thread_queen	is from   src/app/makelib/concurrency/makelib-thread-queen.pkg
     package ps  =  posix_signals;					# posix_signals		is from   src/lib/std/src/posix/posix-signals.pkg
     package psx =  posix_1003_1b;					# posix_1003_1b		is from   src/lib/std/src/posix-1003.1b/posix-1003-1b.pkg
     package rs  =  runtime_signals;					# runtime_signals	is from   src/lib/std/src/nj/runtime-signals.pkg
     package spn =  spawn;						# spawn			is from   src/lib/std/src/posix/spawn.pkg
 herein
 
-    package   makelib_client
-    : (weak)  Makelib_Client						# Makelib_Client	is from   src/app/makelib/concurrency/makelib-client.api
+    package   makelib_client_queen
+    : (weak)  Makelib_Client_Queen					# Makelib_Client_Queen	is from   src/app/makelib/concurrency/makelib-client-queen.api
     {
 	# To allow compiling test versions etc in a
 	# different filetree than the default, we
@@ -85,32 +85,63 @@ herein
 	# 
 	Makelib_Server
 	    =
-	    { id:      Int,						# A small integer uniquely identifying the server. Ids are generated sequentially by next_id().
-	      name:    String,						# An arbitrary server name. This is used purely human-interface purposes; code operation in no way depends upon it.
-	      #
-	      process: spn::Process ( file::Input_Stream,		# Our link to the actual unix-level subprocess.
-				      file::Output_Stream
-				    ),
-	      #
-	      path_translator: Path_Translator,				# See "Path_Translator" comment above. 
-	      priority:        Int,					# If more than one server is idle (rare), we'll use the one with the numerically highest priority.
-	      alive:           Ref( Bool )				# Is underlying unix process still alive and responsive?  Starts FALSE, set to TRUE by shutdown().
-	    };
+	    MAKELIB_SERVER
+	      {
+		id:      Int,						# A small integer uniquely identifying the server. Ids are generated sequentially by next_id().
+		name:    String,					# An arbitrary server name. This is used purely human-interface purposes; code operation in no way depends upon it.
+		#
+		process: spn::Process ( file::Input_Stream,		# Our link to the actual unix-level subprocess.
+					file::Output_Stream
+				      ),
+		#
+		path_translator:	Path_Translator,		# See "Path_Translator" comment above. 
+		priority:		Int,				# If more than one server is idle (rare), we'll use the one with the numerically highest priority.
+		alive:			Ref( Bool ),			# Is underlying unix process still alive and responsive?  Starts FALSE, set to TRUE by shutdown().
+		makelib_thread_queen:	mtq::Makelib_Thread_Queen
+	      };
+
+	Makelib_Client_Queen
+	  =
+	  { makelib_thread_queen:	mtq::Makelib_Thread_Queen,
+	    #
+	    next_id:	Ref(Int),
+	    enabled:	Ref(Bool),
+	    #	    
+	    idle_makelib_servers:	Ref( List( Makelib_Server ) ),
+	    #	    
+	    threads_waiting_for_a_free_makelib_server:	Ref( mtq::Makelib_Thread(Void) ),
+	    #	    
+	    all_makelib_servers:	Ref( im::Map(Makelib_Server) )	# Tracks all live compile servers as a map from server.id values to Server records.
+	  };
+
+	fun make_makelib_client_queen  makelib_thread_queen
+	  =
+	  { makelib_thread_queen,
+	    #
+	    next_id => REF 0,
+	    enabled => REF FALSE,
+	    #
+	    idle_makelib_servers => REF ([]:  List(Makelib_Server)),
+	    #
+	    threads_waiting_for_a_free_makelib_server  =>  REF (mtq::make_wait_queue  makelib_thread_queen),
+	    #
+	    all_makelib_servers =>   REF (im::empty:  im::Map(Makelib_Server))		# Tracks all live compile servers as a map from server.id values to Server records.
+	  };
 
 	#
-	fun makelib_server_name (server: Makelib_Server)
+	fun makelib_server_name (MAKELIB_SERVER server)
 	    =
 	    server.name;
 
 	#
-	fun mark_as_dead  (server: Makelib_Server)
+	fun mark_as_dead  (MAKELIB_SERVER server)
 	    =
 	    server.alive := FALSE;
 
 
 	#
-	fun server_input_stream  (server: Makelib_Server) =   (spn::streams_of server.process).from_stream;
-	fun server_output_stream (server: Makelib_Server) =   (spn::streams_of server.process).to_stream;
+	fun server_input_stream  (MAKELIB_SERVER server) =   (spn::streams_of server.process).from_stream;
+	fun server_output_stream (MAKELIB_SERVER server) =   (spn::streams_of server.process).to_stream;
 
 
 
@@ -120,63 +151,52 @@ herein
 	# We use this to assign unique ids to our
 	# compile servers:
 	#
-	stipulate
-	    next =  REF 0;										# Icky thread-hostile global mutable state.
-	herein
-	    fun next_id ()
-		=
-		{   result =  *next;
-		    next  :=   result + 1;
-		    result;
-		};
-	end;
+	fun next_id  (queen: Makelib_Client_Queen)
+	    =
+	    {   result =  *queen.next_id;
+		#
+		queen.next_id  :=   result + 1;
+		#
+		result;
+	    };
 
-	enabled				    	   =  REF FALSE;					# Icky thread-hostile global mutable state.
-	idle_makelib_servers 		    	   =  REF ([]:  List(Makelib_Server));			# Icky thread-hostile global mutable state.
-	threads_waiting_for_a_free_makelib_server  =  REF (mtb::make_wait_queue ());			# Icky thread-hostile global mutable state.
 
 	stipulate
-	    # Here we track all live compile servers,
-	    # as a map from server.id values to Server records:
 	    #
-	    all_makelib_servers
+	    fun makelib_server_count (queen: Makelib_Client_Queen)
 		=
-		REF (im::empty:  im::Map(Makelib_Server));						# Icky thread-hostile global mutable state.
-	    #
-	    fun makelib_server_count ()
-		=
-		im::vals_count  *all_makelib_servers;
+		im::vals_count  *queen.all_makelib_servers;
 	herein
 	    #
-	    fun all_idle ()    =   length (*idle_makelib_servers) == makelib_server_count ();
-	    fun no_servers ()  =   makelib_server_count () == 0;
-	    fun all_servers () =   im::vals_list *all_makelib_servers;
+	    fun all_idle    (queen: Makelib_Client_Queen) =   length (*queen.idle_makelib_servers) == makelib_server_count queen;
+	    fun no_servers  (queen: Makelib_Client_Queen) =   makelib_server_count queen == 0;
+	    fun all_servers (queen: Makelib_Client_Queen) =   im::vals_list *queen.all_makelib_servers;
 	    #
-	    fun note_server  (server: Makelib_Server)
+	    fun note_server (queen: Makelib_Client_Queen) (s as MAKELIB_SERVER server)
 		=
-		{   ns   =  makelib_server_count ();							# WTF does this accomplish?
+		{   ns   =  makelib_server_count  queen;							# WTF does this accomplish?
 		    #
-		    all_makelib_servers
+		    queen.all_makelib_servers
 			:=
-			im::set (*all_makelib_servers, server.id, server);
+			im::set (*queen.all_makelib_servers, server.id, s);
 		};
 	    #
-	    fun drop_server  (server: Makelib_Server)
+	    fun drop_server (queen: Makelib_Client_Queen) (MAKELIB_SERVER server)
 		=
-		{   all_makelib_servers
+		{   queen.all_makelib_servers
 			:=
-			#1 (im::drop (*all_makelib_servers, server.id));
+			#1 (im::drop (*queen.all_makelib_servers, server.id));
 
 		    # If this was the last server, then we need to wake up
 		    # everyone who is currently waiting to grab a server.
 		    # The "grab"-loop will then gracefully fail and
 		    # not cause a deadlock.
 		    #
-		    if (no_servers ())
+		    if (no_servers queen)
 			#
 			file::dsay ["No more servers -> back to sequential mode.\n"];
 			#
-			mtb::run_all_threads_in_wait_queue  *threads_waiting_for_a_free_makelib_server;
+			mtq::run_all_threads_in_wait_queue  queen.makelib_thread_queen  *queen.threads_waiting_for_a_free_makelib_server;
 		    fi;
 		};
 	end;
@@ -187,7 +207,7 @@ herein
 	# Translate absolute pathname encoding;
 	# relative and anchored paths stay unchanged:
 	#
-	fun maybe_translate_filename (filename, server: Makelib_Server)
+	fun maybe_translate_filename (filename, MAKELIB_SERVER server)
 	    =
 	    case server.path_translator
 		#	  
@@ -222,9 +242,9 @@ herein
 
 	# Send a message to a server. This must be sigPIPE-protected. 
 	#
-	fun send (server: Makelib_Server, msg)
+	fun send (s as MAKELIB_SERVER server, msg)
 	    =
-	    {   output_stream =  server_output_stream  server;
+	    {   output_stream =  server_output_stream  s;
 		#
 		file::dsay ["-> ", server.name, " : ", msg];
 
@@ -235,11 +255,11 @@ herein
 				     );
 	    };
 	#
-	fun show_idle ()
+	fun show_idle  (queen: Makelib_Client_Queen)
 	    =
-	    file::dsay ("Idle:" ! fold_right (fn (server', l) =  " " ! server'.name ! l)
+	    file::dsay ("Idle:" ! fold_right (fn (MAKELIB_SERVER server', l) =  " " ! server'.name ! l)
 					    ["\n"]
-					    *idle_makelib_servers
+					    *queen.idle_makelib_servers
 		      );
 
 
@@ -248,16 +268,17 @@ herein
 	# signal all those who are
 	# currently waiting for that:
 	#
-	fun mark_idle  (server: Makelib_Server)
+	fun mark_idle  (queen: Makelib_Client_Queen)  (s as MAKELIB_SERVER server)
 	    =
-	    {   idle_makelib_servers
+	    {   queen.idle_makelib_servers
 		    :=
-		    server ! *idle_makelib_servers;
+		    s ! *queen.idle_makelib_servers;
 		
-	        mtb::run_all_threads_in_wait_queue  *threads_waiting_for_a_free_makelib_server;
+	        mtq::run_all_threads_in_wait_queue  queen.makelib_thread_queen *queen.threads_waiting_for_a_free_makelib_server;
 
 	        file::dsay ["Scheduler: server ", server.name, " has become idle.\n"];
-	        show_idle ();
+
+	        show_idle queen;
 	    };
 
 
@@ -267,24 +288,24 @@ herein
 	# wait if necessary;
 	# reinitialize condition if taking the only server:
 	#
-	fun grab_idle_server ()
+	fun grab_idle_server (queen: Makelib_Client_Queen)
 	    =
 	    # We need to check the following every time (at least the
 	    # "no_servers" part) because it might be that all servers
 	    # have meanwhile gone away for some reason (crashed, etc.).
 
     # WE APPEAR TO HAVE AN INFINITE LOOP RUNNING THROUGH HERE :(
-	    if (not *enabled  or  no_servers ())
+	    if (not *queen.enabled  or  no_servers queen)
 		#
 		NULL;
 	    else
-		case *idle_makelib_servers
+		case *queen.idle_makelib_servers
 		    #
 		    []  =>
 			{   # Add ourself to list of threads
 			    # waiting for a free compile server:
 			    #
-			    mtb::wait_for_thread_to_finish_then_return_result  *threads_waiting_for_a_free_makelib_server;
+			    mtq::wait_for_thread_to_finish_then_return_result  queen.makelib_thread_queen  *queen.threads_waiting_for_a_free_makelib_server;
 
 			    # 2007-10-03 CrT: The below grab_idle_server() call results in
 			    # a tight spinloop when all servers
@@ -297,19 +318,22 @@ herein
 			    # currently have a library call capable
 			    # of waiting for less than a second
 			    # (e.g., I can't find Mythryl-level access to
-			    # select().                             XXX BUGGO FIXME
+			    # select().                             XXX BUGGO FIXME       LATER:  select() is available via  winix_io::wait_for_io_opportunity from src/lib/std/src/posix/winix-io.pkg
 			    #
-			    psx::sleep (time::from_seconds (large_int::from_int 1));	# A quick hack to ameliorate a spinwait loop.
+			    psx::sleep (time::from_seconds (large_int::from_int 1));		# A quick hack to ameliorate a spinwait loop.
 
-			    grab_idle_server ();
+			    grab_idle_server queen;
 			};
 
-		    [only_server]
+		    [only as MAKELIB_SERVER only_server]
 			=>
 			{   file::dsay ["Scheduler: taking last idle server (",  only_server.name,  ").\n"];
-			    idle_makelib_servers := [];
-			    threads_waiting_for_a_free_makelib_server := mtb::make_wait_queue ();
-			    THE only_server;
+
+			    queen.idle_makelib_servers := [];
+
+			    queen.threads_waiting_for_a_free_makelib_server :=  mtq::make_wait_queue  queen.makelib_thread_queen;
+
+			    THE only;
 			};
 
 		    first ! rest
@@ -318,32 +342,35 @@ herein
 				    =>
 				    (best_yet, tried);
 
-				find_best_server (best_yet: Makelib_Server, (this_try: Makelib_Server) ! untried, tried)
+				find_best_server (best as MAKELIB_SERVER best_yet, (this as MAKELIB_SERVER this_try) ! untried, tried)
 				    =>
-				    if (this_try.priority > best_yet.priority)   find_best_server (this_try, untried, best_yet ! tried);
-				    else                                         find_best_server (best_yet, untried, this_try ! tried);
+				    if (this_try.priority > best_yet.priority)   find_best_server (this, untried, best ! tried);
+				    else                                         find_best_server (best, untried, this ! tried);
 				    fi;
 			    end;
 
-			    my (best_server, rest)
-				=
-				find_best_server (first, rest, []);
+			    (find_best_server (first, rest, []))
+				->
+				(best as MAKELIB_SERVER best_server,  rest);
 
 			    file::dsay ["Scheduler: taking idle server (", best_server.name, ").\n"];
-			    idle_makelib_servers := rest;
-			    show_idle ();
-			    THE best_server;
+
+			    queen.idle_makelib_servers :=  rest;
+
+			    show_idle  queen;
+
+			    THE best;
 			};
 		esac;
 	    fi;
 	#
-	fun wait_status { server, echo }
+	fun wait_status  (queen: Makelib_Client_Queen)  { server => s as MAKELIB_SERVER server, echo }
 	    =
 	    loop []
 	    where
 		name =  server.name;
 		#
-		input_stream =   server_input_stream  server;
+		input_stream =   server_input_stream  s;
 		#
 		fun unexpected l
 		    =
@@ -362,11 +389,10 @@ herein
                                      "shut down";
 				else "crashed";
                                 fi;
-							    # spawn	is from   src/lib/std/src/posix/spawn.pkg
 
-			mark_as_dead  server;
+			mark_as_dead  s;
 			file::say ["[!Server ", name, " has ", what, ".]\n"];
-			drop_server server;
+			drop_server queen s;
 		    };
 
 		show =  if echo   fn report =  file::say (reverse report);
@@ -379,7 +405,7 @@ herein
 			#
 			FALSE;
 		    else
-			case (mtb::read_line_from_unix_pipe  input_stream)				# While waiting yields the process, allowing other Makelib_Threads to run.
+			case (mtq::read_line_from_unix_pipe  queen.makelib_thread_queen  input_stream)				# While waiting yields the process, allowing other Makelib_Threads to run.
 			    #
 			    NULL => {   server_exit ();
 					FALSE;
@@ -391,12 +417,12 @@ herein
 
 				    case (string::tokens  char::is_space  line)
 					#
-					["SLAVE:", "ok"   ] =>  {   mark_idle server;
+					["SLAVE:", "ok"   ] =>  {   mark_idle queen s;
 								    show report;
 								    TRUE;
 								};
 
-					["SLAVE:", "error"] =>  {   mark_idle server;
+					["SLAVE:", "error"] =>  {   mark_idle queen s;
 								    FALSE;			# Suppress error message because it will be re-enacted locally.
 								};
 
@@ -430,17 +456,17 @@ herein
 	# The race would happen when an interrupt occurs between receiving
 	# "ok" and marking the corresponding server idle).
 	#
-	fun wait_all  narrate_to_stdout
+	fun wait_all  (queen: Makelib_Client_Queen)  narrate_to_stdout
 	    =
-	    {   all =  all_servers ();
+	    {   all =  all_servers queen;
 		#
-		fun ping server
+		fun ping (s as MAKELIB_SERVER server)
 		    =
 		    {   name =  server.name;
 
 			input_stream
 			    =
-			    server_input_stream  server;
+			    server_input_stream  s;
 
 
 								    # thread	is from   src/lib/src/lib/thread-kit/src/core-thread-kit/thread.pkg
@@ -454,7 +480,7 @@ herein
 			    =
 			    if *server.alive
 				#
-				case (mtb::read_line_from_unix_pipe  input_stream)			# While waiting this yields the process, allowing other Makelib_Threads to run.
+				case (mtq::read_line_from_unix_pipe  queen.makelib_thread_queen  input_stream)			# While waiting this yields the process, allowing other Makelib_Threads to run.
 				    #
 				    NULL
 					=>
@@ -473,31 +499,31 @@ herein
 				esac;
 			    fi;
 
-			send (server, "ping\n");
+			send (s, "ping\n");
 			loop ();
 		    };
 
 		threads_waiting_for_a_free_makelib_server'
 		    =
-		    mtb::make_wait_queue ();
+		    mtq::make_wait_queue queen.makelib_thread_queen;
 
 		if (not (list::null all))
 		    #
-		    mtb::run_all_threads_in_wait_queue  threads_waiting_for_a_free_makelib_server';
+		    mtq::run_all_threads_in_wait_queue  queen.makelib_thread_queen  threads_waiting_for_a_free_makelib_server';
 
 		    if narrate_to_stdout   file::say ["Waiting for attached servers to become idle...\n"];   fi;
 		fi;
 
 		apply ping all;
 
-		idle_makelib_servers :=  all;
+		queen.idle_makelib_servers :=  all;
 
-		threads_waiting_for_a_free_makelib_server
+		queen.threads_waiting_for_a_free_makelib_server
 		    :=
 		    threads_waiting_for_a_free_makelib_server';
 	    };
 	#
-	fun shutdown (server, method')
+	fun shutdown (queen: Makelib_Client_Queen)  (s as MAKELIB_SERVER server, method')
 	    =
 	    if *server.alive
 		#
@@ -507,17 +533,17 @@ herein
 		where
 		    fun unidle ()
 			=
-			idle_makelib_servers
+			queen.idle_makelib_servers
 			    :=
 			    #2 (   list::partition 
-				       (fn s' =   s'.id == server.id)
-				       *idle_makelib_servers
+				       (fn MAKELIB_SERVER s' =   s'.id == server.id)
+				       *queen.idle_makelib_servers
 			       );
 		    #
 		    fun wait_for_exit ()
 			=
 			{   unidle ();
-			    ignore (wait_status { server, echo => FALSE });
+			    ignore (wait_status queen { server => s, echo => FALSE });
 
 			    if *server.alive
 				#		        
@@ -537,8 +563,8 @@ herein
 
 							    # spawn	is from   src/lib/std/src/posix/spawn.pkg
 	#
-	fun stop_makelib_server server   =   shutdown (server, fn () =  send (server, "shutdown\n"));
-	fun kill_makelib_server server   =   shutdown (server, fn () =  spn::kill (server.process, psx::signal::term));
+	fun stop_makelib_server (queen: Makelib_Client_Queen) (s as MAKELIB_SERVER _     )   =   shutdown queen (s, fn () =  send (s, "shutdown\n"));
+	fun kill_makelib_server (queen: Makelib_Client_Queen) (s as MAKELIB_SERVER server)   =   shutdown queen (s, fn () =  spn::kill (server.process, psx::signal::term));
 
 
 	# This function is (only) invoked
@@ -558,6 +584,9 @@ herein
 	#        };
 	# 
 	fun start_makelib_server
+	    #
+	    (queen: Makelib_Client_Queen) 
+	    #
 	    { name,			# String name for server.  Arbitrary, used to label server output for human consumption.
 	      cmd,			# E.g. ("/usr/bin/foo", ["-x", "this", "that"])  --  command passed to spn::execute.
 	      path_translator,		# Usually NULL, used to translate filenames on remote compile servers with different directory trees.
@@ -566,21 +595,23 @@ herein
 	    =
 	    {   process =  spn::spawn_process  cmd;
 		#
-		id      =  next_id ();
+		id      =  next_id  queen;
 
-		server  =  { id,
-			     name,
-			     process,
-			     #
-			     path_translator,
-			     priority,
-			     #
-			     alive => REF TRUE
-			   };
+		server  =   MAKELIB_SERVER
+			      { id,
+				name,
+				process,
+				#
+				path_translator,
+				priority,
+				#
+				alive => REF TRUE,
+				makelib_thread_queen => queen.makelib_thread_queen
+			      };
 
-		if (wait_status { server, echo => FALSE })
+		if (wait_status  queen  { server, echo => FALSE })
 		    #                
-		    note_server server;
+		    note_server  queen  server;
 		    THE server;
 		else
 		    NULL;
@@ -588,66 +619,82 @@ herein
 	    };
 
 	#
-	fun compile_api_or_pkg_file  (sourcefile_name:  String)					# Full path for   foo.api   or   foo.pkg   file to compile.
+	fun compile_api_or_pkg_file
+		#
+		(queen: Makelib_Client_Queen)
+		#
+		(sourcefile_name:  String)					# Full path for   foo.api   or   foo.pkg   file to compile.
 	    =
-	    case (grab_idle_server ())
+	    case (grab_idle_server queen)
 		#	  
 		NULL =>   FALSE;
 		#
-		THE server
+		THE (server as MAKELIB_SERVER s)
 		    =>
 		    {   filename =  maybe_translate_filename (sourcefile_name, server);
-			file::vsay ["[(", server.name, "): compiling ", filename, "]\n"];
+			file::vsay ["[(", s.name, "): compiling ", filename, "]\n"];
 			send (server, cat ["compile ", filename, "\n"]);
-			wait_status { server, echo => TRUE };
+			wait_status  queen  { server, echo => TRUE };
 		    };
 	    esac;										# say		is from   src/lib/std/src/io/say.pkg
 
 	#
-	fun reset_makelib_server  narrate_to_stdout
-	    =
-	    {   mtb::reset_thread_manager ();
+	fun reset_makelib_server
 		#
-		wait_all  narrate_to_stdout;
+		(queen: Makelib_Client_Queen)
+		#
+		narrate_to_stdout
+	    =
+	    {   mtq::reset_thread_manager  queen.makelib_thread_queen;
+		#
+		wait_all  queen  narrate_to_stdout;
 	    };
 
 	#
-	fun start_all_makelib_servers  start_fn
+	fun start_all_makelib_servers
+		#	
+		(queen: Makelib_Client_Queen)
+		#	
+		start_fn
 	    =
-	    {   servers =  *idle_makelib_servers;
+	    {   servers =  *queen.idle_makelib_servers;
 		#
-		idle_makelib_servers :=  [];
+		queen.idle_makelib_servers :=  [];
 
 		server_threads
 		    =
 		    map'
 			servers
-			(fn server =  mtb::make_makelib_thread .{ start_fn server; });
+			(fn server =  mtq::make_makelib_thread  queen.makelib_thread_queen  .{ start_fn server; });
 
 		safely::do									# safely	is from   src/lib/std/safely.pkg
                   {
 		    open_it  =>  fn () = (),
 		    close_it =>  fn () = (),
-		    cleanup  =>  reset_makelib_server
+		    cleanup  =>  (reset_makelib_server queen)
 		  } .{
-		    apply  mtb::wait_for_thread_to_finish_then_return_result  server_threads;
+		    apply'  server_threads   (mtq::wait_for_thread_to_finish_then_return_result  queen.makelib_thread_queen);
                   };
 	    };
 
 
 	# Handle changes in current working directory:
 	#
-	fun change_directory  directory				# "cd" == "change directory"
+	fun change_directory
+		#
+		(queen: Makelib_Client_Queen)
+		#
+		directory				# "cd" == "change directory"
 	    =
-	    start_all_makelib_servers  st
+	    start_all_makelib_servers  queen  st
 	    where
 		fun st server
 		    =
 		    {   directory' =  maybe_translate_filename (directory, server);
-
+			#
 			send (server, cat ["cd ", directory', "\n"]);
-
-			ignore (wait_status { server, echo => FALSE });
+			#
+			ignore (wait_status queen { server, echo => FALSE });
 		    };
 	    end;
 
@@ -659,67 +706,81 @@ herein
 	# as part of set-up for doing makes:
 	#
 	fun set_up_all_makelib_servers_for_new_make
-	    {
-	      platform: String,			#  "intel32-linux" or such.                         
-	      libfile:  String			#  Sourcefile path for the project .lib file. 
-	    }
+		#
+		(queen: Makelib_Client_Queen)
+		#
+		{
+		  platform: String,			#  "intel32-linux" or such.                         
+		  libfile:  String			#  Sourcefile path for the project .lib file. 
+		}
 	    =
-	    start_all_makelib_servers  st
+	    start_all_makelib_servers  queen  st
 	    where
 		fun st server
 		    =
 		    {   localized_libfile_name   =   maybe_translate_filename (libfile, server);
-
+			#
 			send (server, cat ["cm ", platform, " ", localized_libfile_name, "\n"]);
-
-			ignore  (wait_status { server, echo => FALSE });
+			#
+			ignore  (wait_status  queen  { server, echo => FALSE });
 		    };
 	    end;
 
 	#
 	fun make_compiler
+	      #	
+	      (queen: Makelib_Client_Queen)
+	      #	
               { generated_filename_infix,	# Normally "";   if this is (e.g.) ".pwrpc32-macos", instead of "foo.pkg.compiled" we'll generate "foo.pkg.pwrpc32-macos.compiled".
 		platform,			#  "intel32-linux" or such -- architecture+OS.
 	        root				# Always "src/etc/mythryl-compiler-root.lib", root .lib file for the complete compiler.
 	      }
 	    =
-	    start_all_makelib_servers  st
+	    start_all_makelib_servers  queen  st
 	    where
 		fun st server
 		    =
 		    {   send (server, cat ["cmb ", generated_filename_infix, " ", platform, " ", root, "\n"]);
-
-			ignore (wait_status { server, echo => FALSE });
+			#
+			ignore  (wait_status  queen  { server, echo => FALSE });
 		    };
 
 	    end;
 
 	#
-	fun make_compiler_reset {
+	fun make_compiler_reset
+	      #	
+	      (queen: Makelib_Client_Queen)
+	      #	
+              {
 		platform				#  "intel32-linux" or such. 
-	    }
+	      }
 	    =
-	    start_all_makelib_servers  st
+	    start_all_makelib_servers  queen  st
 	    where
 		fun st server
 		    =
 		    {   send (server, cat ["cmb_reset ", platform, "\n"]);
 			#
-			ignore (wait_status { server, echo => FALSE });
+			ignore (wait_status  queen  { server, echo => FALSE });
 		    };
 
 	    end;
 	#
-	fun enable  ()   =   enabled := TRUE;
-	fun disable ()   =   enabled := FALSE;
+	fun enable  (queen: Makelib_Client_Queen)   =   queen.enabled := TRUE;
+	fun disable (queen: Makelib_Client_Queen)   =   queen.enabled := FALSE;
 	#
-	fun with_servers (function: Void -> X)
+	fun with_servers
+		#	
+		(queen: Makelib_Client_Queen)
+		#
+		(function: Void -> X)
 	    =
 	    safely::do				# safely	is from   src/lib/std/safely.pkg
 		{
-		  open_it  =>  enable,
-		  close_it =>  disable,
-		  cleanup  =>  reset_makelib_server
+		  open_it  =>  fn () = enable  queen,
+		  close_it =>  fn () = disable queen,
+		  cleanup  =>  reset_makelib_server queen
 		}
 		function;
 
@@ -733,8 +794,8 @@ herein
 
 
 
-										my _ =
-	ad::add_cwd_watcher  change_directory;					# "cwd" == "current working directory"
+#										my _ =
+#	ad::add_cwd_watcher  change_directory;					# "cwd" == "current working directory"
 
 
     };
