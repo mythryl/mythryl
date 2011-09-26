@@ -78,7 +78,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     if (oob       == HEAP_TRUE) flgs |= MSG_OOB;
     if (dontroute == HEAP_TRUE) flgs |= MSG_DONTROUTE;
 
-    print_if(   "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n", socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE" );
+    log_if(   "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n", socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE" );
     hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)data, nbytes );
 
     errno = 0;
@@ -91,7 +91,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
 
 /*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-        print_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
+        log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
 
         CHECK_RETURN (task, n);
     }

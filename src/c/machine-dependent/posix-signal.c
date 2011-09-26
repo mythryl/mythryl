@@ -152,7 +152,7 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
     pthread->posix_signal_counts[sig].seen_count++;
     pthread->all_posix_signals.seen_count++;
 
-    print_if(
+    log_if(
         "posix-signal.c/c_signal_handler: signal d=%d  seen_count d=%d  done_count d=%d   diff d=%d\n",
         sig,
         pthread->posix_signal_counts[sig].seen_count,
@@ -283,7 +283,7 @@ void   set_signal_mask   (Val sigList)   {
     // to change the signal mask.
     // This is our only invocation of this syscall:
     //
-    print_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x\n", mask );
+    log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x\n", mask );
     //
     SET_PROCESS_SIGNAL_MASK( mask );
 }

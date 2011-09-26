@@ -28,7 +28,7 @@ int print_if_fd = 0;	// Zero value means no trace logging. (We'd never log to st
 //
 //    1266769503.421967:  foo.c:  The 23 zots are barred.
 ///
-void   print_if   (const char * fmt, ...) {
+void   log_if   (const char * fmt, ...) {
 
     if (!print_if_fd) {
 
@@ -48,7 +48,7 @@ void   print_if   (const char * fmt, ...) {
 
 	// Start by writing the timestamp into buf[].
 	//
-	// We match the timestamp format in fun print_if in
+	// We match the timestamp format in fun log_if in
         // 
         //     src/lib/src/lib/thread-kit/src/lib/logger.pkg
 	//

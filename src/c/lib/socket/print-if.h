@@ -17,9 +17,9 @@
  *
  *     print_if_fd
  *
- * after which desired C modules can call print_if
+ * after which desired C modules can call log_if
  * to write lines into the tracelog file.
  */
 
-extern void   print_if   (const char * fmt, ...);
+extern void   log_if   (const char * fmt, ...);
 extern int    print_if_fd;

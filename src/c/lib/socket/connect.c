@@ -75,7 +75,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 	    //
 	    sprintf (buf+strlen(buf), "%02x.", a[i]);
 	}
-        print_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
+        log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
     }
     errno = 0;
 
@@ -105,7 +105,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 	fd_set write_set;
 
 	do {
-	    print_if( "connect.c/mid: Caught EINTR #%d, doing a select() on fd %d\n", eintr_count, socket);
+	    log_if( "connect.c/mid: Caught EINTR #%d, doing a select() on fd %d\n", eintr_count, socket);
 
 	    FD_ZERO( &read_set);
 	    FD_ZERO(&write_set);
@@ -137,7 +137,7 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     }
 #endif
 
-    print_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
+    log_if( "connect.c/bot: status d=%d errno d=%d\n", status, errno);
 
     CHECK_RETURN_UNIT(task, status);		// CHECK_RETURN_UNIT	is from   src/c/lib/lib7-c.h
 }

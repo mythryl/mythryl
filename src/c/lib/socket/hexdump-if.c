@@ -46,7 +46,7 @@ void   hexdump_if   (char* message, unsigned char* data, int data_len)   {
 
         char buf[ 256 ];
 	int i;
-        print_if( message );
+        log_if( message );
 	if (data_len > 32) {
             strcpy(buf,"\n        00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f");
 	    write(print_if_fd, buf, strlen(buf));

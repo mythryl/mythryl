@@ -57,7 +57,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     //
     Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(nbytes) );
 
-    print_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
+    log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
     errno = 0;
 
 /*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
@@ -66,7 +66,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 
 /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    print_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
+    log_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
     hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
 
     if (n <  0)   return RAISE_SYSERR(task, status);
