@@ -50,7 +50,7 @@ void   print_if   (const char * fmt, ...) {
 	//
 	// We match the timestamp format in fun print_if in
         // 
-        //     src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+        //     src/lib/src/lib/thread-kit/src/lib/logger.pkg
 	//
 	// Making the gettimeofday() system call here
 	// is a little bit risky in that the system

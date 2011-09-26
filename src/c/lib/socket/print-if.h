@@ -3,7 +3,7 @@
  * Conditional tracing to a logfile
  * designed to work in concert with
  *
- *     src/lib/src/lib/thread-kit/src/lib/tracing.pkg
+ *     src/lib/src/lib/thread-kit/src/lib/logger.pkg
  *
  * At the Mythryl level one calls
  *
