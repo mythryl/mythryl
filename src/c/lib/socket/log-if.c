@@ -61,7 +61,7 @@ void   log_if   (const char * fmt, ...) {
         // enough to justify the risk:
         //
 	seconds = _lib7_time_gettimeofday (&microseconds);
-	sprintf(buf,"%8d  %10d.%06d:                                        ", getpid(), seconds, microseconds);
+	sprintf(buf,"%10d.%06d: %8d                                         ", seconds, microseconds, getpid());
 
 	// Now write the message proper into buf[],
         // right after the timestamp:
