@@ -68,7 +68,7 @@ int   _lib7_time_gettimeofday   (int* microseconds)   {
     // We break this out in a function separate from
     // _lib7_Time_timeofday so as to have it available
     // at the C level for the benefit of modules like
-    // src/c/lib/socket/print-if.c
+    // src/c/lib/socket/log-if.c
 
     int			c_sec;
     int			c_usec;

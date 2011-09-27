@@ -16,7 +16,8 @@
 //     src/c/lib/posix-process-environment/cfun-list.h
 // and thence
 //     src/c/lib/posix-process-environment/libmythryl-posix-process-environment.c
-
+//
+// We get bound as  get_process_id  in   src/lib/std/src/posix-1003.1b/posix-id.pkg
 
 
 Val   _lib7_P_ProcEnv_getpid   (Task* task,  Val arg)   {

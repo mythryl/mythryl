@@ -12,7 +12,7 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-#include "print-if.h"
+#include "log-if.h"
 
 
 

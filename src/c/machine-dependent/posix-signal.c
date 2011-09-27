@@ -16,7 +16,7 @@
 #include "system-signals.h"
 #include "runtime-globals.h"
 
-#include "../lib/socket/print-if.h"
+#include "../lib/socket/log-if.h"
 
 
 // The generated System_Constant table for UNIX signals:

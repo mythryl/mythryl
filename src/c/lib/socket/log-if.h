@@ -1,4 +1,4 @@
-/* print-if.h
+/* log-if.h
  *
  * Conditional tracing to a logfile
  * designed to work in concert with
@@ -15,11 +15,11 @@
  *
  * to enable this tracing by setting
  *
- *     print_if_fd
+ *     log_if_fd
  *
  * after which desired C modules can call log_if
  * to write lines into the tracelog file.
  */
 
 extern void   log_if   (const char * fmt, ...);
-extern int    print_if_fd;
+extern int    log_if_fd;

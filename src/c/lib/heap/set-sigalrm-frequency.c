@@ -35,7 +35,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
 
-#include "../socket/print-if.h"
+#include "../socket/log-if.h"
 
 
 // One of the library bindings exported via
