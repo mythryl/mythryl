@@ -27,7 +27,7 @@ int log_if_fd = 0;	// Zero value means no logging. (We'd never log to stdin anyh
 // message to it, preceded by a seconds.microseconds timestamp.
 // A typical line looks like
 //
-//    1266769503.421967:  foo.c:  The 23 zots are barred.
+//    time=1266769503.421967 pid=00000007 tid=00000000 name=none msg=foo.c:  The 23 zots are barred.
 ///
 void   log_if   (const char * fmt, ...) {
 
@@ -88,6 +88,9 @@ void   log_if   (const char * fmt, ...) {
 	vsnprintf(buf+len, MAX_BUF-len, fmt, va); 
 	va_end(va);
 
+	// Append a newline to buffer:
+	//
+	strcpy( buf + strlen(buf), "\n" );
 
 	// Finish up by writing buf[]
         // contents to log_if_fd.
@@ -96,6 +99,10 @@ void   log_if   (const char * fmt, ...) {
 	// system call, so we do not need to
 	// do a flush( log_if_fd ) -- there
 	// is no such call at this level.
+	//
+	// (We are using the low-level write() call
+	// to guarantee that each write() of a line
+	// is atomic.)
 	//
 	// Note that usually we need strlen(buf)+1
 	// when dealing with null-terminated strings

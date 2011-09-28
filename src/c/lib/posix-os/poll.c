@@ -46,6 +46,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
 
+
 // Bit masks for polling descriptors -- see
 //     src/sml-nj/boot/Posix/os-io.pkg
 //
@@ -84,14 +85,19 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     struct timeval  tv;
     struct timeval* tvp;
 
-    if (timeout == OPTION_NULL)   tvp = NULL;
+    if (timeout == OPTION_NULL) {
+        //
+        tvp = NULL;
+        //
+    } else {
+        //
+        timeout	= OPTION_GET( timeout );				// OPTION_GET	is from   src/c/h/make-strings-and-vectors-etc.h
 
-    timeout	= OPTION_GET(timeout);
+        tv.tv_sec	= TUPLE_GET_INT1(       timeout, 0 );
+        tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );
 
-    tv.tv_sec	= TUPLE_GET_INT1(       timeout, 0 );
-    tv.tv_usec	= GET_TUPLE_SLOT_AS_INT( timeout, 1 );
-
-    tvp = &tv;
+        tvp = &tv;
+    }
 
     return LIB7_Poll( task, poll_list, tvp );				// See below.
 }
