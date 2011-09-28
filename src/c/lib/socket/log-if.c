@@ -61,12 +61,28 @@ void   log_if   (const char * fmt, ...) {
         // enough to justify the risk:
         //
 	seconds = _lib7_time_gettimeofday (&microseconds);
-	sprintf(buf,"%10d.%06d:  %8d                                         ", seconds, microseconds, getpid());
+
+	// The intent here is
+	//
+	//   1) That doing unix 'sort' on a logfile will do the right thing:
+	//      sort first by time, then by process id, then by thread id.
+	//
+	//   2) To facilitate egrep/perl processing, e.g. doing stuff like
+	//            egrep 'pid=021456' logfile
+	//
+	// We fill in dummy tid= and (thread) name= values here to reduce
+	// the need for special-case code when processing logfiles:
+	//
+	sprintf(buf,"time=%10d.%06d pid=%08d tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), "none");
 
 	// Now write the message proper into buf[],
         // right after the timestamp:
 	//
         len = strlen( buf );
+
+	// Drop leading blanks:
+	//
+	while (*fmt == ' ') ++fmt;
 
 	va_start(va, fmt);
 	vsnprintf(buf+len, MAX_BUF-len, fmt, va); 

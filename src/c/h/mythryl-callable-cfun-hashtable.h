@@ -34,7 +34,7 @@ extern const char*   name_of_cfun    (Val addr);
 // the mythryl-runtime-ia32 executable and the various
 // heapfiles:
 //
-extern void          publish_cfun2  (const char* name, const char* nickname, Val addr);		// Make a C resource (usually a function) visible at the Mythryl level, under two names. (Useful during maintainance, when renaming a symbol.)
+extern void          publish_cfun2  (const char* name, const char* nickname, Val addr);		// Make a C resource (usually a function) visible at the Mythryl level, under two names. (Useful during maintenance, when renaming a symbol.)
 
 
 // The remaining functions are used only when

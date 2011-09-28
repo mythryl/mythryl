@@ -79,6 +79,7 @@ CFUNC("recvBufFrom","recvBufFrom",	_lib7_Sock_recvbuffrom,	"")
 CFUNC("socket","socket",		_lib7_Sock_socket,	"(Int, Int, Int) -> Socket")
 
 CFUNC("setPrintIfFd","setPrintIfFd",	_lib7_Sock_setprintiffd,"Int -> Void")
+CFUNC("to_log","to_log",		_lib7_Sock_to_log,"String -> Void")
 
 #ifdef HAS_UNIX_DOMAIN
 CFUNC("socketPair","socketPair",	_lib7_Sock_socketpair,	"(int * int * int) -> (socket * socket)")
