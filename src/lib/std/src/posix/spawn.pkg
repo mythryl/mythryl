@@ -34,6 +34,13 @@ herein
 
 	Exit_Status == psx::Exit_Status;
 
+	Spawn_Option
+	  = WITH_ENVIRONMENT List(String)
+	  | REDIRECT_STDERR_TO_STDOUT Bool
+	  | REDIRECT_STDOUT_IN_CHILD  Bool
+	  | REDIRECT_STDIN_IN_CHILD   Bool
+	  ;
+
 	Stream( A_stream )
 	  #
 	  = UNOPENED  pio::File_Descriptor
@@ -53,10 +60,10 @@ herein
 	Process (A_input_stream, A_output_stream)
 	    =
 	    PROCESS
-	      { commandname:  String,					# If commandpath was "/bin/sh", "commandname" will be "sh".
-		from_stream:  Ref( Stream( A_input_stream  ) ),
-		to_stream:    Ref( Stream( A_output_stream ) ),
-		status:       Ref( Process_Status )
+	      { executable_name:    String,					# If executable was "/bin/sh", "executable_name" will be "sh".
+		from_stream:	    Ref( Stream( A_input_stream  ) ),
+		to_stream:	    Ref( Stream( A_output_stream ) ),
+		status:		    Ref( Process_Status )
 	      };
 
 	from_status
@@ -66,7 +73,7 @@ herein
 	fun protect f x
 	    =
 	    {   rs::mask_signals rs::MASK_ALL;
-
+		#
 		y = (f x)
 		    except
 			ex =  { rs::unmask_signals  rs::MASK_ALL;
@@ -162,7 +169,7 @@ herein
 		#
 		r as REF (UNOPENED fd)
 		    =>
-		    {   s = opener ( p.commandname + "_ext_" + sfx,
+		    {   s = opener ( p.executable_name + "_ext_" + sfx,
 				     fd
 				   );
 
@@ -241,17 +248,77 @@ herein
 
 
 	stipulate
-	    fun fork_process' ()
-		=
-		{   fil::flush  fil::stdout;									# Avoid anomalies due to pending output being duplicated between parent and child processes.
-		    #
-		    p0 = pio::pipe ();
-		    p1 = pio::pipe ();
+	    Options_Record
+	      =
+	      { environment:			List(String),
+		redirect_stderr_to_stdout:	Bool,
+		redirect_stdout_in_child:	Bool,
+		redirect_stdin_in_child:	Bool 
+	      };	
 
-		    fun closep ()
+	    fun options_to_option_record  options
+		=
+		{   environment_ref		    =  REF (pe::environ());
+		    redirect_stderr_to_stdout_ref   =  REF FALSE;
+		    redirect_stdout_in_child_ref    =  REF TRUE;
+		    redirect_stdin_in_child_ref     =  REF TRUE;
+
+		    options_to_option_record'  options
+		    where
+			fun options_to_option_record'  []
+				=>
+				{ environment		    =>  *environment_ref,
+				  redirect_stderr_to_stdout =>  *redirect_stderr_to_stdout_ref,
+				  redirect_stdout_in_child  =>  *redirect_stdout_in_child_ref,
+				  redirect_stdin_in_child   =>  *redirect_stdin_in_child_ref
+				};
+
+			    options_to_option_record'  (WITH_ENVIRONMENT environment !  rest)
+				=>
+				{   environment_ref :=  environment;
+				    #
+				    options_to_option_record'  rest;
+				};
+
+			    options_to_option_record'  (REDIRECT_STDERR_TO_STDOUT bool  !  rest)
+				=>
+				{   redirect_stderr_to_stdout_ref :=  bool;
+				    #
+				    options_to_option_record'  rest;
+				};
+
+			    options_to_option_record'  (REDIRECT_STDOUT_IN_CHILD bool  !  rest)
+				=>
+				{   redirect_stdout_in_child_ref :=  bool;
+				    #
+				    options_to_option_record'  rest;
+				};
+
+			    options_to_option_record'  (REDIRECT_STDIN_IN_CHILD bool  !  rest)
+				=>
+				{   redirect_stdin_in_child_ref :=  bool;
+				    #
+				    options_to_option_record'  rest;
+				};
+			end;
+		    end;	
+		};
+
+	    fun fork_process' (r: Options_Record)
+		=
+		{   fil::flush  fil::stdout;									# Avoid anomalies due to pending output being
+		    fil::flush  fil::stderr;									# duplicated between parent and child processes.
+		    #
+		    parent_to_child's_stdin  =  pio::make_pipe ();		# parent to child's stdin
+		    child's_stdout_to_parent =  pio::make_pipe ();		# child's stdout to parent.
+
+		    fun close_pipes ()
 			=
-			{   pio::close  p0.outfd;	pio::close  p0.infd;
-			    pio::close  p1.outfd;	pio::close  p1.infd;
+			{   pio::close  parent_to_child's_stdin.outfd;
+			    pio::close  parent_to_child's_stdin.infd;
+			    #
+			    pio::close  child's_stdout_to_parent.outfd;
+			    pio::close  child's_stdout_to_parent.infd;
 			};
 
 		    case (protect psx::fork ())
@@ -259,18 +326,18 @@ herein
 			THE pid =>
 			    {   # We're the parent process:
 				#
-				infd  =  p1.infd;
-				outfd =  p0.outfd;
+				infd  =  child's_stdout_to_parent.infd;
+				outfd =  parent_to_child's_stdin.outfd;
 
 				# Close the child-side fds:
 				#
-				pio::close p1.outfd;
-				pio::close p0.infd;
+				pio::close child's_stdout_to_parent.outfd;
+				pio::close parent_to_child's_stdin.infd;
 
-				# Set the fds close on exec:
+				# Set the fds to close on exec:
 				#
-				pio::setfd  (p1.infd,   pio::fd::flags  [pio::fd::cloexec]);
-				pio::setfd  (p0.outfd,  pio::fd::flags  [pio::fd::cloexec]);
+				pio::setfd  (child's_stdout_to_parent.infd,   pio::fd::flags  [pio::fd::cloexec]);
+				pio::setfd  (parent_to_child's_stdin.outfd,   pio::fd::flags  [pio::fd::cloexec]);
 
 				THE (pid, infd, outfd);
 			    };
@@ -278,11 +345,11 @@ herein
 			NULL =>
 			    {   # We're the child process:
 				#
-				oldin  = p0.infd;	newin  = psx::int_to_fd  0;					# An fd is still an int internally.
-				oldout = p1.outfd;	newout = psx::int_to_fd  1;
+				oldin  = parent_to_child's_stdin.infd;	newin  = psx::int_to_fd  0;				# An fd is still an int internally.
+				oldout = child's_stdout_to_parent.outfd;	newout = psx::int_to_fd  1;
 
-				pio::close  p0.outfd;
-				pio::close  p1.infd;
+				pio::close  parent_to_child's_stdin.outfd;
+				pio::close  child's_stdout_to_parent.infd;
 
 				# Make our input fd be 0 per unix stdin/stdout/stderr convention:
 				#
@@ -308,37 +375,16 @@ herein
 			    };
 		    esac
 		    except
-			ex = {   closep();
-				 raise exception ex;
-			     };
+			whatever_exception
+			    =
+			    {   close_pipes ();
+				#
+				raise exception  whatever_exception;
+			    };
 		};
-	herein
 
 	    #
-	    fun fork_process ()
-		=
-		{   case (fork_process' ())
-			#
-			THE (pid, infd, outfd)
-			    =>
-			    # We're the parent process:
-			    #
-			    THE (
-				PROCESS
-				  {
-				    commandname => "",
-				    from_stream => REF  (UNOPENED infd),
-				    to_stream   => REF  (UNOPENED outfd),
-				    status      => REF  (ALIVE pid)
-				  }
-			    );
-
-			NULL =>   NULL;					# We're the child process.
-		    esac;
-		};							# fun spawn_process_in_environment (commandpath, argv, env)
-
-	    #
-	    fun spawn_process_in_environment (commandpath, argv, env)
+	    fun spawn_process'' (executable, arguments, r: Options_Record)
 		=
 		{   fun is_file      filename
 			=
@@ -358,22 +404,22 @@ herein
 			# XXX BUGGO FIXME Checking this one bit is hardly definitive.
 			#                 What does (say) Perl do?
 
-		    if (not (is_file     commandpath))  raise exception FAIL ("spawn: No file " + commandpath + " exists."           );  fi;
-		    if (not (may_execute commandpath))  raise exception FAIL ("spawn: File "    + commandpath + " is not executable.");  fi;
+		    if (not (is_file     executable))  raise exception FAIL ("spawn: No file " + executable + " exists."           );  fi;
+		    if (not (may_execute executable))  raise exception FAIL ("spawn: File "    + executable + " is not executable.");  fi;
 
 
-		    # Get bare commandname, to be arg[0]:
+		    # Get bare executable name, to be arg[0]:
 		    #
-		    commandname						# If 'commandpath' is "/bin/sh" 'commandname' will be "sh".
+		    executable_name						# If 'executable' is "/bin/sh" 'executable_name' will be "sh".
 			=
 			sst::to_string
 			    (sst::get_suffix
 				(fn c =  c != '/')
-				(sst::from_string commandpath)
+				(sst::from_string executable)
 			    );
 
 
-		    case (fork_process' ())
+		    case (fork_process' r)
 			#
 			THE (pid, infd, outfd)
 			    =>
@@ -381,7 +427,7 @@ herein
 			    #
 			    PROCESS
 			      {
-				commandname,
+				executable_name,
 				from_stream => REF  (UNOPENED infd),
 				to_stream   => REF  (UNOPENED outfd),
 				status      => REF  (ALIVE pid)
@@ -390,17 +436,47 @@ herein
 			NULL =>
 			    # We're the child process:
 			    #
-			    psx::exece (commandpath, commandname ! argv, env);
+			    psx::exece (executable, executable_name ! arguments, r.environment);
 		    esac;
 
 		};							# fun spawn_process_in_environment (commandpath, argv, env)
+	herein
+
+	    #
+	    fun fork_process  options
+		=
+		{   case (fork_process' (options_to_option_record  options))
+			#
+			THE (pid, infd, outfd)
+			    =>
+			    # We're the parent process:
+			    #
+			    THE (
+				PROCESS
+				  {
+				    executable_name =>  "",
+				    #
+				    from_stream	    =>  REF  (UNOPENED infd),
+				    to_stream	    =>  REF  (UNOPENED outfd),
+				    status	    =>  REF  (ALIVE pid)
+				  }
+			    );
+
+			NULL =>   NULL;					# We're the child process.
+		    esac;
+		};							# fun spawn_process_in_environment (commandpath, argv, env)
+
+
+	    fun spawn_process' { executable, arguments, options }
+		=
+		spawn_process'' (executable, arguments, options_to_option_record options);
+
+
+	    fun spawn_process { executable, arguments }			# spawn_process { executable => "/usr/bin/foo", arguments => [] }
+		=
+		spawn_process' { executable, arguments, options => [] };
 	end;
 
-	# spawn_process ( "/usr/bin/foo", [] ) 
-	#								      
-	fun spawn_process (executable, argv)
-	    =
-	    spawn_process_in_environment (executable, argv, pe::environ());
 
 
 	fun kill (PROCESS { status => REF (ALIVE pid), ... }, signal)
@@ -475,12 +551,11 @@ herein
 	    =
 	    {   child_process
 		    = 
-		    spawn_process ("/bin/sh", ["-c", cmdline]);
+		    spawn_process { executable => "/bin/sh", arguments => ["-c", cmdline] };
 
-		my { from_stream, to_stream }
-		    =
-		    streams_of  child_process;
-
+		(streams_of  child_process)
+		    ->
+		    { from_stream, to_stream };
 
 		fil::close_output  to_stream;
 
