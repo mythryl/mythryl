@@ -87,6 +87,7 @@ stipulate
     package sg  =  intra_library_dependency_graph;		# intra_library_dependency_graph		is from   src/app/makelib/depend/intra-library-dependency-graph.pkg
     package spn =  spawn;					# spawn						is from   src/lib/std/src/posix/spawn.pkg
     package sps =  source_path_set;				# source_path_set				is from   src/app/makelib/paths/source-path-set.pkg
+    package str =  string;					# string					is from   src/lib/std/string.pkg
     package sym =  symbol_map;					# symbol_map					is from   src/app/makelib/stuff/symbol-map.pkg
     package sys =  symbol_set;					# symbol_set					is from   src/app/makelib/stuff/symbol-set.pkg
     package syx =  symbolmapstack;				# symbolmapstack				is from   src/lib/compiler/front/typer-stuff/symbolmapstack/symbolmapstack.pkg
@@ -116,11 +117,6 @@ stipulate
 	  #
 	  picklehashes:	phs::Set
 	};
-
-    processor_cores_to_use = 2;
-	#
-	# The above is a preliminary hack.  Eventually we should
-	# get this number from /proc/cpuinfo (?) on linux.
 herein
 
 								# Mythryl_Compiler				is from   src/lib/compiler/toplevel/compiler/mythryl-compiler.api
@@ -311,7 +307,7 @@ herein
 		#    high probability!) and we do not need to recompile
 		#    tomes dependent on this one.
 	    #
-	    symbol_and_inlining_mapstacks_etc_map__local							# More icky thread-hostile global mutable state :-/        XXX BUGGO FIXME.
+	    symbol_and_inlining_mapstacks_etc_map__local						# More icky thread-hostile global mutable state :-/        XXX BUGGO FIXME.
 		=
 		REF (ttm::empty:  ttm::Map( Tome_Exports_Etc ));
 
@@ -1109,12 +1105,12 @@ herein
 
 
 				#
-				fun announce_sourcefile_load  _
+				fun announce_compiledfile_load    (component_bytesizes: cf::Component_Bytesizes)
 				    =
 				    fil::say .{ cat ["       compile-in-dependency-order-g.pkg:   Loading                 ", (ad::os_string'  (tlt::sourcepath_of tin_to_compile.thawedlib_tome)), ".compiled"]; };
 
 				#
-				fun announce_compiledfile_receipt  component_bytesizes
+				fun announce_compiledfile_receipt  (component_bytesizes: cf::Component_Bytesizes)
 				    =
 				    {   fil::say .{ cat  ["     compile-in-dependency-order-g.pkg:   Receiving               ", (tlt::describe_thawedlib_tome tin_to_compile.thawedlib_tome), "\n"]; };
 					#
@@ -1534,8 +1530,8 @@ herein
 						    #
 						    fun show_compile_phase_runtimes_for   filename			# Should switch to using a   #DO ... ;   for this (now that we have them) and delete this fn.  XXX SUCKO FIXME.
 							=
-							string::is_suffix  "foo.pkg"  filename;
-						#	string::is_suffix  "make-nextcode-closures-g.pkg"  filename;	# Ran this for awhile and was getting Heisenbug style
+							str::is_suffix  "foo.pkg"  filename;
+						#	str::is_suffix  "make-nextcode-closures-g.pkg"  filename;	# Ran this for awhile and was getting Heisenbug style
 															# heap corruption during compiler compiles, stuff like
 															#    bin/mythryld: Fatal error: unexpected fault, signal = 11, code = 0x42862b1a
 															# and
@@ -2145,7 +2141,7 @@ herein
                                                                       {
 									ok_to_try_compiling_in_subprocess => TRUE,
 									#
-									announce   => announce_sourcefile_load,
+									announce   => announce_compiledfile_load,
 									#
 									compile_it => compile_preferably_in_subprocess
 								      }
@@ -2217,7 +2213,7 @@ herein
 									    case (load_compiledfile ())
 										#
 										NULL => 
-										    if (processor_cores_to_use == 1
+										    if (not *coc::compile_in_subprocesses
 										    or  not ok_to_try_compiling_in_subprocess)
 											#
 											compile_it ();
@@ -2234,7 +2230,7 @@ herein
 											    # number of cores.  The currently-unused fields 
 											    #
 											    #    cores_in_use:			Ref( Int ),
-											    #    core_wait_queue:			Ref( Thread_State( Void ) )
+											    #    core_wait_queue:		Ref( Thread_State( Void ) )
 											    #
 											    # in Makelib_Thread_Queen	src/app/makelib/concurrency/makelib-thread-queen.pkg
 											    # are intended to support this.
@@ -2243,21 +2239,42 @@ herein
 											    #
 											    THE process			# We are the parent process from the fork().
 											        =>
-											        {   (spn::txt_instream_of  process)
+											        {   pid =  spn::process_id_of  process;
+												    # 
+
+												    # Here's a little bookkeeping just to track how many
+												    # subprocesses we're running at a tiven time.  This
+												    # is just to amuse the developer at the console during
+												    # development -- it isn't used in software:
+												    #
+												    ms = makelib_state;
+												    ses = ms.makelib_session;
+												    mtq = ses.makelib_thread_queen;
+												    cores_in_use = mtq::get_cores_in_use mtq;
+												    cores_in_use = cores_in_use + 1;
+ 												    mtq::set_cores_in_use  (mtq, cores_in_use);
+												    # fil::say .{ sprintf "cores_in_use now d=%d" cores_in_use; }; # Normally commented out to reduce console noise during compiles.
+
+												    (spn::txt_instream_of  process)
 													->
 													pipe_input_stream;
 
 												    fun echo_child_output_until_it_is_done ()
 													=
 													{
-fil::log .{ "echo_child_output_until_it_is_done/Top"; };
 													    case (mtq::read_line_from_unix_pipe
 														     #
 														     makelib_state.makelib_session.makelib_thread_queen
 														     pipe_input_stream
 														 )
-														THE "XYZZY-PLUGH-DONE\n" =>  fil::log .{ sprintf "<Read 'done' line from client.>"; };
-														THE line		 => { printf "Read from client: %s" line;  echo_child_output_until_it_is_done (); };
+														THE "XYZZY-PLUGH-DONE\n" => {   fil::log .{ "<Read 'done' line from client.>"; };
+																		cores_in_use =  mtq::get_cores_in_use makelib_state.makelib_session.makelib_thread_queen;
+																		cores_in_use = cores_in_use - 1;
+ 																		mtq::set_cores_in_use (makelib_state.makelib_session.makelib_thread_queen, cores_in_use);
+																	    };
+														THE line		 => {   printf "%s\t\t(pid=%d)\n" (str::chomp line) pid;
+																		echo_child_output_until_it_is_done ();
+																	    };
 														NULL		         => fil::log .{ sprintf "EOF on client input pipe."; };
 													    esac;
 													};
@@ -2266,41 +2283,35 @@ fil::log .{ "echo_child_output_until_it_is_done/Top"; };
 													#
 													# If we implemented wait_for_free_core ();
 													# above, we should have a working facility, so far as I can see. -- 2011-09-25 CrT
-pid =  spn::process_id_of  process;
-fil::log .{ sprintf "PARENT: reaping child with pid d=%d" pid; };
+
 												    spn::reap process;		# Prevent zombie processes from accumulating in process table.
-fil::log .{ sprintf "PARENT: Done reaping child with pid d=%d, doing normal compile. -- load_else_compile_compiledfile' in compile-in-dependency-order-g.pkg\n" pid; };
+
+												    # Load into our process the compiledfile
+												    # generated by our reaped subprocess:
 												    #	
-												    compile_it ();
+												    load_else_compile_compiledfile'
+												      {
+													ok_to_try_compiling_in_subprocess => FALSE,
+													announce,
+													compile_it
+												      };
 											        };
 											
 											    NULL =>			# We are the child process from the fork().
 											        {
-fil::log .{ "CHILD: Exiting with success."; };
-												    printf "Line 1\n";
-												    printf "Line 2\n";
-												    printf "Line 3\n";
+												    compile_it ();
+
 												    printf "XYZZY-PLUGH-DONE\n";
 												    wnx::process::exit  wnx::process::success;
 											        };
 											esac;
-
-											# Load our new .compiled file into our process
-											# via recursive call -- this was if it fails for
-											# some reason we'll fall back to compiling in-process:
-											#
-											load_else_compile_compiledfile'
-											  {
-											    ok_to_try_compiling_in_subprocess => FALSE,		# Insurance against getting into a loop if fork()ing off subprocesses isn't working for some reason.
-											    announce,
-											    compile_it
-											  };
 										    fi;
 
 										#
 										THE (compiledfile, compiledfile_timestamp, component_bytesizes)
 										    =>
-										    {   symbol_and_inlining_mapstacks_etc
+										    {
+										        symbol_and_inlining_mapstacks_etc
 											    =
 											    make_symbol_and_inlining_mapstacks_etc
 											      (
@@ -2314,6 +2325,7 @@ fil::log .{ "CHILD: Exiting with success."; };
 											    { compiledfile,
 											      component_bytesizes
 											    };
+
 
 											if (symbol_and_inlining_mapstacks_are_current
 											       (
@@ -2333,6 +2345,16 @@ fil::log .{ "CHILD: Exiting with success."; };
 											    THE symbol_and_inlining_mapstacks_etc;
 											else
 											    compile_it ();
+
+											    # Load our new .compiled file into our process
+											    # via recursive call:
+											    #
+											    load_else_compile_compiledfile'
+											      {
+												ok_to_try_compiling_in_subprocess => FALSE,	# Insurance against looping if fork()ing off subprocesses isn't working for some reason.
+												announce,
+												compile_it
+											      };
 											fi;
 										     };
 									    esac
@@ -2387,7 +2409,8 @@ fil::log .{ "CHILD: Exiting with success."; };
 											#
 											fun read_compiled_file  stream
 											    =
-											    {   my { compiledfile, component_bytesizes }
+											    {
+											        my { compiledfile, component_bytesizes }
 												    =
 												    cf::read_compiledfile
 												      {
@@ -2402,8 +2425,8 @@ fil::log .{ "CHILD: Exiting with success."; };
 												  (
 												    tin_to_compile.thawedlib_tome,
 												    #
-												    cf::get_compiledfile_version  compiledfile			# E.g. "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
-												  );
+												    cf::get_compiledfile_version  compiledfile
+												  );		# Version is (e.g.) "version-$ROOT/src/app/makelib/(makelib-lib.lib):compilable/thawedlib-tome.pkg-1187780741.285"
 
 												( compiledfile,
 												  (ts::last_file_modification_time  compiledfile_name),
@@ -2426,7 +2449,8 @@ fil::log .{ "CHILD: Exiting with success."; };
 									#	
 									fun verbosely_compile_in_this_process ()
 									    =
-									    {   sourcefile =  tlt::sourcepath_of  tin_to_compile.thawedlib_tome;
+									    {
+										sourcefile =  tlt::sourcepath_of  tin_to_compile.thawedlib_tome;
 										sourcepath =  ad::os_string'  sourcefile;				# Full host-os filepath for sourcefile to be compiled.
 
 										# List the source and object files to
@@ -2477,7 +2501,8 @@ fil::log .{ "CHILD: Exiting with success."; };
 									#
 									fun compile_preferably_in_subprocess ()
 									    =
-									    {   source_path =   tlt::sourcepath_of   tin_to_compile.thawedlib_tome;
+									    {
+										source_path =   tlt::sourcepath_of   tin_to_compile.thawedlib_tome;
 
 										wnx::file::remove_file   compiledfile_name		# "foo.pkg.compiled"
 										except
@@ -2577,7 +2602,7 @@ fil::log .{ "CHILD: Exiting with success."; };
 		    maybe_drop_thawedlib_tome_from_linker_map,										# A dummy or   drop_thawedlib_tome_from_linker_map()
 		    #															# from   src/app/makelib/compile/link-in-dependency-order-g.pkg
 		    #
-		    set__compiledfile__for__thawedlib_tome										# A dummy or else compiledfile_cache::set__compiledfile__for__thawedlib_tome, which caches a copy in ram. 
+		    set__compiledfile__for__thawedlib_tome										# Dummy or compiledfile_cache::set__compiledfile__for__thawedlib_tome, which caches a copy in ram. 
 		  }
 		    =>
 		    { compile_library_catalog_in_dependency_order,
