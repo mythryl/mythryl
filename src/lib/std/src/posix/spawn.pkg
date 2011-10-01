@@ -36,14 +36,15 @@ herein
 
 	Spawn_Option
 	  = WITH_ENVIRONMENT List(String)
-	  | REDIRECT_STDERR_TO_STDOUT Bool
+	  | REDIRECT_STDERR_IN_CHILD  Bool
 	  | REDIRECT_STDOUT_IN_CHILD  Bool
 	  | REDIRECT_STDIN_IN_CHILD   Bool
 	  ;
 
 	Stream( A_stream )
 	  #
-	  = UNOPENED  pio::File_Descriptor
+	  = NONE
+	  | UNOPENED  pio::File_Descriptor
 	  |   OPENED  { stream: A_stream,
 			close: Void -> Void
 		      }
@@ -57,13 +58,16 @@ herein
 		  }
 	  ;
 
-	Process (A_input_stream, A_output_stream)
+	Process (A_stdin_stream, A_stdout_stream, A_stderr_stream)
 	    =
 	    PROCESS
-	      { executable_name:    String,					# If executable was "/bin/sh", "executable_name" will be "sh".
-		from_stream:	    Ref( Stream( A_input_stream  ) ),
-		to_stream:	    Ref( Stream( A_output_stream ) ),
-		status:		    Ref( Process_Status )
+	      { executable_name:	String,					# If executable was "/bin/sh", "executable_name" will be "sh".
+		#
+		stdin_to_child:		Ref( Stream( A_stdin_stream ) ),
+		stdout_from_child:	Ref( Stream( A_stdout_stream  ) ),
+		stderr_from_child:	Ref( Stream( A_stderr_stream  ) ),
+		#
+		status:			Ref( Process_Status )
 	      };
 
 	from_status
@@ -163,9 +167,9 @@ herein
 	    =
 	    case (stream_selector p)
 		#          
-		REF (OPENED s)
-		    =>
-		    s.stream;
+		REF (NONE    ) => raise exception FAIL "Cannot do I/O to non-redirected process stream";
+		#          
+		REF (OPENED s) => s.stream;
 		#
 		r as REF (UNOPENED fd)
 		    =>
@@ -180,16 +184,19 @@ herein
 		    };
 	    esac;
 
-	fun get_text_input_stream_from   p =  stream_of (.from_stream,  "txt_in",  open_txt_in_fd,  fil::close_input )  p;
-	fun get_binary_input_stream_from   p =  stream_of (.from_stream,  "bin_in",  open_bin_in_fd,  bio::close_input )  p;
+	fun get_stdin_to_child_as_text_stream      process =  stream_of (.stdin_to_child,    "txt_out", open_txt_out_fd,  fil::close_output)  process;
+	fun get_stdin_to_child_as_binary_stream    process =  stream_of (.stdin_to_child,    "bin_out", open_bin_out_fd,  bio::close_output)  process;
 
-	fun get_text_output_stream_to  p =  stream_of (.to_stream,    "txt_out", open_txt_out_fd, fil::close_output)  p;
-	fun get_binary_output_stream_to  p =  stream_of (.to_stream,    "bin_out", open_bin_out_fd, bio::close_output)  p;
+	fun get_stdout_from_child_as_text_stream   process =  stream_of (.stdout_from_child,  "txt_in",  open_txt_in_fd,  fil::close_input )  process;
+	fun get_stdout_from_child_as_binary_stream process =  stream_of (.stdout_from_child,  "bin_in",  open_bin_in_fd,  bio::close_input )  process;
 
-	fun streams_of p
+	fun get_stderr_from_child_as_text_stream   process =  stream_of (.stderr_from_child,  "txt_in",  open_txt_in_fd,  fil::close_input )  process;
+	fun get_stderr_from_child_as_binary_stream process =  stream_of (.stderr_from_child,  "bin_in",  open_bin_in_fd,  bio::close_input )  process;
+
+	fun text_streams_of  process
 	    =
-	    {  from_stream =>  get_text_input_stream_from  p,
-	       to_stream   =>  get_text_output_stream_to p
+	    {  stdin_to_child    =>  get_stdin_to_child_as_text_stream     process,
+	       stdout_from_child =>  get_stdout_from_child_as_text_stream  process
 	    };
 
 
@@ -205,7 +212,7 @@ herein
 	#	  List(String)			# Unix environment, for example [ "LOGNAME=cynbe", "SHELL=/bin/tcsh", "HOME=/pub/home/cynbe" ]
 	#	)
 	#	->
-	#	Process(X,Y);
+	#	Process(X,Y,Z);
 	# 
 	# we should instead have something like
 	# 
@@ -221,7 +228,7 @@ herein
 	#	:
 	#	List( Spawn_Arg )
 	#	->
-	#	Process(X,Y);
+	#	Process(X,Y,Z);
 	#    
 
 # src/lib/std/src/posix-1003.1b/posix-file.api
@@ -251,74 +258,90 @@ herein
 	    Options_Record
 	      =
 	      { environment:			List(String),
-		redirect_stderr_to_stdout:	Bool,
+		redirect_stderr_in_child:	Bool,
 		redirect_stdout_in_child:	Bool,
 		redirect_stdin_in_child:	Bool 
 	      };	
 
 	    fun options_to_option_record  options
 		=
-		{   environment_ref		    =  REF (pe::environ());
-		    redirect_stderr_to_stdout_ref   =  REF FALSE;
-		    redirect_stdout_in_child_ref    =  REF TRUE;
+		{   # Set up default values for options:
+		    #
+		    environment_ref		    =  REF (pe::environment());
+		    #
 		    redirect_stdin_in_child_ref     =  REF TRUE;
+		    redirect_stdout_in_child_ref    =  REF TRUE;
+		    redirect_stderr_in_child_ref    =  REF FALSE;
 
+		    # Now apply any user overrides to the defaults:
+		    #
 		    options_to_option_record'  options
 		    where
 			fun options_to_option_record'  []
 				=>
+				# Done processing user-specified options;
+				# construct and return final options record:
+				#
 				{ environment		    =>  *environment_ref,
-				  redirect_stderr_to_stdout =>  *redirect_stderr_to_stdout_ref,
+				  #
+				  redirect_stderr_in_child  =>  *redirect_stderr_in_child_ref,
 				  redirect_stdout_in_child  =>  *redirect_stdout_in_child_ref,
 				  redirect_stdin_in_child   =>  *redirect_stdin_in_child_ref
 				};
 
-			    options_to_option_record'  (WITH_ENVIRONMENT environment !  rest)
-				=>
-				{   environment_ref :=  environment;
-				    #
-				    options_to_option_record'  rest;
-				};
-
-			    options_to_option_record'  (REDIRECT_STDERR_TO_STDOUT bool  !  rest)
-				=>
-				{   redirect_stderr_to_stdout_ref :=  bool;
-				    #
-				    options_to_option_record'  rest;
-				};
-
-			    options_to_option_record'  (REDIRECT_STDOUT_IN_CHILD bool  !  rest)
-				=>
-				{   redirect_stdout_in_child_ref :=  bool;
-				    #
-				    options_to_option_record'  rest;
-				};
-
-			    options_to_option_record'  (REDIRECT_STDIN_IN_CHILD bool  !  rest)
-				=>
-				{   redirect_stdin_in_child_ref :=  bool;
-				    #
-				    options_to_option_record'  rest;
-				};
+			    options_to_option_record'  (WITH_ENVIRONMENT environment   !  rest) =>  {   environment_ref :=  environment;	options_to_option_record'  rest;	};
+			    #
+			    options_to_option_record'  (REDIRECT_STDIN_IN_CHILD  bool  !  rest) =>  {   redirect_stdin_in_child_ref  :=  bool;	options_to_option_record'  rest;	};
+			    options_to_option_record'  (REDIRECT_STDOUT_IN_CHILD bool  !  rest) =>  {   redirect_stdout_in_child_ref :=  bool;	options_to_option_record'  rest;	};
+			    options_to_option_record'  (REDIRECT_STDERR_IN_CHILD bool  !  rest) =>  {   redirect_stderr_in_child_ref :=  bool;	options_to_option_record'  rest;	};
 			end;
 		    end;	
 		};
 
 	    fun fork_process' (r: Options_Record)
 		=
-		{   fil::flush  fil::stdout;									# Avoid anomalies due to pending output being
-		    fil::flush  fil::stderr;									# duplicated between parent and child processes.
+		{   fil::flush  fil::stdout;										# Avoid anomalies due to pending output being
+		    fil::flush  fil::stderr;										# duplicated between parent and child processes.
 		    #
-		    parent_to_child's_stdin  =  pio::make_pipe ();		# parent to child's stdin
-		    child's_stdout_to_parent =  pio::make_pipe ();		# child's stdout to parent.
+		    my  { infd => stdin_from_parent, outfd => stdin_to_child  }
+			=
+			if r.redirect_stdin_in_child	pio::make_pipe ();
+			else				{ infd => psx::int_to_fd 0, outfd => psx::int_to_fd 1 };	# Won't be used; just need to be type-correct.
+			fi;
+
+		    my  { infd => stdout_from_child,  outfd => stdout_to_parent }
+			=
+			if r.redirect_stdout_in_child	pio::make_pipe ();
+			else				{ infd => psx::int_to_fd 1, outfd => psx::int_to_fd 0 };	# Won't be used; just need to be type-correct.
+			fi;
+
+
+		    my  { infd => stderr_from_child,  outfd => stderr_to_parent }
+			=
+			if r.redirect_stderr_in_child	pio::make_pipe ();
+			else				{ infd => psx::int_to_fd 2, outfd => psx::int_to_fd 0 };	# Won't be used; just need to be type-correct.
+			fi;
+
 
 		    fun close_pipes ()
 			=
-			{   pio::close  parent_to_child's_stdin.outfd;
-			    pio::close  parent_to_child's_stdin.infd;
-			    #
-			    pio::close  child's_stdout_to_parent.outfd;
-			    pio::close  child's_stdout_to_parent.infd;
+			{   if r.redirect_stdin_in_child
+				#
+				pio::close  stdin_from_parent;
+				pio::close  stdin_to_child;
+			    fi;
+
+			    if r.redirect_stdout_in_child
+				#
+				pio::close  stdout_from_child;
+				pio::close  stdout_to_parent;
+			    fi;
+
+			    if r.redirect_stderr_in_child
+				#
+				pio::close  stderr_from_child;
+				pio::close  stderr_to_parent;
+			    fi;
 			};
 
 		    case (protect psx::fork ())
@@ -326,49 +349,72 @@ herein
 			THE pid =>
 			    {   # We're the parent process:
 				#
-				infd  =  child's_stdout_to_parent.infd;
-				outfd =  parent_to_child's_stdin.outfd;
 
 				# Close the child-side fds:
 				#
-				pio::close child's_stdout_to_parent.outfd;
-				pio::close parent_to_child's_stdin.infd;
+				if r.redirect_stdin_in_child	pio::close  stdin_from_parent;		fi;
+				if r.redirect_stdout_in_child	pio::close  stdout_to_parent;		fi;
+				if r.redirect_stderr_in_child	pio::close  stderr_to_parent;		fi;
 
 				# Set the fds to close on exec:
 				#
-				pio::setfd  (child's_stdout_to_parent.infd,   pio::fd::flags  [pio::fd::cloexec]);
-				pio::setfd  (parent_to_child's_stdin.outfd,   pio::fd::flags  [pio::fd::cloexec]);
+				if r.redirect_stdin_in_child	pio::setfd  (stdin_to_child,      pio::fd::flags  [pio::fd::cloexec]);		fi;
+				if r.redirect_stdout_in_child	pio::setfd  (stdout_from_child,   pio::fd::flags  [pio::fd::cloexec]);		fi;
+				if r.redirect_stderr_in_child	pio::setfd  (stderr_from_child,   pio::fd::flags  [pio::fd::cloexec]);		fi;
 
-				THE (pid, infd, outfd);
+				THE { pid, stdin_to_child, stdout_from_child, stderr_from_child };
 			    };
 			#
 			NULL =>
 			    {   # We're the child process:
 				#
-				oldin  = parent_to_child's_stdin.infd;	newin  = psx::int_to_fd  0;				# An fd is still an int internally.
-				oldout = child's_stdout_to_parent.outfd;	newout = psx::int_to_fd  1;
+				old_stdin  = stdin_from_parent;	new_stdin  = psx::int_to_fd  0;				# An fd is still an int internally.
+				old_stdout = stdout_to_parent;	new_stdout = psx::int_to_fd  1;
+				old_stderr = stderr_to_parent;	new_stderr = psx::int_to_fd  2;
 
-				pio::close  parent_to_child's_stdin.outfd;
-				pio::close  child's_stdout_to_parent.infd;
-
-				# Make our input fd be 0 per unix stdin/stdout/stderr convention:
+				# Close the parent-side fds:
 				#
-				if (oldin != newin)
+				if r.redirect_stdin_in_child	pio::close  stdin_to_child;		fi;
+				if r.redirect_stdout_in_child	pio::close  stdout_from_child;		fi;
+				if r.redirect_stderr_in_child	pio::close  stderr_from_child;		fi;
+
+				if r.redirect_stdin_in_child
 				    #
-				    pio::dup2 { old => oldin,							# Make fd 0 ("stdin") be a copy of fd for our input pipe from parent.
-						new => newin
-					      };
-				    pio::close oldin;								# With input pipe now safely ensconced in fd 0, close the now-unneeded original fd for that pipe.
+				    # Make our stdin fd be 0 per unix stdin/stdout/stderr convention:
+				    #
+				    if (old_stdin != new_stdin)
+					#
+					pio::dup2 { old => old_stdin,						# Make fd 0 ("stdin") be a copy of fd for our input pipe from parent.
+						    new => new_stdin
+						  };
+					pio::close old_stdin;							# With input pipe now safely ensconced in fd 0, close the now-unneeded original fd for that pipe.
+				    fi;
 				fi;
 
-				# Make our output fd be 1 per unix stdin/stdout/stderr convention:
-				#
-				if (oldout != newout)
+				if r.redirect_stdout_in_child
 				    #
-				    pio::dup2 { old => oldout,							# Make fd 1 ("stdout") be a copy of fd for our output pipe to parent.
-						new => newout
-					      };
-				    pio::close oldout;								# With output pipe now safely ensconced in fd 1, close the now-unneeded original fd for that pipe.
+				    # Make our stdout fd be 1 per unix stdin/stdout/stderr convention:
+				    #
+				    if (old_stdout != new_stdout)
+					#
+					pio::dup2 { old => old_stdout,						# Make fd 1 ("stdout") be a copy of fd for our output pipe to parent.
+						    new => new_stdout
+						  };
+					pio::close old_stdout;							# With output pipe now safely ensconced in fd 1, close the now-unneeded original fd for that pipe.
+				    fi;
+				fi;
+
+				if r.redirect_stderr_in_child
+				    #
+				    # Make our stderr fd be 2 per unix stdin/stdout/stderr convention:
+				    #
+				    if (old_stderr != new_stderr)
+					#
+					pio::dup2 { old => old_stderr,						# Make fd 2 ("stderr") be a copy of fd for our output pipe to parent.
+						    new => new_stderr
+						  };
+					pio::close old_stderr;							# With output pipe now safely ensconced in fd 2, close the now-unneeded original fd for that pipe.
+				    fi;
 				fi;
 
 				NULL;
@@ -384,7 +430,7 @@ herein
 		};
 
 	    #
-	    fun spawn_process'' (executable, arguments, r: Options_Record)
+	    fun spawn_process' (executable, arguments, r: Options_Record)
 		=
 		{   fun is_file      filename
 			=
@@ -421,16 +467,19 @@ herein
 
 		    case (fork_process' r)
 			#
-			THE (pid, infd, outfd)
+			THE { pid, stdin_to_child, stdout_from_child, stderr_from_child }
 			    =>
 			    # We're the parent process:
 			    #
 			    PROCESS
 			      {
 				executable_name,
-				from_stream => REF  (UNOPENED infd),
-				to_stream   => REF  (UNOPENED outfd),
-				status      => REF  (ALIVE pid)
+				#
+				stdin_to_child     => REF  if r.redirect_stdin_in_child   UNOPENED stdin_to_child;    else  NONE;  fi,
+				stdout_from_child  => REF  if r.redirect_stdout_in_child  UNOPENED stdout_from_child; else  NONE;  fi,
+				stderr_from_child  => REF  if r.redirect_stderr_in_child  UNOPENED stderr_from_child; else  NONE;  fi,
+				#
+				status  => REF  (ALIVE pid)
 			      };
 
 			NULL =>
@@ -445,9 +494,11 @@ herein
 	    #
 	    fun fork_process  options
 		=
-		{   case (fork_process' (options_to_option_record  options))
+		{   r =  options_to_option_record  options;
+		    #
+		    case (fork_process' r)
 			#
-			THE (pid, infd, outfd)
+			THE { pid, stdin_to_child, stdout_from_child, stderr_from_child }
 			    =>
 			    # We're the parent process:
 			    #
@@ -456,25 +507,21 @@ herein
 				  {
 				    executable_name =>  "",
 				    #
-				    from_stream	    =>  REF  (UNOPENED infd),
-				    to_stream	    =>  REF  (UNOPENED outfd),
-				    status	    =>  REF  (ALIVE pid)
+				    stdin_to_child     => REF  if r.redirect_stdin_in_child   UNOPENED stdin_to_child;    else  NONE;  fi,
+				    stdout_from_child  => REF  if r.redirect_stdout_in_child  UNOPENED stdout_from_child; else  NONE;  fi,
+				    stderr_from_child  => REF  if r.redirect_stderr_in_child  UNOPENED stderr_from_child; else  NONE;  fi,
+				    #
+				    status	        =>  REF  (ALIVE pid)
 				  }
 			    );
 
 			NULL =>   NULL;					# We're the child process.
-		    esac;
-		};							# fun spawn_process_in_environment (commandpath, argv, env)
+		    esac;						# fun fork_process
+		};
 
-
-	    fun spawn_process' { executable, arguments, options }
+	    fun spawn_process { executable, arguments, options }
 		=
-		spawn_process'' (executable, arguments, options_to_option_record options);
-
-
-	    fun spawn_process { executable, arguments }			# spawn_process { executable => "/usr/bin/foo", arguments => [] }
-		=
-		spawn_process' { executable, arguments, options => [] };
+		spawn_process' (executable, arguments, options_to_option_record options);
 	end;
 
 
@@ -502,7 +549,7 @@ herein
 		=>
 		status;
 
-	   reap (PROCESS { status => status_ref as REF (ALIVE process_id), from_stream, to_stream, ... } )
+	   reap (PROCESS { status => status_ref as REF (ALIVE process_id), stdin_to_child, stdout_from_child, stderr_from_child, ... } )
 		=>
 		{
 		    # 'protect' is probably too much; typically,
@@ -518,17 +565,19 @@ herein
 			    W_STOPPED  (ps::SIGNAL status) =>         512 + status;    # This should not happen.
 			esac;
 
-		    fun close (UNOPENED fd)   =>  pio::close fd;
+		    fun close (UNOPENED fd  ) =>  pio::close fd;
 			close (OPENED stream) =>  stream.close ();
+			close (NONE         ) =>  ();
 		    end;
 
-		    close *from_stream;
+		    close *stdout_from_child;
+		    close *stderr_from_child;
 
-		    close *to_stream
+		    close *stdin_to_child
 		    except
 			_ = ();
 
-		    status = wait_proc ();
+		    status =  wait_proc ();
 
 		    status_ref :=  DEAD { status, process_id };
 
@@ -551,15 +600,15 @@ herein
 	    =
 	    {   child_process
 		    = 
-		    spawn_process { executable => "/bin/sh", arguments => ["-c", cmdline] };
+		    spawn_process { executable => "/bin/sh", arguments => ["-c", cmdline], options => [] };
 
-		(streams_of  child_process)
+		(text_streams_of  child_process)
 		    ->
-		    { from_stream, to_stream };
+		    { stdin_to_child, stdout_from_child };
 
-		fil::close_output  to_stream;
+		fil::close_output  stdin_to_child;
 
-		output = fil::read_all from_stream;
+		output = fil::read_all  stdout_from_child;
 
 		reap child_process;
 
