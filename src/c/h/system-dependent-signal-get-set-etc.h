@@ -91,6 +91,7 @@
     //
 #endif
 
+// The first case here is the one used on x86 Linux:
 
 #if defined(HAS_POSIX_SIGS)
 // POSIX signals

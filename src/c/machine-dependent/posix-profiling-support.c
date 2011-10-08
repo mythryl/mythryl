@@ -34,10 +34,14 @@ void   start_incrementing__time_profiling_rw_vector__once_per_SIGVTALRM   () {		
     SET_SIGNAL_HANDLER( SIGVTALRM, sigvtalrm_handler );
 }
 
-void   stop_incrementing__time_profiling_rw_vector__once_per_SIGVTALRM   () {				// Called (only) from   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+void   stop_incrementing__time_profiling_rw_vector__once_per_SIGVTALRM   () {					// Called (only) from   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
     //
-    SET_SIGNAL_HANDLER( SIGVTALRM, SIG_DFL );			// This gives an "assignment from incompatible pointer type"
-}								// warning on Linux, but the cures all look worse than the disease.
+    SET_SIGNAL_HANDLER( SIGVTALRM, (void*)SIG_DFL );								// SET_SIGNAL_HANDLER	def in   src/c/h/system-dependent-signal-get-set-etc.h
+	//													// SIG_DFL		def in   <signal.h> (On linux actually /usr/include/bits/signum.h, which is included by <signal.h>)
+	// The above (void*) cast suppresses a spurious								// SIGVTALRM		def in   <signal.h> (On linux actually /usr/include/bits/signum.h, which is included by <signal.h>)
+	//     "assignment from incompatible pointer type"
+	// compiler warning, at least on x86 Linux. -- 2011-10-08 CrT
+}
 
 static void   sigvtalrm_handler   () {
     //
