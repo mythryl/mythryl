@@ -6,9 +6,21 @@
 #include "../config.h"
 
 #include <stdio.h>
+
+#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+
 #include <ctype.h>
+
+#ifdef HAVE_STRING_H
 #include <string.h>
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #include "runtime-base.h"
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
