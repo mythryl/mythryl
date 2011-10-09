@@ -112,7 +112,9 @@
 ////////////////////////////
 // SunOS 4.1
 #if defined(OPSYS_SUNOS) 
-#  define OS_NAME	"SunOS"
+#  ifndef OS_NAME				// OS_NAME should have been defined in   src/c/h/architecture-and-os-names-system-dependent.h
+#  define OS_NAME	"sunos"			// Note that OS_NAME needs to match the list in src/lib/std/src/nj/platform-properties.pkg
+#  endif
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_BSD_SIGS
 #  define HAS_GETRUSAGE
@@ -136,7 +138,9 @@ extern int	sys_nerr;
 extern char	*sys_errlist[];
 
 #elif defined(OPSYS_SOLARIS)			// SunOS 5.x 
-#  define OS_NAME	"Solaris"
+#  ifndef OS_NAME				// OS_NAME should have been defined in   src/c/h/architecture-and-os-names-system-dependent.h
+#  define OS_NAME	"solaris"		// Note that OS_NAME needs to match the list in src/lib/std/src/nj/platform-properties.pkg
+#  endif
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_SETITIMER
@@ -154,8 +158,7 @@ extern char	*sys_errlist[];
 extern int	sys_nerr;
 extern char	*sys_errlist[];
 
-#elif defined(OPSYS_IRIX4)  // IRIX 4.0.x
-#  define OS_NAME	"Irix"
+#elif defined(OPSYS_IRIX4)  // IRIX 4.0.x	// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -169,8 +172,7 @@ extern char	*sys_errlist[];
 /* IRIX 4.0 is not quite full POSIX */
 typedef int ssize_t;
 
-#elif defined(OPSYS_IRIX5)  // IRIX 5.x
-#  define OS_NAME	"Irix"
+#elif defined(OPSYS_IRIX5)  // IRIX 5.x		// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -181,8 +183,7 @@ typedef int ssize_t;
 #  define INCLUDE_SIGINFO_H <siginfo.h>
 #  define HAS_STRERROR
 
-#elif (defined(OPSYS_OSF1) || defined(OPSYS_DUNIX)) // OSF/1 aka Digital Unix
-#  define OS_NAME	"OSF/1"
+#elif (defined(OPSYS_OSF1) || defined(OPSYS_DUNIX)) // OSF/1 aka Digital Unix	// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -193,8 +194,7 @@ typedef int ssize_t;
 #  define HAS_STRERROR
 // What about HAS_PARTIAL_MUNMAP? - Ken Cline
 
-#elif defined(OPSYS_AIX)  // AIX 3.2
-#  define OS_NAME	"AIX"
+#elif defined(OPSYS_AIX)  // AIX 3.2		// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -208,8 +208,7 @@ typedef int ssize_t;
 extern int	sys_nerr;
 extern char	*sys_errlist[];
 
-#elif defined(OPSYS_DARWIN) && defined(OPSYS_MACOS_10_1) // MacOS X 10.1
-#  define OS_NAME       "Darwin"
+#elif defined(OPSYS_DARWIN) && defined(OPSYS_MACOS_10_1) // MacOS X 10.1	// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -220,8 +219,7 @@ extern char	*sys_errlist[];
 #  define HAS_SELECT
 #  define MAP_ANONYMOUS MAP_ANON
 
-#elif defined(OPSYS_DARWIN) && defined(OPSYS_MACOS_10_2) // MacOS X 10.2
-#  define OS_NAME       "Darwin"
+#elif defined(OPSYS_DARWIN) && defined(OPSYS_MACOS_10_2) // MacOS X 10.2	// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -232,8 +230,7 @@ extern char	*sys_errlist[];
 #  define HAS_SELECT
 #  define MAP_ANONYMOUS MAP_ANON
 
-#elif defined(OPSYS_HPUX9)  // HPUX 9.0
-#  define OS_NAME       "HPUX"
+#elif defined(OPSYS_HPUX9)  // HPUX 9.0						// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_SETITIMER
@@ -252,8 +249,7 @@ extern char	*sys_errlist[];
 extern int      sys_nerr;
 extern char     *sys_errlist[];
 
-#elif defined(OPSYS_HPUX)  // HPUX 10.0
-#  define OS_NAME       "HPUX"
+#elif defined(OPSYS_HPUX)  // HPUX 10.0			// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_SETITIMER
@@ -274,8 +270,7 @@ extern char     *sys_errlist[];
 extern int      sys_nerr;
 extern char     *sys_errlist[];
 
-#elif (defined(TARGET_INTEL32) && defined(OPSYS_LINUX))
-#  define OS_NAME	"Linux"
+#elif (defined(TARGET_INTEL32) && defined(OPSYS_LINUX))			// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -291,8 +286,7 @@ extern char     *sys_errlist[];
 
 #include <features.h>
 
-#elif (defined(TARGET_PWRPC32) && defined(OPSYS_LINUX))
-#  define OS_NAME	"Linux"
+#elif (defined(TARGET_PWRPC32) && defined(OPSYS_LINUX))			// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE
@@ -305,8 +299,7 @@ extern char     *sys_errlist[];
 
 #include <features.h>
 
-#elif defined(OPSYS_FREEBSD)
-#  define OS_NAME	"BSD"
+#elif defined(OPSYS_FREEBSD)						// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_BSD_SIGS
 #  define HAS_GETRUSAGE
@@ -322,8 +315,7 @@ extern char     *sys_errlist[];
 // FreeBSD uses MAP_ANON for MAP_ANONYMOUS
 #  define MAP_ANONYMOUS MAP_ANON
 
-#elif defined(OPSYS_NETBSD2)		// version 2.x
-#  define OS_NAME	"BSD"
+#elif defined(OPSYS_NETBSD2)		// version 2.x		// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_BSD_SIGS
 #  define HAS_GETRUSAGE
@@ -335,8 +327,7 @@ extern char     *sys_errlist[];
 #  define HAS_SIGCONTEXT
 #  define HAS_STRERROR
 
-#elif defined(OPSYS_NETBSD)		// version 3.x
-#  define OS_NAME	"BSD"
+#elif defined(OPSYS_NETBSD)		// version 3.x		// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_BSD_SIGS
 #  define HAS_GETRUSAGE
@@ -348,8 +339,7 @@ extern char     *sys_errlist[];
 #  define HAS_UCONTEXT
 #  define HAS_STRERROR
 
-#elif (defined(TARGET_INTEL32) && defined(OPSYS_CYGWIN))
-#  define OS_NAME	"Cygwin" 
+#elif (defined(TARGET_INTEL32) && defined(OPSYS_CYGWIN))	// NB: OS_NAME is now defined in   src/c/h/architecture-and-os-names-system-dependent.h
 #  define HAS_POSIX_LIBRARIES
 #  define HAS_POSIX_SIGS
 #  define HAS_GETRUSAGE

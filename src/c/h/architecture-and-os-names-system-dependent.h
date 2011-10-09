@@ -16,8 +16,8 @@
 #  error unknown architecture type
 #endif
 
-#if   defined(OPSYS_UNIX)
-#  if   (defined(OPSYS_AIX))
+#if   defined(OPSYS_UNIX)			// Note that OS_NAME needs to match the list in src/lib/std/src/nj/platform-properties.pkg
+#  if   (defined(OPSYS_AIX))			// See also src/c/h/system-dependent-unix-stuff.h
 #    define OS_NAME	"aix"
 #  elif (defined(OPSYS_DARWIN))
 #    define OS_NAME    "darwin"
@@ -26,7 +26,7 @@
 #  elif (defined(OPSYS_FREEBSD) || defined(OPSYS_NETBSD) || defined(OPSYS_NETBSD2))
 #    define OS_NAME	"bsd"
 #  elif (defined(OPSYS_HPUX9))
-#    define OS_NAME	"hpux9"
+#    define OS_NAME	"hpux"
 #  elif (defined(OPSYS_HPUX))
 #    define OS_NAME	"hpux"
 #  elif (defined(OPSYS_IRIX4) || defined(OPSYS_IRIX5))
@@ -45,7 +45,7 @@
 #    define OS_NAME	"unix"
 #  endif
 #elif defined(OPSYS_MACOS)
-#  define OS_NAME	"macos"
+#  define OS_NAME	"darwin"
 #elif defined(OPSYS_BEOS)
 #  define OS_NAME	"beos"
 #elif defined(OPSYS_WIN32)
