@@ -1031,7 +1031,7 @@ Val   _lib7_Gtk_make_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1056,7 +1056,7 @@ Val   _lib7_Gtk_make_status_bar_context_id   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     int result = gtk_statusbar_get_context_id( GTK_STATUSBAR(/*status_bar*/w0), /*description*/s1);
 
@@ -1193,7 +1193,7 @@ Val   _lib7_Gtk_make_frame   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1240,7 +1240,7 @@ Val   _lib7_Gtk_make_button_with_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1264,7 +1264,7 @@ Val   _lib7_Gtk_make_button_with_mnemonic   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1311,7 +1311,7 @@ Val   _lib7_Gtk_make_toggle_button_with_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1335,7 +1335,7 @@ Val   _lib7_Gtk_make_toggle_button_with_mnemonic   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1382,7 +1382,7 @@ Val   _lib7_Gtk_make_check_button_with_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1406,7 +1406,7 @@ Val   _lib7_Gtk_make_check_button_with_mnemonic   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1453,7 +1453,7 @@ Val   _lib7_Gtk_make_menu_item_with_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1477,7 +1477,7 @@ Val   _lib7_Gtk_make_menu_item_with_mnemonic   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1548,7 +1548,7 @@ Val   _lib7_Gtk_make_first_radio_button_with_label   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1573,7 +1573,7 @@ Val   _lib7_Gtk_make_next_radio_button_with_label   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     int slot = find_free_widget_slot ();
 
@@ -1597,7 +1597,7 @@ Val   _lib7_Gtk_make_first_radio_button_with_mnemonic   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1622,7 +1622,7 @@ Val   _lib7_Gtk_make_next_radio_button_with_mnemonic   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     int slot = find_free_widget_slot ();
 
@@ -1646,8 +1646,8 @@ Val   _lib7_Gtk_make_arrow   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    int               i0 =                              GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     int slot = find_free_widget_slot ();
 
@@ -1672,8 +1672,8 @@ Val   _lib7_Gtk_set_arrow   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_arrow_set( GTK_ARROW(/*arrow*/w0), int_to_arrow_direction(/*arrow_direction_to_int arrow_direction*/i1), int_to_shadow_style(/*shadow_style_to_int shadow_style*/i2) );
 
@@ -1695,8 +1695,8 @@ Val   _lib7_Gtk_make_horizontal_box   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    int               b0 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 1) == HEAP_TRUE;
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     int slot = find_free_widget_slot ();
 
@@ -1720,8 +1720,8 @@ Val   _lib7_Gtk_make_vertical_box   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    int               b0 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 1) == HEAP_TRUE;
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               b0 =                            GET_TUPLE_SLOT_AS_VAL( arg, 1) == HEAP_TRUE;
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     int slot = find_free_widget_slot ();
 
@@ -1791,9 +1791,9 @@ Val   _lib7_Gtk_make_table   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    int               i0 =                              GET_TUPLE_SLOT_AS_INT( arg, 1);
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               b2 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 3) == HEAP_TRUE;
+    int               i0 =                            GET_TUPLE_SLOT_AS_INT( arg, 1);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               b2 =                            GET_TUPLE_SLOT_AS_VAL( arg, 3) == HEAP_TRUE;
 
     int slot = find_free_widget_slot ();
 
@@ -1840,7 +1840,7 @@ Val   _lib7_Gtk_make_image_from_file   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    char*             s0 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 1));
+    char*             s0 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 1));
 
     int slot = find_free_widget_slot ();
 
@@ -1935,8 +1935,8 @@ Val   _lib7_Gtk_layout_put   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
 
     gtk_layout_put( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 
@@ -1960,8 +1960,8 @@ Val   _lib7_Gtk_layout_move   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
 
     gtk_layout_move( GTK_LAYOUT(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 
@@ -2008,8 +2008,8 @@ Val   _lib7_Gtk_fixed_put   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
 
     gtk_fixed_put(   GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 
@@ -2033,8 +2033,8 @@ Val   _lib7_Gtk_fixed_move   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
 
     gtk_fixed_move(  GTK_FIXED(/*layout*/w0), GTK_WIDGET(/*kid*/w1), /*x*/i2, /*y*/i3);
 
@@ -2056,12 +2056,12 @@ Val   _lib7_Gtk_make_adjustment   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 1)));
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
-    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 3)));
-    double            f3 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 4)));
-    double            f4 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 5)));
-    double            f5 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 6)));
+    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 1)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
+    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 3)));
+    double            f3 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 4)));
+    double            f4 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 5)));
+    double            f5 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 6)));
 
     int slot = find_free_widget_slot ();
 
@@ -2277,9 +2277,9 @@ Val   _lib7_Gtk_make_vertical_scale_with_range   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 1)));
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
-    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 3)));
+    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 1)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
+    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 3)));
 
     int slot = find_free_widget_slot ();
 
@@ -2303,9 +2303,9 @@ Val   _lib7_Gtk_make_horizontal_scale_with_range   (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 1)));
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
-    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 3)));
+    double            f0 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 1)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
+    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 3)));
 
     int slot = find_free_widget_slot ();
 
@@ -2353,8 +2353,8 @@ Val   _lib7_Gtk_make_pixmap   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     int slot = find_free_widget_slot ();
 
@@ -2402,8 +2402,8 @@ Val   _lib7_Gtk_push_text_on_status_bar   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    char*             s2 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 3));
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    char*             s2 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 3));
 
     int result = gtk_statusbar_push( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*text*/s2);
 
@@ -2426,7 +2426,7 @@ Val   _lib7_Gtk_pop_text_off_status_bar   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_statusbar_pop(GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1);
 
@@ -2449,8 +2449,8 @@ Val   _lib7_Gtk_remove_text_from_status_bar   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_statusbar_remove( GTK_STATUSBAR(/*status_bar*/w0), /*context*/i1, /*message*/i2);
 
@@ -2474,10 +2474,10 @@ Val   _lib7_Gtk_pack_box   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               b3 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 4) == HEAP_TRUE;
-    int               b4 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 5) == HEAP_TRUE;
-    int               i5 =                              GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               b3 =                            GET_TUPLE_SLOT_AS_VAL( arg, 4) == HEAP_TRUE;
+    int               b4 =                            GET_TUPLE_SLOT_AS_VAL( arg, 5) == HEAP_TRUE;
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
 
     if (!/*pack_to_int pack*/i2)  gtk_box_pack_start(   GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 ); else gtk_box_pack_end( GTK_BOX(/*box*/w0), GTK_WIDGET(/*kid*/w1), /*expand*/b3, /*fill*/b4, /*padding*/i5 );
 
@@ -2546,7 +2546,7 @@ Val   _lib7_Gtk_append_text_to_combo_box   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_combo_box_append_text( GTK_COMBO_BOX(/*combo_box*/w0), /*text*/s1);
 
@@ -2592,7 +2592,7 @@ Val   _lib7_Gtk_set_text_tooltip_on_widget   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_widget_set_tooltip_text( GTK_WIDGET(/*widget*/w0), /*text*/s1);
 
@@ -2615,7 +2615,7 @@ Val   _lib7_Gtk_set_ruler_metric   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_ruler_set_metric( GTK_RULER(/*ruler*/w0), int_to_metric(/*metric_to_int metric*/i1));
 
@@ -2638,10 +2638,10 @@ Val   _lib7_Gtk_set_ruler_range   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
-    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 3)));
-    double            f3 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 4)));
-    double            f4 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 5)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
+    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 3)));
+    double            f3 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 4)));
+    double            f4 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 5)));
 
     gtk_ruler_set_range( GTK_RULER(/*ruler*/w0), /*lower*/f1, /*upper*/f2, /*position*/f3, /*max_size*/f4);
 
@@ -2664,8 +2664,8 @@ Val   _lib7_Gtk_set_scrollbar_policy   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_scrolled_window_set_policy( GTK_SCROLLED_WINDOW(/*window*/w0), int_to_policy(/*scrollbar_policy_to_int horizontal_scrollbar*/i1), int_to_policy(/*scrollbar_policy_to_int vertical_scrollbar*/i2) );
 
@@ -2689,11 +2689,11 @@ Val   _lib7_Gtk_draw_rectangle   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               b2 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 3) == HEAP_TRUE;
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                              GET_TUPLE_SLOT_AS_INT( arg, 5);
-    int               i5 =                              GET_TUPLE_SLOT_AS_INT( arg, 6);
-    int               i6 =                              GET_TUPLE_SLOT_AS_INT( arg, 7);
+    int               b2 =                            GET_TUPLE_SLOT_AS_VAL( arg, 3) == HEAP_TRUE;
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
 
     gdk_draw_rectangle(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), /*filled*/b2, /*x*/i3, /*y*/i4, /*wide*/i5, /*high*/i6);
 
@@ -2718,12 +2718,12 @@ Val   _lib7_Gtk_draw_drawable   (Task* task, Val arg)
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
     GtkWidget*        w2 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 3) ];
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                              GET_TUPLE_SLOT_AS_INT( arg, 5);
-    int               i5 =                              GET_TUPLE_SLOT_AS_INT( arg, 6);
-    int               i6 =                              GET_TUPLE_SLOT_AS_INT( arg, 7);
-    int               i7 =                              GET_TUPLE_SLOT_AS_INT( arg, 8);
-    int               i8 =                              GET_TUPLE_SLOT_AS_INT( arg, 9);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
+    int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
+    int               i8 =                            GET_TUPLE_SLOT_AS_INT( arg, 9);
 
     gdk_draw_drawable(   GDK_DRAWABLE(/*drawable*/w0), GDK_GC(/*gcontext*/w1), GDK_DRAWABLE(/*from*/w2), /*from_x*/i3, /*from_y*/i4, /*to_x*/i5, /*to_y*/i6, /*wide*/i7, /*high*/i8);
 
@@ -2746,10 +2746,10 @@ Val   _lib7_Gtk_queue_redraw   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                              GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
 
     gtk_widget_queue_draw_area( GTK_WIDGET(/*widget*/w0), /*x*/i1, /*y*/i2, /*wide*/i3, /*high*/i4);
 
@@ -3014,7 +3014,7 @@ Val   _lib7_Gtk_set_combo_box_title   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_combo_box_set_title( GTK_COMBO_BOX(/*widget*/w0), /*title*/s1);
 
@@ -3037,7 +3037,7 @@ Val   _lib7_Gtk_set_window_title   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_window_set_title( GTK_WINDOW(/*window*/w0), /*title*/s1);
 
@@ -3060,8 +3060,8 @@ Val   _lib7_Gtk_set_window_default_size   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_window_set_default_size( GTK_WINDOW(/*widget*/w0), /*wide*/i1, /*high*/i2);
 
@@ -3084,8 +3084,8 @@ Val   _lib7_Gtk_set_minimum_widget_size   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_widget_set_size_request( GTK_WIDGET(/*widget*/w0), /*wide*/i1, /*high*/i2);
 
@@ -3108,7 +3108,7 @@ Val   _lib7_Gtk_set_border_width   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_container_set_border_width(GTK_CONTAINER(/*widget*/w0), /*width*/i1);
 
@@ -3131,7 +3131,7 @@ Val   _lib7_Gtk_set_event_box_visibility   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               b1 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 2) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
 
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(/*event_box*/w0),/*visibility*/b1);
 
@@ -3154,8 +3154,8 @@ Val   _lib7_Gtk_set_widget_alignment   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
-    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 3)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
+    double            f2 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 3)));
 
     gtk_misc_set_alignment(GTK_MISC(/*widget*/w0), /*x*/f1, /*y*/f2);
 
@@ -3178,7 +3178,7 @@ Val   _lib7_Gtk_set_widget_events   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_widget_set_events( GTK_WIDGET(/*widget*/w0), int_to_event_mask(/*events_to_int events*/i1));
 
@@ -3201,7 +3201,7 @@ Val   _lib7_Gtk_set_widget_name   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_widget_set_name( GTK_WIDGET(/*widget*/w0), /*name*/s1);
 
@@ -3224,7 +3224,7 @@ Val   _lib7_Gtk_set_label_justification   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_label_set_justify( GTK_LABEL(/*label*/w0), int_to_justification(/*justification_to_int justification*/i1));
 
@@ -3247,7 +3247,7 @@ Val   _lib7_Gtk_set_label_line_wrapping   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               b1 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 2) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
 
     gtk_label_set_line_wrap( GTK_LABEL(/*label*/w0), /*wrap_lines*/b1);
 
@@ -3270,7 +3270,7 @@ Val   _lib7_Gtk_set_label_underlines   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    char*             s1 =                 HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL(    arg, 2));
+    char*             s1 =   HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL( arg, 2));
 
     gtk_label_set_pattern( GTK_LABEL(/*label*/w0), /*underlines*/s1);
 
@@ -3293,7 +3293,7 @@ Val   _lib7_Gtk_set_scale_value_position   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_scale_set_value_pos( GTK_SCALE(/*scale*/w0), int_to_position(/*position_to_int position*/i1));
 
@@ -3316,7 +3316,7 @@ Val   _lib7_Gtk_set_draw_scale_value   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               b1 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 2) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
 
     gtk_scale_set_draw_value( GTK_SCALE(/*scale*/w0), /*draw_value*/b1);
 
@@ -3361,7 +3361,7 @@ Val   _lib7_Gtk_set_scale_value_digits_shown   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_scale_set_digits( GTK_SCALE(/*scale*/w0), /*digits*/i1);
 
@@ -3384,7 +3384,7 @@ Val   _lib7_Gtk_set_range_update_policy   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_range_set_update_policy( GTK_RANGE(/*scale*/w0), /*policy*/int_to_range_update_policy(/*update_policy_to_int policy*/i1));
 
@@ -3429,7 +3429,7 @@ Val   _lib7_Gtk_set_toggle_button_state   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               b1 =                              GET_TUPLE_SLOT_AS_VAL(    arg, 2) == HEAP_TRUE;
+    int               b1 =                            GET_TUPLE_SLOT_AS_VAL( arg, 2) == HEAP_TRUE;
 
     gtk_toggle_button_set_active( GTK_TOGGLE_BUTTON(/*toggle_button*/w0), /*state*/b1 != 0 );
 
@@ -3476,7 +3476,7 @@ Val   _lib7_Gtk_set_adjustment_value   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL(    arg, 2)));
+    double            f1 =        *(PTR_CAST(double*, GET_TUPLE_SLOT_AS_VAL( arg, 2)));
 
     gtk_adjustment_set_value( GTK_ADJUSTMENT(/*adjustment*/w0), /*value*/f1);
 
@@ -3666,10 +3666,10 @@ Val   _lib7_Gtk_add_table_kid   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                              GET_TUPLE_SLOT_AS_INT( arg, 5);
-    int               i5 =                              GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
 
     gtk_table_attach_defaults( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5 );
 
@@ -3693,14 +3693,14 @@ Val   _lib7_Gtk_add_table_kid2   (Task* task, Val arg)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
     GtkWidget*        w1 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 2) ];
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
-    int               i3 =                              GET_TUPLE_SLOT_AS_INT( arg, 4);
-    int               i4 =                              GET_TUPLE_SLOT_AS_INT( arg, 5);
-    int               i5 =                              GET_TUPLE_SLOT_AS_INT( arg, 6);
-    int               i6 =                              GET_TUPLE_SLOT_AS_INT( arg, 7);
-    int               i7 =                              GET_TUPLE_SLOT_AS_INT( arg, 8);
-    int               i8 =                              GET_TUPLE_SLOT_AS_INT( arg, 9);
-    int               i9 =                              GET_TUPLE_SLOT_AS_INT( arg, 10);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i3 =                            GET_TUPLE_SLOT_AS_INT( arg, 4);
+    int               i4 =                            GET_TUPLE_SLOT_AS_INT( arg, 5);
+    int               i5 =                            GET_TUPLE_SLOT_AS_INT( arg, 6);
+    int               i6 =                            GET_TUPLE_SLOT_AS_INT( arg, 7);
+    int               i7 =                            GET_TUPLE_SLOT_AS_INT( arg, 8);
+    int               i8 =                            GET_TUPLE_SLOT_AS_INT( arg, 9);
+    int               i9 =                            GET_TUPLE_SLOT_AS_INT( arg, 10);
 
     gtk_table_attach( GTK_TABLE(/*table*/w0), GTK_WIDGET(/*kid*/w1), /*left*/i2, /*right*/i3, /*top*/i4, /*bottom*/i5, /*sum_table_attach_options xoptions*/i6, /*sum_table_attach_options yoptions*/i7, /*xpadding*/i8, /*ypadding*/i9 );
 
@@ -3771,8 +3771,8 @@ Val   _lib7_Gtk_set_table_row_spacing   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_table_set_row_spacing( GTK_TABLE(/*table*/w0), /*row*/i1, /*spacing*/i2);
 
@@ -3795,8 +3795,8 @@ Val   _lib7_Gtk_set_table_col_spacing   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
-    int               i2 =                              GET_TUPLE_SLOT_AS_INT( arg, 3);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i2 =                            GET_TUPLE_SLOT_AS_INT( arg, 3);
 
     gtk_table_set_col_spacing( GTK_TABLE(/*table*/w0), /*col*/i1, /*spacing*/i2);
 
@@ -3819,7 +3819,7 @@ Val   _lib7_Gtk_set_table_row_spacings   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_table_set_row_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
 
@@ -3842,7 +3842,7 @@ Val   _lib7_Gtk_set_table_col_spacings   (Task* task, Val arg)
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
     GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];
-    int               i1 =                              GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int               i1 =                            GET_TUPLE_SLOT_AS_INT( arg, 2);
 
     gtk_table_set_col_spacings( GTK_TABLE(/*table*/w0), /*spacing*/i1);
 
