@@ -34,10 +34,10 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
     int	flag, status;
 
     if (ctl == OPTION_NULL) {
-
-	int	optSz = sizeof(int);
-	status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &optSz);
-	ASSERT((status < 0) || (optSz == sizeof(int)));
+        //
+	socklen_t option_len = sizeof(int);
+	status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &option_len);
+	ASSERT((status < 0) || (option_len == sizeof(int)));
 
     } else {
 
@@ -45,7 +45,7 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 	status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
     }
 
-    if (status < 0)	return  RAISE_SYSERR(task, status);
+    if (status < 0)	return  RAISE_SYSERR( task, status );
     else	        return  (flag ? HEAP_TRUE : HEAP_FALSE);
 }
 
