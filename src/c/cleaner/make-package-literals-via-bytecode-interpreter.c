@@ -158,8 +158,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
     if (bytecode_vector_length_in_bytes <= 8)   return HEAP_NIL;
 
-    Val_Sized_Unt  magic     =  GET32(bytecode_vector);   pc += 4;
-    Val_Sized_Unt  max_depth =  GET32(bytecode_vector);   pc += 4;
+    Val_Sized_Unt  magic
+	=
+	GET32(bytecode_vector);   pc += 4;
+
+    Val_Sized_Unt  max_depth							/* This variable is currently unused, so suppress 'unused var' compiler warning: */   __attribute__((unused))
+	=
+	GET32(bytecode_vector);   pc += 4;
 
     if (magic != V1_MAGIC) {
 	die("bogus literal magic number %#x", magic);
