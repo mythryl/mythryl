@@ -95,7 +95,9 @@ Cleaner statistics stuff:
 
  static int	    set_up_empty_tospace_buffers			(Heap*          heap,   int            youngest_agegroup_without_cleaning_request											);
 //
+#ifdef  BO_DEBUG
  static void         scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk									);
+#endif
 //
  static void         forward_all_roots					(Task*          task,   Heap*          heap,                  Val**  roots,               int                                   max_cleaned_agegroup			);
  static void         forward_all_inter_agegroup_referenced_values	(Task*          task,   Heap*          heap,                                              int                                   max_cleaned_agegroup			);
