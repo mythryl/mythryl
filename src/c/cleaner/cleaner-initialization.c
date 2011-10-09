@@ -19,6 +19,15 @@
 
 #include <stdarg.h>
 #include <string.h>
+
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #include "runtime-base.h"
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
@@ -332,7 +341,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     if (cleaner_statistics_fd > 0) {
 	//	
-	Cleaner_Statistics_Header   header;
+      Cleaner_Statistics_Header   header;									// Cleaner_Statistics_Header		is from   src/c/h/cleaner-statistics-2.h
 	//
 	ZERO_BIGCOUNTER( &heap->total_bytes_allocated );
 	//
@@ -346,7 +355,13 @@ void   set_up_heap   (			// Create and initialize the heap.
 	header.agegroup0_buffer_bytesize = params->agegroup0_buffer_bytesize;
 	header.active_agegroups        = params->active_agegroups;
 	//
-	gettimeofday (&(header.start_time), NULL);
+	{   struct timeval tv;
+	    //
+	    gettimeofday ( &tv, NULL);
+	    //
+	    header.start_time.seconds  =  tv.tv_sec;	
+	    header.start_time.uSeconds =  tv.tv_usec;	
+	};
 	//
 	write( cleaner_statistics_fd, (char*)&header, sizeof( Cleaner_Statistics_Header ) );
     }

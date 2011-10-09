@@ -13,8 +13,8 @@
 
 // Cleaner_Statistics_Header
 //
-typedef struct {
-    Time	start_time;			// Time of initialization.
+typedef struct {				// 
+    Time	start_time;			// Time of initialization.   Type 'Time' is defined in   src/c/h/runtime-timer.h
     Unt1	mask;				// Bitmask telling which things were measured.
     Unt1	is_new_runtime;			// TRUE iff this is the new runtime new runtime parameters.
     Unt1	agegroup0_buffer_bytesize;	// Size of the allocation space.
