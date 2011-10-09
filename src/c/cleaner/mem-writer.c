@@ -11,6 +11,10 @@
 
 #include "../config.h"
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #include "runtime-base.h"
 #include "writer.h"
 
@@ -93,7 +97,9 @@ static void   Write   (Writer* wr,  const void* data,  Punt nbytes)   {
 static void   Flush   (Writer* wr)   {
     //        =====
     //
-    wr_buffer_t*  bp =   BufOf(wr);
+    wr_buffer_t*  bp		/* This variable is unused if ASSERT is off so suppress 'unused var' compiler warning: */   __attribute__((unused))
+	=
+	BufOf(wr);
 
     ASSERT(bp->next <= bp->top);
 }
@@ -104,6 +110,7 @@ static long   Tell   (Writer* wr)   {
     //        ====
     //
     die ("Tell not supported on memory writers");
+    return 0;							// Just to suppress "no return statement in function returning non-void" compiler warning.
 }
 
 
@@ -119,7 +126,9 @@ static void   Seek   (Writer* wr,  long offset)   {
 static void   Free   (Writer* wr)   {
     //        ====
     //
-    wr_buffer_t* bp = BufOf(wr);
+    wr_buffer_t* bp						/* This variable is unused if ASSERT is off so suppress 'unused var' compiler warning: */   __attribute__((unused))
+	=
+	BufOf(wr);
 
     ASSERT( bp->next == bp->top );
 
