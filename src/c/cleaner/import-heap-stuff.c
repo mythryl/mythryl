@@ -60,10 +60,10 @@ Val*   heapio__read_externs_table   (Inbuf *bp)   {
 
         externs[i] = heapval;
 
-	cp +=  strlen(cp) + 1;
+	cp +=  strlen((char*)cp) + 1;
     }
 
-    FREE (buf);
+    FREE( buf );
 
     return externs;
 }
@@ -84,7 +84,9 @@ Status   heapio__seek   (Inbuf* bp,  long offset) {
 	if (bp->buf + bp->nbytes <= newPos)   return FAILURE;
 
 	bp->nbytes -= (newPos - bp->buf);
+
 	bp->buf = newPos;
+
 	return SUCCESS;
 
     } else {
@@ -92,6 +94,8 @@ Status   heapio__seek   (Inbuf* bp,  long offset) {
         if (fseek (bp->file, offset, SEEK_SET) != 0)   die ("unable to seek on heap image\n");
 
         bp->nbytes = 0;					// Just in case?
+
+	return SUCCESS;
     }
 }							// fun heapio__seek
 
