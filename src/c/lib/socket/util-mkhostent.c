@@ -47,10 +47,11 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
     // Build the return result:
 
     Val	addr;
-    Val	addresses;
     Val	result;
 
     int	nAddresses;
+ 
+    Val	addresses = LIST_NIL;
 
     Val name    =  make_ascii_string_from_c_string(                     task,                    hentry->h_name		);
     Val aliases =  make_ascii_strings_from_vector_of_c_strings( task,                    hentry->h_aliases	);
@@ -58,13 +59,13 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 
     for (nAddresses = 0;  hentry->h_addr_list[nAddresses] != NULL;  nAddresses++);
 
-    for (int i = nAddresses, addresses = LIST_NIL;  --i >= 0;  ) {
+    for (int i = nAddresses;  --i >= 0;  ) {
         //
 	addr = allocate_nonempty_ascii_string (task, hentry->h_length);
 
 	memcpy (GET_VECTOR_DATACHUNK_AS(void*, addr), hentry->h_addr_list[i], hentry->h_length);
 
-	LIST_CONS(task, addresses, addr, addresses);
+	LIST_CONS( task, addresses, addr, addresses );
     }
 
     REC_ALLOC4 (task, result, name, aliases, af, addresses);

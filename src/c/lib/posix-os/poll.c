@@ -118,11 +118,16 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
     //
     // The version of the polling operation for systems that provide SVR4 polling.
 
-    int		    tout;
     struct pollfd*   fds;
     struct pollfd*   fdp;
-    int		    nfds, i, flag;
-    Val	    l, item;
+
+    int tout;
+    int nfds;
+    int i;
+    int flag;
+
+    Val l;
+    Val item;
 
     if (timeout == NULL)   tout = -1;
     else	           tout = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);        // Convert to miliseconds.

@@ -21,7 +21,7 @@
 
 #include "runtime-base.h"
 
-/* typedef  void*  Val; */	// Defined in runtime-base.h
+/* typedef  void*  Val; */	// Defined in   src/c/h/runtime-base.h
 
 #ifdef _ASM_
 
