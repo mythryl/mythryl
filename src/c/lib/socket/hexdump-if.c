@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H

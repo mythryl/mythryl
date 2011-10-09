@@ -21,7 +21,7 @@
 
 
 Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
-    //=====================
+    //================================
     //
     // Mythryl type:
     //
