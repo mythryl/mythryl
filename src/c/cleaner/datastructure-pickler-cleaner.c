@@ -1003,7 +1003,7 @@ static void   extract_literals_from_codechunks   (
 	=
 	(Embedded_Chunk_Info*) _info;
 
-    int  chunk_bytesize;
+    int  chunk_bytesize = 0;							// Initialization is redundant; done just to suppress compiler "may be used uninitialized" warning.
 
     if (info->relocated_address == (Val)0)   return;
 
