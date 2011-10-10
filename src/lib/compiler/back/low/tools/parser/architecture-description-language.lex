@@ -187,13 +187,13 @@ fun x @@ y =  y ! x ;
 
 exception NOT_FOUND;
 
-keywords    = hashtable::make_hashtable (hash_string::hash_string, (==)) (13,NOT_FOUND) 
+keywords    = hashtable::make_hashtable (hash_string::hash_string, (==)) { size_hint => 13, not_found_exception => NOT_FOUND }
             :  hashtable::Hashtable (String, (Int, Int) -> Token (Semantic_Value,Int));
 
-adlkeywords = hashtable::make_hashtable (hash_string::hash_string, (==)) (13,NOT_FOUND) 
+adlkeywords = hashtable::make_hashtable (hash_string::hash_string, (==)) { size_hint => 13, not_found_exception => NOT_FOUND }
             : hashtable::Hashtable (String, (Int, Int) -> Token (Semantic_Value, Int));
 
-symbols     = hashtable::make_hashtable (hash_string::hash_string, (==)) (13,NOT_FOUND)
+symbols     = hashtable::make_hashtable (hash_string::hash_string, (==)) { size_hint => 13, not_found_exception => NOT_FOUND }
             : hashtable::Hashtable (String, (Int, Int) -> Token (Semantic_Value, Int));
 
 # Set up hashtable
