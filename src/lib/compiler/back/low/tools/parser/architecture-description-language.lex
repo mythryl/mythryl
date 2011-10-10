@@ -315,27 +315,27 @@ my _ = apply (hashtable::set symbols)
   ("^^", meld)		# Called 'concat' in SML/NJ 
 );
 
-fun lookup (adl_mode,s,yypos)
+fun look_up (adl_mode,s,yypos)
     =
     {   l = string::length s;
 
 	fun id_fn () = id(unique_symbol::to_string
 			(unique_symbol::from_string s), yypos, yypos + l);
 
-        hashtable::lookup keywords s (yypos,yypos + l) 
+        hashtable::look_up keywords s (yypos,yypos + l) 
 	except _ =
 	     if adl_mode  
-	       (hashtable::lookup adlkeywords s (yypos,yypos + l) except _ =  id_fn());
+	       (hashtable::look_up adlkeywords s (yypos,yypos + l) except _ =  id_fn());
 	     else
                id_fn();
 	     fi;
     };
 
-fun lookup_sym (s,yypos)
+fun look_up_sym (s,yypos)
     =
     {   l = string::length s;
 
-        hashtable::lookup symbols s (yypos,yypos + l) 
+        hashtable::look_up symbols s (yypos,yypos + l) 
 	except _ =  symbol (unique_symbol::to_string
 			   (unique_symbol::from_string s), yypos, yypos + l);
     };
@@ -407,7 +407,7 @@ inf=i;
 <initial,asm>"nullified:" => (if adl_mode nullified_colon(yypos,      size yytext); else REJECT(); fi);
 <initial,asm>"candidate:" => (if adl_mode candidate_colon(yypos,      size yytext); else REJECT(); fi);
 
-<initial,asm>{id}	=> (lookup(adl_mode,yytext,yypos));
+<initial,asm>{id}	=> (look_up(adl_mode,yytext,yypos));
 <initial,asm>{tyvar}	=> (tyvar(yytext,yypos,yypos + size yytext));
 <initial,asm>"("	=> (lparen(yypos,yypos+1));
 <initial,asm>")"	=> (rparen(yypos,yypos+1));
@@ -426,7 +426,7 @@ inf=i;
 				yybegin asmquote; 
                                 ldquote(yypos,yypos+size yytext);
 			    else
-			        lookup_sym(yytext,yypos);
+			        look_up_sym(yytext,yypos);
                             fi
                            );
 <asmquote>{asmsymbol}	=> (if (yytext == *asm_rquote )
@@ -453,7 +453,7 @@ inf=i;
 				 if (*meta_level == 0 ) yybegin asmquote; fi;
 				 rmeta(yypos,yypos+size yytext);
 			    else
-			        lookup_sym(yytext,yypos);
+			        look_up_sym( yytext, yypos );
                             fi
                             );
 <asmquote>{asmtext}	=> (debug("text=" + yytext + "\n"); 
