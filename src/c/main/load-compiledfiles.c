@@ -124,7 +124,7 @@ static void   open_logfile   () {
 
     log_fd = fopen( filename, "w" );
 
-    fprintf(stderr, "\n                load-compiledfiles.c:   Writing load log to     %s\n\n", filename);
+    fprintf(stderr, "\n                    load-compiledfiles.c:   Writing load log to     %s\n\n", filename);
 }
 
 
@@ -280,7 +280,7 @@ void   load_compiled_files   (
 	    }
 	    fprintf(
 		log_fd ? log_fd : stderr,
-		"\n                load-compiledfiles.c:   Runtime system picklehash is      %s\n\n",
+		"\n                    load-compiledfiles.c:   Runtime system picklehash is      %s\n\n",
 		filename
 	    );
 
@@ -321,7 +321,7 @@ static Val   read_in_compiled_file_list   (
 
     fprintf (
         stderr,
-        "                load-compiledfiles.c:   Reading   file          %s\n",
+        "                    load-compiledfiles.c:   Reading   file          %s\n",
         compiled_files_to_load_filename
     );
 
@@ -329,7 +329,7 @@ static Val   read_in_compiled_file_list   (
 	//
 	fprintf (
 	    log_fd,
-	    "                load-compiledfiles.c:   Reading   file                    %s\n",
+	    "                    load-compiledfiles.c:   Reading   file                    %s\n",
 	    compiled_files_to_load_filename
 	);
     }
@@ -827,10 +827,10 @@ static void   load_compiled_file   (
     // Log all files loaded for diagnostic/information purposes:
     //
     if (!archive_offset) {
-
+        //
 	fprintf (
 	    log_fd ? log_fd : stderr,
-	    "                load-compiledfiles.c:   Loading   object file   %s\n",
+	    "                    load-compiledfiles.c:   Loading   object file   %s\n",
 		   filename
 	);
 
@@ -838,7 +838,7 @@ static void   load_compiled_file   (
 
 	fprintf (
 	    log_fd ? log_fd : stderr,
-	    "                load-compiledfiles.c:   Loading   offset        %8d in lib  %s  \tnamely object file %s\n",
+	    "                    load-compiledfiles.c:   Loading   offset        %8d in lib  %s  \tnamely object file %s\n",
 	    archive_offset,
 	    filename,
 	    compiledfile_filename
@@ -855,9 +855,9 @@ static void   load_compiled_file   (
     // the image of our compiledfile:
     //
     if (archive_offset) {
-
+        //
         if (fseek (file, archive_offset, SEEK_SET) == -1) {
-
+	    //
   	    // XXX BUGGO FIXME should call strerror(errno)
             // here to report the specific error:
             //
@@ -884,10 +884,10 @@ static void   load_compiled_file   (
     header.bytes_of_compiled_code		= BIGENDIAN_TO_HOST( header.bytes_of_compiled_code		);
     header.bytes_of_symbolmapstack		= BIGENDIAN_TO_HOST( header.bytes_of_symbolmapstack		);
 
-    // XXX BUGGO FIXME These days 99% of the market is little-endian,
+    // XXX SUCKO FIXME These days 99% of the market is little-endian,
     // so should either change to always little-endian, or else
     // (better) always use host system's native byte ordering.
-    // Ideally, we should be able to just mmap the .compiledfile
+    // Ideally we should be able to just mmap the .compiledfile into
     // memory and be ready to go, with no bit-fiddling needed at all.
 
 
