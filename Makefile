@@ -154,6 +154,8 @@ tart:    clean tarball id			# "tart" == "tar + tags"
 
 dist:   dist-clean
 
+cheg:	check benchmarks gtk-glue			# I use this just to exercise benchmarks and gtk-glue regularly, as insurance against creeping bitrot. -- CrT
+
 check:
 	@MYTHRYL_ROOT=`pwd` sh/make-check
 
