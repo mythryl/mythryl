@@ -283,7 +283,7 @@ void   set_signal_mask   (Val sigList)   {
     // to change the signal mask.
     // This is our only invocation of this syscall:
     //
-    log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x", mask );
+//  log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x", mask );	// Commented out because it floods mythryl.compile.log -- 2011-10-10 CrT
     //
     SET_PROCESS_SIGNAL_MASK( mask );
 }
