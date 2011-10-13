@@ -228,6 +228,7 @@ rest3:	bin/mythryl-yacc \
 	src/lib/compiler/back/low/tools/precedence-parser.lib.frozen \
 	src/lib/compiler/back/low/tools/architecture-parser.lib.frozen \
 	src/lib/compiler/back/low/tools/match-compiler.lib.frozen \
+	src/lib/compiler/back/low/tools/arch/make-sourcecode-for-backend-packages.lib.frozen \
 	bin/c-glue-maker \
 	bin/nowhere \
 	src/lib/x-kit/tut/arithmetic-game/arithmetic-game-app.lib.frozen \
@@ -367,7 +368,7 @@ src/lib/c-glue-lib/c.lib.frozen:   src/lib/c-glue-lib/internals/c-internals.lib.
 #     src/lib/compiler/back/low/intel32/backend-intel32.lib
 # to function correctly:
 #
-backends:  # src/lib/compiler/back/low/intel32/backend-intel32.lib.frozen
+backends: #  src/lib/compiler/back/low/intel32/backend-intel32.lib.frozen
 	sh/make-sourcecode-for-backend-intel32
 	sh/make-sourcecode-for-backend-pwrpc32
 	sh/make-sourcecode-for-backend-sparc32
