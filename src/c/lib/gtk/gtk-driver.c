@@ -880,7 +880,7 @@ Val   _lib7_Gtk_get_widget_allocation   (Task* task,  Val arg)   {		// : Widget 
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
 	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
@@ -907,7 +907,7 @@ Val   _lib7_Gtk_get_window_pointer   (Task* task,  Val arg)   {		//  : Widget ->
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+	GtkWidget*       w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
 	w0 = GTK_WIDGET( w0 );		// Verify user gave us something appropriate.
 
@@ -963,7 +963,7 @@ Val   _lib7_Gtk_unref_object   (Task* task,  Val arg)   {		//  : Int -> Void    
     //
     #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 	//
-	GtkWidget*        w0 =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+	GtkWidget*        w0 =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
 	g_object_unref( G_OBJECT( w0 ) );
 
@@ -3863,11 +3863,11 @@ Val   _lib7_Gtk_set_clicked_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "clicked", G_CALLBACK( run_clicked_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "clicked", G_CALLBACK( run_clicked_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -3886,11 +3886,11 @@ Val   _lib7_Gtk_set_pressed_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "pressed", G_CALLBACK( run_pressed_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "pressed", G_CALLBACK( run_pressed_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -3909,11 +3909,11 @@ Val   _lib7_Gtk_set_release_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "release", G_CALLBACK( run_release_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "release", G_CALLBACK( run_release_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -3932,11 +3932,11 @@ Val   _lib7_Gtk_set_enter_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "enter", G_CALLBACK( run_enter_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "enter", G_CALLBACK( run_enter_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -3955,11 +3955,11 @@ Val   _lib7_Gtk_set_leave_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "leave", G_CALLBACK( run_leave_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "leave", G_CALLBACK( run_leave_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -3978,11 +3978,11 @@ Val   _lib7_Gtk_set_activate_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( GTK_MENU_ITEM(widget), "activate", G_CALLBACK( run_activate_callback ), (void*)id );
+    g_signal_connect( GTK_MENU_ITEM(w0), "activate", G_CALLBACK( run_activate_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4001,11 +4001,11 @@ Val   _lib7_Gtk_set_destroy_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "destroy", G_CALLBACK( run_destroy_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "destroy", G_CALLBACK( run_destroy_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4024,11 +4024,11 @@ Val   _lib7_Gtk_set_realize_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "realize", G_CALLBACK( run_realize_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "realize", G_CALLBACK( run_realize_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4047,11 +4047,11 @@ Val   _lib7_Gtk_set_button_press_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "button_press_event", G_CALLBACK( run_button_press_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "button_press_event", G_CALLBACK( run_button_press_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4070,11 +4070,11 @@ Val   _lib7_Gtk_set_button_release_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "button_release_event", G_CALLBACK( run_button_release_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "button_release_event", G_CALLBACK( run_button_release_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4093,11 +4093,11 @@ Val   _lib7_Gtk_set_scroll_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "scroll_event", G_CALLBACK( run_scroll_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "scroll_event", G_CALLBACK( run_scroll_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4116,11 +4116,11 @@ Val   _lib7_Gtk_set_motion_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "motion_notify_event", G_CALLBACK( run_motion_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "motion_notify_event", G_CALLBACK( run_motion_notify_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4139,11 +4139,11 @@ Val   _lib7_Gtk_set_delete_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "delete_event", G_CALLBACK( run_delete_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "delete_event", G_CALLBACK( run_delete_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4162,11 +4162,11 @@ Val   _lib7_Gtk_set_expose_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "expose_event", G_CALLBACK( run_expose_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "expose_event", G_CALLBACK( run_expose_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4185,11 +4185,11 @@ Val   _lib7_Gtk_set_key_press_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "key_press_event", G_CALLBACK( run_key_press_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "key_press_event", G_CALLBACK( run_key_press_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4208,11 +4208,11 @@ Val   _lib7_Gtk_set_key_release_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "key_release_event", G_CALLBACK( run_key_release_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "key_release_event", G_CALLBACK( run_key_release_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4231,11 +4231,11 @@ Val   _lib7_Gtk_set_enter_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "enter_notify_event", G_CALLBACK( run_enter_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "enter_notify_event", G_CALLBACK( run_enter_notify_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4254,11 +4254,11 @@ Val   _lib7_Gtk_set_leave_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "leave_notify_event", G_CALLBACK( run_leave_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "leave_notify_event", G_CALLBACK( run_leave_notify_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4277,11 +4277,11 @@ Val   _lib7_Gtk_set_configure_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "configure_event", G_CALLBACK( run_configure_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "configure_event", G_CALLBACK( run_configure_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4300,11 +4300,11 @@ Val   _lib7_Gtk_set_focus_in_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "focus_in_event", G_CALLBACK( run_focus_in_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "focus_in_event", G_CALLBACK( run_focus_in_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4323,11 +4323,11 @@ Val   _lib7_Gtk_set_focus_out_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "focus_out_event", G_CALLBACK( run_focus_out_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "focus_out_event", G_CALLBACK( run_focus_out_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4346,11 +4346,11 @@ Val   _lib7_Gtk_set_map_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "map_event", G_CALLBACK( run_map_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "map_event", G_CALLBACK( run_map_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4369,11 +4369,11 @@ Val   _lib7_Gtk_set_unmap_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "unmap_event", G_CALLBACK( run_unmap_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "unmap_event", G_CALLBACK( run_unmap_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4392,11 +4392,11 @@ Val   _lib7_Gtk_set_property_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "property_notify_event", G_CALLBACK( run_property_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "property_notify_event", G_CALLBACK( run_property_notify_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4415,11 +4415,11 @@ Val   _lib7_Gtk_set_selection_clear_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "selection_clear_event", G_CALLBACK( run_selection_clear_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "selection_clear_event", G_CALLBACK( run_selection_clear_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4438,11 +4438,11 @@ Val   _lib7_Gtk_set_selection_request_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "selection_request_event", G_CALLBACK( run_selection_request_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "selection_request_event", G_CALLBACK( run_selection_request_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4461,11 +4461,11 @@ Val   _lib7_Gtk_set_selection_notify_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "selection_notify_event", G_CALLBACK( run_selection_notify_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "selection_notify_event", G_CALLBACK( run_selection_notify_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4484,11 +4484,11 @@ Val   _lib7_Gtk_set_proximity_in_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "proximity_in_event", G_CALLBACK( run_proximity_in_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "proximity_in_event", G_CALLBACK( run_proximity_in_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4507,11 +4507,11 @@ Val   _lib7_Gtk_set_proximity_out_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "proximity_out_event", G_CALLBACK( run_proximity_out_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "proximity_out_event", G_CALLBACK( run_proximity_out_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4530,11 +4530,11 @@ Val   _lib7_Gtk_set_client_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "client_event", G_CALLBACK( run_client_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "client_event", G_CALLBACK( run_client_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4553,11 +4553,11 @@ Val   _lib7_Gtk_set_no_expose_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "no_expose_event", G_CALLBACK( run_no_expose_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "no_expose_event", G_CALLBACK( run_no_expose_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4576,11 +4576,11 @@ Val   _lib7_Gtk_set_window_state_event_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "window_state_event", G_CALLBACK( run_window_state_event_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "window_state_event", G_CALLBACK( run_window_state_event_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4599,11 +4599,11 @@ Val   _lib7_Gtk_set_toggled_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "toggled", G_CALLBACK( run_toggled_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "toggled", G_CALLBACK( run_toggled_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
@@ -4622,11 +4622,11 @@ Val   _lib7_Gtk_set_value_changed_callback (Task* task, Val arg)
 {
 #if (HAVE_GTK_2_0_GTK_GTK_H || HAVE_GTK_GTK_H)
 
-    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ TAGGED_INT_TO_C_INT(arg) ];
+    GtkWidget*        w0 __attribute__((unused)) =    (GtkWidget*)      widget[ GET_TUPLE_SLOT_AS_INT( arg, 1) ];        // '1' because 'arg' is a duple (session, widget).
 
     int id   =  find_free_callback_id ();
 
-    g_signal_connect( G_OBJECT(widget), "value_changed", G_CALLBACK( run_value_changed_callback ), (void*)id );
+    g_signal_connect( G_OBJECT(w0), "value_changed", G_CALLBACK( run_value_changed_callback ), (void*)id );
 
     return TAGGED_INT_FROM_C_INT(id);
 #else
