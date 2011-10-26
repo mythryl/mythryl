@@ -75,10 +75,15 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 	    //
 	    set_up_pthread_state( pthread_table_global[i] );
 
-	    // single timers are currently shared among multiple Pthreads:
+	    // Single timers are currently shared
+	    // among multiple pthreads:
+	    //
 	    if (i != 0) {
-		pthread_table_global[i]->cpu_time_at_start_of_last_cleaning = pthread_table_global[0]->cpu_time_at_start_of_last_cleaning;
-		pthread_table_global[i]->cumulative_cleaning_cpu_time	= pthread_table_global[0]->cumulative_cleaning_cpu_time;
+		pthread_table_global[i]->cpu_time_at_start_of_last_cleaning
+              = pthread_table_global[0]->cpu_time_at_start_of_last_cleaning;
+		//
+		pthread_table_global[i]->cumulative_cleaning_cpu_time
+	      = pthread_table_global[0]->cumulative_cleaning_cpu_time;
 	    }
 	}
 

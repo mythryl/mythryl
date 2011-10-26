@@ -13,7 +13,7 @@
 
 
 Val   _lib7_MP_acquire_pthread   (Task* task,  Val arg)   {			// Apparently never called.
-    //=====================
+    //========================
     //
     #ifdef MULTICORE_SUPPORT
 	//

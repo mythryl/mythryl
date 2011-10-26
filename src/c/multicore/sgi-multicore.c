@@ -35,14 +35,19 @@
 static Lock      AllocLock ();        
 static Barrier*  AllocBarrier();
 
-static usptr_t*	arena;		// Arena for shared sync chunks.
-static ulock_t	MP_ArenaLock;	// Must be held to alloc/free a lock.
-static ulock_t	MP_ProcLock;	// Must be held to acquire/release procs.
+static usptr_t*	arena;								// Arena for shared sync chunks.
 
-Lock	 mc_cleaner_lock_global;
-Lock	 mc_cleaner_gen_lock_global;
-Barrier* mc_cleaner_barrier_global;
-Lock	 mc_timer_lock_global;
+static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a lock.
+
+static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
+
+Lock	 mc_cleaner_lock_global;						// Used only in   src/c/cleaner/multicore-cleaning-stuff.c
+
+Lock	 mc_cleaner_gen_lock_global;						// Used only in   src/c/cleaner/make-strings-and-vectors-etc.c
+
+Barrier* mc_cleaner_barrier_global;						// Used only with mc_barrier prim, in   src/c/cleaner/multicore-cleaning-stuff.c
+
+Lock	 mc_timer_lock_global;							// Apparently never used.
 
 
 
@@ -211,7 +216,7 @@ static void   fix_pnum   (int n)   {
  
 
 
-int   mc_max_pthreads   ()   {
+int   mc_max_pthreads   ()   {						// This fn gets exported to the Mythryl level; not used at the C level.
     //===============
     //
     return MAX_PTHREADS;
@@ -280,8 +285,10 @@ Val   mc_acquire_pthread   (Task* task, Val arg)   {
     //
     Task* p;
     Pthread* pthread;
-    Val v = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-    Val f = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+
+    Val thread_arg  =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->thread.
+    Val closure_arg =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->closure
+									// and also              pthread->task->link.
     int i;
 
     #ifdef MULTICORE_SUPPORT_DEBUG
@@ -343,10 +350,10 @@ Val   mc_acquire_pthread   (Task* task, Val arg)   {
     p->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
     p->argument		=  HEAP_VOID;
     p->fate		=  PTR_CAST( Val, return_c);
-    p->closure		=  f;
+    p->closure		=  closure_arg;
     p->program_counter	= 
-    p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( f );
-    p->thread	        =  v;
+    p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
+    p->thread	        =  thread_arg;
   
     if (pthread->status == NO_KERNEL_THREAD_ALLOCATED) {
 	//

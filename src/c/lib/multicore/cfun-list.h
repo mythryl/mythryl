@@ -26,7 +26,7 @@
 CFUNC("acquire_pthread","acquire_pthread",	_lib7_MP_acquire_pthread,	"")		// Defined in   src/c/lib/multicore/acquire-pthread.c 
 CFUNC("max_pthreads","max_pthreads",		_lib7_MP_max_pthreads,		"")		// Defined in   src/c/lib/multicore/max-pthreads.c 
 CFUNC("release_pthread","release_pthread",	_lib7_MP_release_pthread,	"")		// Defined in   src/c/lib/multicore/release-pthread.c 
-CFUNC("spin_lock","spin_lock",		_lib7_MP_spin_lock,		"")		// Defined in   src/c/lib/multicore/spin-lock.c 
+CFUNC("spin_lock","spin_lock",			_lib7_MP_spin_lock,		"")		// Defined in   src/c/lib/multicore/spin-lock.c 
 
 
 

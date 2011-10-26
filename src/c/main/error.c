@@ -68,8 +68,11 @@ void   die   (char *fmt, ...)   {
     va_end(ap);
 
     #ifdef MULTICORE_SUPPORT
-	mc_shut_down ();
-    #endif
+	// Release any platform-specific multicore-support
+	// resources such as kernel locks or mmapped segments:
+	//
+	mc_shut_down ();				// mc_shut_down		defined in   src/c/multicore/sgi-multicore.c
+    #endif						// mc_shut_down		defined in   src/c/multicore/solaris-multicore.c
 
     print_stats_and_exit( 1 );
 }

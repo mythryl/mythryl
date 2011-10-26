@@ -61,7 +61,7 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ccalls				)		// Libmythryl_Ccalls			def i
 
 
 #ifdef DLOPEN
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynamic_Loading			def in    src/c/lib/dynamic-loading/libmythryl-dynamic-loading.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Dynamic_Loading			)		// Libmythryl_Dynamic_Loading		def in    src/c/lib/dynamic-loading/libmythryl-dynamic-loading.c
 #endif
 
 

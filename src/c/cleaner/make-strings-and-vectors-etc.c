@@ -231,10 +231,10 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
     PTR_CAST(Val*, v)[-1] = MAKE_TAGWORD(new_length_in_words, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
 }
 
+// Allocate an uninitialized chunk of raw64 data. 			I can't find any code which references this fn. -- 2011-10-25 CrT
+// 
 Val   allocate_int2_vector   (Task* task,  int nelems)   {
-    //===================== 
-    // 
-    // Allocate an uninitialized chunk of raw64 data.
+    //==================== 
 
     int	nwords = DOUBLES_TO_WORDS(nelems);
     Val	tagword   = MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
@@ -388,14 +388,17 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	int	gcLevel = (IS_POINTER(initVal) ? 0 : -1);
 
 	bytesize = WORD_BYTESIZE*(len + 1);
+													// mc_cleaner_gen_lock_global	def in   src/c/multicore/sgi-multicore.c
+													// 				or	 src/c/multicore/solaris-multicore.c
+													// (Used only in this file.)
 
-	BEGIN_CRITICAL_SECTION( mc_cleaner_gen_lock_global )
-	    //
-	    #ifdef MULTICORE_SUPPORT
+	BEGIN_CRITICAL_SECTION( mc_cleaner_gen_lock_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-multicore.h
+	    //												// as mc_acquire_lock(lock)	from	 src/c/multicore/sgi-multicore.c
+	    #ifdef MULTICORE_SUPPORT									//				or	 src/c/multicore/solaris-multicore.c
 		clean_check: ;	// The MP version jumps to here to recheck for GC.
 	    #endif
 
-	    if (! sib_is_active(ap)										// sib_is_active		def in    src/c/h/heap.h
+	    if (! sib_is_active(ap)									// sib_is_active		def in    src/c/h/heap.h
 		||
 	        sib_freespace_in_bytes(ap) <= bytesize							// sib_freespace_in_bytes	def in    src/c/h/heap.h
                                               +

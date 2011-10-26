@@ -101,7 +101,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 }										// fun partition_agegroup0_buffer
 
 
-static volatile int	pthreads_ready_to_clean_local = 0;					// Number of processors that are ready to clean.
+static volatile int	pthreads_ready_to_clean_local = 0;			// Number of processors that are ready to clean.
 static int		cleaning_pthread_local;					// The cleaning pthread.
 
 // This holds extra roots provided by   clean_heap_with_extra_roots:
@@ -110,7 +110,7 @@ Val*         mc_extra_cleaner_roots_global[ MAX_EXTRA_CLEANING_ROOTS * MAX_PTHRE
 static Val** mc_extra_cleaner_roots_local;
 
 int   mc_start_cleaning   (Task *task) {
-    //=====================
+    //=================
     //
     // Wait for all pthreads to check in and choose one to do the 
     // collect (cleaning_pthread_local).  cleaning_pthread_local returns to the invoking
@@ -124,7 +124,7 @@ int   mc_start_cleaning   (Task *task) {
     mc_acquire_lock( mc_cleaner_lock_global );
 
     if (pthreads_ready_to_clean_local++ == 0) {
-
+        //
         mc_extra_cleaner_roots_global[0] = NULL;
         mc_extra_cleaner_roots_local = mc_extra_cleaner_roots_global;
 
@@ -302,7 +302,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
 
 void   mc_finish_cleaning   (Task *task, int n)   {
-    // ======================
+    // ==================
 
     // This works, but partition_agegroup0_buffer is overkill:		XXX BUGGO FIXME
     //

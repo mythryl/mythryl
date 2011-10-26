@@ -63,7 +63,7 @@ struct pthread {
 
     #ifdef MULTICORE_SUPPORT
 	Pid	        pid;	       				// Our kernel thread's kernel process identifier ("pid").
-	Pthread_Status  status;					// See src/c/h/runtime-multicore.h
+	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-multicore.h
     #endif
 };
 
