@@ -4,11 +4,11 @@
 
 #include "runtime-base.h"
 #include "mythryl-callable-c-libraries.h"
-#include "cfun-proto-list.h"
+#include "cfun-proto-list.h"										// src/c/lib/ncurses/cfun-proto-list.h
 #include "lib7-c.h"
 
 
-// The table of C functions and Lib7 names:
+// The table of C functions and Mythryl names:
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {

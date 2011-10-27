@@ -51,9 +51,9 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Process			)		// Libmythryl_Win32_Pr
 
 #endif
 
-#ifdef MULTICORE_SUPPORT
+// #ifdef MULTICORE_SUPPORT
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Multicore			)		// Libmythryl_Multicore			def in    src/c/lib/multicore/libmythryl-multicore.c
-#endif
+// #endif
 
 #ifdef C_CALLS
 MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Ccalls				)		// Libmythryl_Ccalls			def in    src/c/lib/ccalls/libmythryl-ccalls.c

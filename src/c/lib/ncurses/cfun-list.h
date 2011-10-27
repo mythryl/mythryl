@@ -2,6 +2,10 @@
 //
 // C functions callable from Mythryl.
 //
+// This file gets #included (only) in:
+//
+//     src/c/lib/ncurses/libmythryl-ncurses.c
+//
 // This table ultimately gets searched by
 //
 //     get_mythryl_callable_c_function() 	in   src/c/lib/mythryl-callable-c-libraries.c
@@ -13,18 +17,18 @@
 #define CLIB_DATE	"November 29, 2007"
 #endif
 
-CFUNC("initscr","initscr",	_lib7_Ncurses_initscr,		"Void -> Void")
-CFUNC("nl","nl",		_lib7_Ncurses_nl,		"Void -> Void")
-CFUNC("nonl","nonl",		_lib7_Ncurses_nonl,		"Void -> Void")
+CFUNC("initscr","initscr",		_lib7_Ncurses_initscr,		"Void -> Void")
+CFUNC("nl","nl",			_lib7_Ncurses_nl,		"Void -> Void")
+CFUNC("nonl","nonl",			_lib7_Ncurses_nonl,		"Void -> Void")
 CFUNC("cbreak","cbreak",		_lib7_Ncurses_cbreak,		"Void -> Void")
 CFUNC("noecho","noecho",		_lib7_Ncurses_noecho,		"Void -> Void")
 CFUNC("start_color","start_color",	_lib7_Ncurses_start_color,	"Void -> Void")
 CFUNC("endwin","endwin",		_lib7_Ncurses_endwin,		"Void -> Void")
-CFUNC("refresh","refresh",	_lib7_Ncurses_refresh,		"Void -> Void")
+CFUNC("refresh","refresh",		_lib7_Ncurses_refresh,		"Void -> Void")
 CFUNC("has_colors","has_colors",	_lib7_Ncurses_has_colors,	"Void -> Bool")
-CFUNC("getch","getch",		_lib7_Ncurses_getch,		"Void -> Char")
-CFUNC("addch","addch",		_lib7_Ncurses_addch,		"Char -> Void")
-CFUNC("move","move",		_lib7_Ncurses_move,		"(Int, Int) -> Void")
+CFUNC("getch","getch",			_lib7_Ncurses_getch,		"Void -> Char")
+CFUNC("addch","addch",			_lib7_Ncurses_addch,		"Char -> Void")
+CFUNC("move","move",			_lib7_Ncurses_move,		"(Int, Int) -> Void")
 
 
 
