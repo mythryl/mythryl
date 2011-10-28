@@ -271,8 +271,8 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		// which is currently non-operational.
 		//
 		// We are also called by
-		//     src/c/multicore/sgi-multicore.c
-		//     src/c/multicore/solaris-multicore.c
+		//     src/c/pthread/sgi-multicore.c
+		//     src/c/pthread/solaris-multicore.c
 		// but that stuff is also non-operational (I think) and
 		// we're not supposed to return to caller in those cases.
 		// 

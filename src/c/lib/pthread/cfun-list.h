@@ -10,8 +10,8 @@
 // or such.
 // It gets #included by both:
 //
-//     src/c/lib/multicore/libmythryl-multicore.c
-//     src/c/lib/multicore/cfun-proto-list.h
+//     src/c/lib/pthread/libmythryl-multicore.c
+//     src/c/lib/pthread/cfun-proto-list.h
 //
 // This table ultimately gets searched by
 //
@@ -23,10 +23,10 @@
 #define CLIB_DATE	"December 18, 1994"
 #endif
 
-CFUNC("acquire_pthread","acquire_pthread",	_lib7_MP_acquire_pthread,	"")		// Defined in   src/c/lib/multicore/acquire-pthread.c 
-CFUNC("max_pthreads","max_pthreads",		_lib7_MP_max_pthreads,		"")		// Defined in   src/c/lib/multicore/max-pthreads.c 
-CFUNC("release_pthread","release_pthread",	_lib7_MP_release_pthread,	"")		// Defined in   src/c/lib/multicore/release-pthread.c 
-CFUNC("spin_lock","spin_lock",			_lib7_MP_spin_lock,		"")		// Defined in   src/c/lib/multicore/spin-lock.c 
+CFUNC("acquire_pthread","acquire_pthread",	_lib7_MP_acquire_pthread,	"")		// Defined in   src/c/lib/pthread/acquire-pthread.c 
+CFUNC("max_pthreads","max_pthreads",		_lib7_MP_max_pthreads,		"")		// Defined in   src/c/lib/pthread/max-pthreads.c 
+CFUNC("release_pthread","release_pthread",	_lib7_MP_release_pthread,	"")		// Defined in   src/c/lib/pthread/release-pthread.c 
+CFUNC("spin_lock","spin_lock",			_lib7_MP_spin_lock,		"")		// Defined in   src/c/lib/pthread/spin-lock.c 
 
 
 

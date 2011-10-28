@@ -11,9 +11,9 @@
 #include "cfun-proto-list.h"
 
 // One of the library bindings exported via
-//     src/c/lib/multicore/cfun-list.h
+//     src/c/lib/pthread/cfun-list.h
 // and thence
-//     src/c/lib/multicore/libmythryl-multicore.c 
+//     src/c/lib/pthread/libmythryl-multicore.c 
 
 Val   _lib7_MP_spin_lock   (Task* task,  Val arg)   {
     //==================

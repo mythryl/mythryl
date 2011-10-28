@@ -4,18 +4,18 @@
 // This stuff is (in part) exported to
 // the Mythrl world as
 //
-//     src/lib/std/src/multicore.api
-//     src/lib/std/src/multicore.pkg
+//     src/lib/std/src/posix-thread.api
+//     src/lib/std/src/posix-thread.pkg
 //
 // via
 //
-//     src/c/lib/multicore/libmythryl-multicore.c
+//     src/c/lib/pthread/libmythryl-multicore.c
 //
 // Platform-specific implementations of
 // this functionality are:
 //
-//     src/c/multicore/sgi-multicore.c
-//     src/c/multicore/solaris-multicore.c
+//     src/c/pthread/sgi-multicore.c
+//     src/c/pthread/solaris-multicore.c
 
 #ifndef RUNTIME_MULTICORE_H
 #define RUNTIME_MULTICORE_H
@@ -87,7 +87,7 @@ typedef enum {
     //
     extern Val      mc_acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
-    //											// This gets exported to the Mythryl level as "multicore"::"acquire_pthread"  via   src/c/lib/multicore/cfun-list.h
+    //											// This gets exported to the Mythryl level as "multicore"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.
     //
     extern void     mc_release_pthread		(Task* task);				// Reverse of above, more or less.
@@ -96,8 +96,8 @@ typedef enum {
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
     extern Pid      mc_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
-    //											// This just calls getpid()  in                         src/c/multicore/sgi-multicore.c
-    //											// This returns thr_self() (I don't wanna know) in      src/c/multicore/solaris-multicore.c
+    //											// This just calls getpid()  in                         src/c/pthread/sgi-multicore.c
+    //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/solaris-multicore.c
     //
     extern int      mc_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
@@ -170,8 +170,8 @@ typedef enum {
     // done by blocking from those where waiting is done by spinning;
     // it isn't clear which was intended by the original authors.
     //
-    // NB: This facility seems to be implemented directly in hardware in    src/c/multicore/sgi-multicore.c
-    // but implemented on top of locks in                                   src/c/multicore/solaris-multicore.c
+    // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/sgi-multicore.c
+    // but implemented on top of locks in                                   src/c/pthread/solaris-multicore.c
     //
     extern Barrier* mc_make_barrier 	();					// Allocate a barrier.
     extern void     mc_free_barrier	(Barrier* barrierp);			// Free a barrier.

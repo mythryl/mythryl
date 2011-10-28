@@ -9,10 +9,10 @@
 // External definitions for the "multicore"
 // library C functions.  This file gets #included by:
 //
-//     src/c/lib/multicore/libmythryl-multicore.c
+//     src/c/lib/pthread/libmythryl-multicore.c
 //
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_PROTO(NAME, FUNC, LIB7TYPE)
-#include "cfun-list.h"						// Actual function list is in src/c/lib/multicore/cfun-list.h
+#include "cfun-list.h"						// Actual function list is in src/c/lib/pthread/cfun-list.h
 #undef CFUNC
 
 #endif // _CFUN_PROTO_LIST_

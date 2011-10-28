@@ -7,12 +7,12 @@
 //
 // parts of which are exported to the Mythryl level via
 //
-//     src/c/lib/multicore/libmythryl-multicore.c
+//     src/c/lib/pthread/libmythryl-multicore.c
 // 
 // and then
 // 
-//     src/lib/std/src/multicore.api
-//     src/lib/std/src/multicore.pkg
+//     src/lib/std/src/posix-thread.api
+//     src/lib/std/src/posix-thread.pkg
 
 
 #include "../config.h"

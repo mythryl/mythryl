@@ -2,8 +2,8 @@
 //
 // Here we export to
 //
-//     src/lib/std/src/multicore.api
-//     src/lib/std/src/multicore.pkg
+//     src/lib/std/src/posix-thread.api
+//     src/lib/std/src/posix-thread.pkg
 //
 // some of the functionality defined in
 //
@@ -11,8 +11,8 @@
 //
 // and implemented in the platform-specific files
 //
-//     src/c/multicore/sgi-multicore.c
-//     src/c/multicore/solaris-multicore.c
+//     src/c/pthread/sgi-multicore.c
+//     src/c/pthread/solaris-multicore.c
 
 
 #include "../../config.h"
@@ -33,7 +33,7 @@
 
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 static Mythryl_Name_With_C_Function CFunTable[] = {
-#include "cfun-list.h"											// Actual function list is in src/c/lib/multicore/cfun-list.h
+#include "cfun-list.h"											// Actual function list is in src/c/lib/pthread/cfun-list.h
 	CFUNC_NULL_BIND
     };
 #undef CFUNC

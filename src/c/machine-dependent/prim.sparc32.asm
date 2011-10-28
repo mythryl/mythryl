@@ -223,8 +223,8 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // which is currently non-operational.
 //
 // run_mythryl_task_and_runtime_eventloop is also called by
-//     src/c/multicore/sgi-multicore.c
-//     src/c/multicore/solaris-multicore.c
+//     src/c/pthread/sgi-multicore.c
+//     src/c/pthread/solaris-multicore.c
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 // 
