@@ -10,7 +10,7 @@
 // One of the library bindings exported via
 //     src/c/lib/pthread/cfun-list.h
 // and thence
-//     src/c/lib/pthread/libmythryl-multicore.c 
+//     src/c/lib/pthread/libmythryl-pthread.c 
 
 
 Val   _lib7_MP_max_pthreads   (Task* task,  Val arg)   {			// Apparently nowhere invoked.

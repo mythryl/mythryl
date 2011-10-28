@@ -1,4 +1,4 @@
-// libmythryl-multicore.c
+// libmythryl-pthread.c
 //
 // Here we export to
 //

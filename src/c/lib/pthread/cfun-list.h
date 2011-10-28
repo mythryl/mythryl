@@ -10,7 +10,7 @@
 // or such.
 // It gets #included by both:
 //
-//     src/c/lib/pthread/libmythryl-multicore.c
+//     src/c/lib/pthread/libmythryl-pthread.c
 //     src/c/lib/pthread/cfun-proto-list.h
 //
 // This table ultimately gets searched by

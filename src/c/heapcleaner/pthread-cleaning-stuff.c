@@ -1,4 +1,4 @@
-// multicore-cleaning-stuff.c
+// pthread-cleaning-stuff.c
 //
 // Extra routines to support cleaning
 // in the multicore implementation.
