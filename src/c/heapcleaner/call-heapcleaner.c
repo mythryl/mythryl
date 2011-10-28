@@ -43,7 +43,7 @@ Includes:
 #include "heap.h"
 #include "runtime-globals.h"
 #include "runtime-timer.h"
-#include "cleaner-statistics.h"
+#include "heapcleaner-statistics.h"
 #include "pthread.h"
 #include "profiler-call-counts.h"
 
@@ -87,7 +87,7 @@ void   clean_heap   (Task* task,  int level) {
 	}
     #endif
 
-    note_when_cleaning_started( task->heap );						// note_when_cleaning_started	def in    src/c/heapcleaner/cleaner-statistics.h
+    note_when_cleaning_started( task->heap );						// note_when_cleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
@@ -218,7 +218,7 @@ void   clean_heap   (Task* task,  int level) {
 	#endif
     #endif
 
-    note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/cleaner-statistics.h
+    note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
 }			                                             // fun clean_heap
@@ -264,7 +264,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	return;				// A waiting proc
     #endif
 
-    note_when_cleaning_started( task->heap );								// note_when_cleaning_started	def in    src/c/heapcleaner/cleaner-statistics.h
+    note_when_cleaning_started( task->heap );								// note_when_cleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
@@ -405,7 +405,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
     #endif
 
-    note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/cleaner-statistics.h
+    note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
 }														// fun clean_heap_with_extra_roots

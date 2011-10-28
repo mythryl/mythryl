@@ -21,7 +21,7 @@
 #include "heap.h"
 #include "runtime-globals.h"
 #include "runtime-timer.h"
-#include "cleaner-statistics.h"
+#include "heapcleaner-statistics.h"
 #include "runtime-multicore.h"
 #include "pthread.h"
 

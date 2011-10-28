@@ -39,7 +39,7 @@
 #include "heap.h"
 #include "runtime-globals.h"
 #include "runtime-timer.h"
-#include "cleaner-statistics.h"
+#include "heapcleaner-statistics.h"
 #include "runtime-multicore.h"
 
 static int DfltRatios[ MAX_AGEGROUPS ]
@@ -54,7 +54,7 @@ static int DfltRatios[ MAX_AGEGROUPS ]
 Sibid* book_to_sibid_global;
 #endif
 
-								// Should this go into cleaner-statistics.c ?
+								// Should this go into heapcleaner-statistics.c ?
 Bool	cleaner_statistics_generation_switch = TRUE;	// If TRUE, then generate stats.
 int	cleaner_statistics_fd = -1;				// The file descriptor to write the data to.
 int	statistics_buffer_record_count;				// Number of records in the buffer.
@@ -341,7 +341,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     if (cleaner_statistics_fd > 0) {
 	//	
-      Cleaner_Statistics_Header   header;									// Cleaner_Statistics_Header		is from   src/c/h/cleaner-statistics-2.h
+      Cleaner_Statistics_Header   header;									// Cleaner_Statistics_Header		is from   src/c/h/heapcleaner-statistics-2.h
 	//
 	ZERO_BIGCOUNTER( &heap->total_bytes_allocated );
 	//

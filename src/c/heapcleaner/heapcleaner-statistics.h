@@ -1,10 +1,10 @@
-// cleaner-statistics.h
+// heapcleaner-statistics.h
 
 
 #ifndef CLEANER_STATISTICS_H
 #define CLEANER_STATISTICS_H
 
-#include "cleaner-statistics-2.h"
+#include "heapcleaner-statistics-2.h"
 
 /*
 ###             "Should array indices start at 0 or 1?
@@ -30,7 +30,7 @@
 
 	if (cleaner_statistics_generation_switch) {
 	    //
-	    Cleaner_Statistics* stats										// Cleaner_Statistics		def in    src/c/h/cleaner-statistics-2.h
+	    Cleaner_Statistics* stats										// Cleaner_Statistics		def in    src/c/h/heapcleaner-statistics-2.h
 		=
 		&statistics_buffer[ statistics_buffer_record_count ];						// statistics_buffer		def in    src/c/heapcleaner/heapcleaner-initialization.c
 

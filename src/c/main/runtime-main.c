@@ -40,7 +40,7 @@
 #include <fcntl.h>
 #endif
 
-#include "cleaner-statistics-2.h"
+#include "heapcleaner-statistics-2.h"
 
 
 FILE* DebugF = NULL;

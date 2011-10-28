@@ -48,7 +48,7 @@ Includes:
 #include "heap-tags.h"
 #include "copy-loop.h"
 #include "runtime-timer.h"
-#include "cleaner-statistics.h"
+#include "heapcleaner-statistics.h"
 
 /*
 Cleaner statistics stuff:
@@ -454,7 +454,7 @@ static int          set_up_to_clean_heap               (int* max_swept_agegroup,
 
     // A little statistics gathering:
     //
-    note_active_agegroups_count_for_this_timesample( oldest_agegroup_to_clean );				// note_active_agegroups_count_for_this_timesample		def in    src/c/heapcleaner/cleaner-statistics.h
+    note_active_agegroups_count_for_this_timesample( oldest_agegroup_to_clean );				// note_active_agegroups_count_for_this_timesample		def in    src/c/heapcleaner/heapcleaner-statistics.h
     //
     #ifndef KEEP_CLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
 	//
