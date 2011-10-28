@@ -179,7 +179,7 @@ typedef   struct cleaner_args   Cleaner_Args;
     // An abstract type whose representation depends
     // on the particular cleaner being used.
 
-extern Cleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);						// handle_cleaner_commandline_arguments	def in   src/c/heapcleaner/cleaner-initialization.c
+extern Cleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);						// handle_cleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
 
 extern Task* make_task               (Bool is_boot, Cleaner_Args* params);						// make_task			def in   src/c/main/runtime-state.c
 extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Cleaner_Args* params);			// load_compiled_files		def in   src/c/main/load-compiledfiles.c/load_compiled_files()
@@ -217,7 +217,7 @@ extern char*  mythryl_program_name_global;			// Command name used to invoke the 
 extern int    verbosity;
 extern Bool   codechunk_comment_display_is_enabled_global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
 extern Bool   cleaner_messages_are_enabled_global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
-extern Bool   unlimited_heap_is_enabled_global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/cleaner-initialization.c
+extern Bool   unlimited_heap_is_enabled_global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 
 extern Pthread*	pthread_table_global [];
 extern int	pthread_count_global;

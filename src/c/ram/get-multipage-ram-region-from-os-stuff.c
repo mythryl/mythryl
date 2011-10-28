@@ -55,7 +55,7 @@ Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt byt
     //
     // We get invoked from three places:
     //    src/c/heapcleaner/heapcleaner-stuff.c
-    //    src/c/heapcleaner/cleaner-initialization.c
+    //    src/c/heapcleaner/heapcleaner-initialization.c
     //    src/c/heapcleaner/hugechunk.c
 
     Val_Sized_Unt alloc_bytesize;

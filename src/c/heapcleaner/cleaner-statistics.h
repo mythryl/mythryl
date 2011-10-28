@@ -32,7 +32,7 @@
 	    //
 	    Cleaner_Statistics* stats										// Cleaner_Statistics		def in    src/c/h/cleaner-statistics-2.h
 		=
-		&statistics_buffer[ statistics_buffer_record_count ];						// statistics_buffer		def in    src/c/heapcleaner/cleaner-initialization.c
+		&statistics_buffer[ statistics_buffer_record_count ];						// statistics_buffer		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
 	    Punt  bytes
 		=

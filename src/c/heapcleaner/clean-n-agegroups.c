@@ -164,7 +164,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
     // so that we can promote them.
     //
 
-    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     for (int age = oldest_agegroup_to_clean;   age > 0;   --age) {
         //
@@ -541,7 +541,7 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
     // A debug support fn.
     //
     //
-    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     for ( ;   start < stop;  ++start) {
 	//
@@ -827,7 +827,7 @@ static void         forward_all_roots (
 
     // Cache global in register for speed:
     //
-    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );
 
@@ -871,7 +871,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
     // Cache global in register for speed:
     //
-    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );
 
@@ -992,7 +992,7 @@ inline static Bool  scan_tospace_buffer   (										// Called only from forward
     //
     // Return TRUE iff we did anything.
     //
-    Sibid* b2s =  book_to_sibid_global;											// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;											// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     //
     Bool made_progress = FALSE;
 
@@ -1035,7 +1035,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 	= 
         ag->coarse_inter_agegroup_pointers_map;
 
-    Sibid*	   b2s    =  book_to_sibid_global;									// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid_global;									// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid	   max_sibid   =  MAKE_MAX_SIBID(oldest_agegroup_to_clean);
 

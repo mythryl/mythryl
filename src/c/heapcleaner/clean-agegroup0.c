@@ -125,7 +125,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the standard roots:
     //
-    {   Sibid*  b2s = book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    {   Sibid*  b2s = book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
@@ -204,7 +204,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 static int   get_age_of_codechunk   (Val codechunk) {
     //       ====================
 
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );				// Get the Sibid tag for the ram-book containing the codechunk.
 
@@ -246,7 +246,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 
     int updates        = 0;								// Cleaner statistics.
     Agegroup* age1     =  heap->agegroup[ 0 ];						// Cache heap entry for speed.
-    Sibid* b2s         =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s         =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {				// Over all entries in the heap_changelog.
 	//
@@ -309,7 +309,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   {	// Called only from sweep_agegroup_1_tospace (below).
     //               ===========================
     //
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     Sib*   sib =  ag1->sib[ ilk ];							// Find sib to scan.
 
     Bool   progress =  FALSE;

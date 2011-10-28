@@ -77,7 +77,7 @@ void   set_up_multipage_ram_region_os_interface  () {					// Part of the api def
     // ========================================
     //
     // We are invoked (only) from   set_up_heap   in:
-    //     src/c/heapcleaner/cleaner-initialization.c
+    //     src/c/heapcleaner/heapcleaner-initialization.c
     //
     InitMemory();										// From src/c/ram/get-multipage-ram-region-from-os-stuff.c
 }

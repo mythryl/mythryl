@@ -237,7 +237,7 @@ static Status   write_heap_image_to_file   (
 
 inline static void   patch_sib   (
     //               =========
-    Sibid*       b2s,								// book_to_sibid_global from    src/c/heapcleaner/cleaner-initialization.c
+    Sibid*       b2s,								// book_to_sibid_global from    src/c/heapcleaner/heapcleaner-initialization.c
     Heap*        heap,
     Heapfile_Cfun_Table* table,
     int          age,								// 0 <= age < heap->active_agegroups
@@ -273,7 +273,7 @@ static Heapfile_Cfun_Table*   build_export_table   (Heap* heap) {
 
     // Cache global in register for speed:
     //
-    Sibid*  b2s = book_to_sibid_global;						// book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
+    Sibid*  b2s = book_to_sibid_global;						// book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     // Allocate an empty export table:
     //

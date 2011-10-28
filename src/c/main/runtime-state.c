@@ -58,7 +58,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     // Allocate and initialize the heap data structures:
     //
-    set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/heapcleaner/cleaner-initialization.c
+    set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     #ifdef MULTICORE_SUPPORT
 	//

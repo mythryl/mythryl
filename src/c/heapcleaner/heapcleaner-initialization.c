@@ -1,4 +1,4 @@
-// cleaner-initialization.c
+// heapcleaner-initialization.c
 //
 // The cleaner initialization code.
 
@@ -335,7 +335,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    (Val_Sized_Unt)(heap->agegroup0_buffer)+params->agegroup0_buffer_bytesize, params->agegroup0_buffer_bytesize);
     #endif
 
-    clear_cleaner_statistics( heap );										// clear_cleaner_statistics		def in   src/c/heapcleaner/cleaner-initialization.c
+    clear_cleaner_statistics( heap );										// clear_cleaner_statistics		def in   src/c/heapcleaner/heapcleaner-initialization.c
 
 
     //
