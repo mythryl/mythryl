@@ -1,4 +1,9 @@
-// solaris-multicore.c
+// pthread-on-solaris.c
+//
+// This is an ancient (circa 1994?) implementation of pthread on top
+// of the solaris operating system of the era.  These days Solaris
+// should have a standard posix-threads implementation, so this file
+// can probably be deleted by and by.
 //
 // Multicore (well, multiprocessor) support for Sparc32 multiprocessor machines running Solaris 2.5
 //

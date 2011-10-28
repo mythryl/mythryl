@@ -12,7 +12,7 @@
 // and implemented in the platform-specific files
 //
 //     src/c/pthread/sgi-multicore.c
-//     src/c/pthread/solaris-multicore.c
+//     src/c/pthread/pthread-on-solaris.c
 
 
 #include "../../config.h"

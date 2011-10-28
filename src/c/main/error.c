@@ -72,7 +72,7 @@ void   die   (char *fmt, ...)   {
 	// resources such as kernel locks or mmapped segments:
 	//
 	mc_shut_down ();				// mc_shut_down		defined in   src/c/pthread/sgi-multicore.c
-    #endif						// mc_shut_down		defined in   src/c/pthread/solaris-multicore.c
+    #endif						// mc_shut_down		defined in   src/c/pthread/pthread-on-solaris.c
 
     print_stats_and_exit( 1 );
 }

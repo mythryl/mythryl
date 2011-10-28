@@ -258,7 +258,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 //
 // run_mythryl_task_and_runtime_eventloop is also called by
 //     src/c/pthread/sgi-multicore.c
-//     src/c/pthread/solaris-multicore.c
+//     src/c/pthread/pthread-on-solaris.c
 // but that stuff is also non-operational (I think) and
 // we're not supposed to return to caller in those cases.
 //
@@ -266,7 +266,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and by                              import_heap_image      in   src/c/heapcleaner/import-heap.c
 // and by                              mc_acquire_pthread     in   src/c/pthread/sgi-multicore.c
-// and by                              mc_acquire_pthread     int  src/c/pthread/solaris-multicore.c
+// and by                              mc_acquire_pthread     int  src/c/pthread/pthread-on-solaris.c
 //
 LIB7_CODE_HDR(return_to_c_level_asm)
 	MOV_L(CONST(REQUEST_RETURN_TO_C_LEVEL), request_w)

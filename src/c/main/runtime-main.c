@@ -108,7 +108,7 @@ int   main   (int argc, char** argv) {
 
     #ifdef MULTICORE_SUPPORT
 	mc_initialize();												// mc_initialize					def in    src/c/pthread/sgi-multicore.c
-    #endif														// mc_initialize					def in    src/c/pthread/solaris-multicore.c
+    #endif														// mc_initialize					def in    src/c/pthread/pthread-on-solaris.c
 
     // Start mythryld:
     //
