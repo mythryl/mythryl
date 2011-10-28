@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include "runtime-base.h"
 #include "task.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "heap-io.h"
 
 // This fun is called (only) from:

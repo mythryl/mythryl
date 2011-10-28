@@ -9,7 +9,7 @@
 #include "runtime-values.h"
 #include "task.h"
 #include "make-strings-and-vectors-etc.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "cfun-proto-list.h"
 #include "lib7-c.h"
 

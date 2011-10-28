@@ -18,7 +18,7 @@
 #include "system-dependent-signal-stuff.h"
 #include "mythryl-callable-c-libraries.h"
 #include "profiler-call-counts.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 
 int foobar = 3;
 

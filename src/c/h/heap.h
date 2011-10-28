@@ -20,7 +20,7 @@
 #define HEAP_H
 
 #include "runtime-base.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "sibid.h"
 #include "heap-tags.h"
 

@@ -5,7 +5,7 @@
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "heap.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 
 int   get_chunk_age   (Val chunk) {
     //============= 

@@ -18,7 +18,7 @@
 #include "system-dependent-signal-stuff.h"
 #include "mythryl-callable-c-libraries.h"
 #include "profiler-call-counts.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 
 // Set up the return linkage and fate
 // throwing in the Mythryl state vector.

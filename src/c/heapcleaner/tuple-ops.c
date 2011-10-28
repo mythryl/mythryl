@@ -16,7 +16,7 @@
 #include "task.h"
 #include "make-strings-and-vectors-etc.h"
 #include "sibid.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 
 
 static int   GetLen   (Val r)   {

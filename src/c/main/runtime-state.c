@@ -11,7 +11,7 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "runtime-timer.h"
 #include "runtime-configuration.h"
 

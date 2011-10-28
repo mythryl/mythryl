@@ -9,7 +9,7 @@
 #include "runtime-heap-image.h"
 #include "mythryl-callable-cfun-hashtable.h"
 #include "address-hashtable.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "datastructure-pickler.h"
 #include "export-heap-stuff.h"
 #include "heap-io.h"

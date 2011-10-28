@@ -50,7 +50,7 @@
 #include "flush-instruction-cache-system-dependent.h"
 #include "compiledfile.h"
 #include "make-strings-and-vectors-etc.h"
-#include "cleaner.h"
+#include "heapcleaner.h"
 #include "runtime-globals.h"
 #include "mythryl-callable-cfun-hashtable.h"
 

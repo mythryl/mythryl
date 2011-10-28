@@ -1,6 +1,6 @@
-// cleaner.h
+// heapcleaner.h
 //
-// The external interface to the garbage collector.
+// The external interface to the heapcleaner ("garbage collector").
 
 
 #ifndef CLEANER_H
