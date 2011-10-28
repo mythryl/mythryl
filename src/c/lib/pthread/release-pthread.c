@@ -3,7 +3,7 @@
 #include "../../config.h"
 
 #include "runtime-base.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include "cfun-proto-list.h"
 
 // One of the library bindings exported via

@@ -2,7 +2,7 @@
 //
 // Multicore (well, multiprocessor) support for Sparc32 multiprocessor machines running Solaris 2.5
 //
-// Solaris implementation of externals defined in $(INCLUDE)/runtime-multicore.h
+// Solaris implementation of externals defined in $(INCLUDE)/runtime-pthread.h
 
 
 #include "../config.h"
@@ -28,7 +28,7 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include "task.h"
 #include "runtime-globals.h"
 #include "pthread.h"

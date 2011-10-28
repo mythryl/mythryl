@@ -1,4 +1,4 @@
-// runtime-multicore.h
+// runtime-pthread.h
 //
 // Support for multicore operation.
 // This stuff is (in part) exported to

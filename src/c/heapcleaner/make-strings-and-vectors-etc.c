@@ -53,7 +53,7 @@
 #include "heap.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-configuration.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include <string.h>
 
 
@@ -392,7 +392,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 													// 				or	 src/c/pthread/solaris-multicore.c
 													// (Used only in this file.)
 
-	BEGIN_CRITICAL_SECTION( mc_cleaner_gen_lock_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-multicore.h
+	BEGIN_CRITICAL_SECTION( mc_cleaner_gen_lock_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
 	    //												// as mc_acquire_lock(lock)	from	 src/c/pthread/sgi-multicore.c
 	    #ifdef MULTICORE_SUPPORT									//				or	 src/c/pthread/solaris-multicore.c
 		clean_check: ;	// The MP version jumps to here to recheck for GC.

@@ -3,7 +3,7 @@
 // Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x)
 // implementing the API defined in
 //
-//     src/c/h/runtime-multicore.h
+//     src/c/h/runtime-pthread.h
 //
 // parts of which are exported to the Mythryl level via
 //
@@ -33,7 +33,7 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include "task.h"
 #include "runtime-globals.h"
 #include "pthread.h"

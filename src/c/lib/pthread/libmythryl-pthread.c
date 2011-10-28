@@ -7,7 +7,7 @@
 //
 // some of the functionality defined in
 //
-//     src/c/h/runtime-multicore.h
+//     src/c/h/runtime-pthread.h
 //
 // and implemented in the platform-specific files
 //

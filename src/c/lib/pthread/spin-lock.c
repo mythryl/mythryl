@@ -7,7 +7,7 @@
 #include "runtime-values.h"
 #include "task.h"
 #include "make-strings-and-vectors-etc.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include "cfun-proto-list.h"
 
 // One of the library bindings exported via

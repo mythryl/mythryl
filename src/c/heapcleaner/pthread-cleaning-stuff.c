@@ -22,7 +22,7 @@
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "runtime-multicore.h"
+#include "runtime-pthread.h"
 #include "pthread.h"
 
 // MULTICORE_SUPPORT
