@@ -14,7 +14,7 @@
 // Platform-specific implementations of
 // this functionality are:
 //
-//     src/c/pthread/sgi-multicore.c
+//     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
 
 #ifndef RUNTIME_MULTICORE_H
@@ -96,7 +96,7 @@ typedef enum {
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
     extern Pid      mc_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
-    //											// This just calls getpid()  in                         src/c/pthread/sgi-multicore.c
+    //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //
     extern int      mc_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
@@ -170,7 +170,7 @@ typedef enum {
     // done by blocking from those where waiting is done by spinning;
     // it isn't clear which was intended by the original authors.
     //
-    // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/sgi-multicore.c
+    // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
     // but implemented on top of locks in                                   src/c/pthread/pthread-on-solaris.c
     //
     extern Barrier* mc_make_barrier 	();					// Allocate a barrier.

@@ -11,7 +11,7 @@
 //
 // and implemented in the platform-specific files
 //
-//     src/c/pthread/sgi-multicore.c
+//     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
 
 

@@ -1,4 +1,4 @@
-// sgi-multicore.c
+// pthread-on-sgi.c
 //
 // Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x)
 // implementing the API defined in

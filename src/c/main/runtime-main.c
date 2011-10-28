@@ -107,7 +107,7 @@ int   main   (int argc, char** argv) {
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
     #ifdef MULTICORE_SUPPORT
-	mc_initialize();												// mc_initialize					def in    src/c/pthread/sgi-multicore.c
+	mc_initialize();												// mc_initialize					def in    src/c/pthread/pthread-on-sgi.c
     #endif														// mc_initialize					def in    src/c/pthread/pthread-on-solaris.c
 
     // Start mythryld:

@@ -89,7 +89,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table_global[0]->pid  =  mc_pthread_id ();					// mc_pthread_id	def in    src/c/pthread/sgi-multicore.c
+	pthread_table_global[0]->pid  =  mc_pthread_id ();					// mc_pthread_id	def in    src/c/pthread/pthread-on-sgi.c
 												// mc_pthread_id	def in    src/c/pthread/pthread-on-solaris.c
 	pthread_table_global[0]->status =  KERNEL_THREAD_IS_RUNNING;
     #else
