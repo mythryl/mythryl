@@ -1,4 +1,4 @@
-// cleaner-stuff.c
+// heapcleaner-stuff.c
 //
 // Garbage collection utility routines.
 

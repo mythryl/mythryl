@@ -158,7 +158,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
     sweep_agegroup_1_tospace( age1 );
     ++heap->agegroup0_cleanings_done;
 
-    null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/cleaner-stuff.c
+    null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/heapcleaner-stuff.c
 
     #ifdef VERBOSE
 	debug_say ("Agegroup 1 after MinorGC:\n");

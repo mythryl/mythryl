@@ -176,7 +176,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 	int promote_state = YOUNG_HUGECHUNK;		// Without the initialization we draw "promote_state may be used uninitialized in this function" from gcc -Wall.
 							// Is there a bug here? I initialized to YOUNG_HUGECHUNK completely randomly. XXX BUGGO FIXME -- 2010-11-15 CrT
 
-	free_agegroup( heap, age-1 );										// free_agegroup				def in    src/c/heapcleaner/cleaner-stuff.c
+	free_agegroup( heap, age-1 );										// free_agegroup				def in    src/c/heapcleaner/heapcleaner-stuff.c
 
 
         // NOTE: There should never be any hugechunk
@@ -516,7 +516,7 @@ void                clean_n_agegroups                  (Task* task,  Val** roots
 
     forward_remaining_live_values( heap, oldest_agegroup_to_clean, max_swept_agegroup );
 
-    null_out_newly_dead_weak_pointers( heap );									// null_out_newly_dead_weak_pointers					def in    src/c/heapcleaner/cleaner-stuff.c
+    null_out_newly_dead_weak_pointers( heap );									// null_out_newly_dead_weak_pointers					def in    src/c/heapcleaner/heapcleaner-stuff.c
 
     reclaim_fromspace_hugechunks( heap, oldest_agegroup_to_clean );
 
@@ -778,7 +778,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 	old_cleanings_done_value = ag->cleanings;
 	ag->fromspace_ram_region = ag->tospace_ram_region;
 
-	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/cleaner-stuff.c
+	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
             // Try to allocate the minimum size:
 
@@ -800,7 +800,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 
         if (sib_is_active( ag->sib[ VECTOR_ILK ])) {								// sib_is_active						def in    src/c/h/heap.h
 	    //
-	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );					// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in    src/c/heapcleaner/cleaner-stuff.c
+	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );					// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in    src/c/heapcleaner/heapcleaner-stuff.c
 	}
     }														// for (int age = 0;   age < heap->active_agegroups;   ++age) 
 
