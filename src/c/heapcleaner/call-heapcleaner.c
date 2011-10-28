@@ -1,4 +1,4 @@
-// call-cleaner.c
+// call-heapcleaner.c
 //
 // The main interface between the heapcleaner
 // ("garbage collector") and the rest of the

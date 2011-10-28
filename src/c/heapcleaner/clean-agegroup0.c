@@ -80,7 +80,7 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 
 // This fun is called (only) from:
 //
-//     src/c/heapcleaner/call-cleaner.c
+//     src/c/heapcleaner/call-heapcleaner.c
 //
 void   clean_agegroup0   (Task* task,  Val** roots) {
     // ===============

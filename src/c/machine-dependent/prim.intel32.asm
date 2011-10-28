@@ -104,7 +104,7 @@
 								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner (below) which returns a REQUEST_CLEANING to
 								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-								// which will call   clean_heap	()            in   src/c/heapcleaner/call-cleaner.c
+								// which will call   clean_heap	()            in   src/c/heapcleaner/call-heapcleaner.c
 #define unused_2		REGOFF(36,ESP)
 #define eaxSpill		REGOFF(40,ESP) // eax=0
 #define	ecxSpill		REGOFF(44,ESP) // ecx=1

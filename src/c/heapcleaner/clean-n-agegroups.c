@@ -482,7 +482,7 @@ void                clean_n_agegroups                  (Task* task,  Val** roots
     // By definition, level should be at least 1.
     //
     // This function is called (only) from
-    //     src/c/heapcleaner/call-cleaner.c
+    //     src/c/heapcleaner/call-heapcleaner.c
 
     Heap*  heap  =  task->heap;
 
@@ -823,7 +823,7 @@ static void         forward_all_roots (
     //
     // These values consist of saved Mythryl-task registers
     // and C global variables pointing into the Mythryl heap.
-    // They are enumerated for us by code in    clean_heap().							// clean_heap							def in    src/c/heapcleaner/call-cleaner.c 
+    // They are enumerated for us by code in    clean_heap().							// clean_heap							def in    src/c/heapcleaner/call-heapcleaner.c 
 
     // Cache global in register for speed:
     //

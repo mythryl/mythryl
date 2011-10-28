@@ -144,7 +144,7 @@ static Status   write_heap_image_to_file   (
 
     // Shed any and all garbage:
     //
-    clean_heap( task, 0			   );		// Minor    garbage collection.			// clean_heap				def in    src/c/heapcleaner/call-cleaner.c
+    clean_heap( task, 0			   );		// Minor    garbage collection.			// clean_heap				def in    src/c/heapcleaner/call-heapcleaner.c
     clean_heap( task, MAX_ACTIVE_AGEGROUPS );		// Complete garbage collection.
 
 

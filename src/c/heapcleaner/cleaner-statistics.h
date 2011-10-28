@@ -26,7 +26,7 @@
     inline void   note_when_cleaning_started   (Heap* heap)   {
         //        ==============================
 	//
-        // Called (only) from:    src/c/heapcleaner/call-cleaner.c
+        // Called (only) from:    src/c/heapcleaner/call-heapcleaner.c
 
 	if (cleaner_statistics_generation_switch) {
 	    //
@@ -54,7 +54,7 @@
 
     inline void   note_when_cleaning_completed   (void)   {
         //
-        // Called (only) from:    src/c/heapcleaner/call-cleaner.c
+        // Called (only) from:    src/c/heapcleaner/call-heapcleaner.c
 	//
 	if (cleaner_statistics_generation_switch) {
 	    //
