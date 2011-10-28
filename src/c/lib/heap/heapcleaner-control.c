@@ -1,4 +1,4 @@
-// cleaner-control.c
+// heapcleaner-control.c
 //
 // General interface for heapcleaner control functions.
 //

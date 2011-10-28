@@ -216,7 +216,7 @@ extern char** commandline_arguments;				// Does not include the command name (ar
 extern char*  mythryl_program_name_global;			// Command name used to invoke the runtime.
 extern int    verbosity;
 extern Bool   codechunk_comment_display_is_enabled_global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
-extern Bool   cleaner_messages_are_enabled_global;		// Set                                                       in   src/c/lib/heap/cleaner-control.c
+extern Bool   cleaner_messages_are_enabled_global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
 extern Bool   unlimited_heap_is_enabled_global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/cleaner-initialization.c
 
 extern Pthread*	pthread_table_global [];

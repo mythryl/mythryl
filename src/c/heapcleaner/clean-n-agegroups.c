@@ -1656,7 +1656,7 @@ static void         trim_heap                          (Heap* heap,  int oldest_
     // size in space-allocated, but under their maximum size in space-used.
 																// unlimited_heap_is_enabled_global defaults to FALSE in	src/c/main/runtime-main.c 
     if (unlimited_heap_is_enabled_global)   return;										// unlimited_heap_is_enabled_global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
-																// unlimited_heap_is_enabled_global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/cleaner-control.c
+																// unlimited_heap_is_enabled_global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
     Val_Sized_Unt   min_bytesize;
     Val_Sized_Unt   new_bytesize;
 
