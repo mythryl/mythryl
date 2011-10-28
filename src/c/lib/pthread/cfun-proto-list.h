@@ -6,7 +6,7 @@
 
 #include "mythryl-callable-c-libraries.h"
 
-// External definitions for the "multicore"
+// External definitions for the "pthread"
 // library C functions.  This file gets #included by:
 //
 //     src/c/lib/pthread/libmythryl-pthread.c

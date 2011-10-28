@@ -4,8 +4,8 @@
 // This stuff is (in part) exported to
 // the Mythrl world as
 //
-//     src/lib/std/src/posix-thread.api
-//     src/lib/std/src/posix-thread.pkg
+//     src/lib/std/src/pthread.api
+//     src/lib/std/src/pthread.pkg
 //
 // via
 //
@@ -87,7 +87,7 @@ typedef enum {
     //
     extern Val      mc_acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
-    //											// This gets exported to the Mythryl level as "multicore"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
+    //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.
     //
     extern void     mc_release_pthread		(Task* task);				// Reverse of above, more or less.

@@ -1,11 +1,11 @@
 // cfun-list.h
 //
-// This file lists the "multicore" library of Mythryl-callable
+// This file lists the "pthread" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
 //     my acquire_pthread:   (Thread, Fate) -> Bool
 //         =
-//         mythryl_callable_c_library_interface::find_c_function { lib_name => "multicore", fun_name => "acquire_pthread" };
+//         mythryl_callable_c_library_interface::find_c_function { lib_name => "pthread", fun_name => "acquire_pthread" };
 // 
 // or such.
 // It gets #included by both:
@@ -18,7 +18,7 @@
 //     get_mythryl_callable_c_function() 	in   src/c/lib/mythryl-callable-c-libraries.c
 
 #ifndef CLIB_NAME
-#define CLIB_NAME	"multicore"
+#define CLIB_NAME	"pthread"
 #define CLIB_VERSION	"1.0"
 #define CLIB_DATE	"December 18, 1994"
 #endif

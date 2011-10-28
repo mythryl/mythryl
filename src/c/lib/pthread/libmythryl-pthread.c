@@ -2,8 +2,8 @@
 //
 // Here we export to
 //
-//     src/lib/std/src/posix-thread.api
-//     src/lib/std/src/posix-thread.pkg
+//     src/lib/std/src/pthread.api
+//     src/lib/std/src/pthread.pkg
 //
 // some of the functionality defined in
 //
@@ -22,12 +22,12 @@
 #include "cfun-proto-list.h"
 
 
-// This file defines the "multicore" library of Mythryl-callable
+// This file defines the "pthread" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
 //     my acquire_pthread:   (Thread, Fate) -> Bool
 //         =
-//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "multicore", fun_name => "acquire_pthread" };
+//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "pthread", fun_name => "acquire_pthread" };
 // 
 // or such.
 

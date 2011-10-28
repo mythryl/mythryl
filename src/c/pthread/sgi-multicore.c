@@ -11,8 +11,8 @@
 // 
 // and then
 // 
-//     src/lib/std/src/posix-thread.api
-//     src/lib/std/src/posix-thread.pkg
+//     src/lib/std/src/pthread.api
+//     src/lib/std/src/pthread.pkg
 
 
 #include "../config.h"
