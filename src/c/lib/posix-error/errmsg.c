@@ -40,7 +40,7 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
     #if defined(HAS_STRERROR)
 	char* msg = strerror( errnum );
 	if (msg != 0)
-	    s = make_ascii_string_from_c_string( task, msg );				// make_ascii_string_from_c_string	def in    src/c/cleaner/make-strings-and-vectors-etc.c
+	    s = make_ascii_string_from_c_string( task, msg );				// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 	else {
 	    char     buf[64];
 	    sprintf( buf, "<unknown error %d>", errnum);				// XXX BUGGO FIXME should use a modern fn proof against buffer overrun.

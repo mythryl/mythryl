@@ -31,7 +31,7 @@ Val   _lib7_P_Error_geterror   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-error.pkg
 
-    return   make_system_constant( task, &errno_table_global, TAGGED_INT_TO_C_INT(arg) );		// make_system_constant		def in    src/c/cleaner/make-strings-and-vectors-etc.c
+    return   make_system_constant( task, &errno_table_global, TAGGED_INT_TO_C_INT(arg) );		// make_system_constant		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 

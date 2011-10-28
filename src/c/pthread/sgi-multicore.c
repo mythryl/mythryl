@@ -53,11 +53,11 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a lock.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Lock	 mc_cleaner_lock_global;						// Used only in   src/c/cleaner/multicore-cleaning-stuff.c
+Lock	 mc_cleaner_lock_global;						// Used only in   src/c/heapcleaner/multicore-cleaning-stuff.c
 
-Lock	 mc_cleaner_gen_lock_global;						// Used only in   src/c/cleaner/make-strings-and-vectors-etc.c
+Lock	 mc_cleaner_gen_lock_global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-Barrier* mc_cleaner_barrier_global;						// Used only with mc_barrier prim, in   src/c/cleaner/multicore-cleaning-stuff.c
+Barrier* mc_cleaner_barrier_global;						// Used only with mc_barrier prim, in   src/c/heapcleaner/multicore-cleaning-stuff.c
 
 Lock	 mc_timer_lock_global;							// Apparently never used.
 

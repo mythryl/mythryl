@@ -30,7 +30,7 @@ typedef Val (*Mythryl_Callable_C_Function) (Task*, Val);
 typedef struct {
     //
     const char*                   name;
-    const char*                   nickname;	// See Hashtable_Entry comment in src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    const char*                   nickname;	// See Hashtable_Entry comment in src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     Mythryl_Callable_C_Function	  cfunc;
     const char*                   mythryl_type;
     //

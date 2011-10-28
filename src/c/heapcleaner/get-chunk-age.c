@@ -14,7 +14,7 @@ int   get_chunk_age   (Val chunk) {
     // Return -1 for external/unboxed chunks.
     //
     // We are called (only) from
-    //     src/c/cleaner/datastructure-pickler.c	
+    //     src/c/heapcleaner/datastructure-pickler.c	
 
     if (! IS_POINTER( chunk )) {
 	return -1;

@@ -369,26 +369,26 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 
 // External cleaning functions:
 //
-extern void   clean_agegroup0   	(Task* task,  Val** roots);						// clean_agegroup0						def in   src/c/cleaner/clean-agegroup0.c
-extern void   clean_n_agegroups  (Task* task, Val** roots, int level);						// clean_n_agegroups						def in   src/c/cleaner/clean-n-agegroups.c 
+extern void   clean_agegroup0   	(Task* task,  Val** roots);						// clean_agegroup0						def in   src/c/heapcleaner/clean-agegroup0.c
+extern void   clean_n_agegroups  (Task* task, Val** roots, int level);						// clean_n_agegroups						def in   src/c/heapcleaner/clean-n-agegroups.c 
 //
-extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/cleaner/cleaner-stuff.c
-extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/cleaner/cleaner-stuff.c
+extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/cleaner-stuff.c
+extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/cleaner-stuff.c
 //
-extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						def in   src/c/cleaner/cleaner-stuff.c
+extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						def in   src/c/heapcleaner/cleaner-stuff.c
 extern void    set_book2sibid_entries_for_range
-	           (Sibid* book2sibid,  Val* base,  Val_Sized_Unt bytesize,  Sibid id);			// set_book2sibid_entries_for_range				def in   src/c/cleaner/cleaner-stuff.c
-extern void    null_out_newly_dead_weak_pointers	(Heap* heap);						// null_out_newly_dead_weak_pointers				def in   src/c/cleaner/cleaner-stuff.c
+	           (Sibid* book2sibid,  Val* base,  Val_Sized_Unt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/cleaner-stuff.c
+extern void    null_out_newly_dead_weak_pointers	(Heap* heap);						// null_out_newly_dead_weak_pointers				def in   src/c/heapcleaner/cleaner-stuff.c
 //
-extern Hugechunk*   allocate_hugechunk_region (Heap* heap,  Punt bytesize);				// allocate_hugechunk_region					def in   src/c/cleaner/hugechunk.c
-extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Punt chunk_bytesize);			// allocate_hugechunk						def in   src/c/cleaner/hugechunk.c
-extern void	    free_hugechunk            (Heap* heap,  Hugechunk* chunk);					// free_hugechunk						def in   src/c/cleaner/hugechunk.c
-extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hugechunk						def in   src/c/cleaner/hugechunk.c
+extern Hugechunk*   allocate_hugechunk_region (Heap* heap,  Punt bytesize);					// allocate_hugechunk_region					def in   src/c/heapcleaner/hugechunk.c
+extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Punt chunk_bytesize);			// allocate_hugechunk						def in   src/c/heapcleaner/hugechunk.c
+extern void	    free_hugechunk            (Heap* heap,  Hugechunk* chunk);					// free_hugechunk						def in   src/c/heapcleaner/hugechunk.c
+extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 //
-extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);					// get_codechunk_comment_string_else_null			def in   src/c/cleaner/hugechunk.c
+extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);					// get_codechunk_comment_string_else_null			def in   src/c/heapcleaner/hugechunk.c
 
 #ifdef BO_DEBUG
-    extern void print_hugechunk_region_map (Hugechunk_Region *r);						// print_hugechunk_region_map					def in   src/c/cleaner/hugechunk.c
+    extern void print_hugechunk_region_map (Hugechunk_Region *r);						// print_hugechunk_region_map					def in   src/c/heapcleaner/hugechunk.c
 #endif
 
 #ifdef CHECK_GC

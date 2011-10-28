@@ -48,7 +48,7 @@ Val   _lib7_runtime_export_heap   (Task* task,  Val arg)   {
 
     task->argument = HEAP_TRUE;
 
-    int status =   export_heap_image( task, file );					// export_heap_image		def in    src/c/cleaner/export-heap.c
+    int status =   export_heap_image( task, file );					// export_heap_image		def in    src/c/heapcleaner/export-heap.c
 
     fclose (file);
 

@@ -28,7 +28,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
     //
     // This function is called two places, one each in:
     //
-    //     src/c/cleaner/import-heap.c
+    //     src/c/heapcleaner/import-heap.c
     //     src/c/main/load-compiledfiles.c
 
     Task* task =  NULL;
@@ -58,7 +58,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     // Allocate and initialize the heap data structures:
     //
-    set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/cleaner/cleaner-initialization.c
+    set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/heapcleaner/cleaner-initialization.c
 
     #ifdef MULTICORE_SUPPORT
 	//

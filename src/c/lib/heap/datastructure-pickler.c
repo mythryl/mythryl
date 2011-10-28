@@ -27,7 +27,7 @@ Val   _lib7_runtime_pickle_datastructure   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
 
-    Val  pickle =  pickle_datastructure( task, arg );								// pickle_datastructure	def in   src/c/cleaner/datastructure-pickler.c
+    Val  pickle =  pickle_datastructure( task, arg );								// pickle_datastructure	def in   src/c/heapcleaner/datastructure-pickler.c
 
     if (pickle == HEAP_VOID)   return RAISE_ERROR(task, "Attempt to pickle datastructure failed");		// XXX BUGGO FIXME Need a clearer diagnostic here.
     else                       return pickle;

@@ -82,7 +82,7 @@ Status   export_heap_image   (Task* task,  FILE* file) {
     //
     //     src/c/lib/heap/export-heap.c
 
-    return   write_heap_image_to_file( task, EXPORT_HEAP_IMAGE, file );		// Defined below.	EXPORT_HEAP_IMAGE	def in    src/c/cleaner/runtime-heap-image.hexpor
+    return   write_heap_image_to_file( task, EXPORT_HEAP_IMAGE, file );		// Defined below.	EXPORT_HEAP_IMAGE	def in    src/c/heapcleaner/runtime-heap-image.hexpor
 } 
 
 
@@ -115,7 +115,7 @@ Status   export_fn_image   (
     task->callee_saved_registers[0]	= HEAP_VOID;
     task->callee_saved_registers[1]	= HEAP_VOID;
     task->callee_saved_registers[2]	= HEAP_VOID;
-											// EXPORT_HEAP_IMAGE		def in    src/c/cleaner/runtime-heap-image.hexpor
+											// EXPORT_HEAP_IMAGE		def in    src/c/heapcleaner/runtime-heap-image.hexpor
     return   write_heap_image_to_file( task, EXPORT_FN_IMAGE, file );			// write_heap_image_to_file	def below.
 }
 
@@ -133,7 +133,7 @@ static Status   write_heap_image_to_file   (
     //          ========================
     //
     Task* task,
-    int	  kind,						// EXPORT_FN_IMAGE | EXPORT_HEAP_IMAGE | NORMAL_DATASTRUCTURE_PICKLE | UNBOXED_PICKLE  -- defs in    src/c/cleaner/runtime-heap-image.h
+    int	  kind,						// EXPORT_FN_IMAGE | EXPORT_HEAP_IMAGE | NORMAL_DATASTRUCTURE_PICKLE | UNBOXED_PICKLE  -- defs in    src/c/heapcleaner/runtime-heap-image.h
     FILE* file
 ){
     Heap*  heap   =  task->heap;
@@ -144,7 +144,7 @@ static Status   write_heap_image_to_file   (
 
     // Shed any and all garbage:
     //
-    clean_heap( task, 0			   );		// Minor    garbage collection.			// clean_heap				def in    src/c/cleaner/call-cleaner.c
+    clean_heap( task, 0			   );		// Minor    garbage collection.			// clean_heap				def in    src/c/heapcleaner/call-cleaner.c
     clean_heap( task, MAX_ACTIVE_AGEGROUPS );		// Complete garbage collection.
 
 
@@ -175,7 +175,7 @@ static Status   write_heap_image_to_file   (
 	hh.math_package                  =   HEAP_VOID;
 #endif
 
-	heapio__write_image_header( wr, kind );								// heapio__write_image_header		def in    src/c/cleaner/export-heap-stuff.c
+	heapio__write_image_header( wr, kind );								// heapio__write_image_header		def in    src/c/heapcleaner/export-heap-stuff.c
 
 	WR_WRITE(wr, &hh, sizeof(hh));
 	if (WR_ERROR(wr)) {
@@ -205,7 +205,7 @@ static Status   write_heap_image_to_file   (
 	image.calleeSave[2]			=   write_register(export_table,  task->callee_saved_registers[2] 				);
 
 
-	{   int bytes_written =  heapio__write_cfun_table( wr, export_table );				// heapio__write_cfun_table		def in    src/c/cleaner/export-heap-stuff.c
+	{   int bytes_written =  heapio__write_cfun_table( wr, export_table );				// heapio__write_cfun_table		def in    src/c/heapcleaner/export-heap-stuff.c
 	    //
 	    if (bytes_written == -1) {
 		if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );
@@ -237,7 +237,7 @@ static Status   write_heap_image_to_file   (
 
 inline static void   patch_sib   (
     //               =========
-    Sibid*       b2s,								// book_to_sibid_global from    src/c/cleaner/cleaner-initialization.c
+    Sibid*       b2s,								// book_to_sibid_global from    src/c/heapcleaner/cleaner-initialization.c
     Heap*        heap,
     Heapfile_Cfun_Table* table,
     int          age,								// 0 <= age < heap->active_agegroups
@@ -256,7 +256,7 @@ inline static void   patch_sib   (
     ){
 	if (IS_EXTERN_POINTER(b2s, *p)) {					// IS_EXTERN_POINTER	def above.
 	    //
-	    *p = add_cfun_to_heapfile_cfun_table( table, *p );			// add_cfun_to_heapfile_cfun_table	def in    src/c/cleaner/mythryl-callable-cfun-hashtable.c
+	    *p = add_cfun_to_heapfile_cfun_table( table, *p );			// add_cfun_to_heapfile_cfun_table	def in    src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
 	    heap_needs_repair = TRUE;
 	}
@@ -273,11 +273,11 @@ static Heapfile_Cfun_Table*   build_export_table   (Heap* heap) {
 
     // Cache global in register for speed:
     //
-    Sibid*  b2s = book_to_sibid_global;						// book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    Sibid*  b2s = book_to_sibid_global;						// book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
 
     // Allocate an empty export table:
     //
-    Heapfile_Cfun_Table* table = make_heapfile_cfun_table();					// make_heapfile_cfun_table	def in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    Heapfile_Cfun_Table* table = make_heapfile_cfun_table();					// make_heapfile_cfun_table	def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
     // Scan the record, pair and vector sibs
     // for references to external symbols.
@@ -398,7 +398,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    //
 	    p->offset = (Unt1)offset;
 
-	    offset   +=  chunks * sizeof( Hugechunk_Header )			// Hugechunk_Header			def in    src/c/cleaner/runtime-heap-image.h
+	    offset   +=  chunks * sizeof( Hugechunk_Header )			// Hugechunk_Header			def in    src/c/heapcleaner/runtime-heap-image.h
 		         +
                          quanta * HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 	}

@@ -31,7 +31,7 @@ Val   _lib7_runtime_make_package_literals_via_bytecode_interpreter   (Task* task
     //
     //     src/lib/compiler/execution/main/execute.pkg
     //
-    return   make_package_literals_via_bytecode_interpreter (						// make_package_literals_via_bytecode_interpreter	def in    src/c/cleaner/make-package-literals-via-bytecode-interpreter.c
+    return   make_package_literals_via_bytecode_interpreter (						// make_package_literals_via_bytecode_interpreter	def in    src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c
                  task,
                  GET_VECTOR_DATACHUNK_AS( Unt8*, arg ),
                  GET_VECTOR_LENGTH( arg )

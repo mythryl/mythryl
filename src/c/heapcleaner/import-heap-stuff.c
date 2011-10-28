@@ -3,7 +3,7 @@
 // Support fns to import a Mythryl
 // heap image, called mainly from
 //
-//     src/c/cleaner/import-heap.c 
+//     src/c/heapcleaner/import-heap.c 
 
 
 #include "../config.h"

@@ -39,9 +39,9 @@
 
 // Cleaner statistics:
 //
-extern long	update_count_global;		// update_count_global			def in    src/c/cleaner/clean-n-agegroups.c
-extern long	total_bytes_allocated_global;	// total_bytes_allocated_global		def in    src/c/cleaner/clean-n-agegroups.c
-extern long	total_bytes_copied_global;	// total_bytes_allocated_global		def in    src/c/cleaner/clean-n-agegroups.c
+extern long	update_count_global;		// update_count_global			def in    src/c/heapcleaner/clean-n-agegroups.c
+extern long	total_bytes_allocated_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/clean-n-agegroups.c
+extern long	total_bytes_copied_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/clean-n-agegroups.c
 
 // heap_changelog operations:
 //
@@ -58,7 +58,7 @@ static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,
 
 
 #ifdef VERBOSE
-    extern char* sib_name_global [];			// sib_name_global	def in   src/c/cleaner/clean-n-agegroups.c
+    extern char* sib_name_global [];			// sib_name_global	def in   src/c/heapcleaner/clean-n-agegroups.c
 #endif
 
 
@@ -80,7 +80,7 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 
 // This fun is called (only) from:
 //
-//     src/c/cleaner/call-cleaner.c
+//     src/c/heapcleaner/call-cleaner.c
 //
 void   clean_agegroup0   (Task* task,  Val** roots) {
     // ===============
@@ -125,7 +125,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the standard roots:
     //
-    {   Sibid*  b2s = book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    {   Sibid*  b2s = book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
@@ -158,7 +158,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
     sweep_agegroup_1_tospace( age1 );
     ++heap->agegroup0_cleanings_done;
 
-    null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/cleaner/cleaner-stuff.c
+    null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/cleaner-stuff.c
 
     #ifdef VERBOSE
 	debug_say ("Agegroup 1 after MinorGC:\n");
@@ -195,7 +195,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 
 
     #ifdef CHECK_HEAP
-        check_heap( heap, 1 );								// check_heap		def in    src/c/cleaner/check-heap.c
+        check_heap( heap, 1 );								// check_heap		def in    src/c/heapcleaner/check-heap.c
     #endif
 
 }											// fun clean_agegroup0
@@ -204,7 +204,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 static int   get_age_of_codechunk   (Val codechunk) {
     //       ====================
 
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
 
     Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );				// Get the Sibid tag for the ram-book containing the codechunk.
 
@@ -246,7 +246,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 
     int updates        = 0;								// Cleaner statistics.
     Agegroup* age1     =  heap->agegroup[ 0 ];						// Cache heap entry for speed.
-    Sibid* b2s         =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    Sibid* b2s         =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
 
     while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {				// Over all entries in the heap_changelog.
 	//
@@ -309,7 +309,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   {	// Called only from sweep_agegroup_1_tospace (below).
     //               ===========================
     //
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
     Sib*   sib =  ag1->sib[ ilk ];							// Find sib to scan.
 
     Bool   progress =  FALSE;

@@ -248,12 +248,12 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
     // 
     //     forward_special_chunk()
     // in
-    //     src/c/cleaner/clean-agegroup0.c
-    //     src/c/cleaner/clean-n-agegroups.c
+    //     src/c/heapcleaner/clean-agegroup0.c
+    //     src/c/heapcleaner/clean-n-agegroups.c
 
     if (heap->weak_pointers_forwarded_during_cleaning == NULL)   return;			// No work to do.
 
-    Sibid*	   b2s    =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/cleaner/cleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/cleaner-initialization.c
 
     Val* next;
 

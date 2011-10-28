@@ -53,7 +53,7 @@ Val   _lib7_Sock_unix_domain_socket_address_to_string   (Task* task,  Val arg)  
 
     ASSERT( addr->sun_family == AF_UNIX );
 
-    return   make_ascii_string_from_c_string( task, addr->sun_path );			// make_ascii_string_from_c_string	def in    src/c/cleaner/make-strings-and-vectors-etc.c
+    return   make_ascii_string_from_c_string( task, addr->sun_path );			// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 

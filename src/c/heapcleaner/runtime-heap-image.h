@@ -171,8 +171,8 @@ typedef struct {
 // Pointer tagging operations:  When saving and loading
 // heapgraphs on disk in
 //
-//     src/c/cleaner/datastructure-unpickler.c
-//     src/c/cleaner/datastructure-pickler.c
+//     src/c/heapcleaner/datastructure-unpickler.c
+//     src/c/heapcleaner/datastructure-pickler.c
 //     
 // we pack a pointer's kind and its address together
 // in one word, where 'kind' is one of
@@ -185,9 +185,9 @@ typedef struct {
 #define HIO_ADDR_BITS			(BITS_PER_WORD - HIO_ID_BITS)					// Used only in this header.
 #define HIO_ADDR_MASK			((1 << HIO_ADDR_BITS) - 1)					// Used only in this header.
 
-#define HIO_TAG_PTR(kind,offset)	PTR_CAST( Val, ((kind)<<HIO_ADDR_BITS)|(Punt)(offset))		// Used in      src/c/cleaner/datastructure-pickler.c   +   src/c/cleaner/datastructure-pickler-cleaner.c
-#define HIO_GET_ID(p)			(HEAP_POINTER_AS_UNT(p) >> HIO_ADDR_BITS)			// Used only in src/c/cleaner/datastructure-unpickler.c
-#define HIO_GET_OFFSET(p)		(HEAP_POINTER_AS_UNT(p) &  HIO_ADDR_MASK)			// Used only in src/c/cleaner/datastructure-unpickler.c	
+#define HIO_TAG_PTR(kind,offset)	PTR_CAST( Val, ((kind)<<HIO_ADDR_BITS)|(Punt)(offset))		// Used in      src/c/heapcleaner/datastructure-pickler.c   +   src/c/heapcleaner/datastructure-pickler-cleaner.c
+#define HIO_GET_ID(p)			(HEAP_POINTER_AS_UNT(p) >> HIO_ADDR_BITS)			// Used only in src/c/heapcleaner/datastructure-unpickler.c
+#define HIO_GET_OFFSET(p)		(HEAP_POINTER_AS_UNT(p) &  HIO_ADDR_MASK)			// Used only in src/c/heapcleaner/datastructure-unpickler.c	
 
 #endif // RUNTIME_HEAP_IMAGE_H
 

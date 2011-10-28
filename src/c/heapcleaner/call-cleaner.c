@@ -50,7 +50,7 @@ Includes:
 #ifdef C_CALLS
     // This is a list of pointers into the C heap locations that hold
     // pointers to Mythryl functions. This list is not part of any Mythryl data
-    // package(s).  (also see src/c/cleaner/clean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
+    // package(s).  (also see src/c/heapcleaner/clean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
     //
  extern Val	mythryl_functions_referenced_from_c_code_global;	// mythryl_functions_referenced_from_c_code_global	def in   src/c/lib/ccalls/ccalls-fns.c
 #endif
@@ -87,7 +87,7 @@ void   clean_heap   (Task* task,  int level) {
 	}
     #endif
 
-    note_when_cleaning_started( task->heap );						// note_when_cleaning_started	def in    src/c/cleaner/cleaner-statistics.h
+    note_when_cleaning_started( task->heap );						// note_when_cleaning_started	def in    src/c/heapcleaner/cleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
@@ -153,7 +153,7 @@ void   clean_heap   (Task* task,  int level) {
 
     *rootsPtr = NULL;
 
-    clean_agegroup0( task, roots );							// clean_agegroup0	is from   src/c/cleaner/clean-agegroup0.c
+    clean_agegroup0( task, roots );							// clean_agegroup0	is from   src/c/heapcleaner/clean-agegroup0.c
 
     heap = task->heap;
 
@@ -201,7 +201,7 @@ void   clean_heap   (Task* task,  int level) {
 
 	*rootsPtr = NULL;
 
-	clean_n_agegroups( task, roots, level );							// clean_n_agegroups			def in   src/c/cleaner/clean-n-agegroups.c
+	clean_n_agegroups( task, roots, level );							// clean_n_agegroups			def in   src/c/heapcleaner/clean-n-agegroups.c
     }
 
     // Reset the allocation space:
@@ -218,7 +218,7 @@ void   clean_heap   (Task* task,  int level) {
 	#endif
     #endif
 
-    note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/cleaner/cleaner-statistics.h
+    note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/cleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
 }			                                             // fun clean_heap
@@ -264,7 +264,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	return;				// A waiting proc
     #endif
 
-    note_when_cleaning_started( task->heap );								// note_when_cleaning_started	def in    src/c/cleaner/cleaner-statistics.h
+    note_when_cleaning_started( task->heap );								// note_when_cleaning_started	def in    src/c/heapcleaner/cleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
@@ -337,7 +337,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     *rootsPtr = NULL;
 
-    clean_agegroup0( task, roots );			// clean_agegroup0	is from   src/c/cleaner/clean-agegroup0.c
+    clean_agegroup0( task, roots );			// clean_agegroup0	is from   src/c/heapcleaner/clean-agegroup0.c
 
     heap = task->heap;
 
@@ -386,7 +386,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
 	*rootsPtr = NULL;
 
-	clean_n_agegroups( task, roots, level );								// clean_n_agegroups			def in   src/c/cleaner/clean-n-agegroups.c
+	clean_n_agegroups( task, roots, level );								// clean_n_agegroups			def in   src/c/heapcleaner/clean-n-agegroups.c
 
     }
 
@@ -405,7 +405,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
     #endif
 
-    note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/cleaner/cleaner-statistics.h
+    note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/cleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
 }														// fun clean_heap_with_extra_roots

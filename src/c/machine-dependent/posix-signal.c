@@ -56,7 +56,7 @@ static void   c_signal_handler   (/* int sig,  Signal_Handler_Info_Arg info,  Si
 Val   list_signals   (Task* task)   {				// Called from src/c/lib/signal/listsignals.c
     //============
     //
-    return dump_table_as_system_constants_list (task, &SigTable);			// See src/c/cleaner/make-strings-and-vectors-etc.c
+    return dump_table_as_system_constants_list (task, &SigTable);			// See src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 void   pause_until_signal   (Pthread* pthread) {

@@ -54,9 +54,9 @@ Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt byt
     // or NULL on failure.
     //
     // We get invoked from three places:
-    //    src/c/cleaner/cleaner-stuff.c
-    //    src/c/cleaner/cleaner-initialization.c
-    //    src/c/cleaner/hugechunk.c
+    //    src/c/heapcleaner/cleaner-stuff.c
+    //    src/c/heapcleaner/cleaner-initialization.c
+    //    src/c/heapcleaner/hugechunk.c
 
     Val_Sized_Unt alloc_bytesize;
 

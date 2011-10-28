@@ -3,9 +3,9 @@
 // A dirty, but quick, copy loop for the cleaner.
 // This is used in:
 //
-//     src/c/cleaner/datastructure-pickler-cleaner.c
-//     src/c/cleaner/clean-n-agegroups.c
-//     src/c/cleaner/clean-agegroup0.c
+//     src/c/heapcleaner/datastructure-pickler-cleaner.c
+//     src/c/heapcleaner/clean-n-agegroups.c
+//     src/c/heapcleaner/clean-agegroup0.c
 
 
 #ifndef COPY_LOOP_H

@@ -104,7 +104,7 @@
 								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner (below) which returns a REQUEST_CLEANING to
 								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-								// which will call   clean_heap	()            in   src/c/cleaner/call-cleaner.c
+								// which will call   clean_heap	()            in   src/c/heapcleaner/call-cleaner.c
 #define unused_2		REGOFF(36,ESP)
 #define eaxSpill		REGOFF(40,ESP) // eax=0
 #define	ecxSpill		REGOFF(44,ESP) // ecx=1
@@ -236,7 +236,7 @@ ENTRY( resume_after_handling_software_generated_periodic_event )
 // We get invoked courtesy of being stuffed into
 //     task->exception_fate
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and src/c/cleaner/import-heap.c
+// and src/c/heapcleaner/import-heap.c
 //
 LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 	MOV_L(CONST(REQUEST_HANDLE_UNCAUGHT_EXCEPTION), request_w)
@@ -264,7 +264,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 //
 // We get slotted into task->fate by   save_c_state           in   src/c/main/runtime-state.c 
 // and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and by                              import_heap_image      in   src/c/cleaner/import-heap.c
+// and by                              import_heap_image      in   src/c/heapcleaner/import-heap.c
 // and by                              mc_acquire_pthread     in   src/c/pthread/sgi-multicore.c
 // and by                              mc_acquire_pthread     int  src/c/pthread/solaris-multicore.c
 //
@@ -289,7 +289,7 @@ ENTRY(request_fault)
 	MOVE(stdlink,temp,program_counter)
 	JMP(CSYM(set_request))
 
-// find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+// find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 //
 // We get called (only) from:
 //

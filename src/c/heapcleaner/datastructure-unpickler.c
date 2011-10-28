@@ -45,7 +45,7 @@ Val   unpickle_datastructure   (Task* task,  Unt8* buf,  long len,  Bool* seen_e
 
     // Read the chunk header:
     //
-    if (heapio__read_block( &inbuf, &header, sizeof(header) ) == FAILURE) {	// heapio__read_block	def in    src/c/cleaner/import-heap-stuff.c
+    if (heapio__read_block( &inbuf, &header, sizeof(header) ) == FAILURE) {	// heapio__read_block	def in    src/c/heapcleaner/import-heap-stuff.c
         //
 	*seen_error = TRUE;
 	return HEAP_VOID;

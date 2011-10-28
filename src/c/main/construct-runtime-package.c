@@ -400,7 +400,7 @@ void   publish_runtime_package_contents   ()   {
     //
     // To support doing so, we maintain in
     //
-    //     src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    //     src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
     // a global hashtable of C-level resources accessible from
     // Mythryl-level code.
@@ -454,12 +454,12 @@ void   publish_runtime_package_contents   ()   {
     // specifically
     //     add_cfun_to_heapfile_cfun_table
     // in
-    //     src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    //     src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
     // NB: Renaming in left-hand column is nontrivial, you'll
     // get 'runtime does not provide X' errors from mythryld.
     // Use publish_cfun2() and see Hashtable_Entry comments in
-    // src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    // src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
     publish_cfun( "runtime::asm::make_polymorphic_rw_vector",	PTR_CAST( Val, make_typeagnostic_rw_vector_v+1));
     publish_cfun( "runtime::asm::find_cfun",			PTR_CAST( Val, find_cfun_v+1));
@@ -492,7 +492,7 @@ void   publish_runtime_package_contents   ()   {
     // NB: Renaming in left-hand column is nontrivial, you'll
     // get 'runtime does not provide X' errors from mythryld.
     // Use publish_cfun2() and see Hashtable_Entry comments in
-    // src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    // src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
     publish_cfun( "runtime::divide_exception",						DIVIDE_EXCEPTION_GLOBAL						);
     publish_cfun( "runtime::overflow_exception",					OVERFLOW_EXCEPTION_GLOBAL					);

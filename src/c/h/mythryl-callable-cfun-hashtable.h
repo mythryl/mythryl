@@ -1,6 +1,6 @@
 // mythryl-callable-cfun-hashtable.h
 //
-// API of   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+// API of   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
 #ifndef MYTHRYL_CALLABLE_C_FNS_HASHTABLE_H
 #define MYTHRYL_CALLABLE_C_FNS_HASHTABLE_H

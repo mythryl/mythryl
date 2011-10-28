@@ -71,7 +71,7 @@ struct repair {
  static Val                    forward_chunk                             (Heap *heap,  Val chunk, Sibid id);
  static Hugechunk*             forward_hugechunk                         (Heap* heap,  Val* p,  Val chunk,  Sibid aid);
 
- static Embedded_Chunk_Info*   find_embedded_chunk                       (Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/cleaner/datastructure-pickler.h
+ static Embedded_Chunk_Info*   find_embedded_chunk                       (Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
  static void                   record_addresses_of_extracted_literals    (Punt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
  static void                   extract_literals_from_codechunks          (Punt addr, void *_closure, void *_info);
 
@@ -134,7 +134,7 @@ Pickler_Result   pickler__clean_heap   (
     //
     Task* task,
     Val*  root_chunk,
-    int   age		// Caller guarantees age == get_chunk_age( root_chunk )				// get_chunk_age			def in   src/c/cleaner/get-chunk-age.c
+    int   age		// Caller guarantees age == get_chunk_age( root_chunk )				// get_chunk_age			def in   src/c/heapcleaner/get-chunk-age.c
 ){
     Heap* heap =  task->heap;
 
@@ -142,7 +142,7 @@ Pickler_Result   pickler__clean_heap   (
 
     Bool seen_error =  FALSE;
 
-    Pickler_Result result;										// Pickler_Result				def in   src/c/cleaner/datastructure-pickler.h
+    Pickler_Result result;										// Pickler_Result				def in   src/c/heapcleaner/datastructure-pickler.h
 
     result.oldest_agegroup_included_in_pickle
 	=
@@ -152,11 +152,11 @@ Pickler_Result   pickler__clean_heap   (
 
     // Allocate the cfun and embedded chunk tables:
     //
-    cfun_table_local =  make_heapfile_cfun_table();							// make_heapfile_cfun_table		def in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    cfun_table_local =  make_heapfile_cfun_table();							// make_heapfile_cfun_table		def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
     embedded_chunk_ref_table_local
 	=
-	make_address_hashtable( /*ignore_bits:*/ LOG2_BYTES_PER_WORD, /*buckets:*/ 64 );		// make_address_hashtable		def in   src/c/cleaner/address-hashtable.c
+	make_address_hashtable( /*ignore_bits:*/ LOG2_BYTES_PER_WORD, /*buckets:*/ 64 );		// make_address_hashtable		def in   src/c/heapcleaner/address-hashtable.c
 
     result.cfun_table           =  cfun_table_local;
     result.embedded_chunk_table =  embedded_chunk_ref_table_local;
@@ -211,7 +211,7 @@ Punt   pickler__relocate_embedded_literals   (
     closure.offset = offset;
     closure.id = id;
     //
-    addresstable_apply( embedded_chunk_ref_table_local, &closure, record_addresses_of_extracted_literals );		// addresstable_apply		def in    src/c/cleaner/address-hashtable.c
+    addresstable_apply( embedded_chunk_ref_table_local, &closure, record_addresses_of_extracted_literals );		// addresstable_apply		def in    src/c/heapcleaner/address-hashtable.c
     //
     return closure.offset;
 }
@@ -798,7 +798,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 		break;
 
 	    default:
-		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword of chunk = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/cleaner/datastructure-pickler-cleaner.c",
+		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword of chunk = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/heapcleaner/datastructure-pickler-cleaner.c",
 		      GET_BTAG_FROM_TAGWORD( tagword ),
 		      chunk,
 		      tagword,
@@ -892,7 +892,7 @@ static Embedded_Chunk_Info*   find_embedded_chunk   (
     Punt                  addr,
     Embedded_Chunk_Kind   kind
 ) {
-    Embedded_Chunk_Info* p  =  FIND_EMBEDDED_CHUNK( table, addr );	// FIND_EMBEDDED_CHUNK		def in    src/c/cleaner/datastructure-pickler.h
+    Embedded_Chunk_Info* p  =  FIND_EMBEDDED_CHUNK( table, addr );	// FIND_EMBEDDED_CHUNK		def in    src/c/heapcleaner/datastructure-pickler.h
 
     if (p == NULL) {
 	p		= MALLOC_CHUNK(Embedded_Chunk_Info);

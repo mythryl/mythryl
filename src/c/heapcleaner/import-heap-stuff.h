@@ -77,9 +77,9 @@ inline Hugechunk_Relocation_Info*   get_hugechunk_holding_pointee_via_reloc_info
 
 // Utility routines:
 //
-extern Val*     heapio__read_externs_table  (Inbuf* bp);					// heapio__read_externs_table	def in    src/c/cleaner/import-heap-stuff.c
-extern Status   heapio__seek                (Inbuf* bp,  long offset);				// heapio__seek			def in    src/c/cleaner/import-heap-stuff.c
-extern Status   heapio__read_block          (Inbuf* bp,  void* blk,  long len);			// heapio__read_block		def in    src/c/cleaner/import-heap-stuff.c
+extern Val*     heapio__read_externs_table  (Inbuf* bp);					// heapio__read_externs_table	def in    src/c/heapcleaner/import-heap-stuff.c
+extern Status   heapio__seek                (Inbuf* bp,  long offset);				// heapio__seek			def in    src/c/heapcleaner/import-heap-stuff.c
+extern Status   heapio__read_block          (Inbuf* bp,  void* blk,  long len);			// heapio__read_block		def in    src/c/heapcleaner/import-heap-stuff.c
 
 #endif				// HEAP_INPUT_H
 

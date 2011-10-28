@@ -55,7 +55,7 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
 
     clean_heap_with_extra_roots (task, 0, &root_chunk, NULL);  				// Clean agegroup0.
 
-    int age =  get_chunk_age( root_chunk );						// get_chunk_age			def in   src/c/cleaner/get-chunk-age.c
+    int age =  get_chunk_age( root_chunk );						// get_chunk_age			def in   src/c/heapcleaner/get-chunk-age.c
 
     if (age == -1)   return pickle_unboxed_value( task, root_chunk );
 
@@ -64,9 +64,9 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
 
     // DEBUG  check_heap (task->heap, task->heap->active_agegroups);
 
-    Pickler_Result  pickler_result								// Pickler_Result				def in    src/c/cleaner/datastructure-pickler.h
+    Pickler_Result  pickler_result								// Pickler_Result				def in    src/c/heapcleaner/datastructure-pickler.h
 	=
-	pickler__clean_heap( task, &root_chunk, age );					// pickler__clean_heap			def in    src/c/cleaner/datastructure-pickler-cleaner.c
+	pickler__clean_heap( task, &root_chunk, age );					// pickler__clean_heap			def in    src/c/heapcleaner/datastructure-pickler-cleaner.c
 
     Val pickle
 	=
@@ -74,7 +74,7 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
 
     // Repair the heap or finish the cleaning:
     //
-    pickler__wrap_up( task, &pickler_result );					// pickler__wrap_up		def in    src/c/cleaner/datastructure-pickler-cleaner.c
+    pickler__wrap_up( task, &pickler_result );					// pickler__wrap_up		def in    src/c/heapcleaner/datastructure-pickler-cleaner.c
 
     // DEBUG check_heap (task->heap, result.maxGen);
 
@@ -99,7 +99,7 @@ static Val   pickle_unboxed_value   (Task* task,  Val root_chunk) {
     //
     wr =   WR_OpenMem(   PTR_CAST( Unt8*, pickle ),   bytesize );
 
-    heapio__write_image_header( wr, UNBOXED_PICKLE );								// heapio__write_image_header		def in    src/c/cleaner/export-heap-stuff.c
+    heapio__write_image_header( wr, UNBOXED_PICKLE );								// heapio__write_image_header		def in    src/c/heapcleaner/export-heap-stuff.c
 
     pickle_header.smallchunk_sibs_count     =  0;
     pickle_header.hugechunk_sibs_count      =  0;
@@ -135,7 +135,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 	//
     } adjust[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];
 
-    Sib_Header*  p;										// Sib_Header		def in    src/c/cleaner/runtime-heap-image.h
+    Sib_Header*  p;										// Sib_Header		def in    src/c/heapcleaner/runtime-heap-image.h
     Sib_Header*  sib_headers[ TOTAL_ILKS ];
     Sib_Header*  sib_header_buffer;
 
@@ -154,7 +154,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // The embedded literals go first:
     //
-    total_sib_buffer_bytesize[ STRING_ILK ]						// pickler__relocate_embedded_literals	def in   src/c/cleaner/datastructure-pickler-cleaner.c
+    total_sib_buffer_bytesize[ STRING_ILK ]						// pickler__relocate_embedded_literals	def in   src/c/heapcleaner/datastructure-pickler-cleaner.c
 	=
 	pickler__relocate_embedded_literals( result, STRING_ILK, 0 );
 
@@ -227,7 +227,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 	=
 	allocate_heap_ram_for_pickle( task, total_bytesize );
     //
-    wr =  WR_OpenMem( PTR_CAST(Unt8*, pickle), total_bytesize );							// WR_OpenMem				def in    src/c/cleaner/mem-writer.c
+    wr =  WR_OpenMem( PTR_CAST(Unt8*, pickle), total_bytesize );							// WR_OpenMem				def in    src/c/heapcleaner/mem-writer.c
 
     // Initialize the sib headers:
     //
@@ -262,7 +262,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // Write the pickle image header:
     //
-    if (heapio__write_image_header (wr, NORMAL_DATASTRUCTURE_PICKLE) == FAILURE) {								// heapio__write_image_header		def in    src/c/cleaner/export-heap-stuff.c
+    if (heapio__write_image_header (wr, NORMAL_DATASTRUCTURE_PICKLE) == FAILURE) {								// heapio__write_image_header		def in    src/c/heapcleaner/export-heap-stuff.c
 	//
 	FREE( sib_header_buffer );
 
@@ -294,7 +294,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		addr -= adjust[ age ][ kind ].base;
 		addr += adjust[ age ][ kind ].offset;
 
-		header.root_chunk = HIO_TAG_PTR(kind, addr);									// HIO_TAG_PTR				def in    src/c/cleaner/runtime-heap-image.h
+		header.root_chunk = HIO_TAG_PTR(kind, addr);									// HIO_TAG_PTR				def in    src/c/heapcleaner/runtime-heap-image.h
 
 	    } else {
 
@@ -320,7 +320,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 	    header.root_chunk = root_chunk;
 	}
 
-	WR_WRITE(wr, &header, sizeof(header));											// WR_WRITE					def in    src/c/cleaner/writer.h
+	WR_WRITE(wr, &header, sizeof(header));											// WR_WRITE					def in    src/c/heapcleaner/writer.h
 	//
 	if (WR_ERROR(wr)) {
 	    FREE (sib_header_buffer);
@@ -333,7 +333,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     // a handful of assembly fns, exceptions
     // and refcells:
     //
-    {   int bytes_written =   heapio__write_cfun_table( wr, result->cfun_table );					// heapio__write_cfun_table			def in    src/c/cleaner/export-heap-stuff.c
+    {   int bytes_written =   heapio__write_cfun_table( wr, result->cfun_table );					// heapio__write_cfun_table			def in    src/c/heapcleaner/export-heap-stuff.c
 
 	if (bytes_written == -1) {
 	    FREE( sib_header_buffer );
@@ -358,7 +358,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 	    // Write into the pickle the required embedded literals:
             //
-	    pickler__pickle_embedded_literals( wr );										// pickler__pickle_embedded_literals		def in    src/c/cleaner/datastructure-pickler-cleaner.c
+	    pickler__pickle_embedded_literals( wr );										// pickler__pickle_embedded_literals		def in    src/c/heapcleaner/datastructure-pickler-cleaner.c
 
 	    // Write into the pickle remaining required strings:
             //

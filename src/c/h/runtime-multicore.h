@@ -102,7 +102,7 @@ typedef enum {
     extern int      mc_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
     extern int      mc_active_pthread_count	();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
-											// Used only to set barrier for right number of pthreads in   src/c/cleaner/multicore-cleaning-stuff.c
+											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/multicore-cleaning-stuff.c
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -159,7 +159,7 @@ typedef enum {
     //
     // Our only current use of this facility is in
     //
-    //     src/c/cleaner/multicore-cleaning-stuff.c
+    //     src/c/heapcleaner/multicore-cleaning-stuff.c
     //
     // where it serves to ensure that garbage collection
     // does not start until all pthreads have ceased normal

@@ -22,8 +22,8 @@ Status   heapio__write_image_header   (Writer* wr,  int kind) {
     // Write out the  Heapfile_Header.
     //
     // We get called from:
-    //     src/c/cleaner/export-heap.c
-    //     src/c/cleaner/datastructure-pickler.c
+    //     src/c/heapcleaner/export-heap.c
+    //     src/c/heapcleaner/datastructure-pickler.c
 
     Heapfile_Header	header;
 
@@ -61,8 +61,8 @@ int   heapio__write_cfun_table   (Writer* wr,  Heapfile_Cfun_Table* table)   {
     //
     // We get called once each from:
     //
-    //     src/c/cleaner/export-heap.c
-    //     src/c/cleaner/datastructure-pickler.c
+    //     src/c/heapcleaner/export-heap.c
+    //     src/c/heapcleaner/datastructure-pickler.c
 
 
     int	total_bytes_written =  0;
@@ -84,11 +84,11 @@ int   heapio__write_cfun_table   (Writer* wr,  Heapfile_Cfun_Table* table)   {
     // We will save these strings in our heap image file -- they
     // will be used during loading to look up C functions via
     //
-    //     find_cfun()    from    src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    //     find_cfun()    from    src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //     
     int			            cfun_names_count;
     const char**	                               cfun_names;
-    get_names_of_all_cfuns_in_heapfile_cfun_table( table, &cfun_names_count, &cfun_names );		// get_names_of_all_cfuns_in_heapfile_cfun_table	def in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+    get_names_of_all_cfuns_in_heapfile_cfun_table( table, &cfun_names_count, &cfun_names );		// get_names_of_all_cfuns_in_heapfile_cfun_table	def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
     int	bytes_of_strings = 0;
     //

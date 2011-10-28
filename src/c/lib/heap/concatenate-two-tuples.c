@@ -37,7 +37,7 @@ Val   _lib7_runtime_concatenate_two_tuples   (Task* task,  Val arg)   {
     if (r1 == HEAP_VOID)	return r2;
     else if (r2 == HEAP_VOID)	return r1;
     else {
-      Val  result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/cleaner/tuple-ops.c
+      Val  result =   concatenate_two_tuples (task, r1, r2);					// concatenate_two_tuples	def in   src/c/heapcleaner/tuple-ops.c
 
 	if (result == HEAP_VOID)   return RAISE_ERROR( task, "recordmeld: not a record");
 	else                       return result;

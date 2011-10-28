@@ -26,13 +26,13 @@
     inline void   note_when_cleaning_started   (Heap* heap)   {
         //        ==============================
 	//
-        // Called (only) from:    src/c/cleaner/call-cleaner.c
+        // Called (only) from:    src/c/heapcleaner/call-cleaner.c
 
 	if (cleaner_statistics_generation_switch) {
 	    //
-	    Cleaner_Statistics* stats									// Cleaner_Statistics	def in    src/c/h/cleaner-statistics-2.h
+	    Cleaner_Statistics* stats										// Cleaner_Statistics		def in    src/c/h/cleaner-statistics-2.h
 		=
-		&statistics_buffer[ statistics_buffer_record_count ];						// statistics_buffer		def in    src/c/cleaner/cleaner-initialization.c
+		&statistics_buffer[ statistics_buffer_record_count ];						// statistics_buffer		def in    src/c/heapcleaner/cleaner-initialization.c
 
 	    Punt  bytes
 		=
@@ -54,7 +54,7 @@
 
     inline void   note_when_cleaning_completed   (void)   {
         //
-        // Called (only) from:    src/c/cleaner/call-cleaner.c
+        // Called (only) from:    src/c/heapcleaner/call-cleaner.c
 	//
 	if (cleaner_statistics_generation_switch) {
 	    //
@@ -66,7 +66,7 @@
 
     inline void   note_active_agegroups_count_for_this_timesample   (Unt1 active_agegroups) {
         //
-        // Called (only) from:    src/c/cleaner/clean-n-agegroups.c
+        // Called (only) from:    src/c/heapcleaner/clean-n-agegroups.c
 	//
 	if (cleaner_statistics_generation_switch) {
 	    //

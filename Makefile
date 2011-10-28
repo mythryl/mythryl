@@ -618,7 +618,7 @@ somewhat-clean:	ppless
 	@rm -f src/lib/html/html-lex.pkg;
 	@rm -f src/app/future-lex/src/frontends/lex/mythryl-lex.grammar.api
 	@rm -f src/app/future-lex/src/frontends/lex/mythryl-lex.grammar.pkg
-	@rm -f src/c/cleaner/shebang-line.h;
+	@rm -f src/c/heapcleaner/shebang-line.h;
 	@rm -f src/c/o/mythryl-executable.h;
 	@rm -f examples/c-tak;
 	@rm -f examples/c-1000-strings;

@@ -382,7 +382,7 @@ static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int d
 	if (sibid != UNMAPPED_BOOK_SIBID) {
 	    die("bogus chunk ilk in book_to_sibid_global\n");
 	} else {
-	    if (name_of_cfun(w) == NULL) {					// name_of_cfun	def in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+	    if (name_of_cfun(w) == NULL) {					// name_of_cfun	def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 		ERROR;
 		debug_say (
 		    "** @%#x: reference to unregistered external address %#x\n",

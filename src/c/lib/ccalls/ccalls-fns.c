@@ -55,10 +55,10 @@ void   set_visible_task   (Task* visible_task)   {
 //
 // This variable is referenced only in this file and in
 //
-//     src/c/cleaner/call-cleaner.c
+//     src/c/heapcleaner/call-cleaner.c
 //
-Val   mythryl_functions_referenced_from_c_code_global =   LIST_NIL;	// See  src/c/cleaner/call-cleaner.c
-    //===============================================			// and  src/c/cleaner/clean-n-agegroups.c
+Val   mythryl_functions_referenced_from_c_code_global =   LIST_NIL;	// See  src/c/heapcleaner/call-cleaner.c
+    //===============================================			// and  src/c/heapcleaner/clean-n-agegroups.c
 
 
 static void   register_fn_as_cleaning_root   (

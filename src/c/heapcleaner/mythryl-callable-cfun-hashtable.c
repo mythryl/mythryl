@@ -173,7 +173,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
     //
     //     heapio__read_externs_table()
     //
-    // in  src/c/cleaner/import-heap-stuff.c
+    // in  src/c/heapcleaner/import-heap-stuff.c
     //
     // will look these up by name and patch them
     // into a heap being loaded.
@@ -364,7 +364,7 @@ const char*   name_of_cfun   (Val address) {
     // labels the given address, else NULL.
     //	
     // This is called (only) from:
-    //     src/c/cleaner/check-heap.c
+    //     src/c/heapcleaner/check-heap.c
 
     // Find the symbol in the hashed_by_address_bucketvector_local:
     //
@@ -386,7 +386,7 @@ Val   find_cfun   (const char* name)   {
     // We get called from exactly one place,
     // to read in a cfun table in
     //
-    //     src/c/cleaner/import-heap-stuff.c
+    //     src/c/heapcleaner/import-heap-stuff.c
 
     int		       hash;
     HASH_STRING( name, hash );
@@ -429,8 +429,8 @@ Heapfile_Cfun_Table*   make_heapfile_cfun_table   ()   {
     //        =================
     //
     // This function is called from:
-    //     src/c/cleaner/datastructure-pickler-cleaner.c
-    //     src/c/cleaner/export-heap.c
+    //     src/c/heapcleaner/datastructure-pickler-cleaner.c
+    //     src/c/heapcleaner/export-heap.c
 
     Heapfile_Cfun_Table* table =   MALLOC_CHUNK(Heapfile_Cfun_Table);
     //
@@ -454,8 +454,8 @@ Val   add_cfun_to_heapfile_cfun_table   (Heapfile_Cfun_Table* table,   Val addr)
     //
     // We get called two places each in:
     //
-    //     src/c/cleaner/export-heap.c
-    //     src/c/cleaner/datastructure-pickler-cleaner.c
+    //     src/c/heapcleaner/export-heap.c
+    //     src/c/heapcleaner/datastructure-pickler-cleaner.c
 
     Punt a =   HEAP_POINTER_AS_UNT( addr );
 
@@ -578,7 +578,7 @@ void   get_names_of_all_cfuns_in_heapfile_cfun_table   (Heapfile_Cfun_Table* tab
     // =============================================
     //
     // This function is called (only) from:
-    //     src/c/cleaner/export-heap-stuff.c
+    //     src/c/heapcleaner/export-heap-stuff.c
 
     int          n  =  *symbol_count =  table->entries_count;
     const char** ep =  *symbols      =  MALLOC_VEC( const char*, n );

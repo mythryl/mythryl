@@ -1019,7 +1019,7 @@ static void   load_compiled_file   (
     // In practice, we currently always have exactly two
     // code segments, the first of which contains the byte-
     // coded logic constructing our literals (constants
-    // -- see src/c/cleaner/make-package-literals-via-bytecode-interpreter.c)
+    // -- see src/c/heapcleaner/make-package-literals-via-bytecode-interpreter.c)
     // and the second of which contains all our compiled
     // native code for the compiledfile, including that
     // which constructs our tree of exported (directly externally
@@ -1186,7 +1186,7 @@ static void   register_compiled_file_exports   (
     // into the Mythryl heap, so that we can use
     // it in a Mythryl-heap record:
     //
-    lib7_picklehash = allocate_nonempty_ascii_string( task,           PICKLEHASH_BYTES );				// allocate_nonempty_ascii_string		def in   src/c/cleaner/make-strings-and-vectors-etc.c
+    lib7_picklehash = allocate_nonempty_ascii_string( task,           PICKLEHASH_BYTES );				// allocate_nonempty_ascii_string		def in   src/c/heapcleaner/make-strings-and-vectors-etc.c
     memcpy( HEAP_STRING_AS_C_STRING(lib7_picklehash), (char*)c_picklehash, PICKLEHASH_BYTES );
 
     // Allocate the list record and thread it onto the exports list:

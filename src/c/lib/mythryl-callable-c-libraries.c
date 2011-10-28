@@ -144,7 +144,7 @@ void   set_up_list_of_c_functions_callable_from_mythryl   () {
     int   i, j;
     int   library_name_bytesize;
     char* name;
-char* nickname;	// See Hashtable_Entry comment in src/c/cleaner/mythryl-callable-cfun-hashtable.c
+char* nickname;	// See Hashtable_Entry comment in src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
     for (i = 0;  mythryl_callable_c_libraries_local[i] != NULL;  i++) {
       //
@@ -170,7 +170,7 @@ char* nickname;	// See Hashtable_Entry comment in src/c/cleaner/mythryl-callable
 //          sprintf (nickname, "%s.%s", clib->library_name, cfuns[j].nickname);
 
 	    #ifdef INDIRECT_CFUNC									// Defined (only) on darwin and win32.
-	        publish_cfun( name, PTR_CAST( Val, &(cfuns[j]))	);					// publish_cfun		def in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+	        publish_cfun( name, PTR_CAST( Val, &(cfuns[j]))	);					// publish_cfun		def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 	    #else
 //		publish_cfun( name, PTR_CAST( Val, cfuns[j].cfunc)	);
 		publish_cfun2( name, nickname, PTR_CAST( Val, cfuns[j].cfunc)	);

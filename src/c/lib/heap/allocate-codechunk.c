@@ -30,7 +30,7 @@ Val   _lib7_runtime_allocate_codechunk   (Task* task,  Val arg) {
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
 
     int   nbytes =   TAGGED_INT_TO_C_INT( arg );
-    Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk		def in    src/c/cleaner/make-strings-and-vectors-etc.c
+    Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
     Val	               result;
     SEQHDR_ALLOC(task, result, UNT8_RW_VECTOR_TAGWORD, code, nbytes);

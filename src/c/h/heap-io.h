@@ -8,13 +8,13 @@
 
 #include <stdio.h>
 
-extern Status   export_heap_image	(Task* task,  FILE* file);						// export_heap_image		def in   src/c/cleaner/export-heap.c
-extern Status   export_fn_image		(Task* task,  Val funct,  FILE* file);					// export_fn_image		def in   src/c/cleaner/export-heap.c
+extern Status   export_heap_image	(Task* task,  FILE* file);						// export_heap_image		def in   src/c/heapcleaner/export-heap.c
+extern Status   export_fn_image		(Task* task,  Val funct,  FILE* file);					// export_fn_image		def in   src/c/heapcleaner/export-heap.c
 
-extern Task*    import_heap_image	(const char* fname,  Cleaner_Args* cleaner_args);		// import_heap_image		def in   src/c/cleaner/import-heap.c
+extern Task*    import_heap_image	(const char* fname,  Cleaner_Args* cleaner_args);			// import_heap_image		def in   src/c/heapcleaner/import-heap.c
 
-extern Val	pickle_datastructure	(Task* task,  Val chunk);						// pickle_datastructure	def in   src/c/cleaner/datastructure-pickler.c
-extern Val	unpickle_datastructure	(Task* task,  Unt8* data,  long len,  Bool* seen_error);		// unpickle_datastructure	def in   src/c/cleaner/datastructure-unpickler.c
+extern Val	pickle_datastructure	(Task* task,  Val chunk);						// pickle_datastructure		def in   src/c/heapcleaner/datastructure-pickler.c
+extern Val	unpickle_datastructure	(Task* task,  Unt8* data,  long len,  Bool* seen_error);		// unpickle_datastructure	def in   src/c/heapcleaner/datastructure-unpickler.c
 
 #endif // HEAP_IO_H
 

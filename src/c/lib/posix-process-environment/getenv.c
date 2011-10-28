@@ -34,7 +34,7 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
 
     if (status == NULL)   return OPTION_NULL;
 
-    Val s = make_ascii_string_from_c_string( task, status);			// make_ascii_string_from_c_string	def in    src/c/cleaner/make-strings-and-vectors-etc.c
+    Val s = make_ascii_string_from_c_string( task, status);			// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
     Val               result;
     OPTION_THE(task, result, s);

@@ -288,7 +288,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		    Val	  loc;
 		    Val	  traceStk;
 		    Val	  exn;
-		    Unt8* namestring =  codechunk_comment_string_for_program_counter( task->faulting_program_counter );		// codechunk_comment_string_for_program_counter	def in   src/c/cleaner/hugechunk.c
+		    Unt8* namestring =  codechunk_comment_string_for_program_counter( task->faulting_program_counter );		// codechunk_comment_string_for_program_counter	def in   src/c/heapcleaner/hugechunk.c
 
 		    if (namestring != NULL) {
 		        //

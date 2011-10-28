@@ -301,7 +301,7 @@ ENTRY(resume_after_handling_software_generated_periodic_event)
 // We get invoked courtesy of being stuffed into
 //     task->exception_fate
 // in  src/c/main/run-mythryl-code-and-runtime-eventloop.c
-// and src/c/cleaner/import-heap.c
+// and src/c/heapcleaner/import-heap.c
 //
 LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 	li	atmp4,REQUEST_HANDLE_UNCAUGHT_EXCEPTION
@@ -345,7 +345,7 @@ ENTRY(request_fault)
 	b	set_request
 
 
-// find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/cleaner/mythryl-callable-cfun-hashtable.c
+// find_cfun : (String, String) -> Cfunction			// (library-name, function-name) -> Cfunction -- see comments in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 //
 // We get called (only) from:
 //

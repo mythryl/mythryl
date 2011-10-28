@@ -16,8 +16,8 @@
     #include "writer.h"
 #endif
 
-extern Status   heapio__write_image_header	(Writer* wr,  int kind);				// heapio__write_image_header	def in    src/c/cleaner/export-heap-stuff.c
-extern int      heapio__write_cfun_table	(Writer* wr,  Heapfile_Cfun_Table* table);		// heapio__write_cfun_table	def in    src/c/cleaner/export-heap-stuff.c
+extern Status   heapio__write_image_header	(Writer* wr,  int kind);				// heapio__write_image_header	def in    src/c/heapcleaner/export-heap-stuff.c
+extern int      heapio__write_cfun_table	(Writer* wr,  Heapfile_Cfun_Table* table);		// heapio__write_cfun_table	def in    src/c/heapcleaner/export-heap-stuff.c
 
 #endif // EXPORT_HEAP_STUFF_H
 

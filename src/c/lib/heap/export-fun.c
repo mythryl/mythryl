@@ -63,7 +63,7 @@ Val   _lib7_runtime_export_fun   (Task* task,  Val arg)   {    // :
       return RAISE_ERROR( task, "Unable to open file for writing");
     }
 
-    status =  export_fn_image( task, funct, file );				// export_fn_image	def in   src/c/cleaner/export-heap.c
+    status =  export_fn_image( task, funct, file );				// export_fn_image	def in   src/c/heapcleaner/export-heap.c
 
     fclose (file);
 

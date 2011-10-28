@@ -109,7 +109,7 @@
     //
     // This #define is referenced only in:
     //
-    //     src/c/cleaner/call-cleaner.c   	
+    //     src/c/heapcleaner/call-cleaner.c   	
     //
     #define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO(   MAX_PTHREADS    * (MAX_C_CLEANING_ROOTS + NROOTS + N_PSEUDO_ROOTS) +	\
 						       (MAX_PTHREADS-1) * MAX_EXTRA_CLEANING_ROOTS +1,				\
@@ -122,8 +122,8 @@
     //
     // This #define is referenced only in:
     //
-    //     src/c/cleaner/call-cleaner.c
-    //     src/c/cleaner/multicore-cleaning-stuff.c
+    //     src/c/heapcleaner/call-cleaner.c
+    //     src/c/heapcleaner/multicore-cleaning-stuff.c
     //
     #define PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS   (1 << 10)     // Must be power of 2.
 #endif

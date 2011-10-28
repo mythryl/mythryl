@@ -10,13 +10,13 @@ typedef   struct addr_table   Addresstable;
 
 // Allocate an address hashtable.
 //
-extern Addresstable*   make_address_hashtable   (int ignore_bits, int size);					// make_address_hashtable		def in    src/c/cleaner/address-hashtable.c
+extern Addresstable*   make_address_hashtable   (int ignore_bits, int size);					// make_address_hashtable		def in    src/c/heapcleaner/address-hashtable.c
     //                 ======================
     //
     // Called (only) from:
     //
-    //     src/c/cleaner/datastructure-pickler-cleaner.c
-    //     src/c/cleaner/import-heap.c
+    //     src/c/heapcleaner/datastructure-pickler-cleaner.c
+    //     src/c/heapcleaner/import-heap.c
 
 
 

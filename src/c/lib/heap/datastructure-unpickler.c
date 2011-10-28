@@ -31,7 +31,7 @@ Val   _lib7_runtime_unpickle_datastructure   (Task* task,  Val arg)   {
 
     Val datastructure
 	=
-	unpickle_datastructure(				// unpickle_datastructure	def in    src/c/cleaner/datastructure-unpickler.c
+	unpickle_datastructure(				// unpickle_datastructure	def in    src/c/heapcleaner/datastructure-unpickler.c
 	    //
 	    task,
 	    PTR_CAST(Unt8*, arg),

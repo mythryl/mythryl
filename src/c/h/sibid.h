@@ -122,7 +122,7 @@
 //
 #define MAKE_SIBID( age, kind, id )    ((Sibid)(((age)<<AGE_SHIFT) | ((kind)<<KIND_SHIFT) | (id)))
     //
-    // Used only in this file and in   src/c/cleaner/cleaner-initialization.c
+    // Used only in this file and in   src/c/heapcleaner/cleaner-initialization.c
 
 #define MAX_KIND		0xf												// Max value fitting in our 4-bit 'kind' sibid bitfield.
 #define MAX_ID			0xff												// Max value fitting in our 8-bit 'id'   sibid bitfield.
@@ -200,7 +200,7 @@
 
 
 
-    extern Sibid* book_to_sibid_global;		// Defined in   src/c/cleaner/cleaner-initialization.c
+    extern Sibid* book_to_sibid_global;		// Defined in   src/c/heapcleaner/cleaner-initialization.c
 	//        ====================
 
 #endif // TWO_LEVEL_MAP

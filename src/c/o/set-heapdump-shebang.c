@@ -39,7 +39,7 @@
 #include <unistd.h>
 #endif
 
-#include "../cleaner/runtime-heap-image.h"
+#include "../heapcleaner/runtime-heap-image.h"
 
 
 char* our_name = "set-heapdump-shebang.c";
