@@ -1,4 +1,19 @@
 // libmythryl-multicore.c
+//
+// Here we export to
+//
+//     src/lib/std/src/multicore.api
+//     src/lib/std/src/multicore.pkg
+//
+// some of the functionality defined in
+//
+//     src/c/h/runtime-multicore.h
+//
+// and implemented in the platform-specific files
+//
+//     src/c/multicore/sgi-multicore.c
+//     src/c/multicore/solaris-multicore.c
+
 
 #include "../../config.h"
 

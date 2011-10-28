@@ -1,6 +1,18 @@
 // sgi-multicore.c
 //
-// Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x).
+// Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x)
+// implementing the API defined in
+//
+//     src/c/h/runtime-multicore.h
+//
+// parts of which are exported to the Mythryl level via
+//
+//     src/c/lib/multicore/libmythryl-multicore.c
+// 
+// and then
+// 
+//     src/lib/std/src/multicore.api
+//     src/lib/std/src/multicore.pkg
 
 
 #include "../config.h"

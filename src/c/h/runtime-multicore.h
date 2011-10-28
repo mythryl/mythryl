@@ -1,5 +1,21 @@
 // runtime-multicore.h
-
+//
+// Support for multicore operation.
+// This stuff is (in part) exported to
+// the Mythrl world as
+//
+//     src/lib/std/src/multicore.api
+//     src/lib/std/src/multicore.pkg
+//
+// via
+//
+//     src/c/lib/multicore/libmythryl-multicore.c
+//
+// Platform-specific implementations of
+// this functionality are:
+//
+//     src/c/multicore/sgi-multicore.c
+//     src/c/multicore/solaris-multicore.c
 
 #ifndef RUNTIME_MULTICORE_H
 #define RUNTIME_MULTICORE_H
