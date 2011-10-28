@@ -52,7 +52,7 @@ MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Win32_Process			)		// Libmythryl_Win32_Pr
 #endif
 
 // #ifdef MULTICORE_SUPPORT
-MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Multicore			)		// Libmythryl_Multicore			def in    src/c/lib/pthread/libmythryl-pthread.c
+MYTHRYL_CALLABLE_C_LIBRARY( Libmythryl_Pthread			)		// Libmythryl_Pthread			def in    src/c/lib/pthread/libmythryl-pthread.c
 // #endif
 
 #ifdef C_CALLS

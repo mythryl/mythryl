@@ -39,14 +39,14 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
 #undef CFUNC
 
 
-// The multicore ("multiprocessing") library.
+// The posix-thread ("pthread") library.
 //
-// Our record                Libmythryl_Multicore
+// Our record                Libmythryl_Pthread
 // gets compiled into        src/c/lib/mythryl-callable-c-libraries-list.h
 // and thus ultimately       mythryl_callable_c_libraries_local []
 // in                        src/c/lib/c-libraries.c
 //
-Mythryl_Callable_C_Library	    Libmythryl_Multicore = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h
+Mythryl_Callable_C_Library	    Libmythryl_Pthread = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h
     //                              ====================
     CLIB_NAME,
     CLIB_VERSION,
