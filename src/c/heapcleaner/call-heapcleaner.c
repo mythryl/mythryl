@@ -78,7 +78,7 @@ void   clean_heap   (Task* task,  int level) {
     #ifdef MULTICORE_SUPPORT_DEBUG
 	debug_say ("igc %d\n", task->lib7_mpSelf);
     #endif
-	if ((pthreads_count = mc_start_cleaning (task)) == 0) {
+	if ((pthreads_count = pth_start_heapcleaning (task)) == 0) {
 	    //
 	    // A waiting proc:
 	    //
@@ -97,9 +97,9 @@ void   clean_heap   (Task* task,  int level) {
 	// Get extra roots from procs that entered
 	// through clean_heap_with_extra_roots
 	//
-	for (int i = 0;   mc_extra_cleaner_roots_global[i] != NULL;   i++) {
+	for (int i = 0;   pth_extra_heapcleaner_roots_global[i] != NULL;   i++) {
 	    //
-	    *rootsPtr++ =  mc_extra_cleaner_roots_global[i];
+	    *rootsPtr++ =  pth_extra_heapcleaner_roots_global[i];
 	}
     #endif
 
@@ -207,7 +207,7 @@ void   clean_heap   (Task* task,  int level) {
     // Reset the allocation space:
     //
     #ifdef MULTICORE_SUPPORT
-	mc_finish_cleaning( task, pthreads_count );
+	pth_finish_heapcleaning( task, pthreads_count );
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
@@ -272,11 +272,11 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     #ifdef MULTICORE_SUPPORT
         // get extra roots from procs that entered through clean_heap_with_extra_roots.
-        // Our extra roots were placed in mc_extra_cleaner_roots_global by mc_clean_heap_with_extra_roots.
+        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by mc_clean_heap_with_extra_roots.
         //
-	for (int i = 0;  mc_extra_cleaner_roots_global[i] != NULL;  i++) {
+	for (int i = 0;  pth_extra_heapcleaner_roots_global[i] != NULL;  i++) {
 	    //
-	    *rootsPtr++ = mc_extra_cleaner_roots_global[i];
+	    *rootsPtr++ = pth_extra_heapcleaner_roots_global[i];
 	}
     #else
         // Record extra roots from param list:
@@ -394,7 +394,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
     //
     #ifdef MULTICORE_SUPPORT
         //
-	mc_finish_cleaning (task, pthreads_count);
+	pth_finish_heapcleaning (task, pthreads_count);
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 

@@ -16,7 +16,7 @@ Val   _lib7_MP_release_pthread   (Task* task,  Val arg)   {
     //=====================
     //
     #ifdef MULTICORE_SUPPORT
-	mc_release_pthread(task);  	// Should not return.
+	pth_release_pthread(task);  	// Should not return.
 	die ("_lib7_MP_release_pthread: call unexpectedly returned\n");
     #else
 	die ("_lib7_MP_release_pthread: no mp support\n");

@@ -17,9 +17,9 @@ Val   _lib7_MP_acquire_pthread   (Task* task,  Val arg)   {			// Apparently neve
     //
     #ifdef MULTICORE_SUPPORT
 	//
-	return mc_acquire_pthread( task, arg );					// mc_acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
-        //									// mc_acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
-    #else									// mc_acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
+	return pth_acquire_pthread( task, arg );					// pth_acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
+        //									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
+    #else									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
 	die ("lib7_acquire_pthread: no mp support\n");
     #endif
 }

@@ -78,41 +78,41 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // PACKAGE STARTUP AND SHUTDOWN
     //
-    extern void     mc_initialize		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
-    extern void     mc_shut_down		(void);					// Called once just before calling exit(), to release any OS resources.
+    extern void     pth_initialize		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
+    extern void     pth_shut_down		(void);					// Called once just before calling exit(), to release any OS resources.
 
 
 
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      mc_acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
+    extern Val      pth_acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
     //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.
     //
-    extern void     mc_release_pthread		(Task* task);				// Reverse of above, more or less.
+    extern void     pth_release_pthread		(Task* task);				// Reverse of above, more or less.
     //											// On Solaris this appears to actually stop and kill the thread.
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
-    extern Pid      mc_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
+    extern Pid      pth_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //
-    extern int      mc_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
+    extern int      pth_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
-    extern int      mc_active_pthread_count	();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
+    extern int      pth_active_pthread_count	();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
 											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-cleaning-stuff.c
 
 
     ////////////////////////////////////////////////////////////////////////////
     // MULTICORE GARBAGE COLLECTION SUPPORT
     //
-    extern int   mc_start_cleaning    (Task*);
-    extern void  mc_finish_cleaning   (Task*, int);
+    extern int   pth_start_heapcleaning    (Task*);
+    extern void  pth_finish_heapcleaning   (Task*, int);
     //
-    extern Val*  mc_extra_cleaner_roots_global [];
+    extern Val*  pth_extra_heapcleaner_roots_global [];
 
 
 
@@ -126,27 +126,27 @@ typedef enum {
     // one such lock for each major shared mutable datastructure,
     // which persists for as long as that datastructure.
     //
-    extern Lock  mc_make_lock		();					// Just what you think.
-    extern void  mc_free_lock		(Lock lock);				// This call was probably only needed for SGI's daft hardware locks, and can be eliminated now. XXX BUGGO FIXME
+    extern Lock  pth_make_lock		();					// Just what you think.
+    extern void  pth_free_lock		(Lock lock);				// This call was probably only needed for SGI's daft hardware locks, and can be eliminated now. XXX BUGGO FIXME
     //
-    extern void  mc_acquire_lock	(Lock lock);				// Used to enter a critical section, preventing any other pthread from proceeding past mc_acquire_lock() for this lock until we release.
-    extern void  mc_release_lock	(Lock lock);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past mc_acquire_lock() on this lock.
+    extern void  pth_acquire_lock	(Lock lock);				// Used to enter a critical section, preventing any other pthread from proceeding past pth_acquire_lock() for this lock until we release.
+    extern void  pth_release_lock	(Lock lock);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth_acquire_lock() on this lock.
     //
-    extern Bool  mc_try_lock		(Lock lock);				// This appears to be a non-blocking variant of mc_acquire_lock, which always returns immediately with either TRUE (lock acquired) or FALSE.
+    extern Bool  pth_maybe_acquire_lock		(Lock lock);				// This appears to be a non-blocking variant of pth_acquire_lock, which always returns immediately with either TRUE (lock acquired) or FALSE.
     //
     // Some statically pre-allocated locks:
     //
-    extern Lock	    mc_cleaner_lock_global;
-    extern Lock	    mc_cleaner_gen_lock_global;
-    extern Lock	    mc_timer_lock_global;
-    extern Barrier* mc_cleaner_barrier_global;
+    extern Lock	    pth_cleaner_lock_global;
+    extern Lock	    pth_cleaner_gen_lock_global;
+    extern Lock	    pth_timer_lock_global;
+    extern Barrier* pth_cleaner_barrier_global;
     //
     // Some readability tweaks:
     //
-    #define BEGIN_CRITICAL_SECTION( LOCK )	{ mc_acquire_lock(LOCK); {
-    #define END_CRITICAL_SECTION( LOCK )	} mc_release_lock(LOCK); }
-    #define ACQUIRE_LOCK(LOCK)		mc_acquire_lock(LOCK);
-    #define RELEASE_LOCK(LOCK)		mc_release_lock(LOCK);
+    #define BEGIN_CRITICAL_SECTION( LOCK )	{ pth_acquire_lock(LOCK); {
+    #define END_CRITICAL_SECTION( LOCK )	} pth_release_lock(LOCK); }
+    #define ACQUIRE_LOCK(LOCK)		pth_acquire_lock(LOCK);
+    #define RELEASE_LOCK(LOCK)		pth_release_lock(LOCK);
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -174,13 +174,13 @@ typedef enum {
     // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
     // but implemented on top of locks in                                   src/c/pthread/pthread-on-solaris.c
     //
-    extern Barrier* mc_make_barrier 	();					// Allocate a barrier.
-    extern void     mc_free_barrier	(Barrier* barrierp);			// Free a barrier.
+    extern Barrier* pth_make_barrier 	();					// Allocate a barrier.
+    extern void     pth_free_barrier	(Barrier* barrierp);			// Free a barrier.
     //
-    extern void     mc_barrier		(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
+    extern void     pth_wait_at_barrier		(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
-    extern void     mc_reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
+    extern void     pth_reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
 
 
 

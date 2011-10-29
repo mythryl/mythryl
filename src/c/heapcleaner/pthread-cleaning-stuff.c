@@ -106,10 +106,10 @@ static int		cleaning_pthread_local;					// The cleaning pthread.
 
 // This holds extra roots provided by   clean_heap_with_extra_roots:
 //
-Val*         mc_extra_cleaner_roots_global[ MAX_EXTRA_CLEANING_ROOTS * MAX_PTHREADS ];
+Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_CLEANING_ROOTS * MAX_PTHREADS ];
 static Val** mc_extra_cleaner_roots_local;
 
-int   mc_start_cleaning   (Task *task) {
+int   pth_start_heapcleaning   (Task *task) {
     //=================
     //
     // Wait for all pthreads to check in and choose one to do the 
@@ -121,12 +121,12 @@ int   mc_start_cleaning   (Task *task) {
     int	     nProcs;
     Pthread* pthread = task->pthread;
 
-    mc_acquire_lock( mc_cleaner_lock_global );
+    pth_acquire_lock( pth_cleaner_lock_global );
 
     if (pthreads_ready_to_clean_local++ == 0) {
         //
-        mc_extra_cleaner_roots_global[0] = NULL;
-        mc_extra_cleaner_roots_local = mc_extra_cleaner_roots_global;
+        pth_extra_heapcleaner_roots_global[0] = NULL;
+        mc_extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
@@ -141,7 +141,7 @@ int   mc_start_cleaning   (Task *task) {
 	    debug_say ("cleaning_pthread_local is %d\n",cleaning_pthread_local);
 	#endif
     }
-    mc_release_lock(mc_cleaner_lock_global);
+    pth_release_lock(pth_cleaner_lock_global);
 
     {
 	#ifdef MULTICORE_SUPPORT_DEBUG
@@ -151,7 +151,7 @@ int   mc_start_cleaning   (Task *task) {
         // NB: Some other pthread can be
         // concurrently acquiring new kernel threads.
         //
-	while (pthreads_ready_to_clean_local !=  (nProcs = mc_active_pthread_count())) {
+	while (pthreads_ready_to_clean_local !=  (nProcs = pth_active_pthread_count())) {
 
 	    // SPIN
 	    #ifdef MULTICORE_SUPPORT_DEBUG
@@ -182,7 +182,7 @@ int   mc_start_cleaning   (Task *task) {
     #endif
 
     #ifdef MULTICORE_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, mc_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, pth_active_pthread_count());
     #endif
 
     if (cleaning_pthread_local != pthread->pid) {
@@ -191,7 +191,7 @@ int   mc_start_cleaning   (Task *task) {
 	    debug_say ("%d entering barrier %d\n",pthread->pid,nProcs);
 	#endif
 
-	mc_barrier(mc_cleaner_barrier_global, nProcs);
+	pth_wait_at_barrier(pth_cleaner_barrier_global, nProcs);
     
 	#ifdef MULTICORE_SUPPORT_DEBUG
 	    debug_say ("%d left barrier\n", pthread->pid);
@@ -201,24 +201,24 @@ int   mc_start_cleaning   (Task *task) {
     }
 
     return nProcs;
-}							// fun mc_start_cleaning
+}							// fun pth_start_heapcleaning
 
 
 int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     //==============================
     //
-    // As above, but we collect extra roots into mc_extra_cleaner_roots_global.
+    // As above, but we collect extra roots into pth_extra_heapcleaner_roots_global.
 
     int pthread_count;
     Val* p;
 
     Pthread* pthread =  task->pthread;
 
-    mc_acquire_lock( mc_cleaner_lock_global );
+    pth_acquire_lock( pth_cleaner_lock_global );
 
     if (pthreads_ready_to_clean_local++ == 0) {
 	//
-        mc_extra_cleaner_roots_local = mc_extra_cleaner_roots_global;
+        mc_extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
@@ -241,7 +241,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     }
     *mc_extra_cleaner_roots_local = p;			// NULL
 
-    mc_release_lock( mc_cleaner_lock_global );
+    pth_release_lock( pth_cleaner_lock_global );
 
     {
 	#ifdef MULTICORE_SUPPORT_DEBUG
@@ -251,7 +251,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 	// NB: Some other pthread can be concurrently
         // acquiring new kernel threads:
         //
-	while (pthreads_ready_to_clean_local !=  (pthread_count = mc_active_pthread_count())) {
+	while (pthreads_ready_to_clean_local !=  (pthread_count = pth_active_pthread_count())) {
 
 	    // SPIN
 
@@ -278,7 +278,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     #endif
 
     #ifdef MULTICORE_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, mc_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth_active_pthread_count());
     #endif
 
     if (cleaning_pthread_local != pthread->pid) {
@@ -287,7 +287,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 	    debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
 	#endif
 
-	mc_barrier(mc_cleaner_barrier_global, pthread_count);
+	pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);
     
 	#ifdef MULTICORE_SUPPORT_DEBUG
 	    debug_say ("%d left barrier\n", pthread->pid);
@@ -301,20 +301,20 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
 
 
-void   mc_finish_cleaning   (Task *task, int n)   {
+void   pth_finish_heapcleaning   (Task *task, int n)   {
     // ==================
 
     // This works, but partition_agegroup0_buffer is overkill:		XXX BUGGO FIXME
     //
     partition_agegroup0_buffer( pthread_table_global );
 
-    mc_acquire_lock( mc_cleaner_lock_global );
+    pth_acquire_lock( pth_cleaner_lock_global );
 
     #ifdef MULTICORE_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", task->pthread->pid,n);
     #endif
 
-    mc_barrier( mc_cleaner_barrier_global, n );
+    pth_wait_at_barrier( pth_cleaner_barrier_global, n );
 
     pthreads_ready_to_clean_local = 0;
 
@@ -322,7 +322,7 @@ void   mc_finish_cleaning   (Task *task, int n)   {
 	debug_say ("%d left barrier\n", task->pthread->pid);
     #endif
 
-    mc_release_lock(mc_cleaner_lock_global);
+    pth_release_lock(pth_cleaner_lock_global);
 }
 
 

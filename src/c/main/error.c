@@ -71,9 +71,9 @@ void   die   (char *fmt, ...)   {
 	// Release any platform-specific multicore-support
 	// resources such as kernel locks or mmapped segments:
 	//
-	mc_shut_down ();				// mc_shut_down		defined in   src/c/pthread/pthread-on-posix-threads.c
-							// mc_shut_down		defined in   src/c/pthread/pthread-on-sgi.c
-    #endif						// mc_shut_down		defined in   src/c/pthread/pthread-on-solaris.c
+	pth_shut_down ();				// pth_shut_down		defined in   src/c/pthread/pthread-on-posix-threads.c
+							// pth_shut_down		defined in   src/c/pthread/pthread-on-sgi.c
+    #endif						// pth_shut_down		defined in   src/c/pthread/pthread-on-solaris.c
 
     print_stats_and_exit( 1 );
 }
@@ -89,7 +89,7 @@ void   die   (char *fmt, ...)   {
 	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name_global, a, file, line);
 
 	#ifdef MULTICORE_SUPPORT
-	    mc_shut_down ();
+	    pth_shut_down ();
 	#endif
 
 	print_stats_and_exit( 2 );

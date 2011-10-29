@@ -17,7 +17,7 @@ Val   _lib7_MP_max_pthreads   (Task* task,  Val arg)   {			// Apparently nowhere
     //==================
     //
     #ifdef MULTICORE_SUPPORT
-	return TAGGED_INT_FROM_C_INT(mc_max_pthreads ());
+	return TAGGED_INT_FROM_C_INT(pth_max_pthreads ());
     #else
 	die ("_lib7_MP_max_pthreads: no mp support\n");
     #endif
