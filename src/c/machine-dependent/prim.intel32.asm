@@ -257,6 +257,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // which is currently non-operational.
 //
 // run_mythryl_task_and_runtime_eventloop is also called by
+//     src/c/pthread/pthread-on-posix-threads.c
 //     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
 // but that stuff is also non-operational (I think) and
@@ -265,6 +266,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // We get slotted into task->fate by   save_c_state           in   src/c/main/runtime-state.c 
 // and by                              run_mythryl_function   in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 // and by                              import_heap_image      in   src/c/heapcleaner/import-heap.c
+// and by                              mc_acquire_pthread     in   src/c/pthread/pthread-on-posix-threads.c
 // and by                              mc_acquire_pthread     in   src/c/pthread/pthread-on-sgi.c
 // and by                              mc_acquire_pthread     int  src/c/pthread/pthread-on-solaris.c
 //

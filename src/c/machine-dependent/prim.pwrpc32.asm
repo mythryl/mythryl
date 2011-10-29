@@ -323,6 +323,7 @@ LIB7_CODE_HDR(handle_uncaught_exception_closure_asm)
 // which is currently non-operational.
 //
 // run_mythryl_task_and_runtime_eventloop is also called by
+//     src/c/pthread/pthread-on-posix-threads.c
 //     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
 // but that stuff is also non-operational (I think) and

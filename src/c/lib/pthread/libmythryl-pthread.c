@@ -11,6 +11,7 @@
 //
 // and implemented in the platform-specific files
 //
+//     src/c/pthread/pthread-on-posix-threads.c
 //     src/c/pthread/pthread-on-sgi.c
 //     src/c/pthread/pthread-on-solaris.c
 

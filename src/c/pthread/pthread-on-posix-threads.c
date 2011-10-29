@@ -1,4 +1,4 @@
-// pthread-on-sgi.c
+// pthread-on-posix-threads.c
 //
 // This is an ancient (1994?) implementation of pthread support on top of the
 // SGI Challenge boxes of the era which featured up to sixteen CPU cards on a
