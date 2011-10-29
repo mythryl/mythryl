@@ -36,7 +36,7 @@
 #include "runtime-pthread.h"
 #include "task.h"
 #include "runtime-globals.h"
-#include "pthread.h"
+#include "pthread-state.h"
 
 
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))

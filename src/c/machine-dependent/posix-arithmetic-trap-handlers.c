@@ -16,7 +16,7 @@
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "task.h"
 #include "runtime-globals.h"
 

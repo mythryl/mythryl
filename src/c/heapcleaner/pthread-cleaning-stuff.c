@@ -23,7 +23,7 @@
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
 #include "runtime-pthread.h"
-#include "pthread.h"
+#include "pthread-state.h"
 
 // MULTICORE_SUPPORT
 

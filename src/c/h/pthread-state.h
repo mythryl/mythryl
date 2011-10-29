@@ -1,4 +1,4 @@
-// pthread.h
+// pthread-state.h
 //
 // State of a 'Pthread', the Mythryl wrapper for a
 // posix thread sharing access to the Mythryl heap.
@@ -13,8 +13,8 @@
 
 
 
-#ifndef PTHREAD_H
-#define PTHREAD_H
+#ifndef PTHREAD_STATE_H
+#define PTHREAD_STATE_H
 
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"
@@ -67,7 +67,7 @@ struct pthread {
     #endif
 };
 
-#endif		// PTHREAD_H
+#endif		// PTHREAD_STATE_H
 
 
 

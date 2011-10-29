@@ -10,7 +10,7 @@
 #include "../config.h"
 
 #include "runtime-base.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "runtime-timer.h"
 
 

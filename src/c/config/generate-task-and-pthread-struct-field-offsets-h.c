@@ -3,7 +3,7 @@
 // This C program analyses the Task and Pthread structs from (respectively)
 //
 //     src/c/h/task.h
-//     src/c/h/pthread.h
+//     src/c/h/pthread-state.h
 //
 // and makes the
 // 
@@ -31,7 +31,7 @@
 #include "../config.h"
 
 #include "runtime-base.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "task.h"
 #include "header-file-autogeneration-stuff.h"
 

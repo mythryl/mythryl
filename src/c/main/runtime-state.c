@@ -4,7 +4,7 @@
 
 #include <stdarg.h>
 #include "runtime-base.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "task.h"
 #include "system-signals.h"
 #include "heap-tags.h"

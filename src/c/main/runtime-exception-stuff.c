@@ -9,7 +9,7 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "task.h"
 #include "heap-tags.h"
 #include "asm-to-c-request-codes.h"

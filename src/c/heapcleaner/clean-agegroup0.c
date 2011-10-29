@@ -34,7 +34,7 @@
 #include "copy-loop.h"
 
 #ifdef MULTICORE_SUPPORT
-    #include "pthread.h"
+    #include "pthread-state.h"
 #endif
 
 // Cleaner statistics:

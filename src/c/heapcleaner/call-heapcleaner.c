@@ -44,7 +44,7 @@ Includes:
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "profiler-call-counts.h"
 
 #ifdef C_CALLS

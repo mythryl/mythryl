@@ -9,7 +9,7 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "task.h"
-#include "pthread.h"
+#include "pthread-state.h"
 #include "make-strings-and-vectors-etc.h"
 #include "system-dependent-signal-stuff.h"
 #include "system-signals.h"

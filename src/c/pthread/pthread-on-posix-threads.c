@@ -40,7 +40,7 @@
 #include "runtime-pthread.h"
 #include "task.h"
 #include "runtime-globals.h"
-#include "pthread.h"
+#include "pthread-state.h"
 
 // #define ARENA_FNAME  tmpnam(0)
 #define ARENA_FNAME  "/tmp/sml-mp.lock-arena"
