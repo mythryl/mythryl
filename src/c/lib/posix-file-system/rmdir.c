@@ -1,7 +1,7 @@
 // rmdir.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 

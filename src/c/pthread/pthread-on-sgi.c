@@ -19,7 +19,7 @@
 //     src/lib/std/src/pthread.pkg
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>

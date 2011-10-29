@@ -38,7 +38,7 @@
 
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>		// For fopen() etc.
 #include <stdlib.h>		// For exit().

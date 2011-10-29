@@ -1,6 +1,6 @@
 // asctime.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <time.h>
 #include <string.h>

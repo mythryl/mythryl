@@ -9,7 +9,7 @@
 ###                          -- Michael Feldman
 */
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #ifdef HAVE_STRING_H
 #include <string.h>

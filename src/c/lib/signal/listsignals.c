@@ -5,7 +5,7 @@
 //     src/lib/std/src/nj/runtime-signals-guts.pkg
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"

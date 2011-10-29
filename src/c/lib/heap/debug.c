@@ -3,7 +3,7 @@
 // Print a string out to the debug stream.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-values.h"

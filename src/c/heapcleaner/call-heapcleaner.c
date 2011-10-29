@@ -30,7 +30,7 @@ Includes:
     #include "system-dependent-unix-stuff.h"
 #endif
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdarg.h>
 #include "runtime-base.h"

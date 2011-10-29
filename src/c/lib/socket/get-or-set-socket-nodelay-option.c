@@ -1,6 +1,6 @@
 // get-or-set-socket-nodelay-option.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H

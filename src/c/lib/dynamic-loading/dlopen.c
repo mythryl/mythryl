@@ -1,6 +1,6 @@
 // dlopen.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #ifdef OPSYS_WIN32
 # include <windows.h>

@@ -3,7 +3,7 @@
 // Memory sub-system for the MACH operating system.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include <mach/mach_types.h>

@@ -1,7 +1,7 @@
 // get-or-set-rounding-mode.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "fp-dep.h"

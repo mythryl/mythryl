@@ -3,7 +3,7 @@
 // when "signals" are supported in win32, they'll go here.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"

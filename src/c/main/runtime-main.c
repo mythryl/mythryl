@@ -3,7 +3,7 @@
 // This is the main routine for the runtime
 // of the interactive version of Mythryl.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 

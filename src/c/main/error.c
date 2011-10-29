@@ -3,7 +3,7 @@
 // Run-time system error messages.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <stdarg.h>

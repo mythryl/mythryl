@@ -31,7 +31,7 @@
 //
 //     src/lib/compiler/back/top/main/make-nextcode-literals-bytecode-vector.pkg
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"

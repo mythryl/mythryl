@@ -3,7 +3,7 @@
  * crude implementation of a polling function
  */
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <windows.h>
 

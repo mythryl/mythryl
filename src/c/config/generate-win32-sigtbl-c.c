@@ -2,7 +2,7 @@
 //
 // Generate the "win32-sigtable.c" file.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <signal.h>
 #include <stdio.h>

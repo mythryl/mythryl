@@ -1,7 +1,7 @@
 // recv.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 #include <unistd.h>

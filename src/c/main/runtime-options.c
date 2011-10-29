@@ -2,7 +2,7 @@
 //
 // Command-line argument processing utilities.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <ctype.h>
 #include "runtime-base.h"

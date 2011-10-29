@@ -28,7 +28,7 @@
 //    src/c/machine-dependent/prim.intel32.asm
 //    src/c/machine-dependent/prim.pwrpc32.asm
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "pthread-state.h"

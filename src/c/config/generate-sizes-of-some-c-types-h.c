@@ -6,7 +6,7 @@
 //
 // file, which is usable in both C and assembly files.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdlib.h>
 #include <stdio.h>

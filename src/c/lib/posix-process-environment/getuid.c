@@ -2,7 +2,7 @@
 
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"

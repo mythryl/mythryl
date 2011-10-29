@@ -1,7 +1,7 @@
 // check-heap.c
 //
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "coarse-inter-agegroup-pointers-map.h"

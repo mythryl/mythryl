@@ -1,6 +1,6 @@
 // cvRNG.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #if HAVE_OPENCV_CV_H
 #include <opencv/cv.h>

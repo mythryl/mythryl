@@ -27,7 +27,7 @@
 // appropriately so those references point to the same
 // functions as before -- at possibly different addresses.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <string.h>
 

@@ -7,7 +7,7 @@
 #ifndef _SOCKETS_OSDEP_
 #define _SOCKETS_OSDEP_
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #if defined(OPSYS_UNIX)
 #  define HAS_UNIX_DOMAIN

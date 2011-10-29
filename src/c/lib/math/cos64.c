@@ -1,6 +1,6 @@
 // cos64.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <math.h>
 #include "runtime-base.h"

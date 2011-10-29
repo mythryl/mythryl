@@ -1,7 +1,7 @@
 // dup.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 

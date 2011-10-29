@@ -7,7 +7,7 @@
 //
 //	void get_cpu_time (Time *user_t, Time *sys_t);
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "pthread-state.h"

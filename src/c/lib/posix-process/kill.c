@@ -1,7 +1,7 @@
 // kill.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-values.h"

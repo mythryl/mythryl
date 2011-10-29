@@ -4,7 +4,7 @@
 // or to pickle a Mythryl heap datastructure.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <string.h>
 #include "runtime-base.h"

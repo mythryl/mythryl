@@ -1,7 +1,7 @@
 // <<template-lib.c>>
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "mythryl-callable-c-libraries.h"

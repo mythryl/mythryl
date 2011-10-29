@@ -3,7 +3,7 @@
  * support for string-to-int lookup.
  */
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <stdlib.h>
 #include <search.h>

@@ -15,7 +15,7 @@
 // Our job in this program is to update such a shebang line.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <stdlib.h>

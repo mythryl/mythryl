@@ -17,7 +17,7 @@
 //
 // to see what they did.
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <string.h>
 

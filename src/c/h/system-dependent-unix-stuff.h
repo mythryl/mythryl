@@ -65,7 +65,7 @@
 #ifndef _LIB7_UNIXDEP_
 #define _LIB7_UNIXDEP_
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 ////////////////////////////
 // Include file paths

@@ -45,7 +45,7 @@
 //     
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "architecture-and-os-names-system-dependent.h"

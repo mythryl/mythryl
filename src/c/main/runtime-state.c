@@ -1,6 +1,6 @@
 // runtime-state.c
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdarg.h>
 #include "runtime-base.h"

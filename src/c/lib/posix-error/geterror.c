@@ -3,7 +3,7 @@
 // Return the system constant that corresponds to the given error name.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-values.h"

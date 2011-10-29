@@ -1,6 +1,6 @@
 // win32-raise-syserr.c
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <windows.h>
 #include "runtime-base.h"

@@ -1,6 +1,6 @@
 // export-fun.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "system-dependent-stuff.h"
 #include <stdio.h>

@@ -3,7 +3,7 @@
 // C-side support for calling user C functions from Mythryl.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <string.h>
 #include "runtime-base.h"

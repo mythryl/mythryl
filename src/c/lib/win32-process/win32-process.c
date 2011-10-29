@@ -3,7 +3,7 @@
  * interface to win32 process functions
  */
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <windows.h>
 #include <process.h>

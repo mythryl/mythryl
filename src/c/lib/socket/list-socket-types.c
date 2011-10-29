@@ -1,7 +1,7 @@
 // list-socket-types.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"

@@ -3,7 +3,7 @@
 // This is the main routine for linking with stand-alone applications.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-configuration.h"

@@ -2,7 +2,7 @@
 //
 // Routines to import a Mythryl heap image.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <string.h>

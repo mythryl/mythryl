@@ -19,7 +19,7 @@
 // at what other systems do first.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #ifdef OPSYS_UNIX

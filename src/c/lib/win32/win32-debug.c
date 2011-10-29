@@ -3,7 +3,7 @@
  * win32 debug support
  */
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <windows.h>
 #include "runtime-base.h"

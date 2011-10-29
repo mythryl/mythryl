@@ -3,7 +3,7 @@
 // General interface for heapcleaner control functions.
 //
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <string.h>
 

@@ -2,7 +2,7 @@
 //
 // Generate the "system-signals.h" file for UNIX systems.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <signal.h>
 #include <stdio.h>

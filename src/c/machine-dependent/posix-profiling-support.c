@@ -11,7 +11,7 @@
 //
 //     src/A.TRACE-DEBUG-PROFILE.OVERVIEW
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"

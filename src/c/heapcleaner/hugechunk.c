@@ -2,7 +2,7 @@
 //
 // Code for managing hugechunk regions.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "get-multipage-ram-region-from-os.h"

@@ -4,7 +4,7 @@
 //	char buf[32];
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #ifdef __cplusplus
 extern "C" {

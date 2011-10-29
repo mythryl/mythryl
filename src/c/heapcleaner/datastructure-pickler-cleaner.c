@@ -6,7 +6,7 @@
 //
 // NOTE:  The extraction of literals could cause a space overflow.	XXX BUGGO FIXME
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include "runtime-base.h"

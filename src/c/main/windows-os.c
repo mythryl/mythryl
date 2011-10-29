@@ -1,5 +1,5 @@
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "windows-os.h"
 #include <stdlib.h>

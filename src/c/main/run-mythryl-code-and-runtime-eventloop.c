@@ -1,6 +1,6 @@
 // run-mythryl-code-and-runtime-eventloop.c
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <string.h>

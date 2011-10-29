@@ -5,13 +5,13 @@
 
 #if defined(__CYGWIN32__)
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "cygwin-fault.c"
 
 #else
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"

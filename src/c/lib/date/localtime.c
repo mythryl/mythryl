@@ -1,6 +1,6 @@
 // localtime.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <time.h>
 #include "runtime-base.h"

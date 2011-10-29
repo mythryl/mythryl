@@ -3,7 +3,7 @@
 // An implementation of the abstract writers on top of ANSI C streams.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include "runtime-base.h"

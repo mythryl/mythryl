@@ -1,6 +1,6 @@
 // raise-RUNTIME_EXCEPTION.c
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #ifdef HAS_STRERROR

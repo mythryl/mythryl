@@ -1,6 +1,6 @@
 // dlerror.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #ifndef OPSYS_WIN32
 # include "system-dependent-unix-stuff.h"

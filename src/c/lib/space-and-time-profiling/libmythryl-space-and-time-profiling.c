@@ -14,7 +14,7 @@
 //     src/A.TRACE-DEBUG-PROFILE.OVERVIEW
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #ifdef OPSYS_UNIX
 #  include "system-dependent-unix-stuff.h"

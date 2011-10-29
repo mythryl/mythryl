@@ -2,7 +2,7 @@
 //
 // win32 code for handling traps (arithmetic overflow, div-by-0, ctrl-c, etc.).
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <windows.h>
 #include <excpt.h>

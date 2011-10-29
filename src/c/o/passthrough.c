@@ -2,7 +2,7 @@
 
 // 2007-03-13 CrT: Created.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>		// For fopen() etc.
 #include <stdlib.h>		// For exit().

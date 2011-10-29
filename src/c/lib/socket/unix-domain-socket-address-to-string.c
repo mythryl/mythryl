@@ -1,7 +1,7 @@
 // unix-domain-socket-address-to-string.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include "sockets-osdep.h"

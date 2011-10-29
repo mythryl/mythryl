@@ -3,7 +3,7 @@
 // Set/clear nonblocking status on given socket.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 

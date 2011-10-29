@@ -21,7 +21,7 @@
 // Created 2010-02-26 CrT.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 #include <unistd.h>

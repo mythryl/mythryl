@@ -20,7 +20,7 @@
 //     src/A.MULTICORE-SUPPORT.OVERVIEW
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-pthread.h"

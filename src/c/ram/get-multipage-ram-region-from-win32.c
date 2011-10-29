@@ -4,7 +4,7 @@
 // This is currently win32 specific.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #if defined(OPSYS_WIN32)
 #include <windows.h>

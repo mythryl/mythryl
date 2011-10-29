@@ -1,7 +1,7 @@
 // tcgetattr.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include INCLUDE_TIME_H

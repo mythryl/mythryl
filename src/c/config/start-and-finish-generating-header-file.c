@@ -2,7 +2,7 @@
 //
 // Common code for generating header files.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <stdlib.h>

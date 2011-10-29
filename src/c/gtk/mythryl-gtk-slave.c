@@ -131,7 +131,7 @@
  */
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>	// For printf()...
 #include <stdlib.h>	// For exit(), atoi(), strtod ...

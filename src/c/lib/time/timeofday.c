@@ -19,7 +19,7 @@
 //     http://en.wikipedia.org/wiki/HPET
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #  include "system-dependent-stuff.h"
 #if defined(HAS_GETTIMEOFDAY)

@@ -1,6 +1,6 @@
 // start_color.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #if HAVE_CURSES_H
 #include <curses.h>

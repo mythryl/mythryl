@@ -1,6 +1,6 @@
 // connect.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <string.h>
 #include <stdio.h>

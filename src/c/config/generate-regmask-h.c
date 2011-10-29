@@ -17,7 +17,7 @@
 //   CALLEE_SAVED_REGISTERS_COUNT
 //   CALLEE_SAVED_FLOAT_REGISTERS_COUNT
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "header-file-autogeneration-stuff.h"
 

@@ -3,7 +3,7 @@
 // Return the list of system constants that represents the known error codes.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-values.h"

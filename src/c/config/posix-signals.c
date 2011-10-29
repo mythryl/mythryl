@@ -5,7 +5,7 @@
 // assume that the  signals SIGHUP, SIGINT, SIGQUIT, SIGALRM, and SIGTERM
 // are (at least) provided.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include <signal.h>

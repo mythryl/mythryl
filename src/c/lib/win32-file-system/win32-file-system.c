@@ -3,7 +3,7 @@
 // interface to win32 file-system functions
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <windows.h>
 #include "runtime-base.h"

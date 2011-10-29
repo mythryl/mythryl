@@ -98,7 +98,7 @@
 //	avoids underflows on inputs whose result does not underflow.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #ifndef Long
     #define Long long

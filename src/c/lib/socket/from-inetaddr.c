@@ -1,7 +1,7 @@
 // from-inetaddr.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H

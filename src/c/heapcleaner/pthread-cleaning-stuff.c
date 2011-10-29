@@ -3,7 +3,7 @@
 // Extra routines to support cleaning
 // in the multicore implementation.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 
 #if HAVE_SYS_TIME_H

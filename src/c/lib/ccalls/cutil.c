@@ -3,7 +3,7 @@
 // Some useful user-level C functions.
 // Declared and registered on the C side by cutil-cfuns.h
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 char *ptos(void *p)
 {

@@ -1,7 +1,7 @@
 // exit.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <stdio.h>
 

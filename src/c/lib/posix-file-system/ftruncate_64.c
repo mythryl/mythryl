@@ -3,7 +3,7 @@
 //   Version of ftruncate with 64-positions passed as pair of 32-bit values.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 

@@ -1,7 +1,7 @@
 // getegid.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #if HAVE_UNISTD_H
     #include <unistd.h>

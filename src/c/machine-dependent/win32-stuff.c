@@ -3,7 +3,7 @@
 // win32 specific utility code
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <windows.h>
 #include "system-dependent-stuff.h"

@@ -1,6 +1,6 @@
 // allocate-codechunk.c
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "flush-instruction-cache-system-dependent.h"
 #include "runtime-base.h"

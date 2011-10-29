@@ -1,7 +1,7 @@
 // socket.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <sys/types.h>          // See NOTES
 #include <sys/socket.h>

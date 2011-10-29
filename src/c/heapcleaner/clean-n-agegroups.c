@@ -35,7 +35,7 @@ Includes:
     #include "system-dependent-unix-stuff.h"
 #endif
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "runtime-configuration.h"

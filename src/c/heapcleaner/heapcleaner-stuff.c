@@ -2,7 +2,7 @@
 //
 // Garbage collection utility routines.
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdarg.h>
 #include <string.h>

@@ -10,7 +10,7 @@
 // Solaris implementation of externals defined in $(INCLUDE)/runtime-pthread.h
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include <sys/mman.h>

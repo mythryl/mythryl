@@ -1,7 +1,7 @@
 // OLDselect.c
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "system-dependent-stuff.h"
 #if defined(HAS_SELECT)

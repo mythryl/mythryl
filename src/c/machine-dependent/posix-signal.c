@@ -3,7 +3,7 @@
 // Posix-specific code to support Mythryl-level handling of posix signals.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"

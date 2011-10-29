@@ -1,6 +1,6 @@
 // libmythryl-dynamic-loading.c -- Make dlopen, dlsym, dlclose, dlerror available to Mythryl code.
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include "runtime-base.h"
 #include "mythryl-callable-c-libraries.h"

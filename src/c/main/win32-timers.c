@@ -4,7 +4,7 @@
 // an interface to interval timers.
 
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <windows.h>
 

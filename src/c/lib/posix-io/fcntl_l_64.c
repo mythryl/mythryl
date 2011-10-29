@@ -3,7 +3,7 @@
 //   Using 64-bit position values represented as 32-bit pairs.
 
 
-#include "../../config.h"
+#include "../../mythryl-config.h"
 
 #include <errno.h>
 

@@ -3,7 +3,7 @@
 // Generate the "system-signals.h" file for Win32 systems.
 // signals aren't currently implemented (since Win32 doesn't have signals)
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <signal.h>
 #include <stdio.h>

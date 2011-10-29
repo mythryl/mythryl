@@ -1,6 +1,6 @@
 // load-and-run-heap-image.c
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 #include <stdio.h>
 #include "runtime-base.h"

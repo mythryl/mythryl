@@ -21,7 +21,7 @@
 #ifndef RUNTIME_MULTICORE_H
 #define RUNTIME_MULTICORE_H
 
-#include "../config.h"
+#include "../mythryl-config.h"
 
 // Status of a Pthread:
 //
