@@ -6,6 +6,7 @@
 #ifndef RUNTIME_CONFIGURATION_H
 #define RUNTIME_CONFIGURATION_H
 
+#include "../mythryl-config.h"
 #include "runtime-base.h"
 
 // Default image: NULL (means: try to find in-core image using dlopen/dlsym)
@@ -26,15 +27,6 @@
     #define MAX_NUM_BOOT_FILES	1024
 #endif
 
-// Multicore support limits:
-//
-#if WANT_PTHREAD_SUPPORT
-    #ifndef MAX_PTHREADS
-        #define MAX_PTHREADS	8
-    #endif
-#else
-    #define MAX_PTHREADS	1
-#endif
 
 
 // Default heap sizes:

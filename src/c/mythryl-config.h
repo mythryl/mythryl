@@ -37,8 +37,16 @@
 //
 #define WANT_PTHREAD_SUPPORT 0
 
-// Next job: Pervasively change
-//     #ifdef MULTICORE_SUPPORT
-// to  #if WANT_PTHREAD_SUPPORT
+// Max number of posix threads running Mythryl.
+// We dedicate half a meg or so of memory to each
+// one, so don't be prolifigate here:
+//
+#if !WANT_PTHREAD_SUPPORT
+    //
+    #define MAX_PTHREADS	1
+#else
+    #define MAX_PTHREADS	8
+#endif
+
 
 #endif // MYTHRYL_CONFIG_H
