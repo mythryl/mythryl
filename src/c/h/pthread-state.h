@@ -22,7 +22,7 @@
 #include "runtime-timer.h"
 
 
-#if defined(MULTICORE_SUPPORT)
+#if WANT_PTHREAD_SUPPORT
     #include "runtime-pthread.h"
 #endif
 
@@ -61,7 +61,7 @@ struct pthread_state_struct {
 
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
-    #ifdef MULTICORE_SUPPORT
+    #if WANT_PTHREAD_SUPPORT
 	Pid	        pid;	       				// Our kernel thread's kernel process identifier ("pid").
 	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-pthread.h
     #endif

@@ -30,5 +30,15 @@
 
 #include "config.h"
 
+// Define this as TRUE (nonzero) to compile in support
+// for multiple posix threads running Mythryl code in
+// parallel in the same address space.  For background
+// see    src/A.MULTICORE-SUPPORT.OVERVIEW
+//
+#define WANT_PTHREAD_SUPPORT 0
+
+// Next job: Pervasively change
+//     #ifdef MULTICORE_SUPPORT
+// to  #if WANT_PTHREAD_SUPPORT
 
 #endif // MYTHRYL_CONFIG_H

@@ -218,7 +218,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
                  ){ 
 	      // This is a software-generated periodic event:
               //
-#if defined(MULTICORE_SUPPORT) && defined(MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
+#if WANT_PTHREAD_SUPPORT && defined(MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
 	      // Note: under MULTICORE, software generated periodic
               // events are used only for garbage collection.
               //
@@ -248,7 +248,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		task->in_software_generated_periodic_event_handler= TRUE;
 		task->software_generated_periodic_event_is_pending	= FALSE;
-#endif // MULTICORE_SUPPORT
+#endif // WANT_PTHREAD_SUPPORT
 	    } 
 #endif // SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else

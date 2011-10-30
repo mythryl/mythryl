@@ -26,10 +26,10 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"
 
-#ifndef MULTICORE_SUPPORT
-    #define SELF_PTHREAD	(pthread_table_global[0])
+#ifndef WANT_PTHREAD_SUPPORT
+    #define SELF_PTHREAD	(pthread_table_global[0])	// For WANT_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
 #else
-    #define SELF_PTHREAD	(pthread_table_global[0])	// For MULTICORE_SUPPORT, we'll use SELF_PTHREAD for now.
+    #define SELF_PTHREAD	(pthread_table_global[0])
 #endif
 
 static struct _timeb start_timeb;				// For computing times.

@@ -28,7 +28,7 @@
 
 // Multicore support limits:
 //
-#ifdef MULTICORE_SUPPORT
+#if WANT_PTHREAD_SUPPORT
     #ifndef MAX_PTHREADS
         #define MAX_PTHREADS	8
     #endif
@@ -101,7 +101,7 @@
     #define N_PSEUDO_ROOTS	0
 #endif
 
-#ifdef MULTICORE_SUPPORT
+#if WANT_PTHREAD_SUPPORT
     // 
     // We must assume that all other pthreads
     // are supplying MAX_EXTRA_CLEANING_ROOTS

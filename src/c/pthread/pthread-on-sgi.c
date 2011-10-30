@@ -254,12 +254,12 @@ static void   pthread_main   (void* vtask)   {
     //
     while (task->pthread->pid == NULL) {
 	//
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say("[waiting for self]\n");
 	#endif
 	continue;
     }
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("[new proc main: releasing lock]\n");
     #endif
 
@@ -307,7 +307,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 									// and also              pthread->task->link.
     int i;
 
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say("[acquiring proc]\n");
     #endif
 
@@ -321,7 +321,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     ) {
 	continue;
     }
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say("[checking for suspended processor]\n");
     #endif
 
@@ -333,7 +333,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say("[checking for NO_PROC]\n");
 	#endif
 
@@ -353,7 +353,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
     }
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say("[using processor at index %d]\n", i);
     #endif
 
@@ -379,7 +379,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	if ((pthread->pid = make_pthread(p)) != -1) {
 	    //
-	    #ifdef MULTICORE_SUPPORT_DEBUG
+	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 		debug_say ("[got a processor]\n");
 	    #endif
 
@@ -400,7 +400,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	pthread->status = KERNEL_THREAD_IS_RUNNING;
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("[reusing a processor]\n");
 	#endif
 
@@ -415,7 +415,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 void   pth_release_pthread   (Task* task)   {
     // ==================
     //
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say("[release_pthread: suspending]\n");
     #endif
 
@@ -433,7 +433,7 @@ void   pth_release_pthread   (Task* task)   {
 	//
 	clean_heap( task, 1 );
     }
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say("[release_pthread: resuming]\n");
     #endif
 

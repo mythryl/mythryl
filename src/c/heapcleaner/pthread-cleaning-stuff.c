@@ -62,7 +62,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
         //
 	task = pthread_table[pthread]->task;
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ", pthread, task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
@@ -73,7 +73,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    if (pollFreq > 0) {
 
-		#ifdef MULTICORE_SUPPORT_DEBUG
+		#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 		debug_say ("(with PollFreq=%d) ", pollFreq);
 		#endif
 
@@ -92,7 +92,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( alloc_base, indivSz );
 	#endif
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
@@ -130,21 +130,21 @@ int   pth_start_heapcleaning   (Task *task) {
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", task->lib7_mpSelf);
 	#endif
 	#endif
 
 	cleaning_pthread_local = pthread->pid;			// We're the first one in, we'll do the clean.
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("cleaning_pthread_local is %d\n",cleaning_pthread_local);
 	#endif
     }
     pth_release_lock(pth_cleaner_lock_global);
 
     {
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    int n = 0;
 	#endif
 
@@ -154,7 +154,7 @@ int   pth_start_heapcleaning   (Task *task) {
 	while (pthreads_ready_to_clean_local !=  (nProcs = pth_active_pthread_count())) {
 
 	    // SPIN
-	    #ifdef MULTICORE_SUPPORT_DEBUG
+	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 
 		if (n != 10000000) {
 
@@ -176,24 +176,24 @@ int   pth_start_heapcleaning   (Task *task) {
 
     #ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_FALSE);
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
     #endif
     #endif
 
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, pth_active_pthread_count());
     #endif
 
     if (cleaning_pthread_local != pthread->pid) {
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d entering barrier %d\n",pthread->pid,nProcs);
 	#endif
 
 	pth_wait_at_barrier(pth_cleaner_barrier_global, nProcs);
     
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d left barrier\n", pthread->pid);
 	#endif
 
@@ -222,7 +222,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
-	    #ifdef MULTICORE_SUPPORT_DEBUG
+	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", pthread->pid);
 	    #endif
 	#endif
@@ -231,7 +231,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 	//
 	cleaning_pthread_local = pthread->pid;
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("cleaning_pthread_local is %d\n",cleaning_pthread_local);
 	#endif
     }
@@ -244,7 +244,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     pth_release_lock( pth_cleaner_lock_global );
 
     {
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    int n = 0;
 	#endif
 
@@ -255,7 +255,7 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
 	    // SPIN
 
-	    #ifdef MULTICORE_SUPPORT_DEBUG
+	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 		if (n != 10000000) {
 		    n++;
 		} else {
@@ -272,24 +272,24 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
     #ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_FALSE );
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
     #endif
     #endif
 
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth_active_pthread_count());
     #endif
 
     if (cleaning_pthread_local != pthread->pid) {
 
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
 	#endif
 
 	pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);
     
-	#ifdef MULTICORE_SUPPORT_DEBUG
+	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d left barrier\n", pthread->pid);
 	#endif
 
@@ -310,7 +310,7 @@ void   pth_finish_heapcleaning   (Task *task, int n)   {
 
     pth_acquire_lock( pth_cleaner_lock_global );
 
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", task->pthread->pid,n);
     #endif
 
@@ -318,7 +318,7 @@ void   pth_finish_heapcleaning   (Task *task, int n)   {
 
     pthreads_ready_to_clean_local = 0;
 
-    #ifdef MULTICORE_SUPPORT_DEBUG
+    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", task->pthread->pid);
     #endif
 

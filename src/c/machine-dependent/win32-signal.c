@@ -17,10 +17,10 @@
 
 #include "win32-sigtable.c"
 
-#ifndef MULTICORE_SUPPORT
-#define SELF_PTHREAD	(pthread_table_global[ 0 ])
+#if WANT_PTHREAD_SUPPORT
+#define SELF_PTHREAD	(pthread_table_global[ 0 ])	// For WANT_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
 #else
-#define SELF_PTHREAD	(pthread_table_global[ 0 ])	// For MULTICORE_SUPPORT, we'll use SELF_PTHREAD for now.
+#define SELF_PTHREAD	(pthread_table_global[ 0 ])
 #endif
 
 Val   list_signals   (Task* task)   {

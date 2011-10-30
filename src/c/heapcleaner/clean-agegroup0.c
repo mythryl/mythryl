@@ -33,7 +33,7 @@
 #include "heap-tags.h"
 #include "copy-loop.h"
 
-#ifdef MULTICORE_SUPPORT
+#if WANT_PTHREAD_SUPPORT
     #include "pthread-state.h"
 #endif
 
@@ -135,11 +135,8 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the store log:
     //
-    #ifndef MULTICORE_SUPPORT
+    #if WANT_PTHREAD_SUPPORT
 	//
-	process_task_heap_changelog( task, heap );
-	//
-    #else
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {
 	    //
 	    Pthread* pthread =  pthread_table_global[ i ];
@@ -151,6 +148,8 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 		process_task_heap_changelog( task, heap );
 	    }
 	}
+    #else
+	process_task_heap_changelog( task, heap );
     #endif
 
     // Sweep the to-space for agegroup 1:

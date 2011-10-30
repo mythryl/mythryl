@@ -33,14 +33,14 @@ typedef enum {
     //
 } Pthread_Status;
 
-#ifndef MULTICORE_SUPPORT
-
+#if !WANT_PTHREAD_SUPPORT
+    //
     #define BEGIN_CRITICAL_SECTION( LOCK )	{
     #define END_CRITICAL_SECTION( LOCK )	}
     #define ACQUIRE_LOCK(LOCK)		// no-op
     #define RELEASE_LOCK(LOCK)		// no-op
 
-#else // MULTICORE_SUPPORT
+#else // WANT_PTHREAD_SUPPORT
 
     #if !defined( SOFTWARE_GENERATED_PERIODIC_EVENTS ) \
      || !defined( MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS )
@@ -186,7 +186,7 @@ typedef enum {
 
 
 
-#endif // MULTICORE_SUPPORT
+#endif // WANT_PTHREAD_SUPPORT
 
 #endif // RUNTIME_MULTICORE_H
 
