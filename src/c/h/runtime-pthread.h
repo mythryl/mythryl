@@ -40,6 +40,15 @@ typedef enum {
     #define ACQUIRE_LOCK(LOCK)		// no-op
     #define RELEASE_LOCK(LOCK)		// no-op
 
+// These should be in the Linux section, this is very temporary: -- 2011-10-30 CrT
+// End of temporary Linux stuff
+#if HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+#endif
+#if HAVE_UNISTD_H
+    #include <unistd.h>
+#endif
+typedef pid_t 	Pid;			// A process id.
 #else // WANT_PTHREAD_SUPPORT
 
     #if !defined( SOFTWARE_GENERATED_PERIODIC_EVENTS ) \
@@ -96,7 +105,7 @@ typedef enum {
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
-    extern Pid      pth_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
+    extern Pid      pth_get_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //

@@ -4,8 +4,7 @@
 // SGI Challenge boxes of the era which featured up to sixteen CPU cards on a
 // single bus with a special dedicated hardware bus for inter-CPU locking etc.
 //
-// Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x)
-// implementing the API defined in
+// Posix-threads based implementation of the API defined in
 //
 //     src/c/h/runtime-pthread.h
 //
@@ -33,7 +32,6 @@
 #include <unistd.h>
 #endif
 
-#include <ulocks.h>
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
@@ -43,6 +41,12 @@
 #include "task.h"
 #include "runtime-globals.h"
 #include "pthread-state.h"
+
+Pid   pth_get_pthread_id   ()   {
+    //==================
+    //
+    return getpid ();
+}
 
 #ifdef SOON
 

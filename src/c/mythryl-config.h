@@ -30,12 +30,12 @@
 
 #include "config.h"
 
-// Define this as TRUE (nonzero) to compile in support
-// for multiple posix threads running Mythryl code in
-// parallel in the same address space.  For background
-// see    src/A.MULTICORE-SUPPORT.OVERVIEW
-//
 #define WANT_PTHREAD_SUPPORT 0
+    //
+    // Define this as TRUE (nonzero) to compile in support
+    // for multiple posix threads running Mythryl code in
+    // parallel in the same address space.  For background
+    // see    src/A.MULTICORE-SUPPORT.OVERVIEW
 
 // Max number of posix threads running Mythryl.
 // We dedicate half a meg or so of memory to each
@@ -47,6 +47,29 @@
 #else
     #define MAX_PTHREADS	8
 #endif
+
+
+
+#define MAX_POSIX_SIGNALS      60
+    //
+    // This needs to be at least one more than the
+    // highest valid signal number on the host system.
+    //
+    // This value gets used in    src/c/h/pthread-state.h
+    // to size the                posix_signal_counts []
+    // vector and in              src/c/main/runtime-state.c
+    // and                        src/c/machine-dependent/signal-stuff.c
+    // to iterate over that vector.
+    // 
+    // The proper value for this symbol is typically about 30
+    // and doesn't change much, so just hardwiring it to 60 should be
+    // reasonably safe, if not particularly elegant.
+    //
+    // (I'm reluctant to autoconfig it at compile time based on (say)
+    // `kill -l` because we might well (say) upgrade to a kernel supporting
+    // more signals and wind up getting weird memory corruption bugs
+    // as a result.)
+    //                                         -- 2011-10-30 CrT
 
 
 #endif // MYTHRYL_CONFIG_H

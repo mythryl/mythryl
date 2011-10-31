@@ -94,10 +94,8 @@ void   pth_initialize   () {
 
 
 
-Pid   pth_pthread_id   ()   {
-    //=============
-    //
-    // Called only from:    src/c/main/runtime-state.c
+Pid   pth_get_pthread_id   ()   {
+    //==================
     //
     return getpid ();
 }

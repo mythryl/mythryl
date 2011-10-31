@@ -775,9 +775,9 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 }							// fun pth_acquire_pthread
 
 //
-void   pth_shut_down      (void)   {	munmap(arena_local,sysconf(_SC_PAGESIZE));	}
-int    pth_max_pthreads   (void)   {	return MAX_PTHREADS;				}
-Pid    pth_pthread_id     (void)   {	return (thr_self());				}    // Called only from:    src/c/main/runtime-state.c
+void   pth_shut_down		(void)   {	munmap(arena_local,sysconf(_SC_PAGESIZE));	}
+int    pth_max_pthreads-	(void)   {	return MAX_PTHREADS;				}
+Pid    pth_get_pthread_id	(void)   {	return (thr_self());				}
     //
 
 //

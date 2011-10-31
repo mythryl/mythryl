@@ -18,7 +18,7 @@
 
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"
-#include "system-signals.h"
+// #include "system-signals.h" Commented out because it does not exist on my Linux  -- 2011-10-30 CrT
 #include "runtime-timer.h"
 
 

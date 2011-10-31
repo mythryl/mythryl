@@ -39,6 +39,17 @@
 // 
 // or such.
 
+static Val   get_pthread_id         (Task* task,  Val arg)   {
+// #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
+//    #if WANT_PTHREAD_SUPPORT
+	//
+        return TAGGED_INT_FROM_C_INT( pth_get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c
+        //									// thread_id	def in    src/c/pthread/pthread-on-sgi.c
+//    #else									// thread_id	def in    src/c/pthread/pthread-on-solaris.c
+//	die ("get_pthread_id: no mp support\n");
+//        return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.
+//    #endif
+}
 
 static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never called.
     //       ===============
@@ -48,7 +59,7 @@ static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never 
 	return pth_acquire_pthread( task, arg );				// pth_acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
     #else									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
-	die ("lib7_acquire_pthread: no mp support\n");
+	die ("acquire_pthread: no mp support\n");
         return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
     #endif
 }
@@ -108,6 +119,7 @@ static Val   spin_lock   (Task* task,  Val arg)   {
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
+    { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "acquire_pthread","acquire_pthread",	acquire_pthread,	""},
     { "max_pthreads","max_pthreads",		max_pthreads,		""},
     { "release_pthread","release_pthread",	release_pthread,	""},
