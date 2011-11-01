@@ -394,7 +394,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     task->heap	                  =  heap;
     task->heap_allocation_pointer =  (Val*) task->heap->agegroup0_buffer;
 
-    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	reset_heap_allocation_limit_for_software_generated_periodic_events( task );
     #else

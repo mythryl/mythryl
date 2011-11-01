@@ -67,15 +67,15 @@ void   clean_heap   (Task* task,  int level) {
     Val** rootsPtr = roots;
     Heap* heap;
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	int		pthreads_count;
     #endif
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );				// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell_global   from	src/c/main/construct-runtime-package.c
 
-    #if WANT_PTHREAD_SUPPORT
-    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+    #if NEED_PTHREAD_SUPPORT
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("igc %d\n", task->lib7_mpSelf);
     #endif
 	if ((pthreads_count = pth_start_heapcleaning (task)) == 0) {
@@ -93,7 +93,7 @@ void   clean_heap   (Task* task,  int level) {
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
     #endif
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	// Get extra roots from procs that entered
 	// through clean_heap_with_extra_roots
 	//
@@ -110,7 +110,7 @@ void   clean_heap   (Task* task,  int level) {
 	*rootsPtr++ = c_roots_global[ i ];
     }
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	{
 	    Pthread* pthread;
 	    Task*	 task;
@@ -121,7 +121,7 @@ void   clean_heap   (Task* task,  int level) {
 
 		task = pthread->task;
 
-		#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		    debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 		#endif
 
@@ -138,7 +138,7 @@ void   clean_heap   (Task* task,  int level) {
 		}
 	    }
 	}
-    #else								// !WANT_PTHREAD_SUPPORT
+    #else								// !NEED_PTHREAD_SUPPORT
 	//	
 	*rootsPtr++ =  &task->link_register;
 	*rootsPtr++ =  &task->argument;
@@ -149,7 +149,7 @@ void   clean_heap   (Task* task,  int level) {
 	*rootsPtr++ =  &task->callee_saved_registers[0];
 	*rootsPtr++ =  &task->callee_saved_registers[1];
 	*rootsPtr++ =  &task->callee_saved_registers[2];
-    #endif										// WANT_PTHREAD_SUPPORT
+    #endif										// NEED_PTHREAD_SUPPORT
 
     *rootsPtr = NULL;
 
@@ -180,7 +180,7 @@ void   clean_heap   (Task* task,  int level) {
 
     if (level > 0) {
         //
-	#if WANT_PTHREAD_SUPPORT
+	#if NEED_PTHREAD_SUPPORT
             //	
 	    Task* task;
 
@@ -206,12 +206,12 @@ void   clean_heap   (Task* task,  int level) {
 
     // Reset the allocation space:
     //
-    #if WANT_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
+    #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
 	pth_finish_heapcleaning( task, pthreads_count );
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
-	#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
 	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
@@ -243,15 +243,15 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     va_list ap;
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	int pthreads_count;
     #endif
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("igcwr %d\n", task->lib7_mpSelf);
 	#endif
 
@@ -270,7 +270,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
     #endif
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
         // get extra roots from procs that entered through clean_heap_with_extra_roots.
         // Our extra roots were placed in pth_extra_heapcleaner_roots_global by mc_clean_heap_with_extra_roots.
         //
@@ -285,7 +285,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	    *rootsPtr++ = p;
 	}
 	va_end(ap);
-    #endif						// WANT_PTHREAD_SUPPORT
+    #endif						// NEED_PTHREAD_SUPPORT
 
     // Gather the roots:
     //
@@ -293,7 +293,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	*rootsPtr++ = c_roots_global[i];
     }
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	{
 	    Task*     task;
 	    Pthread*  pthread;
@@ -303,7 +303,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 		pthread = pthread_table_global[ j ];
 		task    = pthread->task;
 
-		#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		    debug_say ("task[%d] alloc/limit was %x/%x\n",
 			    j, task->heap_allocation_pointer, task->heap_allocation_limit);
 		#endif
@@ -322,7 +322,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	    }
 	}
 
-    #else						// !WANT_PTHREAD_SUPPORT
+    #else						// !NEED_PTHREAD_SUPPORT
 
 	*rootsPtr++ =  &task->argument;
 	*rootsPtr++ =  &task->fate;
@@ -333,7 +333,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	*rootsPtr++ =  &task->callee_saved_registers[1];
 	*rootsPtr++ =  &task->callee_saved_registers[2];
 
-    #endif						// WANT_PTHREAD_SUPPORT
+    #endif						// NEED_PTHREAD_SUPPORT
 
     *rootsPtr = NULL;
 
@@ -364,7 +364,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-	#if WANT_PTHREAD_SUPPORT
+	#if NEED_PTHREAD_SUPPORT
 	    //
 	    Pthread* pthread;
 
@@ -392,13 +392,13 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     // Reset agegroup0 buffer:
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
         //
 	pth_finish_heapcleaning (task, pthreads_count);
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
-	#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
@@ -423,12 +423,12 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
     // Return TRUE, if GC is required,
     // FALSE otherwise.
 
-    #if (WANT_PTHREAD_SUPPORT && defined(COMMENT_MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS))
+    #if (NEED_PTHREAD_SUPPORT && defined(COMMENT_MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS))
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
 	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))
 	//
-    #elif WANT_PTHREAD_SUPPORT
+    #elif NEED_PTHREAD_SUPPORT
 	//
 	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
 	//
@@ -441,7 +441,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 }
 
 
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
     void   reset_heap_allocation_limit_for_software_generated_periodic_events   (Task* task)   {
 	// =======================================================
@@ -471,7 +471,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 		: task->heap_allocation_limit;
 	}
     }
-#endif						// WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#endif						// NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.

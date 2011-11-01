@@ -212,13 +212,13 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		pthread->posix_signal_pending= FALSE;
 	    }
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else if (task->software_generated_periodic_event_is_pending
                  && !task->in_software_generated_periodic_event_handler
                  ){ 
 	      // This is a software-generated periodic event:
               //
-#if WANT_PTHREAD_SUPPORT && defined(MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
+#if NEED_PTHREAD_SUPPORT && defined(MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
 	      // Note: under MULTICORE, software generated periodic
               // events are used only for garbage collection.
               //
@@ -248,9 +248,9 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		task->in_software_generated_periodic_event_handler= TRUE;
 		task->software_generated_periodic_event_is_pending	= FALSE;
-#endif // WANT_PTHREAD_SUPPORT
+#endif // NEED_PTHREAD_SUPPORT
 	    } 
-#endif // WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#endif // NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else
 	        clean_heap (task, 0);
 	} else {
@@ -390,7 +390,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 		break;
 
 
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
 	    case REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER:
 		SET_UP_THROW( task, task->argument, HEAP_VOID );	        // Throw to the fate.
@@ -403,7 +403,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 		break;
 #endif
 
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    case REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER:
 #endif
 	    case REQUEST_RESUME_SIGNAL_HANDLER:

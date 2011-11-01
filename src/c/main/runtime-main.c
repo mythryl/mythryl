@@ -70,7 +70,7 @@ static char*	heap_image_to_run_filename = DEFAULT_IMAGE;	// The path name of the
 		   
 static char*	compiled_files_to_load_filename = NULL;
 
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     static int NumProcs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
 #endif
 
@@ -106,7 +106,7 @@ int   main   (int argc, char** argv) {
 
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	pth_initialize();												// pth_initialize					def in    src/c/pthread/pthread-on-posix-threads.c
     #endif														// pth_initialize					def in    src/c/pthread/pthread-on-solaris.c
 															// pth_initialize					def in    src/c/pthread/pthread-on-sgi.c
@@ -307,7 +307,7 @@ static void   process_commandline_options   (
                 if (verbosity > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name_global to '%s'...\n", mythryl_program_name_global);
                 }
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
 	    } else if (MATCH("nprocs")) {
 
 		CHECK("nprocs");

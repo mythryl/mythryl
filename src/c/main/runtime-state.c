@@ -33,7 +33,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     Task* task =  NULL;
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	for (int i = 0;   i < MAX_PTHREADS;   i++) {
 	    //
@@ -60,7 +60,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
     //
     set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
         // 'set_up_heap' has created an agegroup0 buffer;
 	//  partition it between our MAX_PTHREADS pthreads:
@@ -96,11 +96,11 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
     #else
 	set_up_pthread_state( pthread_table_global[ 0 ] );
 	pthread_count_global = 1;
-    #endif						// WANT_PTHREAD_SUPPORT
+    #endif						// NEED_PTHREAD_SUPPORT
 
     // Initialize the timers:
     //
-    reset_timers( pthread_table_global[0] );		// WANT_PTHREAD_SUPPORT note: For now, only Pthread 0 has timers.
+    reset_timers( pthread_table_global[0] );		// NEED_PTHREAD_SUPPORT note: For now, only Pthread 0 has timers.
 
     return task;
 }							// fun make_task
@@ -148,7 +148,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->callee_saved_registers[1]	= HEAP_VOID;
     pthread->task->callee_saved_registers[2]	= HEAP_VOID;
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;
 	pthread->status		= NO_KERNEL_THREAD_ALLOCATED;
     #endif
@@ -168,7 +168,7 @@ void   initialize_task   (Task* task)   {
 
     task->heap_changelog =   HEAP_VOID;
 
-    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
         //
 	task->software_generated_periodic_event_is_pending	= FALSE;
 	task->in_software_generated_periodic_event_handler	= FALSE;

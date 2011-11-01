@@ -21,7 +21,7 @@
 //
 // whereas symbols defined in mythryl-config.h start with the prefix
 //
-//     WANT_
+//     NEED_
 //
 //                -- 2011-10-28 CrT
 
@@ -31,7 +31,7 @@
 #include "config.h"
 
 
-#define WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
+#define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
     //
     // The Mythryl heapcleaner ("garbage collector") runs as a cooperative
     // thread with user code -- the Mythryl compiler ensures that every closed
@@ -44,7 +44,7 @@
     // then be explicitly restarted -- something which many C library functions
     // probably do not do correctly.  
 
-#define WANT_PTHREAD_SUPPORT 0
+#define NEED_PTHREAD_SUPPORT 0
     //
     // Define this as TRUE (nonzero) to compile in support
     // for multiple posix threads running Mythryl code in
@@ -55,7 +55,7 @@
 // We dedicate half a meg or so of memory to each
 // one, so don't be prolifigate here:
 //
-#if !WANT_PTHREAD_SUPPORT
+#if !NEED_PTHREAD_SUPPORT
     //
     #define MAX_PTHREADS	1
 #else

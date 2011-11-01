@@ -64,7 +64,7 @@
 // pthread can use it.
 																// sib_is_active		def in    src/c/h/heap.h
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     //
     #define IFGC(ap, szb)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
 #else
@@ -396,7 +396,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
 	    //												// as pth_acquire_mutex(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
-	    #if WANT_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
+	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
 		clean_check: ;	// The MP version jumps to here to recheck for GC.
 	    #endif
 
@@ -421,7 +421,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		ap->requested_sib_buffer_bytesize = 0;
 
-		#if WANT_PTHREAD_SUPPORT
+		#if NEED_PTHREAD_SUPPORT
 	            // Check again to insure that we have sufficient space.
 		    gcLevel = -1;
 		    goto clean_check;
@@ -494,7 +494,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 		clean_level = 1;
 	    }
 
-	    #if WANT_PTHREAD_SUPPORT
+	    #if NEED_PTHREAD_SUPPORT
 	        clean_check: ;			// The MP version jumps to here to redo the garbage collection.
 	    #endif
 
@@ -506,7 +506,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
-	    #if WANT_PTHREAD_SUPPORT
+	    #if NEED_PTHREAD_SUPPORT
 		//
 	        // Check again to ensure that we have sufficient space:
 		//

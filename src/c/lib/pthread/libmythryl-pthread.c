@@ -41,7 +41,7 @@
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
-//    #if WANT_PTHREAD_SUPPORT
+//    #if NEED_PTHREAD_SUPPORT
 	//
         return TAGGED_INT_FROM_C_INT( pth_get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// thread_id	def in    src/c/pthread/pthread-on-sgi.c
@@ -54,7 +54,7 @@ static Val   get_pthread_id         (Task* task,  Val arg)   {
 static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never called.
     //       ===============
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	return pth_acquire_pthread( task, arg );				// pth_acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
@@ -69,7 +69,7 @@ static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never 
 static Val release_pthread   (Task* task,  Val arg)   {
     //     ===============
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	pth_release_pthread(task);  	// Should not return.
 	die ("_lib7_MP_release_pthread: call unexpectedly returned\n");
     #else
@@ -82,7 +82,7 @@ static Val release_pthread   (Task* task,  Val arg)   {
 static Val   max_pthreads   (Task* task,  Val arg)   {				// Apparently nowhere invoked.
     //       ============
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	return TAGGED_INT_FROM_C_INT(pth_max_pthreads ());
     #else
 	die ("_lib7_MP_max_pthreads: no mp support\n");
@@ -94,7 +94,7 @@ static Val   max_pthreads   (Task* task,  Val arg)   {				// Apparently nowhere 
 static Val   spin_lock   (Task* task,  Val arg)   {
     //       =========
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	// "This code is for use the assembly (MIPS.prim.asm) try_lock and lock"
         //         --- Original SML/NJ comment.
         //

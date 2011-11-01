@@ -33,7 +33,7 @@ typedef enum {
     //
 } Pthread_Status;
 
-#if !WANT_PTHREAD_SUPPORT
+#if !NEED_PTHREAD_SUPPORT
     //
     #define BEGIN_CRITICAL_SECTION( LOCK )	{
     #define END_CRITICAL_SECTION( LOCK )	}
@@ -49,9 +49,9 @@ typedef enum {
     #include <unistd.h>
 #endif
 typedef pid_t 	Pid;			// A process id.
-#else // WANT_PTHREAD_SUPPORT
+#else // NEED_PTHREAD_SUPPORT
 
-    #if !WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS \
+    #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
      || !defined( MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS )
 	#error Multicore runtime currently requires polling support.
     #endif
@@ -190,7 +190,7 @@ typedef pid_t 	Pid;			// A process id.
 
 
 
-#endif // WANT_PTHREAD_SUPPORT
+#endif // NEED_PTHREAD_SUPPORT
 
 #endif // RUNTIME_MULTICORE_H
 

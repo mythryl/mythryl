@@ -84,14 +84,14 @@ Val   _lib7_runtime_get_platform_property   (Task* task,  Val arg)   {
 	result = make_ascii_string_from_c_string(task, "<unknown>");
 #endif
     else if (SAME_STRING("HAS_SOFTWARE_GENERATED_PERIODIC_EVENTS", name))
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
 #else
 	result = make_ascii_string_from_c_string(task, FALSE_VALUE);
 #endif
     else if (SAME_STRING("HAS_MP", name))
 
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
 	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
 #else
 	result = make_ascii_string_from_c_string(task, FALSE_VALUE);

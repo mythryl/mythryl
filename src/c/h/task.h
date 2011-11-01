@@ -49,7 +49,7 @@ struct task {
     Val		fault_exception;					// The exception packet for a hardware fault.
     Val_Sized_Unt  faulting_program_counter;				// The program counter of the faulting instruction.
 
-    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	Val*	real_heap_allocation_limit;				// We ab/use heapchecks to generate events by setting an artificially small heap_allocation_limit value; in such cases this holds the real value.
 	Bool	software_generated_periodic_event_is_pending;

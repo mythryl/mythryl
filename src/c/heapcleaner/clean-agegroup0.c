@@ -33,7 +33,7 @@
 #include "heap-tags.h"
 #include "copy-loop.h"
 
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     #include "pthread-state.h"
 #endif
 
@@ -135,7 +135,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the store log:
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {
 	    //

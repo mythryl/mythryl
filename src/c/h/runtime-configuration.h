@@ -93,7 +93,7 @@
     #define N_PSEUDO_ROOTS	0
 #endif
 
-#if WANT_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     // 
     // We must assume that all other pthreads
     // are supplying MAX_EXTRA_CLEANING_ROOTS
@@ -110,7 +110,7 @@
     #define MAX_TOTAL_CLEANING_ROOTS	ROUND_UP_TO_POWER_OF_TWO( MAX_PTHREADS * (MAX_C_CLEANING_ROOTS + NROOTS + N_PSEUDO_ROOTS) +1, 8)
 #endif
 
-#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS  
+#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS  
     //
     // This #define is referenced only in:
     //

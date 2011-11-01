@@ -497,7 +497,7 @@ static void*   resume_pthread   (void* vtask)   {
 	//
 	// Proc only resumed to do a clean.
 	//
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	      debug_say("resuming %d to perform a gc\n",task->pthread->pid);
 	#endif      
 
@@ -511,7 +511,7 @@ static void*   resume_pthread   (void* vtask)   {
 
     } else {
 
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	      debug_say("[release_pthread: resuming proc %d]\n",task->pthread->pid);
 	#endif
 
@@ -542,7 +542,7 @@ Pthread*   resume_pthreads   (int n_procs)   {
 
 	    // Spawn a thread to execute the state:
 
-	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say("Resuming proc %d\n",statep->pthread->pid);
 	    #endif	
 
@@ -576,7 +576,7 @@ static void   suspend_pthread   (Task* task) {
     //
     if (task->pthread->status != KERNEL_THREAD_IS_SUSPENDED) {
 	//
-        #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+        #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say("proc state is not PROC_SUSPENDED; not suspended");
         #endif      
 
@@ -612,7 +612,7 @@ void   pth_release_pthread   (Task* task)   {
 
     // Suspend the proc:
     //
-    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
         debug_say("suspending proc %d\n",task->pthread->pid);
     #endif
     suspend_pthread( task );
@@ -630,12 +630,12 @@ static void*   pthread_main   (void* vtask)   {
     //
     while  (task->pthread->pid == NULL) {
 	//
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say("[waiting for self]\n");
 	#endif
 	continue;
     }
-    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
         debug_say ("[new proc main: releasing mutex]\n");
     #endif
 
@@ -661,7 +661,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     Val f = GET_TUPLE_SLOT_AS_VAL(arg, 1);
     int i;
 
-    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
         debug_say("[acquiring proc]\n");
     #endif
 
@@ -674,7 +674,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	 i++)
       continue;
 
-    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
         debug_say("[checking for suspended processor]\n");
     #endif
 
@@ -687,7 +687,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
 
-        #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+        #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say("[checking for NO_PROC]\n");
         #endif
 
@@ -711,7 +711,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	// Using a suspended processor.
 
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say("[using a suspended processor]\n");
 	#endif     
 
@@ -739,7 +739,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	if (thr_create( NULL, 0, pthread_main, (void*)p, THR_NEW_LWP, &((thread_t) procId)) == 0) {
 	    //
-	    #ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	        debug_say ("[got a processor: %d,]\n",procId);
 	    #endif
 
@@ -764,7 +764,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	pthread->status = KERNEL_THREAD_IS_RUNNING;
 
-	#ifdef WANT_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("[reusing a processor %d]\n", pthread->pid);
 	#endif
 

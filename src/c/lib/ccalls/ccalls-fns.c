@@ -105,7 +105,7 @@ static Val   save_state   (
     //
     n++;
 
-    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
         #error
     #endif
 

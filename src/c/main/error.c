@@ -67,7 +67,7 @@ void   die   (char *fmt, ...)   {
     fprintf (stderr, "\n");
     va_end(ap);
 
-    #if WANT_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	// Release any platform-specific multicore-support
 	// resources such as kernel locks or mmapped segments:
 	//
@@ -88,7 +88,7 @@ void   die   (char *fmt, ...)   {
 
 	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name_global, a, file, line);
 
-	#if WANT_PTHREAD_SUPPORT
+	#if NEED_PTHREAD_SUPPORT
 	    pth_shut_down ();
 	#endif
 
