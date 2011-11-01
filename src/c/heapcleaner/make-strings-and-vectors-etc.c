@@ -177,22 +177,22 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	BEGIN_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 	    IFGC (ap, bytesize+task->heap->agegroup0_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
-		RELEASE_LOCK(pth_cleaner_gen_lock_global);
+		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		    clean_heap( task, 1 );
-		ACQUIRE_LOCK(pth_cleaner_gen_lock_global);
+		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
 	    *(ap->next_tospace_word_to_allocate++) = tagword;
 	    result = PTR_CAST( Val, ap->next_tospace_word_to_allocate);
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	END_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	END_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -258,7 +258,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
-	BEGIN_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
@@ -267,9 +267,9 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	        // We need to do a garbage collection:
 
 		ap->requested_sib_buffer_bytesize += bytesize;
-		RELEASE_LOCK(pth_cleaner_gen_lock_global);
+		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		    clean_heap (task, 1);
-		ACQUIRE_LOCK(pth_cleaner_gen_lock_global);
+		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
 	    #ifdef ALIGN_FLOAT64S
@@ -294,7 +294,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	END_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	END_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 
 	COUNT_ALLOC(task, bytesize-WORD_BYTESIZE);
     }
@@ -319,7 +319,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
     Hugechunk* dp;
 
-    BEGIN_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+    BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 	//
 	dp = allocate_hugechunk (heap, allocGen, len);
 	ASSERT(dp->gen == allocGen);
@@ -328,7 +328,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 	dp->huge_ilk = CODE__HUGE_ILK;
 	COUNT_ALLOC(task, len);
 	//
-    END_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+    END_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 
     return PTR_CAST( Val, dp->chunk);
 }
@@ -388,13 +388,13 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	int	gcLevel = (IS_POINTER(initVal) ? 0 : -1);
 
 	bytesize = WORD_BYTESIZE*(len + 1);
-													// pth_cleaner_gen_lock_global	def in   src/c/pthread/pthread-on-posix-threads.c
+													// pth_heapcleaner_gen_mutex_global	def in   src/c/pthread/pthread-on-posix-threads.c
 													// 				or       src/c/pthread/pthread-on-sgi.c
 													// 				or	 src/c/pthread/pthread-on-solaris.c
 													// (Used only in this file.)
 
-	BEGIN_CRITICAL_SECTION( pth_cleaner_gen_lock_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
-	    //												// as pth_acquire_lock(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
+	BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
+	    //												// as pth_acquire_mutex(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
 	    #if WANT_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
 		clean_check: ;	// The MP version jumps to here to recheck for GC.
@@ -415,10 +415,10 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
                 //
 		Val	root = initVal;
 		ap->requested_sib_buffer_bytesize += bytesize;
-		RELEASE_LOCK(pth_cleaner_gen_lock_global);
+		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		    clean_heap_with_extra_roots (task, gcLevel, &root, NULL);
 		    initVal = root;
-		ACQUIRE_LOCK(pth_cleaner_gen_lock_global);
+		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if WANT_PTHREAD_SUPPORT
@@ -433,7 +433,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	END_CRITICAL_SECTION(pth_cleaner_gen_lock_global)
+	END_CRITICAL_SECTION(pth_heapcleaner_gen_mutex_global)
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -483,7 +483,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    =
 	    WORD_BYTESIZE * (len+1);
 
-	BEGIN_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	BEGIN_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 	    //
 	    if (! sib_is_active(ap)										// sib_is_active		def in    src/c/h/heap.h
 		||
@@ -499,10 +499,10 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
-	    RELEASE_LOCK(pth_cleaner_gen_lock_global);
+	    RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
 	        clean_heap_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
-	    ACQUIRE_LOCK(pth_cleaner_gen_lock_global);
+	    ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
@@ -519,7 +519,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	END_CRITICAL_SECTION( pth_cleaner_gen_lock_global )
+	END_CRITICAL_SECTION( pth_heapcleaner_gen_mutex_global )
 
 	COUNT_ALLOC(task, bytesize);
 

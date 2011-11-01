@@ -37,8 +37,8 @@ typedef enum {
     //
     #define BEGIN_CRITICAL_SECTION( LOCK )	{
     #define END_CRITICAL_SECTION( LOCK )	}
-    #define ACQUIRE_LOCK(LOCK)		// no-op
-    #define RELEASE_LOCK(LOCK)		// no-op
+    #define ACQUIRE_MUTEX(LOCK)		// no-op
+    #define RELEASE_MUTEX(LOCK)		// no-op
 
 // These should be in the Linux section, this is very temporary: -- 2011-10-30 CrT
 // End of temporary Linux stuff
@@ -74,9 +74,9 @@ typedef pid_t 	Pid;			// A process id.
 
 	#include <ulocks.h>
 
-	typedef ulock_t	Lock;			// A lock.
+	typedef ulock_t		Mutex;		// A lock.
 	typedef barrier_t	Barrier;	// A barrier.
-	typedef int 	Pid;			// A process id.
+	typedef int 		Pid;		// A process id.
 
     #else
         #error MP not supported for this system
@@ -135,27 +135,30 @@ typedef pid_t 	Pid;			// A process id.
     // one such lock for each major shared mutable datastructure,
     // which persists for as long as that datastructure.
     //
-    extern Lock  pth_make_lock		();					// Just what you think.
-    extern void  pth_free_lock		(Lock lock);				// This call was probably only needed for SGI's daft hardware locks, and can be eliminated now. XXX BUGGO FIXME
+    extern Mutex pth_make_mutex		();				// Just what you think.
+    extern void  pth_free_mutex		(Mutex mutex);				// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
     //
-    extern void  pth_acquire_lock	(Lock lock);				// Used to enter a critical section, preventing any other pthread from proceeding past pth_acquire_lock() for this lock until we release.
-    extern void  pth_release_lock	(Lock lock);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth_acquire_lock() on this lock.
+    extern void  pth_acquire_mutex	(Mutex mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth_acquire_mutex() for this mutex until we release.
+    extern void  pth_release_mutex	(Mutex mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth_acquire_mutex() on this mutex.
     //
-    extern Bool  pth_maybe_acquire_lock		(Lock lock);				// This appears to be a non-blocking variant of pth_acquire_lock, which always returns immediately with either TRUE (lock acquired) or FALSE.
+    extern Bool  pth_maybe_acquire_mutex(Mutex mutex);				// This appears to be a non-blocking variant of pth_acquire_mutex, which always returns immediately with either TRUE (mutex acquired) or FALSE.
     //
-    // Some statically pre-allocated locks:
+    // Some statically pre-allocated mutexs:
     //
-    extern Lock	    pth_cleaner_lock_global;
-    extern Lock	    pth_cleaner_gen_lock_global;
-    extern Lock	    pth_timer_lock_global;
+    extern Mutex	    pth_heapcleaner_mutex_global;
+    extern Mutex	    pth_heapcleaner_gen_mutex_global;
+    extern Mutex	    pth_timer_mutex_global;
+    //
     extern Barrier* pth_cleaner_barrier_global;
     //
-    // Some readability tweaks:
     //
-    #define BEGIN_CRITICAL_SECTION( LOCK )	{ pth_acquire_lock(LOCK); {
-    #define END_CRITICAL_SECTION( LOCK )	} pth_release_lock(LOCK); }
-    #define ACQUIRE_LOCK(LOCK)		pth_acquire_lock(LOCK);
-    #define RELEASE_LOCK(LOCK)		pth_release_lock(LOCK);
+    // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT
+    //
+    #define BEGIN_CRITICAL_SECTION( mutex )	{ pth_acquire_mutex(mutex); {
+    #define END_CRITICAL_SECTION( mutex )	} pth_release_mutex(mutex); }
+    //
+    #define ACQUIRE_MUTEX(mutex)		pth_acquire_mutex(mutex);
+    #define RELEASE_MUTEX(mutex)		pth_release_mutex(mutex);
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -181,12 +184,12 @@ typedef pid_t 	Pid;			// A process id.
     // it isn't clear which was intended by the original authors.
     //
     // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
-    // but implemented on top of locks in                                   src/c/pthread/pthread-on-solaris.c
+    // but implemented on top of mutexs in                                   src/c/pthread/pthread-on-solaris.c
     //
     extern Barrier* pth_make_barrier 	();					// Allocate a barrier.
     extern void     pth_free_barrier	(Barrier* barrierp);			// Free a barrier.
     //
-    extern void     pth_wait_at_barrier		(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
+    extern void     pth_wait_at_barrier	(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
     extern void     pth_reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.

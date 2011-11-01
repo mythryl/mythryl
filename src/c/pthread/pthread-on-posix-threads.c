@@ -51,27 +51,27 @@ Pid   pth_get_pthread_id   ()   {
 #ifdef SOON
 
 // #define ARENA_FNAME  tmpnam(0)
-#define ARENA_FNAME  "/tmp/sml-mp.lock-arena"
+#define ARENA_FNAME  "/tmp/sml-mp.mutex-arena"
 
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-static Lock      AllocLock ();        
+static Mutex      AllocLock ();        
 static Barrier*  AllocBarrier();
 
 static usptr_t*	arena;								// Arena for shared sync chunks.
 
-static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a lock.
+static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Lock	 pth_cleaner_lock_global;						// Used only in   src/c/heapcleaner/pthread-cleaning-stuff.c
+Mutex	 pth_heapcleaner_mutex_global;						// Used only in   src/c/heapcleaner/pthread-cleaning-stuff.c
 
-Lock	 pth_cleaner_gen_lock_global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth_heapcleaner_gen_mutex_global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 Barrier* pth_cleaner_barrier_global;						// Used only with pth_wait_at_barrier prim, in   src/c/heapcleaner/pthread-cleaning-stuff.c
 
-Lock	 pth_timer_lock_global;							// Apparently never used.
+Mutex	 pth_timer_mutex_global;							// Apparently never used.
 
 
 
@@ -92,16 +92,16 @@ void   pth_initialize   () {
 
     MP_ArenaLock		= AllocLock ();
     MP_ProcLock			= AllocLock ();
-    pth_cleaner_lock_global	= AllocLock ();
-    pth_cleaner_gen_lock_global	= AllocLock ();
-    pth_timer_lock_global	= AllocLock ();
+    pth_heapcleaner_mutex_global	= AllocLock ();
+    pth_heapcleaner_gen_mutex_global	= AllocLock ();
+    pth_timer_mutex_global	= AllocLock ();
     pth_cleaner_barrier_global	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
 
 void   pth_shut_down   ()   {
-    // ============
+    // =============
     //
     usdetach( arena );												// 'usdetach' appears nowhere else in codebase; must be the SGI equivalent to posix 'munmap'
 }
@@ -116,64 +116,66 @@ Pid   pth_pthread_id   ()   {
 }
 
 
-static Lock   allocate_lock   ()   {
-    //        =============
+static Mutex   allocate_mutex   ()   {
+    //        ==============
     //
-    // Allocate and initialize a system lock.
+    // Allocate and initialize a system mutex.
 
-    ulock_t	lock;
+    ulock_t	mutex;
 
-    if ((lock = usnewlock(arena)) == NULL)   die ("allocate_lock: cannot get lock with usnewlock\n");
+    if ((mutex = usnewlock(arena)) == NULL)   die ("allocate_mutex: cannot get mutex with usnewlock\n");
 
-    usinitlock(lock);
-    usunsetlock(lock);
+    usinitlock(mutex);
+    usunsetlock(mutex);
 
-    return lock;
+    return mutex;
+
+
 }
  
 
-void   pth_acquire_lock   (Lock lock)   {
-    // ===============
+void   pth_acquire_mutex   (Mutex mutex)   {
+    // =================
     //
-    ussetlock(lock);
+    ussetlock(mutex);
 }
 
 
-void   pth_release_lock   (Lock lock)   {
-    // ===============
+void   pth_release_mutex   (Mutex mutex)   {
+    // =================
     //
-    usunsetlock(lock);
+    usunsetlock(mutex);
 }
 
 
-Bool   pth_maybe_acquire_lock   (Lock lock)   {
-    // ===========
+Bool   pth_maybe_acquire_mutex   (Mutex mutex)   {
+    // =======================
     //
-    return ((Bool) uscsetlock(lock, 1));		// Try once.
+    return ((Bool) uscsetlock(mutex, 1));		// Try once.
 }
 
 
-Lock   pth_make_lock   ()   {
-    // ============
+Mutex   pth_make_mutex   ()   {
+    // ==============
     //
-    ulock_t lock;
+    ulock_t mutex;
 
     ussetlock(   MP_ArenaLock );
         //
-	lock = allocate_lock ();
+	mutex = allocate_mutex ();
         //
     usunsetlock( MP_ArenaLock );
 
-    return lock;
+    return mutex;
 }
 
 
 
-void   pth_free_lock   (Lock lock)   {
-    // ============
+void   pth_free_mutex   (Mutex mutex)   {
+    // =============
     //
     ussetlock(MP_ArenaLock);
-        usfreelock(lock,arena);
+        usfreelock(mutex,arena);
     usunsetlock(MP_ArenaLock);
 }
 
@@ -273,10 +275,10 @@ static void   pthread_main   (void* vtask)   {
 	continue;
     }
     #ifdef WANT_PTHREAD_SUPPORT_DEBUG
-	debug_say ("[new proc main: releasing lock]\n");
+	debug_say ("[new proc main: releasing mutex]\n");
     #endif
 
-    pth_release_lock( MP_ProcLock );			// Implicitly handed to us by the parent.
+    pth_release_mutex( MP_ProcLock );			// Implicitly handed to us by the parent.
     run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //
     // run_mythryl_task_and_runtime_eventloop should never return:
@@ -324,7 +326,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	debug_say("[acquiring proc]\n");
     #endif
 
-    pth_acquire_lock(MP_ProcLock);
+    pth_acquire_mutex(MP_ProcLock);
 
     // Search for a suspended kernel thread to reuse:
     //
@@ -342,7 +344,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
         //
 	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
-	    pth_release_lock( MP_ProcLock );
+	    pth_release_mutex( MP_ProcLock );
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
@@ -361,7 +363,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	if (i == pthread_count_global) {
 	    //
-	    pth_release_lock(MP_ProcLock);
+	    pth_release_mutex(MP_ProcLock);
 	    say_error("[no processor to allocate]\n");
 	    return HEAP_FALSE;
 	}
@@ -405,7 +407,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	} else {
 
 	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL), 1) );
-	    pth_release_lock(MP_ProcLock);
+	    pth_release_mutex(MP_ProcLock);
 	    return HEAP_FALSE;
 	}      
 
@@ -417,7 +419,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	    debug_say ("[reusing a processor]\n");
 	#endif
 
-	pth_release_lock(MP_ProcLock);
+	pth_release_mutex(MP_ProcLock);
 
 	return HEAP_TRUE;
     }
@@ -434,11 +436,11 @@ void   pth_release_pthread   (Task* task)   {
 
     clean_heap(task,1);
 
-    pth_acquire_lock(MP_ProcLock);
+    pth_acquire_mutex(MP_ProcLock);
 
     task->pthread->status = KERNEL_THREAD_IS_SUSPENDED;
 
-    pth_release_lock(MP_ProcLock);
+    pth_release_mutex(MP_ProcLock);
 
     while (task->pthread->status == KERNEL_THREAD_IS_SUSPENDED) {
 	//
@@ -458,13 +460,13 @@ void   pth_release_pthread   (Task* task)   {
 
 
 int   pth_active_pthread_count   ()   {
-    //=======================
+    //========================
     //
     int ap;
 
-    pth_acquire_lock(MP_ProcLock);
+    pth_acquire_mutex(MP_ProcLock);
         ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL) );
-    pth_release_lock(MP_ProcLock);
+    pth_release_mutex(MP_ProcLock);
 
     return ap;
 }
