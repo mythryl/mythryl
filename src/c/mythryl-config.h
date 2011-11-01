@@ -30,6 +30,20 @@
 
 #include "config.h"
 
+
+#define WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
+    //
+    // The Mythryl heapcleaner ("garbage collector") runs as a cooperative
+    // thread with user code -- the Mythryl compiler ensures that every closed
+    // loop through the code calls the garbage collector probe at least once.
+    //
+    // This facility takes advantage of that to allow invocation of arbitrary
+    // user code on a regular basis.  This provides an alternative to (say)
+    // using kernel-generated SIGVTALRM calls, which have the disadvantages
+    // of higher overhead, and of interrupting "slow" system calls, which must
+    // then be explicitly restarted -- something which many C library functions
+    // probably do not do correctly.  
+
 #define WANT_PTHREAD_SUPPORT 0
     //
     // Define this as TRUE (nonzero) to compile in support

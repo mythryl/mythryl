@@ -84,7 +84,7 @@ Val   _lib7_runtime_get_platform_property   (Task* task,  Val arg)   {
 	result = make_ascii_string_from_c_string(task, "<unknown>");
 #endif
     else if (SAME_STRING("HAS_SOFTWARE_GENERATED_PERIODIC_EVENTS", name))
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
 #else
 	result = make_ascii_string_from_c_string(task, FALSE_VALUE);

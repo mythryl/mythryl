@@ -212,7 +212,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		pthread->posix_signal_pending= FALSE;
 	    }
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else if (task->software_generated_periodic_event_is_pending
                  && !task->in_software_generated_periodic_event_handler
                  ){ 
@@ -250,7 +250,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		task->software_generated_periodic_event_is_pending	= FALSE;
 #endif // WANT_PTHREAD_SUPPORT
 	    } 
-#endif // SOFTWARE_GENERATED_PERIODIC_EVENTS
+#endif // WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else
 	        clean_heap (task, 0);
 	} else {
@@ -390,7 +390,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 		break;
 
 
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
 	    case REQUEST_RETURN_FROM_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER:
 		SET_UP_THROW( task, task->argument, HEAP_VOID );	        // Throw to the fate.
@@ -403,7 +403,7 @@ pthread->all_posix_signals.done_count, pthread->all_posix_signals.seen_count);
 		break;
 #endif
 
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    case REQUEST_RESUME_SOFTWARE_GENERATED_PERIODIC_EVENT_HANDLER:
 #endif
 	    case REQUEST_RESUME_SIGNAL_HANDLER:

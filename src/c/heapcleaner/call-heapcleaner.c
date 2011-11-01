@@ -206,12 +206,12 @@ void   clean_heap   (Task* task,  int level) {
 
     // Reset the allocation space:
     //
-    #if WANT_PTHREAD_SUPPORT
+    #if WANT_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
 	pth_finish_heapcleaning( task, pthreads_count );
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
-	#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
 	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
@@ -398,7 +398,8 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
-	#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
 	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT(heap);
@@ -440,7 +441,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 }
 
 
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
     void   reset_heap_allocation_limit_for_software_generated_periodic_events   (Task* task)   {
 	// =======================================================
@@ -470,7 +471,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 		: task->heap_allocation_limit;
 	}
     }
-#endif						// SOFTWARE_GENERATED_PERIODIC_EVENTS
+#endif						// WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.

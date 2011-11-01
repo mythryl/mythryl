@@ -51,36 +51,28 @@ typedef enum {
 typedef pid_t 	Pid;			// A process id.
 #else // WANT_PTHREAD_SUPPORT
 
-    #if !defined( SOFTWARE_GENERATED_PERIODIC_EVENTS ) \
+    #if !WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS \
      || !defined( MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS )
 	#error Multicore runtime currently requires polling support.
     #endif
 
-    ////////////////////////////////////////////////////////////////////////////
-    // OS dependent stuff:
-    //
-
-    #if defined(OPSYS_IRIX5)
-
-	#if HAVE_SYS_TYPES_H
-	    #include <sys/types.h>
-	#endif
-
-	#include <sys/prctl.h>
-
-	#if HAVE_UNISTD_H
-	    #include <unistd.h>
-	#endif
-
-	#include <ulocks.h>
-
-	typedef ulock_t		Mutex;		// A lock.
-	typedef barrier_t	Barrier;	// A barrier.
-	typedef int 		Pid;		// A process id.
-
-    #else
-        #error MP not supported for this system
+    #if HAVE_SYS_TYPES_H
+	#include <sys/types.h>
     #endif
+
+    #include <sys/prctl.h>
+
+    #if HAVE_UNISTD_H
+	#include <unistd.h>
+    #endif
+
+    #include <pthread.h>
+
+    typedef pthread_mutex_t		Mutex;		// A mutual-exclusion lock.
+    typedef pthread_barrier_t;		Barrier;	// A barrier.
+    typedef pid_t	 		Pid;		// A process id.
+
+
 
 
 

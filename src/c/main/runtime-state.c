@@ -168,7 +168,7 @@ void   initialize_task   (Task* task)   {
 
     task->heap_changelog =   HEAP_VOID;
 
-    #ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
         //
 	task->software_generated_periodic_event_is_pending	= FALSE;
 	task->in_software_generated_periodic_event_handler	= FALSE;

@@ -201,7 +201,8 @@ extern void   handle_uncaught_exception   (Val e);								// handle_uncaught_exc
 extern void   set_up_fault_handlers ();										// set_up_fault_handlers		def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
 														// set_up_fault_handlers		def in   src/c/machine-dependent/cygwin-fault.c
 														// set_up_fault_handlers		def in   src/c/machine-dependent/win32-fault.c
-#ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+#if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
+    //
     extern void reset_heap_allocation_limit_for_software_generated_periodic_events (Task *task);
 #endif
 

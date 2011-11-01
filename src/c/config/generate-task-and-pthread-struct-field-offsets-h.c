@@ -69,9 +69,9 @@ int   main   (void) {
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_1", 				callee_saved_registers[1]			);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_2",				callee_saved_registers[2]			);
 
-    #ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS
+    #if WANT_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	PRINT_TASK_FIELD_BYTE_OFFSET( "real_heap_allocation_limit",			real_heap_allocation_limit				);	// Nowhere referenced.
+	PRINT_TASK_FIELD_BYTE_OFFSET( "real_heap_allocation_limit",			real_heap_allocation_limit			);	// Nowhere referenced.
 	PRINT_TASK_FIELD_BYTE_OFFSET( "software_generated_periodic_event_is_pending",	software_generated_periodic_event_is_pending	);	// Nowhere referenced.
 	PRINT_TASK_FIELD_BYTE_OFFSET( "in_software_generated_periodic_event_handler",	in_software_generated_periodic_event_handler	);	// Nowhere referenced.
 	//
