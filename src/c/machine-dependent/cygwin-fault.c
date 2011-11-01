@@ -33,6 +33,13 @@ BOOL   cygwin_generic_handler   (int code)   {
 
     Pthread* pthread =  SELF_PTHREAD;
 
+    // Sanity check:  We compile in a MAX_POSIX_SIGNAL value but
+    // have no way to ensure that we don't wind up getting run
+    // on some custom kernel supporting more than MAX_POSIX_SIGNAL,
+    // so we check here to be safe:
+    //
+    if (sig >= MAX_POSIX_SIGNALS)    die ("posix-signal.c: c_signal_handler: sig d=%d >= MAX_POSIX_SIGNAL %d\n", sig, MAX_POSIX_SIGNALS ); 
+
     pthread->posix_signal_counts[code].seen_count++;
     pthread->all_posix_signals.seen_count++;
 

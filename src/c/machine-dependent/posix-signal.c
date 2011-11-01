@@ -5,6 +5,8 @@
 
 #include "../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"
@@ -155,6 +157,15 @@ static void   c_signal_handler   (int sig,  siginfo_t* si,  void* c)   {
         (ucontext_t*) c;
 
     Pthread* pthread = SELF_PTHREAD;
+
+
+    // Sanity check:  We compile in a MAX_POSIX_SIGNALS value but
+    // have no way to ensure that we don't wind up getting run
+    // on some custom kernel supporting more than MAX_POSIX_SIGNAL,
+    // so we check here to be safe:
+    //
+    if (sig >= MAX_POSIX_SIGNALS)    die ("posix-signal.c: c_signal_handler: sig d=%d >= MAX_POSIX_SIGNAL %d\n", sig, MAX_POSIX_SIGNALS ); 
+
 
     // Remember that we have seen signal number 'sig'.
     //
