@@ -57,11 +57,11 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth_heapcleaner_mutex_global;						// Used only in   src/c/heapcleaner/pthread-cleaning-stuff.c
+Mutex	 pth_heapcleaner_mutex_global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 Mutex	 pth_heapcleaner_gen_mutex_global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-Barrier* pth_cleaner_barrier_global;						// Used only with pth_wait_at_barrier prim, in   src/c/heapcleaner/pthread-cleaning-stuff.c
+Barrier* pth_cleaner_barrier_global;						// Used only with pth_wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 Mutex	 pth_timer_mutex_global;							// Apparently never used.
 
@@ -314,7 +314,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     // Search for a suspended kernel thread to reuse:
     //
     for (i = 0;
-	(i < pthread_count_global) && (pthread_table_global[i]->status != KERNEL_THREAD_IS_SUSPENDED);
+	(i < pthread_count_global) && (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
 	i++
     ) {
 	continue;
@@ -338,7 +338,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc
 	//
 	for (i = 0;
-	    (i < pthread_count_global) && (pthread_table_global[i]->status != NO_KERNEL_THREAD_ALLOCATED);
+	    (i < pthread_count_global) && (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
 	    i++
 	){
 	    continue;
@@ -369,7 +369,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
     p->thread	        =  thread_arg;
   
-    if (pthread->status == NO_KERNEL_THREAD_ALLOCATED) {
+    if (pthread->status == NO_PTHREAD_ALLOCATED) {
 	//
         // Assume we get one:
 
@@ -381,7 +381,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 		debug_say ("[got a processor]\n");
 	    #endif
 
-	    pthread->status = KERNEL_THREAD_IS_RUNNING;
+	    pthread->status = PTHREAD_IS_RUNNING;
 
 	    // make_pthread will release MP_ProcLock.
 
@@ -396,7 +396,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
     } else {
 
-	pthread->status = KERNEL_THREAD_IS_RUNNING;
+	pthread->status = PTHREAD_IS_RUNNING;
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("[reusing a processor]\n");
@@ -421,11 +421,11 @@ void   pth_release_pthread   (Task* task)   {
 
     pth_acquire_mutex(MP_ProcLock);
 
-    task->pthread->status = KERNEL_THREAD_IS_SUSPENDED;
+    task->pthread->status = PTHREAD_IS_SUSPENDED;
 
     pth_release_mutex(MP_ProcLock);
 
-    while (task->pthread->status == KERNEL_THREAD_IS_SUSPENDED) {
+    while (task->pthread->status == PTHREAD_IS_SUSPENDED) {
 	//
         // Need to be continually available for garbage collection:
 	//

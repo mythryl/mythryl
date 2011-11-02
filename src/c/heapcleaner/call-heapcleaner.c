@@ -125,7 +125,7 @@ void   clean_heap   (Task* task,  int level) {
 		    debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 		#endif
 
-		if (pthread->status == KERNEL_THREAD_IS_RUNNING) {
+		if (pthread->status == PTHREAD_IS_RUNNING) {
 		    //
 		    *rootsPtr++ =  &task->argument;
 		    *rootsPtr++ =  &task->fate;
@@ -190,7 +190,7 @@ void   clean_heap   (Task* task,  int level) {
 		//
 		task  =  pthread->task;
 		//
-		if (pthread->status == KERNEL_THREAD_IS_RUNNING) {
+		if (pthread->status == PTHREAD_IS_RUNNING) {
 		    //
 		    *rootsPtr++ =  &task->link_register;
 		}
@@ -308,7 +308,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 			    j, task->heap_allocation_pointer, task->heap_allocation_limit);
 		#endif
 
-		if (pthread->status == KERNEL_THREAD_IS_RUNNING) {
+		if (pthread->status == PTHREAD_IS_RUNNING) {
 		    //
 		    *rootsPtr++ =  &task->argument;
 		    *rootsPtr++ =  &task->fate;
@@ -372,7 +372,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	        //
 		pthread = pthread_table_global[ i ];
 		//
-		if (pthread->status == KERNEL_THREAD_IS_RUNNING) {
+		if (pthread->status == PTHREAD_IS_RUNNING) {
 		    //
 		    *rootsPtr++ =  &pthread->task->link_register;
 		}

@@ -143,7 +143,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
 	    //
 	    Task*   task     =  pthread->task;
 	    //
-	    if (pthread->status == KERNEL_THREAD_IS_RUNNING) {
+	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
 		process_task_heap_changelog( task, heap );
 	    }

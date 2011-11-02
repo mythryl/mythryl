@@ -115,7 +115,7 @@
     // This #define is referenced only in:
     //
     //     src/c/heapcleaner/call-heapcleaner.c
-    //     src/c/heapcleaner/pthread-cleaning-stuff.c
+    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //
     #define PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS   (1 << 10)     // Must be power of 2.
 #endif

@@ -321,10 +321,13 @@ void   set_up_heap   (			// Create and initialize the heap.
 
     // Initialize new space:
     //
-    heap->multipage_ram_region     =  multipage_ram_region;
+    heap->multipage_ram_region       =  multipage_ram_region;
     //
-    heap->agegroup0_buffer         =  agegroup0_buffer;
-    heap->agegroup0_buffer_bytesize  =  MAX_PTHREADS * params->agegroup0_buffer_bytesize;
+    heap->agegroup0_buffer           =  agegroup0_buffer;
+    //
+    heap->agegroup0_buffer_bytesize  =  params->agegroup0_buffer_bytesize
+				      * MAX_PTHREADS;				// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS buffers by
+										// partition_agegroup0_buffer_between_pthreads() in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //
     set_book2sibid_entries_for_range (
 	//

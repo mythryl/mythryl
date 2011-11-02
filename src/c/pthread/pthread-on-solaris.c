@@ -493,7 +493,7 @@ static void*   resume_pthread   (void* vtask)   {
 
     pth_acquire_mutex(mp_pthread_mutex_local);
 
-    if (task->pthread->status == KERNEL_THREAD_IS_SUSPENDED) {
+    if (task->pthread->status == PTHREAD_IS_SUSPENDED) {
 	//
 	// Proc only resumed to do a clean.
 	//
@@ -574,7 +574,7 @@ static void   suspend_pthread   (Task* task) {
 
     // Check if pthread has actually been suspended:
     //
-    if (task->pthread->status != KERNEL_THREAD_IS_SUSPENDED) {
+    if (task->pthread->status != PTHREAD_IS_SUSPENDED) {
 	//
         #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say("proc state is not PROC_SUSPENDED; not suspended");
@@ -607,7 +607,7 @@ void   pth_release_pthread   (Task* task)   {
     clean_heap( task, 1 );
 
     pth_acquire_mutex(mp_pthread_mutex_local);
-       task->pthread->status = KERNEL_THREAD_IS_SUSPENDED;
+       task->pthread->status = PTHREAD_IS_SUSPENDED;
     pth_release_mutex(mp_pthread_mutex_local);
 
     // Suspend the proc:
@@ -670,7 +670,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     // Search for a suspended proc to reuse:
     //
     for (i = 0;
-	 (i < pthread_count_global) && (pthread_table_global[i]->status != KERNEL_THREAD_IS_SUSPENDED);
+	 (i < pthread_count_global) && (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
 	 i++)
       continue;
 
@@ -694,7 +694,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc:
         //
 	for (i = 0;
-	     (i < pthread_count_global) && (pthread_table_global[i]->status != NO_KERNEL_THREAD_ALLOCATED);
+	     (i < pthread_count_global) && (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
 	     i++)
 	  continue;
 
@@ -729,7 +729,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( f );
 
-    if (pthread->status == NO_KERNEL_THREAD_ALLOCATED) {
+    if (pthread->status == NO_PTHREAD_ALLOCATED) {
         //
 	Pid  procId;
 
@@ -743,7 +743,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	        debug_say ("[got a processor: %d,]\n",procId);
 	    #endif
 
-	    pthread->status = KERNEL_THREAD_IS_RUNNING;
+	    pthread->status = PTHREAD_IS_RUNNING;
 	    pthread->pid = procId;
 
 	    // make_pthread will release mp_pthread_mutex_local.
@@ -762,7 +762,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	// The thread executing the processor
 	// has already been invoked:
 
-	pthread->status = KERNEL_THREAD_IS_RUNNING;
+	pthread->status = PTHREAD_IS_RUNNING;
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("[reusing a processor %d]\n", pthread->pid);

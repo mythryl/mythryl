@@ -58,7 +58,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     // Allocate and initialize the heap data structures:
     //
-    set_up_heap( task, is_boot, cleaner_args );							// set_up_heap			def in    src/c/heapcleaner/heapcleaner-initialization.c
+    set_up_heap( task, is_boot, cleaner_args );							// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -67,7 +67,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
         //
 	pthread_count_global = MAX_PTHREADS;
 	//
-	partition_agegroup0_buffer( pthread_table_global );					// partition_agegroup0_buffer	def in   src/c/heapcleaner/pthread-cleaning-stuff.c
+	partition_agegroup0_buffer_between_pthreads( pthread_table_global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
         // Initialize the per-Pthread Mythryl state:
         //
@@ -89,10 +89,10 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table_global[0]->pid  =  pth_pthread_id ();					// pth_pthread_id		def in    src/c/pthread/pthread-on-posix-threads.c
-												// pth_pthread_id		def in    src/c/pthread/pthread-on-sgi.c
-												// pth_pthread_id		def in    src/c/pthread/pthread-on-solaris.c
-	pthread_table_global[0]->status =  KERNEL_THREAD_IS_RUNNING;
+	pthread_table_global[0]->pid  =  pth_pthread_id ();					// pth_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+												// pth_pthread_id				def in    src/c/pthread/pthread-on-sgi.c
+												// pth_pthread_id				def in    src/c/pthread/pthread-on-solaris.c
+	pthread_table_global[0]->status =  PTHREAD_IS_RUNNING;
     #else
 	set_up_pthread_state( pthread_table_global[ 0 ] );
 	pthread_count_global = 1;
@@ -150,7 +150,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
 
     #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;
-	pthread->status		= NO_KERNEL_THREAD_ALLOCATED;
+	pthread->status		= NO_PTHREAD_ALLOCATED;
     #endif
 }									// fun set_up_pthread_state
 

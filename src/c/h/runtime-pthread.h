@@ -27,9 +27,9 @@
 //
 typedef enum {
     //
-    KERNEL_THREAD_IS_RUNNING,
-    KERNEL_THREAD_IS_SUSPENDED,
-    NO_KERNEL_THREAD_ALLOCATED
+    PTHREAD_IS_RUNNING,
+    PTHREAD_IS_SUSPENDED,
+    NO_PTHREAD_ALLOCATED
     //
 } Pthread_Status;
 
@@ -104,7 +104,7 @@ typedef pid_t 	Pid;			// A process id.
     extern int      pth_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
     extern int      pth_active_pthread_count	();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
-											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-cleaning-stuff.c
+											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -164,7 +164,7 @@ typedef pid_t 	Pid;			// A process id.
     //
     // Our only current use of this facility is in
     //
-    //     src/c/heapcleaner/pthread-cleaning-stuff.c
+    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //
     // where it serves to ensure that garbage collection
     // does not start until all pthreads have ceased normal
@@ -176,7 +176,7 @@ typedef pid_t 	Pid;			// A process id.
     // it isn't clear which was intended by the original authors.
     //
     // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
-    // but implemented on top of mutexs in                                   src/c/pthread/pthread-on-solaris.c
+    // but implemented on top of mutexs in                                  src/c/pthread/pthread-on-solaris.c
     //
     extern Barrier* pth_make_barrier 	();					// Allocate a barrier.
     extern void     pth_free_barrier	(Barrier* barrierp);			// Free a barrier.

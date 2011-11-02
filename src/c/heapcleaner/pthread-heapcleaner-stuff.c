@@ -1,6 +1,6 @@
-// pthread-cleaning-stuff.c
+// pthread-heapcleaner-stuff.c
 //
-// Extra routines to support cleaning
+// Extra routines to support heapcleaning
 // in the multicore implementation.
 
 #include "../mythryl-config.h"
@@ -25,17 +25,31 @@
 #include "runtime-pthread.h"
 #include "pthread-state.h"
 
-// MULTICORE_SUPPORT
 
-void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table_global
+
+// Outside of this file, this fn is called (only) from
+//
+//     make_task   in   src/c/main/runtime-state.c
+//
+void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table_global
     // ==========================
     //
     // Divide the agegroup0 buffer into smaller disjoint
     // buffers for use by the parallel pthreads.
     //
-    // Our only call from outside this file is in
+    // Typically at this point
     //
-    //     make_task   in   src/c/main/runtime-state.c
+    //     task0->heap->agegroup0_buffer_bytesize
+    //
+    // will at this point have been set to
+    //
+    //	   DEFAULT_AGEGROUP0_BUFFER_BYTESIZE  				// DEFAULT_AGEGROUP0_BUFFER_BYTESIZE is defined at 256K in   src/c/h/runtime-configuration.h
+    //     *
+    //     MAX_PTHREADS							// MAX_PTHREADS is defined as something like 8 or 16    in   src/c/mythryl-config.h
+    //
+    // by the logic in
+    //
+    //     src/c/heapcleaner/heapcleaner-initialization.c
     //     
 
 
@@ -98,7 +112,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 
 	agregroup0_buffer =  (Val*) (((Punt) alloc_base) + per_thread_agegroup0_buffer_bytesize);
     }										// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
-}										// fun partition_agegroup0_buffer
+}										// fun partition_agegroup0_buffer_between_pthreads
 
 
 static volatile int	pthreads_ready_to_clean_local = 0;			// Number of processors that are ready to clean.
@@ -304,9 +318,9 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 void   pth_finish_heapcleaning   (Task *task, int n)   {
     // ==================
 
-    // This works, but partition_agegroup0_buffer is overkill:		XXX BUGGO FIXME
+    // This works, but partition_agegroup0_buffer_between_pthreads is overkill:		XXX BUGGO FIXME
     //
-    partition_agegroup0_buffer( pthread_table_global );
+    partition_agegroup0_buffer_between_pthreads( pthread_table_global );
 
     pth_acquire_mutex( pth_heapcleaner_mutex_global );
 
