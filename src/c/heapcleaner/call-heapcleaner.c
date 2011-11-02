@@ -434,7 +434,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
 
-    #if (NEED_PTHREAD_SUPPORT && defined(COMMENT_MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS))
+    #if (NEED_PTHREAD_SUPPORT && NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
 	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
