@@ -42,10 +42,15 @@
 #include "heapcleaner-statistics.h"
 #include "runtime-pthread.h"
 
-static int DfltRatios[ MAX_AGEGROUPS ]
+static int  DfltRatios[ MAX_AGEGROUPS ]
     =
-    {   DEFAULT_RATIO1,	DEFAULT_RATIO2,	DEFAULT_RATIO,	DEFAULT_RATIO,
-	DEFAULT_RATIO,	DEFAULT_RATIO,	DEFAULT_RATIO
+    {   DEFAULT_RATIO1,
+	DEFAULT_RATIO2,
+	DEFAULT_RATIO,
+	DEFAULT_RATIO,
+	DEFAULT_RATIO,
+	DEFAULT_RATIO,
+	DEFAULT_RATIO
     };
 
 #ifdef TWO_LEVEL_MAP
@@ -55,7 +60,7 @@ Sibid* book_to_sibid_global;
 #endif
 
 								// Should this go into heapcleaner-statistics.c ?
-Bool	cleaner_statistics_generation_switch = TRUE;	// If TRUE, then generate stats.
+Bool	cleaner_statistics_generation_switch = TRUE;		// If TRUE, then generate stats.
 int	cleaner_statistics_fd = -1;				// The file descriptor to write the data to.
 int	statistics_buffer_record_count;				// Number of records in the buffer.
 
@@ -105,7 +110,7 @@ Cleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
 
 		params->agegroup0_buffer_bytesize
 		    =
-                    get_size_option(ONE_K_BINARY, option_arg);
+                    get_size_option( ONE_K_BINARY, option_arg );
 
 		if (params->agegroup0_buffer_bytesize < 0) {
 		    //
@@ -240,14 +245,14 @@ void   set_up_heap   (			// Create and initialize the heap.
 	ratio = DfltRatios[age];
 
 	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );
-	} else {        max_size = (5 * max_size)/2;
+	} else {          max_size = (5 * max_size)/2;
 	    //
-            if (max_size > 64 * ONE_MEG_BINARY)  {
+	    if (max_size > 64 * ONE_MEG_BINARY)  {				// WTF? This silliness probably needs to Just Die.  XXX BUGGO FIXME. -- 2011-11-01 CrT
                 max_size = 64 * ONE_MEG_BINARY;
 	    }
 	}
 
-	ag		    =
+	ag		      =
 	heap->agegroup[age]   =  MALLOC_CHUNK( Agegroup );
 
 	ag->heap	= heap;

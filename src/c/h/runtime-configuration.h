@@ -36,7 +36,7 @@
 #endif
 
 #define MAX_ACTIVE_AGEGROUPS	14								// Should agree with MAX_AGEGROUPS in  sibid.h.
-#define DEFAULT_OLDEST_AGEGROUP_KEEPING_IDLE_FROMSPACE_BUFFERS	2			// Keep idle fromspace regions for ages 1 & 2
+#define DEFAULT_OLDEST_AGEGROUP_KEEPING_IDLE_FROMSPACE_BUFFERS	2				// Keep idle fromspace regions for ages 1 & 2
 
 #ifndef     DEFAULT_AGEGROUP0_BUFFER_BYTESIZE
     #define DEFAULT_AGEGROUP0_BUFFER_BYTESIZE	(256 * ONE_K_BINARY)

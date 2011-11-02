@@ -50,7 +50,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
     Task* task;
     Task* task0 =  pthread_table[ 0 ]->task;
 
-    int indiv_size
+    int per_thread_agegroup0_buffer_bytesize
 	=
 	task0->heap->agegroup0_buffer_bytesize
         /
@@ -68,7 +68,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 
 	task->heap            =  task0->heap;
 	task->heap_allocation_pointer     =  agregroup0_buffer;
-	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, indiv_size );
+	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, per_thread_agegroup0_buffer_bytesize );
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    if (poll_freq > 0) {
@@ -89,14 +89,14 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 		task->heap_allocation_limit = task->real_heap_allocation_limit;
 	    }
 	#else
-	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, indiv_size );
+	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, per_thread_agegroup0_buffer_bytesize );
 	#endif
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
-	agregroup0_buffer =  (Val*) (((Punt) alloc_base) + indiv_size);
+	agregroup0_buffer =  (Val*) (((Punt) alloc_base) + per_thread_agegroup0_buffer_bytesize);
     }										// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
 }										// fun partition_agegroup0_buffer
 

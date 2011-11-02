@@ -58,7 +58,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     // Allocate and initialize the heap data structures:
     //
-    set_up_heap( task, is_boot, cleaner_args );						// set_up_heap		def in    src/c/heapcleaner/heapcleaner-initialization.c
+    set_up_heap( task, is_boot, cleaner_args );							// set_up_heap			def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -67,7 +67,7 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
         //
 	pthread_count_global = MAX_PTHREADS;
 	//
-	partition_agegroup0_buffer( pthread_table_global );
+	partition_agegroup0_buffer( pthread_table_global );					// partition_agegroup0_buffer	def in   src/c/heapcleaner/pthread-cleaning-stuff.c
 
         // Initialize the per-Pthread Mythryl state:
         //
@@ -79,19 +79,19 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 	    // among multiple pthreads:
 	    //
 	    if (i != 0) {
-		pthread_table_global[i]->cpu_time_at_start_of_last_cleaning
-              = pthread_table_global[0]->cpu_time_at_start_of_last_cleaning;
+		pthread_table_global[ i ] -> cpu_time_at_start_of_last_cleaning
+              = pthread_table_global[ 0 ] -> cpu_time_at_start_of_last_cleaning;
 		//
-		pthread_table_global[i]->cumulative_cleaning_cpu_time
-	      = pthread_table_global[0]->cumulative_cleaning_cpu_time;
+		pthread_table_global[ i ]- > cumulative_cleaning_cpu_time
+	      = pthread_table_global[ 0 ] - >cumulative_cleaning_cpu_time;
 	    }
 	}
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table_global[0]->pid  =  pth_pthread_id ();					// pth_pthread_id	def in    src/c/pthread/pthread-on-posix-threads.c
-												// pth_pthread_id	def in    src/c/pthread/pthread-on-sgi.c
-												// pth_pthread_id	def in    src/c/pthread/pthread-on-solaris.c
+	pthread_table_global[0]->pid  =  pth_pthread_id ();					// pth_pthread_id		def in    src/c/pthread/pthread-on-posix-threads.c
+												// pth_pthread_id		def in    src/c/pthread/pthread-on-sgi.c
+												// pth_pthread_id		def in    src/c/pthread/pthread-on-solaris.c
 	pthread_table_global[0]->status =  KERNEL_THREAD_IS_RUNNING;
     #else
 	set_up_pthread_state( pthread_table_global[ 0 ] );
