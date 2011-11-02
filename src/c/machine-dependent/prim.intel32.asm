@@ -719,7 +719,7 @@ LIB7_CODE_HDR(make_vector_asm)
 //     processors.	For now, we only provide a uni-processor trivial version."
 //
 // This is an ancient mutex left-over from 1992 multi-processor
-// support:  See src/src/A.MULTICORE-SUPPORT.OVERVIEW.
+// support:  See src/src/A.PTHREAD-SUPPORT.OVERVIEW.
 // If re-implementing this in assembly, look up Reppy's recent Manticore
 // work:  See http://mythryl.org/pub/pml/
 //   In particular, he points out that spinning on an atomic test-and-set
@@ -744,7 +744,7 @@ LIB7_CODE_HDR(try_lock_asm)
 // unlock :  Release a spinlock.
 //
 // This is an ancient mutex left-over from 1992 multi-processor
-// support: See src/src/A.MULTICORE-SUPPORT.OVERVIEW.    -- 2011-11-01 CrT
+// support: See src/src/A.PTHREAD-SUPPORT.OVERVIEW.    -- 2011-11-01 CrT
 //
 LIB7_CODE_HDR(unlock_asm)
 #if (MAX_PROCS > 1)

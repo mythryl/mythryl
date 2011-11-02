@@ -49,7 +49,7 @@
     // Define this as TRUE (nonzero) to compile in support
     // for multiple posix threads running Mythryl code in
     // parallel in the same address space.  For background
-    // see    src/A.MULTICORE-SUPPORT.OVERVIEW
+    // see    src/A.PTHREAD-SUPPORT.OVERVIEW
 
 // Max number of posix threads running Mythryl.
 // We dedicate half a meg or so of memory to each

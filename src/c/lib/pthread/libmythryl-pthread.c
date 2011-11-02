@@ -17,7 +17,7 @@
 //
 // For background see:
 //
-//     src/A.MULTICORE-SUPPORT.OVERVIEW
+//     src/A.PTHREAD-SUPPORT.OVERVIEW
 
 
 #include "../../mythryl-config.h"
