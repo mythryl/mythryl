@@ -48,11 +48,27 @@
 
 #define NEED_PTHREAD_SUPPORT 0
     //
-    // Define this as TRUE (nonzero) to compile in support
+    // Define this as 1 (i.e. TRUE) to compile in support
     // for multiple posix threads running Mythryl code in
     // parallel in the same address space.  For background
     // see    src/A.PTHREAD-SUPPORT.OVERVIEW
 
+
+
+#define NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
+    //
+    // Define this as 1 (i.e. TRUE) to compile in support.
+    //
+    // Currently this must be TRUE whenever NEED_PTHREAD_SUPPORT
+    // is TRUE.  (I have a feeling this would be a good switch
+    // to get rid of.  -- 2011-01-02 CrT) 
+    //
+    // This switch affects the files:
+    // 
+    //     src/c/h/runtime-pthread.h
+    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
+    //     src/c/heapcleaner/call-heapcleaner.c
+    //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 
 #if NEED_PTHREAD_SUPPORT
@@ -72,7 +88,7 @@
 
 #define NEED_HEAPCLEANER_PAUSE_STATISTICS 0
     //
-    // Define this to 1 (TRUE) to compile in code tracking pause times
+    // Define this at 1 (TRUE) to compile in code tracking pause times
     // for the heapcleaner ("garbage collector") code.  This is supported
     // only on posix operating systems.  This affects the files
     //
@@ -87,7 +103,7 @@
 
 #define NEED_HUGECHUNK_REFERENCE_STATISTICS 0
     //
-    // Define this to 1 (TRUE) to compile in code tracking
+    // Define this at 1 (TRUE) to compile in code tracking
     // hugechunk references.  This affects only the file
     //
     //     src/c/heapcleaner/heapclean-n-agegroups.c

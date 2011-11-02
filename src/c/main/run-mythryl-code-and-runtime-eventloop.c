@@ -218,8 +218,9 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
                  ){ 
 	      // This is a software-generated periodic event:
               //
-#if NEED_PTHREAD_SUPPORT && defined(MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
-	      // Note: under MULTICORE, software generated periodic
+#if NEED_PTHREAD_SUPPORT && NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	      //
+	      // Note: under NEED_PTHREAD_SUPPORT, software generated periodic
               // events are used only for garbage collection.
               //
     #ifdef SOFTWARE_GENERATED_PERIODIC_EVENTS_DEBUG
@@ -228,7 +229,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	        task->software_generated_periodic_event_is_pending = FALSE;
 	        clean_heap(
                     task,
-                    0		// Age-groups to clean.  (=="Generations to garbage collect".)
+                    0		// Age-groups to heapclean.  (=="Generations to garbage collect".)
                 );
 #else
 		if (need_to_clean_heap( task, 4 * ONE_K_BINARY )) {					// 64-bit issue -- '4' here is 'bytes-per-word'.

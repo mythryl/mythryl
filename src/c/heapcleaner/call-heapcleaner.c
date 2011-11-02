@@ -52,7 +52,7 @@ Includes:
     // pointers to Mythryl functions. This list is not part of any Mythryl data
     // package(s).  (also see src/c/heapcleaner/heapclean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
     //
- extern Val	mythryl_functions_referenced_from_c_code_global;	// mythryl_functions_referenced_from_c_code_global	def in   src/c/lib/ccalls/ccalls-fns.c
+ extern Val	mythryl_functions_referenced_from_c_code_global;				// mythryl_functions_referenced_from_c_code_global	def in   src/c/lib/ccalls/ccalls-fns.c
 #endif
 
 
@@ -63,7 +63,7 @@ void   clean_heap   (Task* task,  int level) {
     // 0, or if agegroup0 full after cleaning, we also clean
     // one or more additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
-    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];						// Registers and globals.
+    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];							// Registers and globals.
     Val** rootsPtr = roots;
     Heap* heap;
 
@@ -71,7 +71,7 @@ void   clean_heap   (Task* task,  int level) {
 	int		pthreads_count;
     #endif
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );				// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell_global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT
@@ -80,7 +80,7 @@ void   clean_heap   (Task* task,  int level) {
 	    debug_say ("igc %d\n", task->lib7_mpSelf);
 	#endif
 	//
-	if ((pthreads_count = pth_start_heapcleaning( task )) == 0) {
+	if ((pthreads_count = pth_start_heapcleaning( task )) == 0) {				// pth_start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
 	    // A waiting proc:
 	    //

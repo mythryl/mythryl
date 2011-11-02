@@ -84,7 +84,8 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	task->heap_allocation_pointer     =  agregroup0_buffer;
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, per_thread_agegroup0_buffer_bytesize );
 
-	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
 	    if (poll_freq > 0) {
 
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -121,10 +122,11 @@ static int		cleaning_pthread_local;					// The cleaning pthread.
 // This holds extra roots provided by   clean_heap_with_extra_roots:
 //
 Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_HEAPCLEANER_ROOTS * MAX_PTHREADS ];
-static Val** mc_extra_cleaner_roots_local;
+
+static Val** extra_cleaner_roots_local;
 
 int   pth_start_heapcleaning   (Task *task) {
-    //=================
+    //======================
     //
     // Wait for all pthreads to check in and choose one to do the 
     // collect (cleaning_pthread_local).  cleaning_pthread_local returns to the invoking
@@ -139,23 +141,27 @@ int   pth_start_heapcleaning   (Task *task) {
 
     if (pthreads_ready_to_clean_local++ == 0) {
         //
-        pth_extra_heapcleaner_roots_global[0] = NULL;
-        mc_extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
+        pth_extra_heapcleaner_roots_global[0] =  NULL;
 
-	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+        extra_cleaner_roots_local =  pth_extra_heapcleaner_roots_global;
+
+	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
+	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );
+	    //
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", task->lib7_mpSelf);
-	#endif
+	    #endif
 	#endif
 
-	cleaning_pthread_local = pthread->pid;			// We're the first one in, we'll do the clean.
+	cleaning_pthread_local =  pthread->pid;			// We're the first one in, we'll do the clean.
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("cleaning_pthread_local is %d\n",cleaning_pthread_local);
+	    debug_say ("cleaning_pthread_local is %d\n", cleaning_pthread_local);
 	#endif
     }
-    pth_release_mutex(pth_heapcleaner_mutex_global);
+
+    pth_release_mutex( pth_heapcleaner_mutex_global );
 
     {
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -188,11 +194,13 @@ int   pth_start_heapcleaning   (Task *task) {
 
     // All Pthreads are now ready to clean.
 
-    #ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_FALSE);
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
-    #endif
+    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	//
+	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
+	//
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
+	#endif
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -232,10 +240,12 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 
     if (pthreads_ready_to_clean_local++ == 0) {
 	//
-        mc_extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
+        extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
 
-	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
+	    //	
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", pthread->pid);
 	    #endif
@@ -251,9 +261,10 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     }
 
     while ((p = va_arg(ap, Val *)) != NULL) {
-	*mc_extra_cleaner_roots_local++ = p;
+        //
+	*extra_cleaner_roots_local++ = p;
     }
-    *mc_extra_cleaner_roots_local = p;			// NULL
+    *extra_cleaner_roots_local = p;			// NULL
 
     pth_release_mutex( pth_heapcleaner_mutex_global );
 
@@ -283,12 +294,14 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     }
 
     // All Pthreads now ready to clean:
-
-    #ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_FALSE );
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
-    #endif
+    //
+    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	//
+	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
+	//
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
+	#endif
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG

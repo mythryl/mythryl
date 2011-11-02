@@ -52,7 +52,8 @@ typedef pid_t 	Pid;			// A process id.
 #else // NEED_PTHREAD_SUPPORT
 
     #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
-     || !defined( MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS )
+     || !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	//
 	#error Multicore runtime currently requires polling support.
     #endif
 
