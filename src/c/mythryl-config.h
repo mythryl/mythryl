@@ -72,7 +72,7 @@
     //    src/c/heapcleaner/heapcleaner-statistics.h
     //
     //    src/c/heapcleaner/heapcleaner-initialization.c
-    //    src/c/heapcleaner/clean-n-agegroups.c
+    //    src/c/heapcleaner/heapclean-n-agegroups.c
     //    src/c/heapcleaner/call-heapcleaner.c
     //    src/c/heapcleaner/call-heapcleaner.c
 

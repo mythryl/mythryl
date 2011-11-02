@@ -248,8 +248,8 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
     // 
     //     forward_special_chunk()
     // in
-    //     src/c/heapcleaner/clean-agegroup0.c
-    //     src/c/heapcleaner/clean-n-agegroups.c
+    //     src/c/heapcleaner/heapclean-agegroup0.c
+    //     src/c/heapcleaner/heapclean-n-agegroups.c
 
     if (heap->weak_pointers_forwarded_during_cleaning == NULL)   return;			// No work to do.
 

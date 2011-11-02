@@ -48,7 +48,7 @@ typedef struct {
 // value of the corresponding card.
 //
 // This is used exactly once, in
-//     src/c/heapcleaner/clean-n-agegroups.c 
+//     src/c/heapcleaner/heapclean-n-agegroups.c 
 //
 #define CARDMAP_MIN_AGE_VALUE_FOR_POINTER( cardmap, pointer )				\
 	    /**/									\
@@ -73,7 +73,7 @@ typedef struct {
 	    ((cardmap)->min_age[ index ] <= (max_age))
 
 
-#ifdef COUNT_COARSE_INTER_AGEGROUP_POINTERS_MAP_CARDS					// "COUNT_COARSE_INTER_AGEGROUP_POINTERS_MAP_CARDS" switches code on/off in    src/c/heapcleaner/clean-n-agegroups.c
+#ifdef COUNT_COARSE_INTER_AGEGROUP_POINTERS_MAP_CARDS					// "COUNT_COARSE_INTER_AGEGROUP_POINTERS_MAP_CARDS" switches code on/off in    src/c/heapcleaner/heapclean-n-agegroups.c
     #define COUNT_DIRTY(index_var)	\
 	if(__cardmap->min_age[ index_var ] != CLEAN_CARD) cardCnt2[i]++
 #else
@@ -90,7 +90,7 @@ typedef struct {
 //
 // This gets called in two files:
 //
-//     src/c/heapcleaner/clean-n-agegroups.c
+//     src/c/heapcleaner/heapclean-n-agegroups.c
 //     src/c/heapcleaner/datastructure-pickler-cleaner.c
 //
 #define FOR_ALL_DIRTY_CARDS_IN_CARDMAP( cardmap, max_age, index_var, cmd )	{	\

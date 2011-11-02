@@ -4,8 +4,8 @@
 // This is used in:
 //
 //     src/c/heapcleaner/datastructure-pickler-cleaner.c
-//     src/c/heapcleaner/clean-n-agegroups.c
-//     src/c/heapcleaner/clean-agegroup0.c
+//     src/c/heapcleaner/heapclean-n-agegroups.c
+//     src/c/heapcleaner/heapclean-agegroup0.c
 
 
 #ifndef COPY_LOOP_H

@@ -1,4 +1,4 @@
-// clean-agegroup0.c
+// heapclean-agegroup0.c
 //
 // This file contains the code for doing "minor"
 // cleanings ("garbage collections") -- those
@@ -39,9 +39,9 @@
 
 // Cleaner statistics:
 //
-extern long	update_count_global;		// update_count_global			def in    src/c/heapcleaner/clean-n-agegroups.c
-extern long	total_bytes_allocated_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/clean-n-agegroups.c
-extern long	total_bytes_copied_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/clean-n-agegroups.c
+extern long	update_count_global;		// update_count_global			def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_allocated_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_copied_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
 
 // heap_changelog operations:
 //
@@ -58,7 +58,7 @@ static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,
 
 
 #ifdef VERBOSE
-    extern char* sib_name_global [];			// sib_name_global	def in   src/c/heapcleaner/clean-n-agegroups.c
+    extern char* sib_name_global [];			// sib_name_global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
 

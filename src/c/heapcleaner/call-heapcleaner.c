@@ -50,7 +50,7 @@ Includes:
 #ifdef C_CALLS
     // This is a list of pointers into the C heap locations that hold
     // pointers to Mythryl functions. This list is not part of any Mythryl data
-    // package(s).  (also see src/c/heapcleaner/clean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
+    // package(s).  (also see src/c/heapcleaner/heapclean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
     //
  extern Val	mythryl_functions_referenced_from_c_code_global;	// mythryl_functions_referenced_from_c_code_global	def in   src/c/lib/ccalls/ccalls-fns.c
 #endif
@@ -155,7 +155,7 @@ void   clean_heap   (Task* task,  int level) {
 
     *rootsPtr = NULL;
 
-    clean_agegroup0( task, roots );							// clean_agegroup0	is from   src/c/heapcleaner/clean-agegroup0.c
+    clean_agegroup0( task, roots );							// clean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -203,7 +203,7 @@ void   clean_heap   (Task* task,  int level) {
 
 	*rootsPtr = NULL;
 
-	clean_n_agegroups( task, roots, level );							// clean_n_agegroups			def in   src/c/heapcleaner/clean-n-agegroups.c
+	clean_n_agegroups( task, roots, level );							// clean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
     // Reset the allocation space:
@@ -339,7 +339,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     *rootsPtr = NULL;
 
-    clean_agegroup0( task, roots );			// clean_agegroup0	is from   src/c/heapcleaner/clean-agegroup0.c
+    clean_agegroup0( task, roots );			// clean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -388,7 +388,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
 	*rootsPtr = NULL;
 
-	clean_n_agegroups( task, roots, level );								// clean_n_agegroups			def in   src/c/heapcleaner/clean-n-agegroups.c
+	clean_n_agegroups( task, roots, level );								// clean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
 
     }
 

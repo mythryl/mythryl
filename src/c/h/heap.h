@@ -369,8 +369,8 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 
 // External cleaning functions:
 //
-extern void   clean_agegroup0   	(Task* task,  Val** roots);						// clean_agegroup0						def in   src/c/heapcleaner/clean-agegroup0.c
-extern void   clean_n_agegroups  (Task* task, Val** roots, int level);						// clean_n_agegroups						def in   src/c/heapcleaner/clean-n-agegroups.c 
+extern void   clean_agegroup0   	(Task* task,  Val** roots);						// clean_agegroup0						def in   src/c/heapcleaner/heapclean-agegroup0.c
+extern void   clean_n_agegroups  (Task* task, Val** roots, int level);						// clean_n_agegroups						def in   src/c/heapcleaner/heapclean-n-agegroups.c 
 //
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c

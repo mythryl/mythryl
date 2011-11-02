@@ -58,7 +58,7 @@ void   set_visible_task   (Task* visible_task)   {
 //     src/c/heapcleaner/call-heapcleaner.c
 //
 Val   mythryl_functions_referenced_from_c_code_global =   LIST_NIL;	// See  src/c/heapcleaner/call-heapcleaner.c
-    //===============================================			// and  src/c/heapcleaner/clean-n-agegroups.c
+    //===============================================			// and  src/c/heapcleaner/heapclean-n-agegroups.c
 
 
 static void   register_fn_as_cleaning_root   (

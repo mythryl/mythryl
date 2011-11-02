@@ -1,8 +1,8 @@
-// clean-n-agegroups.c
+// heapclean-n-agegroups.c
 //
 // This is the regular cleaner, for cleaning all agegroups.
 // (Versus
-//     src/c/heapcleaner/clean-agegroup0.c
+//     src/c/heapcleaner/heapclean-agegroup0.c
 // which cleans only agegroup0.)
 //
 // For a background discussion see:
@@ -53,9 +53,9 @@ Includes:
 /*
 Cleaner statistics stuff:
 */
- long	update_count_global		= 0;	// Referenced only in src/c/heapcleaner/clean-agegroup0.c
- long	total_bytes_allocated_global	= 0;	// Referenced only in src/c/heapcleaner/clean-agegroup0.c
- long	total_bytes_copied_global	= 0;	// Referenced only in src/c/heapcleaner/clean-agegroup0.c
+ long	update_count_global		= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
+ long	total_bytes_allocated_global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
+ long	total_bytes_copied_global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
 
 
 #ifdef KEEP_HUGECHUNK_REFERENCE_STATISTICS									// "KEEP_HUGECHUNK_REFERENCE_STATISTICS" does not appear outside this file.
@@ -1394,7 +1394,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		return forward_special_chunk( heap, max_sibid, chunk, sibid, tagword );
 
 	    default:
-		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/heapcleaner/clean-n-agegroups.c",
+		die ( "Fatal error: bad rw_vector b-tag %#x, chunk = %#x, tagword = %#x (= chunk[-1]) tag should be one of  %#x %#x %#x -- src/c/heapcleaner/heapclean-n-agegroups.c",
 		      GET_BTAG_FROM_TAGWORD( tagword ),
 		      chunk,
 		      tagword,

@@ -67,7 +67,7 @@
 
     inline void   note_active_agegroups_count_for_this_timesample   (Unt1 active_agegroups) {
         //
-        // Called (only) from:    src/c/heapcleaner/clean-n-agegroups.c
+        // Called (only) from:    src/c/heapcleaner/heapclean-n-agegroups.c
 	//
 	if (cleaner_statistics_generation_switch) {
 	    //
