@@ -11,8 +11,8 @@
 ###                          -- Coleridge
 */
 
-#ifdef KEEP_CLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
-#  include "system-dependent-unix-stuff.h"
+#if NEED_HEAPCLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
+    #include "system-dependent-unix-stuff.h"
 #endif
 
 #include "../mythryl-config.h"

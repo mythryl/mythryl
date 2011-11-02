@@ -4,6 +4,7 @@
 #ifndef CLEANER_STATISTICS_H
 #define CLEANER_STATISTICS_H
 
+#include "../mythryl-config.h"
 #include "heapcleaner-statistics-2.h"
 
 /*
@@ -14,16 +15,16 @@
 ###                            -- Stan Kelly-Bootle
 */
 
-#ifndef KEEP_CLEANER_PAUSE_STATISTICS
+#if !NEED_HEAPCLEANER_PAUSE_STATISTICS
     //
-    inline void   note_when_cleaning_started            (Heap* heap)               {}
+    inline void   note_when_heapcleaning_started            (Heap* heap)               {}
     inline void   note_when_cleaning_completed          (void)                     {}
     inline void   note_active_agegroups_count_for_this_timesample (Unt1 active_agegroups)   {} 
 
-#else					// KEEP_CLEANER_PAUSE_STATISTICS
+#else					// NEED_HEAPCLEANER_PAUSE_STATISTICS
 
    
-    inline void   note_when_cleaning_started   (Heap* heap)   {
+    inline void   note_when_heapcleaning_started   (Heap* heap)   {
         //        ==============================
 	//
         // Called (only) from:    src/c/heapcleaner/call-heapcleaner.c
@@ -76,7 +77,7 @@
 	}
     }
 
-#endif 					// KEEP_CLEANER_PAUSE_STATISTICS
+#endif 					// NEED_HEAPCLEANER_PAUSE_STATISTICS
 
 #endif	// CLEANER_STATISTICS_H
 

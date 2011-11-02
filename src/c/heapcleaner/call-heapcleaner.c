@@ -26,7 +26,7 @@
 /*
 Includes:
 */
-#ifdef KEEP_CLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
+#if NEED_HEAPCLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
     #include "system-dependent-unix-stuff.h"
 #endif
 
@@ -75,10 +75,12 @@ void   clean_heap   (Task* task,  int level) {
 												//  in terms of   this_fn_profiling_hook_refcell_global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("igc %d\n", task->lib7_mpSelf);
-    #endif
-	if ((pthreads_count = pth_start_heapcleaning (task)) == 0) {
+	//
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say ("igc %d\n", task->lib7_mpSelf);
+	#endif
+	//
+	if ((pthreads_count = pth_start_heapcleaning( task )) == 0) {
 	    //
 	    // A waiting proc:
 	    //
@@ -87,7 +89,7 @@ void   clean_heap   (Task* task,  int level) {
 	}
     #endif
 
-    note_when_cleaning_started( task->heap );						// note_when_cleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;
@@ -264,7 +266,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	return;				// A waiting proc
     #endif
 
-    note_when_cleaning_started( task->heap );								// note_when_cleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_started( task->heap );								// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*rootsPtr++ = &mythryl_functions_referenced_from_c_code_global;

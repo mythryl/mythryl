@@ -31,7 +31,7 @@ Wisdom:
 /*
 Includes:
 */
-#ifdef KEEP_CLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
+#if NEED_HEAPCLEANER_PAUSE_STATISTICS		// Cleaner pause statistics are UNIX dependent.
     #include "system-dependent-unix-stuff.h"
 #endif
 
@@ -394,14 +394,14 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
         debug_say ("hugechunk stats: %d seen, %d lookups, %d forwarded\n",    hugechunks_seen_count_local, hugechunk_lookups_count_local, hugechunks_forwarded_count_local);
     #endif
 
-    #ifndef KEEP_CLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
+    #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
 	if (cleaner_messages_are_enabled_global) {
 	    long	                             cleaning_time;
 	    stop_cleaning_timer (task->pthread, &cleaning_time);
 	    debug_say (" (%d ms)\n",                 cleaning_time);
-	}
-	else
+	} else {
 	    stop_cleaning_timer (task->pthread, NULL);
+	}
     #endif
 }
 
@@ -410,7 +410,8 @@ static int          set_up_to_clean_heap               (int* max_swept_agegroup,
     //              ====================
     //
     //
-    #ifndef KEEP_CLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
+	//
 	start_cleaning_timer( task->pthread );						// start_cleaning_timer	def in    src/c/main/timers.c
     #endif
 
@@ -456,7 +457,7 @@ static int          set_up_to_clean_heap               (int* max_swept_agegroup,
     //
     note_active_agegroups_count_for_this_timesample( oldest_agegroup_to_clean );				// note_active_agegroups_count_for_this_timesample		def in    src/c/heapcleaner/heapcleaner-statistics.h
     //
-    #ifndef KEEP_CLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
 	//
 	if (cleaner_messages_are_enabled_global) {
 	    //	

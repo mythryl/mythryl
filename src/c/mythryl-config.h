@@ -63,6 +63,20 @@
 #endif
 
 
+#define NEED_HEAPCLEANER_PAUSE_STATISTICS 0
+    //
+    // Define this to 1 (TRUE) to compile in code tracking pause times
+    // for the heapcleaner ("garbage collector") code.  This is supported
+    // only on posix operating systems.  This affects the files
+    //
+    //    src/c/heapcleaner/heapcleaner-statistics.h
+    //
+    //    src/c/heapcleaner/heapcleaner-initialization.c
+    //    src/c/heapcleaner/clean-n-agegroups.c
+    //    src/c/heapcleaner/call-heapcleaner.c
+    //    src/c/heapcleaner/call-heapcleaner.c
+
+
 
 #define MAX_POSIX_SIGNALS      60
     //
