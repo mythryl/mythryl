@@ -258,7 +258,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
 
 	va_start (ap, level);
-	pthreads_count = mc_clean_heap_with_extra_roots (task, ap);
+	pthreads_count = pth_clean_heap_with_extra_roots (task, ap);
 	va_end(ap);
 
 	if (pthreads_count == 0)	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
@@ -274,7 +274,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 
     #if NEED_PTHREAD_SUPPORT
         // get extra roots from procs that entered through clean_heap_with_extra_roots.
-        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by mc_clean_heap_with_extra_roots.
+        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by pth_clean_heap_with_extra_roots.
         //
 	for (int i = 0;  pth_extra_heapcleaner_roots_global[i] != NULL;  i++) {
 	    //

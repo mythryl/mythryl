@@ -27,12 +27,12 @@
 
 
 
-// Outside of this file, this fn is called (only) from
-//
-//     make_task   in   src/c/main/runtime-state.c
-//
 void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table_global
-    // ==========================
+    // ===========================================
+    //
+    // Outside of this file, this fn is called (only) from
+    //
+    //     make_task   in   src/c/main/runtime-state.c
     //
     // Divide the agegroup0 buffer into smaller disjoint
     // buffers for use by the parallel pthreads.
@@ -70,29 +70,52 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
         /
         MAX_PTHREADS;
 
-    Val* agregroup0_buffer =  task0->heap->agegroup0_buffer;
+    Val* start_of_agegroup0_buffer_for_next_pthread
+	=
+	task0->heap->agegroup0_buffer;
 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //
-	task = pthread_table[pthread]->task;
+	task =  pthread_table[ pthread ]->task;
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ", pthread, task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
-	task->heap            =  task0->heap;
-	task->heap_allocation_pointer     =  agregroup0_buffer;
-	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, per_thread_agegroup0_buffer_bytesize );
+	task->heap                       =  task0->heap;
+	task->heap_allocation_pointer    =  start_of_agegroup0_buffer_for_next_pthread;
+	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( start_of_agegroup0_buffer_for_next_pthread, per_thread_agegroup0_buffer_bytesize );
 
-	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	#if !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    if (poll_freq > 0) {
-
+	    task->heap_allocation_limit
+		=
+		HEAP_ALLOCATION_LIMIT_SIZE(					// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
+		    //								// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
+		    start_of_agegroup0_buffer_for_next_pthread,
+		    per_thread_agegroup0_buffer_bytesize
+		);
+	#else
+	    if (poll_freq <= 0) {
+		//
+		task->heap_allocation_limit = task->real_heap_allocation_limit;
+		//
+	    } else {
+		//
+		// In order to generate software events at (approximately)
+		// the desired frequency, we (may) here artificially decrease
+		// the heaplimit pointer to trigger an early heapcleaner call,
+		// at which point our logic will regain control.
+		//
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("(with poll_freq=%d) ", poll_freq);
 		#endif
 
-		task->heap_allocation_limit =  agregroup0_buffer + poll_freq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
+		task->heap_allocation_limit
+		    =
+		    start_of_agegroup0_buffer_for_next_pthread
+		    +
+		    poll_freq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 
 		task->heap_allocation_limit
 		    =
@@ -100,18 +123,22 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 			? task->real_heap_allocation_limit
 			: task->heap_allocation_limit;
 
-	    } else {
-		task->heap_allocation_limit = task->real_heap_allocation_limit;
 	    }
-	#else
-	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, per_thread_agegroup0_buffer_bytesize );
 	#endif
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
-	agregroup0_buffer =  (Val*) (((Punt) alloc_base) + per_thread_agegroup0_buffer_bytesize);
+	// Step over this pthread's buffer to
+	// get start of next pthread's buffer:
+	//
+	start_of_agegroup0_buffer_for_next_pthread
+	    =
+	    (Val*) ( ((Punt) start_of_agegroup0_buffer_for_next_pthread)
+                     +
+                     per_thread_agegroup0_buffer_bytesize
+                   );
     }										// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
 }										// fun partition_agegroup0_buffer_between_pthreads
 
@@ -125,26 +152,64 @@ Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_HEAPCLEANER_ROOTS * M
 
 static Val** extra_cleaner_roots_local;
 
+
 int   pth_start_heapcleaning   (Task *task) {
     //======================
     //
-    // Wait for all pthreads to check in and choose one to do the 
-    // collect (cleaning_pthread_local).  cleaning_pthread_local returns to the invoking
-    // collection function and does the collect while the other pthreads
-    // wait at a barrier. cleaning_pthread_local will eventually check into this
-    // barrier releasing the waiting procs.
+    // This fn is called only from
+    //
+    //     src/c/heapcleaner/call-heapcleaner.c
+    //
+    // Here we handle the start-of-heapcleaning work
+    // specific to our multicore implementation.
+    // Specifically, we need to
+    //
+    //   o Elect one pthread to do the actual heapcleaning work.
+    //
+    //   o Ensure that all pthreads cease running user code before
+    //     heapcleaning begins.
+    //
+    //   o Ensure that all pthreads resume running user code after
+    //     heapcleaning completes.
+    //
+    //
+    // In more detail:
+    //
+    //   o The first pthread to check in becomes the
+    //     designated heapcleaner, which we remember by saving its pid
+    //     in cleaning_pthread_local.
+    //
+    //   o The designated heapcleaner returns to the invoking
+    //     call-heapcleaner fnc and does the heapcleaning work
+    //     while the other pthreads wait at a barrier.
+    //
+    //   o When done heapcleaning, the designated heapcleaner
+    //     thread checks into the barrier, releasing the remaining
+    //     pthreads to resume execution of user code.
 
-    int	     nProcs;
+    int	     active_pthread_count;
     Pthread* pthread = task->pthread;
 
+    // If we're the first pthread to start heapcleaning,
+    // remember that and signal the remaining pthreads
+    // to join in.
+    //
     pth_acquire_mutex( pth_heapcleaner_mutex_global );
-
+    //
     if (pthreads_ready_to_clean_local++ == 0) {
+        //
+        // We're the first pthread starting heapcleaning,
+	// so we'll assume the mantle of designated-heapcleaner,
+	// as well as signalling the other threads to enter
+	// heapcleaning mode. 
         //
         pth_extra_heapcleaner_roots_global[0] =  NULL;
 
         extra_cleaner_roots_local =  pth_extra_heapcleaner_roots_global;
 
+	// I'm guessing the point of this is to get the other
+	// pthreads to enter heapcleaning mode pronto:			-- 2011-11-02 CrT
+	//
 	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
@@ -154,41 +219,60 @@ int   pth_start_heapcleaning   (Task *task) {
 	    #endif
 	#endif
 
-	cleaning_pthread_local =  pthread->pid;			// We're the first one in, we'll do the clean.
+	cleaning_pthread_local =  pthread->pid;							// Assume the awesome responsilibity of being the designated heapcleaner thread.
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("cleaning_pthread_local is %d\n", cleaning_pthread_local);
 	#endif
     }
-
     pth_release_mutex( pth_heapcleaner_mutex_global );
 
+
+    //////////////////////////////////////////////////////////
+    // Whether or not we're the first pthread to enter
+    // heapcleaning mode, we now wait until all the
+    // other active pthreads have also entered
+    // heapcleaning mode.
     {
+
+/////////////////////////////////////////////////////
+// Why aren't we using a regular barrier op here...?
+/////////////////////////////////////////////////////
+
+
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    int n = 0;
 	#endif
 
+
         // NB: Some other pthread can be
         // concurrently acquiring new kernel threads.
         //
-	while (pthreads_ready_to_clean_local !=  (nProcs = pth_active_pthread_count())) {
-
-	    // SPIN
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-
-		if (n != 10000000) {
-
-		    n++;
-
-		} else {
-
-		    n = 0;
-
+	while (pthreads_ready_to_clean_local !=  (active_pthread_count = pth_get_active_pthread_count())) {	// pth_get_active_pthread_count	def in   src/c/pthread/pthread-on-posix-threads.c
+	    // 
+	    // Spinwait.  This is bad;
+	    // to avoid being hideously bad we avoid
+	    // constantly pounding the mutex (and thus
+	    // the shared memory bus) by counting to 10,000
+	    // on our fingers between mutex ops:
+	    //
+	    if (n != 1000) {
+		//
+		for (int i = 10000; i -> 0; );
+		//
+		n++;
+		//
+	    } else {
+		//
+		n = 0;
+		//
+		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		    //
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			task->lib7_mpSelf, pthreads_ready_to_clean_local, nProcs, task->heap_allocation_pointer,
+			task->lib7_mpSelf, pthreads_ready_to_clean_local, active_pthread_count, task->heap_allocation_pointer,
 			task->heap_allocation_limit);
-		}
-	    #endif
+		#endif
+	    }
 	}
     }
 
@@ -204,30 +288,48 @@ int   pth_start_heapcleaning   (Task *task) {
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, pth_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, pth_get_active_pthread_count());
     #endif
 
-    if (cleaning_pthread_local != pthread->pid) {
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d entering barrier %d\n",pthread->pid,nProcs);
-	#endif
+    ////////////////////////////////////////////////////////////////// 
+    // If we're the designated heapcleaner thread
+    // we now return to caller to take up our
+    // heapcleaning responsibilities:
+    //
+    if (pthread->pid == cleaning_pthread_local)   return active_pthread_count;
 
-	pth_wait_at_barrier(pth_cleaner_barrier_global, nProcs);
-    
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d left barrier\n", pthread->pid);
-	#endif
 
-	return 0;
-    }
 
-    return nProcs;
+    ////////////////////////////////////////////////////////////////// 
+    // We're not the designated heapcleaner thread,
+    // so we take a break until that thread has
+    // finished heapcleaning:
+    //
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say ("%d entering barrier %d\n",pthread->pid,active_pthread_count);
+    #endif
+
+    pth_wait_at_barrier( pth_cleaner_barrier_global, active_pthread_count );
+
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say ("%d left barrier\n", pthread->pid);
+    #endif
+
+    // We return FALSE to tell caller that we're
+    // not the designated heapcleaner, so we shouldn't
+    // do any heapcleaning work upon our return:
+    //
+    return 0;
 }							// fun pth_start_heapcleaning
 
 
-int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
+int   pth_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     //==============================
+    //
+    // This fn is called (only) from:
+    //
+    //     src/c/heapcleaner/call-heapcleaner.c
     //
     // As above, but we collect extra roots into pth_extra_heapcleaner_roots_global.
 
@@ -276,20 +378,21 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 	// NB: Some other pthread can be concurrently
         // acquiring new kernel threads:
         //
-	while (pthreads_ready_to_clean_local !=  (pthread_count = pth_active_pthread_count())) {
+	while (pthreads_ready_to_clean_local !=  (pthread_count = pth_get_active_pthread_count())) {
 
 	    // SPIN
 
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		if (n != 10000000) {
+		if (n != 1000) {
+		    for (int i = 10000; i -> 0; );
 		    n++;
 		} else {
 		    n = 0;
-		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			pthread->pid, pthreads_ready_to_clean_local, pthread_count, task->heap_allocation_pointer,
-			task->heap_allocation_limit);
+	            #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+			debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
+			    pthread->pid, pthreads_ready_to_clean_local, pthread_count, task->heap_allocation_pointer,
+			    task->heap_allocation_limit);
+		    #endif
 		}
-	    #endif
 	}
     }
 
@@ -305,31 +408,28 @@ int   mc_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth_get_active_pthread_count());
     #endif
 
-    if (cleaning_pthread_local != pthread->pid) {
+    if (cleaning_pthread_local == pthread->pid)   return pthread_count;
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
-	#endif
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
+    #endif
 
-	pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);
-    
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d left barrier\n", pthread->pid);
-	#endif
+    pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);
 
-	return 0;
-    }
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say ("%d left barrier\n", pthread->pid);
+    #endif
 
-    return  pthread_count;
-}							// fun mc_clean_heap_with_extra_roots
+    return 0;
+}							// fun pth_clean_heap_with_extra_roots
 
 
 
 void   pth_finish_heapcleaning   (Task *task, int n)   {
-    // ==================
+    // =======================
 
     // This works, but partition_agegroup0_buffer_between_pthreads is overkill:		XXX BUGGO FIXME
     //

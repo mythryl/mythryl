@@ -459,13 +459,15 @@ void   pth_release_pthread   (Task* task)   {
 
 
 
-int   pth_active_pthread_count   ()   {
+int   pth_get_active_pthread_count   ()   {
     //========================
     //
     int ap;
 
     pth_acquire_mutex(MP_ProcLock);
+
         ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL) );
+
     pth_release_mutex(MP_ProcLock);
 
     return ap;

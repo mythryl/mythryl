@@ -442,7 +442,7 @@ void   pth_release_pthread   (Task* task)   {
 
 
 
-int   pth_active_pthread_count   ()   {
+int   pth_get_active_pthread_count   ()   {
     //=======================
     //
     int ap;

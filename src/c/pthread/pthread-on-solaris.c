@@ -781,7 +781,7 @@ Pid    pth_get_pthread_id	(void)   {	return (thr_self());				}
     //
 
 //
-int   pth_active_pthread_count   (void)   {
+int   pth_get_active_pthread_count   (void)   {
     //=======================
     //
     pth_acquire_mutex(mp_pthread_mutex_local);
