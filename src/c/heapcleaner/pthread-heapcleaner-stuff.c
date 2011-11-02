@@ -147,8 +147,8 @@ int   pth_start_heapcleaning   (Task *task) {
 
 	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );
-	    //
+	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
+	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", task->lib7_mpSelf);
 	    #endif

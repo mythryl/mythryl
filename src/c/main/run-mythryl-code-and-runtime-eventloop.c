@@ -157,7 +157,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		// This "request" is really a POSIX interprocess signal.
 
-		if (need_to_clean_heap( task, 4*ONE_K_BINARY )) {
+		if (need_to_call_heapcleaner( task, 4*ONE_K_BINARY )) {
 		    //
 		    clean_heap( task, 0 );
 		}
@@ -232,7 +232,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
                     0		// Age-groups to heapclean.  (=="Generations to garbage collect".)
                 );
 #else
-		if (need_to_clean_heap( task, 4 * ONE_K_BINARY )) {					// 64-bit issue -- '4' here is 'bytes-per-word'.
+		if (need_to_call_heapcleaner( task, 4 * ONE_K_BINARY )) {					// 64-bit issue -- '4' here is 'bytes-per-word'.
 													// This 4*ONE_K_BINARY number has(?) to match   max_heapwords_to_allocate_between_heaplimit_checks
 													//     in src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
 													// This 4*ONE_K_BINARY number has(?) to match   skid_pad_size_in_bytes
@@ -324,7 +324,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 		    SET_UP_RETURN( task );
 
-		    if (need_to_clean_heap (task, 8*ONE_K_BINARY)) {
+		    if (need_to_call_heapcleaner (task, 8*ONE_K_BINARY)) {
 			clean_heap (task, 0);
 		    }
 #ifdef INDIRECT_CFUNC

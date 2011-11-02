@@ -321,13 +321,13 @@ Val   revLib7List   (Val l,Val r)   {
 }
 
 	
-#define SMALL_SPACE 0    // Size to 'need_to_clean_heap' for a small chunk, say <10 words.
+#define SMALL_SPACE 0    // Size to 'need_to_call_heapcleaner' for a small chunk, say <10 words.
 
 static void   space_check   (Task* task, int bytes, Val *one_root) {
     //        =========== 
     // Assume the ONE_K_BINARY buffer will absorb descriptors, '\0' terminators
     //
-    if (need_to_clean_heap(task,bytes + ONE_K_BINARY)) {
+    if (need_to_call_heapcleaner(task,bytes + ONE_K_BINARY)) {
 
 	#ifdef DEBUG_C_CALLS
 	    debug_say("space_check: Cleaning heap.\n");
@@ -335,7 +335,7 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 
 	clean_heap_with_extra_roots(task,0,one_root,NULL);
 
-	if (need_to_clean_heap(task,bytes + ONE_K_BINARY)) {
+	if (need_to_call_heapcleaner(task,bytes + ONE_K_BINARY)) {
 	    //
 	    say_error( "space_check: Cannot alloc Mythryl space for Mythryl-to-C conversion.\n" );	// Is it really OK to then return??? XXX BUGGO FIXME
         }

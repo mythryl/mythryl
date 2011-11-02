@@ -903,7 +903,7 @@ static void   load_compiled_file   (
     // Make sure we have enough free heap space to allocate 
     // our 'import record' vector of imported values:
     //
-    if (need_to_clean_heap (task, REC_BYTESIZE(import_record_slot_count))) {
+    if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
         //
 	clean_heap_with_extra_roots (task, 0, &compiled_file_list, NULL);
     }
@@ -1079,7 +1079,7 @@ static void   load_compiled_file   (
 
     // Do a garbage collection, if necessary:
     //
-    if (need_to_clean_heap( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
+    if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
 
 	clean_heap_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
     }
@@ -1145,7 +1145,7 @@ static void   load_compiled_file   (
 	mythryl_result =  run_mythryl_function (task, closure, mythryl_result, TRUE);						// run_mythryl_function		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 	restore_c_state                        (task, &compiled_file_list, NULL);
 
-	if (need_to_clean_heap (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
+	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
 	    clean_heap_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
         }

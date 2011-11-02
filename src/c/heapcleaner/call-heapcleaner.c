@@ -414,22 +414,31 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 }														// fun clean_heap_with_extra_roots
 
 
-
-Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
-    // ==================
+// This fun is called various places to guarantee that there are 'nbytes'
+// free in the generation-zero buffer.  The canonical calls are those in
+//
+//     src/c/main/run-mythryl-code-and-runtime-eventloop.c
+//
+// This function is also (ab)used to trigger period-event processing by
+// either setting the end-of-heap limit artificially low, or else by
+// setting SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL
+// to HEAP_TRUE.
+//
+Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
+    // ========================
     //
-    // Check to see if a GC is required,
+    // Check to see if a heapcleaning is required,
     // or if there is enough heap space
     // for nbytes worth of allocation.
     //	
-    // Return TRUE, if GC is required,
+    // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
 
     #if (NEED_PTHREAD_SUPPORT && defined(COMMENT_MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS))
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
-	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))
-	//
+	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	//													// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #elif NEED_PTHREAD_SUPPORT
 	//
 	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
