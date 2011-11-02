@@ -58,7 +58,7 @@ Cleaner statistics stuff:
  long	total_bytes_copied_global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
 
 
-#ifdef KEEP_HUGECHUNK_REFERENCE_STATISTICS									// "KEEP_HUGECHUNK_REFERENCE_STATISTICS" does not appear outside this file.
+#if NEED_HUGECHUNK_REFERENCE_STATISTICS		// "NEED_HUGECHUNK_REFERENCE_STATISTICS" does not appear outside this file, except for its definition in   src/c/mythryl-config.h
     //
     static long hugechunks_seen_count_local;
     static long hugechunk_lookups_count_local;
@@ -390,7 +390,8 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
     }
 
 
-    #ifdef KEEP_HUGECHUNK_REFERENCE_STATISTICS
+    #if NEED_HUGECHUNK_REFERENCE_STATISTICS
+        //
         debug_say ("hugechunk stats: %d seen, %d lookups, %d forwarded\n",    hugechunks_seen_count_local, hugechunk_lookups_count_local, hugechunks_forwarded_count_local);
     #endif
 
@@ -412,10 +413,11 @@ static int          set_up_to_clean_heap               (int* max_swept_agegroup,
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
 	//
-	start_cleaning_timer( task->pthread );						// start_cleaning_timer	def in    src/c/main/timers.c
+	start_cleaning_timer( task->pthread );							// start_cleaning_timer	def in    src/c/main/timers.c
     #endif
 
-    #ifdef KEEP_HUGECHUNK_REFERENCE_STATISTICS
+    #if NEED_HUGECHUNK_REFERENCE_STATISTICS
+	//
         hugechunks_seen_count_local      =
         hugechunk_lookups_count_local    =
         hugechunks_forwarded_count_local = 0;

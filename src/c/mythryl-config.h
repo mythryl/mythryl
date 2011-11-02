@@ -78,6 +78,15 @@
 
 
 
+#define NEED_HUGECHUNK_REFERENCE_STATISTICS 0
+    //
+    // Define this to 1 (TRUE) to compile in code tracking
+    // hugechunk references.  This affects only the file
+    //
+    //     src/c/heapcleaner/heapclean-n-agegroups.c
+
+
+
 #define MAX_POSIX_SIGNALS      60
     //
     // This needs to be at least one more than the
