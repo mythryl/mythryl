@@ -92,10 +92,10 @@ struct heap {
     // we should be able to go back to the old version of this.		XXX BUGGO FIXME
     //
     #define HEAP_ALLOCATION_LIMIT(hp)	\
-	(Val *)((Punt)((hp)->agegroup0_buffer) + (hp)->agegroup0_buffer_bytesize - ALLOCATION_BUFFER_BYTESIZE)
+	(Val *)((Punt)((hp)->agegroup0_buffer) + (hp)->agegroup0_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
 #else
     #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
-        (Val*)((Punt)(base) + (size) - ALLOCATION_BUFFER_BYTESIZE)
+        (Val*)((Punt)(base) + (size) - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
 
     #define HEAP_ALLOCATION_LIMIT(hp)	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_buffer,(hp)->agegroup0_buffer_bytesize)
 #endif

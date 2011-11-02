@@ -312,8 +312,8 @@ static Val   read_in_compiled_file_list   (
     Val*   file_names = NULL;
     char*  name_buf   = NULL;
 
-    int    max_num_boot_files = MAX_NUM_BOOT_FILES;
-    int    max_boot_path_len  = MAX_BOOT_PATH_LEN;
+    int    max_num_boot_files = MAX_NUMBER_OF_BOOT_FILES;
+    int    max_boot_path_len  = MAX_LENGTH_FOR_A_BOOTFILE_PATHNAME;
 
     int    numFiles = 0;
 

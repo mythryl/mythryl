@@ -120,7 +120,7 @@ static int		cleaning_pthread_local;					// The cleaning pthread.
 
 // This holds extra roots provided by   clean_heap_with_extra_roots:
 //
-Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_CLEANING_ROOTS * MAX_PTHREADS ];
+Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_HEAPCLEANER_ROOTS * MAX_PTHREADS ];
 static Val** mc_extra_cleaner_roots_local;
 
 int   pth_start_heapcleaning   (Task *task) {

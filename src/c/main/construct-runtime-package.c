@@ -233,7 +233,7 @@ LIB7_EXNID(sqrt_global,"SQRT_GLOBAL");
 // A table of pointers to global C variables that
 // are potential garbage-collection roots:
 //
-Val* c_roots_global[ MAX_C_CLEANING_ROOTS ] = {
+Val* c_roots_global[ MAX_C_HEAPCLEANER_ROOTS ] = {
     //
     &runtime_package_global,
     pervasive_package_pickle_list_refcell_global +1,
