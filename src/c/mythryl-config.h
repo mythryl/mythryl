@@ -31,7 +31,7 @@
 #include "config.h"
 
 
-#define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
+#define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
     //
     // The Mythryl heapcleaner ("garbage collector") runs as a cooperative
     // thread with user code -- the Mythryl compiler ensures that every closed

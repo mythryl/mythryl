@@ -444,7 +444,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 
     void   reset_heap_allocation_limit_for_software_generated_periodic_events   (Task* task)   {
-	// =======================================================
+	// ==================================================================
 	//
 	// Reset the limit pointer according to the current polling frequency.
 
@@ -464,7 +464,7 @@ Bool   need_to_clean_heap   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	} else {
 
-	    task->heap_allocation_limit  =  heap->allocBase + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
+	    task->heap_allocation_limit  =  heap->agegroup0_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 	    //
 	    task->heap_allocation_limit  =  (task->heap_allocation_limit > task->real_heap_allocation_limit)
 		? task->real_heap_allocation_limit

@@ -715,12 +715,25 @@ LIB7_CODE_HDR(make_vector_asm)
 #undef  temp2	
 	
 // try_lock: Spin_Lock -> Bool. 
-// low-level test-and-set style primitive for mutual-exclusion among 
-// processors.	For now, we only provide a uni-processor trivial version.
+//    "low-level test-and-set style primitive for mutual-exclusion among 
+//     processors.	For now, we only provide a uni-processor trivial version."
+//
+// This is an ancient mutex left-over from 1992 multi-processor
+// support:  See src/src/A.MULTICORE-SUPPORT.OVERVIEW.
+// If re-implementing this in assembly, look up Reppy's recent Manticore
+// work:  See http://mythryl.org/pub/pml/
+//   In particular, he points out that spinning on an atomic test-and-set
+// instruction is horribly expensive because it totally saturates the the
+// available bus bandwidth -- slowing down all the other cores which are
+// still trying to do useful work -- so it is much better to test intermittently
+// with a vanilla memory read, spacing them out with NOPs or whatever to conserve
+// memory bandwidth, and only execute the atomic test-and-set instruction when
+// it is likely to succeed.
+//    -- 2011-11-01 CrT
 //
 LIB7_CODE_HDR(try_lock_asm)
 #if (MAX_PROCS > 1)
-#  error multiple processors not supported
+#  error prim.intel32.asm:  try_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
 	MOV_L(REGIND(stdarg), temp)				// Get old value of lock.
 	MOV_L(CONST(1), REGIND(stdarg))				// Set the lock to HEAP_FALSE.
@@ -730,9 +743,12 @@ LIB7_CODE_HDR(try_lock_asm)
 
 // unlock :  Release a spinlock.
 //
+// This is an ancient mutex left-over from 1992 multi-processor
+// support: See src/src/A.MULTICORE-SUPPORT.OVERVIEW.    -- 2011-11-01 CrT
+//
 LIB7_CODE_HDR(unlock_asm)
 #if (MAX_PROCS > 1)
-    #error multiple processors not supported
+    #error prim.intel32.asm:  unlock_lock:  multiple processors not supported
 #else // (MAX_PROCS == 1)
 	MOV_L(CONST(3), REGIND(stdarg))				// Store HEAP_TRUE into lock.
 	MOV_L(CONST(1), stdarg)					// Return Void.

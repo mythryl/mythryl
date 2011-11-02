@@ -53,7 +53,7 @@ Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool us
 
     // Initialize the calling context:
     //
-    task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v +1 );
+    task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
     task->thread         =  HEAP_VOID;
     task->argument	 =  argument;
 
@@ -202,7 +202,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		task->argument	     =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	     =  PTR_CAST( Val,  return_from_signal_handler_c );
-		task->exception_fate =  PTR_CAST( Val, handle_uncaught_exception_closure_v+1);
+		task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
 		task->closure	     =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL );
 		//
 		task->program_counter =
@@ -240,7 +240,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
                 }
 		task->argument	     =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
 		task->fate	     =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
-		task->exception_fate =  PTR_CAST( Val, handle_v+1);
+		task->exception_fate =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
 		task->closure	     =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL );
 		//
 		task->program_counter=

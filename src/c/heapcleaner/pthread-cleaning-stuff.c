@@ -39,7 +39,7 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
     //     
 
 
-    int pollFreq
+    int poll_freq
 	=
 	TAGGED_INT_TO_C_INT(
 	    DEREF(
@@ -50,13 +50,13 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
     Task* task;
     Task* task0 =  pthread_table[ 0 ]->task;
 
-    int indivSz
+    int indiv_size
 	=
 	task0->heap->agegroup0_buffer_bytesize
         /
         MAX_PTHREADS;
 
-    Val* alloc_base =  task0->heap->allocBase;
+    Val* agregroup0_buffer =  task0->heap->agegroup0_buffer;
 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //
@@ -67,17 +67,17 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 	#endif
 
 	task->heap            =  task0->heap;
-	task->heap_allocation_pointer     =  alloc_base;
-	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( alloc_base, indivSz );
+	task->heap_allocation_pointer     =  agregroup0_buffer;
+	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, indiv_size );
 
 	#ifdef MULTICORE_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    if (pollFreq > 0) {
+	    if (poll_freq > 0) {
 
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		debug_say ("(with PollFreq=%d) ", pollFreq);
+		debug_say ("(with poll_freq=%d) ", poll_freq);
 		#endif
 
-		task->heap_allocation_limit =  alloc_base + pollFreq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
+		task->heap_allocation_limit =  agregroup0_buffer + poll_freq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 
 		task->heap_allocation_limit
 		    =
@@ -89,15 +89,15 @@ void   partition_agegroup0_buffer   (Pthread *pthread_table[]) {	// pthread_tabl
 		task->heap_allocation_limit = task->real_heap_allocation_limit;
 	    }
 	#else
-	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( alloc_base, indivSz );
+	    task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT_SIZE( agregroup0_buffer, indiv_size );
 	#endif
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
-	alloc_base =  (Val*) (((Punt) alloc_base) + indivSz);
-    }
+	agregroup0_buffer =  (Val*) (((Punt) alloc_base) + indiv_size);
+    }										// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
 }										// fun partition_agegroup0_buffer
 
 
