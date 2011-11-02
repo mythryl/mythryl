@@ -44,6 +44,8 @@
     // then be explicitly restarted -- something which many C library functions
     // probably do not do correctly.  
 
+
+
 #define NEED_PTHREAD_SUPPORT 0
     //
     // Define this as TRUE (nonzero) to compile in support
@@ -51,15 +53,20 @@
     // parallel in the same address space.  For background
     // see    src/A.PTHREAD-SUPPORT.OVERVIEW
 
-// Max number of posix threads running Mythryl.
-// We dedicate half a meg or so of memory to each
-// one, so don't be prolifigate here:
-//
-#if !NEED_PTHREAD_SUPPORT
+
+
+#if NEED_PTHREAD_SUPPORT
     //
-    #define MAX_PTHREADS	1
-#else
     #define MAX_PTHREADS	8
+	//
+	// Max number of posix threads running Mythryl.
+	// Don't be profligatehere :  We statically
+	// dedicate about 256K of memory to each one --
+	// see DEFAULT_AGEGROUP0_BUFFER_BYTESIZE in
+	//
+	//     src/c/h/runtime-configuration.h
+#else
+    #define MAX_PTHREADS	1
 #endif
 
 
