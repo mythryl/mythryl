@@ -43,7 +43,7 @@ static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
 //    #if NEED_PTHREAD_SUPPORT
 	//
-        return TAGGED_INT_FROM_C_INT( pth_get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c
+        return TAGGED_INT_FROM_C_INT( pth__get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// thread_id	def in    src/c/pthread/pthread-on-sgi.c
 //    #else									// thread_id	def in    src/c/pthread/pthread-on-solaris.c
 //	die ("get_pthread_id: no mp support\n");
@@ -56,9 +56,9 @@ static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never 
     //
     #if NEED_PTHREAD_SUPPORT
 	//
-	return pth_acquire_pthread( task, arg );				// pth_acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
-        //									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
-    #else									// pth_acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
+	return pth__acquire_pthread( task, arg );				// pth__acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
+        //									// pth__acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
+    #else									// pth__acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
 	die ("acquire_pthread: no mp support\n");
         return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
     #endif
@@ -70,7 +70,7 @@ static Val release_pthread   (Task* task,  Val arg)   {
     //     ===============
     //
     #if NEED_PTHREAD_SUPPORT
-	pth_release_pthread(task);  	// Should not return.
+	pth__release_pthread(task);  	// Should not return.
 	die ("_lib7_MP_release_pthread: call unexpectedly returned\n");
     #else
 	die ("_lib7_MP_release_pthread: no mp support\n");
@@ -83,7 +83,7 @@ static Val   max_pthreads   (Task* task,  Val arg)   {				// Apparently nowhere 
     //       ============
     //
     #if NEED_PTHREAD_SUPPORT
-	return TAGGED_INT_FROM_C_INT(pth_max_pthreads ());
+	return TAGGED_INT_FROM_C_INT(pth__max_pthreads ());
     #else
 	die ("_lib7_MP_max_pthreads: no mp support\n");
         return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.

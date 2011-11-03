@@ -107,9 +107,9 @@ int   main   (int argc, char** argv) {
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
     #if NEED_PTHREAD_SUPPORT
-	pth_initialize();												// pth_initialize					def in    src/c/pthread/pthread-on-posix-threads.c
-    #endif														// pth_initialize					def in    src/c/pthread/pthread-on-solaris.c
-															// pth_initialize					def in    src/c/pthread/pthread-on-sgi.c
+	pth__initialize();												// pth__initialize					def in    src/c/pthread/pthread-on-posix-threads.c
+    #endif														// pth__initialize					def in    src/c/pthread/pthread-on-solaris.c
+															// pth__initialize					def in    src/c/pthread/pthread-on-sgi.c
     // Start mythryld:
     //
     if (is_boot)         load_compiled_files(  compiled_files_to_load_filename, cleaner_args );				// load_compiled_files					def in   src/c/main/load-compiledfiles.c

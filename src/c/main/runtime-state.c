@@ -91,9 +91,9 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table_global[0]->pid  =  pth_pthread_id ();					// pth_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
-												// pth_pthread_id				def in    src/c/pthread/pthread-on-sgi.c
-												// pth_pthread_id				def in    src/c/pthread/pthread-on-solaris.c
+	pthread_table_global[0]->pid  =  pth__pthread_id ();					// pth__pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+												// pth__pthread_id				def in    src/c/pthread/pthread-on-sgi.c
+												// pth__pthread_id				def in    src/c/pthread/pthread-on-solaris.c
 	pthread_table_global[0]->status =  PTHREAD_IS_RUNNING;
     #endif						// NEED_PTHREAD_SUPPORT
 

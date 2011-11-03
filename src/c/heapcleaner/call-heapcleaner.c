@@ -82,13 +82,13 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    debug_say ("igc %d\n", task->pid);
 	#endif
 	//
-	int   active_pthreads_count;								// Number of active pthreads. We need this (only) for the final   pth_wait_at_barrier()   that 
-	//											// releases the waiting pthreads in   pth_finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	int   active_pthreads_count;								// Number of active pthreads. We need this (only) for the final   pth__wait_at_barrier()   that 
+	//											// releases the waiting pthreads in   pth__finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//
-	if ((active_pthreads_count = pth_start_heapcleaning( task )) == 0) {			// pth_start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	if ((active_pthreads_count = pth__start_heapcleaning( task )) == 0) {			// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
 	    // Return value was zero, so we're not the designated heapcleaner pthread,
-	    // and our return from pth_start_heapcleaning means that the heapcleaning
+	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
 	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
@@ -102,7 +102,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// 
 	//     2) All other pthreads have now suspended execution of
 	//        user code and are barrier-blocked waiting for us to
-	//	  release them via the final pth_finish_heapcleaning()
+	//	  release them via the final pth__finish_heapcleaning()
 	//        call below.
 	// 
 	// Consequently, at this point we can safely just fall
@@ -119,9 +119,9 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// Get extra roots from pthreads that entered
 	// through call_heapcleaner_with_extra_roots
 	//
-	for (int i = 0;   pth_extra_heapcleaner_roots_global[i] != NULL;   i++) {
+	for (int i = 0;   pth__extra_heapcleaner_roots_global[i] != NULL;   i++) {
 	    //
-	    *roots_ptr++ =  pth_extra_heapcleaner_roots_global[i];
+	    *roots_ptr++ =  pth__extra_heapcleaner_roots_global[i];
 	}
     #endif
 
@@ -237,7 +237,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     //
     #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
 	//
-	pth_finish_heapcleaning( task, active_pthreads_count );						// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
+	pth__finish_heapcleaning( task, active_pthreads_count );						// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
@@ -284,16 +284,16 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	va_start (ap, level);
 
-	int active_pthreads_count										// Number of active pthreads. We need this (only) for the final   pth_wait_at_barrier()   that 
-	    =													// releases the waiting pthreads in   pth_finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
-	    pth_call_heapcleaner_with_extra_roots (task, ap);							// pth_call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	int active_pthreads_count										// Number of active pthreads. We need this (only) for the final   pth__wait_at_barrier()   that 
+	    =													// releases the waiting pthreads in   pth__finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	    pth__call_heapcleaner_with_extra_roots (task, ap);							// pth__call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 	va_end(ap);
 
 	if (active_pthreads_count == 0)	{
 	    //
 	    // Return value was zero, so we're not the designated heapcleaner pthread,
-	    // and our return from pth_start_heapcleaning means that the heapcleaning
+	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
 	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
@@ -307,7 +307,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	// 
 	//     2) All other pthreads have now suspended execution of
 	//        user code and are barrier-blocked waiting for us to
-	//	  release them via the final pth_finish_heapcleaning()
+	//	  release them via the final pth__finish_heapcleaning()
 	//        call below.
 	// 
 	// Consequently, at this point we can safely just fall
@@ -322,11 +322,11 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     #if NEED_PTHREAD_SUPPORT
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
-        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by pth_call_heapcleaner_with_extra_roots.
+        // Our extra roots were placed in pth__extra_heapcleaner_roots_global by pth__call_heapcleaner_with_extra_roots.
         //
-	for (int i = 0;  pth_extra_heapcleaner_roots_global[i] != NULL;  i++) {
+	for (int i = 0;  pth__extra_heapcleaner_roots_global[i] != NULL;  i++) {
 	    //
-	    *roots_ptr++ =  pth_extra_heapcleaner_roots_global[ i ];
+	    *roots_ptr++ =  pth__extra_heapcleaner_roots_global[ i ];
 	}
     #else
         // Note extra roots from argument list:
@@ -453,7 +453,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     //
     #if NEED_PTHREAD_SUPPORT
         //
-	pth_finish_heapcleaning (task, active_pthreads_count);
+	pth__finish_heapcleaning (task, active_pthreads_count);
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 

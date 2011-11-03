@@ -82,44 +82,44 @@ typedef pid_t 	Pid;			// A process id.
     ////////////////////////////////////////////////////////////////////////////
     // PACKAGE STARTUP AND SHUTDOWN
     //
-    extern void     pth_initialize		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
-    extern void     pth_shut_down		(void);					// Called once just before calling exit(), to release any OS resources.
+    extern void     pth__initialize		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
+    extern void     pth__shut_down		(void);					// Called once just before calling exit(), to release any OS resources.
 
 
 
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      pth_acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
+    extern Val      pth__acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
     //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.
     //
-    extern void     pth_release_pthread		(Task* task);				// Reverse of above, more or less.
+    extern void     pth__release_pthread		(Task* task);				// Reverse of above, more or less.
     //											// On Solaris this appears to actually stop and kill the thread.
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
-    extern Pthread* pth_get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
+    extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
     //											// Pthread is typedef'ed in src/c/h/runtime-base.h
     //
-    extern Pid      pth_get_pthread_id		(void);					// Used to initialize pthread_table_global[0]->pid in   src/c/main/runtime-state.c
+    extern Pid      pth__get_pthread_id		(void);					// Used to initialize pthread_table_global[0]->pid in   src/c/main/runtime-state.c
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //
-    extern int      pth_max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
+    extern int      pth__max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
-    extern int      pth_get_active_pthread_count();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
+    extern int      pth__get_active_pthread_count();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
 											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
     ////////////////////////////////////////////////////////////////////////////
     // MULTICORE GARBAGE COLLECTION SUPPORT
     //
-    extern int   pth_start_heapcleaning    (Task*);
-    extern void  pth_finish_heapcleaning   (Task*, int);
+    extern int   pth__start_heapcleaning    (Task*);
+    extern void  pth__finish_heapcleaning   (Task*, int);
     //
-    extern Val*  pth_extra_heapcleaner_roots_global [];
+    extern Val*  pth__extra_heapcleaner_roots_global [];
 
 
 
@@ -133,30 +133,30 @@ typedef pid_t 	Pid;			// A process id.
     // one such lock for each major shared mutable datastructure,
     // which persists for as long as that datastructure.
     //
-    extern Mutex pth_make_mutex		();				// Just what you think.
-    extern void  pth_free_mutex		(Mutex mutex);				// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
+    extern Mutex pth__make_mutex		();				// Just what you think.
+    extern void  pth__free_mutex		(Mutex mutex);				// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
     //
-    extern void  pth_acquire_mutex	(Mutex mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth_acquire_mutex() for this mutex until we release.
-    extern void  pth_release_mutex	(Mutex mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth_acquire_mutex() on this mutex.
+    extern void  pth__acquire_mutex	(Mutex mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth__acquire_mutex() for this mutex until we release.
+    extern void  pth__release_mutex	(Mutex mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth__acquire_mutex() on this mutex.
     //
-    extern Bool  pth_maybe_acquire_mutex(Mutex mutex);				// This appears to be a non-blocking variant of pth_acquire_mutex, which always returns immediately with either TRUE (mutex acquired) or FALSE.
+    extern Bool  pth__maybe_acquire_mutex(Mutex mutex);				// This appears to be a non-blocking variant of pth__acquire_mutex, which always returns immediately with either TRUE (mutex acquired) or FALSE.
     //
     // Some statically pre-allocated mutexs:
     //
-    extern Mutex	    pth_heapcleaner_mutex_global;
-    extern Mutex	    pth_heapcleaner_gen_mutex_global;
-    extern Mutex	    pth_timer_mutex_global;
+    extern Mutex	    pth__heapcleaner_mutex_global;
+    extern Mutex	    pth__heapcleaner_gen_mutex_global;
+    extern Mutex	    pth__timer_mutex_global;
     //
-    extern Barrier* pth_cleaner_barrier_global;
+    extern Barrier* pth__cleaner_barrier_global;
     //
     //
     // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT
     //
-    #define BEGIN_CRITICAL_SECTION( mutex )	{ pth_acquire_mutex(mutex); {
-    #define END_CRITICAL_SECTION( mutex )	} pth_release_mutex(mutex); }
+    #define BEGIN_CRITICAL_SECTION( mutex )	{ pth__acquire_mutex(mutex); {
+    #define END_CRITICAL_SECTION( mutex )	} pth__release_mutex(mutex); }
     //
-    #define ACQUIRE_MUTEX(mutex)		pth_acquire_mutex(mutex);
-    #define RELEASE_MUTEX(mutex)		pth_release_mutex(mutex);
+    #define ACQUIRE_MUTEX(mutex)		pth__acquire_mutex(mutex);
+    #define RELEASE_MUTEX(mutex)		pth__release_mutex(mutex);
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -184,13 +184,13 @@ typedef pid_t 	Pid;			// A process id.
     // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
     // but implemented on top of mutexs in                                  src/c/pthread/pthread-on-solaris.c
     //
-    extern Barrier* pth_make_barrier 	();					// Allocate a barrier.
-    extern void     pth_free_barrier	(Barrier* barrierp);			// Free a barrier.
+    extern Barrier* pth__make_barrier 	();					// Allocate a barrier.
+    extern void     pth__free_barrier	(Barrier* barrierp);			// Free a barrier.
     //
-    extern void     pth_wait_at_barrier	(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
+    extern void     pth__wait_at_barrier	(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
-    extern void     pth_reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
+    extern void     pth__reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
 
 
 
