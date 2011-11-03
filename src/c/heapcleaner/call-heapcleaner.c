@@ -109,7 +109,7 @@ void   clean_heap   (Task* task,  int level) {
 
     #if NEED_PTHREAD_SUPPORT
 	// Get extra roots from pthreads that entered
-	// through clean_heap_with_extra_roots
+	// through call_heapcleaner_with_extra_roots
 	//
 	for (int i = 0;   pth_extra_heapcleaner_roots_global[i] != NULL;   i++) {
 	    //
@@ -238,8 +238,8 @@ void   clean_heap   (Task* task,  int level) {
 }			                                             // fun clean_heap
 
 
-void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
-    // ===========================
+void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
+    // =================================
     //
     // Clean with possible additional roots.  The list of
     // additional roots is NULL terminated.  We always clean agegroup0.
@@ -270,7 +270,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
 
 	va_start (ap, level);
-	pthreads_count = pth_clean_heap_with_extra_roots (task, ap);
+	pthreads_count = pth_call_heapcleaner_with_extra_roots (task, ap);
 	va_end(ap);
 
 	if (pthreads_count == 0)	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
@@ -285,8 +285,8 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-        // get extra roots from procs that entered through clean_heap_with_extra_roots.
-        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by pth_clean_heap_with_extra_roots.
+        // get extra roots from procs that entered through call_heapcleaner_with_extra_roots.
+        // Our extra roots were placed in pth_extra_heapcleaner_roots_global by pth_call_heapcleaner_with_extra_roots.
         //
 	for (int i = 0;  pth_extra_heapcleaner_roots_global[i] != NULL;  i++) {
 	    //
@@ -423,7 +423,7 @@ void   clean_heap_with_extra_roots   (Task* task,  int level, ...)   {
     note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
-}														// fun clean_heap_with_extra_roots
+}														// fun call_heapcleaner_with_extra_roots
 
 
 

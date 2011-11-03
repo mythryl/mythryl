@@ -143,7 +143,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    if (space_needed > space_available							\
             &&  need_to_call_heapcleaner( task, space_needed + LIST_CONS_CELL_BYTESIZE)		\
             ){											\
-		clean_heap_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);	\
+		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);	\
 		space_available = 0;								\
 												\
 	    } else {										\
@@ -184,7 +184,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    //
 	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
 		//
-		clean_heap_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);
+		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);
             }
 	    space_available = 64*ONE_K_BINARY;
 	}

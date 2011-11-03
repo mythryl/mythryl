@@ -333,7 +333,7 @@ static void   space_check   (Task* task, int bytes, Val *one_root) {
 	    debug_say("space_check: Cleaning heap.\n");
 	#endif
 
-	clean_heap_with_extra_roots(task,0,one_root,NULL);
+	call_heapcleaner_with_extra_roots(task,0,one_root,NULL);
 
 	if (need_to_call_heapcleaner(task,bytes + ONE_K_BINARY)) {
 	    //

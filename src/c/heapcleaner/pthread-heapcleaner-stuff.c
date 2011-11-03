@@ -146,7 +146,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 static volatile int	pthreads_ready_to_clean_local = 0;			// Number of processors that are ready to clean.
 static int		cleaning_pthread_local;					// The cleaning pthread.
 
-// This holds extra roots provided by   clean_heap_with_extra_roots:
+// This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
 Val*         pth_extra_heapcleaner_roots_global[ MAX_EXTRA_HEAPCLEANER_ROOTS * MAX_PTHREADS ];
 
@@ -324,7 +324,7 @@ int   pth_start_heapcleaning   (Task *task) {
 }							// fun pth_start_heapcleaning
 
 
-int   pth_clean_heap_with_extra_roots   (Task *task, va_list ap) {
+int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     //==============================
     //
     // This fn is called (only) from:
@@ -424,7 +424,7 @@ int   pth_clean_heap_with_extra_roots   (Task *task, va_list ap) {
     #endif
 
     return 0;
-}											// fun pth_clean_heap_with_extra_roots
+}											// fun pth_call_heapcleaner_with_extra_roots
 
 
 

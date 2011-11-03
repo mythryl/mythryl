@@ -416,7 +416,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 		Val	root = initVal;
 		ap->requested_sib_buffer_bytesize += bytesize;
 		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
-		    clean_heap_with_extra_roots (task, gcLevel, &root, NULL);
+		    call_heapcleaner_with_extra_roots (task, gcLevel, &root, NULL);
 		    initVal = root;
 		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 		ap->requested_sib_buffer_bytesize = 0;
@@ -500,7 +500,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
 	    RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
-	        clean_heap_with_extra_roots (task, clean_level, &root, NULL);
+	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
 	    ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
 

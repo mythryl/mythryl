@@ -188,7 +188,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
                 
 		Val buffer =  PTR_CAST( Val,  bp->base );
 
-		clean_heap_with_extra_roots( task, 1, &buffer, NULL );
+		call_heapcleaner_with_extra_roots( task, 1, &buffer, NULL );
 
 		if (buffer != PTR_CAST( Val,  bp->base )) {
 		    //

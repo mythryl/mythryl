@@ -905,7 +905,7 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner (task, REC_BYTESIZE(import_record_slot_count))) {
         //
-	clean_heap_with_extra_roots (task, 0, &compiled_file_list, NULL);
+	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, NULL);
     }
 
     // Write the header for our 'import record', which will be 
@@ -1081,7 +1081,7 @@ static void   load_compiled_file   (
     //
     if (need_to_call_heapcleaner( task, PICKLEHASH_BYTES + REC_BYTESIZE(5)) ) {
 
-	clean_heap_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
+	call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
     }
 
     while (bytes_of_code_remaining > 0) {						// In practice, we always execute this loop exactly once.
@@ -1147,7 +1147,7 @@ static void   load_compiled_file   (
 
 	if (need_to_call_heapcleaner (task, PICKLEHASH_BYTES+REC_BYTESIZE(5))) {
 	    //
-	    clean_heap_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
+	    call_heapcleaner_with_extra_roots (task, 0, &compiled_file_list, &mythryl_result, NULL);
         }
     }
 
