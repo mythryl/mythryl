@@ -102,7 +102,7 @@
 
 #define run_heapcleaner_ptr	REGOFF(32,ESP)			// Needs to match   run_heapcleaner__offset  in  src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
 								// This ptr is used to invoke the heapcleaner by code generated in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
-								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner (below) which returns a REQUEST_CLEANING to
+								// This ptr is set by asm_run_mythryl_task (below) to point to call_heapcleaner_asm (below) which returns a REQUEST_CLEANING to
 								// run_mythryl_task_and_runtime_eventloop ()  in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 								// which will call   clean_heap	()            in   src/c/heapcleaner/call-heapcleaner.c
 #define unused_2		REGOFF(36,ESP)
@@ -186,7 +186,7 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 	MOVE(stdlink, temp, program_counter);				\
 	CMP_L(heap_allocation_limit, heap_allocation_pointer);		\
 	JB(9f);								\
-	CALL(CSYM(call_heapcleaner));					\
+	CALL(CSYM(call_heapcleaner_asm));					\
 	JMP(1b);							\
  9:
 
@@ -324,7 +324,7 @@ LIB7_CODE_HDR(call_cfun_asm)					// See call_cfun in src/lib/core/init/runtime.p
 
 // This is the entry point called from Mythryl to start a heapcleaning.
 //						Allen 6/5/1998
-ENTRY(call_heapcleaner)
+ENTRY(call_heapcleaner_asm)
 	POP_L(program_counter)
 	MOV_L(CONST(REQUEST_CLEANING), request_w)
 	//
@@ -403,7 +403,7 @@ ENTRY(asm_run_mythryl_task)
 	MOVE(REGOFF(    heap_allocation_limit_byte_offset_in_task_struct, temp),  temp2, heap_allocation_limit)
 	MOVE(REGOFF(           heap_changelog_byte_offset_in_task_struct, temp),  temp2, heap_changelog_ptr)
 	MOVE(REGOFF(                   thread_byte_offset_in_task_struct, temp),  temp2, current_thread_ptr)
-	LEA_L(CSYM(call_heapcleaner), temp2)
+	LEA_L(CSYM(call_heapcleaner_asm), temp2)
 	MOV_L(temp2, run_heapcleaner_ptr)
 	MOV_L(temp, task_ptr)
 

@@ -235,22 +235,22 @@
 #define CHECKLIMIT(label)	 				\
 	    bt		CR0_LT, label __SC__			\
 	    addi	program_counter, stdlink,0 __SC__	\
-	    b		CSYM(call_heapcleaner) __SC__		\
+	    b		CSYM(call_heapcleaner_asm) __SC__		\
     label:
 
 #if defined (USE_TOC)
 // Create table of contents entries for things we need the address of.
 	.extern		CSYM(software_generated_periodic_event_interval_refcell_global)
 	.extern 	CSYM(software_generated_periodic_events_switch_refcell_global)
-	.extern		CSYM(call_heapcleaner)
+	.extern		CSYM(call_heapcleaner_asm)
 
 	.toc
 T.software_generated_periodic_event_interval_refcell_global:
 	.tc	H.software_generated_periodic_event_interval_refcell_global[TC],CSYM(software_generated_periodic_event_interval_refcell_global)
 T.software_generated_periodic_events_switch_refcell_global:
 	.tc	H.software_generated_periodic_events_switch_refcell_global[TC],CSYM(software_generated_periodic_events_switch_refcell_global)
-T.call_heapcleaner:	
-	.tc	H.call_heapcleaner[TC],CSYM(call_heapcleaner)
+T.call_heapcleaner_asm:	
+	.tc	H.call_heapcleaner_asm[TC],CSYM(call_heapcleaner_asm)
 T.cvti2d_CONST:
 	.tc	H.cvti2d_CONST[TC],cvti2d_CONST
 #endif
@@ -377,7 +377,7 @@ LIB7_CODE_HDR(call_cfun_asm)
 
 // This is the entry point called from Mythryl to start a heapcleaning.
 //						Allen 6/5/1998
-ENTRY(call_heapcleaner)
+ENTRY(call_heapcleaner_asm)
 	li	atmp4, REQUEST_CLEANING
 	mflr	program_counter
 
@@ -437,16 +437,16 @@ restore_c_regs:
 CENTRY(asm_run_mythryl_task)
 	stwu	sp,-framesize(sp)
 #if defined(USE_TOC)
-	lwz	r0,T.call_heapcleaner(2)
+	lwz	r0,T.call_heapcleaner_asm(2)
 #else
 #ifdef BROKEN_CODE
-	lis	r28, HI(CSYM(call_heapcleaner))	// GPR0 <- addrof(call_heapcleaner)
-	addi	r28, r28, LO(CSYM(call_heapcleaner))
+	lis	r28, HI(CSYM(call_heapcleaner_asm))	// GPR0 <- addrof(call_heapcleaner_asm)
+	addi	r28, r28, LO(CSYM(call_heapcleaner_asm))
         li      r0, 0
         add     r0, r28, r0
 #else
-	lis	r11, HI(CSYM(call_heapcleaner))	// GPR0 <- addrof(call_heapcleaner)
-	addi	r11, r11, LO(CSYM(call_heapcleaner))
+	lis	r11, HI(CSYM(call_heapcleaner_asm))	// GPR0 <- addrof(call_heapcleaner_asm)
+	addi	r11, r11, LO(CSYM(call_heapcleaner_asm))
         li      r0, 0
         add     r0, r11, r0
 #endif

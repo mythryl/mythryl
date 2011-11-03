@@ -90,41 +90,41 @@
 // The Mythryl stack frame has the following layout (set up by asm_run_mythryl_task):
 //
 //	%fp = %sp+4096
-//                      +---------------------+
-//                      |                     |
-//                      .                     .
-//			|                     |
-//	%sp+116:	|  spill area         |
-//			+---------------------+
-//	%sp+112:	|     unused	      |
-//	%sp+108:	|     unused	      |
-//			+---------------------+
-//	%sp+104:	|     saved %o7       |
-//			+---------------------+
-//	%sp+100:	| &call_heapcleaner0  |
-//			+---------------------+
-//	%sp+96:	        | &Task               |
-//			+---------------------+
-//	%sp+92:		|  temp for floor     |
-//			+---------------------+
-//	%sp+88:		|  temp for cvti2d    |
-//			+---------------------+
-//      %sp+84:		| &_lib7_udiv         |
-//			+---------------------+
-//      %sp+80:		| &_lib7_umul         |
-//			+---------------------+
-//	%sp+76:		| &_lib7_div          |
-//			+---------------------+
-//	%sp+72:		| &_lib7_mul          |
-//			+---------------------+
-//	%sp+68:		|     saved %g6       | -- (heap_allocation_pointer)
-//			+---------------------+
-//	%sp+64:		|     saved %g7       | -- (exception_fate)
-//			+---------------------+
-//			|   space to save     |
-//			|   in and local      |
-//	%sp:		|     registers       |
-//			+---------------------+
+//                      +------------------------+
+//                      |                        |
+//                      .                        .
+//			|                        |
+//	%sp+116:	|  spill area            |
+//			+------------------------+
+//	%sp+112:	|     unused	         |
+//	%sp+108:	|     unused	         |
+//			+------------------------+
+//	%sp+104:	|     saved %o7          |
+//			+------------------------+
+//	%sp+100:	| &call_heapcleaner_asm0 |
+//			+------------------------+
+//	%sp+96:	        | &Task                  |
+//			+------------------------+
+//	%sp+92:		|  temp for floor        |
+//			+------------------------+
+//	%sp+88:		|  temp for cvti2d       |
+//			+------------------------+
+//      %sp+84:		| &_lib7_udiv            |
+//			+------------------------+
+//      %sp+80:		| &_lib7_umul            |
+//			+------------------------+
+//	%sp+76:		| &_lib7_div             |
+//			+------------------------+
+//	%sp+72:		| &_lib7_mul             |
+//			+------------------------+
+//	%sp+68:		|     saved %g6          | -- (heap_allocation_pointer)
+//			+------------------------+
+//	%sp+64:		|     saved %g7          | -- (exception_fate)
+//			+------------------------+
+//			|   space to save        |
+//			|   in and local         |
+//	%sp:		|     registers          |
+//			+------------------------+
 //
 // Note that this must be a multiple of 8 bytes.
 // The size of the stack frame is:
@@ -148,7 +148,7 @@
 		blu	label;				\
 		nop;					\
  		mov	STDLINK,PROGRAM_COUNTER;	\
-		ba	CSYM(call_heapcleaner);		\
+		ba	CSYM(call_heapcleaner_asm);	\
 		nop;					\
 	label:
 
@@ -281,9 +281,9 @@ LIB7_CODE_HDR(call_cfun_asm)
 //
 //						Allen 6/5/1998
 //
-ENTRY(call_heapcleaner0)
+ENTRY(call_heapcleaner_asm0)
 	add	PROGRAM_COUNTER, 8, PROGRAM_COUNTER
-ENTRY(call_heapcleaner)
+ENTRY(call_heapcleaner_asm)
 	set	REQUEST_CLEANING,TMPREG3
 
 	// FALL THROUGH
@@ -318,7 +318,7 @@ set_request:
 ENTRY(asm_run_mythryl_task)
 	save	%sp,-SA(LIB7_FRAMESIZE),%sp
 	st	%i0,[%sp+TASK_OFFSET]	// Save Task* on stack.
-	set	CSYM(call_heapcleaner0),ASMTMP
+	set	CSYM(call_heapcleaner_asm0),ASMTMP
 	st	ASMTMP,[%sp+RUN_HEAPCLEANER__OFFSET]
 	mov	%i0,Task			// Transfer Task* tmpreg4.
 	std	%g6,[%sp+64]			// Save C registers %g6 & %g7

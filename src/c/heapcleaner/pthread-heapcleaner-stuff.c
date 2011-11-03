@@ -297,7 +297,7 @@ int   pth_start_heapcleaning   (Task *task) {
     // we now return to caller to take up our
     // heapcleaning responsibilities:
     //
-    if (pthread->pid == cleaning_pthread_local)   return active_pthread_count;
+    if (pthread->pid == cleaning_pthread_local)   return active_pthread_count;			// We're the designated heapcleaner.
 
 
 
@@ -310,7 +310,7 @@ int   pth_start_heapcleaning   (Task *task) {
 	debug_say ("%d entering barrier %d\n",pthread->pid,active_pthread_count);
     #endif
 
-    pth_wait_at_barrier( pth_cleaner_barrier_global, active_pthread_count );
+    pth_wait_at_barrier( pth_cleaner_barrier_global, active_pthread_count );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
@@ -411,25 +411,31 @@ int   pth_clean_heap_with_extra_roots   (Task *task, va_list ap) {
 	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth_get_active_pthread_count());
     #endif
 
-    if (cleaning_pthread_local == pthread->pid)   return pthread_count;
+    if (cleaning_pthread_local == pthread->pid)   return pthread_count;			// We're the designated heapcleaner.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
     #endif
 
-    pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);
+    pth_wait_at_barrier(pth_cleaner_barrier_global, pthread_count);			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
     #endif
 
     return 0;
-}							// fun pth_clean_heap_with_extra_roots
+}											// fun pth_clean_heap_with_extra_roots
 
 
 
 void   pth_finish_heapcleaning   (Task *task, int n)   {
     // =======================
+    //
+    // This fn is called only from
+    //
+    //     src/c/heapcleaner/call-heapcleaner.c
+    //
+    // 
 
     // This works, but partition_agegroup0_buffer_between_pthreads is overkill:		XXX BUGGO FIXME
     //
@@ -441,7 +447,7 @@ void   pth_finish_heapcleaning   (Task *task, int n)   {
 	debug_say ("%d entering barrier %d\n", task->pthread->pid,n);
     #endif
 
-    pth_wait_at_barrier( pth_cleaner_barrier_global, n );
+    pth_wait_at_barrier( pth_cleaner_barrier_global, n );				// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 
     pthreads_ready_to_clean_local = 0;
 
