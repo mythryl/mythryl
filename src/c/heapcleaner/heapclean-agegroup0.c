@@ -82,7 +82,7 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 //
 //     src/c/heapcleaner/call-heapcleaner.c
 //
-void   clean_agegroup0   (Task* task,  Val** roots) {
+void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // ===============
     //
     // Do "garbage collection" on just agegroup0.
@@ -197,7 +197,7 @@ void   clean_agegroup0   (Task* task,  Val** roots) {
         check_heap( heap, 1 );								// check_heap		def in    src/c/heapcleaner/check-heap.c
     #endif
 
-}											// fun clean_agegroup0
+}											// fun heapclean_agegroup0
 
 
 static int   get_age_of_codechunk   (Val codechunk) {

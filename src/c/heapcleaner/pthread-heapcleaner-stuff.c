@@ -325,7 +325,7 @@ int   pth_start_heapcleaning   (Task *task) {
 
 
 int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
-    //==============================
+    //=====================================
     //
     // This fn is called (only) from:
     //
@@ -371,9 +371,7 @@ int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     pth_release_mutex( pth_heapcleaner_mutex_global );
 
     {
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    int n = 0;
-	#endif
+	int n = 0;
 
 	// NB: Some other pthread can be concurrently
         // acquiring new kernel threads:
@@ -382,17 +380,17 @@ int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 	    // SPIN
 
-		if (n != 1000) {
-		    for (int i = 10000; i -> 0; );
-		    n++;
-		} else {
-		    n = 0;
-	            #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-			debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			    pthread->pid, pthreads_ready_to_clean_local, pthread_count, task->heap_allocation_pointer,
-			    task->heap_allocation_limit);
-		    #endif
-		}
+	    if (n != 1000) {
+		for (int i = 10000; i -> 0; );
+		n++;
+	    } else {
+		n = 0;
+		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
+			pthread->pid, pthreads_ready_to_clean_local, pthread_count, task->heap_allocation_pointer,
+			task->heap_allocation_limit);
+		#endif
+	    }
 	}
     }
 

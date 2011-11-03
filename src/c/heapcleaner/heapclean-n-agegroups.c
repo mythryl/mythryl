@@ -477,7 +477,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
 }
 
 
-void                clean_n_agegroups                  (Task* task,  Val** roots,  int level)   {
+void                heapclean_n_agegroups                  (Task* task,  Val** roots,  int level)   {
     //              =================
     // 
     // Clean (at least) the first 'level' agegroups.
@@ -533,7 +533,7 @@ void                clean_n_agegroups                  (Task* task,  Val** roots
     #endif
 
     trim_heap( heap, oldest_agegroup_to_clean );
-}								// fun clean_n_agegroups.
+}								// fun heapclean_n_agegroups.
 
 
 // DEBUG
@@ -1528,7 +1528,7 @@ static Val          forward_special_chunk   (
 	    Val	v = *chunk;
 
 	    #ifdef DEBUG_WEAK_PTRS
-	        debug_say ("clean_n_agegroups: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
+	        debug_say ("heapclean_n_agegroups: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
 	    #endif
 
 	    if (! IS_POINTER(v)) {

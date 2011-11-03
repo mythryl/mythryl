@@ -81,10 +81,13 @@ void   call_heapcleaner   (Task* task,  int level) {
 	//											// releases the waiting pthreads in   pth_finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//
 	if ((active_pthreads_count = pth_start_heapcleaning( task )) == 0) {			// pth_start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-	    //											// Return value was zero, so we're not the designated heapcleaner pthread,
-	    // A waiting pthread:								// and our return from pth_start_heapcleaning means that the heapcleaning
-	    //											// is already complete, so we can now resume execution of user code.
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
+	    //
+	    // Return value was zero, so we're not the designated heapcleaner pthread,
+	    // and our return from pth_start_heapcleaning means that the heapcleaning
+	    // is already complete, so we can now resume execution of user code.
+	    //
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    //
 	    return;
 	}
 
@@ -124,7 +127,19 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ = c_roots_global[ i ];
     }
 
-    #if NEED_PTHREAD_SUPPORT
+    #if !NEED_PTHREAD_SUPPORT
+	//	
+	*roots_ptr++ =  &task->link_register;
+	*roots_ptr++ =  &task->argument;
+	*roots_ptr++ =  &task->fate;
+	*roots_ptr++ =  &task->closure;
+	*roots_ptr++ =  &task->exception_fate;
+	*roots_ptr++ =  &task->thread;
+	*roots_ptr++ =  &task->callee_saved_registers[0];
+	*roots_ptr++ =  &task->callee_saved_registers[1];
+	*roots_ptr++ =  &task->callee_saved_registers[2];
+	//
+    #else										// NEED_PTHREAD_SUPPORT
 	{
 	    Pthread* pthread;
 	    Task*	 task;
@@ -141,7 +156,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 		if (pthread->status == PTHREAD_IS_RUNNING) {
 		    //
-		    *roots_ptr++ =  &task->argument;
+		    *roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do is in the level > 0 case below?
 		    *roots_ptr++ =  &task->fate;
 		    *roots_ptr++ =  &task->closure;
 		    *roots_ptr++ =  &task->exception_fate;
@@ -152,22 +167,11 @@ void   call_heapcleaner   (Task* task,  int level) {
 		}
 	    }
 	}
-    #else								// !NEED_PTHREAD_SUPPORT
-	//	
-	*roots_ptr++ =  &task->link_register;
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
     #endif										// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
-    clean_agegroup0( task, roots );							// clean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
+    heapclean_agegroup0( task, roots );							// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -195,46 +199,49 @@ void   call_heapcleaner   (Task* task,  int level) {
     if (level > 0) {
         //
 	#if NEED_PTHREAD_SUPPORT
-            //	
-	    Task* task;
-
-	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
+	    {
+		Task* task;
 		//
-		Pthread*  pthread =  pthread_table_global[ i ];
-		//
-		task  =  pthread->task;
-		//
-		if (pthread->status == PTHREAD_IS_RUNNING) {
+		for (int i = 0;  i < MAX_PTHREADS;  i++) {
 		    //
-		    *roots_ptr++ =  &task->link_register;
+		    Pthread*  pthread =  pthread_table_global[ i ];
+		    //
+		    task  =  pthread->task;
+		    //
+		    if (pthread->status == PTHREAD_IS_RUNNING) {
+			//
+			*roots_ptr++ =  &task->link_register;
+		    }
 		}
 	    }
-	#else
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );
 	#endif
 
 	*roots_ptr = NULL;
 
-	clean_n_agegroups( task, roots, level );							// clean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
+
+	heapclean_n_agegroups( task, roots, level );							// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
-    // Reset the allocation space:
+    // Reset the generation0 allocation pointers:
     //
     #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
-	pth_finish_heapcleaning( task, active_pthreads_count );
+	//
+	pth_finish_heapcleaning( task, active_pthreads_count );						// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
-	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
+	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );				// Set heap limit to obvious value.
 	#else
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
+	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );			// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
 	#endif
     #endif
 
     note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			                                             // fun call_heapcleaner
 
 
@@ -257,7 +264,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     va_list ap;
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -269,15 +276,32 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	int active_pthreads_count										// Number of active pthreads. We need this (only) for the final   pth_wait_at_barrier()   that 
 	    =													// releases the waiting pthreads in   pth_finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
-	    pth_call_heapcleaner_with_extra_roots (task, ap);
+	    pth_call_heapcleaner_with_extra_roots (task, ap);							// pth_call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 	va_end(ap);
 
 	if (active_pthreads_count == 0)	{
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
-	    return;				// A waiting proc
+	    // Return value was zero, so we're not the designated heapcleaner pthread,
+	    // and our return from pth_start_heapcleaning means that the heapcleaning
+	    // is already complete, so we can now resume execution of user code.
+	    //
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    //
+	    return;
 	}
+
+	// At this point we know that
+	// 
+	//     1) We're the designated heapcleaner pthread.
+	// 
+	//     2) All other pthreads have now suspended execution of
+	//        user code and are barrier-blocked waiting for us to
+	//	  release them via the final pth_finish_heapcleaning()
+	//        call below.
+	// 
+	// Consequently, at this point we can safely just fall
+	// into the vanilla single-threaded heapcleaning code:
     #endif
 
     note_when_heapcleaning_started( task->heap );								// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
@@ -287,15 +311,15 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-        // get extra roots from procs that entered through call_heapcleaner_with_extra_roots.
+        // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth_extra_heapcleaner_roots_global by pth_call_heapcleaner_with_extra_roots.
         //
 	for (int i = 0;  pth_extra_heapcleaner_roots_global[i] != NULL;  i++) {
 	    //
-	    *roots_ptr++ = pth_extra_heapcleaner_roots_global[i];
+	    *roots_ptr++ =  pth_extra_heapcleaner_roots_global[ i ];
 	}
     #else
-        // Record extra roots from param list:
+        // Note extra roots from argument list:
 	//
 	va_start (ap, level);
 	//
@@ -313,7 +337,18 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  c_roots_global[ i ];
     }
 
-    #if NEED_PTHREAD_SUPPORT
+    #if !NEED_PTHREAD_SUPPORT
+	//
+	*roots_ptr++ =  &task->argument;
+	*roots_ptr++ =  &task->fate;
+	*roots_ptr++ =  &task->closure;
+	*roots_ptr++ =  &task->exception_fate;
+	*roots_ptr++ =  &task->thread;
+	*roots_ptr++ =  &task->callee_saved_registers[0];
+	*roots_ptr++ =  &task->callee_saved_registers[1];
+	*roots_ptr++ =  &task->callee_saved_registers[2];
+	//
+    #else						// NEED_PTHREAD_SUPPORT
 	{
 	    Task*     task;
 	    Pthread*  pthread;
@@ -324,8 +359,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		task    = pthread->task;
 
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		    debug_say ("task[%d] alloc/limit was %x/%x\n",
-			    j, task->heap_allocation_pointer, task->heap_allocation_limit);
+		    debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 		#endif
 
 		if (pthread->status == PTHREAD_IS_RUNNING) {
@@ -341,23 +375,11 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		}
 	    }
 	}
-
-    #else						// !NEED_PTHREAD_SUPPORT
-
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
-
     #endif						// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
-    clean_agegroup0( task, roots );			// clean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
+    heapclean_agegroup0( task, roots );			// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -384,29 +406,31 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-	#if NEED_PTHREAD_SUPPORT
+	#if !NEED_PTHREAD_SUPPORT
 	    //
-	    Pthread* pthread;
-
-	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
-	        //
-		pthread = pthread_table_global[ i ];
+	    //
+	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
+	    *roots_ptr++ =  &task->program_counter;
+	#else
+	    {   Pthread* pthread;
 		//
-		if (pthread->status == PTHREAD_IS_RUNNING) {
+		for (int i = 0;  i < MAX_PTHREADS;  i++) {
 		    //
-		    *roots_ptr++ =  &pthread->task->link_register;
+		    pthread = pthread_table_global[ i ];
+		    //
+		    if (pthread->status == PTHREAD_IS_RUNNING) {
+			//
+			*roots_ptr++ =  &pthread->task->link_register;
+		    }
 		}
 	    }
-	#else
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );
-	    //
-	    *roots_ptr++ =  &task->link_register;
-	    *roots_ptr++ =  &task->program_counter;
 	#endif
 
 	*roots_ptr = NULL;
 
-	clean_n_agegroups( task, roots, level );								// clean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
+
+	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
 
     }
 
