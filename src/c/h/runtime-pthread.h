@@ -23,6 +23,8 @@
 
 #include "../mythryl-config.h"
 
+#include "runtime-base.h"
+
 // Status of a Pthread:
 //
 typedef enum {
@@ -98,7 +100,7 @@ typedef pid_t 	Pid;			// A process id.
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
-    extern Pid      pth_get_pthread_id		(void);					// Supplies value for pthread_table_global[0]->pid in   src/c/main/runtime-state.c
+    extern Pid      pth_get_pthread_id		(void);					// Used to initialize pthread_table_global[0]->pid in   src/c/main/runtime-state.c
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //

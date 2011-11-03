@@ -29,7 +29,7 @@
 
 // The Pthread state vector:
 //
-struct pthread_state_struct {
+struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread			def in   src/c/h/runtime-base.h
     //
     Heap* heap;		  					// The heap for this Mythryl task.
 								// 'Heap' is defined in	  src/c/h/runtime-base.h
