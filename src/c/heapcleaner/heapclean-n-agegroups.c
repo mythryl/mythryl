@@ -407,7 +407,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 }
 
 
-static int          set_up_to_clean_heap               (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
+static int          prepare_for_heapcleaning               (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
     //              ====================
     //
     //
@@ -491,9 +491,10 @@ void                clean_n_agegroups                  (Task* task,  Val** roots
 
     Val*  tospace_limit[ MAX_PLAIN_ILKS ];	// Set by following call.			// Cleaner statistics:  Counts number of bytes forwarded.
     int	  max_swept_agegroup;			// Set by following call.
-    int   oldest_agegroup_to_clean
+
+    int oldest_agegroup_to_clean
         =
-        set_up_to_clean_heap(
+        prepare_for_heapcleaning(
 	    //
             &max_swept_agegroup,		// Return value.
 	    tospace_limit,			// Return value.

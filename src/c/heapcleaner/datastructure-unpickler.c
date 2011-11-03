@@ -165,7 +165,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 
 	    if (sib_headers[ilk] != NULL
 		&&
-               (!sib_is_active(sib)									// sib_is_active		def in    src/c/h/heap.h
+               (!sib_is_active(sib)								// sib_is_active		def in    src/c/h/heap.h
 	       || sib_freespace_in_bytes(sib) < sib_headers[ ilk ]->info.o.bytesize		// sib_freespace_in_bytes	def in    src/c/h/heap.h
                                                +
                                                agegroup0_buffer_bytesize
@@ -179,11 +179,11 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 	if (needs_cleaning) {
 	    //
 	    if (bp->nbytes <= 0) {
-
-		clean_heap( task, 1 );
+		//
+		call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
 	    } else {
-
+		//
 	        // The cleaning may move the buffer, so:
                 
 		Val buffer =  PTR_CAST( Val,  bp->base );

@@ -140,12 +140,13 @@ static Status   write_heap_image_to_file   (
     Status status =  SUCCESS;
 
     Writer*   wr;
-    if (    !(wr = WR_OpenFile( file )))    return FAILURE;
+
+    if (!(wr = WR_OpenFile( file )))    return FAILURE;
 
     // Shed any and all garbage:
     //
-    clean_heap( task, 0			   );		// Minor    garbage collection.			// clean_heap				def in    src/c/heapcleaner/call-heapcleaner.c
-    clean_heap( task, MAX_ACTIVE_AGEGROUPS );		// Complete garbage collection.
+    call_heapcleaner( task, 0			 );		// Clean (only) heap generation zero.		// call_heapcleaner				def in    src/c/heapcleaner/call-heapcleaner.c
+    call_heapcleaner( task, MAX_ACTIVE_AGEGROUPS );		// Clean all (remaining) heap generations.
 
 
     Heapfile_Cfun_Table*  export_table =  build_export_table( heap );						// build_export_table			def below.

@@ -602,9 +602,9 @@ static void   suspend_pthread   (Task* task) {
 }						// fun suspend_pthread.
 //
 void   pth_release_pthread   (Task* task)   {
-    // ==================
+    // ===================
     //
-    clean_heap( task, 1 );
+    call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
     pth_acquire_mutex(mp_pthread_mutex_local);
        task->pthread->status = PTHREAD_IS_SUSPENDED;

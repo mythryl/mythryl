@@ -159,7 +159,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 		if (need_to_call_heapcleaner( task, 4*ONE_K_BINARY )) {
 		    //
-		    clean_heap( task, 0 );
+		    call_heapcleaner( task, 0 );
 		}
 
 	        // Figure out which unix signal needs handling
@@ -227,17 +227,17 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	debug_say ("run-mythryl-code-and-runtime-eventloop: software generated periodic event\n");
     #endif
 	        task->software_generated_periodic_event_is_pending = FALSE;
-	        clean_heap(
+	        call_heapcleaner(
                     task,
                     0		// Age-groups to heapclean.  (=="Generations to garbage collect".)
                 );
 #else
-		if (need_to_call_heapcleaner( task, 4 * ONE_K_BINARY )) {					// 64-bit issue -- '4' here is 'bytes-per-word'.
+		if (need_to_call_heapcleaner( task, 4 * ONE_K_BINARY )) {				// 64-bit issue -- '4' here is 'bytes-per-word'.
 													// This 4*ONE_K_BINARY number has(?) to match   max_heapwords_to_allocate_between_heaplimit_checks
 													//     in src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
 													// This 4*ONE_K_BINARY number has(?) to match   skid_pad_size_in_bytes
 													//     in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
-		    clean_heap (task, 0);
+		    call_heapcleaner (task, 0);
                 }
 		task->argument	     =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
 		task->fate	     =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
@@ -253,7 +253,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	    } 
 #endif // NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    else
-	        clean_heap (task, 0);
+	        call_heapcleaner (task, 0);
 	} else {
 
 	    switch (request) {
@@ -278,7 +278,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		// but that stuff is also non-operational (I think) and
 		// we're not supposed to return to caller in those cases.
 		// 
-		clean_heap (task, 0);	        		// Do a minor collection to clear the store list.
+		call_heapcleaner (task, 0);	        		// Do a minor collection to clear the store list.
 		return;
 
 	    case REQUEST_HANDLE_UNCAUGHT_EXCEPTION:
@@ -325,7 +325,8 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		    SET_UP_RETURN( task );
 
 		    if (need_to_call_heapcleaner (task, 8*ONE_K_BINARY)) {
-			clean_heap (task, 0);
+		        //
+			call_heapcleaner (task, 0);
 		    }
 #ifdef INDIRECT_CFUNC
 		    f = ((Mythryl_Name_With_C_Function*) GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, task->argument, 0 ))->cfunc;

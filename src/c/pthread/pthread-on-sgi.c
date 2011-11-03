@@ -417,7 +417,7 @@ void   pth_release_pthread   (Task* task)   {
 	debug_say("[release_pthread: suspending]\n");
     #endif
 
-    clean_heap(task,1);
+    call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
     pth_acquire_mutex(MP_ProcLock);
 
@@ -427,9 +427,7 @@ void   pth_release_pthread   (Task* task)   {
 
     while (task->pthread->status == PTHREAD_IS_SUSPENDED) {
 	//
-        // Need to be continually available for garbage collection:
-	//
-	clean_heap( task, 1 );
+	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
     }
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say("[release_pthread: resuming]\n");

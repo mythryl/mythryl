@@ -183,9 +183,13 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 	        // We need to do a garbage collection:
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
+                //
 		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
-		    clean_heap( task, 1 );
+		    //
+		    call_heapcleaner( task, 1 );
+		    //
 		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
+                //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
 	    *(ap->next_tospace_word_to_allocate++) = tagword;
@@ -267,9 +271,13 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	        // We need to do a garbage collection:
 
 		ap->requested_sib_buffer_bytesize += bytesize;
+		//
 		RELEASE_MUTEX(pth_heapcleaner_gen_mutex_global);
-		    clean_heap (task, 1);
+		    //
+		    call_heapcleaner (task, 1);
+		    //
 		ACQUIRE_MUTEX(pth_heapcleaner_gen_mutex_global);
+		//
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
 	    #ifdef ALIGN_FLOAT64S
