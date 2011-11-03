@@ -54,15 +54,15 @@ struct pthread_state_struct {
 	posix_signal_counts[ MAX_POSIX_SIGNALS ];		// Per-signal counts of pending signals.
     //
     int		posix_signal_rotor;				// Ihe index in previous of the next slot to check, round-robin style.
-    int		cleaning_signal_handler_state;		// State of the cleaner signal handler.
+    int		cleaning_signal_handler_state;			// State of the cleaner signal handler.
 
     Time*	cpu_time_at_start_of_last_cleaning;		// The cumulative CPU time at the start of the last clean -- see src/c/main/timers.c
-    Time*	cumulative_cleaning_cpu_time;		// The cumulative cleaning time.
+    Time*	cumulative_cleaning_cpu_time;			// The cumulative cleaning time.
 
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #if NEED_PTHREAD_SUPPORT
-	Pid	        pid;	       				// Our kernel thread's kernel process identifier ("pid").
+	Pid	        pid;	       				// Our kernel thread's process identifier ("pid").
 	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-pthread.h
     #endif
 };

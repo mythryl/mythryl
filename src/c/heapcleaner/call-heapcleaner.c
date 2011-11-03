@@ -67,9 +67,6 @@ void   call_heapcleaner   (Task* task,  int level) {
     Val** roots_ptr = roots;
     Heap* heap;
 
-    #if NEED_PTHREAD_SUPPORT
-	int		pthreads_count;
-    #endif
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell_global   from	src/c/main/construct-runtime-package.c
@@ -77,8 +74,11 @@ void   call_heapcleaner   (Task* task,  int level) {
     #if NEED_PTHREAD_SUPPORT
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("igc %d\n", task->lib7_mpSelf);
+	    debug_say ("igc %d\n", task->pid);
 	#endif
+	//
+	int   pthreads_count;									// Number of active pthreads. We need this for the final   pth_wait_at_barrier()   that 
+	//											// releases the waiting pthreads in   pth_finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//
 	if ((pthreads_count = pth_start_heapcleaning( task )) == 0) {				// pth_start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //											// Return value was zero, so we're not the designated heapcleaner pthread,
@@ -266,7 +266,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("igcwr %d\n", task->lib7_mpSelf);
+	    debug_say ("igcwr %d\n", task->pid);
 	#endif
 
 	va_start (ap, level);

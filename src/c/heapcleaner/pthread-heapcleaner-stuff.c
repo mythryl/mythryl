@@ -215,7 +215,7 @@ int   pth_start_heapcleaning   (Task *task) {
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
 	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		debug_say ("%d: set poll event\n", task->lib7_mpSelf);
+		debug_say ("%d: set poll event\n", task->pid);
 	    #endif
 	#endif
 
@@ -269,7 +269,7 @@ int   pth_start_heapcleaning   (Task *task) {
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		    //
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			task->lib7_mpSelf, pthreads_ready_to_clean_local, active_pthread_count, task->heap_allocation_pointer,
+			task->pidf, pthreads_ready_to_clean_local, active_pthread_count, task->heap_allocation_pointer,
 			task->heap_allocation_limit);
 		#endif
 	    }
@@ -283,12 +283,12 @@ int   pth_start_heapcleaning   (Task *task) {
 	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
+	    debug_say ("%d: cleared poll event\n", task->pid);
 	#endif
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->lib7_mpSelf, pthreads_ready_to_clean_local, pth_get_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->pid, pthreads_ready_to_clean_local, pth_get_active_pthread_count());
     #endif
 
 
@@ -403,7 +403,7 @@ int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("%d: cleared poll event\n", task->lib7_mpSelf);
+	    debug_say ("%d: cleared poll event\n", task->pid);
 	#endif
     #endif
 
@@ -455,7 +455,7 @@ void   pth_finish_heapcleaning   (Task *task, int n)   {
 	debug_say ("%d left barrier\n", task->pthread->pid);
     #endif
 
-    pth_release_mutex(pth_heapcleaner_mutex_global);
+    pth_release_mutex( pth_heapcleaner_mutex_global );
 }
 
 
