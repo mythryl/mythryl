@@ -331,7 +331,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
     // Search for a suspended kernel thread to reuse:
     //
     for (i = 0;
-	(i < pthread_count_global) && (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
+	(i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
 	i++
     ) {
 	continue;
@@ -340,7 +340,7 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	debug_say("[checking for suspended processor]\n");
     #endif
 
-    if (i == pthread_count_global) {
+    if (i == MAX_PTHREADS) {
         //
 	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
@@ -355,15 +355,15 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc
 	//
 	for (i = 0;
-	    (i < pthread_count_global) && (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
+	    (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
 	    i++
 	){
 	    continue;
 	}
 
-	if (i == pthread_count_global) {
+	if (i == MAX_PTHREADS) {
 	    //
-	    pth_release_mutex(MP_ProcLock);
+	    pth_release_mutex( MP_ProcLock );
 	    say_error("[no processor to allocate]\n");
 	    return HEAP_FALSE;
 	}

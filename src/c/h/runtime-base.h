@@ -221,7 +221,6 @@ extern Bool   cleaner_messages_are_enabled_global;		// Set                      
 extern Bool   unlimited_heap_is_enabled_global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 
 extern Pthread*	pthread_table_global [];
-extern int	pthread_count_global;
 
 #endif // _ASM_ 
 

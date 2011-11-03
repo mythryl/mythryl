@@ -16,8 +16,10 @@
 #include "runtime-configuration.h"
 
 
-Pthread* pthread_table_global[ MAX_PTHREADS ];
-int	 pthread_count_global;
+												// struct pthread_state_struct { 			def in   src/c/h/pthread-state.h
+												// typedef struct pthread_state_struct	Pthread;	def in   src/c/h/runtime-base.h
+Pthread* pthread_table_global[ MAX_PTHREADS ];							// pthread_table_global[] is exported			via      src/c/h/runtime-base.h
+
 
 
 static void   set_up_pthread_state   (Pthread* pthread);
@@ -60,13 +62,13 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
     //
     set_up_heap( task, is_boot, cleaner_args );							// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-    #if NEED_PTHREAD_SUPPORT
+    #if !NEED_PTHREAD_SUPPORT
 	//
+	set_up_pthread_state( pthread_table_global[ 0 ] );
+    #else
         // 'set_up_heap' has created an agegroup0 buffer;
 	//  partition it between our MAX_PTHREADS pthreads:
         //
-	pthread_count_global = MAX_PTHREADS;
-	//
 	partition_agegroup0_buffer_between_pthreads( pthread_table_global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
         // Initialize the per-Pthread Mythryl state:
@@ -93,9 +95,6 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 												// pth_pthread_id				def in    src/c/pthread/pthread-on-sgi.c
 												// pth_pthread_id				def in    src/c/pthread/pthread-on-solaris.c
 	pthread_table_global[0]->status =  PTHREAD_IS_RUNNING;
-    #else
-	set_up_pthread_state( pthread_table_global[ 0 ] );
-	pthread_count_global = 1;
     #endif						// NEED_PTHREAD_SUPPORT
 
     // Initialize the timers:

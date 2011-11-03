@@ -83,9 +83,15 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 //     src/c/heapcleaner/call-heapcleaner.c
 //
 void   heapclean_agegroup0   (Task* task,  Val** roots) {
-    // ===============
+    // ===================
     //
     // Do "garbage collection" on just agegroup0.
+    //
+    // NB: If we have multiple pthreads running,
+    // each has its own agegroup0, but we process
+    // all of those during this call, by virtue
+    // of being passed all the roots from all the
+    // running pthreads. 
 
     Heap*      heap =  task->heap;
     Agegroup*  age1 =  heap->agegroup[0];
@@ -135,9 +141,11 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the store log:
     //
-    #if NEED_PTHREAD_SUPPORT
+    #if !NEED_PTHREAD_SUPPORT
 	//
-	for (int i = 0;  i < MAX_PTHREADS;  i++) {
+	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
+    #else
+	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table_global[ i ];
 	    //
@@ -148,8 +156,6 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 		process_task_heap_changelog( task, heap );
 	    }
 	}
-    #else
-	process_task_heap_changelog( task, heap );
     #endif
 
     // Sweep the to-space for agegroup 1:

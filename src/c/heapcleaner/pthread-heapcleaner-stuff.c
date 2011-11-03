@@ -108,7 +108,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		// at which point our logic will regain control.
 		//
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		debug_say ("(with poll_freq=%d) ", poll_freq);
+		    debug_say ("(with poll_freq=%d) ", poll_freq);
 		#endif
 
 		task->heap_allocation_limit
@@ -240,9 +240,7 @@ int   pth_start_heapcleaning   (Task *task) {
 /////////////////////////////////////////////////////
 
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    int n = 0;
-	#endif
+	int n = 0;
 
 
         // NB: Some other pthread can be
@@ -344,6 +342,8 @@ int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	//
         extra_cleaner_roots_local = pth_extra_heapcleaner_roots_global;
 
+	// Signal other pthreads to enter heapcleaning mode:
+	//
 	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);

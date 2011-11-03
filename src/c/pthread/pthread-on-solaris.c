@@ -669,16 +669,17 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
     // Search for a suspended proc to reuse:
     //
-    for (i = 0;
-	 (i < pthread_count_global) && (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
-	 i++)
-      continue;
+    for (  i = 0;
+	   (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
+	   i++
+	);
+
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
         debug_say("[checking for suspended processor]\n");
     #endif
 
-    if (i == pthread_count_global) {
+    if (i == MAX_PTHREADS) {
 	//
         if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
@@ -693,15 +694,16 @@ Val   pth_acquire_pthread   (Task* task, Val arg)   {
 
 	// Search for a slot in which to put a new proc:
         //
-	for (i = 0;
-	     (i < pthread_count_global) && (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
-	     i++)
-	  continue;
+	for (  i = 0;
+	      (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
+	       i++
+            );
 
-        if (i == pthread_count_global) {
+        if (i == MAX_PTHREADS) {
 	    //
 	    pth_release_mutex(mp_pthread_mutex_local);
 	    say_error( "[no processor to allocate]\n" );
+	    //
 	    return HEAP_FALSE;
 	}
 
