@@ -134,9 +134,9 @@ typedef Int1 Status;
     typedef   Valchunk*   Val;					// Only place Valchunk type is used.
 #endif
 //
-typedef struct pthread_state_struct	Pthread;
-typedef struct task			Task;
-typedef struct heap			Heap;
+typedef struct pthread_state_struct	Pthread;		// struct pthread_state_struct	def in   src/c/h/pthread-state.h
+typedef struct task			Task;			// struct task			def in   src/c/h/task.h 
+typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 
 
 // System_Constant

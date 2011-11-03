@@ -100,6 +100,23 @@ Pid   pth_get_pthread_id   ()   {
     return getpid ();
 }
 
+Pthread*  pth_get_pthread   ()   {
+    //    ===============
+    //
+    // Return Pthread* for currently running pthread -- this
+    // is needed to find record for current pthread in contexts
+    // like signal handlers where it is not (otherwise) available.
+    //    
+    //
+    int pid =  pth_get_pthread_id ();						// Since this just calls getpid(), the result is available in all contexts.  (That we care about. :-)
+    //
+    for (int i = 0;  i < MAX_PTHREADS;  ++i) {
+	//
+	if (pthread_table_global[i].pid == pid)   return &pthread_table_global[ i ];
+    }
+    die "pth_get_pthread:  pid %d not found in pthread_table_global?!", pid;
+}
+
 
 static Mutex   allocate_mutex   ()   {
     //        =============
@@ -441,7 +458,7 @@ void   pth_release_pthread   (Task* task)   {
 
 
 int   pth_get_active_pthread_count   ()   {
-    //=======================
+    //============================
     //
     int ap;
 
