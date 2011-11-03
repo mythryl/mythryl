@@ -428,7 +428,12 @@ int   pth_call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 
 
-void   pth_finish_heapcleaning   (Task *task, int n)   {
+void    pth_finish_heapcleaning
+	  (
+	    Task*  task,
+	    int    active_pthreads_count						// Number of pthreads running currently.  We need this (only) for our pth_wait_at_barrier() call.
+	  )
+{
     // =======================
     //
     // This fn is called only from
@@ -444,10 +449,10 @@ void   pth_finish_heapcleaning   (Task *task, int n)   {
     pth_acquire_mutex( pth_heapcleaner_mutex_global );
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("%d entering barrier %d\n", task->pthread->pid,n);
+	debug_say ("%d entering barrier %d\n", task->pthread->pid, active_pthreads_count );
     #endif
 
-    pth_wait_at_barrier( pth_cleaner_barrier_global, n );				// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
+    pth_wait_at_barrier( pth_cleaner_barrier_global, active_pthreads_count );			// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 
     pthreads_ready_to_clean_local = 0;
 
