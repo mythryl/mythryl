@@ -73,6 +73,11 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     #if NEED_PTHREAD_SUPPORT
 	//
+	// Signal all pthreads to enter heapcleaner mode and
+	// select a designated pthread to do the heapcleaning work.
+	// That pthread returns and falls into the regular heapcleaning code;
+	// the remainder block at a barrier until heapcleaning is complete:
+	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("igc %d\n", task->pid);
 	#endif
@@ -141,8 +146,8 @@ void   call_heapcleaner   (Task* task,  int level) {
 	//
     #else										// NEED_PTHREAD_SUPPORT
 	{
-	    Pthread* pthread;
-	    Task*	 task;
+	    Pthread*  pthread;
+	    Task*     task;
 
 	    for (int j = 0;  j < MAX_PTHREADS;  j++) {
 		//
@@ -175,7 +180,12 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     heap = task->heap;
 
-    // Check for full cleaning:
+
+    // If any generation-1 ilk is short on freespace,
+    // commit to doing a multigeneration heapcleaning.
+    //
+    // We can skip this check if we're anyhow already
+    // committed to    a multigeneration heapcleaning:
     //
     if (level == 0) {
         //
@@ -190,7 +200,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    if (sib_is_active( sib )							// sib_is_active		def in    src/c/h/heap.h
             &&  sib_freespace_in_bytes( sib ) < size					// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
-		level = 1;
+		level = 1;								// Commit to multigeneration heapcleaning.
 		break;
 	    }
 	}
@@ -383,7 +393,12 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     heap = task->heap;
 
-    // Check for major GC:
+
+    // If any generation-1 ilk is short on freespace,
+    // commit to doing a multigeneration heapcleaning.
+    //
+    // We can skip this check if we're anyhow already
+    // committed to    a multigeneration heapcleaning:
     //
     if (level == 0) {
         //
