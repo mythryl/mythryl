@@ -30,16 +30,16 @@ extern Punt  grabPCend ();
 Val_Sized_Unt*	last_entry;		// Points to the beginning of the last c-entry
 					// executed set by grabPC in c-entry.asm 
 
-static Code_Header*   last_code_header_used_local   = NULL;  // Last code header used.
+static Code_Header*   last_code_header_used__local   = NULL;  // Last code header used.
 
-static Task*	visible_task_local = NULL;				// Used to expose Task to C code. Used only in this file and in src/c/lib/ccalls/ccalls-fns.c
+static Task*	visible_task__local = NULL;				// Used to expose Task to C code. Used only in this file and in src/c/lib/ccalls/ccalls-fns.c
 
 void   set_visible_task   (Task* visible_task)   {
     // ================
     //
     // Called only from one place   in   src/c/lib/ccalls/ccalls.c
     //
-    visible_task_local =  visible_task;
+    visible_task__local =  visible_task;
 }
 
 #define CODE_HDR_START(p)   ((Code_Header*) ((Unt8*) (p)-sizeof(Code_Header)))
@@ -237,9 +237,9 @@ static void   restore_task   (Task* task)   {
     //
     #if (CALLEE_SAVED_REGISTERS_COUNT > 0)
 	//
-	restore_state( visible_task_local, visible_task_local->callee_saved_registers(1), FALSE );
+	restore_state( visible_task__local, visible_task__local->callee_saved_registers(1), FALSE );
     #else
-	restore_state( visible_task_local, visible_task_local->fate,                      TRUE  );
+	restore_state( visible_task__local, visible_task__local->fate,                      TRUE  );
     #endif
 }
 
@@ -271,14 +271,14 @@ int   no_args_entry   (void)   {
     #ifdef DEBUG_C_CALLS
 	printf("no_args_entry: entered\n");
     #endif
-	last_code_header_used_local = CODE_HDR_START(last_entry);
+	last_code_header_used__local = CODE_HDR_START(last_entry);
     #ifdef DEBUG_C_CALLS
-	printf("no_args_entry: nargs in header is %d\n", last_code_header_used_local->nargs);
+	printf("no_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);
     #endif
 
     // Set up task for run_mythryl_task_and_runtime_eventloop evaluation of (f LIST_NIL):
     //
-    set_up_task( visible_task_local, last_code_header_used_local->the_g, LIST_NIL );
+    set_up_task( visible_task__local, last_code_header_used__local->the_g, LIST_NIL );
 
     // Call Mythryl fn, returns an Val (which is cdata):
     //
@@ -286,18 +286,18 @@ int   no_args_entry   (void)   {
 	printf("no_arg_entry: calling Mythryl from C\n");
     #endif
     //
-    run_mythryl_task_and_runtime_eventloop( visible_task_local );							// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop( visible_task__local );							// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     
     #ifdef DEBUG_C_CALLS
-	printf("no_args_entry: return value is %d\n", visible_task_local->argument);
+	printf("no_args_entry: return value is %d\n", visible_task__local->argument);
     #endif
 
-    Val result = visible_task_local->argument;
+    Val result = visible_task__local->argument;
 
-    restore_task( visible_task_local );
+    restore_task( visible_task__local );
 
-    return convert_result_to_c( visible_task_local, last_code_header_used_local, result );
+    return convert_result_to_c( visible_task__local, last_code_header_used__local, result );
 
 }
 
@@ -318,21 +318,21 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
 #ifdef DEBUG_C_CALLS
     printf("some_args_entry: entered\n");
 #endif
-    last_code_header_used_local = CODE_HDR_START(last_entry);
+    last_code_header_used__local = CODE_HDR_START(last_entry);
 #ifdef DEBUG_C_CALLS
-    printf("some_args_entry: nargs in header is %d\n", last_code_header_used_local->nargs);
+    printf("some_args_entry: nargs in header is %d\n", last_code_header_used__local->nargs);
     printf("arg 0: %x\n",first);
 #endif
-    result = convert_c_value_to_mythryl(visible_task_local,last_code_header_used_local->argtypes[0],first,&lp);
-    LIST_CONS(visible_task_local,lp,result,lp);
+    result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[0],first,&lp);
+    LIST_CONS(visible_task__local,lp,result,lp);
     va_start(ap,first);
-    for (i = 1; i < last_code_header_used_local->nargs; i++) {
+    for (i = 1; i < last_code_header_used__local->nargs; i++) {
 	next = va_arg(ap,Val_Sized_Unt);
 #ifdef DEBUG_C_CALLS
 	printf("arg %d: %x\n",i,next);
 #endif
-	result = convert_c_value_to_mythryl(visible_task_local,last_code_header_used_local->argtypes[i],next,&lp);
-	LIST_CONS(visible_task_local,lp,result,lp);
+	result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[i],next,&lp);
+	LIST_CONS(visible_task__local,lp,result,lp);
     }
     va_end(ap);
 
@@ -342,7 +342,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
 
     // Set up task for run_mythryl_task_and_runtime_eventloop evaluation of (f lp):
     //
-    set_up_task( visible_task_local, last_code_header_used_local->the_g, lp );
+    set_up_task( visible_task__local, last_code_header_used__local->the_g, lp );
 
     // Call Mythryl fn, returns an Val (which is cdata):
     //
@@ -350,17 +350,17 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
 	printf("some_arg_entry: calling Lib7 from C\n");
     #endif
     //
-    run_mythryl_task_and_runtime_eventloop( visible_task_local );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop( visible_task__local );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     #ifdef DEBUG_C_CALLS
-	printf("some_args_entry: return value is %d\n", visible_task_local->argument);
+	printf("some_args_entry: return value is %d\n", visible_task__local->argument);
     #endif
 
-    result = visible_task_local->argument;
+    result = visible_task__local->argument;
 
-    restore_task( visible_task_local );
+    restore_task( visible_task__local );
 
-    return convert_result_to_c( visible_task_local, last_code_header_used_local, result );
+    return convert_result_to_c( visible_task__local, last_code_header_used__local, result );
 }
 
 

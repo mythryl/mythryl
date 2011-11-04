@@ -152,12 +152,12 @@ struct heapfile_cfun_table {						// We do   'typedef struct heapfile_cfun_table
 //     name_of_cfun()
 //     find_cfun()
 //
-static Hashtable_Entry**	hashed_by_name_bucketvector_local     =  NULL;	// Holds the      hashtable contents hashed by name.
-static Hashtable_Entry**	hashed_by_nickname_bucketvector_local =  NULL;	// Holds the      hashtable contents hashed by nickname.
-static Hashtable_Entry**	hashed_by_address_bucketvector_local  =  NULL;	// Holds the same hashtable contents hashed by address.
+static Hashtable_Entry**	hashed_by_name_bucketvector__local     =  NULL;	// Holds the      hashtable contents hashed by name.
+static Hashtable_Entry**	hashed_by_nickname_bucketvector__local =  NULL;	// Holds the      hashtable contents hashed by nickname.
+static Hashtable_Entry**	hashed_by_address_bucketvector__local  =  NULL;	// Holds the same hashtable contents hashed by address.
 //
-static int	                bucketvector_size_in_slots_local      =  0;	// Number of slots in the above two.  Must be a power of two!
-static int	                hashtable_entries_count_local  	      =  0;	// Number of entries actually currently stored.
+static int	                bucketvector_size_in_slots__local      =  0;	// Number of slots in the above two.  Must be a power of two!
+static int	                hashtable_entries_count__local  	      =  0;	// Number of entries actually currently stored.
 
 // Local routines:
 //
@@ -195,7 +195,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
     // This means the average bucket linklist length
     // is at most one:
     //
-    if (hashtable_entries_count_local == bucketvector_size_in_slots_local) {
+    if (hashtable_entries_count__local == bucketvector_size_in_slots__local) {
         //
         // Hashtable is now "full" (as many items as buckets)
         // so we double its size:
@@ -205,7 +205,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 	//
 	int  new_bucketvector_size_in_slots
 	  =
-          bucketvector_size_in_slots_local  ?   2 * bucketvector_size_in_slots_local
+          bucketvector_size_in_slots__local  ?   2 * bucketvector_size_in_slots__local
                                             :  64;
 
 	// Allocate and zero out our new bucketvectors:
@@ -221,9 +221,9 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 	// Move all existing hashtable entries
 	// from old to new bucketvectors:
 	//
-	for (int i = 0;  i < bucketvector_size_in_slots_local;  i++) {
+	for (int i = 0;  i < bucketvector_size_in_slots__local;  i++) {
 	    //
-	    for (Hashtable_Entry* p = hashed_by_name_bucketvector_local[i];  p != NULL; ) {
+	    for (Hashtable_Entry* p = hashed_by_name_bucketvector__local[i];  p != NULL; ) {
 	        //
 		item = p;
 		p = p->next_by_name_table_item;
@@ -233,7 +233,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 	    }
 
 	    if (nickname) {
-		for (Hashtable_Entry* p = hashed_by_nickname_bucketvector_local[i];  p != NULL; ) {
+		for (Hashtable_Entry* p = hashed_by_nickname_bucketvector__local[i];  p != NULL; ) {
 		    //
 		    item = p;
 		    p = p->next_by_nickname_table_item;
@@ -243,7 +243,7 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 		}
 	    }
 
-	    for (Hashtable_Entry* p = hashed_by_address_bucketvector_local[i];  p != NULL; ) {
+	    for (Hashtable_Entry* p = hashed_by_address_bucketvector__local[i];  p != NULL; ) {
 	        //
 		item = p;
 		p = p->next_by_address_table_item;
@@ -255,17 +255,17 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 
 	// Recycle the old bucketvectors, if any:
 	//
-	if (hashed_by_name_bucketvector_local != NULL) {
+	if (hashed_by_name_bucketvector__local != NULL) {
 	    //
-	    FREE( hashed_by_name_bucketvector_local     );
-	    FREE( hashed_by_nickname_bucketvector_local );
-	    FREE( hashed_by_address_bucketvector_local  );
+	    FREE( hashed_by_name_bucketvector__local     );
+	    FREE( hashed_by_nickname_bucketvector__local );
+	    FREE( hashed_by_address_bucketvector__local  );
 	}
 
-	hashed_by_name_bucketvector_local     =  new_hashed_by_name_bucketvector;
-	hashed_by_nickname_bucketvector_local =  new_hashed_by_nickname_bucketvector;
-	hashed_by_address_bucketvector_local  =  new_hashed_by_address_bucketvector;
-	bucketvector_size_in_slots_local      =  new_bucketvector_size_in_slots;
+	hashed_by_name_bucketvector__local     =  new_hashed_by_name_bucketvector;
+	hashed_by_nickname_bucketvector__local =  new_hashed_by_nickname_bucketvector;
+	hashed_by_address_bucketvector__local  =  new_hashed_by_address_bucketvector;
+	bucketvector_size_in_slots__local      =  new_bucketvector_size_in_slots;
     }
 
     // Compute the string hash function:
@@ -286,9 +286,9 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 
     // Insert the item into the symbol table:
     //
-    n = COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH(hash, bucketvector_size_in_slots_local);
+    n = COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH(hash, bucketvector_size_in_slots__local);
     //
-    for (Hashtable_Entry* p = hashed_by_name_bucketvector_local[n];  p != NULL;  p = p->next_by_name_table_item) {
+    for (Hashtable_Entry* p = hashed_by_name_bucketvector__local[n];  p != NULL;  p = p->next_by_name_table_item) {
         //
 	if (p->hash_of_name == hash
         &&  strcmp( name, p->name ) == 0
@@ -299,13 +299,13 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 	    return;
 	}
     }
-    item->next_by_name_table_item	 = hashed_by_name_bucketvector_local[n];
-    hashed_by_name_bucketvector_local[n] = item;
+    item->next_by_name_table_item	 = hashed_by_name_bucketvector__local[n];
+    hashed_by_name_bucketvector__local[n] = item;
 
     if (nickname) {
-	n = COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH(nickhash, bucketvector_size_in_slots_local);
+	n = COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH(nickhash, bucketvector_size_in_slots__local);
 	//
-	for (Hashtable_Entry* p = hashed_by_nickname_bucketvector_local[n];  p != NULL;  p = p->next_by_nickname_table_item) {
+	for (Hashtable_Entry* p = hashed_by_nickname_bucketvector__local[n];  p != NULL;  p = p->next_by_nickname_table_item) {
 	    //
 	    if (p->hash_of_nickname == nickhash
 	    &&  strcmp( nickname, p->nickname ) == 0
@@ -316,15 +316,15 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 		return;
 	    }
 	}
-	item->next_by_nickname_table_item	 = hashed_by_nickname_bucketvector_local[n];
-	hashed_by_nickname_bucketvector_local[n] = item;
+	item->next_by_nickname_table_item	 = hashed_by_nickname_bucketvector__local[n];
+	hashed_by_nickname_bucketvector__local[n] = item;
     }
 
     // Insert the item into the addr table:
     //
-    n = COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS(addr, bucketvector_size_in_slots_local);
+    n = COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS(addr, bucketvector_size_in_slots__local);
     //
-    for (Hashtable_Entry* p = hashed_by_address_bucketvector_local[n];  p != NULL;  p = p->next_by_address_table_item) {
+    for (Hashtable_Entry* p = hashed_by_address_bucketvector__local[n];  p != NULL;  p = p->next_by_address_table_item) {
         //
 	if (p->addr == addr) {
 	    //
@@ -341,13 +341,13 @@ void   publish_cfun2   (const char* name,  const char* nickname,  Val addr)   {
 
     item->next_by_address_table_item
 	=
-	hashed_by_address_bucketvector_local[ n ];
+	hashed_by_address_bucketvector__local[ n ];
 
-    hashed_by_address_bucketvector_local[ n ]
+    hashed_by_address_bucketvector__local[ n ]
 	=
 	item;
 
-    ++hashtable_entries_count_local;
+    ++hashtable_entries_count__local;
 }								// fun publish_cfun
 
 
@@ -366,10 +366,10 @@ const char*   name_of_cfun   (Val address) {
     // This is called (only) from:
     //     src/c/heapcleaner/check-heap.c
 
-    // Find the symbol in the hashed_by_address_bucketvector_local:
+    // Find the symbol in the hashed_by_address_bucketvector__local:
     //
     for (Hashtable_Entry*
-         q  =  hashed_by_address_bucketvector_local[ COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS( address, bucketvector_size_in_slots_local) ];
+         q  =  hashed_by_address_bucketvector__local[ COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS( address, bucketvector_size_in_slots__local) ];
 	 q !=  NULL;
 	 q  =  q->next_by_address_table_item
     ){
@@ -391,10 +391,10 @@ Val   find_cfun   (const char* name)   {
     int		       hash;
     HASH_STRING( name, hash );
 
-    int index =  COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH( hash, bucketvector_size_in_slots_local );
+    int index =  COMPUTE_BUCKETVECTOR_INDEX_FROM_NAME_HASH( hash, bucketvector_size_in_slots__local );
 
     for (Hashtable_Entry*
-        p  = hashed_by_name_bucketvector_local[ index ];
+        p  = hashed_by_name_bucketvector__local[ index ];
 	p != NULL;
 	p  = p->next_by_name_table_item
     ){
@@ -407,7 +407,7 @@ Val   find_cfun   (const char* name)   {
     }
 
 for (Hashtable_Entry*
-    p  = hashed_by_nickname_bucketvector_local[ index ];
+    p  = hashed_by_nickname_bucketvector__local[ index ];
     p != NULL;
     p  = p->next_by_nickname_table_item
 ){
@@ -492,10 +492,10 @@ Val   add_cfun_to_heapfile_cfun_table   (Heapfile_Cfun_Table* table,   Val addr)
     // for this external reference.
 
     // Find the referenced external symbol in our
-    // hashed_by_address_bucketvector_local:
+    // hashed_by_address_bucketvector__local:
     //
     Hashtable_Entry* q;
-    for (q  = hashed_by_address_bucketvector_local[ COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS( a, bucketvector_size_in_slots_local ) ];
+    for (q  = hashed_by_address_bucketvector__local[ COMPUTE_BUCKETVECTOR_INDEX_FROM_ADDRESS( a, bucketvector_size_in_slots__local ) ];
          q != NULL;
          q  = q->next_by_address_table_item
     ){

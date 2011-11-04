@@ -143,14 +143,14 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 }										// fun partition_agegroup0_buffer_between_pthreads
 
 
-static volatile int	pthreads_ready_to_clean_local = 0;			// Number of processors that are ready to clean.
-static int		cleaning_pthread_local;					// The cleaning pthread.
+static volatile int	pthreads_ready_to_clean__local = 0;			// Number of processors that are ready to clean.
+static int		cleaning_pthread__local;					// The cleaning pthread.
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
 Val*         pth__extra_heapcleaner_roots__global[ MAX_EXTRA_HEAPCLEANER_ROOTS * MAX_PTHREADS ];
 
-static Val** extra_cleaner_roots_local;
+static Val** extra_cleaner_roots__local;
 
 
 int   pth__start_heapcleaning   (Task *task) {
@@ -177,7 +177,7 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     //   o The first pthread to check in becomes the
     //     designated heapcleaner, which we remember by saving its pid
-    //     in cleaning_pthread_local.
+    //     in cleaning_pthread__local.
     //
     //   o The designated heapcleaner returns to the invoking
     //     call-heapcleaner fnc and does the heapcleaning work
@@ -196,7 +196,7 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     pth__acquire_mutex( pth__heapcleaner_mutex__global );
     //
-    if (pthreads_ready_to_clean_local++ == 0) {
+    if (pthreads_ready_to_clean__local++ == 0) {
         //
         // We're the first pthread starting heapcleaning,
 	// so we'll assume the mantle of designated-heapcleaner,
@@ -205,7 +205,7 @@ int   pth__start_heapcleaning   (Task *task) {
         //
         pth__extra_heapcleaner_roots__global[0] =  NULL;
 
-        extra_cleaner_roots_local =  pth__extra_heapcleaner_roots__global;
+        extra_cleaner_roots__local =  pth__extra_heapcleaner_roots__global;
 
 	// I'm guessing the point of this is to get the other
 	// pthreads to enter heapcleaning mode pronto:			-- 2011-11-02 CrT
@@ -219,10 +219,10 @@ int   pth__start_heapcleaning   (Task *task) {
 	    #endif
 	#endif
 
-	cleaning_pthread_local =  pthread->pid;							// Assume the awesome responsilibity of being the designated heapcleaner thread.
+	cleaning_pthread__local =  pthread->pid;							// Assume the awesome responsilibity of being the designated heapcleaner thread.
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("cleaning_pthread_local is %d\n", cleaning_pthread_local);
+	    debug_say ("cleaning_pthread__local is %d\n", cleaning_pthread__local);
 	#endif
     }
     pth__release_mutex( pth__heapcleaner_mutex__global );
@@ -246,7 +246,7 @@ int   pth__start_heapcleaning   (Task *task) {
         // NB: Some other pthread can be
         // concurrently acquiring new kernel threads.
         //
-	while (pthreads_ready_to_clean_local !=  (active_pthread_count = pth__get_active_pthread_count())) {	// pth__get_active_pthread_count	def in   src/c/pthread/pthread-on-posix-threads.c
+	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {	// pth__get_active_pthread_count	def in   src/c/pthread/pthread-on-posix-threads.c
 	    // 
 	    // Spinwait.  This is bad;
 	    // to avoid being hideously bad we avoid
@@ -267,7 +267,7 @@ int   pth__start_heapcleaning   (Task *task) {
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		    //
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			task->pidf, pthreads_ready_to_clean_local, active_pthread_count, task->heap_allocation_pointer,
+			task->pidf, pthreads_ready_to_clean__local, active_pthread_count, task->heap_allocation_pointer,
 			task->heap_allocation_limit);
 		#endif
 	    }
@@ -286,7 +286,7 @@ int   pth__start_heapcleaning   (Task *task) {
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->pid, pthreads_ready_to_clean_local, pth__get_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
     #endif
 
 
@@ -295,7 +295,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // we now return to caller to take up our
     // heapcleaning responsibilities:
     //
-    if (pthread->pid == cleaning_pthread_local)   return active_pthread_count;			// We're the designated heapcleaner.
+    if (pthread->pid == cleaning_pthread__local)   return active_pthread_count;			// We're the designated heapcleaner.
 
 
 
@@ -338,9 +338,9 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
     pth__acquire_mutex( pth__heapcleaner_mutex__global );
 
-    if (pthreads_ready_to_clean_local++ == 0) {
+    if (pthreads_ready_to_clean__local++ == 0) {
 	//
-        extra_cleaner_roots_local = pth__extra_heapcleaner_roots__global;
+        extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;
 
 	// Signal other pthreads to enter heapcleaning mode:
 	//
@@ -355,18 +355,18 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 	// We're the first one in, we'll do the collect:
 	//
-	cleaning_pthread_local = pthread->pid;
+	cleaning_pthread__local = pthread->pid;
 
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("cleaning_pthread_local is %d\n",cleaning_pthread_local);
+	    debug_say ("cleaning_pthread__local is %d\n",cleaning_pthread__local);
 	#endif
     }
 
     while ((p = va_arg(ap, Val *)) != NULL) {
         //
-	*extra_cleaner_roots_local++ = p;
+	*extra_cleaner_roots__local++ = p;
     }
-    *extra_cleaner_roots_local = p;			// NULL
+    *extra_cleaner_roots__local = p;			// NULL
 
     pth__release_mutex( pth__heapcleaner_mutex__global );
 
@@ -376,7 +376,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	// NB: Some other pthread can be concurrently
         // acquiring new kernel threads:
         //
-	while (pthreads_ready_to_clean_local !=  (pthread_count = pth__get_active_pthread_count())) {
+	while (pthreads_ready_to_clean__local !=  (pthread_count = pth__get_active_pthread_count())) {
 
 	    // SPIN
 
@@ -387,7 +387,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 		n = 0;
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-			pthread->pid, pthreads_ready_to_clean_local, pthread_count, task->heap_allocation_pointer,
+			pthread->pid, pthreads_ready_to_clean__local, pthread_count, task->heap_allocation_pointer,
 			task->heap_allocation_limit);
 		#endif
 	    }
@@ -406,10 +406,10 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     #endif
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean_local, pth__get_active_pthread_count());
+	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
     #endif
 
-    if (cleaning_pthread_local == pthread->pid)   return pthread_count;			// We're the designated heapcleaner.
+    if (cleaning_pthread__local == pthread->pid)   return pthread_count;			// We're the designated heapcleaner.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
@@ -452,7 +452,7 @@ void    pth__finish_heapcleaning
 
     pth__wait_at_barrier( pth__cleaner_barrier__global, active_pthreads_count );			// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 
-    pthreads_ready_to_clean_local = 0;
+    pthreads_ready_to_clean__local = 0;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", task->pthread->pid);

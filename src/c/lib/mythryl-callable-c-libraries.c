@@ -125,7 +125,7 @@
 #include "mythryl-callable-c-libraries-list.h"
 #undef MYTHRYL_CALLABLE_C_LIBRARY
 
-static Mythryl_Callable_C_Library*   mythryl_callable_c_libraries_local   [] = {
+static Mythryl_Callable_C_Library*   mythryl_callable_c_libraries__local   [] = {
 	//                           ==================================
         //
 	#define MYTHRYL_CALLABLE_C_LIBRARY(lib)	&lib,
@@ -146,11 +146,11 @@ void   set_up_list_of_c_functions_callable_from_mythryl   () {
     char* name;
 char* nickname;	// See Hashtable_Entry comment in src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 
-    for (i = 0;  mythryl_callable_c_libraries_local[i] != NULL;  i++) {
+    for (i = 0;  mythryl_callable_c_libraries__local[i] != NULL;  i++) {
       //
-	Mythryl_Callable_C_Library*	clib  =  mythryl_callable_c_libraries_local[i];
+	Mythryl_Callable_C_Library*	clib  =  mythryl_callable_c_libraries__local[i];
 	//
-	Mythryl_Name_With_C_Function*	cfuns =  mythryl_callable_c_libraries_local[i]->vector_of_mythryl_names_and_c_functions;
+	Mythryl_Name_With_C_Function*	cfuns =  mythryl_callable_c_libraries__local[i]->vector_of_mythryl_names_and_c_functions;
 
 	if (   clib->initialize_mythryl_callable_c_library != NULL) {
 	    (*(clib->initialize_mythryl_callable_c_library)) (0, 0 /* argc, argv */);
@@ -191,13 +191,13 @@ Val   find_mythryl_callable_c_function  (char* library_name, char* function_name
 
     // debug_say("BIND: %s.%s\n", library_name, function_name);
 
-    for (int i = 0;  mythryl_callable_c_libraries_local[i] != NULL;  i++) {
+    for (int i = 0;  mythryl_callable_c_libraries__local[i] != NULL;  i++) {
 	//
-	if (!strcmp(mythryl_callable_c_libraries_local[i]->library_name,  library_name)){
+	if (!strcmp(mythryl_callable_c_libraries__local[i]->library_name,  library_name)){
 	    //
 	    Mythryl_Name_With_C_Function*   cfuns
 		=
-		mythryl_callable_c_libraries_local[i]->vector_of_mythryl_names_and_c_functions;
+		mythryl_callable_c_libraries__local[i]->vector_of_mythryl_names_and_c_functions;
 
 	    for (int j = 0;  cfuns[j].name != NULL;  j++) {
 		//

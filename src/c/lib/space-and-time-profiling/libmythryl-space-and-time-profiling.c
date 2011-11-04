@@ -204,7 +204,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
 //
 // Our record                Libmythryl_Time_And_Space_Profiling
 // gets compiled into        src/c/lib/mythryl-callable-c-libraries-list.h
-// and thus ultimately       mythryl_callable_c_libraries_local []
+// and thus ultimately       mythryl_callable_c_libraries__local []
 // in                        src/c/lib/mythryl-callable-c-libraries.c
 //
 Mythryl_Callable_C_Library	    Libmythryl_Time_And_Space_Profiling = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h

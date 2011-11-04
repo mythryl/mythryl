@@ -50,7 +50,7 @@ void   init_g   (int argc, char **argv) {
 //
 // Our record                Libmythryl_Socket
 // gets compiled into        src/c/lib/mythryl-callable-c-libraries-list.h
-// and thus ultimately       mythryl_callable_c_libraries_local []
+// and thus ultimately       mythryl_callable_c_libraries__local []
 // in                        src/c/lib/mythryl-callable-c-libraries.c
 //
 Mythryl_Callable_C_Library	    Libmythryl_Socket = {						// Mythryl_Callable_C_Library		def in    src/c/h/mythryl-callable-c-libraries.h

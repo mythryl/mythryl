@@ -25,7 +25,7 @@
 //      C's double is the largest return value from a function 
 //
 
-static Val   dummy_root_local =   HEAP_VOID;			// Empty root for garbage collection.
+static Val   dummy_root__local =   HEAP_VOID;			// Empty root for garbage collection.
 
 
 #define LIST_CONS_CELL_BYTESIZE (3*WORD_BYTESIZE)	// desc + car + cdr
@@ -79,7 +79,7 @@ static Val   dummy_root_local =   HEAP_VOID;			// Empty root for garbage collect
 
 // Map from enum tags to single char descriptor (aka code)
 //
-static char type_map_local[] = {
+static char type_map__local[] = {
     //
     LIB7ADDR_CODE,
     LIB7ARRAY_CODE,
@@ -700,7 +700,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 	#endif
     }
 
-    if (type_map_local[tag] != **t) {
+    if (type_map__local[tag] != **t) {
 	//
 	#ifdef DEBUG_C_CALLS
 	    debug_say("convert_mythryl_value_to_c: type mismatch %c != %d\n",**t,tag);
@@ -996,7 +996,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 
     // Return (result,list of pointers to alloc'd C chunks):
     //
-    space_check( task,pointerlist_space(),&dummy_root_local );
+    space_check( task,pointerlist_space(),&dummy_root__local );
 
     lp = Pointerlisto_LIB7list(task);   /* this frees the ptr descriptors */
 
@@ -1372,7 +1372,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 	    Unt8 b = (Unt8) call_word_g(f,n_cargs,vals);
 	    Unt8 *bp = &b;
 	    //
-	    result = word_CtoLib7(task,&cret_type,(Val_Sized_Unt **)&bp,&dummy_root_local);
+	    result = word_CtoLib7(task,&cret_type,(Val_Sized_Unt **)&bp,&dummy_root__local);
         }
 	break;
 
@@ -1381,7 +1381,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 	    Val_Sized_Unt w = call_word_g(f,n_cargs,vals);
 	    Val_Sized_Unt *wp = &w;
 	    //
-	    result = word_CtoLib7(task,&cret_type,&wp,&dummy_root_local);
+	    result = word_CtoLib7(task,&cret_type,&wp,&dummy_root__local);
 	}
     }
 

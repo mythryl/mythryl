@@ -2,7 +2,7 @@
 //
 // This file gets included into
 //
-//     mythryl_callable_c_libraries_local []
+//     mythryl_callable_c_libraries__local []
 //
 // in:
 //

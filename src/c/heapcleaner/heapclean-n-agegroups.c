@@ -60,13 +60,13 @@ Cleaner statistics stuff:
 
 #if NEED_HUGECHUNK_REFERENCE_STATISTICS		// "NEED_HUGECHUNK_REFERENCE_STATISTICS" does not appear outside this file, except for its definition in   src/c/mythryl-config.h
     //
-    static long hugechunks_seen_count_local;
-    static long hugechunk_lookups_count_local;
-    static long hugechunks_forwarded_count_local;
+    static long hugechunks_seen_count__local;
+    static long hugechunk_lookups_count__local;
+    static long hugechunks_forwarded_count__local;
     //
-    #define COUNT_CODECHUNKS(sibid)	        {if (SIBID_KIND_IS_CODE(sibid))   ++hugechunks_seen_count_local;}
-    #define INCREMENT_HUGECHUNK2_COUNT		++hugechunk_lookups_count_local
-    #define INCREMENT_HUGECHUNK3_COUNT		++hugechunks_forwarded_count_local
+    #define COUNT_CODECHUNKS(sibid)	        {if (SIBID_KIND_IS_CODE(sibid))   ++hugechunks_seen_count__local;}
+    #define INCREMENT_HUGECHUNK2_COUNT		++hugechunk_lookups_count__local
+    #define INCREMENT_HUGECHUNK3_COUNT		++hugechunks_forwarded_count__local
 #else
     #define COUNT_CODECHUNKS(sibid)		{}
     #define INCREMENT_HUGECHUNK2_COUNT		{}
@@ -392,7 +392,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 
     #if NEED_HUGECHUNK_REFERENCE_STATISTICS
         //
-        debug_say ("hugechunk stats: %d seen, %d lookups, %d forwarded\n",    hugechunks_seen_count_local, hugechunk_lookups_count_local, hugechunks_forwarded_count_local);
+        debug_say ("hugechunk stats: %d seen, %d lookups, %d forwarded\n",    hugechunks_seen_count__local, hugechunk_lookups_count__local, hugechunks_forwarded_count__local);
     #endif
 
     #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
@@ -418,9 +418,9 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
 
     #if NEED_HUGECHUNK_REFERENCE_STATISTICS
 	//
-        hugechunks_seen_count_local      =
-        hugechunk_lookups_count_local    =
-        hugechunks_forwarded_count_local = 0;
+        hugechunks_seen_count__local      =
+        hugechunk_lookups_count__local    =
+        hugechunks_forwarded_count__local = 0;
     #endif
 
     // Decide how many agegroups to clean

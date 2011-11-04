@@ -27,16 +27,16 @@
 #include "runtime-globals.h"
 
 
-static Bool	repair_heap_local;					// This is TRUE, as long as it is cheaper
+static Bool	repair_heap__local;					// This is TRUE, as long as it is cheaper
 									// to repair the heap than to complete
 									// the cleaning.
 
-static Bool  finishing_cleaning_local;				// TRUE, when we are finishing a post-pickling cleaning.
-static int   oldest_agegroup_being_cleaned_local;			// Oldest agegroup being cleaned.
-static Val*  saved_top_local[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Remember current endpoints of the to-space buffers.
+static Bool  finishing_cleaning__local;				// TRUE, when we are finishing a post-pickling cleaning.
+static int   oldest_agegroup_being_cleaned__local;			// Oldest agegroup being cleaned.
+static Val*  saved_top__local[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Remember current endpoints of the to-space buffers.
 
-static Heapfile_Cfun_Table*   cfun_table_local;				// Table of Mythryl-callable C functions in runtime which are referenced from heap.  (May also contain some assembly fns, refcells and exceptions.)
-static Addresstable*   embedded_chunk_ref_table_local;			// Table of embedded chunk references.
+static Heapfile_Cfun_Table*   cfun_table__local;				// Table of Mythryl-callable C functions in runtime which are referenced from heap.  (May also contain some assembly fns, refcells and exceptions.)
+static Addresstable*   embedded_chunk_ref_table__local;			// Table of embedded chunk references.
 
 /* typedef   struct repair   Repair; */					// in src/c/h/heap.h
 
@@ -50,7 +50,7 @@ struct repair {
 //
 #define NOTE_REPAIR(sib, location, value)	{	\
 	Sib* __sib = (sib);				\
-	if (repair_heap_local) {				\
+	if (repair_heap__local) {				\
 	    Repair	*__rp = __sib->repairlist - 1;	\
 	    if ((Val *)__rp > __sib->next_tospace_word_to_allocate) {		\
 		__rp->loc = (location);			\
@@ -58,7 +58,7 @@ struct repair {
 		__sib->repairlist = __rp;		\
 	    }						\
 	    else					\
-		repair_heap_local = FALSE;			\
+		repair_heap__local = FALSE;			\
 	}						\
     }
 
@@ -97,7 +97,7 @@ struct extractlits_clos {
 //
 #define CHECK_AGEGROUP(heap, g)	{			\
 	int	__g = (g);				\
-	if (__g > oldest_agegroup_being_cleaned_local)	\
+	if (__g > oldest_agegroup_being_cleaned__local)	\
 	    swap_tospace_with_fromspace ((heap), __g);			\
     }
 
@@ -113,7 +113,7 @@ struct extractlits_clos {
 	    if (BOOK_IS_UNMAPPED(__aid)) {								\
 	      /* An external reference */								\
 	      /*debug_say ("external reference\n");*/							\
-		if ((! finishing_cleaning_local) && (add_cfun_to_heapfile_cfun_table(cfun_table_local, __w) == HEAP_VOID))	\
+		if ((! finishing_cleaning__local) && (add_cfun_to_heapfile_cfun_table(cfun_table__local, __w) == HEAP_VOID))	\
 		    (seen_error) = TRUE;								\
 	    } else if (SIBID_KIND_IS_CODE(__aid))							\
 		/*{debug_say ("hugechunk\n");*/								\
@@ -146,27 +146,27 @@ Pickler_Result   pickler__clean_heap   (
 
     result.oldest_agegroup_included_in_pickle
 	=
-	oldest_agegroup_being_cleaned_local;
+	oldest_agegroup_being_cleaned__local;
 
-    result.heap_needs_repair	= repair_heap_local;
+    result.heap_needs_repair	= repair_heap__local;
 
     // Allocate the cfun and embedded chunk tables:
     //
-    cfun_table_local =  make_heapfile_cfun_table();							// make_heapfile_cfun_table		def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
+    cfun_table__local =  make_heapfile_cfun_table();							// make_heapfile_cfun_table		def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
-    embedded_chunk_ref_table_local
+    embedded_chunk_ref_table__local
 	=
 	make_address_hashtable( /*ignore_bits:*/ LOG2_BYTES_PER_WORD, /*buckets:*/ 64 );		// make_address_hashtable		def in   src/c/heapcleaner/address-hashtable.c
 
-    result.cfun_table           =  cfun_table_local;
-    result.embedded_chunk_table =  embedded_chunk_ref_table_local;
+    result.cfun_table           =  cfun_table__local;
+    result.embedded_chunk_table =  embedded_chunk_ref_table__local;
 
     // Initialize, by flipping the agegroups
     // up to the one including root_chunk:
     //
-    repair_heap_local = TRUE;
-    finishing_cleaning_local = FALSE;
-    oldest_agegroup_being_cleaned_local = 0;
+    repair_heap__local = TRUE;
+    finishing_cleaning__local = FALSE;
+    oldest_agegroup_being_cleaned__local = 0;
     swap_tospace_with_fromspace( heap, age );
 
     // Scan root_chunk:
@@ -211,7 +211,7 @@ Punt   pickler__relocate_embedded_literals   (
     closure.offset = offset;
     closure.id = id;
     //
-    addresstable_apply( embedded_chunk_ref_table_local, &closure, record_addresses_of_extracted_literals );		// addresstable_apply		def in    src/c/heapcleaner/address-hashtable.c
+    addresstable_apply( embedded_chunk_ref_table__local, &closure, record_addresses_of_extracted_literals );		// addresstable_apply		def in    src/c/heapcleaner/address-hashtable.c
     //
     return closure.offset;
 }
@@ -228,7 +228,7 @@ void   pickler__pickle_embedded_literals   (Writer *wr)   {
     closure.wr = wr;
     closure.offset = 0;
 
-    addresstable_apply( embedded_chunk_ref_table_local, &closure, extract_literals_from_codechunks );
+    addresstable_apply( embedded_chunk_ref_table__local, &closure, extract_literals_from_codechunks );
 }
 
 
@@ -242,9 +242,9 @@ void   pickler__wrap_up   (Task* task,  Pickler_Result* result)   {
     if (result->heap_needs_repair)	repair_heap (task, result->oldest_agegroup_included_in_pickle);
     else				wrap_up_cleaning   (task, result->oldest_agegroup_included_in_pickle);
 
-    free_heapfile_cfun_table( cfun_table_local );
+    free_heapfile_cfun_table( cfun_table__local );
 
-    free_address_table( embedded_chunk_ref_table_local, TRUE );
+    free_address_table( embedded_chunk_ref_table__local, TRUE );
 }								// fun pickler__wrap_up
 
 
@@ -299,7 +299,7 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		sib->fromspace	= tmpBase;
 		sib->tospace_bytesize	= sib->fromspace_bytesize;
 		sib->fromspace_bytesize	= tmpSizeB;
-		sib->tospace_limit	= saved_top_local[i][j];
+		sib->tospace_limit	= saved_top__local[i][j];
 		sib->fromspace_used_end	= tmpTop;
 	    }
 	}
@@ -330,7 +330,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
     Sibid	maxAid;
 
-    finishing_cleaning_local = TRUE;
+    finishing_cleaning__local = TRUE;
     maxAid = MAKE_MAX_SIBID(max_age);
 
     // Allocate new coarse_inter_agegroup_pointers_map vectors for
@@ -570,14 +570,14 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
     //        ===============================
     // 
     // Flip additional agegroups from
-    // oldest_agegroup_being_cleaned_local+1 .. gen.
+    // oldest_agegroup_being_cleaned__local+1 .. gen.
     //
     // We allocate a to-space that is the
     // same size as the existing from-space.
 
     Punt	new_size;
 
-    for (int age = oldest_agegroup_being_cleaned_local;  age < gen;  age++) {
+    for (int age = oldest_agegroup_being_cleaned__local;  age < gen;  age++) {
         //
 	Agegroup* g =  heap->agegroup[ age ];
         //
@@ -593,7 +593,7 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
                     sib->next_tospace_word_to_allocate == sib->next_word_to_sweep_in_tospace
                 );
 
-	        saved_top_local[age][ilk] = sib->tospace_limit;
+	        saved_top__local[age][ilk] = sib->tospace_limit;
 
 		make_sib_tospace_into_fromspace( sib );										// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
@@ -623,7 +623,7 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
 	}
     }
 
-    oldest_agegroup_being_cleaned_local = gen;
+    oldest_agegroup_being_cleaned__local = gen;
 }										// fun swap_tospace_with_fromspace
 
 static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
@@ -658,7 +658,7 @@ static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
     do {
 	swept = FALSE;
 
-	for (int g = 0;  g < oldest_agegroup_being_cleaned_local;  g++) {
+	for (int g = 0;  g < oldest_agegroup_being_cleaned__local;  g++) {
 	    //
 	    Agegroup*  ag =   heap->agegroup[ g ];
 
@@ -689,7 +689,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
     Val_Sized_Unt len   =  0;			// Initialized only to quiet "possibly unused" gcc warning.
     Sib*          sib   =  NULL;		// Initialized only to quiet "possibly unused" gcc warning.
 
-    if (! finishing_cleaning_local)   CHECK_AGEGROUP(heap, gen);
+    if (! finishing_cleaning__local)   CHECK_AGEGROUP(heap, gen);
 
     switch (GET_KIND_FROM_SIBID(id)) {
 	//
@@ -872,11 +872,11 @@ static Hugechunk*   forward_hugechunk   (
 
     dp     = get_hugechunk_holding_pointee(region, chunk);
 
-    if (! finishing_cleaning_local) {
+    if (! finishing_cleaning__local) {
         //
 	CHECK_AGEGROUP(heap, dp->age);
 
-	code_info = find_embedded_chunk( embedded_chunk_ref_table_local, dp->chunk, UNUSED_CODE );
+	code_info = find_embedded_chunk( embedded_chunk_ref_table__local, dp->chunk, UNUSED_CODE );
 
 	code_info->kind = USED_CODE;
     }
@@ -963,7 +963,7 @@ static void   record_addresses_of_extracted_literals   (
 	    info->relocated_address
 		=
 		add_cfun_to_heapfile_cfun_table (
-                    cfun_table_local,
+                    cfun_table__local,
 		    (info->kind == EMBEDDED_STRING) ? ZERO_LENGTH_STRING__GLOBAL : LIB7_realarray0
                 );
 	} else {
