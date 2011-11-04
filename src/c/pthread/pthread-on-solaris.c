@@ -82,14 +82,14 @@ Barrier* pth__heapcleaner_barrier__global;
 
 
 
-void   pth__initialize   ()   {
+void   pth__start_up   ()   {
     // =============
     //
     // Called (only) from   src/c/main/runtime-main.c
 
     int fd;
 
-    if ((fd = open("/dev/zero",O_RDWR)) == -1)   die("pth__initialize:Couldn't open /dev/zero");
+    if ((fd = open("/dev/zero",O_RDWR)) == -1)   die("pth__start_up:Couldn't open /dev/zero");
 
     arena__local = mmap((caddr_t) 0, sysconf(_SC_PAGESIZE),PROT_READ | PROT_WRITE ,MAP_PRIVATE,fd,0);
 

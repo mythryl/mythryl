@@ -69,20 +69,20 @@ Mutex	 pth__timer_mutex__global;						// Apparently never used.
 
 
 
-void   pth__initialize   () {
+void   pth__start_up   () {
     // =============
     //
     // Called (only) from   src/c/main/runtime-main.c
 
     // set '_utrace = 1;' to debug shared arenas
 
-    if (usconfig(CONF_LOCKTYPE, US_NODEBUG) == -1)   die ("usconfig failed in pth__initialize");
+    if (usconfig(CONF_LOCKTYPE, US_NODEBUG) == -1)   die ("usconfig failed in pth__start_up");
 
     usconfig(CONF_AUTOGROW, 0);
 
-    if (usconfig(CONF_INITSIZE, 65536) == -1) 	die ("usconfig failed in pth__initialize");
+    if (usconfig(CONF_INITSIZE, 65536) == -1) 	die ("usconfig failed in pth__start_up");
 
-    if ((arena = usinit(ARENA_FNAME)) == NULL) 	die ("usinit failed in pth__initialize");
+    if ((arena = usinit(ARENA_FNAME)) == NULL) 	die ("usinit failed in pth__start_up");
 
     MP_ArenaLock			= AllocLock ();
     MP_ProcLock				= AllocLock ();

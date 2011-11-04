@@ -76,7 +76,7 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // PACKAGE STARTUP AND SHUTDOWN
     //
-    extern void     pth__initialize		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
+    extern void     pth__start_up		(void);					// Called once near the top of main() to initialize the package.  Allocates our static locks, may also mmap() memory for arena or whatever.
     extern void     pth__shut_down		(void);					// Called once just before calling exit(), to release any OS resources.
 
 
