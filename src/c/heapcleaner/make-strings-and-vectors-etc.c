@@ -177,18 +177,18 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 	    IFGC (ap, bytesize+task->heap->agegroup0_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
                 //
-		RELEASE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		RELEASE_MUTEX(pth__heapcleaner_gen_mutex__global);
 		    //
 		    call_heapcleaner( task, 1 );
 		    //
-		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex__global);
                 //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -196,7 +196,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 	    result = PTR_CAST( Val, ap->next_tospace_word_to_allocate);
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -262,7 +262,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
-	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
@@ -272,11 +272,11 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 		ap->requested_sib_buffer_bytesize += bytesize;
 		//
-		RELEASE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		RELEASE_MUTEX(pth__heapcleaner_gen_mutex__global);
 		    //
 		    call_heapcleaner (task, 1);
 		    //
-		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex__global);
 		//
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -302,7 +302,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 
 	COUNT_ALLOC(task, bytesize-WORD_BYTESIZE);
     }
@@ -327,7 +327,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
     Hugechunk* dp;
 
-    BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+    BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 	//
 	dp = allocate_hugechunk (heap, allocGen, len);
 	ASSERT(dp->gen == allocGen);
@@ -336,7 +336,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 	dp->huge_ilk = CODE__HUGE_ILK;
 	COUNT_ALLOC(task, len);
 	//
-    END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+    END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 
     return PTR_CAST( Val, dp->chunk);
 }
@@ -396,12 +396,12 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	int	gcLevel = (IS_POINTER(initVal) ? 0 : -1);
 
 	bytesize = WORD_BYTESIZE*(len + 1);
-													// pth__heapcleaner_gen_mutex_global	def in   src/c/pthread/pthread-on-posix-threads.c
+													// pth__heapcleaner_gen_mutex__global	def in   src/c/pthread/pthread-on-posix-threads.c
 													// 				or       src/c/pthread/pthread-on-sgi.c
 													// 				or	 src/c/pthread/pthread-on-solaris.c
 													// (Used only in this file.)
 
-	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
+	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )						// BEGIN_CRITICAL_SECTION	def in   src/c/h/runtime-pthread.h
 	    //												// as pth__acquire_mutex(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
 	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
@@ -423,10 +423,10 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
                 //
 		Val	root = initVal;
 		ap->requested_sib_buffer_bytesize += bytesize;
-		RELEASE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		RELEASE_MUTEX(pth__heapcleaner_gen_mutex__global);
 		    call_heapcleaner_with_extra_roots (task, gcLevel, &root, NULL);
 		    initVal = root;
-		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex_global);
+		ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex__global);
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if NEED_PTHREAD_SUPPORT
@@ -441,7 +441,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	END_CRITICAL_SECTION(pth__heapcleaner_gen_mutex_global)
+	END_CRITICAL_SECTION(pth__heapcleaner_gen_mutex__global)
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -491,7 +491,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    =
 	    WORD_BYTESIZE * (len+1);
 
-	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	BEGIN_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 	    //
 	    if (! sib_is_active(ap)										// sib_is_active		def in    src/c/h/heap.h
 		||
@@ -507,10 +507,10 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
-	    RELEASE_MUTEX(pth__heapcleaner_gen_mutex_global);
+	    RELEASE_MUTEX(pth__heapcleaner_gen_mutex__global);
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
-	    ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex_global);
+	    ACQUIRE_MUTEX(pth__heapcleaner_gen_mutex__global);
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
@@ -527,7 +527,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex_global )
+	END_CRITICAL_SECTION( pth__heapcleaner_gen_mutex__global )
 
 	COUNT_ALLOC(task, bytesize);
 

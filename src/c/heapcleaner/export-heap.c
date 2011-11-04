@@ -122,7 +122,7 @@ Status   export_fn_image   (
 inline static Val   write_register   (Heapfile_Cfun_Table* export_table,  Val val)   {
     //              ==============
     //
-    if (IS_EXTERN_POINTER(book_to_sibid_global, val))   {
+    if (IS_EXTERN_POINTER(book_to_sibid__global, val))   {
 	//
 	val = add_cfun_to_heapfile_cfun_table(export_table, val);
     }
@@ -169,9 +169,9 @@ static Status   write_heap_image_to_file   (
 	    heap->agegroup0_buffer_bytesize / MAX_PTHREADS;
 
 	hh.pervasive_package_pickle_list =   write_register(export_table,  *PTR_CAST(Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL));
-        hh.runtime_pseudopackage         =   write_register(export_table,  runtime_package_global );
+        hh.runtime_pseudopackage         =   write_register(export_table,  runtime_package__global );
 #ifdef ASM_MATH
-	hh.math_package                  =   write_register(export_table,  mathvec_global );
+	hh.math_package                  =   write_register(export_table,  mathvec__global );
 #else
 	hh.math_package                  =   HEAP_VOID;
 #endif
@@ -238,7 +238,7 @@ static Status   write_heap_image_to_file   (
 
 inline static void   patch_sib   (
     //               =========
-    Sibid*       b2s,								// book_to_sibid_global from    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*       b2s,								// book_to_sibid__global from    src/c/heapcleaner/heapcleaner-initialization.c
     Heap*        heap,
     Heapfile_Cfun_Table* table,
     int          age,								// 0 <= age < heap->active_agegroups
@@ -274,7 +274,7 @@ static Heapfile_Cfun_Table*   build_export_table   (Heap* heap) {
 
     // Cache global in register for speed:
     //
-    Sibid*  b2s = book_to_sibid_global;						// book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*  b2s = book_to_sibid__global;						// book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     // Allocate an empty export table:
     //
@@ -416,7 +416,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	//
 	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
 	    //
-	    if (cleaner_messages_are_enabled_global) {
+	    if (cleaner_messages_are_enabled__global) {
 		//
 		debug_say("write %d,%d: %d bytes [%#x..%#x) @ %#x\n",
 		    age+1, ilk, p->info.o.bytesize,
@@ -444,7 +444,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		//
 		header =  (Hugechunk_Header*) MALLOC( header_bytesize );
 
-		if (cleaner_messages_are_enabled_global) {
+		if (cleaner_messages_are_enabled__global) {
 		    //
 		    debug_say("write %d,%d: %d big chunks (%d quanta) @ %#x\n",
 			age+1, huge_ilk, p->info.bo.hugechunk_count, p->info.bo.hugechunk_quanta_count,

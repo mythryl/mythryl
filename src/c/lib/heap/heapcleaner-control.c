@@ -58,8 +58,8 @@ Val   _lib7_cleaner_control   (Task* task,  Val arg)   {
 	if      (STREQ("DoGC",  op))	    clean_i_agegroups   (task, cell, &arg);
 	else if (STREQ("AllGC", op))	    clean_all_agegroups (task, &arg);
         //
-	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled_global = (TAGGED_INT_TO_C_INT(DEREF(cell)) > 0);
-	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled_global       = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
+	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled__global = (TAGGED_INT_TO_C_INT(DEREF(cell)) > 0);
+	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled__global       = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
         //
         else if (STREQ("set_max_retained_idle_fromspace_agegroup", op))	    set_max_retained_idle_fromspace_agegroup (task, cell);
     }

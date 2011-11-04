@@ -74,7 +74,7 @@ static System_Constant table[] = {
 	{EXDEV,		"xdev"},
     };
 
-System_Constants_Table	errno_table_global = {
+System_Constants_Table	errno_table__global = {
 	sizeof(table) / sizeof(System_Constant),
 	table
     };

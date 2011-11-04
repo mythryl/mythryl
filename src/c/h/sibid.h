@@ -178,7 +178,7 @@
 
 #ifdef TWO_LEVEL_MAP
 
-    #error two level book_to_sibid_global mapping not implemented
+    #error two level book_to_sibid__global mapping not implemented
 
 #else
 
@@ -200,7 +200,7 @@
 
 
 
-    extern Sibid* book_to_sibid_global;		// Defined in   src/c/heapcleaner/heapcleaner-initialization.c
+    extern Sibid* book_to_sibid__global;		// Defined in   src/c/heapcleaner/heapcleaner-initialization.c
 	//        ====================
 
 #endif // TWO_LEVEL_MAP

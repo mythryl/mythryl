@@ -40,14 +40,14 @@
 // it means a divide-by-zero in any thread will always
 // be reported as being in thread zero.
 //
-// (Can't we just map our pid to our pthread_table_global entry,
+// (Can't we just map our pid to our pthread_table__global entry,
 // by linear scan if nothing else?  -- 2011-11-03 CrT)
 // 
 // 
 #if NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	(pthread_table_global[ 0 ])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
+    #define SELF_PTHREAD	(pthread_table__global[ 0 ])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
 #else
-    #define SELF_PTHREAD	(pthread_table_global[ 0 ])
+    #define SELF_PTHREAD	(pthread_table__global[ 0 ])
 #endif
 
 

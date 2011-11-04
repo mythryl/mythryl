@@ -22,7 +22,7 @@
 
 // This is temporary:					XXX BUGGO FIXME
 //
-#define SELF_PTHREAD	(pthread_table_global[ 0 ])
+#define SELF_PTHREAD	(pthread_table__global[ 0 ])
 
 
 static void   arithmetic_fault_handler   (/* int sig, Signal_Handler_Info_Arg code, Signal_Handler_Context_Arg* scp */);

@@ -52,7 +52,7 @@ Includes:
     // pointers to Mythryl functions. This list is not part of any Mythryl data
     // package(s).  (also see src/c/heapcleaner/heapclean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
     //
- extern Val	mythryl_functions_referenced_from_c_code_global;				// mythryl_functions_referenced_from_c_code_global	def in   src/c/lib/ccalls/ccalls-fns.c
+ extern Val	mythryl_functions_referenced_from_c_code__global;				// mythryl_functions_referenced_from_c_code__global	def in   src/c/lib/ccalls/ccalls-fns.c
 #endif
 
 
@@ -69,7 +69,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
-												//  in terms of   this_fn_profiling_hook_refcell_global   from	src/c/main/construct-runtime-package.c
+												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -112,24 +112,24 @@ void   call_heapcleaner   (Task* task,  int level) {
     note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
-	*roots_ptr++ = &mythryl_functions_referenced_from_c_code_global;
+	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
     #if NEED_PTHREAD_SUPPORT
 	// Get extra roots from pthreads that entered
 	// through call_heapcleaner_with_extra_roots
 	//
-	for (int i = 0;   pth__extra_heapcleaner_roots_global[i] != NULL;   i++) {
+	for (int i = 0;   pth__extra_heapcleaner_roots__global[i] != NULL;   i++) {
 	    //
-	    *roots_ptr++ =  pth__extra_heapcleaner_roots_global[i];
+	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[i];
 	}
     #endif
 
     // Gather ye roots while you may:
     //
-    for (int i = 0;  i < c_roots_count_global;  i++)   {
+    for (int i = 0;  i < c_roots_count__global;  i++)   {
 	//
-	*roots_ptr++ = c_roots_global[ i ];
+	*roots_ptr++ = c_roots__global[ i ];
     }
 
     #if !NEED_PTHREAD_SUPPORT
@@ -151,7 +151,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	    for (int j = 0;  j < MAX_PTHREADS;  j++) {
 		//
-		pthread = pthread_table_global[ j ];
+		pthread = pthread_table__global[ j ];
 
 		task = pthread->task;
 
@@ -214,7 +214,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 		//
 		for (int i = 0;  i < MAX_PTHREADS;  i++) {
 		    //
-		    Pthread*  pthread =  pthread_table_global[ i ];
+		    Pthread*  pthread =  pthread_table__global[ i ];
 		    //
 		    task  =  pthread->task;
 		    //
@@ -317,16 +317,16 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     note_when_heapcleaning_started( task->heap );								// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
-	*roots_ptr++ = &mythryl_functions_referenced_from_c_code_global;
+	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
     #if NEED_PTHREAD_SUPPORT
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
-        // Our extra roots were placed in pth__extra_heapcleaner_roots_global by pth__call_heapcleaner_with_extra_roots.
+        // Our extra roots were placed in pth__extra_heapcleaner_roots__global by pth__call_heapcleaner_with_extra_roots.
         //
-	for (int i = 0;  pth__extra_heapcleaner_roots_global[i] != NULL;  i++) {
+	for (int i = 0;  pth__extra_heapcleaner_roots__global[i] != NULL;  i++) {
 	    //
-	    *roots_ptr++ =  pth__extra_heapcleaner_roots_global[ i ];
+	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[ i ];
 	}
     #else
         // Note extra roots from argument list:
@@ -342,9 +342,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     // Gather the roots:
     //
-    for (int i = 0;  i < c_roots_count_global;  i++) {
+    for (int i = 0;  i < c_roots_count__global;  i++) {
 	//
-	*roots_ptr++ =  c_roots_global[ i ];
+	*roots_ptr++ =  c_roots__global[ i ];
     }
 
     #if !NEED_PTHREAD_SUPPORT
@@ -365,7 +365,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	    for (int j = 0;  j < MAX_PTHREADS;  j++) {
 		//
-		pthread = pthread_table_global[ j ];
+		pthread = pthread_table__global[ j ];
 		task    = pthread->task;
 
 		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -431,7 +431,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		//
 		for (int i = 0;  i < MAX_PTHREADS;  i++) {
 		    //
-		    pthread = pthread_table_global[ i ];
+		    pthread = pthread_table__global[ i ];
 		    //
 		    if (pthread->status == PTHREAD_IS_RUNNING) {
 			//
@@ -520,7 +520,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 	int poll_frequency
 	    = 
 	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL is #defined in src/c/h/runtime-globals.h
-													// in terms of software_generated_periodic_event_interval_refcell_global from src/c/main/construct-runtime-package.c
+													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
 	Heap* heap =  task->heap;
 
 	// Assumes heap_allocation_pointer has been reset:

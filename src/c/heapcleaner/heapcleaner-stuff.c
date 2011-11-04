@@ -84,7 +84,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
             //
 	    p = (Val*)((Punt)p + ap->tospace_bytesize);
 	    ap->tospace_limit	= p;
-	    set_book2sibid_entries_for_range( book_to_sibid_global, ap->tospace, ap->tospace_bytesize, ap->id );
+	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace, ap->tospace_bytesize, ap->id );
 
 	    #ifdef VERBOSE
 	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->next_tospace_word_to_allocate, p);
@@ -160,7 +160,7 @@ void   free_agegroup   (Heap* heap,  int g) {
 
 	if (ap->fromspace != NULL) {
 	    //
-	    set_book2sibid_entries_for_range (book_to_sibid_global, ap->fromspace, ap->fromspace_bytesize, UNMAPPED_BOOK_SIBID);
+	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace, ap->fromspace_bytesize, UNMAPPED_BOOK_SIBID);
 
 	    ap->fromspace = NULL;
 	    ap->fromspace_bytesize = 0;
@@ -209,7 +209,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address,  Val_Sized_Unt bytesize,  Sibid sibid) {
     // =================================
     //
-    // Mark the book_to_sibid_global entries corresponding to the range [ base_address, base_address+bytesize )
+    // Mark the book_to_sibid__global entries corresponding to the range [ base_address, base_address+bytesize )
     // with sibid.
 
     #ifdef TWO_LEVEL_MAP
@@ -253,7 +253,7 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 
     if (heap->weak_pointers_forwarded_during_cleaning == NULL)   return;			// No work to do.
 
-    Sibid*	   b2s    =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Val* next;
 

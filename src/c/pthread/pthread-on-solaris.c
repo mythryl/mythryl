@@ -68,10 +68,10 @@ static Task**           tasks_local; /*[MAX_PTHREADS]*/		// List of states of su
 
 static processorid_t* processorId;		// processor id of the next processor a lwp will be bound to globals.
 
-Mutex	 pth__heapcleaner_mutex_global;
-Mutex	 pth__heapcleaner_gen_mutex_global;
-Mutex	 pth__timer_mutex_global;
-Barrier* pth__cleaner_barrier_global;
+Mutex	 pth__heapcleaner_mutex__global;
+Mutex	 pth__heapcleaner_gen_mutex__global;
+Mutex	 pth__timer_mutex__global;
+Barrier* pth__cleaner_barrier__global;
 
 #if defined(MP_PROFILE)
     int mutex_trylock_calls;
@@ -93,10 +93,10 @@ void   pth__initialize   ()   {
 
     arena_mutex_local		= allocate_mutex();
     mp_pthread_mutex_local	= allocate_mutex();
-    pth__heapcleaner_mutex_global	= allocate_mutex();
-    pth__heapcleaner_gen_mutex_global	= allocate_mutex();
-    pth__timer_mutex_global	= allocate_mutex();
-    pth__cleaner_barrier_global	= allocate_barrier(); 
+    pth__heapcleaner_mutex__global	= allocate_mutex();
+    pth__heapcleaner_gen_mutex__global	= allocate_mutex();
+    pth__timer_mutex__global	= allocate_mutex();
+    pth__cleaner_barrier__global	= allocate_barrier(); 
     tasks_local			= initialize_task_vector();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
@@ -670,7 +670,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
     // Search for a suspended proc to reuse:
     //
     for (  i = 0;
-	   (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
+	   (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_SUSPENDED);
 	   i++
 	);
 
@@ -695,7 +695,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc:
         //
 	for (  i = 0;
-	      (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
+	      (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
 	       i++
             );
 
@@ -707,7 +707,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
 
-        pthread = pthread_table_global[i];      // Use pthread at index i.
+        pthread = pthread_table__global[i];      // Use pthread at index i.
 
     } else {
 
@@ -792,15 +792,15 @@ Pthread*  pth__get_pthread   ()   {
     //
 #if !NEED_PTHREAD_SUPPORT
     //
-    return pthread_table_global[ 0 ];
+    return pthread_table__global[ 0 ];
 #else
     int pid =  pth__get_pthread_id ();							// Since this just calls getpid(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table_global[i]->pid == pid)   return &pthread_table_global[ i ];	// pthread_table_global		def in   src/c/main/runtime-state.c
-    }											// pthread_table_global exported via     src/c/h/runtime-pthread.h
-    die "pth__get_pthread:  pid %d not found in pthread_table_global?!", pid;
+	if (pthread_table__global[i]->pid == pid)   return &pthread_table__global[ i ];	// pthread_table__global		def in   src/c/main/runtime-state.c
+    }											// pthread_table__global exported via     src/c/h/runtime-pthread.h
+    die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
 #endif
 }
 

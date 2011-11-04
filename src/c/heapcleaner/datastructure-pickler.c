@@ -279,7 +279,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 	if (!IS_EXTERNAL_TAG( root_chunk )) {
 
-	    Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid_global, root_chunk );
+	    Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid__global, root_chunk );
 
 	    if (!SIBID_KIND_IS_CODE(sibid)) {
 
@@ -394,7 +394,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 			if (IS_POINTER(w)) {
 			    //
-			    Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid_global, w );
+			    Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid__global, w );
 
 			    if (BOOK_IS_UNMAPPED(sibid)) {
 				//

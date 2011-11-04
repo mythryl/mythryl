@@ -56,12 +56,12 @@ FILE* DebugF = NULL;
 // Runtime globals:
 //
 int    verbosity = 0;
-Bool   codechunk_comment_display_is_enabled_global = FALSE;
-Bool   cleaner_messages_are_enabled_global = FALSE;
-Bool   unlimited_heap_is_enabled_global = FALSE;
+Bool   codechunk_comment_display_is_enabled__global = FALSE;
+Bool   cleaner_messages_are_enabled__global = FALSE;
+Bool   unlimited_heap_is_enabled__global = FALSE;
 char** raw_args;
 char** commandline_arguments;		// Does not include the program name (argv[0]).
-char*  mythryl_program_name_global;		// The program name used to invoke the runtime.
+char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
 
 // Local variables:
 //
@@ -258,10 +258,10 @@ static void   process_commandline_options   (
     commandline_arguments = MALLOC_VEC(char*, argc);
 
     if (verbosity > 0) {
-        printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name_global to '%s'...\n",*argv);
+        printf("             src/c/main/runtime-main.c:   Setting mythryl_program_name__global to '%s'...\n",*argv);
     }
 
-    mythryl_program_name_global = *argv++;
+    mythryl_program_name__global = *argv++;
     next_arg = commandline_arguments;
     while (--argc > 0) {
 	char	*arg = *argv++;
@@ -303,9 +303,9 @@ static void   process_commandline_options   (
 	    } else if (MATCH("cmdname")) {
 
 		CHECK("cmdname");
-		mythryl_program_name_global = option_arg;
+		mythryl_program_name__global = option_arg;
                 if (verbosity > 0) {
-                    printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name_global to '%s'...\n", mythryl_program_name_global);
+                    printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);
                 }
 #if NEED_PTHREAD_SUPPORT
 	    } else if (MATCH("nprocs")) {
@@ -327,7 +327,7 @@ static void   process_commandline_options   (
 
 	    } else if (MATCH("show-code-chunk-comments")) {
 
-	        codechunk_comment_display_is_enabled_global = TRUE;
+	        codechunk_comment_display_is_enabled__global = TRUE;
 
 	    } else if (MATCH("debug")) {                          	// "debug" is a terrible name for this switch XXX BUGGO FIXME
 

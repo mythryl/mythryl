@@ -166,7 +166,7 @@ void   load_compiled_files   (
 
     // Set up RunVec in CStruct in
     //
-    //     runtime_package_global.
+    //     runtime_package__global.
     //
     // This constitutes an ersatz exports list implementing
     //
@@ -187,7 +187,7 @@ void   load_compiled_files   (
     //     src/c/machine-dependent/prim.intel32.asm
     //     src/c/machine-dependent/prim.intel32.masm
     //
-    construct_runtime_package_global( task );				// construct_runtime_package_global	def in   src/c/main/construct-runtime-package.c
+    construct_runtime_package__global( task );				// construct_runtime_package__global	def in   src/c/main/construct-runtime-package.c
 
     // Construct the list of files to be loaded:
     //
@@ -284,7 +284,7 @@ void   load_compiled_files   (
 		filename
 	    );
 
-	    register_compiled_file_exports( task, &picklehash, runtime_package_global );
+	    register_compiled_file_exports( task, &picklehash, runtime_package__global );
 	    seen_runtime_package_picklehash = TRUE;							// Make sure that we register the runtime system picklehash only once.
 	}
     }

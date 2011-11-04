@@ -158,10 +158,10 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
     //	
     //     src/c/main/load-compiledfiles.c
     //
-    runtime_package_global =  heap_header.runtime_pseudopackage;
+    runtime_package__global =  heap_header.runtime_pseudopackage;
 
     #ifdef ASM_MATH
-	mathvec_global = heap_header.math_package;
+	mathvec__global = heap_header.math_package;
     #endif
 
 
@@ -187,7 +187,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
 
 	read_heap (&inbuf, &heap_header, task, externs);			// Read the Mythryl heap.
 
-	/* cleaner_messages_are_enabled_global = TRUE; */					// Cleaning messages are on by default for interactive images.
+	/* cleaner_messages_are_enabled__global = TRUE; */					// Cleaning messages are on by default for interactive images.
 
     } else { 								// EXPORT_FN_IMAGE
 
@@ -219,7 +219,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
 
         // Set up the arguments to the imported function:
         //
-	program_name = make_ascii_string_from_c_string(task, mythryl_program_name_global);
+	program_name = make_ascii_string_from_c_string(task, mythryl_program_name__global);
 	args = make_ascii_strings_from_vector_of_c_strings (task, commandline_arguments);
 	REC_ALLOC2(task, task->argument, program_name, args);
 
@@ -228,7 +228,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
         // Cleaner messages are off by
         // default for spawn_to_disk images:
         //
-	cleaner_messages_are_enabled_global =  FALSE;
+	cleaner_messages_are_enabled__global =  FALSE;
     }
 
     FREE( externs );
@@ -267,7 +267,7 @@ static void   read_heap   (
 
     Addresstable*	boRegionTable;
 
-    // Allocate a book_to_sibid_global for the imported
+    // Allocate a book_to_sibid__global for the imported
     // heap image's address space:
     //
     #ifdef TWO_LEVEL_MAP
@@ -440,13 +440,13 @@ static void   read_heap   (
 
 		set_book2sibid_entries_for_range (
 		    //
-		    book_to_sibid_global,
+		    book_to_sibid__global,
                     (Val*) free_region,
 		    BYTESIZE_OF_MULTIPAGE_RAM_REGION( free_region->ram_region ),
 		    HUGECHUNK_DATA_SIBID( i )
 		);
 
-		book_to_sibid_global[ GET_BOOK_CONTAINING_POINTEE( free_region ) ]
+		book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( free_region ) ]
 		    =
 		    HUGECHUNK_RECORD_SIBID( i );
 
@@ -494,7 +494,7 @@ static void   read_heap   (
 
 		    ASSERT( bdp->gen == i+1 );
 
-		    if (codechunk_comment_display_is_enabled_global
+		    if (codechunk_comment_display_is_enabled__global
                     &&  ilk == CODE__HUGE_ILK
                     ){
 		        // Dump the comment string of the code chunk.
@@ -538,10 +538,10 @@ static void   read_heap   (
             externs
         );
 
-    runtime_package_global = repair_word( runtime_package_global, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
+    runtime_package__global = repair_word( runtime_package__global, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
 
 #ifdef ASM_MATH
-    mathvec_global = repair_word (mathvec_global, oldBOOK2SIBID, addrOffset, boRegionTable, externs);
+    mathvec__global = repair_word (mathvec__global, oldBOOK2SIBID, addrOffset, boRegionTable, externs);
 #endif
 
     // Adjust the Mythryl registers

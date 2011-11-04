@@ -22,7 +22,7 @@ Val   _lib7_proc_program_name_from_commandline   (Task* task,  Val arg)   {
     //
     //     src/lib/std/commandline.pkg
 
-    return   make_ascii_string_from_c_string( task, mythryl_program_name_global );
+    return   make_ascii_string_from_c_string( task, mythryl_program_name__global );
 }
 
 

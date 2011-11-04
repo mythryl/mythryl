@@ -20,7 +20,7 @@ int   get_chunk_age   (Val chunk) {
 	return -1;
     } else {
         //
-	Sibid aid =  SIBID_FOR_POINTER( book_to_sibid_global, chunk );
+	Sibid aid =  SIBID_FOR_POINTER( book_to_sibid__global, chunk );
         //
 	if (SIBID_KIND_IS_CODE( aid )) {
 	    //	
@@ -28,7 +28,7 @@ int   get_chunk_age   (Val chunk) {
 	    Hugechunk* dp;
 
 	    int  i;
-	    for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(aid);  aid = book_to_sibid_global[--i]) {
+	    for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(aid);  aid = book_to_sibid__global[--i]) {
 		continue;
 	    }
 

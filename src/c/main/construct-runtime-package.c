@@ -21,7 +21,7 @@
 //
 // substitutes (during linking) the
 //
-//     runtime_package_global
+//     runtime_package__global
 //
 // which we create here for the (dummy) file
 //
@@ -188,13 +188,13 @@ ASM_CONT(return_from_software_generated_periodic_event_handler);					// Invokes 
 
 #define DEFINE_VOID_REFCELL(z)	Val z[2] = {REFCELL_TAGWORD, HEAP_VOID}
 
-DEFINE_VOID_REFCELL( this_fn_profiling_hook_refcell_global			);
-DEFINE_VOID_REFCELL( pervasive_package_pickle_list_refcell_global		);
-DEFINE_VOID_REFCELL( posix_interprocess_signal_handler_refcell_global		);
-DEFINE_VOID_REFCELL( software_generated_periodic_events_handler_refcell_global	);
-DEFINE_VOID_REFCELL( software_generated_periodic_events_switch_refcell_global	);
-DEFINE_VOID_REFCELL( software_generated_periodic_event_interval_refcell_global	);
-DEFINE_VOID_REFCELL( active_pthreads_count_refcell_global			);
+DEFINE_VOID_REFCELL( this_fn_profiling_hook_refcell__global			);
+DEFINE_VOID_REFCELL( pervasive_package_pickle_list_refcell__global		);
+DEFINE_VOID_REFCELL( posix_interprocess_signal_handler_refcell__global		);
+DEFINE_VOID_REFCELL( software_generated_periodic_events_handler_refcell__global	);
+DEFINE_VOID_REFCELL( software_generated_periodic_events_switch_refcell__global	);
+DEFINE_VOID_REFCELL( software_generated_periodic_event_interval_refcell__global	);
+DEFINE_VOID_REFCELL( active_pthreads_count_refcell__global			);
 
 #undef DEFINE_VOID_REFCELL
 
@@ -207,40 +207,40 @@ DEFINE_VOID_REFCELL( active_pthreads_count_refcell_global			);
 //	
 //     src/c/main/load-compiledfiles.c
 //
-Val		runtime_package_global = HEAP_VOID;
+Val		runtime_package__global = HEAP_VOID;
 #ifdef ASM_MATH
-    Val		mathvec_global = HEAP_VOID;
+    Val		mathvec__global = HEAP_VOID;
 #endif
 
 // Aggregate vectors of length zero:
 //
 const char zero_length_string_global_data[ 1 ] =  { 0 };
-Val        zero_length_string_global[ 3 ]      =  { STRING_TAGWORD,  PTR_CAST( Val,  zero_length_string_global_data ), TAGGED_INT_FROM_C_INT(0) };
-Val        zero_length_vector_global[ 3 ]      =  { TYPEAGNOSTIC_RO_VECTOR_TAGWORD, HEAP_VOID, TAGGED_INT_FROM_C_INT(0) };
+Val        zero_length_string__global[ 3 ]      =  { STRING_TAGWORD,  PTR_CAST( Val,  zero_length_string_global_data ), TAGGED_INT_FROM_C_INT(0) };
+Val        zero_length_vector__global[ 3 ]      =  { TYPEAGNOSTIC_RO_VECTOR_TAGWORD, HEAP_VOID, TAGGED_INT_FROM_C_INT(0) };
 
-LIB7_EXNID( divide_exception_global,	"DIVIDE_BY_ZERO"	);
-LIB7_EXNID( overflow_exception_global,	"OVERFLOW"		);
-LIB7_EXNID( runtime_exception_global, 	"RUNTIME_EXCEPTION"	);
+LIB7_EXNID( divide_exception__global,	"DIVIDE_BY_ZERO"	);
+LIB7_EXNID( overflow_exception__global,	"OVERFLOW"		);
+LIB7_EXNID( runtime_exception__global, 	"RUNTIME_EXCEPTION"	);
 
 extern Val externlist0 [];
 
 #ifdef ASM_MATH
-LIB7_EXNID(ln_global,"LN_GLOBAL");
-LIB7_EXNID(sqrt_global,"SQRT_GLOBAL");
+LIB7_EXNID(ln__global,"LN_GLOBAL");
+LIB7_EXNID(sqrt__global,"SQRT_GLOBAL");
 #endif
 
 
 // A table of pointers to global C variables that
 // are potential garbage-collection roots:
 //
-Val* c_roots_global[ MAX_C_HEAPCLEANER_ROOTS ] = {
+Val* c_roots__global[ MAX_C_HEAPCLEANER_ROOTS ] = {
     //
-    &runtime_package_global,
-    pervasive_package_pickle_list_refcell_global +1,
-    posix_interprocess_signal_handler_refcell_global +1,
-    software_generated_periodic_events_handler_refcell_global +1,
+    &runtime_package__global,
+    pervasive_package_pickle_list_refcell__global +1,
+    posix_interprocess_signal_handler_refcell__global +1,
+    software_generated_periodic_events_handler_refcell__global +1,
 #ifdef ASM_MATH
-    &mathvec_global,
+    &mathvec__global,
 #else
     NULL,
 #endif
@@ -249,14 +249,14 @@ Val* c_roots_global[ MAX_C_HEAPCLEANER_ROOTS ] = {
 
 #ifdef ASM_MATH
     //
-    int c_roots_count_global = 5;
+    int c_roots_count__global = 5;
 #else
-    int	c_roots_count_global = 4;
+    int	c_roots_count__global = 4;
 #endif
 
 
 
-void   construct_runtime_package_global   (Task* task) {
+void   construct_runtime_package__global   (Task* task) {
     //
     // This fn gets called exactly one place, in
     //
@@ -290,7 +290,7 @@ void   construct_runtime_package_global   (Task* task) {
     // 'runtime_asm' gets slotted into the 'runtime' record created below,
     // which in turn gets published in
     //
-    //     runtime_package_global
+    //     runtime_package__global
     //
     // for eventual use in
     //
@@ -331,25 +331,25 @@ void   construct_runtime_package_global   (Task* task) {
 	LIB7_AllocWrite(task,  2, DIVIDE_EXCEPTION_GLOBAL);
 	LIB7_AllocWrite(task,  3, OVERFLOW_EXCEPTION_GLOBAL);
 	LIB7_AllocWrite(task,  4, RUNTIME_EXCEPTION_GLOBAL);
-	LIB7_AllocWrite(task,  5, THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL);				// this_fn_profiling_hook_refcell_global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL);		// software_generated_periodic_events_switch_refcell_global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL);		// software_generated_periodic_event_interval_refcell_global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL);		// software_generated_periodic_event_handler_refcell_global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  9, ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL);				// active_pthreads_count_refcell_global				in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL);			// pervasive_package_pickle_list_global				in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL );			// posix_interprocess_signal_handler_refcell_global		in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR_GLOBAL);						// zero_length_vector_global					in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  5, THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL);				// this_fn_profiling_hook_refcell__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  9, ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL);				// active_pthreads_count_refcell__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR_GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
 	runtime = LIB7_Alloc(task, RUNTIME_SIZE);
     #undef RUNTIME_SIZE
 
     // Make 1-slot SRECORD containing the runtime
     // and publish it in
     //
-    //     runtime_package_global
+    //     runtime_package__global
     //
     // for eventual use by   src/c/main/load-compiledfiles.c
     //
-    REC_ALLOC1(task, runtime_package_global, runtime);
+    REC_ALLOC1(task, runtime_package__global, runtime);
 
     #ifdef ASM_MATH
         #define MATHVEC_SZ	8
@@ -362,10 +362,10 @@ void   construct_runtime_package_global   (Task* task) {
 	LIB7_AllocWrite(task,  6, PTR_CAST( Val,  ln_v     +1));
 	LIB7_AllocWrite(task,  7, PTR_CAST( Val,  sin_v    +1));
 	LIB7_AllocWrite(task,  8, PTR_CAST( Val,  sqrt_v   +1));
-	mathvec_global = LIB7_Alloc(task, MATHVEC_SZ);
+	mathvec__global = LIB7_Alloc(task, MATHVEC_SZ);
     #endif
 
-}								// fun construct_runtime_package_global
+}								// fun construct_runtime_package__global
 
 
 
@@ -514,7 +514,7 @@ void   publish_runtime_package_contents   ()   {
     // I don't think ASM_MATH is ever defined, and I can't find any code which would actually use this stuff if it was. Needs to be fixed or deleted.  -- 2010-12-15 CrT  XXX BUGGO FIXME
     #if defined(ASM_MATH)
 	//
-	// mathvec_global
+	// mathvec__global
 	//
 	publish_cfun( "math::asm::ln_id",		LN_ID_GLOBAL			);
 	publish_cfun( "math::asm::sqrt_id",		SQRT_ID_GLOBAL			);
@@ -541,9 +541,9 @@ void   publish_runtime_package_contents   ()   {
 
 	PATCH_LIB7_STRING(machine_id);
 
-	PATCH_LIB7_EXNID(      div_exception_global	);
-	PATCH_LIB7_EXNID( overflow_exception_global	);
-	PATCH_LIB7_EXNID(  runtime_exception_global	);
+	PATCH_LIB7_EXNID(      div_exception__global	);
+	PATCH_LIB7_EXNID( overflow_exception__global	);
+	PATCH_LIB7_EXNID(  runtime_exception__global	);
 
 	PATCH_ASM_CLOSURE( make_typeagnostic_rw_vector	);
 	PATCH_ASM_CLOSURE( find_cfun	);

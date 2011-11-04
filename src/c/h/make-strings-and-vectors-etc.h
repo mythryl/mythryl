@@ -223,11 +223,11 @@ extern Val  dump_table_as_system_constants_list			(Task* task,  System_Constants
 
 extern Val make_package_literals_via_bytecode_interpreter (Task* task,  Unt8* lits,  int len);
 
-extern Val zero_length_string_global [];
-extern Val zero_length_vector_global [];
+extern Val zero_length_string__global [];
+extern Val zero_length_vector__global [];
 
-#define ZERO_LENGTH_STRING_GLOBAL	PTR_CAST( Val,  zero_length_string_global +1 )
-#define ZERO_LENGTH_VECTOR_GLOBAL	PTR_CAST( Val,  zero_length_vector_global +1 )
+#define ZERO_LENGTH_STRING_GLOBAL	PTR_CAST( Val,  zero_length_string__global +1 )
+#define ZERO_LENGTH_VECTOR_GLOBAL	PTR_CAST( Val,  zero_length_vector__global +1 )
 
 #endif // RUNTIME_HEAP_H
 

@@ -8,9 +8,9 @@
 #define MICROSECONDS_PER_SIGVTALRM 10000			// This gets used (only) in   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
 #endif
 
-extern Val	time_profiling_rw_vector_global;		// This gets set in   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
+extern Val	time_profiling_rw_vector__global;		// This gets set in   src/c/lib/space-and-time-profiling/libmythryl-space-and-time-profiling.c
 
-// Indices into the time_profiling_rw_vector_global
+// Indices into the time_profiling_rw_vector__global
 // for the run-time and cleaner.  
 // 
 // These need to track the definitions in

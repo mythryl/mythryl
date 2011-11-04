@@ -11,7 +11,7 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-extern System_Constants_Table	errno_table_global;				// See  src/c/lib/posix-error/tbl-errno.c
+extern System_Constants_Table	errno_table__global;				// See  src/c/lib/posix-error/tbl-errno.c
 
 
 
@@ -24,7 +24,7 @@ Val   _lib7_P_Error_listerrors   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-error.pkg   
 
-    return   dump_table_as_system_constants_list( task, &errno_table_global );			// dump_table_as_system_constants_list		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return   dump_table_as_system_constants_list( task, &errno_table__global );			// dump_table_as_system_constants_list		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 

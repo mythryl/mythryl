@@ -64,7 +64,7 @@
 // find_cfun_asm itself is ultimately accessed via
 // via   RunVec   and   CStruct  stored in
 //
-//     runtime_package_global 
+//     runtime_package__global 
 //
 // by  src/c/main/construct-runtime-package.c
 //

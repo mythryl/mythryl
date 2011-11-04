@@ -214,13 +214,13 @@ extern void   set_up_fault_handlers ();										// set_up_fault_handlers		def i
 //
 extern char** raw_args;
 extern char** commandline_arguments;				// Does not include the command name (argv[0]).
-extern char*  mythryl_program_name_global;			// Command name used to invoke the runtime.
+extern char*  mythryl_program_name__global;			// Command name used to invoke the runtime.
 extern int    verbosity;
-extern Bool   codechunk_comment_display_is_enabled_global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
-extern Bool   cleaner_messages_are_enabled_global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
-extern Bool   unlimited_heap_is_enabled_global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Bool   codechunk_comment_display_is_enabled__global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
+extern Bool   cleaner_messages_are_enabled__global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
+extern Bool   unlimited_heap_is_enabled__global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 
-extern Pthread*	pthread_table_global [];
+extern Pthread*	pthread_table__global [];
 
 #endif // _ASM_ 
 

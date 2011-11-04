@@ -53,7 +53,7 @@ Hugechunk*   allocate_hugechunk_region   (
     // It returns the descriptor for the
     // free hugechunk that is the region.
     //
-    // NOTE: It does not mark the book_to_sibid_global entries for the region;
+    // NOTE: It does not mark the book_to_sibid__global entries for the region;
     //       this must be done by the caller.
 
     int npages;
@@ -241,9 +241,9 @@ Hugechunk*   allocate_hugechunk   (
     if (region->age_of_youngest_live_chunk_in_region > age) {
 	region->age_of_youngest_live_chunk_in_region = age;
 	//
-	set_book2sibid_entries_for_range (book_to_sibid_global, (Val*)region, BYTESIZE_OF_MULTIPAGE_RAM_REGION( region->ram_region ), HUGECHUNK_DATA_SIBID(age));
+	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)region, BYTESIZE_OF_MULTIPAGE_RAM_REGION( region->ram_region ), HUGECHUNK_DATA_SIBID(age));
 
-	book_to_sibid_global[ GET_BOOK_CONTAINING_POINTEE( region ) ]
+	book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( region ) ]
 	    =
 	    HUGECHUNK_RECORD_SIBID( age );
     }
@@ -279,7 +279,7 @@ void   free_hugechunk   (
     #ifdef BO_DEBUG
 	debug_say ("free_hugechunk: @ %#x, book2sibid age = %x, age = %d, state = %d, pages=[%d..%d)\n",
 	    chunk->chunk,
-	    (unsigned) GET_AGE_FROM_SIBID( SIBID_FOR_POINTER( book_to_sibid_global, chunk->chunk)),
+	    (unsigned) GET_AGE_FROM_SIBID( SIBID_FOR_POINTER( book_to_sibid__global, chunk->chunk)),
             chunk->age,
             chunk->state,
             first_ram_quantum,
@@ -353,7 +353,7 @@ Hugechunk*   address_to_hugechunk   (Val addr) {
     // Given an address within a hugechunk,
     // return the chunk's descriptor record.
 
-    Sibid*    book2sibid = book_to_sibid_global;
+    Sibid*    book2sibid = book_to_sibid__global;
     Sibid    sibid;
     Hugechunk_Region* rp;
 
@@ -380,7 +380,7 @@ Unt8*   codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_c
 
     
 
-    Sibid sib_id =  SIBID_FOR_POINTER( book_to_sibid_global, program_counter );
+    Sibid sib_id =  SIBID_FOR_POINTER( book_to_sibid__global, program_counter );
 
     if (!SIBID_KIND_IS_CODE( sib_id ))   return NULL;
 
@@ -388,7 +388,7 @@ Unt8*   codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_c
 
     while (!SIBID_ID_IS_BIGCHUNK_RECORD(sib_id)) {
 	//
-	sib_id =  book_to_sibid_global[ --index ];
+	sib_id =  book_to_sibid__global[ --index ];
     }
 
     Hugechunk_Region* region =  (Hugechunk_Region*)  ADDRESS_OF_BOOK( index );

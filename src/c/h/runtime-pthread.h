@@ -103,7 +103,7 @@ typedef pid_t 	Pid;			// A process id.
     extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
     //											// Pthread is typedef'ed in src/c/h/runtime-base.h
     //
-    extern Pid      pth__get_pthread_id		(void);					// Used to initialize pthread_table_global[0]->pid in   src/c/main/runtime-state.c
+    extern Pid      pth__get_pthread_id		(void);					// Used to initialize pthread_table__global[0]->pid in   src/c/main/runtime-state.c
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //
@@ -119,7 +119,7 @@ typedef pid_t 	Pid;			// A process id.
     extern int   pth__start_heapcleaning    (Task*);
     extern void  pth__finish_heapcleaning   (Task*, int);
     //
-    extern Val*  pth__extra_heapcleaner_roots_global [];
+    extern Val*  pth__extra_heapcleaner_roots__global [];
 
 
 
@@ -143,11 +143,11 @@ typedef pid_t 	Pid;			// A process id.
     //
     // Some statically pre-allocated mutexs:
     //
-    extern Mutex	    pth__heapcleaner_mutex_global;
-    extern Mutex	    pth__heapcleaner_gen_mutex_global;
-    extern Mutex	    pth__timer_mutex_global;
+    extern Mutex	    pth__heapcleaner_mutex__global;
+    extern Mutex	    pth__heapcleaner_gen_mutex__global;
+    extern Mutex	    pth__timer_mutex__global;
     //
-    extern Barrier* pth__cleaner_barrier_global;
+    extern Barrier* pth__cleaner_barrier__global;
     //
     //
     // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT

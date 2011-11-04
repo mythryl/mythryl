@@ -48,7 +48,7 @@ void   say_error   (char *fmt, ...)   {
     va_list	ap;
 
     va_start (ap, fmt);
-    fprintf (stderr, "%s: Nonfatal error:  ", mythryl_program_name_global);
+    fprintf (stderr, "%s: Nonfatal error:  ", mythryl_program_name__global);
     vfprintf (stderr, fmt, ap);
     va_end(ap);
 }
@@ -62,7 +62,7 @@ void   die   (char *fmt, ...)   {
     va_list	ap;
 
     va_start (ap, fmt);
-    fprintf (stderr, "%s: Fatal error:  ", mythryl_program_name_global);
+    fprintf (stderr, "%s: Fatal error:  ", mythryl_program_name__global);
     vfprintf (stderr, fmt, ap);
     fprintf (stderr, "\n");
     va_end(ap);
@@ -86,7 +86,7 @@ void   die   (char *fmt, ...)   {
 	//
 	// Print an assertion failure message.
 
-	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name_global, a, file, line);
+	fprintf (stderr, "%s: Fatal error:  Assertion failure (%s) at \"%s:%d\"\n", mythryl_program_name__global, a, file, line);
 
 	#if NEED_PTHREAD_SUPPORT
 	    pth__shut_down ();

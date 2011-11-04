@@ -240,15 +240,15 @@
 
 #if defined (USE_TOC)
 // Create table of contents entries for things we need the address of.
-	.extern		CSYM(software_generated_periodic_event_interval_refcell_global)
-	.extern 	CSYM(software_generated_periodic_events_switch_refcell_global)
+	.extern		CSYM(software_generated_periodic_event_interval_refcell__global)
+	.extern 	CSYM(software_generated_periodic_events_switch_refcell__global)
 	.extern		CSYM(call_heapcleaner_asm)
 
 	.toc
-T.software_generated_periodic_event_interval_refcell_global:
-	.tc	H.software_generated_periodic_event_interval_refcell_global[TC],CSYM(software_generated_periodic_event_interval_refcell_global)
-T.software_generated_periodic_events_switch_refcell_global:
-	.tc	H.software_generated_periodic_events_switch_refcell_global[TC],CSYM(software_generated_periodic_events_switch_refcell_global)
+T.software_generated_periodic_event_interval_refcell__global:
+	.tc	H.software_generated_periodic_event_interval_refcell__global[TC],CSYM(software_generated_periodic_event_interval_refcell__global)
+T.software_generated_periodic_events_switch_refcell__global:
+	.tc	H.software_generated_periodic_events_switch_refcell__global[TC],CSYM(software_generated_periodic_events_switch_refcell__global)
 T.call_heapcleaner_asm:	
 	.tc	H.call_heapcleaner_asm[TC],CSYM(call_heapcleaner_asm)
 T.cvti2d_CONST:

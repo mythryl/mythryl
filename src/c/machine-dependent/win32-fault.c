@@ -16,7 +16,7 @@
 
 #include "win32-fault.h"
 
-#define SELF_PTHREAD (pthread_table_global[ 0 ])
+#define SELF_PTHREAD (pthread_table__global[ 0 ])
 
 // Globals:
 //

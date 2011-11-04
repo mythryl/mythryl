@@ -57,7 +57,7 @@ void   set_visible_task   (Task* visible_task)   {
 //
 //     src/c/heapcleaner/call-heapcleaner.c
 //
-Val   mythryl_functions_referenced_from_c_code_global =   LIST_NIL;	// See  src/c/heapcleaner/call-heapcleaner.c
+Val   mythryl_functions_referenced_from_c_code__global =   LIST_NIL;	// See  src/c/heapcleaner/call-heapcleaner.c
     //===============================================			// and  src/c/heapcleaner/heapclean-n-agegroups.c
 
 
@@ -67,7 +67,7 @@ static void   register_fn_as_cleaning_root   (
     Task*  task,
     Val*   rp
 ){
-    LIST_CONS(task,mythryl_functions_referenced_from_c_code_global,(Val) rp,mythryl_functions_referenced_from_c_code_global);
+    LIST_CONS(task,mythryl_functions_referenced_from_c_code__global,(Val) rp,mythryl_functions_referenced_from_c_code__global);
     //
     #ifdef DEBUG_C_CALLS
 	printf("register_fn_as_cleaning_root: added %x\n", rp);

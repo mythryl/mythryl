@@ -67,28 +67,28 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
 
 #ifdef OPSYS_UNIX
 
-    Bool  enabled =   (time_profiling_rw_vector_global != HEAP_VOID);
+    Bool  enabled =   (time_profiling_rw_vector__global != HEAP_VOID);
     int	    i;
 
     if (arg != OPTION_NULL) {
 
-	time_profiling_rw_vector_global =   OPTION_GET( arg );
+	time_profiling_rw_vector__global =   OPTION_GET( arg );
 
 	if (!enabled) {
 	    //
-	    c_roots_global[c_roots_count_global++] = &time_profiling_rw_vector_global;		// Add   time_profiling_rw_vector_global   to the C roots.
+	    c_roots__global[c_roots_count__global++] = &time_profiling_rw_vector__global;		// Add   time_profiling_rw_vector__global   to the C roots.
             //
 	    start_incrementing__time_profiling_rw_vector__once_per_SIGVTALRM ();		// Enable SIGVTALRM profiling signals   via   src/c/machine-dependent/posix-profiling-support.c
 	}
 
     } else if (enabled) {
 
-        // Remove   time_profiling_rw_vector_global   from the C roots:
+        // Remove   time_profiling_rw_vector__global   from the C roots:
         //
-	for (i = 0;  i < c_roots_count_global;  i++) {
+	for (i = 0;  i < c_roots_count__global;  i++) {
 	    //
-	    if (c_roots_global[i] == &time_profiling_rw_vector_global) {
-		c_roots_global[i] = c_roots_global[ --c_roots_count_global ];
+	    if (c_roots__global[i] == &time_profiling_rw_vector__global) {
+		c_roots__global[i] = c_roots__global[ --c_roots_count__global ];
 		break;
 	    }
 	}
@@ -96,7 +96,7 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
         // Disable profiling signals:
         //
 	stop_incrementing__time_profiling_rw_vector__once_per_SIGVTALRM ();			// Disable SIGVTALRM profiling signals   via   src/c/machine-dependent/posix-profiling-support.c
-	time_profiling_rw_vector_global =  HEAP_VOID;
+	time_profiling_rw_vector__global =  HEAP_VOID;
     }
 
     return HEAP_VOID;
@@ -149,7 +149,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
 	    new_itv.it_interval.tv_usec	=
 	    new_itv.it_value.tv_usec	= 0;
 
-	} else if (time_profiling_rw_vector_global == HEAP_VOID) {
+	} else if (time_profiling_rw_vector__global == HEAP_VOID) {
 	    //
 	    return RAISE_ERROR(task, "no time_profiling_rw_vector set");
 

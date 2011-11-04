@@ -39,9 +39,9 @@
 
 // Cleaner statistics:
 //
-extern long	update_count_global;		// update_count_global			def in    src/c/heapcleaner/heapclean-n-agegroups.c
-extern long	total_bytes_allocated_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
-extern long	total_bytes_copied_global;	// total_bytes_allocated_global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	update_count__global;		// update_count__global			def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_allocated__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_copied__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
 
 // heap_changelog operations:
 //
@@ -58,7 +58,7 @@ static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,
 
 
 #ifdef VERBOSE
-    extern char* sib_name_global [];			// sib_name_global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
+    extern char* sib_name__global [];			// sib_name__global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
 
@@ -120,7 +120,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    //
 	    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, next_tospace_word_to_allocate = %#x\n",
 		//
-	        sib_name_global[ i+1 ],
+	        sib_name__global[ i+1 ],
 		//
                 age1->sib[ i ]->tospace,
 	        age1->sib[ i ]->end_of_fromspace_oldstuff,
@@ -131,7 +131,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the standard roots:
     //
-    {   Sibid*  b2s = book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    {   Sibid*  b2s = book_to_sibid__global;										// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
@@ -147,7 +147,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     #else
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
-	    Pthread* pthread =  pthread_table_global[ i ];
+	    Pthread* pthread =  pthread_table__global[ i ];
 	    //
 	    Task*   task     =  pthread->task;
 	    //
@@ -169,7 +169,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	debug_say ("Agegroup 1 after MinorGC:\n");
 	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
 	  debug_say ("  %s: base = %#x, oldTop = %#x, next_tospace_word_to_allocate = %#x\n",
-	    sib_name_global[i+1], age1->sib[i]->tospace,
+	    sib_name__global[i+1], age1->sib[i]->tospace,
 	    age1->sib[i]->oldTop, age1->sib[i]->next_tospace_word_to_allocate);
 	}
     #endif
@@ -187,14 +187,14 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    INCREASE_BIGCOUNTER( &heap->total_bytes_copied_to_sib[ 0 ][ i ], bytes );
 	}
 
-	total_bytes_allocated_global  +=  bytes_allocated;				// Never used otherwise.
-	total_bytes_copied_global     +=  bytes_copied;					// Never used otherwise.
+	total_bytes_allocated__global  +=  bytes_allocated;				// Never used otherwise.
+	total_bytes_copied__global     +=  bytes_copied;					// Never used otherwise.
 
 	#ifdef XXX
 	    debug_say ("Minor GC: %d/%d (%5.2f%%) bytes copied; %d updates\n",
 	    bytes_copied, bytes_allocated,
 	    (bytes_allocated ? (double)(100*bytes_copied)/(double)bytes_allocated : 0.0),
-	    update_count_global - nUpdates);
+	    update_count__global - nUpdates);
 	#endif
     }
 
@@ -209,7 +209,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 static int   get_age_of_codechunk   (Val codechunk) {
     //       ====================
 
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );				// Get the Sibid tag for the ram-book containing the codechunk.
 
@@ -251,7 +251,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 
     int updates        = 0;								// Cleaner statistics.
     Agegroup* age1     =  heap->agegroup[ 0 ];						// Cache heap entry for speed.
-    Sibid* b2s         =  book_to_sibid_global;						// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s         =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {				// Over all entries in the heap_changelog.
 	//
@@ -304,7 +304,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	}
     }
 
-    update_count_global += updates;							// Cleaner statistics.  Apparently never used.
+    update_count__global += updates;							// Cleaner statistics.  Apparently never used.
 
     task->heap_changelog =  HEAP_CHANGELOG_NIL;						// We're done with heap_changelog so clear it.
 
@@ -314,7 +314,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   {	// Called only from sweep_agegroup_1_tospace (below).
     //               ===========================
     //
-    Sibid* b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     Sib*   sib =  ag1->sib[ ilk ];							// Find sib to scan.
 
     Bool   progress =  FALSE;
@@ -521,7 +521,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
 	    } else {
 
-		Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid_global, v );
+		Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid__global, v );
 		Val*  vp    =  PTR_CAST( Val*, v );
 
 		if (sibid == NEWSPACE_SIBID) {

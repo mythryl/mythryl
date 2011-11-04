@@ -18,7 +18,7 @@
 
 												// struct pthread_state_struct { 			def in   src/c/h/pthread-state.h
 												// typedef struct pthread_state_struct	Pthread;	def in   src/c/h/runtime-base.h
-Pthread* pthread_table_global[ MAX_PTHREADS ];							// pthread_table_global[] is exported			via      src/c/h/runtime-base.h
+Pthread* pthread_table__global[ MAX_PTHREADS ];							// pthread_table__global[] is exported			via      src/c/h/runtime-base.h
 
 
 
@@ -39,23 +39,23 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 	//
 	for (int i = 0;   i < MAX_PTHREADS;   i++) {
 	    //
-	    if (((pthread_table_global[i] = MALLOC_CHUNK(Pthread)) == NULL)
+	    if (((pthread_table__global[i] = MALLOC_CHUNK(Pthread)) == NULL)
 	    ||  ((task = MALLOC_CHUNK(Task)) == NULL)
             ){
 		die ("unable to allocate Lib7 state vectors");
 	    }
 
-	    pthread_table_global[i]->task =  task;
+	    pthread_table__global[i]->task =  task;
 	}
-	task =  pthread_table_global[0]->task;
+	task =  pthread_table__global[0]->task;
     #else
-	if (((pthread_table_global[0] = MALLOC_CHUNK(Pthread)) == NULL)
+	if (((pthread_table__global[0] = MALLOC_CHUNK(Pthread)) == NULL)
 	||  ((task = MALLOC_CHUNK(Task)) == NULL)
         ){
 	    die ("unable to allocate Lib7 state vector");
 	}
 
-	pthread_table_global[0]->task =  task;
+	pthread_table__global[0]->task =  task;
     #endif
 
     // Allocate and initialize the heap data structures:
@@ -64,42 +64,42 @@ Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
 
     #if !NEED_PTHREAD_SUPPORT
 	//
-	set_up_pthread_state( pthread_table_global[ 0 ] );
+	set_up_pthread_state( pthread_table__global[ 0 ] );
     #else
         // 'set_up_heap' has created an agegroup0 buffer;
 	//  partition it between our MAX_PTHREADS pthreads:
         //
-	partition_agegroup0_buffer_between_pthreads( pthread_table_global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	partition_agegroup0_buffer_between_pthreads( pthread_table__global );			// partition_agegroup0_buffer_between_pthreads	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
         // Initialize the per-Pthread Mythryl state:
         //
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {
 	    //
-	    set_up_pthread_state( pthread_table_global[i] );
+	    set_up_pthread_state( pthread_table__global[i] );
 
 	    // Single timers are currently shared
 	    // among multiple pthreads:
 	    //
 	    if (i != 0) {
-		pthread_table_global[ i ] -> cpu_time_at_start_of_last_cleaning
-              = pthread_table_global[ 0 ] -> cpu_time_at_start_of_last_cleaning;
+		pthread_table__global[ i ] -> cpu_time_at_start_of_last_cleaning
+              = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_cleaning;
 		//
-		pthread_table_global[ i ]- > cumulative_cleaning_cpu_time
-	      = pthread_table_global[ 0 ] - >cumulative_cleaning_cpu_time;
+		pthread_table__global[ i ]- > cumulative_cleaning_cpu_time
+	      = pthread_table__global[ 0 ] - >cumulative_cleaning_cpu_time;
 	    }
 	}
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table_global[0]->pid  =  pth__pthread_id ();					// pth__pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+	pthread_table__global[0]->pid  =  pth__pthread_id ();					// pth__pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
 												// pth__pthread_id				def in    src/c/pthread/pthread-on-sgi.c
 												// pth__pthread_id				def in    src/c/pthread/pthread-on-solaris.c
-	pthread_table_global[0]->status =  PTHREAD_IS_RUNNING;
+	pthread_table__global[0]->status =  PTHREAD_IS_RUNNING;
     #endif						// NEED_PTHREAD_SUPPORT
 
     // Initialize the timers:
     //
-    reset_timers( pthread_table_global[0] );		// NEED_PTHREAD_SUPPORT note: For now, only Pthread 0 has timers.
+    reset_timers( pthread_table__global[0] );		// NEED_PTHREAD_SUPPORT note: For now, only Pthread 0 has timers.
 
     return task;
 }							// fun make_task

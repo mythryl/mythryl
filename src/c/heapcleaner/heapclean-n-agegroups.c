@@ -53,9 +53,9 @@ Includes:
 /*
 Cleaner statistics stuff:
 */
- long	update_count_global		= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
- long	total_bytes_allocated_global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
- long	total_bytes_copied_global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
+ long	update_count__global		= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
+ long	total_bytes_allocated__global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
+ long	total_bytes_copied__global	= 0;	// Referenced only in src/c/heapcleaner/heapclean-agegroup0.c
 
 
 #if NEED_HUGECHUNK_REFERENCE_STATISTICS		// "NEED_HUGECHUNK_REFERENCE_STATISTICS" does not appear outside this file, except for its definition in   src/c/mythryl-config.h
@@ -115,7 +115,7 @@ Cleaner statistics stuff:
 
 // Symbolic names for the sib buffers:
 //
- char*   sib_name_global   [ MAX_PLAIN_ILKS+1 ] =   { "new", "record", "pair", "string", "vector" };
+ char*   sib_name__global   [ MAX_PLAIN_ILKS+1 ] =   { "new", "record", "pair", "string", "vector" };
 
 
 /* DEBUG */
@@ -164,7 +164,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
     // so that we can promote them.
     //
 
-    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*  b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     for (int age = oldest_agegroup_to_clean;   age > 0;   --age) {
         //
@@ -274,7 +274,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
     #endif
 
 
-    // Re-label book_to_sibid_global entries for hugechunk regions to reflect promotions:
+    // Re-label book_to_sibid__global entries for hugechunk regions to reflect promotions:
     //
     for (Hugechunk_Region* rp = heap->hugechunk_ramregions;  rp != NULL;  rp = rp->next) {
 	//
@@ -396,7 +396,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
     #endif
 
     #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
-	if (cleaner_messages_are_enabled_global) {
+	if (cleaner_messages_are_enabled__global) {
 	    long	                             cleaning_time;
 	    stop_cleaning_timer (task->pthread, &cleaning_time);
 	    debug_say (" (%d ms)\n",                 cleaning_time);
@@ -461,7 +461,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
 	//
-	if (cleaner_messages_are_enabled_global) {
+	if (cleaner_messages_are_enabled__global) {
 	    //	
 	    debug_say ("GC #");
 	    //	
@@ -545,7 +545,7 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
     // A debug support fn.
     //
     //
-    Sibid*  b2s =  book_to_sibid_global;							// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*  b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     for ( ;   start < stop;  ++start) {
 	//
@@ -831,7 +831,7 @@ static void         forward_all_roots (
 
     // Cache global in register for speed:
     //
-    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;										// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );
 
@@ -875,7 +875,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
     // Cache global in register for speed:
     //
-    Sibid* b2s =  book_to_sibid_global;										// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;										// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );
 
@@ -996,7 +996,7 @@ inline static Bool  scan_tospace_buffer   (										// Called only from forward
     //
     // Return TRUE iff we did anything.
     //
-    Sibid* b2s =  book_to_sibid_global;											// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;											// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     //
     Bool made_progress = FALSE;
 
@@ -1039,7 +1039,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 	= 
         ag->coarse_inter_agegroup_pointers_map;
 
-    Sibid*	   b2s    =  book_to_sibid_global;									// Cache global locally for speed.   book_to_sibid_global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid	   max_sibid   =  MAKE_MAX_SIBID(oldest_agegroup_to_clean);
 
@@ -1451,7 +1451,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest_agegroup_to_clean,   Val codechunk,   Sibid sibid)   {
     //              =================
     //
-    // 'sibid' is the book_to_sibid_global entry for codechunk.
+    // 'sibid' is the book_to_sibid__global entry for codechunk.
     // Return the Hugechunk record for 'codechunk'.
 
 
@@ -1462,7 +1462,7 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
         int  book;
 	for (book = GET_BOOK_CONTAINING_POINTEE( codechunk );
             !SIBID_ID_IS_BIGCHUNK_RECORD( sibid );
-            sibid = book_to_sibid_global[ --book ]
+            sibid = book_to_sibid__global[ --book ]
         );
 
 	region = (Hugechunk_Region*) ADDRESS_OF_BOOK( book );
@@ -1544,7 +1544,7 @@ static Val          forward_special_chunk   (
 
 	    } else {
 
-		Sibid	sibid = SIBID_FOR_POINTER( book_to_sibid_global, v );
+		Sibid	sibid = SIBID_FOR_POINTER( book_to_sibid__global, v );
 		Val*	vp = PTR_CAST(Val*, v);
 		Val	tagword;
 
@@ -1658,9 +1658,9 @@ static void         trim_heap                          (Heap* heap,  int oldest_
     // 
     // After a major collection, trim any sib buffers that are over their maximum
     // size in space-allocated, but under their maximum size in space-used.
-																// unlimited_heap_is_enabled_global defaults to FALSE in	src/c/main/runtime-main.c 
-    if (unlimited_heap_is_enabled_global)   return;										// unlimited_heap_is_enabled_global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
-																// unlimited_heap_is_enabled_global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
+																// unlimited_heap_is_enabled__global defaults to FALSE in	src/c/main/runtime-main.c 
+    if (unlimited_heap_is_enabled__global)   return;										// unlimited_heap_is_enabled__global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
+																// unlimited_heap_is_enabled__global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
     Val_Sized_Unt   min_bytesize;
     Val_Sized_Unt   new_bytesize;
 

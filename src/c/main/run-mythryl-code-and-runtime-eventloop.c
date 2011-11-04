@@ -106,7 +106,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
         // is #defined in
         //     src/c/h/runtime-globals.h
         // in terms of
-        //     this_fn_profiling_hook_refcell_global
+        //     this_fn_profiling_hook_refcell__global
         // from
         //     src/c/main/construct-runtime-package.c
 

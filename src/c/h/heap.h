@@ -67,7 +67,7 @@ typedef   struct agegroup          Agegroup;
 struct heap {
     Val*			agegroup0_buffer;			// Base address of agegroup0 buffer.
     Punt			agegroup0_buffer_bytesize;		// Size-in-bytes of the agegroup0 buffer.
-    Multipage_Ram_Region*	multipage_ram_region;			// The memory region we got from the host OS to contain the book_to_sibid_global and agegroup0 buffer.
+    Multipage_Ram_Region*	multipage_ram_region;			// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
 
     int  active_agegroups;						// Number of active agegroups.
     int  oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.

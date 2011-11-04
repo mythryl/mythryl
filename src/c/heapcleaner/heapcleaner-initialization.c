@@ -56,7 +56,7 @@ static int  DfltRatios[ MAX_AGEGROUPS ]
 #ifdef TWO_LEVEL_MAP
     #  error two level map not supported
 #else
-Sibid* book_to_sibid_global;
+Sibid* book_to_sibid__global;
 #endif
 
 								// Should this go into heapcleaner-statistics.c ?
@@ -138,7 +138,7 @@ Cleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
 		}
 	    } else if (MATCH("unlimited-heap")) {
 
-		unlimited_heap_is_enabled_global = TRUE;
+		unlimited_heap_is_enabled__global = TRUE;
 	    }
 	}
 
@@ -197,7 +197,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 										// set_up_multipage_ram_region_os_interface	def in   src/c/ram/get-multipage-ram-region-from-win32.c
 
     // Allocate a ram region to hold
-    // the book_to_sibid_global and agegroup0 buffer:
+    // the book_to_sibid__global and agegroup0 buffer:
     //
     {   long	book2sibid_bytesize;
 
@@ -216,21 +216,21 @@ void   set_up_heap   (			// Create and initialize the heap.
                 book2sibid_bytesize
            );
 
-	if (multipage_ram_region == NULL) 	   die ("Unable to allocate ram region for book_to_sibid_global");
+	if (multipage_ram_region == NULL) 	   die ("Unable to allocate ram region for book_to_sibid__global");
 
-	book_to_sibid_global = (Sibid*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( multipage_ram_region );
+	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( multipage_ram_region );
 
-	agegroup0_buffer = (Val*) (((Punt)book_to_sibid_global) + book2sibid_bytesize);
+	agegroup0_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
     }
 
-    // Initialize the book_to_sibid_global:
+    // Initialize the book_to_sibid__global:
     //
     #ifdef TWO_LEVEL_MAP
         #error two level map not supported
     #else
 	for (int i = 0;  i < BOOK2SIBID_TABLE_SIZE_IN_SLOTS;  i++) {
 	    //
-	    book_to_sibid_global[ i ] = UNMAPPED_BOOK_SIBID;
+	    book_to_sibid__global[ i ] = UNMAPPED_BOOK_SIBID;
 	}
     #endif
 
@@ -331,8 +331,8 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     set_book2sibid_entries_for_range (
 	//
-	book_to_sibid_global,
-	(Val*) book_to_sibid_global,
+	book_to_sibid__global,
+	(Val*) book_to_sibid__global,
 	BYTESIZE_OF_MULTIPAGE_RAM_REGION( heap->multipage_ram_region ),
 	NEWSPACE_SIBID
     );

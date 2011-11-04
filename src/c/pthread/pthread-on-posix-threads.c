@@ -58,15 +58,15 @@ Pthread*  pth__get_pthread   ()   {
     //
 #if !NEED_PTHREAD_SUPPORT
     //
-    return pthread_table_global[ 0 ];
+    return pthread_table__global[ 0 ];
 #else
     int pid =  pth__get_pthread_id ();							// Since this just calls getpid(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table_global[i]->pid == pid)   return &pthread_table_global[ i ];	// pthread_table_global		def in   src/c/main/runtime-state.c
-    }											// pthread_table_global exported via     src/c/h/runtime-pthread.h
-    die "pth__get_pthread:  pid %d not found in pthread_table_global?!", pid;
+	if (pthread_table__global[i]->pid == pid)   return &pthread_table__global[ i ];	// pthread_table__global		def in   src/c/main/runtime-state.c
+    }											// pthread_table__global exported via     src/c/h/runtime-pthread.h
+    die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
 #endif
 }
 
@@ -87,13 +87,13 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth__heapcleaner_mutex_global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__heapcleaner_mutex__global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__heapcleaner_gen_mutex_global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth__heapcleaner_gen_mutex__global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-Barrier* pth__cleaner_barrier_global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Barrier* pth__cleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__timer_mutex_global;							// Apparently never used.
+Mutex	 pth__timer_mutex__global;							// Apparently never used.
 
 
 
@@ -114,10 +114,10 @@ void   pth__initialize   () {
 
     MP_ArenaLock		= AllocLock ();
     MP_ProcLock			= AllocLock ();
-    pth__heapcleaner_mutex_global	= AllocLock ();
-    pth__heapcleaner_gen_mutex_global	= AllocLock ();
-    pth__timer_mutex_global	= AllocLock ();
-    pth__cleaner_barrier_global	= AllocBarrier();
+    pth__heapcleaner_mutex__global	= AllocLock ();
+    pth__heapcleaner_gen_mutex__global	= AllocLock ();
+    pth__timer_mutex__global	= AllocLock ();
+    pth__cleaner_barrier__global	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
@@ -353,7 +353,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
     // Search for a suspended kernel thread to reuse:
     //
     for (i = 0;
-	(i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != PTHREAD_IS_SUSPENDED);
+	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_SUSPENDED);
 	i++
     ) {
 	continue;
@@ -377,7 +377,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc
 	//
 	for (i = 0;
-	    (i < MAX_PTHREADS)  &&  (pthread_table_global[i]->status != NO_PTHREAD_ALLOCATED);
+	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
 	    i++
 	){
 	    continue;
@@ -396,7 +396,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
     // Use pthread at index i:
     //
-    pthread =  pthread_table_global[ i ];
+    pthread =  pthread_table__global[ i ];
 
     p =  pthread->task;
 

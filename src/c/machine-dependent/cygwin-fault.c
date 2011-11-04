@@ -24,7 +24,7 @@
 #include <windows.h>
 #include <exceptions.h>					// Cygwin stuff
 
-#define SELF_PTHREAD      (pthread_table_global[ 0 ])
+#define SELF_PTHREAD      (pthread_table__global[ 0 ])
 
 BOOL   cygwin_generic_handler   (int code)   {
     //

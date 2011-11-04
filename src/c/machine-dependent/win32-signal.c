@@ -18,9 +18,9 @@
 #include "win32-sigtable.c"
 
 #if NEED_PTHREAD_SUPPORT
-#define SELF_PTHREAD	(pthread_table_global[ 0 ])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
+#define SELF_PTHREAD	(pthread_table__global[ 0 ])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
 #else
-#define SELF_PTHREAD	(pthread_table_global[ 0 ])
+#define SELF_PTHREAD	(pthread_table__global[ 0 ])
 #endif
 
 Val   list_signals   (Task* task)   {

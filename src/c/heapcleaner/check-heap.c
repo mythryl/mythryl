@@ -337,7 +337,7 @@ static void   check_vector_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_Map* 
 static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int dstKind)   {
     //       =============
     //
-    Sibid sibid  = SIBID_FOR_POINTER( book_to_sibid_global, w);
+    Sibid sibid  = SIBID_FOR_POINTER( book_to_sibid__global, w);
     int	  dstGen = GET_AGE_FROM_SIBID(sibid);
     int	  chunkc = GET_KIND_FROM_SIBID(sibid);
 
@@ -380,7 +380,7 @@ static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int d
 
     default:
 	if (sibid != UNMAPPED_BOOK_SIBID) {
-	    die("bogus chunk ilk in book_to_sibid_global\n");
+	    die("bogus chunk ilk in book_to_sibid__global\n");
 	} else {
 	    if (name_of_cfun(w) == NULL) {					// name_of_cfun	def in   src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
 		ERROR;

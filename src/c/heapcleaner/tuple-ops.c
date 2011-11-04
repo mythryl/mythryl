@@ -28,7 +28,7 @@ static int   GetLen   (Val r)   {
 
     if (! IS_POINTER(r))	return -1;
 
-    switch (GET_KIND_FROM_SIBID( SIBID_FOR_POINTER( book_to_sibid_global, r) ) ) {
+    switch (GET_KIND_FROM_SIBID( SIBID_FOR_POINTER( book_to_sibid__global, r) ) ) {
 	//
     case NEW_KIND:
 	d = CHUNK_TAGWORD(r);

@@ -138,7 +138,7 @@ Pickler_Result   pickler__clean_heap   (
 ){
     Heap* heap =  task->heap;
 
-    Sibid* b2s =  book_to_sibid_global;									// Cache global in register for speed.
+    Sibid* b2s =  book_to_sibid__global;									// Cache global in register for speed.
 
     Bool seen_error =  FALSE;
 
@@ -324,7 +324,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
     // Complete the partial garbage collection.
 
     Heap*   heap       =  task->heap;
-    Sibid*  b2s =  book_to_sibid_global;
+    Sibid*  b2s =  book_to_sibid__global;
 
     Bool dummy = FALSE;
 
@@ -353,9 +353,9 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 	    CHECK_WORD_FOR_EXTERNAL_REFERENCE (heap, b2s, __p, maxAid, dummy);	\
 	}
 
-    for (int i = 0;  i < c_roots_count_global;  i++) {
+    for (int i = 0;  i < c_roots_count__global;  i++) {
 	//
-	CHECK_ROOT(c_roots_global[i]);
+	CHECK_ROOT(c_roots__global[i]);
     }
 
     CHECK_ROOT( &task->argument				);
@@ -635,7 +635,7 @@ static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
     // before moving on to the next oldest.
 
     Bool	swept;
-    Sibid*	b2s =  book_to_sibid_global;
+    Sibid*	b2s =  book_to_sibid__global;
     Bool	seen_error = FALSE;
 
     #define SWEEP_SIB_TOSPACE_BUFFER(ag, index)	{						\
@@ -865,7 +865,7 @@ static Hugechunk*   forward_hugechunk   (
     Embedded_Chunk_Info*  code_info;
 
     {	int  i;
-	for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(sibid);  sibid = book_to_sibid_global[ --i ]);
+	for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(sibid);  sibid = book_to_sibid__global[ --i ]);
 	//
 	region = (Hugechunk_Region*) ADDRESS_OF_BOOK( i );
     }
