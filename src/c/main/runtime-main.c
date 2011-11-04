@@ -63,6 +63,8 @@ char** raw_args;
 char** commandline_arguments;		// Does not include the program name (argv[0]).
 char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
 
+
+
 // Local variables:
 //
 static Bool	is_boot = FALSE;	                 	// TRUE iff we should bootstrap a system.
@@ -79,16 +81,20 @@ static void   process_commandline_options (int argc, char** argv, Heapcleaner_Ar
 
 static  Heapcleaner_Args*  do_start_of_world_stuff(     int argc, char** argv);
 
+
+
 int   main   (int argc, char** argv) {
     //====
     //
-    Heapcleaner_Args*	heapcleaner_args =   do_start_of_world_stuff( argc, argv );
+    Heapcleaner_Args*	heapcleaner_args
+	=
+	do_start_of_world_stuff( argc, argv );
 
-    // Start mythryld:
-    //
+
     if (is_boot)         load_compiled_files(  compiled_files_to_load_filename, heapcleaner_args );			// load_compiled_files					def in   src/c/main/load-compiledfiles.c
     //
     else 	         load_and_run_heap_image( heap_image_to_run_filename,   heapcleaner_args );			// load_and_run_heap_image				def in   src/c/main/load-and-run-heap-image.c
+
 
     print_stats_and_exit( 0 );												// Never returns.
     exit( 0 );														// Redundant -- just to suppress gcc warning.

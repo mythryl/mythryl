@@ -31,6 +31,7 @@
 #include "config.h"
 
 
+
 #define NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
     //
     // The Mythryl heapcleaner ("garbage collector") runs as a cooperative
@@ -131,5 +132,27 @@
     // as a result.)
     //                                         -- 2011-10-30 CrT
 
+
+#define CACHE_LINE_BYTESIZE 64
+    //
+    // Size-in-bytes of a processor cache line.
+    // Documentation on this is reputedly hard to find,
+    // but on Linux you can do
+    //
+    //     grep . /sys/devices/system/cpu/cpu0/cache/index*/* | more
+    //
+    // and look at 'coherency_line_size'.
+    //
+    // This number is non-critical and does not change much;
+    // it is safe and sensible to leave it unchanged.
+    // We use it in
+    //
+    //     src/c/pthread/pthread-on-posix-threads.c
+    //
+    // to try to put each mutex in its own cache line.  This can
+    // improve performance because cores typically lock a complete
+    // cache line when doing mutex operations, so putting two
+    // unrelated mutexes in the same cache line can introduce
+    // needless contention between cores.
 
 #endif // MYTHRYL_CONFIG_H

@@ -54,12 +54,20 @@ int   pth__done_acquire_pthread__global = FALSE;
     // the heapcleaner (etc) so long as this is FALSE.
 
 
-// Some statatically allocated locks:
+// Some statatically allocated locks.
 //
-Mutex	 pth__heapcleaner_mutex__global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-Mutex	 pth__heapcleaner_gen_mutex__global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-Barrier* pth__heapcleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-Mutex	 pth__timer_mutex__global;							// Apparently never used.
+// We try to put each mutex in its own cache line
+// to prevent cores thrashing against each other
+// trying to get control of logically unrelated mutexs:
+//
+/**/											char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
+Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
+
+
+
+Barrier* pth__heapcleaner_barrier__global;	;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
 // Some placeholder fns just so I can start
@@ -86,10 +94,15 @@ void     pth__start_up   (void)   {
     // Start-of-the-world initialization stuff.
     // We get called very early by   do_start_of_world_stuff   in   src/c/main/runtime-main.c
     //
-    // At present we use this opportunity just 
-    // to statically allocate a few global locks:
+    // We could allocate our static global mutexes here
+    // if necessary, but we don't need to because the
+    // posix-threads API allows us to just statically
+    // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
-fprintf(stderr,"src/c/pthread/pthread-on-posix-threads.c: pth__start_up: Called.\n");
+//   pth__heapcleaner_barrier__global	= AllocBarrier();
+    //
+    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+
 }
 
 Pid   pth__get_pthread_id   ()   {
