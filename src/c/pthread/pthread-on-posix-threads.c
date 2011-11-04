@@ -60,6 +60,9 @@ int   pth__done_acquire_pthread__global = FALSE;
 // to prevent cores thrashing against each other
 // trying to get control of logically unrelated mutexs:
 //
+// It would presumably be good to force cache-line-size
+// alignment here, but I don't know how, short of
+// malloc'ing and checking alignment at runtime:
 /**/											char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
 Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
@@ -75,8 +78,6 @@ Barrier* pth__heapcleaner_barrier__global;	;					// Used only with pth__wait_at_
 // -- to compile:
 //
 void     pth__shut_down			()					{}
-void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
-void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
 Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet");  }
 void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
 Barrier* pth__make_barrier		()					{ die("pth__make_barrier() not implemented yet"); return (Barrier*)NULL; }
@@ -104,6 +105,13 @@ void     pth__start_up   (void)   {
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
 }
+
+void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
+void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
+// pthread_mutex_lock(   &mutex1 );
+// pthread_mutex_unlock( &mutex1 );
+
+
 
 Pid   pth__get_pthread_id   ()   {
     //===================

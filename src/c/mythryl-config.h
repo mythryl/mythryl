@@ -136,12 +136,18 @@
 #define CACHE_LINE_BYTESIZE 64
     //
     // Size-in-bytes of a processor cache line.
-    // Documentation on this is reputedly hard to find,
-    // but on Linux you can do
+    // For Intel this is documented in as
+    //
+    //     "64 bytes for Intel Core 2 Duo, Intel Core, Pentium M, and Pentium 4 processors;
+    //      32 bytes P6 family and Pentium processors"
+    //
+    //            -- http://www.intel.com/content/dam/doc/manual/64-ia-32-architectures-software-developer-vol-3a-part-1-manual.pdf
+    //
+    // You can check this on Linux by doing
     //
     //     grep . /sys/devices/system/cpu/cpu0/cache/index*/* | more
     //
-    // and look at 'coherency_line_size'.
+    // and looking at 'coherency_line_size'.
     //
     // This number is non-critical and does not change much;
     // it is safe and sensible to leave it unchanged.
