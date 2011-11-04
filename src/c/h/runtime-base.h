@@ -138,6 +138,11 @@ typedef struct pthread_state_struct	Pthread;		// struct pthread_state_struct	def
 typedef struct task			Task;			// struct task			def in   src/c/h/task.h 
 typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 
+#include <pthread.h>
+
+typedef pthread_mutex_t			Mutex;			// A mutual-exclusion lock.
+typedef pthread_barrier_t		Barrier;		// A barrier.
+typedef pid_t	 			Pid;			// A process id.
 
 // System_Constant
 //

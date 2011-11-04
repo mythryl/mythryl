@@ -256,7 +256,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	    //
 	    if (n != 1000) {
 		//
-		for (int i = 10000; i -> 0; );
+		for (int i = 10000; i --> 0; );
 		//
 		n++;
 		//
@@ -381,7 +381,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	    // SPIN
 
 	    if (n != 1000) {
-		for (int i = 10000; i -> 0; );
+		for (int i = 10000; i --> 0; );
 		n++;
 	    } else {
 		n = 0;

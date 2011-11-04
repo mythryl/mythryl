@@ -69,16 +69,16 @@ void     pth__start_up			()					{}
 void     pth__shut_down			()					{}
 void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
 void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
-Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet"); }
+Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet");  }
 void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
-Barrier* pth__make_barrier		()					{ die("pth__make_barrier() not implemented yet"); }
+Barrier* pth__make_barrier		()					{ die("pth__make_barrier() not implemented yet"); return (Barrier*)NULL; }
 void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
 void     pth__wait_at_barrier		(Barrier* barrierp,  unsigned n)	{ die("pth__wait_at_barrier() not implemented yet"); }
 void     pth__clear_barrier		(Barrier* barrierp)			{ die("pth__clear_barrier() not implemented yet"); }
-int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
-Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); }
+int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); return 0; }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
+Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
-int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); }
+int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
 
 Pid   pth__get_pthread_id   ()   {
     //===================

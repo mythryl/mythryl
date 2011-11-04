@@ -63,11 +63,7 @@ typedef enum {
 	#include <unistd.h>
     #endif
 
-    #include <pthread.h>
 
-    typedef pthread_mutex_t		Mutex;		// A mutual-exclusion lock.
-    typedef pthread_barrier_t		Barrier;	// A barrier.
-    typedef pid_t	 		Pid;		// A process id.
 
 
 
