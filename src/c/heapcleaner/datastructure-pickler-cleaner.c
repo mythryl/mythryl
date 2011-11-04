@@ -964,7 +964,7 @@ static void   record_addresses_of_extracted_literals   (
 		=
 		add_cfun_to_heapfile_cfun_table (
                     cfun_table_local,
-		    (info->kind == EMBEDDED_STRING) ? ZERO_LENGTH_STRING_GLOBAL : LIB7_realarray0
+		    (info->kind == EMBEDDED_STRING) ? ZERO_LENGTH_STRING__GLOBAL : LIB7_realarray0
                 );
 	} else {
 	    // Assign a relocation address to the chunk

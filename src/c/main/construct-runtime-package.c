@@ -225,8 +225,8 @@ LIB7_EXNID( runtime_exception__global, 	"RUNTIME_EXCEPTION"	);
 extern Val externlist0 [];
 
 #ifdef ASM_MATH
-LIB7_EXNID(ln__global,"LN_GLOBAL");
-LIB7_EXNID(sqrt__global,"SQRT_GLOBAL");
+LIB7_EXNID(ln__global,"LN__GLOBAL");
+LIB7_EXNID(sqrt__global,"SQRT__GLOBAL");
 #endif
 
 
@@ -328,17 +328,17 @@ void   construct_runtime_package__global   (Task* task) {
     #define RUNTIME_SIZE	12
 	LIB7_AllocWrite(task,  0, MAKE_TAGWORD(RUNTIME_SIZE, PAIRS_AND_RECORDS_BTAG));
 	LIB7_AllocWrite(task,  1, runtime_asm);
-	LIB7_AllocWrite(task,  2, DIVIDE_EXCEPTION_GLOBAL);
-	LIB7_AllocWrite(task,  3, OVERFLOW_EXCEPTION_GLOBAL);
-	LIB7_AllocWrite(task,  4, RUNTIME_EXCEPTION_GLOBAL);
-	LIB7_AllocWrite(task,  5, THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL);				// this_fn_profiling_hook_refcell__global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  9, ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL);				// active_pthreads_count_refcell__global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR_GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  2, DIVIDE_EXCEPTION__GLOBAL);
+	LIB7_AllocWrite(task,  3, OVERFLOW_EXCEPTION__GLOBAL);
+	LIB7_AllocWrite(task,  4, RUNTIME_EXCEPTION__GLOBAL);
+	LIB7_AllocWrite(task,  5, THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL);				// this_fn_profiling_hook_refcell__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  9, ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL);				// active_pthreads_count_refcell__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
 	runtime = LIB7_Alloc(task, RUNTIME_SIZE);
     #undef RUNTIME_SIZE
 
@@ -354,8 +354,8 @@ void   construct_runtime_package__global   (Task* task) {
     #ifdef ASM_MATH
         #define MATHVEC_SZ	8
 	LIB7_AllocWrite(task,  0, MAKE_TAGWORD(MATHVEC_SZ, PAIRS_AND_RECORDS_BTAG));
-	LIB7_AllocWrite(task,  1, LN_ID_GLOBAL);
-	LIB7_AllocWrite(task,  2, SQRT_ID_GLOBAL);
+	LIB7_AllocWrite(task,  1, LN_ID__GLOBAL);
+	LIB7_AllocWrite(task,  2, SQRT_ID__GLOBAL);
 	LIB7_AllocWrite(task,  3, PTR_CAST( Val,  arctan_v +1));
 	LIB7_AllocWrite(task,  4, PTR_CAST( Val,  cos_v    +1));
 	LIB7_AllocWrite(task,  5, PTR_CAST( Val,  exp_v    +1));
@@ -494,30 +494,30 @@ void   publish_runtime_package_contents   ()   {
     // Use publish_cfun2() and see Hashtable_Entry comments in
     // src/c/heapcleaner/mythryl-callable-cfun-hashtable.c
     //
-    publish_cfun( "runtime::divide_exception",						DIVIDE_EXCEPTION_GLOBAL						);
-    publish_cfun( "runtime::overflow_exception",					OVERFLOW_EXCEPTION_GLOBAL					);
-    publish_cfun( "runtime::runtime_exception",						RUNTIME_EXCEPTION_GLOBAL					);
+    publish_cfun( "runtime::divide_exception",						DIVIDE_EXCEPTION__GLOBAL						);
+    publish_cfun( "runtime::overflow_exception",					OVERFLOW_EXCEPTION__GLOBAL					);
+    publish_cfun( "runtime::runtime_exception",						RUNTIME_EXCEPTION__GLOBAL					);
     publish_cfun( "runtime::machine_id",						PTR_CAST( Val, machine_id.s)					);
-    publish_cfun( "runtime::pervasive_package_pickle_list_refcell",			PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL			);
-    publish_cfun( "runtime::posix_interprocess_signal_handler_refcell",			POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL		);
-    publish_cfun( "runtime::zero_length_vector",					ZERO_LENGTH_VECTOR_GLOBAL					);
-    publish_cfun( "runtime::profiling_hook_refcell",					THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL				);
-    publish_cfun( "runtime::software_generated_periodic_events_handler_refcell",   	SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL	);
-    publish_cfun( "runtime::software_generated_periodic_events_switch_refcell",		SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL	);
-    publish_cfun( "runtime::software_generated_periodic_event_interval_refcell",	SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL	);
-    publish_cfun( "runtime::active_pthreads_count_refcell",				ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL			);
+    publish_cfun( "runtime::pervasive_package_pickle_list_refcell",			PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL			);
+    publish_cfun( "runtime::posix_interprocess_signal_handler_refcell",			POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL		);
+    publish_cfun( "runtime::zero_length_vector",					ZERO_LENGTH_VECTOR__GLOBAL					);
+    publish_cfun( "runtime::profiling_hook_refcell",					THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL				);
+    publish_cfun( "runtime::software_generated_periodic_events_handler_refcell",   	SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL	);
+    publish_cfun( "runtime::software_generated_periodic_events_switch_refcell",		SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL	);
+    publish_cfun( "runtime::software_generated_periodic_event_interval_refcell",	SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL	);
+    publish_cfun( "runtime::active_pthreads_count_refcell",				ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL			);
 
     // Null string:
     //
-    publish_cfun ("string0",			ZERO_LENGTH_STRING_GLOBAL);
+    publish_cfun ("string0",			ZERO_LENGTH_STRING__GLOBAL);
 
     // I don't think ASM_MATH is ever defined, and I can't find any code which would actually use this stuff if it was. Needs to be fixed or deleted.  -- 2010-12-15 CrT  XXX BUGGO FIXME
     #if defined(ASM_MATH)
 	//
 	// mathvec__global
 	//
-	publish_cfun( "math::asm::ln_id",		LN_ID_GLOBAL			);
-	publish_cfun( "math::asm::sqrt_id",		SQRT_ID_GLOBAL			);
+	publish_cfun( "math::asm::ln_id",		LN_ID__GLOBAL			);
+	publish_cfun( "math::asm::sqrt_id",		SQRT_ID__GLOBAL			);
 	publish_cfun( "math::asm::arctan",		PTR_CAST( Val, arctan_v+1)	);
 	publish_cfun( "math::asm::cos",			PTR_CAST( Val, cos_v   +1)	);
 	publish_cfun( "math::asm::exp",			PTR_CAST( Val, exp_v   +1)	);

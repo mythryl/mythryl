@@ -46,7 +46,7 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
     }
 
     REC_ALLOC2 (task, arg, s, syserror);
-    EXN_ALLOC (task, exn, PTR_CAST( Val, RUNTIME_EXCEPTION_GLOBAL), arg, atStk);
+    EXN_ALLOC (task, exn, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, atStk);
 
     raise_mythryl_exception( task, exn );
 

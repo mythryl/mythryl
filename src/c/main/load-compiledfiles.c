@@ -64,7 +64,7 @@
 //
 // is stored in the
 //
-//    PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL
+//    PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL
 //
 // refcell.
 // It is a singly-linked list of (key,val) pairs -- specifically,
@@ -85,7 +85,7 @@
 //
 // where 'vector_of_one_byte_unts::Vector' is the 16-byte hash of 'unsafe_chunk::Chunk'.
 //
-#define PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL	(*PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL ))
+#define PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL	(*PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL ))
 
 static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
 
@@ -1193,10 +1193,10 @@ static void   register_compiled_file_exports   (
     //
     REC_ALLOC3(
         task,
-        PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL,		// Where to save the pointer to the new record.
+        PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL,		// Where to save the pointer to the new record.
         lib7_picklehash,				// Key naming compiledfile -- first slot in new record.
         exports_tree,					// Tree of values exported from compiledfile -- second slot in new record.
-        PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL		// Pointer to next record in list -- third slot in new record.
+        PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL		// Pointer to next record in list -- third slot in new record.
     );
 }
 
@@ -1211,7 +1211,7 @@ static Val   picklehash_to_exports_tree   (Picklehash* picklehash)   {
     // We identify a (particular version of) a compiledfile using
     // a 16-byte hash of its serialized ("pickled") form.
     //
-    // Our global PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL is a singly
+    // Our global PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL is a singly
     // linked list with one entry for each compiledfile which
     // we have loaded into memory.
     //
@@ -1234,7 +1234,7 @@ static Val   picklehash_to_exports_tree   (Picklehash* picklehash)   {
 
     // For all compiled_files loaded into memory:
     //
-    for (p = PERVASIVE_PACKAGE_PICKLE_LIST_GLOBAL;  p != HEAP_VOID;  p = GET_TUPLE_SLOT_AS_VAL(p, 2)) {
+    for (p = PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL;  p != HEAP_VOID;  p = GET_TUPLE_SLOT_AS_VAL(p, 2)) {
 
         // If the picklehash on this record
         // matches our search key picklehash...

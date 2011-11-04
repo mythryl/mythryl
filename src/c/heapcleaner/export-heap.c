@@ -168,7 +168,7 @@ static Status   write_heap_image_to_file   (
 	    =
 	    heap->agegroup0_buffer_bytesize / MAX_PTHREADS;
 
-	hh.pervasive_package_pickle_list =   write_register(export_table,  *PTR_CAST(Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL));
+	hh.pervasive_package_pickle_list =   write_register(export_table,  *PTR_CAST(Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL));
         hh.runtime_pseudopackage         =   write_register(export_table,  runtime_package__global );
 #ifdef ASM_MATH
 	hh.math_package                  =   write_register(export_table,  mathvec__global );
@@ -191,7 +191,7 @@ static Status   write_heap_image_to_file   (
 
         // Save the live registers:
 	//
-	image.posix_interprocess_signal_handler =   write_register(export_table,  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL )	);
+	image.posix_interprocess_signal_handler =   write_register(export_table,  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL )	);
 	image.stdArg				=   write_register(export_table,  task->argument						);
 	image.stdCont				=   write_register(export_table,  task->fate							);
 	//

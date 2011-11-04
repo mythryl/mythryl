@@ -83,7 +83,7 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 
     if (n == 0) {
 	//
-	result = ZERO_LENGTH_STRING_GLOBAL;
+	result = ZERO_LENGTH_STRING__GLOBAL;
 
     } else {
 

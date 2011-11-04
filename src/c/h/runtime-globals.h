@@ -16,12 +16,12 @@ extern int   c_roots_count__global;
 // "Current function" hook for profiling:
 //
 extern Val	this_fn_profiling_hook_refcell__global   [];
-#define         THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL   PTR_CAST( Val,  this_fn_profiling_hook_refcell__global +1 )
+#define         THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL   PTR_CAST( Val,  this_fn_profiling_hook_refcell__global +1 )
 
 // Pointer to the pervasive package:
 //
 extern Val	pervasive_package_pickle_list_refcell__global	[];
-#define		PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL		PTR_CAST( Val,  pervasive_package_pickle_list_refcell__global +1 )
+#define		PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL		PTR_CAST( Val,  pervasive_package_pickle_list_refcell__global +1 )
 
 // Hook to pass POSIX interprocess signals up to the Mythryl level.
 // Incoming posix signals are noted by   c_signal_handler   in
@@ -39,7 +39,7 @@ extern Val	pervasive_package_pickle_list_refcell__global	[];
 // individual signals are distinguished
 //
 extern Val	posix_interprocess_signal_handler_refcell__global	[];
-#define		POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL	PTR_CAST( Val,  posix_interprocess_signal_handler_refcell__global + 1 )
+#define		POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL	PTR_CAST( Val,  posix_interprocess_signal_handler_refcell__global + 1 )
 
 
 
@@ -47,13 +47,13 @@ extern Val	posix_interprocess_signal_handler_refcell__global	[];
 //     src/c/main/construct-runtime-package.c
 //
 extern Val      runtime_exception__global_id0	[];
-#define         RUNTIME_EXCEPTION_GLOBAL	PTR_CAST( Val,  runtime_exception__global_id0  +1 )
+#define         RUNTIME_EXCEPTION__GLOBAL	PTR_CAST( Val,  runtime_exception__global_id0  +1 )
 //
 extern Val	divide_exception__global_id0	[];
-#define		DIVIDE_EXCEPTION_GLOBAL		PTR_CAST( Val,  divide_exception__global_id0   +1 )
+#define		DIVIDE_EXCEPTION__GLOBAL		PTR_CAST( Val,  divide_exception__global_id0   +1 )
 //
 extern Val	overflow_exception__global_id0	[];
-#define         OVERFLOW_EXCEPTION_GLOBAL	PTR_CAST( Val,  overflow_exception__global_id0 +1 )
+#define         OVERFLOW_EXCEPTION__GLOBAL	PTR_CAST( Val,  overflow_exception__global_id0 +1 )
 
 
 
@@ -77,10 +77,10 @@ extern Val runtime_package__global;
 #if defined(ASM_MATH)
     //
     extern Val ln_id__global_id0[];						// Referenced only on following line.
-    #define    LN_ID_GLOBAL  PTR_CAST( Val,  ln_id__global_id0 +1)		// Referenced only in   src/c/main/construct-runtime-package.c
+    #define    LN_ID__GLOBAL  PTR_CAST( Val,  ln_id__global_id0 +1)		// Referenced only in   src/c/main/construct-runtime-package.c
     //
     extern Val sqrt_id__global_id0[];						// Referenced only on following line. 
-    #define    SQRT_ID_GLOBAL PTR_CAST( Val,  sqrt_id__global_id0 +1)		// Referenced only in   src/c/main/construct-runtime-package.c
+    #define    SQRT_ID__GLOBAL PTR_CAST( Val,  sqrt_id__global_id0 +1)		// Referenced only in   src/c/main/construct-runtime-package.c
 #endif										// Is there any reason not to just move this stuff to construct-runtime-package.c?  XXX BUGGO FIXME
 
 
@@ -142,7 +142,7 @@ extern Val* return_to_c_level_c;						// See   return_to_c_level_asm            
     // from the above four assembly files.
 
 extern Val   software_generated_periodic_events_handler_refcell__global   [];
-#define      SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL   PTR_CAST( Val,  software_generated_periodic_events_handler_refcell__global +1 )
+#define      SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL   PTR_CAST( Val,  software_generated_periodic_events_handler_refcell__global +1 )
 
 
 /////////////////////////////////////////////////////////////////
@@ -150,13 +150,13 @@ extern Val   software_generated_periodic_events_handler_refcell__global   [];
 //
 
 extern Val  software_generated_periodic_event_interval_refcell__global   [];
-#define     SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL   PTR_CAST( Val,  software_generated_periodic_event_interval_refcell__global +1 )
+#define     SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL   PTR_CAST( Val,  software_generated_periodic_event_interval_refcell__global +1 )
 
 extern Val   software_generated_periodic_events_switch_refcell__global  [];
-#define      SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL  PTR_CAST( Val,  software_generated_periodic_events_switch_refcell__global +1)
+#define      SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL  PTR_CAST( Val,  software_generated_periodic_events_switch_refcell__global +1)
 
 extern Val   active_pthreads_count_refcell__global   [];
-#define      ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL   PTR_CAST( Val,  active_pthreads_count_refcell__global +1 )
+#define      ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL   PTR_CAST( Val,  active_pthreads_count_refcell__global +1 )
 
 
 

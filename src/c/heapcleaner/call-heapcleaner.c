@@ -68,7 +68,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     Heap* heap;
 
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL is #defined      in	src/c/h/runtime-globals.h
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT
@@ -91,7 +91,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -228,7 +228,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	*roots_ptr = NULL;
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
 
 	heapclean_n_agegroups( task, roots, level );							// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
@@ -251,7 +251,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			                                             // fun call_heapcleaner
 
 
@@ -274,7 +274,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     va_list ap;
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -296,7 +296,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -443,7 +443,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	*roots_ptr = NULL;
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
 
 	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
 
@@ -467,7 +467,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );
 }														// fun call_heapcleaner_with_extra_roots
 
 
@@ -482,7 +482,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     //
     // This function is also (ab)used to trigger period-event processing by
     // either setting the end-of-heap limit artificially low, or else by
-    // setting SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL
+    // setting SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL
     // to HEAP_TRUE.
     //
     // Check to see if a heapcleaning is required,
@@ -495,7 +495,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     #if (NEED_PTHREAD_SUPPORT && NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS)
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
-	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL) != 0))		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) != 0))		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//													// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #elif NEED_PTHREAD_SUPPORT
 	//
@@ -519,7 +519,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	int poll_frequency
 	    = 
-	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL is #defined in src/c/h/runtime-globals.h
+	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL is #defined in src/c/h/runtime-globals.h
 													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
 	Heap* heap =  task->heap;
 

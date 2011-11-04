@@ -68,7 +68,7 @@ typedef struct {
     //
     Punt agegroup0_buffer_bytesize;			// The size of the agegroup0 allocation buffers used by the runtime.
     //
-    Val	pervasive_package_pickle_list;				// Contents of PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL.
+    Val	pervasive_package_pickle_list;				// Contents of PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL.
     Val	runtime_pseudopackage;					// The run-time system compilation unit root.
     Val	math_package;						// The asmcoded Math package root (if defined).
     //
@@ -99,7 +99,7 @@ typedef struct {
 //
 typedef struct {
     //
-    Val	posix_interprocess_signal_handler;	// The contents of POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL.
+    Val	posix_interprocess_signal_handler;	// The contents of POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL.
     Val	stdArg;
     Val	stdCont;
     Val	stdClos;

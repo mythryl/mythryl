@@ -139,7 +139,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
 #ifdef WIN32_DEBUG
             debug_say("_lib7_win32_IO_read_vec: eof on device\n");
 #endif
-            return ZERO_LENGTH_STRING_GLOBAL;
+            return ZERO_LENGTH_STRING__GLOBAL;
         }
 
         if (n < nbytes) {
@@ -223,7 +223,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
 #ifdef WIN32_DEBUG
       debug_say("_lib7_win32_IO_read_vec_txt: eof on device\n");
 #endif
-      return ZERO_LENGTH_STRING_GLOBAL;
+      return ZERO_LENGTH_STRING__GLOBAL;
     }
     if (n < nbytes) {
         shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );
@@ -239,7 +239,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
 	   (GetFileType(h) == FILE_TYPE_PIPE) &&    /* but not console */
 	   (GetLastError() == ERROR_BROKEN_PIPE)) { /* and pipe broken */
     /* this is an EOF on redirected stdin (ReadFile failed) */
-    return ZERO_LENGTH_STRING_GLOBAL;
+    return ZERO_LENGTH_STRING__GLOBAL;
   }
   else {
 #ifdef WIN32_DEBUG

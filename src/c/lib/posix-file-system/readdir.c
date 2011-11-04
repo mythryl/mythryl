@@ -51,7 +51,7 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
 
 	if (dirent == NULL) {
 	    if (errno != 0)  return RAISE_SYSERR(task, -1);     // Error occurred.
-	    else	     return ZERO_LENGTH_STRING_GLOBAL;	// End of stream.
+	    else	     return ZERO_LENGTH_STRING__GLOBAL;	// End of stream.
 	} else {
 	    char	*cp = dirent->d_name;
 

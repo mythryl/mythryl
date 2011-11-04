@@ -107,7 +107,7 @@ Val   RaiseSysError (
     }
 
     REC_ALLOC2 (task, arg, errno_string, null_or_errno);
-    EXN_ALLOC  (task, syserr_exception, PTR_CAST( Val, RUNTIME_EXCEPTION_GLOBAL), arg, at_list);
+    EXN_ALLOC  (task, syserr_exception, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
 
     // Modify the Lib7 state so that 'syserr_exception'
     // will be raised when Mythryl execution resumes:

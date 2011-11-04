@@ -148,7 +148,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
 
     // Get the run-time pointers into the heap:
     //
-    *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL )
+    *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL )
         =
         heap_header.pervasive_package_pickle_list;
 
@@ -173,7 +173,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
 
         // Load the live registers:
         //
-	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL, image.posix_interprocess_signal_handler );
+	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
 	//
 	task->argument	= image.stdArg;
 	task->fate		= image.stdCont;
@@ -197,7 +197,7 @@ Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
 
         // Restore the signal handler:
         //
-	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL, image.posix_interprocess_signal_handler );
+	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
 
         // Read the Mythryl heap:
         //
@@ -528,10 +528,10 @@ static void   read_heap   (
     // Adjust the run-time globals
     // that point into the heap:
     //
-    *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL )
+    *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL )
         =
         repair_word(
-            *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL_GLOBAL ),
+            *PTR_CAST( Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL ),
 	    oldBOOK2SIBID,
             addrOffset,
             boRegionTable,
@@ -548,11 +548,11 @@ static void   read_heap   (
     // to the new address space:
     //
     ASSIGN(
-        POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL,
+        POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL,
 	//
         repair_word (
 	    //
-	    DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL ),
+	    DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL ),
 	    oldBOOK2SIBID,
 	    addrOffset,
 	    boRegionTable,

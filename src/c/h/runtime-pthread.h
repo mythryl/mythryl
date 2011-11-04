@@ -109,7 +109,7 @@ typedef pid_t 	Pid;			// A process id.
     //
     extern int      pth__max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
     //
-    extern int      pth__get_active_pthread_count();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, which is defined in   src/c/h/runtime-globals.h
+    extern int      pth__get_active_pthread_count();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, which is defined in   src/c/h/runtime-globals.h
 											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 

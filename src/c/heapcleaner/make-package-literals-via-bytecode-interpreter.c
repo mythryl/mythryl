@@ -310,7 +310,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 			debug_say("\n");
 		    #endif
 
-		    LIST_CONS(task, stk, ZERO_LENGTH_STRING_GLOBAL, stk);
+		    LIST_CONS(task, stk, ZERO_LENGTH_STRING__GLOBAL, stk);
 
 		    break;
 		}
@@ -376,7 +376,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    #ifdef DEBUG_LITERALS
 			debug_say("]\n");
 		    #endif
-		    LIST_CONS(task, stk, ZERO_LENGTH_VECTOR_GLOBAL, stk);
+		    LIST_CONS(task, stk, ZERO_LENGTH_VECTOR__GLOBAL, stk);
 		    break;
 		}
 

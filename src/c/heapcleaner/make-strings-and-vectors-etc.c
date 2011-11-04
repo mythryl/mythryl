@@ -88,7 +88,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
                            :  strlen(v);
 
     if (len == 0) {
-	return ZERO_LENGTH_STRING_GLOBAL;
+	return ZERO_LENGTH_STRING__GLOBAL;
     } else {
 
 	int	    n = BYTES_TO_WORDS(len+1);				// Count "\0" too.

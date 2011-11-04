@@ -57,7 +57,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	=
 	TAGGED_INT_TO_C_INT(
 	    DEREF(
-		SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL_GLOBAL
+		SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL
 	    )
 	);
 
@@ -212,7 +212,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	//
 	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
+	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
 	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", task->pid);
@@ -278,7 +278,7 @@ int   pth__start_heapcleaning   (Task *task) {
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
+	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d: cleared poll event\n", task->pid);
@@ -346,7 +346,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	//
 	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL, HEAP_TRUE);
+	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE);
 	    //	
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("%d: set poll event\n", pthread->pid);
@@ -398,7 +398,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     //
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL_GLOBAL,  HEAP_FALSE  );
+	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("%d: cleared poll event\n", task->pid);

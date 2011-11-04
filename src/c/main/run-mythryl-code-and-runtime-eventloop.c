@@ -102,7 +102,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
     for (;;) {
 
-        //     THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL
+        //     THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL
         // is #defined in
         //     src/c/h/runtime-globals.h
         // in terms of
@@ -115,7 +115,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	// is #defined in
 	//     src/c/h/profiler-call-counts.h
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, previous_profile_index );
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, previous_profile_index );
 
 	request = asm_run_mythryl_task( task );						//      asm_run_mythryl_task		def in    src/c/machine-dependent/prim.intel32.asm
 											//      asm_run_mythryl_task		def in    src/c/machine-dependent/win32-fault.c
@@ -147,9 +147,9 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 	// to be handled.
 
 
-	previous_profile_index =   DEREF( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL );
+	previous_profile_index =   DEREF( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL );
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL_GLOBAL, PROF_RUNTIME );
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );
 
 	if (request == REQUEST_CLEANING) {
 	    //
@@ -176,7 +176,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		//
 		//     src/c/machine-dependent/posix-signal.c
 		//
-		// POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL in practice points to
+		// POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL in practice points to
 		//
 		//     root_mythryl_handler_for_posix_interprocess_signals ()
 		//
@@ -203,7 +203,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		task->argument	     =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	     =  PTR_CAST( Val,  return_from_signal_handler_c );
 		task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
-		task->closure	     =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL_GLOBAL );
+		task->closure	     =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter =
 		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->closure );
@@ -242,7 +242,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		task->argument	     =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
 		task->fate	     =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
 		task->exception_fate =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
-		task->closure	     =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL_GLOBAL );
+		task->closure	     =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter=
 		task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE(task->closure);

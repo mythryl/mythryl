@@ -119,7 +119,7 @@ void   pth__initialize   () {
     pth__timer_mutex__global	= AllocLock ();
     pth__cleaner_barrier__global	= AllocBarrier();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
 
 void   pth__shut_down   ()   {
@@ -364,7 +364,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
     if (i == MAX_PTHREADS) {
         //
-	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    pth__release_mutex( MP_ProcLock );
 	    say_error("[processors maxed]\n");
@@ -412,7 +412,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	//
         // Assume we get one:
 
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL), 1) );
+	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
 
 	if ((pthread->pid = make_pthread(p)) != -1) {
 	    //
@@ -428,7 +428,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	} else {
 
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL), 1) );
+	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
 	    pth__release_mutex(MP_ProcLock);
 	    return HEAP_FALSE;
 	}      
@@ -486,7 +486,7 @@ int   pth__get_active_pthread_count   ()   {
 
     pth__acquire_mutex(MP_ProcLock);
 
-        ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL) );
+        ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
 
     pth__release_mutex(MP_ProcLock);
 

@@ -99,7 +99,7 @@ void   pth__initialize   ()   {
     pth__cleaner_barrier__global	= allocate_barrier(); 
     tasks_local			= initialize_task_vector();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
     #ifdef MP_NONBLOCKING_IO
         MP_InitStdInReader  ();
@@ -681,7 +681,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
     if (i == MAX_PTHREADS) {
 	//
-        if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+        if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    pth__release_mutex(mp_pthread_mutex_local);
 	    say_error("[processors maxed]\n");
@@ -737,7 +737,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	// Assume we get one:
         //
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT_LIB7inc(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ), 1));
+	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ), 1));
 
 	if (thr_create( NULL, 0, pthread_main, (void*)p, THR_NEW_LWP, &((thread_t) procId)) == 0) {
 	    //
@@ -754,7 +754,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	} else {
 
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL, INT_LIB7dec(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ), 1) );
+	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ), 1) );
 	    pth__release_mutex(mp_pthread_mutex_local);
 	    return HEAP_FALSE;
 	}
@@ -810,7 +810,7 @@ int   pth__get_active_pthread_count   (void)   {
     //
     pth__acquire_mutex(mp_pthread_mutex_local);
         //
-        int ap = TAGGED_INT_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL_GLOBAL ));
+        int ap = TAGGED_INT_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ));
 	//
     pth__release_mutex(mp_pthread_mutex_local);
     //

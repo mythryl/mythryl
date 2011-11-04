@@ -70,7 +70,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
 
     if (n <  0)   return RAISE_SYSERR(task, status);
-    if (n == 0)   return ZERO_LENGTH_STRING_GLOBAL;
+    if (n == 0)   return ZERO_LENGTH_STRING__GLOBAL;
 
     if (n < nbytes) {
 	shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );        // Shrink the vector.

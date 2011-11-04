@@ -75,12 +75,12 @@ void   set_up_fault_handlers   (Task* task)   {
         //
 	if (INT_OVFLW(signal, code)) {								// INT_OVFLW	is from   src/c/h/system-dependent-signal-get-set-etc.h 
 
-	    task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;					// OVERFLOW_EXCEPTION_GLOBAL	is from   src/c/h/runtime-globals.h
+	    task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;					// OVERFLOW_EXCEPTION__GLOBAL	is from   src/c/h/runtime-globals.h
 	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else if (INT_DIVZERO(signal, code)) {
 
-	    task->fault_exception = DIVIDE_EXCEPTION_GLOBAL;
+	    task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
 	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 
 	} else {
@@ -124,12 +124,12 @@ void   set_up_fault_handlers   (Task* task)   {
         //
 	if (INT_OVFLW(signal, code)) {
 	    //
-	    task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;
+	    task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;
 	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER( scp );
 	    //
 	} else if (INT_DIVZERO(signal, code)) {
 	    //
-	    task->fault_exception = DIVIDE_EXCEPTION_GLOBAL;
+	    task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
 	    task->faulting_program_counter = (Val_Sized_Unt)GET_SIGNAL_PROGRAM_COUNTER(scp);
 	    //
 	} else {

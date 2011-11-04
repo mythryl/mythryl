@@ -108,14 +108,14 @@ static int  page_fault_handler   (EXCEPTION_RECORD* exn,  void* foo,  CONTEXT* c
 	//
     case EXCEPTION_INT_DIVIDE_BY_ZERO:
 	/* say("Divide by zero at %p\n", pc); */
-	task->fault_exception = DIVIDE_EXCEPTION_GLOBAL;
+	task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
 	task->faulting_program_counter  = pc;
 	c->Eip = (DWORD)request_fault;
 	break;
 
     case EXCEPTION_INT_OVERFLOW:
 	/* say("OVERFLOW at %p\n", pc); */
-	task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;
+	task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;
 	task->faulting_program_counter  = pc;
 	c->Eip = (DWORD)request_fault;
 	break;

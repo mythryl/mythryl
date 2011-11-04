@@ -170,12 +170,12 @@ static Bool   fault_handler   (int code, Val_Sized_Unt pc)   {
     switch (code) {
         //
     case EXCEPTION_INT_DIVIDE_BY_ZERO: 
-	task->fault_exception = DIVIDE_EXCEPTION_GLOBAL;
+	task->fault_exception = DIVIDE_EXCEPTION__GLOBAL;
 	task->faulting_program_counter = pc;
 	break;
 
     case EXCEPTION_INT_OVERFLOW:
-	task->fault_exception = OVERFLOW_EXCEPTION_GLOBAL;
+	task->fault_exception = OVERFLOW_EXCEPTION__GLOBAL;
 	task->faulting_program_counter = pc;
 	break;
 

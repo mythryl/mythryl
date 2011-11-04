@@ -55,7 +55,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int nbytes =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
-    if (nbytes == 0)   return ZERO_LENGTH_STRING_GLOBAL;
+    if (nbytes == 0)   return ZERO_LENGTH_STRING__GLOBAL;
 
     // Allocate the vector.
     // Note that this might cause a cleaning, moving things around:
@@ -71,7 +71,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     if (n < 0)    	return RAISE_SYSERR(task, n);
-    else if (n == 0)	return ZERO_LENGTH_STRING_GLOBAL;
+    else if (n == 0)	return ZERO_LENGTH_STRING__GLOBAL;
 
     if (n < nbytes) {
 	shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.

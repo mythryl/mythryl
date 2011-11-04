@@ -226,8 +226,8 @@ extern Val make_package_literals_via_bytecode_interpreter (Task* task,  Unt8* li
 extern Val zero_length_string__global [];
 extern Val zero_length_vector__global [];
 
-#define ZERO_LENGTH_STRING_GLOBAL	PTR_CAST( Val,  zero_length_string__global +1 )
-#define ZERO_LENGTH_VECTOR_GLOBAL	PTR_CAST( Val,  zero_length_vector__global +1 )
+#define ZERO_LENGTH_STRING__GLOBAL	PTR_CAST( Val,  zero_length_string__global +1 )
+#define ZERO_LENGTH_VECTOR__GLOBAL	PTR_CAST( Val,  zero_length_vector__global +1 )
 
 #endif // RUNTIME_HEAP_H
 
