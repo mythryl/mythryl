@@ -1,8 +1,8 @@
 // heapcleaner-statistics-2.h
 
 
-#ifndef CLEANER_STATISTICS_2_H
-#define CLEANER_STATISTICS_2_H
+#ifndef HEAPCLEANER_STATISTICS_2_H
+#define HEAPCLEANER_STATISTICS_2_H
 
 #ifndef RUNTIME_BASE_H
     typedef  unsigned int  Unt1;
@@ -75,7 +75,7 @@ extern int	    heapcleaner_statistics_buffer_record_count__global;					// Number
 
 
 
-#endif		// CLEANER_STATISTICS_2_H
+#endif		// HEAPCLEANER_STATISTICS_2_H
 
 
 

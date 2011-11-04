@@ -1,8 +1,8 @@
 // heapcleaner-statistics.h
 
 
-#ifndef CLEANER_STATISTICS_H
-#define CLEANER_STATISTICS_H
+#ifndef HEAPCLEANER_STATISTICS_H
+#define HEAPCLEANER_STATISTICS_H
 
 #include "../mythryl-config.h"
 #include "heapcleaner-statistics-2.h"
@@ -79,7 +79,7 @@
 
 #endif 					// NEED_HEAPCLEANER_PAUSE_STATISTICS
 
-#endif	// CLEANER_STATISTICS_H
+#endif	// HEAPCLEANER_STATISTICS_H
 
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.

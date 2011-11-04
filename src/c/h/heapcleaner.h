@@ -3,8 +3,8 @@
 // The external interface to the heapcleaner ("garbage collector").
 
 
-#ifndef CLEANER_H
-#define CLEANER_H
+#ifndef HEAPCLEANER_H
+#define HEAPCLEANER_H
 
 #include "runtime-base.h"
 
@@ -22,7 +22,7 @@ Unt8*		codechunk_comment_string_for_program_counter	(Val_Sized_Unt pc);				// co
 
 
 
-#endif   // CLEANER_H
+#endif   // HEAPCLEANER_H
 
 
 // COPYRIGHT (c) 1992 AT&T Bell Laboratories
