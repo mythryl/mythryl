@@ -71,7 +71,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-    #if NEED_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
+    if (pth__done_acquire_pthread__global) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a designated pthread to do the heapcleaning work.
@@ -107,7 +108,8 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// 
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
-    #endif
+    }
+#endif
 
     note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 

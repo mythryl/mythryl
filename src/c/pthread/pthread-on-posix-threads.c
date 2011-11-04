@@ -53,9 +53,35 @@ int   pth__done_acquire_pthread__global = FALSE;
     // the heapcleaner (etc) so long as this is FALSE.
 
 
+// Some statatically allocated locks:
+//
+Mutex	 pth__heapcleaner_mutex__global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__heapcleaner_gen_mutex__global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Barrier* pth__heapcleaner_barrier__global;							// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__timer_mutex__global;							// Apparently never used.
+
+
+// Some placeholder fns just so I can start
+// getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+// -- to compile:
+//
+void     pth__initialize		()					{}
+void     pth__shut_down			()					{}
+void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
+void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
+Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet"); }
+void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
+Barrier* pth__make_barrier		()					{ die("pth__make_barrier() not implemented yet"); }
+void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
+void     pth__wait_at_barrier		(Barrier* barrierp,  unsigned n)	{ die("pth__wait_at_barrier() not implemented yet"); }
+void     pth__clear_barrier		(Barrier* barrierp)			{ die("pth__clear_barrier() not implemented yet"); }
+int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
+Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); }
+void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
+int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); }
 
 Pid   pth__get_pthread_id   ()   {
-    //==================
+    //===================
     //
     return getpid ();
 }
@@ -82,6 +108,7 @@ Pthread*  pth__get_pthread   ()   {
 #endif
 }
 
+
 #ifdef SOON
 
 // #define ARENA_FNAME  tmpnam(0)
@@ -99,18 +126,11 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth__heapcleaner_mutex__global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-
-Mutex	 pth__heapcleaner_gen_mutex__global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-
-Barrier* pth__cleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-
-Mutex	 pth__timer_mutex__global;							// Apparently never used.
 
 
 
 void   pth__initialize   () {
-    // =============
+    // ===============
     //
     // Called (only) from   src/c/main/runtime-main.c
 
@@ -129,20 +149,20 @@ void   pth__initialize   () {
     pth__heapcleaner_mutex__global	= AllocLock ();
     pth__heapcleaner_gen_mutex__global	= AllocLock ();
     pth__timer_mutex__global	= AllocLock ();
-    pth__cleaner_barrier__global	= AllocBarrier();
+    pth__heapcleaner_barrier__global	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
 
 void   pth__shut_down   ()   {
-    // =============
+    // ==============
     //
     usdetach( arena );												// 'usdetach' appears nowhere else in codebase; must be the SGI equivalent to posix 'munmap'
 }
 
 
 Pid   pth__pthread_id   ()   {
-    //=============
+    //===============
     //
     // Called only from:    src/c/main/runtime-state.c
     //
@@ -176,21 +196,21 @@ void   pth__acquire_mutex   (Mutex mutex)   {
 
 
 void   pth__release_mutex   (Mutex mutex)   {
-    // =================
+    // ==================
     //
     usunsetlock(mutex);
 }
 
 
 Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
-    // =======================
+    // ========================
     //
     return ((Bool) uscsetlock(mutex, 1));		// Try once.
 }
 
 
 Mutex   pth__make_mutex   ()   {
-    // ==============
+    //  ===============
     //
     ulock_t mutex;
 
@@ -206,7 +226,7 @@ Mutex   pth__make_mutex   ()   {
 
 
 void   pth__free_mutex   (Mutex mutex)   {
-    // =============
+    // ===============
     //
     ussetlock(MP_ArenaLock);
         usfreelock(mutex,arena);
@@ -231,7 +251,7 @@ static Barrier*   allocate_barrier   ()   {
 
 
 Barrier*   pth__make_barrier   ()   {
-    //     ===============
+    //     =================
     //
     barrier_t *barrierp;
 
@@ -247,7 +267,7 @@ Barrier*   pth__make_barrier   ()   {
 
 
 void   pth__free_barrier   (Barrier* barrierp)   {
-    // ===============
+    // =================
     //
     ussetlock(MP_ArenaLock);
 	//
@@ -259,15 +279,15 @@ void   pth__free_barrier   (Barrier* barrierp)   {
 
 
 void   pth__wait_at_barrier   (Barrier* barrierp,  unsigned n)   {
-    // ==========
+    // ====================
     //
     barrier( barrierp, n );
 }
 
 
 
-void   pth__reset_barrier   (Barrier* barrierp)   {
-    // ================
+void   pth__clear_barrier   (Barrier* barrierp)   {
+    // ==================
     //
     init_barrier(barrierp);
 }
@@ -282,7 +302,7 @@ static void   fix_pnum   (int n)   {
 
 
 int   pth__max_pthreads   ()   {						// This fn gets exported to the Mythryl level; not used at the C level.
-    //===============
+    //=================
     //
     return MAX_PTHREADS;
 }
@@ -346,7 +366,7 @@ static int   make_pthread   (Task* state)   {
 
 
 Val   pth__acquire_pthread   (Task* task, Val arg)   {
-    //==================
+    //====================
     //
     pth__done_acquire_pthread__global = TRUE;
 
@@ -464,7 +484,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 
 void   pth__release_pthread   (Task* task)   {
-    // ===================
+    // ====================
     //
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say("[release_pthread: suspending]\n");
@@ -494,7 +514,7 @@ void   pth__release_pthread   (Task* task)   {
 
 
 int   pth__get_active_pthread_count   ()   {
-    //========================
+    //=============================
     //
     int ap;
 

@@ -222,6 +222,16 @@ extern Bool   unlimited_heap_is_enabled__global;			// Set per   --unlimited-heap
 
 extern Pthread*	pthread_table__global [];
 
+extern int   pth__done_acquire_pthread__global;
+    //
+    // This boolean flag starts out FALSE and is set TRUE
+    // the first time   pth__acquire_pthread   is called.
+    //
+    // We can use simple mutex-free monothread logic in
+    // the heapcleaner (etc) so long as this is FALSE.
+
+
+
 #endif // _ASM_ 
 
 #ifndef HEAP_IMAGE_SYMBOL

@@ -37,32 +37,13 @@ typedef enum {
 
 
 
-extern int   pth__done_acquire_pthread__global;
-    //
-    // This boolean flag starts out FALSE and is set TRUE
-    // the first time   pth__acquire_pthread   is called.
-    //
-    // We can use simple mutex-free monothread logic in
-    // the heapcleaner (etc) so long as this is FALSE.
-
-
-
-#if !NEED_PTHREAD_SUPPORT
+#ifdef NO_PTHREAD_SUPPORT	// Temporary hack -- should be !NEED_PTHREAD_SUPPORT XXX BUGGO FIXME
     //
     #define BEGIN_CRITICAL_SECTION( LOCK )	{
     #define END_CRITICAL_SECTION( LOCK )	}
     #define ACQUIRE_MUTEX(LOCK)		// no-op
     #define RELEASE_MUTEX(LOCK)		// no-op
 
-// These should be in the Linux section, this is very temporary: -- 2011-10-30 CrT
-// End of temporary Linux stuff
-#if HAVE_SYS_TYPES_H
-    #include <sys/types.h>
-#endif
-#if HAVE_UNISTD_H
-    #include <unistd.h>
-#endif
-typedef pid_t 	Pid;			// A process id.
 
 #else // NEED_PTHREAD_SUPPORT
 
@@ -85,7 +66,7 @@ typedef pid_t 	Pid;			// A process id.
     #include <pthread.h>
 
     typedef pthread_mutex_t		Mutex;		// A mutual-exclusion lock.
-    typedef pthread_barrier_t;		Barrier;	// A barrier.
+    typedef pthread_barrier_t		Barrier;	// A barrier.
     typedef pid_t	 		Pid;		// A process id.
 
 
@@ -160,7 +141,7 @@ typedef pid_t 	Pid;			// A process id.
     extern Mutex	    pth__heapcleaner_gen_mutex__global;
     extern Mutex	    pth__timer_mutex__global;
     //
-    extern Barrier* pth__cleaner_barrier__global;
+    extern Barrier*	    pth__heapcleaner_barrier__global;
     //
     //
     // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT
@@ -203,7 +184,7 @@ typedef pid_t 	Pid;			// A process id.
     extern void     pth__wait_at_barrier	(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
-    extern void     pth__reset_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
+    extern void     pth__clear_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
 
 
 

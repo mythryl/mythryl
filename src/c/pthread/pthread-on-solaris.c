@@ -73,7 +73,7 @@ static processorid_t* processorId;		// processor id of the next processor a lwp 
 Mutex	 pth__heapcleaner_mutex__global;
 Mutex	 pth__heapcleaner_gen_mutex__global;
 Mutex	 pth__timer_mutex__global;
-Barrier* pth__cleaner_barrier__global;
+Barrier* pth__heapcleaner_barrier__global;
 
 #if defined(MP_PROFILE)
     int mutex_trylock_calls;
@@ -93,12 +93,14 @@ void   pth__initialize   ()   {
 
     arena__local = mmap((caddr_t) 0, sysconf(_SC_PAGESIZE),PROT_READ | PROT_WRITE ,MAP_PRIVATE,fd,0);
 
-    arena_mutex__local		= allocate_mutex();
-    mp_pthread_mutex__local	= allocate_mutex();
+    arena_mutex__local			= allocate_mutex();
+    mp_pthread_mutex__local		= allocate_mutex();
     pth__heapcleaner_mutex__global	= allocate_mutex();
     pth__heapcleaner_gen_mutex__global	= allocate_mutex();
-    pth__timer_mutex__global	= allocate_mutex();
-    pth__cleaner_barrier__global	= allocate_barrier(); 
+    pth__timer_mutex__global		= allocate_mutex();
+    //
+    pth__heapcleaner_barrier__global	= allocate_barrier(); 
+    //
     tasks__local			= initialize_task_vector();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
@@ -455,7 +457,7 @@ void   pth__wait_at_barrier   (Barrier* barrierp,  unsigned n_clients)   {
     mutex_unlock(&barrierp->mutex);
 }
 //
-void   pth__reset_barrier   (Barrier* barrierp)   {
+void   pth__clear_barrier   (Barrier* barrierp)   {
     // ================
     //
     // Set the various values of the barrier to zero.

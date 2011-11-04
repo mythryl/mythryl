@@ -59,13 +59,13 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth__heapcleaner_mutex__global;						// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__heapcleaner_mutex__global;					// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__heapcleaner_gen_mutex__global;						// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth__heapcleaner_gen_mutex__global;					// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-Barrier* pth__cleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Barrier* pth__heapcleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__timer_mutex__global;							// Apparently never used.
+Mutex	 pth__timer_mutex__global;						// Apparently never used.
 
 
 
@@ -84,12 +84,12 @@ void   pth__initialize   () {
 
     if ((arena = usinit(ARENA_FNAME)) == NULL) 	die ("usinit failed in pth__initialize");
 
-    MP_ArenaLock		= AllocLock ();
-    MP_ProcLock			= AllocLock ();
+    MP_ArenaLock			= AllocLock ();
+    MP_ProcLock				= AllocLock ();
     pth__heapcleaner_mutex__global	= AllocLock ();
     pth__heapcleaner_gen_mutex__global	= AllocLock ();
-    pth__timer_mutex__global	= AllocLock ();
-    pth__cleaner_barrier__global	= AllocBarrier();
+    pth__timer_mutex__global		= AllocLock ();
+    pth__heapcleaner_barrier__global	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
@@ -238,7 +238,7 @@ void   pth__wait_at_barrier   (Barrier* barrierp,  unsigned n)   {
 
 
 
-void   pth__reset_barrier   (Barrier* barrierp)   {
+void   pth__clear_barrier   (Barrier* barrierp)   {
     // ================
     //
     init_barrier(barrierp);

@@ -55,7 +55,7 @@
 
 
 
-#define NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 0
+#define NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS 1
     //
     // Define this as 1 (i.e. TRUE) to compile in support.
     //
