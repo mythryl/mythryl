@@ -345,9 +345,9 @@ static void   process_commandline_options   (
 
 		CHECK("stats");
 
-		cleaner_statistics_fd = open (option_arg, O_WRONLY|O_TRUNC|O_CREAT, 0666);
+		heapcleaner_statistics_fd__global = open (option_arg, O_WRONLY|O_TRUNC|O_CREAT, 0666);
 
-		if (cleaner_statistics_fd == -1) {
+		if (heapcleaner_statistics_fd__global == -1) {
 		    //
 		    seen_error = TRUE;
 		    say_error( "Unable to open statistics file \"%s\"\n", *(argv[-1]) );
@@ -379,9 +379,9 @@ void   print_stats_and_exit   (int code)   {
 	dump_masks();
     #endif
 
-    if (cleaner_statistics_fd >= 0) {
+    if (heapcleaner_statistics_fd__global >= 0) {
 	STATS_FLUSH_BUF();
-	close (cleaner_statistics_fd);
+	close (heapcleaner_statistics_fd__global);
     }
 
     exit( code );

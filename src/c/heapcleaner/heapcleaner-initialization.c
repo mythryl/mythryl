@@ -1,6 +1,6 @@
 // heapcleaner-initialization.c
 //
-// The cleaner initialization code.
+// The heapcleaner initialization code.
 
 /*
 ###         "Weave a circle round him thrice,
@@ -59,17 +59,17 @@ static int  DfltRatios[ MAX_AGEGROUPS ]
 Sibid* book_to_sibid__global;
 #endif
 
-								// Should this go into heapcleaner-statistics.c ?
-Bool	cleaner_statistics_generation_switch = TRUE;		// If TRUE, then generate stats.
-int	cleaner_statistics_fd = -1;				// The file descriptor to write the data to.
-int	statistics_buffer_record_count;				// Number of records in the buffer.
+									// Should this go into heapcleaner-statistics.c ?
+Bool	heapcleaner_statistics_generation_switch__global = TRUE;	// If TRUE, then generate stats.
+int	heapcleaner_statistics_fd__global = -1;				// The file descriptor to write the data to.
+int	statistics_buffer_record_count__global;				// Number of records in the buffer.
 
-Cleaner_Statistics   statistics_buffer[ STATISTICS_BUFFER_SIZE_IN_RECORDS ];			// Buffer of data.
+Cleaner_Statistics   statistics_buffer__global [ STATISTICS_BUFFER_SIZE_IN_RECORDS ];			// Buffer of data.
 
 
 
 Cleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
-    //              ========================================
+    //          ====================================
     //
     // Parse any heap/cleaner args from the user commandline:
 
@@ -347,7 +347,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 
     //
-    if (cleaner_statistics_fd > 0) {
+    if (heapcleaner_statistics_fd__global > 0) {
 	//	
       Cleaner_Statistics_Header   header;									// Cleaner_Statistics_Header		is from   src/c/h/heapcleaner-statistics-2.h
 	//
@@ -371,7 +371,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    header.start_time.uSeconds =  tv.tv_usec;	
 	};
 	//
-	write( cleaner_statistics_fd, (char*)&header, sizeof( Cleaner_Statistics_Header ) );
+	write( heapcleaner_statistics_fd__global, (char*)&header, sizeof( Cleaner_Statistics_Header ) );
     }
 
 

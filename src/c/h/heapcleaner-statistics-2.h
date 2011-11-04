@@ -51,25 +51,25 @@ typedef struct {
 //
 #define STATISTICS_BUFFER_SIZE_IN_RECORDS	(2048/sizeof(Cleaner_Statistics))
 
-extern Bool	    cleaner_statistics_generation_switch;	// If TRUE, generate statistics.
-extern int	    cleaner_statistics_fd;			// The file descriptor to write the data to.
+extern Bool	    heapcleaner_statistics_generation_switch__global;	// If TRUE, generate statistics.
+extern int	    heapcleaner_statistics_fd__global;			// The file descriptor to write the data to.
 
-extern Cleaner_Statistics   statistics_buffer[];		// Buffer for data.
-extern int	    statistics_buffer_record_count;					// Number of records in the buffer.
+extern Cleaner_Statistics   statistics_buffer__global[];		// Buffer for data.
+extern int	    statistics_buffer_record_count__global;					// Number of records in the buffer.
 
 // Flush out any records in the buffer:
 //
 #define STATS_FLUSH_BUF()	{						\
-	if (statistics_buffer_record_count >= 0) {							\
-	    write (cleaner_statistics_fd, (char*)statistics_buffer, statistics_buffer_record_count*sizeof(Cleaner_Statistics));	\
-	    statistics_buffer_record_count = 0;							\
+	if (statistics_buffer_record_count__global >= 0) {							\
+	    write (heapcleaner_statistics_fd__global, (char*)statistics_buffer__global, statistics_buffer_record_count__global*sizeof(Cleaner_Statistics));	\
+	    statistics_buffer_record_count__global = 0;							\
 	}									\
     }
 
 #define STATS_FINISH()	{							\
-	if (++statistics_buffer_record_count >= STATISTICS_BUFFER_SIZE_IN_RECORDS) {					\
-	    write (cleaner_statistics_fd, (char *)statistics_buffer, STATISTICS_BUFFER_SIZE_IN_RECORDS*sizeof(Cleaner_Statistics));	\
-	    statistics_buffer_record_count = 0;							\
+	if (++statistics_buffer_record_count__global >= STATISTICS_BUFFER_SIZE_IN_RECORDS) {					\
+	    write (heapcleaner_statistics_fd__global, (char *)statistics_buffer__global, STATISTICS_BUFFER_SIZE_IN_RECORDS*sizeof(Cleaner_Statistics));	\
+	    statistics_buffer_record_count__global = 0;							\
 	}									\
     }
 
