@@ -42,6 +42,8 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
+int   pth__done_acquire_pthread__global = FALSE;
+
  static Mutex 	 allocate_mutex	();
  static Barrier* allocate_barrier	();
  static void*    allocate_arena_ram	(int size);
@@ -653,8 +655,10 @@ static void*   pthread_main   (void* vtask)   {
 
 //
 Val   pth__acquire_pthread   (Task* task, Val arg)   {
-    //==================
+    //====================
     //
+    pth__done_acquire_pthread__global = TRUE;
+
     Task* p;
     Pthread* pthread;
     Val v = GET_TUPLE_SLOT_AS_VAL(arg, 0);

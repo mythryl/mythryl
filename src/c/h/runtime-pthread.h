@@ -35,6 +35,18 @@ typedef enum {
     //
 } Pthread_Status;
 
+
+
+extern int   pth__done_acquire_pthread__global;
+    //
+    // This boolean flag starts out FALSE and is set TRUE
+    // the first time   pth__acquire_pthread   is called.
+    //
+    // We can use simple mutex-free monothread logic in
+    // the heapcleaner (etc) so long as this is FALSE.
+
+
+
 #if !NEED_PTHREAD_SUPPORT
     //
     #define BEGIN_CRITICAL_SECTION( LOCK )	{
@@ -51,6 +63,7 @@ typedef enum {
     #include <unistd.h>
 #endif
 typedef pid_t 	Pid;			// A process id.
+
 #else // NEED_PTHREAD_SUPPORT
 
     #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
@@ -90,7 +103,7 @@ typedef pid_t 	Pid;			// A process id.
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      pth__acquire_pthread		(Task* task,  Val arg);			// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
+    extern Val      pth__acquire_pthread		(Task* task,  Val arg);		// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
     //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.

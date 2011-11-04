@@ -42,6 +42,18 @@
 #include "runtime-globals.h"
 #include "pthread-state.h"
 
+
+
+int   pth__done_acquire_pthread__global = FALSE;
+    //
+    // This boolean flag starts out FALSE and is set TRUE
+    // the first time   pth__acquire_pthread   is called.
+    //
+    // We can use simple mutex-free monothread logic in
+    // the heapcleaner (etc) so long as this is FALSE.
+
+
+
 Pid   pth__get_pthread_id   ()   {
     //==================
     //
@@ -336,6 +348,8 @@ static int   make_pthread   (Task* state)   {
 Val   pth__acquire_pthread   (Task* task, Val arg)   {
     //==================
     //
+    pth__done_acquire_pthread__global = TRUE;
+
     Task* p;
     Pthread* pthread;
 
