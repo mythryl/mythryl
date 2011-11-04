@@ -20,6 +20,7 @@
 
 #include "../mythryl-config.h"
 
+#include <stdio.h>
 #include <pthread.h>
 
 #if HAVE_SYS_TYPES_H
@@ -65,7 +66,6 @@ Mutex	 pth__timer_mutex__global;							// Apparently never used.
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-void     pth__start_up			()					{}
 void     pth__shut_down			()					{}
 void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
 void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
@@ -80,8 +80,28 @@ Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthre
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
 int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
 
+
+void     pth__start_up   (void)   {
+    //
+    // Start-of-the-world initialization stuff.
+    // We get called very early by   do_start_of_world_stuff   in   src/c/main/runtime-main.c
+    //
+    // At present we use this opportunity just 
+    // to statically allocate a few global locks:
+
+fprintf(stderr,"src/c/pthread/pthread-on-posix-threads.c: pth__start_up: Called.\n");
+}
+
 Pid   pth__get_pthread_id   ()   {
     //===================
+    //
+    // Return a unique small-int id distinguishing
+    // the currently running pthread from all other
+    // pthreads.  On posix-threads we can just use
+    // getpid() for this.  On some older thread packages
+    // we had to do other stuff, and we might possibly
+    // have to do so in future on some non-posix-threads
+    // implementation, so we maintain the abstraction here:
     //
     return getpid ();
 }

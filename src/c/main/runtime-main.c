@@ -74,16 +74,33 @@ static char*	compiled_files_to_load_filename = NULL;
     static int NumProcs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
 #endif
 
-static void   process_environment_options (Heapcleaner_Args** cleaner_args);
-static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** cleaner_args);
+static void   process_environment_options (Heapcleaner_Args** heapcleaner_args);
+static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** heapcleaner_args);
 
+static  Heapcleaner_Args*  do_start_of_world_stuff(     int argc, char** argv);
 
 int   main   (int argc, char** argv) {
     //====
     //
-    Heapcleaner_Args*	cleaner_args;
+    Heapcleaner_Args*	heapcleaner_args =   do_start_of_world_stuff( argc, argv );
 
-    process_environment_options( &cleaner_args );
+    // Start mythryld:
+    //
+    if (is_boot)         load_compiled_files(  compiled_files_to_load_filename, heapcleaner_args );			// load_compiled_files					def in   src/c/main/load-compiledfiles.c
+    //
+    else 	         load_and_run_heap_image( heap_image_to_run_filename,   heapcleaner_args );			// load_and_run_heap_image				def in   src/c/main/load-and-run-heap-image.c
+
+    print_stats_and_exit( 0 );												// Never returns.
+    exit( 0 );														// Redundant -- just to suppress gcc warning.
+}
+
+
+
+static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
+    //
+    Heapcleaner_Args*	heapcleaner_args;
+
+    process_environment_options( &heapcleaner_args );
 
     if (verbosity > 0) {
 	printf("\n");
@@ -98,7 +115,7 @@ int   main   (int argc, char** argv) {
     }
     DebugF = stderr;
 
-    process_commandline_options( argc, argv, &cleaner_args );
+    process_commandline_options( argc, argv, &heapcleaner_args );
 
     set_up_timers ();													// set_up_timers					def in    src/c/main/posix-timers.c
 															// set_up_timers					def in    src/c/main/win32-timers.c
@@ -106,21 +123,12 @@ int   main   (int argc, char** argv) {
 
     set_up_list_of_c_functions_callable_from_mythryl ();								// set_up_list_of_c_functions_callable_from_mythryl	def in    src/c/lib/mythryl-callable-c-libraries.c
 
-    #if NEED_PTHREAD_SUPPORT
-	pth__start_up();												// pth__start_up					def in    src/c/pthread/pthread-on-posix-threads.c
-    #endif														// pth__start_up					def in    src/c/pthread/pthread-on-solaris.c
+//  #if NEED_PTHREAD_SUPPORT
+    pth__start_up();													// pth__start_up					def in    src/c/pthread/pthread-on-posix-threads.c
+//  #endif														// pth__start_up					def in    src/c/pthread/pthread-on-solaris.c
 															// pth__start_up					def in    src/c/pthread/pthread-on-sgi.c
-    // Start mythryld:
-    //
-    if (is_boot)         load_compiled_files(  compiled_files_to_load_filename, cleaner_args );				// load_compiled_files					def in   src/c/main/load-compiledfiles.c
-    //
-    else 	         load_and_run_heap_image( heap_image_to_run_filename,         cleaner_args );			// load_and_run_heap_image				def in   src/c/main/load-and-run-heap-image.c
-
-    print_stats_and_exit( 0 );												// Never returns.
-    exit( 0 );														// Redundant -- just to suppress gcc warning.
+    return heapcleaner_args;
 }
-
-
 
 static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {
     //
