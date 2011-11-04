@@ -62,25 +62,25 @@ Sibid* book_to_sibid__global;
 									// Should this go into heapcleaner-statistics.c ?
 Bool	heapcleaner_statistics_generation_switch__global = TRUE;	// If TRUE, then generate stats.
 int	heapcleaner_statistics_fd__global = -1;				// The file descriptor to write the data to.
-int	statistics_buffer_record_count__global;				// Number of records in the buffer.
+int	heapcleaner_statistics_buffer_record_count__global;				// Number of records in the buffer.
 
-Cleaner_Statistics   statistics_buffer__global [ STATISTICS_BUFFER_SIZE_IN_RECORDS ];			// Buffer of data.
+Heapcleaner_Statistics   heapcleaner_statistics_buffer__global [ HEAPCLEANER_STATISTICS_BUFFER_SIZE_IN_RECORDS ];			// Buffer of data.
 
 
 
-Cleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
+Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
     //          ====================================
     //
-    // Parse any heap/cleaner args from the user commandline:
+    // Parse any heapcleaner args from the user commandline:
 
     char     option[ MAX_COMMANDLINE_ARGUMENT_PART_LENGTH ];
     char*    option_arg;
     Bool     seen_error = FALSE;
     char*    arg;
 
-    Cleaner_Args* params;
+    Heapcleaner_Args* params;
 
-    if ((params = MALLOC_CHUNK(Cleaner_Args)) == NULL) {
+    if ((params = MALLOC_CHUNK(Heapcleaner_Args)) == NULL) {
 	die("unable to allocate heap_params");
     }
 
@@ -169,7 +169,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     Task*              task,
     Bool               is_boot,
-    Cleaner_Args*  params
+    Heapcleaner_Args*  params
 ) {
     int		ratio;
     int		max_size = 0;		// Initialized only to suppress a gcc -Wall warning.

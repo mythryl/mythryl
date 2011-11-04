@@ -37,7 +37,7 @@
 #include "bigcounter.h"
 
 
-struct cleaner_args {		// "typedef   struct cleaner_args_rec   Cleaner_Args;"   in   src/c/h/runtime-base.h
+struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;"   in   src/c/h/runtime-base.h
     //
     Punt agegroup0_buffer_bytesize;
     int	 active_agegroups;

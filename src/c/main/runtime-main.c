@@ -74,14 +74,14 @@ static char*	compiled_files_to_load_filename = NULL;
     static int NumProcs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
 #endif
 
-static void   process_environment_options (Cleaner_Args** cleaner_args);
-static void   process_commandline_options (int argc, char** argv, Cleaner_Args** cleaner_args);
+static void   process_environment_options (Heapcleaner_Args** cleaner_args);
+static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** cleaner_args);
 
 
 int   main   (int argc, char** argv) {
     //====
     //
-    Cleaner_Args*	cleaner_args;
+    Heapcleaner_Args*	cleaner_args;
 
     process_environment_options( &cleaner_args );
 
@@ -122,7 +122,7 @@ int   main   (int argc, char** argv) {
 
 
 
-static void   process_environment_options   (Cleaner_Args**  cleaner_args) {
+static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {
     //
     char* vebosity_string = getenv( "MYTHRYL_VERBOSITY" );
     if   (vebosity_string) {
@@ -136,7 +136,7 @@ static void   process_commandline_options   (
     //
     int                 argc,
     char**              argv,
-    Cleaner_Args**  cleaner_args
+    Heapcleaner_Args**  cleaner_args
 ) {
     char	option[ MAX_COMMANDLINE_ARGUMENT_PART_LENGTH ];
     char*	option_arg;

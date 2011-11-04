@@ -16,7 +16,7 @@ void   load_and_run_heap_image (
     // =======================
     //
     const char*	    heap_image_to_run_filename,
-    Cleaner_Args*   heap_parameters
+    Heapcleaner_Args*   heap_parameters
 ) {
     // Load a heap image from a file and resume execution.
     //

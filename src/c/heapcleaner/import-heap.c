@@ -64,7 +64,7 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addre
 #define READ(bp,chunk)	heapio__read_block(bp, &(chunk), sizeof(chunk))
 
 
-Task*   import_heap_image   (const char* fname, Cleaner_Args* params) {
+Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
     //  =================
     //
     Task*		task;

@@ -174,16 +174,16 @@ extern void die       (char*,     ...);											// die				def in    src/c/main
 
 extern void print_stats_and_exit      (int code);									// print_stats_and_exit		def in    src/c/main/runtime-main.c
 
-typedef   struct cleaner_args   Cleaner_Args;
+typedef   struct cleaner_args   Heapcleaner_Args;
     //
     // An abstract type whose representation depends
     // on the particular cleaner being used.
 
-extern Cleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);						// handle_cleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);						// handle_cleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
 
-extern Task* make_task               (Bool is_boot, Cleaner_Args* params);						// make_task			def in   src/c/main/runtime-state.c
-extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Cleaner_Args* params);			// load_compiled_files		def in   src/c/main/load-compiledfiles.c/load_compiled_files()
-extern void  load_and_run_heap_image (const char* heap_image_to_run_filename,         Cleaner_Args* params);		// load_and_run_heap_image	def in   src/c/main/load-and-run-heap-image.c
+extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);						// make_task			def in   src/c/main/runtime-state.c
+extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Heapcleaner_Args* params);			// load_compiled_files		def in   src/c/main/load-compiledfiles.c/load_compiled_files()
+extern void  load_and_run_heap_image (const char* heap_image_to_run_filename,         Heapcleaner_Args* params);		// load_and_run_heap_image	def in   src/c/main/load-and-run-heap-image.c
 
 extern void initialize_task (Task *task);										// initialize_task		def in   src/c/main/runtime-state.c
 extern void save_c_state    (Task *task, ...);										// save_c_state			def in   src/c/main/runtime-state.c

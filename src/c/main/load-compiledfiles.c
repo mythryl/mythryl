@@ -133,7 +133,7 @@ void   load_compiled_files   (
     // ======================
     //
     const char*         compiled_files_to_load_filename,
-    Cleaner_Args*   heap_parameters					// See   struct cleaner_args   in   src/c/h/heap.h
+    Heapcleaner_Args*   heap_parameters					// See   struct cleaner_args   in   src/c/h/heap.h
 ){
     // Load into the runtime heap all the .compiled files
     // listed one per line in given compiled_files_to_load file:

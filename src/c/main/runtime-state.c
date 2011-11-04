@@ -25,7 +25,7 @@ Pthread* pthread_table__global[ MAX_PTHREADS ];							// pthread_table__global[]
 static void   set_up_pthread_state   (Pthread* pthread);
 
 
-Task*   make_task   (Bool is_boot,  Cleaner_Args* cleaner_args)    {
+Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //  =========
     //
     // This function is called two places, one each in:

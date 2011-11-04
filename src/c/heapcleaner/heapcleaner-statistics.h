@@ -31,9 +31,9 @@
 
 	if (heapcleaner_statistics_generation_switch__global) {
 	    //
-	    Cleaner_Statistics* stats										// Cleaner_Statistics		def in    src/c/h/heapcleaner-statistics-2.h
+	    Heapcleaner_Statistics* stats										// Heapcleaner_Statistics		def in    src/c/h/heapcleaner-statistics-2.h
 		=
-		&statistics_buffer__global[ statistics_buffer_record_count__global ];						// statistics_buffer__global		def in    src/c/heapcleaner/heapcleaner-initialization.c
+		&heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ];						// heapcleaner_statistics_buffer__global		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
 	    Punt  bytes
 		=
@@ -59,7 +59,7 @@
 	//
 	if (heapcleaner_statistics_generation_switch__global) {
 	    //
-	    gettimeofday( &statistics_buffer__global[ statistics_buffer_record_count__global ].stop_time, NULL );
+	    gettimeofday( &heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ].stop_time, NULL );
 	    //
 	    STATS_FINISH();
 	}
@@ -71,7 +71,7 @@
 	//
 	if (heapcleaner_statistics_generation_switch__global) {
 	    //
-	    statistics_buffer__global[ statistics_buffer_record_count__global ].active_agegroups
+	    heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ].active_agegroups
 		=
 		active_agegroups;
 	}

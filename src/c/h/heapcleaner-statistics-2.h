@@ -27,7 +27,7 @@ typedef struct {				//
 } Cleaner_Statistics_Header;
 
 
-// Cleaner_Statistics
+// Heapcleaner_Statistics
 //
 typedef struct {
     Bigcounter	bytes_allocated;		// Allocation count in bytes.
@@ -36,7 +36,7 @@ typedef struct {
     Time	stop_time;	
     Unt1	pad[9];				// Pad to 64 bytes.
     //
-} Cleaner_Statistics;
+} Heapcleaner_Statistics;
 
 // Maskbits in header
 //
@@ -49,27 +49,27 @@ typedef struct {
 
 
 //
-#define STATISTICS_BUFFER_SIZE_IN_RECORDS	(2048/sizeof(Cleaner_Statistics))
+#define HEAPCLEANER_STATISTICS_BUFFER_SIZE_IN_RECORDS	(2048/sizeof(Heapcleaner_Statistics))
 
 extern Bool	    heapcleaner_statistics_generation_switch__global;	// If TRUE, generate statistics.
 extern int	    heapcleaner_statistics_fd__global;			// The file descriptor to write the data to.
 
-extern Cleaner_Statistics   statistics_buffer__global[];		// Buffer for data.
-extern int	    statistics_buffer_record_count__global;					// Number of records in the buffer.
+extern Heapcleaner_Statistics   heapcleaner_statistics_buffer__global[];		// Buffer for data.
+extern int	    heapcleaner_statistics_buffer_record_count__global;					// Number of records in the buffer.
 
 // Flush out any records in the buffer:
 //
 #define STATS_FLUSH_BUF()	{						\
-	if (statistics_buffer_record_count__global >= 0) {							\
-	    write (heapcleaner_statistics_fd__global, (char*)statistics_buffer__global, statistics_buffer_record_count__global*sizeof(Cleaner_Statistics));	\
-	    statistics_buffer_record_count__global = 0;							\
+	if (heapcleaner_statistics_buffer_record_count__global >= 0) {							\
+	    write (heapcleaner_statistics_fd__global, (char*)heapcleaner_statistics_buffer__global, heapcleaner_statistics_buffer_record_count__global*sizeof(Heapcleaner_Statistics));	\
+	    heapcleaner_statistics_buffer_record_count__global = 0;							\
 	}									\
     }
 
 #define STATS_FINISH()	{							\
-	if (++statistics_buffer_record_count__global >= STATISTICS_BUFFER_SIZE_IN_RECORDS) {					\
-	    write (heapcleaner_statistics_fd__global, (char *)statistics_buffer__global, STATISTICS_BUFFER_SIZE_IN_RECORDS*sizeof(Cleaner_Statistics));	\
-	    statistics_buffer_record_count__global = 0;							\
+	if (++heapcleaner_statistics_buffer_record_count__global >= HEAPCLEANER_STATISTICS_BUFFER_SIZE_IN_RECORDS) {					\
+	    write (heapcleaner_statistics_fd__global, (char *)heapcleaner_statistics_buffer__global, HEAPCLEANER_STATISTICS_BUFFER_SIZE_IN_RECORDS*sizeof(Heapcleaner_Statistics));	\
+	    heapcleaner_statistics_buffer_record_count__global = 0;							\
 	}									\
     }
 
