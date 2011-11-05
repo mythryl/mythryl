@@ -39,8 +39,6 @@ typedef enum {
 
 #ifdef NO_PTHREAD_SUPPORT	// Temporary hack -- should be !NEED_PTHREAD_SUPPORT XXX BUGGO FIXME
     //
-    #define BEGIN_CRITICAL_SECTION( LOCK )	{
-    #define END_CRITICAL_SECTION( LOCK )	}
     #define ACQUIRE_MUTEX(LOCK)		// no-op
     #define RELEASE_MUTEX(LOCK)		// no-op
 
@@ -142,8 +140,6 @@ typedef enum {
     //
     // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT
     //
-    #define BEGIN_CRITICAL_SECTION( mutex )	{ pth__acquire_mutex(mutex); {
-    #define END_CRITICAL_SECTION( mutex )	} pth__release_mutex(mutex); }
     //
     #define ACQUIRE_MUTEX(mutex)		pth__acquire_mutex(mutex);
     #define RELEASE_MUTEX(mutex)		pth__release_mutex(mutex);
