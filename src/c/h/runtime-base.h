@@ -76,9 +76,9 @@ typedef Int1 Status;
 // Assertions for debugging:
 //
 #ifdef ASSERT_ON
-    extern void AssertFail (const char *a, const char *file, int line);
-//  #define ASSERT(A)	((A) ? ((void)0) : AssertFail(#A, __FILE__, __LINE__))
-    #define ASSERT(A)	{ if (!(A)) AssertFail(#A, __FILE__, __LINE__); }
+    extern void assert_fail (const char *a, const char *file, int line);
+//  #define ASSERT(A)	((A) ? ((void)0) : assert_fail(#A, __FILE__, __LINE__))
+    #define ASSERT(A)	{ if (!(A)) assert_fail(#A, __FILE__, __LINE__); }
 #else
     #define ASSERT(A)	{ }
 #endif

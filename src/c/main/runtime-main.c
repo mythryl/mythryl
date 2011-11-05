@@ -79,7 +79,8 @@ static char*	compiled_files_to_load_filename = NULL;
 static void   process_environment_options (Heapcleaner_Args** heapcleaner_args);
 static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** heapcleaner_args);
 
-static  Heapcleaner_Args*  do_start_of_world_stuff(     int argc, char** argv);
+static  Heapcleaner_Args*  do_start_of_world_stuff(        int argc, char** argv);
+static  void               do_end_of_world_stuff_and_exit( void                 );
 
 
 
@@ -96,8 +97,7 @@ int   main   (int argc, char** argv) {
     else 	         load_and_run_heap_image( heap_image_to_run_filename,   heapcleaner_args );			// load_and_run_heap_image				def in   src/c/main/load-and-run-heap-image.c
 
 
-    print_stats_and_exit( 0 );												// Never returns.
-    exit( 0 );														// Redundant -- just to suppress gcc warning.
+    do_end_of_world_stuff_and_exit();
 }
 
 
@@ -134,6 +134,13 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 //  #endif														// pth__start_up					def in    src/c/pthread/pthread-on-solaris.c
 															// pth__start_up					def in    src/c/pthread/pthread-on-sgi.c
     return heapcleaner_args;
+}
+
+static void   do_end_of_world_stuff_and_exit   (void)  {
+    //
+    pth__shut_down();
+    print_stats_and_exit( 0 );												// Never returns.
+    exit( 0 );														// Redundant -- just to suppress gcc warning.
 }
 
 static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {

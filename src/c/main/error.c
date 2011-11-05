@@ -81,7 +81,7 @@ void   die   (char *fmt, ...)   {
 
 #ifdef ASSERT_ON
     //
-    void   AssertFail   (const char* a,  const char* file,  int line)    {
+void   assert_fail   (const char* a,  const char* file,  int line)    {		// Used (optionally) in ASSERT macro in   src/c/h/runtime-base.h
 	//
 	//
 	// Print an assertion failure message.

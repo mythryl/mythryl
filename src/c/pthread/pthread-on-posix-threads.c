@@ -77,7 +77,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-void     pth__shut_down			()					{}
 Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet");  }
 void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
 void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
@@ -109,6 +108,14 @@ void     pth__start_up   (void)   {
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
+}
+
+void   pth__shut_down (void) {
+    //
+    // Our present implementation need do nothing at end-of-world shutdown.
+    //
+    // We get called from   do_end_of_world_stuff_and_exit()   in   src/c/main/runtime-main.c
+    // and also             die()  and  assert_fail()          in   src/c/main/error.c
 }
 
 void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
