@@ -99,7 +99,7 @@ typedef enum {
     // MULTICORE GARBAGE COLLECTION SUPPORT
     //
     extern int   pth__start_heapcleaning    (Task*);
-    extern void  pth__finish_heapcleaning   (Task*, int);
+    extern void  pth__finish_heapcleaning   (Task*);
     //
     extern Val*  pth__extra_heapcleaner_roots__global [];
 
@@ -129,7 +129,7 @@ typedef enum {
     extern Mutex	    pth__heapcleaner_gen_mutex__global;
     extern Mutex	    pth__timer_mutex__global;
     //
-    extern Barrier*	    pth__heapcleaner_barrier__global;
+    extern Barrier	    pth__heapcleaner_barrier__global;
     //
     //
 
@@ -159,10 +159,10 @@ typedef enum {
     // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
     // but implemented on top of mutexs in                                  src/c/pthread/pthread-on-solaris.c
     //
-    extern Barrier* pth__make_barrier 	();					// Allocate a barrier.
+    extern void     pth__barrier_init 	(Barrier* barrier, int threads);	// Set up barrier for n-thread wait.
     extern void     pth__free_barrier	(Barrier* barrierp);			// Free a barrier.
     //
-    extern void     pth__wait_at_barrier	(Barrier* barrierp, unsigned n);	// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
+    extern void     pth__barrier_wait (Barrier* barrierp);			// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
     extern void     pth__clear_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.

@@ -70,7 +70,7 @@ Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cac
 
 
 
-Barrier* pth__heapcleaner_barrier__global;	;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
 // Some placeholder fns just so I can start
@@ -80,14 +80,21 @@ Barrier* pth__heapcleaner_barrier__global;	;					// Used only with pth__wait_at_
 void     pth__shut_down			()					{}
 Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet");  }
 void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
-Barrier* pth__make_barrier		()					{ die("pth__make_barrier() not implemented yet"); return (Barrier*)NULL; }
 void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
-void     pth__wait_at_barrier		(Barrier* barrierp,  unsigned n)	{ die("pth__wait_at_barrier() not implemented yet"); }
 void     pth__clear_barrier		(Barrier* barrierp)			{ die("pth__clear_barrier() not implemented yet"); }
 int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); return 0; }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
 Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
 int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
+
+
+// pthread_barrier_init(&barr, NULL, THREADS)	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+//     int rc = pthread_barrier_wait(&barr);    // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+// if(rc != 0 && rc != PTHREAD_BARRIER_SERIAL_THREAD)
+//   {
+//    printf("Could not wait on barrier\n");
+//    exit(-1);
+//   }
 
 
 void     pth__start_up   (void)   {
@@ -100,14 +107,35 @@ void     pth__start_up   (void)   {
     // posix-threads API allows us to just statically
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
-//   pth__heapcleaner_barrier__global	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
 }
 
-void     pth__acquire_mutex		(Mutex* mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
-void     pth__release_mutex		(Mutex* mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
+void   pth__acquire_mutex  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    //
+    if (!pth__done_acquire_pthread__global)   return;
+    die("pth__acquire_mutex() not implemented yet");
+}
+
+void   pth__release_mutex (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    //
+    if (!pth__done_acquire_pthread__global) return;
+    die("pth__release_mutex() not implemented yet");
+}
+
+
+void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    //
+    pthread_barrier_init( barrier, NULL, (unsigned) threads);
+}
+
+
+void   pth__barrier_wait   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+    //
+    pthread_barrier_wait( barrier );
+}
+
 // pthread_mutex_lock(   &mutex1 );
 // pthread_mutex_unlock( &mutex1 );
 
@@ -170,30 +198,6 @@ static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
 
 
-void   pth__start_up   () {
-    // =============
-    //
-    // Called (only) from   src/c/main/runtime-main.c
-
-    // set '_utrace = 1;' to debug shared arenas
-
-    if (usconfig(CONF_LOCKTYPE, US_NODEBUG) == -1)   die ("usconfig failed in pth__start_up");
-
-    usconfig(CONF_AUTOGROW, 0);
-
-    if (usconfig(CONF_INITSIZE, 65536) == -1) 	die ("usconfig failed in pth__start_up");
-
-    if ((arena = usinit(ARENA_FNAME)) == NULL) 	die ("usinit failed in pth__start_up");
-
-    MP_ArenaLock		= AllocLock ();
-    MP_ProcLock			= AllocLock ();
-    pth__heapcleaner_mutex__global	= AllocLock ();
-    pth__heapcleaner_gen_mutex__global	= AllocLock ();
-    pth__timer_mutex__global	= AllocLock ();
-    pth__heapcleaner_barrier__global	= AllocBarrier();
-    //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
-}
 
 void   pth__shut_down   ()   {
     // ==============
@@ -212,7 +216,7 @@ Pid   pth__pthread_id   ()   {
 
 
 static Mutex   allocate_mutex   ()   {
-    //        ==============
+    //         ==============
     //
     // Allocate and initialize a system mutex.
 

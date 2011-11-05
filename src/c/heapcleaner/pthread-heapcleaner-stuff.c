@@ -236,7 +236,7 @@ int   pth__start_heapcleaning   (Task *task) {
     {
 
 /////////////////////////////////////////////////////
-// Why aren't we using a regular barrier op here...?
+// Why aren't we using a regular barrier op here...? (Probably because number of threads can dynamically increase at this point.)
 /////////////////////////////////////////////////////
 
 
@@ -295,8 +295,14 @@ int   pth__start_heapcleaning   (Task *task) {
     // we now return to caller to take up our
     // heapcleaning responsibilities:
     //
-    if (pthread->pid == cleaning_pthread__local)   return active_pthread_count;			// We're the designated heapcleaner.
-
+    if (pthread->pid == cleaning_pthread__local) {
+        //
+// XXX BUGGO FIXME -- Can we be sure other threads have not already reached the barrier already?
+        //
+	pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );		// Set up barrier to wait on proper number of threads.
+	//
+        return TRUE;										// We're the designated heapcleaner.
+    }
 
 
     ////////////////////////////////////////////////////////////////// 
@@ -308,7 +314,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	debug_say ("%d entering barrier %d\n",pthread->pid,active_pthread_count);
     #endif
 
-    pth__wait_at_barrier( pth__heapcleaner_barrier__global, active_pthread_count );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+    pth__barrier_wait( &pth__heapcleaner_barrier__global );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
@@ -318,7 +324,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // not the designated heapcleaner, so we shouldn't
     // do any heapcleaning work upon our return:
     //
-    return 0;
+    return FALSE;
 }							// fun pth__start_heapcleaning
 
 
@@ -331,7 +337,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     //
     // As above, but we collect extra roots into pth__extra_heapcleaner_roots__global.
 
-    int pthread_count;
+    int active_pthread_count;
     Val* p;
 
     Pthread* pthread =  task->pthread;
@@ -376,7 +382,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	// NB: Some other pthread can be concurrently
         // acquiring new kernel threads:
         //
-	while (pthreads_ready_to_clean__local !=  (pthread_count = pth__get_active_pthread_count())) {
+	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {
 
 	    // SPIN
 
@@ -409,13 +415,20 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
     #endif
 
-    if (cleaning_pthread__local == pthread->pid)   return pthread_count;			// We're the designated heapcleaner.
+    if (cleaning_pthread__local == pthread->pid) {
+	//
+// XXX BUGGO FIXME -- Can we be sure other threads have not already reached the barrier already?
+	//
+	pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );		// Set up barrier to wait on proper number of threads.
+	//
+        return TRUE;			// We're the designated heapcleaner.
+    }
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
     #endif
 
-    pth__wait_at_barrier( pth__heapcleaner_barrier__global, pthread_count );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+    pth__barrier_wait( &pth__heapcleaner_barrier__global );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
@@ -426,13 +439,8 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 
 
-void    pth__finish_heapcleaning
-	  (
-	    Task*  task,
-	    int    active_pthreads_count							// Number of pthreads running currently.  We need this (only) for our pth__wait_at_barrier() call.
-	  )
-{
-    // =======================
+void    pth__finish_heapcleaning   (Task*  task)   {
+    //  ========================
     //
     // This fn is called only from
     //
@@ -447,11 +455,11 @@ void    pth__finish_heapcleaning
     pth__acquire_mutex( &pth__heapcleaner_mutex__global );
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("%d entering barrier %d\n", task->pthread->pid, active_pthreads_count );
+	debug_say ("%d entering barrier\n", task->pthread->pid );
     #endif
 
-    pth__wait_at_barrier( pth__heapcleaner_barrier__global, active_pthreads_count );			// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
-
+    pth__barrier_wait( &pth__heapcleaner_barrier__global );					// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
+												// They should all be already waiting on this barrier, so we should never block at this point.
     pthreads_ready_to_clean__local = 0;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG

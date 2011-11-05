@@ -83,12 +83,10 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    debug_say ("igc %d\n", task->pid);
 	#endif
 	//
-	int   active_pthreads_count;								// Number of active pthreads. We need this (only) for the final   pth__wait_at_barrier()   that 
-	//											// releases the waiting pthreads in   pth__finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//
-	if ((active_pthreads_count = pth__start_heapcleaning( task )) == 0) {			// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	if (!pth__start_heapcleaning( task )) {							// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
-	    // Return value was zero, so we're not the designated heapcleaner pthread,
+	    // Return value was FALSE, so we're not the designated heapcleaner pthread,
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
@@ -239,7 +237,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     //
     #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
 	//
-	pth__finish_heapcleaning( task, active_pthreads_count );						// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
+	pth__finish_heapcleaning( task );						// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
@@ -286,16 +284,16 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	va_start (ap, level);
 
-	int active_pthreads_count										// Number of active pthreads. We need this (only) for the final   pth__wait_at_barrier()   that 
-	    =													// releases the waiting pthreads in   pth__finish_heapcleaning from  src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	int we_are_the_designated_heapcleaner_pthread
+	    =
 	    pth__call_heapcleaner_with_extra_roots (task, ap);							// pth__call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 	va_end(ap);
 
-	if (active_pthreads_count == 0)	{
+	if (!we_are_the_designated_heapcleaner_pthread)	{
 	    //
-	    // Return value was zero, so we're not the designated heapcleaner pthread,
-	    // and our return from pth__start_heapcleaning means that the heapcleaning
+	    // We are not the designated heapcleaner pthread, and our
+	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
 	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
@@ -455,7 +453,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     //
     #if NEED_PTHREAD_SUPPORT
         //
-	pth__finish_heapcleaning (task, active_pthreads_count);
+	pth__finish_heapcleaning( task );
     #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
