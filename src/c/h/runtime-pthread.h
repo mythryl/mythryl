@@ -165,7 +165,6 @@ typedef enum {
     extern void     pth__barrier_wait (Barrier* barrierp);			// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
     //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
     //
-    extern void     pth__clear_barrier	(Barrier* barrierp);			// (Never used.)  Reset barrier to initial state. Presumably any waiting pthreads are released to proceed.
 
 
 
