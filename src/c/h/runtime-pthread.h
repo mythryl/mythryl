@@ -37,13 +37,7 @@ typedef enum {
 
 
 
-#ifdef NO_PTHREAD_SUPPORT	// Temporary hack -- should be !NEED_PTHREAD_SUPPORT XXX BUGGO FIXME
-    //
-    #define ACQUIRE_MUTEX(LOCK)		// no-op
-    #define RELEASE_MUTEX(LOCK)		// no-op
-
-
-#else // NEED_PTHREAD_SUPPORT
+#ifndef NO_PTHREAD_SUPPORT	// Temporary hack -- should be NEED_PTHREAD_SUPPORT XXX BUGGO FIXME
 
     #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
      || !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -138,11 +132,6 @@ typedef enum {
     extern Barrier*	    pth__heapcleaner_barrier__global;
     //
     //
-    // Some readability tweaks:							// We should probably eliminate these -- 2011-11-01 CrT
-    //
-    //
-    #define ACQUIRE_MUTEX(mutex)		pth__acquire_mutex(mutex);
-    #define RELEASE_MUTEX(mutex)		pth__release_mutex(mutex);
 
 
     ////////////////////////////////////////////////////////////////////////////

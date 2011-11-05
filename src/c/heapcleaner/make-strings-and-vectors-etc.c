@@ -185,11 +185,11 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
                 //
-		RELEASE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
 		    //
 		    call_heapcleaner( task, 1 );
 		    //
-		ACQUIRE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
                 //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -273,11 +273,11 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 		ap->requested_sib_buffer_bytesize += bytesize;
 		//
-		RELEASE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
 		    //
 		    call_heapcleaner (task, 1);
 		    //
-		ACQUIRE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
 		//
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -424,10 +424,10 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
                 //
 		Val	root = initVal;
 		ap->requested_sib_buffer_bytesize += bytesize;
-		RELEASE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
 		    call_heapcleaner_with_extra_roots (task, gcLevel, &root, NULL);
 		    initVal = root;
-		ACQUIRE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if NEED_PTHREAD_SUPPORT
@@ -508,10 +508,10 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
-	    RELEASE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+	    pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
-	    ACQUIRE_MUTEX( &pth__heapcleaner_gen_mutex__global );
+	    pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
