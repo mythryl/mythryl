@@ -112,16 +112,18 @@ void     pth__start_up   (void)   {
 
 }
 
-void   pth__acquire_mutex  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //
     if (!pth__done_acquire_pthread__global)   return;
-    die("pth__acquire_mutex() not implemented yet");
+    //
+    pthread_mutex_lock( mutex );
 }
 
-void   pth__release_mutex (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+void   pth__mutex_unlock (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //
     if (!pth__done_acquire_pthread__global) return;
-    die("pth__release_mutex() not implemented yet");
+    //
+    pthread_mutex_unlock( mutex );
 }
 
 
@@ -233,21 +235,21 @@ static Mutex   allocate_mutex   ()   {
 }
  
 
-void   pth__acquire_mutex   (Mutex mutex)   {
-    // =================
+void   pth__mutex_lock   (Mutex mutex)   {
+    // ===============
     //
     ussetlock(mutex);
 }
 
 
-void   pth__release_mutex   (Mutex mutex)   {
-    // ==================
+void   pth__mutex_unlock   (Mutex mutex)   {
+    // =================
     //
     usunsetlock(mutex);
 }
 
 
-Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
+Bool   pth__mutex_maybe_lock   (Mutex mutex)   {
     // ========================
     //
     return ((Bool) uscsetlock(mutex, 1));		// Try once.
@@ -377,7 +379,7 @@ static void   pthread_main   (void* vtask)   {
 	debug_say ("[new proc main: releasing mutex]\n");
     #endif
 
-    pth__release_mutex( MP_ProcLock );			// Implicitly handed to us by the parent.
+    pth__mutex_unlock( MP_ProcLock );			// Implicitly handed to us by the parent.
     run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //
     // run_mythryl_task_and_runtime_eventloop should never return:
@@ -427,7 +429,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	debug_say("[acquiring proc]\n");
     #endif
 
-    pth__acquire_mutex(MP_ProcLock);
+    pth__mutex_lock(MP_ProcLock);
 
     // Search for a suspended kernel thread to reuse:
     //
@@ -445,7 +447,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
         //
 	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
-	    pth__release_mutex( MP_ProcLock );
+	    pth__mutex_unlock( MP_ProcLock );
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
@@ -464,7 +466,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	if (i == MAX_PTHREADS) {
 	    //
-	    pth__release_mutex( MP_ProcLock );
+	    pth__mutex_unlock( MP_ProcLock );
 	    say_error("[no processor to allocate]\n");
 	    return HEAP_FALSE;
 	}
@@ -508,7 +510,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	} else {
 
 	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
-	    pth__release_mutex(MP_ProcLock);
+	    pth__mutex_unlock(MP_ProcLock);
 	    return HEAP_FALSE;
 	}      
 
@@ -520,7 +522,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	    debug_say ("[reusing a processor]\n");
 	#endif
 
-	pth__release_mutex(MP_ProcLock);
+	pth__mutex_unlock(MP_ProcLock);
 
 	return HEAP_TRUE;
     }
@@ -537,11 +539,11 @@ void   pth__release_pthread   (Task* task)   {
 
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
-    pth__acquire_mutex(MP_ProcLock);
+    pth__mutex_lock(MP_ProcLock);
 
     task->pthread->status = PTHREAD_IS_SUSPENDED;
 
-    pth__release_mutex(MP_ProcLock);
+    pth__mutex_unlock(MP_ProcLock);
 
     while (task->pthread->status == PTHREAD_IS_SUSPENDED) {
 	//
@@ -563,11 +565,11 @@ int   pth__get_active_pthread_count   ()   {
     //
     int ap;
 
-    pth__acquire_mutex(MP_ProcLock);
+    pth__mutex_lock(MP_ProcLock);
 
         ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
 
-    pth__release_mutex(MP_ProcLock);
+    pth__mutex_unlock(MP_ProcLock);
 
     return ap;
 }

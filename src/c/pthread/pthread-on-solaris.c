@@ -231,13 +231,13 @@ void   bind_to_kernel_thread   (processorid_t* processorId)  {
 
 
 //
-Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
+Bool   pth__mutex_maybe_lock   (Mutex mutex)   {
     // ===========
     //
     // Return FALSE if cannot set mutex;
     // otherwise set mutex and return TRUE.
     // Created: 5-14-96 	
-    // Invariant: If more than one processes calls pth__maybe_acquire_mutex at the same time, 
+    // Invariant: If more than one processes calls pth__mutex_maybe_lock at the same time, 
     //		  then only one of the processes will have TRUE returned.
 
     #if defined(MP_PROFILE)
@@ -245,7 +245,7 @@ Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
     #endif
 
     #if defined(MP_MUTEX_DEBUG)
-        printf("pth__maybe_acquire_mutex: mutex value is %d\n",mutex->value);
+        printf("pth__mutex_maybe_lock: mutex value is %d\n",mutex->value);
     #endif
 
     #if defined(MP_PROFILE)
@@ -271,7 +271,7 @@ Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
     } else {
 
 	#if defined(MP_MUTEX_DEBUG)
-	    printf("pth__maybe_acquire_mutex: calling mutex_trylock\n");
+	    printf("pth__mutex_maybe_lock: calling mutex_trylock\n");
 	#endif
 
 	#if defined(MP_PROFILE)
@@ -308,11 +308,11 @@ Bool   pth__maybe_acquire_mutex   (Mutex mutex)   {
 	    return TRUE;
 	}
     }
-}						// fun pth__maybe_acquire_mutex
+}						// fun pth__mutex_maybe_lock
 
 
 //
-void   pth__release_mutex   (Mutex mutex)   {
+void   pth__mutex_unlock   (Mutex mutex)   {
     // ===============
     //
     // Assign mutex->value the value of 0.
@@ -321,13 +321,13 @@ void   pth__release_mutex   (Mutex mutex)   {
     mutex->value = UNSET;
 } 
 //
-void   pth__acquire_mutex    (Mutex mutex)   {
+void   pth__mutex_lock    (Mutex mutex)   {
     // ===============
     //
     // Busy wait until able set the mutex.
     // Created: 5-14-96 	   
     //
-    while (pth__maybe_acquire_mutex(mutex) == FALSE);
+    while (pth__mutex_maybe_lock(mutex) == FALSE);
 } 
 
 
@@ -337,9 +337,9 @@ Mutex   pth__make_mutex   ()   {
     //
     Mutex mutex;
 
-    pth__acquire_mutex(arena_mutex__local);
+    pth__mutex_lock(arena_mutex__local);
        mutex = allocate_mutex();
-    pth__release_mutex(arena_mutex__local);
+    pth__mutex_unlock(arena_mutex__local);
 
     return mutex;
 }
@@ -352,11 +352,11 @@ void   pth__free_mutex   (Mutex mutex)   {
     // Return non-negative int if OK, -1 on error.
     // Created: 5-13-96 	   
 
-    pth__acquire_mutex(arena_mutex__local);
+    pth__mutex_lock(arena_mutex__local);
 	//
 	free_mutex( mutex );
 	//
-    pth__release_mutex(arena_mutex__local);
+    pth__mutex_unlock(arena_mutex__local);
 } 
 
 
@@ -395,9 +395,9 @@ Barrier*   pth__make_barrier   ()   {
 
     Barrier* barrierp;
 
-    pth__acquire_mutex(arena_mutex__local);
+    pth__mutex_lock(arena_mutex__local);
 	barrierp = allocate_barrier ();
-    pth__release_mutex(arena_mutex__local);
+    pth__mutex_unlock(arena_mutex__local);
 
     return barrierp;
 }
@@ -421,9 +421,9 @@ static void   free_barrier   (Barrier* barrierp)   {
 void   pth__free_barrier  (Barrier* barrierp)   {
     // ===============
     //
-    pth__acquire_mutex(arena_mutex__local);
+    pth__mutex_lock(arena_mutex__local);
        free_barrier(barrierp);
-    pth__release_mutex(arena_mutex__local);
+    pth__mutex_unlock(arena_mutex__local);
 }
 
 //
@@ -495,7 +495,7 @@ static void*   resume_pthread   (void* vtask)   {
 
     Task* task = (Task*) vtask;
 
-    pth__acquire_mutex(mp_pthread_mutex__local);
+    pth__mutex_lock(mp_pthread_mutex__local);
 
     if (task->pthread->status == PTHREAD_IS_SUSPENDED) {
 	//
@@ -507,7 +507,7 @@ static void*   resume_pthread   (void* vtask)   {
 
 	task->pthread->status == MP_PROC_GC;
 
-	pth__release_mutex( mp_pthread_mutex__local );
+	pth__mutex_unlock( mp_pthread_mutex__local );
 
 	// The clean will be performed when we call pth__release_pthread
 
@@ -519,7 +519,7 @@ static void*   resume_pthread   (void* vtask)   {
 	      debug_say("[release_pthread: resuming proc %d]\n",task->pthread->pid);
 	#endif
 
-	pth__release_mutex(mp_pthread_mutex__local);
+	pth__mutex_unlock(mp_pthread_mutex__local);
 
 	run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
@@ -574,7 +574,7 @@ static void   suspend_pthread   (Task* task) {
 
     int i = 0;
 
-    pth__acquire_mutex( mp_pthread_mutex__local );
+    pth__mutex_lock( mp_pthread_mutex__local );
 
     // Check if pthread has actually been suspended:
     //
@@ -584,7 +584,7 @@ static void   suspend_pthread   (Task* task) {
 	    debug_say("proc state is not PROC_SUSPENDED; not suspended");
         #endif      
 
-	pth__release_mutex(mp_pthread_mutex__local);
+	pth__mutex_unlock(mp_pthread_mutex__local);
 
 	return;
     }
@@ -600,7 +600,7 @@ static void   suspend_pthread   (Task* task) {
 	}
     }
 
-    pth__release_mutex(mp_pthread_mutex__local);
+    pth__mutex_unlock(mp_pthread_mutex__local);
 
     thr_exit(NULL);				// Exit the thread.
 }						// fun suspend_pthread.
@@ -610,9 +610,9 @@ void   pth__release_pthread   (Task* task)   {
     //
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
-    pth__acquire_mutex(mp_pthread_mutex__local);
+    pth__mutex_lock(mp_pthread_mutex__local);
        task->pthread->status = PTHREAD_IS_SUSPENDED;
-    pth__release_mutex(mp_pthread_mutex__local);
+    pth__mutex_unlock(mp_pthread_mutex__local);
 
     // Suspend the proc:
     //
@@ -645,7 +645,7 @@ static void*   pthread_main   (void* vtask)   {
 
     bind_to_kernel_thread( processorId );
 
-    pth__release_mutex(mp_pthread_mutex__local);		// Implicitly handed to us by the parent.
+    pth__mutex_unlock(mp_pthread_mutex__local);		// Implicitly handed to us by the parent.
 
     run_mythryl_task_and_runtime_eventloop( task );			// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
@@ -671,7 +671,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
         debug_say("[acquiring proc]\n");
     #endif
 
-    pth__acquire_mutex(mp_pthread_mutex__local);
+    pth__mutex_lock(mp_pthread_mutex__local);
 
     // Search for a suspended proc to reuse:
     //
@@ -689,7 +689,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	//
         if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
-	    pth__release_mutex(mp_pthread_mutex__local);
+	    pth__mutex_unlock(mp_pthread_mutex__local);
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
@@ -707,7 +707,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
         if (i == MAX_PTHREADS) {
 	    //
-	    pth__release_mutex(mp_pthread_mutex__local);
+	    pth__mutex_unlock(mp_pthread_mutex__local);
 	    say_error( "[no processor to allocate]\n" );
 	    //
 	    return HEAP_FALSE;
@@ -761,7 +761,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	} else {
 
 	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ), 1) );
-	    pth__release_mutex(mp_pthread_mutex__local);
+	    pth__mutex_unlock(mp_pthread_mutex__local);
 	    return HEAP_FALSE;
 	}
 
@@ -776,7 +776,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 	    debug_say ("[reusing a processor %d]\n", pthread->pid);
 	#endif
 
-	pth__release_mutex( mp_pthread_mutex__local );
+	pth__mutex_unlock( mp_pthread_mutex__local );
 
 	return  HEAP_TRUE;
     }
@@ -814,11 +814,11 @@ Pthread*  pth__get_pthread   ()   {
 int   pth__get_active_pthread_count   (void)   {
     //=======================
     //
-    pth__acquire_mutex(mp_pthread_mutex__local);
+    pth__mutex_lock(mp_pthread_mutex__local);
         //
         int ap = TAGGED_INT_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ));
 	//
-    pth__release_mutex(mp_pthread_mutex__local);
+    pth__mutex_unlock(mp_pthread_mutex__local);
     //
     return ap;
 }

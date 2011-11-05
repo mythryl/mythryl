@@ -177,7 +177,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 	    //
 	    IFGC (ap, bytesize+task->heap->agegroup0_buffer_bytesize) {
 
@@ -185,11 +185,11 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
                 //
-		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 		    //
 		    call_heapcleaner( task, 1 );
 		    //
-		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
                 //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -197,7 +197,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 	    result = PTR_CAST( Val, ap->next_tospace_word_to_allocate);
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -263,7 +263,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
-	pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
@@ -273,11 +273,11 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 		ap->requested_sib_buffer_bytesize += bytesize;
 		//
-		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 		    //
 		    call_heapcleaner (task, 1);
 		    //
-		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 		//
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -303,7 +303,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 
 	COUNT_ALLOC(task, bytesize-WORD_BYTESIZE);
     }
@@ -328,7 +328,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
     Hugechunk* dp;
 
-    pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+    pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 	//
 	dp = allocate_hugechunk (heap, allocGen, len);
 	ASSERT(dp->gen == allocGen);
@@ -337,7 +337,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 	dp->huge_ilk = CODE__HUGE_ILK;
 	COUNT_ALLOC(task, len);
 	//
-    pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+    pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 
     return PTR_CAST( Val, dp->chunk);
 }
@@ -402,8 +402,8 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 													// 				or	 src/c/pthread/pthread-on-solaris.c
 													// (Used only in this file.)
 
-	pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );					// pth__acquire_mutex		def in   src/c/h/runtime-pthread.h
-	    //												// as pth__acquire_mutex(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
+	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );					// pth__mutex_lock		def in   src/c/h/runtime-pthread.h
+	    //												// as pth__mutex_lock(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
 	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
 		clean_check: ;	// The MP version jumps to here to recheck for GC.
@@ -424,10 +424,10 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
                 //
 		Val	root = initVal;
 		ap->requested_sib_buffer_bytesize += bytesize;
-		pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 		    call_heapcleaner_with_extra_roots (task, gcLevel, &root, NULL);
 		    initVal = root;
-		pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+		pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if NEED_PTHREAD_SUPPORT
@@ -442,7 +442,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -492,7 +492,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    =
 	    WORD_BYTESIZE * (len+1);
 
-	pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 	    //
 	    if (! sib_is_active(ap)										// sib_is_active		def in    src/c/h/heap.h
 		||
@@ -508,10 +508,10 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
-	    pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+	    pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
-	    pth__acquire_mutex( &pth__heapcleaner_gen_mutex__global );
+	    pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
@@ -528,7 +528,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	pth__release_mutex( &pth__heapcleaner_gen_mutex__global );
+	pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
 
 	COUNT_ALLOC(task, bytesize);
 
