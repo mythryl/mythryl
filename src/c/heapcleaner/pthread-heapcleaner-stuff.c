@@ -145,6 +145,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
 static volatile int	pthreads_ready_to_clean__local = 0;			// Number of processors that are ready to clean.
 static int		cleaning_pthread__local;					// The cleaning pthread.
+static int		barrier_needs_to_be_initialized__local;
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
@@ -194,7 +195,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // remember that and signal the remaining pthreads
     // to join in.
     //
-    pth__acquire_mutex( &pth__heapcleaner_mutex__global );
+    pth__acquire_mutex( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
     //
     if (pthreads_ready_to_clean__local++ == 0) {
         //
@@ -221,6 +222,8 @@ int   pth__start_heapcleaning   (Task *task) {
 
 	cleaning_pthread__local =  pthread->pid;							// Assume the awesome responsilibity of being the designated heapcleaner thread.
 
+	barrier_needs_to_be_initialized__local =  TRUE;
+
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	    debug_say ("cleaning_pthread__local is %d\n", cleaning_pthread__local);
 	#endif
@@ -233,18 +236,15 @@ int   pth__start_heapcleaning   (Task *task) {
     // heapcleaning mode, we now wait until all the
     // other active pthreads have also entered
     // heapcleaning mode.
+    //
+    // Note that we cannot use a barrier wait here because
+    // we do not know how many pthreads will wind up entering
+    // heapcleaner mode -- one or more pthreads might be starting
+    // up additional pthreads.
     {
-
-/////////////////////////////////////////////////////
-// Why aren't we using a regular barrier op here...? (Probably because number of threads can dynamically increase at this point.)
-/////////////////////////////////////////////////////
-
-
+        // Spin until all active pthreads have enetered this loop:
+        //
 	int n = 0;
-
-
-        // NB: Some other pthread can be
-        // concurrently acquiring new kernel threads.
         //
 	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {	// pth__get_active_pthread_count	def in   src/c/pthread/pthread-on-posix-threads.c
 	    // 
@@ -272,6 +272,22 @@ int   pth__start_heapcleaning   (Task *task) {
 		#endif
 	    }
 	}
+
+	// As soon as all active pthreads have entered the above
+        // loop, they all fall out and arrive here.  The first to
+	// do so needs to initialize the barrier, so that everyone
+	// can wait at it:
+	//
+        pth__acquire_mutex( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
+	    //
+	    if (barrier_needs_to_be_initialized__local) {
+		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
+		//
+		pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );	// Set up barrier to wait on proper number of threads.
+	    }
+	    //
+	pth__release_mutex( &pth__heapcleaner_mutex__global );
+
     }
 
     // All Pthreads are now ready to clean.
@@ -297,10 +313,6 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     if (pthread->pid == cleaning_pthread__local) {
         //
-// XXX BUGGO FIXME -- Can we be sure other threads have not already reached the barrier already?
-        //
-	pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );		// Set up barrier to wait on proper number of threads.
-	//
         return TRUE;										// We're the designated heapcleaner.
     }
 
@@ -343,44 +355,57 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     Pthread* pthread =  task->pthread;
 
     pth__acquire_mutex( &pth__heapcleaner_mutex__global );
-
-    if (pthreads_ready_to_clean__local++ == 0) {
 	//
-        extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;
-
-	// Signal other pthreads to enter heapcleaning mode:
-	//
-	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	if (pthreads_ready_to_clean__local++ == 0) {
 	    //
-	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE);
-	    //	
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		debug_say ("%d: set poll event\n", pthread->pid);
+	    extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;
+
+	    // Signal other pthreads to enter heapcleaning mode:
+	    //
+	    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
+		//
+		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE);
+		//	
+		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		    debug_say ("%d: set poll event\n", pthread->pid);
+		#endif
 	    #endif
-	#endif
 
-	// We're the first one in, we'll do the collect:
-	//
-	cleaning_pthread__local = pthread->pid;
+	    // We're the first one in, we'll do the collect:
+	    //
+	    cleaning_pthread__local = pthread->pid;
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("cleaning_pthread__local is %d\n",cleaning_pthread__local);
-	#endif
-    }
+	    barrier_needs_to_be_initialized__local =  TRUE;
 
-    while ((p = va_arg(ap, Val *)) != NULL) {
-        //
-	*extra_cleaner_roots__local++ = p;
-    }
-    *extra_cleaner_roots__local = p;			// NULL
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		debug_say ("cleaning_pthread__local is %d\n",cleaning_pthread__local);
+	    #endif
+	}
+
+	while ((p = va_arg(ap, Val *)) != NULL) {
+	    //
+	    *extra_cleaner_roots__local++ = p;
+	}
+	*extra_cleaner_roots__local = p;			// NULL
 
     pth__release_mutex( &pth__heapcleaner_mutex__global );
 
-    {
-	int n = 0;
 
-	// NB: Some other pthread can be concurrently
-        // acquiring new kernel threads:
+
+    //////////////////////////////////////////////////////////
+    // Whether or not we're the first pthread to enter
+    // heapcleaning mode, we now wait until all the
+    // other active pthreads have also entered
+    // heapcleaning mode.
+    //
+    // Note that we cannot use a barrier wait here because
+    // we do not know how many pthreads will wind up entering
+    // heapcleaner mode -- one or more pthreads might be starting
+    // up additional pthreads.
+    {
+        // Spin until all active pthreads have enetered this loop:
+        //
+	int n = 0;
         //
 	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {
 
@@ -398,6 +423,21 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 		#endif
 	    }
 	}
+
+	// As soon as all active pthreads have entered the above
+        // loop, they all fall out and arrive here.  The first to
+	// do so needs to initialize the barrier, so that everyone
+	// can wait at it:
+	//
+        pth__acquire_mutex( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
+	    //
+	    if (barrier_needs_to_be_initialized__local) {
+		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
+		//
+		pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );	// Set up barrier to wait on proper number of threads.
+	    }
+	    //
+	pth__release_mutex( &pth__heapcleaner_mutex__global );
     }
 
     // All Pthreads now ready to clean:
@@ -416,10 +456,6 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     #endif
 
     if (cleaning_pthread__local == pthread->pid) {
-	//
-// XXX BUGGO FIXME -- Can we be sure other threads have not already reached the barrier already?
-	//
-	pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );		// Set up barrier to wait on proper number of threads.
 	//
         return TRUE;			// We're the designated heapcleaner.
     }

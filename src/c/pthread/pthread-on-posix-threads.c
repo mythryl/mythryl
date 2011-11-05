@@ -131,7 +131,7 @@ void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.op
 }
 
 
-void   pth__barrier_wait   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+void   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     //
     pthread_barrier_wait( barrier );
 }
