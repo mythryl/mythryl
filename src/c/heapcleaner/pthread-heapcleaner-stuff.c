@@ -194,7 +194,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // remember that and signal the remaining pthreads
     // to join in.
     //
-    pth__acquire_mutex( pth__heapcleaner_mutex__global );
+    pth__acquire_mutex( &pth__heapcleaner_mutex__global );
     //
     if (pthreads_ready_to_clean__local++ == 0) {
         //
@@ -225,7 +225,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	    debug_say ("cleaning_pthread__local is %d\n", cleaning_pthread__local);
 	#endif
     }
-    pth__release_mutex( pth__heapcleaner_mutex__global );
+    pth__release_mutex( &pth__heapcleaner_mutex__global );
 
 
     //////////////////////////////////////////////////////////
@@ -336,7 +336,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
     Pthread* pthread =  task->pthread;
 
-    pth__acquire_mutex( pth__heapcleaner_mutex__global );
+    pth__acquire_mutex( &pth__heapcleaner_mutex__global );
 
     if (pthreads_ready_to_clean__local++ == 0) {
 	//
@@ -368,7 +368,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     }
     *extra_cleaner_roots__local = p;			// NULL
 
-    pth__release_mutex( pth__heapcleaner_mutex__global );
+    pth__release_mutex( &pth__heapcleaner_mutex__global );
 
     {
 	int n = 0;
@@ -444,7 +444,7 @@ void    pth__finish_heapcleaning
     //
     partition_agegroup0_buffer_between_pthreads( pthread_table__global );
 
-    pth__acquire_mutex( pth__heapcleaner_mutex__global );
+    pth__acquire_mutex( &pth__heapcleaner_mutex__global );
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d entering barrier %d\n", task->pthread->pid, active_pthreads_count );
@@ -458,7 +458,7 @@ void    pth__finish_heapcleaning
 	debug_say ("%d left barrier\n", task->pthread->pid);
     #endif
 
-    pth__release_mutex( pth__heapcleaner_mutex__global );
+    pth__release_mutex( &pth__heapcleaner_mutex__global );
 }
 
 

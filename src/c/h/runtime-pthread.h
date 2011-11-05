@@ -114,7 +114,7 @@ typedef enum {
 
 
     ////////////////////////////////////////////////////////////////////////////
-    //                   LOCKS
+    //                   MUTEX LOCKS
     //
     // We use our "locks" to perform mutual exclusion,
     // ensuring consistency of shared mutable datastructures
@@ -124,12 +124,12 @@ typedef enum {
     // which persists for as long as that datastructure.
     //
     extern Mutex pth__make_mutex		();				// Just what you think.
-    extern void  pth__free_mutex		(Mutex mutex);				// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
+    extern void  pth__free_mutex		(Mutex mutex);			// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
     //
-    extern void  pth__acquire_mutex	(Mutex mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth__acquire_mutex() for this mutex until we release.
-    extern void  pth__release_mutex	(Mutex mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth__acquire_mutex() on this mutex.
+    extern void  pth__acquire_mutex	(Mutex* mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth__acquire_mutex() for this mutex until we release.
+    extern void  pth__release_mutex	(Mutex* mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth__acquire_mutex() on this mutex.
     //
-    extern Bool  pth__maybe_acquire_mutex(Mutex mutex);				// This appears to be a non-blocking variant of pth__acquire_mutex, which always returns immediately with either TRUE (mutex acquired) or FALSE.
+    extern Bool  pth__maybe_acquire_mutex(Mutex* mutex);			// This appears to be a non-blocking variant of pth__acquire_mutex, which always returns immediately with either TRUE (mutex acquired) or FALSE.
     //
     // Some statically pre-allocated mutexs:
     //

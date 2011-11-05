@@ -106,8 +106,8 @@ void     pth__start_up   (void)   {
 
 }
 
-void     pth__acquire_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
-void     pth__release_mutex		(Mutex mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
+void     pth__acquire_mutex		(Mutex* mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__acquire_mutex() not implemented yet"); }
+void     pth__release_mutex		(Mutex* mutex)				{ if (!pth__done_acquire_pthread__global) return;   die("pth__release_mutex() not implemented yet"); }
 // pthread_mutex_lock(   &mutex1 );
 // pthread_mutex_unlock( &mutex1 );
 
