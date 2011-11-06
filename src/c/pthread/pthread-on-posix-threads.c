@@ -506,16 +506,16 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     Task* p;
     Pthread* pthread;
 
-    Val thread_arg  =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.
-    Val closure_arg =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->closure
-									// and also              pthread->task->link.
+    Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
+    Val closure_arg    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
+										// and also              pthread->task->link.
     int i;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say("[acquiring proc]\n");
     #endif
 
-    pth__mutex_lock(MP_ProcLock);
+    pth__mutex_lock( MP_ProcLock );
 
     // Search for a suspended kernel thread to reuse:
     //
@@ -570,10 +570,10 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
     p->argument		=  HEAP_VOID;
     p->fate		=  PTR_CAST( Val, return_c);
-    p->closure		=  closure_arg;
+    p->current_closure	=  closure_arg;
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
-    p->current_thread       =  thread_arg;
+    p->current_thread   =  current_thread;
   
     if (pthread->status == NO_PTHREAD_ALLOCATED) {
 	//

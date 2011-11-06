@@ -60,7 +60,7 @@ int   main   (void) {
     PRINT_TASK_FIELD_BYTE_OFFSET( "heap_changelog",					heap_changelog					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "argument", 						argument					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "fate", 						fate						);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "closure", 						closure						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "current_closure",					current_closure					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "link_register",					link_register					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "program_counter",					program_counter					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "exception_fate",					exception_fate					);

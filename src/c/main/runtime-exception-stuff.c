@@ -32,9 +32,9 @@ void   raise_mythryl_exception   (Task* task,  Val exn)   {
 
     // We should have a macro defined in task.h for this.  XXX BUGGO FIXME
 
-    task->argument =  exn;
-    task->closure  =  fate;
-    task->fate	   =  HEAP_VOID;
+    task->argument	   =  exn;
+    task->current_closure  =  fate;
+    task->fate	   	   =  HEAP_VOID;
 
     task->program_counter =
     task->link_register	  =  GET_CODE_ADDRESS_FROM_CLOSURE( fate );

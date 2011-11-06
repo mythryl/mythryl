@@ -663,8 +663,8 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     Task* p;
     Pthread* pthread;
-    Val v = GET_TUPLE_SLOT_AS_VAL(arg, 0);
-    Val f = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    Val v = GET_TUPLE_SLOT_AS_VAL(arg, 0);	// current_thread nowadays, mv_varReg originally.
+    Val f = GET_TUPLE_SLOT_AS_VAL(arg, 1);	// closure
     int i;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -731,7 +731,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
     p->argument		=  HEAP_VOID;
     p->fate		=  PTR_CAST( Val,  return_to_c_level_c );
-    p->closure		=  f;
+    p->current_closure	=  f;
     p->current_thread	=  v;
     //
     p->program_counter	= 

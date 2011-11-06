@@ -119,7 +119,7 @@ Val   make_resumption_fate   (				// Called once from this file, once from   src
     LIB7_AllocWrite(task,  1, PTR_CAST( Val, resume));
     LIB7_AllocWrite(task,  2, task->argument);
     LIB7_AllocWrite(task,  3, task->fate);
-    LIB7_AllocWrite(task,  4, task->closure);
+    LIB7_AllocWrite(task,  4, task->current_closure);
     LIB7_AllocWrite(task,  5, task->link_register);
     LIB7_AllocWrite(task,  6, task->program_counter);
     LIB7_AllocWrite(task,  7, task->exception_fate);
@@ -198,11 +198,11 @@ void   load_resume_state   (Task* task) {						// Called exactly once, from   sr
         debug_say ("load_resume_state:\n");
     #endif
 
-    contClosure = PTR_CAST(Val*, task->closure);
+    contClosure = PTR_CAST(Val*, task->current_closure);
 
     task->argument		= contClosure[1];
     task->fate			= contClosure[2];
-    task->closure		= contClosure[3];
+    task->current_closure	= contClosure[3];
     task->link_register		= contClosure[4];
     task->program_counter	= contClosure[5];
     task->exception_fate	= contClosure[6];

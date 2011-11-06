@@ -177,7 +177,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 	//
 	task->argument		= image.stdArg;
 	task->fate		= image.stdCont;
-	task->closure		= image.stdClos;
+	task->current_closure	= image.stdClos;
 	task->program_counter	= image.pc;
 	task->exception_fate	= image.exception_fate;
 	task->current_thread	= image.current_thread;
@@ -213,7 +213,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 	task->current_thread	= HEAP_VOID;
 	//
 	task->fate		= PTR_CAST( Val,  return_to_c_level_c );
-	task->closure		= function_to_run;
+	task->current_closure	= function_to_run;
 	//
 	task->program_counter	=
 	task->link_register	= GET_CODE_ADDRESS_FROM_CLOSURE( function_to_run );
@@ -569,9 +569,9 @@ static void   read_heap   (
 	=
 	repair_word( task->fate, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
 
-    task->closure
+    task->current_closure
 	=
-	repair_word( task->closure, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
+	repair_word( task->current_closure, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
 
     task->program_counter
 	=

@@ -138,11 +138,11 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     //
     pthread->task->argument			= HEAP_VOID;
     pthread->task->fate				= HEAP_VOID;
-    pthread->task->closure			= HEAP_VOID;
+    pthread->task->current_closure		= HEAP_VOID;
     pthread->task->link_register		= HEAP_VOID;
     pthread->task->program_counter		= HEAP_VOID;
     pthread->task->exception_fate		= HEAP_VOID;
-    pthread->task->current_thread			= HEAP_VOID;
+    pthread->task->current_thread		= HEAP_VOID;
     pthread->task->callee_saved_registers[0]	= HEAP_VOID;
     pthread->task->callee_saved_registers[1]	= HEAP_VOID;
     pthread->task->callee_saved_registers[2]	= HEAP_VOID;

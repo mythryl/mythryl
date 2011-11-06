@@ -25,14 +25,14 @@
 //
 #define SET_UP_RETURN( _task )	{							\
 	    Task* __task    = (_task);							\
-	    __task->closure	  = HEAP_VOID;						\
+	    __task->current_closure = HEAP_VOID;					\
 	    __task->program_counter = __task->fate;					\
 	}
 
 #define SET_UP_THROW( _task, _fate, _val )	{					\
 	    Task* __task	 = (_task);						\
 	    Val	__fate	         = (_fate);						\
-	    __task->closure	 = __fate;						\
+	    __task->current_closure  = __fate;						\
 	    __task->fate         = HEAP_VOID;						\
 	    __task->program_counter=							\
 	    __task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE( __fate );		\
@@ -59,7 +59,7 @@ Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool us
 
     if (!use_fate)     task->fate = PTR_CAST( Val,  return_to_c_level_c );		// See   ASM_CONT(return_to_c_level);   in   src/c/main/construct-runtime-package.c
 
-    task->closure	   = function;
+    task->current_closure   = function;
 
     task->program_counter  =
     task->link_register	   = GET_CODE_ADDRESS_FROM_CLOSURE( function );
@@ -203,10 +203,10 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 		task->argument	     =  make_mythryl_signal_handler_arg( task, resume_after_handling_signal );
 		task->fate	     =  PTR_CAST( Val,  return_from_signal_handler_c );
 		task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
-		task->closure	     =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
+		task->current_closure =  DEREF( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter =
-		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->closure );
+		task->link_register   = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
 		pthread->mythryl_handler_for_posix_signal_is_running	    = TRUE;
 		//
@@ -239,16 +239,16 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 													//     in   src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
 		    call_heapcleaner (task, 0);
                 }
-		task->argument	     =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
-		task->fate	     =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
-		task->exception_fate =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
-		task->closure	     =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
+		task->argument	      =  make_resumption_fate(task, resume_after_handling_software_generated_periodic_event);	// make_resumption_fate is from  src/c/machine-dependent/signal-stuff.c
+		task->fate	      =  PTR_CAST( Val, return_from_software_generated_periodic_event_handler_c);
+		task->exception_fate  =  PTR_CAST( Val, handle_uncaught_exception_closure_v + 1 );
+		task->current_closure =  DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL );
 		//
 		task->program_counter=
-		task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE(task->closure);
+		task->link_register  = GET_CODE_ADDRESS_FROM_CLOSURE( task->current_closure );
 		//
-		task->in_software_generated_periodic_event_handler= TRUE;
-		task->software_generated_periodic_event_is_pending	= FALSE;
+		task->in_software_generated_periodic_event_handler =  TRUE;
+		task->software_generated_periodic_event_is_pending =  FALSE;
 #endif // NEED_PTHREAD_SUPPORT
 	    } 
 #endif // NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS

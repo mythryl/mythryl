@@ -360,7 +360,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
     CHECK_ROOT( &task->argument				);
     CHECK_ROOT( &task->fate				);
-    CHECK_ROOT( &task->closure				);
+    CHECK_ROOT( &task->current_closure			);
     CHECK_ROOT( &task->link_register			);
     CHECK_ROOT( &task->program_counter			);
     CHECK_ROOT( &task->exception_fate			);

@@ -298,9 +298,9 @@ set_request:
 	st	STDLINK,[TMPREG2+link_register_byte_offset_in_task_struct]
 	st	PROGRAM_COUNTER,[TMPREG2+program_counter_byte_offset_in_task_struct]	// Program counter of called function.
 	st	STDARG,[TMPREG2+argument_byte_offset_in_task_struct]			// Save stdarg.
-	st	STDCLOS,[TMPREG2+closure_byte_offset_in_task_struct]			// Save closure.
+	st	STDCLOS,[TMPREG2+current_closure_byte_offset_in_task_struct]		// Save current closure.
 	st	STDFATE,[TMPREG2+fate_byte_offset_in_task_struct]			// Save stdfate.
-	st	CURRENT_THREAD_PTR,[TMPREG2+current_thread_byte_offset_in_task_struct]		// Save 'current thread' pointer.
+	st	CURRENT_THREAD_PTR,[TMPREG2+current_thread_byte_offset_in_task_struct]	// Save 'current thread' pointer.
 	st	EXNFATE,[TMPREG2+exception_fate_byte_offset_in_task_struct]		// Save exnfate.
         st      MISCREG0,[TMPREG2+callee_saved_register_0_byte_offset_in_task_struct]
         st      MISCREG1,[TMPREG2+callee_saved_register_1_byte_offset_in_task_struct]
@@ -337,8 +337,8 @@ ENTRY(asm_run_mythryl_task)
 	ld	[ Task +         program_counter_byte_offset_in_task_struct ], PROGRAM_COUNTER
 	ld	[ Task +                argument_byte_offset_in_task_struct ], STDARG  
 	ld	[ Task +                    fate_byte_offset_in_task_struct ], STDFATE
-	ld	[ Task +                 closure_byte_offset_in_task_struct ], STDCLOS     
-	ld 	[ Task +                  current_thread_byte_offset_in_task_struct ], CURRENT_THREAD_PTR
+	ld	[ Task +         current_closure_byte_offset_in_task_struct ], STDCLOS     
+	ld 	[ Task +          current_thread_byte_offset_in_task_struct ], CURRENT_THREAD_PTR
 	ld	[ Task +           link_register_byte_offset_in_task_struct ], STDLINK
 	ld	[ Task +          exception_fate_byte_offset_in_task_struct ], EXNFATE					// Restore exception_handler_register.
 	ld	[ Task + callee_saved_register_0_byte_offset_in_task_struct ], MISCREG0

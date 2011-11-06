@@ -33,7 +33,7 @@ struct task {
     //
     Val		argument;						// Argument to current function/closure. Since we treat calling and returning as the same thing, this will also hold the result of the call.
     Val		fate;							// "Return address".
-    Val		closure;						// Currently executing closure ("function").
+    Val		current_closure;					// Currently executing closure ("function").
     //
     Val		link_register;						// A valid program counter value -- initially at least entrypoint in 'closure'.
     Val		program_counter;					// Address of Mythryl code to execute; when
@@ -41,7 +41,8 @@ struct task {
 									// holds the same value as the link_register.
 
     Val		exception_fate;						// Exception handler (?)
-    Val		current_thread;
+    Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Thread.  Type
+									// Thread	def in   src/lib/src/lib/thread-kit/src/core-thread-kit/internal-threadkit-types.pkg
     Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
 
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.

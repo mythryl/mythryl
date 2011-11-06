@@ -221,9 +221,9 @@ static void   set_up_task  (
     // Inherit exception_fate (?)		XXX BUGGO FIXME
     // leave task->exception_fate as is:
     //
-    task->current_thread =  HEAP_VOID;
-    task->argument =  arg;
-    task->closure  =  f;
+    task->current_thread  =  HEAP_VOID;
+    task->argument	  =  arg;
+    task->current_closure =  f;
     //
     task->program_counter =
     task->link_register	  = GET_CODE_ADDRESS_FROM_CLOSURE( f );

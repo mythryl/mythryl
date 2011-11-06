@@ -137,7 +137,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ =  &task->link_register;
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->closure;
+	*roots_ptr++ =  &task->current_closure;
 	*roots_ptr++ =  &task->exception_fate;
 	*roots_ptr++ =  &task->current_thread;
 	*roots_ptr++ =  &task->callee_saved_registers[0];
@@ -163,7 +163,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 		    //
 		    *roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do is in the level > 0 case below?
 		    *roots_ptr++ =  &task->fate;
-		    *roots_ptr++ =  &task->closure;
+		    *roots_ptr++ =  &task->current_closure;
 		    *roots_ptr++ =  &task->exception_fate;
 		    *roots_ptr++ =  &task->current_thread;
 		    *roots_ptr++ =  &task->callee_saved_registers[0];
@@ -351,7 +351,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	//
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->closure;
+	*roots_ptr++ =  &task->current_closure;
 	*roots_ptr++ =  &task->exception_fate;
 	*roots_ptr++ =  &task->current_thread;
 	*roots_ptr++ =  &task->callee_saved_registers[0];
@@ -376,7 +376,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		    //
 		    *roots_ptr++ =  &task->argument;
 		    *roots_ptr++ =  &task->fate;
-		    *roots_ptr++ =  &task->closure;
+		    *roots_ptr++ =  &task->current_closure;
 		    *roots_ptr++ =  &task->exception_fate;
 		    *roots_ptr++ =  &task->current_thread;
 		    *roots_ptr++ =  &task->callee_saved_registers[ 0 ];
