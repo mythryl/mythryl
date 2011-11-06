@@ -56,9 +56,9 @@ static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never 
     //
     #if NEED_PTHREAD_SUPPORT
 	//
-	return pth__acquire_pthread( task, arg );				// pth__acquire_pthread	def in    src/c/pthread/pthread-on-posix-threads.c
-        //									// pth__acquire_pthread	def in    src/c/pthread/pthread-on-sgi.c
-    #else									// pth__acquire_pthread	def in    src/c/pthread/pthread-on-solaris.c
+	return pth__pthread_create( task, arg );				// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
+        //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
+    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
 	die ("acquire_pthread: no mp support\n");
         return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
     #endif
@@ -70,7 +70,7 @@ static Val release_pthread   (Task* task,  Val arg)   {
     //     ===============
     //
     #if NEED_PTHREAD_SUPPORT
-	pth__release_pthread(task);  	// Should not return.
+	pth__pthread_exit(task);  	// Should not return.
 	die ("_lib7_MP_release_pthread: call unexpectedly returned\n");
     #else
 	die ("_lib7_MP_release_pthread: no mp support\n");

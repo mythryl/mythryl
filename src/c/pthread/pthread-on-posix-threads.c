@@ -46,13 +46,15 @@
 
 
 
-int   pth__done_acquire_pthread__global = FALSE;
+int   pth__done_pthread_create__global = FALSE;
     //
     // This boolean flag starts out FALSE and is set TRUE
-    // the first time   pth__acquire_pthread   is called.
+    // the first time   pth__pthread_create   is called.
     //
-    // We can use simple mutex-free monothread logic in
-    // the heapcleaner (etc) so long as this is FALSE.
+    // We can use simple mutex-free monothread-style logic
+    // in the heapcleaner (etc) so long as this is FALSE,
+    // per the Fairness Principle (processes that do not
+    // use something should not have to pay for it).
 
 
 // Some statatically allocated locks.
@@ -79,8 +81,18 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
-void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
+Val      pth__pthread_create		(Task* task, Val arg)			{ die("pth__pthread_create() not implemented yet"); return (Val)NULL;}
+    //   ====================
+    //
+    // Called (only) by   acquire_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+
+void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not implemented yet"); }
+    //   ====================
+    //
+    // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_create.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 
 
 // pthread_barrier_init(&barr, NULL, THREADS)	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
@@ -92,7 +104,8 @@ void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not
 //   }
 
 
-void     pth__start_up   (void)   {
+void   pth__start_up   (void)   {
+    // =============
     //
     // Start-of-the-world initialization stuff.
     // We get called very early by   do_start_of_world_stuff   in   src/c/main/runtime-main.c
@@ -108,6 +121,7 @@ void     pth__start_up   (void)   {
 }
 
 void   pth__shut_down (void) {
+    // ==============
     //
     // Our present implementation need do nothing at end-of-world shutdown.
     //
@@ -116,6 +130,7 @@ void   pth__shut_down (void) {
 }
 
 void     pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    //   ===============
     //
     if (pthread_mutex_init( mutex, NULL )) {
 	//
@@ -124,6 +139,7 @@ void     pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
 }
 
 void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    //   ==================
     //
     if (pthread_mutex_destroy( mutex )) {
 	//
@@ -132,8 +148,9 @@ void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
 }
 
 void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    // ===============
     //
-    if (!pth__done_acquire_pthread__global)   return;
+    if (!pth__done_pthread_create__global)   return;
     //
     if (pthread_mutex_lock( mutex )) {
 	//
@@ -156,9 +173,10 @@ Bool   pth__mutex_trylock   (Mutex* mutex)   {					// http://pubs.opengroup.org/
     }
 }
 
-void   pth__mutex_unlock (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+void   pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    // =================
     //
-    if (!pth__done_acquire_pthread__global) return;
+    if (!pth__done_pthread_create__global) return;
     //
     if (pthread_mutex_unlock( mutex )) {
 	//
@@ -168,6 +186,7 @@ void   pth__mutex_unlock (Mutex* mutex) {					// http://pubs.opengroup.org/onlin
 
 
 void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    // =================
     //
     if (pthread_barrier_init( barrier, NULL, (unsigned) threads)) {
 	//
@@ -176,6 +195,7 @@ void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.op
 }
 
 void   pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    // ====================
     //
     if (pthread_barrier_destroy( barrier )) {
 	//
@@ -185,6 +205,7 @@ void   pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.o
 
 
 Bool   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+    // =================
     //
     int err =  pthread_barrier_wait( barrier );
     //
@@ -197,9 +218,6 @@ Bool   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org
 	    die("pth__barrier_wait: Fatal error while blocked at barrier.");
     }
 }
-
-// pthread_mutex_lock(   &mutex1 );
-// pthread_mutex_unlock( &mutex1 );
 
 
 
@@ -478,10 +496,10 @@ static int   make_pthread   (Task* state)   {
 
 
 
-Val   pth__acquire_pthread   (Task* task, Val arg)   {
+Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_acquire_pthread__global = TRUE;
+    pth__done_pthread_create__global = TRUE;
 
     Task* p;
     Pthread* pthread;
@@ -592,11 +610,11 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	return HEAP_TRUE;
     }
-}						// fun pth__acquire_pthread
+}						// fun pth__pthread_create
 
 
 
-void   pth__release_pthread   (Task* task)   {
+void   pth__pthread_exit   (Task* task)   {
     // ====================
     //
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG

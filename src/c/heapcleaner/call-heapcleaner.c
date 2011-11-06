@@ -72,7 +72,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
 #if NEED_PTHREAD_SUPPORT
-    if (pth__done_acquire_pthread__global) {
+    if (pth__done_pthread_create__global) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a designated pthread to do the heapcleaning work.

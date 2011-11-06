@@ -48,7 +48,7 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_acquire_pthread__global = FALSE;
+int   pth__done_pthread_create__global = FALSE;
 
 static Mutex      AllocLock ();        
 static Barrier*  AllocBarrier();
@@ -317,10 +317,10 @@ static int   make_pthread   (Task* state)   {
 
 
 
-Val   pth__acquire_pthread   (Task* task, Val arg)   {
+Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_acquire_pthread__global = TRUE;
+    pth__done_pthread_create__global = TRUE;
 
     Task* p;
     Pthread* pthread;
@@ -431,11 +431,11 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	return HEAP_TRUE;
     }
-}						// fun pth__acquire_pthread
+}						// fun pth__pthread_create
 
 
 
-void   pth__release_pthread   (Task* task)   {
+void   pth__pthread_exit   (Task* task)   {
     // ==================
     //
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG

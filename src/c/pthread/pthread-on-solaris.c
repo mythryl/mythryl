@@ -42,7 +42,7 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_acquire_pthread__global = FALSE;
+int   pth__done_pthread_create__global = FALSE;
 
  static Mutex 	 allocate_mutex	();
  static Barrier* allocate_barrier	();
@@ -509,9 +509,9 @@ static void*   resume_pthread   (void* vtask)   {
 
 	pth__mutex_unlock( mp_pthread_mutex__local );
 
-	// The clean will be performed when we call pth__release_pthread
+	// The clean will be performed when we call pth__pthread_exit
 
-	pth__release_pthread( task );
+	pth__pthread_exit( task );
 
     } else {
 
@@ -605,7 +605,7 @@ static void   suspend_pthread   (Task* task) {
     thr_exit(NULL);				// Exit the thread.
 }						// fun suspend_pthread.
 //
-void   pth__release_pthread   (Task* task)   {
+void   pth__pthread_exit   (Task* task)   {
     // ===================
     //
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
@@ -656,10 +656,10 @@ static void*   pthread_main   (void* vtask)   {
 
 
 //
-Val   pth__acquire_pthread   (Task* task, Val arg)   {
+Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_acquire_pthread__global = TRUE;
+    pth__done_pthread_create__global = TRUE;
 
     Task* p;
     Pthread* pthread;
@@ -780,7 +780,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 	return  HEAP_TRUE;
     }
-}							// fun pth__acquire_pthread
+}							// fun pth__pthread_create
 
 //
 void   pth__shut_down		(void)   {	munmap(arena__local,sysconf(_SC_PAGESIZE));	}

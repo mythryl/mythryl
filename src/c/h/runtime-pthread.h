@@ -72,12 +72,12 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      pth__acquire_pthread		(Task* task,  Val arg);		// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
+    extern Val      pth__pthread_create		(Task* task,  Val arg);		// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
     //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
     //											// There is apparently currently no .pkg file referencing this value.
     //
-    extern void     pth__release_pthread		(Task* task);				// Reverse of above, more or less.
+    extern void     pth__pthread_exit		(Task* task);				// Reverse of above, more or less.
     //											// On Solaris this appears to actually stop and kill the thread.
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
