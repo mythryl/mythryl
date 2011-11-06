@@ -77,8 +77,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-Mutex    pth__make_mutex		()					{ die("pth__make_mutex() not implemented yet");  }
-void     pth__free_mutex		(Mutex mutex)				{ die("pth__free_mutex() not implemented yet"); }
 void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
 int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); return 0; }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
 Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
@@ -118,18 +116,40 @@ void   pth__shut_down (void) {
     // and also             die()  and  assert_fail()          in   src/c/main/error.c
 }
 
+void     pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    //
+    if (pthread_mutex_init( mutex, NULL )) {
+	//
+	die("pth__mutex_init: Unable to initialize mutex.");
+    }
+}
+
+void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    //
+    if (pthread_mutex_destroy( mutex )) {
+	//
+	die("pth__mutex_init: Unable to destroy mutex.");
+    }
+}
+
 void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //
     if (!pth__done_acquire_pthread__global)   return;
     //
-    pthread_mutex_lock( mutex );
+    if (pthread_mutex_lock( mutex )) {
+	//
+	die("pth__mutex_lock: Unable to acquire lock.");
+    }
 }
 
 void   pth__mutex_unlock (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //
     if (!pth__done_acquire_pthread__global) return;
     //
-    pthread_mutex_unlock( mutex );
+    if (pthread_mutex_unlock( mutex )) {
+	//
+	die("pth__mutex_unlock: Unable to release lock.");
+    }
 }
 
 

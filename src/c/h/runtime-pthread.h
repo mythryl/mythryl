@@ -115,13 +115,13 @@ typedef enum {
     // one such lock for each major shared mutable datastructure,
     // which persists for as long as that datastructure.
     //
-    extern Mutex pth__make_mutex		();				// Just what you think.
-    extern void  pth__free_mutex		(Mutex mutex);			// This call was probably only needed for SGI's daft hardware mutexs, and can be eliminated now. XXX BUGGO FIXME
+    extern void  pth__mutex_init	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    extern void  pth__mutex_destroy	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //
-    extern void  pth__mutex_lock	(Mutex* mutex);				// Used to enter a critical section, preventing any other pthread from proceeding past pth__mutex_lock() for this mutex until we release.
-    extern void  pth__mutex_unlock	(Mutex* mutex);				// Reverse of preceding operation; exits critical section and allows (one) other pthread to proceed past pth__mutex_lock() on this mutex.
+    extern void  pth__mutex_lock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    extern void  pth__mutex_unlock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //
-    extern Bool  pth__mutex_maybe_lock(Mutex* mutex);			// This appears to be a non-blocking variant of pth__mutex_lock, which always returns immediately with either TRUE (mutex acquired) or FALSE.
+    extern Bool  pth__mutex_maybe_lock(Mutex* mutex);				// This appears to be a non-blocking variant of pth__mutex_lock, which always returns immediately with either TRUE (mutex acquired) or FALSE.
     //
     // Some statically pre-allocated mutexs:
     //
