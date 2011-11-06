@@ -78,7 +78,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
 Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
 int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
@@ -128,7 +127,7 @@ void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
     //
     if (pthread_mutex_destroy( mutex )) {
 	//
-	die("pth__mutex_init: Unable to destroy mutex.");
+	die("pth__mutex_init: Unable to destroy mutex.");			// All the die() calls in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
     }
 }
 
@@ -170,13 +169,33 @@ void   pth__mutex_unlock (Mutex* mutex) {					// http://pubs.opengroup.org/onlin
 
 void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     //
-    pthread_barrier_init( barrier, NULL, (unsigned) threads);
+    if (pthread_barrier_init( barrier, NULL, (unsigned) threads)) {
+	//
+	die("pth__barrier_init: Unable to initialize barrier.");
+    }
+}
+
+void   pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    //
+    if (pthread_barrier_destroy( barrier )) {
+	//
+	die("pth__barrier_init: Unable to initialize barrier.");
+    }
 }
 
 
-void   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+Bool   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     //
-    pthread_barrier_wait( barrier );
+    int err =  pthread_barrier_wait( barrier );
+    //
+    switch (err) {
+	//
+	case PTHREAD_BARRIER_SERIAL_THREAD:	return 1;			// Exactly one pthread gets this return value when released from barrier.
+	case 0:					return 0;			// All other threads at barrier get this.
+	//
+	default:
+	    die("pth__barrier_wait: Fatal error while blocked at barrier.");
+    }
 }
 
 // pthread_mutex_lock(   &mutex1 );

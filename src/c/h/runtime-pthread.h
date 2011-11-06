@@ -150,19 +150,52 @@ typedef enum {
     // processing, and that no pthread resumes normal processing
     // until the garbage collection is complete.
     //
-    // The literature distinguishes barriers where waiting is
-    // done by blocking from those where waiting is done by spinning;
-    // it isn't clear which was intended by the original authors.
+    // The basic use protocol is:
     //
-    // NB: This facility seems to be implemented directly in hardware in    src/c/pthread/pthread-on-sgi.c
-    // but implemented on top of mutexs in                                  src/c/pthread/pthread-on-solaris.c
+    //  o Call pth__barrier_init() before doing anything else.
     //
-    extern void     pth__barrier_init 	(Barrier* barrier, int threads);	// Set up barrier for n-thread wait.
-    extern void     pth__free_barrier	(Barrier* barrierp);			// Free a barrier.
+    //  o Call pth__barrier_wait() to synchronize multiple pthreads.
     //
-    extern void     pth__barrier_wait (Barrier* barrierp);			// Should be called 'barrier_wait' or such.  Block pthread until 'n' pthreads are waiting at the barrier, then release them all.
-    //										// It is presumed that all threads waiting on a barrier use the same value of 'n'; otherwise behavior is probably undefined. (Poor design IMHO.)
+    //  o Call pth__barrier_detroy() before calling pth__barrier_init() again.
     //
+    //  o Never call  pth__barrier_init() or pth__barrier_detroy()
+    //    while pthreads are blocked on the barrier.
+    //
+    extern void     pth__barrier_init 	(Barrier* barrier, int threads);
+	//
+	// Tell the barrier how many threads must be
+	// present at it before they can pass. Caveats:
+	//
+	//  o Behavior is undefined if pth__barrier_init()
+	//   is called on an already-initialized barrier.
+	//   (Call pth__barrier_destroy first.)
+	//
+	//  o Behavior is undefined if pth__barrier_init()
+	//    is called when a pthread is blocked on the barrier.
+	//    (That is, if some pthread has not returned from
+	//    pth__barrier_wait)
+
+    extern void     pth__barrier_destroy(Barrier* barrierp);
+        //
+	//  o Behavior is undefined if pth__barrier_destroy()
+	//    is called when a pthread is blocked on the barrier.
+
+    extern Bool     pth__barrier_wait (Barrier* barrierp);
+	//
+	// Block currently executing pthread until the proper
+	// number of pthreads are waiting at the barrier.
+	// This number is specified via pth__barrier_init().
+	//
+	// When released, one pthread at barrier gets a TRUE
+	// back pth__barrier_wait(), the otehrs  get a FALSE.
+	//
+	//  o Behavior is undefined if calling pth__barrier_wait
+	//    wait on an uninitialized barrier.
+	//    A barrier is "uninitialized" if
+	//      * pth__barrier_init() has never been called on it, or if
+	//      * pth__barrier_init() has not been called on it since the last
+	//        pth__barrier_destroy() call on it.
+
 
 
 
