@@ -784,7 +784,7 @@ Val   pth__acquire_pthread   (Task* task, Val arg)   {
 
 //
 void   pth__shut_down		(void)   {	munmap(arena__local,sysconf(_SC_PAGESIZE));	}
-int    pth__max_pthreads-	(void)   {	return MAX_PTHREADS;				}
+int    pth__max_pthreads	(void)   {	return MAX_PTHREADS;				}
 Pid    pth__get_pthread_id	(void)   {	return (thr_self());				}
     //
 

@@ -89,8 +89,6 @@ typedef enum {
     //											// This just calls getpid()  in                         src/c/pthread/pthread-on-sgi.c
     //											// This returns thr_self() (I don't wanna know) in      src/c/pthread/pthread-on-solaris.c
     //
-    extern int      pth__max_pthreads		();					// Just exports to the Mythryl level the MAX_PTHREADS value from   src/c/h/runtime-configuration.h
-    //
     extern int      pth__get_active_pthread_count();					// Just returns (as a C int) the value of   ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, which is defined in   src/c/h/runtime-globals.h
 											// Used only to set barrier for right number of pthreads in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 

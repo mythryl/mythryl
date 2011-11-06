@@ -82,12 +82,7 @@ static Val release_pthread   (Task* task,  Val arg)   {
 static Val   max_pthreads   (Task* task,  Val arg)   {				// Apparently nowhere invoked.
     //       ============
     //
-    #if NEED_PTHREAD_SUPPORT
-	return TAGGED_INT_FROM_C_INT(pth__max_pthreads ());
-    #else
-	die ("_lib7_MP_max_pthreads: no mp support\n");
-        return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.
-    #endif
+    return TAGGED_INT_FROM_C_INT( MAX_PTHREADS );
 }
 
 

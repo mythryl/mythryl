@@ -79,7 +79,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // -- to compile:
 //
 void     pth__free_barrier		(Barrier* barrierp)			{ die("pth__free_barrier() not implemented yet"); }
-int      pth__max_pthreads		()					{ die("pth__max_pthreads() not implemented yet"); return 0; }	// Why not just use MAX_PTHEADS?  Myabe: Because MAX_PTHREADS should not exist -- should be dynamically expandable?
 Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
 int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
@@ -381,14 +380,6 @@ static void   fix_pnum   (int n)   {
     // Dummy for now.
 }
  
-
-
-int   pth__max_pthreads   ()   {						// This fn gets exported to the Mythryl level; not used at the C level.
-    //=================
-    //
-    return MAX_PTHREADS;
-}
-
 
 
 static void   pthread_main   (void* vtask)   {
