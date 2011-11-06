@@ -494,17 +494,19 @@ static int   make_pthread   (Task* state)   {
     return result;
 }
 
-
-
+									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
+									// struct task				def in   src/c/h/task.h
 Val   pth__pthread_create   (Task* task, Val arg)   {
-    //====================
+    //===================
+    //
+    // This fn is called (only) by   acquire_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
     pth__done_pthread_create__global = TRUE;
 
     Task* p;
     Pthread* pthread;
 
-    Val thread_arg  =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->thread.
+    Val thread_arg  =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.
     Val closure_arg =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->closure
 									// and also              pthread->task->link.
     int i;
@@ -571,7 +573,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->closure		=  closure_arg;
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
-    p->thread	        =  thread_arg;
+    p->current_thread       =  thread_arg;
   
     if (pthread->status == NO_PTHREAD_ALLOCATED) {
 	//

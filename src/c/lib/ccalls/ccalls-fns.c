@@ -221,7 +221,7 @@ static void   set_up_task  (
     // Inherit exception_fate (?)		XXX BUGGO FIXME
     // leave task->exception_fate as is:
     //
-    task->thread   =  HEAP_VOID;
+    task->current_thread =  HEAP_VOID;
     task->argument =  arg;
     task->closure  =  f;
     //

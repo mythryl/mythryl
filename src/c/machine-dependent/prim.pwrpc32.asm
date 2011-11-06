@@ -396,7 +396,7 @@ set_request:
 	stw	stdarg,argument_byte_offset_in_task_struct(atmp3)
 	stw	stdfate,fate_byte_offset_in_task_struct(atmp3)
 	stw	stdclos,closure_byte_offset_in_task_struct(atmp3)
-	stw	current_thread_ptr,thread_byte_offset_in_task_struct(atmp3)
+	stw	current_thread_ptr,current_thread_byte_offset_in_task_struct(atmp3)
 	stw	exnfate,exception_fate_byte_offset_in_task_struct(atmp3)
 	stw	miscreg0,callee_saved_register_0_byte_offset_in_task_struct(atmp3)
 	stw	miscreg1,callee_saved_register_1_byte_offset_in_task_struct(atmp3)
@@ -503,7 +503,7 @@ CENTRY(asm_run_mythryl_task)
 	lwz	miscreg1,callee_saved_register_1_byte_offset_in_task_struct(atmp1)
 	lwz	miscreg2,callee_saved_register_2_byte_offset_in_task_struct(atmp1)
 	lwz	stdlink,link_register_byte_offset_in_task_struct(atmp1)
-	lwz	current_thread_ptr,thread_byte_offset_in_task_struct(atmp1)
+	lwz	current_thread_ptr,current_thread_byte_offset_in_task_struct(atmp1)
 	lwz	atmp3,program_counter_byte_offset_in_task_struct(atmp1)
 	mtlr	atmp3
 

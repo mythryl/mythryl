@@ -41,7 +41,7 @@ struct task {
 									// holds the same value as the link_register.
 
     Val		exception_fate;						// Exception handler (?)
-    Val		thread;
+    Val		current_thread;
     Val		callee_saved_registers[ CALLEE_SAVED_REGISTERS_COUNT ];
 
     Val		heap_changelog;						// The cons-list of updates to the heap. These are allocated on the heap at each update, used by heapcleaner to detect (new) intergenerational pointers.

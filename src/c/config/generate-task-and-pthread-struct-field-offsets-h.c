@@ -64,7 +64,7 @@ int   main   (void) {
     PRINT_TASK_FIELD_BYTE_OFFSET( "link_register",					link_register					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "program_counter",					program_counter					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "exception_fate",					exception_fate					);
-    PRINT_TASK_FIELD_BYTE_OFFSET( "thread",						thread						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "current_thread",					current_thread					);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_0", 				callee_saved_registers[0]			);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_1", 				callee_saved_registers[1]			);
     PRINT_TASK_FIELD_BYTE_OFFSET( "callee_saved_register_2",				callee_saved_registers[2]			);

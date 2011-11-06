@@ -356,7 +356,7 @@ ENTRY(set_request)
 	MOVE (stdlink,			temp2, REGOFF(         link_register_byte_offset_in_task_struct, temp ))
 	MOVE (program_counter,		temp2, REGOFF(       program_counter_byte_offset_in_task_struct, temp ))
 	MOVE (heap_changelog_ptr,	temp2, REGOFF(        heap_changelog_byte_offset_in_task_struct, temp ))
-	MOVE (current_thread_ptr,	temp2, REGOFF(                thread_byte_offset_in_task_struct, temp ))
+	MOVE (current_thread_ptr,	temp2, REGOFF(                current_thread_byte_offset_in_task_struct, temp ))
 #undef	temp2	
 	
 	// Return val of function is request code:
@@ -402,7 +402,7 @@ ENTRY(asm_run_mythryl_task)
 	MOVE(REGOFF(           exception_fate_byte_offset_in_task_struct, temp),  temp2, exnfate)
 	MOVE(REGOFF(    heap_allocation_limit_byte_offset_in_task_struct, temp),  temp2, heap_allocation_limit)
 	MOVE(REGOFF(           heap_changelog_byte_offset_in_task_struct, temp),  temp2, heap_changelog_ptr)
-	MOVE(REGOFF(                   thread_byte_offset_in_task_struct, temp),  temp2, current_thread_ptr)
+	MOVE(REGOFF(                   current_thread_byte_offset_in_task_struct, temp),  temp2, current_thread_ptr)
 	LEA_L(CSYM(call_heapcleaner_asm), temp2)
 	MOV_L(temp2, run_heapcleaner_ptr)
 	MOV_L(temp, task_ptr)

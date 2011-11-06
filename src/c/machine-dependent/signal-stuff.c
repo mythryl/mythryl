@@ -123,7 +123,7 @@ Val   make_resumption_fate   (				// Called once from this file, once from   src
     LIB7_AllocWrite(task,  5, task->link_register);
     LIB7_AllocWrite(task,  6, task->program_counter);
     LIB7_AllocWrite(task,  7, task->exception_fate);
-    LIB7_AllocWrite(task,  8, task->callee_saved_registers[0]);				// John Reppy says not to do: LIB7_AllocWrite(task,  8, task->thread);
+    LIB7_AllocWrite(task,  8, task->callee_saved_registers[0]);				// John Reppy says not to do: LIB7_AllocWrite(task,  8, task->current_thread);
     LIB7_AllocWrite(task,  9, task->callee_saved_registers[1]);
     LIB7_AllocWrite(task, 10, task->callee_saved_registers[2]);
     //
@@ -209,7 +209,7 @@ void   load_resume_state   (Task* task) {						// Called exactly once, from   sr
 
     // John (Reppy) says current_thread
     // should not be included here...
-    //    task->thread	= contClosure[7];
+    //    task->current_thread	= contClosure[7];
 
     task->callee_saved_registers[0]	= contClosure[7];
     task->callee_saved_registers[1]	= contClosure[8];

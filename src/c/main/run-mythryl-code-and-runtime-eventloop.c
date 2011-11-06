@@ -54,7 +54,7 @@ Val   run_mythryl_function   (Task* task,  Val function,  Val argument,  Bool us
     // Initialize the calling context:
     //
     task->exception_fate =  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
-    task->thread         =  HEAP_VOID;
+    task->current_thread     =  HEAP_VOID;
     task->argument	 =  argument;
 
     if (!use_fate)     task->fate = PTR_CAST( Val,  return_to_c_level_c );		// See   ASM_CONT(return_to_c_level);   in   src/c/main/construct-runtime-package.c

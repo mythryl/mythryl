@@ -732,7 +732,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->argument		=  HEAP_VOID;
     p->fate		=  PTR_CAST( Val,  return_to_c_level_c );
     p->closure		=  f;
-    p->thread		=  v;
+    p->current_thread	=  v;
     //
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( f );

@@ -364,7 +364,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
     CHECK_ROOT( &task->link_register			);
     CHECK_ROOT( &task->program_counter			);
     CHECK_ROOT( &task->exception_fate			);
-    CHECK_ROOT( &task->thread				);
+    CHECK_ROOT( &task->current_thread				);
     CHECK_ROOT( &task->callee_saved_registers[0]		);
     CHECK_ROOT( &task->callee_saved_registers[1]		);
     CHECK_ROOT( &task->callee_saved_registers[2]		);

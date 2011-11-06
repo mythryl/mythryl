@@ -111,7 +111,7 @@ Status   export_fn_image   (
     task->closure			= HEAP_VOID;
     task->link_register			= HEAP_VOID;
     task->exception_fate		= HEAP_VOID;
-    task->thread			= HEAP_VOID;	// ???
+    task->current_thread			= HEAP_VOID;	// ???
     task->callee_saved_registers[0]	= HEAP_VOID;
     task->callee_saved_registers[1]	= HEAP_VOID;
     task->callee_saved_registers[2]	= HEAP_VOID;
@@ -199,7 +199,7 @@ static Status   write_heap_image_to_file   (
 	image.pc				=   write_register(export_table,  task->program_counter						);
 	//
 	image.exception_fate			=   write_register(export_table,  task->exception_fate						);
-	image.current_thread			=   write_register(export_table,  task->thread							);
+	image.current_thread			=   write_register(export_table,  task->current_thread						);
 	//
 	image.calleeSave[0]			=   write_register(export_table,  task->callee_saved_registers[0] 				);
 	image.calleeSave[1]			=   write_register(export_table,  task->callee_saved_registers[1] 				);

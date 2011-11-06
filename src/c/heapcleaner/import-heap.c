@@ -175,12 +175,13 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
         //
 	ASSIGN( POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL, image.posix_interprocess_signal_handler );
 	//
-	task->argument	= image.stdArg;
+	task->argument		= image.stdArg;
 	task->fate		= image.stdCont;
-	task->closure	= image.stdClos;
-	task->program_counter= image.pc;
+	task->closure		= image.stdClos;
+	task->program_counter	= image.pc;
 	task->exception_fate	= image.exception_fate;
-	task->thread	= image.current_thread;
+	task->current_thread	= image.current_thread;
+	//
 	task->callee_saved_registers[0]	= image.calleeSave[0];
 	task->callee_saved_registers[1]	= image.calleeSave[1];
 	task->callee_saved_registers[2]	= image.calleeSave[2];
@@ -209,7 +210,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 	function_to_run		= task->argument;
 	//
 	task->exception_fate	= PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
-	task->thread		= HEAP_VOID;
+	task->current_thread	= HEAP_VOID;
 	//
 	task->fate		= PTR_CAST( Val,  return_to_c_level_c );
 	task->closure		= function_to_run;
@@ -584,9 +585,9 @@ static void   read_heap   (
 	=
 	repair_word( task->exception_fate, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
 
-    task->thread
+    task->current_thread
 	=
-	repair_word( task->thread, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
+	repair_word( task->current_thread, oldBOOK2SIBID, addrOffset, boRegionTable, externs );
 
     task->callee_saved_registers[0]
 	=

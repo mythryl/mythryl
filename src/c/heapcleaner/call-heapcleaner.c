@@ -139,7 +139,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->closure;
 	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->thread;
+	*roots_ptr++ =  &task->current_thread;
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
@@ -165,7 +165,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 		    *roots_ptr++ =  &task->fate;
 		    *roots_ptr++ =  &task->closure;
 		    *roots_ptr++ =  &task->exception_fate;
-		    *roots_ptr++ =  &task->thread;
+		    *roots_ptr++ =  &task->current_thread;
 		    *roots_ptr++ =  &task->callee_saved_registers[0];
 		    *roots_ptr++ =  &task->callee_saved_registers[1];
 		    *roots_ptr++ =  &task->callee_saved_registers[2];
@@ -353,7 +353,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->closure;
 	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->thread;
+	*roots_ptr++ =  &task->current_thread;
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
@@ -378,7 +378,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		    *roots_ptr++ =  &task->fate;
 		    *roots_ptr++ =  &task->closure;
 		    *roots_ptr++ =  &task->exception_fate;
-		    *roots_ptr++ =  &task->thread;
+		    *roots_ptr++ =  &task->current_thread;
 		    *roots_ptr++ =  &task->callee_saved_registers[ 0 ];
 		    *roots_ptr++ =  &task->callee_saved_registers[ 1 ];
 		    *roots_ptr++ =  &task->callee_saved_registers[ 2 ];
