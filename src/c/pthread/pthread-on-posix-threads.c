@@ -21,6 +21,7 @@
 #include "../mythryl-config.h"
 
 #include <stdio.h>
+#include <errno.h>
 #include <pthread.h>
 
 #if HAVE_SYS_TYPES_H
@@ -139,6 +140,21 @@ void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/online
     if (pthread_mutex_lock( mutex )) {
 	//
 	die("pth__mutex_lock: Unable to acquire lock.");
+    }
+}
+
+Bool   pth__mutex_trylock   (Mutex* mutex)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    // ==================
+    //
+    int err =  pthread_mutex_trylock( mutex );
+    //
+    switch (err) {
+	//
+	case 0: 	return FALSE;						// Successfully acquired lock.
+	case EBUSY:	return TRUE;						// Lock was already taken.
+	//
+	default:
+	    die("pth__mutex_trylock: Error while attempting to test lock.");
     }
 }
 
@@ -276,7 +292,7 @@ void   pth__mutex_unlock   (Mutex mutex)   {
 
 
 Bool   pth__mutex_maybe_lock   (Mutex mutex)   {
-    // ========================
+    // =====================
     //
     return ((Bool) uscsetlock(mutex, 1));		// Try once.
 }

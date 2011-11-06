@@ -120,9 +120,9 @@ typedef enum {
     //
     extern void  pth__mutex_lock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     extern void  pth__mutex_unlock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-    //
-    extern Bool  pth__mutex_maybe_lock(Mutex* mutex);				// This appears to be a non-blocking variant of pth__mutex_lock, which always returns immediately with either TRUE (mutex acquired) or FALSE.
-    //
+    extern Bool  pth__mutex_trylock     (Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    //										// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
+    //										// This bool value is confusing -- the Mythryl-level binding should return (say) ACQUIRED vs BUSY.
     // Some statically pre-allocated mutexs:
     //
     extern Mutex	    pth__heapcleaner_mutex__global;
