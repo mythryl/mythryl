@@ -64,10 +64,11 @@ int   pth__done_acquire_pthread__global = FALSE;
 // It would presumably be good to force cache-line-size
 // alignment here, but I don't know how, short of
 // malloc'ing and checking alignment at runtime:
-/**/											char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
-Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
+/**/												char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
+       Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+       Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+       Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
+static Mutex	      proc_mutex__local			= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
 
 
 
@@ -80,7 +81,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 //
 Val      pth__acquire_pthread		(Task* task, Val arg)			{ die("pth__acquire_pthread() not implemented yet"); return (Val)NULL;}
 void     pth__release_pthread		(Task* task)				{ die("pth__release_pthread() not implemented yet"); }
-int      pth__get_active_pthread_count	()					{ die("pth__get_active_pthread_count() not implemented yet"); return 0; }
 
 
 // pthread_barrier_init(&barr, NULL, THREADS)	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
@@ -218,7 +218,7 @@ Pid   pth__get_pthread_id   ()   {
 }
 
 Pthread*  pth__get_pthread   ()   {
-    //    ===============
+    //    ================
     //
     // Return Pthread* for currently running pthread -- this
     // is needed to find record for current pthread in contexts
@@ -237,6 +237,27 @@ Pthread*  pth__get_pthread   ()   {
     }											// pthread_table__global exported via     src/c/h/runtime-pthread.h
     die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
 #endif
+}
+
+
+int   pth__get_active_pthread_count   ()   {
+    //=============================
+    //
+    // This function is currently called (only) in
+    // the critical spinloop in
+    //
+    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
+    //
+    // while we're waiting for all pthreads to
+    // enter heapcleaning mode.
+  
+    pth__mutex_lock( &proc_mutex__local );						// What could go wrong here if we didn't use a mutex...?
+	//										// (Seems like reading a refcell is basically atomic anyhow.)
+        int active_pthread_count = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
+	//
+    pth__mutex_unlock ( &proc_mutex__local );
+
+    return  active_pthread_count;
 }
 
 
@@ -605,19 +626,6 @@ void   pth__release_pthread   (Task* task)   {
 
 
 
-int   pth__get_active_pthread_count   ()   {
-    //=============================
-    //
-    int ap;
-
-    pth__mutex_lock(MP_ProcLock);
-
-        ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
-
-    pth__mutex_unlock(MP_ProcLock);
-
-    return ap;
-}
 
 
 

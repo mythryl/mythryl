@@ -187,7 +187,8 @@ typedef enum {
 	// This number is specified via pth__barrier_init().
 	//
 	// When released, one pthread at barrier gets a TRUE
-	// back pth__barrier_wait(), the otehrs  get a FALSE.
+	// back pth__barrier_wait(), the others  get a FALSE;
+	// this lets them easily "elect a leader" if desired.
 	//
 	//  o Behavior is undefined if calling pth__barrier_wait
 	//    wait on an uninitialized barrier.
