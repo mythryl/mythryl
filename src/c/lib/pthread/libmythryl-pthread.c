@@ -58,17 +58,17 @@
 #define UNINITIALIZED_BARRIER	0xDEADBEEF
 #define   INITIALIZED_BARRIER	0xBEEFFEED
 #define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_BARRIER	0xDEADDEAD
+#define         FREED_BARRIER	0xFBEEFBEE
 
 #define UNINITIALIZED_CONDVAR	0xDEADBEEF
 #define   INITIALIZED_CONDVAR	0xBEEFFEED
 #define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_CONDVAR	0xDEADDEAD
+#define         FREED_CONDVAR	0xFBEEFBEE
 
 #define UNINITIALIZED_MUTEX	0xDEADBEEF
 #define   INITIALIZED_MUTEX	0xBEEFFEED
 #define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_MUTEX	0xDEADDEAD
+#define         FREED_MUTEX	0xFBEEFBEE
 
 struct mutex_struct {
     //
@@ -245,21 +245,57 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 static Val mutex_lock   (Task* task,  Val arg)   {
     //     ==========
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_lock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case   INITIALIZED_MUTEX:
+		pth__mutex_lock( &mutex->mutex );
+		break;
+
+	    case UNINITIALIZED_MUTEX:				die("Attempt to acquire mutex before setting it.");
+	    case       CLEARED_MUTEX:				die("Attempt to acquire mutex after clearing it.");
+	    case         FREED_MUTEX:				die("Attempt to acquire mutex after freeing it.");
+	    default:						die("mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("mutex_lock: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_unlock   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_unlock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case   INITIALIZED_MUTEX:
+		pth__mutex_unlock( &mutex->mutex );
+		break;
+
+	    case UNINITIALIZED_MUTEX:				die("Attempt to release mutex before setting it.");
+	    case       CLEARED_MUTEX:				die("Attempt to release mutex after clearing it.");
+	    case         FREED_MUTEX:				die("Attempt to release mutex after freeing it.");
+	    default:						die("mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("mutex_unlock: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_trylock   (Task* task,  Val arg)   {
