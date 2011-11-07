@@ -355,32 +355,20 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
 //    #if NEED_PTHREAD_SUPPORT
-	// 'arg' should be something returned by barrier_make() above,
-	// so it should be a Mythryl boxed word -- a two-word heap record
-	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
-	// followed by the C address of our   struct barrier_struct.
-	// Per Mythryl convention, 'arg' will point to the second word,
-	// so all we have to do is cast it appropriately:
-	//
 	struct barrier_struct*  barrier
 	    =
 	    *((struct barrier_struct**) arg);
 
 	switch (barrier->status) {
 	    //
-	    case UNINITIALIZED_BARRIER:
-		die("Attempt to clear already-cleared (or uninitialized) barrier instance.");
-
 	    case   INITIALIZED_BARRIER:
-		//
-		free( barrier );
+		pth__barrier_destroy( &barrier->barrier );
 		break;
 
-	    case         FREED_CONDVAR:
-		die("Attempt to free already-freed barrier instance.");
-
-	    default:
-		die("barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
+	    case UNINITIALIZED_BARRIER:				die("Attempt to clear uninitialized barrier.");
+	    case       CLEARED_BARRIER:				die("Attempt to clear already-cleared barrier.");
+	    case         FREED_BARRIER:				die("Attempt to clear already-freed barrier.");
+	    default:						die("barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
 	}
         return HEAP_VOID;
 //    #else
@@ -408,7 +396,7 @@ static Val condvar_make   (Task* task,  Val arg)   {
 	//
 	// We allocate the condvar_struct on the C
 	// heap rather than the Mythryl heap because
-	// having the garbage collector moving mutexes
+	// having the garbage collector moving condvars
 	// around in memory seems like a really, really
 	// bad idea:
 	//
@@ -481,11 +469,27 @@ static Val condvar_init   (Task* task,  Val arg)   {
 static Val condvar_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("condvar_destroy: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	struct condvar_struct*  condvar
+	    =
+	    *((struct condvar_struct**) arg);
+
+	switch (condvar->status) {
+	    //
+	    case   INITIALIZED_CONDVAR:
+		pth__condvar_destroy( &condvar->condvar );
+		break;
+
+	    case UNINITIALIZED_CONDVAR:				die("Attempt to clear uninitialized condvar.");
+	    case       CLEARED_CONDVAR:				die("Attempt to clear already-cleared condvar.");
+	    case         FREED_CONDVAR:				die("Attempt to clear already-freed condvar.");
+	    default:						die("condvar_destroy: Attempt to clear bogus value. (Already-freed condvar? Junk?)");
+	}
+        return HEAP_VOID;
+//    #else
+//	die ("condvar_destroy: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val condvar_wait   (Task* task,  Val arg)   {
