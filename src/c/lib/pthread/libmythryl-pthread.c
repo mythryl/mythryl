@@ -55,6 +55,15 @@
 // wind up fighting for control of the shared cacheline.
 ////////////////////////////////////////////////////////////////
 
+#define UNINITIALIZED_MUTEX	0xDEADBEEF
+#define   INITIALIZED_MUTEX	0xBEEFFEED
+
+#define UNINITIALIZED_BARRIER	0xDEADBEEF
+#define   INITIALIZED_BARRIER	0xBEEFFEED
+
+#define UNINITIALIZED_CONDVAR	0xDEADBEEF
+#define   INITIALIZED_CONDVAR	0xBEEFFEED
+
 struct mutex_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
@@ -136,6 +145,8 @@ static Val mutex_make   (Task* task,  Val arg)   {
 	    =
 	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
 
+	mutex->padding0[0] = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
+
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
 	//
@@ -213,11 +224,30 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 static Val barrier_make   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("barrier_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	//
+	// We allocate the condvar_struct on the C
+	// heap rather than the Mythryl heap because
+	// having the garbage collector moving mutexes
+	// around in memory seems like a really, really
+	// bad idea:
+	//
+	struct barrier_struct*  barrier
+	    =
+	    (struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
+
+	barrier->padding0[0] = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
+
+	// We return the address of the barrier_struct
+	// to the Mythryl level encoded as a word value:
+	//
+        Val               result;
+        WORD_ALLOC (task, result, barrier);
+        return            result;
+//    #else
+//	die ("barrier_make: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val barrier_free   (Task* task,  Val arg)   {
@@ -265,11 +295,30 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 static Val condvar_make   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("condvar_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	//
+	// We allocate the condvar_struct on the C
+	// heap rather than the Mythryl heap because
+	// having the garbage collector moving mutexes
+	// around in memory seems like a really, really
+	// bad idea:
+	//
+	struct condvar_struct*  condvar
+	    =
+	    (struct condvar_struct*)  MALLOC( sizeof(struct condvar_struct) );	if (!condvar) die("Unable to malloc condvar_struct"); 
+
+	condvar->padding0[0] = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
+
+	// We return the address of the condvar_struct
+	// to the Mythryl level encoded as a word value:
+	//
+        Val               result;
+        WORD_ALLOC (task, result, condvar);
+        return            result;
+//    #else
+//	die ("condvar_make: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val condvar_free   (Task* task,  Val arg)   {
