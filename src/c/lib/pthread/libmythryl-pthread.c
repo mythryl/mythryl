@@ -168,11 +168,38 @@ static Val mutex_make   (Task* task,  Val arg)   {
 static Val mutex_free   (Task* task,  Val arg)   {
     //     ==========
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	// 'arg' should be something returned by barrier_make() above,
+	// so it should be a Mythryl boxed word -- a two-word heap record
+	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+	// followed by the C address of our   struct barrier_struct.
+	// Per Mythryl convention, 'arg' will point to the second word,
+	// so all we have to do is cast it appropriately:
+	//
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case UNINITIALIZED_MUTEX:
+	    case   INITIALIZED_MUTEX:
+		//
+		free( mutex );
+		break;
+
+	    case         FREED_MUTEX:
+		die("Attempt to free already-freed mutex instance.");
+
+	    default:
+		die("mutex_free: Attempt to free bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+	//
+//    #else
+//	die ("mutex_free: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_init   (Task* task,  Val arg)   {
@@ -357,11 +384,38 @@ static Val condvar_make   (Task* task,  Val arg)   {
 static Val condvar_free   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("condvar_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	// 'arg' should be something returned by barrier_make() above,
+	// so it should be a Mythryl boxed word -- a two-word heap record
+	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+	// followed by the C address of our   struct barrier_struct.
+	// Per Mythryl convention, 'arg' will point to the second word,
+	// so all we have to do is cast it appropriately:
+	//
+	struct condvar_struct*  condvar
+	    =
+	    *((struct condvar_struct**) arg);
+
+	switch (condvar->status) {
+	    //
+	    case UNINITIALIZED_CONDVAR:
+	    case   INITIALIZED_CONDVAR:
+		//
+		free( condvar );
+		break;
+
+	    case         FREED_CONDVAR:
+		die("Attempt to free already-freed condvar instance.");
+
+	    default:
+		die("condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
+	}
+        return HEAP_VOID;
+	//
+//    #else
+//	die ("condvar_free: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val condvar_init   (Task* task,  Val arg)   {
