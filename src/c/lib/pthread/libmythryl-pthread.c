@@ -69,7 +69,7 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 
 
 
-static Val pthread_exit_fn   (Task* task,  Val arg)   {				// 'pthread_exit' is used by <pthread.h>.
+static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthread_exit' is used by <pthread.h>, and of course 'exit' by <stdlib.h>.
     //     ===============
     //
     #if NEED_PTHREAD_SUPPORT
@@ -81,12 +81,70 @@ static Val pthread_exit_fn   (Task* task,  Val arg)   {				// 'pthread_exit' is 
     #endif
 }
 
+static Val mutex_init   (Task* task,  Val arg)   {
+    //     ==========
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val mutex_destroy   (Task* task,  Val arg)   {
+    //     =============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val mutex_lock   (Task* task,  Val arg)   {
+    //     ==========
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_lock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val mutex_unlock   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_unlock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val mutex_trylock   (Task* task,  Val arg)   {
+    //     =============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_trylock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+
+
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
     { "pthread_exit","release_pthread",		pthread_exit,		""},
+    //
+    { "mutex_init","mutex_init",		mutex_init,		""},
+    { "mutex_destroy","mutex_destroy",		mutex_destroy,		""},
+    { "mutex_lock","mutex_lock",		mutex_lock,		""},
+    { "mutex_unlock","mutex_unlock",		mutex_unlock,		""},
+    { "mutex_trylock","mutex_trylock",		mutex_trylock,		""},
     //
     CFUNC_NULL_BIND
 };

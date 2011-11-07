@@ -139,8 +139,10 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES
     //
-    // Condition variables provide an alternate way for pthreads
-    // to block awaiting a particular condition being true.
+    // Condition variables (in conjunction with mutexes)
+    // provide a way for a pthread to wait for (typically)
+    // a particular variable to assume a particular value,
+    // without having to poll.
     //
     // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
     //

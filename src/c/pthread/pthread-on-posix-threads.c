@@ -256,6 +256,7 @@ void   pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.o
 }
 
 void   pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    // ===================
     //
     if (pthread_cond_signal( condvar )) {
 	//
@@ -264,6 +265,7 @@ void   pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.or
 }
 
 void   pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    // ======================
     //
     if (pthread_cond_broadcast( condvar )) {
 	//
