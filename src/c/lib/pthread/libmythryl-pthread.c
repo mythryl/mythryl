@@ -81,6 +81,28 @@ static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthr
     #endif
 }
 
+
+
+static Val mutex_make   (Task* task,  Val arg)   {
+    //     ==========
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val mutex_free   (Task* task,  Val arg)   {
+    //     ==========
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("mutex_free: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
 static Val mutex_init   (Task* task,  Val arg)   {
     //     ==========
     //
@@ -132,6 +154,27 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 }
 
 
+
+static Val barrier_make   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("barrier_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val barrier_free   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("barrier_free: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
 static Val barrier_init   (Task* task,  Val arg)   {
     //     ============
     //
@@ -158,6 +201,28 @@ static Val barrier_wait   (Task* task,  Val arg)   {
     #if NEED_PTHREAD_SUPPORT
     #else
 	die ("barrier_wait: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+
+
+static Val condvar_make   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val condvar_free   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_free: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
     #endif
 }
@@ -220,18 +285,24 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
     { "pthread_exit","release_pthread",		pthread_exit_fn,	""},
     //
+    { "mutex_make","mutex_make",		mutex_make,		""},
+    { "mutex_free","mutex_free",		mutex_free,		""},
     { "mutex_init","mutex_init",		mutex_init,		""},
     { "mutex_destroy","mutex_destroy",		mutex_destroy,		""},
     { "mutex_lock","mutex_lock",		mutex_lock,		""},
     { "mutex_unlock","mutex_unlock",		mutex_unlock,		""},
     { "mutex_trylock","mutex_trylock",		mutex_trylock,		""},
     //
+    { "condvar_make","condvar_make",		condvar_make,		""},
+    { "condvar_free","condvar_free",		condvar_free,		""},
     { "condvar_init","condvar_init",		condvar_init,		""},
     { "condvar_destroy","condvar_destroy",	condvar_destroy,	""},
     { "condvar_wait","condvar_wait",		condvar_wait,		""},
     { "condvar_signal","condvar_signal",	condvar_signal,		""},
     { "condvar_broadcast","condvar_broadcast",	condvar_broadcast,	""},
     //
+    { "barrier_make","barrier_make",		barrier_make,		""},
+    { "barrier_free","barrier_free",		barrier_free,		""},
     { "barrier_init","barrier_init",		barrier_init,		""},
     { "barrier_destroy","barrier_destroy",	barrier_destroy,	""},
     { "barrier_wait","barrier_wait",		barrier_wait,		""},
