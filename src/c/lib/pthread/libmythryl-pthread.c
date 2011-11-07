@@ -55,34 +55,40 @@
 // wind up fighting for control of the shared cacheline.
 ////////////////////////////////////////////////////////////////
 
-#define UNINITIALIZED_MUTEX	0xDEADBEEF
-#define   INITIALIZED_MUTEX	0xBEEFFEED
-
 #define UNINITIALIZED_BARRIER	0xDEADBEEF
 #define   INITIALIZED_BARRIER	0xBEEFFEED
+#define         FREED_BARRIER	0xDEADDEAD
 
 #define UNINITIALIZED_CONDVAR	0xDEADBEEF
 #define   INITIALIZED_CONDVAR	0xBEEFFEED
+#define         FREED_CONDVAR	0xDEADDEAD
+
+#define UNINITIALIZED_MUTEX	0xDEADBEEF
+#define   INITIALIZED_MUTEX	0xBEEFFEED
+#define         FREED_MUTEX	0xDEADDEAD
 
 struct mutex_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
+    int      status;
     Mutex    mutex;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
 
 struct condvar_struct {
     //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
+    int      status;
     Condvar  condvar;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
 
 struct barrier_struct {
     //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
+    int      status;
     Barrier  barrier;
-    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
 
 
@@ -145,7 +151,7 @@ static Val mutex_make   (Task* task,  Val arg)   {
 	    =
 	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
 
-	mutex->padding0[0] = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
+	mutex->status = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
 
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
@@ -236,7 +242,7 @@ static Val barrier_make   (Task* task,  Val arg)   {
 	    =
 	    (struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
 
-	barrier->padding0[0] = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
+	barrier->status = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
 
 	// We return the address of the barrier_struct
 	// to the Mythryl level encoded as a word value:
@@ -253,11 +259,38 @@ static Val barrier_make   (Task* task,  Val arg)   {
 static Val barrier_free   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("barrier_free: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//   #if NEED_PTHREAD_SUPPORT
+	// 'arg' should be something returned by barrier_make() above,
+	// so it should be a Mythryl boxed word -- a two-word heap record
+	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+	// followed by the C address of our   struct barrier_struct.
+	// Per Mythryl convention, 'arg' will point to the second word,
+	// so all we have to do is cast it appropriately:
+	//
+	struct barrier_struct*  barrier
+	    =
+	    *((struct barrier_struct**) arg);
+
+	switch (barrier->status) {
+	    //
+	    case UNINITIALIZED_BARRIER:
+	    case   INITIALIZED_BARRIER:
+		//
+		free( barrier );
+		break;
+
+	    case         FREED_CONDVAR:
+		die("Attempt to free already-freed barrier instance.");
+
+	    default:
+		die("barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
+	}
+        return HEAP_VOID;
+	//
+//    #else
+//	die ("barrier_free: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val barrier_init   (Task* task,  Val arg)   {
@@ -307,7 +340,7 @@ static Val condvar_make   (Task* task,  Val arg)   {
 	    =
 	    (struct condvar_struct*)  MALLOC( sizeof(struct condvar_struct) );	if (!condvar) die("Unable to malloc condvar_struct"); 
 
-	condvar->padding0[0] = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
+	condvar->status = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
 
 	// We return the address of the condvar_struct
 	// to the Mythryl level encoded as a word value:
