@@ -57,14 +57,17 @@
 
 #define UNINITIALIZED_BARRIER	0xDEADBEEF
 #define   INITIALIZED_BARRIER	0xBEEFFEED
+#define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_BARRIER	0xDEADDEAD
 
 #define UNINITIALIZED_CONDVAR	0xDEADBEEF
 #define   INITIALIZED_CONDVAR	0xBEEFFEED
+#define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_CONDVAR	0xDEADDEAD
 
 #define UNINITIALIZED_MUTEX	0xDEADBEEF
 #define   INITIALIZED_MUTEX	0xBEEFFEED
+#define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_MUTEX	0xDEADDEAD
 
 struct mutex_struct {
@@ -184,6 +187,7 @@ static Val mutex_free   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_MUTEX:
 	    case   INITIALIZED_MUTEX:
+	    case       CLEARED_MUTEX:
 		//
 		free( mutex );
 		break;
@@ -215,11 +219,27 @@ static Val mutex_init   (Task* task,  Val arg)   {
 static Val mutex_destroy   (Task* task,  Val arg)   {
     //     =============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_destroy: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case   INITIALIZED_MUTEX:
+		pth__mutex_destroy( &mutex->mutex );
+		break;
+
+	    case UNINITIALIZED_MUTEX:				die("Attempt to clear uninitialized mutex.");
+	    case       CLEARED_MUTEX:				die("Attempt to clear already-cleared mutex.");
+	    case         FREED_MUTEX:				die("Attempt to clear already-freed mutex.");
+	    default:						die("mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+//    #else
+//	die ("mutex_destroy: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_lock   (Task* task,  Val arg)   {
@@ -302,6 +322,7 @@ static Val barrier_free   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_BARRIER:
 	    case   INITIALIZED_BARRIER:
+	    case       CLEARED_BARRIER:
 		//
 		free( barrier );
 		break;
@@ -333,11 +354,39 @@ static Val barrier_init   (Task* task,  Val arg)   {
 static Val barrier_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("barrier_destroy: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+	// 'arg' should be something returned by barrier_make() above,
+	// so it should be a Mythryl boxed word -- a two-word heap record
+	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
+	// followed by the C address of our   struct barrier_struct.
+	// Per Mythryl convention, 'arg' will point to the second word,
+	// so all we have to do is cast it appropriately:
+	//
+	struct barrier_struct*  barrier
+	    =
+	    *((struct barrier_struct**) arg);
+
+	switch (barrier->status) {
+	    //
+	    case UNINITIALIZED_BARRIER:
+		die("Attempt to clear already-cleared (or uninitialized) barrier instance.");
+
+	    case   INITIALIZED_BARRIER:
+		//
+		free( barrier );
+		break;
+
+	    case         FREED_CONDVAR:
+		die("Attempt to free already-freed barrier instance.");
+
+	    default:
+		die("barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
+	}
+        return HEAP_VOID;
+//    #else
+//	die ("barrier_destroy: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val barrier_wait   (Task* task,  Val arg)   {
@@ -400,6 +449,7 @@ static Val condvar_free   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_CONDVAR:
 	    case   INITIALIZED_CONDVAR:
+	    case       CLEARED_CONDVAR:
 		//
 		free( condvar );
 		break;
