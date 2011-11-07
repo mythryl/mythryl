@@ -57,23 +57,23 @@
 
 struct mutex_struct {
     //
-    char				padding0[ CACHE_LINE_BYTESIZE ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
     Mutex    mutex;
-    char				padding1[ CACHE_LINE_BYTESIZE ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
 };
 
 struct condvar_struct {
     //
-    char				padding0[ CACHE_LINE_BYTESIZE ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
     Condvar  condvar;
-    char				padding1[ CACHE_LINE_BYTESIZE ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
 };
 
 struct barrier_struct {
     //
-    char				padding0[ CACHE_LINE_BYTESIZE ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
     Barrier  barrier;
-    char				padding1[ CACHE_LINE_BYTESIZE ];
+    int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int)  ];
 };
 
 

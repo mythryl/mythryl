@@ -344,7 +344,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
 
 Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
-    //=============================
+    //=========================================
     // 
     // Allocate an uninitialized Lib7 bytearray.  Assume that len > 0.
 
