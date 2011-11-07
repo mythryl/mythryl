@@ -69,14 +69,14 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 
 
 
-static Val release_pthread   (Task* task,  Val arg)   {
+static Val pthread_exit_fn   (Task* task,  Val arg)   {				// 'pthread_exit' is used by <pthread.h>.
     //     ===============
     //
     #if NEED_PTHREAD_SUPPORT
 	pth__pthread_exit(task);  	// Should not return.
-	die ("_lib7_MP_release_pthread: call unexpectedly returned\n");
+	die ("pthread_exit_fn: call unexpectedly returned\n");
     #else
-	die ("_lib7_MP_release_pthread: no mp support\n");
+	die ("pthread_exit_fn: no mp support\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
     #endif
 }
@@ -86,7 +86,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
-    { "release_pthread","release_pthread",	release_pthread,	""},
+    { "pthread_exit","release_pthread",		pthread_exit,		""},
     //
     CFUNC_NULL_BIND
 };
