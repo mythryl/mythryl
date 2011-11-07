@@ -82,46 +82,11 @@ static Val release_pthread   (Task* task,  Val arg)   {
 }
 
 
-static Val   max_pthreads   (Task* task,  Val arg)   {				// Apparently nowhere invoked.
-    //       ============
-    //
-    return TAGGED_INT_FROM_C_INT( MAX_PTHREADS );
-}
-
-
-static Val   spin_lock   (Task* task,  Val arg)   {
-    //       =========
-    //
-    #if NEED_PTHREAD_SUPPORT
-	// "This code is for use the assembly (MIPS.prim.asm) try_lock and lock"
-        //         --- Original SML/NJ comment.
-        //
-        // 2010-11-30 CrT:
-        //     'try_lock' is defined in
-        //                     src/c/machine-dependent/prim.intel32.asm
-	//                     src/c/machine-dependent/prim.sparc32.asm
-        //                     src/c/machine-dependent/prim.pwrpc32.asm
-        //                     src/c/machine-dependent/prim.intel32.masm 
-        //     but function makes no obvious use of them.
-        //     'try_lock is also published in RunVec in
-        //                     src/c/main/construct-runtime-package.c
-        //     -- possibly that route replaced this one, which bitrotted?
-	Val             result;
-	REF_ALLOC(task, result, HEAP_FALSE);						// REF_ALLOC	def in    src/c/h/make-strings-and-vectors-etc.h
-	return          result;
-    #else
-	die ("lib7_spin_lock: no mp support\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
-}
-
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
-    { "max_pthreads","max_pthreads",		max_pthreads,		""},
     { "release_pthread","release_pthread",	release_pthread,	""},
-    { "spin_lock","spin_lock",			spin_lock,		""},
     //
     CFUNC_NULL_BIND
 };
