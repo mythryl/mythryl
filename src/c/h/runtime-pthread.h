@@ -59,6 +59,17 @@ typedef enum {
 
 
 
+    ////////////////////////////////////////////////////////////////////////////
+    // Statically pre-allocated mutexs, barriers and condition variables:
+    //
+    extern Mutex	    pth__heapcleaner_mutex__global;
+    extern Mutex	    pth__heapcleaner_gen_mutex__global;
+    extern Mutex	    pth__timer_mutex__global;
+    //
+    extern Barrier	    pth__heapcleaner_barrier__global;
+    //
+    extern Condvar	    pth__unused_condvar__global;
+    //
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -120,18 +131,64 @@ typedef enum {
     //
     extern void  pth__mutex_lock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     extern void  pth__mutex_unlock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-    extern Bool  pth__mutex_trylock     (Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    extern Bool  pth__mutex_trylock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //										// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
     //										// This bool value is confusing -- the Mythryl-level binding should return (say) ACQUIRED vs BUSY.
-    // Some statically pre-allocated mutexs:
+
+
+    ////////////////////////////////////////////////////////////////////////////
+    //                   CONDITIONAL VARIABLES
     //
-    extern Mutex	    pth__heapcleaner_mutex__global;
-    extern Mutex	    pth__heapcleaner_gen_mutex__global;
-    extern Mutex	    pth__timer_mutex__global;
+    // Condition variables provide an alternate way for pthreads
+    // to block awaiting a particular condition being true.
     //
-    extern Barrier	    pth__heapcleaner_barrier__global;
+    // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
     //
-    //
+    extern void  pth__condvar_init		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+	//
+	// Prepare the condition variable for use.
+	// This may allocate resources or such internally.
+	// Caveats:
+	//
+	//  o Behavior is undefined if pth__condvar_init()
+	//   is called on an already-initialized condition variable.
+	//   (Call pth__condvar_destroy first.)
+
+    extern void  pth__condvar_destroy		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+        //
+        // Undo the effects of   pth__condvar_init ()   on the condition variable.
+	// ("Destroy" is poor nomenclature; "reset" would be better.)
+        //
+        //  o After calling pth__condvar_destroy on a condition variable
+	//    one may call  pth__condvar_init on it; all other operations are undefined.
+	//
+	//  o Behavior is undefined if pth__condvar_destroy()
+	//    is called when a pthread is blocked on the condition variable.
+
+    extern void   pth__condvar_wait   (Condvar* condvar, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+	//
+	// Atomically release mutex and block on the condition variable.
+	// Upon return we will again hold the mutex.  (Return is trigged
+	// by a call to   pth__condvar_signal or pth__condvar_broadcast.)
+
+    extern void   pth__condvar_signal   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+	//
+	// Unblock at least one pthread waiting on condvar,
+	// except no effect if no pthreads are blocked on condvar,
+	//
+	// If more than one pthread is blocked on condvar the scheduling
+	// policy determines the order in which threads are unblocked.
+	//
+	// If multiple pthreads are unblocked, they compete for the
+	// associated mutex as though they had call called pth__mutex_lock().
+
+    extern void   pth__condvar_broadcast   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+	//
+	// Unblock all pthreads waiting on condvar, which might be none.
+	//
+	// If multiple pthreads are unblocked, they compete for the
+	// associated mutex as though they had all called pth__mutex_lock().
+
 
 
     ////////////////////////////////////////////////////////////////////////////

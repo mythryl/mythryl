@@ -228,6 +228,50 @@ void   pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
 }
 
 
+void     pth__condvar_init ( Condvar* condvar ) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    //   =================
+    //
+    if (pthread_cond_init( condvar, NULL )) {
+	//
+	die("pth__condvar_init: Unable to initialize condition variable.");
+    }
+}
+
+void   pth__condvar_destroy   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    // ====================
+    //
+    if (pthread_cond_destroy( condvar )) {
+	//
+	die("pth__condvar_destroy: Unable to destroy condition variable.");
+    }
+}
+
+void   pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+    // =================
+    //
+    if (pthread_cond_wait( condvar, mutex )) {
+	//
+	die("pth__condvar_wait: Unable to wait on condition variable.");
+    }	
+}
+
+void   pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    //
+    if (pthread_cond_signal( condvar )) {
+	//
+	die("pth__condvar_signal: Unable to signal on condition variable.");
+    }	
+}
+
+void   pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    //
+    if (pthread_cond_broadcast( condvar )) {
+	//
+	die("pth__condvar_broadcast: Unable to broadcast on condition variable.");
+    }	
+}
+
+
 void   pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
@@ -242,7 +286,7 @@ void   pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.o
     //
     if (pthread_barrier_destroy( barrier )) {
 	//
-	die("pth__barrier_init: Unable to initialize barrier.");
+	die("pth__barrier_init: Unable to destroy barrier.");
     }
 }
 
