@@ -132,19 +132,53 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 }
 
 
+static Val barrier_init   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("barrier_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val barrier_destroy   (Task* task,  Val arg)   {
+    //     ===============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("barrier_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val barrier_wait   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("barrier_wait: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
 
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
-    { "pthread_exit","release_pthread",		pthread_exit,		""},
+    { "pthread_exit","release_pthread",		pthread_exit_fn,	""},
     //
     { "mutex_init","mutex_init",		mutex_init,		""},
     { "mutex_destroy","mutex_destroy",		mutex_destroy,		""},
     { "mutex_lock","mutex_lock",		mutex_lock,		""},
     { "mutex_unlock","mutex_unlock",		mutex_unlock,		""},
     { "mutex_trylock","mutex_trylock",		mutex_trylock,		""},
+    //
+    { "barrier_init","barrier_init",		barrier_init,		""},
+    { "barrier_destroy","barrier_destroy",	barrier_destroy,	""},
+    { "barrier_wait","barrier_wait",		barrier_wait,		""},
     //
     CFUNC_NULL_BIND
 };
