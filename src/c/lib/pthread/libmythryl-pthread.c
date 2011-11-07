@@ -162,6 +162,56 @@ static Val barrier_wait   (Task* task,  Val arg)   {
     #endif
 }
 
+static Val condvar_init   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val condvar_destroy   (Task* task,  Val arg)   {
+    //     ===============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val condvar_wait   (Task* task,  Val arg)   {
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_wait: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val condvar_signal   (Task* task,  Val arg)   {
+    //     ==============
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_signal: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+static Val condvar_broadcast   (Task* task,  Val arg)   {
+    //     =================
+    //
+    #if NEED_PTHREAD_SUPPORT
+    #else
+	die ("condvar_broadcast: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
 
 
 static Mythryl_Name_With_C_Function CFunTable[] = {
@@ -175,6 +225,12 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     { "mutex_lock","mutex_lock",		mutex_lock,		""},
     { "mutex_unlock","mutex_unlock",		mutex_unlock,		""},
     { "mutex_trylock","mutex_trylock",		mutex_trylock,		""},
+    //
+    { "condvar_init","condvar_init",		condvar_init,		""},
+    { "condvar_destroy","condvar_destroy",	condvar_destroy,	""},
+    { "condvar_wait","condvar_wait",		condvar_wait,		""},
+    { "condvar_signal","condvar_signal",	condvar_signal,		""},
+    { "condvar_broadcast","condvar_broadcast",	condvar_broadcast,	""},
     //
     { "barrier_init","barrier_init",		barrier_init,		""},
     { "barrier_destroy","barrier_destroy",	barrier_destroy,	""},
