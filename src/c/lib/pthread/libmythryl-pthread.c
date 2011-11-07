@@ -124,11 +124,28 @@ static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthr
 static Val mutex_make   (Task* task,  Val arg)   {
     //     ==========
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_make: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//  #if NEED_PTHREAD_SUPPORT
+	//
+	// We allocate the mutex_struct on the C
+	// heap rather than the Mythryl heap because
+	// having the garbage collector moving mutexes
+	// around in memory seems like a really, really
+	// bad idea:
+	//
+	struct mutex_struct*  mutex
+	    =
+	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
+
+	// We return the address of the mutex_struct
+	// to the Mythryl level encoded as a word value:
+	//
+        Val               result;
+        WORD_ALLOC (task, result, mutex);
+        return            result;
+//  #else
+//	die ("mutex_make: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_free   (Task* task,  Val arg)   {
