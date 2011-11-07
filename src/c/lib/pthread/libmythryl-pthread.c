@@ -1,4 +1,13 @@
 // libmythryl-pthread.c
+//
+// This file defines the "pthread" library of Mythryl-callable
+// C functions, accessible at the Mythryl level via:
+//
+//     my spawn_pthread:   Fate -> Bool
+//         =
+//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "pthread", fun_name => "spawn_pthread" };
+// 
+// or such.
 
 // Here we export to
 //
@@ -30,14 +39,43 @@
 #include "make-strings-and-vectors-etc.h"
 #include "mythryl-callable-c-libraries.h"
 
-// This file defines the "pthread" library of Mythryl-callable
-// C functions, accessible at the Mythryl level via:
+
+////////////////////////////////////////////////////////////////
+// Why the padding[] arrays?
 //
-//     my spawn_pthread:   Fate -> Bool
-//         =
-//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "pthread", fun_name => "spawn_pthread" };
-// 
-// or such.
+// We do not expect to have vast number of mutex, barrier
+// or condition variable, but obviously we do expect them
+// to be points of contention between cores.  In general
+// each core likes to lock down the relevant cache line
+// before doing any synchronization operations, so it pays
+// to make sure that each mutex, barrier and condition variable
+// is in its own cache line -- if we had multiple mutexes in the
+// same cacheline then separate cores operating on separate
+// mutexes, which should logically have no contention, might
+// wind up fighting for control of the shared cacheline.
+////////////////////////////////////////////////////////////////
+
+struct mutex_struct {
+    //
+    char				padding0[ CACHE_LINE_BYTESIZE ];
+    Mutex    mutex;
+    char				padding1[ CACHE_LINE_BYTESIZE ];
+};
+
+struct condvar_struct {
+    //
+    char				padding0[ CACHE_LINE_BYTESIZE ];
+    Condvar  condvar;
+    char				padding1[ CACHE_LINE_BYTESIZE ];
+};
+
+struct barrier_struct {
+    //
+    char				padding0[ CACHE_LINE_BYTESIZE ];
+    Barrier  barrier;
+    char				padding1[ CACHE_LINE_BYTESIZE ];
+};
+
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
