@@ -98,7 +98,7 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 Val      pth__pthread_create		(Task* task, Val thread, Val closure)			{ die("pth__pthread_create() not implemented yet"); return (Val)NULL;}
     //   ===================
     //
-    // Called (only) by   acquire_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+    // Called (only) by   make_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
 void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not implemented yet"); }
     //   =================
@@ -577,11 +577,11 @@ static int   make_pthread   (Task* state)   {
 Val   pth__pthread_create   (Task* task, Val current_thread, Val closure_arg)   {
     //===================
     //
-    // This fn is called (only) by   acquire_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
+    // This fn is called (only) by   make_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
     pth__done_pthread_create__global = TRUE;
 
-    Task* p;
+    Task*    task;
     Pthread* pthread;
 
     int i;
@@ -640,15 +640,18 @@ Val   pth__pthread_create   (Task* task, Val current_thread, Val closure_arg)   
     //
     pthread =  pthread_table__global[ i ];
 
-    p =  pthread->task;
+    task =  pthread->task;
 
-    p->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
-    p->argument		=  HEAP_VOID;
-    p->fate		=  PTR_CAST( Val, return_c);
-    p->current_closure	=  closure_arg;
-    p->program_counter	= 
-    p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
-    p->current_thread   =  current_thread;
+    task->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
+    task->argument		=  HEAP_VOID;
+    //
+    task->fate			=  PTR_CAST( Val, return_c);
+    task->current_closure	=  closure_arg;
+    //
+    task->program_counter	= 
+    task->link_register		=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
+    //
+    task->current_thread	=  current_thread;
   
     if (pthread->status == NO_PTHREAD_ALLOCATED) {
 	//

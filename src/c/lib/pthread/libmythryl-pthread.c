@@ -33,9 +33,9 @@
 // This file defines the "pthread" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
-//     my acquire_pthread:   (Thread, Fate) -> Bool
+//     my spawn_pthread:   Fate -> Bool
 //         =
-//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "pthread", fun_name => "acquire_pthread" };
+//         mythryl_callable_c_library_interface::find_c_function  { lib_name => "pthread", fun_name => "spawn_pthread" };
 // 
 // or such.
 
@@ -51,18 +51,18 @@ static Val   get_pthread_id         (Task* task,  Val arg)   {
 //    #endif
 }
 
-static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never called.
-    //       ===============
+static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently never called.
+    //       =============
     //
     #if NEED_PTHREAD_SUPPORT
 	//
-        Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
-        Val closure_arg    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
+//      Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
+//      Val closure        =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
 
-	return pth__pthread_create( task, current_thread, closure_arg );	// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
+	return pth__pthread_create( task, task->current_thread, closure );	// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
     #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
-	die ("acquire_pthread: no mp support\n");
+	die ("spawn_pthread: no mp support\n");
         return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
     #endif
 }
@@ -118,7 +118,7 @@ static Val   spin_lock   (Task* task,  Val arg)   {
 static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
-    { "acquire_pthread","acquire_pthread",	acquire_pthread,	""},
+    { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
     { "max_pthreads","max_pthreads",		max_pthreads,		""},
     { "release_pthread","release_pthread",	release_pthread,	""},
     { "spin_lock","spin_lock",			spin_lock,		""},

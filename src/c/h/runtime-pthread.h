@@ -74,8 +74,8 @@ typedef enum {
     //
     extern Val      pth__pthread_create		(Task* task,  Val thread, Val closure);	// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
-    //											// This gets exported to the Mythryl level as  "pthread", "acquire_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
-    //											// and instantiated   at the Mythryl leval as  "acquire_pthread"             in    src/lib/std/src/pthread.pkg
+    //											// This gets exported to the Mythryl level as  "pthread", "make_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
+    //											// and instantiated   at the Mythryl leval as  "make_pthread"             in    src/lib/std/src/pthread.pkg
     //
     extern void     pth__pthread_exit		(Task* task);				// Reverse of above, more or less.
     //											// On Solaris this appears to actually stop and kill the thread.
