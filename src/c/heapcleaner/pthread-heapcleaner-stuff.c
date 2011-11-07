@@ -496,6 +496,9 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 
     pth__barrier_wait( &pth__heapcleaner_barrier__global );					// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 												// They should all be already waiting on this barrier, so we should never block at this point.
+
+    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature; all it does is undo what pth__barrier_init() did.
+
     pthreads_ready_to_clean__local = 0;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG

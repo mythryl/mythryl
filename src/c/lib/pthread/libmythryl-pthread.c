@@ -56,7 +56,10 @@ static Val   acquire_pthread   (Task* task,  Val arg)   {			// Apparently never 
     //
     #if NEED_PTHREAD_SUPPORT
 	//
-	return pth__pthread_create( task, arg );				// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
+        Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
+        Val closure_arg    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
+
+	return pth__pthread_create( task, current_thread, closure_arg );	// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
     #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
 	die ("acquire_pthread: no mp support\n");

@@ -72,10 +72,10 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      pth__pthread_create		(Task* task,  Val arg);		// Called with (thread, closure) and if a pthread is available starts arg running on a new pthread and returns TRUE.
+    extern Val      pth__pthread_create		(Task* task,  Val thread, Val closure);	// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
-    //											// This gets exported to the Mythryl level as "pthread"::"acquire_pthread"  via   src/c/lib/pthread/cfun-list.h
-    //											// There is apparently currently no .pkg file referencing this value.
+    //											// This gets exported to the Mythryl level as  "pthread", "acquire_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
+    //											// and instantiated   at the Mythryl leval as  "acquire_pthread"             in    src/lib/std/src/pthread.pkg
     //
     extern void     pth__pthread_exit		(Task* task);				// Reverse of above, more or less.
     //											// On Solaris this appears to actually stop and kill the thread.
@@ -94,7 +94,7 @@ typedef enum {
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // MULTICORE GARBAGE COLLECTION SUPPORT
+    // PTHREAD GARBAGE COLLECTION SUPPORT
     //
     extern int   pth__start_heapcleaning    (Task*);
     extern void  pth__finish_heapcleaning   (Task*);
@@ -112,6 +112,8 @@ typedef enum {
     // updating that datastructure.  Typically we allocate
     // one such lock for each major shared mutable datastructure,
     // which persists for as long as that datastructure.
+    //
+    // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#Mutexes
     //
     extern void  pth__mutex_init	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     extern void  pth__mutex_destroy	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
@@ -161,10 +163,12 @@ typedef enum {
     //  o Never call  pth__barrier_init() or pth__barrier_detroy()
     //    while pthreads are blocked on the barrier.
     //
-    extern void     pth__barrier_init 	(Barrier* barrier, int threads);
+    extern void     pth__barrier_init 	(Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
 	//
 	// Tell the barrier how many threads must be
-	// present at it before they can pass. Caveats:
+	// present at it before they can pass. This
+	// may allocate resources or such internally.
+	// Caveats:
 	//
 	//  o Behavior is undefined if pth__barrier_init()
 	//   is called on an already-initialized barrier.
@@ -175,12 +179,7 @@ typedef enum {
 	//    (That is, if some pthread has not returned from
 	//    pth__barrier_wait)
 
-    extern void     pth__barrier_destroy(Barrier* barrierp);
-        //
-	//  o Behavior is undefined if pth__barrier_destroy()
-	//    is called when a pthread is blocked on the barrier.
-
-    extern Bool     pth__barrier_wait (Barrier* barrierp);
+    extern Bool     pth__barrier_wait (Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
 	//
 	// Block currently executing pthread until the proper
 	// number of pthreads are waiting at the barrier.
@@ -189,6 +188,9 @@ typedef enum {
 	// When released, one pthread at barrier gets a TRUE
 	// back pth__barrier_wait(), the others  get a FALSE;
 	// this lets them easily "elect a leader" if desired.
+	// (This is particularly useful for ensuring that
+	// pth__barrier_destroy() gets called exactly once
+	// after use of a barrier.)
 	//
 	//  o Behavior is undefined if calling pth__barrier_wait
 	//    wait on an uninitialized barrier.
@@ -196,6 +198,26 @@ typedef enum {
 	//      * pth__barrier_init() has never been called on it, or if
 	//      * pth__barrier_init() has not been called on it since the last
 	//        pth__barrier_destroy() call on it.
+
+    extern void     pth__barrier_destroy(Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+        //
+        // Undo the effects of   pth__barrier_init ()   on the barrier.
+	// ("Destroy" is poor nomenclature; "reset" would be better.)
+        //
+        //  o Calling pth__barrier_destroy() immediately after a
+	//    pth__barrier_wait() call is safe and typical.
+	//    To ensure it is done exactly once, it is convenient
+        //    to call pth__barrier_destroy() iff pth__barrier_wait()
+	//    returns TRUE.
+        //
+	//  o Behavior is undefined if pth__barrier_destroy()
+	//    is called on an uninitialized barrier.
+        //    (In particular, behavior is undefined if
+        //    pth__barrier_destroy() is called twice in a
+	//    row on a barrier.)
+	//
+	//  o Behavior is undefined if pth__barrier_destroy()
+	//    is called when a pthread is blocked on the barrier.
 
 
 

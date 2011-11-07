@@ -44,6 +44,20 @@
 #include "runtime-globals.h"
 #include "pthread-state.h"
 
+// https://computing.llnl.gov/tutorials/pthreads/man/sched_setscheduler.txt
+// https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+// pthread_cond_t myconvar = PTHREAD_COND_INITIALIZER;
+
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cancel.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_getconcurrency.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_timedlock.html
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_equal.html
+
+// In /usr/include/bits/local_lim.h PTHREAD_THREADS = 1024.
+
 
 
 int   pth__done_pthread_create__global = FALSE;
@@ -81,13 +95,13 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-Val      pth__pthread_create		(Task* task, Val arg)			{ die("pth__pthread_create() not implemented yet"); return (Val)NULL;}
-    //   ====================
+Val      pth__pthread_create		(Task* task, Val thread, Val closure)			{ die("pth__pthread_create() not implemented yet"); return (Val)NULL;}
+    //   ===================
     //
     // Called (only) by   acquire_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
 void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not implemented yet"); }
-    //   ====================
+    //   =================
     //
     // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
@@ -277,6 +291,70 @@ int   pth__get_active_pthread_count   ()   {
 
     return  active_pthread_count;
 }
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//  SPINLOCK CAUTION
+//
+// http://stackoverflow.com/questions/6603404/when-is-pthread-spin-lock-the-right-thing-to-use-over-e-g-a-pthread-mutex
+//
+// Q: Given that pthread_spin_lock is available, when would I use it,
+//    and when should one not use them?  I.e. how would I decide to
+//    protect some shared data structure with either a pthread mutex
+//    or a pthread spinlock ?
+//
+// A: The short answer is that a spinlock can be better when you plan
+//    to hold the lock for an extremely short interval (for example
+//    to do nothing but increment a counter), and contention is expected
+//    to be rare, but the operation is occurring often enough to be a
+//    potential performance bottleneck.
+//
+//    The advantages of a spinlock over a mutex are:
+//
+//    1 On unlock, there is no need to check if other threads may be waiting
+//      for the lock and waking them up. Unlocking is simply a single atomic write instruction.
+//
+//    2 Failure to immediately obtain the lock does not put your thread
+//      to sleep, so it may be able to obtain the lock with much lower
+//      latency as soon a it does become available.
+//
+//    3 There is no risk of cache pollution from entering kernelspace
+//      to sleep or wake other threads.
+//
+//   Point 1 will always stand, but points 2 and 3 are of somewhat
+//   diminished usefulness if you consider that good mutex implementations
+//   will probably spin a decent number of times before asking the kernel
+//   for help waiting.
+//
+//   Now, the long answer:
+//
+//   What you need to ask yourself before using spinlocks is whether these
+//   potential advantages outweigh one rare but very real disadvantage:
+//
+//       What happens when the thread that holds the lock gets
+//      interrupted by the scheduler before it can release the lock.
+//
+//   This is of course rare, but it can happen even if the lock is just held
+//   for a single variable-increment operation or something else equally trivial.
+//
+//   In this case, any other threads attempting to obtain the lock will
+//   keep spinning until the thread the holds the lock gets scheduled and
+//   has a chance to release the lock.
+//
+//   This might NEVER happen if the threads trying to obtain the lock
+//   have higher priorities than the thread that holds the lock!
+//
+//   That may be an extreme case, but even without different priorities
+//   in play, there can be very long delays before the lock owner gets
+//   scheduled again, and worst of all, once this situation begins, it
+//   can quickly escalate as many threads, all hoping to get the lock,
+//   begin spinning on it, tying up more processor time, and further
+//   delaying the scheduling of the thread that could release the lock.
+//
+//   As such, I would be careful with spinlocks... :-)
+//
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 
 #ifdef SOON
@@ -496,7 +574,7 @@ static int   make_pthread   (Task* state)   {
 
 									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
 									// struct task				def in   src/c/h/task.h
-Val   pth__pthread_create   (Task* task, Val arg)   {
+Val   pth__pthread_create   (Task* task, Val current_thread, Val closure_arg)   {
     //===================
     //
     // This fn is called (only) by   acquire_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
@@ -506,9 +584,6 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     Task* p;
     Pthread* pthread;
 
-    Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
-    Val closure_arg    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
-										// and also              pthread->task->link.
     int i;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -541,7 +616,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    debug_say("[checking for NO_PROC]\n");
 	#endif
 
-	// Search for a slot in which to put a new proc
+	// Search for a slot in which to put a new pthread
 	//
 	for (i = 0;
 	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
