@@ -60,6 +60,33 @@
 
 
 
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+// #include <pthread.h>
+//
+// int pthread_cond_destroy(pthread_cond_t *cond);
+// int pthread_cond_init(pthread_cond_t *restrict cond, const pthread_condattr_t *restrict attr);
+// pthread_cond_t cond = PTHREAD_COND_INITIALIZER; 
+
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+// #include <pthread.h>
+//
+// int pthread_cond_timedwait(pthread_cond_t *restrict cond, pthread_mutex_t *restrict mutex, const struct timespec *restrict abstime);
+// int pthread_cond_wait(pthread_cond_t *restrict cond, pthread_mutex_t *restrict mutex); 
+
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+// #include <pthread.h>
+//
+// int pthread_cond_broadcast(pthread_cond_t *cond);
+// int pthread_cond_signal(pthread_cond_t *cond); 
+
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_timedlock.html
+//
+// #include <pthread.h>
+// #include <time.h>
+//
+// int pthread_mutex_timedlock( pthread_mutex_t *restrict mutex, const struct timespec *restrict abs_timeout );
+
+
 int   pth__done_pthread_create__global = FALSE;
     //
     // This boolean flag starts out FALSE and is set TRUE
@@ -85,6 +112,8 @@ int   pth__done_pthread_create__global = FALSE;
        Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
        Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
 static Mutex	      proc_mutex__local			= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
+
+       Condvar	 pth__unused_condvar__global		= PTHREAD_COND_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Never used.
 
 
 
