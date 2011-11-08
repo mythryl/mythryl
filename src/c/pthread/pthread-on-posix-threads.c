@@ -174,13 +174,11 @@ void   pth__shut_down (void) {
     // and also             die()  and  assert_fail()          in   src/c/main/error.c
 }
 
-void     pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    if (pthread_mutex_init( mutex, NULL )) {
-	//
-	die("pth__mutex_init: Unable to initialize mutex.");
-    }
+    if (pthread_mutex_init( mutex, NULL ))   return "pth__mutex_init: Unable to initialize mutex.";
+    else                                     return NULL;
 }
 
 void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html

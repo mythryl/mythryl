@@ -39,6 +39,8 @@
 #include "make-strings-and-vectors-etc.h"
 #include "mythryl-callable-c-libraries.h"
 
+#include "../lib7-c.h"
+
 struct mutex_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];		// See comment below.
@@ -101,7 +103,6 @@ struct barrier_struct {
 
 
 
-// return RAISE_ERROR(task, "addch");
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
@@ -227,7 +228,11 @@ static Val mutex_init   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_MUTEX:
 	    case       CLEARED_MUTEX:
-		pth__mutex_init( &mutex->mutex );
+		{   char* err = pth__mutex_init( &mutex->mutex );
+		    //
+		    if (err)   RAISE_ERROR( task, err );
+		    else       return HEAP_VOID;
+		}
 		break;
 
 	    case   INITIALIZED_MUTEX:				die("Attempt to set already-set mutex.");
