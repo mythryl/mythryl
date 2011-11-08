@@ -313,10 +313,10 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 		if (pth__mutex_trylock( &mutex->mutex ))   return HEAP_TRUE;	// Mutex was busy.
 		else					   return HEAP_FALSE;	// Successfully acquired mutex.
 
-	    case UNINITIALIZED_MUTEX:				die("Attempt to try mutex before setting it.");
-	    case       CLEARED_MUTEX:				die("Attempt to try mutex after clearing it.");
-	    case         FREED_MUTEX:				die("Attempt to try mutex after freeing it.");
-	    default:						die("mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:				die( "Attempt to try mutex before setting it." );
+	    case       CLEARED_MUTEX:				die( "Attempt to try mutex after clearing it." );
+	    case         FREED_MUTEX:				die( "Attempt to try mutex after freeing it.") ;
+	    default:						die( "mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)" );
 	}
         return HEAP_VOID;
 
