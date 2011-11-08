@@ -56,6 +56,8 @@
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_timedlock.html
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_equal.html
 
+// http://publib.boulder.ibm.com/infocenter/pseries/v5r3/index.jsp?topic=/com.ibm.aix.genprogc/doc/genprogc/rwlocks.htm
+
 // In /usr/include/bits/local_lim.h PTHREAD_THREADS = 1024.
 
 
@@ -98,7 +100,7 @@ int   pth__done_pthread_create__global = FALSE;
     // use something should not have to pay for it).
 
 
-// Some statatically allocated locks.
+// Some statically allocated locks.
 //
 // We try to put each mutex in its own cache line
 // to prevent cores thrashing against each other

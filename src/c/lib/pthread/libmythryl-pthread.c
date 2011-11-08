@@ -39,32 +39,22 @@
 #include "make-strings-and-vectors-etc.h"
 #include "mythryl-callable-c-libraries.h"
 
-
-////////////////////////////////////////////////////////////////
-// Why the padding[] arrays?
+// Values for barrier_struct.status:
 //
-// We do not expect to have vast number of mutex, barrier
-// or condition variable, but obviously we do expect them
-// to be points of contention between cores.  In general
-// each core likes to lock down the relevant cache line
-// before doing any synchronization operations, so it pays
-// to make sure that each mutex, barrier and condition variable
-// is in its own cache line -- if we had multiple mutexes in the
-// same cacheline then separate cores operating on separate
-// mutexes, which should logically have no contention, might
-// wind up fighting for control of the shared cacheline.
-////////////////////////////////////////////////////////////////
-
 #define UNINITIALIZED_BARRIER	0xDEADBEEF
 #define   INITIALIZED_BARRIER	0xBEEFFEED
 #define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_BARRIER	0xFBEEFBEE
 
+// Values for condvar_struct.status:
+//
 #define UNINITIALIZED_CONDVAR	0xDEADBEEF
 #define   INITIALIZED_CONDVAR	0xBEEFFEED
 #define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
 #define         FREED_CONDVAR	0xFBEEFBEE
 
+// Values for mutex_struct.status:
+//
 #define UNINITIALIZED_MUTEX	0xDEADBEEF
 #define   INITIALIZED_MUTEX	0xBEEFFEED
 #define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
@@ -72,7 +62,7 @@
 
 struct mutex_struct {
     //
-    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
+    int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];		// See comment below.
     int      status;
     Mutex    mutex;
     int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
@@ -93,6 +83,22 @@ struct barrier_struct {
     Barrier  barrier;
     int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
+
+    ////////////////////////////////////////////////////////////////
+    // Why the padding[] arrays?
+    //
+    // We do not expect to have vast number of mutex, barrier
+    // or condition variable, but obviously we do expect them
+    // to be points of contention between cores.  In general
+    // each core likes to lock down the relevant cache line
+    // before doing any synchronization operations, so it pays
+    // to make sure that each mutex, barrier and condition variable
+    // is in its own cache line -- if we had multiple mutexes in the
+    // same cacheline then separate cores operating on separate
+    // mutexes, which should logically have no contention, might
+    // wind up fighting for control of the shared cacheline.
+    ////////////////////////////////////////////////////////////////
+
 
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
@@ -632,11 +638,42 @@ static Val condvar_destroy   (Task* task,  Val arg)   {
 static Val condvar_wait   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("condvar_wait: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
+	Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+
+	struct condvar_struct*  condvar =   *((struct condvar_struct**) condvar_arg);
+	struct   mutex_struct*  mutex   =   *((struct   mutex_struct**)   mutex_arg);
+
+	switch (condvar->status) {
+	    //
+	    case   INITIALIZED_CONDVAR:		break;
+
+	    case UNINITIALIZED_CONDVAR:				die("Attempt to wait on uninitialized condvar.");
+	    case       CLEARED_CONDVAR:				die("Attempt to wait on already-cleared condvar.");
+	    case         FREED_CONDVAR:				die("Attempt to wait on already-freed condvar.");
+	    default:						die("condvar_wait: Attempt to wait on bogus value. (Already-freed condvar? Junk?)");
+	}
+
+	switch (mutex->status) {
+	    //
+	    case   INITIALIZED_MUTEX:		break;
+
+	    case UNINITIALIZED_MUTEX:				die("Attempt to condvar_wait on uninitialized mutex.");
+	    case       CLEARED_MUTEX:				die("Attempt to condvar_wait on cleared mutex.");
+	    case         FREED_MUTEX:				die("Attempt to condvar_wait on freed condvar.");
+	    default:						die("condvar_wait: Attempt to convar_wait on bogus mutex value. (Already-freed mutex? Junk?)");
+	}
+
+	pth__condvar_wait( &condvar->condvar, &mutex->mutex );
+
+        return HEAP_VOID;
+
+//    #else
+//	die ("condvar_wait: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val condvar_signal   (Task* task,  Val arg)   {
