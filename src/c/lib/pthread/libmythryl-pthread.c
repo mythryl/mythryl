@@ -398,11 +398,33 @@ static Val barrier_free   (Task* task,  Val arg)   {
 static Val barrier_init   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("barrier_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	Val barrier_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
+	int threads	= GET_TUPLE_SLOT_AS_INT(arg, 1);
+
+	struct barrier_struct*  barrier
+	    =
+	    *((struct barrier_struct**) barrier_arg);
+
+	switch (barrier->status) {
+	    //
+	    case UNINITIALIZED_BARRIER:
+	    case       CLEARED_BARRIER:
+		//
+		pth__barrier_init( &barrier->barrier, threads );
+		break;
+
+	    case   INITIALIZED_BARRIER:				die("Attempt to set already-set barrier.");
+	    case         FREED_BARRIER:				die("Attempt to set freed barrier.");
+	    default:						die("barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("barrier_init: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val barrier_destroy   (Task* task,  Val arg)   {
