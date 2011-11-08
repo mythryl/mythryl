@@ -301,11 +301,29 @@ static Val mutex_unlock   (Task* task,  Val arg)   {
 static Val mutex_trylock   (Task* task,  Val arg)   {
     //     =============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_trylock: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case   INITIALIZED_MUTEX:
+		if (pth__mutex_trylock( &mutex->mutex ))   return HEAP_TRUE;	// Mutex was busy.
+		else					   return HEAP_FALSE;	// Successfully acquired mutex.
+
+	    case UNINITIALIZED_MUTEX:				die("Attempt to try mutex before setting it.");
+	    case       CLEARED_MUTEX:				die("Attempt to try mutex after clearing it.");
+	    case         FREED_MUTEX:				die("Attempt to try mutex after freeing it.");
+	    default:						die("mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("mutex_trylock: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 
