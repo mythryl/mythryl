@@ -409,6 +409,7 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
 //    #if NEED_PTHREAD_SUPPORT
+
 	struct barrier_struct*  barrier
 	    =
 	    *((struct barrier_struct**) arg);
@@ -425,6 +426,7 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	    default:						die("barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
 	}
         return HEAP_VOID;
+
 //    #else
 //	die ("barrier_destroy: unimplemented\n");
 //        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -434,11 +436,30 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 static Val barrier_wait   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("barrier_wait: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct barrier_struct*  barrier
+	    =
+	    *((struct barrier_struct**) arg);
+
+	switch (barrier->status) {
+	    //
+	    case   INITIALIZED_BARRIER:
+		if (pth__barrier_wait( &barrier->barrier ))     return HEAP_TRUE;
+		else						return HEAP_FALSE;
+		break;
+
+	    case UNINITIALIZED_BARRIER:				die("Attempt to wait on uninitialized barrier.");
+	    case       CLEARED_BARRIER:				die("Attempt to wait on cleared barrier.");
+	    case         FREED_BARRIER:				die("Attempt to wait on freed barrier.");
+	    default:						die("barrier_wait: Attempt to wait on bogus value. (Already-freed barrier? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("barrier_wait: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 
