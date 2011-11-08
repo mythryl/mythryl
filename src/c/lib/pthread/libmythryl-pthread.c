@@ -209,17 +209,36 @@ static Val mutex_free   (Task* task,  Val arg)   {
 static Val mutex_init   (Task* task,  Val arg)   {
     //     ==========
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("mutex_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct mutex_struct*  mutex
+	    =
+	    *((struct mutex_struct**) arg);
+
+	switch (mutex->status) {
+	    //
+	    case UNINITIALIZED_MUTEX:
+	    case       CLEARED_MUTEX:
+		pth__mutex_init( &mutex->mutex );
+		break;
+
+	    case   INITIALIZED_MUTEX:				die("Attempt to set already-set mutex.");
+	    case         FREED_MUTEX:				die("Attempt to set freed mutex.");
+	    default:						die("mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("mutex_init: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val mutex_destroy   (Task* task,  Val arg)   {
     //     =============
     //
 //    #if NEED_PTHREAD_SUPPORT
+
 	struct mutex_struct*  mutex
 	    =
 	    *((struct mutex_struct**) arg);
@@ -236,6 +255,7 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	    default:						die("mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
 	}
         return HEAP_VOID;
+
 //    #else
 //	die ("mutex_destroy: unimplemented\n");
 //        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -556,11 +576,29 @@ static Val condvar_free   (Task* task,  Val arg)   {
 static Val condvar_init   (Task* task,  Val arg)   {
     //     ============
     //
-    #if NEED_PTHREAD_SUPPORT
-    #else
-	die ("condvar_init: unimplemented\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #if NEED_PTHREAD_SUPPORT
+
+	struct condvar_struct*  condvar
+	    =
+	    *((struct condvar_struct**) arg);
+
+	switch (condvar->status) {
+	    //
+	    case UNINITIALIZED_CONDVAR:
+	    case       CLEARED_CONDVAR:
+		pth__condvar_init( &condvar->condvar );
+		break;
+
+	    case   INITIALIZED_CONDVAR:				die("Attempt to set already-set condvar.");
+	    case         FREED_CONDVAR:				die("Attempt to set freed condvar.");
+	    default:						die("condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)");
+	}
+        return HEAP_VOID;
+
+//    #else
+//	die ("condvar_init: unimplemented\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 static Val condvar_destroy   (Task* task,  Val arg)   {
