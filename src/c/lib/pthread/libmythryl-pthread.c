@@ -39,31 +39,10 @@
 #include "make-strings-and-vectors-etc.h"
 #include "mythryl-callable-c-libraries.h"
 
-// Values for barrier_struct.status:
-//
-#define UNINITIALIZED_BARRIER	0xDEADBEEF
-#define   INITIALIZED_BARRIER	0xBEEFFEED
-#define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_BARRIER	0xFBEEFBEE
-
-// Values for condvar_struct.status:
-//
-#define UNINITIALIZED_CONDVAR	0xDEADBEEF
-#define   INITIALIZED_CONDVAR	0xBEEFFEED
-#define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_CONDVAR	0xFBEEFBEE
-
-// Values for mutex_struct.status:
-//
-#define UNINITIALIZED_MUTEX	0xDEADBEEF
-#define   INITIALIZED_MUTEX	0xBEEFFEED
-#define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_MUTEX	0xFBEEFBEE
-
 struct mutex_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];		// See comment below.
-    int      status;
+    int      state;										// Track state: Uninitialized/initialized/cleared/free()d -- see below #defines.
     Mutex    mutex;
     int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
@@ -71,7 +50,7 @@ struct mutex_struct {
 struct condvar_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-    int      status;
+    int      state;
     Condvar  condvar;
     int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
@@ -79,7 +58,7 @@ struct condvar_struct {
 struct barrier_struct {
     //
     int					padding0[ CACHE_LINE_BYTESIZE / sizeof(int) ];
-    int      status;
+    int      state;
     Barrier  barrier;
     int					padding1[ CACHE_LINE_BYTESIZE / sizeof(int) ];
 };
@@ -99,7 +78,30 @@ struct barrier_struct {
     // wind up fighting for control of the shared cacheline.
     ////////////////////////////////////////////////////////////////
 
+// Values for barrier_struct.state:
+//
+#define UNINITIALIZED_BARRIER	0xDEADBEEF
+#define   INITIALIZED_BARRIER	0xBEEFFEED
+#define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
+#define         FREED_BARRIER	0xFBEEFBEE
 
+// Values for condvar_struct.state:
+//
+#define UNINITIALIZED_CONDVAR	0xDEADBEEF
+#define   INITIALIZED_CONDVAR	0xBEEFFEED
+#define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
+#define         FREED_CONDVAR	0xFBEEFBEE
+
+// Values for mutex_struct.state:
+//
+#define UNINITIALIZED_MUTEX	0xDEADBEEF
+#define   INITIALIZED_MUTEX	0xBEEFFEED
+#define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
+#define         FREED_MUTEX	0xFBEEFBEE
+
+
+
+// return RAISE_ERROR(task, "addch");
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
@@ -160,7 +162,7 @@ static Val mutex_make   (Task* task,  Val arg)   {
 	    =
 	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
 
-	mutex->status = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
+	mutex->state = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
 
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
@@ -189,7 +191,7 @@ static Val mutex_free   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case UNINITIALIZED_MUTEX:
 	    case   INITIALIZED_MUTEX:
@@ -221,7 +223,7 @@ static Val mutex_init   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case UNINITIALIZED_MUTEX:
 	    case       CLEARED_MUTEX:
@@ -249,7 +251,7 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
 		pth__mutex_destroy( &mutex->mutex );
@@ -277,7 +279,7 @@ static Val mutex_lock   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
 		pth__mutex_lock( &mutex->mutex );
@@ -305,7 +307,7 @@ static Val mutex_unlock   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
 		pth__mutex_unlock( &mutex->mutex );
@@ -333,7 +335,7 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 	    =
 	    *((struct mutex_struct**) arg);
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
 		if (pth__mutex_trylock( &mutex->mutex ))   return HEAP_TRUE;	// Mutex was busy.
@@ -369,7 +371,7 @@ static Val barrier_make   (Task* task,  Val arg)   {
 	    =
 	    (struct barrier_struct*)  MALLOC( sizeof(struct barrier_struct) );	if (!barrier) die("Unable to malloc barrier_struct"); 
 
-	barrier->status = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
+	barrier->state = UNINITIALIZED_BARRIER;				// So we can catch attempts to wait on an uninitialized barrier at this level.
 
 	// We return the address of the barrier_struct
 	// to the Mythryl level encoded as a word value:
@@ -398,7 +400,7 @@ static Val barrier_free   (Task* task,  Val arg)   {
 	    =
 	    *((struct barrier_struct**) arg);
 
-	switch (barrier->status) {
+	switch (barrier->state) {
 	    //
 	    case UNINITIALIZED_BARRIER:
 	    case   INITIALIZED_BARRIER:
@@ -433,7 +435,7 @@ static Val barrier_init   (Task* task,  Val arg)   {
 	    =
 	    *((struct barrier_struct**) barrier_arg);
 
-	switch (barrier->status) {
+	switch (barrier->state) {
 	    //
 	    case UNINITIALIZED_BARRIER:
 	    case       CLEARED_BARRIER:
@@ -462,7 +464,7 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	    =
 	    *((struct barrier_struct**) arg);
 
-	switch (barrier->status) {
+	switch (barrier->state) {
 	    //
 	    case   INITIALIZED_BARRIER:
 		pth__barrier_destroy( &barrier->barrier );
@@ -490,7 +492,7 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 	    =
 	    *((struct barrier_struct**) arg);
 
-	switch (barrier->status) {
+	switch (barrier->state) {
 	    //
 	    case   INITIALIZED_BARRIER:
 		if (pth__barrier_wait( &barrier->barrier ))     return HEAP_TRUE;
@@ -527,7 +529,7 @@ static Val condvar_make   (Task* task,  Val arg)   {
 	    =
 	    (struct condvar_struct*)  MALLOC( sizeof(struct condvar_struct) );	if (!condvar) die("Unable to malloc condvar_struct"); 
 
-	condvar->status = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
+	condvar->state = UNINITIALIZED_CONDVAR;				// So we can catch attempts to wait on an uninitialized condvar at this level.
 
 	// We return the address of the condvar_struct
 	// to the Mythryl level encoded as a word value:
@@ -556,7 +558,7 @@ static Val condvar_free   (Task* task,  Val arg)   {
 	    =
 	    *((struct condvar_struct**) arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case UNINITIALIZED_CONDVAR:
 	    case   INITIALIZED_CONDVAR:
@@ -588,7 +590,7 @@ static Val condvar_init   (Task* task,  Val arg)   {
 	    =
 	    *((struct condvar_struct**) arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case UNINITIALIZED_CONDVAR:
 	    case       CLEARED_CONDVAR:
@@ -616,7 +618,7 @@ static Val condvar_destroy   (Task* task,  Val arg)   {
 	    =
 	    *((struct condvar_struct**) arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		pth__condvar_destroy( &condvar->condvar );
@@ -646,7 +648,7 @@ static Val condvar_wait   (Task* task,  Val arg)   {
 	struct condvar_struct*  condvar =   *((struct condvar_struct**) condvar_arg);
 	struct   mutex_struct*  mutex   =   *((struct   mutex_struct**)   mutex_arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:		break;
 
@@ -656,7 +658,7 @@ static Val condvar_wait   (Task* task,  Val arg)   {
 	    default:						die("condvar_wait: Attempt to wait on bogus value. (Already-freed condvar? Junk?)");
 	}
 
-	switch (mutex->status) {
+	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:		break;
 
@@ -685,7 +687,7 @@ static Val condvar_signal   (Task* task,  Val arg)   {
 	    =
 	    *((struct condvar_struct**) arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		pth__condvar_signal( &condvar->condvar );
@@ -713,7 +715,7 @@ static Val condvar_broadcast   (Task* task,  Val arg)   {
 	    =
 	    *((struct condvar_struct**) arg);
 
-	switch (condvar->status) {
+	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		pth__condvar_broadcast( &condvar->condvar );
