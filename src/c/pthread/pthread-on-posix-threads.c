@@ -274,18 +274,16 @@ char*  pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.o
 }
 
 
-Bool   pth__barrier_wait   (Barrier* barrier) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+char*  pth__barrier_wait   (Barrier* barrier, Bool* result) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
     int err =  pthread_barrier_wait( barrier );
     //
     switch (err) {
 	//
-	case PTHREAD_BARRIER_SERIAL_THREAD:	return 1;			// Exactly one pthread gets this return value when released from barrier.
-	case 0:					return 0;			// All other threads at barrier get this.
-	//
-	default:
-	    die("pth__barrier_wait: Fatal error while blocked at barrier.");
+	case PTHREAD_BARRIER_SERIAL_THREAD:	*result = TRUE;		return NULL;								// Exactly one pthread gets this return value when released from barrier.
+	case 0:					*result = FALSE;	return NULL;								// All other threads at barrier get this.
+	default:							return "pth__barrier_wait: Fatal error while blocked at barrier.";
     }
 }
 

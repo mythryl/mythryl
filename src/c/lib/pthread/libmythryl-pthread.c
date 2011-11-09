@@ -528,14 +528,19 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 	switch (barrier->state) {
 	    //
 	    case   INITIALIZED_BARRIER:
-		if (pth__barrier_wait( &barrier->barrier ))     return HEAP_TRUE;
-		else						return HEAP_FALSE;
+		{   Bool result;
+		    char* err =   pth__barrier_wait( &barrier->barrier, &result );
+		    //
+		    if (err)					return RAISE_ERROR( task, err );
+		    if (result)					return HEAP_TRUE;
+		    else					return HEAP_FALSE;
+		}
 		break;
 
-	    case UNINITIALIZED_BARRIER:				die("Attempt to wait on uninitialized barrier.");
-	    case       CLEARED_BARRIER:				die("Attempt to wait on cleared barrier.");
-	    case         FREED_BARRIER:				die("Attempt to wait on freed barrier.");
-	    default:						die("barrier_wait: Attempt to wait on bogus value. (Already-freed barrier? Junk?)");
+	    case UNINITIALIZED_BARRIER:				return RAISE_ERROR( task, "Attempt to wait on uninitialized barrier.");
+	    case       CLEARED_BARRIER:				return RAISE_ERROR( task, "Attempt to wait on cleared barrier.");
+	    case         FREED_BARRIER:				return RAISE_ERROR( task, "Attempt to wait on freed barrier.");
+	    default:						return RAISE_ERROR( task, "barrier_wait: Attempt to wait on bogus value. (Already-freed barrier? Junk?)");
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 

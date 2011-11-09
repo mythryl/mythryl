@@ -238,7 +238,7 @@ typedef enum {
 	//    (That is, if some pthread has not returned from
 	//    pth__barrier_wait)
 
-    extern Bool     pth__barrier_wait (Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+    extern char*    pth__barrier_wait (Barrier* barrierp, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
 	//
 	// Block currently executing pthread until the proper
 	// number of pthreads are waiting at the barrier.
