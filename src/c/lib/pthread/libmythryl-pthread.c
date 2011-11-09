@@ -618,14 +618,19 @@ static Val condvar_init   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_CONDVAR:
 	    case       CLEARED_CONDVAR:
-		pth__condvar_init( &condvar->condvar );
+		{
+		    char* err = pth__condvar_init( &condvar->condvar );
+		    //
+		    if (err)					return RAISE_ERROR( task, err );
+		    else					HEAP_VOID;
+		}
 		break;
 
-	    case   INITIALIZED_CONDVAR:				die("Attempt to set already-set condvar.");
-	    case         FREED_CONDVAR:				die("Attempt to set freed condvar.");
-	    default:						die("condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)");
+	    case   INITIALIZED_CONDVAR:				return RAISE_ERROR( task, "Attempt to set already-set condvar.");
+	    case         FREED_CONDVAR:				return RAISE_ERROR( task, "Attempt to set freed condvar.");
+	    default:						return RAISE_ERROR( task, "condvar_init: Attempt to set bogus value. (Already-freed condvar? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("condvar_init: unimplemented\n");

@@ -146,7 +146,7 @@ typedef enum {
     //
     // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
     //
-    extern void  pth__condvar_init		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    extern char*   pth__condvar_init		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
 	//
 	// Prepare the condition variable for use.
 	// This may allocate resources or such internally.

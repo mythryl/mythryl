@@ -223,13 +223,11 @@ char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
 }
 
 
-void     pth__condvar_init ( Condvar* condvar ) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*    pth__condvar_init ( Condvar* condvar ) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
-    if (pthread_cond_init( condvar, NULL )) {
-	//
-	die("pth__condvar_init: Unable to initialize condition variable.");
-    }
+    if (pthread_cond_init( condvar, NULL ))	return "pth__condvar_init: Unable to initialize condition variable.";
+    else					NULL;
 }
 
 void   pth__condvar_destroy   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
