@@ -244,7 +244,7 @@ char*  pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.o
     else					return NULL;
 }
 
-void   pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
     if (pthread_cond_signal( condvar ))		return "pth__condvar_signal: Unable to signal on condition variable.";
