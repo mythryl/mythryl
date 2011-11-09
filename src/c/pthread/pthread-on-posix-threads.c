@@ -251,13 +251,11 @@ char*  pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.or
     else					return NULL;
 }
 
-void   pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
-    if (pthread_cond_broadcast( condvar )) {
-	//
-	die("pth__condvar_broadcast: Unable to broadcast on condition variable.");
-    }	
+    if (pthread_cond_broadcast( condvar ))	return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
+    else					return NULL;
 }
 
 

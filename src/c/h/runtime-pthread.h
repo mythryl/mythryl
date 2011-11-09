@@ -184,7 +184,7 @@ typedef enum {
 	// If multiple pthreads are unblocked, they compete for the
 	// associated mutex as though they had call called pth__mutex_lock().
 
-    extern void   pth__condvar_broadcast   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    extern char*   pth__condvar_broadcast   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
 	//
 	// Unblock all pthreads waiting on condvar, which might be none.
 	//
