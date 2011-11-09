@@ -464,12 +464,16 @@ static Val barrier_init   (Task* task,  Val arg)   {
 	    case UNINITIALIZED_BARRIER:
 	    case       CLEARED_BARRIER:
 		//
-		pth__barrier_init( &barrier->barrier, threads );
+		{   char* err =   pth__barrier_init( &barrier->barrier, threads );
+		    //
+		    if (err)					return RAISE_ERROR( task, err );
+		    else					return HEAP_VOID;
+		}
 		break;
 
-	    case   INITIALIZED_BARRIER:				die("Attempt to set already-set barrier.");
-	    case         FREED_BARRIER:				die("Attempt to set freed barrier.");
-	    default:						die("barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)");
+	    case   INITIALIZED_BARRIER:				return RAISE_ERROR( task, "Attempt to set already-set barrier.");
+	    case         FREED_BARRIER:				return RAISE_ERROR( task, "Attempt to set freed barrier.");
+	    default:						return RAISE_ERROR( task, "barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)");
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 

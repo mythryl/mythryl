@@ -222,7 +222,7 @@ typedef enum {
     //  o Never call  pth__barrier_init() or pth__barrier_detroy()
     //    while pthreads are blocked on the barrier.
     //
-    extern void     pth__barrier_init 	(Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    extern char*    pth__barrier_init 	(Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
 	//
 	// Tell the barrier how many threads must be
 	// present at it before they can pass. This
