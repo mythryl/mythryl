@@ -237,13 +237,11 @@ char*  pth__condvar_destroy   (Condvar* condvar) {				// http://pubs.opengroup.o
     else					return NULL;
 }
 
-void   pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
-    if (pthread_cond_wait( condvar, mutex )) {
-	//
-	die("pth__condvar_wait: Unable to wait on condition variable.");
-    }	
+    if (pthread_cond_wait( condvar, mutex )) 	return "pth__condvar_wait: Unable to wait on condition variable.";
+    else					return NULL;
 }
 
 void   pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html

@@ -685,26 +685,30 @@ static Val condvar_wait   (Task* task,  Val arg)   {
 	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:		break;
-
-	    case UNINITIALIZED_CONDVAR:				die("Attempt to wait on uninitialized condvar.");
-	    case       CLEARED_CONDVAR:				die("Attempt to wait on already-cleared condvar.");
-	    case         FREED_CONDVAR:				die("Attempt to wait on already-freed condvar.");
-	    default:						die("condvar_wait: Attempt to wait on bogus value. (Already-freed condvar? Junk?)");
+	    //
+	    case UNINITIALIZED_CONDVAR:				return RAISE_ERROR( task, "Attempt to wait on uninitialized condvar.");
+	    case       CLEARED_CONDVAR:				return RAISE_ERROR( task, "Attempt to wait on already-cleared condvar.");
+	    case         FREED_CONDVAR:				return RAISE_ERROR( task, "Attempt to wait on already-freed condvar.");
+	    default:						return RAISE_ERROR( task, "condvar_wait: Attempt to wait on bogus value. (Already-freed condvar? Junk?)");
 	}
 
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:		break;
-
-	    case UNINITIALIZED_MUTEX:				die("Attempt to condvar_wait on uninitialized mutex.");
-	    case       CLEARED_MUTEX:				die("Attempt to condvar_wait on cleared mutex.");
-	    case         FREED_MUTEX:				die("Attempt to condvar_wait on freed condvar.");
-	    default:						die("condvar_wait: Attempt to convar_wait on bogus mutex value. (Already-freed mutex? Junk?)");
+	    //
+	    case UNINITIALIZED_MUTEX:				return RAISE_ERROR( task, "Attempt to condvar_wait on uninitialized mutex.");
+	    case       CLEARED_MUTEX:				return RAISE_ERROR( task, "Attempt to condvar_wait on cleared mutex.");
+	    case         FREED_MUTEX:				return RAISE_ERROR( task, "Attempt to condvar_wait on freed condvar.");
+	    default:						return RAISE_ERROR( task, "condvar_wait: Attempt to convar_wait on bogus mutex value. (Already-freed mutex? Junk?)");
 	}
 
-	pth__condvar_wait( &condvar->condvar, &mutex->mutex );
+	{   char* err =  pth__condvar_wait( &condvar->condvar, &mutex->mutex );
+	    //
+	    if (err)						return RAISE_ERROR( task, err );
+	    else						return HEAP_VOID;
+	}
 
-        return HEAP_VOID;
+
 
 //    #else
 //	die ("condvar_wait: unimplemented\n");
