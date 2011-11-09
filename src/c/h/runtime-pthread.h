@@ -167,13 +167,13 @@ typedef enum {
 	//  o Behavior is undefined if pth__condvar_destroy()
 	//    is called when a pthread is blocked on the condition variable.
 
-    extern char*   pth__condvar_wait   (Condvar* condvar, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+    extern char*   pth__condvar_wait   (Condvar* condvar, Mutex* mutex);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
 	//
 	// Atomically release mutex and block on the condition variable.
 	// Upon return we will again hold the mutex.  (Return is triggered
 	// by a call to   pth__condvar_signal or pth__condvar_broadcast.)
 
-    extern void   pth__condvar_signal   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    extern char*   pth__condvar_signal   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
 	//
 	// Unblock at least one pthread waiting on condvar,
 	// except no effect if no pthreads are blocked on condvar,

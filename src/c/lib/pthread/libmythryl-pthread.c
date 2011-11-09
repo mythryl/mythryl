@@ -728,15 +728,20 @@ static Val condvar_signal   (Task* task,  Val arg)   {
 	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
-		pth__condvar_signal( &condvar->condvar );
+		{
+		    char* err =  pth__condvar_signal( &condvar->condvar );
+		    //
+		    if (err)						return RAISE_ERROR( task, err );
+		    else						return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_CONDVAR:				die("Attempt to signal via uninitialized condvar.");
-	    case       CLEARED_CONDVAR:				die("Attempt to signal via cleared condvar.");
-	    case         FREED_CONDVAR:				die("Attempt to signal via freed condvar.");
-	    default:						die("condvar_signal: Attempt to signal via bogus value. (Already-freed condvar? Junk?)");
+	    case UNINITIALIZED_CONDVAR:				return RAISE_ERROR( task, "Attempt to signal via uninitialized condvar.");
+	    case       CLEARED_CONDVAR:				return RAISE_ERROR( task, "Attempt to signal via cleared condvar.");
+	    case         FREED_CONDVAR:				return RAISE_ERROR( task, "Attempt to signal via freed condvar.");
+	    default:						return RAISE_ERROR( task, "condvar_signal: Attempt to signal via bogus value. (Already-freed condvar? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("condvar_signal: unimplemented\n");
