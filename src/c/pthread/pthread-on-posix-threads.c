@@ -190,15 +190,13 @@ char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
     else					return NULL;
 }
 
-void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     if (!pth__done_pthread_create__global)   return;
     //
-    if (pthread_mutex_lock( mutex )) {
-	//
-	die("pth__mutex_lock: Unable to acquire lock.");
-    }
+    if (pthread_mutex_lock( mutex ))		return "pth__mutex_lock: Unable to acquire lock.";
+    else					return NULL;
 }
 
 Bool   pth__mutex_trylock   (Mutex* mutex)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html

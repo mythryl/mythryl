@@ -260,7 +260,7 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		{   char err = pth__mutex_destroy( &mutex->mutex );
+		{   char* err = pth__mutex_destroy( &mutex->mutex );
 		    //
 		    if (err)   RAISE_ERROR( task, err );
 		    else       return HEAP_VOID;
@@ -292,13 +292,17 @@ static Val mutex_lock   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		pth__mutex_lock( &mutex->mutex );
+		{    char* err =  pth__mutex_lock( &mutex->mutex );
+		    //
+		    if (err)   RAISE_ERROR( task, err );
+		    else       return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:				die("Attempt to acquire mutex before setting it.");
-	    case       CLEARED_MUTEX:				die("Attempt to acquire mutex after clearing it.");
-	    case         FREED_MUTEX:				die("Attempt to acquire mutex after freeing it.");
-	    default:						die("mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:				RAISE_ERROR( task, "Attempt to acquire mutex before setting it.");
+	    case       CLEARED_MUTEX:				RAISE_ERROR( task, "Attempt to acquire mutex after clearing it.");
+	    case         FREED_MUTEX:				RAISE_ERROR( task, "Attempt to acquire mutex after freeing it.");
+	    default:						RAISE_ERROR( task, "mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)");
 	}
         return HEAP_VOID;
 
