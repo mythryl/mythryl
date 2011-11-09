@@ -439,7 +439,7 @@ static Val barrier_free   (Task* task,  Val arg)   {
 	    default:
 		die("barrier_free: Attempt to free bogus value. (Already-freed barrier? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
 //    #else
 //	die ("barrier_free: unimplemented\n");
@@ -471,7 +471,7 @@ static Val barrier_init   (Task* task,  Val arg)   {
 	    case         FREED_BARRIER:				die("Attempt to set freed barrier.");
 	    default:						die("barrier_init: Attempt to set bogus value. (Already-freed barrier? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("barrier_init: unimplemented\n");
@@ -499,7 +499,7 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	    case         FREED_BARRIER:				die("Attempt to clear already-freed barrier.");
 	    default:						die("barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("barrier_destroy: unimplemented\n");
@@ -528,7 +528,7 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 	    case         FREED_BARRIER:				die("Attempt to wait on freed barrier.");
 	    default:						die("barrier_wait: Attempt to wait on bogus value. (Already-freed barrier? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("barrier_wait: unimplemented\n");
@@ -597,7 +597,7 @@ static Val condvar_free   (Task* task,  Val arg)   {
 	    default:
 		die("condvar_free: Attempt to free bogus value. (Already-freed condvar? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
 //    #else
 //	die ("condvar_free: unimplemented\n");
@@ -622,7 +622,7 @@ static Val condvar_init   (Task* task,  Val arg)   {
 		    char* err = pth__condvar_init( &condvar->condvar );
 		    //
 		    if (err)					return RAISE_ERROR( task, err );
-		    else					HEAP_VOID;
+		    else					return HEAP_VOID;
 		}
 		break;
 
@@ -650,15 +650,20 @@ static Val condvar_destroy   (Task* task,  Val arg)   {
 	switch (condvar->state) {
 	    //
 	    case   INITIALIZED_CONDVAR:
-		pth__condvar_destroy( &condvar->condvar );
+		{
+		    char* err =  pth__condvar_destroy( &condvar->condvar );
+		    //
+		    if (err)					return RAISE_ERROR( task, err );
+		    else					return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_CONDVAR:				die("Attempt to clear uninitialized condvar.");
-	    case       CLEARED_CONDVAR:				die("Attempt to clear already-cleared condvar.");
-	    case         FREED_CONDVAR:				die("Attempt to clear already-freed condvar.");
-	    default:						die("condvar_destroy: Attempt to clear bogus value. (Already-freed condvar? Junk?)");
+	    case UNINITIALIZED_CONDVAR:				return RAISE_ERROR( task, "Attempt to clear uninitialized condvar.");
+	    case       CLEARED_CONDVAR:				return RAISE_ERROR( task, "Attempt to clear already-cleared condvar.");
+	    case         FREED_CONDVAR:				return RAISE_ERROR( task, "Attempt to clear already-freed condvar.");
+	    default:						return RAISE_ERROR( task, "condvar_destroy: Attempt to clear bogus value. (Already-freed condvar? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("condvar_destroy: unimplemented\n");

@@ -156,7 +156,7 @@ typedef enum {
 	//   is called on an already-initialized condition variable.
 	//   (Call pth__condvar_destroy first.)
 
-    extern void  pth__condvar_destroy		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    extern char*   pth__condvar_destroy		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
         //
         // Undo the effects of   pth__condvar_init ()   on the condition variable.
 	// ("Destroy" is poor nomenclature; "reset" would be better.)
