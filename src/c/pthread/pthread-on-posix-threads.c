@@ -174,20 +174,20 @@ void   pth__shut_down (void) {
     // and also             die()  and  assert_fail()          in   src/c/main/error.c
 }
 
+// NB: All the error returns in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
+
 char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    if (pthread_mutex_init( mutex, NULL ))   return "pth__mutex_init: Unable to initialize mutex.";
-    else                                     return NULL;
+    if (pthread_mutex_init( mutex, NULL ))	return "pth__mutex_init: Unable to initialize mutex.";
+    else					return NULL;
 }
 
-void     pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
-    if (pthread_mutex_destroy( mutex )) {
-	//
-	die("pth__mutex_init: Unable to destroy mutex.");			// All the die() calls in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
-    }
+    if (pthread_mutex_destroy( mutex ))		return "pth__mutex_destroy: Unable to destroy mutex";
+    else					return NULL;
 }
 
 void   pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html

@@ -235,11 +235,12 @@ static Val mutex_init   (Task* task,  Val arg)   {
 		}
 		break;
 
-	    case   INITIALIZED_MUTEX:				die("Attempt to set already-set mutex.");
-	    case         FREED_MUTEX:				die("Attempt to set freed mutex.");
-	    default:						die("mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)");
+	    case   INITIALIZED_MUTEX:	RAISE_ERROR( task, "Attempt to set already-set mutex.");
+	    case         FREED_MUTEX:	RAISE_ERROR( task, "Attempt to set freed mutex.");
+	    default:			RAISE_ERROR( task, "mutex_init: Attempt to set bogus value. (Already-freed mutex? Junk?)");
 	}
-        return HEAP_VOID;
+
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("mutex_init: unimplemented\n");
@@ -259,13 +260,17 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		pth__mutex_destroy( &mutex->mutex );
+		{   char err = pth__mutex_destroy( &mutex->mutex );
+		    //
+		    if (err)   RAISE_ERROR( task, err );
+		    else       return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:				die("Attempt to clear uninitialized mutex.");
-	    case       CLEARED_MUTEX:				die("Attempt to clear already-cleared mutex.");
-	    case         FREED_MUTEX:				die("Attempt to clear already-freed mutex.");
-	    default:						die("mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:				RAISE_ERROR( task, "Attempt to clear uninitialized mutex.");
+	    case       CLEARED_MUTEX:				RAISE_ERROR( task, "Attempt to clear already-cleared mutex.");
+	    case         FREED_MUTEX:				RAISE_ERROR( task, "Attempt to clear already-freed mutex.");
+	    default:						RAISE_ERROR( task, "mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
 	}
         return HEAP_VOID;
 
