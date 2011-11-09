@@ -258,7 +258,7 @@ typedef enum {
 	//      * pth__barrier_init() has not been called on it since the last
 	//        pth__barrier_destroy() call on it.
 
-    extern void     pth__barrier_destroy(Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    extern char*    pth__barrier_destroy(Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
         //
         // Undo the effects of   pth__barrier_init ()   on the barrier.
 	// ("Destroy" is poor nomenclature; "reset" would be better.)

@@ -262,17 +262,15 @@ char*  pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup
 char*  pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
-    if (pthread_barrier_init( barrier, NULL, (unsigned) threads))	return "pth__barrier_init: Unable to initialize barrier.";
+    if (pthread_barrier_init( barrier, NULL, (unsigned) threads))	return "pth__barrier_init: Unable to set barrier.";
     else								return NULL;
 }
 
-void   pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
-    if (pthread_barrier_destroy( barrier )) {
-	//
-	die("pth__barrier_init: Unable to destroy barrier.");
-    }
+    if (pthread_barrier_destroy( barrier )) 	return "pth__barrier_init: Unable to clear barrier.";
+    else					return NULL;
 }
 
 

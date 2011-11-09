@@ -495,13 +495,18 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	switch (barrier->state) {
 	    //
 	    case   INITIALIZED_BARRIER:
-		pth__barrier_destroy( &barrier->barrier );
+		{
+		    char* err =   pth__barrier_destroy( &barrier->barrier );
+		    //
+		    if (err)					return RAISE_ERROR( task, err );
+		    else					return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_BARRIER:				die("Attempt to clear uninitialized barrier.");
-	    case       CLEARED_BARRIER:				die("Attempt to clear already-cleared barrier.");
-	    case         FREED_BARRIER:				die("Attempt to clear already-freed barrier.");
-	    default:						die("barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
+	    case UNINITIALIZED_BARRIER:				return RAISE_ERROR( task, "Attempt to clear uninitialized barrier.");
+	    case       CLEARED_BARRIER:				return RAISE_ERROR( task, "Attempt to clear already-cleared barrier.");
+	    case         FREED_BARRIER:				return RAISE_ERROR( task, "Attempt to clear already-freed barrier.");
+	    default:						return RAISE_ERROR( task, "barrier_destroy: Attempt to clear bogus value. (Already-freed barrier? Junk?)");
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
