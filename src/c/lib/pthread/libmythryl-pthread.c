@@ -207,7 +207,7 @@ static Val mutex_free   (Task* task,  Val arg)   {
 	    default:
 		die("mutex_free: Attempt to free bogus value. (Already-freed mutex? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
 //    #else
 //	die ("mutex_free: unimplemented\n");
@@ -272,7 +272,7 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	    case         FREED_MUTEX:				return RAISE_ERROR( task, "Attempt to clear already-freed mutex.");
 	    default:						return RAISE_ERROR( task, "mutex_destroy: Attempt to clear bogus value. (Already-freed mutex? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("mutex_destroy: unimplemented\n");
@@ -304,7 +304,7 @@ static Val mutex_lock   (Task* task,  Val arg)   {
 	    case         FREED_MUTEX:				return RAISE_ERROR( task, "Attempt to acquire mutex after freeing it.");
 	    default:						return RAISE_ERROR( task, "mutex_lock: Attempt to acquire bogus value. (Already-freed mutex? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("mutex_lock: unimplemented\n");
@@ -324,15 +324,19 @@ static Val mutex_unlock   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		pth__mutex_unlock( &mutex->mutex );
+		{   char* err =  pth__mutex_unlock( &mutex->mutex );
+		    //
+		    if (err)   return RAISE_ERROR( task, err );
+		    else       return HEAP_VOID;
+		}
 		break;
 
-	    case UNINITIALIZED_MUTEX:				die("Attempt to release mutex before setting it.");
-	    case       CLEARED_MUTEX:				die("Attempt to release mutex after clearing it.");
-	    case         FREED_MUTEX:				die("Attempt to release mutex after freeing it.");
-	    default:						die("mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)");
+	    case UNINITIALIZED_MUTEX:				return RAISE_ERROR( task, "Attempt to release mutex before setting it.");
+	    case       CLEARED_MUTEX:				return RAISE_ERROR( task, "Attempt to release mutex after clearing it.");
+	    case         FREED_MUTEX:				return RAISE_ERROR( task, "Attempt to release mutex after freeing it.");
+	    default:						return RAISE_ERROR( task, "mutex_lock: Attempt to release bogus value. (Already-freed mutex? Junk?)");
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
 //    #else
 //	die ("mutex_unlock: unimplemented\n");

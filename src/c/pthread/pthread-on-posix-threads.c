@@ -213,15 +213,13 @@ char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.
     }
 }
 
-void   pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
     if (!pth__done_pthread_create__global) return;
     //
-    if (pthread_mutex_unlock( mutex )) {
-	//
-	die("pth__mutex_unlock: Unable to release lock.");
-    }
+    if (pthread_mutex_unlock( mutex ))		return "pth__mutex_unlock: Unable to release lock.";
+    else					NULL;
 }
 
 
