@@ -199,18 +199,17 @@ char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/online
     else					return NULL;
 }
 
-Bool   pth__mutex_trylock   (Mutex* mutex)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
     int err =  pthread_mutex_trylock( mutex );
     //
     switch (err) {
 	//
-	case 0: 	return FALSE;						// Successfully acquired lock.
-	case EBUSY:	return TRUE;						// Lock was already taken.
+	case 0: 	*result = FALSE;	return NULL;					// Successfully acquired lock.
+	case EBUSY:	*result = TRUE;		return NULL;					// Lock was already taken.
 	//
-	default:
-	    die("pth__mutex_trylock: Error while attempting to test lock.");
+	default:				return "pth__mutex_trylock: Error while attempting to test lock.";
     }
 }
 
