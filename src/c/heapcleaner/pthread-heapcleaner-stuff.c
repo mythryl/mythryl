@@ -326,7 +326,16 @@ int   pth__start_heapcleaning   (Task *task) {
 	debug_say ("%d entering barrier %d\n",pthread->pid,active_pthread_count);
     #endif
 
-    pth__barrier_wait( &pth__heapcleaner_barrier__global );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+    {   Bool result;
+        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &result );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+	    //
+	    // 'result' will be TRUE for one pthread waiting on barrier, FALSE for the rest;
+	    // We do not take advantage of that here.
+	    //
+	    // 'err' will be NULL normally, non-NULL only on an error;
+	    // for the moment we hope for the best. XXX SUCKO FIXME.
+	if (err) die(err);
+    }
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
@@ -464,7 +473,16 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
     #endif
 
-    pth__barrier_wait( &pth__heapcleaner_barrier__global );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+    {   Bool result;
+        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &result );			// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+	    //
+	    // 'result' will be TRUE for one pthread waiting on barrier, FALSE for the rest;
+	    // We do not take advantage of that here.
+	    //
+	    // 'err' will be NULL normally, non-NULL only on an error;
+	    // for the moment we hope for the best. XXX SUCKO FIXME.
+	if (err) die(err);
+    }
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say ("%d left barrier\n", pthread->pid);
@@ -494,8 +512,16 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	debug_say ("%d entering barrier\n", task->pthread->pid );
     #endif
 
-    pth__barrier_wait( &pth__heapcleaner_barrier__global );					// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
-												// They should all be already waiting on this barrier, so we should never block at this point.
+    {   Bool result;
+	char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &result );		// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
+	    //											// They should all be already waiting on this barrier, so we should never block at this point.
+	    // 'result' will be TRUE for one pthread waiting on barrier, FALSE for the rest;
+	    // We do not take advantage of that here.
+	    //
+	    // 'err' will be NULL normally, non-NULL only on an error;
+	    // for the moment we just die(). XXX SUCKO FIXME.
+	if (err) die(err);
+    }
 
     pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature; all it does is undo what pth__barrier_init() did.
 

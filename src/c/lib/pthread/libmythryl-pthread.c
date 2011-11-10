@@ -85,22 +85,55 @@ struct barrier_struct {
 #define UNINITIALIZED_BARRIER	0xDEADBEEF
 #define   INITIALIZED_BARRIER	0xBEEFFEED
 #define       CLEARED_BARRIER	0xFEEDBEEF				// Same as UNINITIALIZED_BARRIER so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_BARRIER	0xFBEEFBEE
+#define         FREED_BARRIER	0xDEADDEAD
 
 // Values for condvar_struct.state:
 //
 #define UNINITIALIZED_CONDVAR	0xDEADBEEF
 #define   INITIALIZED_CONDVAR	0xBEEFFEED
 #define       CLEARED_CONDVAR	0xFEEDBEEF				// Same as UNINITIALIZED_CONDVAR so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_CONDVAR	0xFBEEFBEE
+#define         FREED_CONDVAR	0xDEADDEAD
 
 // Values for mutex_struct.state:
 //
 #define UNINITIALIZED_MUTEX	0xDEADBEEF
 #define   INITIALIZED_MUTEX	0xBEEFFEED
 #define       CLEARED_MUTEX	0xFEEDBEEF				// Same as UNINITIALIZED_MUTEX   so far as posix-threads API is concerned, but distinguishing lets us issue more accurate diagnostics.
-#define         FREED_MUTEX	0xFBEEFBEE
+#define         FREED_MUTEX	0xDEADDEAD
 
+
+// Probably should be using this in this file:    XXX SUCKO FIXME
+// 
+				///////////////////////////////////////////////////////
+				// posix_memalign
+				// 
+				// SYNOPSIS 
+				//       #include <stdlib.h> 
+				// 
+				//       int posix_memalign(void **memptr, size_t alignment, size_t size); 
+				// 
+				//       #include <malloc.h> 
+				// 
+				//       void *valloc(size_t size); 
+				//       void *memalign(size_t boundary, size_t size); 
+				// 
+				//   Feature Test Macro Requirements for glibc (see feature_test_macros(7)): 
+				// 
+				//       posix_memalign(): _POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600 
+				// 
+				//       valloc(): 
+				//           Since glibc 2.12: 
+				//               _BSD_SOURCE || 
+				//                   (_XOPEN_SOURCE >= 500 || 
+				//                       _XOPEN_SOURCE && _XOPEN_SOURCE_EXTENDED) && 
+				//                   !(_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) 
+				//           Before glibc 2.12: 
+				//               _BSD_SOURCE || _XOPEN_SOURCE >= 500 || _XOPEN_SOURCE && _XOPEN_SOURCE_EXTENDED 
+				// 
+				// DESCRIPTION 
+				//       The  function posix_memalign() allocates size bytes and places the address of the allocated memory in *memptr.  The address of the allocated memory will be a multiple of alignment, which must be a power of two and a multiple 
+				//       of sizeof(void *).  If size is 0, then posix_memalign() returns either NULL, or a unique pointer value that can later be successfully passed to free(). 
+				///////////////////////////////////////////////////////
 
 
 
@@ -162,6 +195,11 @@ static Val mutex_make   (Task* task,  Val arg)   {
 	struct mutex_struct*  mutex
 	    =
 	    (struct mutex_struct*)  MALLOC( sizeof(struct mutex_struct) );	if (!mutex) die("Unable to malloc mutex_struct"); 
+		//
+		//    "{malloc, calloc, realloc, free, posix_memalign} of glibc-2.2+ are thread safe"
+		//
+		//	-- http://linux.derkeiler.com/Newsgroups/comp.os.linux.development.apps/2005-07/0323.html
+
 
 	mutex->state = UNINITIALIZED_MUTEX;				// So we can catch attempts to wait on an uninitialized mutex at this level.
 

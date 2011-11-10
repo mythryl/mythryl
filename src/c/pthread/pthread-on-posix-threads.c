@@ -44,6 +44,9 @@
 #include "runtime-globals.h"
 #include "pthread-state.h"
 
+#define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
+#define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
+
 // https://computing.llnl.gov/tutorials/pthreads/man/sched_setscheduler.txt
 // https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
@@ -88,7 +91,7 @@
 //
 // int pthread_mutex_timedlock( pthread_mutex_t *restrict mutex, const struct timespec *restrict abs_timeout );
 
-
+//
 int   pth__done_pthread_create__global = FALSE;
     //
     // This boolean flag starts out FALSE and is set TRUE
@@ -113,12 +116,12 @@ int   pth__done_pthread_create__global = FALSE;
        Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
        Mutex	 pth__heapcleaner_gen_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
        Mutex	 pth__timer_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
-static Mutex	      proc_mutex__local			= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
+static Mutex	      pthread_mutex__local		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Apparently never used.
 
        Condvar	 pth__unused_condvar__global		= PTHREAD_COND_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Never used.
 
 
-
+//
 Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
@@ -126,11 +129,7 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // -- to compile:
 //
-Val      pth__pthread_create		(Task* task, Val thread, Val closure)			{ die("pth__pthread_create() not implemented yet"); return (Val)NULL;}
-    //   ===================
-    //
-    // Called (only) by   make_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
-
+//
 void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not implemented yet"); }
     //   =================
     //
@@ -149,6 +148,284 @@ void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not imple
 //   }
 
 
+//
+static void   pthread_main   (void* vtask)   {
+    //        ============
+    //
+    // We do three things here.
+    // In order:
+    // 
+    //   1) Wait to be assigned a trask->pthread->pid value.
+    //   2) Release the pthread_mutex__local acquired by pth__pthread_create
+    //   3) Run assigned Mythryl code via  run_mythryl_task_and_runtime_eventloop()
+    //
+    // We are called only by         sproc_wrapper
+    // which in turn is called only by   pth__pthread_create
+    // 
+    Task* task = (Task*) vtask;
+
+// Needs to be done  	XXX BUGGO FIXME
+//    fix_pnum(task->pnum);
+//    setup_signals(task, TRUE);
+//
+
+    // Spin until we get our id (set by from return of
+    // pth__pthread_create's call to sproc_wrapper)
+    //
+    while (task->pthread->pid == 0) {
+	//
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say("[waiting for self]\n");
+	#endif
+	continue;
+    }
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say ("[new proc main: releasing mutex]\n");
+    #endif
+
+    pth__mutex_unlock( &pthread_mutex__local );					// This lock was acquired by pth__pthread_create (below).
+    run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    //
+    // run_mythryl_task_and_runtime_eventloop should never return:
+    //
+    die ("pthread returned after run_mythryl_task_and_runtime_eventloop() in pthread_main().\n");
+}
+
+
+//
+// static int   pthread_create_wrapper   (Task* task)   {
+    //       ======================
+    //
+    // Our job here is just to fire up a kernel thread running pthread_main().
+    // This is a very simple wrapper for the sgi-library "sproc()" call.
+    //
+    // We are called only by pth__pthread_create
+    // This fn existed on the sgi but not on solaris.
+    //
+
+
+//    int error;
+//    int result = sproc( pthread_main, PR_SALL, (void *)task);		// This must be the platform-dependent spawn-kernelthread call...?
+//
+//    if (result == -1) {
+//	extern int errno;
+//
+//	error = oserror();	// This is potentially a problem since
+//				// each thread should have its own errno.
+//				// see sgi man pages for sproc.			XXX BUGGO FIXME
+//
+//	say_error( "error=%d,errno=%d\n", error, errno );
+//	say_error( "[warning pthread_create_wrapper: %s]\n",strerror(error) );
+//    } 
+//
+//    return result;
+// }
+// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_create.html
+//
+// int pthread_create (							// We return FALSE on success. 
+//     //
+//     pthread_t *restrict               thread,			// RESULT.
+//     const pthread_attr_t *restrict    attr,				// NULL for default attributes.
+//     void *(*                          start_routine        )(void*),	// Code to run in new kernel thread.
+//     void *restrict                    arg				// This arg will be passed to start_routine.
+// ); 
+//
+// [EAGAIN]
+// The system lacked the necessary resources to create another thread, or the system-imposed limit on the total number of threads in a process {PTHREAD_THREADS_MAX} would be exceeded.
+// [EPERM]
+// The caller does not have appropriate permission to set the required scheduling parameters or scheduling policy.
+// The pthread_create() function may fail if:
+//
+// [EINVAL]
+// The attributes specified by attr are invalid.
+//
+// Tutorial example from   http://pages.cs.wisc.edu/~travitch/pthreads_primer.html
+//
+//  #include <pthread.h>
+//  #include <stdio.h>
+//  
+//  void* entry_point (void* arg)
+//  {
+//    printf("Hello world!\n");
+//  
+//    return NULL;
+//  }
+//  
+//  int main(int argc, char **argv)
+//  {
+//    pthread_t thr;
+//    if(pthread_create(&thr, NULL, &entry_point, NULL))
+//      {
+//        printf("Could not create thread\n");
+//        return -1;
+//      }
+//  
+//    if(pthread_join(thr, NULL))
+//      {
+//        printf("Could not join thread\n");
+//        return -1;
+//      }
+//    return 0;
+//  }
+
+
+
+									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
+									// struct task				def in   src/c/h/task.h
+Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure_arg)   {
+    //===================
+    //
+    // Run 'closure_arg' on its own kernel thread.
+    //
+    // This fn is called (only) by   spawn_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
+    //
+    pth__done_pthread_create__global = TRUE;
+
+    Task*    task;
+    Pthread* pthread;
+
+    int i;
+
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say("[acquiring proc]\n");
+    #endif
+
+    pth__mutex_lock( &pthread_mutex__local );
+
+    // Search for a suspended kernel thread to reuse:
+    //
+    for (i = 0;
+	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_SUSPENDED);
+	i++
+    ) {
+	continue;
+    }
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say("[checking for suspended processor]\n");
+    #endif
+
+    if (i == MAX_PTHREADS) {
+        //
+	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+	    //
+	    pth__mutex_unlock( &pthread_mutex__local );
+	    say_error("[processors maxed]\n");
+	    return HEAP_FALSE;
+	}
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say("[checking for NO_PROC]\n");
+	#endif
+
+	// Search for a slot in which to put a new pthread
+	//
+	for (i = 0;
+	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
+	    i++
+	){
+	    continue;
+	}
+
+	if (i == MAX_PTHREADS) {
+	    //
+	    pth__mutex_unlock( &pthread_mutex__local );
+	    say_error("[no processor to allocate]\n");
+	    return HEAP_FALSE;
+	}
+    }
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say("[using processor at index %d]\n", i);
+    #endif
+
+    // Use pthread at index i:
+    //
+    pthread =  pthread_table__global[ i ];
+
+    task =  pthread->task;
+
+    task->exception_fate	=  PTR_CAST( Val,  handle_uncaught_exception_closure_v + 1 );
+    task->argument		=  HEAP_VOID;
+    //
+    task->fate			=  PTR_CAST( Val, return_to_c_level_c);
+    task->current_closure	=  closure_arg;
+    //
+    task->program_counter	= 
+    task->link_register		=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
+    //
+    task->current_thread	=  current_thread;
+  
+    if (pthread->status == NO_PTHREAD_ALLOCATED) {
+	//
+        // Assume we get one:
+
+	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
+
+	pthread_t pthread_id;
+
+	task->pthread->pid = 0;
+
+	int err =   pthread_create(
+			//
+			&pthread_id,						// Result.
+			NULL,							// Possible attributes -- API futureproofing.
+			pthread_main,						// Function to run in new kernel thread.
+			(void*) task						// Argument for pthread_main.
+		    );
+
+	if (!err) {
+
+	    pthread->pid = pthread_id;
+	    //
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		debug_say ("[got a processor]\n");
+	    #endif
+
+	    pthread->status = PTHREAD_IS_RUNNING;
+
+	    // pthread_main will release pthread_mutex__local.
+
+	    return HEAP_TRUE;
+
+	} else {
+
+	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
+	    pth__mutex_unlock( &pthread_mutex__local );
+	    return HEAP_FALSE;
+	}      
+
+//	if ((pthread->pid = pthread_create_wrapper(task)) != -1) {
+//	    //
+//	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+//		debug_say ("[got a processor]\n");
+//	    #endif
+//
+//	    pthread->status = PTHREAD_IS_RUNNING;
+//
+//	    // pthread_main will release pthread_mutex__local.
+//
+//	    return HEAP_TRUE;
+//
+//	} else {
+//
+//	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
+//	    pth__mutex_unlock( &pthread_mutex__local );
+//	    return HEAP_FALSE;
+//	}      
+
+    } else {
+
+	pthread->status = PTHREAD_IS_RUNNING;
+
+	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    debug_say ("[reusing a processor]\n");
+	#endif
+
+	pth__mutex_unlock( &pthread_mutex__local );
+
+	return HEAP_TRUE;
+    }
+}						// fun pth__pthread_create
+
+//
 void   pth__start_up   (void)   {
     // =============
     //
@@ -164,7 +441,7 @@ void   pth__start_up   (void)   {
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
 }
-
+//
 void   pth__shut_down (void) {
     // ==============
     //
@@ -175,21 +452,21 @@ void   pth__shut_down (void) {
 }
 
 // NB: All the error returns in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
-
+//
 char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
     if (pthread_mutex_init( mutex, NULL ))	return "pth__mutex_init: Unable to initialize mutex.";
     else					return NULL;
 }
-
+//
 char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
     if (pthread_mutex_destroy( mutex ))		return "pth__mutex_destroy: Unable to destroy mutex";
     else					return NULL;
 }
-
+//
 char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
@@ -198,7 +475,7 @@ char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/online
     if (pthread_mutex_lock( mutex ))		return "pth__mutex_lock: Unable to acquire lock.";
     else					return NULL;
 }
-
+//
 char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
@@ -212,7 +489,7 @@ char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.
 	default:				return "pth__mutex_trylock: Error while attempting to test lock.";
     }
 }
-
+//
 char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
@@ -222,35 +499,35 @@ char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
     else					return NULL;
 }
 
-
+//
 char*    pth__condvar_init ( Condvar* condvar ) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
     if (pthread_cond_init( condvar, NULL ))	return "pth__condvar_init: Unable to initialize condition variable.";
     else					return NULL;
 }
-
+//
 char*  pth__condvar_destroy   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
     if (pthread_cond_destroy( condvar ))	return "pth__condvar_destroy: Unable to destroy condition variable.";
     else					return NULL;
 }
-
+//
 char*  pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
     if (pthread_cond_wait( condvar, mutex )) 	return "pth__condvar_wait: Unable to wait on condition variable.";
     else					return NULL;
 }
-
+//
 char*  pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
     if (pthread_cond_signal( condvar ))		return "pth__condvar_signal: Unable to signal on condition variable.";
     else					return NULL;
 }
-
+//
 char*  pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
@@ -258,14 +535,14 @@ char*  pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup
     else					return NULL;
 }
 
-
+//
 char*  pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
     if (pthread_barrier_init( barrier, NULL, (unsigned) threads))	return "pth__barrier_init: Unable to set barrier.";
     else								return NULL;
 }
-
+//
 char*  pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
@@ -273,7 +550,7 @@ char*  pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.o
     else					return NULL;
 }
 
-
+//
 char*  pth__barrier_wait   (Barrier* barrier, Bool* result) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
@@ -288,7 +565,7 @@ char*  pth__barrier_wait   (Barrier* barrier, Bool* result) {					// http://pubs
 }
 
 
-
+//
 Pid   pth__get_pthread_id   ()   {
     //===================
     //
@@ -301,8 +578,16 @@ Pid   pth__get_pthread_id   ()   {
     // implementation, so we maintain the abstraction here:
     //
     return getpid ();
-}
 
+    // Later: Looks like the official fn to use here is
+    //
+    //     pthread_t pthread_self(void); 		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_self.html
+    //
+    // I don't know if getpid() is actually equivalent or not.   -- 2011-11-09 CrT
+    // pthread_t appears to be "unsigned long int"
+    // XXX SUCKO FIXME
+}
+//
 Pthread*  pth__get_pthread   ()   {
     //    ================
     //
@@ -325,7 +610,7 @@ Pthread*  pth__get_pthread   ()   {
 #endif
 }
 
-
+//
 int   pth__get_active_pthread_count   ()   {
     //=============================
     //
@@ -337,11 +622,11 @@ int   pth__get_active_pthread_count   ()   {
     // while we're waiting for all pthreads to
     // enter heapcleaning mode.
   
-    pth__mutex_lock( &proc_mutex__local );						// What could go wrong here if we didn't use a mutex...?
+    pth__mutex_lock( &pthread_mutex__local );						// What could go wrong here if we didn't use a mutex...?
 	//										// (Seems like reading a refcell is basically atomic anyhow.)
         int active_pthread_count = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
 	//
-    pth__mutex_unlock ( &proc_mutex__local );
+    pth__mutex_unlock ( &pthread_mutex__local );
 
     return  active_pthread_count;
 }
@@ -410,378 +695,6 @@ int   pth__get_active_pthread_count   ()   {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-#ifdef SOON
-
-// #define ARENA_FNAME  tmpnam(0)
-#define ARENA_FNAME  "/tmp/sml-mp.mutex-arena"
-
-#define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
-#define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
-
-static Mutex      AllocLock ();        
-static Barrier*  AllocBarrier();
-
-static usptr_t*	arena;								// Arena for shared sync chunks.
-
-static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
-
-static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
-
-
-
-
-
-void   pth__shut_down   ()   {
-    // ==============
-    //
-    usdetach( arena );												// 'usdetach' appears nowhere else in codebase; must be the SGI equivalent to posix 'munmap'
-}
-
-
-Pid   pth__pthread_id   ()   {
-    //===============
-    //
-    // Called only from:    src/c/main/runtime-state.c
-    //
-    return getpid ();
-}
-
-
-static Mutex   allocate_mutex   ()   {
-    //         ==============
-    //
-    // Allocate and initialize a system mutex.
-
-    ulock_t	mutex;
-
-    if ((mutex = usnewlock(arena)) == NULL)   die ("allocate_mutex: cannot get mutex with usnewlock\n");
-
-    usinitlock(mutex);
-    usunsetlock(mutex);
-
-    return mutex;
-
-
-}
- 
-
-void   pth__mutex_lock   (Mutex mutex)   {
-    // ===============
-    //
-    ussetlock(mutex);
-}
-
-
-void   pth__mutex_unlock   (Mutex mutex)   {
-    // =================
-    //
-    usunsetlock(mutex);
-}
-
-
-Bool   pth__mutex_maybe_lock   (Mutex mutex)   {
-    // =====================
-    //
-    return ((Bool) uscsetlock(mutex, 1));		// Try once.
-}
-
-
-Mutex   pth__make_mutex   ()   {
-    //  ===============
-    //
-    ulock_t mutex;
-
-    ussetlock(   MP_ArenaLock );
-        //
-	mutex = allocate_mutex ();
-        //
-    usunsetlock( MP_ArenaLock );
-
-    return mutex;
-}
-
-
-
-void   pth__free_mutex   (Mutex mutex)   {
-    // ===============
-    //
-    ussetlock(MP_ArenaLock);
-        usfreelock(mutex,arena);
-    usunsetlock(MP_ArenaLock);
-}
-
-
-static Barrier*   allocate_barrier   ()   {
-     //           ================
-     //
-     // Allocate and initialize a system barrier.
-
-    barrier_t *barrierp;
-
-    if ((barrierp = new_barrier(arena)) == NULL)   die ("Cannot get barrier with new_barrier");
-
-    init_barrier(barrierp);
-
-    return barrierp;
-}
-  
-
-
-Barrier*   pth__make_barrier   ()   {
-    //     =================
-    //
-    barrier_t *barrierp;
-
-    ussetlock(    MP_ArenaLock );
-        //
-	barrierp = allocate_barrier ();
-        //
-    usunsetlock( MP_ArenaLock );
-
-    return barrierp;
-}
-
-
-
-void   pth__free_barrier   (Barrier* barrierp)   {
-    // =================
-    //
-    ussetlock(MP_ArenaLock);
-	//
-	free_barrier( ebarrierp );
-	//
-    usunsetlock(MP_ArenaLock);
-}
-
-
-
-void   pth__wait_at_barrier   (Barrier* barrierp,  unsigned n)   {
-    // ====================
-    //
-    barrier( barrierp, n );
-}
-
-
-
-static void   fix_pnum   (int n)   {
-    //        ========
-    //
-    // Dummy for now.
-}
- 
-
-
-static void   pthread_main   (void* vtask)   {
-    //        ============
-    //
-    Task* task = (Task*) vtask;
-
-// Needs to be done  	XXX BUGGO FIXME
-//    fix_pnum(task->pnum);
-//    setup_signals(task, TRUE);
-//
-
-    // Spin until we get our id (from return of call to make_pthread)
-    //
-    while (task->pthread->pid == NULL) {
-	//
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say("[waiting for self]\n");
-	#endif
-	continue;
-    }
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say ("[new proc main: releasing mutex]\n");
-    #endif
-
-    pth__mutex_unlock( MP_ProcLock );			// Implicitly handed to us by the parent.
-    run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-    //
-    // run_mythryl_task_and_runtime_eventloop should never return:
-    //
-    die ("pthread returned after run_mythryl_task_and_runtime_eventloop() in pthread_main().\n");
-}
-
-
-
-static int   make_pthread   (Task* state)   {
-    //       ============
-    //
-    int error;
-
-    int result = sproc(pthread_main, PR_SALL, (void *)state);
-
-    if (result == -1) {
-	extern int errno;
-
-	error = oserror();	// This is potentially a problem since
-				// each thread should have its own errno.
-				// see sgi man pages for sproc.			XXX BUGGO FIXME
-
-	say_error( "error=%d,errno=%d\n", error, errno );
-	say_error( "[warning make_pthread: %s]\n",strerror(error) );
-    } 
-
-    return result;
-}
-
-									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
-									// struct task				def in   src/c/h/task.h
-Val   pth__pthread_create   (Task* task, Val current_thread, Val closure_arg)   {
-    //===================
-    //
-    // This fn is called (only) by   make_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
-    //
-    pth__done_pthread_create__global = TRUE;
-
-    Task*    task;
-    Pthread* pthread;
-
-    int i;
-
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[acquiring proc]\n");
-    #endif
-
-    pth__mutex_lock( MP_ProcLock );
-
-    // Search for a suspended kernel thread to reuse:
-    //
-    for (i = 0;
-	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_SUSPENDED);
-	i++
-    ) {
-	continue;
-    }
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[checking for suspended processor]\n");
-    #endif
-
-    if (i == MAX_PTHREADS) {
-        //
-	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
-	    //
-	    pth__mutex_unlock( MP_ProcLock );
-	    say_error("[processors maxed]\n");
-	    return HEAP_FALSE;
-	}
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say("[checking for NO_PROC]\n");
-	#endif
-
-	// Search for a slot in which to put a new pthread
-	//
-	for (i = 0;
-	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
-	    i++
-	){
-	    continue;
-	}
-
-	if (i == MAX_PTHREADS) {
-	    //
-	    pth__mutex_unlock( MP_ProcLock );
-	    say_error("[no processor to allocate]\n");
-	    return HEAP_FALSE;
-	}
-    }
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[using processor at index %d]\n", i);
-    #endif
-
-    // Use pthread at index i:
-    //
-    pthread =  pthread_table__global[ i ];
-
-    task =  pthread->task;
-
-    task->exception_fate	=  PTR_CAST( Val,  handle_v + 1 );
-    task->argument		=  HEAP_VOID;
-    //
-    task->fate			=  PTR_CAST( Val, return_c);
-    task->current_closure	=  closure_arg;
-    //
-    task->program_counter	= 
-    task->link_register		=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
-    //
-    task->current_thread	=  current_thread;
-  
-    if (pthread->status == NO_PTHREAD_ALLOCATED) {
-	//
-        // Assume we get one:
-
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
-
-	if ((pthread->pid = make_pthread(p)) != -1) {
-	    //
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		debug_say ("[got a processor]\n");
-	    #endif
-
-	    pthread->status = PTHREAD_IS_RUNNING;
-
-	    // make_pthread will release MP_ProcLock.
-
-	    return HEAP_TRUE;
-
-	} else {
-
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
-	    pth__mutex_unlock(MP_ProcLock);
-	    return HEAP_FALSE;
-	}      
-
-    } else {
-
-	pthread->status = PTHREAD_IS_RUNNING;
-
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say ("[reusing a processor]\n");
-	#endif
-
-	pth__mutex_unlock(MP_ProcLock);
-
-	return HEAP_TRUE;
-    }
-}						// fun pth__pthread_create
-
-
-
-void   pth__pthread_exit   (Task* task)   {
-    // ====================
-    //
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[release_pthread: suspending]\n");
-    #endif
-
-    call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
-
-    pth__mutex_lock(MP_ProcLock);
-
-    task->pthread->status = PTHREAD_IS_SUSPENDED;
-
-    pth__mutex_unlock(MP_ProcLock);
-
-    while (task->pthread->status == PTHREAD_IS_SUSPENDED) {
-	//
-	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
-    }
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[release_pthread: resuming]\n");
-    #endif
-
-    run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-
-    die ("return after run_mythryl_task_and_runtime_eventloop(task) in mp_release_pthread\n");
-}
-
-
-
-
-
-
-#endif
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
