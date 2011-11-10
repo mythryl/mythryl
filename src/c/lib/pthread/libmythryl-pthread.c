@@ -180,6 +180,22 @@ static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthr
 }
 
 
+static Val join_pthread   (Task* task,  Val arg)   {				// Name issue: 'pthread_join' is used by <pthread.h>
+    //     ============
+    //
+    #if NEED_PTHREAD_SUPPORT
+	{   char* err = pth__pthread_join( task );
+	    //
+	    if (err)   return RAISE_ERROR( task, err );
+	    else       return HEAP_VOID;
+	}
+    #else
+	die ("join_pthread: no mp support\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
+}
+
+
 
 static Val mutex_make   (Task* task,  Val arg)   {
     //     ==========
@@ -840,6 +856,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     //
     { "get_pthread_id","get_pthread_id",	get_pthread_id,		""},
     { "spawn_pthread","spawn_pthread",		spawn_pthread,		""},
+    { "join_pthread","join_pthread",		join_pthread,		""},
     { "pthread_exit","release_pthread",		pthread_exit_fn,	""},
     //
     { "mutex_make","mutex_make",		mutex_make,		""},

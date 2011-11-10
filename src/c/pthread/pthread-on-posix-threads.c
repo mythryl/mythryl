@@ -135,6 +135,15 @@ void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not imple
     //
     // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
+char*    pth__pthread_join		(Task* task) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
+    //   =================
+    //
+    die("pth__pthread_join() not implemented yet");
+    return NULL;
+}
+
+    // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_create.html
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 

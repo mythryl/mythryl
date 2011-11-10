@@ -93,6 +93,9 @@ typedef enum {
     //											// On SGI this appears to just suspend the thread pending another request to run something on it.
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
+    //
+    extern char*    pth__pthread_join		(Task* task);				// Wait until subthread exits.
+    // 
     extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
     //											// Pthread is typedef'ed in src/c/h/runtime-base.h
     //
