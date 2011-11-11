@@ -130,10 +130,6 @@ Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_ba
 // -- to compile:
 //
 //
-void     pth__pthread_exit		(Task* task)				{ die("pth__pthread_exit() not implemented yet"); }
-    //   =================
-    //
-    // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
 char*    pth__pthread_join		(Task* task) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
     //   =================
@@ -203,7 +199,7 @@ static void   pthread_main   (void* vtask)   {
 
 //
 // static int   pthread_create_wrapper   (Task* task)   {
-    //       ======================
+    //          ======================
     //
     // Our job here is just to fire up a kernel thread running pthread_main().
     // This is a very simple wrapper for the sgi-library "sproc()" call.
@@ -293,55 +289,41 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
 
     Task*    task;
     Pthread* pthread;
-
-    int i;
+    int      i;
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[acquiring proc]\n");
+	debug_say("[acquiring pthread]\n");
     #endif
 
     pth__mutex_lock( &pthread_mutex__local );
 
-    // Search for a suspended kernel thread to reuse:
     //
-    for (i = 0;
-	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_SUSPENDED);
-	i++
-    ) {
-	continue;
+    if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+	//
+	pth__mutex_unlock( &pthread_mutex__local );
+	say_error("[processors maxed]\n");
+	return HEAP_FALSE;
     }
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	debug_say("[checking for suspended processor]\n");
+	debug_say("[checking for NO_PROC]\n");
     #endif
 
-    if (i == MAX_PTHREADS) {
-        //
-	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
-	    //
-	    pth__mutex_unlock( &pthread_mutex__local );
-	    say_error("[processors maxed]\n");
-	    return HEAP_FALSE;
-	}
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-	    debug_say("[checking for NO_PROC]\n");
-	#endif
-
-	// Search for a slot in which to put a new pthread
-	//
-	for (i = 0;
-	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
-	    i++
-	){
-	    continue;
-	}
-
-	if (i == MAX_PTHREADS) {
-	    //
-	    pth__mutex_unlock( &pthread_mutex__local );
-	    say_error("[no processor to allocate]\n");
-	    return HEAP_FALSE;
-	}
+    // Search for a slot in which to put a new pthread
+    //
+    for (i = 0;
+	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
+	i++
+    ){
+	continue;
     }
+
+    if (i == MAX_PTHREADS) {
+	//
+	pth__mutex_unlock( &pthread_mutex__local );
+	say_error("[no processor to allocate]\n");
+	return HEAP_FALSE;
+    }
+
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say("[using processor at index %d]\n", i);
     #endif
@@ -439,6 +421,36 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
 	return HEAP_TRUE;
     }
 }						// fun pth__pthread_create
+
+
+
+//
+void   pth__pthread_exit   (Task* task)   {
+    // =================
+    //
+    // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+    //
+    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	debug_say("[release_pthread: suspending]\n");
+    #endif
+
+    call_heapcleaner( task, 1 );										// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
+	//
+	// I presume this call must be intended to sweep all live
+	// values from this thread's private generation-zero buffer
+	// into the shared generation-1 buffer, so that nothing
+	// will be lost if re-initializing the generation-zero
+	// buffer for a new thread.   -- 2011-11-10 CrT
+
+
+    pth__mutex_lock(    &pthread_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
+	//
+	task->pthread->status = NO_PTHREAD_ALLOCATED;
+	//
+    pth__mutex_unlock(  &pthread_mutex__local );
+
+    pthread_exit( NULL );
+}
 
 //
 void   pth__start_up   (void)   {
