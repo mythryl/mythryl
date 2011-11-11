@@ -231,6 +231,15 @@ extern Bool   cleaner_messages_are_enabled__global;		// Set                     
 extern Bool   unlimited_heap_is_enabled__global;		// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 
 extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   src/c/main/runtime-state.c
+    //
+    // Table of all active posix threads in process.
+    // (Or at least, all posix threads running Mythryl
+    // code or accessing the Mythryl heap.)
+    //
+    // In multithreaded operation this table is modified
+    // only by code in   src/c/pthread/pthread-on-posix-threads.c
+    // serialized by the pthread_table_mutex__local
+    // in that file.     
 
 extern int   pth__done_pthread_create__global;
     //

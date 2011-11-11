@@ -19,7 +19,15 @@
 												// struct pthread_state_struct { 			def in   src/c/h/pthread-state.h
 												// typedef struct pthread_state_struct	Pthread;	def in   src/c/h/runtime-base.h
 Pthread* pthread_table__global[ MAX_PTHREADS ];							// pthread_table__global[] is exported			via      src/c/h/runtime-base.h
-
+    //
+    // Table of all active posix threads in process.
+    // (Or at least, all posix threads running Mythryl
+    // code or accessing the Mythryl heap.)
+    //
+    // In multithreaded operation this table is modified
+    // only by code in   src/c/pthread/pthread-on-posix-threads.c
+    // serialized by the pthread_table_mutex__local
+    // in that file.     
 
 
 static void   set_up_pthread_state   (Pthread* pthread);
