@@ -16,6 +16,8 @@
 #ifndef PTHREAD_STATE_H
 #define PTHREAD_STATE_H
 
+#include <pthread.h>
+
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"
 // #include "system-signals.h" Commented out because it does not exist on my Linux  -- 2011-10-30 CrT
@@ -62,8 +64,15 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
 //    #if NEED_PTHREAD_SUPPORT
-	Pid	        pid;	       				// Our kernel thread's process identifier ("pid").
 	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-pthread.h
+	Pid             pid;	       				// Our kernel thread's process identifier ("pid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+	    //
+	    // NB; 'pid' MUST be declared Pid (i.e., pthread_t from <pthread.h>)
+	    // because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
+	    // we pass a pointer to task->pthread->pid as pthread_t*.
+	    //
+	    // Pid def is   typedef pthread_t Pid;   in   src/c/h/runtime-base.h
+
 //    #endif
 };
 

@@ -143,8 +143,11 @@ typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 typedef pthread_mutex_t			Mutex;			// A mutual-exclusion lock:		https://computing.llnl.gov/tutorials/pthreads/#Mutexes
 typedef pthread_barrier_t		Barrier;		// A barrier.
 typedef pthread_cond_t			Condvar;		// Condition variable:			https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
-typedef pid_t	 			Pid;			// A process id.
-
+typedef pthread_t 			Pid;			// A process id.
+    //
+    // NB; Pid MUST be pthread_t from <pthread.h> because in
+    // pth__pthread_create from src/c/pthread/pthread-on-posix-threads.c
+    // we pass a pointer to task->pthread->pid as pthread_t*.
 
 // System_Constant
 //

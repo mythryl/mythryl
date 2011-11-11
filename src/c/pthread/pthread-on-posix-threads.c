@@ -233,7 +233,8 @@ static void   pthread_main   (void* vtask)   {
 //
 // int pthread_create (							// We return FALSE on success. 
 //     //
-//     pthread_t *restrict               thread,			// RESULT.
+//     pthread_t *restrict               &task->pthread->pid,		// RESULT. NB: Passing a pointer directly to task->pthread->pid ensures that field is always valid
+//									//         as seen by both parent and child threads, without using spinlocks or such.
 //     const pthread_attr_t *restrict    attr,				// NULL for default attributes.
 //     void *(*                          start_routine        )(void*),	// Code to run in new kernel thread.
 //     void *restrict                    arg				// This arg will be passed to start_routine.
@@ -364,40 +365,45 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
   
     if (pthread->status == NO_PTHREAD_ALLOCATED) {
 	//
-        // Assume we get one:
+        // Optimistically increment active-pthreads count:
+	//
+	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,
+                INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)
+        );
 
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
-
-	pthread_t pthread_id;
-
-	task->pthread->pid = 0;
-
+	pthread->status = PTHREAD_IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
+											// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
 	int err =   pthread_create(
 			//
-			&pthread_id,						// Result.
-			NULL,							// Possible attributes -- API futureproofing.
-			pthread_main,						// Function to run in new kernel thread.
-			(void*) task						// Argument for pthread_main.
+			&task->pthread->pid,						// RESULT. NB: Passing a pointer directly to task->pthread->pid ensures that field is always
+											//         valid as seen by both parent and child threads, without using spinlocks or such.
+											//	   Passing the pointer is safe (only) because 'pid' is of type pthread_t from <pthread.h>
+											//	   -- we define field 'pid' as 'Pid' in src/c/h/pthread.h
+											//	   and   typedef pthread_t Pid;   in   src/c/h/runtime-base.h
+
+			NULL,								// Provision for attributes -- API futureproofing.
+
+			pthread_main,  (void*) task					// Function + argument to run in new kernel thread.
 		    );
 
-	if (!err) {
-
-	    pthread->pid = pthread_id;
+	if (!err) {									// Successfully spawned new kernel thread.
 	    //
 	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 		debug_say ("[got a processor]\n");
 	    #endif
 
-	    pthread->status = PTHREAD_IS_RUNNING;
+	    return HEAP_TRUE;								// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pthread_mutex__local  for us.
 
-	    // pthread_main will release pthread_mutex__local.
+	} else {									// Failed to spawn new kernel thread.
 
-	    return HEAP_TRUE;
+	    pthread->status = NO_PTHREAD_ALLOCATED;					// Note pthread record (still) has no associated kernel thread.
 
-	} else {
+	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
+                    INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
+            );
 
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
 	    pth__mutex_unlock( &pthread_mutex__local );
+
 	    return HEAP_FALSE;
 	}      
 
