@@ -333,15 +333,33 @@ void   pth__shut_down (void) {
 char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    if (pthread_mutex_init( mutex, NULL ))	return "pth__mutex_init: Unable to initialize mutex.";
-    else					return NULL;
+    int err =  pthread_mutex_init( mutex, NULL );
+    //
+    switch (err) {
+	//
+	case 0:				return NULL;				// Success.
+	case ENOMEM:			return "pth__mutex_init: Insufficient ram to initialize mutex";
+	case EAGAIN:			return "pth__mutex_init: Insufficient (non-ram) resources to initialize mutex";
+	case EPERM:			return "pth__mutex_init: Caller lacks privilege to initialize mutex";
+	case EBUSY:			return "pth__mutex_init: Attempt to reinitialize the object referenced by mutex, a previously initialized, but not yet destroyed, mutex.";
+	case EINVAL:			return "pth__mutex_init: Invalid attribute";
+	default:			return "pth__mutex_init: Undocumented error return from pthread_mutex_init()";
+    }
 }
+
 //
 char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
-    if (pthread_mutex_destroy( mutex ))		return "pth__mutex_destroy: Unable to destroy mutex";
-    else					return NULL;
+    int err =  pthread_mutex_destroy( mutex );
+    //
+    switch (err) {
+	//
+	case 0:				return NULL;				// Success.
+	case EBUSY:			return "pth__mutex_destroy: attempt to destroy the object referenced by mutex while it is locked or referenced (eg, while being used in a pthread_cond_timedwait() or pthread_cond_wait()) by another thread.";
+	case EINVAL:			return "pth__mutex_destroy: invalid mutex.";
+	default:			return "pth__mutex_destroy: Undocumented error return from pthread_mutex_destroy()";
+    }
 }
 //
 char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
@@ -349,8 +367,17 @@ char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/online
     //
     if (!pth__done_pthread_create__global)   return NULL;
     //
-    if (pthread_mutex_lock( mutex ))		return "pth__mutex_lock: Unable to acquire lock.";
-    else					return NULL;
+    int err = pthread_mutex_lock( mutex );
+    //
+    switch (err) {
+	//
+	case 0:				return NULL;				// Success.
+	case EINVAL:			return "pth__mutex_lock: Invalid mutex or mutex has PTHREAD_PRIO_PROTECT set and calling thread's priority is higher than mutex's priority ceiling.";
+	case EBUSY:			return "pth__mutex_lock: Mutex was already locked.";
+	case EAGAIN:			return "pth__mutex_lock: Recursive lock limit exceeded.";
+	case EDEADLK:			return "pth__mutex_lock: Deadlock, or mutex already owned by thread.";
+	default:			return "pth__mutex_lock: Undocumented error return from pthread_mutex_lock()";
+    }
 }
 //
 char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
@@ -372,8 +399,16 @@ char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
     //
     if (!pth__done_pthread_create__global) return NULL;
     //
-    if (pthread_mutex_unlock( mutex ))		return "pth__mutex_unlock: Unable to release lock.";
-    else					return NULL;
+    int err =  pthread_mutex_unlock( mutex );
+    //
+    switch (err) {
+	//
+	case 0: 				return NULL;					// Successfully acquired lock.
+	case EINVAL:				return "pth__mutex_unlock: Mutex has PTHREAD_PRIO_PROTECT set and calling thread's priority is higher than mutex's priority ceiling.";
+	case EBUSY:				return "pth__mutex_unlock: The mutex already locked.";
+	//
+	default:				return "pth__mutex_unlock: Undocumented error returned by pthread_mutex_unlock().";
+    }
 }
 
 //
@@ -472,18 +507,19 @@ Pthread*  pth__get_pthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-#if !NEED_PTHREAD_SUPPORT
-    //
-    return pthread_table__global[ 0 ];
-#else
-    int pid =  pth__get_pthread_id ();							// Since this just calls getpid(), the result is available in all contexts.  (That we care about. :-)
+//#if NEED_PTHREAD_SUPPORT
+    int pid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table__global[i]->pid == pid)   return &pthread_table__global[ i ];	// pthread_table__global		def in   src/c/main/runtime-state.c
-    }											// pthread_table__global exported via     src/c/h/runtime-pthread.h
-    die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
-#endif
+	if (pthread_table__global[i]->pid == pid)   return pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
+    }											// pthread_table__global exported via    src/c/h/runtime-pthread.h
+    die ("pth__get_pthread:  pid %d not found in pthread_table__global?!", pid);
+    return NULL;									// Cannot execute; only to quiet gcc.
+// #else
+//    //
+//    return pthread_table__global[ 0 ];
+// #endif
 }
 
 //
@@ -498,7 +534,7 @@ int   pth__get_active_pthread_count   ()   {
     // while we're waiting for all pthreads to
     // enter heapcleaning mode.
   
-    pth__mutex_lock( &pthread_table_mutex__local );						// What could go wrong here if we didn't use a mutex...?
+    pth__mutex_lock( &pthread_table_mutex__local );					// What could go wrong here if we didn't use a mutex...?
 	//										// (Seems like reading a refcell is basically atomic anyhow.)
         int active_pthread_count = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
 	//
