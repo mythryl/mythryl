@@ -152,17 +152,22 @@ static Val   get_pthread_id         (Task* task,  Val arg)   {
 static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently never called.
     //       =============
     //
-    #if NEED_PTHREAD_SUPPORT
+//  #if NEED_PTHREAD_SUPPORT
 	//
 //      Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
 //      Val closure        =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
 
-	return pth__pthread_create( task, task->current_thread, closure );	// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
+	int pthread_table_slot;							// An index into the   pthread_table__global[]   defined in   src/c/main/runtime-state.c
+	char* err = pth__pthread_create( &pthread_table_slot, task->current_thread, closure );
+
+	if (err)   return RAISE_ERROR( task, err );
+	else	   return TAGGED_INT_FROM_C_INT( pthread_table_slot );
+										// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
-    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
-	die ("spawn_pthread: no mp support\n");
-        return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
+//	die ("spawn_pthread: no mp support\n");
+//        return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 
@@ -180,19 +185,19 @@ static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthr
 }
 
 
-static Val join_pthread   (Task* task,  Val arg)   {				// Name issue: 'pthread_join' is used by <pthread.h>
-    //     ============
+static Val join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issue: 'pthread_join' is used by <pthread.h>
+    //     ============								// 'pthread_to_join' is a pthread_table__global[] index returned from a call to   spawn_pthread()   (above).
     //
-    #if NEED_PTHREAD_SUPPORT
-	{   char* err = pth__pthread_join( task );
+//    #if NEED_PTHREAD_SUPPORT
+	{   char* err = pth__pthread_join( task, TAGGED_INT_TO_C_INT( pthread_to_join ) );
 	    //
 	    if (err)   return RAISE_ERROR( task, err );
 	    else       return HEAP_VOID;
 	}
-    #else
-	die ("join_pthread: no mp support\n");
-        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #else
+//	die ("join_pthread: no mp support\n");
+//      return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 

@@ -228,9 +228,9 @@ extern char*  mythryl_program_name__global;			// Command name used to invoke the
 extern int    verbosity;
 extern Bool   codechunk_comment_display_is_enabled__global;	// Set per   --show-code-chunk-comments	  commandline switch in   src/c/main/runtime-main.c
 extern Bool   cleaner_messages_are_enabled__global;		// Set                                                       in   src/c/lib/heap/heapcleaner-control.c
-extern Bool   unlimited_heap_is_enabled__global;			// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Bool   unlimited_heap_is_enabled__global;		// Set per   --unlimited-heap             commandline switch in   src/c/heapcleaner/heapcleaner-initialization.c
 
-extern Pthread*	pthread_table__global [];
+extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   src/c/main/runtime-state.c
 
 extern int   pth__done_pthread_create__global;
     //

@@ -125,20 +125,7 @@ static Mutex	      pthread_mutex__local		= PTHREAD_MUTEX_INITIALIZER;		char     
 Barrier  pth__heapcleaner_barrier__global;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
-// Some placeholder fns just so I can start
-// getting other files -- in particular   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-// -- to compile:
-//
-//
 
-char*    pth__pthread_join		(Task* task) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
-    //   =================
-    //
-    die("pth__pthread_join() not implemented yet");
-    return NULL;
-}
-
-    // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_create.html
 // http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
@@ -278,7 +265,8 @@ static void   pthread_main   (void* vtask)   {
 
 									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
 									// struct task				def in   src/c/h/task.h
-Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure_arg)   {
+
+char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val closure_arg)   {
     //===================
     //
     // Run 'closure_arg' on its own kernel thread.
@@ -302,7 +290,7 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
 	//
 	pth__mutex_unlock( &pthread_mutex__local );
 	say_error("[processors maxed]\n");
-	return HEAP_FALSE;
+	return "pthread_table__global full -- increase MAX_PTHREADS";
     }
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
 	debug_say("[checking for NO_PROC]\n");
@@ -320,8 +308,7 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
     if (i == MAX_PTHREADS) {
 	//
 	pth__mutex_unlock( &pthread_mutex__local );
-	say_error("[no processor to allocate]\n");
-	return HEAP_FALSE;
+	return  "pthread_table__global full -- increase MAX_PTHREADS";
     }
 
     #ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -329,6 +316,8 @@ Val   pth__pthread_create   ( Task* task_unused, Val current_thread, Val closure
     #endif
 
     // Use pthread at index i:
+    //
+    *pthread_table_slot = i;
     //
     pthread =  pthread_table__global[ i ];
 
@@ -451,6 +440,38 @@ void   pth__pthread_exit   (Task* task)   {
 
     pthread_exit( NULL );
 }
+
+char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
+    //   =================
+    //
+    // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+
+    // 'pthread_to_join' should have been returned by
+    // pth__pthread_create  (above) and should be an index into
+    // pthread_table__global[], but let's sanity-check it: 
+    //
+    if (pthread_to_join < 0
+    ||  pthread_to_join >= MAX_PTHREADS)    return "pth__pthread_join: Bogus value for pthread_to_join.";
+
+    Pthread* pthread =  pthread_table__global[ pthread_to_join ];		// pthread_table__global	def in   src/c/main/runtime-state.c
+
+    if (pthread->status != PTHREAD_IS_RUNNING)  {
+	//
+	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
+    }
+
+    int     err =  pthread_join( pthread->pid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
+    switch (err) {								// because the typing would be a pain: we'd have to return Exception, probably -- ick!
+	//
+	case 0:		return NULL;						// Success.
+	case ESRCH:	return "pth__pthread_join: No such thread.";
+	case EDEADLK:	return "pth__pthread_join: Attempt to join self (or other deadlock).";
+	case EINVAL:	return "pth__pthread_join: Not a joinable thread.";
+	default:	return "pth__pthread_join: Undocumented error.";
+    }
+}
+
+
 
 //
 void   pth__start_up   (void)   {

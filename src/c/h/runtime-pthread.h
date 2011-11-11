@@ -83,7 +83,10 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD START/STOP/ETC SUPPORT
     //
-    extern Val      pth__pthread_create		(Task* task,  Val thread, Val closure);	// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
+    extern char*    pth__pthread_create		( int* pthread_table_slot,
+						  Val thread,
+						  Val closure
+						);					// Called with (thread, closure) and if a pthread is available starts closure running on a new pthread and returns TRUE.
     //											// Returns FALSE if we're already maxed out on allowed number of pthreads.
     //											// This gets exported to the Mythryl level as  "pthread", "make_pthread"  via   src/c/lib/pthread/libmythryl-pthread.c
     //											// and instantiated   at the Mythryl leval as  "make_pthread"             in    src/lib/std/src/pthread.pkg
@@ -94,7 +97,7 @@ typedef enum {
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
     //
-    extern char*    pth__pthread_join		(Task* task);				// Wait until subthread exits.
+    extern char*    pth__pthread_join		(Task* task, int pthread_table_slot);	// Wait until subthread exits.
     // 
     extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
     //											// Pthread is typedef'ed in src/c/h/runtime-base.h
