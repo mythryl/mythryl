@@ -71,7 +71,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-// #if NEED_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
@@ -107,7 +107,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
     }
-// #endif
+#endif
 
     note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -115,7 +115,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
         //
 	// Get extra roots from pthreads that entered
@@ -126,7 +126,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[i];
 	}
     }
-//    #endif
+    #endif
 
     // Gather ye roots while you may:
     //
@@ -135,7 +135,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ = c_roots__global[ i ];
     }
 
-//  #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
     if (!pth__done_pthread_create__global) {
 	//	
 	*roots_ptr++ =  &task->link_register;
@@ -176,7 +176,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    }
 	}
     }
-//  #endif										// NEED_PTHREAD_SUPPORT
+    #endif										// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
@@ -212,7 +212,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     if (level > 0) {
         //
-//	#if NEED_PTHREAD_SUPPORT
+	#if NEED_PTHREAD_SUPPORT
 	if (pth__done_pthread_create__global) {
 	    //
 	    Task* task;
@@ -229,7 +229,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 		}
 	    }
 	}
-//	#endif
+	#endif
 
 	*roots_ptr = NULL;
 
@@ -240,12 +240,12 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     // Reset the generation0 allocation pointers:
     //
-//    #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
+    #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
     if (pth__done_pthread_create__global) {
 	//
 	pth__finish_heapcleaning( task );								// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     } else {
-//    #else
+	//
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
 	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -255,7 +255,18 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );			// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
 	#endif
     }
-//    #endif
+    #else	// Same as }else{ clause above:
+    {
+	task->heap_allocation_pointer	= heap->agegroup0_buffer;
+
+	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );				// Set heap limit to obvious value.
+	#else
+	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );			// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
+	#endif
+    }
+    #endif
 
     note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -284,7 +295,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
 	//
 	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
@@ -322,7 +333,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
     }
-//    #endif
+    #endif
 
     note_when_heapcleaning_started( task->heap );								// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -330,7 +341,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
     #endif
 
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global by pth__call_heapcleaner_with_extra_roots.
@@ -340,7 +351,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[ i ];
 	}
     } else {
-//    #else
+	//
         // Note extra roots from argument list:
 	//
 	va_start (ap, level);
@@ -351,7 +362,19 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	}
 	va_end(ap);
     }
-//    #endif						// NEED_PTHREAD_SUPPORT
+    #else  // Same as }else{ clause above:
+    {
+        // Note extra roots from argument list:
+	//
+	va_start (ap, level);
+	//
+	while ((p = va_arg(ap, Val *)) != NULL) {
+	    //
+	    *roots_ptr++ = p;
+	}
+	va_end(ap);
+    }
+    #endif						// NEED_PTHREAD_SUPPORT
 
     // Gather the roots:
     //
@@ -360,8 +383,35 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  c_roots__global[ i ];
     }
 
-//    #if !NEED_PTHREAD_SUPPORT
-    if (!pth__done_pthread_create__global) {
+    #if NEED_PTHREAD_SUPPORT
+    if (pth__done_pthread_create__global) {
+	//
+	Task*     task;
+	Pthread*  pthread;
+
+	for (int j = 0;  j < MAX_PTHREADS;  j++) {
+	    //
+	    pthread = pthread_table__global[ j ];
+	    task    = pthread->task;
+
+	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+	    #endif
+
+	    if (pthread->status == PTHREAD_IS_RUNNING) {
+		//
+		*roots_ptr++ =  &task->argument;
+		*roots_ptr++ =  &task->fate;
+		*roots_ptr++ =  &task->current_closure;
+		*roots_ptr++ =  &task->exception_fate;
+		*roots_ptr++ =  &task->current_thread;
+		*roots_ptr++ =  &task->callee_saved_registers[ 0 ];
+		*roots_ptr++ =  &task->callee_saved_registers[ 1 ];
+		*roots_ptr++ =  &task->callee_saved_registers[ 2 ];
+	    }
+	}
+
+    } else {
 	//
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
@@ -371,37 +421,18 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
-	//
-    } else {
-//    #else						// NEED_PTHREAD_SUPPORT
-	{
-	    Task*     task;
-	    Pthread*  pthread;
-
-	    for (int j = 0;  j < MAX_PTHREADS;  j++) {
-		//
-		pthread = pthread_table__global[ j ];
-		task    = pthread->task;
-
-		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
-		    debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-		#endif
-
-		if (pthread->status == PTHREAD_IS_RUNNING) {
-		    //
-		    *roots_ptr++ =  &task->argument;
-		    *roots_ptr++ =  &task->fate;
-		    *roots_ptr++ =  &task->current_closure;
-		    *roots_ptr++ =  &task->exception_fate;
-		    *roots_ptr++ =  &task->current_thread;
-		    *roots_ptr++ =  &task->callee_saved_registers[ 0 ];
-		    *roots_ptr++ =  &task->callee_saved_registers[ 1 ];
-		    *roots_ptr++ =  &task->callee_saved_registers[ 2 ];
-		}
-	    }
-	}
     }
-//    #endif						// NEED_PTHREAD_SUPPORT
+    #else	// Same as }else{ clause above.		// NEED_PTHREAD_SUPPORT
+	//
+	*roots_ptr++ =  &task->argument;
+	*roots_ptr++ =  &task->fate;
+	*roots_ptr++ =  &task->current_closure;
+	*roots_ptr++ =  &task->exception_fate;
+	*roots_ptr++ =  &task->current_thread;
+	*roots_ptr++ =  &task->callee_saved_registers[0];
+	*roots_ptr++ =  &task->callee_saved_registers[1];
+	*roots_ptr++ =  &task->callee_saved_registers[2];
+    #endif						// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
