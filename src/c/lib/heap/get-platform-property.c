@@ -91,11 +91,11 @@ Val   _lib7_runtime_get_platform_property   (Task* task,  Val arg)   {
 #endif
     else if (SAME_STRING("HAS_MP", name))
 
-#if NEED_PTHREAD_SUPPORT
+// #if NEED_PTHREAD_SUPPORT
 	result = make_ascii_string_from_c_string(task, TRUE_VALUE);
-#else
-	result = make_ascii_string_from_c_string(task, FALSE_VALUE);
-#endif
+// #else
+//	result = make_ascii_string_from_c_string(task, FALSE_VALUE);
+// #endif
     else
 	return OPTION_NULL;
 

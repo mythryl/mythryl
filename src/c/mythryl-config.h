@@ -47,7 +47,7 @@
 
 
 
-#define NEED_PTHREAD_SUPPORT 0
+#define NEED_PTHREAD_SUPPORT 1
     //
     // Define this as 1 (i.e. TRUE) to compile in support
     // for multiple posix threads running Mythryl code in

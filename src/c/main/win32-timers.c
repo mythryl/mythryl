@@ -26,8 +26,8 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"
 
-#ifndef NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	(pthread_table__global[0])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
+#if NEED_PTHREAD_SUPPORT
+    #define SELF_PTHREAD	(pth__done_pthread_create__global ? pth__get_pthread() : pthread_table__global[0])
 #else
     #define SELF_PTHREAD	(pthread_table__global[0])
 #endif

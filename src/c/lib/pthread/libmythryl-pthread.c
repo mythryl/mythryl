@@ -175,13 +175,14 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthread_exit' is used by <pthread.h>, and of course 'exit' by <stdlib.h>.
     //     ===============
     //
-    #if NEED_PTHREAD_SUPPORT
+//    #if NEED_PTHREAD_SUPPORT
 	pth__pthread_exit(task);  	// Should not return.
 	die ("pthread_exit_fn: call unexpectedly returned\n");
-    #else
-	die ("pthread_exit_fn: no mp support\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-    #endif
+//    #else
+//	die ("pthread_exit_fn: no mp support\n");
+//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+//    #endif
 }
 
 

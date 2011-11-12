@@ -161,10 +161,10 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->callee_saved_registers[1]	= HEAP_VOID;
     pthread->task->callee_saved_registers[2]	= HEAP_VOID;
 
-    #if NEED_PTHREAD_SUPPORT
+//    #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;
 	pthread->status		= NO_PTHREAD_ALLOCATED;
-    #endif
+//    #endif
 }									// fun set_up_pthread_state
 
 void   initialize_task   (Task* task)   {
