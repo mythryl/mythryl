@@ -44,11 +44,11 @@
 // by linear scan if nothing else?  -- 2011-11-03 CrT)
 // 
 // 
-#if NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	(pthread_table__global[ 0 ])	// For NEED_PTHREAD_SUPPORT, we'll use SELF_PTHREAD for now.
-#else
-    #define SELF_PTHREAD	(pthread_table__global[ 0 ])
-#endif
+// #if NEED_PTHREAD_SUPPORT
+    #define SELF_PTHREAD	(pth__done_pthread_create__global ? pth__get_pthread() : pthread_table__global[0])
+// #else
+//  #define SELF_PTHREAD	(pthread_table__global[ 0 ])
+// #endif
 
 
 #ifdef USE_ZERO_LIMIT_PTR_FN

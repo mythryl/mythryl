@@ -33,9 +33,9 @@
 #include "heap-tags.h"
 #include "copy-loop.h"
 
-#if NEED_PTHREAD_SUPPORT
+// #if NEED_PTHREAD_SUPPORT
     #include "pthread-state.h"
-#endif
+// #endif
 
 // Cleaner statistics:
 //
@@ -141,10 +141,12 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the store log:
     //
-    #if !NEED_PTHREAD_SUPPORT
+//  #if !NEED_PTHREAD_SUPPORT
+    if (!pth__done_pthread_create__global) {
 	//
 	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
-    #else
+    } else {
+//    #else
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table__global[ i ];
@@ -156,7 +158,8 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 		process_task_heap_changelog( task, heap );
 	    }
 	}
-    #endif
+    }
+//   #endif
 
     // Sweep the to-space for agegroup 1:
     //

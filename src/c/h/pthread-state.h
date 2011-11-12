@@ -20,7 +20,7 @@
 
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"
-// #include "system-signals.h" Commented out because it does not exist on my Linux  -- 2011-10-30 CrT
+#include "system-signals.h"					// src/c/o/system-signals.h, created by src/c/config/generate-system-signals.h-for-posix-systems.c
 #include "runtime-timer.h"
 
 

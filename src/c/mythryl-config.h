@@ -111,7 +111,7 @@
 
 
 
-#define MAX_POSIX_SIGNALS      60
+// #define MAX_POSIX_SIGNALS      60			// Redundant with def in src/c/o/system-signals.h
     //
     // This needs to be at least one more than the
     // highest valid signal number on the host system.

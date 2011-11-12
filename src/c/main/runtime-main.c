@@ -22,6 +22,7 @@
 #endif
 
 #include "runtime-base.h"
+#include "runtime-pthread.h"
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
 #include "runtime-globals.h"
@@ -72,9 +73,9 @@ static char*	heap_image_to_run_filename = DEFAULT_IMAGE;	// The path name of the
 		   
 static char*	compiled_files_to_load_filename = NULL;
 
-#if NEED_PTHREAD_SUPPORT
-    static int NumProcs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
-#endif
+// #if NEED_PTHREAD_SUPPORT
+    static int num_procs = 1;					// Set by --runtime-nprocs=12, not otherwise used.
+// #endif
 
 static void   process_environment_options (Heapcleaner_Args** heapcleaner_args);
 static void   process_commandline_options (int argc, char** argv, Heapcleaner_Args** heapcleaner_args);
@@ -328,19 +329,20 @@ static void   process_commandline_options   (
                 if (verbosity > 0) {
                     printf("             src/c/main/runtime-main.c:   --runtime-cmdname setting mythryl_program_name__global to '%s'...\n", mythryl_program_name__global);
                 }
-#if NEED_PTHREAD_SUPPORT
+// #if NEED_PTHREAD_SUPPORT
 	    } else if (MATCH("nprocs")) {
 
 		CHECK("nprocs");
-		NumProcs = atoi(option_arg);
+
+		num_procs =  atoi( option_arg );
 
                 // Clamp NumProcs to a sane range:
 		//
-		if      (NumProcs < 0)
-		         NumProcs = 0;
-		else if (NumProcs > MAX_PTHREADS)
-		         NumProcs = MAX_PTHREADS;
-#endif
+		if      (num_procs < 0)
+		         num_procs = 0;
+		else if (num_procs > MAX_PTHREADS)
+		         num_procs = MAX_PTHREADS;
+// #endif
 	    } else if (MATCH("verbosity")) {
 
 		CHECK("verbosity");

@@ -64,12 +64,12 @@
 // pthread can use it.
 																// sib_is_active		def in    src/c/h/heap.h
 																// sib_freespace_in_bytes	def in    src/c/h/heap.h
-#if NEED_PTHREAD_SUPPORT
+// #if NEED_PTHREAD_SUPPORT
     //
     #define IFGC(ap, szb)  while ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
-#else
-    #define IFGC(ap, szb)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
-#endif
+// #else
+//    #define IFGC(ap, szb)  if    ((! sib_is_active(ap)) || (sib_freespace_in_bytes(ap) <= (szb)))
+// #endif
 
 #define COUNT_ALLOC(task, nbytes)	{	\
 	Heap		*__h = task->heap;	\
@@ -402,12 +402,12 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 													// 				or	 src/c/pthread/pthread-on-solaris.c
 													// (Used only in this file.)
 
-	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );					// pth__mutex_lock		def in   src/c/h/runtime-pthread.h
+	pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );						// pth__mutex_lock		def in   src/c/h/runtime-pthread.h
 	    //												// as pth__mutex_lock(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
-	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
-		clean_check: ;	// The MP version jumps to here to recheck for GC.
-	    #endif
+//	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
+		clean_check: ;	// The pthread version jumps to here to recheck for GC.
+//	    #endif
 
 	    if (! sib_is_active(ap)									// sib_is_active		def in    src/c/h/heap.h
 		||
@@ -430,11 +430,14 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 		pth__mutex_lock( &pth__heapcleaner_gen_mutex__global );
 		ap->requested_sib_buffer_bytesize = 0;
 
-		#if NEED_PTHREAD_SUPPORT
-	            // Check again to insure that we have sufficient space.
+//		#if NEED_PTHREAD_SUPPORT
+		if (pth__done_pthread_create__global) {
+		    //
+	            // Check again to insure that we have sufficient space:
 		    gcLevel = -1;
 		    goto clean_check;
-		#endif
+		}
+//		#endif
 	    }
 	    ASSERT(ap->next_tospace_word_to_allocate == ap->next_word_to_sweep_in_tospace);
 	    *(ap->next_tospace_word_to_allocate++) = tagword;
@@ -503,9 +506,9 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 		clean_level = 1;
 	    }
 
-	    #if NEED_PTHREAD_SUPPORT
-	        clean_check: ;			// The MP version jumps to here to redo the garbage collection.
-	    #endif
+//	    #if NEED_PTHREAD_SUPPORT
+	        clean_check: ;			// The pthread version jumps to here to redo the garbage collection.
+//	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
 	    pth__mutex_unlock( &pth__heapcleaner_gen_mutex__global );
@@ -515,12 +518,14 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
-	    #if NEED_PTHREAD_SUPPORT
+//	    #if NEED_PTHREAD_SUPPORT
+	    if (pth__done_pthread_create__global) {
 		//
 	        // Check again to ensure that we have sufficient space:
 		//
 		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap->agegroup0_buffer_bytesize)   goto clean_check;
-	    #endif
+	    }
+//	    #endif
 
 	    ASSERT(ap->next_tospace_word_to_allocate == ap->next_word_to_sweep_in_tospace);
 	    *(ap->next_tospace_word_to_allocate++) = tagword;
