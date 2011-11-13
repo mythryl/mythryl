@@ -383,7 +383,7 @@ static Barrier*   allocate_barrier   ()   {
 
 //
 Barrier*   pth__make_barrier   ()   {
-    //     ===============
+    //     =================
     //
     // Allocate a barrier from the synch chunk arena.
     // Allocation is mutually exclusive.
@@ -419,7 +419,7 @@ static void   free_barrier   (Barrier* barrierp)   {
 
 //
 void   pth__free_barrier  (Barrier* barrierp)   {
-    // ===============
+    // =================
     //
     pth__mutex_lock(arena_mutex__local);
        free_barrier(barrierp);
@@ -584,7 +584,7 @@ static void   suspend_pthread   (Task* task) {
 	    debug_say("proc state is not PROC_SUSPENDED; not suspended");
         #endif      
 
-	pth__mutex_unlock(mp_pthread_mutex__local);
+	pth__mutex_unlock( &mp_pthread_mutex__local );
 
 	return;
     }

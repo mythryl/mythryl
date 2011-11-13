@@ -71,7 +71,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-#if NEED_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
+
     if (pth__done_pthread_create__global) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and

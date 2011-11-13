@@ -1,22 +1,8 @@
 // runtime-pthread.h
 //
-// Support for multicore operation.
-// This stuff is (in part) exported to
-// the Mythrl world as
+// For background see the "Overview" comments in:
 //
 //     src/lib/std/src/pthread.api
-//     src/lib/std/src/pthread.pkg
-//
-// via
-//
-//     src/c/lib/pthread/libmythryl-pthread.c
-//
-// Platform-specific implementations of
-// this functionality are:
-//
-//     src/c/pthread/pthread-on-posix-threads.c
-//     src/c/pthread/pthread-on-sgi.c
-//     src/c/pthread/pthread-on-solaris.c
 
 #ifndef RUNTIME_MULTICORE_H
 #define RUNTIME_MULTICORE_H
@@ -143,7 +129,12 @@ typedef enum {
     extern char* pth__mutex_trylock	(Mutex* mutex, Bool* result);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //										// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
     //										// This bool value is confusing -- the Mythryl-level binding should return (say) ACQUIRED vs BUSY.
-
+    // The idea here is to not waste time on
+    // mutex ops so long as we know there is
+    // only one Mythryl pthread running:
+    // 
+    #define PTH__MUTEX_LOCK(mutex)    { if (pth__done_pthread_create__global) pth__mutex_lock(  mutex); }
+    #define PTH__MUTEX_UNLOCK(mutex)  { if (pth__done_pthread_create__global) pth__mutex_unlock(mutex); }
 
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES

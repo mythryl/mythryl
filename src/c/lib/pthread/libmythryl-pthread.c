@@ -1,5 +1,11 @@
 // libmythryl-pthread.c
 //
+// For background see the "Overview" comments in:
+//
+//     src/lib/std/src/pthread.api
+//
+//
+//
 // This file defines the "pthread" library of Mythryl-callable
 // C functions, accessible at the Mythryl level via:
 //
@@ -30,6 +36,8 @@
 
 
 #include "../../mythryl-config.h"
+
+#include <stdio.h>
 
 #include "runtime-base.h"
 #include "runtime-pthread.h"

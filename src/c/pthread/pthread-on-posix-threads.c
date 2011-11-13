@@ -1,20 +1,17 @@
 // pthread-on-posix-threads.c
 //
-// Posix-threads based implementation of the API defined in
+// For background see the "Overview" comments in:
 //
-//     src/c/h/runtime-pthread.h
-//
-// parts of which are exported to the Mythryl level via
-//
-//     src/c/lib/pthread/libmythryl-pthread.c
-// 
-// and then
-// 
 //     src/lib/std/src/pthread.api
-//     src/lib/std/src/pthread.pkg
+//
+//
+// This file contains our actual calls directly
+// to the <pthead.h> routines.
 //
 // This code is derived in (small!) part from the original
 // 1994 sgi-mp.c file from the SML/NJ codebase.
+
+
 
 #include "../mythryl-config.h"
 
@@ -365,6 +362,7 @@ char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
 char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
+fprintf(stderr,"pth__mutex_lock %s\n", pth__done_pthread_create__global ? "TRUE" : "FALSE");
     if (!pth__done_pthread_create__global)   return NULL;
     //
     int err = pthread_mutex_lock( mutex );
@@ -536,6 +534,8 @@ int   pth__get_active_pthread_count   ()   {
   
     pth__mutex_lock( &pthread_table_mutex__local );					// What could go wrong here if we didn't use a mutex...?
 	//										// (Seems like reading a refcell is basically atomic anyhow.)
+											// Late: Maybe if someone holds the lock, we want to wait
+											// until they release it before reading the refcell.
         int active_pthread_count = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
 	//
     pth__mutex_unlock ( &pthread_table_mutex__local );
