@@ -139,20 +139,20 @@ struct barrier_struct {
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
 // #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
         return TAGGED_INT_FROM_C_INT( pth__get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// thread_id	def in    src/c/pthread/pthread-on-sgi.c
-//    #else									// thread_id	def in    src/c/pthread/pthread-on-solaris.c
-//	die ("get_pthread_id: no mp support\n");
-//        return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else									// thread_id	def in    src/c/pthread/pthread-on-solaris.c
+	die ("get_pthread_id: no mp support\n");
+        return TAGGED_INT_FROM_C_INT( 0 );					// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently never called.
     //       =============
     //
-//  #if NEED_PTHREAD_SUPPORT
+  #if NEED_PTHREAD_SUPPORT
 	//
 //      Val current_thread =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );			// This is stored into   pthread->task->current_thread.   NB: "task->current_thread" was "task->ml_varReg" back when this was written -- CML came later.
 //      Val closure        =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );			// This is stored into   pthread->task->current_closure
@@ -164,10 +164,10 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 	else	   return TAGGED_INT_FROM_C_INT( pthread_table_slot );
 										// pth__pthread_create	def in    src/c/pthread/pthread-on-posix-threads.c
         //									// pth__pthread_create	def in    src/c/pthread/pthread-on-sgi.c
-//    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
-//	die ("spawn_pthread: no mp support\n");
-//        return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else									// pth__pthread_create	def in    src/c/pthread/pthread-on-solaris.c
+	die ("spawn_pthread: no mp support\n");
+        return HEAP_TRUE;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 
@@ -175,30 +175,30 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
 static Val pthread_exit_fn   (Task* task,  Val arg)   {				// Name issues: 'pthread_exit' is used by <pthread.h>, and of course 'exit' by <stdlib.h>.
     //     ===============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	pth__pthread_exit(task);  	// Should not return.
 	die ("pthread_exit_fn: call unexpectedly returned\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #else
-//	die ("pthread_exit_fn: no mp support\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("pthread_exit_fn: no mp support\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 
 static Val join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issue: 'pthread_join' is used by <pthread.h>
     //     ============								// 'pthread_to_join' is a pthread_table__global[] index returned from a call to   spawn_pthread()   (above).
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	{   char* err = pth__pthread_join( task, TAGGED_INT_TO_C_INT( pthread_to_join ) );
 	    //
 	    if (err)   return RAISE_ERROR( task, err );
 	    else       return HEAP_VOID;
 	}
-//    #else
-//	die ("join_pthread: no mp support\n");
-//      return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("join_pthread: no mp support\n");
+      return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 
@@ -206,7 +206,7 @@ static Val join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issue:
 static Val mutex_make   (Task* task,  Val arg)   {
     //     ==========
     //
-//  #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	// We allocate the mutex_struct on the C
 	// heap rather than the Mythryl heap because
@@ -231,16 +231,16 @@ static Val mutex_make   (Task* task,  Val arg)   {
         Val               result;
         WORD_ALLOC (task, result, mutex);
         return            result;
-//  #else
-//	die ("mutex_make: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_free   (Task* task,  Val arg)   {
     //     ==========
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
 	// so it should be a Mythryl boxed word -- a two-word heap record
 	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
@@ -269,16 +269,16 @@ static Val mutex_free   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
-//    #else
-//	die ("mutex_free: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_free: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_init   (Task* task,  Val arg)   {
     //     ==========
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct mutex_struct*  mutex
 	    =
@@ -302,16 +302,16 @@ static Val mutex_init   (Task* task,  Val arg)   {
 
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("mutex_init: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_destroy   (Task* task,  Val arg)   {
     //     =============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct mutex_struct*  mutex
 	    =
@@ -334,16 +334,16 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("mutex_destroy: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_lock   (Task* task,  Val arg)   {
     //     ==========
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct mutex_struct*  mutex
 	    =
@@ -366,16 +366,16 @@ static Val mutex_lock   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("mutex_lock: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_lock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_unlock   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct mutex_struct*  mutex
 	    =
@@ -398,16 +398,16 @@ static Val mutex_unlock   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("mutex_unlock: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_unlock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val mutex_trylock   (Task* task,  Val arg)   {
     //     =============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct mutex_struct*  mutex
 	    =
@@ -432,10 +432,10 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;
 
-//    #else
-//	die ("mutex_trylock: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("mutex_trylock: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 
@@ -443,7 +443,7 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 static Val barrier_make   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	// We allocate the condvar_struct on the C
 	// heap rather than the Mythryl heap because
@@ -463,16 +463,16 @@ static Val barrier_make   (Task* task,  Val arg)   {
         Val               result;
         WORD_ALLOC (task, result, barrier);
         return            result;
-//    #else
-//	die ("barrier_make: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("barrier_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val barrier_free   (Task* task,  Val arg)   {
     //     ============
     //
-//   #if NEED_PTHREAD_SUPPORT
+   #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
 	// so it should be a Mythryl boxed word -- a two-word heap record
 	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
@@ -501,16 +501,16 @@ static Val barrier_free   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
-//    #else
-//	die ("barrier_free: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("barrier_free: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val barrier_init   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	Val barrier_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 	int threads	= GET_TUPLE_SLOT_AS_INT(arg, 1);
@@ -537,16 +537,16 @@ static Val barrier_init   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("barrier_init: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("barrier_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val barrier_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct barrier_struct*  barrier
 	    =
@@ -570,16 +570,16 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("barrier_destroy: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("barrier_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val barrier_wait   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct barrier_struct*  barrier
 	    =
@@ -604,10 +604,10 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("barrier_wait: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("barrier_wait: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 
@@ -615,7 +615,7 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 static Val condvar_make   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	//
 	// We allocate the condvar_struct on the C
 	// heap rather than the Mythryl heap because
@@ -635,16 +635,16 @@ static Val condvar_make   (Task* task,  Val arg)   {
         Val               result;
         WORD_ALLOC (task, result, condvar);
         return            result;
-//    #else
-//	die ("condvar_make: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_make: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_free   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
 	// so it should be a Mythryl boxed word -- a two-word heap record
 	// consisting of a tagword  MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)
@@ -673,16 +673,16 @@ static Val condvar_free   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 	//
-//    #else
-//	die ("condvar_free: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_free: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_init   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct condvar_struct*  condvar
 	    =
@@ -706,16 +706,16 @@ static Val condvar_init   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("condvar_init: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_init: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_destroy   (Task* task,  Val arg)   {
     //     ===============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct condvar_struct*  condvar
 	    =
@@ -739,16 +739,16 @@ static Val condvar_destroy   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("condvar_destroy: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_destroy: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_wait   (Task* task,  Val arg)   {
     //     ============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	Val condvar_arg = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 	Val mutex_arg   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
@@ -784,16 +784,16 @@ static Val condvar_wait   (Task* task,  Val arg)   {
 
 
 
-//    #else
-//	die ("condvar_wait: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_wait: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_signal   (Task* task,  Val arg)   {
     //     ==============
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct condvar_struct*  condvar
 	    =
@@ -817,16 +817,16 @@ static Val condvar_signal   (Task* task,  Val arg)   {
 	}
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
 
-//    #else
-//	die ("condvar_signal: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_signal: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 static Val condvar_broadcast   (Task* task,  Val arg)   {
     //     =================
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	struct condvar_struct*  condvar
 	    =
@@ -848,12 +848,11 @@ static Val condvar_broadcast   (Task* task,  Val arg)   {
 	    case         FREED_CONDVAR:					return RAISE_ERROR( task, "Attempt to broadcase freed condvar.");
 	    default:							return RAISE_ERROR( task, "condvar_broadcast: Attempt to broadcast via bogus value. (Already-freed condvar? Junk?)");
 	}
-//      return HEAP_VOID;
 
-//    #else
-//	die ("condvar_broadcast: unimplemented\n");
-//        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
-//    #endif
+    #else
+	die ("condvar_broadcast: unimplemented\n");
+        return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+    #endif
 }
 
 

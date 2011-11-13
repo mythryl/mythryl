@@ -17,11 +17,11 @@
 
 #include "win32-sigtable.c"
 
-// #if NEED_PTHREAD_SUPPORT
-/#define SELF_PTHREAD	(pth__done_pthread_create__global ? pth__get_pthread() : pthread_table__global[0])
-// #else
-// #define SELF_PTHREAD	(pthread_table__global[ 0 ])
-// #endif
+#if NEED_PTHREAD_SUPPORT
+    #define SELF_PTHREAD	(pth__done_pthread_create__global ? pth__get_pthread() : pthread_table__global[0])
+#else
+    #define SELF_PTHREAD	(pthread_table__global[ 0 ])
+#endif
 
 Val   list_signals   (Task* task)   {
     //===========

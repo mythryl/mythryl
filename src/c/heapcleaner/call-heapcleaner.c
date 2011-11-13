@@ -468,28 +468,30 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-//	#if !NEED_PTHREAD_SUPPORT
-        if (!pth__done_pthread_create__global) {
+	#if NEED_PTHREAD_SUPPORT
+        if (pth__done_pthread_create__global) {
 	    //
+	    Pthread* pthread;
+	    //
+	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
+		//
+		pthread = pthread_table__global[ i ];
+		//
+		if (pthread->status == PTHREAD_IS_RUNNING) {
+		    //
+		    *roots_ptr++ =  &pthread->task->link_register;
+		}
+	    }
+	} else {
 	    //
 	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
 	    *roots_ptr++ =  &task->program_counter;
-	} else {
-//	#else
-	    {   Pthread* pthread;
-		//
-		for (int i = 0;  i < MAX_PTHREADS;  i++) {
-		    //
-		    pthread = pthread_table__global[ i ];
-		    //
-		    if (pthread->status == PTHREAD_IS_RUNNING) {
-			//
-			*roots_ptr++ =  &pthread->task->link_register;
-		    }
-		}
-	    }
 	}
-//	#endif
+	#else // Same as }else{ clause above:
+	    //
+	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
+	    *roots_ptr++ =  &task->program_counter;
+	#endif
 
 	*roots_ptr = NULL;
 
@@ -501,12 +503,11 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     // Reset agegroup0 buffer:
     //
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
         //
 	pth__finish_heapcleaning( task );
     } else {
-//    #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
 	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -516,7 +517,16 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT(heap);
 	#endif
     }
-//  #endif
+    #else // Same as above }else{ case:
+	task->heap_allocation_pointer	= heap->agegroup0_buffer;
+
+	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
+	    //
+	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
+	#else
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT(heap);
+	#endif
+    #endif
 
     note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -545,6 +555,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
 
+// There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
     if (pth__done_pthread_create__global) {
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

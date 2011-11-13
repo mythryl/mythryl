@@ -507,7 +507,7 @@ Pthread*  pth__get_pthread   ()   {
     // like signal handlers where it is not (otherwise) available.
     //    
     //
-//#if NEED_PTHREAD_SUPPORT
+#if NEED_PTHREAD_SUPPORT
     int pid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
@@ -516,10 +516,10 @@ Pthread*  pth__get_pthread   ()   {
     }											// pthread_table__global exported via    src/c/h/runtime-pthread.h
     die ("pth__get_pthread:  pid %d not found in pthread_table__global?!", pid);
     return NULL;									// Cannot execute; only to quiet gcc.
-// #else
-//    //
-//    return pthread_table__global[ 0 ];
-// #endif
+#else
+    //
+    return pthread_table__global[ 0 ];
+#endif
 }
 
 //

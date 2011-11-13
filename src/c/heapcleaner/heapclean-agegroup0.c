@@ -39,7 +39,7 @@
 
 // Cleaner statistics:
 //
-extern long	update_count__global;		// update_count__global			def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	update_count__global;		// update_count__global				def in    src/c/heapcleaner/heapclean-n-agegroups.c
 extern long	total_bytes_allocated__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
 extern long	total_bytes_copied__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
 
@@ -141,12 +141,8 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the store log:
     //
-//  #if !NEED_PTHREAD_SUPPORT
-    if (!pth__done_pthread_create__global) {
-	//
-	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
-    } else {
-//    #else
+    #if NEED_PTHREAD_SUPPORT
+    if (pth__done_pthread_create__global) {
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table__global[ i ];
@@ -158,8 +154,14 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 		process_task_heap_changelog( task, heap );
 	    }
 	}
+    } else {
+	//
+	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
     }
-//   #endif
+    #else // Same as }else{ clause above:
+	//
+	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
+    #endif
 
     // Sweep the to-space for agegroup 1:
     //

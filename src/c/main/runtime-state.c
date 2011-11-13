@@ -46,7 +46,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
     Task* task =  NULL;
 
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 
 	//
 	for (int i = 0;   i < MAX_PTHREADS;   i++) {
@@ -61,25 +61,25 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 	}
 	task =  pthread_table__global[0]->task;
 
-//    #else
-//	if (((pthread_table__global[0] = MALLOC_CHUNK(Pthread)) == NULL)
-//	||  ((task = MALLOC_CHUNK(Task)) == NULL)
-//        ){
-//	    die ("unable to allocate Lib7 state vector");
-//	}
-//
-//	pthread_table__global[0]->task =  task;
-//
-//    #endif
+    #else
+	if (((pthread_table__global[0] = MALLOC_CHUNK(Pthread)) == NULL)
+	||  ((task = MALLOC_CHUNK(Task)) == NULL)
+        ){
+	    die ("unable to allocate Lib7 state vector");
+	}
+
+	pthread_table__global[0]->task =  task;
+
+    #endif
 
     // Allocate and initialize the heap data structures:
     //
     set_up_heap( task, is_boot, cleaner_args );							// set_up_heap					def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-//    #if !NEED_PTHREAD_SUPPORT
-//	//
-//	set_up_pthread_state( pthread_table__global[ 0 ] );
-//    #else
+    #if !NEED_PTHREAD_SUPPORT
+	//
+	set_up_pthread_state( pthread_table__global[ 0 ] );
+    #else
         // 'set_up_heap' has created an agegroup0 buffer;
 	//  partition it between our MAX_PTHREADS pthreads:
         //
@@ -109,7 +109,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 												// pth__get_pthread_id				def in    src/c/pthread/pthread-on-sgi.c
 												// pth__get_pthread_id				def in    src/c/pthread/pthread-on-solaris.c
 	pthread_table__global[0]->status =  PTHREAD_IS_RUNNING;
-//    #endif						// NEED_PTHREAD_SUPPORT
+    #endif						// NEED_PTHREAD_SUPPORT
 
     // Initialize the timers:
     //
@@ -161,10 +161,10 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->callee_saved_registers[1]	= HEAP_VOID;
     pthread->task->callee_saved_registers[2]	= HEAP_VOID;
 
-//    #if NEED_PTHREAD_SUPPORT
+    #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;
 	pthread->status		= NO_PTHREAD_ALLOCATED;
-//    #endif
+    #endif
 }									// fun set_up_pthread_state
 
 void   initialize_task   (Task* task)   {
