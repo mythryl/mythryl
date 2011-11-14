@@ -119,8 +119,8 @@ static void*  pthread_main   (void* task_as_voidptr)   {
 
 
 
-									// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
-									// struct task				def in   src/c/h/task.h
+										// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
+										// struct task				def in   src/c/h/task.h
 
 char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val closure_arg)   {
     //===================
@@ -129,7 +129,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     //
     // This fn is called (only) by   spawn_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    pth__done_pthread_create__global = TRUE;
+    pth__done_pthread_create__global = TRUE;					// Once set TRUE, this is never set back to FALSE.
 
     Task*    task;
     Pthread* pthread;
@@ -139,8 +139,9 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	debug_say("[Searching for free pthread]\n");
     #endif
 
-    pth__mutex_lock( &pthread_table_mutex__local );			// Always first step before reading/writing pthread_table__global.
-
+    pth__mutex_lock( &pthread_table_mutex__local );				// Always first step before reading/writing pthread_table__global.
+										// We don't use the PTH__MUTEX_LOCK macro because at this point
+										// we know pth__done_pthread_create__global == TRUE.
     //
     if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	//
@@ -257,7 +258,8 @@ void   pth__pthread_exit   (Task* task)   {
 
 
     pth__mutex_lock(    &pthread_table_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
-	//
+	//													// We don't use the PTH__MUTEX_LOCK macro because at this point
+	//													// we know pth__done_pthread_create__global == TRUE.
 	task->pthread->status = NO_PTHREAD_ALLOCATED;
 	//
     pth__mutex_unlock(  &pthread_table_mutex__local );
@@ -362,8 +364,6 @@ char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
 char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
-fprintf(stderr,"pth__mutex_lock %s\n", pth__done_pthread_create__global ? "TRUE" : "FALSE");
-    if (!pth__done_pthread_create__global)   return NULL;
     //
     int err = pthread_mutex_lock( mutex );
     //
@@ -395,7 +395,6 @@ char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.
 char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
-    if (!pth__done_pthread_create__global) return NULL;
     //
     int err =  pthread_mutex_unlock( mutex );
     //
