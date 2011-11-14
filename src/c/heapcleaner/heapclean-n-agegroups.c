@@ -37,6 +37,8 @@ Includes:
 
 #include "../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "task.h"
@@ -503,7 +505,6 @@ void                heapclean_n_agegroups                  (Task* task,  Val** r
 	    heap,
             level
         );
-
 
     // Start the cleaning by forwarding (copying) all
     // heap values (in the agegroups we are cleaning) which

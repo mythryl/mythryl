@@ -23,6 +23,8 @@
 
 #include "../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "task.h"
@@ -131,7 +133,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Scan the standard roots:
     //
-    {   Sibid*  b2s = book_to_sibid__global;										// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    {   Sibid*  b2s = book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
@@ -142,7 +144,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // Scan the store log:
     //
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (1 || pth__done_pthread_create__global) {
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table__global[ i ];
