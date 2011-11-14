@@ -379,10 +379,10 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
 }
 
 
-Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
+Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     //=======================
     // 
-    // Allocate an Lib7 rw_vector using initVal as an initial value.
+    // Allocate an Lib7 rw_vector using init_val as an initial value.
     // Assume that len > 0.
 
     Val	result;
@@ -396,7 +396,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
         //
 	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ VECTOR_ILK ];
 
-	int	gcLevel = (IS_POINTER(initVal) ? 0 : -1);
+	int	gc_level = (IS_POINTER(init_val) ? 0 : -1);
 
 	bytesize = WORD_BYTESIZE*(len + 1);
 													// pth__heapcleaner_gen_mutex__global	def in   src/c/pthread/pthread-on-posix-threads.c
@@ -417,18 +417,18 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
                                               +
                                               task->heap->agegroup0_buffer_bytesize
             ){
-		gcLevel = 1;
+		gc_level = 1;
 	    }
 
-	    if (gcLevel >= 0) {
+	    if (gc_level >= 0) {
 		//
-	        // Clean heap -- but preserve initVal:
+	        // Clean heap -- but preserve init_val:
                 //
-		Val	root = initVal;
+		Val	root = init_val;
 		ap->requested_sib_buffer_bytesize += bytesize;
 		PTH__MUTEX_UNLOCK( &pth__heapcleaner_gen_mutex__global );
-		    call_heapcleaner_with_extra_roots (task, gcLevel, &root, NULL);
-		    initVal = root;
+		    call_heapcleaner_with_extra_roots (task, gc_level, &root, NULL);
+		    init_val = root;
 		PTH__MUTEX_LOCK( &pth__heapcleaner_gen_mutex__global );
 		ap->requested_sib_buffer_bytesize = 0;
 
@@ -436,7 +436,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
 		if (pth__done_pthread_create__global) {
 		    //
 	            // Check again to insure that we have sufficient space:
-		    gcLevel = -1;
+		    gc_level = -1;
 		    goto clean_check;
 		}
 //		#endif
@@ -461,7 +461,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val initVal)   {
     //
     for (int i = 0;  i < len; i++) {
 	//
-	*p++ = initVal;
+	*p++ = init_val;
     }
 
     SEQHDR_ALLOC (task, result, TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
