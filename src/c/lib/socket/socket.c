@@ -14,7 +14,6 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-#include "log-if.h"
 
 /*
 ###       "Transmission of documents via telephone wires

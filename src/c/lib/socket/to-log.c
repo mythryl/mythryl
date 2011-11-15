@@ -17,7 +17,7 @@
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
-#include "log-if.h"
+
 
 // One of the library bindings exported via
 //     src/c/lib/socket/cfun-list.h
@@ -29,9 +29,9 @@ Val   _lib7_Sock_to_log   (Task* task,  Val arg)   {
     //
     // Mythryl type:   String -> Void
     //
-    // Write string to currently open logfile via
+    // Write string to currently open logfile via log_if from
     //
-    //     src/c/lib/socket/log-if.c
+    //     src/c/main/error.c
 
     char* string = HEAP_STRING_AS_C_STRING( arg );
 

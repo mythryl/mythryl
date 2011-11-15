@@ -15,7 +15,6 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-#include "log-if.h"
 #include "hexdump-if.h"
 
 

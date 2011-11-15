@@ -11,7 +11,7 @@
 //     src/c/lib/socket/recv.c
 //     src/c/lib/socket/sendbuf.c
 //
-// The "-if" on our name is because, like log-if.c,
+// The "-if" on our name is because, like log_if in  src/c/main/error.c
 // we generate output on
 //
 //     log_if_fd
@@ -37,7 +37,6 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
-#include "log-if.h"
 #include "hexdump-if.h"
 
 void   hexdump_if   (char* message, unsigned char* data, int data_len)   {
