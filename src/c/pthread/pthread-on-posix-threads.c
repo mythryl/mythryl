@@ -135,7 +135,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     Pthread* pthread;
     int      i;
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[Searching for free pthread]\n");
     #endif
 
@@ -164,7 +164,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[using pthread_table__global slot %d]\n", i);
     #endif
 
@@ -244,7 +244,7 @@ void   pth__pthread_exit   (Task* task)   {
     //
     // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[release_pthread: suspending]\n");
     #endif
 

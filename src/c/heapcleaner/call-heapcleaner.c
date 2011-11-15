@@ -80,7 +80,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// That pthread returns and falls into the regular heapcleaning code;
 	// the remainder block at a barrier until heapcleaning is complete:
 	//
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("igc %d\n", task->pid);
 	#endif
 	//
@@ -160,7 +160,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	    task = pthread->task;
 
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    #endif
 
@@ -299,7 +299,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
 	//
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("igcwr %d\n", task->pid);
 	#endif
 
@@ -395,7 +395,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    pthread = pthread_table__global[ j ];
 	    task    = pthread->task;
 
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		debug_say ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    #endif
 

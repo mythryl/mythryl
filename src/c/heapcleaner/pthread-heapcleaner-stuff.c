@@ -83,7 +83,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
         //
 	task =  pthread_table[ pthread ]->task;
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ", pthread, task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
@@ -112,7 +112,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
-		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		    debug_say ("(with poll_freq=%d) ", poll_freq);
 		#endif
 
@@ -131,7 +131,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	    }
 	#endif
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 	#endif
 
@@ -220,7 +220,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	    //
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
 	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		debug_say ("%d: set poll event\n", task->pid);
 	    #endif
 	#endif
@@ -229,7 +229,7 @@ int   pth__start_heapcleaning   (Task *task) {
 
 	barrier_needs_to_be_initialized__local =  TRUE;
 
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("cleaning_pthread__local is %d\n", cleaning_pthread__local);
 	#endif
     }
@@ -269,7 +269,7 @@ int   pth__start_heapcleaning   (Task *task) {
 		//
 		n = 0;
 		//
-		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		    //
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
 			task->pidf, pthreads_ready_to_clean__local, active_pthread_count, task->heap_allocation_pointer,
@@ -301,12 +301,12 @@ int   pth__start_heapcleaning   (Task *task) {
 	//
 	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
 	//
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("%d: cleared poll event\n", task->pid);
 	#endif
     #endif
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("(%d) all %d/%d procs in\n", task->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
     #endif
 
@@ -327,7 +327,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // so we take a break until that thread has
     // finished heapcleaning:
     //
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d entering barrier %d\n",pthread->pid,active_pthread_count);
     #endif
 
@@ -342,7 +342,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	if (err) die(err);
     }
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d left barrier\n", pthread->pid);
     #endif
 
@@ -380,7 +380,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 		//
 		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE);
 		//	
-		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		    debug_say ("%d: set poll event\n", pthread->pid);
 		#endif
 	    #endif
@@ -391,7 +391,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 	    barrier_needs_to_be_initialized__local =  TRUE;
 
-	    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		debug_say ("cleaning_pthread__local is %d\n",cleaning_pthread__local);
 	    #endif
 	}
@@ -430,7 +430,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 		n++;
 	    } else {
 		n = 0;
-		#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+		#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 		    debug_say ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
 			pthread->pid, pthreads_ready_to_clean__local, pthread_count, task->heap_allocation_pointer,
 			task->heap_allocation_limit);
@@ -460,12 +460,12 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	//
 	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
 	//
-	#ifdef NEED_PTHREAD_SUPPORT_DEBUG
+	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("%d: cleared poll event\n", task->pid);
 	#endif
     #endif
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
     #endif
 
@@ -474,7 +474,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
         return TRUE;			// We're the designated heapcleaner.
     }
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d entering barrier %d\n", pthread->pid, pthread_count);
     #endif
 
@@ -489,7 +489,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	if (err) die(err);
     }
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d left barrier\n", pthread->pid);
     #endif
 
@@ -513,7 +513,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 
     PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d entering barrier\n", task->pthread->pid );
     #endif
 
@@ -528,11 +528,11 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	if (err) die(err);
     }
 
-    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature; all it does is undo what pth__barrier_init() did.
+    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s lead here.
 
     pthreads_ready_to_clean__local = 0;
 
-    #ifdef NEED_PTHREAD_SUPPORT_DEBUG
+    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("%d left barrier\n", task->pthread->pid);
     #endif
 
