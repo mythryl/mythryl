@@ -552,18 +552,18 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     if (pth__done_pthread_create__global) { // XYZZY PLUGH Changing this to (1 || ...) yields Fatal error:  bad chunk tag 19, chunk = 0x42c40064, tagword = 0x42c401cc
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)
+	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
 	|| (TAGGED_INT_TO_C_INT( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) != 0))		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//													// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
 	     return TRUE;
 	else return FALSE;
     #else
 	//
-	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) task->heap_allocation_limit)		return TRUE;
+	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
 	else													return FALSE;
     #endif
     } else {
-	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;
+	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
 	else													return FALSE;
     }
 //    #endif
