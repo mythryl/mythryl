@@ -44,9 +44,9 @@
 #include "heapcleaner-statistics-2.h"
 
 
-FILE* DebugF = NULL;	// Referenced only here and in   src/c/main/error.c
+FILE* DebugF = NULL;	// Referenced only here and in   src/c/main/error-reporting.c
     //
-    // debug_say writes to DebugF -- see src/c/main/error.c
+    // debug_say writes to DebugF -- see src/c/main/error-reporting.c
     //
     // DebugF defaults to stderr;  it may be set via
     //

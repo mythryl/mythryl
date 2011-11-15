@@ -177,10 +177,10 @@ typedef struct {
 
 // Run-time system messages:
 //
-extern void say       (char* fmt, ...);											// say				def in    src/c/main/error.c
-extern void debug_say (char* fmt, ...);											// debug_say			def in    src/c/main/error.c
-extern void say_error (char*,     ...);											// say_error			def in    src/c/main/error.c
-extern void die       (char*,     ...);											// die				def in    src/c/main/error.c
+extern void say       (char* fmt, ...);											// say				def in    src/c/main/error-reporting.c
+extern void debug_say (char* fmt, ...);											// debug_say			def in    src/c/main/error-reporting.c
+extern void say_error (char*,     ...);											// say_error			def in    src/c/main/error-reporting.c
+extern void die       (char*,     ...);											// die				def in    src/c/main/error-reporting.c
 
 extern void print_stats_and_exit      (int code);									// print_stats_and_exit		def in    src/c/main/runtime-main.c
 

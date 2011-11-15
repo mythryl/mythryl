@@ -324,7 +324,7 @@ void   pth__shut_down (void) {
     // Our present implementation need do nothing at end-of-world shutdown.
     //
     // We get called from   do_end_of_world_stuff_and_exit()   in   src/c/main/runtime-main.c
-    // and also             die()  and  assert_fail()          in   src/c/main/error.c
+    // and also             die()  and  assert_fail()          in   src/c/main/error-reporting.c
 }
 
 // NB: All the error returns in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT

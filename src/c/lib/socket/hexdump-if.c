@@ -11,7 +11,7 @@
 //     src/c/lib/socket/recv.c
 //     src/c/lib/socket/sendbuf.c
 //
-// The "-if" on our name is because, like log_if in  src/c/main/error.c
+// The "-if" on our name is because, like log_if in  src/c/main/error-reporting.c
 // we generate output on
 //
 //     log_if_fd

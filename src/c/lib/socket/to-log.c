@@ -31,7 +31,7 @@ Val   _lib7_Sock_to_log   (Task* task,  Val arg)   {
     //
     // Write string to currently open logfile via log_if from
     //
-    //     src/c/main/error.c
+    //     src/c/main/error-reporting.c
 
     char* string = HEAP_STRING_AS_C_STRING( arg );
 

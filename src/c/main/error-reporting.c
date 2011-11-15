@@ -1,4 +1,4 @@
-// error.c
+// error-reporting.c
 //
 // Run-time system error messages.
 
