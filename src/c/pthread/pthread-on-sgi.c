@@ -275,12 +275,12 @@ static void   pthread_main   (void* vtask)   {
     //
     while (task->pthread->pid == NULL) {
 	//
-	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
+	#if NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say("[waiting for self]\n");
 	#endif
 	continue;
     }
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say ("[new proc main: releasing mutex]\n");
     #endif
 
@@ -330,7 +330,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 									// and also              pthread->task->link.
     int i;
 
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[acquiring proc]\n");
     #endif
 
@@ -344,7 +344,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     ) {
 	continue;
     }
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[checking for suspended processor]\n");
     #endif
 
@@ -356,7 +356,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
-	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
+	#if NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say("[checking for NO_PROC]\n");
 	#endif
 
@@ -376,7 +376,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
     }
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[using processor at index %d]\n", i);
     #endif
 
@@ -402,7 +402,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	if ((pthread->pid = make_pthread(p)) != -1) {
 	    //
-	    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+	    #if NEED_PTHREAD_DEBUG_SUPPORT
 		debug_say ("[got a processor]\n");
 	    #endif
 
@@ -423,7 +423,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	pthread->status = PTHREAD_IS_RUNNING;
 
-	#ifdef NEED_PTHREAD_DEBUG_SUPPORT
+	#if NEED_PTHREAD_DEBUG_SUPPORT
 	    debug_say ("[reusing a processor]\n");
 	#endif
 
@@ -438,7 +438,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 void   pth__pthread_exit   (Task* task)   {
     // ==================
     //
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[release_pthread: suspending]\n");
     #endif
 
@@ -454,7 +454,7 @@ void   pth__pthread_exit   (Task* task)   {
 	//
 	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
     }
-    #ifdef NEED_PTHREAD_DEBUG_SUPPORT
+    #if NEED_PTHREAD_DEBUG_SUPPORT
 	debug_say("[release_pthread: resuming]\n");
     #endif
 

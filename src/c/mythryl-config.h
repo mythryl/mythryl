@@ -86,6 +86,10 @@
     #define MAX_PTHREADS	1
 #endif
 
+#define NEED_PTHREAD_DEBUG_SUPPORT 0
+    //
+    // Set this to TRUE to Log pthread-related stuff
+    // via the log_if fn from   src/c/main/error-reporting.c
 
 #define NEED_HEAPCLEANER_PAUSE_STATISTICS 0
     //
