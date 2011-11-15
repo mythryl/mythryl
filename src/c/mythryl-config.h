@@ -86,7 +86,7 @@
     #define MAX_PTHREADS	1
 #endif
 
-#define NEED_PTHREAD_DEBUG_SUPPORT 0
+#define NEED_PTHREAD_DEBUG_SUPPORT 1
     //
     // Set this to TRUE to Log pthread-related stuff
     // via the log_if fn from   src/c/main/error-reporting.c
