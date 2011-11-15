@@ -135,9 +135,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     Pthread* pthread;
     int      i;
 
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[Searching for free pthread]\n");
-    #endif
+    PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
     pth__mutex_lock( &pthread_table_mutex__local );				// Always first step before reading/writing pthread_table__global.
 										// We don't use the PTH__MUTEX_LOCK macro because at this point
@@ -164,9 +162,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[using pthread_table__global slot %d]\n", i);
-    #endif
+    PTHREAD_LOG_IF ("[using pthread_table__global slot %d]\n", i);
 
     // Use pthread at index i:
     //
@@ -244,9 +240,7 @@ void   pth__pthread_exit   (Task* task)   {
     //
     // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[release_pthread: suspending]\n");
-    #endif
+    PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
     call_heapcleaner( task, 1 );										// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//

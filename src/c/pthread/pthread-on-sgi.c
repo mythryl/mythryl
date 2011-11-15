@@ -275,14 +275,12 @@ static void   pthread_main   (void* vtask)   {
     //
     while (task->pthread->pid == NULL) {
 	//
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("[waiting for self]\n");
-	#endif
+	PTHREAD_LOG_IF ("[waiting for self]\n");
+	//
 	continue;
     }
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say ("[new proc main: releasing mutex]\n");
-    #endif
+
+    PTHREAD_LOG_IF ("[new proc main: releasing mutex]\n");
 
     pth__mutex_unlock( MP_ProcLock );			// Implicitly handed to us by the parent.
     run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
@@ -330,9 +328,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 									// and also              pthread->task->link.
     int i;
 
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[acquiring proc]\n");
-    #endif
+    PTHREAD_LOG_IF ("[acquiring proc]\n");
 
     pth__mutex_lock(MP_ProcLock);
 
@@ -344,9 +340,8 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     ) {
 	continue;
     }
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[checking for suspended processor]\n");
-    #endif
+
+    PTHREAD_LOG_IF ("[checking for suspended processor]\n");
 
     if (i == MAX_PTHREADS) {
         //
@@ -356,9 +351,8 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    say_error("[processors maxed]\n");
 	    return HEAP_FALSE;
 	}
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("[checking for NO_PROC]\n");
-	#endif
+
+	PTHREAD_LOG_IF ("[checking for NO_PROC]\n");
 
 	// Search for a slot in which to put a new pthread:
 	//
@@ -376,9 +370,8 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
     }
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[using processor at index %d]\n", i);
-    #endif
+
+    PTHREAD_LOG_IF ("[using processor at index %d]\n", i);
 
     // Use pthread at index i:
     //
@@ -402,9 +395,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	if ((pthread->pid = make_pthread(p)) != -1) {
 	    //
-	    #if NEED_PTHREAD_DEBUG_SUPPORT
-		debug_say ("[got a processor]\n");
-	    #endif
+	    PTHREAD_LOG_IF ("[got a processor]\n");
 
 	    pthread->status = PTHREAD_IS_RUNNING;
 
@@ -423,9 +414,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	pthread->status = PTHREAD_IS_RUNNING;
 
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say ("[reusing a processor]\n");
-	#endif
+	PTHREAD_LOG_IF ("[reusing a processor]\n");
 
 	pth__mutex_unlock(MP_ProcLock);
 
@@ -438,9 +427,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 void   pth__pthread_exit   (Task* task)   {
     // ==================
     //
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[release_pthread: suspending]\n");
-    #endif
+    PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
     call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 
@@ -454,9 +441,8 @@ void   pth__pthread_exit   (Task* task)   {
 	//
 	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
     }
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-	debug_say("[release_pthread: resuming]\n");
-    #endif
+
+    PTHREAD_LOG_IF ("[release_pthread: resuming]\n");
 
     run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 

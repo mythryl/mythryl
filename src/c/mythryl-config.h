@@ -91,6 +91,22 @@
     // Set this to TRUE to Log pthread-related stuff
     // via the log_if fn from   src/c/main/error-reporting.c
 
+#define PTHREAD_LOG_IF   if (NEED_PTHREAD_DEBUG_SUPPORT) log_if
+    //
+    // The idea here is that 
+    //
+    //     PTHREAD_LOG_IF ("Starting to foo the %s\n", bar);
+    //
+    // is a lot less clutter than
+    //
+    //     #if NEED_PTHREAD_DEBUG_SUPPORT
+    //         log_if ("Starting to foo the %s\n", bar);
+    //     #endif
+    //
+    // Also, the former provides typechecking even whenf
+    // PTHREAD_LOG_IF == 0   -- much more bitrot-resistant.
+
+
 #define NEED_HEAPCLEANER_PAUSE_STATISTICS 0
     //
     // Define this at 1 (TRUE) to compile in code tracking pause times

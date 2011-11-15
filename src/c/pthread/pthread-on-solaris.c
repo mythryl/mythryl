@@ -501,9 +501,8 @@ static void*   resume_pthread   (void* vtask)   {
 	//
 	// Proc only resumed to do a clean.
 	//
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	      debug_say("resuming %d to perform a gc\n",task->pthread->pid);
-	#endif      
+
+	PTHREAD_LOG_IF ("resuming %d to perform a gc\n",task->pthread->pid);
 
 	task->pthread->status == MP_PROC_GC;
 
@@ -515,9 +514,7 @@ static void*   resume_pthread   (void* vtask)   {
 
     } else {
 
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	      debug_say("[release_pthread: resuming proc %d]\n",task->pthread->pid);
-	#endif
+	PTHREAD_LOG_IF ("[release_pthread: resuming proc %d]\n",task->pthread->pid);
 
 	pth__mutex_unlock(mp_pthread_mutex__local);
 
@@ -546,9 +543,7 @@ Pthread*   resume_pthreads   (int n_procs)   {
 
 	    // Spawn a thread to execute the state:
 
-	    #if NEED_PTHREAD_DEBUG_SUPPORT
-		debug_say("Resuming proc %d\n",statep->pthread->pid);
-	    #endif	
+	    PTHREAD_LOG_IF ("Resuming proc %d\n",statep->pthread->pid);
 
 	    if (thr_create(NULL,0,resume_pthread,(void *)statep,NULL,NULL) != 0) {
 		//
@@ -580,9 +575,7 @@ static void   suspend_pthread   (Task* task) {
     //
     if (task->pthread->status != PTHREAD_IS_SUSPENDED) {
 	//
-        #if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("proc state is not PROC_SUSPENDED; not suspended");
-        #endif      
+	PTHREAD_LOG_IF ("proc state is not PROC_SUSPENDED; not suspended");
 
 	pth__mutex_unlock( &mp_pthread_mutex__local );
 
@@ -616,9 +609,8 @@ void   pth__pthread_exit   (Task* task)   {
 
     // Suspend the proc:
     //
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-        debug_say("suspending proc %d\n",task->pthread->pid);
-    #endif
+    PTHREAD_LOG_IF ("suspending proc %d\n", task->pthread->pid);
+
     suspend_pthread( task );
 }
 //
@@ -634,14 +626,12 @@ static void*   pthread_main   (void* vtask)   {
     //
     while  (task->pthread->pid == NULL) {
 	//
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("[waiting for self]\n");
-	#endif
+	PTHREAD_LOG_IF ("[waiting for self]\n");
+	//
 	continue;
     }
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-        debug_say ("[new proc main: releasing mutex]\n");
-    #endif
+
+    PTHREAD_LOG_IF ("[new proc main: releasing mutex]\n");
 
     bind_to_kernel_thread( processorId );
 
@@ -667,9 +657,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     Val f = GET_TUPLE_SLOT_AS_VAL(arg, 1);	// closure
     int i;
 
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-        debug_say("[acquiring proc]\n");
-    #endif
+    PTHREAD_LOG_IF ("[acquiring proc]\n");
 
     pth__mutex_lock(mp_pthread_mutex__local);
 
@@ -681,9 +669,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	);
 
 
-    #if NEED_PTHREAD_DEBUG_SUPPORT
-        debug_say("[checking for suspended processor]\n");
-    #endif
+    PTHREAD_LOG_IF ("[checking for suspended processor]\n");
 
     if (i == MAX_PTHREADS) {
 	//
@@ -694,9 +680,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    return HEAP_FALSE;
 	}
 
-        #if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("[checking for NO_PROC]\n");
-        #endif
+	PTHREAD_LOG_IF ("[checking for NO_PROC]\n");
 
 	// Search for a slot in which to put a new proc:
         //
@@ -719,9 +703,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	// Using a suspended processor.
 
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say("[using a suspended processor]\n");
-	#endif     
+	PTHREAD_LOG_IF ("[using a suspended processor]\n");
 
 	pthread =  resume_pthreads(1);
     }
@@ -747,9 +729,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	if (thr_create( NULL, 0, pthread_main, (void*)p, THR_NEW_LWP, &((thread_t) procId)) == 0) {
 	    //
-	    #if NEED_PTHREAD_DEBUG_SUPPORT
-	        debug_say ("[got a processor: %d,]\n",procId);
-	    #endif
+	    PTHREAD_LOG_IF ("[got a processor: %d,]\n",procId);
 
 	    pthread->status = PTHREAD_IS_RUNNING;
 	    pthread->pid = procId;
@@ -772,9 +752,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	pthread->status = PTHREAD_IS_RUNNING;
 
-	#if NEED_PTHREAD_DEBUG_SUPPORT
-	    debug_say ("[reusing a processor %d]\n", pthread->pid);
-	#endif
+	PTHREAD_LOG_IF ("[reusing a processor %d]\n", pthread->pid);
 
 	pth__mutex_unlock( mp_pthread_mutex__local );
 
