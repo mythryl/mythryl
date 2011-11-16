@@ -199,7 +199,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	// as well as signalling the other threads to enter
 	// heapcleaning mode. 
         //
-        pth__extra_heapcleaner_roots__global[0] =  NULL;
+        pth__extra_heapcleaner_roots__global[0] =  NULL;					// No extra roots supplied. 
 
         extra_cleaner_roots__local =  pth__extra_heapcleaner_roots__global;			// Why this assignment?  This global is not otherwise referenced in this fn.
 

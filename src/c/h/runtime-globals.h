@@ -10,8 +10,10 @@
 
 #include "runtime-values.h"
 
-extern Val*  c_roots__global[];
-extern int   c_roots_count__global;
+
+extern Val*  c_roots__global[];						// A table of pointers to global C variables that are potential garbage-collection roots.
+extern int   c_roots_count__global;					// c_roots__global and c_roots_count__global	are from   src/c/main/construct-runtime-package.c
+
 
 // "Current function" hook for profiling:
 //
@@ -57,18 +59,19 @@ extern Val	overflow_exception__global_id0	[];
 
 
 
-// This will point to a carefully constructed fake which
-// looks like a normal compiled package from the Mythryl
-// side but actually links to compiled C+assembly code.
-// It gets constructed in
-//
-//     src/c/main/construct-runtime-package.c
-//
-// and then patched in by a special hack
-//	
-//     src/c/main/load-compiledfiles.c
-//
-extern Val runtime_package__global;
+extern Val   runtime_package__global;
+    //
+    // This will point to a carefully constructed fake which
+    // looks like a normal compiled package from the Mythryl
+    // side but actually links to compiled C+assembly code.
+    // It gets constructed in
+    //
+    //     src/c/main/construct-runtime-package.c
+    //
+    // and then patched in by a special hack
+    //	
+    //     src/c/main/load-compiledfiles.c
+
 
 #ifdef ASM_MATH
     extern Val mathvec__global;

@@ -47,12 +47,12 @@ Includes:
 #include "pthread-state.h"
 #include "profiler-call-counts.h"
 
-#ifdef C_CALLS
+#ifdef C_CALLS											// C_CALLS is nowhere defined; it is referenced only in this file and in   src/c/lib/mythryl-callable-c-libraries-list.h
+extern Val	mythryl_functions_referenced_from_c_code__global;				// mythryl_functions_referenced_from_c_code__global	def in   src/c/lib/ccalls/ccalls-fns.c
+    //
     // This is a list of pointers into the C heap locations that hold
     // pointers to Mythryl functions. This list is not part of any Mythryl data
     // package(s).  (also see src/c/heapcleaner/heapclean-n-agegroups.c and src/c/lib/ccalls/ccalls-fns.c)
-    //
- extern Val	mythryl_functions_referenced_from_c_code__global;				// mythryl_functions_referenced_from_c_code__global	def in   src/c/lib/ccalls/ccalls-fns.c
 #endif
 
 
@@ -67,8 +67,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     Val** roots_ptr = roots;
     Heap* heap;
 
-
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
+												// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
@@ -124,11 +124,13 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
     #endif
 
-    // Gather ye roots while you may:
+    // Note 4-5 C-level pointers into the Mythryl heap --
+    // low-level special-case stuff like the signal handler,
+    // runtime (pseudo-)package, pervasives etc:
     //
-    for (int i = 0;  i < c_roots_count__global;  i++)   {
+    for (int i = 0;  i < c_roots_count__global;  i++)   {					// c_roots_count__global		def in   src/c/main/construct-runtime-package.c
 	//
-	*roots_ptr++ = c_roots__global[ i ];
+	*roots_ptr++ =  c_roots__global[ i ];							// c_roots__global			def in   src/c/main/construct-runtime-package.c
     }
 
     #if NEED_PTHREAD_SUPPORT
