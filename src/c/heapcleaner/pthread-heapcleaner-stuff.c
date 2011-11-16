@@ -82,8 +82,9 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //
 	task =  pthread_table[ pthread ]->task;
-
-	PTHREAD_LOG_IF ("pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ", pthread, task->heap_allocation_pointer, task->heap_allocation_limit);
+										PTHREAD_LOG_IF ( "pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ",
+												 pthread, task->heap_allocation_pointer, task->heap_allocation_limit
+											       );
 
 										// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
 										// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
