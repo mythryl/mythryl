@@ -129,7 +129,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     //
     // This fn is called (only) by   spawn_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    pth__done_pthread_create__global = TRUE;					// Once set TRUE, this is never set back to FALSE.
+    pth__done_pthread_create__global = TRUE;					// Once set TRUE, this is never set back to FALSE. (So locking is not an issue.)
 
     Task*    task;
     Pthread* pthread;

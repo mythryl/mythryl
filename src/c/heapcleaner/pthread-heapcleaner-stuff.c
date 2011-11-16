@@ -58,7 +58,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
     //     
 
 
-    int poll_freq
+    int poll_interval
 	=
 	TAGGED_INT_TO_C_INT(
 	    DEREF(
@@ -99,7 +99,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		    per_thread_agegroup0_buffer_bytesize
 		);
 	#else
-	    if (poll_freq <= 0) {
+	    if (poll_interval <= 0) {
 		//
 		task->heap_allocation_limit = task->real_heap_allocation_limit;
 		//
@@ -110,13 +110,13 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
-		PTHREAD_LOG_IF ("(with poll_freq=%d) ", poll_freq);
+		PTHREAD_LOG_IF ("(with poll_interval=%d) ", poll_interval);
 
 		task->heap_allocation_limit
 		    =
 		    start_of_agegroup0_buffer_for_next_pthread
 		    +
-		    poll_freq * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
+		    poll_interval * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 
 		task->heap_allocation_limit
 		    =
