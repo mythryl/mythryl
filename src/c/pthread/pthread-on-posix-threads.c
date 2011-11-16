@@ -662,10 +662,13 @@ int   pth__get_active_pthread_count   ()   {
 //     make rest ; sudo make install ; make cheg ; make tart ; time make compiler
 //
 // repeatedly as a test with the variable either TRUE or
-// FALSE shows the compiler runs faster with it TRUE ... ?!?!
+// FALSE shows the compiler runs faster with it TRUE:
+//      189.005 vs 202.191 usermode CPU seconds
+//      (see raw times below).
+// ??? !
 //
-// This makes no sense, but for the moment I'm leaving the
-// flag set TRUE.           -- 2011-11-16 CrT
+// This makes no sense to me, but for the moment I'm
+// leaving the flag set TRUE.           -- 2011-11-16 CrT
 //
 //
 // With   pth__done_pthread_create__global  =  TRUE
@@ -707,7 +710,6 @@ int   pth__get_active_pthread_count   ()   {
 //     179.911u 28.021s 1:31.67 226.8%	0+0k 0+198464io 0pf+0w
 //     180.975u 28.893s 1:33.50 224.4%	0+0k 0+198456io 0pf+0w
 //     180.471u 29.141s 1:28.72 236.2%	0+0k 0+198448io 0pf+0w
-
 
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
