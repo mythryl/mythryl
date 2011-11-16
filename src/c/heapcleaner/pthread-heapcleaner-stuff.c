@@ -117,9 +117,9 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
 		task->heap_allocation_limit
 		    =
-		    (task->heap_allocation_limit > task->real_heap_allocation_limit)
-			? task->real_heap_allocation_limit
-			: task->heap_allocation_limit;
+		    MIN( task->heap_allocation_limit, 
+			 task->real_heap_allocation_limit
+		       );
 
 	    }
 	#endif

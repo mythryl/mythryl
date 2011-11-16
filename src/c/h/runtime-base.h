@@ -276,6 +276,8 @@ extern int   pth__done_pthread_create__global;
 extern void   log_if   (const char * fmt, ...);
 extern int    log_if_fd;
 
+#define MIN(a, b)  (((a) < (b)) ? (a) : (b))				// Random convenience macro -- is there a better place for this?
+
 #endif // _ASM_ 
 
 #ifndef HEAP_IMAGE_SYMBOL
