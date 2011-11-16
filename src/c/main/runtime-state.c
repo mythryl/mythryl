@@ -95,8 +95,8 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 	    // among multiple pthreads:
 	    //
 	    if (i != 0) {
-		pthread_table__global[ i ] -> cpu_time_at_start_of_last_cleaning
-              = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_cleaning;
+		pthread_table__global[ i ] -> cpu_time_at_start_of_last_heapclean
+              = pthread_table__global[ 0 ] -> cpu_time_at_start_of_last_heapclean;
 		//
 		pthread_table__global[ i ] -> cumulative_cleaning_cpu_time
 	      = pthread_table__global[ 0 ] -> cumulative_cleaning_cpu_time;
@@ -137,7 +137,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     //
     pthread->posix_signal_rotor		= MIN_SYSTEM_SIG;
     pthread->cleaning_signal_handler_state			= LIB7_SIG_IGNORE;
-    pthread->cpu_time_at_start_of_last_cleaning		= MALLOC_CHUNK(Time);
+    pthread->cpu_time_at_start_of_last_heapclean		= MALLOC_CHUNK(Time);
     pthread->cumulative_cleaning_cpu_time			= MALLOC_CHUNK(Time);
 
     for (int i = 0;  i < MAX_POSIX_SIGNALS;  i++) {

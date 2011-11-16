@@ -107,8 +107,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
-		PTHREAD_LOG_IF ("(with poll_interval=%d) ", poll_interval);
-
+											PTHREAD_LOG_IF ("(with poll_interval=%d) ", poll_interval);
 		task->heap_allocation_limit
 		    =
 		    start_of_agegroup0_buffer_for_next_pthread
@@ -124,7 +123,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	    }
 	#endif
 
-	PTHREAD_LOG_IF ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
+											PTHREAD_LOG_IF ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
 
 	// Step over this pthread's buffer to
 	// get start of next pthread's buffer:
@@ -140,7 +139,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
 
 static volatile int	pthreads_ready_to_clean__local = 0;			// Number of processors that are ready to clean.
-static int		cleaning_pthread__local;					// The cleaning pthread.
+static int		cleaning_pthread__local;				// The cleaning pthread.
 static int		barrier_needs_to_be_initialized__local;
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:

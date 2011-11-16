@@ -83,8 +83,6 @@ struct heap {
     //
     Bigcounter   total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.
     Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Cleaner statistics -- tracks  number of bytes copied into each sib buffer.
-
-
 };
 
 #ifdef OLD

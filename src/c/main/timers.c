@@ -25,7 +25,7 @@ void   reset_timers   (Pthread* pthread)   {
 
 void   start_cleaning_timer   (Pthread* pthread)   {
     //
-    get_cpu_time( pthread->cpu_time_at_start_of_last_cleaning,  NULL );
+    get_cpu_time( pthread->cpu_time_at_start_of_last_heapclean,  NULL );
 }
 
 
@@ -39,8 +39,8 @@ void   stop_cleaning_timer   (Pthread* pthread,  long* time) {
     int   sec;
     int   usec;
     Time  t1;
-    Time* gt0 = pthread->cpu_time_at_start_of_last_cleaning;
-    Time* gt  = pthread->cumulative_cleaning_cpu_time;
+    Time* gt0 =  pthread -> cpu_time_at_start_of_last_heapclean;
+    Time* gt  =  pthread -> cumulative_cleaning_cpu_time;
 
 
     get_cpu_time( &t1, NULL );
@@ -50,11 +50,9 @@ void   stop_cleaning_timer   (Pthread* pthread,  long* time) {
 
     if (time != NULL) {
         //
-	if (usec < 0) {
-	    sec--; usec += 1000000;
-	} else if (usec > 1000000) {
-	    sec++; usec -= 1000000;
-	}
+        if      (usec < 0      ) {	--sec;  usec += 1000000;   }
+	else if (usec > 1000000) {	++sec;  usec -= 1000000;   }
+	//
 	*time = (usec/1000 + sec*1000);
     }
 
