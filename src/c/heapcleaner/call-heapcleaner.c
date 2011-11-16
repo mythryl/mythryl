@@ -160,7 +160,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
 		*roots_ptr++ =  &task->link_register;					// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
-		*roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do it in the level > 0 case below?
+		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
 		*roots_ptr++ =  &task->exception_fate;
@@ -390,6 +390,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
+		*roots_ptr++ =  &task->link_register;					// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
@@ -403,6 +404,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     } else {
 	//
+	*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->current_closure;
@@ -414,6 +416,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     }
     #else	// Same as }else{ clause above.		// NEED_PTHREAD_SUPPORT
 	//
+	*roots_ptr++ =  &task->link_register;
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->current_closure;
@@ -458,37 +461,36 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-	#if NEED_PTHREAD_SUPPORT
-        if (pth__done_pthread_create__global) {
-	    //
-	    Pthread* pthread;
-	    //
-	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
-		//
-		pthread = pthread_table__global[ i ];
-		//
-		if (pthread->status == PTHREAD_IS_RUNNING) {
-		    //
-		    *roots_ptr++ =  &pthread->task->link_register;
-		}
-	    }
-	} else {
-	    //
-	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
-	    *roots_ptr++ =  &task->program_counter;
-	}
-	#else // Same as }else{ clause above:
-	    //
-	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
-	    *roots_ptr++ =  &task->program_counter;
-	#endif
-
-	*roots_ptr = NULL;
+//	#if NEED_PTHREAD_SUPPORT
+//        if (pth__done_pthread_create__global) {
+//	    //
+//	    Pthread* pthread;
+//	    //
+//	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
+//		//
+//		pthread = pthread_table__global[ i ];
+//		//
+//		if (pthread->status == PTHREAD_IS_RUNNING) {
+//		    //
+//		    *roots_ptr++ =  &pthread->task->link_register;
+//		}
+//	    }
+//	} else {
+//	    //
+//	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
+//	    *roots_ptr++ =  &task->program_counter;					// Why do we do this here but not in the vanilla call_heapcleaner routine?
+//	}
+//	#else // Same as }else{ clause above:
+//	    //
+//	    *roots_ptr++ =  &task->link_register;					// Why do we do this here but not in the above level > 0 case?
+//	    *roots_ptr++ =  &task->program_counter;
+//	#endif
+//
+//	*roots_ptr = NULL;
 
 	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
 
-	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
-
+	heapclean_n_agegroups( task, roots, level );							// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
     // Reset agegroup0 buffer:

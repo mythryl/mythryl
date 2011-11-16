@@ -66,7 +66,7 @@ int   pth__done_pthread_create__global  =  FALSE;
 // trying to get control of logically unrelated mutexs:
 //
 // It would presumably be good to force cache-line-size
-// alignment here, but I don't know how, short of
+// alignment here, but I don't know how, short of	// LATER: But see synopsis of posix_memalign in src/c/lib/pthread/libmythryl-pthread.c
 // malloc'ing and checking alignment at runtime:
 /**/												char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
        Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c

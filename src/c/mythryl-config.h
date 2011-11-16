@@ -86,10 +86,12 @@
     #define MAX_PTHREADS	1
 #endif
 
-#define NEED_PTHREAD_DEBUG_SUPPORT 1
+#define NEED_PTHREAD_DEBUG_SUPPORT 0
     //
     // Set this to TRUE to Log pthread-related stuff
     // via the log_if fn from   src/c/main/error-reporting.c
+    // NB: Doing this during a full build of the compiler
+    //     will produce a logfile gigabytes long.
 
 #define PTHREAD_LOG_IF   if (NEED_PTHREAD_DEBUG_SUPPORT) log_if
     //

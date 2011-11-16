@@ -139,7 +139,8 @@ struct barrier_struct {
 				//               _BSD_SOURCE || _XOPEN_SOURCE >= 500 || _XOPEN_SOURCE && _XOPEN_SOURCE_EXTENDED 
 				// 
 				// DESCRIPTION 
-				//       The  function posix_memalign() allocates size bytes and places the address of the allocated memory in *memptr.  The address of the allocated memory will be a multiple of alignment, which must be a power of two and a multiple 
+				//       The  function posix_memalign() allocates size bytes and places the address of the allocated memory in *memptr.
+				//       The address of the allocated memory will be a multiple of alignment, which must be a power of two and a multiple 
 				//       of sizeof(void *).  If size is 0, then posix_memalign() returns either NULL, or a unique pointer value that can later be successfully passed to free(). 
 				///////////////////////////////////////////////////////
 
