@@ -133,8 +133,8 @@ typedef enum {
     // mutex ops so long as we know there is
     // only one Mythryl pthread running:
     // 
-    #define PTH__MUTEX_LOCK(mutex)    { if (1 || pth__done_pthread_create__global) pth__mutex_lock(  mutex); }
-    #define PTH__MUTEX_UNLOCK(mutex)  { if (1 || pth__done_pthread_create__global) pth__mutex_unlock(mutex); }
+    #define PTH__MUTEX_LOCK(mutex)    { if (pth__done_pthread_create__global) pth__mutex_lock(  mutex); }
+    #define PTH__MUTEX_UNLOCK(mutex)  { if (pth__done_pthread_create__global) pth__mutex_unlock(mutex); }
 
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES

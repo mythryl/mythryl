@@ -144,7 +144,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // Scan the store log:
     //
     #if NEED_PTHREAD_SUPPORT
-    if (1 || pth__done_pthread_create__global) {
+    if (pth__done_pthread_create__global) {
 	for (int i = 0;  i < MAX_PTHREADS;  i++) {									// Potentially need to process one heap storelog per pthread.
 	    //
 	    Pthread* pthread =  pthread_table__global[ i ];

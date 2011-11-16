@@ -44,7 +44,7 @@
 // 
 // 
 #if NEED_PTHREAD_SUPPORT
-    #define SELF_PTHREAD	((1 || pth__done_pthread_create__global) ? pth__get_pthread() : pthread_table__global[0])
+    #define SELF_PTHREAD	((pth__done_pthread_create__global) ? pth__get_pthread() : pthread_table__global[0])
 #else
     #define SELF_PTHREAD	(pthread_table__global[ 0 ])
 #endif

@@ -433,7 +433,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if NEED_PTHREAD_SUPPORT
-		if (1 || pth__done_pthread_create__global) {
+		if (pth__done_pthread_create__global) {
 		    //
 	            // Check again to insure that we have sufficient space:
 		    gc_level = -1;
@@ -521,7 +521,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    ap->requested_sib_buffer_bytesize = 0;
 
 	    #if NEED_PTHREAD_SUPPORT
-	    if (1 || pth__done_pthread_create__global) {
+	    if (pth__done_pthread_create__global) {
 		//
 	        // Check again to ensure that we have sufficient space:
 		//

@@ -46,17 +46,8 @@
 
 
 //
-int   pth__done_pthread_create__global  =  FALSE;		// Defaulting this to TRUE should ideally make no difference except for a (slight?) performance hit,
-    //================================				// but in fact it produces   /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryl-runtime-ia32: Fatal error:  bad chunk tag 19, chunk = 0x42c40064, tagword = 0x42c401cc
-    //								// so clearly some bugs remain.  -- 2011-11-15 CrT
-    // This boolean flag starts out FALSE and is set TRUE
-    // the first time   pth__pthread_create   is called.
-    //
-    // We can use simple mutex-free monothread-style logic
-    // in the heapcleaner (etc) so long as this is FALSE,
-    // per the Fairness Principle (processes that do not
-    // use something should not have to pay for it).
-
+int   pth__done_pthread_create__global  =  TRUE;		// This is currently always TRUE -- see Note[1] at bottom of file.
+    //================================
 
 
 // Some statically allocated locks.
@@ -655,6 +646,69 @@ int   pth__get_active_pthread_count   ()   {
 //    exit(-1);
 //   }
 //
+
+///////////////////////////////////////////////////////////////////////
+// Note[1]
+//
+// int   pth__done_pthread_create__global  =  TRUE;
+//
+// The original idea was that this flag would start out FALSE
+// and be set TRUE the first time   pth__pthread_create   is called,
+// with the idea of testing it and not slowing down execution with
+// mutex ops when only one posix thread was present.
+//
+// However, running
+//
+//     make rest ; sudo make install ; make cheg ; make tart ; time make compiler
+//
+// repeatedly as a test with the variable either TRUE or
+// FALSE shows the compiler runs faster with it TRUE ... ?!?!
+//
+// This makes no sense, but for the moment I'm leaving the
+// flag set TRUE.           -- 2011-11-16 CrT
+//
+//
+// With   pth__done_pthread_create__global  =  TRUE
+// 
+//     172.054u 25.889s 1:22.98 238.5%	0+0k 0+198424io 0pf+0w
+//     181.971u 28.589s 1:33.54 225.0%	0+0k 0+198432io 0pf+0w
+//     181.843u 30.141s 1:34.05 225.3%	0+0k 13568+198440io 49pf+0w
+//     182.927u 29.921s 1:34.72 224.7%	0+0k 0+198432io 0pf+0w
+//     183.839u 30.465s 1:35.30 224.8%	0+0k 32+198424io 1pf+0w
+//     170.446u 26.333s 1:25.97 228.8%	0+0k 0+198424io 0pf+0w
+//     188.907u 29.981s 1:37.95 223.4%	0+0k 0+198432io 0pf+0w
+//     193.288u 32.094s 1:36.00 234.7%	0+0k 0+198448io 0pf+0w
+//     182.943u 31.189s 1:32.16 232.3%	0+0k 13272+198448io 49pf+0w
+//     173.330u 25.933s 1:30.31 220.6%	0+0k 2512+198440io 19pf+0w
+//     180.719u 30.017s 1:32.09 228.8%	0+0k 0+198424io 0pf+0w
+// 
+// With   pth__done_pthread_create__global  =  FALSE
+// 
+//     217.049u 40.618s 1:49.69 234.8%	0+0k 3400+206800io 20pf+0w
+//     200.368u 34.722s 1:32.49 254.1%	0+0k 16+198432io 0pf+0w
+//     201.724u 35.274s 1:32.30 256.7%	0+0k 0+198448io 0pf+0w
+//     198.660u 33.998s 1:32.96 250.2%	0+0k 0+198440io 0pf+0w
+//     200.932u 33.886s 1:35.07 246.9%	0+0k 0+198432io 0pf+0w
+//     201.112u 35.210s 1:34.14 251.0%	0+0k 0+198424io 0pf+0w
+//     201.080u 34.926s 1:31.85 256.9%	0+0k 0+198440io 0pf+0w
+//     199.300u 34.030s 1:31.47 255.0%	0+0k 0+198496io 0pf+0w
+//     200.156u 34.022s 1:34.35 248.1%	0+0k 0+198440io 0pf+0w
+//     201.528u 35.270s 1:34.38 250.8%	0+0k 0+198440io 0pf+0w
+// 
+// With   pth__done_pthread_create__global  =  TRUE (again)
+// 
+//     183.115u 28.801s 1:36.66 219.2%	0+0k 0+198424io 0pf+0w
+//     195.156u 31.957s 1:37.67 232.5%	0+0k 0+198456io 0pf+0w
+//     173.314u 26.349s 1:29.63 222.7%	0+0k 0+198440io 0pf+0w
+//     181.591u 29.853s 1:29.85 235.3%	0+0k 0+198456io 0pf+0w
+//     174.538u 26.825s 1:27.42 230.3%	0+0k 0+198480io 0pf+0w
+//     169.238u 25.433s 1:27.40 222.7%	0+0k 0+198448io 0pf+0w
+//     169.530u 25.473s 1:25.95 226.8%	0+0k 0+198456io 0pf+0w
+//     179.911u 28.021s 1:31.67 226.8%	0+0k 0+198464io 0pf+0w
+//     180.975u 28.893s 1:33.50 224.4%	0+0k 0+198456io 0pf+0w
+//     180.471u 29.141s 1:28.72 236.2%	0+0k 0+198448io 0pf+0w
+
+
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
