@@ -297,7 +297,7 @@ int   pth__start_heapcleaning   (Task *task) {
     if (pthread->pid == heapcleaner_pthread_pid__local) {
         //
 												PTHREAD_LOG_IF ("Heapcleaner pthread %d returning to start heapcleaning\n",pthread->pid);
-        return TRUE;										// We're the designated heapcleaner.
+        return TRUE;										// We're the designated heapcleaner -- we return and start doing the actual heapcleaning work.
     }
 
 
@@ -443,7 +443,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
     if (heapcleaner_pthread_pid__local == pthread->pid) {
 	//
-        return TRUE;			// We're the designated heapcleaner.
+        return TRUE;										// We're the designated heapcleaner -- we return and start doing the actual heapcleaning work.
     }
 
 												PTHREAD_LOG_IF ("pthread %d entering barrier with active_pthread_count d=%d\n", pthread->pid, active_pthread_count);
@@ -459,10 +459,13 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	    // for the moment we hope for the best. XXX SUCKO FIXME.
 	if (err) die(err);
     }
-
-    PTHREAD_LOG_IF ("%d left barrier\n", pthread->pid);
-
-    return 0;
+												PTHREAD_LOG_IF ("%d left barrier\n", pthread->pid);
+    // We return FALSE to tell caller that we're
+    // not the designated heapcleaner pthread, so
+    // we shouldn't do any heapcleaning work upon
+    // our return:
+    //
+    return FALSE;
 }												// fun pth__call_heapcleaner_with_extra_roots
 
 
@@ -470,24 +473,22 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 void    pth__finish_heapcleaning   (Task*  task)   {
     //  ========================
     //
-    // This fn is called only from
+    // This fn is called (only) from
     //
     //     src/c/heapcleaner/call-heapcleaner.c
-    //
-    // 
 
-    // This works, but partition_agegroup0_buffer_between_pthreads is overkill:		XXX BUGGO FIXME
+    // This works, but partition_agegroup0_buffer_between_pthreads is overkill:			XXX SUCKO FIXME
     //
     partition_agegroup0_buffer_between_pthreads( pthread_table__global );
 
     PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );
+												PTHREAD_LOG_IF ("%d entering barrier\n", task->pthread->pid );
 
-    PTHREAD_LOG_IF ("%d entering barrier\n", task->pthread->pid );
-
-    {   Bool result;
-	char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &result );		// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
+    {   Bool                                                               i_am_the_one;
+	char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_one );	// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 	    //											// They should all be already waiting on this barrier, so we should never block at this point.
-	    // 'result' will be TRUE for one pthread waiting on barrier, FALSE for the rest;
+	    // 'i_am_the_one' will be TRUE for one pthread
+	    // waiting on barrier, FALSE for the rest;
 	    // We do not take advantage of that here.
 	    //
 	    // 'err' will be NULL normally, non-NULL only on an error;
@@ -495,12 +496,10 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	if (err) die(err);
     }
 
-    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s lead here.
+    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s nomenclature here.
 
     pthreads_ready_to_clean__local = 0;
-
-    PTHREAD_LOG_IF ("%d left barrier\n", task->pthread->pid);
-
+												PTHREAD_LOG_IF ("%d left barrier\n", task->pthread->pid);
     PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
 }
 
