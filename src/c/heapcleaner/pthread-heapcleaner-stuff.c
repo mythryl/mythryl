@@ -449,7 +449,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 												PTHREAD_LOG_IF ("pthread %d entering barrier with active_pthread_count d=%d\n", pthread->pid, active_pthread_count);
 
     {   Bool                                                               i_am_the_one;	// Set by call on next line.
-        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_ond );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_one );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 	    //
 	    // 'i_am_the_one' will be TRUE for one pthread
 	    // waiting on barrier, FALSE for the rest;
