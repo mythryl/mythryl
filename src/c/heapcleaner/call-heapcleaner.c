@@ -159,7 +159,8 @@ void   call_heapcleaner   (Task* task,  int level) {
 											PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
-		*roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do is in the level > 0 case below?
+		*roots_ptr++ =  &task->link_register;					// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+		*roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do it in the level > 0 case below?
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
 		*roots_ptr++ =  &task->exception_fate;
@@ -207,22 +208,23 @@ void   call_heapcleaner   (Task* task,  int level) {
     if (level > 0) {
         //
 	#if NEED_PTHREAD_SUPPORT
-	if (pth__done_pthread_create__global) {
-	    //
-	    Task* task;
-	    //
-	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
-		//
-		Pthread*  pthread =  pthread_table__global[ i ];
-		//
-		task  =  pthread->task;
-		//
-		if (pthread->status == PTHREAD_IS_RUNNING) {
-		    //
-		    *roots_ptr++ =  &task->link_register;
-		}
-	    }
-	}
+// Commented out 2011-11-15 CrT in favor of doing it above -- it doesn't make any sense to do this for normal gen0 heapcleans but not for multithreads ones. I think this must be due to 15 years of bitrot.
+//	if (pth__done_pthread_create__global) {
+//	    //
+//	    Task* task;
+//	    //
+//	    for (int i = 0;  i < MAX_PTHREADS;  i++) {
+//		//
+//		Pthread*  pthread =  pthread_table__global[ i ];
+//		//
+//		task  =  pthread->task;
+//		//
+//		if (pthread->status == PTHREAD_IS_RUNNING) {
+//		    //
+//		    *roots_ptr++ =  &task->link_register;
+//		}
+//	    }
+//	}
 	#endif
 
 	*roots_ptr = NULL;
