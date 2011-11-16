@@ -507,7 +507,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    //
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT(heap);
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
 	#endif
     }
     #else // Same as above }else{ case:
@@ -517,7 +517,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    //
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT(heap);
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
 	#endif
     #endif
 

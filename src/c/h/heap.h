@@ -140,7 +140,7 @@ struct sib {
     Val*		next_tospace_word_to_allocate;		// The next word to allocate in this sib's to-space.
     //
     Val*	        tospace;				// Base address and size of to-space.
-    Punt	tospace_bytesize;
+    Punt		tospace_bytesize;
     Val*	        tospace_limit;				// The top of the to-space (tospace+tospace_bytesize).
     //
     Val*		next_word_to_sweep_in_tospace;		// The next word to sweep in the to-space buffer.
@@ -150,7 +150,7 @@ struct sib {
     Val_Sized_Unt	fromspace_bytesize;
     Val*		fromspace_used_end;			// The top of the used portion of from-space.
 
-    Val*		end_of_fromspace_oldstuff;		// The top of the "older" from-space region. Chunks below oldTop get promoted, those above don't.
+    Val*		end_of_fromspace_oldstuff;		// The top of the "older" from-space region. Chunks below this get promoted, those above don't.
     Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
 
     Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had
@@ -167,9 +167,9 @@ inline void   make_sib_tospace_into_fromspace   (Sib* sib)   {
     //
     // Make to-space into from-space:
     //
-    sib->fromspace               =  sib->tospace;
-    sib->fromspace_bytesize =  sib->tospace_bytesize;
-    sib->fromspace_used_end      =  sib->next_tospace_word_to_allocate;
+    sib->fromspace		=  sib->tospace;
+    sib->fromspace_bytesize	=  sib->tospace_bytesize;
+    sib->fromspace_used_end	=  sib->next_tospace_word_to_allocate;
 }
 
 //
@@ -183,7 +183,7 @@ inline Bool   sib_is_active   (Sib* sib)   {
 
 //
 inline Punt   sib_freespace_in_bytes   (Sib* sib)   {
-    //                     ======================
+    //        ======================
     //
     // Return the amount of free space
     // (in bytes) available in a sib buffer:
@@ -194,7 +194,7 @@ inline Punt   sib_freespace_in_bytes   (Sib* sib)   {
 
 //
 inline Punt   sib_space_used_in_bytes   (Sib* sib)   {
-    //                     =======================
+    //        =======================
     //
     // Return the amount of allocated space
     // (in bytes) in a sib buffer:
@@ -421,7 +421,7 @@ extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);		
 #									 #
 # Local variables:							 #
 # mode: outline-minor							 #
-# outline-regexp: "[a-z]"			 		 	#
+# outline-regexp: "[a-z]"			 		 	 #
 # End:									 #
 ##########################################################################
 */
