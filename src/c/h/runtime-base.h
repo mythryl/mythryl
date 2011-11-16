@@ -276,13 +276,26 @@ extern int   pth__done_pthread_create__global;
 extern void   log_if   (const char * fmt, ...);
 extern int    log_if_fd;
 
-#define MIN(a, b)  (((a) < (b)) ? (a) : (b))				// Random convenience macro -- is there a better place for this?
+
+
+// Some convenience macros -- is there a better place for them?
+
+#ifndef MIN
+#define MIN(a,b)  ((a) > (b) ? (b) : (a))
+#endif
+
+#ifndef MAX
+#define MAX(a,b)  ((a) < (b) ? (b) : (a))
+#endif
 
 #endif // _ASM_ 
+
+
 
 #ifndef HEAP_IMAGE_SYMBOL
 #define HEAP_IMAGE_SYMBOL       "lib7_heap_image"
 #define HEAP_IMAGE_LEN_SYMBOL   "lib7_heap_image_len"
+
 #endif
 
 

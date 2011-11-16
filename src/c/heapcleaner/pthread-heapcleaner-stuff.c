@@ -139,8 +139,8 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
 
 static volatile int	pthreads_ready_to_clean__local = 0;			// Number of processors that are ready to clean.
-static int		cleaning_pthread__local;				// The cleaning pthread.
-static int		barrier_needs_to_be_initialized__local;
+static volatile Pid	cleaning_pthread_pid__local;				// The cleaning pthread.
+static volatile int	barrier_needs_to_be_initialized__local;			// Not sure if these last two need to be 'volatile', but better safe than sorry.
 
 // This holds extra roots provided by   call_heapcleaner_with_extra_roots:
 //
@@ -173,7 +173,7 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     //   o The first pthread to check in becomes the
     //     designated heapcleaner, which we remember by saving its pid
-    //     in cleaning_pthread__local.
+    //     in cleaning_pthread_pid__local.
     //
     //   o The designated heapcleaner returns to the invoking
     //     call-heapcleaner fnc and does the heapcleaning work
@@ -190,7 +190,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // remember that and signal the remaining pthreads
     // to join in.
     //
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
+    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );						// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
     //
     if (pthreads_ready_to_clean__local++ == 0) {
         //
@@ -210,14 +210,13 @@ int   pth__start_heapcleaning   (Task *task) {
 	    //
 	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
 	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
-	    PTHREAD_LOG_IF ("%d: set poll event\n", task->pthread->pid);
+												PTHREAD_LOG_IF ("%d: set poll event\n", task->pthread->pid);
 	#endif
 
-	cleaning_pthread__local =  pthread->pid;							// Assume the awesome responsilibity of being the designated heapcleaner thread.
+	cleaning_pthread_pid__local =  pthread->pid;						// Assume the awesome responsilibity of being the designated heapcleaner thread.
 
 	barrier_needs_to_be_initialized__local =  TRUE;
-
-	PTHREAD_LOG_IF ("cleaning_pthread__local is %d\n", cleaning_pthread__local);
+												PTHREAD_LOG_IF ("cleaning_pthread_pid__local is %d\n", cleaning_pthread_pid__local);
     }
     PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
 
@@ -295,7 +294,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // we now return to caller to take up our
     // heapcleaning responsibilities:
     //
-    if (pthread->pid == cleaning_pthread__local) {
+    if (pthread->pid == cleaning_pthread_pid__local) {
         //
         return TRUE;										// We're the designated heapcleaner.
     }
@@ -360,11 +359,11 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
 	    // We're the first one in, we'll do the collect:
 	    //
-	    cleaning_pthread__local = pthread->pid;
+	    cleaning_pthread_pid__local = pthread->pid;
 
 	    barrier_needs_to_be_initialized__local =  TRUE;
 
-	    PTHREAD_LOG_IF ("cleaning_pthread__local is %d\n",cleaning_pthread__local);
+	    PTHREAD_LOG_IF ("cleaning_pthread_pid__local is %d\n",cleaning_pthread_pid__local);
 	}
 
 	while ((p = va_arg(ap, Val *)) != NULL) {
@@ -440,7 +439,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
     PTHREAD_LOG_IF ("(%d) all %d/%d procs in\n", task->pthread->pid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
 
-    if (cleaning_pthread__local == pthread->pid) {
+    if (cleaning_pthread_pid__local == pthread->pid) {
 	//
         return TRUE;			// We're the designated heapcleaner.
     }
