@@ -71,17 +71,14 @@ void   call_heapcleaner   (Task* task,  int level) {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-#if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
-
+    #if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
     if (pth__done_pthread_create__global) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a designated pthread to do the heapcleaning work.
 	// That pthread returns and falls into the regular heapcleaning code;
 	// the remainder block at a barrier until heapcleaning is complete:
-	//
-	PTHREAD_LOG_IF ("initiating heapcleaning mode pid d=%d\n", task->pthread->pid);
-	//
+												PTHREAD_LOG_IF ("initiating heapcleaning mode pid d=%d\n", task->pthread->pid);
 	//
 	if (!pth__start_heapcleaning( task )) {							// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
@@ -89,7 +86,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );			// Remember that starting nowe CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );			// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -106,7 +103,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
     }
-#endif
+    #endif
 
     note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -157,9 +154,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    pthread = pthread_table__global[ j ];
 
 	    task = pthread->task;
-
-	    PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-
+											PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
 		*roots_ptr++ =  &task->argument;					// Why don't we here do &task->link_register, as above? ?  Why do we do is in the level > 0 case below?
@@ -295,8 +290,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
 	//
-	PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) pid d=%d\n", task->pthread->pid);
-
+														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) pid d=%d\n", task->pthread->pid);
 	va_start (ap, level);
 
 	int we_are_the_designated_heapcleaner_pthread
@@ -387,10 +381,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	for (int j = 0;  j < MAX_PTHREADS;  j++) {
 	    //
 	    pthread = pthread_table__global[ j ];
+
 	    task    = pthread->task;
-
-	    PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-
+														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status == PTHREAD_IS_RUNNING) {
 		//
 		*roots_ptr++ =  &task->argument;
