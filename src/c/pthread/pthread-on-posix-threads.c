@@ -46,9 +46,9 @@
 
 
 //
-int   pth__done_pthread_create__global  =  FALSE;
-    //================================
-    //
+int   pth__done_pthread_create__global  =  FALSE;		// Defaulting this to TRUE should ideally make no difference except for a (slight?) performance hit,
+    //================================				// but in fact it produces   /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryl-runtime-ia32: Fatal error:  bad chunk tag 19, chunk = 0x42c40064, tagword = 0x42c401cc
+    //								// so clearly some bugs remain.  -- 2011-11-15 CrT
     // This boolean flag starts out FALSE and is set TRUE
     // the first time   pth__pthread_create   is called.
     //

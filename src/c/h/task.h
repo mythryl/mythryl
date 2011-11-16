@@ -37,8 +37,8 @@ struct task {
     //
     Val		link_register;						// A valid program counter value -- initially at least entrypoint in 'closure'.
     Val		program_counter;					// Address of Mythryl code to execute; when
-									// calling a Mythryl function from C, this
-									// holds the same value as the link_register.
+									// calling a Mythryl function from C, this			NB:  The garbage collector treats link_register as a root but not
+									// holds the same value as the link_register.			program_counter, so presumably it always points into the same <something>. -- 2011-11-15 CrT
 
     Val		exception_fate;						// Exception handler (?)
     Val		current_thread;						// When the Mythryl thread scheduler is running this will hold a value of type Thread.  Type
