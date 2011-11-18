@@ -288,6 +288,10 @@ extern int    log_if_fd;
 #define MAX(a,b)  ((a) < (b) ? (b) : (a))
 #endif
 
+#define ENTER_C_LEVEL(fn_name)   { if (0) printf("%s: Entered C level\n",fn_name); }
+#define LEAVE_C_LEVEL(fn_name)   { if (0) printf("%s: Left    C level\n",fn_name); }
+
+
 #endif // _ASM_ 
 
 
