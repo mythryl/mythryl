@@ -4,8 +4,13 @@
 // SGI Challenge boxes of the era which featured up to sixteen CPU cards on a
 // single bus with a special dedicated hardware bus for inter-CPU locking etc.
 //
+// These days Irix must have a standard posix-threads implementation, so this
+// file should be obsoleted by   src/c/pthread/pthread-on-posix-threads.c
+// and should probably be deleted by and by.  For the moment, I'm keeping it
+// around for historical interest and comparison during debugging.
+//
 // Multicore (well, multi-processor) support for SGI Challenge machines (Irix 5.x)
-// implementing the API defined in
+// (no longer) implementing the API defined in
 //
 //     src/c/h/runtime-pthread.h
 //

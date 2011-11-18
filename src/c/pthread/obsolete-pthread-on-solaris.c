@@ -2,8 +2,16 @@
 //
 // This is an ancient (circa 1994?) implementation of pthread on top
 // of the solaris operating system of the era.  These days Solaris
-// should have a standard posix-threads implementation, so this file
-// can probably be deleted by and by.
+// must have a standard posix-threads implementation, so this
+// file should be obsoleted by   src/c/pthread/pthread-on-posix-threads.c
+// and should probably be deleted by and by. For the moment I'm keeping
+// it around for historical interest and comparison during debugging.
+//
+// (In any event, the API defined by
+//
+//     src/c/h/runtime-pthread.h
+//
+// contains many changes not reflected in this file.)
 //
 // Multicore (well, multiprocessor) support for Sparc32 multiprocessor machines running Solaris 2.5
 //
