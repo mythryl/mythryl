@@ -39,7 +39,7 @@
 
 
 Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
-    //=======================
+    //====================
     //
     // Linearize a Mythryl heap chunk
     // into a vector of bytes.

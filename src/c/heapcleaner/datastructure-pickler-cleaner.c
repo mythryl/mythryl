@@ -63,17 +63,17 @@ struct repair {
     }
 
 
- static void                   repair_heap                               (Task* task,  int max_age);
- static void                   wrap_up_cleaning                      (Task* task,  int max_age);
- static void                   swap_tospace_with_fromspace               (Heap* heap,  int age);
+ static void                   repair_heap				(Task* task,  int max_age);
+ static void                   wrap_up_cleaning				(Task* task,  int max_age);
+ static void                   swap_tospace_with_fromspace		(Heap* heap,  int age);
 
- static Status                 sweep_tospace                             (Heap* heap,  Sibid max_aid);
- static Val                    forward_chunk                             (Heap *heap,  Val chunk, Sibid id);
- static Hugechunk*             forward_hugechunk                         (Heap* heap,  Val* p,  Val chunk,  Sibid aid);
+ static Status                 sweep_tospace				(Heap* heap,  Sibid max_aid);
+ static Val                    forward_chunk				(Heap *heap,  Val chunk, Sibid id);
+ static Hugechunk*             forward_hugechunk			(Heap* heap,  Val* p,  Val chunk,  Sibid aid);
 
- static Embedded_Chunk_Info*   find_embedded_chunk                       (Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
- static void                   record_addresses_of_extracted_literals    (Punt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
- static void                   extract_literals_from_codechunks          (Punt addr, void *_closure, void *_info);
+ static Embedded_Chunk_Info*   find_embedded_chunk			(Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
+ static void                   record_addresses_of_extracted_literals	(Punt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
+ static void                   extract_literals_from_codechunks		(Punt addr, void *_closure, void *_info);
 
 // The closure for record_addresses_of_extracted_literals:
 //

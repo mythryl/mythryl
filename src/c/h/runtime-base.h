@@ -288,8 +288,9 @@ extern int    log_if_fd;
 #define MAX(a,b)  ((a) < (b) ? (b) : (a))
 #endif
 
-#define ENTER_C_LEVEL(fn_name)   { if (0) printf("%s: Entered C level\n",fn_name); }
-#define LEAVE_C_LEVEL(fn_name)   { if (0) printf("%s: Left    C level\n",fn_name); }
+
+#define BEGIN_USING_MYTHRYL_HEAP(fn_name)   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
+#define CEASE_USING_MYTHRYL_HEAP(fn_name)   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
 
 
 #endif // _ASM_ 
