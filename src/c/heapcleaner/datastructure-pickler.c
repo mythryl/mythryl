@@ -33,9 +33,9 @@
 
 #define PICKLER_ERROR	HEAP_VOID
 
- static Val   pickle_unboxed_value           (Task* task,  Val chunk);
- static Val   pickle_heap_datastructure              (Task* task,  Val chunk,  Pickler_Result* info);
- static Val   allocate_heap_ram_for_pickle  (Task* task,  Punt bytesize);
+ static Val   pickle_unboxed_value		(Task* task,  Val chunk);
+ static Val   pickle_heap_datastructure		(Task* task,  Val chunk,  Pickler_Result* info);
+ static Val   allocate_heap_ram_for_pickle	(Task* task,  Punt bytesize);
 
 
 Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
@@ -52,6 +52,11 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
     // and then
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
+
+    // NB: I'm not using BEGIN_USING_MYTHRYL_HEAP / CEASE_USING_MYTHRYL_HEAP
+    // here because it is rarely used and full of heap operations; better to just
+    // have multithread garbage collections block until a call is complete than
+    // to sweat through identifying all the heap accesses and guarding them. -- 2011-11-18 CrT
 
     call_heapcleaner_with_extra_roots (task, 0, &root_chunk, NULL);  				// Clean agegroup0.
 
@@ -83,7 +88,7 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
 
 
 static Val   pickle_unboxed_value   (Task* task,  Val root_chunk) {
-    //       =======================
+    //       ====================
     //
     Pickle_Header  pickle_header;
     //
@@ -121,7 +126,7 @@ static Val   pickle_unboxed_value   (Task* task,  Val root_chunk) {
 
 
 static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_Result* result)   {
-    //       ====================
+    //       =========================
     //
     Heap* heap    =  task->heap;
     int	  max_age =  result->oldest_agegroup_included_in_pickle;

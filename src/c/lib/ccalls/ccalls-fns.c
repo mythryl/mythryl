@@ -62,7 +62,7 @@ Val   mythryl_functions_referenced_from_c_code__global =   LIST_NIL;	// See  src
 
 
 static void   register_fn_as_cleaning_root   (
-    //        ================================
+    //        ============================
     //
     Task*  task,
     Val*   rp

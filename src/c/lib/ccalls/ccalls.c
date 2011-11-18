@@ -965,7 +965,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 }
 
 Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
-    //=================
+    //===============================
 
     // This is the Mythryl entry point for 'convert_mythryl_value_to_c'
 
@@ -1010,7 +1010,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 }
 
 static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* root)   {
-    //       ===========
+    //       ============
     //
     Val result =  HEAP_VOID;
     Val mlval  =  HEAP_VOID;
@@ -1257,7 +1257,7 @@ Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,
 
 
 Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
-    //=================
+    //===============================
     //
     // Mythryl entry point for 'convert_c_value_to_mythryl'.
     // This gets exported as ccalls::convert_c_value_to_mythryl       in     src/c/lib/ccalls/cfun-list.h
@@ -1275,11 +1275,25 @@ Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
 
 
 Val   lib7_c_call   (Task* task,   Val arg) {
-    //==========
+    //===========
     //
     // Mythryl entry point for 'ccall'.
     // We are exported as ccalls::ccall          in   src/c/lib/ccalls/cfun-list.h
     // which is bound at the Mythryl level (only) in   src/lib/c-glue-old/ccalls.pkg
+
+    // NB: Before making this code operational again,
+    // NEED TO THINK ABOUT PTHREAD ISSUES.  It doesn't
+    // look safe to wrap this function in
+    //
+    //     CEASE_USING_MYTHRYL_HEAP(...);
+    //     ...
+    //     BEGIN_USING_MYTHRYL_HEAP(...);
+    //
+    // because it might access the Mythryl heap, but
+    // it doesn't look safe to NOT do so because
+    // it might call a slow syscall or C fn and leave
+    // the system unable to garbage collection until
+    // it returns.
 
     #if !defined(INDIRECT_CFUNC)
 	Val_Sized_Unt (*f)() = (Val_Sized_Unt (*)())   GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, arg, 0 );

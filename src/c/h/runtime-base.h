@@ -289,9 +289,36 @@ extern int    log_if_fd;
 #endif
 
 
-#define BEGIN_USING_MYTHRYL_HEAP(fn_name)   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
-#define CEASE_USING_MYTHRYL_HEAP(fn_name)   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
-
+#define BEGIN_USING_MYTHRYL_HEAP( pthread, fn_name )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
+#define CEASE_USING_MYTHRYL_HEAP( pthread, fn_name )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
+    //
+    // The problem to be solved here is that when
+    // multiple pthreads (kernel threads) share the
+    // Mythryl heap, all threads must enter heapcleaning
+    // mode before heapcleaning can begin, which happens
+    // about 200 times per second:  If one pthread is
+    // blocked in a sleep() or select() or whatever for
+    // a long time (on the millisecond scale), all other
+    // pthreads will wind up dead in the water until the
+    // offending pthread finally wakes up.
+    //
+    // Our solution is that any pthread starting a potentially
+    // lengthy C operation (which does not involve the Mythryl heap!)
+    // should do
+    //
+    //     CEASE_USING_MYTHRYL_HEAP( pthread, "foo" );
+    //         //
+    //         slow_c_operation_not_using_mythryl_heap();
+    //         //
+    //     BEGIN_USING_MYTHRYL_HEAP( pthread, "foo" );
+    //
+    // Those macros can then explicitly remove the pthread from
+    // the 'active' set (by changing pthread->status from
+    // PTHREAD_IS_RUNNING_MYTHRYL to PTHREAD_IS_RUNNING_C) before
+    // the slow operation and then changing pthread->status back to
+    // PTHREAD_IS_RUNNING_MYTHRYL afterward, with of course proper
+    // mutex protection on the latter to assure that the pthread
+    // does not attempt to resume using the heap during heapcleaning.
 
 #endif // _ASM_ 
 

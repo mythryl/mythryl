@@ -382,7 +382,8 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
 Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     //=======================
     // 
-    // Allocate an Lib7 rw_vector using init_val as an initial value.
+    // Allocate a Mythryl rw_vector using init_val
+    // as the initial value for vector slots.
     // Assume that len > 0.
 
     Val	result;

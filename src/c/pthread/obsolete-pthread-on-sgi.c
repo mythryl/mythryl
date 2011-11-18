@@ -362,7 +362,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new pthread:
 	//
 	for (i = 0;
-	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
+	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
 	    i++
 	){
 	    continue;
@@ -392,7 +392,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
     p->current_thread	=  thread_arg;
   
-    if (pthread->status == NO_PTHREAD_ALLOCATED) {
+    if (pthread->status == PTHREAD_IS_VOID) {
 	//
         // Assume we get one:
 
@@ -402,7 +402,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    //
 	    PTHREAD_LOG_IF ("[got a processor]\n");
 
-	    pthread->status = PTHREAD_IS_RUNNING;
+	    pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;
 
 	    // make_pthread will release MP_ProcLock.
 
@@ -417,7 +417,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     } else {
 
-	pthread->status = PTHREAD_IS_RUNNING;
+	pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;
 
 	PTHREAD_LOG_IF ("[reusing a processor]\n");
 

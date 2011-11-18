@@ -12,15 +12,23 @@
 #include <stdarg.h>
 #include "runtime-base.h"
 
-// Status of a Pthread:
-//
 typedef enum {
     //
-    PTHREAD_IS_RUNNING,
-    PTHREAD_IS_SUSPENDED,
-    NO_PTHREAD_ALLOCATED
+    PTHREAD_IS_RUNNING_MYTHRYL,		// Normal state of a running Mythryl pthread.
+    PTHREAD_IS_RUNNING_C,		// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT TOUCH MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    PTHREAD_IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //
 } Pthread_Status;
+    //
+    // Status of a Pthread: value of pthread->status.	// pthread_state_struct is defined in   src/c/h/pthread-state.h
+    //
+    // To switch a pthread between the two
+    // RUNNING modes, use the
+    //
+    //     BEGIN_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_C        ->  PTHREAD_IS_RUNNING_MYTHRYL  state transition.
+    //     CEASE_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_MYTHRYL  ->  PTHREAD_IS_RUNNING_C        state transition.
+    //
+    // macros.
 
 
 

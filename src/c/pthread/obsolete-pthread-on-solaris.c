@@ -693,7 +693,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc:
         //
 	for (  i = 0;
-	      (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
+	      (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
 	       i++
             );
 
@@ -727,7 +727,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( f );
 
-    if (pthread->status == NO_PTHREAD_ALLOCATED) {
+    if (pthread->status == PTHREAD_IS_VOID) {
         //
 	Pid  procId;
 
@@ -739,7 +739,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    //
 	    PTHREAD_LOG_IF ("[got a processor: %d,]\n",procId);
 
-	    pthread->status = PTHREAD_IS_RUNNING;
+	    pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;
 	    pthread->pid = procId;
 
 	    // make_pthread will release mp_pthread_mutex__local.
@@ -758,7 +758,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// The thread executing the processor
 	// has already been invoked:
 
-	pthread->status = PTHREAD_IS_RUNNING;
+	pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;
 
 	PTHREAD_LOG_IF ("[reusing a processor %d]\n", pthread->pid);
 

@@ -63,12 +63,12 @@
 
 #define IS_EXTERN_POINTER(book2sibid, w)	(IS_POINTER(w) && (SIBID_FOR_POINTER(book2sibid, w) == UNMAPPED_BOOK_SIBID))
 
- static Status         write_heap_image_to_file  (Task* task,  int kind,  FILE* file);
- static Status         write_heap  (Writer* writer,  Heap* heap);
+ static Status         write_heap_image_to_file		(Task* task,  int kind,  FILE* file);
+ static Status         write_heap			(Writer* writer,  Heap* heap);
 
- static Heapfile_Cfun_Table*  build_export_table   (Heap* heap);
+ static Heapfile_Cfun_Table*  build_export_table	(Heap* heap);
 
- static void   repair_heap   (Heapfile_Cfun_Table* table,  Heap* heap);
+ static void   repair_heap				(Heapfile_Cfun_Table* table,  Heap* heap);
 
 
 Status   export_heap_image   (Task* task,  FILE* file) {

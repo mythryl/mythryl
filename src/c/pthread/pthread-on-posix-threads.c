@@ -141,7 +141,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     // Search for a slot in which to put a new pthread
     //
     for (i = 0;
-	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != NO_PTHREAD_ALLOCATED);
+	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
 	i++
     ){
 	continue;
@@ -184,7 +184,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	    INCREASE_BY( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)
     );
 
-    pthread->status = PTHREAD_IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
+    pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;						// Moved this above pthread_create() because that seems safer,
 										    // otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
     int err =   pthread_create(
 		    //
@@ -205,7 +205,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     } else {									// Failed to spawn new kernel thread.
 
-	pthread->status = NO_PTHREAD_ALLOCATED;					// Note pthread record (still) has no associated kernel thread.
+	pthread->status = PTHREAD_IS_VOID;					// Note pthread record (still) has no associated kernel thread.
 
 	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
 		DECREASE_BY(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
@@ -245,7 +245,7 @@ void   pth__pthread_exit   (Task* task)   {
     pth__mutex_lock(    &pthread_table_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
 	//													// We don't use the PTH__MUTEX_LOCK macro because at this point
 	//													// we know pth__done_pthread_create__global == TRUE.
-	task->pthread->status = NO_PTHREAD_ALLOCATED;
+	task->pthread->status = PTHREAD_IS_VOID;
 	//
     pth__mutex_unlock(  &pthread_table_mutex__local );
 
@@ -268,7 +268,7 @@ char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// htt
 
     Pthread* pthread =  pthread_table__global[ pthread_to_join ];			// pthread_table__global	def in   src/c/main/runtime-state.c
 
-    if (pthread->status != PTHREAD_IS_RUNNING)  {
+    if (pthread->status == PTHREAD_IS_VOID)  {
 	//
 	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
     }

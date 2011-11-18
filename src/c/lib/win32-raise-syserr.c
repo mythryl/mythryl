@@ -14,9 +14,9 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
     //
     // RaiseSysError:
     //
-    // Raise the Lib7 exception SysErr, which has the spec:
+    // Raise the Mythryl exception SysErr, which has the spec:
     //
-    //    exception RUNTIME_EXCEPTION of (String * System_Error Null_Or)
+    //    exception RUNTIME_EXCEPTION (String, Null_Or(System_Error))
     //
     // We use the last win32-api error value as the System_Error; eventually that
     // will be represented by an (int * String) pair.  If alt_msg is non-zero,

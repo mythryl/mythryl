@@ -19,7 +19,7 @@ static Status   read_image   (Task* task,   Inbuf* bp,   Val* chunk_ref);
 
 
 Val   unpickle_datastructure   (Task* task,  Unt8* buf,  long len,  Bool* seen_error) {
-    //======================= 
+    //====================== 
     // 
     // Build a heap chunk from a sequence of bytes.
     // The fd is the underlying file descriptor (== -1, if unpickling from a bytevector).
