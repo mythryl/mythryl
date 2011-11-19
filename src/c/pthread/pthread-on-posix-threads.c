@@ -34,7 +34,6 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
-#include "runtime-pthread.h"
 #include "task.h"
 #include "runtime-globals.h"
 #include "pthread-state.h"
@@ -495,7 +494,7 @@ Pthread*  pth__get_pthread   ()   {
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
 	if (pthread_table__global[i]->pid == pid)   return pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
-    }											// pthread_table__global exported via    src/c/h/runtime-pthread.h
+    }											// pthread_table__global exported via    src/c/h/runtime-base.h
     die ("pth__get_pthread:  pid %d not found in pthread_table__global?!", pid);
     return NULL;									// Cannot execute; only to quiet gcc.
 #else

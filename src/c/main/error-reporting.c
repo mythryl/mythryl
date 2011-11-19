@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include "runtime-base.h"
-#include "runtime-pthread.h"
 
 extern FILE	*DebugF;	// Referenced only here and in   src/c/main/runtime-main.c
 				// Defaults to stderr, may be set via   --runtime-debug=foo.log

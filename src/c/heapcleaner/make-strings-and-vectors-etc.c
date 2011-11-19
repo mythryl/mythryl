@@ -55,7 +55,6 @@
 #include "heap.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-configuration.h"
-#include "runtime-pthread.h"
 #include <string.h>
 
 
@@ -405,7 +404,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 													// 				or	 src/c/pthread/pthread-on-solaris.c
 													// (Used only in this file.)
 
-	PTH__MUTEX_LOCK( &pth__heapcleaner_gen_mutex__global );						// pth__mutex_lock		def in   src/c/h/runtime-pthread.h
+	PTH__MUTEX_LOCK( &pth__heapcleaner_gen_mutex__global );						// pth__mutex_lock		def in   src/c/h/runtime-base.h
 	    //												// as pth__mutex_lock(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
 	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c

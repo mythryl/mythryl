@@ -22,7 +22,6 @@
 #endif
 
 #include "runtime-base.h"
-#include "runtime-pthread.h"
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
 #include "runtime-globals.h"

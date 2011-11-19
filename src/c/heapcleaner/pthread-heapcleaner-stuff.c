@@ -27,7 +27,6 @@
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "runtime-pthread.h"
 #include "pthread-state.h"
 
 

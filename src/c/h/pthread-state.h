@@ -24,10 +24,6 @@
 #include "runtime-timer.h"
 
 
-#if NEED_PTHREAD_SUPPORT
-    #include "runtime-pthread.h"
-#endif
-
 
 // The Pthread state vector:
 //
@@ -64,7 +60,7 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #if NEED_PTHREAD_SUPPORT
-	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-pthread.h
+	Pthread_Status  status;					// RUNNING/SUSPENDED/ALLOCATED -- see src/c/h/runtime-base.h
 	Pid             pid;	       				// Our kernel thread's process identifier ("pid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
 	    // NB; 'pid' MUST be declared Pid (i.e., pthread_t from <pthread.h>)

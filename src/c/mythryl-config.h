@@ -66,7 +66,7 @@
     //
     // This switch affects the files:
     // 
-    //     src/c/h/runtime-pthread.h
+    //     src/c/h/runtime-base.h				// pthread section.
     //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //     src/c/heapcleaner/call-heapcleaner.c
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c

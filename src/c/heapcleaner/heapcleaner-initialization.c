@@ -40,7 +40,6 @@
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "runtime-pthread.h"
 
 static int  DfltRatios[ MAX_AGEGROUPS ]
     =

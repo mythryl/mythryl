@@ -20,15 +20,13 @@
 //     src/lib/std/src/pthread.api
 //     src/lib/std/src/pthread.pkg
 //
-// some of the functionality defined in
+// some of the functionality defined in the pthread section of
 //
-//     src/c/h/runtime-pthread.h
+//     src/c/h/runtime-base.h
 //
-// and implemented in the platform-specific files
+// and implemented in the platform-specific file
 //
 //     src/c/pthread/pthread-on-posix-threads.c
-//     src/c/pthread/pthread-on-sgi.c
-//     src/c/pthread/pthread-on-solaris.c
 //
 // For background see:
 //
@@ -40,7 +38,6 @@
 #include <stdio.h>
 
 #include "runtime-base.h"
-#include "runtime-pthread.h"
 #include "runtime-values.h"
 #include "runtime-globals.h"
 
