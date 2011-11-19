@@ -48,7 +48,11 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	if (global) flag |= RTLD_GLOBAL;
 
-	handle = dlopen (libname, flag);
+	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
+	    //
+	    handle = dlopen (libname, flag);				// This call might(?) be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+	    //
+	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen" );
     #endif
 
     WORD_ALLOC (task, result, (Val_Sized_Unt) handle);

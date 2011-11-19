@@ -34,7 +34,13 @@ Val   _lib7_P_FileSys_chdir   (Task* task,  Val arg) {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    int status = chdir( HEAP_STRING_AS_C_STRING( arg ) );
+    char* dir = HEAP_STRING_AS_C_STRING( arg );
+
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir" );
+	//
+        int status = chdir( dir );			// NB: Before uncommenting CEASE/BEGIN here, we'd need to copy 'dir' into a C buffer.
+	//
+//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir" );
     //
     CHECK_RETURN_UNIT(task, status)
 }

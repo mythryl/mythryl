@@ -43,8 +43,13 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     Val	  path = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
     uid_t uid  = TUPLE_GETWORD(arg, 1);
     gid_t gid  = TUPLE_GETWORD(arg, 2);
+    char* cpath=  HEAP_STRING_AS_C_STRING(path);
     //
-    int status = chown (HEAP_STRING_AS_C_STRING(path), uid, gid);
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
+	//
+        int status = chown (cpath, uid, gid);				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath into a C buffer.
+	//
+//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time" );
     //
     CHECK_RETURN_UNIT(task, status)
 }

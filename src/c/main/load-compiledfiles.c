@@ -92,18 +92,18 @@ static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
 
 // Forward declarations for private local functions:
 //
- static FILE* open_file                           (const char* filename,   Bool isBinary);
+ static FILE* open_file				(const char* filename,   Bool isBinary);
 //
- static void  load_compiled_file               (Task* task, char* filename);
- static void  register_compiled_file_exports   (Task* task, Picklehash* picklehash, Val chunk);
- static Val   picklehash_to_exports_tree          (Picklehash* picklehash);
+ static void  load_compiled_file		(Task* task, char* filename);
+ static void  register_compiled_file_exports	(Task* task, Picklehash* picklehash, Val chunk);
+ static Val   picklehash_to_exports_tree	(Picklehash* picklehash);
 
- static void  picklehash_to_hex_string            (char *buf, Picklehash* picklehash);
+ static void  picklehash_to_hex_string		(char *buf, Picklehash* picklehash);
 
- static Val   read_in_compiled_file_list       (  Task* task,
-                                                     const char*    compiled_files_to_load_filename,
-			                             int*           max_boot_path_len_ptr
-                                                  );
+ static Val   read_in_compiled_file_list	( Task* task,
+                                                  const char*    compiled_files_to_load_filename,
+			                          int*           max_boot_path_len_ptr
+                                                );
 
 static FILE*       log_fd = NULL;
 

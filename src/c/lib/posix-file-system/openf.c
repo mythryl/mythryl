@@ -41,13 +41,19 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
     int flags = TUPLE_GETWORD(arg, 1);
     int mode  = TUPLE_GETWORD(arg, 2);
 
-    int		    fd;
+    int	 fd;
 
-/*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    char* cpath = HEAP_STRING_AS_C_STRING( path );
 
-        fd    = open (HEAP_STRING_AS_C_STRING(path), flags, mode);
+/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-/*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+//	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+	    //
+            fd    = open( cpath, flags, mode );					// Before uncommenting CEASE/BEGIN here, we'd need to copy cpath to a C buffer.
+	    //
+//	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+
+/*  } while (fd < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
     CHECK_RETURN(task, fd)
 }

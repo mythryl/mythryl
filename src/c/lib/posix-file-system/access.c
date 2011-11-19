@@ -42,13 +42,17 @@ Val   _lib7_P_FileSys_access   (Task* task,  Val arg) {
     Val	   path =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     mode_t mode =  TUPLE_GETWORD(         arg, 1 );
 
-    int status
-	=
-	access(
-	    //
-            HEAP_STRING_AS_C_STRING( path ),
-            mode
-        );
+//    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access", arg );
+	//
+	int status
+	    =
+	    access(					// This is probably not slow enough to need CEASE/BEGIN guards -- it cannot return EINTR -- but if it dereferences symlinks it might be hitting disk, which could be pretty slow.
+		//					//
+		HEAP_STRING_AS_C_STRING( path ),	// NB: Before uncommenting the CEASE/BEGIN, we'd have to copy path into a C buffer. 
+		mode
+	    );
+	//
+//    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access" );
 
     if (status == 0)    return HEAP_TRUE;
     else		return HEAP_FALSE;

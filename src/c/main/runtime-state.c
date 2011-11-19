@@ -160,6 +160,8 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->callee_saved_registers[0]	= HEAP_VOID;
     pthread->task->callee_saved_registers[1]	= HEAP_VOID;
     pthread->task->callee_saved_registers[2]	= HEAP_VOID;
+    pthread->task->heapvoid			= HEAP_VOID;			// Something for protected_c_arg to point to when not being used.
+    pthread->task->protected_c_arg		= &pthread->task->heapvoid;	// Support for  CEASE_USING_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
 
     #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;

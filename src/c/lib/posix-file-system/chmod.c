@@ -40,8 +40,13 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
 
     Val	    path = GET_TUPLE_SLOT_AS_VAL(     arg, 0);
     mode_t  mode = TUPLE_GETWORD( arg, 1);
+    char*  cpath = HEAP_STRING_AS_C_STRING(path);
     //
-    int status = chmod (HEAP_STRING_AS_C_STRING(path), mode);
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
+	//
+        int status = chmod (cpath, mode);				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath into a C buffer.
+	//
+//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
     //
     CHECK_RETURN_UNIT(task, status)
 }

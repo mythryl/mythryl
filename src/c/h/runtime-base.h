@@ -292,8 +292,8 @@ extern int    log_if_fd;
 #endif
 
 
-#define BEGIN_USING_MYTHRYL_HEAP( pthread, fn_name )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
-#define CEASE_USING_MYTHRYL_HEAP( pthread, fn_name )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
+#define CEASE_USING_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
+#define BEGIN_USING_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
     //
     // The problem to be solved here is that when
     // multiple pthreads (kernel threads) share the
@@ -309,11 +309,17 @@ extern int    log_if_fd;
     // lengthy C operation (which does not involve the Mythryl heap!)
     // should do
     //
-    //     CEASE_USING_MYTHRYL_HEAP( pthread, "foo" );
+    //     CEASE_USING_MYTHRYL_HEAP( task->pthread, "foo", arg );
     //         //
     //         slow_c_operation_not_using_mythryl_heap();
     //         //
-    //     BEGIN_USING_MYTHRYL_HEAP( pthread, "foo" );
+    //     BEGIN_USING_MYTHRYL_HEAP( task->pthread, "foo" );
+    //
+    //  (These are expected to be used in one of the 
+    //  Mythryl/C interface fns taking (Task* task, Val arg)
+    //  as arguments. Think very carefully before using them
+    //  elsewhere -- there may be Val args in the caller which
+    //  are unprotected from the heapcleaner!)
     //
     // Those macros can then explicitly remove the pthread from
     // the 'active' set (by changing pthread->status from
@@ -322,6 +328,22 @@ extern int    log_if_fd;
     // PTHREAD_IS_RUNNING_MYTHRYL afterward, with of course proper
     // mutex protection on the latter to assure that the pthread
     // does not attempt to resume using the heap during heapcleaning.
+    //
+    // NB: Because the heapcleaner (garbage collector)
+    //     may move things around, you must:
+    //
+    //     o  Use the third arg to CEASE_USING_MYTHRYL_HEAP
+    //        to protect the main Val arg to the fn.  (I assume
+    //        here that CEASE/BEGIN are being used in one of the
+    //
+    //     o  You must not reference the Mythryl heap in any
+    //        way between CEASE_USING_MYTHRYL_HEAP and
+    //        BEGIN_USING_MYTHRYL_HEAP.
+    //
+    //     o  You must treat all Mythryl-heap references -except-
+    //        'arg' as garbage after BEGIN_USING_MYTHRYL_HEAP,
+    //        re-fetching them as necessary. 
+
 
 
 // The following stuff used to be in runtime-pthread.h but I merged

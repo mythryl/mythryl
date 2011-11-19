@@ -53,11 +53,6 @@ Val   pickle_datastructure   (Task* task,  Val root_chunk)  {
     //
     //     src/lib/std/src/unsafe/unsafe.pkg
 
-    // NB: I'm not using BEGIN_USING_MYTHRYL_HEAP / CEASE_USING_MYTHRYL_HEAP
-    // here because it is rarely used and full of heap operations; better to just
-    // have multithread garbage collections block until a call is complete than
-    // to sweat through identifying all the heap accesses and guarding them. -- 2011-11-18 CrT
-
     call_heapcleaner_with_extra_roots (task, 0, &root_chunk, NULL);  				// Clean agegroup0.
 
     int age =  get_chunk_age( root_chunk );						// get_chunk_age			def in   src/c/heapcleaner/get-chunk-age.c

@@ -36,7 +36,11 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
 	//
 	if (address == NULL && symname != NULL)	  dlerror_set ("Symbol `%s' not found", symname);
     #else
-	address = dlsym (handle, symname);
+//	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
+	    //
+	    address = dlsym (handle, symname);					// This call might(?) be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+	    //									// NB: Using 'symname' here would not be OK if CEASE/BEGIN were uncommented, since it is on the Mythryl heap -- should be copied into a C buffer.
+//	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
     #endif
 
     WORD_ALLOC (task, result, (Val_Sized_Unt) address);

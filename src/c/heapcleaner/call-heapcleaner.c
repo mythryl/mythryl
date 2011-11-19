@@ -145,8 +145,9 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
+	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
 	//
-    } else {										// NEED_PTHREAD_SUPPORT
+    } else {											// NEED_PTHREAD_SUPPORT
 	//
 	Pthread*  pthread;
 	Task*     task;
@@ -156,10 +157,10 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    pthread = pthread_table__global[ j ];
 
 	    task = pthread->task;
-											PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+												PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status != PTHREAD_IS_VOID) {
 		//
-		*roots_ptr++ =  &task->link_register;					// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+		*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
@@ -168,14 +169,15 @@ void   call_heapcleaner   (Task* task,  int level) {
 		*roots_ptr++ =  &task->callee_saved_registers[0];
 		*roots_ptr++ =  &task->callee_saved_registers[1];
 		*roots_ptr++ =  &task->callee_saved_registers[2];
+		*roots_ptr++ =   task->protected_c_arg;						// No '&' on this one -- it is a pointer to the value being protected.
 	    }
 	}
     }
-    #endif										// NEED_PTHREAD_SUPPORT
+    #endif											// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
-    heapclean_agegroup0( task, roots );							// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
+    heapclean_agegroup0( task, roots );								// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -196,10 +198,10 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    //
 	    Sib* sib =  age1->sib[ i ];
 
-	    if (sib_is_active( sib )							// sib_is_active		def in    src/c/h/heap.h
-            &&  sib_freespace_in_bytes( sib ) < size					// sib_freespace_in_bytes	def in    src/c/h/heap.h
+	    if (sib_is_active( sib )								// sib_is_active		def in    src/c/h/heap.h
+            &&  sib_freespace_in_bytes( sib ) < size						// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
-		level = 1;								// Commit to multigeneration heapcleaning.
+		level = 1;									// Commit to multigeneration heapcleaning.
 		break;
 	    }
 	}
@@ -347,7 +349,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	}
 	va_end(ap);
     }
-    #endif						// NEED_PTHREAD_SUPPORT
+    #endif											// NEED_PTHREAD_SUPPORT
 
     // Gather the roots:
     //
@@ -367,10 +369,10 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    pthread = pthread_table__global[ j ];
 
 	    task    = pthread->task;
-														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+												PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->status != PTHREAD_IS_VOID) {
 		//
-		*roots_ptr++ =  &task->link_register;					// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+		*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
@@ -379,12 +381,13 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		*roots_ptr++ =  &task->callee_saved_registers[ 0 ];
 		*roots_ptr++ =  &task->callee_saved_registers[ 1 ];
 		*roots_ptr++ =  &task->callee_saved_registers[ 2 ];
+		*roots_ptr++ =   task->protected_c_arg;						// No '&' on this one -- it is a pointer to the value being protected.
 	    }
 	}
 
     } else {
 	//
-	*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+	*roots_ptr++ =  &task->link_register;							// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->current_closure;
@@ -393,6 +396,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
+	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
     }
     #else	// Same as }else{ clause above.		// NEED_PTHREAD_SUPPORT
 	//
@@ -405,6 +409,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
+	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
     #endif						// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;

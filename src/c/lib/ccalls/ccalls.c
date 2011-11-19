@@ -675,7 +675,7 @@ static void   mkLIB7int   (Val_Sized_Unt** src,  Val_Sized_Unt* dst,  int bytes)
 #define IF_PAD_DO_PAD(p,t)  {if (**t == LIB7PAD_CODE) {++(*t); DO_PAD(p,t);}}
 
 int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  Val datum) {
-    //============
+    //==========================
     //
     // Called many times in this file and once in   
     //
@@ -1214,7 +1214,7 @@ handle_int:
 
 
 Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,   Val* root) {
-    //============
+    //==========================
 
     // NB:  ccalls-fns.c needs to see this fn.
 
@@ -1280,20 +1280,6 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     // Mythryl entry point for 'ccall'.
     // We are exported as ccalls::ccall          in   src/c/lib/ccalls/cfun-list.h
     // which is bound at the Mythryl level (only) in   src/lib/c-glue-old/ccalls.pkg
-
-    // NB: Before making this code operational again,
-    // NEED TO THINK ABOUT PTHREAD ISSUES.  It doesn't
-    // look safe to wrap this function in
-    //
-    //     CEASE_USING_MYTHRYL_HEAP(...);
-    //     ...
-    //     BEGIN_USING_MYTHRYL_HEAP(...);
-    //
-    // because it might access the Mythryl heap, but
-    // it doesn't look safe to NOT do so because
-    // it might call a slow syscall or C fn and leave
-    // the system unable to garbage collection until
-    // it returns.
 
     #if !defined(INDIRECT_CFUNC)
 	Val_Sized_Unt (*f)() = (Val_Sized_Unt (*)())   GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, arg, 0 );

@@ -16,7 +16,7 @@
 
 
 Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
-    //=================
+    //==============================
     //
     // Mythryl type:  one_word_int::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
     //
@@ -30,7 +30,11 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
 
     time_t t =  (time_t) INT1_LIB7toC(arg);
 
-    struct tm* tm =  gmtime (&t);
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
+	//
+        struct tm* tm =  gmtime( &t );						// This call is probably not slow enough to need CEASE/BEGIN guards.
+	//
+//   BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time" );
 
     if (tm == NULL) return RAISE_SYSERR(task,0);
 

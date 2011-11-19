@@ -47,7 +47,11 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
     tm.tm_yday	= GET_TUPLE_SLOT_AS_INT(date, 7);
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(date, 8);
 
-    size = strftime (buf, sizeof(buf), HEAP_STRING_AS_C_STRING(fmt), &tm);
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime", arg );
+	//
+	size = strftime (buf, sizeof(buf), HEAP_STRING_AS_C_STRING(fmt), &tm);				// This call is probably not slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+	//												// USING 'fmt' in the above line would be NOT OK if CEASE/BEGING were uncommented!
+//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime" );
 
     if (size <= 0)   return RAISE_ERROR(task, "strftime failed");
 

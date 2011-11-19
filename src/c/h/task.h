@@ -20,7 +20,7 @@
 //
 
 /* typedef  struct task  Task; */					// Defined in runtime-base.h
-
+									// Initialized by   set_up_pthread_state   in   src/c/main/runtime-state.c
 struct task {
     //
     Heap*	heap;							// The heap for this Mythryl task.
@@ -49,6 +49,9 @@ struct task {
 
     Val		fault_exception;					// The exception packet for a hardware fault.
     Val_Sized_Unt  faulting_program_counter;				// The program counter of the faulting instruction.
+
+    Val*	protected_c_arg;					// Used to protect one arg from garbage collection by CEASE_USING_MYTHRYL_HEAP in src/c/h/runtime-base.h
+    Val		heapvoid;						// Dummy for protected_c_arg to point to when not being used.  Initialized to HEAP_VOID.
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

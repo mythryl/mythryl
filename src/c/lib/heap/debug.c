@@ -25,7 +25,11 @@ Val   _lib7_runtime_debug   (Task* task,  Val arg)   {
     // This fn gets bound to 'say_debug' in:   src/lib/src/lib/thread-kit/src/core-thread-kit/threadkit-debug.pkg
     //     
 
-    debug_say (HEAP_STRING_AS_C_STRING(arg));
+//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug", arg );
+	//
+        debug_say (HEAP_STRING_AS_C_STRING(arg));					// debug_say	is from   src/c/main/error-reporting.c
+	//										// NB: before uncommenting CEASE/BEGIN, must copy HEAP_STRING_AS_C_STRING(arg) into a C buffer.
+//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug" );
 
     return HEAP_VOID;
 }

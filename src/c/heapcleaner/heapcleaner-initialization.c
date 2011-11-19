@@ -68,7 +68,7 @@ Heapcleaner_Statistics   heapcleaner_statistics_buffer__global [ HEAPCLEANER_STA
 
 
 Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
-    //          ====================================
+    //              ====================================
     //
     // Parse any heapcleaner args from the user commandline:
 
@@ -148,7 +148,7 @@ Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
 }
 
 
-static void   clear_cleaner_statistics   (Heap* heap)  {
+static void   clear_heapcleaner_statistics   (Heap* heap)  {
     //        ============================
     //
     ZERO_BIGCOUNTER( &heap->total_bytes_allocated );
@@ -342,7 +342,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    (Val_Sized_Unt)(heap->agegroup0_buffer)+params->agegroup0_buffer_bytesize, params->agegroup0_buffer_bytesize);
     #endif
 
-    clear_cleaner_statistics( heap );										// clear_cleaner_statistics		def in   src/c/heapcleaner/heapcleaner-initialization.c
+    clear_heapcleaner_statistics( heap );
 
 
     //
