@@ -2,8 +2,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
 #include <time.h>
 #include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -47,11 +49,14 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
     tm.tm_yday	= GET_TUPLE_SLOT_AS_INT(date, 7);
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(date, 8);
 
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime", arg );
+    Mythryl_Heap_Value_Buffer fmtbuf;
+    void* fmt_c = buffer_mythryl_heap_value( &fmtbuf, (void*) HEAP_STRING_AS_C_STRING(fmt), strlen(HEAP_STRING_AS_C_STRING(fmt))+1 );		// '+1' for terminal NUL on string.
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime", arg );
 	//
-	size = strftime (buf, sizeof(buf), HEAP_STRING_AS_C_STRING(fmt), &tm);				// This call is probably not slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
-	//												// USING 'fmt' in the above line would be NOT OK if CEASE/BEGING were uncommented!
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime" );
+	size = strftime (buf, sizeof(buf), fmt_c, &tm);							// This call might not be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+	//
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime" );
+    unbuffer_mythryl_heap_value( &fmtbuf );    
 
     if (size <= 0)   return RAISE_ERROR(task, "strftime failed");
 

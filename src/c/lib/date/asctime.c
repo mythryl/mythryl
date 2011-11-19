@@ -2,8 +2,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
 #include <time.h>
 #include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"

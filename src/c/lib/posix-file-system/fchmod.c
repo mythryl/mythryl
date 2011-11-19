@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"

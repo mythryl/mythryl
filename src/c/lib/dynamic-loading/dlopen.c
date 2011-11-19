@@ -2,6 +2,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #ifdef OPSYS_WIN32
 # include <windows.h>
 extern void dlerror_set (const char *fmt, const char *s);

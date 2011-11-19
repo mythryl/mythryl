@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"

@@ -2,6 +2,7 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
 #include <time.h>
 #include "runtime-base.h"
 #include "lib7-c.h"
@@ -41,11 +42,11 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 //  tm.tm_yday  = GET_TUPLE_SLOT_AS_INT(arg, 7);   // ignored by mktime.
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(arg, 8);
 
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time", arg );
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time", arg );
 	//
-        t = mktime (&tm);				// This call is probably not slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+        t = mktime (&tm);							// This call might not be slow enough to need CEASE/BEGIN guards...?
 	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time" );
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time" );
 
     if (t < 0) {
         //

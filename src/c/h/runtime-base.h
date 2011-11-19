@@ -264,7 +264,7 @@ typedef  struct  {
 } Mythryl_Heap_Value_Buffer;
 //
 void*   buffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
-void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );						// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );							// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
 
 
 

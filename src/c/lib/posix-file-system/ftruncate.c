@@ -3,6 +3,7 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"

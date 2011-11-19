@@ -21,6 +21,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "runtime-base.h"
 #ifdef OPSYS_UNIX
 #  include "system-dependent-unix-stuff.h"
