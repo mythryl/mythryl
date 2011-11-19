@@ -3,6 +3,7 @@
 #include "../../mythryl-config.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #ifdef OPSYS_WIN32
 # include <windows.h>
@@ -34,9 +35,18 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
     Val result;
 
+    Mythryl_Heap_Value_Buffer  libname_buf;
+
     if (ml_libname != OPTION_NULL) {
 	//
         libname = HEAP_STRING_AS_C_STRING (OPTION_GET (ml_libname));
+	//
+	// Copy libname out of Mythryl heap to
+        // make it safe to reference between
+	// CEASE_USING_MYTHRYL_HEAP and
+	// BEGIN_USING_MYTHRYL_HEAP:
+	//
+	libname = (char*) buffer_mythryl_heap_value( &libname_buf, (void*)libname, strlen(libname)+1 );		// '+1' for terminal NUL on string.
     }
 
     #ifdef OPSYS_WIN32
@@ -52,10 +62,12 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
 	    //
-	    handle = dlopen (libname, flag);				// This call might(?) be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
+	    handle = dlopen (libname, flag);				// This call might not be slow enough to need CEASE/BEGIN guards -- cannot return EINTR.
 	    //
 	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen" );
     #endif
+
+    if (libname)  unbuffer_mythryl_heap_value( &libname_buf );
 
     WORD_ALLOC (task, result, (Val_Sized_Unt) handle);
 
