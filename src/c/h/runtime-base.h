@@ -192,36 +192,88 @@ typedef   struct cleaner_args   Heapcleaner_Args;
     // An abstract type whose representation depends
     // on the particular cleaner being used.
 
-extern Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);						// handle_cleaner_commandline_arguments	def in   src/c/heapcleaner/heapcleaner-initialization.c
+extern Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char** argv);					// handle_cleaner_commandline_arguments		def in   src/c/heapcleaner/heapcleaner-initialization.c
 
-extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);						// make_task			def in   src/c/main/runtime-state.c
-extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Heapcleaner_Args* params);			// load_compiled_files		def in   src/c/main/load-compiledfiles.c/load_compiled_files()
-extern void  load_and_run_heap_image (const char* heap_image_to_run_filename,         Heapcleaner_Args* params);		// load_and_run_heap_image	def in   src/c/main/load-and-run-heap-image.c
+extern void  load_compiled_files  (const char* compiled_files_to_load_filename, Heapcleaner_Args* params);		// load_compiled_files				def in   src/c/main/load-compiledfiles.c/load_compiled_files()
+extern void  load_and_run_heap_image (const char* heap_image_to_run_filename,         Heapcleaner_Args* params);	// load_and_run_heap_image			def in   src/c/main/load-and-run-heap-image.c
 
-extern void initialize_task (Task *task);										// initialize_task		def in   src/c/main/runtime-state.c
-extern void save_c_state    (Task *task, ...);										// save_c_state			def in   src/c/main/runtime-state.c
-extern void restore_c_state (Task *task, ...);										// restore_c_state		def in   src/c/main/runtime-state.c
+extern Task* make_task               (Bool is_boot, Heapcleaner_Args* params);						// make_task					def in   src/c/main/runtime-state.c
+extern void initialize_task (Task *task);										// initialize_task				def in   src/c/main/runtime-state.c
+extern void save_c_state    (Task *task, ...);										// save_c_state					def in   src/c/main/runtime-state.c
+extern void restore_c_state (Task *task, ...);										// restore_c_state				def in   src/c/main/runtime-state.c
+
 
 extern void set_up_timers ();
 
-extern Val    run_mythryl_function (Task *task, Val f, Val arg, Bool use_fate);					// run_mythryl_function		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern Val    run_mythryl_function (Task *task, Val f, Val arg, Bool use_fate);						// run_mythryl_function				def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 extern void   reset_timers (Pthread* pthread);
-extern void   run_mythryl_task_and_runtime_eventloop (Task* task);						// run_mythryl_task_and_runtime_eventloop	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-extern void   raise_mythryl_exception (Task* task, Val exn);							// raise_mythryl_exception			def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
-extern void   handle_uncaught_exception   (Val e);								// handle_uncaught_exception			def in   src/c/main/runtime-exception-stuff.c
+extern void   run_mythryl_task_and_runtime_eventloop (Task* task);							// run_mythryl_task_and_runtime_eventloop	def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern void   raise_mythryl_exception (Task* task, Val exn);								// raise_mythryl_exception			def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+extern void   handle_uncaught_exception   (Val e);									// handle_uncaught_exception			def in   src/c/main/runtime-exception-stuff.c
 
-extern void   set_up_fault_handlers ();										// set_up_fault_handlers		def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
-														// set_up_fault_handlers		def in   src/c/machine-dependent/cygwin-fault.c
-														// set_up_fault_handlers		def in   src/c/machine-dependent/win32-fault.c
+extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def in   src/c/machine-dependent/posix-arithmetic-trap-handlers.c
+															// set_up_fault_handlers			def in   src/c/machine-dependent/cygwin-fault.c
+															// set_up_fault_handlers			def in   src/c/machine-dependent/win32-fault.c
 #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
     //
     extern void reset_heap_allocation_limit_for_software_generated_periodic_events (Task *task);
 #endif
 
 
+///////////////////////////////////////////////////////////////////////////
+// Support for CEASE_USING_MYTHRYL_HEAP.
+//
+// The problem to be solved by CEASE_USING_MYTHRYL_HEAP
+// is that while we are doing a slow syscall (or just a
+// slow C op, like compressing a largish string) we cannot
+// respond to a request to enter heapcleaner mode,
+// and consequently all other pthreads coult wind up blocked
+// waiting for us to join them in heapcleaner mode -- thus
+// defeating much of the point of having multiple kernel threads
+// running. (Minor heapcleanings happen about 200 times per second.)
+//
+// Our basic solution is that before doing such an op we
+// reliquish heap access rights by changing our pthread
+// status from PTHREAD_IS_RUNNING_MYTHRYL to PTHREAD_IS_RUNNING_C;
+// the other pthreads then know we're out of the loop and can go
+// ahead and do a heapcleaning without us.
+//
+// Our solution creates the problem that any Mythryl heap values
+// used by the slow system call or C function must therefor be
+// copied our of the Mythryl heap, since heapcleaning may move
+// them around arbitrarily without warning so long as we have
+// PTHREAD_IS_RUNNING_C set.
+//
+// So here we implement functionality to copy values out of the
+// Mythryl heap.  Obviously, we cannot use static buffers, since
+// they would be shared between all pthreads;  we have to use
+// either stack storage or malloc()ed storage.  Malloc()ing is
+// slow and stack storage is fixed-size (unless we use nonstandard
+// gcc features) so we use stack storage for small stuff and
+// malloc()ed space for large stuff:
+//
+#define MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE (16*1024)		// Any number large enough so copying it takes longer than malloc()ing it.
+//
+typedef  struct  {
+    //
+    void* heap_space;
+    //
+    char stack_space[ MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE ];
+} Buffered_Mythryl_Heap_Value;
+//
+void*   buffer_mythryl_heap_value	( Buffered_Mythryl_Heap_Value*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+void  unbuffer_mythryl_heap_value	( Buffered_Mythryl_Heap_Value* );						// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
 // These are two views of the command line arguments.
 // raw_args is essentially argv[].
+// commandline_arguments is argv[] with runtime system arguments stripped
+// out (e.g., those of the form --runtime-xxx[=yyy]).
 // commandline_arguments is argv[] with runtime system arguments stripped
 // out (e.g., those of the form --runtime-xxx[=yyy]).
 //

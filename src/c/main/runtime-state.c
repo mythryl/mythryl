@@ -3,6 +3,7 @@
 #include "../mythryl-config.h"
 
 #include <stdarg.h>
+#include <string.h>
 #include "runtime-base.h"
 #include "pthread-state.h"
 #include "task.h"
@@ -249,6 +250,50 @@ void   restore_c_state   (Task* task, ...)   {
        *vp =  GET_TUPLE_SLOT_AS_VAL(saved_state, i);
     }
     va_end (ap);
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+// Support for CEASE_USING_MYTHRYL_HEAP.
+//
+// See overview comments in   src/c/h/runtime-base.h
+//
+// (This code should maybe have its own .c file.)
+//
+void*   buffer_mythryl_heap_value(
+	    //
+	    Buffered_Mythryl_Heap_Value*    buf,								// Buffered_Mythryl_Heap_Value				def in   src/c/h/runtime-base.h
+	    void*			    heapval,
+	    int				    heapval_bytesize
+	)
+{
+    // For speed, we buffer small values on the stack:
+    //
+    if (heapval_bytesize < MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE) {						// A few KB:  MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE	def in   src/c/h/runtime-base.h
+        //
+	buf->heap_space = NULL;											// Make sure this is initialized -- we'll call free() on this in buffer_mythryl_heap_value().
+	//
+	memcpy( buf->stack_space, heapval, heapval_bytesize );
+	return  buf->stack_space;
+	//
+    } else {
+        //
+        // Larger values we buffer on the heap.
+        // Copying heapval will probably take longer
+        // than the malloc() call anyhow, in this size range:
+        //
+	buf->heap_space =  malloc( heapval_bytesize );
+        //
+	if (!buf->heap_space)  die( "buffer_mythryl_heap_value: Unable to malloc(%d)\n", heapval_bytesize ); 
+        //
+	memcpy( buf->heap_space, heapval, heapval_bytesize );
+	return  buf->heap_space;
+    }
+}
+
+void   unbuffer_mythryl_heap_value(   Buffered_Mythryl_Heap_Value* buf   ) {					// Buffered_Mythryl_Heap_Value				def in   src/c/h/runtime-base.h
+    //
+    free( buf->heap_space );											// It is ok to call free(NULL).
 }
 
 
