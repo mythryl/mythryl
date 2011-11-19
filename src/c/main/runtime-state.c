@@ -262,9 +262,9 @@ void   restore_c_state   (Task* task, ...)   {
 //
 void*   buffer_mythryl_heap_value(
 	    //
-	    Buffered_Mythryl_Heap_Value*    buf,								// Buffered_Mythryl_Heap_Value				def in   src/c/h/runtime-base.h
-	    void*			    heapval,
-	    int				    heapval_bytesize
+	    Mythryl_Heap_Value_Buffer*	buf,									// Mythryl_Heap_Value_Buffer				def in   src/c/h/runtime-base.h
+	    void*			heapval,
+	    int				heapval_bytesize
 	)
 {
     // For speed, we buffer small values on the stack:
@@ -291,7 +291,7 @@ void*   buffer_mythryl_heap_value(
     }
 }
 
-void   unbuffer_mythryl_heap_value(   Buffered_Mythryl_Heap_Value* buf   ) {					// Buffered_Mythryl_Heap_Value				def in   src/c/h/runtime-base.h
+void   unbuffer_mythryl_heap_value(   Mythryl_Heap_Value_Buffer* buf   ) {					// Mythryl_Heap_Value_Buffer				def in   src/c/h/runtime-base.h
     //
     free( buf->heap_space );											// It is ok to call free(NULL).
 }

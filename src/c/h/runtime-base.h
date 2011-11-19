@@ -253,17 +253,18 @@ extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def
 // gcc features) so we use stack storage for small stuff and
 // malloc()ed space for large stuff:
 //
-#define MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE (16*1024)		// Any number large enough so copying it takes longer than malloc()ing it.
+#define MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE (4*1024)		// Any number large enough so copying it takes longer than malloc()ing it.
 //
 typedef  struct  {
     //
-    void* heap_space;
+    void* heap_space;						// NULL if stack_space was big enough, otherwise a malloc()d buffer that needs to be free()d later.
     //
-    char stack_space[ MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE ];
-} Buffered_Mythryl_Heap_Value;
+    char stack_space[ MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE ];	// Small stuff gets buffered in here.
+    //
+} Mythryl_Heap_Value_Buffer;
 //
-void*   buffer_mythryl_heap_value	( Buffered_Mythryl_Heap_Value*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
-void  unbuffer_mythryl_heap_value	( Buffered_Mythryl_Heap_Value* );						// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+void*   buffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer*, void* heapval, int heapval_bytesize );		//   buffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
+void  unbuffer_mythryl_heap_value	( Mythryl_Heap_Value_Buffer* );						// unbuffer_mythryl_heap_value			def in   src/c/main/runtime-state.c
 
 
 
