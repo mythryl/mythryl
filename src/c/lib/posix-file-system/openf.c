@@ -56,23 +56,24 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
     //
     Mythryl_Heap_Value_Buffer  path_buf;
     //
-    char* c_path
-	= 
-        buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    /*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", arg );
-	    //
-            fd    = open( c_path, flags, mode );
-	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", arg );
+		//
+		fd    = open( c_path, flags, mode );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
 
-/*  } while (fd < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+    /*  } while (fd < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    unbuffer_mythryl_heap_value( &path_buf );
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
-    CHECK_RETURN(task, fd)
+    CHECK_RETURN( task, fd )
 }
 
 

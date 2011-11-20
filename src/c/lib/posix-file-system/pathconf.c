@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -97,7 +100,7 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
     Val	mlPathname = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val	mlAttr     = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
-    char* pathname = HEAP_STRING_AS_C_STRING(mlPathname);
+    char* heap_pathname = HEAP_STRING_AS_C_STRING( mlPathname );
 
     name_val_t*	 attribute = _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(mlAttr), values, NUMELMS);
 
@@ -106,10 +109,29 @@ Val   _lib7_P_FileSys_pathconf   (Task* task,  Val arg)   {
 	return RAISE_SYSERR(task, -1);
     }
  
-    errno = 0;
-    while (((val = pathconf (pathname, attribute->val)) == -1) && (errno == EINTR)) {
-        errno = 0;
-        continue;
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  pathname_buf;
+    //
+    {	char* c_pathname
+	    = 
+	    buffer_mythryl_heap_value( &pathname_buf, (void*) heap_pathname, strlen( heap_pathname ) +1 );		// '+1' for terminal NUL on string.
+
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf", arg );
+	    //
+	    errno = 0;
+	    while (((val = pathconf (c_pathname, attribute->val)) == -1) && (errno == EINTR)) {
+		errno = 0;
+		continue;
+	    }
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_pathconf" );
+
+	unbuffer_mythryl_heap_value( &pathname_buf );
     }
 
     return  mkValue( task, val );
@@ -142,11 +164,15 @@ Val   _lib7_P_FileSys_fpathconf   (Task* task,  Val arg)   {
 	return RAISE_SYSERR(task, -1);
     }
  
-    errno = 0;
-    while (((val = fpathconf (fd, attribute->val)) == -1) && (errno == EINTR)) {
-        errno = 0;
-        continue;
-    }
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf", arg );
+	//
+	errno = 0;
+	while (((val = fpathconf (fd, attribute->val)) == -1) && (errno == EINTR)) {
+	    errno = 0;
+	    continue;
+	}
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fpathconf" );
 
     return mkValue (task, val);
 }

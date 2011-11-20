@@ -34,23 +34,24 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
 
     Mythryl_Heap_Value_Buffer symname_buf;
 
-    char* symname_c
-	=
-	buffer_mythryl_heap_value(  &symname_buf,  (void*) symname,  strlen(symname)+1 );	// '+1' for terminal NUL at end of string.
+    {	char* symname_c
+	    =
+	    buffer_mythryl_heap_value(  &symname_buf,  (void*) symname,  strlen(symname)+1 );	// '+1' for terminal NUL at end of string.
 
-    #ifdef OPSYS_WIN32
-	address = GetProcAddress (handle, symname);
-	//
-	if (address == NULL && symname != NULL)	  dlerror_set ("Symbol `%s' not found", symname);
-    #else
-	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
+	#ifdef OPSYS_WIN32
+	    address = GetProcAddress (handle, symname);
 	    //
-	    address = dlsym( handle, symname_c );
-	    //
-	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
-    #endif
+	    if (address == NULL && symname != NULL)	  dlerror_set ("Symbol `%s' not found", symname);
+	#else
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
+		//
+		address = dlsym( handle, symname_c );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
+	#endif
 
-    unbuffer_mythryl_heap_value( &symname_buf );
+	unbuffer_mythryl_heap_value( &symname_buf );
+    }
 
     Val               result;
     WORD_ALLOC (task, result, (Val_Sized_Unt) address);

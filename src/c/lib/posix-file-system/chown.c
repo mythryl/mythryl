@@ -43,6 +43,8 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    int   status;
+
     Val	  path = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
     uid_t uid  = TUPLE_GETWORD(arg, 1);
     gid_t gid  = TUPLE_GETWORD(arg, 2);
@@ -56,17 +58,18 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     //
     Mythryl_Heap_Value_Buffer  path_buf;
     //
-    char* c_path
-	= 
-        buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", arg );
+	    //
+	    status = chown (c_path, uid, gid);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
 	//
-        int status = chown (c_path, uid, gid);
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
-    //
-    unbuffer_mythryl_heap_value( &path_buf );
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     CHECK_RETURN_UNIT(task, status)
 }

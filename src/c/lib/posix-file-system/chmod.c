@@ -41,6 +41,8 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    int     status;
+
     Val	    path = GET_TUPLE_SLOT_AS_VAL(     arg, 0);
     mode_t  mode = TUPLE_GETWORD( arg, 1);
 
@@ -53,17 +55,18 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
     //
     Mythryl_Heap_Value_Buffer  path_buf;
     //
-    char* c_path
-	=
-	buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );	// '+1' for terminal NUL on string.
+    {	char* c_path
+	    =
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );	// '+1' for terminal NUL on string.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
+	    //
+	    status = chmod( c_path, mode );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
 	//
-        int status = chmod( c_path, mode );
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
-    //
-    unbuffer_mythryl_heap_value( &path_buf );
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     CHECK_RETURN_UNIT(task, status)
 }

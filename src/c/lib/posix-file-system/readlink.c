@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -61,10 +64,32 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    char* path = HEAP_STRING_AS_C_STRING(arg);
+    struct stat  sbuf;
+    int          len;
+    int          result;
+
+    char* heap_path = HEAP_STRING_AS_C_STRING(arg);
     char  buf[MAXPATHLEN];
 
-    int len = readlink(path, buf, MAXPATHLEN);
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    {   char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink", arg );
+	    //
+	    len = readlink(c_path, buf, MAXPATHLEN);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (len < 0)   return RAISE_SYSERR(task, len);
 
@@ -79,8 +104,18 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
 
     // Determine how big the link text is and allocate a buffer.
 
-    struct stat                sbuf;
-    int result = lstat (path, &sbuf);
+    {   char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink", arg );
+	    //
+	    result = lstat (c_path, &sbuf);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (result < 0)   return RAISE_SYSERR(task, result);
 
@@ -93,7 +128,18 @@ Val   _lib7_P_FileSys_readlink   (Task* task,  Val arg)   {
     // Try the readlink again. Give up on error or if len is still bigger
     // than the buffer size.
     //
-    len = readlink(path, buf, len);
+    {   char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink", arg );
+	    //
+	    len = readlink(c_path, buf, len);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readlink" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (len < 0)		return RAISE_SYSERR(task, len);
     else if (len >= nlen)	return RAISE_ERROR(task, "readlink failure");

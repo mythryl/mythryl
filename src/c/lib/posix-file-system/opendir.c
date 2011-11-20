@@ -44,6 +44,8 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    DIR* dir;
+
     char* heap_path = HEAP_STRING_AS_C_STRING(arg);
 
     // We cannot reference anything on the Mythryl
@@ -53,17 +55,18 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
     //
     Mythryl_Heap_Value_Buffer  path_buf;
     //
-    char* c_path
-	= 
-        buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", arg );
+	    //
+	    dir = opendir( c_path );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
 	//
-        DIR* dir = opendir( c_path );					// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath to a C buffer.
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
-    //
-    unbuffer_mythryl_heap_value( &path_buf );
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (dir == NULL)  return RAISE_SYSERR(task, -1);
 

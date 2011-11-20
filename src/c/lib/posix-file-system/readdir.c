@@ -5,6 +5,10 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -13,7 +17,6 @@
     #include <dirent.h>
 #endif
 
-#include <errno.h>
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "heap-tags.h"
@@ -47,7 +50,11 @@ Val   _lib7_P_FileSys_readdir   (Task* task,  Val arg)   {
     while (TRUE) {
 	errno = 0;
 
-	dirent = readdir(PTR_CAST(DIR*, arg));
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir", arg );
+	    //
+	    dirent = readdir(PTR_CAST(DIR*, arg));				// Note that 'arg' does not actually point into the Mythryl heap -- check src/c/lib/posix-file-system/opendir.c 
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_readdir" );
 
 	if (dirent == NULL) {
 	    if (errno != 0)  return RAISE_SYSERR(task, -1);     // Error occurred.

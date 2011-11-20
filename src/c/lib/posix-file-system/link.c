@@ -37,6 +37,8 @@ Val   _lib7_P_FileSys_link   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    int status;
+
     Val	existing =  GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val	new_name =  GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
@@ -44,21 +46,25 @@ Val   _lib7_P_FileSys_link   (Task* task,  Val arg)   {
     char* heap_new_name =  HEAP_STRING_AS_C_STRING( new_name );
 
     // We cannot reference anything on the Mythryl
-    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // heap after we do RELEASE_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_path into C storage: 
     //
-    Mythryl_Heap_Value_Buffer  existing_buf;    char* c_existing =  buffer_mythryl_heap_value( &existing_buf, (void*) heap_existing, strlen( heap_existing ) +1 );		// '+1' for terminal NUL on string.
-    Mythryl_Heap_Value_Buffer  new_name_buf;    char* c_new_name =  buffer_mythryl_heap_value( &new_name_buf, (void*) heap_new_name, strlen( heap_new_name ) +1 );		// '+1' for terminal NUL on string.
+    Mythryl_Heap_Value_Buffer  existing_buf;
+    Mythryl_Heap_Value_Buffer  new_name_buf;
 
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link", arg );
-	//
-        int status = link( c_existing, c_new_name );
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link" );
+    {	char* c_existing =  buffer_mythryl_heap_value( &existing_buf, (void*) heap_existing, strlen( heap_existing ) +1 );		// '+1' for terminal NUL on string.
+	char* c_new_name =  buffer_mythryl_heap_value( &new_name_buf, (void*) heap_new_name, strlen( heap_new_name ) +1 );		// '+1' for terminal NUL on string.
 
-    unbuffer_mythryl_heap_value( &existing_buf );
-    unbuffer_mythryl_heap_value( &new_name_buf );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link", arg );
+	    //
+	    status = link( c_existing, c_new_name );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_link" );
+
+	unbuffer_mythryl_heap_value( &existing_buf );
+	unbuffer_mythryl_heap_value( &new_name_buf );
+    }
 
     CHECK_RETURN_UNIT (task, status)
 }
