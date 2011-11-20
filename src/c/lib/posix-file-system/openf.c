@@ -3,9 +3,13 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
+#include "runtime-base.h"
+
 
 #if HAVE_FCNTL_H
     #include <fcntl.h>
@@ -43,17 +47,30 @@ Val   _lib7_P_FileSys_openf   (Task* task,  Val arg)   {
 
     int	 fd;
 
-    char* cpath = HEAP_STRING_AS_C_STRING( path );
+    char* heap_path = HEAP_STRING_AS_C_STRING( path );
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    char* c_path
+	= 
+        buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
 /*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-//	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf", arg );
 	    //
-            fd    = open( cpath, flags, mode );					// Before uncommenting CEASE/BEGIN here, we'd need to copy cpath to a C buffer.
+            fd    = open( c_path, flags, mode );
 	    //
-//	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
+	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_openf" );
 
 /*  } while (fd < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+
+    unbuffer_mythryl_heap_value( &path_buf );
 
     CHECK_RETURN(task, fd)
 }

@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -41,19 +44,41 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    char* cpath = HEAP_STRING_AS_C_STRING(arg);
+    char* heap_path = HEAP_STRING_AS_C_STRING(arg);
 
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
-	//
-        DIR* dir = opendir(cpath);					// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath to a C buffer.
-	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time" );
+    // We cannot reference anything on the Mythryl
+    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
     //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    char* c_path
+	= 
+        buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", arg );
+	//
+        DIR* dir = opendir( c_path );					// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath to a C buffer.
+	//
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
+    //
+    unbuffer_mythryl_heap_value( &path_buf );
+
     if (dir == NULL)  return RAISE_SYSERR(task, -1);
 
-    return PTR_CAST( Val, dir);
-}
-
+    return PTR_CAST( Val, dir);						// I would think just casting a C pointer to a Val and returning
+}									// it should crash the garbage collector, but doing
+									//
+									//    foo = posix_1003_1b::open_directory_stream ".";
+									//
+									// and then
+									//
+									//    heapcleaner_control::clean_heap 2;
+									//
+									// repeatedly does seem to work.
+									// Is there heavy magic in the runtime::Chunk type...?
+									// If so, how does it get conveyed to the heapcleaner gut?  -- 2011-11-19 CrT
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,

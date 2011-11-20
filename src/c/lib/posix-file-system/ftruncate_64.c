@@ -54,11 +54,11 @@ Val   _lib7_P_FileSys_ftruncate_64   (Task* task,  Val arg)   {
 
 /*  do { */										// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
+	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate_64", arg );
 	    //
 	    status = ftruncate (fd, len);						// Since this call can return EINTR, it is slow and deserves the CEASE/BEGIN guards.
 	    //
-	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time" );
+	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate_64" );
 
 /*  } while (status < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
