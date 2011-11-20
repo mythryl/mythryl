@@ -49,7 +49,7 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     char* heap_path=  HEAP_STRING_AS_C_STRING(path);
     //
     // We cannot reference anything on the Mythryl
-    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // heap after we do RELEASE_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_path into C storage: 
     //
@@ -59,11 +59,11 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
 	= 
         buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", arg );
 	//
         int status = chown (c_path, uid, gid);
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
 
     unbuffer_mythryl_heap_value( &path_buf );
 

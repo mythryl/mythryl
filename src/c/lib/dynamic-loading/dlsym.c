@@ -43,11 +43,11 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
 	//
 	if (address == NULL && symname != NULL)	  dlerror_set ("Symbol `%s' not found", symname);
     #else
-	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
 	    //
 	    address = dlsym( handle, symname_c );
 	    //
-	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
     #endif
 
     unbuffer_mythryl_heap_value( &symname_buf );

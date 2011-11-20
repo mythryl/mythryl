@@ -32,11 +32,11 @@ Val   _lib7_Date_local_time   (Task* task,  Val arg) {
 
     time_t t =  (time_t)  INT1_LIB7toC( arg );
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time", arg );
 	//
         struct tm*  tm =  localtime( &t );				// This call is might not be slow enough to need CEASE/BEGIN guards...?
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Date_local_time" );
 
     if (tm == NULL)   RAISE_SYSERR( task, 0 );
 

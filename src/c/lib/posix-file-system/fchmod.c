@@ -42,11 +42,11 @@ Val   _lib7_P_FileSys_fchmod   (Task* task,  Val arg) {
     int	   fd   =  GET_TUPLE_SLOT_AS_INT( arg, 0);
     mode_t mode =  TUPLE_GETWORD(arg, 1);
     //
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod", arg );
 	//
         int status = fchmod (fd, mode);
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchmod" );
     //
     CHECK_RETURN_UNIT(task, status)
 }

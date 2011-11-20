@@ -47,7 +47,7 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
     char* heap_path = HEAP_STRING_AS_C_STRING(arg);
 
     // We cannot reference anything on the Mythryl
-    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // heap after we do RELEASE_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_path into C storage: 
     //
@@ -57,11 +57,11 @@ Val   _lib7_P_FileSys_opendir   (Task* task,  Val arg)   {
 	= 
         buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir", arg );
 	//
         DIR* dir = opendir( c_path );					// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath to a C buffer.
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_opendir" );
     //
     unbuffer_mythryl_heap_value( &path_buf );
 

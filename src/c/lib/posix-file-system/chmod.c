@@ -46,7 +46,7 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
     char*  heap_path = HEAP_STRING_AS_C_STRING(path);
 
     // We cannot reference anything on the Mythryl
-    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // heap after we do RELEASE_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_path into C storage: 
     //
@@ -56,11 +56,11 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
 	=
 	buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );	// '+1' for terminal NUL on string.
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
 	//
         int status = chmod( c_path, mode );
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
 
     unbuffer_mythryl_heap_value( &path_buf );
 

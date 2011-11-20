@@ -222,9 +222,9 @@ extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def
 
 
 ///////////////////////////////////////////////////////////////////////////
-// Support for CEASE_USING_MYTHRYL_HEAP.
+// Support for RELEASE_MYTHRYL_HEAP.
 //
-// The problem to be solved by CEASE_USING_MYTHRYL_HEAP
+// The problem to be solved by RELEASE_MYTHRYL_HEAP
 // is that while we are doing a slow syscall (or just a
 // slow C op, like compressing a largish string) we cannot
 // respond to a request to enter heapcleaner mode,
@@ -345,8 +345,8 @@ extern int    log_if_fd;
 #endif
 
 
-#define CEASE_USING_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
-#define BEGIN_USING_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
+#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
+#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
     //
     // For background comments see Note[1]
     //
@@ -371,8 +371,8 @@ typedef enum {
     // To switch a pthread between the two
     // RUNNING modes, use the
     //
-    //     CEASE_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_MYTHRYL  ->  PTHREAD_IS_RUNNING_C        state transition.
-    //     BEGIN_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_C        ->  PTHREAD_IS_RUNNING_MYTHRYL  state transition.
+    //     RELEASE_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_MYTHRYL  ->  PTHREAD_IS_RUNNING_C        state transition.
+    //     RECOVER_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_C        ->  PTHREAD_IS_RUNNING_MYTHRYL  state transition.
     //
     // macros.
 
@@ -654,8 +654,8 @@ typedef enum {
 //
 // Note[1]:
 //
-//     CEASE_USING_MYTHRYL_HEAP
-//     BEGIN_USING_MYTHRYL_HEAP
+//     RELEASE_MYTHRYL_HEAP
+//     RECOVER_MYTHRYL_HEAP
 //
 // The problem to be solved here is that when
 // multiple pthreads (kernel threads) share the
@@ -672,11 +672,11 @@ typedef enum {
 // lengthy C operation (which does not involve the Mythryl heap!)
 // should do
 //
-//     CEASE_USING_MYTHRYL_HEAP( task->pthread, "foo", arg );
+//     RELEASE_MYTHRYL_HEAP( task->pthread, "foo", arg );
 //         //
 //         slow_c_operation_not_using_mythryl_heap();
 //         //
-//     BEGIN_USING_MYTHRYL_HEAP( task->pthread, "foo" );
+//     RECOVER_MYTHRYL_HEAP( task->pthread, "foo" );
 //
 //  (These are expected to be used in one of the 
 //  Mythryl/C interface fns taking (Task* task, Val arg)
@@ -695,15 +695,15 @@ typedef enum {
 // NB: Because the heapcleaner (garbage collector) may move
 //     things around -- and delete them! -- you must:
 //
-//     o  Use the third arg to CEASE_USING_MYTHRYL_HEAP
+//     o  Use the third arg to RELEASE_MYTHRYL_HEAP
 //        to protect the main Val arg to the fn.
 //
 //     o  NOT reference the Mythryl heap in any
-//        way between CEASE_USING_MYTHRYL_HEAP and
-//        BEGIN_USING_MYTHRYL_HEAP.
+//        way between RELEASE_MYTHRYL_HEAP and
+//        RECOVER_MYTHRYL_HEAP.
 //
 //     o  Treat all Mythryl-heap references -except-
-//        'arg' as garbage after BEGIN_USING_MYTHRYL_HEAP,
+//        'arg' as garbage after RECOVER_MYTHRYL_HEAP,
 //        re-fetching them as necessary. 
 //
 // The functions
@@ -714,8 +714,8 @@ typedef enum {
 // may be used to buffer Mythryl heap value(s) in C
 // (i.e., on the C stack or heap) for use between
 //
-//     CEASE_USING_MYTHRYL_HEAP
-//     BEGIN_USING_MYTHRYL_HEAP
+//     RELEASE_MYTHRYL_HEAP
+//     RECOVER_MYTHRYL_HEAP
 //
 // Examples of doing do may be found in (for example):
 // 

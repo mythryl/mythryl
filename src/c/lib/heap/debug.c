@@ -34,11 +34,11 @@ Val   _lib7_runtime_debug   (Task* task,  Val arg)   {
 
     char* c_string = buffer_mythryl_heap_value( &string_buf, (void*) heap_string, strlen( heap_string ) +1 );	// '+1' for terminal NUL at end of string.
     
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug", arg );
 	//
         debug_say( c_string );					// debug_say	is from   src/c/main/error-reporting.c
 	//
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_debug" );
 
     unbuffer_mythryl_heap_value( &string_buf );
 

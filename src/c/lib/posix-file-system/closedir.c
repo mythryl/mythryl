@@ -40,11 +40,11 @@ Val   _lib7_P_FileSys_closedir   (Task* task,  Val arg) {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
+//  RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
 	//
         int status = closedir(PTR_CAST(DIR*, arg));				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy 'arg' to a C buffer.
 	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
+//  RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
     //
     CHECK_RETURN_UNIT(task,status)
 }

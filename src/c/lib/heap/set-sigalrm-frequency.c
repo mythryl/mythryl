@@ -87,11 +87,11 @@ log_if("setitimer.c: Turning OFF SIGALRM interval timer\n");
 log_if("setitimer.c: Turning ON SIGALRM interval itimer, sec,usec = (%d,%d)\n",new_itv.it_value.tv_sec, new_itv.it_value.tv_usec);
     }
 
-    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_set_sigalrm_frequency", arg );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_set_sigalrm_frequency", arg );
 	//
         status = setitimer (ITIMER_REAL, &new_itv, NULL);						// See setitimer(2), Linux Reference Manual.
 	//												// This call might not be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
-    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_set_sigalrm_frequency" );			// But what's the harm in them -- this shouldn't be a frequent call anyhow.
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_runtime_set_sigalrm_frequency" );			// But what's the harm in them -- this shouldn't be a frequent call anyhow.
 
     CHECK_RETURN_UNIT(task, status);
 

@@ -42,8 +42,8 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 	//
 	// Copy libname out of Mythryl heap to
         // make it safe to reference between
-	// CEASE_USING_MYTHRYL_HEAP and
-	// BEGIN_USING_MYTHRYL_HEAP:
+	// RELEASE_MYTHRYL_HEAP and
+	// RECOVER_MYTHRYL_HEAP:
 	//
 	libname =  (char*)  buffer_mythryl_heap_value( &libname_buf, (void*)libname, strlen(libname)+1 );		// '+1' for terminal NUL on string.
     }
@@ -59,11 +59,11 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	if (global) flag |= RTLD_GLOBAL;
 
-	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
 	    //
 	    handle = dlopen (libname, flag);				// This call might not be slow enough to need CEASE/BEGIN guards -- cannot return EINTR.
 	    //
-	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen" );
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen" );
     #endif
 
     if (libname)  unbuffer_mythryl_heap_value( &libname_buf );
