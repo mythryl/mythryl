@@ -5,6 +5,8 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -42,17 +44,19 @@ Val   _lib7_P_FileSys_access   (Task* task,  Val arg) {
     Val	   path =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     mode_t mode =  TUPLE_GETWORD(         arg, 1 );
 
-//    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access", arg );
+    char* heap_path = HEAP_STRING_AS_C_STRING( path );
+
+    Mythryl_Heap_Value_Buffer  path_buf;
+
+    char* c_path = buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access", arg );
 	//
-	int status
-	    =
-	    access(					// This is probably not slow enough to need CEASE/BEGIN guards -- it cannot return EINTR -- but if it dereferences symlinks it might be hitting disk, which could be pretty slow.
-		//					//
-		HEAP_STRING_AS_C_STRING( path ),	// NB: Before uncommenting the CEASE/BEGIN, we'd have to copy path into a C buffer. 
-		mode
-	    );
+	int status =  access( c_path, mode );
 	//
-//    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access" );
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_access" );
+
+    unbuffer_mythryl_heap_value( &path_buf );
 
     if (status == 0)    return HEAP_TRUE;
     else		return HEAP_FALSE;

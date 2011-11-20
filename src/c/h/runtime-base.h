@@ -416,8 +416,8 @@ typedef enum {
     // To switch a pthread between the two
     // RUNNING modes, use the
     //
-    //     BEGIN_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_C        ->  PTHREAD_IS_RUNNING_MYTHRYL  state transition.
     //     CEASE_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_MYTHRYL  ->  PTHREAD_IS_RUNNING_C        state transition.
+    //     BEGIN_USING_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING_C        ->  PTHREAD_IS_RUNNING_MYTHRYL  state transition.
     //
     // macros.
 

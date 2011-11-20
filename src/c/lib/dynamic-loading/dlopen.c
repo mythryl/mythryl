@@ -46,7 +46,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 	// CEASE_USING_MYTHRYL_HEAP and
 	// BEGIN_USING_MYTHRYL_HEAP:
 	//
-	libname = (char*) buffer_mythryl_heap_value( &libname_buf, (void*)libname, strlen(libname)+1 );		// '+1' for terminal NUL on string.
+	libname =  (char*)  buffer_mythryl_heap_value( &libname_buf, (void*)libname, strlen(libname)+1 );		// '+1' for terminal NUL on string.
     }
 
     #ifdef OPSYS_WIN32

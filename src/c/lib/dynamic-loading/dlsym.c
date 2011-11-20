@@ -2,6 +2,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #ifdef OPSYS_WIN32
 # include <windows.h>
 extern void dlerror_set (const char *fmt, const char *s);
@@ -29,23 +31,30 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
     void* handle    =  (void*) (WORD_LIB7toC (lib7_handle));
     void* address;
 
-    Val result;
+
+    Mythryl_Heap_Value_Buffer symname_buf;
+
+    char* symname_c
+	=
+	buffer_mythryl_heap_value(  &symname_buf,  (void*) symname,  strlen(symname)+1 );	// '+1' for terminal NUL at end of string.
 
     #ifdef OPSYS_WIN32
 	address = GetProcAddress (handle, symname);
 	//
 	if (address == NULL && symname != NULL)	  dlerror_set ("Symbol `%s' not found", symname);
     #else
-//	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
+	CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym", arg );
 	    //
-	    address = dlsym (handle, symname);					// This call might(?) be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
-	    //									// NB: Using 'symname' here would not be OK if CEASE/BEGIN were uncommented, since it is on the Mythryl heap -- should be copied into a C buffer.
-//	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
+	    address = dlsym( handle, symname_c );
+	    //
+	BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlsym" );
     #endif
 
-    WORD_ALLOC (task, result, (Val_Sized_Unt) address);
+    unbuffer_mythryl_heap_value( &symname_buf );
 
-    return result;
+    Val               result;
+    WORD_ALLOC (task, result, (Val_Sized_Unt) address);
+    return            result;
 }
 
 

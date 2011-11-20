@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -34,14 +36,20 @@ Val   _lib7_P_FileSys_chdir   (Task* task,  Val arg) {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    char* dir = HEAP_STRING_AS_C_STRING( arg );
+    char* heap_dir = HEAP_STRING_AS_C_STRING( arg );
 
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir" );
+    Mythryl_Heap_Value_Buffer  dir_buf;
+
+    char* c_dir =  buffer_mythryl_heap_value( &dir_buf, (void*) heap_dir, strlen( heap_dir )+1 );	// '+1' for terminal NUL on string.
+
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir", arg );
 	//
-        int status = chdir( dir );			// NB: Before uncommenting CEASE/BEGIN here, we'd need to copy 'dir' into a C buffer.
+        int status = chdir( c_dir );
 	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir" );
-    //
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chdir" );
+
+    unbuffer_mythryl_heap_value( &dir_buf );
+
     CHECK_RETURN_UNIT(task, status)
 }
 
