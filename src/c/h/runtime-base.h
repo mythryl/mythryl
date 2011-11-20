@@ -348,6 +348,9 @@ extern int    log_if_fd;
 #define CEASE_USING_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
 #define BEGIN_USING_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
     //
+    // NB: The production definitions of the above need to
+    // increment/decrement ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL.
+    //
     // The problem to be solved here is that when
     // multiple pthreads (kernel threads) share the
     // Mythryl heap, all threads must enter heapcleaning

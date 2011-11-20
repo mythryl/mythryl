@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -43,14 +46,27 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     Val	  path = GET_TUPLE_SLOT_AS_VAL(    arg, 0);
     uid_t uid  = TUPLE_GETWORD(arg, 1);
     gid_t gid  = TUPLE_GETWORD(arg, 2);
-    char* cpath=  HEAP_STRING_AS_C_STRING(path);
+    char* heap_path=  HEAP_STRING_AS_C_STRING(path);
     //
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time", arg );
-	//
-        int status = chown (cpath, uid, gid);				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath into a C buffer.
-	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_Date_ascii_time" );
+    // We cannot reference anything on the Mythryl
+    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
     //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    char* c_path
+	= 
+        buffer_mythryl_heap_value( &path_buf, (void*) path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown", arg );
+	//
+        int status = chown (c_path, uid, gid);
+	//
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
+
+    unbuffer_mythryl_heap_value( &path_buf );
+
     CHECK_RETURN_UNIT(task, status)
 }
 

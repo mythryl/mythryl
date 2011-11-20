@@ -124,7 +124,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
     #endif
 
-    // Note 4-5 C-level pointers into the Mythryl heap --
+    // Note a few C-level pointers into the Mythryl heap --
     // low-level special-case stuff like the signal handler,
     // runtime (pseudo-)package, pervasives etc:
     //

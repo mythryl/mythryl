@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
@@ -40,14 +43,27 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
 
     Val	    path = GET_TUPLE_SLOT_AS_VAL(     arg, 0);
     mode_t  mode = TUPLE_GETWORD( arg, 1);
-    char*  cpath = HEAP_STRING_AS_C_STRING(path);
+    char*  heap_path = HEAP_STRING_AS_C_STRING(path);
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
     //
-//  CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
-	//
-        int status = chmod (cpath, mode);				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy cpath into a C buffer.
-	//
-//  BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
+    Mythryl_Heap_Value_Buffer  path_buf;
     //
+    char* c_path
+	=
+	buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );	// '+1' for terminal NUL on string.
+
+    CEASE_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod", arg );
+	//
+        int status = chmod( c_path, mode );
+	//
+    BEGIN_USING_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
+
+    unbuffer_mythryl_heap_value( &path_buf );
+
     CHECK_RETURN_UNIT(task, status)
 }
 
