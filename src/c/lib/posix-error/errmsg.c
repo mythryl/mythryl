@@ -46,7 +46,7 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
 	    s = make_ascii_string_from_c_string( task, msg );				// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 	} else {
 	    char     buf[64];
-	    sprintf( buf, "<unknown error %d>", errnum);				// XXX BUGGO FIXME should use a modern fn proof against buffer overrun.
+	    sprintf( buf, "<unknown error %d>", errnum);				// XXX SUCKO FIXME should use a modern fn proof against buffer overrun.
 	    s = make_ascii_string_from_c_string (task, buf);
 	}
     #else
@@ -57,7 +57,7 @@ Val   _lib7_P_Error_errmsg   (Task* task, Val arg)   {
 	} else {
 	    //
 	    char     buf[64];
-	    sprintf( buf, "<unknown error %d>", errnum);				// XXX BUGGO FIXME should use a modern fn proof against buffer overrun.
+	    sprintf( buf, "<unknown error %d>", errnum);				// XXX SUCKO FIXME should use a modern fn proof against buffer overrun.
 	    s = make_ascii_string_from_c_string (task, buf);
 	}
     #endif

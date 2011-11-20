@@ -47,7 +47,8 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
     uid_t uid  = TUPLE_GETWORD(arg, 1);
     gid_t gid  = TUPLE_GETWORD(arg, 2);
     char* heap_path=  HEAP_STRING_AS_C_STRING(path);
-    //
+
+
     // We cannot reference anything on the Mythryl
     // heap after we do RELEASE_MYTHRYL_HEAP
     // because garbage collection might be moving
@@ -64,7 +65,7 @@ Val   _lib7_P_FileSys_chown   (Task* task,  Val arg)   {
         int status = chown (c_path, uid, gid);
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chown" );
-
+    //
     unbuffer_mythryl_heap_value( &path_buf );
 
     CHECK_RETURN_UNIT(task, status)

@@ -30,13 +30,13 @@ Val   _lib7_U_Dynload_dlclose   (Task* task, Val lib7_handle)   {	// : one_word_
     #ifdef OPSYS_WIN32
       (void) FreeLibrary (handle);
     #else
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlclose", lib7_handle );
-	//
-        (void) dlclose (handle);				// This call is probably not slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
-	//							// BN: 'handle' should not be pointing into the Mythryl heap (check dlopen.c) so it should be safe to use between CEASE/BEGIN.
-        // Should likely check return value here!  XXX SUCKO FIXME
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlclose" );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlclose", lib7_handle );
+	    //
+	    (void) dlclose (handle);							// BN: 'handle' should not be pointing into the Mythryl heap (check dlopen.c) so it should be safe to use between RELEASE/RECOVER.
+	    //
+	    // Should likely check return value here!  XXX SUCKO FIXME
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlclose" );
     #endif
   
     return HEAP_VOID;

@@ -47,7 +47,7 @@ Val   _lib7_P_FileSys_ftruncate   (Task* task,  Val arg)   {
 
         RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate", arg );
 	    //
-	    status = ftruncate (fd, len);						// Since this call can return EINTR, it is slow and deserves the CEASE/BEGIN guards.
+	    status = ftruncate (fd, len);						// This call can return EINTR, so it is officially "slow".
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_ftruncate" );
 

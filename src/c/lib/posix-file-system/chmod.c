@@ -43,6 +43,7 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
 
     Val	    path = GET_TUPLE_SLOT_AS_VAL(     arg, 0);
     mode_t  mode = TUPLE_GETWORD( arg, 1);
+
     char*  heap_path = HEAP_STRING_AS_C_STRING(path);
 
     // We cannot reference anything on the Mythryl
@@ -61,7 +62,7 @@ Val   _lib7_P_FileSys_chmod   (Task* task,  Val arg)   {
         int status = chmod( c_path, mode );
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_chmod" );
-
+    //
     unbuffer_mythryl_heap_value( &path_buf );
 
     CHECK_RETURN_UNIT(task, status)

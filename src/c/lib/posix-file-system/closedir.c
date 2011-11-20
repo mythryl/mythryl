@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -40,11 +42,11 @@ Val   _lib7_P_FileSys_closedir   (Task* task,  Val arg) {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-//  RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir", arg );
 	//
-        int status = closedir(PTR_CAST(DIR*, arg));				// NB: Before uncommenting CEASE/BEGIN here, we'd have to copy 'arg' to a C buffer.
+        int status = closedir(PTR_CAST(DIR*, arg));				// Note that closedir() arg here does not actually reference Mythryl heap (forbidden) -- check code in src/c/lib/posix-file-system/opendir.c
 	//
-//  RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir" );
     //
     CHECK_RETURN_UNIT(task,status)
 }

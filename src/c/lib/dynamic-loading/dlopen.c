@@ -61,7 +61,7 @@ Val   _lib7_U_Dynload_dlopen   (Task* task, Val arg)   {	//  (String, Bool, Bool
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen", arg );
 	    //
-	    handle = dlopen (libname, flag);				// This call might not be slow enough to need CEASE/BEGIN guards -- cannot return EINTR.
+	    handle = dlopen (libname, flag);
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_U_Dynload_dlopen" );
     #endif

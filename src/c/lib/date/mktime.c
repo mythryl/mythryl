@@ -44,7 +44,7 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time", arg );
 	//
-        t = mktime (&tm);							// This call might not be slow enough to need CEASE/BEGIN guards...?
+        t = mktime (&tm);
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Date_make_time" );
 

@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -49,7 +51,11 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     char  path[ MAXPATHLEN ];
 
-    char* status = getcwd(path, MAXPATHLEN);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );
+	//
+	char* status = getcwd(path, MAXPATHLEN);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd" );
 
     if (status != NULL)    return make_ascii_string_from_c_string (task, path);
 
@@ -60,7 +66,14 @@ Val   _lib7_P_FileSys_getcwd   (Task* task,  Val arg)   {
 
     if (buf == NULL)      return RAISE_ERROR(task, "no malloc memory");
 
-    while ((status = getcwd(buf, buflen)) == NULL) {
+    while (status == NULL) {
+	//
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd", arg );
+	    //
+            status = getcwd(buf, buflen);
+	    //
+    	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_getcwd" );
+	//
 	//
         FREE (buf);
 	//

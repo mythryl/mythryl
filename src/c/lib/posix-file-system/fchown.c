@@ -45,13 +45,13 @@ Val   _lib7_P_FileSys_fchown   (Task* task,  Val arg)   {
     int	    fd =  GET_TUPLE_SLOT_AS_INT (arg, 0);
     uid_t  uid =  TUPLE_GETWORD(arg, 1);
     gid_t  gid =  TUPLE_GETWORD(arg, 2);
-    //
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown", arg );
 	//
-        int status = fchown (fd, uid, gid);				// This can probably hit disk, so CEASE/BEGIN are probably justified.
+        int status = fchown (fd, uid, gid);
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fchown" );
-    //
+
     CHECK_RETURN_UNIT(task, status)
 }
 

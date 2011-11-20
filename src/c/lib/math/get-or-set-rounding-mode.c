@@ -59,9 +59,9 @@ Val   _lib7_Math_get_or_set_rounding_mode   (Task* task,  Val arg)   {
 
 	} else {
 
-	    fe_rnd_mode_t	m = RMODE_LIB7toC(OPTION_GET(arg));
-	    fe_rnd_mode_t	 result = fesetround(m);				// fesetround	def in    src/c/machine-dependent/prim.intel32.asm
-	    return RMODE_CtoLib7(result);
+	    fe_rnd_mode_t	  mode   =  RMODE_LIB7toC( OPTION_GET( arg ));
+	    fe_rnd_mode_t	  result =  fesetround( mode );				// fesetround	def in    src/c/machine-dependent/prim.intel32.asm
+	    return RMODE_CtoLib7( result );
 	}
     #endif
 }

@@ -49,22 +49,29 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
     tm.tm_yday	= GET_TUPLE_SLOT_AS_INT(date, 7);
     tm.tm_isdst	= GET_TUPLE_SLOT_AS_INT(date, 8);
 
-    Mythryl_Heap_Value_Buffer fmtbuf;
-    void* fmt_c = buffer_mythryl_heap_value( &fmtbuf, (void*) HEAP_STRING_AS_C_STRING(fmt), strlen(HEAP_STRING_AS_C_STRING(fmt))+1 );		// '+1' for terminal NUL on string.
+    Mythryl_Heap_Value_Buffer fmt_buf;
+    //
+    void* fmt_c
+	=
+	buffer_mythryl_heap_value(
+	    //
+	    &fmt_buf,
+	    (void*) HEAP_STRING_AS_C_STRING(fmt),
+	     strlen(HEAP_STRING_AS_C_STRING(fmt) ) +1		// '+1' for terminal NUL on string.
+	 );
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime", arg );
 	//
 	size = strftime (buf, sizeof(buf), fmt_c, &tm);							// This call might not be slow enough to need CEASE/BEGIN guards. (Cannot return EINTR.)
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Date_strftime" );
-    unbuffer_mythryl_heap_value( &fmtbuf );    
+    //
+    unbuffer_mythryl_heap_value( &fmt_buf );    
 
     if (size <= 0)   return RAISE_ERROR(task, "strftime failed");
 
-    Val result = allocate_nonempty_ascii_string(task, size);
-
-    strncpy (HEAP_STRING_AS_C_STRING(result), buf, size);
-
-    return result;
+    Val                               result = allocate_nonempty_ascii_string(task, size+1);		// '+1' for terminal NUL byte.  Added 2011-11-19 CrT -- I hope this is right.
+    strncpy (HEAP_STRING_AS_C_STRING( result ), buf, size+1);
+    return                            result;
 }
 
 
