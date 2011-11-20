@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -41,9 +44,29 @@ Val   _lib7_P_FileSys_mkdir   (Task* task,  Val arg)   {
 
     Val	    path = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     mode_t  mode = TUPLE_GETWORD(arg, 1);
+
+    char* heap_path =  HEAP_STRING_AS_C_STRING( path );
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do CEASE_USING_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
     //
-    int status = mkdir (HEAP_STRING_AS_C_STRING(path), mode);
+    Mythryl_Heap_Value_Buffer  path_buf;
     //
+    char* c_path
+	= 
+        buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_mkdir", arg );
+        //
+        int status = mkdir (c_path, mode);
+        //
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_mkdir" );
+
+    unbuffer_mythryl_heap_value( &path_buf );
+
     CHECK_RETURN_UNIT(task, status)
 }
 
