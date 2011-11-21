@@ -3,6 +3,14 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <signal.h>
+
+#if HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+#endif
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -32,6 +40,20 @@
 
 
 
+//       KILL(2)                    Linux Programmer's Manual                   KILL(2)
+//       
+//       NAME
+//              kill - send signal to a process
+//       
+//       SYNOPSIS
+//              #include <sys/types.h>
+//              #include <signal.h>
+//       
+//              int kill(pid_t pid, int sig);
+
+
+
+
 Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
     //====================
     //
@@ -43,8 +65,15 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
 
-    int status = kill(GET_TUPLE_SLOT_AS_INT(arg, 0),GET_TUPLE_SLOT_AS_INT(arg, 1));
-    //
+    int pid =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int sig =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_kill", arg );
+	//
+	int status = kill( pid, sig );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_Process_kill" );
+
     CHECK_RETURN_UNIT (task, status)
 }
 
