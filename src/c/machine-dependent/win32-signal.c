@@ -60,7 +60,7 @@ int   get_signal_state   (Pthread* pthread, int signal_number) {
 }  
 
 
-void   set_signal_mask   (Val sigList)   {
+void   set_signal_mask   (Task* task, Val sigList)   {
     // =============
     //
     // Set the signal mask to the given list of signals.  The sigList has the
@@ -78,7 +78,7 @@ void   set_signal_mask   (Val sigList)   {
 }
 
 
-Val   get_signal_mask   (Task* task)   {
+Val   get_signal_mask   (Task* task, Val arg)   {
     //=============
     //
     // Return the current signal mask (only those signals supported by Lib7); like

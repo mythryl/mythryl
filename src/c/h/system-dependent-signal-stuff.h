@@ -57,8 +57,8 @@ extern void	set_signal_state	(Pthread* pthread, int signal_number, int signal_st
 extern int	get_signal_state	(Pthread* pthread, int signal_number);
 //
 extern Val	list_signals		(Task* task);
-extern void	set_signal_mask		(Val   signal_list);
-extern Val	get_signal_mask		(Task* task);
+extern void	set_signal_mask		(Task* task, Val signal_list);
+extern Val	get_signal_mask		(Task* task, Val arg);
 
 #endif // SYSTEM_DEPENDENT_SIGNAL_STUFF_H
 

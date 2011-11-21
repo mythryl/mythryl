@@ -32,7 +32,7 @@ Val   _lib7_Sig_setsigmask   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-signals-guts.pkg
 
-    set_signal_mask( arg );
+    set_signal_mask( task, arg );
     //
     return HEAP_VOID;
 }

@@ -59,10 +59,10 @@ extern		Zero_Heap_Allocation_Limit[];					// Actually a pointer, not an array.
 static void   c_signal_handler   (/* int sig,  Signal_Handler_Info_Arg info,  Signal_Handler_Context_Arg* scp */);
 
 
-Val   list_signals   (Task* task)   {				// Called from src/c/lib/signal/listsignals.c
+Val   list_signals   (Task* task)   {						// Called from src/c/lib/signal/listsignals.c
     //============
     //
-    return dump_table_as_system_constants_list (task, &SigTable);			// See src/c/heapcleaner/make-strings-and-vectors-etc.c
+    return dump_table_as_system_constants_list (task, &SigTable);		// See src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 
 void   pause_until_signal   (Pthread* pthread) {
@@ -70,7 +70,7 @@ void   pause_until_signal   (Pthread* pthread) {
     //
     // Suspend the given Pthread
     // until a signal is received:
-    pause ();							// pause() is a clib function, see pause(2).
+    pause ();									// pause() is a clib function, see pause(2).
 }
 
 void   set_signal_state   (Pthread* pthread,  int sig_num,  int signal_state) {
@@ -266,7 +266,7 @@ static void   c_signal_handler   (
 #endif
 
 
-void   set_signal_mask   (Val sigList)   {
+void   set_signal_mask   (Task* task, Val arg)   {
     // 
     // Set the signal mask to the given list of signals.
     // The sigList has the type
@@ -284,6 +284,7 @@ void   set_signal_mask   (Val sigList)   {
 
     CLEAR_SIGNAL_SET(mask);
 
+    Val sigList  = arg;
     if (sigList != OPTION_NULL) {
 	sigList  = OPTION_GET(sigList);
 
@@ -313,11 +314,15 @@ void   set_signal_mask   (Val sigList)   {
     //
 //  log_if("posix-signal.c/set_signal_mask: setting host signal mask for process to x=%x", mask );	// Commented out because it floods mythryl.compile.log -- 2011-10-10 CrT
     //
-    SET_PROCESS_SIGNAL_MASK( mask );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "set_signal_mask", arg );
+	//
+	SET_PROCESS_SIGNAL_MASK( mask );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "set_signal_mask" );
 }
 
 
-Val   get_signal_mask   (Task* task)   {		// Called from src/c/lib/signal/getsigmask.c
+Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/signal/getsigmask.c
     // 
     // Return the current signal mask (only those signals supported by Lib7); like
     // set_signal_mask, the result has the following semantics:
@@ -329,13 +334,18 @@ Val   get_signal_mask   (Task* task)   {		// Called from src/c/lib/signal/getsig
     Val	name, sig, sigList, result;
     int		i, n;
 
-    GET_PROCESS_SIGNAL_MASK( mask );
-
-    // Count the number of masked signals:
-    //
-    for (i = 0, n = 0;  i < NUM_SYSTEM_SIGS;  i++) {
-	if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id)) n++;
-    }
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", arg );
+	//
+	GET_PROCESS_SIGNAL_MASK( mask );
+	//
+	// Count the number of masked signals:
+	//
+	for (i = 0, n = 0;  i < NUM_SYSTEM_SIGS;  i++) {
+	    //
+	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id))   n++;
+	}
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask" );
 
     if (n == 0)   return OPTION_NULL;
 

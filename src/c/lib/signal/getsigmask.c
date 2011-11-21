@@ -24,7 +24,7 @@ Val   _lib7_Sig_getsigmask   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/nj/runtime-signals-guts.pkg
     //
-    return get_signal_mask( task );		// See, e.g., src/c/machine-dependent/posix-signal.c
+    return get_signal_mask( task, arg );		// See, e.g., src/c/machine-dependent/posix-signal.c
 }
 
 

@@ -144,7 +144,6 @@ struct barrier_struct {
 
 
 static Val   get_pthread_id         (Task* task,  Val arg)   {
-// #if commented out because I want to test this individually without enabling the entire MP codebase -- 2011-10-30 CrT
     #if NEED_PTHREAD_SUPPORT
 	//
         return TAGGED_INT_FROM_C_INT( pth__get_pthread_id() );			// thread_id	def in    src/c/pthread/pthread-on-posix-threads.c

@@ -7,6 +7,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "task.h"
@@ -31,8 +34,14 @@ Val   _lib7_Sig_getsigstate   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-signals-guts.pkg
 
-    int state = get_signal_state (task->pthread, GET_TUPLE_SLOT_AS_INT(arg, 0));
-    //
+    int sig_num = GET_TUPLE_SLOT_AS_INT(arg, 0);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigstate", arg );
+	//
+	int state = get_signal_state (task->pthread, sig_num );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigstate" );
+
     return TAGGED_INT_FROM_C_INT(state);
 }
 

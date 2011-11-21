@@ -7,6 +7,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "task.h"
@@ -41,8 +44,14 @@ Val   _lib7_Sig_pause   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-signals-guts.pkg
 
-    pause_until_signal( task->pthread );			//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
-    //
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_pause", arg );
+	//
+	pause_until_signal( task->pthread );			//  pause_until_signal	def in   src/c/machine-dependent/posix-signal.c
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_pause" );
+
+
     return HEAP_VOID;
 }
 

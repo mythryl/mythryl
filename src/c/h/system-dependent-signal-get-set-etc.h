@@ -140,7 +140,7 @@ typedef sigset_t Signal_Set;
 
 #elif defined(HAS_BSD_SIGS)
 // BSD signals
-#define SET_SIGNAL_HANDLER(sig, h)	{       		\
+#define SET_SIGNAL_HANDLER(sig, h)	{       	\
 	struct sigvec __svec;               		\
 	__svec.sv_mask = 0xFFFFFFFF;        		\
 	__svec.sv_flags = SV_INTERRUPT;			\
@@ -159,7 +159,7 @@ typedef int Signal_Set;
 #define ADD_SIGNAL_TO_SET(mask, s)	((mask) |= sigmask(s))
 #define SIGNAL_IS_IN_SET(mask, s)	(((mask) & sigmask(s)) != 0)
 #define SET_PROCESS_SIGNAL_MASK(mask)	sigsetmask(mask)
-#define GET_PROCESS_SIGNAL_MASK(mask)	{			\
+#define GET_PROCESS_SIGNAL_MASK(mask)	{		\
 	int		__tmpMask;			\
 	__tmpMask = 0xFFFFFFFF;				\
 	(mask) = sigsetmask(__tmpMask);			\
