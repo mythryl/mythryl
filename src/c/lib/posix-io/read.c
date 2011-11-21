@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
@@ -52,29 +54,51 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    Val vec;
+    int n;
+
     int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int nbytes =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 
     if (nbytes == 0)   return ZERO_LENGTH_STRING__GLOBAL;
 
-    // Allocate the vector.
-    // Note that this might cause a cleaning, moving things around:
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so allocate C space in which to do the read:
     //
-    Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(nbytes) );
+    Mythryl_Heap_Value_Buffer  vec_buf;
+    //
+    {	char* c_vec
+	    = 
+	    buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );
 
-    int n;
 
-/*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    /*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-    n = read (fd, PTR_CAST(char*, vec), nbytes);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_read", arg );
+	    //
+	    n = read (fd, c_vec, nbytes);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_read" );
 
-/*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+    /*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (n < 0)    	return RAISE_SYSERR(task, n);
-    else if (n == 0)	return ZERO_LENGTH_STRING__GLOBAL;
+	if (n <  0)    	{ unbuffer_mythryl_heap_value( &vec_buf );	return RAISE_SYSERR(task, n);		}
+	if (n == 0)	{ unbuffer_mythryl_heap_value( &vec_buf );	return ZERO_LENGTH_STRING__GLOBAL;	}
 
-    if (n < nbytes) {
-	shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.
+	// Allocate the vector.
+	// Note that this might trigger a heapcleaning, moving things around:
+	//
+	vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(n) );
+
+	memcpy( PTR_CAST(char*, vec), c_vec, n );
+    
+//	if (n < nbytes) {						// Left-over hack from old code that created vector before doing the read.
+//	    shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );	// Shrink the vector.
+//	}
+
+	unbuffer_mythryl_heap_value( &vec_buf );
     }
 
     Val                 result;

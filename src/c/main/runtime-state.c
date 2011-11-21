@@ -291,6 +291,34 @@ void*   buffer_mythryl_heap_value(
     }
 }
 
+void*   buffer_mythryl_heap_nonvalue(										// Same as above, except we're just providing space, not copying anything into it.
+	    //
+	    Mythryl_Heap_Value_Buffer*	buf,									// Mythryl_Heap_Value_Buffer				def in   src/c/h/runtime-base.h
+	    int				bytes
+	)
+{
+    // For speed, we buffer small values on the stack:
+    //
+    if (bytes < MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE) {							// A few KB:  MAX_STACK_BUFFERED_MYTHRYL_HEAP_VALUE	def in   src/c/h/runtime-base.h
+        //
+	buf->heap_space = NULL;											// Make sure this is initialized -- we'll call free() on this in buffer_mythryl_heap_value().
+	//
+	return  buf->stack_space;
+	//
+    } else {
+        //
+        // Larger values we buffer on the heap.
+        // Copying heapval will probably take longer
+        // than the malloc() call anyhow, in this size range:
+        //
+	buf->heap_space =  malloc( bytes );
+        //
+	if (!buf->heap_space)  die( "buffer_mythryl_heap_value: Unable to malloc(%d)\n", bytes ); 
+        //
+	return  buf->heap_space;
+    }
+}
+
 void   unbuffer_mythryl_heap_value(   Mythryl_Heap_Value_Buffer* buf   ) {					// Mythryl_Heap_Value_Buffer				def in   src/c/h/runtime-base.h
     //
     free( buf->heap_space );											// It is ok to call free(NULL).
