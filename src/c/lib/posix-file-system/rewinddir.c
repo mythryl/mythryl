@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -41,8 +44,12 @@ Val   _lib7_P_FileSys_rewinddir   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    rewinddir(PTR_CAST(DIR*, arg));
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir", arg );
+	//
+	rewinddir(PTR_CAST(DIR*, arg));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_rewinddir" );
+
     return HEAP_VOID;
 }
 

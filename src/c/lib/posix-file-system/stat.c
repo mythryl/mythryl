@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -112,10 +115,31 @@ Val   _lib7_P_FileSys_stat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    char*           path = HEAP_STRING_AS_C_STRING(arg);
+    int status;
+
     struct stat     buf;
 
-    int status =  stat( path, &buf );
+    char*           heap_path = HEAP_STRING_AS_C_STRING(arg);
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_stat", arg );
+	    //
+	    status =  stat( c_path, &buf );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_stat" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
@@ -142,10 +166,16 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
+    int status;
+
     int           fd = TAGGED_INT_TO_C_INT(arg);
     struct stat   buf;
 
-    int status =  fstat( fd, &buf );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fstat", arg );
+	//
+	status =  fstat( fd, &buf );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_fstat" );
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
@@ -172,10 +202,31 @@ Val   _lib7_P_FileSys_lstat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    char*           path = HEAP_STRING_AS_C_STRING(arg);
+    int status;
+
     struct stat     buf;
 
-    int status = lstat(path, &buf);
+    char*           heap_path = HEAP_STRING_AS_C_STRING(arg);
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_lstat", arg );
+	    //
+	    status = lstat(c_path, &buf);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_lstat" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
