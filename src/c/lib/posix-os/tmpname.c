@@ -4,6 +4,7 @@
 #include "../../mythryl-config.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -44,14 +45,21 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix/winix-file.pkg
 
     static int call_number = 0;
+    static int pid         = 0;
 
     char buf[ 132 ];
     
-    int c1 = ++call_number;		// Try to make our filename unique.
+    int c1 = ++call_number;			// Try to make our filename unique.
     
-    int pid = getpid();			// Try to harder to make our filename unique.
+    if (!pid) {
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_tmpname", arg );
+	    //
+	    pid = getpid();				// Try to harder to make our filename unique.
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_tmpname" );
+    }
 
-    int c2 = ++call_number;		// Try to harder yet to make our filename unique. :-)
+    int c2 = ++call_number;			// Try to harder yet to make our filename unique. :-)
  
     sprintf (buf, "tmpfile.%d.%d.%d.tmp", c1, pid, c2);
     //

@@ -3,9 +3,11 @@
 
 #include "../../mythryl-config.h"
 
-#include "system-dependent-unix-stuff.h"
 #include <stdio.h>
 #include <grp.h>
+#include <string.h>
+
+#include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "heap-tags.h"
@@ -34,7 +36,11 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-etc.pkg
 
 
-    struct group* info =  getgrgid( WORD_LIB7toC( arg ));
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getgrgid", arg );
+	//
+	struct group* info =  getgrgid( WORD_LIB7toC( arg ));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getgrgid" );
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   

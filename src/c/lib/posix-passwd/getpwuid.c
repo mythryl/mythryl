@@ -3,8 +3,15 @@
 
 #include "../../mythryl-config.h"
 
-#include "system-dependent-unix-stuff.h"
+#include <stdio.h>
+#include <string.h>
 #include <pwd.h>
+
+#if HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+#endif
+
+#include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "heap-tags.h"
@@ -32,7 +39,13 @@ Val   _lib7_P_SysDB_getpwuid   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-etc.pkg
 
 
-    struct passwd*  info =  getpwuid( WORD_LIB7toC( arg ));
+    struct passwd*  info;
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwuid", arg );
+	//
+	info =  getpwuid( WORD_LIB7toC( arg ));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwuid" );
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   

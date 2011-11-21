@@ -3,6 +3,14 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <pwd.h>
+
+#if HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+#endif
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -24,7 +32,7 @@
 Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
     //======================
     //
-    // _lib7_P_SysDB_getpwnam : String -> String * word * word * String * String
+    // _lib7_P_SysDB_getpwnam : String -> (String, word, word, String, String)
     //
     // Get password file entry by name.
     //
@@ -33,7 +41,29 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-etc.pkg
 
 
-    struct passwd*  info =  getpwnam( HEAP_STRING_AS_C_STRING( arg ));
+    struct passwd*  info;
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  name_buf;
+    //
+    {	char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+
+	char* c_name
+	    = 
+	    buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwnam", arg );
+	    //
+	    info =  getpwnam( c_name );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_SysDB_getpwnam" );
+
+	unbuffer_mythryl_heap_value( &name_buf );
+    }
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   

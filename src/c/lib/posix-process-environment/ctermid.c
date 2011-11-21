@@ -3,8 +3,10 @@
 
 #include "../../mythryl-config.h"
 
-#include "system-dependent-unix-stuff.h"
 #include <stdio.h>
+#include <string.h>
+
+#include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -31,8 +33,14 @@ Val   _lib7_P_ProcEnv_ctermid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    char                    name[ L_ctermid ];
-    char* status = ctermid( name );
+    char* status;
+    char  name[ L_ctermid ];
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ctermid", arg );
+	//
+	status = ctermid( name );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ctermid" );
 
     if (status == NULL || *status == '\0') {
 	return RAISE_ERROR(task, "cannot determine controlling terminal");
