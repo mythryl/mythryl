@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
@@ -44,7 +46,11 @@ Val   _lib7_P_IO_fcntl_d   (Task* task,  Val arg)   {
 
 /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        fd = fcntl(fd0, F_DUPFD, fd1);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_d", arg );
+	    //
+	    fd = fcntl(fd0, F_DUPFD, fd1);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_d" );
 
 /*  } while (fd < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

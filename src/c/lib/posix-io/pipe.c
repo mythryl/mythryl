@@ -9,6 +9,9 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -34,14 +37,21 @@ Val   _lib7_P_IO_pipe   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    int         status;
     int         fds[2];
 
-    if (pipe(fds) == -1) {
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_pipe", arg );
+	//
+	status =  pipe(fds);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_pipe" );
 
+    if (status == -1) {
+        //
         return RAISE_SYSERR(task, -1);
-
+        //
     } else {
-
+        //
         Val        chunk;
         REC_ALLOC2 (task, chunk, TAGGED_INT_FROM_C_INT(fds[0]), TAGGED_INT_FROM_C_INT(fds[1]));
         return chunk;

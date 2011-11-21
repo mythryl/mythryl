@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "runtime-base.h"
@@ -42,7 +44,11 @@ Val   _lib7_P_IO_dup2   (Task* task,  Val arg)   {
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        status = dup2(fd0, fd1);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup2", arg );
+	    //
+	    status = dup2( fd0, fd1 );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_dup2" );
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

@@ -5,6 +5,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
@@ -81,7 +83,11 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
 
 /*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        status = fcntl(fd, cmd, &flock);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l_64", arg );
+	    //
+	    status = fcntl(fd, cmd, &flock);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l_64" );
 
 /*  } while (status < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

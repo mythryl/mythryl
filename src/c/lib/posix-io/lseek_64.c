@@ -8,6 +8,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -53,7 +56,11 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
     int  whence = GET_TUPLE_SLOT_AS_INT(arg, 3);
 
 
-    off_t pos =  lseek(fd, offset, whence);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64", arg );
+	//
+	off_t pos =  lseek(fd, offset, whence);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_lseek_64" );
 
     if (pos < 0)    RAISE_SYSERR (task, (int)pos);
 

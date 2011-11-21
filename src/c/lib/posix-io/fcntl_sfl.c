@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
@@ -40,11 +42,15 @@ Val   _lib7_P_IO_fcntl_sfl   (Task* task,  Val arg)   {
 
     int             status;
     int             fd0 = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val_Sized_Unt          flag = TUPLE_GETWORD(arg, 1);
+    Val_Sized_Unt   flag =        TUPLE_GETWORD(arg, 1);
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        status = fcntl(fd0, F_SETFL, flag);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfl", arg );
+	    //
+	    status = fcntl(fd0, F_SETFL, flag);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_sfl" );
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

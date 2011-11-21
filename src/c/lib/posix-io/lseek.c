@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -39,7 +42,11 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
     off_t offset =  GET_TUPLE_SLOT_AS_INT(arg, 1);
     int   whence =  GET_TUPLE_SLOT_AS_INT(arg, 2);
 
-    off_t pos = lseek(fd, offset, whence);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
+	//
+	off_t pos = lseek(fd, offset, whence);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "" );
 
     CHECK_RETURN(task, pos)
 }

@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -34,9 +37,14 @@ Val   _lib7_P_IO_fsync   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    int status;
     int fd = TAGGED_INT_TO_C_INT(arg);
 
-    int status = fsync(fd);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fsync", arg );
+	//
+	status = fsync(fd);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fsync" );
 
     CHECK_RETURN_UNIT(task, status)
 }
