@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -39,7 +42,11 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    mode_t omask = umask(WORD_LIB7toC(arg));
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask", arg );
+	//
+	mode_t omask = umask(WORD_LIB7toC(arg));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask" );
 
     Val               result;
     WORD_ALLOC (task, result, (Val_Sized_Unt)omask);

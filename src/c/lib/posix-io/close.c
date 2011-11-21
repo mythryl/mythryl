@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "runtime-base.h"
@@ -36,12 +38,17 @@ Val   _lib7_P_IO_close   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
-    int  fd = TAGGED_INT_TO_C_INT(arg);
     int  status;
+
+    int  fd = TAGGED_INT_TO_C_INT(arg);
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        status = close(fd);
+        RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_close", arg );
+	    //
+	    status = close( fd );
+	    //
+        RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_close" );
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 

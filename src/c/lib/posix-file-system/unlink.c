@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -36,8 +39,30 @@ Val   _lib7_P_FileSys_unlink   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
-    int status = unlink(HEAP_STRING_AS_C_STRING(arg));
+    int status;
+
+    char* heap_path = HEAP_STRING_AS_C_STRING(arg);
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
     //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_unlink", arg );
+	    //
+	    status = unlink( c_path );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_unlink" );
+
+	unbuffer_mythryl_heap_value( &path_buf );
+    }
+
     CHECK_RETURN_UNIT(task, status)
 }
 

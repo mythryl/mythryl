@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
     #include <sys/types.h>
 #endif
@@ -42,21 +45,49 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    int status;
+
     Val	    path    =  GET_TUPLE_SLOT_AS_VAL(     arg, 0);
     time_t  actime  =  TUPLE_GET_INT1(arg, 1);
     time_t  modtime =  TUPLE_GET_INT1(arg, 2);
 
-    int status;
+    char* heap_path =  HEAP_STRING_AS_C_STRING( path );
 
-    if (actime == -1) {
-        status = utime (HEAP_STRING_AS_C_STRING(path), NULL);
-    } else {
-	struct utimbuf tb;
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  path_buf;
+    //
+    {	char* c_path
+	    = 
+	    buffer_mythryl_heap_value( &path_buf, (void*) heap_path, strlen( heap_path ) +1 );		// '+1' for terminal NUL on string.
 
-	tb.actime = actime;
-	tb.modtime = modtime;
-// printf("src/c/lib/posix-file-system/utime.c calling utime(%s)...\n",HEAP_STRING_AS_C_STRING(path));
-	status = utime (HEAP_STRING_AS_C_STRING(path), &tb);
+
+	if (actime == -1) {
+
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", arg );
+		//
+		status = utime( c_path, NULL );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime" );
+
+	} else {
+
+	    struct utimbuf tb;
+
+	    tb.actime = actime;
+	    tb.modtime = modtime;
+
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime", arg );
+		//
+		status = utime( c_path, &tb );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_utime" );
+	}
+
+	unbuffer_mythryl_heap_value( &path_buf );
     }
 
     CHECK_RETURN_UNIT(task, status)
