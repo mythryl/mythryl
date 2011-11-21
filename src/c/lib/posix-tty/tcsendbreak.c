@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -22,6 +25,11 @@
 // and thence
 //     src/c/lib/posix-tty/libmythryl-posix-tty.c
 
+//     SYNOPSIS
+//            #include <termios.h>
+//            #include <unistd.h>
+//     
+//            int tcsendbreak(int fd, int duration);
 
 
 Val   _lib7_P_TTY_tcsendbreak   (Task* task,  Val arg)   {
@@ -35,8 +43,15 @@ Val   _lib7_P_TTY_tcsendbreak   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
 
-    int status = tcsendbreak(GET_TUPLE_SLOT_AS_INT(arg, 0),GET_TUPLE_SLOT_AS_INT(arg, 1));
-    //
+    int fd       =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int duration =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsendbreak", arg );
+	//
+	int status = tcsendbreak( fd, duration );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsendbreak" );
+
     CHECK_RETURN_UNIT(task, status)
 }
 

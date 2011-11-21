@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -36,8 +39,14 @@ Val   _lib7_P_TTY_tcgetpgrp   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
 
     int fd = TAGGED_INT_TO_C_INT(arg);
-    //
-    return TAGGED_INT_FROM_C_INT( tcgetpgrp( fd ));
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetpgrp", arg );
+	//
+	int result = tcgetpgrp( fd );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetpgrp" );
+
+    return TAGGED_INT_FROM_C_INT( result );
 }
 
 

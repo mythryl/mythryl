@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -42,26 +45,47 @@ Val   _lib7_P_TTY_tcsetattr   (Task* task,  Val arg)   {
     
     int fd         =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int action     =  GET_TUPLE_SLOT_AS_INT(arg, 1);
-    Val termio_rep =  GET_TUPLE_SLOT_AS_VAL(   arg, 2);
+    Val termio_rep =  GET_TUPLE_SLOT_AS_VAL(arg, 2);
 
     struct termios   data;
 
-    data.c_iflag = TUPLE_GETWORD(termio_rep, 0);
-    data.c_oflag = TUPLE_GETWORD(termio_rep, 1);
-    data.c_cflag = TUPLE_GETWORD(termio_rep, 2);
-    data.c_lflag = TUPLE_GETWORD(termio_rep, 3);
+    data.c_iflag = TUPLE_GETWORD(         termio_rep, 0);
+    data.c_oflag = TUPLE_GETWORD(         termio_rep, 1);
+    data.c_cflag = TUPLE_GETWORD(         termio_rep, 2);
+    data.c_lflag = TUPLE_GETWORD(         termio_rep, 3);
+    Val c_cc     = GET_TUPLE_SLOT_AS_VAL( termio_rep, 4);
+    int ispeed   = TUPLE_GETWORD(         termio_rep, 5);
+    int ospeed   = TUPLE_GETWORD(         termio_rep, 6);
 
-    memcpy (data.c_cc, GET_VECTOR_DATACHUNK_AS( void*, GET_TUPLE_SLOT_AS_VAL(termio_rep, 4) ), NCCS);
+    memcpy (data.c_cc, GET_VECTOR_DATACHUNK_AS( void*, c_cc ), NCCS);
 
-    int status = cfsetispeed (&data, TUPLE_GETWORD(termio_rep, 5));
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+	//
+	int status = cfsetispeed (&data, ispeed);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
+
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    status = cfsetospeed (&data, TUPLE_GETWORD(termio_rep, 6));
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+	//
+	status = cfsetospeed (&data, ospeed);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
+
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    status = tcsetattr(fd, action, &data);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr", arg );
+	//
+	status = tcsetattr(fd, action, &data);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcsetattr" );
+
 
     CHECK_RETURN_UNIT( task, status )
 }

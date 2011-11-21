@@ -6,6 +6,9 @@
 #include "system-dependent-unix-stuff.h"
 #include INCLUDE_TIME_H
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -46,7 +49,11 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 
     struct termios  data;
 
-    int status = tcgetattr(fd, &data);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr", arg );
+	//
+	int status =  tcgetattr( fd, &data );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcgetattr" );
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
@@ -76,6 +83,7 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
     LIB7_AllocWrite   (task, 5, cc);
     LIB7_AllocWrite   (task, 6, ispeed);
     LIB7_AllocWrite   (task, 7, ospeed);
+
     return LIB7_Alloc (task, 7);
 }
 

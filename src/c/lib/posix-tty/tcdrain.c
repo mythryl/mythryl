@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -37,7 +40,12 @@ Val   _lib7_P_TTY_tcdrain   (Task* task,  Val arg)   {
 
 
     int fd     =  TAGGED_INT_TO_C_INT( arg );
-    int status =  tcdrain( fd );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcdrain", arg );
+	//
+	int status =  tcdrain( fd );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcdrain" );
 
     CHECK_RETURN_UNIT(task, status)
 }

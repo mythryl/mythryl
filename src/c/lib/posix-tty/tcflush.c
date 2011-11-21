@@ -5,6 +5,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_TERMIOS_H
     #include <termios.h>
 #endif
@@ -23,6 +26,12 @@
 //     src/c/lib/posix-tty/libmythryl-posix-tty.c
 
 
+//     SYNOPSIS
+//            #include <termios.h>
+//            #include <unistd.h>
+//     
+//            int tcflush(int fd, int queue_selector);
+
 
 Val    _lib7_P_TTY_tcflush   (Task* task,  Val arg)   {
     //====================
@@ -35,8 +44,15 @@ Val    _lib7_P_TTY_tcflush   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
 
-    int status =  tcflush(GET_TUPLE_SLOT_AS_INT(arg, 0),GET_TUPLE_SLOT_AS_INT(arg, 1));
-    //
+    int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
+    int queue  =  GET_TUPLE_SLOT_AS_INT(arg, 1);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflush", arg );
+	//
+	int status =  tcflush( fd, queue );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_TTY_tcflush" );
+
     CHECK_RETURN_UNIT(task, status)
 }
 
