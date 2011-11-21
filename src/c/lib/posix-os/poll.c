@@ -19,6 +19,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "system-dependent-unix-stuff.h"
@@ -55,7 +57,7 @@
 #define OOBDABLE_BIT		0x4
 
 
-static Val   LIB7_Poll   (Task *task, Val poll_list, struct timeval *timeout);
+static Val   LIB7_Poll   (Task *task, Val arg, struct timeval *timeout);
 
 
 // One of the library bindings exported via
@@ -79,7 +81,7 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix/winix-io.pkg
 
-    Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);
+//  Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);			// We fetch this in LIB7_Poll() now.
     Val	    timeout   = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
     struct timeval  tv;
@@ -99,7 +101,7 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
         tvp = &tv;
     }
 
-    return LIB7_Poll( task, poll_list, tvp );				// See below.
+    return LIB7_Poll( task, arg, tvp );					// See below.
 }
 
 
@@ -112,11 +114,13 @@ Val   _lib7_OS_poll   (Task* task,  Val arg)   {
 #endif
 
 
-static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout)   {
+static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     //       ========= 
     //
     //
     // The version of the polling operation for systems that provide SVR4 polling.
+
+    Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 
     struct pollfd*   fds;
     struct pollfd*   fdp;
@@ -162,7 +166,11 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
 
 /*      do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-            status = poll (fds, nfds, tout);
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", arg );
+		//
+		status = poll (fds, nfds, tout);
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll" );
 
 /*      } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
@@ -199,10 +207,12 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
 #include <fcntl.h>/* 2008-03-15 CrT BUGGO -- DELETEME! Temporary debug hack. */
 
 
-static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout)   {
+static Val   LIB7_Poll   (Task* task,  Val arg, struct timeval* timeout)   {
     //       =========
     //
     // The version of the polling operation for systems that provide BSD select.
+
+    Val	    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 
     fd_set	rset, wset, eset;
     fd_set	*rfds, *wfds, *efds;
@@ -248,9 +258,15 @@ static Val   LIB7_Poll   (Task* task,  Val poll_list,  struct timeval* timeout) 
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-        status = select (maxFD+1, rfds, wfds, efds, timeout);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll", arg );
+	    //
+	    status = select (maxFD+1, rfds, wfds, efds, timeout);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_OS_poll" );
 
 /*  } while (status < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+
+    poll_list = GET_TUPLE_SLOT_AS_VAL(arg, 0);		// Re-fetch poll_list because heapcleaner may have moved it between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP.
 
 /*printf("src/c/lib/posix-os/poll.c: result status d=%d.\n",status);*/
 
