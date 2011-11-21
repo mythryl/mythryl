@@ -6,6 +6,9 @@
 
 #include "system-dependent-unix-stuff.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -73,13 +76,17 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
         return RAISE_SYSERR(task, -1);
     }
  
-    long val;
-    errno = 0;
-    //
-    while (((val = sysconf(attribute->val)) == -1) && (errno == EINTR)) {
-        errno = 0;
-        continue;
-    }
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_sysconf", arg );
+	//
+	long val;
+	errno = 0;
+	//
+	while (((val = sysconf(attribute->val)) == -1) && (errno == EINTR)) {
+	    errno = 0;
+	    continue;
+	}
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_sysconf" );
 
 
     if (val >= 0) {

@@ -9,6 +9,9 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -33,8 +36,15 @@ Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    int status =  setpgid( GET_TUPLE_SLOT_AS_INT(arg,0), GET_TUPLE_SLOT_AS_INT(arg,1) );
-    //
+    int pid  =  GET_TUPLE_SLOT_AS_INT(arg,0);
+    int pgid =  GET_TUPLE_SLOT_AS_INT(arg,1);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid", arg );
+	//
+	int status =  setpgid( pid, pgid );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setpgid" );
+
     CHECK_RETURN_UNIT( task, status )
 }
 

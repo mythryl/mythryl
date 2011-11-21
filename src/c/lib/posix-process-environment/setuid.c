@@ -8,6 +8,9 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -32,8 +35,12 @@ Val   _lib7_P_ProcEnv_setuid   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    int status = setuid( WORD_LIB7toC( arg ));
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setuid", arg );
+	//
+	int status = setuid( WORD_LIB7toC( arg ));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setuid" );
+
     CHECK_RETURN_UNIT( task, status )
 }
 

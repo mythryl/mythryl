@@ -4,6 +4,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
@@ -30,8 +33,12 @@ Val   _lib7_P_ProcEnv_setsid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    pid_t pid =  setsid ();
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setsid", arg );
+	//
+	pid_t pid =  setsid ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setsid" );
+
     CHECK_RETURN(task, pid)
 }
 

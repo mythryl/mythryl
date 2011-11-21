@@ -7,6 +7,9 @@
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -31,8 +34,14 @@ Val   _lib7_P_ProcEnv_getuid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getuid", arg );
+	//
+	int uid = getuid ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getuid" );
+
     Val	              result;
-    WORD_ALLOC (task, result, (Val_Sized_Unt) (getuid()));
+    WORD_ALLOC (task, result, (Val_Sized_Unt)uid);
     return            result;
 }
 

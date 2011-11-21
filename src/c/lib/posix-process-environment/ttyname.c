@@ -10,6 +10,9 @@
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -34,8 +37,12 @@ Val   _lib7_P_ProcEnv_ttyname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname", arg );
+	//
+	char* name = ttyname(TAGGED_INT_TO_C_INT(arg));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_ttyname" );
+
     if (name == NULL)   return RAISE_ERROR(task, "not a terminal device");
     //  
     return make_ascii_string_from_c_string (task, name);

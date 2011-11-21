@@ -8,6 +8,9 @@
 #include "runtime-values.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -32,7 +35,13 @@ Val   _lib7_P_ProcEnv_isatty   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return (isatty(TAGGED_INT_TO_C_INT(arg)) ? HEAP_TRUE : HEAP_FALSE);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_isatty", arg );
+	//
+	int result = isatty(TAGGED_INT_TO_C_INT(arg));
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_isatty" );
+
+    return (result ? HEAP_TRUE : HEAP_FALSE);
 }
 
 

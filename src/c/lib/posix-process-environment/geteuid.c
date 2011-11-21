@@ -4,6 +4,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -31,8 +34,14 @@ Val   _lib7_P_ProcEnv_geteuid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid", arg );
+	//
+	int euid = geteuid ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_geteuid" );
+
     Val	              result;
-    WORD_ALLOC (task, result, (Val_Sized_Unt)(geteuid()));
+    WORD_ALLOC (task, result, (Val_Sized_Unt)euid);
     return            result;
 }
 

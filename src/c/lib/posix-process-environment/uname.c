@@ -4,8 +4,11 @@
 
 #include "../../mythryl-config.h"
 
-#include "system-dependent-unix-stuff.h"
+#include <stdio.h>
+#include <string.h>
 #include <sys/utsname.h>
+
+#include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -37,7 +40,11 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
     Val  l, p, s;
     Val  field;
 
-    int status =  uname( &name );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname", arg );
+	//
+	int status =  uname( &name );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_uname" );
 
     if (status == -1)    RAISE_SYSERR(task, status);
 

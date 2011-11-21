@@ -3,12 +3,15 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "lib7-c.h"
 #include "cfun-proto-list.h"
-#include <time.h>
 
 
 
@@ -30,11 +33,15 @@ Val   _lib7_P_ProcEnv_time   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    time_t t =  time( NULL );
-    //
-    Val	              result;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_time", arg );
+	//
+	time_t t =  time( NULL );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_time" );
+
+    Val	             result;
     INT1_ALLOC(task, result, t);
-    return            result;
+    return           result;
 }
 
 

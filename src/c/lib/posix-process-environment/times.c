@@ -4,8 +4,11 @@
 
 #include "../../mythryl-config.h"
 
-#include "system-dependent-unix-stuff.h"
+#include <stdio.h>
+#include <string.h>
 #include <sys/times.h>
+
+#include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -36,7 +39,12 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
     Val  v, e, u, s, cu, cs;
 
     struct tms   ts;
-    clock_t t = times( &ts );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_times", arg );
+	//
+	clock_t t = times( &ts );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_times" );
 
     if (t == -1)   return RAISE_SYSERR(task, -1);
 

@@ -4,6 +4,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -34,7 +37,11 @@ Val   _lib7_P_ProcEnv_getlogin   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    char* name = getlogin ();
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getlogin", arg );
+	//
+	char* name = getlogin ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getlogin" );
 
     if (name == NULL)   return RAISE_ERROR(task, "no login name");
   

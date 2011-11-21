@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -29,8 +32,14 @@ Val   _lib7_P_ProcEnv_getgid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgid", arg );
+	//
+	int gid = getgid ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgid" );
+
     Val	              result;
-    WORD_ALLOC (task, result, (Val_Sized_Unt)(getgid()));
+    WORD_ALLOC (task, result, (Val_Sized_Unt)gid);
     return            result;
 }
 

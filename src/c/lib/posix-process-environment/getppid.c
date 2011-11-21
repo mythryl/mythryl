@@ -8,6 +8,9 @@
 #include "runtime-values.h"
 #include "cfun-proto-list.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_UNISTD_H
     #include <unistd.h>
 #endif
@@ -32,7 +35,13 @@ Val   _lib7_P_ProcEnv_getppid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    return TAGGED_INT_FROM_C_INT(getppid());
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getppid", arg );
+	//
+	int ppid =  getppid ();
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getppid" );
+
+    return TAGGED_INT_FROM_C_INT( ppid );
 }
 
 

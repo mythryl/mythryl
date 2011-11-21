@@ -9,6 +9,8 @@
     #include <unistd.h>
 #endif
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #if HAVE_LIMITS_H
@@ -77,7 +79,11 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 
     Val	result;
 
-    int ngrps =  getgroups( NGROUPS_MAX, gidset );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+	//
+	int ngrps =  getgroups( NGROUPS_MAX, gidset );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups" );
 
     if (ngrps != -1) {
 	//
@@ -95,7 +101,11 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
         // Find out how many groups there
         // are and allocate enough space:
         //
-	ngrps = getgroups( 0, gidset );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+	    //
+	    ngrps = getgroups( 0, gidset );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups" );
 	//
 	gp = (gid*) MALLOC( ngrps * (sizeof (gid)) );
 	//
@@ -104,7 +114,11 @@ Val   _lib7_P_ProcEnv_getgroups   (Task* task,  Val arg)   {
 	    return RAISE_SYSERR(task, -1);
 	}
 
-	ngrps = getgroups (ngrps, gp);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups", arg );
+	    //
+	    ngrps = getgroups (ngrps, gp);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getgroups" );
 
 	if (ngrps == -1)   result = RAISE_SYSERR(task, -1);
 	else		   result = mkList (task, ngrps, gp);

@@ -3,11 +3,13 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
-#include <stdio.h>
 
 
 
@@ -29,8 +31,29 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    char* status;
 
-    char* status = getenv( HEAP_STRING_AS_C_STRING(arg) );
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  key_buf;
+    {
+	char* heap_key = HEAP_STRING_AS_C_STRING( arg );
+
+	char* c_key
+	    = 
+	    buffer_mythryl_heap_value( &key_buf, (void*) heap_key, strlen( heap_key ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getenv", arg );
+	    //
+	    status = getenv( c_key );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getenv" );
+
+	unbuffer_mythryl_heap_value( &key_buf );
+    }
 
     if (status == NULL)   return OPTION_NULL;
 
