@@ -3,6 +3,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #if HAVE_UNISTD_H
@@ -38,19 +40,43 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
-    int	  fd     =                                GET_TUPLE_SLOT_AS_INT( arg, 0 );
-    Val	  buf    =                                GET_TUPLE_SLOT_AS_VAL( arg, 1 );
-    int	  nbytes =                                GET_TUPLE_SLOT_AS_INT( arg, 2 );
-    char* start  = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT( arg, 3 );
+    int	  fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
+//  Val	  buf    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );	// We'll do this after the read().
+    int	  nbytes =  GET_TUPLE_SLOT_AS_INT( arg, 2 );
+//  int   offset =  GET_TUPLE_SLOT_AS_INT( arg, 3 );	// We'll do this after the read().
 
     int  n;
 
-/*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    Mythryl_Heap_Value_Buffer  vec_buf;
 
-        n = read (fd, start, nbytes);
+    {	char* c_vec								// Get a pointer to 'nbytes' of free ram outside the Mythryl heap
+	    = 									// (i.e., ram guaranteed not to move around during a heapcleaning).
+	    buffer_mythryl_heap_nonvalue( &vec_buf, nbytes );
 
-/*  } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_readbuf", arg );
+	    //
+	    n = read( fd, c_vec, nbytes );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_readbuf" );
+
+/*  } while (n < 0 && errno == EINTR);	*/					// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+
+	// The heapcleaner may have moved everything around
+	// during our read() call, so we wait until now to
+	// track down the location of our buf vector:
+	//
+	Val   buf    =                                GET_TUPLE_SLOT_AS_VAL( arg, 1 );
+	char* start  = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT( arg, 3 );
+
+	// Copy the bytes read into given
+	// string 'buf' on Mythryl heap:
+	//
+	memcpy( start, c_vec, n );						// Caller is responsible for guaranteeing that this will not overrun the vector and clobber the Mythryl heap.
+
+	unbuffer_mythryl_heap_value( &vec_buf );
+    }
     CHECK_RETURN (task, n)
 }
 
