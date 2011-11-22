@@ -64,7 +64,9 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val	addr   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
     //
-    socklen_t addrlen  = GET_VECTOR_LENGTH(addr);
+    socklen_t addrlen              =  GET_VECTOR_LENGTH(                         addr );
+    struct sockaddr* heap_sockaddr =  GET_VECTOR_DATACHUNK_AS( struct sockaddr*, addr );
+    struct sockaddr     c_sockaddr = *heap_sockaddr;
 
     {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );
         char buf[ 1024 ];
@@ -74,17 +76,16 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 	    //
 	    sprintf (buf+strlen(buf), "%02x.", a[i]);
 	}
-        log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
+										log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
     }
     errno = 0;
 
-    status
-        =
-        connect (
-	    socket,
-	    GET_VECTOR_DATACHUNK_AS( struct sockaddr*, addr ),
-	    addrlen
-        );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", arg );
+	//
+	status =  connect (socket, &c_sockaddr, addrlen );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
 
     // NB: Unix Network Programming p135 S5.9 says that
     //     for connect() we cannot just retry on EINTR.
@@ -114,7 +115,11 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
 
 	    errno = 0;
 
-	    status = select(maxfd, &read_set, &write_set, NULL, NULL); 
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", arg );
+		//
+		status = select(maxfd, &read_set, &write_set, NULL, NULL); 
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
 
             ++eintr_count;
 

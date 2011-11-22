@@ -2,6 +2,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "sockets-osdep.h"
@@ -35,11 +37,15 @@ Val   _lib7_Sock_accept   (Task* task,  Val arg)   {
     socklen_t	address_len = MAX_SOCK_ADDR_BYTESIZE;
     int		new_socket;
 
-/*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept", arg );
+	//
+    /*  do { */	/* Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c	*/
 
-        new_socket = accept (socket, (struct sockaddr*) address_buf, &address_len);
+	    new_socket = accept (socket, (struct sockaddr*) address_buf, &address_len);
 
-/*  } while (new_socket < 0 && errno == EINTR);	*/		/* Restart if interrupted by a SIGALRM or SIGCHLD or whatever.	*/
+    /*  } while (new_socket < 0 && errno == EINTR);	*/		/* Restart if interrupted by a SIGALRM or SIGCHLD or whatever.	*/
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_accept" );
 
     if (new_socket == -1) {
         //

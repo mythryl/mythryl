@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,13 +34,18 @@ Val   _lib7_Sock_bind   (Task* task,  Val arg)   {
 
     int		socket = GET_TUPLE_SLOT_AS_INT(arg, 0);
     Val	addr = GET_TUPLE_SLOT_AS_VAL(arg, 1);
-    int		status;
-    //
-    status = bind (
-	socket,
-	GET_VECTOR_DATACHUNK_AS( struct sockaddr*, addr ),
-	GET_VECTOR_LENGTH( addr ));
-    //
+
+    struct sockaddr* heap_sockaddr = GET_VECTOR_DATACHUNK_AS( struct sockaddr*, addr );
+    int              addr_len      = GET_VECTOR_LENGTH( addr );
+
+    struct sockaddr c_sockaddr = *heap_sockaddr;			// May not reference Mythryl heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP, so make copy on C stack.
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_bind", arg );
+	//
+	int status = bind (socket, &c_sockaddr, addr_len);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_bind" );
+
     CHECK_RETURN_UNIT(task, status);
 }
 
