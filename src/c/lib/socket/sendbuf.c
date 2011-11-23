@@ -76,7 +76,7 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
 
     // Compute flags parameter:
     //
-    int flgs = 0;
+    int                         flgs  = 0;
     if (oob       == HEAP_TRUE) flgs |= MSG_OOB;
     if (dontroute == HEAP_TRUE) flgs |= MSG_DONTROUTE;
 
