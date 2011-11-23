@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,7 +34,11 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
     int socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );						// RAISE_SYSERR	def in   src/c/lib/lib7-c.h
 												// shutdown is documented by	man 2 shutdown
-    if (shutdown( socket, how ) < 0)   return  RAISE_SYSERR(task, status);			// Where is 'status' coming from? Is this rational? ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_shutdown", arg );
+	//
+	if (shutdown( socket, how ) < 0)   return  RAISE_SYSERR(task, status);			// Where is 'status' coming from? Is this rational? ('status' is ignored except on MacOS, where this is probably broken) XXX BUGGO FIXME
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_shutdown" );
 
     return  HEAP_VOID;
 }

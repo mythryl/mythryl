@@ -44,10 +44,15 @@ Val   _lib7_Sock_string_to_unix_domain_socket_address   (Task* task,  Val arg)  
     int len;
     //
     #ifdef SOCKADDR_HAS_LEN
-	len = strlen(path)+sizeof(addr.sun_len)+sizeof(addr.sun_family)+1;
+	len = strlen(path)
+            + sizeof(addr.sun_len)
+            + sizeof(addr.sun_family)
+            + 1;
 	addr.sun_len = len;
     #else
-	len = strlen(path)+sizeof(addr.sun_family)+1;
+	len = strlen(path)
+            + sizeof(addr.sun_family)
+            + 1;
     #endif
 
     Val data =  make_int2_vector_sized_in_bytes( task, &addr, len );

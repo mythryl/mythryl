@@ -8,6 +8,9 @@
 #include "system-dependent-unix-stuff.h"
 #include "sockets-osdep.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -59,15 +62,19 @@ Val   _lib7_Sock_socketpair   (Task* task,  Val arg)   {
 
     int	 socket[2];
 
-    int status
-	=
-	socketpair(					// socketpair	documented in   man 2 socketpair
-	    //
-	    domain,
-	    type,
-	    protocol,
-	    socket
-	);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socketpair", arg );
+	//
+	int status
+	    =
+	    socketpair(					// socketpair	documented in   man 2 socketpair
+		//
+		domain,
+		type,
+		protocol,
+		socket
+	    );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_socketpair" );
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
