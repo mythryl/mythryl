@@ -3,10 +3,11 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <errno.h>
 #include <ctype.h>
-#include <unistd.h>
-#include <stdio.h>
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
@@ -64,12 +65,14 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
 
 
-    int   socket    = GET_TUPLE_SLOT_AS_INT(                   arg, 0);
-    Val   buf       = GET_TUPLE_SLOT_AS_VAL(                      arg, 1);
-    char* data      = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT(arg, 2);
-    int   nbytes    = GET_TUPLE_SLOT_AS_INT(                   arg, 3);
-    Val   oob       = GET_TUPLE_SLOT_AS_VAL(                      arg, 4);
-    Val   dontroute = GET_TUPLE_SLOT_AS_VAL(                      arg, 5);
+    int   socket    = GET_TUPLE_SLOT_AS_INT( arg, 0);
+    Val   buf       = GET_TUPLE_SLOT_AS_VAL( arg, 1);
+    int   offset    = GET_TUPLE_SLOT_AS_INT( arg, 2);
+    int   nbytes    = GET_TUPLE_SLOT_AS_INT( arg, 3);
+    Val   oob       = GET_TUPLE_SLOT_AS_VAL( arg, 4);
+    Val   dontroute = GET_TUPLE_SLOT_AS_VAL( arg, 5);
+
+    char* heap_data = HEAP_STRING_AS_C_STRING(buf) + offset;
 
     // Compute flags parameter:
     //
@@ -77,23 +80,38 @@ Val   _lib7_Sock_sendbuf   (Task* task,  Val arg)   {
     if (oob       == HEAP_TRUE) flgs |= MSG_OOB;
     if (dontroute == HEAP_TRUE) flgs |= MSG_DONTROUTE;
 
-    log_if(   "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n", socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE" );
-    hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)data, nbytes );
+															log_if( "sendbuf.c/top: socket d=%d nbytes d=%d OOB=%s DONTROUTE=%s\n",
+																socket, nbytes, (oob == HEAP_TRUE) ? "TRUE" : "FALSE", (dontroute == HEAP_TRUE) ? "TRUE" : "FALSE"
+															);
+															hexdump_if( "sendbuf.c/top: Data to send: ", (unsigned char*)heap_data, nbytes );
 
     errno = 0;
 
-    {   int n;
+    int n;
 
-/*      do { */	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    // We cannot reference anything on the Mythryl heap
+    // between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy 'heap_data' into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  data_buf;
+    //
+    {   char* c_data =  buffer_mythryl_heap_value( &data_buf, (void*) heap_data, nbytes );
 
-            n = send (socket, data, nbytes, flgs);
-
-/*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
-
-        log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
-
-        CHECK_RETURN (task, n);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf", arg );
+	    //
+    /*      do { */	// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+		//
+		n = send (socket, c_data, nbytes, flgs);
+		//
+    /*      } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_sendbuf" );
+															log_if( "sendbuf.c/bot: n d=%d errno d=%d\n", n, errno );
+	unbuffer_mythryl_heap_value( &data_buf );
     }
+
+    CHECK_RETURN (task, n);
 }
 
 
