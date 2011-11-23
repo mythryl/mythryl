@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,7 +34,7 @@
 
 
 Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
-    //=========================
+    //================================
     //
     // Mythryl type:   String -> Null_Or(   (String, List(String), Int)   )
     //
@@ -39,9 +42,27 @@ Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
     // 
     //     src/lib/std/src/socket/net-protocol-db.pkg
 
-    struct protoent*  pentry
-	=
-	getprotobyname (HEAP_STRING_AS_C_STRING(arg));
+    struct protoent*  pentry;
+
+    char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_name into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  name_buf;
+    //
+    {	char* c_name =  buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_name", arg );
+	    //
+	    pentry =	getprotobyname( c_name );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_name" );
+
+	unbuffer_mythryl_heap_value( &name_buf );
+    }
 
     if (pentry == NULL)   return OPTION_NULL;
 

@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"

@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -37,6 +41,9 @@
 
 
 
+//       struct netent *getnetbyname(const char *name);
+
+
 Val   _lib7_netdb_get_network_by_name   (Task* task,  Val arg)   {
     //===============================
     //
@@ -50,7 +57,29 @@ Val   _lib7_netdb_get_network_by_name   (Task* task,  Val arg)   {
         // XXX BUGGO FIXME:  getnetbyname() does not seem to exist under Windows.  What is the equivalent?
         return RAISE_ERROR(task, "<getnetbyname not implemented>");
     #else
-	return _util_NetDB_mknetent (task, getnetbyname (HEAP_STRING_AS_C_STRING(arg)));
+	struct netent* result;
+
+	char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+
+	// We cannot reference anything on the Mythryl
+	// heap after we do RELEASE_MYTHRYL_HEAP
+	// because garbage collection might be moving
+	// it around, so copy heap_path into C storage: 
+	//
+	Mythryl_Heap_Value_Buffer  name_buf;
+	//
+	{   char* c_name =  buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
+
+	    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_network_by_name", arg );
+		//
+		result = getnetbyname( c_name );
+		//
+	    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_network_by_name" );
+
+	    unbuffer_mythryl_heap_value( &name_buf );
+	}
+
+	return _util_NetDB_mknetent (task, result);
     #endif
 }
 

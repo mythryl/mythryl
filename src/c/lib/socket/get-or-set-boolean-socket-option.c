@@ -3,6 +3,13 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
+#if HAVE_SYS_TYPES_H
+    #include <sys/types.h>
+#endif
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -19,6 +26,11 @@
 //     src/c/lib/socket/libmythryl-socket.c
 
 
+       int getsockopt(int sockfd, int level, int optname,
+                      void *optval, socklen_t *optlen);
+       int setsockopt(int sockfd, int level, int optname,
+                      const void *optval, socklen_t optlen);
+
 
 Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
     //================================
@@ -29,20 +41,31 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
 
 
     int	socket = GET_TUPLE_SLOT_AS_INT(arg, 0);
-    Val	ctl    = GET_TUPLE_SLOT_AS_VAL(   arg, 1);
+    Val	ctl    = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
     int	flag, status;
 
     if (ctl == OPTION_NULL) {
         //
 	socklen_t option_len = sizeof(int);
-	status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &option_len);
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", arg );
+	    //
+	    status = getsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, &option_len);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option" );
+
 	ASSERT((status < 0) || (option_len == sizeof(int)));
 
     } else {
 
 	flag = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
-	status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option", arg );
+	    //
+	    status = setsockopt (socket, SOL_SOCKET, option, (sockoptval_t)&flag, sizeof(int));
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_boolean_socket_option" );
     }
 
     if (status < 0)	return  RAISE_SYSERR( task, status );

@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -40,15 +44,20 @@ Val   _lib7_netdb_get_protocol_by_number   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-protocol-db.pkg
 
+    int number = TAGGED_INT_TO_C_INT( arg );
 
-    struct protoent*  pentry
-        =
-	getprotobynumber( TAGGED_INT_TO_C_INT( arg ) );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number", arg );
+	//
+	struct protoent*  pentry =   getprotobynumber( number );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_protocol_by_number" );
+
 
     if (pentry == NULL)   return OPTION_NULL;
 
 
-    Val name = make_ascii_string_from_c_string (task, pentry->p_name);
+    Val name    = make_ascii_string_from_c_string (task, pentry->p_name);
+
     Val aliases = make_ascii_strings_from_vector_of_c_strings (task, pentry->p_aliases);
 
     Val                result;

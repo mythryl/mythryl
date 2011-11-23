@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,7 +34,7 @@
 
 
 Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
-    //====================
+    //===============================
     //
     // Mythryl type: (Socket_Fd, Null_Or(Null_Or(Int))) -> Null_Or(Int)
     //
@@ -53,7 +56,11 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
         //
 	socklen_t  optSz =  sizeof( struct linger );
 
-	status =  getsockopt( socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, &optSz );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", arg );
+	    //
+	    status =  getsockopt( socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, &optSz );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option" );
 
 	ASSERT( status < 0  ||  optSz == sizeof( struct linger ));
 	//
@@ -67,7 +74,12 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
 	    optVal.l_onoff = 1;	    // argument is THE t; enable linger.
 	    optVal.l_linger = TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 	}
-	status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option", arg );
+	    //
+	    status = setsockopt (socket, SOL_SOCKET, SO_LINGER, (sockoptval_t)&optVal, sizeof(struct linger));
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_linger_option" );
     }
 
     if (status < 0)  		return RAISE_SYSERR(task, status);

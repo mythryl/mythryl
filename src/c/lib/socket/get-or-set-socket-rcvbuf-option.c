@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -22,7 +25,7 @@
 
 
 Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
-    //====================
+    //===============================
     //
     // Mythryl type:   (Socket_Fd, Null_Or(Int))) -> Int
     //
@@ -40,7 +43,11 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
         //
 	socklen_t opt_size = sizeof( int );
 
-	status = getsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, &opt_size);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option", arg );
+	    //
+	    status = getsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, &opt_size);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option" );
 
 	ASSERT((status < 0) || (opt_size == sizeof(int)));
 
@@ -48,7 +55,11 @@ Val   get_or_set_socket_rcvbuf_option   (Task* task,  Val arg)   {
 
 	size = TAGGED_INT_TO_C_INT( OPTION_GET( ctl ));
 
-	status = setsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, sizeof(int));
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option", arg );
+	    //
+	    status = setsockopt (socket, SOL_SOCKET, SO_RCVBUF, (sockoptval_t)&size, sizeof(int));
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_rcvbuf_option" );
     }
 
     if (status < 0)     return RAISE_SYSERR( task, status );

@@ -44,7 +44,7 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
 
     ASSERT (sizeof(struct in_addr) == GET_VECTOR_LENGTH(arg));
 
-    struct in_addr*  heap_arg = HEAP_STRING_AS_C_STRING(arg);
+    struct in_addr*  heap_arg =  (struct in_addr*) HEAP_STRING_AS_C_STRING(arg);
     struct in_addr      c_arg = *heap_arg;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_address", arg );

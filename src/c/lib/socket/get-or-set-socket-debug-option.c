@@ -30,6 +30,9 @@ Val   get_or_set_socket_debug_option   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
 
     return   get_or_set_boolean_socket_option( task, arg, SO_DEBUG );			// get_or_set_boolean_socket_option		def in    src/c/lib/socket/get-or-set-boolean-socket-option.c
+	//
+	// We do the RELEASE_MYTHRYL_HEAP/RECOVER_MYTHRYL_HEAP stuff in
+	// get_or_set_boolean_socket_option().
 }
 
 

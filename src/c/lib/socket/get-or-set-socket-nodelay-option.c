@@ -2,6 +2,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -21,7 +24,7 @@
 
 
 Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
-    //=====================
+    //================================
     //
     // Mythryl type:   (Int,  Null_Or(Bool)) -> Bool
     //
@@ -41,7 +44,11 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
         //
 	socklen_t opt_size = sizeof(int);
 
-	status = getsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, &opt_size);
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", arg );
+	    //
+	    status = getsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, &opt_size);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option" );
 
 	ASSERT((status < 0) || (opt_size == sizeof(int)));
 
@@ -49,7 +56,11 @@ Val   get_or_set_socket_nodelay_option   (Task* task,  Val arg)   {
 
 	flag = (Bool) TAGGED_INT_TO_C_INT(OPTION_GET(ctl));
 
-	status = setsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, sizeof(int));
+	RELEASE_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option", arg );
+	    //
+	    status = setsockopt (socket, IPPROTO_TCP, TCP_NODELAY, (sockoptval_t)&flag, sizeof(int));
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "get_or_set_socket_nodelay_option" );
     }
 
     if (status < 0)     return RAISE_SYSERR(task, status);

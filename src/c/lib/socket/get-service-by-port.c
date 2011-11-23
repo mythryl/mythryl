@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -40,13 +44,35 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-service-db.pkg
 
-    Val	mlProto = GET_TUPLE_SLOT_AS_VAL(arg, 1);
+    Val	ml_protocol = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
-    char*                         proto;
-    if (mlProto == OPTION_NULL)	  proto =  NULL;
-    else			  proto =  HEAP_STRING_AS_C_STRING(OPTION_GET(mlProto));
+    int port = GET_TUPLE_SLOT_AS_INT(arg, 0);
 
-    return _util_NetDB_mkservent (task, getservbyport (GET_TUPLE_SLOT_AS_INT(arg, 0), proto));
+    char*				heap_protocol;
+    if (ml_protocol == OPTION_NULL)	heap_protocol =  NULL;
+    else			  	heap_protocol =  HEAP_STRING_AS_C_STRING( OPTION_GET( ml_protocol ) );
+
+    struct servent* result;
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_protocol into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  protocol_buf;
+    //
+    {	char* c_protocol =  buffer_mythryl_heap_value( &protocol_buf, (void*) heap_protocol, strlen( heap_protocol ) +1 );		// '+1' for terminal NUL on string.
+        //
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port", arg );
+	    //
+	    result =  getservbyport( port, c_protocol );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_service_by_port" );
+
+	unbuffer_mythryl_heap_value( &protocol_buf );
+    }
+
+    return _util_NetDB_mkservent (task, result);
 }
 
 

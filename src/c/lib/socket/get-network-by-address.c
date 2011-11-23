@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -36,6 +40,9 @@
 
 
 
+//     struct netent *getnetbyaddr(uint32_t net, int type);
+
+
 Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
     //==================================
     //
@@ -51,8 +58,14 @@ Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
     #else
 	unsigned long   net  =  TUPLE_GETWORD(arg, 0);
 	int		type =  GET_TUPLE_SLOT_AS_INT( arg, 1);
-	//
-	return _util_NetDB_mknetent (task, getnetbyaddr(net, type));
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
+	    //
+	    struct netent* result =  getnetbyaddr(net, type);
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "" );
+
+	return _util_NetDB_mknetent (task, result);
     #endif
 }
 
