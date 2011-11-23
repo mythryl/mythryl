@@ -2,6 +2,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -42,8 +45,15 @@ Val   _lib7_Sock_getpeername   (Task* task,  Val arg)   {
 
     socklen_t  address_len =  MAX_SOCK_ADDR_BYTESIZE;
 
-    if (getpeername (TAGGED_INT_TO_C_INT(arg), (struct sockaddr *)addr, &address_len) < 0)   return RAISE_SYSERR(task, status);
+    int sockfd = TAGGED_INT_TO_C_INT( arg );
 
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername", arg );
+	//
+	int status = getpeername (sockfd, (struct sockaddr *)addr, &address_len);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getpeername" );
+
+    if (status < 0)   return RAISE_SYSERR(task, status);
 
     Val cdata =  make_int2_vector_sized_in_bytes( task, addr, address_len );
 

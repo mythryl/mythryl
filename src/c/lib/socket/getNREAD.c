@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -30,9 +33,15 @@ Val   _lib7_Sock_getNREAD   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-    int	                                                        n;
-    int status = ioctl( TAGGED_INT_TO_C_INT(arg), FIONREAD, (char*) &n );
-    //
+    int device = TAGGED_INT_TO_C_INT(arg);
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getNREAD", arg );
+	//
+	int	                                       n;
+	int status = ioctl( device, FIONREAD, (char*) &n );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getNREAD" );
+
     if (status < 0)     return RAISE_SYSERR( task, status );
 
     return   TAGGED_INT_FROM_C_INT( n );

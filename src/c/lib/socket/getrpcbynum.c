@@ -3,9 +3,12 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "system-dependent-unix-stuff.h"
 #include "sockets-osdep.h"
-#include <netdb.h>
 #ifdef INCLUDE_RPCENT_H
 #  include INCLUDE_RPCENT_H
 #  ifdef Bool		// NetBSD hack
@@ -46,9 +49,15 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
     //
     // This fn is NOWHERE INVOKED.  Nor listed in   src/c/lib/socket/cfun-list.h   Presumably should be either called or deleted:  XXX BUGGO FIXME.
 
-    struct rpcent*  rentry
-	=
-        getrpcbynumber( TAGGED_INT_TO_C_INT( arg ));
+    struct rpcent*  rentry;
+
+    int number = TAGGED_INT_TO_C_INT( arg );
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum", arg );
+	//
+	rentry = getrpcbynumber( number );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_NetDB_getrpcbynum" );
 
     if (rentry == NULL)   return OPTION_NULL;
 

@@ -2,6 +2,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,8 +34,12 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
 
     socklen_t	opt_size = sizeof(int);
 
-    int	                                                                    flag;
-    int status =  getsockopt( socket, SOL_SOCKET, SO_ERROR, (sockoptval_t) &flag, &opt_size );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR", arg );
+	//
+	int	                                                                flag;
+	int status =  getsockopt( socket, SOL_SOCKET, SO_ERROR, (sockoptval_t) &flag, &opt_size );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_getERROR" );
 
     if (status < 0)     return RAISE_SYSERR(task, status);
 
