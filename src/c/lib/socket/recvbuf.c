@@ -63,9 +63,9 @@ Val   _lib7_Sock_recvbuf   (Task* task,  Val arg)   {
     if (GET_TUPLE_SLOT_AS_VAL(arg, 5) == HEAP_TRUE) flag |= MSG_PEEK;
 
     // We cannot reference anything on the Mythryl
-    // heap after we do RELEASE_MYTHRYL_HEAP
+    // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
     // because garbage collection might be moving
-    // it around, so copy heap_foo into C storage: 
+    // it around, so allocate a C-side read buffer:
     //
     Mythryl_Heap_Value_Buffer  readbuf_buf;
     //

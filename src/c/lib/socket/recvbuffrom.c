@@ -2,6 +2,8 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 
 #include "sockets-osdep.h"
@@ -53,10 +55,10 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     char       address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t  address_len = MAX_SOCK_ADDR_BYTESIZE;
 
-    int	  socket  = GET_TUPLE_SLOT_AS_INT(                   arg, 0);
-    Val   buf     = GET_TUPLE_SLOT_AS_VAL(                      arg, 1);
-    char* start   = HEAP_STRING_AS_C_STRING(buf) + GET_TUPLE_SLOT_AS_INT(arg, 2);
-    int	  nbytes  = GET_TUPLE_SLOT_AS_INT(                   arg, 3);
+    int	  socket  = GET_TUPLE_SLOT_AS_INT( arg, 0);
+//  Val   buf     = GET_TUPLE_SLOT_AS_VAL( arg, 1);		// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.
+    int   offset  = GET_TUPLE_SLOT_AS_INT( arg, 2);		// Offset within buf to read bytes into.
+    int	  nbytes  = GET_TUPLE_SLOT_AS_INT( arg, 3);		// Number of bytes to read.
 
     int	  flag = 0;
 
@@ -65,19 +67,44 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     if (GET_TUPLE_SLOT_AS_VAL(arg, 4) == HEAP_TRUE) flag |= MSG_OOB;
     if (GET_TUPLE_SLOT_AS_VAL(arg, 5) == HEAP_TRUE) flag |= MSG_PEEK;
 
-/*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+    // We cannot reference anything on the Mythryl heap
+    // between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so allocate a C-side read buffer:
+    //
+    Mythryl_Heap_Value_Buffer  readbuf_buf;
+    //
+    {   char* c_readbuf =  buffer_mythryl_heap_nonvalue( &readbuf_buf, nbytes );
 
-        n = recvfrom( socket,
-                      start,
-                      nbytes,
-                      flag,
-                      (struct sockaddr *)address_buf,
-                      &address_len
-                    );
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvbuffrom", arg );
+	    //
+	    /*  do { */					// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
-/*  } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+		    n = recvfrom( socket,
+				  c_readbuf,
+				  nbytes,
+				  flag,
+				  (struct sockaddr *)address_buf,
+				  &address_len
+				);
 
-    if (n < 0)   return RAISE_SYSERR(task, status);
+	    /*  } while (n < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recvbuffrom" );
+
+	if (n < 0) {
+	    unbuffer_mythryl_heap_value( &readbuf_buf );
+	    return RAISE_SYSERR(task, status);
+	}
+
+	Val   buf      =  GET_TUPLE_SLOT_AS_VAL( arg, 1);		// Mythryl buffer to read bytes into.	// We'll fetch this after the call, since it may move around during the call.
+	char* bufstart =  HEAP_STRING_AS_C_STRING(buf) + offset;
+
+	memcpy( bufstart, c_readbuf, n);
+
+	unbuffer_mythryl_heap_value( &readbuf_buf );
+    }
+
 
     Val	data =  make_int2_vector_sized_in_bytes( task, address_buf, address_len );
 

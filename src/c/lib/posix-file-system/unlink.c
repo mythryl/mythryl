@@ -44,7 +44,7 @@ Val   _lib7_P_FileSys_unlink   (Task* task,  Val arg)   {
     char* heap_path = HEAP_STRING_AS_C_STRING(arg);
 
     // We cannot reference anything on the Mythryl
-    // heap after we do RELEASE_MYTHRYL_HEAP
+    // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_path into C storage: 
     //

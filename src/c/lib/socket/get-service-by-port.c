@@ -55,7 +55,7 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     struct servent* result;
 
     // We cannot reference anything on the Mythryl
-    // heap after we do RELEASE_MYTHRYL_HEAP
+    // heap between RELEASE_MYTHRYL_HEAP and RECOVER_MYTHRYL_HEAP
     // because garbage collection might be moving
     // it around, so copy heap_protocol into C storage: 
     //
