@@ -65,27 +65,37 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     Val	addr   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );
     //
     socklen_t addrlen              =  GET_VECTOR_LENGTH(                         addr );
-    struct sockaddr* heap_sockaddr =  GET_VECTOR_DATACHUNK_AS( struct sockaddr*, addr );
-    struct sockaddr     c_sockaddr = *heap_sockaddr;
 
     {   unsigned char* a = GET_VECTOR_DATACHUNK_AS( unsigned char*, addr );
         char buf[ 1024 ];
-	buf[0] = '\0';
 
+										// Translate to hex for log:
+										buf[0] = '\0';
+										for (int i = 0; i < addrlen; ++i) {
+										    //
+										    sprintf (buf+strlen(buf), "%02x.", a[i]);
+										}
+										log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
+	// Copy address from Mythryl heap into C stack because
+	// we cannot reference the Mythryl heap between
+	// RELEASE_MYTHRYL_HEAP and
+	// RECOVER_MYTHRYL_HEAP -- the heapcleaner may be
+	// moving stuff around on us:
+	//
 	for (int i = 0; i < addrlen; ++i) {
 	    //
-	    sprintf (buf+strlen(buf), "%02x.", a[i]);
+	    buf[i] = a[i];
 	}
-										log_if( "connect.c/top: socket d=%d addrlen d=%d addr s='%s'\n", socket, addrlen, buf );
+
+	errno = 0;
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", arg );
+	    //
+	    status =  connect (socket, (struct sockaddr*)buf, addrlen );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
     }
-    errno = 0;
 
-
-    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect", arg );
-	//
-	status =  connect (socket, &c_sockaddr, addrlen );
-	//
-    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_connect" );
 
     // NB: Unix Network Programming p135 S5.9 says that
     //     for connect() we cannot just retry on EINTR.
