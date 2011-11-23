@@ -3,10 +3,10 @@
 
 #include "../../mythryl-config.h"
 
-#include <errno.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <unistd.h>
 
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
@@ -40,7 +40,8 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
 
 
-    int		n;
+    Val vec;
+    int n;
 
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int	nbytes = GET_TUPLE_SLOT_AS_INT( arg, 1 );
@@ -51,28 +52,45 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
     if (oob  == HEAP_TRUE) flag |= MSG_OOB;
     if (peek == HEAP_TRUE) flag |= MSG_PEEK;
 
-    // Allocate the vector.
-    // Note that this might cause a cleaning, moving things around:
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so allocate a C-world buffer
+    // to read the bytes into:
     //
-    Val vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(nbytes) );
+    Mythryl_Heap_Value_Buffer  read_buf;
+    //
+    {   unsigned char* c_read =  buffer_mythryl_heap_nonvalue( &read_buf, nbytes );
+										log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
+	errno = 0;
 
-    log_if("recv.c/before: socket d=%d nbytes d=%d oob=%s peek=%s\n",socket,nbytes,(oob == HEAP_TRUE)?"TRUE":"FALSE",(peek == HEAP_TRUE)?"TRUE":"FALSE");
-    errno = 0;
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recv", arg );
+	    //
+	/*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+		//
+		n = recv (socket, c_read, nbytes, flag);
+		//
+	/*  } while (n < 0 && errno == EINTR);	*/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_recv" );
 
-/*  do { */							// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+	if (n <= 0) {
+	    unbuffer_mythryl_heap_value( &read_buf );
+	    if (n <  0)   return RAISE_SYSERR(task, status);
+	    if (n == 0)   return ZERO_LENGTH_STRING__GLOBAL;
+	}
 
-        n = recv (socket, PTR_CAST(char*, vec), nbytes, flag);
+	// Allocate result vector to hold the bytes read.
+	// NB: This might cause a heapcleaning, moving things around:
+	//
+	vec = allocate_nonempty_int1_vector( task, BYTES_TO_WORDS(n) );
 
-/*  } while (n < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
-
-    log_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
-    hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
-
-    if (n <  0)   return RAISE_SYSERR(task, status);
-    if (n == 0)   return ZERO_LENGTH_STRING__GLOBAL;
-
-    if (n < nbytes) {
-	shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );        // Shrink the vector.
+	// Copy bytes read into result vector:
+	//
+        memcpy( PTR_CAST(char*, vec), c_read, n);
+										log_if(   "recv.c/after: n d=%d errno d=%d (%s)\n", n, errno, errno ? strerror(errno) : "");
+										hexdump_if( "recv.c/after: Received data: ", PTR_CAST(unsigned char*, vec), n );
+	unbuffer_mythryl_heap_value( &read_buf );
     }
 
     Val	                result;

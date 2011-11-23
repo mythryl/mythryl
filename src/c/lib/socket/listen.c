@@ -3,6 +3,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -38,7 +41,11 @@ Val   _lib7_Sock_listen   (Task* task,  Val arg)   {
     int socket  =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int backlog =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
 
-    int status =  listen( socket, backlog );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_listen", arg );
+	//
+	int status =  listen( socket, backlog );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Sock_listen" );
 
     CHECK_RETURN_UNIT( task, status );
 }
