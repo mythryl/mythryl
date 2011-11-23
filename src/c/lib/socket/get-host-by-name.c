@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -31,6 +35,10 @@
 
 
 
+//       struct hostent *gethostbyname(const char *name);
+
+
+
 Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
     //============================
     //
@@ -40,11 +48,32 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/dns-host-lookup.pkg
 
-    return  _util_NetDB_mkhostent (									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
-		//
-		task,
-		gethostbyname( HEAP_STRING_AS_C_STRING( arg ) )
-	    );
+    char* heap_name = HEAP_STRING_AS_C_STRING( arg );
+
+    struct hostent* result;
+
+    // We cannot reference anything on the Mythryl
+    // heap after we do RELEASE_MYTHRYL_HEAP
+    // because garbage collection might be moving
+    // it around, so copy heap_path into C storage: 
+    //
+    Mythryl_Heap_Value_Buffer  name_buf;
+    //
+    {	char* c_name
+	    = 
+	    buffer_mythryl_heap_value( &name_buf, (void*) heap_name, strlen( heap_name ) +1 );		// '+1' for terminal NUL on string.
+
+
+	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_name", arg );
+	    //
+	    result = gethostbyname( c_name );
+	    //
+	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_name" );
+
+	unbuffer_mythryl_heap_value( &name_buf );
+    }
+
+    return  _util_NetDB_mkhostent (task, result);								// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 }
 
 

@@ -3,6 +3,10 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <netdb.h>
+
 #include "sockets-osdep.h"
 #include INCLUDE_SOCKET_H
 #include "runtime-base.h"
@@ -40,11 +44,16 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
 
     ASSERT (sizeof(struct in_addr) == GET_VECTOR_LENGTH(arg));
 
-    return  _util_NetDB_mkhostent (									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
-		//
-		task,
-		gethostbyaddr (HEAP_STRING_AS_C_STRING(arg), sizeof(struct in_addr), AF_INET)
-	    );
+    struct in_addr*  heap_arg = HEAP_STRING_AS_C_STRING(arg);
+    struct in_addr      c_arg = *heap_arg;
+
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_address", arg );
+	//
+	struct hostent* result = gethostbyaddr (&c_arg, sizeof(struct in_addr), AF_INET);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_netdb_get_host_by_address" );
+
+    return  _util_NetDB_mkhostent ( task, result );									// _util_NetDB_mkhostent	def in    src/c/lib/socket/util-mkhostent.c
 }
 
 

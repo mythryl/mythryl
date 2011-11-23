@@ -45,7 +45,11 @@ Val   _lib7_netdb_get_host_name  (Task* task,  Val arg)   {
 
     char hostname[ MAXHOSTNAMELEN ];
 
-    if (gethostname( hostname, MAXHOSTNAMELEN ) == -1)   return  RAISE_SYSERR( task,  status);
+    RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );
+	//
+	if (gethostname( hostname, MAXHOSTNAMELEN ) == -1)   return  RAISE_SYSERR( task,  status);
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "" );
 
     return   make_ascii_string_from_c_string( task, hostname );
 }
