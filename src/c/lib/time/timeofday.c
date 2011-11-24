@@ -124,7 +124,11 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
     int	c_microseconds;
     Val	lib7_seconds;
 
-    int c_seconds = _lib7_time_gettimeofday( &c_microseconds );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Time_timeofday", arg );
+	//
+	int c_seconds = _lib7_time_gettimeofday( &c_microseconds );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Time_timeofday" );
 
     INT1_ALLOC(task, lib7_seconds, c_seconds);
 
