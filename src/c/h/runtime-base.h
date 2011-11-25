@@ -406,6 +406,7 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // Statically pre-allocated mutexs, barriers and condition variables:
     //
+    extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this                                  -- See comments in   src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__pthread_mode_mutex__global;				// Governs pthread->mode + all_running_pthreads_must_enter_heapcleaning_mode -- See comments in   src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__blocked_to_running_mutex__global;			// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions                -- See comments in   src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__heapcleaner_mutex__global;
@@ -414,7 +415,6 @@ typedef enum {
     //
     extern Barrier	    pth__heapcleaner_barrier__global;
     //
-    extern Condvar	    pth__unused_condvar__global;
     //
 
 
