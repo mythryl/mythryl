@@ -364,9 +364,9 @@ typedef enum {
     IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
     IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //
-} Pthread_Status;
+} Pthread_Mode;
     //
-    // Status of a Pthread: value of pthread->status.	// pthread_state_struct is defined in   src/c/h/pthread-state.h
+    // Status of a Pthread: value of pthread->mode.	// pthread_state_struct is defined in   src/c/h/pthread-state.h
     //
     // To switch a pthread between the two
     // RUNNING modes, use the
@@ -685,9 +685,9 @@ typedef enum {
 //  are unprotected from the heapcleaner!)
 //
 // Those macros can then explicitly remove the pthread from
-// the 'active' set (by changing pthread->status from
+// the 'active' set (by changing pthread->mode from
 // IS_RUNNING to IS_BLOCKED) before
-// the slow operation and then changing pthread->status back to
+// the slow operation and then changing pthread->mode back to
 // IS_RUNNING afterward, with of course proper
 // mutex protection on the latter to assure that the pthread
 // does not attempt to resume using the heap during heapcleaning.

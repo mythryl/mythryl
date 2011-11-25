@@ -60,8 +60,8 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #if NEED_PTHREAD_SUPPORT
-	Pthread_Status  status;					// IS_RUNNING/IS_BLOCKED/IS_VOID -- see src/c/h/runtime-base.h
-	Pid             pid;	       				// Our kernel thread's process identifier ("pid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+	Pthread_Mode  mode;					// IS_RUNNING/IS_BLOCKED/IS_HEAPCLEANING/IS_VOID -- see src/c/h/runtime-base.h
+	Pid             pid;	       				// Our pthread-identifier ("pid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
 	    // NB; 'pid' MUST be declared Pid (i.e., pthread_t from <pthread.h>)
 	    // because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c

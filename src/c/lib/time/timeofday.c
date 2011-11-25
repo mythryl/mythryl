@@ -21,6 +21,9 @@
 
 #include "../../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #  include "system-dependent-stuff.h"
 #if defined(HAS_GETTIMEOFDAY)
 

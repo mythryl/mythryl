@@ -151,7 +151,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    //
 	    Task*   task     =  pthread->task;
 	    //
-	    if (pthread->status != IS_VOID) {
+	    if (pthread->mode != IS_VOID) {
 		//
 		process_task_heap_changelog( task, heap );
 	    }

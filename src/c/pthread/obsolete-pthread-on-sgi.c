@@ -391,7 +391,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
     p->current_thread	=  thread_arg;
   
-    if (pthread->status == IS_VOID) {
+    if (pthread->mode == IS_VOID) {
 	//
         // Assume we get one:
 
@@ -401,7 +401,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    //
 	    PTHREAD_LOG_IF ("[got a processor]\n");
 
-	    pthread->status = IS_RUNNING;
+	    pthread->mode = IS_RUNNING;
 
 	    // make_pthread will release MP_ProcLock.
 
@@ -416,7 +416,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     } else {
 
-	pthread->status = IS_RUNNING;
+	pthread->mode = IS_RUNNING;
 
 	PTHREAD_LOG_IF ("[reusing a processor]\n");
 
@@ -437,11 +437,11 @@ void   pth__pthread_exit   (Task* task)   {
 
     pth__mutex_lock(MP_ProcLock);
 
-    task->pthread->status = PTHREAD_IS_SUSPENDED;
+    task->pthread->mode = IS_BLOCKED;
 
     pth__mutex_unlock(MP_ProcLock);
 
-    while (task->pthread->status == PTHREAD_IS_SUSPENDED) {
+    while (task->pthread->mode == IS_BLOCKED) {
 	//
 	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
     }

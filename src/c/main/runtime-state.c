@@ -107,9 +107,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 	// Initialize the first Pthread here:
 	//
 	pthread_table__global[0]->pid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
-												// pth__get_pthread_id				def in    src/c/pthread/pthread-on-sgi.c
-												// pth__get_pthread_id				def in    src/c/pthread/pthread-on-solaris.c
-	pthread_table__global[0]->status =  IS_RUNNING;
+	pthread_table__global[0]->mode =  IS_RUNNING;
     #endif						// NEED_PTHREAD_SUPPORT
 
     // Initialize the timers:
@@ -166,7 +164,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
 
     #if NEED_PTHREAD_SUPPORT
 	pthread->pid		= 0;
-	pthread->status		= IS_VOID;
+	pthread->mode		= IS_VOID;
     #endif
 }									// fun set_up_pthread_state
 
