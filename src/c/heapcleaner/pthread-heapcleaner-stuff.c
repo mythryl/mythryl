@@ -29,11 +29,6 @@
 #include "heapcleaner-statistics.h"
 #include "pthread-state.h"
 
-int  it_is_heapcleaning_time__global = FALSE;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
-int  running_pthreads_count__global = 1;						// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
-        //
-	// Should always equal the number of pthreads
-	// with pthread->mode == IS_RUNNING.
 
 void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table__global
     // ===========================================
