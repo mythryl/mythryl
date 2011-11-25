@@ -61,9 +61,10 @@ int   pth__done_pthread_create__global  =  TRUE;		// This is currently always TR
 /**/												char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
        Mutex	 pth__pthread_mode_mutex__global	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
                     //
-		    // Must hold this mutex in order to change
-		    // pthread->mode fields or global flag
-		    // all_running_pthreads_must_enter_heapcleaning_mode
+		    // Must hold this mutex in order to read or write
+		    //     pthread->mode fields or global flag
+		    //     all_running_pthreads_must_enter_heapcleaning_mode
+		    //     running_pthreads_count
 		    // See comments at bottom of file.
 
        Mutex	 pth__heapcleaner_mutex__global		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];		// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
@@ -796,21 +797,87 @@ int   pth__get_active_pthread_count   ()   {
 //                      | IS_BLOCKED
 //                      | IS_HEAPCLEANING
 //
-//   o  We introduce a field   Pthread_Mode mode   in pthread_state_struct.			// pthread_state_struct		def in   src/c/h/pthread-state.h
+//
+//   o  We introduce a type-Pthread_Mode field
+//
+//	    mode
+//
+//      in pthread_state_struct.			// pthread_state_struct		def in   src/c/h/pthread-state.h
 //      This records our per-thread state.
 //
-//   o  We introduce in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-//      a global int      all_running_pthreads_must_enter_heapcleaning_mode;
-//      
 //
-//   o  We introduce in   src/c/pthread/pthread-on-posix-threads.c
-//      a   Mutex  pth__pthread_mode_mutex__global
-//      global to govern the pthread->mode fields and the
-//      all_running_pthreads_must_enter_heapcleaning_mode;
-//      flag.  No change is to be made to them except when
-//      when holding this mutex.  This includes in particular
+//   o  We introduce in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+//      a global boolean
+//
+//          all_running_pthreads_must_enter_heapcleaning_mode;
+//      
+//      Fn need_to_call_heapcleaner() in   src/c/heapcleaner/call-heapcleaner.c
+//      checks this and returns TRUE immediately if it is set.
+//      We set this flag TRUE in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+//      when we want all IS_RUNNING pthreads to switch to IS_HEAPCLEANING mode.
+//
+//
+//   o  We introduce in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+//      a global int
+//
+//          running_pthreads_count
+//      
+//      When this count reaches zero, garbage collection can begin.
+//
+//
+//   o  We introduce a Mutex in   src/c/pthread/pthread-on-posix-threads.c
+//
+//          pth__pthread_mode_mutex__global
+//
+//      to govern:
+//
+//           pthread->mode
+//           all_running_pthreads_must_enter_heapcleaning_mode
+//           running_pthreads_count
+//
+//      No change is to be made to them except when when
+//      holding this mutex.  This includes in particular
 //      creating or destroying a pthread.
 //
+//
+// THIS WONT WORK -- NEED A SEPARATE MUTEX
+//      By holding this mutex during heapcleaning, the active
+//      heapcleaner pthread can guarantee that no IS_BLOCKED
+//      pthreads can enter IS_RUNNING mode.
+//
+//
+//   o  We introduce a pair of macros in   src/c/h/runtime-base.h
+//
+//          RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )
+//          RECOVER_MYTHRYL_HEAP( pthread, fn_name      )
+//
+//      to serve as brackets around every system call.
+//      The basic idea is for them to respectively do:
+//      
+//          RELEASE_MYTHRYL_HEAP:
+//             Acquire pth__pthread_mode_mutex__global
+//                 pthread->mode = IS_BLOCKED;
+//             Release pth__pthread_mode_mutex__global
+//      
+//          RECOVER_MYTHRYL_HEAP:
+//             Acquire pth__pthread_mode_mutex__global		// This prevents a blocked pthread from resuming execution during a heapcleaning.
+//                 pthread->mode = IS_RUNNING;
+//             Release pth__pthread_mode_mutex__global
+//
+//      However, we do not allow IS_RUNNING -> IS_BLOCKED
+//      transitions while the flag
+//
+//          all_running_pthreads_must_enter_heapcleaning_mode
+//
+//      is TRUE, so RELEASE_MYTHRYL_HEAP must instead be coded as
+//
+//          RELEASE_MYTHRYL_HEAP:
+//             Acquire pth__pthread_mode_mutex__global
+//                 pthread->mode = IS_BLOCKED;
+//             Release pth__pthread_mode_mutex__global
+//             while (all_running_pthreads_must_enter_heapcleaning_mode) {
+//                 do_heapcleaning_stuff();
+//             }
 //      This mainly requires implementing a new protocol for
 //      initiating garbage collection which stops all other
 //      Mythryl-executing kernel threads, so as to have the

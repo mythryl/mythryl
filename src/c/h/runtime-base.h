@@ -306,8 +306,10 @@ extern int   pth__done_pthread_create__global;
     // We can use simple mutex-free monothread logic in
     // the heapcleaner (etc) so long as this is FALSE.
 
-extern int  all_running_pthreads_must_enter_heapcleaning_mode;
+extern int  all_running_pthreads_must_enter_heapcleaning_mode;				// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+extern int  running_pthreads_count;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
     //
+    // These are both defined in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
 
 // log_if declaration.
