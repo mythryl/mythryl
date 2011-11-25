@@ -106,7 +106,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
 	// Initialize the first Pthread here:
 	//
-	pthread_table__global[0]->pid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
+	pthread_table__global[0]->tid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
 	pthread_table__global[0]->mode =  IS_RUNNING;
     #endif						// NEED_PTHREAD_SUPPORT
 
@@ -163,7 +163,7 @@ static void   set_up_pthread_state   (Pthread* pthread)   {
     pthread->task->protected_c_arg		= &pthread->task->heapvoid;	// Support for  RELEASE_MYTHRYL_HEAP  in  src/c/h/runtime-base.h
 
     #if NEED_PTHREAD_SUPPORT
-	pthread->pid		= 0;
+	pthread->tid		= 0;
 	pthread->mode		= IS_VOID;
     #endif
 }									// fun set_up_pthread_state

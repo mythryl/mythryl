@@ -215,11 +215,11 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 										// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
     int err =   pthread_create(
 		    //
-		    &task->pthread->pid,					// RESULT. NB: Passing a pointer directly to task->pthread->pid ensures that field is always
+		    &task->pthread->tid,					// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
 										//         valid as seen by both parent and child threads, without using spinlocks or such.
-										//	   Passing the pointer is safe (only) because 'pid' is of type pthread_t from <pthread.h>
-										//	   -- we define field 'pid' as 'Pid' in src/c/h/pthread.h
-										//	   and   typedef pthread_t Pid;   in   src/c/h/runtime-base.h
+										//	   Passing the pointer is safe (only) because 'tid' is of type pthread_t from <pthread.h>
+										//	   -- we define field 'tid' as 'Tid' in src/c/h/pthread.h
+										//	   and   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
 
 		    NULL,							// Provision for attributes -- API futureproofing.
 
@@ -300,7 +300,7 @@ char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// htt
 	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
     }
 
-    int     err =  pthread_join( pthread->pid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
+    int     err =  pthread_join( pthread->tid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
     switch (err) {								// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
 	case 0:		return NULL;						// Success.
@@ -490,16 +490,12 @@ char*  pth__barrier_wait   (Barrier* barrier, Bool* result) {					// http://pubs
 
 
 //
-Pid   pth__get_pthread_id   ()   {
+Tid   pth__get_pthread_id   ()   {
     //===================
     //
     // Return a unique small-int id distinguishing
     // the currently running pthread from all other
-    // pthreads.  On posix-threads we can just use
-    // getpid() for this.  On some older thread packages
-    // we had to do other stuff, and we might possibly
-    // have to do so in future on some non-posix-threads
-    // implementation, so we maintain the abstraction here:
+    // pthreads.
     //
     return  pthread_self();
 
@@ -520,13 +516,13 @@ Pthread*  pth__get_pthread   ()   {
     //    
     //
 #if NEED_PTHREAD_SUPPORT
-    int pid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
+    int tid =  pth__get_pthread_id ();							// Since this just calls pthread_self(), the result is available in all contexts.  (That we care about. :-)
     //
     for (int i = 0;  i < MAX_PTHREADS;  ++i) {
 	//
-	if (pthread_table__global[i]->pid == pid)   return pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
+	if (pthread_table__global[i]->tid == tid)   return pthread_table__global[ i ];	// pthread_table__global	def in   src/c/main/runtime-state.c
     }											// pthread_table__global exported via    src/c/h/runtime-base.h
-    die ("pth__get_pthread:  pid %d not found in pthread_table__global?!", pid);
+    die ("pth__get_pthread:  tid %d not found in pthread_table__global?!", tid);
     return NULL;									// Cannot execute; only to quiet gcc.
 #else
     //

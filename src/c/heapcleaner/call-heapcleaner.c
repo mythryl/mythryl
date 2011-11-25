@@ -78,7 +78,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	// select a designated pthread to do the heapcleaning work.
 	// That pthread returns and falls into the regular heapcleaning code;
 	// the remainder block at a barrier until heapcleaning is complete:
-												PTHREAD_LOG_IF ("initiating heapcleaning mode pid d=%d\n", task->pthread->pid);
+												PTHREAD_LOG_IF ("initiating heapcleaning mode tid d=%d\n", task->pthread->tid);
 	//
 	if (!pth__start_heapcleaning( task )) {							// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
@@ -276,7 +276,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create__global) {
 	//
-														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) pid d=%d\n", task->pthread->pid);
+														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
 	va_start (ap, level);
 
 	int we_are_the_designated_heapcleaner_pthread
