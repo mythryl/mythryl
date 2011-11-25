@@ -65,8 +65,8 @@ int   pth__done_pthread_create__global  =  TRUE;		// This is currently always TR
 	// cache line as the mutex governing them
 	// -- that should buy us a little efficiency:
 	//
-        int  it_is_heapcleaning_time__global =  FALSE;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
-        int  running_pthreads_count__global  =  1;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+        int  pth__it_is_heapcleaning_time__global =  FALSE;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+        int  pth__running_pthreads_count__global  =  1;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
 		//
 		// Should always equal the number of pthreads
 		// with pthread->mode == IS_RUNNING.
@@ -74,11 +74,11 @@ int   pth__done_pthread_create__global  =  TRUE;		// This is currently always TR
                     //
 		    // Must hold this mutex in order to read or write
 		    //     pthread->mode fields or global flag
-		    //     it_is_heapcleaning_time__global
-		    //     running_pthreads_count__global
-		    // When setting running_pthreads_count__global to zero,
+		    //     pth__it_is_heapcleaning_time__global
+		    //     pth__running_pthreads_count__global
+		    // When setting pth__running_pthreads_count__global to zero,
 		    // must signal pth__no_running_pthreads_condvar__global
-		    // if it_is_heapcleaning_time__global
+		    // if pth__it_is_heapcleaning_time__global
 		    // is TRUE -- this lets the primary heapcleaner pthread
 		    // start heapcleaning.
 
@@ -755,20 +755,20 @@ int   pth__get_active_pthread_count   ()   {
 // a function, when the heap is in a self-consistent state.
 // It is therefor simple and natural to take advantage of this
 // mechanism by having these heap-limit probe calls check a
-// global 'it_is_heapcleaning_time__global' flag and (if it is
+// global 'pth__it_is_heapcleaning_time__global' flag and (if it is
 // TRUE) suspend execution of Mythryl code and enter a special
 // "heapcleaning mode".
 // 
 // This solves half our problem:  When it is time to do a
 // heapcleaning, we set
-//     it_is_heapcleaning_time__global = TRUE
+//     pth__it_is_heapcleaning_time__global = TRUE
 // and wait for all running Mythryl pthreads to stop running
 // and enter heapcleaning mode.
 //
 // The remaining half of the problem is that some pthreads
 // may be blocked on a system call like sleep() or select()
 // and might not notice that
-//     it_is_heapcleaning_time__global
+//     pth__it_is_heapcleaning_time__global
 // is TRUE for milliseconds -- or even seconds, minutes or hours.
 // We run the heapcleaner about 200 times per second, and
 // it cannot start until all pthreads are known not to be
@@ -780,14 +780,14 @@ int   pth__get_active_pthread_count   ()   {
 //    IS_RUNNING:    Pthread is actively running Mythryl code
 //                   and reading and writing the Mythryl heap;
 //                   it can be counted upon to respond quickly if
-//                   it_is_heapcleaning_time__global is set TRUE
+//                   pth__it_is_heapcleaning_time__global is set TRUE
 //                   (where "quickly" means microseconds not
 //                   milliseconds).
 //
 //    IS_BLOCKED:    Pthread may be blocked indefinitely in
 //                   a sleep() or select() or such and thus
 //                   cannot be counted upon to respond quickly if
-//                   it_is_heapcleaning_time__global is set TRUE,
+//                   pth__it_is_heapcleaning_time__global is set TRUE,
 //                   but it is guaranteed not to be reading
 //                   or writing the Mythryl heap, or to
 //                   contain any hidden pointers into the
@@ -796,7 +796,7 @@ int   pth__get_active_pthread_count   ()   {
 //
 //    IS_HEAPCLEANING:
 //                   Pthread has detected that the global
-//                   it_is_heapcleaning_time__global flag is TRUE
+//                   pth__it_is_heapcleaning_time__global flag is TRUE
 //                   and has responded by ceasing execution of
 //                   user Mythryl code and entered into a quiescent
 //                   state allowing heapcleaning to proceed.
@@ -804,13 +804,13 @@ int   pth__get_active_pthread_count   ()   {
 // 
 // The idea is then that when heapcleaning is necessary we
 // 
-//   1) Set it_is_heapcleaning_time__global to TRUE.
+//   1) Set pth__it_is_heapcleaning_time__global to TRUE.
 //      and prevent BLOCKED pthreads from entering RUNNING mode.
 // 
 //   2) Wait until the number of pthreads with
 //      pthread->mode ==  IS_RUNNING drops to zero.
 // 
-//   3) Set it_is_heapcleaning_time__global to FALSE.
+//   3) Set pth__it_is_heapcleaning_time__global to FALSE.
 //
 //   4) Clean the heap. (This may result in some or all
 //      records on the heap moving to new addresses.)
@@ -843,22 +843,24 @@ int   pth__get_active_pthread_count   ()   {
 //      
 //
 //   o  To signal RUNNING pthreads to enter HEAPCLEANING
-//      mode we introduce a global boolean
+//      mode we introduce a boolean
 //
-//          it_is_heapcleaning_time__global;
+//          pth__it_is_heapcleaning_time__global;
 //
-//      in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+//      in   src/c/pthread/pthread-on-posix-threads.c
+//
 //      We set this flag TRUE in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 //      when we want all IS_RUNNING pthreads to switch to IS_HEAPCLEANING mode;
+//
 //      Function   need_to_call_heapcleaner() in   src/c/heapcleaner/call-heapcleaner.c
 //      checks this and returns TRUE immediately if it is set.
 //
 //
-//   o  We introduce a global int
+//   o  We introduce an int
 //
-//          running_pthreads_count__global
+//          pth__running_pthreads_count__global
 //
-//      in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+//      in   src/c/pthread/pthread-on-posix-threads.c
 //      which is always equal to the number of pthreads with
 //      pthread->mode == IS_RUNNING.
 //      Heapcleaning cannot begin until this count reaches zero, 
@@ -872,8 +874,8 @@ int   pth__get_active_pthread_count   ()   {
 //      to govern
 //
 //           pthread->mode
-//           it_is_heapcleaning_time__global
-//           running_pthreads_count__global
+//           pth__it_is_heapcleaning_time__global
+//           pth__running_pthreads_count__global
 //
 //      This mutex must be held when making any change to
 //      these state variables --  this includes in particular
@@ -925,10 +927,10 @@ int   pth__get_active_pthread_count   ()   {
 //          RELEASE_MYTHRYL_HEAP:
 //             pthread_mutex_lock   pth__pthread_mode_mutex__global
 //                 pthread->mode = IS_BLOCKED;							// Remove us from the set of RUNNING pthreads.
-//                 --running_pthreads_count__global;
+//                 --pth__running_pthreads_count__global;
 //                 pthread->task->protected_c_arg = &(arg);					// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
-//                 if (it_is_heapcleaning_time__global
-//                 &&  running_pthreads_count__global == 0
+//                 if (pth__it_is_heapcleaning_time__global
+//                 &&  pth__running_pthreads_count__global == 0
 //                 ){
 //                     pthread_cond_signal( &pth__no_running_pthreads_condvar__global );	// This lets the primary heapcleaning pthread start heapcleaning.	
 //                 }
@@ -938,7 +940,7 @@ int   pth__get_active_pthread_count   ()   {
 //             pthread_mutex_lock   pth__blocked_to_running_mutex__global			// This prevents a blocked pthread from resuming execution during a heapcleaning.
 //                 pthread_mutex_lock   pth__pthread_mode_mutex__global				// Must always acquire these two locks in the same order to prevent deadlock!
 //                     pthread->mode = IS_RUNNING;						// Return us to the set of RUNNING pthreads.
-//                     ++running_pthreads_count__global;
+//                     ++pth__running_pthreads_count__global;
 //                     pthread->task->protected_c_arg = &pthread->task->heapvoid;		// Make 'arg' no longer a heapcleaner root.
 //                 pthread_mutex_unlock   pth__pthread_mode_mutex__global
 //             pthread_mutex_unlock   pth__blocked_to_running_mutex__global
@@ -949,7 +951,7 @@ int   pth__get_active_pthread_count   ()   {
 //         pthread_mutex_lock   pth__blocked_to_running_mutex__global				// Stop IS_BLOCKED pthreads from exiting blocked mode for duration of garbage collection.
 //             pthread_mutex_lock   pth__pthread_mode_mutex__global				// Must always acquire these two locks in the same order to prevent deadlock!
 //
-//                 if (running_pthreads_count__global == 1) {
+//                 if (pth__running_pthreads_count__global == 1) {
 //                     do heapcleaning								// With no other running threads we can just do it.
 //                     pthread_mutex_unlock   pth__pthread_mode_mutex__global
 //                     pthread_mutex_unlock   pth__blocked_to_running_mutex__global		// Allow IS_BLOCKED pthreads to exit blocked mode at will.
@@ -958,20 +960,20 @@ int   pth__get_active_pthread_count   ()   {
 //
 //                 pthread_barrier_init(							// Set up barrier for other IS_RUNNING pthreads to wait at while heapcleaning is in progress. 
 //                     pth__heapcleaner_barrier__global,
-//		       running_pthreads_count__global
+//		       pth__running_pthreads_count__global
 //                 );
 //
 //                 pthread->mode = IS_HEAPCLEANING;						// Remove ourself from the set of IS_RUNNING pthreads.
-//                 --running_pthreads_count__global;
+//                 --pth__running_pthreads_count__global;
 //
-//                 it_is_heapcleaning_time__global = TRUE;					// Signal other running threads to enter heapcleaning mode.
+//                 pth__it_is_heapcleaning_time__global = TRUE;					// Signal other running threads to enter heapcleaning mode.
 //
 //                 pthread_cond_wait(								// Wait until no running pthreads are left.
 //                    pth__no_running_pthreads_condvar__global,
 //                    pth__pthread_mode_mutex__global						// Release this while waiting, so IS_RUNNING pthreads can enter IS_HEAPCLEANING mode.
 //                 );
 //
-//                 it_is_heapcleaning_time__global = FALSE;					// Clear the enter-heapcleaning-mode signal.
+//                 pth__it_is_heapcleaning_time__global = FALSE;					// Clear the enter-heapcleaning-mode signal.
 //
 //                 // NB: At this point we again hold pth__pthread_mode_mutex__global.
 //                 do heapcleaning
@@ -980,7 +982,7 @@ int   pth__get_active_pthread_count   ()   {
 //                 pthread_barrier_destroy( pth__pthread_mode_mutex__global )			// Return barrier to original unconfigured mode.
 
 //                 pthread->mode = IS_RUNNING;
-//                 ++running_pthreads_count__global;
+//                 ++pth__running_pthreads_count__global;
 //
 //             pthread_mutex_unlock   pth__pthread_mode_mutex__global
 //         pthread_mutex_unlock   pth__blocked_to_running_mutex__global				// Allow IS_BLOCKED pthreads to exit blocked mode at will.
@@ -988,11 +990,11 @@ int   pth__get_active_pthread_count   ()   {
 //
 //   o  The logic for a secondary heapcleaning process is then
 //
-//      if (it_is_heapcleaning_time__global) {
+//      if (pth__it_is_heapcleaning_time__global) {
 //          pthread_mutex_lock pth__pthread_mode_mutex__global
 //          pthread->mode = IS_HEAPCLEANING;
-//          --running_pthreads_count__global;
-//          if (running_pthreads_count__global == 0) {
+//          --pth__running_pthreads_count__global;
+//          if (pth__running_pthreads_count__global == 0) {
 //              pthread_mutex_unlock pth__pthread_mode_mutex__global
 //          } else {
 //             pthread_mutex_unlock pth__pthread_mode_mutex__global
@@ -1001,7 +1003,7 @@ int   pth__get_active_pthread_count   ()   {
 //          pthread_barrier_wait( pth__pthread_mode_mutex__global )				// Wait until heapcleaning is complete
 //          pthread_mutex_lock pth__pthread_mode_mutex__global
 //              thread->mode = IS_RUNNING;
-//              ++running_pthreads_count__global;
+//              ++pth__running_pthreads_count__global;
 //          pthread_mutex_unlock pth__pthread_mode_mutex__global
 //      }
 //
