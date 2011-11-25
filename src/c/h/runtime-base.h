@@ -361,6 +361,7 @@ typedef enum {
     //
     IS_RUNNING,			// Normal state of a running Mythryl pthread.
     IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT TOUCH MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
     IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //
 } Pthread_Status;
