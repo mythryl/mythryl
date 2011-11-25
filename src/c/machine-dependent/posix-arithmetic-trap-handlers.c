@@ -17,7 +17,6 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"
 #include "pthread-state.h"
-#include "task.h"
 #include "runtime-globals.h"
 
 // This is temporary:					XXX BUGGO FIXME

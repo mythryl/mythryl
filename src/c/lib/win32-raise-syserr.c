@@ -4,7 +4,6 @@
 
 #include <windows.h>
 #include "runtime-base.h"
-#include "task.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
 #include "lib7-c.h"

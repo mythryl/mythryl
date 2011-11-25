@@ -51,7 +51,6 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "get-multipage-ram-region-from-os.h"
-#include "task.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
 #include "runtime-heap-image.h"

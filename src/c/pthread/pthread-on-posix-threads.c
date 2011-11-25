@@ -34,7 +34,6 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
-#include "task.h"
 #include "runtime-globals.h"
 #include "pthread-state.h"
 #include "heapcleaner.h"
@@ -149,7 +148,7 @@ static void*  pthread_main   (void* task_as_voidptr)   {
 
 
 										// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
-										// struct task				def in   src/c/h/task.h
+										// struct task				def in   src/c/h/runtime-base.h
 
 char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val closure_arg)   {
     //===================

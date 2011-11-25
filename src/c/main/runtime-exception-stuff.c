@@ -10,7 +10,6 @@
 #include "runtime-configuration.h"
 #include "runtime-values.h"
 #include "pthread-state.h"
-#include "task.h"
 #include "heap-tags.h"
 #include "asm-to-c-request-codes.h"
 #include "make-strings-and-vectors-etc.h"
@@ -30,7 +29,7 @@ void   raise_mythryl_exception   (Task* task,  Val exn)   {
     //
     Val	fate =  task->exception_fate;
 
-    // We should have a macro defined in task.h for this.  XXX BUGGO FIXME
+    // We should have a macro defined in runtime-base.h for this.  XXX BUGGO FIXME
 
     task->argument	   =  exn;
     task->current_closure  =  fate;

@@ -32,7 +32,6 @@
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
 #include "get-multipage-ram-region-from-os.h"
-#include "task.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "bigcounter.h"

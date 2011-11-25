@@ -57,7 +57,7 @@
 // EBX - misc0
 // ECX - misc1
 // EDX - misc2
-// ESI - standard fate (fate, see task.h)
+// ESI - standard fate (fate, see runtime-base.h)
 // EBP - standard argument (argument)
 // EDI - free space pointer (heap_allocation_pointer)
 // ESP - stack pointer

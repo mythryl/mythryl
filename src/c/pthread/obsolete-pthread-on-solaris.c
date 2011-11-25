@@ -42,7 +42,6 @@
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
 #include "runtime-base.h"
-#include "task.h"
 #include "runtime-globals.h"
 #include "pthread-state.h"
 

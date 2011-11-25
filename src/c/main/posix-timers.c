@@ -7,7 +7,6 @@
 
 #include "system-dependent-unix-stuff.h"
 #include "runtime-base.h"
-#include "task.h"
 #include "runtime-timer.h"
 
 #ifdef HAS_GETRUSAGE

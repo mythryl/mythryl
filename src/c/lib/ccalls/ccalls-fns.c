@@ -7,7 +7,6 @@
 #include <stdarg.h>
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "heap-tags.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"

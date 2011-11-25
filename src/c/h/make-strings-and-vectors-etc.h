@@ -8,7 +8,6 @@
 
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "heap-tags.h"
 
 

@@ -12,7 +12,6 @@
 #include <string.h>
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "heap-io.h"
 #include "lib7-c.h"
 #include "cfun-proto-list.h"

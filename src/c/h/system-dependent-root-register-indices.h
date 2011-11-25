@@ -14,7 +14,7 @@
 //
 // This file gets #included in only one other file:
 //
-//     src/c/h/task.h
+//     src/c/h/runtime-base.h
 
 #ifndef MACHINE_SPECIFIC_ROOT_REGISTER_INDICES_H
 #define MACHINE_SPECIFIC_ROOT_REGISTER_INDICES_H

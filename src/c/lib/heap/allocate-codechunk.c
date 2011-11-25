@@ -5,7 +5,6 @@
 #include "flush-instruction-cache-system-dependent.h"
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "make-strings-and-vectors-etc.h"
 #include "cfun-proto-list.h"
 

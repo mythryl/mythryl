@@ -24,7 +24,6 @@
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
-#include "task.h"
 #include "ml-signal.h"
 #include "lib7-c.h"
 #include "cfun-proto-list.h"

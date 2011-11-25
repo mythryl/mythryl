@@ -8,7 +8,6 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"
 #include "runtime-configuration.h"
-#include "task.h"
 #include "pthread-state.h"
 #include "make-strings-and-vectors-etc.h"
 #include "system-dependent-signal-stuff.h"

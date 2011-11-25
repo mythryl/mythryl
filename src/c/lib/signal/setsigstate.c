@@ -12,7 +12,6 @@
 
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "system-dependent-signal-stuff.h"
 #include "cfun-proto-list.h"
 

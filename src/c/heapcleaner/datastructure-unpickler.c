@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "heap.h"
 #include "runtime-heap-image.h"
 #include "mythryl-callable-cfun-hashtable.h"

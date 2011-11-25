@@ -2,7 +2,7 @@
 //
 // This C program analyses the Task and Pthread structs from (respectively)
 //
-//     src/c/h/task.h
+//     src/c/h/runtime-base.h
 //     src/c/h/pthread-state.h
 //
 // and makes the
@@ -32,7 +32,6 @@
 
 #include "runtime-base.h"
 #include "pthread-state.h"
-#include "task.h"
 #include "header-file-autogeneration-stuff.h"
 
 #define    TASK_FIELD_BYTE_OFFSET(fld)	(((Punt)&(   task_union.s.fld)) - (Punt)&(   task_union.b[0]))

@@ -9,7 +9,6 @@
 
 #include "runtime-base.h"
 #include "runtime-values.h"
-#include "task.h"
 #include "get-multipage-ram-region-from-os.h"
 #include "heap.h"
 #include "make-strings-and-vectors-etc.h"
