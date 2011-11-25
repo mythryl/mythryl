@@ -306,6 +306,9 @@ extern int   pth__done_pthread_create__global;
     // We can use simple mutex-free monothread logic in
     // the heapcleaner (etc) so long as this is FALSE.
 
+extern int  all_running_pthreads_must_enter_heapcleaning_mode;
+    //
+    // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
 
 // log_if declaration.
 //
@@ -401,6 +404,7 @@ typedef enum {
     ////////////////////////////////////////////////////////////////////////////
     // Statically pre-allocated mutexs, barriers and condition variables:
     //
+    extern Mutex	    pth__pthread_mode_mutex__global;				// Governs pthread->mode + all_running_pthreads_must_enter_heapcleaning_mode -- See comments in   src/c/pthread/pthread-on-posix-threads.c	
     extern Mutex	    pth__heapcleaner_mutex__global;
     extern Mutex	    pth__heapcleaner_gen_mutex__global;
     extern Mutex	    pth__timer_mutex__global;

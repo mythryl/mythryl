@@ -29,7 +29,7 @@
 #include "heapcleaner-statistics.h"
 #include "pthread-state.h"
 
-
+int all_running_pthreads_must_enter_heapcleaning_mode = FALSE;
 
 void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table__global
     // ===========================================

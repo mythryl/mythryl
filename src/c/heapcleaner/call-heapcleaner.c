@@ -506,8 +506,8 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     // FALSE otherwise.
 
 // There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
-    if (pth__done_pthread_create__global) { // XYZZY PLUGH Changing this to (1 || ...) yields Fatal error:  bad chunk tag 19, chunk = 0x42c40064, tagword = 0x42c401cc
-                                                 //                                                Fatal error:  bad chunk tag 19, chunk = 0x42c40064, tagword = 0x42c401cc
+    if (pth__done_pthread_create__global) {
+
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
