@@ -355,49 +355,12 @@ extern int    log_if_fd;
 #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
 #else
 
-#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )						\
-    do {											\
-        pthread_mutex_lock(  &pth__pthread_mode_mutex  );					\
-												\
-	    /* Remove us from the set of RUNNING pthreads: */	 				\
-            pthread->mode = IS_BLOCKED;								\
-            --pth__running_pthreads_count;							\
-												\
-	    /* Protect 'arg' from the heapcleaner by making it a heapcleaner root: */		\
-            pthread->task->protected_c_arg = &(arg);						\
-												\
-	    /* If primary heapcleaning pthread can run now, tell it so: */			\
-            if (pth__it_is_heapcleaning_time							\
-            &&  pth__running_pthreads_count == 0						\
-            ){											\
-                pthread_cond_signal( &pth__no_running_pthreads_condvar );			\
-            }											\
-        pthread_mutex_unlock(  &pth__pthread_mode_mutex  );					\
-    } while (0)
+extern void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  );		// release_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
+extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name             );		// recover_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
 
-#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )						\
-    do {											\
-        /* First mutex is to prevent a BLOCKED pthread from */					\
-	/* resuming execution during a heapcleaning.        */   				\
-	/* NB: Must always acquire these two mutexes in the */					\
-	/* same order, to prevent deadlock!                 */					\
-												\
-	pthread_mutex_lock(   &pth__blocked_to_running_mutex  );				\
-	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );					\
-												\
-		/* Return us to the set of RUNNING pthreads: */					\
-		pthread->mode = IS_RUNNING;							\
-		++pth__running_pthreads_count;							\
-												\
-		/* Make 'arg' no longer be a heapcleaner root: */				\
-		pthread->task->protected_c_arg = &pthread->task->heapvoid;			\
-												\
-	    pthread_mutex_unlock(   &pth__pthread_mode_mutex   );				\
-	pthread_mutex_unlock(   &pth__blocked_to_running_mutex  );				\
-    } while (0)
+#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )	release_mythryl_heap(  pthread,  fn_name,  &arg  )
+#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name         )
 
-// NB: The above are long enough that they should
-// probably just be functions instead of macros.
 #endif
     //
     // For background comments see Note[1]
@@ -411,7 +374,7 @@ extern int    log_if_fd;
 typedef enum {
     //
     IS_RUNNING,			// Normal state of a running Mythryl pthread.
-    IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT TOUCH MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
     IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
     IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //

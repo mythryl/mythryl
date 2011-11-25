@@ -565,6 +565,56 @@ int   pth__get_active_pthread_count   ()   {
 }
 
 
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//
+void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
+    //
+    pthread_mutex_lock(  &pth__pthread_mode_mutex  );
+
+	// Remove us from the set of RUNNING pthreads:
+	//
+	pthread->mode = IS_BLOCKED;
+	--pth__running_pthreads_count;
+
+	// Protect 'arg' from the heapcleaner by making it a heapcleaner root:
+	//
+	pthread->task->protected_c_arg = arg;
+
+	// If primary heapcleaning pthread can run now, tell it so:
+	//
+	if (pth__it_is_heapcleaning_time
+	&&  pth__running_pthreads_count == 0
+	){
+	    pthread_cond_signal( &pth__no_running_pthreads_condvar );
+	}
+    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+}
+
+void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
+    //
+    // First mutex is to prevent a BLOCKED pthread from
+    // resuming execution during a heapcleaning.
+
+    // NB: Must always acquire these two mutexes in the
+    // same order, to prevent deadlock!
+
+    pthread_mutex_lock(   &pth__blocked_to_running_mutex  );
+	pthread_mutex_lock(   &pth__pthread_mode_mutex  );
+
+	    // Return us to the set of RUNNING pthreads:
+	    //
+	    pthread->mode = IS_RUNNING;
+	    ++pth__running_pthreads_count;
+
+	    // Make 'arg' no longer be a heapcleaner root:
+	    //
+	    pthread->task->protected_c_arg = &pthread->task->heapvoid;
+
+	pthread_mutex_unlock(   &pth__pthread_mode_mutex   );
+    pthread_mutex_unlock(   &pth__blocked_to_running_mutex  );
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //  SPINLOCK CAUTION
 //
