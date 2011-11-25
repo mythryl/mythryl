@@ -140,7 +140,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     // Search for a slot in which to put a new pthread
     //
     for (i = 0;
-	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
+	(i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != IS_VOID);
 	i++
     ){
 	continue;
@@ -183,7 +183,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	    INCREASE_BY( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)
     );
 
-    pthread->status = PTHREAD_IS_RUNNING_MYTHRYL;						// Moved this above pthread_create() because that seems safer,
+    pthread->status = IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
 										    // otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
     int err =   pthread_create(
 		    //
@@ -204,7 +204,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     } else {									// Failed to spawn new kernel thread.
 
-	pthread->status = PTHREAD_IS_VOID;					// Note pthread record (still) has no associated kernel thread.
+	pthread->status = IS_VOID;					// Note pthread record (still) has no associated kernel thread.
 
 	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
 		DECREASE_BY(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
@@ -244,7 +244,7 @@ void   pth__pthread_exit   (Task* task)   {
     pth__mutex_lock(    &pthread_table_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
 	//													// We don't use the PTH__MUTEX_LOCK macro because at this point
 	//													// we know pth__done_pthread_create__global == TRUE.
-	task->pthread->status = PTHREAD_IS_VOID;
+	task->pthread->status = IS_VOID;
 	//
     pth__mutex_unlock(  &pthread_table_mutex__local );
 
@@ -267,7 +267,7 @@ char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// htt
 
     Pthread* pthread =  pthread_table__global[ pthread_to_join ];			// pthread_table__global	def in   src/c/main/runtime-state.c
 
-    if (pthread->status == PTHREAD_IS_VOID)  {
+    if (pthread->status == IS_VOID)  {
 	//
 	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
     }
@@ -645,6 +645,176 @@ int   pth__get_active_pthread_count   ()   {
 //    exit(-1);
 //   }
 //
+
+// Overview
+// ========
+//
+// Posix-thread support for Mythryl.  The original work this
+// is based on was
+//
+//      A Portable Multiprocessor Interface for Standard ML of New Jersey 
+//      Morrisett + Tolmach 1992 31p 
+//      http://handle.dtic.mil/100.2/ADA255639
+//      http://mythryl.org/pub/pml/a-portable-multiprocessor-interface-for-smlnj-morrisett-tolmach-1992.ps 
+//
+// The ultimate design goal is to support multiple cores
+// executing Mythryl code in parallel on a shared Mythryl
+// heap with speedup linear in the number of cores.
+//
+// In practice, initially, my focal goal is more modest:			// "me" being Cynbe 2011-11-24
+// to support one pthread executing threadkit ("Concurrent ML")
+// code at full speed while other pthreads offload I/O-bound
+// and CPU-bound processing.
+//
+// The central problems are
+//
+//   1) How to maintain Mythryl heap coherency in the
+//      face of multiple kernel threads executing Mythryl
+//      code in parallel while retaining good performance.
+//
+//   2) How to maintain Mythryl heap coherency during
+//      heapcleaning ("garbage collection").
+//
+// The matching solutions they adopted are:
+//
+//   1) Most heap allocation is done in generation zero;
+//      by giving each kernel thread its own independent
+//      generation zero, each can allocate at full speed
+//      without locking overhead.
+//
+//      Allocation is also done directly into later heap
+//      generations, but this happens too seldom to be
+//      performance critical, so conventional mutex locking
+//      can be used without problem.
+//      
+//   2) Parallel garbage collection is difficult;  for ease
+//      of implementation (and debugging!) the existing
+//      garbage collector is used running on a single kernel
+//      thread.
+//
+//
+// Point (2) requires further analysis and design effort.
+//
+// The central problem is that (with the current algorithm)
+// heapcleaning cannot be done while Mythryl pthreads are
+// reading or writing the Mythryl heap.  Consequently before
+// heapcleaning can begin, all pthreads must be signalled to
+// suspend use of the Mythryl heap and must be confirmed to
+// have done so.
+//
+// Furthermore, each pthread must be brought to a halt with
+// its private generation-zero buffer in a consistent state
+// intelligible to the heapcleaner; in particular there can
+// be no allocated but uninitialized pointers in the heap
+// containing nonsense values which might make the heapcleaner
+// segfault.
+//
+// The Mythryl compiler guarantees that all Mythryl code
+// frequently runs the out-of-heap-space probe logic -- in
+// particular that every closed loop through the code contains
+// at least one such probe call.  It also guarantees that such
+// probes calles are done only at the start of execution of
+// a function, when the heap is in a self-consistent state.
+// It is therefor simple and natural to take advantage of this
+// mechanism by having these heap-limit probe calls check a
+// global 'time_to_clean_the_heap' flag and (if it is set)
+// suspend execution of Mythryl code and enter a special
+// "heapcleaning mode".
+// 
+// This solves half our problem:  When it is time to do a
+// heapcleaning, we set time_to_clean_the_heap to TRUE and
+// wait for all running Mythryl pthreads to stop running
+// and enter heapcleaning mode.
+//
+// The remaining half of the problem is that some pthreads
+// may be blocked on a system call like sleep() or select()
+// and might not notice that time_to_clean_the_heap is TRUE
+// for milliseconds -- or even seconds, minutes or hours.
+//
+// We run the heapcleaner about 200 times per second, and
+// it cannot start until all pthreads are known not to be
+// reading or writing the Mythryl heap, so waiting for all
+// system calls to return is out of the question.
+//
+// Our solution is to distinquish three different pthread 'modes':
+//
+//    IS_RUNNING:    Pthread is actively running Mythryl code
+//                   and reading and writing the Mythryl heap;
+//                   it can be counted upon to respond quickly
+//                   if time_to_clean_the_heap is set TRUE
+//                   (where "quickly" means microseconds not
+//                   milliseconds).
+//
+//    IS_BLOCKED:    Pthread may be blocked indefinitely in
+//                   a sleep() or select() or such and thus
+//                   cannot be counted upon to respond quickly
+//                   if time_to_clean_the_heap is set TRUE,
+//                   but it is guaranteed not to be reading
+//                   or writing the Mythryl heap, or to
+//                   contain any hidden pointers into the
+//                   Mythryl heap, so heapcleaning can proceed
+//                   safely.
+//
+//    IS_HEAPCLEANING:
+//                   Pthread has detected that the global
+//                   time_to_clean_the_heap flag is set TRUE
+//                   and has responded by ceasing execution
+//                   of user Mythryl code and entering into
+//                   a quiescent state allowing heapcleaning
+//                   to proceed.
+// 
+// The idea is then that when heapcleaning is necessary we
+// 
+//   1) Set time_to_clean_the_heap to TRUE.
+// 
+//   2) Wait until the number of pthreads in IS_RUNNING
+//      mode drops to zero.
+// 
+//   3) Clean the heap. (This may result in some or all
+//      records on the heap moving to new addresses.)
+// 
+//   4) Set time_to_clean_the_heap to FALSE and allow
+//      all IS_HEAPCLEANING pthreads to return to
+//      IS_RUNNING mode.
+//
+// To implement this high-level plan we introduce the following
+// detailed mechanisms and policies:
+//
+//   o  In  src/c/h/pthread-state.h
+//      we
+//
+//      This mainly requires implementing a new protocol for
+//      initiating garbage collection which stops all other
+//      Mythryl-executing kernel threads, so as to have the
+//      heap completely quiescient while garbage collection
+//      is being done.
+//
+// This is strictly a toe-in-the-water minimal implementation
+// of Mythryl multiprocessing.  Cheng's 2001 thesis CU shows
+// how to do an all-singing all-dancing all-scalable all-parallel
+// implementation:  See  http://mythryl.org/pub/pml/
+//
+// The critical files for this facility are:
+//
+//     src/c/lib/pthread/libmythryl-pthread.c		Our Mythryl<->C world interface logic.
+//
+//     src/c/pthread/pthread-on-posix-threads.c          Our interface to the <ptheads.h> library proper.
+//
+//     src/c/h/runtime-base.h                            Contains our API for the previous file.
+//
+//     src/c/heapcleaner/pthread-heapcleaner-stuff.c	Added logic to stop all posix threads before starting
+//							garbage collection and restart them after it is complete.
+//
+//     src/c/heapcleaner/call-heapcleaner.c		(Pre-existing file): Tweaks to invoke previous file and
+//							to cope with having garbage collector roots in multiple
+//							posix threads instead of just one.
+//
+//     src/c/mythryl-config.h				Critical configuration stuff, in particular
+//							 NEED_PTHREAD_SUPPORT and MAX_PTHREADS.
+//
+//     src/lib/std/src/pthread.api			Mythryl-programmer interface to posix-threads functionality.
+//     src/lib/std/src/pthread.pkg			Implementation of previous; this is just wrappers for the calls
+//							exported by src/c/lib/pthread/libmythryl-pthread.c
 
 ///////////////////////////////////////////////////////////////////////
 // Note[1]
