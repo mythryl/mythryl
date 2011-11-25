@@ -507,8 +507,8 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
 // There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
     if (pth__done_pthread_create__global) {
-
-        if (all_running_pthreads_must_enter_heapcleaning_mode)   return TRUE;
+	//
+        if (heapcleaning_time__global)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

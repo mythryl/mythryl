@@ -29,8 +29,8 @@
 #include "heapcleaner-statistics.h"
 #include "pthread-state.h"
 
-int  all_running_pthreads_must_enter_heapcleaning_mode = FALSE;				// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
-int  running_pthreads_count = 1;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+int  heapcleaning_time__global = FALSE;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+int  running_pthreads_count__global = 1;							// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
         //
 	// Should always equal the number of pthreads
 	// with pthread->mode == IS_RUNNING.
