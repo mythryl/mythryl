@@ -189,7 +189,7 @@ int   pth__start_heapcleaning   (Task *task) {
     // remember that and signal the remaining pthreads
     // to join in.
     //
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );						// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
+    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );						// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
     //
     if (pthreads_ready_to_clean__local++ == 0) {
         //
@@ -217,7 +217,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	barrier_needs_to_be_initialized__local =  TRUE;
 												PTHREAD_LOG_IF ("heapcleaner_pthread_tid__local is %d\n", heapcleaner_pthread_tid__local);
     }
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
+    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
 
 
     //////////////////////////////////////////////////////////
@@ -264,15 +264,15 @@ int   pth__start_heapcleaning   (Task *task) {
 	// do so needs to initialize the barrier, so that everyone
 	// can wait at it:
 	//
-        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition.
+        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );					// Use mutex to avoid a race condition.
 	    //
 	    if (barrier_needs_to_be_initialized__local) {
 		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
 		//
-		pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );	// Set up barrier to wait on proper number of threads.
+		pth__barrier_init( &pth__heapcleaner_barrier, active_pthread_count );	// Set up barrier to wait on proper number of threads.
 	    }
 	    //
-	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
+	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
 
     }
 
@@ -308,7 +308,7 @@ int   pth__start_heapcleaning   (Task *task) {
 												PTHREAD_LOG_IF ("non-heapcleaner (thread id=%d) entering barrier (barrier threshold d=%d)\n",pthread->tid,active_pthread_count);
 
     {   Bool                                                               i_am_the_one;	// Set by call on next line.
-        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_one );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+        char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 	    //
 	    // 'i_am_the_one' will be TRUE for one pthread
 	    // waiting on barrier, FALSE for the rest;
@@ -344,7 +344,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 
     Pthread* pthread =  task->pthread;
 
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );
+    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
 	//
 	if (pthreads_ready_to_clean__local++ == 0) {
 	    //
@@ -374,7 +374,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	}
 	*extra_cleaner_roots__local = p;			// NULL
 
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
+    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
 
 
 
@@ -419,15 +419,15 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 	// do so needs to initialize the barrier, so that everyone
 	// can wait at it:
 	//
-        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
+        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );					// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
 	    //
 	    if (barrier_needs_to_be_initialized__local) {
 		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
 		//
-		pth__barrier_init( &pth__heapcleaner_barrier__global, active_pthread_count );	// Set up barrier to wait on proper number of threads.
+		pth__barrier_init( &pth__heapcleaner_barrier, active_pthread_count );	// Set up barrier to wait on proper number of threads.
 	    }
 	    //
-	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
+	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
     }
 
     // All Pthreads now ready to clean:
@@ -448,7 +448,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
 												PTHREAD_LOG_IF ("pthread %d entering barrier with active_pthread_count d=%d\n", pthread->tid, active_pthread_count);
 
     {   Bool                                                               i_am_the_one;	// Set by call on next line.
-        char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_one );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
+        char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );	// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
 	    //
 	    // 'i_am_the_one' will be TRUE for one pthread
 	    // waiting on barrier, FALSE for the rest;
@@ -480,11 +480,11 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     //
     partition_agegroup0_buffer_between_pthreads( pthread_table__global );
 
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex__global );
+    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
 												PTHREAD_LOG_IF ("%d entering barrier\n", task->pthread->tid );
 
     {   Bool                                                               i_am_the_one;
-	char* err = pth__barrier_wait( &pth__heapcleaner_barrier__global, &i_am_the_one );	// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
+	char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );	// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 	    //											// They should all be already waiting on this barrier, so we should never block at this point.
 	    // 'i_am_the_one' will be TRUE for one pthread
 	    // waiting on barrier, FALSE for the rest;
@@ -495,11 +495,11 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	if (err) die(err);
     }
 
-    pth__barrier_destroy( &pth__heapcleaner_barrier__global );					// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s nomenclature here.
+    pth__barrier_destroy( &pth__heapcleaner_barrier );					// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s nomenclature here.
 
     pthreads_ready_to_clean__local = 0;
 												PTHREAD_LOG_IF ("%d left barrier\n", task->pthread->tid);
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex__global );
+    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
 }
 
 

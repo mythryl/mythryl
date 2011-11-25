@@ -72,7 +72,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a designated pthread to do the heapcleaning work.
@@ -112,7 +112,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
         //
 	// Get extra roots from pthreads that entered
 	// through call_heapcleaner_with_extra_roots
@@ -134,7 +134,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
 
     #if NEED_PTHREAD_SUPPORT
-    if (!pth__done_pthread_create__global) {
+    if (!pth__done_pthread_create) {
 	//	
 	*roots_ptr++ =  &task->link_register;
 	*roots_ptr++ =  &task->argument;
@@ -219,7 +219,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // Reset the generation0 allocation pointers:
     //
     #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
 	//
 	pth__finish_heapcleaning( task );								// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     } else {
@@ -274,7 +274,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
 	//
 														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
 	va_start (ap, level);
@@ -317,7 +317,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global by pth__call_heapcleaner_with_extra_roots.
         //
@@ -359,7 +359,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     }
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
 	//
 	Task*     task;
 	Pthread*  pthread;
@@ -454,7 +454,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // Reset agegroup0 buffer:
     //
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
         //
 	pth__finish_heapcleaning( task );
     } else {
@@ -506,9 +506,9 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     // FALSE otherwise.
 
 // There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
-    if (pth__done_pthread_create__global) {
+    if (pth__done_pthread_create) {
 	//
-        if (pth__it_is_heapcleaning_time__global)   return TRUE;
+        if (pth__it_is_heapcleaning_time)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

@@ -50,7 +50,7 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_pthread_create__global = FALSE;
+int   pth__done_pthread_create = FALSE;
 
  static Mutex 	 allocate_mutex	();
  static Barrier* allocate_barrier	();
@@ -78,10 +78,10 @@ static Task**           tasks__local; /*[MAX_PTHREADS]*/		// List of states of s
 
 static processorid_t* processorId;		// processor id of the next processor a lwp will be bound to globals.
 
-Mutex	 pth__heapcleaner_mutex__global;
-Mutex	 pth__heapcleaner_gen_mutex__global;
-Mutex	 pth__timer_mutex__global;
-Barrier* pth__heapcleaner_barrier__global;
+Mutex	 pth__heapcleaner_mutex;
+Mutex	 pth__heapcleaner_gen_mutex;
+Mutex	 pth__timer_mutex;
+Barrier* pth__heapcleaner_barrier;
 
 #if defined(MP_PROFILE)
     int mutex_trylock_calls;
@@ -103,11 +103,11 @@ void   pth__start_up   ()   {
 
     arena_mutex__local			= allocate_mutex();
     mp_pthread_mutex__local		= allocate_mutex();
-    pth__heapcleaner_mutex__global	= allocate_mutex();
-    pth__heapcleaner_gen_mutex__global	= allocate_mutex();
-    pth__timer_mutex__global		= allocate_mutex();
+    pth__heapcleaner_mutex	= allocate_mutex();
+    pth__heapcleaner_gen_mutex	= allocate_mutex();
+    pth__timer_mutex		= allocate_mutex();
     //
-    pth__heapcleaner_barrier__global	= allocate_barrier(); 
+    pth__heapcleaner_barrier	= allocate_barrier(); 
     //
     tasks__local			= initialize_task_vector();
     //
@@ -657,7 +657,7 @@ static void*   pthread_main   (void* vtask)   {
 Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_pthread_create__global = TRUE;
+    pth__done_pthread_create = TRUE;
 
     Task* p;
     Pthread* pthread;

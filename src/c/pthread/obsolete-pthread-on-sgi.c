@@ -52,7 +52,7 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_pthread_create__global = FALSE;
+int   pth__done_pthread_create = FALSE;
 
 static Mutex      AllocLock ();        
 static Barrier*  AllocBarrier();
@@ -63,13 +63,13 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth__heapcleaner_mutex__global;					// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Mutex	 pth__heapcleaner_mutex;					// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__heapcleaner_gen_mutex__global;					// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth__heapcleaner_gen_mutex;					// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-Barrier* pth__heapcleaner_barrier__global;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+Barrier* pth__heapcleaner_barrier;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
-Mutex	 pth__timer_mutex__global;						// Apparently never used.
+Mutex	 pth__timer_mutex;						// Apparently never used.
 
 
 
@@ -90,10 +90,10 @@ void   pth__start_up   () {
 
     MP_ArenaLock			= AllocLock ();
     MP_ProcLock				= AllocLock ();
-    pth__heapcleaner_mutex__global	= AllocLock ();
-    pth__heapcleaner_gen_mutex__global	= AllocLock ();
-    pth__timer_mutex__global		= AllocLock ();
-    pth__heapcleaner_barrier__global	= AllocBarrier();
+    pth__heapcleaner_mutex	= AllocLock ();
+    pth__heapcleaner_gen_mutex	= AllocLock ();
+    pth__timer_mutex		= AllocLock ();
+    pth__heapcleaner_barrier	= AllocBarrier();
     //
     ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
@@ -322,7 +322,7 @@ static int   make_pthread   (Task* state)   {
 Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_pthread_create__global = TRUE;
+    pth__done_pthread_create = TRUE;
 
     Task* p;
     Pthread* pthread;

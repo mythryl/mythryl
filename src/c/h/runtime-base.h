@@ -298,7 +298,7 @@ extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   sr
     // serialized by the pthread_table_mutex__local
     // in that file.     
 
-extern int   pth__done_pthread_create__global;
+extern int   pth__done_pthread_create;
     //
     // This boolean flag starts out FALSE and is set TRUE
     // the first time   pth__pthread_create   is called.
@@ -306,8 +306,8 @@ extern int   pth__done_pthread_create__global;
     // We can use simple mutex-free monothread logic in
     // the heapcleaner (etc) so long as this is FALSE.
 
-extern int  pth__it_is_heapcleaning_time__global;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
-extern int  pth__running_pthreads_count__global;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex__global.
+extern int  pth__it_is_heapcleaning_time;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+extern int  pth__running_pthreads_count;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
@@ -407,13 +407,13 @@ typedef enum {
     // Statically pre-allocated mutexs, barriers and condition variables:
     //
     extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this                                  			    -- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__pthread_mode_mutex__global;				// Governs pthread->mode, pth__it_is_heapcleaning_time__global, pth__running_pthreads_count__global -- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__blocked_to_running_mutex__global;			// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions                			    -- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__heapcleaner_mutex__global;
-    extern Mutex	    pth__heapcleaner_gen_mutex__global;
-    extern Mutex	    pth__timer_mutex__global;
+    extern Mutex	    pth__pthread_mode_mutex;				// Governs pthread->mode, pth__it_is_heapcleaning_time, pth__running_pthreads_count -- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__blocked_to_running_mutex;			// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions                			    -- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__heapcleaner_mutex;
+    extern Mutex	    pth__heapcleaner_gen_mutex;
+    extern Mutex	    pth__timer_mutex;
     //
-    extern Barrier	    pth__heapcleaner_barrier__global;
+    extern Barrier	    pth__heapcleaner_barrier;
     //
     //
 
@@ -492,8 +492,8 @@ typedef enum {
     // mutex ops so long as we know there is
     // only one Mythryl pthread running:
     // 
-    #define PTH__MUTEX_LOCK(mutex)    { if (pth__done_pthread_create__global) pth__mutex_lock(  mutex); }
-    #define PTH__MUTEX_UNLOCK(mutex)  { if (pth__done_pthread_create__global) pth__mutex_unlock(mutex); }
+    #define PTH__MUTEX_LOCK(mutex)    { if (pth__done_pthread_create) pth__mutex_lock(  mutex); }
+    #define PTH__MUTEX_UNLOCK(mutex)  { if (pth__done_pthread_create) pth__mutex_unlock(mutex); }
 
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES
