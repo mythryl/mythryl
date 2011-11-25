@@ -825,7 +825,7 @@ int   pth__get_active_pthread_count   ()   {
 // detailed mechanisms and policies:
 //
 //
-//   o  To distinguish pthread modes we introduce a type
+//   X  To distinguish pthread modes we introduce a type
 //
 //         Pthread_Mode = IS_RUNNING		// Pthread is running Mythryl code -- will respond quickly to 
 //                      | IS_BLOCKED
@@ -834,7 +834,7 @@ int   pth__get_active_pthread_count   ()   {
 //      in   src/c/h/runtime-base.h
 //
 //
-//   o  To record our per-thread state we introduce a field
+//   X  To record our per-thread state we introduce a field
 //
 //	    pthread->mode
 //
@@ -842,14 +842,14 @@ int   pth__get_active_pthread_count   ()   {
 //      pthread_state_struct def in   src/c/h/pthread-state.h
 //      
 //
-//   o  To signal RUNNING pthreads to enter HEAPCLEANING
+//   X  To signal RUNNING pthreads to enter HEAPCLEANING
 //      mode we introduce a boolean
 //
 //          pth__it_is_heapcleaning_time;
 //
 //      in   src/c/pthread/pthread-on-posix-threads.c
 //
-//      We set this flag TRUE in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+// ==>   We set this flag TRUE in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 //      when we want all IS_RUNNING pthreads to switch to IS_HEAPCLEANING mode;
 //
 //      Function   need_to_call_heapcleaner() in   src/c/heapcleaner/call-heapcleaner.c
@@ -866,7 +866,7 @@ int   pth__get_active_pthread_count   ()   {
 //      Heapcleaning cannot begin until this count reaches zero, 
 //
 //
-//   o  We introduce a Mutex
+//   X  We introduce a Mutex
 //
 //          pth__pthread_mode_mutex
 //

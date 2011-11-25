@@ -350,9 +350,55 @@ extern int    log_if_fd;
 #define MAX(a,b)  ((a) < (b) ? (b) : (a))
 #endif
 
-
+#ifndef ORIGINAL_BOGUS_DEFINITIONS
 #define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
 #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
+#else
+
+#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )						\
+    do {											\
+        pthread_mutex_lock(  &pth__pthread_mode_mutex  );					\
+												\
+	    /* Remove us from the set of RUNNING pthreads: */	 				\
+            pthread->mode = IS_BLOCKED;								\
+            --pth__running_pthreads_count;							\
+												\
+	    /* Protect 'arg' from the heapcleaner by making it a heapcleaner root: */		\
+            pthread->task->protected_c_arg = &(arg);						\
+												\
+	    /* If primary heapcleaning pthread can run now, tell it so: */			\
+            if (pth__it_is_heapcleaning_time							\
+            &&  pth__running_pthreads_count == 0						\
+            ){											\
+                pthread_cond_signal( &pth__no_running_pthreads_condvar );			\
+            }											\
+        pthread_mutex_unlock(  &pth__pthread_mode_mutex  );					\
+    } while (0)
+
+#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )						\
+    do {											\
+        /* First mutex is to prevent a BLOCKED pthread from */					\
+	/* resuming execution during a heapcleaning.        */   				\
+	/* NB: Must always acquire these two mutexes in the */					\
+	/* same order, to prevent deadlock!                 */					\
+												\
+	pthread_mutex_lock(   &pth__blocked_to_running_mutex  );				\
+	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );					\
+												\
+		/* Return us to the set of RUNNING pthreads: */					\
+		pthread->mode = IS_RUNNING;							\
+		++pth__running_pthreads_count;							\
+												\
+		/* Make 'arg' no longer be a heapcleaner root: */				\
+		pthread->task->protected_c_arg = &pthread->task->heapvoid;			\
+												\
+	    pthread_mutex_unlock(   &pth__pthread_mode_mutex   );				\
+	pthread_mutex_unlock(   &pth__blocked_to_running_mutex  );				\
+    } while (0)
+
+// NB: The above are long enough that they should
+// probably just be functions instead of macros.
+#endif
     //
     // For background comments see Note[1]
     //
