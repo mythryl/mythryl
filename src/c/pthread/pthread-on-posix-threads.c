@@ -801,6 +801,7 @@ int   pth__get_active_pthread_count   ()   {
 //
 //   o  We introduce in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 //      a global int      all_running_pthreads_must_enter_heapcleaning_mode;
+//      
 //
 //   o  We introduce in   src/c/pthread/pthread-on-posix-threads.c
 //      a   Mutex  pth__pthread_mode_mutex__global
