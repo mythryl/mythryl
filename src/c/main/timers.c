@@ -10,7 +10,6 @@
 #include "../mythryl-config.h"
 
 #include "runtime-base.h"
-#include "pthread-state.h"
 #include "runtime-timer.h"
 
 

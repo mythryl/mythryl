@@ -13,7 +13,7 @@
 //
 // This type appears only in  struct pthread  in
 //
-//     src/c/h/pthread-state.h
+//     src/c/h/runtime-base.h
 //
 typedef struct {
     //

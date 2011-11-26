@@ -34,9 +34,6 @@
 #include "heap-tags.h"
 #include "copy-loop.h"
 
-// #if NEED_PTHREAD_SUPPORT
-    #include "pthread-state.h"
-// #endif
 
 // Cleaner statistics:
 //

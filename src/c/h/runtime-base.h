@@ -137,7 +137,7 @@ typedef Int1 Status;
     typedef   Valchunk*   Val;					// Only place Valchunk type is used.
 #endif
 //
-typedef struct pthread_state_struct	Pthread;		// struct pthread_state_struct	def in   src/c/h/pthread-state.h
+typedef struct pthread_state_struct	Pthread;		// struct pthread_state_struct	def in   this file.
 typedef struct task			Task;			// struct task			def in   this file.
 typedef struct heap			Heap;			// struct heap			def in   src/c/h/heap.h
 
@@ -236,6 +236,87 @@ struct task {
 };
 
 
+
+
+// See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
+//
+typedef enum {
+    //
+    IS_RUNNING,			// Normal state of a running Mythryl pthread.
+    IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
+    IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
+    //
+} Pthread_Mode;
+    //
+    // Status of a Pthread: value of pthread->mode.	// pthread_state_struct is defined in   this file
+    //
+    // To switch a pthread between the two
+    // RUNNING modes, use the
+    //
+    //     RELEASE_MYTHRYL_HEAP		// IS_RUNNING  ->  IS_BLOCKED        state transition.
+    //     RECOVER_MYTHRYL_HEAP		// IS_BLOCKED        ->  IS_RUNNING  state transition.
+    //
+    // macros.
+
+
+///////////////////////////////////////////////////////////////////
+// State of a 'Pthread', the Mythryl wrapper for a
+// posix thread sharing access to the Mythryl heap.
+
+#include "system-dependent-signal-stuff.h"
+#include "system-signals.h"					// src/c/o/system-signals.h, created by src/c/config/generate-system-signals.h-for-posix-systems.c
+#include "runtime-timer.h"
+
+
+
+// The Pthread state vector:
+//
+struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread			def in   src/c/h/runtime-base.h
+    //
+    Heap* heap;		  					// The heap for this Mythryl task.
+								// 'Heap' is defined in	  src/c/h/runtime-base.h
+
+    Task* task;							// The state of the Mythryl task that is
+				        			// running on this Pthread.  Eventually	
+				        			// we will support multiple Mythryl tasks
+				        			// per Pthread.
+    // Signal related fields:
+    //
+    Bool	executing_mythryl_code;				// TRUE while executing Mythryl code.
+    Bool	posix_signal_pending;				// Is there a posix signal awaiting handling?
+    Bool	mythryl_handler_for_posix_signal_is_running;	// Is a Mythryl signal handler active? 
+    //
+    Signals_Seen_And_Done_Counts
+	all_posix_signals;					// Summary count for all system signals.
+    //
+    int		next_posix_signal_id;				// ID (e.g., SIGALRM) and 
+    int		next_posix_signal_count;			// count of next signal to handle.
+    //
+    Signals_Seen_And_Done_Counts
+	posix_signal_counts[ MAX_POSIX_SIGNALS ];		// Per-signal counts of pending signals.
+    //
+    int		posix_signal_rotor;				// Ihe index in previous of the next slot to check, round-robin style.
+    int		cleaning_signal_handler_state;			// State of the cleaner signal handler.
+
+    Time*	cpu_time_at_start_of_last_heapclean;		// The cumulative CPU time at the start of the last heapclean -- see src/c/main/timers.c
+    Time*	cumulative_cleaning_cpu_time;			// The cumulative cleaning time.
+
+    Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
+
+    #if NEED_PTHREAD_SUPPORT
+	Pthread_Mode  mode;					// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+								// Valid values for 'mode' are IS_RUNNING/IS_BLOCKED/IS_HEAPCLEANING/IS_VOID -- see src/c/h/runtime-base.h
+	Tid           tid;	       				// Our pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+	    //
+	    // NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
+	    // because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
+	    // we pass a pointer to task->pthread->pid as pthread_t*.
+	    //
+	    // Tid def is   typedef pthread_t Tid;   in   src/c/h/runtime-base.h
+
+    #endif
+};
 
 
 
@@ -430,27 +511,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     // NB: The production definitions of the above need to
     // increment/decrement ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL.
 
-
-// See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
-//
-typedef enum {
-    //
-    IS_RUNNING,			// Normal state of a running Mythryl pthread.
-    IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
-    IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
-    IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
-    //
-} Pthread_Mode;
-    //
-    // Status of a Pthread: value of pthread->mode.	// pthread_state_struct is defined in   src/c/h/pthread-state.h
-    //
-    // To switch a pthread between the two
-    // RUNNING modes, use the
-    //
-    //     RELEASE_MYTHRYL_HEAP		// IS_RUNNING  ->  IS_BLOCKED        state transition.
-    //     RECOVER_MYTHRYL_HEAP		// IS_BLOCKED        ->  IS_RUNNING  state transition.
-    //
-    // macros.
 
 
 

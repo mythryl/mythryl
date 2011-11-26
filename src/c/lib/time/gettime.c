@@ -9,7 +9,6 @@
 #include "runtime-base.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "pthread-state.h"
 #include "runtime-timer.h"
 #include "cfun-proto-list.h"
 

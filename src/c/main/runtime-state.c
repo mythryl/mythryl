@@ -5,7 +5,6 @@
 #include <stdarg.h>
 #include <string.h>
 #include "runtime-base.h"
-#include "pthread-state.h"
 #include "system-signals.h"
 #include "heap-tags.h"
 #include "runtime-values.h"
@@ -16,7 +15,7 @@
 #include "runtime-configuration.h"
 
 
-												// struct pthread_state_struct { 			def in   src/c/h/pthread-state.h
+												// struct pthread_state_struct { 			def in   src/c/h/runtime-base.h
 												// typedef struct pthread_state_struct	Pthread;	def in   src/c/h/runtime-base.h
 Pthread*   pthread_table__global[  MAX_PTHREADS  ];						// pthread_table__global[] is exported			via      src/c/h/runtime-base.h
     //     =====================

@@ -26,6 +26,9 @@
 
 #include "../mythryl-config.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -37,13 +40,13 @@
 #endif
 
 #include <ulocks.h>
+
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
 #include "runtime-globals.h"
-#include "pthread-state.h"
 
 // #define ARENA_FNAME  tmpnam(0)
 #define ARENA_FNAME  "/tmp/sml-mp.mutex-arena"

@@ -8,7 +8,6 @@
 #include <excpt.h>
 
 #include "runtime-base.h"
-#include "pthread-state.h"
 #include "runtime-globals.h"
 #include "system-dependent-signal-get-set-etc.h"
 #include "system-signals.h"

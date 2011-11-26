@@ -26,7 +26,6 @@
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "pthread-state.h"
 
 
 void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {	// pthread_table is always   pthread_table__global

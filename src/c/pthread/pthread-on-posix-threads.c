@@ -43,7 +43,6 @@
 #include "make-strings-and-vectors-etc.h"
 #include "heap-tags.h"
 #include "runtime-globals.h"
-#include "pthread-state.h"
 #include "heapcleaner.h"
 
 
@@ -896,7 +895,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //	    pthread->mode
 //
 //      of type Pthread_Mode in the
-//      pthread_state_struct def in   src/c/h/pthread-state.h
+//      pthread_state_struct def in   src/c/h/runtime-base.h
 //      
 //
 //   X  To signal RUNNING pthreads to enter HEAPCLEANING

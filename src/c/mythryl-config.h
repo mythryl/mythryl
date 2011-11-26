@@ -138,7 +138,7 @@
     // This needs to be at least one more than the
     // highest valid signal number on the host system.
     //
-    // This value gets used in    src/c/h/pthread-state.h
+    // This value gets used in    src/c/h/runtime-base.h
     // to size the                posix_signal_counts []
     // vector and in              src/c/main/runtime-state.c
     // and                        src/c/machine-dependent/signal-stuff.c

@@ -17,7 +17,6 @@
 #endif
 
 #include "runtime-base.h"
-#include "pthread-state.h"
 #include "runtime-timer.h"
 #include "win32-fault.h"
 #include "win32-timers.h"

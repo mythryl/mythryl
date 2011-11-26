@@ -1,9 +1,8 @@
 // generate-task-and-pthread-struct-field-offsets-h.c
 //
-// This C program analyses the Task and Pthread structs from (respectively)
+// This C program analyses the Task and Pthread structs from
 //
 //     src/c/h/runtime-base.h
-//     src/c/h/pthread-state.h
 //
 // and makes the
 // 
@@ -31,7 +30,6 @@
 #include "../mythryl-config.h"
 
 #include "runtime-base.h"
-#include "pthread-state.h"
 #include "header-file-autogeneration-stuff.h"
 
 #define    TASK_FIELD_BYTE_OFFSET(fld)	(((Punt)&(   task_union.s.fld)) - (Punt)&(   task_union.b[0]))

@@ -43,7 +43,6 @@ Includes:
 #include "runtime-globals.h"
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
-#include "pthread-state.h"
 #include "profiler-call-counts.h"
 
 #ifdef C_CALLS											// C_CALLS is nowhere defined; it is referenced only in this file and in   src/c/lib/mythryl-callable-c-libraries-list.h
