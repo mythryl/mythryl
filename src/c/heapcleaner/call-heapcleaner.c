@@ -155,7 +155,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    Pthread* pthread =  pthread_table__global[ j ];
 	    Task*    task    =  pthread->task;
 														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-	    if (pthread->mode != IS_VOID) {
+	    if (pthread->mode != PTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
@@ -373,7 +373,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	    task    = pthread->task;
 														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
-	    if (pthread->mode != IS_VOID) {
+	    if (pthread->mode != PTHREAD_IS_VOID) {
 		//
 		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;

@@ -242,10 +242,10 @@ struct task {
 //
 typedef enum {
     //
-    IS_RUNNING,			// Normal state of a running Mythryl pthread.
-    IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
-    IS_HEAPCLEANING,		// Pthread has suspended IS_RUNNING mode for duration of heapcleaning.
-    IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
+    PTHREAD_IS_RUNNING,			// Normal state of a running Mythryl pthread.
+    PTHREAD_IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
+    PTHREAD_IS_HEAPCLEANING,		// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning.
+    PTHREAD_IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //
 } Pthread_Mode;
     //
@@ -254,8 +254,8 @@ typedef enum {
     // To switch a pthread between the two
     // RUNNING modes, use the
     //
-    //     RELEASE_MYTHRYL_HEAP		// IS_RUNNING  ->  IS_BLOCKED        state transition.
-    //     RECOVER_MYTHRYL_HEAP		// IS_BLOCKED        ->  IS_RUNNING  state transition.
+    //     RELEASE_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING  ->  PTHREAD_IS_BLOCKED        state transition.
+    //     RECOVER_MYTHRYL_HEAP		// PTHREAD_IS_BLOCKED        ->  PTHREAD_IS_RUNNING  state transition.
     //
     // macros.
 
@@ -306,7 +306,7 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
 
     #if NEED_PTHREAD_SUPPORT
 	Pthread_Mode  mode;					// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
-								// Valid values for 'mode' are IS_RUNNING/IS_BLOCKED/IS_HEAPCLEANING/IS_VOID -- see src/c/h/runtime-base.h
+								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 	Tid           tid;	       				// Our pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
 	    // NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
@@ -378,7 +378,7 @@ extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def
 //
 // Our basic solution is that before doing such an op we
 // reliquish heap access rights by changing our pthread
-// status from IS_RUNNING to IS_BLOCKED;
+// status from PTHREAD_IS_RUNNING to PTHREAD_IS_BLOCKED;
 // the other pthreads then know we're out of the loop and can go
 // ahead and do a heapcleaning without us.
 //
@@ -386,7 +386,7 @@ extern void   set_up_fault_handlers ();											// set_up_fault_handlers			def
 // used by the slow system call or C function must therefor be
 // copied our of the Mythryl heap, since heapcleaning may move
 // them around arbitrarily without warning so long as we have
-// IS_BLOCKED set.
+// PTHREAD_IS_BLOCKED set.
 //
 // So here we implement functionality to copy values out of the
 // Mythryl heap.  Obviously, we cannot use static buffers, since
@@ -547,7 +547,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //
     extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__pthread_mode_mutex;					// Governs pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions			-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode PTHREAD_IS_BLOCKED -> PTHREAD_IS_RUNNING transitions			-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__heapcleaner_mutex;
     extern Mutex	    pth__heapcleaner_gen_mutex;
     extern Mutex	    pth__timer_mutex;
@@ -832,9 +832,9 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 //
 // Those macros can then explicitly remove the pthread from
 // the 'active' set (by changing pthread->mode from
-// IS_RUNNING to IS_BLOCKED) before
+// PTHREAD_IS_RUNNING to PTHREAD_IS_BLOCKED) before
 // the slow operation and then changing pthread->mode back to
-// IS_RUNNING afterward, with of course proper
+// PTHREAD_IS_RUNNING afterward, with of course proper
 // mutex protection on the latter to assure that the pthread
 // does not attempt to resume using the heap during heapcleaning.
 //

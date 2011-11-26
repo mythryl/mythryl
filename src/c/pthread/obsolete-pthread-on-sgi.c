@@ -363,7 +363,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new pthread:
 	//
 	for (i = 0;
-	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != IS_VOID);
+	    (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
 	    i++
 	){
 	    continue;
@@ -393,7 +393,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( closure_arg );
     p->current_thread	=  thread_arg;
   
-    if (pthread->mode == IS_VOID) {
+    if (pthread->mode == PTHREAD_IS_VOID) {
 	//
         // Assume we get one:
 
@@ -403,7 +403,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    //
 	    PTHREAD_LOG_IF ("[got a processor]\n");
 
-	    pthread->mode = IS_RUNNING;
+	    pthread->mode = PTHREAD_IS_RUNNING;
 
 	    // make_pthread will release MP_ProcLock.
 
@@ -418,7 +418,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     } else {
 
-	pthread->mode = IS_RUNNING;
+	pthread->mode = PTHREAD_IS_RUNNING;
 
 	PTHREAD_LOG_IF ("[reusing a processor]\n");
 
@@ -439,11 +439,11 @@ void   pth__pthread_exit   (Task* task)   {
 
     pth__mutex_lock(MP_ProcLock);
 
-    task->pthread->mode = IS_BLOCKED;
+    task->pthread->mode = PTHREAD_IS_BLOCKED;
 
     pth__mutex_unlock(MP_ProcLock);
 
-    while (task->pthread->mode == IS_BLOCKED) {
+    while (task->pthread->mode == PTHREAD_IS_BLOCKED) {
 	//
 	call_heapcleaner( task, 1 );										// Need to be continually available for garbage collection.
     }

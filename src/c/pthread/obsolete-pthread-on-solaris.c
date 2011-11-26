@@ -504,14 +504,14 @@ static void*   resume_pthread   (void* vtask)   {
 
     pth__mutex_lock(mp_pthread_mutex__local);
 
-    if (task->pthread->mode == IS_BLOCKED) {
+    if (task->pthread->mode == PTHREAD_IS_BLOCKED) {
 	//
 	// Proc only resumed to do a clean.
 	//
 
 	PTHREAD_LOG_IF ("resuming %d to perform a gc\n",task->pthread->pid);
 
-	task->pthread->mode == IS_HEAPCLEANING;
+	task->pthread->mode == PTHREAD_IS_HEAPCLEANING;
 
 	pth__mutex_unlock( mp_pthread_mutex__local );
 
@@ -580,7 +580,7 @@ static void   suspend_pthread   (Task* task) {
 
     // Check if pthread has actually been suspended:
     //
-    if (task->pthread->mode != IS_BLOCKED) {
+    if (task->pthread->mode != PTHREAD_IS_BLOCKED) {
 	//
 	PTHREAD_LOG_IF ("proc state is not PROC_SUSPENDED; not suspended");
 
@@ -692,7 +692,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// Search for a slot in which to put a new proc:
         //
 	for (  i = 0;
-	      (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != IS_VOID);
+	      (i < MAX_PTHREADS)  &&  (pthread_table__global[i]->status != PTHREAD_IS_VOID);
 	       i++
             );
 
@@ -726,7 +726,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
     p->program_counter	= 
     p->link_register	=  GET_CODE_ADDRESS_FROM_CLOSURE( f );
 
-    if (pthread->mode == IS_VOID) {
+    if (pthread->mode == PTHREAD_IS_VOID) {
         //
 	Pid  procId;
 
@@ -738,7 +738,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	    //
 	    PTHREAD_LOG_IF ("[got a processor: %d,]\n",procId);
 
-	    pthread->mode = IS_RUNNING;
+	    pthread->mode = PTHREAD_IS_RUNNING;
 	    pthread->pid = procId;
 
 	    // make_pthread will release mp_pthread_mutex__local.
@@ -757,7 +757,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	// The thread executing the processor
 	// has already been invoked:
 
-	pthread->mode = IS_RUNNING;
+	pthread->mode = PTHREAD_IS_RUNNING;
 
 	PTHREAD_LOG_IF ("[reusing a processor %d]\n", pthread->pid);
 
