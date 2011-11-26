@@ -236,9 +236,17 @@ struct task {
 };
 
 
+// Type for our pth__heapcleaner_state global:
+//
+typedef enum {
+    //
+    HEAPCLEANER_IS_OFF,			// No heapcleaner activity; all pthreads running mythryl code (or blocked).
+    HEAPCLEANER_IS_STARTING,		// One pthread has set mode = PTHREAD_IS_HEAPCLEANING and become primary heapcleaner; it is waiting for PTHREAD_IS_RUNNING count to drop to zero.
+    HEAPCLEANER_IS_RUNNING		// No PTHREAD_IS_RUNNING pthreads; primary heapcleaner pthread is heapcleaning, secondary mode = PTHREAD_IS_HEAPCLEANING pthreads are waiting for it to finish and set HEAPCLEANER_IS_OFF.
+    //
+} Heapcleaner_Mode;
 
-
-// See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
+// Type of a pthread->mode field:
 //
 typedef enum {
     //
@@ -249,15 +257,14 @@ typedef enum {
     //
 } Pthread_Mode;
     //
-    // Status of a Pthread: value of pthread->mode.	// pthread_state_struct is defined in   this file
+    // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
+    // Mode of a Pthread.		// pthread_state_struct is defined in   this file
     //
     // To switch a pthread between the two
-    // RUNNING modes, use the
+    // RUNNING modes, use the macros
     //
-    //     RELEASE_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING  ->  PTHREAD_IS_BLOCKED        state transition.
-    //     RECOVER_MYTHRYL_HEAP		// PTHREAD_IS_BLOCKED        ->  PTHREAD_IS_RUNNING  state transition.
-    //
-    // macros.
+    //     RELEASE_MYTHRYL_HEAP		// PTHREAD_IS_RUNNING  ->  PTHREAD_IS_BLOCKED  state transition.
+    //     RECOVER_MYTHRYL_HEAP		// PTHREAD_IS_BLOCKED  ->  PTHREAD_IS_RUNNING  state transition.
 
 
 ///////////////////////////////////////////////////////////////////
