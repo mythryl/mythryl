@@ -13,6 +13,14 @@
 
 
 
+/*
+###                "Light is the task when many share the toil."
+###
+###                                 -- Homer, circa 750BC
+*/
+
+
+
 #include "../mythryl-config.h"
 
 #include <stdio.h>

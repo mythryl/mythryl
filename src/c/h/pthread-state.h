@@ -5,18 +5,9 @@
 
 
 
-/*
-###                "Light is the task when many share the toil."
-###
-###                                 -- Homer, circa 750BC
-*/
-
-
-
 #ifndef PTHREAD_STATE_H
 #define PTHREAD_STATE_H
 
-#include <pthread.h>
 
 #include "runtime-base.h"
 #include "system-dependent-signal-stuff.h"
