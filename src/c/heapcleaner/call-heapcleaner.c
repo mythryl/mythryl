@@ -45,8 +45,8 @@ Includes:
 #include "heapcleaner-statistics.h"
 #include "profiler-call-counts.h"
 
-#ifdef C_CALLS											// C_CALLS is nowhere defined; it is referenced only in this file and in   src/c/lib/mythryl-callable-c-libraries-list.h
-extern Val	mythryl_functions_referenced_from_c_code__global;				// mythryl_functions_referenced_from_c_code__global	def in   src/c/lib/ccalls/ccalls-fns.c
+#ifdef C_CALLS													// C_CALLS is nowhere defined; it is referenced only in this file and in   src/c/lib/mythryl-callable-c-libraries-list.h
+extern Val	mythryl_functions_referenced_from_c_code__global;						// mythryl_functions_referenced_from_c_code__global	def in   src/c/lib/ccalls/ccalls-fns.c
     //
     // This is a list of pointers into the C heap locations that hold
     // pointers to Mythryl functions. This list is not part of any Mythryl data
@@ -61,30 +61,30 @@ void   call_heapcleaner   (Task* task,  int level) {
     // 0, or if agegroup0 full after cleaning, we also clean
     // one or more additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
-    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];							// Registers and globals.
+    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];									// Registers and globals.
     Val** roots_ptr = roots;
     Heap* heap;
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );			// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
-												// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
-												//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
+														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
+														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
-    #if NEED_PTHREAD_SUPPORT									// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
+    #if NEED_PTHREAD_SUPPORT											// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
     if (pth__done_pthread_create) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a designated pthread to do the heapcleaning work.
 	// That pthread returns and falls into the regular heapcleaning code;
 	// the remainder block at a barrier until heapcleaning is complete:
-												PTHREAD_LOG_IF ("initiating heapcleaning mode tid d=%d\n", task->pthread->tid);
+														PTHREAD_LOG_IF ("initiating heapcleaning mode tid d=%d\n", task->pthread->tid);
 	//
-	if (!pth__start_heapcleaning( task )) {							// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	if (!pth__start_heapcleaning( task )) {									// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
 	    // Return value was FALSE, so we're not the designated heapcleaner pthread,
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );			// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );					// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -103,7 +103,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
     #endif
 
-    note_when_heapcleaning_started( task->heap );						// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
@@ -126,11 +126,14 @@ void   call_heapcleaner   (Task* task,  int level) {
     // low-level special-case stuff like the signal handler,
     // runtime (pseudo-)package, pervasives etc:
     //
-    for (int i = 0;  i < c_roots_count__global;  i++)   {					// c_roots_count__global		def in   src/c/main/construct-runtime-package.c
+    for (int i = 0;  i < c_roots_count__global;  i++)   {							// c_roots_count__global		def in   src/c/main/construct-runtime-package.c
 	//
-	*roots_ptr++ =  c_roots__global[ i ];							// c_roots__global			def in   src/c/main/construct-runtime-package.c
+	*roots_ptr++ =  c_roots__global[ i ];									// c_roots__global			def in   src/c/main/construct-runtime-package.c
     }
 
+    // Note heapcleaner roots from the register set(s)
+    // of the live Mythryl pthread task(s):
+    //
     #if NEED_PTHREAD_SUPPORT
     if (!pth__done_pthread_create) {
 	//	
@@ -143,22 +146,18 @@ void   call_heapcleaner   (Task* task,  int level) {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
+	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
 	//
-    } else {											// NEED_PTHREAD_SUPPORT
+    } else {													// NEED_PTHREAD_SUPPORT
 	//
-	Pthread*  pthread;
-	Task*     task;
-
 	for (int j = 0;  j < MAX_PTHREADS;  j++) {
 	    //
-	    pthread = pthread_table__global[ j ];
-
-	    task = pthread->task;
-												PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+	    Pthread* pthread =  pthread_table__global[ j ];
+	    Task*    task    =  pthread->task;
+														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->mode != IS_VOID) {
 		//
-		*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
@@ -167,15 +166,15 @@ void   call_heapcleaner   (Task* task,  int level) {
 		*roots_ptr++ =  &task->callee_saved_registers[0];
 		*roots_ptr++ =  &task->callee_saved_registers[1];
 		*roots_ptr++ =  &task->callee_saved_registers[2];
-		*roots_ptr++ =   task->protected_c_arg;						// No '&' on this one -- it is a pointer to the value being protected.
+		*roots_ptr++ =   task->protected_c_arg;								// No '&' on this one -- it is a pointer to the value being protected.
 	    }
 	}
     }
-    #endif											// NEED_PTHREAD_SUPPORT
+    #endif													// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
-    heapclean_agegroup0( task, roots );								// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
+    heapclean_agegroup0( task, roots );										// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -196,10 +195,10 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    //
 	    Sib* sib =  age1->sib[ i ];
 
-	    if (sib_is_active( sib )								// sib_is_active		def in    src/c/h/heap.h
-            &&  sib_freespace_in_bytes( sib ) < size						// sib_freespace_in_bytes	def in    src/c/h/heap.h
+	    if (sib_is_active( sib )										// sib_is_active		def in    src/c/h/heap.h
+            &&  sib_freespace_in_bytes( sib ) < size								// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
-		level = 1;									// Commit to multigeneration heapcleaning.
+		level = 1;											// Commit to multigeneration heapcleaning.
 		break;
 	    }
 	}
@@ -209,26 +208,26 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	*roots_ptr = NULL;
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );					// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
 
-	heapclean_n_agegroups( task, roots, level );							// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
+	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
     // Reset the generation0 allocation pointers:
     //
-    #if NEED_PTHREAD_SUPPORT										// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
+    #if NEED_PTHREAD_SUPPORT											// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
     if (pth__done_pthread_create) {
 	//
-	pth__finish_heapcleaning( task );								// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
+	pth__finish_heapcleaning( task );									// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
     } else {
 	//
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
 	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );				// Set heap limit to obvious value.
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );					// Set heap limit to obvious value.
 	#else
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );			// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
+	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );				// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
 	#endif
     }
     #else	// Same as }else{ clause above:
@@ -237,16 +236,16 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );				// Set heap limit to obvious value.
+	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );					// Set heap limit to obvious value.
 	#else
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );			// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
+	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );				// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
 	#endif
     }
     #endif
 
-    note_when_cleaning_completed();									// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );					// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );						// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			                                             // fun call_heapcleaner
 
 
@@ -262,7 +261,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // NOTE: the multicore version of this may be BROKEN, since if a processor calls this
     // but isn't the collecting process, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
 
-    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];	// registers and globals
+    Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];					// registers and globals
     Val** roots_ptr = roots;
     Val*  p;
     Heap* heap;
@@ -308,7 +307,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     }
     #endif
 
-    note_when_heapcleaning_started( task->heap );								// note_when_heapcleaning_started	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_began( task->heap );									// note_when_heapcleaning_began	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     #ifdef C_CALLS
 	*roots_ptr++ = &mythryl_functions_referenced_from_c_code__global;
@@ -317,7 +316,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create) {
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
-        // Our extra roots were placed in pth__extra_heapcleaner_roots__global by pth__call_heapcleaner_with_extra_roots.
+        // Our extra roots were placed in pth__extra_heapcleaner_roots__global
+        // by pth__call_heapcleaner_with_extra_roots.
         //
 	for (int i = 0;  pth__extra_heapcleaner_roots__global[i] != NULL;  i++) {
 	    //
@@ -347,15 +347,20 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	}
 	va_end(ap);
     }
-    #endif											// NEED_PTHREAD_SUPPORT
+    #endif													// NEED_PTHREAD_SUPPORT
 
-    // Gather the roots:
+    // Note a few C-level pointers into the Mythryl heap --
+    // low-level special-case stuff like the signal handler,
+    // runtime (pseudo-)package, pervasives etc:
     //
     for (int i = 0;  i < c_roots_count__global;  i++) {
 	//
 	*roots_ptr++ =  c_roots__global[ i ];
     }
 
+    // Note heapcleaner roots from the register set(s)
+    // of the live Mythryl pthread task(s):
+    //
     #if NEED_PTHREAD_SUPPORT
     if (pth__done_pthread_create) {
 	//
@@ -367,10 +372,10 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    pthread = pthread_table__global[ j ];
 
 	    task    = pthread->task;
-												PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
+														PTHREAD_LOG_IF ("task[%d] alloc/limit was %x/%x\n", j, task->heap_allocation_pointer, task->heap_allocation_limit);
 	    if (pthread->mode != IS_VOID) {
 		//
-		*roots_ptr++ =  &task->link_register;						// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+		*roots_ptr++ =  &task->link_register;								// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 		*roots_ptr++ =  &task->argument;
 		*roots_ptr++ =  &task->fate;
 		*roots_ptr++ =  &task->current_closure;
@@ -379,13 +384,13 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		*roots_ptr++ =  &task->callee_saved_registers[ 0 ];
 		*roots_ptr++ =  &task->callee_saved_registers[ 1 ];
 		*roots_ptr++ =  &task->callee_saved_registers[ 2 ];
-		*roots_ptr++ =   task->protected_c_arg;						// No '&' on this one -- it is a pointer to the value being protected.
+		*roots_ptr++ =   task->protected_c_arg;								// No '&' on this one -- it is a pointer to the value being protected.
 	    }
 	}
 
     } else {
 	//
-	*roots_ptr++ =  &task->link_register;							// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
+	*roots_ptr++ =  &task->link_register;									// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
 	*roots_ptr++ =  &task->argument;
 	*roots_ptr++ =  &task->fate;
 	*roots_ptr++ =  &task->current_closure;
@@ -394,9 +399,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
+	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
     }
-    #else	// Same as }else{ clause above.		// NEED_PTHREAD_SUPPORT
+    #else	// Same as }else{ clause above.									// NEED_PTHREAD_SUPPORT
 	//
 	*roots_ptr++ =  &task->link_register;
 	*roots_ptr++ =  &task->argument;
@@ -407,12 +412,12 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	*roots_ptr++ =  &task->callee_saved_registers[0];
 	*roots_ptr++ =  &task->callee_saved_registers[1];
 	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;							// No '&' on this one -- it is a pointer to the value being protected.
-    #endif						// NEED_PTHREAD_SUPPORT
+	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
+    #endif													// NEED_PTHREAD_SUPPORT
 
     *roots_ptr = NULL;
 
-    heapclean_agegroup0( task, roots );			// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
+    heapclean_agegroup0( task, roots );										// heapclean_agegroup0	is from   src/c/heapcleaner/heapclean-agegroup0.c
 
     heap = task->heap;
 
@@ -433,8 +438,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    //
 	    Sib* sib = age1->sib[ i ];
 	    //
-	    if (sib_is_active( sib )							// sib_is_active		def in    src/c/h/heap.h
-            && (sib_freespace_in_bytes( sib ) < size)					// sib_freespace_in_bytes	def in    src/c/h/heap.h
+	    if (sib_is_active( sib )										// sib_is_active		def in    src/c/h/heap.h
+            && (sib_freespace_in_bytes( sib ) < size)								// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
 		level = 1;
 		break;
@@ -444,9 +449,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );				// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );					// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
 
-	heapclean_n_agegroups( task, roots, level );							// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
+	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
     // Reset agegroup0 buffer:
@@ -476,7 +481,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
     #endif
 
-    note_when_cleaning_completed();										// note_when_cleaning_completed	def in    src/c/heapcleaner/heapcleaner-statistics.h
+    note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );
 }														// fun call_heapcleaner_with_extra_roots
@@ -506,7 +511,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 // There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
     if (pth__done_pthread_create) {
 	//
-        if (pth__it_is_heapcleaning_time)   return TRUE;
+        if (pth__heapcleaner_state)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

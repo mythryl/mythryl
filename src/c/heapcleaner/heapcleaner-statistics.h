@@ -17,15 +17,15 @@
 
 #if !NEED_HEAPCLEANER_PAUSE_STATISTICS
     //
-    inline void   note_when_heapcleaning_started            (Heap* heap)               {}
-    inline void   note_when_cleaning_completed          (void)                     {}
+    inline void   note_when_heapcleaning_began                    (Heap* heap)              {}
+    inline void   note_when_heapcleaning_ended                    (void)                    {}
     inline void   note_active_agegroups_count_for_this_timesample (Unt1 active_agegroups)   {} 
 
 #else					// NEED_HEAPCLEANER_PAUSE_STATISTICS
 
    
-    inline void   note_when_heapcleaning_started   (Heap* heap)   {
-        //        ==============================
+    inline void   note_when_heapcleaning_began   (Heap* heap)   {
+        //        ============================
 	//
         // Called (only) from:    src/c/heapcleaner/call-heapcleaner.c
 
@@ -33,7 +33,7 @@
 	    //
 	    Heapcleaner_Statistics* stats										// Heapcleaner_Statistics		def in    src/c/h/heapcleaner-statistics-2.h
 		=
-		&heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ];						// heapcleaner_statistics_buffer__global		def in    src/c/heapcleaner/heapcleaner-initialization.c
+		&heapcleaner_statistics_buffer__global[ heapcleaner_statistics_buffer_record_count__global ];		// heapcleaner_statistics_buffer__global		def in    src/c/heapcleaner/heapcleaner-initialization.c
 
 	    Punt  bytes
 		=
@@ -53,7 +53,7 @@
 	}
     }
 
-    inline void   note_when_cleaning_completed   (void)   {
+    inline void   note_when_heapcleaning_ended   (void)   {
         //
         // Called (only) from:    src/c/heapcleaner/call-heapcleaner.c
 	//

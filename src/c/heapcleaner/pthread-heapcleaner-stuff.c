@@ -147,7 +147,7 @@ static Val** extra_cleaner_roots__local;
 
 
 int   pth__start_heapcleaning   (Task *task) {
-    //======================
+    //=======================
     //
     // This fn is called only from
     //
@@ -196,9 +196,14 @@ int   pth__start_heapcleaning   (Task *task) {
 	// as well as signalling the other threads to enter
 	// heapcleaning mode. 
         //
-        pth__extra_heapcleaner_roots__global[0] =  NULL;					// No extra roots supplied. 
 
-        extra_cleaner_roots__local =  pth__extra_heapcleaner_roots__global;			// Why this assignment?  This global is not otherwise referenced in this fn.
+	// Clear extra-roots buffer.  This buffer gets appended to (only)
+	// in pth__call_heapcleaner_with_extra_roots (below) -- other
+	// pthreads may append to it as they arrive even though we don't:
+	//
+        pth__extra_heapcleaner_roots__global[0] =  NULL;					// No extra roots supplied. 
+	//
+        extra_cleaner_roots__local =  pth__extra_heapcleaner_roots__global;
 
 	// I'm guessing the point of this is to get the other
 	// pthreads to enter heapcleaning mode pronto:			-- 2011-11-02 CrT
@@ -349,6 +354,10 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
 	//
 	if (pthreads_ready_to_clean__local++ == 0) {
+	    //
+	    // Clear extra-roots buffer.  We'll (presumably) append some
+	    // roots to this buffer, and other pthreads may do so also
+	    // as they arrive:
 	    //
 	    extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;
 

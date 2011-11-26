@@ -449,7 +449,7 @@ extern int   pth__done_pthread_create;
     // We can use simple mutex-free monothread logic in
     // the heapcleaner (etc) so long as this is FALSE.
 
-extern int  pth__it_is_heapcleaning_time;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+extern int  pth__heapcleaner_state;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
 extern int  pth__running_pthreads_count;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
@@ -545,9 +545,9 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     ////////////////////////////////////////////////////////////////////////////
     // Statically pre-allocated mutexs, barriers and condition variables:
     //
-    extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this                                  			    -- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__pthread_mode_mutex;				// Governs pthread->mode, pth__it_is_heapcleaning_time, pth__running_pthreads_count -- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__blocked_to_running_mutex;			// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions                			    -- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__pthread_mode_mutex;					// Governs pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode IS_BLOCKED -> IS_RUNNING transitions			-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__heapcleaner_mutex;
     extern Mutex	    pth__heapcleaner_gen_mutex;
     extern Mutex	    pth__timer_mutex;
