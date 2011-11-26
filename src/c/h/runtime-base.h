@@ -493,24 +493,32 @@ extern int    log_if_fd;
 #define MAX(a,b)  ((a) < (b) ? (b) : (a))
 #endif
 
-#ifndef ORIGINAL_BOGUS_DEFINITIONS
-#define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
-#define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
-#else
 
+
+///////////////////////////////////////////////////////////////////////////////
+// We wrap C system calls in
+//   RELEASE_MYTHRYL_HEAP
+//   RECOVER_MYTHRYL_HEAP
+// calls.  This has the effect of removing
+// the blocked pthread from the set of RUNNING
+// pthreads, allowing the remaining pthreads
+// to do heapcleanings ("garbage collections")
+// in a timely manner:
+//
 extern void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  );		// release_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
 extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name             );		// recover_mythryl_heap		def in   src/c/pthread/pthread-on-posix-threads.c
-
+//
 #define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )	release_mythryl_heap(  pthread,  fn_name,  &arg  )
 #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name         )
-
-#endif
     //
     // For background comments see Note[1]
     //
     // NB: The production definitions of the above need to
     // increment/decrement ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL.
-
+    //
+    // Original null defs:
+    // #define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
+    // #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
 
 
 
