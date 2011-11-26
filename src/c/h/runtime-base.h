@@ -244,7 +244,7 @@ typedef enum {
     HEAPCLEANER_IS_STARTING,		// One pthread has set mode = PTHREAD_IS_HEAPCLEANING and become primary heapcleaner; it is waiting for PTHREAD_IS_RUNNING count to drop to zero.
     HEAPCLEANER_IS_RUNNING		// No PTHREAD_IS_RUNNING pthreads; primary heapcleaner pthread is heapcleaning, secondary mode = PTHREAD_IS_HEAPCLEANING pthreads are waiting for it to finish and set HEAPCLEANER_IS_OFF.
     //
-} Heapcleaner_Mode;
+} Heapcleaner_State;
 
 // Type of a pthread->mode field:
 //
@@ -456,8 +456,8 @@ extern int   pth__done_pthread_create;
     // We can use simple mutex-free monothread logic in
     // the heapcleaner (etc) so long as this is FALSE.
 
-extern int  pth__heapcleaner_state;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
-extern int  pth__running_pthreads_count;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+extern Heapcleaner_State  pth__heapcleaner_state;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+extern int                pth__running_pthreads_count;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
@@ -554,7 +554,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //
     extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__pthread_mode_mutex;					// Governs pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode PTHREAD_IS_BLOCKED -> PTHREAD_IS_RUNNING transitions			-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode PTHREAD_IS_BLOCKED -> PTHREAD_IS_RUNNING transitions	-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__heapcleaner_mutex;
     extern Mutex	    pth__heapcleaner_gen_mutex;
     extern Mutex	    pth__timer_mutex;
