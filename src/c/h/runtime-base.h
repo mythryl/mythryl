@@ -552,8 +552,8 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     ////////////////////////////////////////////////////////////////////////////
     // Statically pre-allocated mutexs, barriers and condition variables:
     //
-    extern Condvar	    pth__no_running_pthreads_condvar_condvar__global;		// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__pthread_mode_mutex;					// Governs pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Condvar	    pth__pthread_mode_condvar;					// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__blocked_to_running_mutex;				// Governs pthread->mode PTHREAD_IS_BLOCKED -> PTHREAD_IS_RUNNING transitions	-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Mutex	    pth__heapcleaner_mutex;
     extern Mutex	    pth__heapcleaner_gen_mutex;

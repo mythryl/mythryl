@@ -83,7 +83,7 @@ int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- se
 		    //     pth__heapcleaner_state
 		    //     pth__running_pthreads_count
 		    // When setting pth__running_pthreads_count to zero,
-		    // must signal pth__no_running_pthreads_condvar
+		    // must signal pth__pthread_mode_condvar
 		    // if pth__heapcleaner_state is not HEAPCLEANER_IS_OFF
 		    // this lets the primary heapcleaner pthread
 		    // start heapcleaning.
@@ -97,7 +97,7 @@ int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- se
  		    // garbage collection to prevent blocked threads from
 		    // waking up and attempting to use the Mythryl heap.
 
-        Condvar	 pth__no_running_pthreads_condvar	= PTHREAD_COND_INITIALIZER;		
+        Condvar	 pth__pthread_mode_condvar	= PTHREAD_COND_INITIALIZER;		
 		    //
 		    // The primary heapcleaner pthread (i.e., the pthread
 		    // that decided to initiate heapcleaning) waits on
@@ -596,7 +596,7 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF
 	&&  pth__running_pthreads_count == 0
 	){
-	    pthread_cond_signal( &pth__no_running_pthreads_condvar );
+	    pthread_cond_signal( &pth__pthread_mode_condvar );
 	}
     pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 }
@@ -947,7 +947,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //
 //   o  We introduce a Condvar
 //
-//          pth__no_running_pthreads_condvar
+//          pth__pthread_mode_condvar
 //
 //      in   src/c/pthread/pthread-on-posix-threads.c
 //      which the primary heapcleaning pthread waits
@@ -995,7 +995,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //                 if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF
 //                 &&  pth__running_pthreads_count == 0
 //                 ){
-//                     pthread_cond_signal( &pth__no_running_pthreads_condvar );		// This lets the primary heapcleaning pthread start heapcleaning.	
+//                     pthread_cond_signal( &pth__pthread_mode_condvar );		// This lets the primary heapcleaning pthread start heapcleaning.	
 //                 }
 //             pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 //      
@@ -1032,7 +1032,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //                 pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;				// Signal other running threads to enter heapcleaning mode.
 //
 //                 pthread_cond_wait(								// Wait until no running pthreads are left.
-//                    &pth__no_running_pthreads_condvar,
+//                    &pth__pthread_mode_condvar,
 //                    &pth__pthread_mode_mutex							// Release this while waiting, so PTHREAD_IS_RUNNING pthreads can enter PTHREAD_IS_HEAPCLEANING mode.
 //                 );
 //
@@ -1063,7 +1063,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //              pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 //          } else {
 //             pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
-//             pthread_cond_broadcast(  &pth__no_running_pthreads_condvar  );			// Signal primary heapcleaner pthread to start heapcleaning.
+//             pthread_cond_broadcast(  &pth__pthread_mode_condvar  );			// Signal primary heapcleaner pthread to start heapcleaning.
 //          }
 //          pthread_barrier_wait(  &pth__pthread_mode_mutex  );					// Wait until heapcleaning is complete
 //          pthread_mutex_lock(  &pth__pthread_mode_mutex  );
