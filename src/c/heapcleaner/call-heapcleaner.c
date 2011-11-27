@@ -73,14 +73,14 @@ void   call_heapcleaner   (Task* task,  int level) {
     if (pth__done_pthread_create) {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
-	// select a designated pthread to do the heapcleaning work.
+	// select a PRIMARY_HEAPCLEANER pthread to do the heapcleaning work.
 	// That pthread returns and falls into the regular heapcleaning code;
-	// the remainder block at a barrier until heapcleaning is complete:
+	// the remainder wait until heapcleaning is complete:
 														PTHREAD_LOG_IF ("initiating heapcleaning mode tid d=%d\n", task->pthread->tid);
 	//
 	if (!pth__start_heapcleaning( task )) {									// pth__start_heapcleaning		def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	    //
-	    // Return value was FALSE, so we're not the designated heapcleaner pthread,
+	    // Return value was FALSE, so we were a SECONDARY_HEAPCLEANER pthread,
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
@@ -91,12 +91,29 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	// At this point we know that
 	// 
-	//     1) We're the designated heapcleaner pthread.
+	//     1) We are the PRIMARY_HEAPCLEANER pthread.
 	// 
-	//     2) All other pthreads have now suspended execution of
-	//        user code and are barrier-blocked waiting for us to
-	//	  release them via the final pth__finish_heapcleaning()
-	//        call below.
+	//     2) No (other) pthreads are using the Mythryl heap, so it is safe
+	//        to run the heapcleaner code, re-arranging the Mythryl heap.
+	//
+	// In more detail, the other threads are all
+	// at this point in one of two modes:
+	//
+	//     A) pthread->mode == PTHREAD_IS_BLOCKED
+	//
+	//        These threads will not touch the Mythryl heap until we set
+	//            pth__heapcleaner_state = HEAPCLEANER_IS_OFF
+        //        thanks to the pthread_cond_wait() loop in
+	//            recover_mythryl_heap()
+	//        in src/c/pthread/pthread-on-posix-threads.c
+	// 
+	//     B) pthread->mode == PTHREAD_IS_SECONDARY_HEAPCLEANER
+	//
+	//	  These theads also will not touch the Mythryl heap until we set
+	//            pth__heapcleaner_state = HEAPCLEANER_IS_OFF
+	//        thanks here to the pthread_cond_wait() loop in
+	//            pth__start_heapcleaning()
+	//        in src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	// 
 	// Consequently, at this point we can safely just fall
 	// into the vanilla single-threaded heapcleaning code:
@@ -276,15 +293,15 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
 	va_start (ap, level);
 
-	int we_are_the_designated_heapcleaner_pthread
+	int we_are_the_primary_heapcleaner_pthread
 	    =
 	    pth__call_heapcleaner_with_extra_roots (task, ap);							// pth__call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 	va_end(ap);
 
-	if (!we_are_the_designated_heapcleaner_pthread)	{
+	if (!we_are_the_primary_heapcleaner_pthread)	{
 	    //
-	    // We are not the designated heapcleaner pthread, and our
+	    // We are not the primary heapcleaner pthread, and our
 	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
@@ -295,10 +312,10 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	// At this point we know that
 	// 
-	//     1) We're the designated heapcleaner pthread.
+	//     1) We're the primary heapcleaner pthread.
 	// 
 	//     2) All other pthreads have now suspended execution of
-	//        user code and are barrier-blocked waiting for us to
+	//        user code and are blocked waiting for us to
 	//	  release them via the final pth__finish_heapcleaning()
 	//        call below.
 	// 
