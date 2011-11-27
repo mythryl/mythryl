@@ -572,7 +572,7 @@ int   pth__get_active_pthread_count   ()   {
 void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
     //
     pthread_mutex_lock(  &pth__pthread_mode_mutex  );
-
+	//
 	// Remove us from the set of RUNNING pthreads:
 	//
 	pthread->mode = PTHREAD_IS_BLOCKED;
@@ -581,36 +581,28 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 	// Protect 'arg' from the heapcleaner by making it a heapcleaner root:
 	//
 	pthread->task->protected_c_arg = arg;
-
-	// If primary heapcleaning pthread can run now, tell it so:
 	//
-	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF
-	&&  pth__running_pthreads_count == 0
-	){
-	    pthread_cond_signal( &pth__pthread_mode_condvar );
-	}
+	pthread_cond_signal( &pth__pthread_mode_condvar );				// Tell other pthreads that shared state has changed.
+	//
     pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 }
 
 void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
     //
-    // First mutex is to prevent a BLOCKED pthread from
-    // resuming execution during a heapcleaning.
-
-    // NB: Must always acquire these two mutexes in the
-    // same order, to prevent deadlock!
-
     pthread_mutex_lock(   &pth__pthread_mode_mutex  );
-
-	// Return us to the set of RUNNING pthreads:
 	//
-	pthread->mode = PTHREAD_IS_RUNNING;
+	while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Don't re-enter RUNNING mode while a heapcleaning is in progress.
+	    //
+	    pthread_cond_wait( &pth__pthread_mode_condvar, &pth__pthread_mode_mutex );
+	}
+	//
+	pthread->mode = PTHREAD_IS_RUNNING;						// Return us to the set of RUNNING pthreads.
 	++pth__running_pthreads_count;
-
-	// Make 'arg' no longer be a heapcleaner root:
 	//
-	pthread->task->protected_c_arg = &pthread->task->heapvoid;
-
+	pthread->task->protected_c_arg = &pthread->task->heapvoid;			// Make 'arg' no longer be a heapcleaner root.
+	//
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Tell other pthreads that shared state has changed.
+	//
     pthread_mutex_unlock(   &pth__pthread_mode_mutex   );
 }
 
