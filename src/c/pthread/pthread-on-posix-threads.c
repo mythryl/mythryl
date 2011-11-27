@@ -978,10 +978,12 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //   o  The heapcleaning-initiation logic is then:
 //
 //	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
-//		if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {					// Heapcleaning has already started, so we are a secondary heapcleaner pthread --
-//		    //											// we merely wait() while the primary heapcleaning pthread does the actual work.
+//		if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+//		    ////////////////////////////////////////////////////////////
+//		    // We're a secondary heapcleaner -- we'll do no actual work:
+//		    ////////////////////////////////////////////////////////////
 //		    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLENING mode.
-//		    --pth__running_pthreads_count;
+//		    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
 //		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
 //		    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
 //			pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
@@ -993,7 +995,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //		    return FALSE;									// Resume running user code.
 //		}
 //		/////////////////////////////////////////////////////////////
-//		// We're the primary heapcleaner -- we'll do the actual work.
+//		// We're the primary heapcleaner -- we'll do the actual work:
 //		/////////////////////////////////////////////////////////////
 //		pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal other running threads to enter heapcleaning mode.
 //		pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
@@ -1007,7 +1009,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //	    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );						// Not currently required, but holding a mutex for a long time is a bad habit.
 //	    return TRUE;										// Return and run heapcleaner code.
 //
-//      NB: When caller completes heapcleaning, must do:
+//      NB: When our caller completes heapcleaning, it must do:
 //
 //	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
 //		pth__heapcleaner_state = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
