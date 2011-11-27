@@ -836,12 +836,13 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //                   Mythryl heap, so heapcleaning can proceed
 //                   safely.
 //
-//    PTHREAD_IS_HEAPCLEANING:
-//                   Pthread has detected that the global statevar
-//                   pth__heapcleaner_state != HEAPCLEANER_IS_OFF
-//                   and has responded by ceasing execution of
-//                   user Mythryl code and entered into a quiescent
-//                   state allowing heapcleaning to proceed.
+//    PTHREAD_IS_PRIMARY_HEAPCLEANER:
+//    PTHREAD_IS_SECONDARY_HEAPCLEANER:
+//		     Pthread has suspended execution for the duration
+//		     of a heapcleaning.  The initiating pthread goes to state
+//                   PTHREAD_IS_PRIMARY_HEAPCLEANER and does all the actual work;
+//                   the remaining RUNNING pthreads go to state
+//                   PTHREAD_IS_SECONDARY_HEAPCLEANER and do no actual work.
 //                   
 // 
 // The idea is then that when heapcleaning is necessary we
@@ -858,9 +859,10 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      records on the heap moving to new addresses.)
 // 
 //   5) Set pth__heapcleaner_state to HEAPCLEANER_IS_OFF,
-//      allow all PTHREAD_IS_HEAPCLEANING pthreads to return to
-//      PTHREAD_IS_RUNNING mode and PTHREAD_IS_BLOCKED pthreads
-//      to re-enter PTHREAD_IS_RUNNING if they wish.
+//      allow all PTHREAD_IS_SECONDARY_HEAPCLEANER pthreads
+//      to return to PTHREAD_IS_RUNNING mode and qll
+//      PTHREAD_IS_BLOCKED pthreads to re-enter PTHREAD_IS_RUNNING
+//      if they wish.
 //
 //
 //
@@ -872,7 +874,8 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //
 //         Pthread_Mode = PTHREAD_IS_RUNNING		// Pthread is running Mythryl code -- will respond quickly to 
 //                      | PTHREAD_IS_BLOCKED
-//                      | PTHREAD_IS_HEAPCLEANING
+//                      | PTHREAD_IS_PRIMARY_HEAPCLEANER
+//                      | PTHREAD_IS_SECONDARY_HEAPCLEANER
 //
 //      in   src/c/h/runtime-base.h
 //
@@ -893,7 +896,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      in   src/c/pthread/pthread-on-posix-threads.c
 //
 // ==>   We set this statevar to HEAPCLEANER_IS_STARTING in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-//      when we want all PTHREAD_IS_RUNNING pthreads to switch to PTHREAD_IS_HEAPCLEANING mode;
+//      when we want all PTHREAD_IS_RUNNING pthreads to switch to PTHREAD_IS_SECONDARY_HEAPCLEANER mode;
 //
 //      Function   need_to_call_heapcleaner() in   src/c/heapcleaner/call-heapcleaner.c
 //      checks this and returns TRUE immediately if it is set.
@@ -980,7 +983,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //
 //		    if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// We're a secondary heapcleaner -- we serve by standing and waiting.
 //			//
-//			pthread->mode = PTHREAD_IS_HEAPCLEANING; 				// Change from RUNNING to HEAPCLENING mode.
+//			pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;				// Change from RUNNING to HEAPCLENING mode.
 //			--pth__running_pthreads_count;
 //			pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
 //
@@ -1007,7 +1010,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //
 //		    pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;				// Signal other running threads to enter heapcleaning mode.
 //
-//		    pthread->mode = PTHREAD_IS_HEAPCLEANING;					// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
+//		    pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;				// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
 //		    --pth__running_pthreads_count;
 //
 //		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.

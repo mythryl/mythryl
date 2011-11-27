@@ -252,7 +252,8 @@ typedef enum {
     //
     PTHREAD_IS_RUNNING,			// Normal state of a running Mythryl pthread.
     PTHREAD_IS_BLOCKED,			// For when a pthread is I/O blocked at the C level on a sleep(), select(), read() or such.  MUST NOT REFERENCE MYTHRYL HEAP IN ANY WAY WHEN IN THIS STATE because heapcleaner may be running!
-    PTHREAD_IS_HEAPCLEANING,		// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning.
+    PTHREAD_IS_PRIMARY_HEAPCLEANER,	// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning. It initiated this heapcleaning and will do the actual work.
+    PTHREAD_IS_SECONDARY_HEAPCLEANER,	// Pthread has suspended PTHREAD_IS_RUNNING mode for duration of heapcleaning. It did not initiate this heapcleaning and will do no actual heapcleaning work.
     PTHREAD_IS_VOID			// No kernel thread allocated -- unused slot in pthread table.
     //
 } Pthread_Mode;
