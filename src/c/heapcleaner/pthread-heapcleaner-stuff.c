@@ -191,11 +191,12 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     if (pthreads_ready_to_clean__local++ == 0) {
         //
-        // We're the first pthread starting heapcleaning,
-	// so we'll assume the mantle of designated-heapcleaner,
-	// as well as signalling the other threads to enter
-	// heapcleaning mode. 
-        //
+        // We are the PRIMARY_HEAPCLEANER pthread.
+	// We will do all the actual heapcleaning work,
+	// after signalling all other RUNNING pthreads
+	// to enter SECONDARY_HEAPCLEANER mode (or
+	// BLOCKED mode -- we don't care which) and
+        // then waiting until no RUNNING pthreads remain.
 
 	// Clear extra-roots buffer.  This buffer gets appended to (only)
 	// in pth__call_heapcleaner_with_extra_roots (below) -- other
