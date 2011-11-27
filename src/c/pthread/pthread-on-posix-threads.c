@@ -754,7 +754,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //   2) How to maintain Mythryl heap coherency during
 //      heapcleaning ("garbage collection").
 //
-// The matching solutions they adopted are:
+// The matching solutions Morrisett and Tolmach adopted were:
 //
 //   1) Most heap allocation is done in generation zero;
 //      by giving each kernel thread its own independent
@@ -766,15 +766,16 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      performance critical, so conventional mutex locking
 //      can be used without problem.
 //      
-//   2) Parallel garbage collection is nontrivial;  for ease
-//      of implementation (and debugging!) the existing
-//      garbage collector is used running on a single kernel
-//      thread.
+//   2) Parallel heapcleaning ("garbage collection") is nontrivial --
+//      see Cheng's 2001 CMU thesis: http://mythryl.org/pub/pml/
+//      -- so for ease of implementation (and debugging!) they
+//      instead used the  pre-existing garbage collector, running
+//      on a single kernel thread.
 //
 //
 // Point (2) requires further analysis and design effort.
 //
-// The central problem is that (with the current algorithm)
+// The central problem is that (with the existing algorithm)
 // heapcleaning cannot be done while Mythryl pthreads are
 // reading or writing the Mythryl heap.  Consequently before
 // heapcleaning can begin, all pthreads must be signalled to
@@ -792,9 +793,9 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 // frequently runs the out-of-heap-space probe logic -- in
 // particular that every closed loop through the code contains
 // at least one such probe call.  It also guarantees that such
-// probes calles are done only at the start of execution of
+// probes calls are done only at the start of execution of
 // a function, when the heap is in a self-consistent state.
-// It is therefor simple and natural to take advantage of this
+// It is thus simple and natural to take advantage of this
 // mechanism by having these heap-limit probe calls check a
 // global 'pth__heapcleaner_state' statevar and (if it is not
 // HEAPCLEANER_IS_OFF) suspend execution of Mythryl code and
@@ -810,8 +811,8 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 // may be blocked on a system call like sleep() or select()
 // and might not notice that
 //     pth__heapcleaner_state
-// is HEAPCLEANER_IS_STARTING for milliseconds -- or even
-// seconds, minutes or hours.
+// has been set to HEAPCLEANER_IS_STARTING for milliseconds --
+// or even seconds, minutes or hours.
 // We run the heapcleaner about 200 times per second, and
 // it cannot start until all pthreads are known not to be
 // reading or writing the Mythryl heap, so waiting for all
@@ -847,7 +848,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 // 
 // The idea is then that when heapcleaning is necessary we
 // 
-//   1) Set pth__heapcleaner_state to HEAPCLEANER_IS_STARTING.
+//   1) Set pth__heapcleaner_state to HEAPCLEANER_IS_STARTING
 //      and prevent BLOCKED pthreads from entering RUNNING mode.
 // 
 //   2) Wait until the number of pthreads with
@@ -860,9 +861,9 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 // 
 //   5) Set pth__heapcleaner_state to HEAPCLEANER_IS_OFF,
 //      allow all PTHREAD_IS_SECONDARY_HEAPCLEANER pthreads
-//      to return to PTHREAD_IS_RUNNING mode and qll
-//      PTHREAD_IS_BLOCKED pthreads to re-enter PTHREAD_IS_RUNNING
-//      if they wish.
+//      to return to PTHREAD_IS_RUNNING mode and all
+//      PTHREAD_IS_BLOCKED pthreads to re-enter
+//      PTHREAD_IS_RUNNING if they wish.
 //
 //
 //
@@ -952,89 +953,68 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      to the C function making the system call -- 'arg'
 //      generally needs to be protected against garbage collection.)
 //      
-//      The basic idea is for these macros to respectively do:
+//      These macros do:
 //      
 //          RELEASE_MYTHRYL_HEAP:
 //		pthread_mutex_lock(  &pth__pthread_mode_mutex  );
-//		    pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
+//		    pthread->mode = PTHREAD_IS_BLOCKED;							// Remove us from the set of RUNNING pthreads.
 //		    --pth__running_pthreads_count;
-//		    pthread->task->protected_c_arg = &(arg);					// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
-//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
+//		    pthread->task->protected_c_arg = &(arg);						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
+//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
 //		pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 //      
 //          RECOVER_MYTHRYL_HEAP:
 //		pthread_mutex_lock(   &pth__pthread_mode_mutex  );
-//		    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {			// Don't re-enter RUNNING mode while heapcleaner is running.
-//			pthread_cond_wait(		
-//			    &pth__pthread_mode_condvar,
-//			    &pth__pthread_mode_mutex
-//			);
+//		    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Don't re-enter RUNNING mode while heapcleaner is running.
+//			pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
 //		    }
-//                  pthread->mode = PTHREAD_IS_RUNNING;						// Return us to the set of RUNNING pthreads.
+//                  pthread->mode = PTHREAD_IS_RUNNING;							// Return us to the set of RUNNING pthreads.
 //                  ++pth__running_pthreads_count;
-//                  pthread->task->protected_c_arg = &pthread->task->heapvoid;			// Make 'arg' no longer a heapcleaner root.
-//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
+//                  pthread->task->protected_c_arg = &pthread->task->heapvoid;				// Make 'arg' no longer a heapcleaner root.
+//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
 //		pthread_mutex_unlock(   &pth__pthread_mode_mutex   );
 //
 //
-//   o  The logic for initiating a heapcleaning is then:
+//   o  The heapcleaning-initiation logic is then:
 //
-//		pthread_mutex_lock(   &pth__pthread_mode_mutex  );				// 
-//
-//		    if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// We're a secondary heapcleaner -- we serve by standing and waiting.
-//			//
-//			pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;				// Change from RUNNING to HEAPCLENING mode.
-//			--pth__running_pthreads_count;
-//			pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
-//
-//			// Wait for heapcleaning to complete:
-//			//
-//			while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
-//			    pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
-//			}
-//			
-//		        thread->mode = PTHREAD_IS_RUNNING;					// Change from HEAPCLENING back to RUNNING mode,
-//		        ++pth__running_pthreads_count;
-//			pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
-//			pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
-//			return FALSE;								// resume running user code:
-//		    }
-//		    //
-//		    // We're the primary heapcleaner -- we'll do the actual work.
-//		    //
-//		    if (pth__running_pthreads_count == 1) {
-//			do heapcleaning								// With no other running threads we can just do it.
-//			pthread_mutex_unlock(   &pth__pthread_mode_mutex  );
-//			return;
-//		    }
-//
-//		    pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;				// Signal other running threads to enter heapcleaning mode.
-//
-//		    pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;				// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
+//	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
+//		if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {					// Heapcleaning has already started, so we are a secondary heapcleaner pthread --
+//		    //											// we merely wait() while the primary heapcleaning pthread does the actual work.
+//		    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLENING mode.
 //		    --pth__running_pthreads_count;
-//
-//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
-//
-//                  while (pth__running_pthreads_count > 0) {					// Wait until no running pthreads are left.
-//			pthread_cond_wait( &pth__pthread_mode_condvar, &pth__pthread_mode_mutex);
+//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+//		    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+//			pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
 //		    }
-//
-//                  pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;				// Clear the enter-heapcleaning-mode signal.
-//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
-//
-//		pthread_mutex_unlock(  &pth__pthread_mode_mutex  );				// Not currently required, but holding a mutex for a long time is a bad habit.
-//
-//		do heapcleaning
-//
-//		pthread_mutex_lock(   &pth__pthread_mode_mutex  );				// 
-//		    pth__heapcleaner_state = HEAPCLEANER_IS_OFF;				// Clear the enter-heapcleaning-mode signal.
-//
-//		    pthread->mode = PTHREAD_IS_RUNNING;
+//		    thread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 //		    ++pth__running_pthreads_count;
+//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+//		    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+//		    return FALSE;									// Resume running user code.
+//		}
+//		/////////////////////////////////////////////////////////////
+//		// We're the primary heapcleaner -- we'll do the actual work.
+//		/////////////////////////////////////////////////////////////
+//		pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal other running threads to enter heapcleaning mode.
+//		pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
+//		--pth__running_pthreads_count;
+//		pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
+//		while (pth__running_pthreads_count > 0) {						// Wait until no running pthreads are left.
+//		    pthread_cond_wait( &pth__pthread_mode_condvar, &pth__pthread_mode_mutex);
+//		}
+//		pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Clear the enter-heapcleaning-mode signal.
+//		pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
+//	    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );						// Not currently required, but holding a mutex for a long time is a bad habit.
+//	    return TRUE;										// Return and run heapcleaner code.
 //
-//		    pthread_cond_broadcast( &pth__pthread_mode_condvar );			// Let other pthreads know state has changed.
+//      NB: When caller completes heapcleaning, must do:
 //
-//              pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+//	    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
+//		pth__heapcleaner_state = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
+//		pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from PRIMARY_HEAPCLEANER mode.
+//		++pth__running_pthreads_count;								//
+//		pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
+//	    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 //
 //
 //
