@@ -69,42 +69,37 @@ int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- se
         // We place these two here in the hope
         // that they might wind up in the same
 	// cache line as the mutex governing them
-	// -- that should buy us a little efficiency:
+	// pth__pthread_mode_mutex()-- that could
+	// slightly reduce inter-core ram traffic:
 	//
-        Heapcleaner_State  pth__heapcleaner_state =  HEAPCLEANER_IS_OFF;				// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
-        int                pth__running_pthreads_count  =  1;						// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
-		//
-		// Should always equal the number of pthreads
-		// with pthread->mode == PTHREAD_IS_RUNNING.
+        Heapcleaner_State  pth__heapcleaner_state	=  HEAPCLEANER_IS_OFF;				// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
+        int                pth__running_pthreads_count  =  1;						// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
+		    //
+		    // pth__running_pthreads_count must always equal the number
+		    // of pthreads with pthread->mode == PTHREAD_IS_RUNNING.
+
         Mutex	 pth__pthread_mode_mutex		= PTHREAD_MUTEX_INITIALIZER;			// No padding here because it might as well share a cache line with next.
                     //
-		    // Must hold this mutex in order to read or write
+		    // Must hold this mutex in order to change any of:
+                    //
 		    //     pthread->mode fields or global flag
 		    //     pth__heapcleaner_state
 		    //     pth__running_pthreads_count
-		    // When setting pth__running_pthreads_count to zero,
-		    // must signal pth__pthread_mode_condvar
-		    // if pth__heapcleaner_state is not HEAPCLEANER_IS_OFF
-		    // this lets the primary heapcleaner pthread
-		    // start heapcleaning.
 
         Condvar	 pth__pthread_mode_condvar	= PTHREAD_COND_INITIALIZER;				char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
 		    //
-		    // The primary heapcleaner pthread (i.e., the pthread
-		    // that decided to initiate heapcleaning) waits on
-		    // this before starting heapcleaning, to allow all
-		    // pthread->mode == PTHREAD_IS_RUNNING pthreads to exit
-		    // running mode.	
+		    // Pthreads block in this condvar while
+		    // waiting for some predicate over
+                    //
+		    //     pthread->mode fields or global flag
+		    //     pth__heapcleaner_state
+		    //     pth__running_pthreads_count
+                    //
+		    // to become TRUE.
 
-        Mutex	 pth__heapcleaner_mutex			= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-        Mutex	 pth__heapcleaner_gen_mutex		= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-        Mutex	 pth__timer_mutex			= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Apparently never used.
+        Mutex	 pth__make_strings_and_vectors_mutex	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 static  Mutex	      pthread_table_mutex__local	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used in this file to serialize access to pthread_table__global[].
 
-
-
-//
-Barrier  pth__heapcleaner_barrier;					// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
 
@@ -577,14 +572,10 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
     //
     pthread_mutex_lock(  &pth__pthread_mode_mutex  );
 	//
-	// Remove us from the set of RUNNING pthreads:
-	//
-	pthread->mode = PTHREAD_IS_BLOCKED;
+	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
 	--pth__running_pthreads_count;
-
-	// Protect 'arg' from the heapcleaner by making it a heapcleaner root:
 	//
-	pthread->task->protected_c_arg = arg;
+	pthread->task->protected_c_arg = arg;						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//
 	pthread_cond_signal( &pth__pthread_mode_condvar );				// Tell other pthreads that shared state has changed.
 	//
@@ -998,7 +989,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //		    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
 //			pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
 //		    }
-//		    thread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+//		    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
 //		    ++pth__running_pthreads_count;
 //		    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
 //		    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );

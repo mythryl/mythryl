@@ -77,10 +77,8 @@ static Task**           tasks__local; /*[MAX_PTHREADS]*/		// List of states of s
 
 static processorid_t* processorId;		// processor id of the next processor a lwp will be bound to globals.
 
-Mutex	 pth__heapcleaner_mutex;
-Mutex	 pth__heapcleaner_gen_mutex;
+Mutex	 pth__make_strings_and_vectors_mutex;
 Mutex	 pth__timer_mutex;
-Barrier* pth__heapcleaner_barrier;
 
 #if defined(MP_PROFILE)
     int mutex_trylock_calls;
@@ -103,7 +101,7 @@ void   pth__start_up   ()   {
     arena_mutex__local			= allocate_mutex();
     mp_pthread_mutex__local		= allocate_mutex();
     pth__heapcleaner_mutex	= allocate_mutex();
-    pth__heapcleaner_gen_mutex	= allocate_mutex();
+    pth__make_strings_and_vectors_mutex	= allocate_mutex();
     pth__timer_mutex		= allocate_mutex();
     //
     pth__heapcleaner_barrier	= allocate_barrier(); 

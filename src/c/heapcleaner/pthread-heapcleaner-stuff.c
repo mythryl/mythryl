@@ -187,161 +187,52 @@ int   pth__start_heapcleaning   (Task *task) {
     //     signals the secondary heapcleaner pthreads to resume
     //     execution of user code.
 
-    int	     active_pthread_count;
     Pthread* pthread = task->pthread;
 
-    // If we're the first pthread to start heapcleaning,
-    // remember that and signal the remaining pthreads
-    // to join in.
-    //
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );							// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
-    //
-    if (pthreads_ready_to_clean__local++ == 0) {
-        //
-        // We are the PRIMARY_HEAPCLEANER pthread.
-	// We will do all the actual heapcleaning work,
-	// after signalling all other RUNNING pthreads
-	// to enter SECONDARY_HEAPCLEANER mode (or
-	// BLOCKED mode -- we don't care which) and
-        // then waiting until no RUNNING pthreads remain.
+    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
+	//
+	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+	    ////////////////////////////////////////////////////////////
+	    // We're a secondary heapcleaner -- we'll just wait() while
+	    // the primary heapcleaner pthread does all the actual work:
+	    ////////////////////////////////////////////////////////////
+	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Remove ourself from set of RUNNING pthreads.
+	    --pth__running_pthreads_count;							// Decrement count of PTHREAD_IS_RUNNING mode pthreads.
+	    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+		pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
+	    }
+	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+	    ++pth__running_pthreads_count;
+	    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+	    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+	    return FALSE;									// Resume running user code.
+	}
+	/////////////////////////////////////////////////////////////
+	// We're the primary heapcleaner -- we'll do the actual work:
+	/////////////////////////////////////////////////////////////
+	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER
+												// mode until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
+	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of RUNNING pthreads.
+	--pth__running_pthreads_count;
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
 
 	// Clear extra-roots buffer.  This buffer gets appended to (only)
 	// in pth__start_heapcleaning_with_extra_roots (below) -- other
 	// pthreads may append to it as they arrive even though we don't:
 	//
-        pth__extra_heapcleaner_roots__global[0] =  NULL;					// No extra roots supplied. 
-	//
+        pth__extra_heapcleaner_roots__global[0] =  NULL;					// Buffer must always be terminated by a NULL entry.
         extra_cleaner_roots__local =  pth__extra_heapcleaner_roots__global;
 
-	// I'm guessing the point of this is to get the other
-	// pthreads to enter heapcleaning mode pronto:			-- 2011-11-02 CrT
-	//
-	#if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	    ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE );	// This refcell appears to be read only by   need_to_call_heapcleaner   in   src/c/heapcleaner/call-heapcleaner.c
-	    //											// although it is also exported to the Mythryl level -- see   src/lib/std/src/unsafe/software-generated-periodic-events.api
-												PTHREAD_LOG_IF ("%d: set poll event\n", task->pthread->tid);
-	#endif
-
-	heapcleaner_pthread_tid__local =  pthread->tid;						// Assume the awesome responsilibity of being the designated heapcleaner thread.
-
-	barrier_needs_to_be_initialized__local =  TRUE;
-												PTHREAD_LOG_IF ("heapcleaner_pthread_tid__local is %d\n", heapcleaner_pthread_tid__local);
-    }
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
-
-
-    //////////////////////////////////////////////////////////
-    // Whether or not we're the first pthread to enter
-    // heapcleaning mode, we now wait until all the
-    // other active pthreads have also entered
-    // heapcleaning mode.
-    //
-    // Note that we cannot use a barrier wait here because
-    // we do not know how many pthreads will wind up entering
-    // heapcleaner mode -- one or more pthreads might be starting
-    // up additional pthreads.
-    {
-        // Spin until all active pthreads have enetered this loop:
-        //
-	int n = 0;
-        //
-	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {	// pth__get_active_pthread_count	def in   src/c/pthread/pthread-on-posix-threads.c
-	    // 
-	    // Spinwait.  This is bad;
-	    // to avoid being hideously bad we avoid
-	    // constantly pounding the mutex (and thus
-	    // the shared memory bus) by counting to 10,000
-	    // on our fingers between mutex ops:
-	    //
-	    if (n != 1000) {
-		//
-		for (int i = 10000; i --> 0; );
-		//
-		n++;
-		//
-	    } else {
-		//
-		n = 0;
-		//
-												PTHREAD_LOG_IF ("%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-												    task->pthread->tid,
-												    pthreads_ready_to_clean__local,
-												    active_pthread_count,
-												    task->heap_allocation_pointer,
-												    task->heap_allocation_limit
-												);
-	    }
+	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	    pthread_cond_wait( &pth__pthread_mode_condvar, &pth__pthread_mode_mutex);
 	}
-
-	// As soon as all active pthreads have entered the above
-        // loop, they all fall out and arrive here.  The first to
-	// do so needs to initialize the barrier, so that everyone
-	// can wait at it:
+	pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has commenced. This is pure documentation -- nothing tests for this state.
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
-        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );						// Use mutex to avoid a race condition.
-	    //
-	    if (barrier_needs_to_be_initialized__local) {
-		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
-		//
-		pth__barrier_init( &pth__heapcleaner_barrier, active_pthread_count );		// Set up barrier to wait on proper number of threads.
-	    }
-	    //
-	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
+    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );						// Not logically required, but holding a mutex for a long time is a bad habit.
+    return TRUE;										// Return and run heapcleaner code.
 
-    }
-
-    // All Pthreads are now ready to clean.
-
-    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	//
-	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
-	//
-												PTHREAD_LOG_IF ("%d: cleared poll event\n", task->pthread->tid);
-    #endif
-
-												PTHREAD_LOG_IF ("(%d) all %d/%d procs in\n", task->pthread->tid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
-
-
-    ////////////////////////////////////////////////////////////////// 
-    // If we're the designated heapcleaner thread
-    // we now return to caller to take up our
-    // heapcleaning responsibilities:
-    //
-    if (pthread->tid == heapcleaner_pthread_tid__local) {
-        //
-												PTHREAD_LOG_IF ("Heapcleaner pthread %d returning to start heapcleaning\n",pthread->tid);
-        return TRUE;										// We're the designated heapcleaner -- we return and start doing the actual heapcleaning work.
-    }
-
-
-    ////////////////////////////////////////////////////////////////// 
-    // We're not the designated heapcleaner thread,
-    // so we take a break until that thread has
-    // finished heapcleaning:
-    //
-												PTHREAD_LOG_IF ("non-heapcleaner (thread id=%d) entering barrier (barrier threshold d=%d)\n",pthread->tid,active_pthread_count);
-
-    {   Bool                                                       i_am_the_one;		// Set by call on next line.
-        char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );		// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
-	    //
-	    // 'i_am_the_one' will be TRUE for one pthread
-	    // waiting on barrier, FALSE for the rest;
-	    // We do not take advantage of that here.
-	    //
-	    // 'err' will be NULL normally, non-NULL only on an error;
-	    // for the moment we hope for the best. XXX SUCKO FIXME.
-	if (err) die(err);
-    }
-
-												PTHREAD_LOG_IF ("Non-heapcleaner pthread %d left barrier\n", pthread->tid);
-
-    // We return FALSE to tell caller that we're
-    // not the designated heapcleaner pthread, so
-    // we shouldn't do any heapcleaning work upon
-    // our return:
-    //
-    return FALSE;
 }							// fun pth__start_heapcleaning
 
 
@@ -354,136 +245,58 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
     //
     // As above, but we collect extra roots into pth__extra_heapcleaner_roots__global.
 
-    int active_pthread_count;
-    Val* p;
 
     Pthread* pthread =  task->pthread;
 
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
+    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
 	//
-	if (pthreads_ready_to_clean__local++ == 0) {
-	    //
-	    // Clear extra-roots buffer.  We'll (presumably) append some
-	    // roots to this buffer, and other pthreads may do so also
-	    // as they arrive:
-	    //
-	    extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;
-
-	    // Signal other pthreads to enter heapcleaning mode:
-	    //
-	    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-		//
-		ASSIGN( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL, HEAP_TRUE);
-		//	
-		PTHREAD_LOG_IF ("%d: set poll event\n", pthread->tid);
-	    #endif
-
-	    // We're the first one in so we'll do the heapcleaning:
-	    //
-	    heapcleaner_pthread_tid__local = pthread->tid;
-
-	    barrier_needs_to_be_initialized__local =  TRUE;
-
-	    PTHREAD_LOG_IF ("heapcleaner_pthread_tid__local is %d\n",heapcleaner_pthread_tid__local);
-	}
-
-	while ((p = va_arg(ap, Val *)) != NULL) {
-	    //
-	    *extra_cleaner_roots__local++ = p;
-	}
-	*extra_cleaner_roots__local = p;			// NULL
-
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
-
-
-
-    //////////////////////////////////////////////////////////
-    // Whether or not we're the first pthread to enter
-    // heapcleaning mode, we now wait until all the
-    // other active pthreads have also entered
-    // heapcleaning mode.
-    //
-    // Note that we cannot use a barrier wait here because
-    // we do not know how many pthreads will wind up entering
-    // heapcleaner mode -- one or more pthreads might be starting
-    // up additional pthreads.
-    {
-        // Spin until all active pthreads have enetered this loop:
-        //
-	int n = 0;
-        //
-	while (pthreads_ready_to_clean__local !=  (active_pthread_count = pth__get_active_pthread_count())) {
-
-	    // SPIN
-
-	    if (n != 1000) {
-		//
-		for (int i = 10000; i --> 0; );
-		//
-		n++;
-		//
-	    } else {
-		//
-		n = 0;
-		//
-												PTHREAD_LOG_IF  ( "%d spinning %d <> %d <alloc=0x%x, limit=0x%x>\n", 
-														  pthread->tid, pthreads_ready_to_clean__local, active_pthread_count, task->heap_allocation_pointer,
-														  task->heap_allocation_limit
-														);
+	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+	    ////////////////////////////////////////////////////////////
+	    // We're a secondary heapcleaner -- we'll just wait() while
+	    // the primary heapcleaner pthread does all the actual work:
+	    ////////////////////////////////////////////////////////////
+	    {   Val* p;
+		while ((p = va_arg(ap, Val*)) != NULL)  *extra_cleaner_roots__local++ = p;	// Append our args to the  extra-roots buffer.
+		*extra_cleaner_roots__local = p;						// Terminate extra-roots buffer with a NULL pointer.
 	    }
+	    pthread->mode = PTHREAD_IS_SECONDARY_HEAPCLEANER;					// Change from RUNNING to HEAPCLEANING mode.
+	    --pth__running_pthreads_count;							// Increment count of PTHREAD_IS_RUNNING mode pthreads.
+	    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+
+	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+		pthread_cond_wait(&pth__pthread_mode_condvar,&pth__pthread_mode_mutex);
+	    }
+	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+	    ++pth__running_pthreads_count;
+	    pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
+	    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+	    return FALSE;									// Resume running user code.
+	}
+	/////////////////////////////////////////////////////////////
+	// We're the primary heapcleaner -- we'll do the actual work:
+	/////////////////////////////////////////////////////////////
+	pth__heapcleaner_state = HEAPCLEANER_IS_STARTING;					// Signal all PTHREAD_IS_RUNNING pthreads to block in PTHREAD_IS_SECONDARY_HEAPCLEANER mode
+												// until we set pth__heapcleaner_state back to HEAPCLEANER_IS_OFF.
+	pthread->mode = PTHREAD_IS_PRIMARY_HEAPCLEANER;						// Remove ourself from the set of PTHREAD_IS_RUNNING pthreads.
+	--pth__running_pthreads_count;
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
+
+	extra_cleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
+	{   Val* p;
+	    while ((p = va_arg(ap, Val*)) != NULL)  *extra_cleaner_roots__local++ = p;		// Append our args to the extra-roots buffer.
+	    *extra_cleaner_roots__local = p;							// Terminate buffer with a NULL entry.
 	}
 
-	// As soon as all active pthreads have entered the above
-        // loop, they all fall out and arrive here.  The first to
-	// do so needs to initialize the barrier, so that everyone
-	// can wait at it:
+	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	    pthread_cond_wait( &pth__pthread_mode_condvar, &pth__pthread_mode_mutex);
+	}
+
+	pth__heapcleaner_state = HEAPCLEANER_IS_RUNNING;					// Note that actual heapcleaning has begun. This is pro forma -- no code distinguishes between this state and HEAPCLEANER_IS_STARTING.
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
-        PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );						// Use mutex to avoid a race condition -- otherwise multiple pthreads might think they were the designated heapcleaner.
-	    //
-	    if (barrier_needs_to_be_initialized__local) {
-		barrier_needs_to_be_initialized__local = FALSE;					// We're the first pthread to exit the spinloop.
-		//
-		pth__barrier_init( &pth__heapcleaner_barrier, active_pthread_count );		// Set up barrier to wait on proper number of threads.
-	    }
-	    //
-	PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
-    }
+    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
 
-    // All Pthreads now ready to clean:
-    //
-    #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	//
-	ASSIGN(  SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL,  HEAP_FALSE  );
-												PTHREAD_LOG_IF ("%d: cleared poll event\n", task->pthread->tid);
-    #endif
-
-												PTHREAD_LOG_IF ("(%d) all %d/%d procs in\n", task->pthread->tid, pthreads_ready_to_clean__local, pth__get_active_pthread_count());
-
-    if (heapcleaner_pthread_tid__local == pthread->tid) {
-	//
-        return TRUE;										// We're the designated heapcleaner -- we return and start doing the actual heapcleaning work.
-    }
-
-												PTHREAD_LOG_IF ("pthread %d entering barrier with active_pthread_count d=%d\n", pthread->tid, active_pthread_count);
-
-    {   Bool                                                       i_am_the_one;		// Set by call on next line.
-        char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );		// We're not the designated heapcleaner;  wait for the designated heapcleaner to finish heapcleaning.
-	    //
-	    // 'i_am_the_one' will be TRUE for one pthread
-	    // waiting on barrier, FALSE for the rest;
-	    // We do not take advantage of that here.
-	    //
-	    // 'err' will be NULL normally, non-NULL only on an error;
-	    // for the moment we hope for the best. XXX SUCKO FIXME.
-	if (err) die(err);
-    }
-												PTHREAD_LOG_IF ("%d left barrier\n", pthread->tid);
-    // We return FALSE to tell caller that we're
-    // not the designated heapcleaner pthread, so
-    // we shouldn't do any heapcleaning work upon
-    // our return:
-    //
-    return FALSE;
+    return TRUE;										// Return and run heapcleaner code.
 }												// fun pth__start_heapcleaning_with_extra_roots
 
 
@@ -495,30 +308,20 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     //
     //     src/c/heapcleaner/call-heapcleaner.c
 
+    Pthread* pthread =  task->pthread;
+
     // This works, but partition_agegroup0_buffer_between_pthreads is overkill:			XXX SUCKO FIXME
     //
+
     partition_agegroup0_buffer_between_pthreads( pthread_table__global );
 
-    PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
-												PTHREAD_LOG_IF ("%d entering barrier\n", task->pthread->tid );
-
-    {   Bool                                                       i_am_the_one;
-	char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );		// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
-	    //											// They should all be already waiting on this barrier, so we should never block at this point.
-	    // 'i_am_the_one' will be TRUE for one pthread
-	    // waiting on barrier, FALSE for the rest;
-	    // We do not take advantage of that here.
-	    //
-	    // 'err' will be NULL normally, non-NULL only on an error;
-	    // for the moment we just die(). XXX SUCKO FIXME.
-	if (err) die(err);
-    }
-
-    pth__barrier_destroy( &pth__heapcleaner_barrier );						// "destroy" is poor nomenclature -- all it does is undo what pth__barrier_init() did -- but we follow <pthread.h>'s nomenclature here.
-
-    pthreads_ready_to_clean__local = 0;
-												PTHREAD_LOG_IF ("%d left barrier\n", task->pthread->tid);
-    PTH__MUTEX_UNLOCK( &pth__heapcleaner_mutex );
+    pthread_mutex_lock(   &pth__pthread_mode_mutex  );						// 
+	pth__heapcleaner_state = HEAPCLEANER_IS_OFF;						// Clear the enter-heapcleaning-mode signal.
+	pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from PRIMARY_HEAPCLEANER mode.
+	++pth__running_pthreads_count;								//
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );					// Let other pthreads know state has changed.
+    pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+												PTHREAD_LOG_IF ("%d finished heapcleaning\n", task->pthread->tid);
 }
 
 

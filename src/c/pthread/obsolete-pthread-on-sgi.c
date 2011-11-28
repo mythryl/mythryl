@@ -65,9 +65,7 @@ static ulock_t	MP_ArenaLock;							// Must be held to alloc/free a mutex.
 
 static ulock_t	MP_ProcLock;							// Must be held to acquire/release procs.
 
-Mutex	 pth__heapcleaner_mutex;					// Used only in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-
-Mutex	 pth__heapcleaner_gen_mutex;					// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
+Mutex	 pth__make_strings_and_vectors_mutex;					// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 Barrier* pth__heapcleaner_barrier;						// Used only with pth__wait_at_barrier prim, in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
@@ -92,8 +90,7 @@ void   pth__start_up   () {
 
     MP_ArenaLock			= AllocLock ();
     MP_ProcLock				= AllocLock ();
-    pth__heapcleaner_mutex	= AllocLock ();
-    pth__heapcleaner_gen_mutex	= AllocLock ();
+    pth__make_strings_and_vectors_mutex	= AllocLock ();
     pth__timer_mutex		= AllocLock ();
     pth__heapcleaner_barrier	= AllocBarrier();
     //

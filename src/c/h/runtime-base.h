@@ -313,7 +313,7 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #if NEED_PTHREAD_SUPPORT
-	Pthread_Mode  mode;					// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+	Pthread_Mode  mode;					// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
 								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 	Tid           tid;	       				// Our pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
@@ -551,16 +551,12 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Statically pre-allocated mutexs, barriers and condition variables:
+    // Statically pre-allocated mutexs, condvars and such:
     //
-    extern Mutex	    pth__pthread_mode_mutex;					// Governs pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Condvar	    pth__pthread_mode_condvar;					// Active heapcleaner pthread waits on this					-- See  src/c/pthread/pthread-on-posix-threads.c
-
-    extern Mutex	    pth__heapcleaner_mutex;
-    extern Mutex	    pth__heapcleaner_gen_mutex;
-    extern Mutex	    pth__timer_mutex;
+    extern Mutex	    pth__pthread_mode_mutex;					// Governs  pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Condvar	    pth__pthread_mode_condvar;					// Waits on pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
     //
-    extern Barrier	    pth__heapcleaner_barrier;
+    extern Mutex	    pth__make_strings_and_vectors_mutex;			// Serializes generation-1 heap access in   src/c/heapcleaner/make-strings-and-vectors-etc.c
     //
     //
 
