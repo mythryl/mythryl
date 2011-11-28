@@ -168,17 +168,24 @@ int   pth__start_heapcleaning   (Task *task) {
     //
     // In more detail:
     //
-    //   o The first pthread to check in becomes the
-    //     designated heapcleaner, which we remember by saving its tid
-    //     in heapcleaner_pthread_tid__local.
+    //   o First to arrive sets pthread->mode = PRIMARY_HEAPCLEANER
+    //     and will be the one which does the actual heapcleaning work.
     //
-    //   o The designated heapcleaner returns to the invoking
-    //     call-heapcleaner fnc and does the heapcleaning work
-    //     while the other pthreads wait at a barrier.
+    //   o The primary heapcleaner sets pth__heapcleaner_state to
+    //     HEAPCLEANER_IS_STARTING to signal the remaining
+    //     RUNNING pthreads to stop using the Mythryl heap and set
+    //     pthread->mode == PTHREAD_IS_SECONDARY_HEAPCLEANER
     //
-    //   o When done heapcleaning, the designated heapcleaner
-    //     thread checks into the barrier, releasing the remaining
-    //     pthreads to resume execution of user code.
+    //   o The primary heapcleaner waits until pth__running_pthreads_count
+    //     drops to zero, then sets pth__heapcleaner_state to
+    //     HEAPCLEANER_IS_RUNNING, returns to the invoking
+    //     call-heapcleaner function and does the heapcleaning work
+    //     while the secondary heapcleaner pthreads wait.
+    //
+    //   o When the primary heapcleaner completes the heapcleaning
+    //     it sets pth__heapcleaner_state to HEAPCLEANER_IS_OFF and
+    //     signals the secondary heapcleaner pthreads to resume
+    //     execution of user code.
 
     int	     active_pthread_count;
     Pthread* pthread = task->pthread;
@@ -199,7 +206,7 @@ int   pth__start_heapcleaning   (Task *task) {
         // then waiting until no RUNNING pthreads remain.
 
 	// Clear extra-roots buffer.  This buffer gets appended to (only)
-	// in pth__call_heapcleaner_with_extra_roots (below) -- other
+	// in pth__start_heapcleaning_with_extra_roots (below) -- other
 	// pthreads may append to it as they arrive even though we don't:
 	//
         pth__extra_heapcleaner_roots__global[0] =  NULL;					// No extra roots supplied. 
@@ -338,8 +345,8 @@ int   pth__start_heapcleaning   (Task *task) {
 }							// fun pth__start_heapcleaning
 
 
-int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
-    //======================================
+int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
+    //========================================
     //
     // This fn is called (only) from:
     //
@@ -477,7 +484,7 @@ int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap) {
     // our return:
     //
     return FALSE;
-}												// fun pth__call_heapcleaner_with_extra_roots
+}												// fun pth__start_heapcleaning_with_extra_roots
 
 
 
@@ -495,7 +502,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     PTH__MUTEX_LOCK( &pth__heapcleaner_mutex );
 												PTHREAD_LOG_IF ("%d entering barrier\n", task->pthread->tid );
 
-    {   Bool                                                               i_am_the_one;
+    {   Bool                                                       i_am_the_one;
 	char* err = pth__barrier_wait( &pth__heapcleaner_barrier, &i_am_the_one );		// We're the designated heapcleaner;  By calling this, we release all the other pthreads to resume execution of user code.
 	    //											// They should all be already waiting on this barrier, so we should never block at this point.
 	    // 'i_am_the_one' will be TRUE for one pthread

@@ -609,7 +609,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     extern void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]);
     extern int   pth__start_heapcleaning    (Task*);
     extern void  pth__finish_heapcleaning   (Task*);
-    extern int   pth__call_heapcleaner_with_extra_roots   (Task *task, va_list ap);
+    extern int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap);
     //
     extern Val*  pth__extra_heapcleaner_roots__global [];
 

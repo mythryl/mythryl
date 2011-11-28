@@ -295,7 +295,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
 	int we_are_the_primary_heapcleaner_pthread
 	    =
-	    pth__call_heapcleaner_with_extra_roots (task, ap);							// pth__call_heapcleaner_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	    pth__start_heapcleaning_with_extra_roots (task, ap);						// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 	va_end(ap);
 
@@ -334,7 +334,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     if (pth__done_pthread_create) {
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global
-        // by pth__call_heapcleaner_with_extra_roots.
+        // by pth__start_heapcleaning_with_extra_roots.
         //
 	for (int i = 0;  pth__extra_heapcleaner_roots__global[i] != NULL;  i++) {
 	    //
