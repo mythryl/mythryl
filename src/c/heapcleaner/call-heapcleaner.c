@@ -277,7 +277,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     //
     // NOTE: the multicore version of this may be BROKEN, since if a processor calls this
     // but isn't the collecting process, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
-
+														// MAX_EXTRA_HEAPCLEANER_ROOTS	def in   src/c/h/runtime-configuration.h
+														// MAX_TOTAL_CLEANING_ROOTS	def in   src/c/h/runtime-configuration.h
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];					// registers and globals
     Val** roots_ptr = roots;
     Val*  p;
