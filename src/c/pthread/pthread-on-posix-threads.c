@@ -241,9 +241,9 @@ void   pth__pthread_exit   (Task* task)   {
     //
     // Called (only) by   release_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
+											PTHREAD_LOG_IF ("[release_pthread: suspending]\n");
 
-    call_heapcleaner( task, 1 );										// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
+    call_heapcleaner( task, 1 );							// call_heapcleaner		def in   /src/c/heapcleaner/call-heapcleaner.c
 	//
 	// I presume this call must be intended to sweep all live
 	// values from this thread's private generation-zero buffer
@@ -256,6 +256,7 @@ void   pth__pthread_exit   (Task* task)   {
 	//
 	task->pthread->mode = PTHREAD_IS_VOID;
         --pth__running_pthreads_count;
+	pthread_cond_broadcast( &pth__pthread_mode_condvar );				// Let other pthreads know state has changed.
 	//
     pth__mutex_unlock(  &pth__pthread_mode_mutex );
 
@@ -283,10 +284,20 @@ char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// htt
 	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
     }
 
-    int     err =  pthread_join( pthread->tid, NULL );				// NULL is a void** arg that can return result of joined thread. We ignore it
-    switch (err) {								// because the typing would be a pain: we'd have to return Exception, probably -- ick!
+    int     err =  pthread_join( pthread->tid, NULL );					// NULL is a void** arg that can return result of joined thread. We ignore it
+    switch (err) {									// because the typing would be a pain: we'd have to return Exception, probably -- ick!
 	//
-	case 0:		return NULL;						// Success.
+	case 0:										// Success.
+	    {
+		pthread_mutex_lock(   &pth__pthread_mode_mutex  );			// 
+		    //
+		    pthread->mode = PTHREAD_IS_VOID;
+		    --pth__running_pthreads_count;					//
+		    pthread_cond_broadcast( &pth__pthread_mode_condvar );		// Let other pthreads know state has changed.
+		    //
+		pthread_mutex_unlock(  &pth__pthread_mode_mutex  );
+		return NULL;
+	    }
 	case ESRCH:	return "pth__pthread_join: No such thread.";
 	case EDEADLK:	return "pth__pthread_join: Attempt to join self (or other deadlock).";
 	case EINVAL:	return "pth__pthread_join: Not a joinable thread.";
