@@ -66,8 +66,8 @@
 	// (pth__pthread_mode_mutex and pth__pthread_mode_condvar)
 	// because that could somewhat reduce inter-core ram traffic:
 	//
-        Heapcleaner_State  pth__heapcleaner_state	=  HEAPCLEANER_IS_OFF;				// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
-        int                pth__running_pthreads_count  =  1;						// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
+        Heapcleaner_State  pth__heapcleaner_state	=  HEAPCLEANER_IS_OFF;				// Grab pth__pthread_mode_mutex before changing this.  Signal pth__pthread_mode_condvar after such changes.
+        int                pth__running_pthreads_count  =  1;						// Grab pth__pthread_mode_mutex before changing this.  Signal pth__pthread_mode_condvar after such changes.
 		    //
 		    // pth__running_pthreads_count must always equal the number
 		    // of pthreads with pthread->mode == PTHREAD_IS_RUNNING.
@@ -79,6 +79,13 @@
 		    //     pthread->mode fields or global flag
 		    //     pth__heapcleaner_state
 		    //     pth__running_pthreads_count
+		    //
+		    // This mutex is also used in
+		    //
+		    //     src/c/heapcleaner/make-strings-and-vectors-etc.c
+		    //
+		    // to serialize access to the shared (non-generation0)
+		    // heap generations.
 
         Condvar	 pth__pthread_mode_condvar	= PTHREAD_COND_INITIALIZER;				char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
 		    //
@@ -90,8 +97,6 @@
 		    //     pth__running_pthreads_count
                     //
 		    // to become TRUE.
-
-        Mutex	 pth__make_strings_and_vectors_mutex	= PTHREAD_MUTEX_INITIALIZER;			char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 
 

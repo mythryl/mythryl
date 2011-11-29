@@ -446,7 +446,7 @@ extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   sr
     //
     // In multithreaded operation this table is modified
     // only by code in   src/c/pthread/pthread-on-posix-threads.c
-    // serialized by the pthread_table_mutex__local
+    // serialized by the pth__pthread_mode_mutex
     // in that file.     
 
 extern Heapcleaner_State  pth__heapcleaner_state;			// Grab pth__pthread_mode_mutex before changing this.
@@ -538,8 +538,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //
     extern Mutex	    pth__pthread_mode_mutex;					// Governs  pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
     extern Condvar	    pth__pthread_mode_condvar;					// Waits on pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
-    //
-    extern Mutex	    pth__make_strings_and_vectors_mutex;			// Serializes generation-1 heap access in   src/c/heapcleaner/make-strings-and-vectors-etc.c
     //
     //
 
