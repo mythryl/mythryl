@@ -283,7 +283,7 @@ static void   pthread_main   (void* vtask)   {
 
     PTHREAD_LOG_IF ("[new proc main: releasing mutex]\n");
 
-    pth__mutex_unlock( MP_ProcLock );			// Implicitly handed to us by the parent.
+    pth__mutex_unlock( MP_ProcLock );						// Implicitly handed to us by the parent.
     run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
     //
     // run_mythryl_task_and_runtime_eventloop should never return:

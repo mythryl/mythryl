@@ -313,7 +313,7 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     Unt1	ccall_limit_pointer_mask;			// For raw-C-call interface.
 
     #if NEED_PTHREAD_SUPPORT
-	Pthread_Mode  mode;					// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
+	Pthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
 								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
 	Tid           tid;	       				// Our pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
@@ -446,11 +446,11 @@ extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   sr
     //
     // In multithreaded operation this table is modified
     // only by code in   src/c/pthread/pthread-on-posix-threads.c
-    // serialized by the pth__pthread_mode_mutex
+    // serialized by the pth__mutex
     // in that file.     
 
-extern Heapcleaner_State  pth__heapcleaner_state;			// Grab pth__pthread_mode_mutex before changing this.
-extern int                pth__running_pthreads_count;			// Grab pth__pthread_mode_mutex before changing this.
+extern Heapcleaner_State  pth__heapcleaner_state;			// Grab pth__mutex before changing this.
+extern int                pth__running_pthreads_count;			// Grab pth__mutex before changing this.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
@@ -536,8 +536,8 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     ////////////////////////////////////////////////////////////////////////////
     // Statically pre-allocated mutexs, condvars and such:
     //
-    extern Mutex	    pth__pthread_mode_mutex;					// Governs  pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
-    extern Condvar	    pth__pthread_mode_condvar;					// Waits on pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count	-- See  src/c/pthread/pthread-on-posix-threads.c
+    extern Mutex	    pth__mutex;							// Governs  pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count ... -- see  src/c/pthread/pthread-on-posix-threads.c
+    extern Condvar	    pth__condvar;						// Waits on pthread->mode, pth__heapcleaner_state, pth__running_pthreads_count ... -- see  src/c/pthread/pthread-on-posix-threads.c
     //
     //
 

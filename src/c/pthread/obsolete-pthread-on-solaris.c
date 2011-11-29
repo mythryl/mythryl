@@ -235,7 +235,7 @@ void   bind_to_kernel_thread   (processorid_t* processorId)  {
 
 //
 Bool   pth__mutex_maybe_lock   (Mutex mutex)   {
-    // ===========
+    // =====================
     //
     // Return FALSE if cannot set mutex;
     // otherwise set mutex and return TRUE.
