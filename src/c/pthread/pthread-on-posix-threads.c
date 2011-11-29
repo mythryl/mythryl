@@ -91,8 +91,7 @@
                     //
 		    // to become TRUE.
 
-        Mutex	 pth__make_strings_and_vectors_mutex	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
-static  Mutex	      pthread_table_mutex__local	= PTHREAD_MUTEX_INITIALIZER;		char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used in this file to serialize access to pthread_table__global[].
+        Mutex	 pth__make_strings_and_vectors_mutex	= PTHREAD_MUTEX_INITIALIZER;			char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];	// Used only in   src/c/heapcleaner/make-strings-and-vectors-etc.c
 
 
 
@@ -119,7 +118,7 @@ static void*  pthread_main   (void* task_as_voidptr)   {
     Task* task = (Task*) task_as_voidptr;					// The <pthread.h> API for pthread_create requires that our arg be cast to void*; cast it back to its real type.
 
 
-    pth__mutex_unlock( &pthread_table_mutex__local );				// This lock was acquired by pth__pthread_create (below).
+    pth__mutex_unlock( &pth__pthread_mode_mutex );				// This lock was acquired by pth__pthread_create (below).
 
     run_mythryl_task_and_runtime_eventloop( task );				// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
@@ -150,11 +149,11 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
 										PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
-    pth__mutex_lock( &pthread_table_mutex__local );				// Always first step before reading/writing pthread_table__global.
+    pth__mutex_lock( &pth__pthread_mode_mutex );				// Always first step before reading/writing pthread_table__global.
     //
     if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	//
-	pth__mutex_unlock( &pthread_table_mutex__local );
+	pth__mutex_unlock( &pth__pthread_mode_mutex );
 	return "pthread_table__global full -- increase MAX_PTHREADS";
     }
 
@@ -169,7 +168,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     if (i == MAX_PTHREADS) {
 	//
-	pth__mutex_unlock( &pthread_table_mutex__local );
+	pth__mutex_unlock( &pth__pthread_mode_mutex );
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
@@ -221,7 +220,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     if (!err) {									// Successfully spawned new kernel thread.
 	//
-	return NULL;								// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pthread_table_mutex__local  for us.
+	return NULL;								// Report success. NB: Child thread (i.e., pthread_main() above)  will unlock  pth__pthread_mode_mutex  for us.
 
     } else {									// Failed to spawn new kernel thread.
 
@@ -231,7 +230,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 		DECREASE_BY(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
 	);
 
-	pth__mutex_unlock( &pthread_table_mutex__local );
+	pth__mutex_unlock( &pth__pthread_mode_mutex );
 
 	switch (err) {
 	    //
@@ -262,11 +261,12 @@ void   pth__pthread_exit   (Task* task)   {
 	// buffer for a new thread.   -- 2011-11-10 CrT
 
 
-    pth__mutex_lock(    &pthread_table_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
+    pth__mutex_lock(    &pth__pthread_mode_mutex );
 	//
 	task->pthread->mode = PTHREAD_IS_VOID;
+        --pth__running_pthreads_count;
 	//
-    pth__mutex_unlock(  &pthread_table_mutex__local );
+    pth__mutex_unlock(  &pth__pthread_mode_mutex );
 
     pthread_exit( NULL );								// "The pthread_exit() function cannot return to its caller."   -- http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 }
