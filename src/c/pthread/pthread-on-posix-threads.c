@@ -526,29 +526,6 @@ Pthread*  pth__get_pthread   ()   {
 #endif
 }
 
-//
-int   pth__get_active_pthread_count   ()   {
-    //=============================
-    //
-    // This function is currently called (only) in
-    // the critical spinloop in
-    //
-    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
-    //
-    // while we're waiting for all pthreads to
-    // enter heapcleaning mode.
-  
-    pth__mutex_lock( &pthread_table_mutex__local );					// What could go wrong here if we didn't use a mutex...?
-	//										// (Seems like reading a refcell is basically atomic anyhow.)
-											// Late: Maybe if someone holds the lock, we want to wait
-											// until they release it before reading the refcell.
-        int active_pthread_count = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
-	//
-    pth__mutex_unlock ( &pthread_table_mutex__local );
-
-    return  active_pthread_count;
-}
-
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////
