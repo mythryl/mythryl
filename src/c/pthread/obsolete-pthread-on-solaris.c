@@ -49,8 +49,6 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_pthread_create = FALSE;
-
  static Mutex 	 allocate_mutex	();
  static Barrier* allocate_barrier	();
  static void*    allocate_arena_ram	(int size);
@@ -654,8 +652,6 @@ static void*   pthread_main   (void* vtask)   {
 Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_pthread_create = TRUE;
-
     Task* p;
     Pthread* pthread;
     Val v = GET_TUPLE_SLOT_AS_VAL(arg, 0);	// current_thread nowadays, mv_varReg originally.

@@ -50,11 +50,6 @@
 #define DECREASE_BY(n,i)  (INCREASE_BY(n,(-i)))
 
 
-//
-int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- see Note[1] at bottom of file.
-    //========================
-
-
 // Some statically allocated locks.
 //
 // We try to put each mutex in its own cache line
@@ -66,11 +61,10 @@ int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- se
 // malloc'ing and checking alignment at runtime:
 /**/													char     pth__cacheline_padding0[ CACHE_LINE_BYTESIZE ];
 
-        // We place these two here in the hope
-        // that they might wind up in the same
-	// cache line as the mutex governing them
-	// pth__pthread_mode_mutex()-- that could
-	// slightly reduce inter-core ram traffic:
+        // We place these two here in the hope that they might
+	// wind up in the same cache line as their mutex and condvar
+	// (pth__pthread_mode_mutex and pth__pthread_mode_condvar)
+	// because that could somewhat reduce inter-core ram traffic:
 	//
         Heapcleaner_State  pth__heapcleaner_state	=  HEAPCLEANER_IS_OFF;				// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
         int                pth__running_pthreads_count  =  1;						// Do NOT change this unless holding   pth__pthread_mode_mutex.  Signal pth__pthread_mode_condvar after such changes.
@@ -80,7 +74,7 @@ int   pth__done_pthread_create  =  TRUE;		// This is currently always TRUE -- se
 
         Mutex	 pth__pthread_mode_mutex		= PTHREAD_MUTEX_INITIALIZER;			// No padding here because it might as well share a cache line with next.
                     //
-		    // Must hold this mutex in order to change any of:
+		    // Grab this mutex before changing any of:
                     //
 		    //     pthread->mode fields or global flag
 		    //     pth__heapcleaner_state
@@ -150,17 +144,13 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     //
     // This fn is called (only) by   spawn_pthread ()   in   src/c/lib/pthread/libmythryl-pthread.c
     //
-    pth__done_pthread_create = TRUE;					// Once set TRUE, this is never set back to FALSE. (So locking is not an issue.)
-
     Task*    task;
     Pthread* pthread;
     int      i;
 
-    PTHREAD_LOG_IF ("[Searching for free pthread]\n");
+										PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
     pth__mutex_lock( &pthread_table_mutex__local );				// Always first step before reading/writing pthread_table__global.
-										// We don't use the PTH__MUTEX_LOCK macro because at this point
-										// we know pth__done_pthread_create == TRUE.
     //
     if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	//
@@ -273,8 +263,7 @@ void   pth__pthread_exit   (Task* task)   {
 
 
     pth__mutex_lock(    &pthread_table_mutex__local );								// I cannot honestly see what locking achieves here. -- 2011-11-10 CrT
-	//													// We don't use the PTH__MUTEX_LOCK macro because at this point
-	//													// we know pth__done_pthread_create == TRUE.
+	//
 	task->pthread->mode = PTHREAD_IS_VOID;
 	//
     pth__mutex_unlock(  &pthread_table_mutex__local );
@@ -1062,9 +1051,8 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 ///////////////////////////////////////////////////////////////////////
 // Note[1]
 //
-// int   pth__done_pthread_create  =  TRUE;
-//
-// The original idea was that this flag would start out FALSE
+// For awhile we had a   pth__done_pthread_create  bool.
+// The idea was that this flag would start out FALSE
 // and be set TRUE the first time   pth__pthread_create   is called,
 // with the idea of testing it and not slowing down execution with
 // mutex ops when only one posix thread was present.
@@ -1079,8 +1067,9 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      (see raw times below).
 // ??? !
 //
-// This makes no sense to me, but for the moment I'm
-// leaving the flag set TRUE.           -- 2011-11-16 CrT
+// This makes no sense to me, but since the mutexes
+// are clearly not a performance issue, I eliminated
+// the flag to simplify the code.                      -- 2011-11-29 CrT
 //
 //
 // With   pth__done_pthread_create  =  TRUE

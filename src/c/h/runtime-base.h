@@ -449,16 +449,8 @@ extern Pthread*	pthread_table__global [];			// pthread_table__global	def in   sr
     // serialized by the pthread_table_mutex__local
     // in that file.     
 
-extern int   pth__done_pthread_create;
-    //
-    // This boolean flag starts out FALSE and is set TRUE
-    // the first time   pth__pthread_create   is called.
-    //
-    // We can use simple mutex-free monothread logic in
-    // the heapcleaner (etc) so long as this is FALSE.
-
-extern Heapcleaner_State  pth__heapcleaner_state;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
-extern int                pth__running_pthreads_count;			// Do NOT read or write this unless holding   pth__pthread_mode_mutex.
+extern Heapcleaner_State  pth__heapcleaner_state;			// Grab pth__pthread_mode_mutex before changing this.
+extern int                pth__running_pthreads_count;			// Grab pth__pthread_mode_mutex before changing this.
     //
     // These are both defined in   src/c/pthread/pthread-on-posix-threads.c
     // See comments at bottom of   src/c/pthread/pthread-on-posix-threads.c
@@ -630,13 +622,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     extern char* pth__mutex_unlock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     extern char* pth__mutex_trylock	(Mutex* mutex, Bool* result);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     //										// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
-    //										// This bool value is confusing -- the Mythryl-level binding should return (say) ACQUIRED vs BUSY.
-    // The idea here is to not waste time on
-    // mutex ops so long as we know there is
-    // only one Mythryl pthread running:
-    // 
-    #define PTH__MUTEX_LOCK(mutex)    { if (pth__done_pthread_create) pth__mutex_lock(  mutex); }
-    #define PTH__MUTEX_UNLOCK(mutex)  { if (pth__done_pthread_create) pth__mutex_unlock(mutex); }
 
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES

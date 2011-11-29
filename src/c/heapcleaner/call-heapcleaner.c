@@ -70,7 +70,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
     #if NEED_PTHREAD_SUPPORT											// For background on the NEED_PTHREAD_SUPPORT stuff see the "Overview" comments in    src/lib/std/src/pthread.api
-    if (pth__done_pthread_create) {
+    {
 	//
 	// Signal all pthreads to enter heapcleaner mode and
 	// select a PRIMARY_HEAPCLEANER pthread to do the heapcleaning work.
@@ -127,7 +127,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create) {
+    {
         //
 	// Get extra roots from pthreads that entered
 	// through call_heapcleaner_with_extra_roots
@@ -152,20 +152,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     // of the live Mythryl pthread task(s):
     //
     #if NEED_PTHREAD_SUPPORT
-    if (!pth__done_pthread_create) {
-	//	
-	*roots_ptr++ =  &task->link_register;
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->current_closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->current_thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
-	//
-    } else {													// NEED_PTHREAD_SUPPORT
+    {
 	//
 	for (int j = 0;  j < MAX_PTHREADS;  j++) {
 	    //
@@ -233,21 +220,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     // Reset the generation0 allocation pointers:
     //
     #if NEED_PTHREAD_SUPPORT											// NB: Currently is this is TRUE then we require that NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS also be TRUE.
-    if (pth__done_pthread_create) {
-	//
-	pth__finish_heapcleaning( task );									// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
-    } else {
-	//
-	task->heap_allocation_pointer	= heap->agegroup0_buffer;
-
-	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );					// Set heap limit to obvious value.
-	#else
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );				// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
-	#endif
-    }
-    #else	// Same as }else{ clause above:
+    pth__finish_heapcleaning( task );										// Multiple pthreads, so we must reset the generation-0 heap allocation pointers in each of them.
+    #else
     {
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
@@ -289,8 +263,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create) {
-	//
+    {
 														PTHREAD_LOG_IF ("initiating heapcleaning mode (with roots) tid d=%d\n", task->pthread->tid);
 	va_start (ap, level);
 
@@ -332,7 +305,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #endif
 
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create) {
+    {
         // Get extra roots from pthreads that entered through call_heapcleaner_with_extra_roots.
         // Our extra roots were placed in pth__extra_heapcleaner_roots__global
         // by pth__start_heapcleaning_with_extra_roots.
@@ -341,19 +314,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    //
 	    *roots_ptr++ =  pth__extra_heapcleaner_roots__global[ i ];
 	}
-    } else {
-	//
-        // Note extra roots from argument list:
-	//
-	va_start (ap, level);
-	//
-	while ((p = va_arg(ap, Val *)) != NULL) {
-	    //
-	    *roots_ptr++ = p;
-	}
-	va_end(ap);
     }
-    #else  // Same as }else{ clause above:
+    #else
     {
         // Note extra roots from argument list:
 	//
@@ -380,7 +342,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // of the live Mythryl pthread task(s):
     //
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create) {
+    {
 	//
 	Task*     task;
 	Pthread*  pthread;
@@ -405,21 +367,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 		*roots_ptr++ =   task->protected_c_arg;								// No '&' on this one -- it is a pointer to the value being protected.
 	    }
 	}
-
-    } else {
-	//
-	*roots_ptr++ =  &task->link_register;									// This line added 2011-11-15 CrT -- I think its lack was due to 15 years of bitrot.
-	*roots_ptr++ =  &task->argument;
-	*roots_ptr++ =  &task->fate;
-	*roots_ptr++ =  &task->current_closure;
-	*roots_ptr++ =  &task->exception_fate;
-	*roots_ptr++ =  &task->current_thread;
-	*roots_ptr++ =  &task->callee_saved_registers[0];
-	*roots_ptr++ =  &task->callee_saved_registers[1];
-	*roots_ptr++ =  &task->callee_saved_registers[2];
-	*roots_ptr++ =   task->protected_c_arg;									// No '&' on this one -- it is a pointer to the value being protected.
     }
-    #else	// Same as }else{ clause above.									// NEED_PTHREAD_SUPPORT
+    #else
 	//
 	*roots_ptr++ =  &task->link_register;
 	*roots_ptr++ =  &task->argument;
@@ -475,19 +424,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // Reset agegroup0 buffer:
     //
     #if NEED_PTHREAD_SUPPORT
-    if (pth__done_pthread_create) {
-        //
-	pth__finish_heapcleaning( task );
-    } else {
-	task->heap_allocation_pointer	= heap->agegroup0_buffer;
-
-	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
-	    //
-	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
-	#else
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
-	#endif
-    }
+    pth__finish_heapcleaning( task );
     #else // Same as above }else{ case:
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
@@ -527,8 +464,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     // FALSE otherwise.
 
 // There was a #if NEED_PTHREAD_SUPPORT here but the logic was so complex I dropped it to simplify things... 2011-11-12 CrT
-    if (pth__done_pthread_create) {
-	//
+    {
         if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF)   return TRUE;
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
@@ -543,9 +479,6 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
 	else													return FALSE;
     #endif
-    } else {
-	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
-	else													return FALSE;
     }
 //    #endif
 }

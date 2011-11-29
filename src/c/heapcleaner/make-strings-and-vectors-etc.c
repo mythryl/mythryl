@@ -178,7 +178,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
-	PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 	    //
 	    IFGC (ap, bytesize+task->heap->agegroup0_buffer_bytesize) {
 
@@ -186,11 +186,11 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
                 //
 		ap->requested_sib_buffer_bytesize += bytesize;
                 //
-		PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 		    //
 		    call_heapcleaner( task, 1 );
 		    //
-		PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
                 //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -198,7 +198,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 	    result = PTR_CAST( Val, ap->next_tospace_word_to_allocate);
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -264,7 +264,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
-	PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
@@ -274,11 +274,11 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 		ap->requested_sib_buffer_bytesize += bytesize;
 		//
-		PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 		    //
 		    call_heapcleaner (task, 1);
 		    //
-		PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 		//
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
@@ -304,7 +304,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
 	    ap->next_tospace_word_to_allocate += nwords;
 
-	PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 
 	COUNT_ALLOC(task, bytesize-WORD_BYTESIZE);
     }
@@ -329,7 +329,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 
     Hugechunk* dp;
 
-    PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+    pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 	//
 	dp = allocate_hugechunk (heap, allocGen, len);
 	ASSERT(dp->gen == allocGen);
@@ -338,7 +338,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
 	dp->huge_ilk = CODE__HUGE_ILK;
 	COUNT_ALLOC(task, len);
 	//
-    PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+    pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 
     return PTR_CAST( Val, dp->chunk);
 }
@@ -402,7 +402,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 													// pth__make_strings_and_vectors_mutex	def in   src/c/pthread/pthread-on-posix-threads.c
 													// (Used only in this file.)
 
-	PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );						// pth__mutex_lock		def in   src/c/h/runtime-base.h
+	pth__mutex_lock( &pth__make_strings_and_vectors_mutex );					// pth__mutex_lock		def in   src/c/h/runtime-base.h
 	    //												// as pth__mutex_lock(lock)	from	 src/c/pthread/pthread-on-posix-threads.c
 	    //												//				or	 src/c/pthread/pthread-on-sgi.c
 	    #if NEED_PTHREAD_SUPPORT									//				or	 src/c/pthread/pthread-on-solaris.c
@@ -424,15 +424,14 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
                 //
 		Val	root = init_val;
 		ap->requested_sib_buffer_bytesize += bytesize;
-		PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 		    call_heapcleaner_with_extra_roots (task, gc_level, &root, NULL);
 		    init_val = root;
-		PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+		pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 		ap->requested_sib_buffer_bytesize = 0;
 
 		#if NEED_PTHREAD_SUPPORT
-		if (pth__done_pthread_create) {
-		    //
+		{
 	            // Check again to insure that we have sufficient space:
 		    gc_level = -1;
 		    goto clean_check;
@@ -445,7 +444,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 
 	COUNT_ALLOC(task, bytesize);
 
@@ -495,7 +494,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    =
 	    WORD_BYTESIZE * (len+1);
 
-	PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 	    //
 	    if (! sib_is_active(ap)										// sib_is_active		def in    src/c/h/heap.h
 		||
@@ -511,15 +510,15 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #endif
 
 	    ap->requested_sib_buffer_bytesize += bytesize;
-	    PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+	    pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
-	    PTH__MUTEX_LOCK( &pth__make_strings_and_vectors_mutex );
+	    pth__mutex_lock( &pth__make_strings_and_vectors_mutex );
 
 	    ap->requested_sib_buffer_bytesize = 0;
 
 	    #if NEED_PTHREAD_SUPPORT
-	    if (pth__done_pthread_create) {
+	    {
 		//
 	        // Check again to ensure that we have sufficient space:
 		//
@@ -533,7 +532,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    ap->next_tospace_word_to_allocate += len;
 	    ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
 	    //
-	PTH__MUTEX_UNLOCK( &pth__make_strings_and_vectors_mutex );
+	pth__mutex_unlock( &pth__make_strings_and_vectors_mutex );
 
 	COUNT_ALLOC(task, bytesize);
 

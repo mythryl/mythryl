@@ -54,8 +54,6 @@
 #define INT_LIB7inc(n,i)  ((Val)TAGGED_INT_FROM_C_INT(TAGGED_INT_TO_C_INT(n) + (i)))
 #define INT_LIB7dec(n,i)  (INT_LIB7inc(n,(-i)))
 
-int   pth__done_pthread_create = FALSE;
-
 static Mutex      AllocLock ();        
 static Barrier*  AllocBarrier();
 
@@ -321,8 +319,6 @@ static int   make_pthread   (Task* state)   {
 Val   pth__pthread_create   (Task* task, Val arg)   {
     //====================
     //
-    pth__done_pthread_create = TRUE;
-
     Task* p;
     Pthread* pthread;
 
