@@ -194,7 +194,7 @@ DEFINE_VOID_REFCELL( posix_interprocess_signal_handler_refcell__global		);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_handler_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_switch_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_event_interval_refcell__global	);
-DEFINE_VOID_REFCELL( unused_int_refcell__global			);
+DEFINE_VOID_REFCELL( unused_int_refcell__global					);
 
 #undef DEFINE_VOID_REFCELL
 
@@ -335,7 +335,7 @@ void   construct_runtime_package__global   (Task* task) {
 	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  9, UNUSED_INT_REFCELL__GLOBAL);				// unused_int_refcell__global					in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  9, UNUSED_INT_REFCELL__GLOBAL);						// unused_int_refcell__global					in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
@@ -505,7 +505,15 @@ void   publish_runtime_package_contents   ()   {
     publish_cfun( "runtime::software_generated_periodic_events_handler_refcell",   	SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_events_switch_refcell",		SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_event_interval_refcell",	SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL	);
-    publish_cfun( "runtime::active_pthreads_count_refcell",				UNUSED_INT_REFCELL__GLOBAL			);
+    publish_cfun( "runtime::active_pthreads_count_refcell",				UNUSED_INT_REFCELL__GLOBAL					);
+        //
+	// I'd like to comment out the above line, but if I do I get
+	//
+	//     bin/mythryld: Fatal error:  Run-time system does not provide "runtime::active_pthreads_count_refcell"
+	//
+	// even though the string       active_pthreads_count   appears
+	// nowhere else in the sourcecode.   Apparently the compiler is
+	// passing it binary-to-binary somehow. Thpt. -- 2011-11-29 CrT
 
     // Null string:
     //

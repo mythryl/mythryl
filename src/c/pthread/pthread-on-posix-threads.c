@@ -147,15 +147,9 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     Pthread* pthread;
     int      i;
 
-										PTHREAD_LOG_IF ("[Searching for free pthread]\n");
+											PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
-    pth__mutex_lock( &pth__pthread_mode_mutex );				// Always first step before reading/writing pthread_table__global.
-    //
-    if (DEREF( UNUSED_INT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
-	//
-	pth__mutex_unlock( &pth__pthread_mode_mutex );
-	return "pthread_table__global full -- increase MAX_PTHREADS";
-    }
+    pth__mutex_lock( &pth__pthread_mode_mutex );					// Always first step before reading/writing pthread_table__global.
 
     // Search for a slot in which to put a new pthread
     //
@@ -172,7 +166,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
-    PTHREAD_LOG_IF ("[using pthread_table__global slot %d]\n", i);
+											PTHREAD_LOG_IF ("[using pthread_table__global slot %d]\n", i);
 
     // Use pthread at index i:
     //
@@ -196,15 +190,10 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     task->current_thread	=  current_thread;
   
 
-    //
-    // Optimistically increment active-pthreads count:
-    //
-    ASSIGN( UNUSED_INT_REFCELL__GLOBAL,
-	    INCREASE_BY( DEREF(UNUSED_INT_REFCELL__GLOBAL), 1)
-    );
 
-    pthread->mode = PTHREAD_IS_RUNNING;							// Moved this above pthread_create() because that seems safer,
-										// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
+    pthread->mode = PTHREAD_IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
+    ++pth__running_pthreads_count;						// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
+
     int err =   pthread_create(
 		    //
 		    &task->pthread->tid,					// RESULT. NB: Passing a pointer directly to task->pthread->tid ensures that field is always
@@ -224,11 +213,8 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     } else {									// Failed to spawn new kernel thread.
 
-	pthread->mode = PTHREAD_IS_VOID;						// Note pthread record (still) has no associated kernel thread.
-
-	ASSIGN( UNUSED_INT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
-		DECREASE_BY(DEREF(UNUSED_INT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
-	);
+	pthread->mode = PTHREAD_IS_VOID;					// Note pthread record (still) has no associated kernel thread.
+	--pth__running_pthreads_count;						// Restore running-threads count to its original value, since we failed to start it.
 
 	pth__mutex_unlock( &pth__pthread_mode_mutex );
 
@@ -318,7 +304,7 @@ void   pth__start_up   (void)   {
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
     //
-    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );						// Make sure this refcell has a defined value, even though we don't want or use it.
 
 }
 //
