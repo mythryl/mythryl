@@ -159,7 +159,7 @@ extern Val   software_generated_periodic_events_switch_refcell__global  [];
 #define      SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL  PTR_CAST( Val,  software_generated_periodic_events_switch_refcell__global +1)
 
 extern Val   active_pthreads_count_refcell__global   [];
-#define      ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL   PTR_CAST( Val,  active_pthreads_count_refcell__global +1 )
+#define      UNUSED_INT_REFCELL__GLOBAL   PTR_CAST( Val,  active_pthreads_count_refcell__global +1 )
 
 
 

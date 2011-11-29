@@ -92,7 +92,7 @@ void   pth__start_up   () {
     pth__timer_mutex		= AllocLock ();
     pth__heapcleaner_barrier	= AllocBarrier();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 }
 
 
@@ -344,7 +344,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     if (i == MAX_PTHREADS) {
         //
-	if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+	if (DEREF( UNUSED_INT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    pth__mutex_unlock( MP_ProcLock );
 	    say_error("[processors maxed]\n");
@@ -390,7 +390,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 	//
         // Assume we get one:
 
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
+	ASSIGN( UNUSED_INT_REFCELL__GLOBAL, INT_LIB7inc( DEREF(UNUSED_INT_REFCELL__GLOBAL), 1) );
 
 	if ((pthread->pid = make_pthread(p)) != -1) {
 	    //
@@ -404,7 +404,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	} else {
 
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1) );
+	    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, INT_LIB7dec(DEREF(UNUSED_INT_REFCELL__GLOBAL), 1) );
 	    pth__mutex_unlock(MP_ProcLock);
 	    return HEAP_FALSE;
 	}      
@@ -446,20 +446,6 @@ void   pth__pthread_exit   (Task* task)   {
     run_mythryl_task_and_runtime_eventloop( task );								// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
     die ("return after run_mythryl_task_and_runtime_eventloop(task) in mp_release_pthread\n");
-}
-
-
-
-int   pth__get_active_pthread_count   ()   {
-    //============================
-    //
-    int ap;
-
-    pth__mutex_lock(MP_ProcLock);
-        ap = TAGGED_INT_TO_C_INT( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL) );
-    pth__mutex_unlock(MP_ProcLock);
-
-    return ap;
 }
 
 

@@ -335,7 +335,7 @@ void   construct_runtime_package__global   (Task* task) {
 	LIB7_AllocWrite(task,  6, SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL);		// software_generated_periodic_events_switch_refcell__global	in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task,  7, SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL);		// software_generated_periodic_event_interval_refcell__global	in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task,  8, SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL);		// software_generated_periodic_event_handler_refcell__global	in  src/lib/core/init/runtime.api
-	LIB7_AllocWrite(task,  9, ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL);				// active_pthreads_count_refcell__global			in  src/lib/core/init/runtime.api
+	LIB7_AllocWrite(task,  9, UNUSED_INT_REFCELL__GLOBAL);				// unused_int_refcell__global					in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 10, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL);			// pervasive_package_pickle_list__global			in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 11, POSIX_INTERPROCESS_SIGNAL_HANDLER_REFCELL__GLOBAL );			// posix_interprocess_signal_handler_refcell__global		in  src/lib/core/init/runtime.api
 	LIB7_AllocWrite(task, 12, ZERO_LENGTH_VECTOR__GLOBAL);						// zero_length_vector__global					in  src/lib/core/init/runtime.api
@@ -505,7 +505,7 @@ void   publish_runtime_package_contents   ()   {
     publish_cfun( "runtime::software_generated_periodic_events_handler_refcell",   	SOFTWARE_GENERATED_PERIODIC_EVENTS_HANDLER_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_events_switch_refcell",		SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL	);
     publish_cfun( "runtime::software_generated_periodic_event_interval_refcell",	SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL	);
-    publish_cfun( "runtime::active_pthreads_count_refcell",				ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL			);
+    publish_cfun( "runtime::active_pthreads_count_refcell",				UNUSED_INT_REFCELL__GLOBAL			);
 
     // Null string:
     //

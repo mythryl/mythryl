@@ -106,7 +106,7 @@ void   pth__start_up   ()   {
     //
     tasks__local			= initialize_task_vector();
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
     #ifdef MP_NONBLOCKING_IO
         MP_InitStdInReader  ();
@@ -674,7 +674,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
     if (i == MAX_PTHREADS) {
 	//
-        if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+        if (DEREF( UNUSED_INT_REFCELL__GLOBAL )  ==  TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	    //
 	    pth__mutex_unlock(mp_pthread_mutex__local);
 	    say_error("[processors maxed]\n");
@@ -726,7 +726,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	// Assume we get one:
         //
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7inc(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ), 1));
+	ASSIGN( UNUSED_INT_REFCELL__GLOBAL, INT_LIB7inc(DEREF( UNUSED_INT_REFCELL__GLOBAL ), 1));
 
 	if (thr_create( NULL, 0, pthread_main, (void*)p, THR_NEW_LWP, &((thread_t) procId)) == 0) {
 	    //
@@ -741,7 +741,7 @@ Val   pth__pthread_create   (Task* task, Val arg)   {
 
 	} else {
 
-	    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, INT_LIB7dec(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ), 1) );
+	    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, INT_LIB7dec(DEREF( UNUSED_INT_REFCELL__GLOBAL ), 1) );
 	    pth__mutex_unlock(mp_pthread_mutex__local);
 	    return HEAP_FALSE;
 	}
@@ -787,19 +787,6 @@ Pthread*  pth__get_pthread   ()   {
     }											// pthread_table__global exported via     src/c/h/runtime-base.h
     die "pth__get_pthread:  pid %d not found in pthread_table__global?!", pid;
 #endif
-}
-
-//
-int   pth__get_active_pthread_count   (void)   {
-    //=======================
-    //
-    pth__mutex_lock(mp_pthread_mutex__local);
-        //
-        int ap = TAGGED_INT_TO_C_INT(DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ));
-	//
-    pth__mutex_unlock(mp_pthread_mutex__local);
-    //
-    return ap;
 }
 
 // COPYRIGHT (c) 1994 AT&T Bell Laboratories.

@@ -512,15 +512,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )	recover_mythryl_heap(  pthread,  fn_name         )
     //
     // For background comments see Note[1]
-    //
-    // NB: The production definitions of the above need to
-    // increment/decrement ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL.
-    //
-    // Original null defs:
-    // #define RELEASE_MYTHRYL_HEAP( pthread, fn_name, arg )   { if (0) printf("%s: Cease using Mythryl heap.\n",fn_name); }
-    // #define RECOVER_MYTHRYL_HEAP( pthread, fn_name      )   { if (0) printf("%s: Begin using Mythryl heap.\n",fn_name); }
-
-
 
     #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
      || !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS

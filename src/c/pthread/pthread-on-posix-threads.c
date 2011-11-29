@@ -151,7 +151,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     pth__mutex_lock( &pth__pthread_mode_mutex );				// Always first step before reading/writing pthread_table__global.
     //
-    if (DEREF( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
+    if (DEREF( UNUSED_INT_REFCELL__GLOBAL ) == TAGGED_INT_FROM_C_INT( MAX_PTHREADS )) {
 	//
 	pth__mutex_unlock( &pth__pthread_mode_mutex );
 	return "pthread_table__global full -- increase MAX_PTHREADS";
@@ -199,8 +199,8 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     //
     // Optimistically increment active-pthreads count:
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,
-	    INCREASE_BY( DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)
+    ASSIGN( UNUSED_INT_REFCELL__GLOBAL,
+	    INCREASE_BY( DEREF(UNUSED_INT_REFCELL__GLOBAL), 1)
     );
 
     pthread->mode = PTHREAD_IS_RUNNING;							// Moved this above pthread_create() because that seems safer,
@@ -226,8 +226,8 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
 	pthread->mode = PTHREAD_IS_VOID;						// Note pthread record (still) has no associated kernel thread.
 
-	ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
-		DECREASE_BY(DEREF(ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
+	ASSIGN( UNUSED_INT_REFCELL__GLOBAL,				// Restore active-threads count to its original value
+		DECREASE_BY(DEREF(UNUSED_INT_REFCELL__GLOBAL), 1)	// since our optimism proved unwarranted. 
 	);
 
 	pth__mutex_unlock( &pth__pthread_mode_mutex );
@@ -318,7 +318,7 @@ void   pth__start_up   (void)   {
     // initialize them to PTHREAD_MUTEX_INITIALIZER.
 
     //
-    ASSIGN( ACTIVE_PTHREADS_COUNT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
+    ASSIGN( UNUSED_INT_REFCELL__GLOBAL, TAGGED_INT_FROM_C_INT(1) );
 
 }
 //
