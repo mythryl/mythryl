@@ -194,7 +194,7 @@ DEFINE_VOID_REFCELL( posix_interprocess_signal_handler_refcell__global		);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_handler_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_events_switch_refcell__global	);
 DEFINE_VOID_REFCELL( software_generated_periodic_event_interval_refcell__global	);
-DEFINE_VOID_REFCELL( active_pthreads_count_refcell__global			);
+DEFINE_VOID_REFCELL( unused_int_refcell__global			);
 
 #undef DEFINE_VOID_REFCELL
 
