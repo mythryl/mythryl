@@ -255,7 +255,6 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 														// MAX_TOTAL_CLEANING_ROOTS	def in   src/c/h/runtime-configuration.h
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];					// registers and globals
     Val** roots_ptr = roots;
-    Val*  p;
     Heap* heap;
 
     va_list ap;
@@ -321,7 +320,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	//
 	va_start (ap, level);
 	//
-	while ((p = va_arg(ap, Val *)) != NULL) {
+	while ((Val* p = va_arg(ap, Val *)) != NULL) {
 	    //
 	    *roots_ptr++ = p;
 	}
@@ -418,14 +417,14 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	//
 	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MAJOR_CLEANING );					// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
 
-	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
+	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups	def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
 
     // Reset agegroup0 buffer:
     //
     #if NEED_PTHREAD_SUPPORT
     pth__finish_heapcleaning( task );
-    #else // Same as above }else{ case:
+    #else
 	task->heap_allocation_pointer	= heap->agegroup0_buffer;
 
 	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
