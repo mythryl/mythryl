@@ -698,7 +698,7 @@ static Val condvar_init   (Task* task,  Val arg)   {
 	    case UNINITIALIZED_CONDVAR:
 	    case       CLEARED_CONDVAR:
 		{
-		    char* err = pth__condvar_init( &condvar->condvar );
+		    char* err = pth__condvar_init( task, arg, &condvar->condvar );
 		    //
 		    if (err)						return RAISE_ERROR( task, err );
 		    else						return HEAP_VOID;
@@ -730,7 +730,7 @@ static Val condvar_destroy   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		{
-		    char* err =  pth__condvar_destroy( &condvar->condvar );
+		    char* err =  pth__condvar_destroy( task, arg, &condvar->condvar );
 		    //
 		    if (err)						return RAISE_ERROR( task, err );
 		    else						return HEAP_VOID;
@@ -781,7 +781,7 @@ static Val condvar_wait   (Task* task,  Val arg)   {
 	    default:							return RAISE_ERROR( task, "condvar_wait: Attempt to convar_wait on bogus mutex value. (Already-freed mutex? Junk?)");
 	}
 
-	{   char* err =  pth__condvar_wait( &condvar->condvar, &mutex->mutex );
+	{   char* err =  pth__condvar_wait( task, arg, &condvar->condvar, &mutex->mutex );
 	    //
 	    if (err)							return RAISE_ERROR( task, err );
 	    else							return HEAP_VOID;
@@ -808,7 +808,7 @@ static Val condvar_signal   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		{
-		    char* err =  pth__condvar_signal( &condvar->condvar );
+		    char* err =  pth__condvar_signal( task, arg, &condvar->condvar );
 		    //
 		    if (err)						return RAISE_ERROR( task, err );
 		    else						return HEAP_VOID;
@@ -841,7 +841,7 @@ static Val condvar_broadcast   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_CONDVAR:
 		{
-		    char* err =  pth__condvar_broadcast( &condvar->condvar );
+		    char* err =  pth__condvar_broadcast( task, arg, &condvar->condvar );
 		    //
 		    if (err)						return RAISE_ERROR( task, err );
 		    else						return HEAP_VOID;

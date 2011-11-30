@@ -453,50 +453,80 @@ char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pu
 //
 //     http://learning.infocollections.com/ebook%202/Computer/Operating%20Systems/Linux%20&%20UNIX/Unix.Systems.Programming.Second.Edition/0130424110_ch13lev1sec4.html
 //
-char*    pth__condvar_init ( Condvar* condvar ) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*    pth__condvar_init (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     //   =================
     //
-    if (pthread_cond_init( condvar, NULL ))	return "pth__condvar_init: Unable to initialize condition variable.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_init", arg );
+	//
+	int result = pthread_cond_init( condvar, NULL );					// pthread_cond_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_init" );
+
+    if (result)	  return "pth__condvar_init: Unable to initialize condition variable.";
+    else	  return NULL;
 }
 //
-char*  pth__condvar_destroy   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+char*  pth__condvar_destroy (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
     // ====================
     //
-    if (pthread_cond_destroy( condvar ))	return "pth__condvar_destroy: Unable to destroy condition variable.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy", arg );
+	//
+	int result =  pthread_cond_destroy( condvar );						// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_destroy" );
+
+    if (result)	  return "pth__condvar_destroy: Unable to destroy condition variable.";
+    else	  return NULL;
 }
 //
-char*  pth__condvar_wait   (Condvar* condvar, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+char*  pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
     // =================
     //
-    if (pthread_cond_wait( condvar, mutex )) 	return "pth__condvar_wait: Unable to wait on condition variable.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait", arg );
+	//
+	int result = pthread_cond_wait( condvar, mutex );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_wait" );
+
+    if (result)   return "pth__condvar_wait: Unable to wait on condition variable.";
+    else	  return NULL;
 }
 //
-char*  pth__condvar_signal   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_signal   (Task* task, Val arg, Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ===================
     //
-    if (pthread_cond_signal( condvar ))		return "pth__condvar_signal: Unable to signal on condition variable.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal", arg );
+	//
+	int result = pthread_cond_signal( condvar );						// pthread_cond_signal probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_signal" );
+
+    if (result)		return "pth__condvar_signal: Unable to signal on condition variable.";
+    else		return NULL;
 }
 //
-char*  pth__condvar_broadcast   (Condvar* condvar) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+char*  pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
     // ======================
     //
-    if (pthread_cond_broadcast( condvar ))	return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast", arg );
+	//
+	int result = pthread_cond_broadcast( condvar );						// pthread_cond_broadcast probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__condvar_broadcast" );
+
+    if (result)	  return "pth__condvar_broadcast: Unable to broadcast on condition variable.";
+    else	  return NULL;
 }
 
 //
-char*  pth__barrier_init   (Barrier* barrier, int threads) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_init   (Barrier* barrier, int threads) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
     if (pthread_barrier_init( barrier, NULL, (unsigned) threads))	return "pth__barrier_init: Unable to set barrier.";
     else								return NULL;
 }
 //
-char*  pth__barrier_destroy   (Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_destroy   (Barrier* barrier) {						// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
     if (pthread_barrier_destroy( barrier )) 	return "pth__barrier_init: Unable to clear barrier.";

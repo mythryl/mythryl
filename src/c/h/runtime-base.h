@@ -619,7 +619,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //
     // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#ConditionVariables
     //
-    extern char*   pth__condvar_init		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    extern char*   pth__condvar_init		(Task* task, Val arg, Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
 	//
 	// Prepare the condition variable for use.
 	// This may allocate resources or such internally.
@@ -629,7 +629,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 	//   is called on an already-initialized condition variable.
 	//   (Call pth__condvar_destroy first.)
 
-    extern char*   pth__condvar_destroy		(Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
+    extern char*   pth__condvar_destroy		(Task* task, Val arg, Condvar* condvar);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_init.html
         //
         // Undo the effects of   pth__condvar_init ()   on the condition variable.
 	// ("Destroy" is poor nomenclature; "reset" would be better.)
@@ -640,13 +640,13 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 	//  o Behavior is undefined if pth__condvar_destroy()
 	//    is called when a pthread is blocked on the condition variable.
 
-    extern char*   pth__condvar_wait   (Condvar* condvar, Mutex* mutex);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
+    extern char*   pth__condvar_wait   (Task* task, Val arg, Condvar* condvar, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_wait.html
 	//
 	// Atomically release mutex and block on the condition variable.
 	// Upon return we will again hold the mutex.  (Return is triggered
 	// by a call to   pth__condvar_signal or pth__condvar_broadcast.)
 
-    extern char*   pth__condvar_signal   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    extern char*   pth__condvar_signal   (Task* task, Val arg, Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
 	//
 	// Unblock at least one pthread waiting on condvar,
 	// except no effect if no pthreads are blocked on condvar,
@@ -657,7 +657,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 	// If multiple pthreads are unblocked, they compete for the
 	// associated mutex as though they had call called pth__mutex_lock().
 
-    extern char*   pth__condvar_broadcast   (Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
+    extern char*   pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_cond_signal.html
 	//
 	// Unblock all pthreads waiting on condvar, which might be none.
 	//
