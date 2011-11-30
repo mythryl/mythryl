@@ -195,7 +195,7 @@ static Val join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issue:
     //     ============								// 'pthread_to_join' is a pthread_table__global[] index returned from a call to   spawn_pthread()   (above).
     //
     #if NEED_PTHREAD_SUPPORT
-	{   char* err = pth__pthread_join( task, TAGGED_INT_TO_C_INT( pthread_to_join ) );
+    {   char* err = pth__pthread_join( task, pthread_to_join );	// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
 	    //
 	    if (err)   return RAISE_ERROR( task, err );
 	    else       return HEAP_VOID;
@@ -293,7 +293,7 @@ static Val mutex_init   (Task* task,  Val arg)   {
 	    //
 	    case UNINITIALIZED_MUTEX:
 	    case       CLEARED_MUTEX:
-		{   char* err = pth__mutex_init( &mutex->mutex );
+		{   char* err = pth__mutex_init( task, arg, &mutex->mutex );
 		    //
 		    if (err)   return RAISE_ERROR( task, err );
 		    else       return HEAP_VOID;
@@ -325,7 +325,7 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		{   char* err = pth__mutex_destroy( &mutex->mutex );
+		{   char* err = pth__mutex_destroy( task, arg, &mutex->mutex );
 		    //
 		    if (err)   return RAISE_ERROR( task, err );
 		    else       return HEAP_VOID;
@@ -357,7 +357,7 @@ static Val mutex_lock   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		{    char* err =  pth__mutex_lock( &mutex->mutex );
+		{    char* err =  pth__mutex_lock( task, arg, &mutex->mutex );
 		    //
 		    if (err)   return RAISE_ERROR( task, err );
 		    else       return HEAP_VOID;
@@ -389,7 +389,7 @@ static Val mutex_unlock   (Task* task,  Val arg)   {
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
-		{   char* err =  pth__mutex_unlock( &mutex->mutex );
+		{   char* err =  pth__mutex_unlock( task, arg, &mutex->mutex );
 		    //
 		    if (err)   return RAISE_ERROR( task, err );
 		    else       return HEAP_VOID;
@@ -422,7 +422,7 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_MUTEX:
 		{   Bool  result;
-		    char* err = pth__mutex_trylock( &mutex->mutex, &result );
+		    char* err = pth__mutex_trylock( task, arg, &mutex->mutex, &result );
 		    //
 		    if (err)					return RAISE_ERROR( task, err );
 		    if (result)					return HEAP_TRUE;			// Mutex was busy.

@@ -567,7 +567,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //											// Presumably the difference is that thread de/allocation is cheaper on Solaris than on SGI...?
     // 
     //
-    extern char*    pth__pthread_join		(Task* task, int pthread_table_slot);	// Wait until subthread exits.
+    extern char*    pth__pthread_join		(Task* task, Val pthread_table_slot);	// Wait until subthread exits.
     // 
     extern Pthread* pth__get_pthread		(void);					// Needed to find record for current pthread in contexts like signal handlers where it is not (otherwise) available.
     //											// Pthread is typedef'ed in src/c/h/runtime-base.h
@@ -601,13 +601,13 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //
     // Tutorial:   https://computing.llnl.gov/tutorials/pthreads/#Mutexes
     //
-    extern char* pth__mutex_init	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
-    extern char* pth__mutex_destroy	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    extern char* pth__mutex_init	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+    extern char* pth__mutex_destroy	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //
-    extern char* pth__mutex_lock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-    extern char* pth__mutex_unlock	(Mutex* mutex);				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-    extern char* pth__mutex_trylock	(Mutex* mutex, Bool* result);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
-    //										// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
+    extern char* pth__mutex_lock	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    extern char* pth__mutex_unlock	(Task* task, Val arg, Mutex* mutex);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    extern char* pth__mutex_trylock	(Task* task, Val arg, Mutex* mutex, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+    //												// pth__mutex_trylock returns FALSE if lock was acquired, TRUE if it was busy.
 
     ////////////////////////////////////////////////////////////////////////////
     //                   CONDITIONAL VARIABLES

@@ -124,7 +124,7 @@ static void*  pthread_main   (void* task_as_voidptr)   {
     Task* task = (Task*) task_as_voidptr;						// The <pthread.h> API for pthread_create requires that our arg be cast to void*; cast it back to its real type.
 
 
-    pth__mutex_unlock( &pth__mutex );							// This lock was acquired by pth__pthread_create (below).
+    pthread_mutex_unlock( &pth__mutex );							// This lock was acquired by pth__pthread_create (below).
 
     run_mythryl_task_and_runtime_eventloop( task );					// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
@@ -155,7 +155,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
 											PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
-    pth__mutex_lock( &pth__mutex );							// Always first step before reading/writing pthread_table__global.
+    pthread_mutex_lock( &pth__mutex );							// Always first step before reading/writing pthread_table__global.
 
     // Search for a slot in which to put a new pthread
     //
@@ -168,7 +168,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     if (i == MAX_PTHREADS) {
 	//
-	pth__mutex_unlock( &pth__mutex );
+	pthread_mutex_unlock( &pth__mutex );
 	return  "pthread_table__global full -- increase MAX_PTHREADS?";
     }
 
@@ -199,7 +199,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 
     pthread->mode = PTHREAD_IS_RUNNING;						// Moved this above pthread_create() because that seems safer,
     ++pth__running_pthreads_count;						// otherwise child might run arbitrarily long without this being set. -- 2011-11-10 CrT
-    pthread_cond_broadcast( &pth__condvar );			// Let other pthreads know state has changed.
+    pthread_cond_broadcast( &pth__condvar );					// Let other pthreads know state has changed.
 
     int err =   pthread_create(
 		    //
@@ -223,7 +223,7 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
 	pthread->mode = PTHREAD_IS_VOID;					// Note pthread record (still) has no associated kernel thread.
 	--pth__running_pthreads_count;						// Restore running-threads count to its original value, since we failed to start it.
 
-	pth__mutex_unlock( &pth__mutex );
+	pthread_mutex_unlock( &pth__mutex );
 
 	switch (err) {
 	    //
@@ -254,23 +254,25 @@ void   pth__pthread_exit   (Task* task)   {
 	// buffer for a new thread.   -- 2011-11-10 CrT
 
 
-    pth__mutex_lock(    &pth__mutex );
+    pthread_mutex_lock(    &pth__mutex );
 	//
 	task->pthread->mode = PTHREAD_IS_VOID;
         --pth__running_pthreads_count;
 	pthread_cond_broadcast( &pth__condvar );					// Let other pthreads know state has changed.
 	//
-    pth__mutex_unlock(  &pth__mutex );
+    pthread_mutex_unlock(  &pth__mutex );
 
     pthread_exit( NULL );								// "The pthread_exit() function cannot return to its caller."   -- http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_exit.html
 }
 
 
 
-char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
+char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_join.html
     //   =================
     //
     // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
+
+    int pthread_to_join =  TAGGED_INT_TO_C_INT( arg );
 
     // 'pthread_to_join' should have been returned by
     // pth__pthread_create  (above) and should be an index into
@@ -286,14 +288,20 @@ char*    pth__pthread_join   (Task* task_joining, int pthread_to_join) {		// htt
 	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
     }
 
-    int     err =  pthread_join( pthread->tid, NULL );					// NULL is a void** arg that can return result of joined thread. We ignore it
-    switch (err) {									// because the typing would be a pain: we'd have to return Exception, probably -- ick!
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", arg );			// Enter BLOCKED mode.
+	//
+        int err =  pthread_join( pthread->tid, NULL );					// NULL is a void** arg that can return result of joined thread. We ignore it
+	//    										// because the typing would be a pain: we'd have to return Exception, probably -- ick!
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__pthread_join" );				// Return to RUNNING mode.
+
+
+    switch (err) {
 	//
 	case 0:										// Success.
-	    {   pthread_mutex_lock(   &pth__mutex  );					// 
+	    {   pthread_mutex_lock(   &pth__mutex  );
 		    //
-		    pthread->mode = PTHREAD_IS_VOID;
-		    --pth__running_pthreads_count;					//
+		    pthread->mode = PTHREAD_IS_VOID;					// Remember that the thread joining us is dead.
+		    --pth__running_pthreads_count;					// It must have been RUNNING to join us, and is now no longer RUNNING, so decrement count of RUNNING pthreads.
 		    pthread_cond_broadcast( &pth__condvar );				// Let other pthreads know state has changed.
 		    //
 		pthread_mutex_unlock(  &pth__mutex  );
@@ -335,13 +343,18 @@ void   pth__shut_down (void) {
     // and also             die()  and  assert_fail()          in   src/c/main/error-reporting.c
 }
 
-// NB: All the error returns in this file should interpret the error number; I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
+										// NB: All the error returns in this file should interpret the error number;
+										// I forget the syntax offhand. XXX SUCKO FIXME -- 2011-11-03 CrT
 //
-char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_init   (Task* task, Val arg, Mutex* mutex) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ===============
     //
-    int err =  pthread_mutex_init( mutex, NULL );
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_init", arg );
+	//
+        int err =  pthread_mutex_init( mutex, NULL );				// pthread_mutex_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_init" );
+
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
@@ -355,11 +368,15 @@ char*    pth__mutex_init   (Mutex* mutex) {					// http://pubs.opengroup.org/onl
 }
 
 //
-char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
+char*    pth__mutex_destroy   (Task* task, Val arg, Mutex* mutex)   {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_init.html
     //   ==================
     //
-    int err =  pthread_mutex_destroy( mutex );
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy", arg );
+	//
+	int err =  pthread_mutex_destroy( mutex );				// pthread_mutex_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_destroy" );
+
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
@@ -369,12 +386,16 @@ char*    pth__mutex_destroy   (Mutex* mutex)   {				// http://pubs.opengroup.org
     }
 }
 //
-char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_lock  (Task* task, Val arg, Mutex* mutex) {			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ===============
     //
     //
-    int err =  pthread_mutex_lock( mutex );
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock", arg );
+	//
+	int err =  pthread_mutex_lock( mutex );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_lock" );
+
     switch (err) {
 	//
 	case 0:				return NULL;				// Success.
@@ -386,11 +407,15 @@ char*  pth__mutex_lock  (Mutex* mutex) {					// http://pubs.opengroup.org/online
     }
 }
 //
-char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_trylock   (Task* task, Val arg, Mutex* mutex, Bool* result) {	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // ==================
     //
-    int err =  pthread_mutex_trylock( mutex );
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock", arg );
+	//
+	int err =  pthread_mutex_trylock( mutex );						// pthread_mutex_trylock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_trylock" );
+
     switch (err) {
 	//
 	case 0: 	*result = FALSE;	return NULL;					// Successfully acquired lock.
@@ -400,11 +425,15 @@ char*  pth__mutex_trylock   (Mutex* mutex, Bool* result)   {					// http://pubs.
     }
 }
 //
-char*  pth__mutex_unlock   (Mutex* mutex) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
+char*  pth__mutex_unlock   (Task* task, Val arg, Mutex* mutex) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_mutex_lock.html
     // =================
     //
     //
-    int err =  pthread_mutex_unlock( mutex );
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock", arg );
+	//
+	int err =  pthread_mutex_unlock( mutex );						// pthread_mutex_unlock probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__mutex_unlock" );
     //
     switch (err) {
 	//
