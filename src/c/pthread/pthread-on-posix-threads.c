@@ -519,26 +519,42 @@ char*  pth__condvar_broadcast   (Task* task, Val arg, Condvar* condvar) {			// h
 }
 
 //
-char*  pth__barrier_init   (Barrier* barrier, int threads) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_init   (Task* task, Val arg, Barrier* barrier, int threads) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // =================
     //
-    if (pthread_barrier_init( barrier, NULL, (unsigned) threads))	return "pth__barrier_init: Unable to set barrier.";
-    else								return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_init", arg );
+	//
+	int result = pthread_barrier_init( barrier, NULL, (unsigned) threads);			// pthread_barrier_init probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__barrier_init" );
+
+    if (result)	  return "pth__barrier_init: Unable to set barrier.";
+    else	  return NULL;
 }
 //
-char*  pth__barrier_destroy   (Barrier* barrier) {						// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+char*  pth__barrier_destroy   (Task* task, Val arg, Barrier* barrier) {				// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
     // ====================
     //
-    if (pthread_barrier_destroy( barrier )) 	return "pth__barrier_init: Unable to clear barrier.";
-    else					return NULL;
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy", arg );
+	//
+	int result = pthread_barrier_destroy( barrier );					// pthread_cond_destroy probably cannot block, so we probably do not need the RELEASE/RECOVER wrappers, but better safe than sorry.
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__barrier_destroy" );
+
+    if (result)   return "pth__barrier_init: Unable to clear barrier.";
+    else	  return NULL;
 }
 
 //
-char*  pth__barrier_wait   (Barrier* barrier, Bool* result) {					// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+char*  pth__barrier_wait   (Task* task, Val arg, Barrier* barrier, Bool* result) {		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
     // =================
     //
-    int err =  pthread_barrier_wait( barrier );
-    //
+    RELEASE_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait", arg );
+	//
+	int err =  pthread_barrier_wait( barrier );
+	//
+    RECOVER_MYTHRYL_HEAP( task->pthread, "pth__barrier_wait" );
+
     switch (err) {
 	//
 	case PTHREAD_BARRIER_SERIAL_THREAD:	*result = TRUE;		return NULL;								// Exactly one pthread gets this return value when released from barrier.
@@ -557,13 +573,6 @@ Tid   pth__get_pthread_id   ()   {
     // pthreads.
     //
     return  pthread_self();
-
-    // Later: Looks like the official fn to use here is
-    //
-    //     pthread_t pthread_self(void); 		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_self.html
-    //
-    // I don't know if getpid() is actually equivalent or not.   -- 2011-11-09 CrT
-    // pthread_t appears to be "unsigned long int"
 }
 //
 Pthread*  pth__get_pthread   ()   {

@@ -675,15 +675,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     // a shared task before any of them are allowed to
     // proceed past the "barrier".
     //
-    // Our only current use of this facility is in
-    //
-    //     src/c/heapcleaner/pthread-heapcleaner-stuff.c
-    //
-    // where it serves to ensure that garbage collection
-    // does not start until all pthreads have ceased normal
-    // processing, and that no pthread resumes normal processing
-    // until the garbage collection is complete.
-    //
     // The basic use protocol is:
     //
     //  o Call pth__barrier_init() before doing anything else.
@@ -695,7 +686,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     //  o Never call  pth__barrier_init() or pth__barrier_detroy()
     //    while pthreads are blocked on the barrier.
     //
-    extern char*    pth__barrier_init 	(Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    extern char*    pth__barrier_init 	(Task* task, Val arg, Barrier* barrier, int threads);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
 	//
 	// Tell the barrier how many threads must be
 	// present at it before they can pass. This
@@ -711,7 +702,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 	//    (That is, if some pthread has not returned from
 	//    pth__barrier_wait)
 
-    extern char*    pth__barrier_wait (Barrier* barrierp, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
+    extern char*    pth__barrier_wait (Task* task, Val arg, Barrier* barrierp, Bool* result);	// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_wait.html
 	//
 	// Block currently executing pthread until the proper
 	// number of pthreads are waiting at the barrier.
@@ -731,7 +722,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
 	//      * pth__barrier_init() has not been called on it since the last
 	//        pth__barrier_destroy() call on it.
 
-    extern char*    pth__barrier_destroy(Barrier* barrierp);			// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
+    extern char*    pth__barrier_destroy(Task* task, Val arg, Barrier* barrierp);		// http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_barrier_init.html
         //
         // Undo the effects of   pth__barrier_init ()   on the barrier.
 	// ("Destroy" is poor nomenclature; "reset" would be better.)

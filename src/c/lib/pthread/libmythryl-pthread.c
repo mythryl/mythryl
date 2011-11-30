@@ -529,7 +529,7 @@ static Val barrier_init   (Task* task,  Val arg)   {
 	    case UNINITIALIZED_BARRIER:
 	    case       CLEARED_BARRIER:
 		//
-		{   char* err =   pth__barrier_init( &barrier->barrier, threads );
+		{   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
 		    //
 		    if (err)					return RAISE_ERROR( task, err );
 		    else					return HEAP_VOID;
@@ -561,7 +561,7 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_BARRIER:
 		{
-		    char* err =   pth__barrier_destroy( &barrier->barrier );
+		    char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
 		    //
 		    if (err)					return RAISE_ERROR( task, err );
 		    else					return HEAP_VOID;
@@ -594,7 +594,7 @@ static Val barrier_wait   (Task* task,  Val arg)   {
 	    //
 	    case   INITIALIZED_BARRIER:
 		{   Bool result;
-		    char* err =   pth__barrier_wait( &barrier->barrier, &result );
+		    char* err =   pth__barrier_wait( task, arg, &barrier->barrier, &result );
 		    //
 		    if (err)					return RAISE_ERROR( task, err );
 		    if (result)					return HEAP_TRUE;
