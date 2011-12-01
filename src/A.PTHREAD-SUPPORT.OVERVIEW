@@ -16,10 +16,8 @@ We implement basically the simplest possible useful form of
 ML parallel computing; the core ideas are:
 
   o The required new thread-related primitives are implemented
-    in the platform-specific files
 
-        src/c/pthread/pthread-on-sgi.c
-        src/c/pthread/pthread-on-solaris.c
+        src/c/pthread/pthread-on-posix-threads.c
 
     per the api defined in
 
@@ -30,9 +28,9 @@ ML parallel computing; the core ideas are:
     speed using the standard pre-existing logic.
 
   o The remaining heap generations are shared, meaning that
-    access to them is shared.  Half a dozen locks control the
-    required sharing.  In practice the shared-generation allocation
-    takes place in
+    access to them is shared.  A single pth__mutex/pth__condvar
+    pair serializes access to the heap and all other relevant
+    shared state in the pthread-support implementation.
 
         src/c/heapcleaner/make-strings-and-vectors-etc.c
 
@@ -48,7 +46,7 @@ ML parallel computing; the core ideas are:
 
 
 
-IMPLEMENTATION 2011-11-XX CrT
+IMPLEMENTATION circa 2011-11-19 CrT
 ==============
 
 I implemented a new
@@ -97,12 +95,18 @@ src/c/heapcleaner/call-heapcleaner.c:  call_heapcleaner() and  call_heapcleaner_
 
 
 
-
-PLAN OF ATTACK
+IMPLEMENTATION  2011-11-30 CrT
 ==============
 
-With the pthread support code now written, compiling and running
-(well enough for the compiler to compile itself, at least), the
+With the pthread support code now written, compiling and running.
+
+All regular syscalls should now be bracketed by
+RELEASE_MYTHRYL_HEAP/RECOVER_MYTHRYL_HEAP calls which (respectively)
+correctly set PTHREAD_IS_BLOCKED/PTHREAD_IS_RUNNING, and make sure
+that BLOCKED pthreads do not start running again in the middle of
+a heapcleaning ("garbage collection").
+
+None of this is yet unit tested;  the 
 next step should be to write unit test code in
 
     src/lib/std/src/pthread-unit-test.pkg
@@ -111,18 +115,123 @@ to exercise the various primitives starting with
 
     pth__pthread_create
 +   pth__pthread_exit
++   pth__pthread_join
 
 and then cranking steadily through the rest.
 
-It may then be worth implementing and testing a few
-additional <pthread.h>--supported operations, in
-particular the mutex-wait-with-timeout one. (Does
-it clobber SIGALRM, or how does it work?)
+NB: Apparently the (currently unsupported in Mythryl)
+mutex-wait-with-timeout call can use SIGALRM underneath.
+The last thing we need is more code joining the fighting
+for control of SIGALRM, so this seems an excellent call
+to avoid like the plague.
 
 
 
+PLAN OF ATTACK 
+==============
 
+Once this code is unit-tested (and torture-tested for good
+measure), the focus moves to concurrent programming support
+via threadkit (nee' CML).
 
+The concurrent-programming architecture I'm thinking of right
+now consists of (at least) three general-purpose pthreads,
+plus at least one library-specific one:
+
+ o threadkit gets its own pthread ("threadkit_pthread),
+   the main default one, and an inter-pthread input
+   port consisting of a  refcell/mutex/condvar triple,
+   to be used by other pthreads to send stuff to it.
+   Threadkit can check this in its main timeslicing code section.
+
+ o Allocate a pthread named "slow_call_pthread" which reads
+   requests from threadkit_pthread (via its own refcell/mutex/condvar
+   gateway) in the form of Void->Void thunks and executes them.
+   They will typically do file and socket write operations, but
+   could be doing anything too slow to do safely in threadkit_pthread,
+   such as linpack calls to invert or solve large matrices, say.
+   (We might actually want to have several of these pthreads, so as
+   to overlap slow operations like DNS lookup or whatever, and
+   take advantage of multiple cores for parallel computing in
+   numeric-intensive applications like computer vision.)
+
+ o Allocate a pthread named "fd_input_pthread" which
+   basically does nothing but sit in a select()/poll()
+   loop waiting on file descriptors, forwarding everything
+   read to the threadkit pthread via its input gateway,
+   probably as Void->Void thunks for threadkit_pthreead to
+   execute.  The job of fd_input_pthread is to make sure that
+   threadkit_pthread never has to block (at the C I/O level)
+   doing file or socket input.  (This pthread will have its
+   own refcell/mutex/condvar gateway, but will normally ignore
+   it, since it is normally blocked in select()/poll(). We will
+   reserve one pipe (i.e., connected fd pair)for waking this
+   from its select() sleep when we need to tell have it check
+   its gateway;  by writing a byte into this pipe we can ensure
+   that it wakes up.  About the only thing we are likely to
+   sent this pthread are commands to add fds to its read-list.)
+
+ o Major C libraries which we need to use and which insist on doing
+   their own blocking I/O underneath will each need a pthread of their
+   own, so they can blocking on C-level I/O without stopping
+   threadkit_pthread dead in the water for milliseconds at a stretch.
+   I am here thinking mainly of Gtk.  Each of these will have its
+   own refcell/mutex/condvar gateway.
+
+Specific to-do items on this front thus include:
+
+ o Unit-test and torture-test the new pthread support code.
+
+ o Upgrade the pthread support code to malloc() Pthread instances
+   on-demand instead of pre-allocating a fixed number of them
+   (MAX_PTHREADS).
+
+ o In the threadkit scheduler, check for input from other pthreads
+   via its refcell/mutex/condvar gateway.  When there is no
+   other work to do, block on its input condvar.
+
+ o In the threadkit support library, do all potentially blocking
+   I/O via fd_input_pthread and slow_call_pthread.
+
+ o Rewrite Mailqueues to pause the sender for a time
+   proportional to 2**(queue_length), to introduce some producer-
+   consumer synchronization without risking deadlock.
+
+ o Rewrite threadkit to be driven by software-generated events
+   (and gettimeofday() calls) rather then 100HZ SIGALRM signals.
+
+ o Once the preceding is done, re-enable all the EINTR retry
+   logic in the C support code.
+
+ o Write a teeny mythryl-sigalrm-slave C program to run
+   SIGALRM in a separate process when an application programmer
+   actually wants that, reading the results back via 
+   fd_input_pthread.  This achieves two things:
+
+    * Ensures that SIGALRM isn't generating EINTR at unexpected
+      places in the code, possibly crashing us.
+
+    * Solves the problem that we are only allowed one SIGALRM
+      frequency per process, but in a concurrent-programming
+      setting, different Mythryl-level libraries may well want
+      different SIGALRM frequencies.
+
+   (We will probably want to write and run similar slaves for
+   other tasks such as DNS resolution -- a Mythryl pthread is
+   expensive (1/2 megabyte of ram, for starters), whereas a
+   C slave process is tiny and can be run via fd_input_pthread
+   and slow_call_pthread.)
+
+ o Update the inprocess-Gtk implementation to run in its own
+   pthread and communicate with the other pthreads via the
+   refcell/mutex/condvar gateways.  Add support for enough
+   Gtk widgets and calls to make it actually useful.
+
+ o Implement Gtk support for OpenGL.  These days this seems to
+   mean gtkglext.  OpenGL calls tend to be fast and
+   performance-critical, so we'll leave it up to the application
+   programmer to put them in a separate pthread if desired to
+   offload threadkit_pthread.
 
 
 IMPLEMENTATION DETAILS
