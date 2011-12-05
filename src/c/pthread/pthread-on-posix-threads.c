@@ -1,15 +1,15 @@
 // pthread-on-posix-threads.c
 //
-// For background see the "Overview" comments in:
-//
-//     src/lib/std/src/pthread.api
+// For background see the docs at the bottom of
+// 
+//     src/c/pthread/pthread-on-posix-threads.c
 //
 //
 // This file contains our actual calls directly
-// to the <pthead.h> routines.
+// to the <pthread.h> routines.
 //
-// This code is derived in (small!) part from the original
-// 1994 sgi-mp.c file from the SML/NJ codebase.
+// This code is derived in (small! :-) part from the
+// original 1994 sgi-mp.c file from the SML/NJ codebase.
 
 
 
