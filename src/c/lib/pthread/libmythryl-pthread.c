@@ -263,6 +263,7 @@ static Val mutex_free   (Task* task,  Val arg)   {
 	    case   INITIALIZED_MUTEX:
 	    case       CLEARED_MUTEX:
 		//
+		mutex->state =  FREED_MUTEX;
 		free( mutex );
 		break;
 
@@ -295,8 +296,8 @@ static Val mutex_init   (Task* task,  Val arg)   {
 	    case       CLEARED_MUTEX:
 		{   char* err = pth__mutex_init( task, arg, &mutex->mutex );
 		    //
-		    if (err)   return RAISE_ERROR( task, err );
-		    else       return HEAP_VOID;
+		    if (err)   {                                     return RAISE_ERROR( task, err );  }
+		    else       { mutex->state = INITIALIZED_MUTEX;   return HEAP_VOID;                 }
 		}
 		break;
 
@@ -327,8 +328,8 @@ static Val mutex_destroy   (Task* task,  Val arg)   {
 	    case   INITIALIZED_MUTEX:
 		{   char* err = pth__mutex_destroy( task, arg, &mutex->mutex );
 		    //
-		    if (err)   return RAISE_ERROR( task, err );
-		    else       return HEAP_VOID;
+		    if (err)   {                                 return RAISE_ERROR( task, err );	}
+		    else       { mutex->state = CLEARED_MUTEX;   return HEAP_VOID;			}
 		}
 		break;
 
