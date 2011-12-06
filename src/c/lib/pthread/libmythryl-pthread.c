@@ -496,10 +496,11 @@ static Val barrier_free   (Task* task,  Val arg)   {
 	    case   INITIALIZED_BARRIER:
 	    case       CLEARED_BARRIER:
 		//
+		barrier->state = FREED_BARRIER;
 		free( barrier );
 		break;
 
-	    case         FREED_CONDVAR:
+	    case         FREED_BARRIER:
 		die("Attempt to free already-freed barrier instance.");
 
 	    default:
@@ -532,8 +533,8 @@ static Val barrier_init   (Task* task,  Val arg)   {
 		//
 		{   char* err =   pth__barrier_init( task, arg, &barrier->barrier, threads );
 		    //
-		    if (err)					return RAISE_ERROR( task, err );
-		    else					return HEAP_VOID;
+		    if (err)		{						return RAISE_ERROR( task, err );	}
+		    else		{ barrier->state = INITIALIZED_BARRIER;		return HEAP_VOID;			}
 		}
 		break;
 
@@ -564,8 +565,8 @@ static Val barrier_destroy   (Task* task,  Val arg)   {
 		{
 		    char* err =   pth__barrier_destroy( task, arg, &barrier->barrier );
 		    //
-		    if (err)					return RAISE_ERROR( task, err );
-		    else					return HEAP_VOID;
+		    if (err)	{					return RAISE_ERROR( task, err );	}
+		    else	{ barrier->state = CLEARED_BARRIER;	return HEAP_VOID;			}
 		}
 		break;
 
