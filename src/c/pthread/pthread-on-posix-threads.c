@@ -272,6 +272,34 @@ char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengrou
     //
     // Called (only) by   join_pthread()   in   src/c/lib/pthread/libmythryl-pthread.c
 
+    //////////////////////////////////////////////////////////////////////////////
+    // POTENTIAL RACE CONDITION
+    //
+    // There is actually a fairly nasty race condition here:
+    // The 'arg' sub-pthread could exit, be marked PTHREAD_IS_VOID,
+    // and be re-allocated by a new pth__pthread_create
+    // -- all before we reach this point.  In that case we'd wind
+    // up using the wrong (new) pthread->tid value in this call.
+    //
+    // Two unappealing choices:
+    //  o Since we do not know that the Mythryl level code will ever
+    //    join a given thread, we cannot wait until after the join
+    //    to recycle the record.
+    //  o If we never re-use Pthread records at all, we introduce a
+    //    memory leak.
+    //
+    // Unix has similar problems with recycling of pid values, of course,
+    // ameliorated by using 64K of pid values before wrapping around.
+    // We could do something similar by identifying pthreads by Int31 values
+    // that wrap around and resolving them by linear search of the Pthread
+    // vector/list, rather than simple indexing. (Or a binary lookup if
+    // we started having huge numbers of live Pthreads, say.)
+    //
+    // For the moment I only intend to allocate a small number of Pthreads
+    // at startup and then stick with them for the length of the run, so
+    // I'm going to punt on this problem for the time being. -- 2011-12-05 CrT
+    //////////////////////////////////////////////////////////////////////////////
+
     int pthread_to_join =  TAGGED_INT_TO_C_INT( arg );
 
     // 'pthread_to_join' should have been returned by
@@ -279,14 +307,21 @@ char*    pth__pthread_join   (Task* task, Val arg) {					// http://pubs.opengrou
     // pthread_table__global[], but let's sanity-check it: 
     //
     if (pthread_to_join < 0
-    ||  pthread_to_join >= MAX_PTHREADS)    return "pth__pthread_join: Bogus value for pthread_to_join.";
+    ||  pthread_to_join >= MAX_PTHREADS
+    ){
+	return "pth__pthread_join: Bogus value for pthread_to_join.";
+    }
 
     Pthread* pthread =  pthread_table__global[ pthread_to_join ];			// pthread_table__global	def in   src/c/main/runtime-state.c
 
-    if (pthread->mode == PTHREAD_IS_VOID)  {
-	//
-	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
-    }
+    // The following check is incorrect because
+    // the subthread might well complete and exit
+    // before we get to this point:    (*BLUSH*! -- 2011-12-05 CrT)
+    //
+//  if (pthread->mode == PTHREAD_IS_VOID)  {
+//	//
+//	return "pth__pthread_join: Bogus value for pthread-to-join (already-dead thread?)";
+//  }
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "pth__pthread_join", arg );			// Enter BLOCKED mode.
 	//

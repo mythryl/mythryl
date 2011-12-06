@@ -195,14 +195,14 @@ static Val join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issue:
     //     ============								// 'pthread_to_join' is a pthread_table__global[] index returned from a call to   spawn_pthread()   (above).
     //
     #if NEED_PTHREAD_SUPPORT
-    {   char* err = pth__pthread_join( task, pthread_to_join );	// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
+    {   char* err = pth__pthread_join( task, pthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
 	    //
 	    if (err)   return RAISE_ERROR( task, err );
 	    else       return HEAP_VOID;
 	}
     #else
 	die ("join_pthread: no mp support\n");
-      return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
+      return HEAP_VOID;								// Cannot execute; only present to quiet gcc.
     #endif
 }
 
