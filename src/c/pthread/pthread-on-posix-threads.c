@@ -643,6 +643,9 @@ Pthread*  pth__get_pthread   ()   {
 //
 void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
     //
+// log_if("release_mythryl_heap: acquiring pth__mutex...\n");
+// log_if("release_mythryl_heap: acquired  pth__mutex...\n");
+    //
     pthread_mutex_lock(  &pth__mutex  );
 	//
 	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
@@ -650,7 +653,7 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 	//
 	pthread->task->protected_c_arg = arg;						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//
-	pthread_cond_signal( &pth__condvar );						// Tell other pthreads that shared state has changed.
+	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 }
