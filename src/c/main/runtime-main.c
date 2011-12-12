@@ -63,7 +63,7 @@ char** raw_args;
 char** commandline_arguments;		// Does not include the program name (argv[0]).
 char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
 
-
+Bool   saw_shebang_line = FALSE;
 
 // Local variables:
 //
@@ -279,6 +279,8 @@ static void   process_commandline_options   (
 		//
 		// For now, we silently ignore any other shebang-line switches:
 		//////////////////////////////////////////////////////
+
+		saw_shebang_line = TRUE;		  // Used only for debug. 	
 
 	        ++argv; --argc;                           // Skip the mythryl-runtime-intel32 path.
                 while (**argv == '-') { ++argv; --argc; } // Ignore all shebang line switches.
