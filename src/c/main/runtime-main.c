@@ -64,6 +64,7 @@ char** commandline_arguments;		// Does not include the program name (argv[0]).
 char*  mythryl_program_name__global;		// The program name used to invoke the runtime.
 
 Bool   saw_shebang_line = FALSE;
+Bool   running_script   = FALSE;
 
 // Local variables:
 //
@@ -165,6 +166,11 @@ static void   process_commandline_options   (
     char**	next_arg;
 
     Bool	seen_error = FALSE;
+
+    {   char* mode = getenv("MYTHRYL_MODE");
+	//
+        if (mode && !strcmp(mode,"SCRIPT"))   running_script = TRUE;
+    }
 
     // Special-case handling for heap images that invoke us
     // via the shebang mechanism of having

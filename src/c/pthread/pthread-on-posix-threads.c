@@ -643,22 +643,22 @@ Pthread*  pth__get_pthread   ()   {
 //
 void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
     //
-//log_if("release_mythryl_heap: acquiring pth__mutex...\n");
+//if (saw_shebang_line) log_if("release_mythryl_heap: acquiring pth__mutex...\n");
     //
     pthread_mutex_lock(  &pth__mutex  );
-//log_if("release_mythryl_heap: acquired  pth__mutex...\n");
+//if (saw_shebang_line) log_if("release_mythryl_heap: acquired  pth__mutex...\n");
 	//
 	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
 	--pth__running_pthreads_count;
 	//
 	pthread->task->protected_c_arg = arg;						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//
-//log_if("release_mythryl_heap: broadcasting on  pth__condvar...\n");
+//if (saw_shebang_line) log_if("release_mythryl_heap: broadcasting on  pth__condvar...\n");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-//log_if("release_mythryl_heap: unlocking pth__mutex...\n");
+//if (saw_shebang_line) log_if("release_mythryl_heap: unlocking pth__mutex...\n");
     pthread_mutex_unlock(  &pth__mutex  );
-//log_if("release_mythryl_heap: unlocked pth__mutex -- done.\n");
+//if (saw_shebang_line) log_if("release_mythryl_heap: unlocked pth__mutex -- done.\n");
 }
 
 
@@ -668,29 +668,29 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 //
 void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
     //
-//log_if("recover_mythryl_heap: acquiring pth__mutex...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: acquiring pth__mutex...\n");
     pthread_mutex_lock(   &pth__mutex  );
-//log_if("recover_mythryl_heap: acquired  pth__mutex...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: acquired  pth__mutex...\n");
 	//
 	while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Don't re-enter RUNNING mode while a heapcleaning is in progress.
 	    //
-//log_if("recover_mythryl_heap: waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...\n");
 	    pthread_cond_wait( &pth__condvar, &pth__mutex );
-//log_if("recover_mythryl_heap: back from waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: back from waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...\n");
 	}
-//log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...\n");
 	//
 	pthread->mode = PTHREAD_IS_RUNNING;						// Return us to the set of RUNNING pthreads.
 	++pth__running_pthreads_count;
 	//
 	pthread->task->protected_c_arg = &pthread->task->heapvoid;			// Make 'arg' no longer be a heapcleaner root.
 	//
-//log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...\n");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-//log_if("recover_mythryl_heap: unlocking pth__mutex...\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: unlocking pth__mutex...\n");
     pthread_mutex_unlock(   &pth__mutex   );
-//log_if("recover_mythryl_heap: unlocked  pth__mutex -- done.\n");
+//if (saw_shebang_line) log_if("recover_mythryl_heap: unlocked  pth__mutex -- done.\n");
 }
 
 
