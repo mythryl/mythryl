@@ -4,7 +4,7 @@
 
 // "Executables" produced by the mythryl compiler are actually
 // binary heap images with a shebang line at the top to run
-// them via the mythryl-runtime-ia32 C executable.
+// them via the mythryl-runtime-intel32 C executable.
 //
 // This internal shebang line needs to be different for
 // test versions, when it will be something like
@@ -47,7 +47,7 @@ char* our_name = "set-heapdump-shebang.c";
 
 void   usage   (void) {
 
-    fprintf(stderr,"Usage: %s heapimage  '#!/usr/bin/mythryl-runtime-ia32 --shebang'\n", our_name );
+    fprintf(stderr,"Usage: %s heapimage  '#!/usr/bin/mythryl-runtime-intel32 --shebang'\n", our_name );
     exit(1);
 }
 

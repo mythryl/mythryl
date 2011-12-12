@@ -17,7 +17,7 @@ echo Group structure %rare% is $basis.lib/basis.lib "%root%" %smlfile% >%cmfile%
 %COMSPEC% /C "%LIB7_HOME%\bin\perld7.bat --build %root% %cmfile% %heap% %listfile% %linkargsfile%"
 IF ERRORLEVEL 1 GOTO ERR
 IF NOT EXIST %linkargsfile% GOTO END
-"%LIB7_HOME%\bin\mythryl-runtime-ia32.exe" --runtime-compiledfiles-to-load=%listfile%
+"%LIB7_HOME%\bin\mythryl-runtime-intel32.exe" --runtime-compiledfiles-to-load=%listfile%
 del %linkargsfile%
 GOTO END
 

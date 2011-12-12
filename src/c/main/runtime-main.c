@@ -111,7 +111,7 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
     if (verbosity > 0) {
 	printf("\n");
 	printf("--------------------------------------------------------\n");
-	printf("mythryl-runtime-ia32:    src/c/main/runtime-main.c:   %d args:\n",argc);
+	printf("mythryl-runtime-intel32:    src/c/main/runtime-main.c:   %d args:\n",argc);
 	{   int  i;
 	    for (i = 0; i < argc; ++i) {
 		printf("                                                %s\n", argv[i]);
@@ -168,10 +168,10 @@ static void   process_commandline_options   (
 
     // Special-case handling for heap images that invoke us
     // via the shebang mechanism of having
-    //    #/usr/bin/mythryl-runtime-ia32
+    //    #/usr/bin/mythryl-runtime-intel32
     // at the top of the file.
     // We presume this to be the case if arg0
-    // ends in "/mythryl-runtime-ia32"":
+    // ends in "/mythryl-runtime-intel32"":
     // and arg1 starts with "--shebang":
     //
     if (argc > 1) {
@@ -198,7 +198,7 @@ static void   process_commandline_options   (
 
             // This is the current logic:
 	    //
-               (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-ia32   or   /mythryl-runtime-ia64   suffix, end-first.
+               (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-ia64   suffix, end-first.
             && (arg0end[ -2] == '3' || arg0end[ -2] == '6')
             &&  arg0end[ -3] == 'a' 
             &&  arg0end[ -4] == 'i' 
@@ -280,7 +280,7 @@ static void   process_commandline_options   (
 		// For now, we silently ignore any other shebang-line switches:
 		//////////////////////////////////////////////////////
 
-	        ++argv; --argc;                           // Skip the mythryl-runtime-ia32 path.
+	        ++argv; --argc;                           // Skip the mythryl-runtime-intel32 path.
                 while (**argv == '-') { ++argv; --argc; } // Ignore all shebang line switches.
 		heap_image_to_run_filename = *argv;       // Remember heap file to load.
 //		++argv; --argc;                           // Hide heapfile from subquent logic.

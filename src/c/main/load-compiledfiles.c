@@ -2,7 +2,7 @@
 //
 // This file implements the core Mythryl linker functionality
 // which combines .compiled files to produce a Mythryl "executable"
-// (actually a heap image with a #!/usr/bin/mythryl-runtime-ia32 shebang line
+// (actually a heap image with a #!/usr/bin/mythryl-runtime-intel32 shebang line
 // at the top).
 //
 // Our primary entrypoint is
@@ -10,7 +10,7 @@
 //      load_compiled_files (),
 //
 // which is invoked from src/c/main/runtime-main.c:main()
-// when mythryl-runtime-ia32 is given the "--runtime-compiledfiles-to-load=filename"
+// when mythryl-runtime-intel32 is given the "--runtime-compiledfiles-to-load=filename"
 // commandline switch, where the "filename"
 // parameter is the name of a file containing a
 // list of filenames of the .compiled files to load, one per line. 

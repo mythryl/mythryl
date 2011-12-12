@@ -50,16 +50,16 @@ help:
 
 all:	c-stuff compiler rest
 
-# We use   bin/mythryl-runtime-ia32   as a proxy for all
+# We use   bin/mythryl-runtime-intel32   as a proxy for all
 # of our C executables:
 #
-bin/mythryl-runtime-ia32: src/c/o/Makefile
+bin/mythryl-runtime-intel32: src/c/o/Makefile
 	@sh/make-c-stuff
 	@sh/patch-shebangs  bin/mythryld  bin/mythryl-lex  bin/mythryl-yacc
 
 # User-friendly name for the above:
 #
-c-stuff: bin/mythryl-runtime-ia32
+c-stuff: bin/mythryl-runtime-intel32
 
 # This depends on a version of the gnu id-utils package
 # hacked to understand SML syntax, available from
@@ -162,7 +162,7 @@ check:
 gtk-check:
 	@MYTHRYL_ROOT=`pwd` sh/make-gtk-check
 
-compiler-libraries: bin/mythryl-runtime-ia32
+compiler-libraries: bin/mythryl-runtime-intel32
 	@MYTHRYL_ROOT=`pwd` sh/make-compiler-libraries
 
 compiler-libraries-soon:
@@ -248,7 +248,7 @@ rest3:	bin/mythryl-yacc \
 summary:
 	@echo
 	@echo "Compiled C programs:"
-	@ls -l bin/mythryl-runtime-ia32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-slave
+	@ls -l bin/mythryl-runtime-intel32 bin/mythryl bin/passthrough bin/set-heapdump-shebang bin/mythryl-gtk-slave
 	@echo
 	@echo "Main Mythryl compiler executable:"
 	@ls -l bin/mythryld
@@ -637,7 +637,7 @@ clean: somewhat-clean
 	@-rm -f ID
 	@-rm -f TAGS
 	@-rm -f v-intel32-linux
-	@-rm -f bin/mythryl-runtime-ia32
+	@-rm -f bin/mythryl-runtime-intel32
 	@-rm -f bin/build-an-executable-mythryl-heap-image
 	@-rm -f bin/c-glue-maker
 	@-rm -f bin/guess-host-architecture-and-os

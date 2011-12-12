@@ -220,7 +220,7 @@ fun dec (ri as REF i)   =   (ri := i - 1);
 #	and did "make compiler" I get a linktime segfault:
 #	 	 ...
 #                load-compiledfiles.c:   Reading   file          COMPILED_FILES_TO_LOAD
-#                /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryl-runtime-ia32: Fatal error:  Bogus fault not in Mythryl: sig = 11, code = 0x805879b, pc = 0x805879b)
+#                /mythryl7/mythryl7.110.58/mythryl7.110.58/bin/mythryl-runtime-intel32: Fatal error:  Bogus fault not in Mythryl: sig = 11, code = 0x805879b, pc = 0x805879b)
 #                sh/make-compiler-executable:   Compiler link failed, no mythryld executable
 #	It appears that we may have hit some sort of 64K type limit here;
 #	attempting to add

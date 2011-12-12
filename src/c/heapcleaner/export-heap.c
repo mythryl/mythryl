@@ -8,12 +8,12 @@
 //
 // are actually heap images, with a
 //
-//     #!/usr/bin/mythryl-runtime-ia32
+//     #!/usr/bin/mythryl-runtime-intel32
 //
 // shebang line at the start to make them 'scripts'
 // as far as the host operating system is concerned.
 //
-// (/usr/bin/mythryl-runtime-ia32 itself is a C program containing
+// (/usr/bin/mythryl-runtime-intel32 itself is a C program containing
 // essentially the Mythryl garbage collector plus enough
 // logic to load and run a Mythryl heap image.)
 //

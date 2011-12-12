@@ -379,7 +379,7 @@ void   publish_runtime_package_contents   ()   {
     //
     // are actually heap images with an initial "shebang" line
     //
-    //     #!/usr/bin/mythryl-runtime-ia32
+    //     #!/usr/bin/mythryl-runtime-intel32
     //
     // which makes them 'scripts' to the host operating system.
     //
@@ -393,7 +393,7 @@ void   publish_runtime_package_contents   ()   {
     //     src/c/lib/mythryl-callable-c-libraries-list.h
     //
     // and because the exact addresses of these functions may change
-    // each time mythryl-runtime-ia32 is recompiled, when saving out a heap image
+    // each time mythryl-runtime-intel32 is recompiled, when saving out a heap image
     // we must replace all heap references to such functions by
     // abstract names for them, and then do the reverse when loading
     // the heap image back into memory.
