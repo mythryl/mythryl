@@ -298,7 +298,7 @@ static void   process_commandline_options   (
 
     // Scan for any heap/cleaner parameters:
     //
-    if (!(*cleaner_args = handle_cleaner_commandline_arguments(argv))) {
+    if (!(*cleaner_args = handle_heapcleaner_commandline_arguments(argv))) {		// handle_heapcleaner_commandline_arguments		is from   src/c/heapcleaner/heapcleaner-initialization.c
 	seen_error = TRUE;
     }
 

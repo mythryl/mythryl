@@ -66,8 +66,8 @@ Heapcleaner_Statistics   heapcleaner_statistics_buffer__global [ HEAPCLEANER_STA
 
 
 
-Heapcleaner_Args*   handle_cleaner_commandline_arguments   (char **argv) {
-    //              ====================================
+Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char **argv) {
+    //              ========================================
     //
     // Parse any heapcleaner args from the user commandline:
 
