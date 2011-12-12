@@ -177,7 +177,8 @@ static void   process_commandline_options   (
     if (argc > 1) {
         char* arg0 = argv[0];
         if (*arg0) {
-	    char* arg0end = arg0;    while (*++arg0end);
+	    int   arg0len = 0;    
+	    char* arg0end = arg0;   do {   ++arg0len; } while (*++arg0end);
 	   if (								// Should maybe use some string lib fn here instead!
 
 	    // This is deprecated logic.  It may be
@@ -218,7 +219,37 @@ static void   process_commandline_options   (
             &&  arg0end[-19] == 'y' 
             &&  arg0end[-20] == 'm' 
             &&  arg0end[-21] == '/' 
-))
+
+            )||(
+
+            // This is future logic:
+	    //
+               (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-intel64   suffix, end-first.
+            && (arg0end[ -2] == '3' || arg0end[ -2] == '6')
+            &&  arg0end[ -3] == 'l' 
+            &&  arg0end[ -4] == 'e' 
+            &&  arg0end[ -5] == 't' 
+            &&  arg0end[ -6] == 'n' 
+            &&  arg0end[ -7] == 'i' 
+            &&  arg0end[ -8] == '-'    // Should maybe use some string lib fn here instead.
+            &&  arg0end[ -9] == 'e' 
+            &&  arg0end[-10] == 'm' 
+            &&  arg0end[-11] == 'i' 
+            &&  arg0end[-12] == 't' 
+            &&  arg0end[-13] == 'n' 
+            &&  arg0end[-14] == 'u' 
+            &&  arg0end[-15] == 'r' 
+            &&  arg0end[-16] == '-' 
+            &&  arg0end[-17] == 'l' 
+            &&  arg0end[-18] == 'y' 
+            &&  arg0end[-19] == 'r' 
+            &&  arg0end[-20] == 'h' 
+            &&  arg0end[-21] == 't' 
+            &&  arg0end[-22] == 'y' 
+            &&  arg0end[-23] == 'm' 
+            &&  arg0end[-24] == '/' 
+            )
+            )
 
             &&  argv[1][0] == '-' 
             &&  argv[1][1] == '-' 

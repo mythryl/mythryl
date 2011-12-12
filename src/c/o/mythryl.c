@@ -102,7 +102,7 @@
 //     winix::process::exit winix::process::success;
 //
 // but unfortunately the interactive compiler currently barfs on
-// this because 'exit' has a type with a free type variable.
+// this because 'exit' has a type with a free type variable.			// Later: Can we use a type coercion to fix this? E.g.,  'exit(0): Type_Whatever;' ?
 // So instead we send ourself the TERM signal, whose handler
 // consists of the above code:
 
@@ -366,9 +366,9 @@ static char**   process_argv   (int argc,  char** argv )   {
     // pertain to us rather than the script
     // we are to run, so note and drop them
     // to avoid confusing the script:
-
+    //
     {   int to_skip = args_to_skip( argc, argv );
-
+        //
         argc -= to_skip;
         argv += to_skip;
     }
@@ -827,7 +827,7 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 	// XXX BUGGO FIXME The Linux select() manpage explains why pselect() is better than select().
 	//                 Should probably recode to use it, and also analyse to see if the
 	//                 Mythryl POSIX interface should be recoded to use it or offer access to
-	//                 it. (Is it POSIX-standard, or Linux-specific?  In principle, or in practice?)
+	//                 it. (It is POSIX-standard.). Same manpage warns that Linux is slightly nonstandard.
 
 	int bits_set = select(
 			   max_fd,
