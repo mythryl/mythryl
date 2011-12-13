@@ -170,6 +170,9 @@ static void   process_commandline_options   (
     {   char* mode = getenv("MYTHRYL_MODE");
 	//
         if (mode && !strcmp(mode,"SCRIPT"))   running_script = TRUE;
+	if (running_script) {
+	    if (!log_if_fd)   log_if_fd = open("script.log", O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR );
+	}
     }
 
     // Special-case handling for heap images that invoke us

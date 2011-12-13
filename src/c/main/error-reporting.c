@@ -112,7 +112,7 @@ void   assert_fail   (const char* a,  const char* file,  int line)    {		// Used
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-
+#include <pthread.h>
 
 int log_if_fd = 0;	// Zero value means no logging. (We'd never log to stdin anyhow! :-)
 
@@ -168,7 +168,7 @@ void   log_if   (const char * fmt, ...) {
 	// We fill in dummy tid= and (thread) name= values here to reduce
 	// the need for special-case code when processing logfiles:
 	//
-	sprintf(buf,"time=%10d.%06d pid=%08d tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), "none");
+	sprintf(buf,"time=%10d.%06d pid=%08d ptid=%08d tid=00000000 name=%-16s msg=", seconds, microseconds, getpid(), pthread_self(), "none");
 
 	// Now write the message proper into buf[],
         // right after the timestamp:
