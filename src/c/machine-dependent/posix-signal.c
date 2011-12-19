@@ -247,7 +247,10 @@ static void   c_signal_handler   (
     //
     pthread->ccall_limit_pointer_mask = 0;
 
-    if (pthread->executing_mythryl_code && (! pthread->posix_signal_pending) && (! pthread->mythryl_handler_for_posix_signal_is_running)) {
+    if (  pthread-> executing_mythryl_code
+    && (! pthread-> posix_signal_pending)
+    && (! pthread-> mythryl_handler_for_posix_signal_is_running)
+    ){
         //
 	pthread->posix_signal_pending =  TRUE;
 
@@ -266,8 +269,8 @@ static void   c_signal_handler   (
 
 void   set_signal_mask   (Task* task, Val arg)   {
     // 
-    // Set the signal mask to the given list of signals.
-    // The sigList has the type
+    // Set the signal mask to the list of signals given by 'arg'.
+    // The signal_list has the type
     //
     //     "sysconst list option"
     //
@@ -277,31 +280,31 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
     //
-    Signal_Set	mask;
+    Signal_Set	mask;											// Signal_Set		is from   src/c/h/system-dependent-signal-get-set-etc.h
     int		i;
 
-    CLEAR_SIGNAL_SET(mask);
+    CLEAR_SIGNAL_SET(mask);										// CLEAR_SIGNAL_SET	is from   src/c/h/system-dependent-signal-get-set-etc.h
 
-    Val sigList  = arg;
-    if (sigList != OPTION_NULL) {
-	sigList  = OPTION_GET(sigList);
+    Val signal_list  = arg;
+    if (signal_list != OPTION_NULL) {
+	signal_list  = OPTION_GET(signal_list);
 
-	if (LIST_IS_NULL(sigList)) {
+	if (LIST_IS_NULL(signal_list)) {
 	    //
 	    // THE [] -- mask all signals
             //
 	    for (i = 0;  i < NUM_SYSTEM_SIGS;  i++) {
 	        //
-		ADD_SIGNAL_TO_SET( mask, SigInfo[i].id );
+		ADD_SIGNAL_TO_SET( mask, SigInfo[i].id );						// ADD_SIGNAL_TO_SET	is from   src/c/h/system-dependent-signal-get-set-etc.h
 	    }
 
 	} else {
 
-	    while (sigList != LIST_NIL) {
-		Val	car = LIST_HEAD(sigList);
+	    while (signal_list != LIST_NIL) {
+		Val	car = LIST_HEAD(signal_list);
 		int	sig = GET_TUPLE_SLOT_AS_INT(car, 0);
 		ADD_SIGNAL_TO_SET(mask, sig);
-		sigList = LIST_TAIL(sigList);
+		signal_list = LIST_TAIL(signal_list);
 	    }
 	}
     }
@@ -322,14 +325,14 @@ void   set_signal_mask   (Task* task, Val arg)   {
 
 Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/signal/getsigmask.c
     // 
-    // Return the current signal mask (only those signals supported by Lib7); like
-    // set_signal_mask, the result has the following semantics:
+    // Return the current signal mask (only those signals supported by Mythryl);
+    // like set_signal_mask, the result has the following semantics:
     //	NULL	-- the empty mask
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
 
     Signal_Set	mask;
-    Val	name, sig, sigList, result;
+    Val	name, sig, signal_list, result;
     int		i, n;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", arg );
@@ -349,11 +352,11 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 
     if (n == NUM_SYSTEM_SIGS) {
 	//
-	sigList = LIST_NIL;
+	signal_list = LIST_NIL;
 	//
     } else {
 	//
-	for (i = 0, sigList = LIST_NIL;   i < NUM_SYSTEM_SIGS;   i++) {
+	for (i = 0, signal_list = LIST_NIL;   i < NUM_SYSTEM_SIGS;   i++) {
 	    //
 	    if (SIGNAL_IS_IN_SET(mask, SigInfo[i].id)) {
 	        //
@@ -361,12 +364,12 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 
 		REC_ALLOC2(task, sig, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 
-		LIST_CONS(task, sigList, sig, sigList);
+		LIST_CONS(task, signal_list, sig, signal_list);
 	    }
 	}
     }
 
-    OPTION_THE(task, result, sigList);
+    OPTION_THE(task, result, signal_list);
 
     return result;
 }

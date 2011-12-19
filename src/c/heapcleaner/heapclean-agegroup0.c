@@ -49,9 +49,9 @@ extern long	total_bytes_copied__global;	// total_bytes_allocated__global		def in
 
 //
 static void   process_task_heap_changelog (Task* task,  Heap* heap);
-static void   sweep_agegroup_1_tospace	(Agegroup* agegroup_1);
+static void   sweep_agegroup_1_tospace	(Agegroup* agegroup_1, Task* task);	// 'task' arg is purely for debugging, can be deleted for production use.
 //
-static        Val    forward_agegroup0_chunk_to_agegroup_1	(Agegroup* agegroup_1,  Val v);
+static        Val    forward_agegroup0_chunk_to_agegroup_1	(Agegroup* agegroup_1,  Val v, Task* task, int caller);	// 'task' arg is only for debugging, can be dropped in production code.
 static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,  Val tagword);
 
 
@@ -59,8 +59,72 @@ static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,
     extern char* sib_name__global [];			// sib_name__global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
+// Debug routine added while chasing a Heisenbug that strikes
+// in forward_agegroup0_chunk_to_agegroup_1(), in the hope of
+// adding some useful context for the reported chunk address:
+static void log_task( Task* task ) {
+    log_if("log_task:                       task x=%p",  task);
+    log_if("log_task:                       heap x=%x",  task->heap);
+    log_if("log_task:                    pthread x=%x",  task->pthread);
+    log_if("log_task:                pthread->id x=%x",  (unsigned int)(task->pthread->tid));
+    log_if("log_task:    heap_allocation_pointer x=%x",  task->heap_allocation_pointer);
+    log_if("log_task:      heap_allocation_limit x=%x",  task->heap_allocation_limit);
+    log_if("log_task: real_heap_allocation_limit x=%x",  task->real_heap_allocation_limit);
+    log_if("log_task:                   argument x=%x",  task->real_heap_allocation_limit);
+    log_if("log_task:                       fate x=%x",  task->fate);
+    log_if("log_task:            current_closure x=%x",  task->current_closure);
+    log_if("log_task:              link_register x=%x",  task->link_register);
+    log_if("log_task:            program_counter x=%x",  task->program_counter);
+    log_if("log_task:             exception_fate x=%x",  task->exception_fate);
+    log_if("log_task:             current_thread x=%x",  task->current_thread);
+    log_if("log_task:             heap_changelog x=%x",  task->heap_changelog);
+    log_if("log_task:            fault_exception x=%x",  task->fault_exception);
+    log_if("log_task:   faulting_program_counter x=%x",  task->faulting_program_counter);
+    log_if("log_task:            protected_c_arg x=%x",  task->protected_c_arg);
+    log_if("log_task:                  &heapvoid x=%x", &task->heapvoid);
+    log_if("log_task: Following stuff is in task->struct");
+    log_if("log_task:           agegroup0_buffer x=%x",  task->heap->agegroup0_buffer);
+    log_if("log_task:  agegroup0_buffer_bytesize x=%x",  task->heap->agegroup0_buffer_bytesize);
+    log_if("log_task:           sum of above two x=%x",  (char*)(task->heap->agegroup0_buffer) + task->heap->agegroup0_buffer_bytesize);
+    log_if("log_task:       multipage_ram_region x=%x",  task->heap->multipage_ram_region);
+    log_if("log_task:           active_agegroups d=%d",  task->heap->active_agegroups);
+    log_if("log_task: oldest_agegroup_keeping_idle_fromspace_buffers d=%d",  task->heap->oldest_agegroup_keeping_idle_fromspace_buffers);
+    log_if("log_task:  hugechunk_ramregion_count d=%d",  task->heap->hugechunk_ramregion_count);
+    log_if("log_task:      total_bytes_allocated x=(%x,%x) (millions, 1s)",  task->heap->total_bytes_allocated.millions, task->heap->total_bytes_allocated.ones );
 
-static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p) {
+    for (int i = 0; i < task->heap->active_agegroups; ++i) {
+	//
+	Agegroup* a = task->heap->agegroup[ i ];
+	log_if("log_task:           agegroup[%d] x=%x (holds agegroup %d)",  i, a, i+1);
+	log_if("log_task:                 a->age d=%d",  a->age);
+	log_if("log_task:           a->cleanings d=%d",  a->cleanings);
+	log_if("log_task:               a->ratio x=%x (Desired number of collections of the previous agegroup for one collection of this agegroup)",  a->ratio);
+	log_if("log_task:               a->last_cleaning_count_of_younger_agegroup d=%d",  a->last_cleaning_count_of_younger_agegroup);
+
+	for (int s = 0; s < MAX_PLAIN_ILKS; ++s) {
+	    //
+	    log_if("log_task:");
+	    log_if("log_task:             a->sib[%d] x=%x",  s, a->sib[s]);
+	    log_if("log_task:          a->sib[%d].id d=%d",  s, a->sib[s]->id);
+	    log_if("log_task:");
+	    log_if("log_task:          a->sib[%d].tospace            x=%x",  s, a->sib[s]->tospace);
+	    log_if("log_task:          a->sib[%d].tospace_bytesize   x=%x",  s, a->sib[s]->tospace_bytesize);
+	    log_if("log_task:          a->sib[%d].tospace_limit      x=%x",  s, a->sib[s]->tospace_limit);
+	    log_if("log_task:");
+	    log_if("log_task:          a->sib[%d].fromspace          x=%x",  s, a->sib[s]->fromspace);
+	    log_if("log_task:          a->sib[%d].fromspace_bytesize x=%x",  s, a->sib[s]->fromspace_bytesize);
+	    log_if("log_task:          a->sib[%d].fromspace_used_end x=%x",  s, a->sib[s]->fromspace_used_end);
+	    log_if("log_task:");
+	    log_if("log_task:          a->sib[%d].next_tospace_word_to_allocate x=%x",  s, a->sib[s]->next_tospace_word_to_allocate);
+	    log_if("log_task:          a->sib[%d].next_word_to_sweep_in_tospace x=%x",  s, a->sib[s]->next_word_to_sweep_in_tospace);
+	    log_if("log_task:          a->sib[%d].repairlist x=%x",  s, a->sib[s]->repairlist);
+	    log_if("log_task:          a->sib[%d].end_of_fromespace_oldstuff x=%x",  s, a->sib[s]->end_of_fromspace_oldstuff);
+	}
+    }
+
+}
+
+static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {	// 'task' arg is only for debugging, can be dropped in production code.
     //               =======================
     //
     // Forward *p if it is in agegroup0:
@@ -71,7 +135,7 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 	//
 	Sibid  sibid =  SIBID_FOR_POINTER( book2sibid, w );
 
-	if (sibid == NEWSPACE_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup_1( g1, w );
+	if (sibid == NEWSPACE_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup_1( g1, w, task, 0 );
     }
 }
 
@@ -133,7 +197,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
-	    forward_if_in_agegroup0( b2s, age1, rp );
+	    forward_if_in_agegroup0( b2s, age1, rp, task );
 	}
     }
 
@@ -160,7 +224,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Sweep the to-space for agegroup 1:
     //
-    sweep_agegroup_1_tospace( age1 );
+    sweep_agegroup_1_tospace( age1, task );
     ++heap->agegroup0_cleanings_done;
 
     null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/heapcleaner-stuff.c
@@ -278,7 +342,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	    //
 	    if (dst_age == AGEGROUP0) {
 		//
-		*pointer =  forward_agegroup0_chunk_to_agegroup_1( age1, pointee );	// Promote pointee to agegroup 1.
+		*pointer =  forward_agegroup0_chunk_to_agegroup_1( age1, pointee,task, 1);	// Promote pointee to agegroup 1.
 		dst_age = 1;								// Remember pointee now has age 1, not 0.
 		//
 	    }
@@ -311,8 +375,8 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 }											// fun process_task_heap_changelog
 
 //
-inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   {	// Called only from sweep_agegroup_1_tospace (below).
-    //               ===========================
+inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {	// Called only from sweep_agegroup_1_tospace (below).
+    //               ============================					// 'task' arg is only for debugging, can be dropped in production code.
     //
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     Sib*   sib =  ag1->sib[ ilk ];							// Find sib to scan.
@@ -328,7 +392,7 @@ inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   
 	do {
 	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {		// Check all words in buffer.
 		//
-		forward_if_in_agegroup0(b2s, ag1, p);					// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
+	      forward_if_in_agegroup0(b2s, ag1, p, task);				// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
 	} while (q != sib->next_tospace_word_to_allocate);				// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
@@ -338,8 +402,8 @@ inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk)   
     return progress;
 }
 //
-static void   sweep_agegroup_1_tospace   (Agegroup* ag1)   {
-    //        =======================
+static void   sweep_agegroup_1_tospace   (Agegroup* ag1, Task* task)   {		// 'task' arg is only for debugging, can be removed in production use.
+    //        ========================
     //
     // Search the agegroup 1 to-space buffers for references
     // to values in agegroup0.  Copy all such agegroup0 values	
@@ -356,16 +420,16 @@ static void   sweep_agegroup_1_tospace   (Agegroup* ag1)   {
 	//
 	making_progress = FALSE;
 	//
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, RECORD_ILK );
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1,   PAIR_ILK );
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, VECTOR_ILK );
+	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, RECORD_ILK, task );
+	making_progress |=  sweep_agegroup_1_sib_tospace(ag1,   PAIR_ILK, task );
+	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, VECTOR_ILK, task );
     };
 }										// fun sweep_agegroup_1_tospace.
 
 
 //
-static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v)   {
-    //       ====================================
+static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v, Task* task, int caller)   {	// 'task' arg is only for debugging, can be removed in production use.
+    //       =====================================
     // 
     // Forward pair/record/vector/string 'v' from agegroup0 to agegroup 1.
     // This involves:
@@ -457,7 +521,9 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v)   {
 	return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
 
     default:
-	die ("bad chunk tag %d, chunk = %#x, tagword = %#x", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
+	log_if("forward_agegroup0_chunk_to_agegroup_1 was called by %s", caller ? "process_task_heap_changelog" : "forward_if_in_agegroup0");
+	log_task(task);
+	die ("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup_1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
 	exit(1);									// Cannot execute -- just to quiet gcc -Wall.
     }
 

@@ -121,28 +121,28 @@ static void*  pthread_main   (void* task_as_voidptr)   {
     //      -- http://pubs.opengroup.org/onlinepubs/007904975/functions/pthread_create.html	
 
 
-    Task* task = (Task*) task_as_voidptr;						// The <pthread.h> API for pthread_create requires that our arg be cast to void*; cast it back to its real type.
+    Task* task = (Task*) task_as_voidptr;								// The <pthread.h> API for pthread_create requires that our arg be cast to void*; cast it back to its real type.
 
 
-    pthread_mutex_unlock( &pth__mutex );							// This lock was acquired by pth__pthread_create (below).
+    pthread_mutex_unlock( &pth__mutex );								// This lock was acquired by pth__pthread_create (below).
 
-    run_mythryl_task_and_runtime_eventloop( task );					// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
+    run_mythryl_task_and_runtime_eventloop( task );							// run_mythryl_task_and_runtime_eventloop		def in   src/c/main/run-mythryl-code-and-runtime-eventloop.c
 
 
     // run_mythryl_task_and_runtime_eventloop should never return:
     //
     die ("pthread_main:  Returned fromd run_mythryl_task_and_runtime_eventloop()?!\n");
 
-    return  (void*) NULL;								// Cannot execute; only to keep gcc quiet.
+    return  (void*) NULL;										// Cannot execute; only to keep gcc quiet.
 }
 
 
 
 
-											// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
-											// struct task				def in   src/c/h/runtime-base.h
+													// typedef   struct task   Task;	def in   src/c/h/runtime-base.h
+													// struct task				def in   src/c/h/runtime-base.h
 
-char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val closure_arg)   {
+char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val closure_arg)   {		// " "It's the job that's never started as takes longest to finish."   -- J. R. R. Tolkein
     //===================
     //
     // Run 'closure_arg' in its own kernel thread.
@@ -154,9 +154,9 @@ char* pth__pthread_create   (int* pthread_table_slot, Val current_thread, Val cl
     int      i;
 
 if (running_script) log_if("pth__pthread_create: TOP...");
-											PTHREAD_LOG_IF ("[Searching for free pthread]\n");
+													PTHREAD_LOG_IF ("[Searching for free pthread]\n");
 
-    pthread_mutex_lock( &pth__mutex );							// Always first step before reading/writing pthread_table__global.
+    pthread_mutex_lock( &pth__mutex );									// Always first step before reading/writing pthread_table__global.
 
     // Search for a slot in which to put a new pthread
     //
@@ -631,7 +631,7 @@ Tid   pth__get_pthread_id   ()   {
     // the currently running pthread from all other
     // pthreads.
     //
-    return  pthread_self() & 0xFFFFFFF; 
+    return  pthread_self() & 0x3FFFFFFF; 
 }
 //
 Pthread*  pth__get_pthread   ()   {
@@ -667,22 +667,22 @@ Pthread*  pth__get_pthread   ()   {
 //
 void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  ) {
     //
-//if (running_script) log_if("release_mythryl_heap: acquiring pth__mutex...");
+// if (running_script) log_if("release_mythryl_heap: acquiring pth__mutex...");
     //
     pthread_mutex_lock(  &pth__mutex  );
-//if (running_script) log_if("release_mythryl_heap: acquired  pth__mutex...");
+// if (running_script) log_if("release_mythryl_heap: acquired  pth__mutex...");
 	//
 	pthread->mode = PTHREAD_IS_BLOCKED;						// Remove us from the set of RUNNING pthreads.
 	--pth__running_pthreads_count;
 	//
 	pthread->task->protected_c_arg = arg;						// Protect 'arg' from the heapcleaner by making it a heapcleaner root.
 	//
-//if (running_script) log_if("release_mythryl_heap: broadcasting on  pth__condvar...");
+// if (running_script) log_if("release_mythryl_heap: broadcasting on  pth__condvar...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-//if (running_script) log_if("release_mythryl_heap: unlocking pth__mutex...");
+// if (running_script) log_if("release_mythryl_heap: unlocking pth__mutex...");
     pthread_mutex_unlock(  &pth__mutex  );
-//if (running_script) log_if("release_mythryl_heap: unlocked pth__mutex -- done.");
+// if (running_script) log_if("release_mythryl_heap: unlocked pth__mutex -- done.");
 }
 
 
@@ -692,29 +692,29 @@ void release_mythryl_heap(  Pthread* pthread,  const char* fn_name,  Val* arg  )
 //
 void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
     //
-//if (running_script) log_if("recover_mythryl_heap: acquiring pth__mutex...");
+// if (running_script) log_if("recover_mythryl_heap: acquiring pth__mutex...");
     pthread_mutex_lock(   &pth__mutex  );
-//if (running_script) log_if("recover_mythryl_heap: acquired  pth__mutex...");
+// if (running_script) log_if("recover_mythryl_heap: acquired  pth__mutex...");
 	//
 	while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Don't re-enter RUNNING mode while a heapcleaning is in progress.
 	    //
-//if (running_script) log_if("recover_mythryl_heap: waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
+// if (running_script) log_if("recover_mythryl_heap: waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
 	    pthread_cond_wait( &pth__condvar, &pth__mutex );
-//if (running_script) log_if("recover_mythryl_heap: back from waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
+// if (running_script) log_if("recover_mythryl_heap: back from waiting on pth__condvar because pth__heapcleaner_state != HEAPCLEANER_IS_OFF ...");
 	}
-//if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
+// if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
 	//
 	pthread->mode = PTHREAD_IS_RUNNING;						// Return us to the set of RUNNING pthreads.
 	++pth__running_pthreads_count;
 	//
 	pthread->task->protected_c_arg = &pthread->task->heapvoid;			// Make 'arg' no longer be a heapcleaner root.
 	//
-//if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
+// if (running_script) log_if("recover_mythryl_heap: pth__heapcleaner_state == HEAPCLEANER_IS_OFF so proceeding...");
 	pthread_cond_broadcast( &pth__condvar );					// Tell other pthreads that shared state has changed.
 	//
-//if (running_script) log_if("recover_mythryl_heap: unlocking pth__mutex...");
+// if (running_script) log_if("recover_mythryl_heap: unlocking pth__mutex...");
     pthread_mutex_unlock(   &pth__mutex   );
-//if (running_script) log_if("recover_mythryl_heap: unlocked  pth__mutex -- done.");
+// if (running_script) log_if("recover_mythryl_heap: unlocked  pth__mutex -- done.");
 }
 
 
@@ -1043,7 +1043,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      safest hold this mutex when reading those variables.)
 //
 //
-//   o  We introduce a matching Condvar
+//   o  We introduce a matching condition variable
 //
 //          pth__condvar
 //

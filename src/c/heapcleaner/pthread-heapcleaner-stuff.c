@@ -186,7 +186,7 @@ int   pth__start_heapcleaning   (Task *task) {
     //     it sets pth__heapcleaner_state to HEAPCLEANER_IS_OFF and
     //     signals the secondary heapcleaner pthreads to resume
     //     execution of user code.
-
+// log_if("pth__start_heapcleaning: TOP.");
     Pthread* pthread = task->pthread;
 
     pthread_mutex_lock(   &pth__mutex  );							// 
@@ -206,6 +206,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	    ++pth__running_pthreads_count;
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 	    pthread_mutex_unlock(  &pth__mutex  );
+// log_if("pth__start_heapcleaning: return FALSE.");
 	    return FALSE;									// Resume running user code.
 	}
 	/////////////////////////////////////////////////////////////
@@ -231,6 +232,7 @@ int   pth__start_heapcleaning   (Task *task) {
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed. (They don't care, but imho it is a good habit to signal each state change.)
 	//
     pthread_mutex_unlock(  &pth__mutex  );							// Not logically required, but holding a mutex for a long time is a bad habit.
+// log_if("pth__start_heapcleaning: return TRUE.");
     return TRUE;										// Return and run heapcleaner code.
 
 }							// fun pth__start_heapcleaning
@@ -244,6 +246,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
     //     src/c/heapcleaner/call-heapcleaner.c
     //
     // As above, but we collect extra roots into pth__extra_heapcleaner_roots__global.
+// log_if("pth__start_heapcleaning_with_extra_roots: TOP.");
 
 
     Pthread* pthread =  task->pthread;
@@ -270,6 +273,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
 	    ++pth__running_pthreads_count;
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 	    pthread_mutex_unlock(  &pth__mutex  );
+// log_if("pth__start_heapcleaning_with_extra_roots: return FALSE.");
 	    return FALSE;									// Resume running user code.
 	}
 	/////////////////////////////////////////////////////////////
@@ -296,6 +300,7 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
 	//
     pthread_mutex_unlock(  &pth__mutex  );
 
+// log_if("pth__start_heapcleaning_with_extra_roots: return TRUE.");
     return TRUE;										// Return and run heapcleaner code.
 }												// fun pth__start_heapcleaning_with_extra_roots
 
@@ -307,6 +312,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
     // This fn is called (only) from
     //
     //     src/c/heapcleaner/call-heapcleaner.c
+// log_if("pth__finish_heapcleaning: TOP.");
 
     Pthread* pthread =  task->pthread;
 
@@ -322,6 +328,7 @@ void    pth__finish_heapcleaning   (Task*  task)   {
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
     pthread_mutex_unlock(  &pth__mutex  );
 												PTHREAD_LOG_IF ("%d finished heapcleaning\n", task->pthread->tid);
+// log_if("pth__finish_heapcleaning: BOTTOM.");
 }
 
 

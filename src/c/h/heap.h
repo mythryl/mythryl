@@ -105,8 +105,8 @@ struct agegroup {
     //
     Heap*   heap;		// A back pointer to the heap record.
     int	    age;		// Which agegroup this is (1..active_agegroups).
-    int	    cleanings;		// The number of times this agegroup has been cleaned.
-    int	    ratio;		// The desired number of collections of the previous agegroup for one collection of this agegroup.
+    int	    cleanings;		// Number of times this agegroup has been cleaned.
+    int	    ratio;		// Desired number of collections of the previous agegroup for one collection of this agegroup.
 
     int	    last_cleaning_count_of_younger_agegroup;	// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
 

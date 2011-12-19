@@ -1,8 +1,12 @@
 // libmythryl-pthread.c
 //
-// For background see the "Overview" comments in:
+// For background see
 //
-//     src/lib/std/src/pthread.api
+//     src/A.PTHREAD-SUPPORT.OVERVIEW
+//
+// and the docs at the bottom of
+// 
+//     src/c/pthread/pthread-on-posix-threads.c
 //
 //
 //
@@ -27,10 +31,16 @@
 // and implemented in the platform-specific file
 //
 //     src/c/pthread/pthread-on-posix-threads.c
-//
-// For background see:
-//
-//     src/A.PTHREAD-SUPPORT.OVERVIEW
+
+
+
+/*
+### 			"Programs are forests of fatally poison ivy through which paths have been beaten; 
+### 			 we peek off the path only to see our forebearers' skeletons leering back at us."
+###
+###									-- Hue White  
+*/ 
+
 
 
 #include "../../mythryl-config.h"
