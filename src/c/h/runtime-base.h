@@ -600,8 +600,6 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     ////////////////////////////////////////////////////////////////////////////
     // PTHREAD GARBAGE COLLECTION SUPPORT
     //
-    extern void  zero_out_agegroup0_overrun_tripwire_buffer( Task* task );
-    extern void  validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );
     extern void  partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]);
     extern int   pth__start_heapcleaning    (Task*);
     extern void  pth__finish_heapcleaning   (Task*);

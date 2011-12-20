@@ -14,6 +14,50 @@
 #include "heap.h"
 
 
+void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
+    // ==========================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we zero that out:
+    //
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = 0; i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; ++i) {
+	//
+	p[i] = 0;
+    }
+}
+
+void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
+    // ==========================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we verify that it is all zeros:
+    //
+#ifdef SOON
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
+	//
+	if (p[i] != 0) {
+	    //
+	    log_if("validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun of %d words detected at %s", i+1, caller);
+	    //
+	    for (int j = 0; j <= i;  ++j) {
+		//
+		log_if("validate_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%x", j, p[j]);
+	    }
+	    die( "validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
+	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
+	}
+    }
+#endif
+}
+
 Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //   ==================================
     // 
