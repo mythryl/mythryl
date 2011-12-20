@@ -186,7 +186,7 @@ LABEL(CSYM(LIB7_intel32Frame)) 			// Pointer to the ml frame (gives C access to 
 	MOVE(stdlink, temp, program_counter);				\
 	CMP_L(heap_allocation_limit, heap_allocation_pointer);		\
 	JB(9f);								\
-	CALL(CSYM(call_heapcleaner_asm));					\
+	CALL(CSYM(call_heapcleaner_asm));				\
 	JMP(1b);							\
  9:
 
@@ -480,7 +480,7 @@ LIB7_CODE_HDR(make_typeagnostic_rw_vector_asm)
 	CHECKLIMIT
 	MOV_L (REGIND(stdarg), temp)						// temp := length in words.
 	SAR_L (CONST(1), temp)							// temp := length untagged.
-	CMP_L (CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS), temp)			// Is this a small chunk?
+	CMP_L (CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS), temp)		// Is this a small chunk?
 	JGE (3f)
 
 #define temp1 misc0

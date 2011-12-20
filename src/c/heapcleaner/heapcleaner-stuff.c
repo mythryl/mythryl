@@ -92,11 +92,31 @@ void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
     //
     Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
-    for (int i = 0; i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; ++i) {
+    for (int i = 0;
+             i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
+             ++i
+    ){
 	//
 	p[i] = 0;
     }
-    log_if("zero_out_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));
+//  log_if("zero_out_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
+}
+
+static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
+    //        ======================
+    //
+    char* p = buf;
+    //
+    for (int i = 0;  i < sizeof(Val_Sized_Unt);  ++i) {
+	//
+	char c =  u & 0xFF;
+	u      =  u >> 8;
+	*p++ = (c >= ' ' && c <= '~') ? c : '.';
+    } 
+
+    *p++ = '\0';
+
+    return buf;
 }
 
 void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
@@ -107,18 +127,19 @@ void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we verify that it is all zeros:
     //
-#ifdef SOON
+#ifndef SOON
     Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
 	//
 	if (p[i] != 0) {
 	    //
-	    log_if("validate_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), caller);
+	    log_if("validate_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
 	    //
-	    for (int j = 0; j <= i;  ++j) {
+	    for (int j = 0;   j <= i;   ++j) {
 		//
-		log_if("validate_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%x", j, p[j]);
+		char buf[ 132 ];
+		log_if("validate_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%08x s='%s'", j, p[j], val_sized_unt_as_ascii(buf, (Val_Sized_Unt)(p[j])));
 	    }
 	    die( "validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
 	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.

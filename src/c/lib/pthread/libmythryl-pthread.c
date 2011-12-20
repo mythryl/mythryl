@@ -36,7 +36,7 @@
 
 /*
 ### 			"Programs are forests of fatally poison ivy through which paths have been beaten; 
-### 			 we peek off the path only to see our forebearers' skeletons leering back at us."
+### 			 we peek off the path only to see our forebears' skeletons leering back at us."
 ###
 ###									-- Hue White  
 */ 

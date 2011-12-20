@@ -36,8 +36,8 @@
 
 #define CODECHUNK_ALLOCATION_AGEGROUP	2							// Agegroup in which to allocate code chunks.
 
-#define MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS	512
-    //
+#define MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS	512						// I believe we need to have MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS * WORD_BYTESIZE < MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER
+    //												// -- maybe something stronger than that.  -- 2011-12-20 CrT
     // Size-in-words of a "small chunk."
     // The C allocation routines allocate
     // small chunks in agegroup0,
@@ -52,9 +52,9 @@
     // is the address of the next store-vector location.
 
 
-#define  MAX_C_HEAPCLEANER_ROOTS	16								// Maximum number of global C variables that can be heapcleaner ("garbage collector") roots.
+#define  MAX_C_HEAPCLEANER_ROOTS	16							// Maximum number of global C variables that can be heapcleaner ("garbage collector") roots.
 
-#define  MAX_EXTRA_HEAPCLEANER_ROOTS	16								// Maximum number of additional roots that can be passed to heapcleaner.
+#define  MAX_EXTRA_HEAPCLEANER_ROOTS	16							// Maximum number of additional roots that can be passed to heapcleaner.
 
 // Number of potential cleaner roots.
 // This includes space for C global roots,
