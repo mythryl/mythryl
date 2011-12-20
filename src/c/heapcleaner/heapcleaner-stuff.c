@@ -28,6 +28,7 @@ void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
 	//
 	p[i] = 0;
     }
+    log_if("zero_out_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));
 }
 
 void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
@@ -45,7 +46,7 @@ void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
 	//
 	if (p[i] != 0) {
 	    //
-	    log_if("validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun of %d words detected at %s", i+1, caller);
+	    log_if("validate_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), caller);
 	    //
 	    for (int j = 0; j <= i;  ++j) {
 		//
