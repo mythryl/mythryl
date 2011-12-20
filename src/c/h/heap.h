@@ -374,6 +374,8 @@ extern void   heapclean_n_agegroups  (Task* task, Val** roots, int level);					/
 extern void  zero_out_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_out_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void  validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// validate_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
+extern void    log_task( Task* task );										// log_task							def in   src/c/heapcleaner/heapcleaner-stuff.c
+//
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
