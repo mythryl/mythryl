@@ -41,7 +41,7 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
     //
     Punt agegroup0_buffer_bytesize;
     int	 active_agegroups;
-    int  oldest_agegroup_keeping_idle_fromspace_buffers;		// We keep (instead of freeing) idle fromspaces for this and all younger agegroups.
+    int  oldest_agegroup_keeping_idle_fromspace_buffers;			// We keep (instead of freeing) idle fromspaces for this and all younger agegroups.
 };
 
 // Forward declarations to enable mutual recursion:
@@ -52,50 +52,51 @@ typedef   struct hugechunk_region  Hugechunk_Region;
 typedef   struct hugechunk  	   Hugechunk;
 typedef   struct agegroup          Agegroup;
 
-/* typedef   struct heap   Heap; */				// From  src/c/h/runtime-base.h
+/* typedef   struct heap   Heap; */						// From  src/c/h/runtime-base.h
 
 
 
-									// Multipage_Ram_Region		def in    src/c/h/get-multipage-ram-region-from-os.h
-									// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mmap.c
-									// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mach.c
-									// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-win32.c
+										// Multipage_Ram_Region		def in    src/c/h/get-multipage-ram-region-from-os.h
+										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mmap.c
+										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mach.c
+										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-win32.c
 
 
 // A heap consists of an agegroup0 and one or more older agegroups.
 //
 struct heap {
-    Val*			agegroup0_buffer;			// Base address of agegroup0 buffer.
-    Punt			agegroup0_buffer_bytesize;		// Size-in-bytes of the agegroup0 buffer.
-    Multipage_Ram_Region*	multipage_ram_region;			// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
+    Val*			agegroup0_buffer;				// Base address of agegroup0 buffer.
+    Punt			agegroup0_buffer_bytesize;			// Size-in-bytes of the agegroup0 buffer.
+    Multipage_Ram_Region*	multipage_ram_region;				// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
 
-    int  active_agegroups;						// Number of active agegroups.
-    int  oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
-    int  agegroup0_cleanings_done;					// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int  active_agegroups;							// Number of active agegroups.
+    int  oldest_agegroup_keeping_idle_fromspace_buffers;			// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
+    int  agegroup0_cleanings_done;						// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
 
-    Agegroup*	        agegroup[ MAX_AGEGROUPS ];			// Age-group #i is in agegroup[i-1]
-    int		        hugechunk_ramregion_count;			// Number of active hugechunk regions.
-    Hugechunk_Region*   hugechunk_ramregions;				// List of hugechunk regions.
-    Hugechunk*		hugechunk_freelist;				// Freelist header for hugechunks.
+    Agegroup*	        agegroup[ MAX_AGEGROUPS ];				// Age-group #i is in agegroup[i-1]
+    int		        hugechunk_ramregion_count;				// Number of active hugechunk regions.
+    Hugechunk_Region*   hugechunk_ramregions;					// List of hugechunk regions.
+    Hugechunk*		hugechunk_freelist;					// Freelist header for hugechunks.
 
-    Val*  weak_pointers_forwarded_during_cleaning;			// List of weak pointers forwarded during cleaning.
+    Val*  weak_pointers_forwarded_during_cleaning;				// List of weak pointers forwarded during cleaning.
 
     //
     Bigcounter   total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.
-    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Cleaner statistics -- tracks  number of bytes copied into each sib buffer.
+    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
 };
 
 #ifdef OLD
     // Once we figure out multiple arenas for the multicore version
     // we should be able to go back to the old version of this.		XXX BUGGO FIXME
     //
-    #define HEAP_ALLOCATION_LIMIT(hp)	\
+    #define HEAP_ALLOCATION_LIMIT(hp)			\
 	(Val *)((Punt)((hp)->agegroup0_buffer) + (hp)->agegroup0_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
 #else
     #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
-        (Val*)((Punt)(base) + (size) - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
+        (Val*)((Punt)(base) + (size) - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)	// "Private" def -- this def is directly referenced only in the next one.
 
-    #define HEAP_ALLOCATION_LIMIT(hp)	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_buffer,(hp)->agegroup0_buffer_bytesize)
+    #define HEAP_ALLOCATION_LIMIT(hp)			\
+	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_buffer,(hp)->agegroup0_buffer_bytesize)
 #endif
 
 

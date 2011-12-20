@@ -65,6 +65,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     Val** roots_ptr = roots;
     Heap* heap;
 
+    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );
+
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
@@ -234,6 +236,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
     #endif
 
+    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/bottom" );
+
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );						// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
@@ -258,6 +262,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     Heap* heap;
 
     va_list ap;
+
+    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
@@ -435,6 +441,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
     #endif
 
+    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
+
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );
@@ -499,6 +507,15 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 	// Assumes heap_allocation_pointer has been reset:
 	//
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( heap );
+
+
+	// For debugging purposes we keep the last AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES
+	// bytes in the buffer always zero, and check periodically that they still are:			// NB: This code is duplicated in src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	//
+	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
+	//
+        zero_out_agegroup0_overrun_tripwire_buffer( task );
+	
 
 	if (poll_frequency <= 0) {
 	    //

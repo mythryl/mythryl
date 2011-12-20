@@ -31,7 +31,7 @@
 #define DEFAULT_RATIO1	20									// agegroup-one sib buffers are small.
 #define DEFAULT_RATIO2	10
 #define DEFAULT_RATIO	5
-#define MAX_SZ1(NSZ)	(6*(NSZ))
+#define MAX_SZ1(NSZ)	(6*(NSZ))								// What is '6' here??   -- 2011-12-19 CrT  This is used (only) in   src/c/heapcleaner/heapcleaner-initialization.c
 
 
 #define CODECHUNK_ALLOCATION_AGEGROUP	2							// Agegroup in which to allocate code chunks.

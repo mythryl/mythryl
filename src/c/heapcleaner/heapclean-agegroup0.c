@@ -62,6 +62,7 @@ static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,
 // Debug routine added while chasing a Heisenbug that strikes
 // in forward_agegroup0_chunk_to_agegroup_1(), in the hope of
 // adding some useful context for the reported chunk address:
+//
 static void log_task( Task* task ) {
     log_if("log_task:                       task x=%p",  task);
     log_if("log_task:                       heap x=%x",  task->heap);

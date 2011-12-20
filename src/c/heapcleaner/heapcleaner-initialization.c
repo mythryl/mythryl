@@ -219,6 +219,8 @@ void   set_up_heap   (			// Create and initialize the heap.
 	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( multipage_ram_region );
 
 	agegroup0_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
+
+//	agegroup0_overrun_tripwire_buffer = (char*)agegroup0_buffer + params->agegroup0_buffer_bytesize;
     }
 
     // Initialize the book_to_sibid__global:
@@ -242,7 +244,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	//
 	ratio = DfltRatios[age];
 
-	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );
+	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );	// MAX_SZ1 just multiplies by 6 (why??) -- def in  src/c/h/runtime-configuration.h
 	} else {          max_size = (5 * max_size)/2;
 	    //
 	    if (max_size > 64 * ONE_MEG_BINARY)  {				// WTF? This silliness probably needs to Just Die.  XXX BUGGO FIXME. -- 2011-11-01 CrT

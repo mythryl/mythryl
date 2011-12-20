@@ -28,6 +28,51 @@
 #include "heapcleaner-statistics.h"
 
 
+// This file might not be the right place for these two fns,
+// since they don't relate specifically to pthread stuff:
+
+void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
+    // ==========================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we zero that out:
+    //
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = 0; i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; ++i) {
+	//
+	p[i] = 0;
+    }
+}
+
+void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
+    // ==========================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we verify that it is all zeros:
+    //
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
+	//
+	if (p[i] != 0) {
+	    //
+	    log_if("validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun of %d words detected at %s", i+1, caller);
+	    //
+	    for (int j = 0; j <= i;  ++j) {
+		//
+		log_if("validate_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%x", j, p[j]);
+	    }
+	    die( "validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
+	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
+	}
+    }
+}
+
 void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) {		// pthread_table is always   pthread_table__global
     // ===========================================
     //
@@ -78,16 +123,24 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //
 	task =  pthread_table[ pthread ]->task;
-												PTHREAD_LOG_IF ( "pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ",
-														 pthread, task->heap_allocation_pointer, task->heap_allocation_limit
-													       );
+													PTHREAD_LOG_IF ( "pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ",
+															 pthread, task->heap_allocation_pointer, task->heap_allocation_limit
+													       	       );
 
-												// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
-												// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
+													// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
+													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
 
 	task->heap                       =  task0->heap;
 	task->heap_allocation_pointer    =  start_of_agegroup0_buffer_for_next_pthread;
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( start_of_agegroup0_buffer_for_next_pthread, per_thread_agegroup0_buffer_bytesize );
+
+
+	// For debugging purposes we keep the last AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES
+	// bytes in the buffer always zero, and check periodically that they still are:			// This code is duplicated in src/c/heapcleaner/call-heapcleaner.c
+	//
+	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
+        zero_out_agegroup0_overrun_tripwire_buffer( task );
+	
 
 	#if !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
