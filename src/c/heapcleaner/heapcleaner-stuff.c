@@ -141,7 +141,7 @@ void   check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
 		char buf[ 132 ];
 		log_if("check_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%08x s='%s'", j, p[j], val_sized_unt_as_ascii(buf, (Val_Sized_Unt)(p[j])));
 	    }
-	    die( "check_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
+	    die( "check_agegroup0_overrun_tripwire_buffer:  Overran agegroup0 buffer by %d words -- see logfile for details.", i);
 	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
 	}
     }
