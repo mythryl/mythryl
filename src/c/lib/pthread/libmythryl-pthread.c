@@ -440,19 +440,24 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
     //
     #if NEED_PTHREAD_SUPPORT
 
+log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/AAA");
 	struct mutex_struct*  mutex
 	    =
 	    *((struct mutex_struct**) arg);
 
+log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/BBB");
 	switch (mutex->state) {
 	    //
 	    case   INITIALIZED_MUTEX:
 		{   Bool  result;
+log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/CCC");
 		    char* err = pth__mutex_trylock( task, arg, &mutex->mutex, &result );
+log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/DDD");
 		    //
-		    if (err)					log_if("trylock returned error!");	return RAISE_ERROR( task, err );
-		    if (result)										return HEAP_TRUE;			// Mutex was busy.
-		    else										return HEAP_FALSE;			// Successfully acquired mutex.
+		    if (err)		{	log_if("trylock returned error!");			return RAISE_ERROR( task, err );	}
+		    //
+		    if (result)		{	log_if("trylock returning TRUE");			return HEAP_TRUE;			}	// Mutex was busy.
+		    else		{	log_if("trylock returning FALSE");			return HEAP_FALSE;			}	// Successfully acquired mutex.
 		};
 		break;
 
@@ -461,7 +466,7 @@ static Val mutex_trylock   (Task* task,  Val arg)   {
 	    case         FREED_MUTEX:				log_if("mutex_trylock: Attempt to try mutex after freeing it.");	return RAISE_ERROR(task,"Attempt to try mutex after freeing it.") ;
 	    default:						log_if("mutex_trylock: mutex_trylock: Attempt to try bogus value.");	return RAISE_ERROR(task,"mutex_trylock: Attempt to try bogus value. (Already-freed mutex? Junk?)" );
 	}
-        return HEAP_VOID;
+        return HEAP_VOID;							// Cannot execute.
 
     #else
 	die ("mutex_trylock: unimplemented\n");
