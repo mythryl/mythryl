@@ -54,7 +54,7 @@ Val   _lib7_cleaner_control   (Task* task,  Val arg)   {
 
 	arg = LIST_TAIL(arg);
 
-	if      (STREQ("DoGC",  op))	    clean_i_agegroups   (task, cell, &arg);
+	if      (STREQ("DoGC",  op))	    clean_i_agegroups   (task, cell, &arg);						// clean_i_agegroups is defined below.
 	else if (STREQ("AllGC", op))	    clean_all_agegroups (task, &arg);
         //
 	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled__global = (TAGGED_INT_TO_C_INT(DEREF(cell)) > 0);
