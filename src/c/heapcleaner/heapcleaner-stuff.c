@@ -53,15 +53,15 @@ void log_task( Task* task ) {
 	//
 	Agegroup* a = task->heap->agegroup[ i ];
 	log_if("log_task:           agegroup[%d] x=%x (holds agegroup %d)",  i, a, i+1);
-	log_if("log_task:                 a->age d=%d",  a->age);
+	log_if("log_task:           a->age       d=%d",  a->age);
 	log_if("log_task:           a->cleanings d=%d",  a->cleanings);
-	log_if("log_task:               a->ratio x=%x (Desired number of collections of the previous agegroup for one collection of this agegroup)",  a->ratio);
-	log_if("log_task:               a->last_cleaning_count_of_younger_agegroup d=%d",  a->last_cleaning_count_of_younger_agegroup);
+	log_if("log_task:           a->ratio     x=%x (Desired number of collections of the previous agegroup for one collection of this agegroup)",  a->ratio);
+	log_if("log_task:           a->last_cleaning_count_of_younger_agegroup d=%d",  a->last_cleaning_count_of_younger_agegroup);
 
 	for (int s = 0; s < MAX_PLAIN_ILKS; ++s) {
 	    //
 	    log_if("log_task:");
-	    log_if("log_task:             a->sib[%d] x=%x",  s, a->sib[s]);
+	    log_if("log_task:          a->sib[%d]    x=%x",  s, a->sib[s]);
 	    log_if("log_task:          a->sib[%d].id d=%d",  s, a->sib[s]->id);
 	    log_if("log_task:");
 	    log_if("log_task:          a->sib[%d].tospace            x=%x",  s, a->sib[s]->tospace);
@@ -82,7 +82,7 @@ void log_task( Task* task ) {
 
 
 
-void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
+void   zero_agegroup0_overrun_tripwire_buffer( Task* task ) {
     // ==========================================
     //
     // To detect allocation buffer overrun, we maintain
@@ -99,7 +99,7 @@ void   zero_out_agegroup0_overrun_tripwire_buffer( Task* task ) {
 	//
 	p[i] = 0;
     }
-//  log_if("zero_out_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
+//  log_if("zero_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
 }
 
 static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
@@ -119,7 +119,7 @@ static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
     return buf;
 }
 
-void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
+void   check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
     // ==========================================
     //
     // To detect allocation buffer overrun, we maintain
@@ -134,14 +134,14 @@ void   validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
 	//
 	if (p[i] != 0) {
 	    //
-	    log_if("validate_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
+	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
 	    //
 	    for (int j = 0;   j <= i;   ++j) {
 		//
 		char buf[ 132 ];
-		log_if("validate_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%08x s='%s'", j, p[j], val_sized_unt_as_ascii(buf, (Val_Sized_Unt)(p[j])));
+		log_if("check_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%08x s='%s'", j, p[j], val_sized_unt_as_ascii(buf, (Val_Sized_Unt)(p[j])));
 	    }
-	    die( "validate_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
+	    die( "check_agegroup0_overrun_tripwire_buffer:  Agegroup0 buffer overrun");
 	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
 	}
     }

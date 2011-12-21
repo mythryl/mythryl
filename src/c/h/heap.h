@@ -371,8 +371,8 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 extern void   heapclean_agegroup0    (Task* task,  Val** roots);						// heapclean_agegroup0						def in   src/c/heapcleaner/heapclean-agegroup0.c
 extern void   heapclean_n_agegroups  (Task* task, Val** roots, int level);					// heapclean_n_agegroups					def in   src/c/heapcleaner/heapclean-n-agegroups.c 
 //
-extern void  zero_out_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_out_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
-extern void  validate_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// validate_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
+extern void  zero_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
+extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern void    log_task( Task* task );										// log_task							def in   src/c/heapcleaner/heapcleaner-stuff.c
 //

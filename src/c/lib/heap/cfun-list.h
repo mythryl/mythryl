@@ -42,6 +42,7 @@ CFUNC("get_platform_property","get_platform_property",		_lib7_runtime_get_platfo
 CFUNC("make_single_slot_tuple","make_single_slot_tuple",	_lib7_runtime_make_single_slot_tuple,		"Chunk -> Chunk")
 CFUNC("concatenate_two_tuples","concatenate_two_tuples",		_lib7_runtime_concatenate_two_tuples,	"(Chunk, Chunk) -> Chunk")
 CFUNC("set_sigalrm_frequency","set_sigalrm_frequency",	_lib7_runtime_set_sigalrm_frequency,	"Null_Or (Int, Int) -> Null_Or (Int, Int)")
+CFUNC("check_agegroup0_overrun_tripwire_buffer","check_agegroup0_overrun_tripwire_buffer",	_lib7_check_agegroup0_overrun_tripwire_buffer,	"String -> Void")
 
 
 

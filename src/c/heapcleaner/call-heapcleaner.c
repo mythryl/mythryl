@@ -65,7 +65,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     Val** roots_ptr = roots;
     Heap* heap;
 
-    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );
+    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
@@ -236,7 +236,7 @@ void   call_heapcleaner   (Task* task,  int level) {
     }
     #endif
 
-    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/bottom" );
+    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/bottom" );
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -263,7 +263,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     va_list ap;
 
-    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
+    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
 
     ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_MINOR_CLEANING );					// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
@@ -441,7 +441,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	#endif
     #endif
 
-    validate_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
+    check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/bottom" );
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
@@ -514,7 +514,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 	//
 	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
 	//
-        zero_out_agegroup0_overrun_tripwire_buffer( task );
+        zero_agegroup0_overrun_tripwire_buffer( task );
 	
 
 	if (poll_frequency <= 0) {

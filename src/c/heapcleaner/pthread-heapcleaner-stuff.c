@@ -94,7 +94,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	// bytes in the buffer always zero, and check periodically that they still are:			// This code is duplicated in src/c/heapcleaner/call-heapcleaner.c
 	//
 	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
-        zero_out_agegroup0_overrun_tripwire_buffer( task );
+        zero_agegroup0_overrun_tripwire_buffer( task );
 	
 
 	#if !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
