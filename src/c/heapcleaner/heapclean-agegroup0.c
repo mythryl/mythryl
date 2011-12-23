@@ -458,7 +458,7 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v, Tas
     default:
 	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup_1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
 	log_if("forward_agegroup0_chunk_to_agegroup_1 was called by %s", caller ? "process_task_heap_changelog" : "forward_if_in_agegroup0");
-	log_task(task);
+	log_task(task,"forward_agegroup0_chunk_to_agegroup_1/default");
 	die ("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup_1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
 	exit(1);									// Cannot execute -- just to quiet gcc -Wall.
     }
