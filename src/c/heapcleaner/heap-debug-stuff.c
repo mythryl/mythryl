@@ -150,10 +150,10 @@ void log_task( Task* task, char* caller ) {
 // buffer for a given Task.  No attempt is made
 // to distinguish garbage from live data.
 //
-void log_gen0( Task* task ) {
+void log_gen0( Task* task, char* caller ) {
     //
     log_if("");
-    log_if("log_gen0: generation-0 heapbuffer dump for pthread->id x=%x",  (unsigned int)(task->pthread->tid));
+    log_if("log_gen0: generation-0 heapbuffer dump for pthread->id x=%x, called by %s",  (unsigned int)(task->pthread->tid), caller);
     log_if("log_gen0:           agegroup0_buffer x=%x",  task->heap->agegroup0_buffer);
     log_if("log_gen0:  agegroup0_buffer_bytesize x=%x",  task->heap->agegroup0_buffer_bytesize);
     log_if("log_gen0:           sum of above two x=%x",  (char*)(task->heap->agegroup0_buffer) + task->heap->agegroup0_buffer_bytesize);
