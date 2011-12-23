@@ -234,22 +234,27 @@ void   log_gen0   (Task* task, char* caller) {
     fprintf(fd," real_heap_allocation_limit p=%p\n",  task->real_heap_allocation_limit);
     fprintf(fd," gen0 buffer contents:\n\n");
 
-    {   
+    {   int words_left_in_record = 0;
 	//
 	for (Val* p = task->heap->agegroup0_buffer;
 	     p < task->heap_allocation_pointer;
 	     ++p
 	){
 	    //
-	    if (!IS_TAGWORD(*p))	{
+	    if (words_left_in_record > 0
+            ||  !IS_TAGWORD(*p)
+	    ){
 		//
 		char buf[ 132 ];
 		char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
 		fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+		--words_left_in_record;
 	    } else {
 		int   words = GET_LENGTH_IN_WORDS_FROM_TAGWORD(*p);
 		char* tag;
 		
+		words_left_in_record = words;
+
 		switch (GET_BTAG_FROM_TAGWORD(*p)) {
 		case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";			break;
 
@@ -260,6 +265,7 @@ void   log_gen0   (Task* task, char* caller) {
 		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR";		break;
 		    default:						tag = "???_RW_VECTOR";		break;
 		    }
+		    words_left_in_record = 2;
 		    break;
 
 		case RO_VECTOR_HEADER_BTAG:
@@ -284,12 +290,13 @@ void   log_gen0   (Task* task, char* caller) {
 		    case         NULLED_WEAK_POINTER_CTAG:		tag = "NULLED_WEAK_PTR";	break;
 		    default:						tag = "??? (bogus WEAK/LAZY)";	break;
 		    }	
+		    words_left_in_record = 2;
 		    break;
 
 		default:						tag = "???";			break;
 		}
 
-		fprintf(fd," %8p: %08x %3d word %s\n",  p, v2u(*p), words, tag);
+		fprintf(fd,"\n %8p: %08x %3d word %s\n",  p, v2u(*p), words, tag);
 	    }
 	}
     }

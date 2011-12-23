@@ -199,8 +199,8 @@
     // definitions
     //    unevaluated_lazy_suspension_ctag = 0;
     //    evaluated_lazy_suspension_ctag   = 1;
-    //    weak_pointer_ctag	          = 2;
-    //    nulled_weak_pointer_ctag    = 3;
+    //    weak_pointer_ctag	           = 2;
+    //    nulled_weak_pointer_ctag         = 3;
     // and the
     //     src/lib/core/init/core.pkg
     // definitions
@@ -217,13 +217,13 @@
 #define         NULLED_WEAK_POINTER_TAGWORD   MAKE_TAGWORD(         NULLED_WEAK_POINTER_CTAG,    WEAK_POINTER_OR_SUSPENSION_BTAG)
 
 // Tests on words:
-//   IS_POINTER(W)   -- TRUE iff lower two bits are binary 00
-//   IS_TAGGED_INT(W)     -- TRUE iff lower bit is 1.
-//   IS_TAGWORD(W)   -- TRUE iff lower two bits are binary 10
+//   IS_POINTER(W)	-- TRUE iff lower two bits are binary 00
+//   IS_TAGGED_INT(W)	-- TRUE iff lower bit is 1.
+//   IS_TAGWORD(W)	-- TRUE iff lower two bits are binary 10
 //
-#define IS_POINTER(W)	(((Val_Sized_Unt)(W) & ATAG_MASK) == POINTER_ATAG)
-#define IS_TAGGED_INT(W)	(((Val_Sized_Unt)(W) &         1) ==   TAGGED_INT_ATAG)
-#define IS_TAGWORD(W)	(((Val_Sized_Unt)(W) & ATAG_MASK) == TAGWORD_ATAG)
+#define IS_POINTER(W)		(((Val_Sized_Unt)(W) & ATAG_MASK) ==    POINTER_ATAG)
+#define IS_TAGGED_INT(W)	(((Val_Sized_Unt)(W) &         1) == TAGGED_INT_ATAG)
+#define IS_TAGWORD(W)		(((Val_Sized_Unt)(W) & ATAG_MASK) ==    TAGWORD_ATAG)
 
 // Extract tagword fields:
 //
