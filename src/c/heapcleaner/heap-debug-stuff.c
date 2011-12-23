@@ -6,6 +6,11 @@
 
 #include <stdarg.h>
 #include <string.h>
+
+#if HAVE_SYS_TIME_H
+#  include <sys/time.h>
+#endif
+
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
@@ -53,7 +58,7 @@ static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
 }
 
 void   check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
-    // ==========================================
+    // =======================================
     //
     // To detect allocation buffer overrun, we maintain
     // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
@@ -152,6 +157,8 @@ void log_task( Task* task, char* caller ) {
 //
 void log_gen0( Task* task, char* caller ) {
     //
+    char filename[ 256 ];
+
     log_if("");
     log_if("log_gen0: generation-0 heapbuffer dump for pthread->id x=%x, called by %s",  (unsigned int)(task->pthread->tid), caller);
     log_if("log_gen0:           agegroup0_buffer x=%x",  task->heap->agegroup0_buffer);
@@ -169,7 +176,56 @@ void log_gen0( Task* task, char* caller ) {
 	     ++p
 	){
 	    //
-	    log_if("log_gen0: %08x: %08x",  p, *p);
+	    if (!IS_TAGWORD(*p))	{
+		//
+		char buf[ 132 ];
+		char* as_ascii = val_sized_unt_as_ascii(buf,*p);
+		log_if("log_gen0: %08x: %08x  %s",  p, *p, as_ascii);
+	    } else {
+		int   words = GET_LENGTH_IN_WORDS_FROM_TAGWORD(*p);
+		char* tag;
+		
+		switch (GET_BTAG_FROM_TAGWORD(*p)) {
+		case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";			break;
+
+		case RW_VECTOR_HEADER_BTAG:
+		    switch (words) {
+		    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:		tag = "FLOAT64_RW_VECTOR";	break;
+		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RW_VECTOR";	break;
+		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR";		break;
+		    default:						tag = "???_RW_VECTOR";		break;
+		    }
+		    break;
+
+		case RO_VECTOR_HEADER_BTAG:
+		    switch (words) {
+		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RO_VECTOR";	break;
+		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "STRING / UNT8_RO_VECTOR";break;
+		    default:						tag = "???_RO_VECTOR";		break;
+		    }
+		    break;
+
+		case RW_VECTOR_DATA_BTAG:				tag = "RW_VECTOR_DATA";		break;
+		case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA4";		break;
+		case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA8";		break;
+		case EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG:	tag = "EXTERN";			break;
+		case FORWARDED_CHUNK_BTAG:				tag = "FORWARDED";		break;
+
+		case WEAK_POINTER_OR_SUSPENSION_BTAG:
+		    switch (words) {
+		    case UNEVALUATED_LAZY_SUSPENSION_CTAG:		tag = "UNEVAL_SUSPENSION";	break;
+		    case   EVALUATED_LAZY_SUSPENSION_CTAG:		tag =   "EVAL_SUSPENSION";	break;
+		    case                WEAK_POINTER_CTAG:		tag = "WEAK_PTR";		break;
+		    case         NULLED_WEAK_POINTER_CTAG:		tag = "NULLED_WEAK_PTR";	break;
+		    default:						tag = "??? (bogus WEAK/LAZY)";	break;
+		    }	
+		    break;
+
+		default:						tag = "???";			break;
+		}
+
+		log_if("log_gen0: %08x: %08x %3d word %s",  p, *p, words, tag);
+	    }
 	}
     }
 }
