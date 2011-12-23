@@ -1,4 +1,4 @@
-// heapcleaner-debug-stuff.c
+// heap-debug-stuff.c
 //
 // Heap-centric debug-support code for Heisenbug hunting.
 
