@@ -83,8 +83,9 @@ void   check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller ) {
 
 // Write to logfile contents of a Task record:
 //
-void log_task( Task* task ) {
+void log_task( Task* task, char* caller ) {
     //
+    log_if("log_task:                     caller s=%s",  caller);
     log_if("log_task:                       task x=%p",  task);
     log_if("log_task:                       heap x=%x",  task->heap);
     log_if("log_task:                    pthread x=%x",  task->pthread);
