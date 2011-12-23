@@ -73,19 +73,19 @@
     subpthread4 = pthread::spawn_pthread  (subpthread_fn 4);
     subpthread5 = pthread::spawn_pthread  (subpthread_fn 5);
 
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: About to join subthread0";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: About to join subthread0";
     pthread::join_pthread  subpthread0;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread0";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread0";
     pthread::join_pthread  subpthread1;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread1";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread1";
     pthread::join_pthread  subpthread2;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread2";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread2";
     pthread::join_pthread  subpthread3;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread3";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread3";
     pthread::join_pthread  subpthread4;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread4";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread4";
     pthread::join_pthread  subpthread5;
-heapcleaner_control::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread5";
+heap_debug::check_agegroup0_overrun_tripwire_buffer "y: Joined subthread5";
 
 
 #    log_if .{ "Script DONE."; }; 		# printf "Script DONE\n";   file::flush file::stdout;   
