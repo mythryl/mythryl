@@ -354,6 +354,8 @@ extern void debug_say (char* fmt, ...);											// debug_say			def in    src/c
 extern void say_error (char*,     ...);											// say_error			def in    src/c/main/error-reporting.c
 extern void die       (char*,     ...);											// die				def in    src/c/main/error-reporting.c
 
+extern Bool do_debug_logging;												// Used to control special debug logging.  def in   src/c/lib/heap/libmythryl-heap.c
+
 extern void print_stats_and_exit      (int code);									// print_stats_and_exit		def in    src/c/main/runtime-main.c
 
 typedef   struct cleaner_args   Heapcleaner_Args;
