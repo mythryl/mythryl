@@ -10,6 +10,7 @@
     zot = "This is NOT a test";
     heap_debug::dump_gen0 "x";
     heap_debug::dump_gen0 "x";
+    heap_debug::dump_gen1 "x";
 };
 
 

@@ -156,7 +156,7 @@ struct sib {
 								// external references that require repair.
     // Heap sizing parameters:
     //
-    Val_Sized_Unt	requested_sib_buffer_bytesize;	// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
+    Val_Sized_Unt	requested_sib_buffer_bytesize;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
     Val_Sized_Unt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
 };
 
