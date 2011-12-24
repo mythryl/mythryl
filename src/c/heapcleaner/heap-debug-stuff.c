@@ -142,13 +142,13 @@ static unsigned int   v2u   (Val v) { return (unsigned int) v; }		// More type-s
 
 // Write to logfile contents of a Task record:
 //
-void   log_task   (Task* task, char* caller) {
-    // ========
+void   dump_task   (Task* task, char* caller) {
+    // =========
     //
     char filename[ 1024 ];
     FILE* fd = open_heapdump_logfile( filename, 1024, "task" );
     //
-    log_if("log_task: Starting dump to '%s'", filename);
+    log_if("dump_task: Starting dump to '%s'", filename);
 
     fprintf(fd,"                     caller s=%s\n",  caller);
     fprintf(fd,"                       task p=%p\n",  task);
@@ -210,20 +210,20 @@ void   log_task   (Task* task, char* caller) {
 	}
     }
     close_heapdump_logfile( fd, filename );
-    log_if("log_task: Dump to '%s' now complete.", filename);
+    log_if("dump_task: Dump to '%s' now complete.", filename);
 }
 
 // Write to logfile contents of the generation0
 // buffer for a given Task.  No attempt is made
 // to distinguish live from dead data.
 //
-void   log_gen0   (Task* task, char* caller) {
-    // ======== 
+void   dump_gen0   (Task* task, char* caller) {
+    // =========
     //
     char filename[ 1024 ];
     FILE* fd = open_heapdump_logfile( filename, 1024, "gen0" );
 
-    log_if("log_gen0: Starting dump to '%s'", filename);
+    log_if("dump_gen0: Starting dump to '%s'", filename);
 
     fprintf(fd," generation-0 heapbuffer dump for pthread->id x=%x, called by %s\n",  (unsigned int)(task->pthread->tid), caller);
     fprintf(fd,"           agegroup0_buffer p=%p\n",  task->heap->agegroup0_buffer);
@@ -244,65 +244,76 @@ void   log_gen0   (Task* task, char* caller) {
 	    if (words_left_in_record > 0
             ||  !IS_TAGWORD(*p)
 	    ){
+		if (!words_left_in_record)   fprintf(fd,"\n");
 		//
 		char buf[ 132 ];
 		char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
 		fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+		if (!words_left_in_record)   fprintf(fd,"    (probable padword)\n");
+		fprintf(fd,"\n");
 		--words_left_in_record;
 	    } else {
 		int   words = GET_LENGTH_IN_WORDS_FROM_TAGWORD(*p);
+		Bool  words_is_bogus = FALSE;
+		Bool    tag_is_bogus = FALSE;
 		char* tag;
 		
-		words_left_in_record = words;
-
 		switch (GET_BTAG_FROM_TAGWORD(*p)) {
-		case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";			break;
-
+		//
+		case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";					break;
+		//
 		case RW_VECTOR_HEADER_BTAG:
+		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
 		    switch (words) {
-		    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:		tag = "FLOAT64_RW_VECTOR";	break;
-		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RW_VECTOR";	break;
-		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR";		break;
-		    default:						tag = "???_RW_VECTOR";		break;
+		    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:		tag = "FLOAT64_RW_VECTOR HEADER";		break;
+		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RW_VECTOR HEADER";		break;
+		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR HEADER";			break;
+		    default:	tag_is_bogus = TRUE;			tag = "???_RW_VECTOR HEADER";			break;
 		    }
 		    words_left_in_record = 2;
 		    break;
-
+		//
 		case RO_VECTOR_HEADER_BTAG:
+		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
 		    switch (words) {
-		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RO_VECTOR";	break;
-		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "STRING / UNT8_RO_VECTOR";break;
-		    default:						tag = "???_RO_VECTOR";		break;
+		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RO_VECTOR HEADER";		break;
+		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "STRING / UNT8_RO_VECTOR HEADER";		break;
+		    default:	tag_is_bogus = TRUE;			tag = "???_RO_VECTOR HEADER";			break;
 		    }
-		    break;
-
-		case RW_VECTOR_DATA_BTAG:				tag = "RW_VECTOR_DATA";		break;
-		case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA4";		break;
-		case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA8";		break;
-		case EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG:	tag = "EXTERN";			break;
-		case FORWARDED_CHUNK_BTAG:				tag = "FORWARDED";		break;
-
-		case WEAK_POINTER_OR_SUSPENSION_BTAG:
-		    switch (words) {
-		    case UNEVALUATED_LAZY_SUSPENSION_CTAG:		tag = "UNEVAL_SUSPENSION";	break;
-		    case   EVALUATED_LAZY_SUSPENSION_CTAG:		tag =   "EVAL_SUSPENSION";	break;
-		    case                WEAK_POINTER_CTAG:		tag = "WEAK_PTR";		break;
-		    case         NULLED_WEAK_POINTER_CTAG:		tag = "NULLED_WEAK_PTR";	break;
-		    default:						tag = "??? (bogus WEAK/LAZY)";	break;
-		    }	
 		    words_left_in_record = 2;
 		    break;
-
-		default:						tag = "???";			break;
+		//
+		case RW_VECTOR_DATA_BTAG:				tag = "RW_VECTOR_DATA";				break;
+		case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA4";				break;
+		case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA8";				break;
+		case EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG:	tag = "EXTERN";					break;
+		case FORWARDED_CHUNK_BTAG:				tag = "FORWARDED";				break;
+		//
+		case WEAK_POINTER_OR_SUSPENSION_BTAG:
+		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
+		    switch (words) {
+		    case UNEVALUATED_LAZY_SUSPENSION_CTAG:		tag = "UNEVAL_SUSPENSION";			break;
+		    case   EVALUATED_LAZY_SUSPENSION_CTAG:		tag =   "EVAL_SUSPENSION";			break;
+		    case                WEAK_POINTER_CTAG:		tag = "WEAK_PTR";				break;
+		    case         NULLED_WEAK_POINTER_CTAG:		tag = "NULLED_WEAK_PTR";			break;
+		    default:	tag_is_bogus = TRUE;			tag = "??? (bogus WEAK/LAZY)";			break;
+		    }	
+		    words_left_in_record = SPECIAL_CHUNK_SIZE_IN_WORDS;	// == 2 -- see src/c/h/runtime-base.h
+		    break;
+		//
+		default:	tag_is_bogus = TRUE;			tag = "???";					break;
 		}
 
-		fprintf(fd,"\n %8p: %08x %3d word %s\n",  p, v2u(*p), words, tag);
+		if (!tag_is_bogus)	words_left_in_record = words;		// If the tag is bogus, the length probably is too, so ignore it.
+
+		if (words_is_bogus)	fprintf(fd,"\n %8p: %08x %s\n",           p, v2u(*p),        tag);
+		else			fprintf(fd,"\n %8p: %08x %3d word %s\n",  p, v2u(*p), words, tag);
 	    }
 	}
     }
 
     close_heapdump_logfile( fd, filename );
-    log_if("log_gen0: Dump to '%s' now complete.", filename);
+    log_if("dump_gen0: Dump to '%s' now complete.", filename);
 }
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
