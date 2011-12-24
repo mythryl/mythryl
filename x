@@ -11,6 +11,7 @@
     heap_debug::dump_gen0 "x";
     heap_debug::dump_gen0 "x";
     heap_debug::dump_gens "x";
+    heap_debug::dump_hugechunk_stuff "x";
 };
 
 

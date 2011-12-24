@@ -32,7 +32,7 @@ void   print_hugechunk_region_map   (Hugechunk_Region* r)   {
 	}
 
 	if (HUGECHUNK_IS_FREE(dp))   debug_say ("_");
-	else                  debug_say ("X");
+	else                         debug_say ("X");
     }
     debug_say ("|\n");
 }

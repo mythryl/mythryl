@@ -415,7 +415,7 @@ static Val   do_dump_gen0   (Task* task,  Val arg)   {
     //
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
-    dump_gen0( task, caller );								// dump_gen0		is from   src/c/heapcleaner/heap-debug-stuff.c
+    dump_gen0( task, caller );								// dump_gen0			is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -428,13 +428,32 @@ static Val   do_dump_gens   (Task* task,  Val arg)   {
     //
     // Mythryl type:  String -> Void
     //
-    // This fn gets bound as   dump_gen1   in:
+    // This fn gets bound as   dump_gens   in:
     //
     //     src/lib/std/src/nj/heap-debug.pkg
     //
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
-    dump_gens( task, caller );								// dump_gens		is from   src/c/heapcleaner/heap-debug-stuff.c
+    dump_gens( task, caller );								// dump_gens			is from   src/c/heapcleaner/heap-debug-stuff.c
+    //
+    return HEAP_VOID;
+}
+
+
+
+//
+static Val   do_dump_hugechunk_stuff   (Task* task,  Val arg)   {
+    //       =======================
+    //
+    // Mythryl type:  String -> Void
+    //
+    // This fn gets bound as   dump_huge   in:
+    //
+    //     src/lib/std/src/nj/heap-debug.pkg
+    //
+    char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
+    //
+    dump_hugechunk_stuff( task, caller );						// dump_hugechunk_stuff		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -820,6 +839,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
   {"interval_tick__unimplemented","interval_tick__unimplemented",					do_interval_tick__unimplemented,				"Void -> (Int, Int)"},	// Currently UNIMPLEMENTED
   {"dump_gen0","dump_gen0",										do_dump_gen0,							"String -> Void"},
   {"dump_gens","dump_gens",										do_dump_gens,							"String -> Void"},
+  {"dump_hugechunk_stuff","dump_hugechunk_stuff",							do_dump_hugechunk_stuff,					"String -> Void"},
   {"dump_task","dump_task",										do_dump_task,							"String -> Void"},
   {"make_codechunk_executable","make_codechunk_executable",						do_make_codechunk_executable,					"(Vector_Of_One_Byte_Unts, Int) -> Chunk -> Chunk"},
   {"make_package_literals_via_bytecode_interpreter","make_package_literals_via_bytecode_interpreter",	do_make_package_literals_via_bytecode_interpreter,		"vector_of_one_byte_unts::Vector -> Ovec"},

@@ -232,7 +232,7 @@ inline Bool   sib_chunk_is_old   (Sib* sib,  Val* pointer)   {
 //
 struct hugechunk_region {
     //
-    Punt first_ram_quantum;			// Address of the first ram quantum of the region.
+    Punt first_ram_quantum;					// Address of the first ram quantum of the region.
     //
     int	page_count;						// Number of hugechunk pages in this region.
     int	free_pages;						// Number of free pages.
@@ -284,11 +284,10 @@ struct hugechunk {
     //
     Punt	    chunk;			// The actual chunk.
 
-    Punt	    bytesize;		// Size of the chunk in bytes.  When the chunk
+    Punt	    bytesize;			// Size of the chunk in bytes.  When the chunk
 						// is in the free list, this will be a multiple of
 						// HUGECHUNK_RAM_QUANTUM_IN_BYTES, otherwise it is the exact size.
 
-// RENAME THIS TO huge_ilk!! XXX BUGGO FIXME
     unsigned char   huge_ilk;			// The chunk ilk.  Currently always CODE__HUGE_ILK -- def in   src/c/h/sibid.h
     unsigned char   hugechunk_state;		// The state of the chunk -- see above #defines.
     unsigned char   age;			// The chunk's agegroup.
@@ -337,6 +336,11 @@ inline void   remove_hugechunk_from_doubly_linked_list   (Hugechunk* hugechunk) 
 inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Hugechunk* hugechunk)   {
     //        ======================================
     //
+    // This is referenced (only) in
+    //
+    //     src/c/heapcleaner/import-heap.c
+    //     src/c/heapcleaner/hugechunk.c
+    //
     hugechunk->prev =  header;
     hugechunk->next =  header->next;
     //
@@ -373,9 +377,10 @@ extern void   heapclean_n_agegroups  (Task* task, Val** roots, int level);					/
 //
 extern void  zero_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_task( Task* task, char* caller );								// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gen0( Task* task, char* caller );								// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gens( Task* task, char* caller );								// dump_gen1							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_task(		    Task* task, char* caller );							// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gen0(		    Task* task, char* caller );							// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gens(		    Task* task, char* caller );							// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_hugechunk_stuff(  Task* task, char* caller );							// dump_hugechunk_stuff						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
