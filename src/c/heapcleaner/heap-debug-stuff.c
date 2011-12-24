@@ -385,7 +385,7 @@ static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {
     //        =============
     for (Val* p = sib->tospace;
 	      p < sib->next_tospace_word_to_allocate;
-	      p++
+	      p += 2
     ){
 	fprintf(fd," %8p: %08x\n",  p, v2u(*p));
     }    
@@ -436,6 +436,9 @@ void   dump_gens   (Task* task, char* caller) {
              a < task->heap->active_agegroups;
              a++
     ){
+	fprintf(fd,"\n"											);
+	fprintf(fd,"\n"											);
+	fprintf(fd,"=====================\n"											);
 	fprintf(fd,"Dump of generation %d\n", a+1);
 	fprintf(fd,"\n"											);
 

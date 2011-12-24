@@ -13,7 +13,7 @@
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
 
-
+//
 Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //   ==================================
     // 
@@ -110,7 +110,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 }								// fun allocate_and_partition_an_agegroup
 
 
-
+//
 void   free_agegroup   (Heap* heap,  int g) {
     // ====================
     //
@@ -169,7 +169,7 @@ void   free_agegroup   (Heap* heap,  int g) {
     }
 }								// fun free_agegroup
 
-
+//
 void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag) {
     // ========================================================
     // 
@@ -205,7 +205,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
     );
 }
 
-
+//
 void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address,  Val_Sized_Unt bytesize,  Sibid sibid) {
     // =================================
     //
@@ -229,7 +229,7 @@ void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address
     #endif
 }
 
-
+//
 void   null_out_newly_dead_weak_pointers   (Heap* heap) {
     // ===========================
     // 
@@ -339,3 +339,27 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
 // released under Gnu Public Licence version 3.
 
+
+
+
+
+
+
+/*
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[A-Za-z]"			 		 	 #
+# End:									 #
+##########################################################################
+*/
