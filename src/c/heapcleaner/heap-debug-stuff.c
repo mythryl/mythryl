@@ -248,11 +248,21 @@ void   dump_gen0   (Task* task, char* caller) {
 		//
 		char buf[ 132 ];
 		char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
-		fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
-		if (!words_left_in_record)   fprintf(fd,"    (probable padword)\n");
+		fprintf(fd," %8p: %08x  %s",  p, v2u(*p), as_ascii);
+		//
+		if (!words_left_in_record
+                && (!(((int)p)&4))					// We use padwords to 64-bit align a record payload, which non-64-bits-aligns the record tagword itself -- so the padword itself is 64-bit aligned.  Unintuitive.
+		&& IS_TAGWORD(p[1])
+		&& GET_BTAG_FROM_TAGWORD(p[1])==EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG
+		){
+		    fprintf(fd,"    (padword to 64-bit align payload of following record)");
+		}
+		//
 		fprintf(fd,"\n");
 		--words_left_in_record;
+
 	    } else {
+
 		int   words = GET_LENGTH_IN_WORDS_FROM_TAGWORD(*p);
 		Bool  words_is_bogus = FALSE;
 		Bool    tag_is_bogus = FALSE;
@@ -263,24 +273,24 @@ void   dump_gen0   (Task* task, char* caller) {
 		case PAIRS_AND_RECORDS_BTAG:				tag = "RECORD";					break;
 		//
 		case RW_VECTOR_HEADER_BTAG:
-		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
+		    words_is_bogus = TRUE;				// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		    switch (words) {
 		    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:		tag = "FLOAT64_RW_VECTOR HEADER";		break;
 		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RW_VECTOR HEADER";		break;
 		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR HEADER";			break;
 		    default:	tag_is_bogus = TRUE;			tag = "???_RW_VECTOR HEADER";			break;
 		    }
-		    words_left_in_record = 2;
+		    words = 2;
 		    break;
 		//
 		case RO_VECTOR_HEADER_BTAG:
-		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
+		    words_is_bogus = TRUE;				// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		    switch (words) {
 		    case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RO_VECTOR HEADER";		break;
 		    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "STRING / UNT8_RO_VECTOR HEADER";		break;
 		    default:	tag_is_bogus = TRUE;			tag = "???_RO_VECTOR HEADER";			break;
 		    }
-		    words_left_in_record = 2;
+		    words = 2;
 		    break;
 		//
 		case RW_VECTOR_DATA_BTAG:				tag = "RW_VECTOR_DATA";				break;
@@ -290,7 +300,7 @@ void   dump_gen0   (Task* task, char* caller) {
 		case FORWARDED_CHUNK_BTAG:				tag = "FORWARDED";				break;
 		//
 		case WEAK_POINTER_OR_SUSPENSION_BTAG:
-		    words_is_bogus = TRUE;				// 'words' is not really a length in this case.
+		    words_is_bogus = TRUE;				// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		    switch (words) {
 		    case UNEVALUATED_LAZY_SUSPENSION_CTAG:		tag = "UNEVAL_SUSPENSION";			break;
 		    case   EVALUATED_LAZY_SUSPENSION_CTAG:		tag =   "EVAL_SUSPENSION";			break;
@@ -298,7 +308,7 @@ void   dump_gen0   (Task* task, char* caller) {
 		    case         NULLED_WEAK_POINTER_CTAG:		tag = "NULLED_WEAK_PTR";			break;
 		    default:	tag_is_bogus = TRUE;			tag = "??? (bogus WEAK/LAZY)";			break;
 		    }	
-		    words_left_in_record = SPECIAL_CHUNK_SIZE_IN_WORDS;	// == 2 -- see src/c/h/runtime-base.h
+		    words = 1;
 		    break;
 		//
 		default:	tag_is_bogus = TRUE;			tag = "???";					break;
@@ -306,8 +316,8 @@ void   dump_gen0   (Task* task, char* caller) {
 
 		if (!tag_is_bogus)	words_left_in_record = words;		// If the tag is bogus, the length probably is too, so ignore it.
 
-		if (words_is_bogus)	fprintf(fd,"\n %8p: %08x %s\n",           p, v2u(*p),        tag);
-		else			fprintf(fd,"\n %8p: %08x %3d word %s\n",  p, v2u(*p), words, tag);
+		if (words_is_bogus)	fprintf(fd,"\n %8p: %08x %s\n",          p, v2u(*p),        tag);
+		else			fprintf(fd,"\n %8p: %08x %d-word %s\n",  p, v2u(*p), words, tag);
 	    }
 	}
     }
