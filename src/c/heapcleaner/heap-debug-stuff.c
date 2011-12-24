@@ -381,12 +381,14 @@ static void   dump_record_sib   (Task* task, FILE* fd, Sib* sib) {
     }    
 }
 
-static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {
+static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
     //        =============
     for (Val* p = sib->tospace;
 	      p < sib->next_tospace_word_to_allocate;
 	      p += 2
     ){
+	fprintf(fd,"\n");
+	fprintf(fd," %8p: %08x\n",  p, v2u(*p));
 	fprintf(fd," %8p: %08x\n",  p, v2u(*p));
     }    
 }
