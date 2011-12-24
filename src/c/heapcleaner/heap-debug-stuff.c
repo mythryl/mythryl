@@ -330,6 +330,8 @@ void   dump_gen0   (Task* task, char* caller) {
     log_if("dump_gen0: Dump to '%s' now complete.", filename);
 }
 
+
+
 static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ========
     fprintf(fd,"                     sib->id x= %04x  = id%01x/kind%02x/age%01x\n",	sib->id, GET_ID_FROM_SIBID(sib->id), GET_KIND_FROM_SIBID(sib->id), GET_AGE_FROM_SIBID(sib->id)	);
@@ -354,6 +356,58 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     fprintf(fd,"                     sib->requested_sib_buffer_bytesize x= %08x\n",	(unsigned int) sib->requested_sib_buffer_bytesize	);
     fprintf(fd,"                     sib->soft_max_bytesize             x= %08x\n",	(unsigned int) sib->soft_max_bytesize			);
 }
+
+
+
+static void   dump_record_sib   (Task* task, FILE* fd, Sib* sib) {
+    //        ===============
+    for (Val* p = sib->tospace;
+	      p < sib->next_tospace_word_to_allocate;
+	    ++p
+    ){
+	char buf[ 132 ];
+	char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+    }    
+}
+
+static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {
+    //        =============
+    for (Val* p = sib->tospace;
+	      p < sib->next_tospace_word_to_allocate;
+	    ++p
+    ){
+	char buf[ 132 ];
+	char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+    }    
+}
+
+static void   dump_string_sib   (Task* task, FILE* fd, Sib* sib) {
+    //        ===============
+    for (Val* p = sib->tospace;
+	      p < sib->next_tospace_word_to_allocate;
+	    ++p
+    ){
+	char buf[ 132 ];
+	char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+    }    
+}
+
+static void   dump_vector_sib   (Task* task, FILE* fd, Sib* sib) {
+    //        ===============
+    for (Val* p = sib->tospace;
+	      p < sib->next_tospace_word_to_allocate;
+	    ++p
+    ){
+	char buf[ 132 ];
+	char* as_ascii = val_sized_unt_as_ascii(buf,(Val_Sized_Unt)(*p));
+	fprintf(fd," %8p: %08x  %s\n",  p, v2u(*p), as_ascii);
+    }    
+}
+
+
 
 // Write to logfile contents of the generation-1
 // buffer for a given Task.  No attempt is made
@@ -388,17 +442,22 @@ void   dump_gen1   (Task* task, char* caller) {
 
     fprintf(fd,"                 ag1->hugechunks[0] p= %p   (CODE__HUGE_ILK)\n",		ag1->hugechunks[0]				);
 
-    fprintf(fd,"                 ag1->sib[0] p= %p    (RECORD_ILK)\n",				ag1->sib[0]					);
-    fprintf(fd,"                 ag1->sib[1] p= %p    (  PAIR_ILK)\n",				ag1->sib[1]					);
-    fprintf(fd,"                 ag1->sib[2] p= %p    (STRING_ILK)\n",				ag1->sib[2]					);
-    fprintf(fd,"                 ag1->sib[3] p= %p    (VECTOR_ILK)\n",				ag1->sib[3]					);
+    fprintf(fd,"                 ag1->sib[%d] p= %p    (RECORD_ILK)\n",			RECORD_ILK,	ag1->sib[RECORD_ILK]			);
+    fprintf(fd,"                 ag1->sib[%d] p= %p    (  PAIR_ILK)\n",			  PAIR_ILK,	ag1->sib[  PAIR_ILK]			);
+    fprintf(fd,"                 ag1->sib[%d] p= %p    (STRING_ILK)\n",			STRING_ILK,	ag1->sib[STRING_ILK]			);
+    fprintf(fd,"                 ag1->sib[%d] p= %p    (VECTOR_ILK)\n",			VECTOR_ILK,	ag1->sib[VECTOR_ILK]			);
 
 
-    fprintf(fd,"\nRECORD_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[0] );
-    fprintf(fd,"\n  PAIR_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[1] );
-    fprintf(fd,"\nSTRING_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[2] );
-    fprintf(fd,"\nVECTOR_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[3] );
+    fprintf(fd,"\nRECORD_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[RECORD_ILK] );
+    fprintf(fd,"\n  PAIR_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[  PAIR_ILK] );
+    fprintf(fd,"\nSTRING_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[STRING_ILK] );
+    fprintf(fd,"\nVECTOR_ILK sib details:\n");    dump_sib(task,fd, ag1->sib[VECTOR_ILK] );
     
+
+    fprintf(fd,"\nRECORD_ILK sib contents:\n");	  dump_record_sib( task, fd, ag1->sib[RECORD_ILK] );
+    fprintf(fd,"\n  PAIR_ILK sib contents:\n");	    dump_pair_sib( task, fd, ag1->sib[  PAIR_ILK] );
+    fprintf(fd,"\nSTRING_ILK sib contents:\n");	  dump_string_sib( task, fd, ag1->sib[STRING_ILK] );
+    fprintf(fd,"\nVECTOR_ILK sib contents:\n");	  dump_vector_sib( task, fd, ag1->sib[VECTOR_ILK] );
 
     close_heapdump_logfile( fd, filename );
     log_if("dump_gen1: Dump to '%s' now complete.", filename);
