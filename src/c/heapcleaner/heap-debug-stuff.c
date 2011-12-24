@@ -296,7 +296,7 @@ void   dump_gen0   (Task* task, char* caller) {
 		case RW_VECTOR_DATA_BTAG:				tag = "RW_VECTOR_DATA";				break;
 		case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA4";				break;
 		case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:		tag = "NONPTR_DATA8";				break;
-		case EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG:	tag = "EXTERN";					break;
+		case EXTERNAL_REFERENCE_IN_EXPORTED_HEAP_IMAGE_BTAG:	tag = "EXTERNAL_REF";				break;
 		case FORWARDED_CHUNK_BTAG:				tag = "FORWARDED";				break;
 		//
 		case WEAK_POINTER_OR_SUSPENSION_BTAG:
@@ -324,6 +324,22 @@ void   dump_gen0   (Task* task, char* caller) {
 
     close_heapdump_logfile( fd, filename );
     log_if("dump_gen0: Dump to '%s' now complete.", filename);
+}
+
+// Write to logfile contents of the generation-1
+// buffer for a given Task.  No attempt is made
+// to distinguish live from dead data.
+//
+void   dump_gen1   (Task* task, char* caller) {
+    // =========
+    //
+    char filename[ 1024 ];
+    FILE* fd = open_heapdump_logfile( filename, 1024, "gen1" );
+
+    log_if("dump_gen1: Starting dump to '%s'", filename);
+
+    close_heapdump_logfile( fd, filename );
+    log_if("dump_gen1: Dump to '%s' now complete.", filename);
 }
 
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
