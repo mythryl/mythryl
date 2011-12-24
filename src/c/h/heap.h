@@ -375,7 +375,7 @@ extern void  zero_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_
 extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_task( Task* task, char* caller );								// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gen0( Task* task, char* caller );								// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gen1( Task* task, char* caller );								// dump_gen1							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gens( Task* task, char* caller );								// dump_gen1							def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
