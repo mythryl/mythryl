@@ -232,7 +232,7 @@ Hugechunk*   allocate_hugechunk   (
         }
     }
 
-    new_chunk->bytesize   =  hugechunk_bytesize;
+    new_chunk->bytesize        =  hugechunk_bytesize;
     new_chunk->hugechunk_state =  YOUNG_HUGECHUNK;
     new_chunk->age	       =  age;
 

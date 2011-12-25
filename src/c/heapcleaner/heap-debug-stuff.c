@@ -526,6 +526,29 @@ void   dump_hugechunk_stuff   (Task* task, char* caller) {
     fprintf(fd,"    src/c/h/heap-tags.h\n"														);
     fprintf(fd,"\n"																	);
 
+
+
+    fprintf(fd,"\n\n--------------------------------------\nHugechunk region list contains %d regions:\n", heap->hugechunk_ramregion_count		);
+    for (Hugechunk_Region* r = heap->hugechunk_ramregions;
+			   r;
+			   r = r->next
+    ){
+        fprintf(fd,"\n"																	);
+	fprintf(fd,"    hugechunk_region header r p= %p\n",	 	r										);
+	fprintf(fd,"    r->next                   p= %p\n",		r->next										);
+	fprintf(fd,"    r->first_ram_quantum      x= %p\n", (void*)	r->first_ram_quantum								);
+	fprintf(fd,"    r->page_count             x= %08x\n",		r->page_count									);
+	fprintf(fd,"    r->free_pages             x= %08x\n",		r->page_count									);
+	fprintf(fd,"    r->ram_region             p= %p\n",		r->ram_region									);
+	fprintf(fd,"    r->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION(r->ram_region)				);
+	fprintf(fd,"    r->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_MULTIPAGE_RAM_REGION(r->ram_region)					);
+	fprintf(fd,"    r->ram_region->...           (remaining fields are OS-dependent and not shown)\n"						);
+	fprintf(fd,"    r->age_of_youngest_live_chunk_in_region   x= %08x\n",		r->age_of_youngest_live_chunk_in_region				);
+	
+    }
+
+
+
     Hugechunk* freelist_header = heap->hugechunk_freelist;
 
     int free_hugechunks = 0;

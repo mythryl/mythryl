@@ -16,7 +16,7 @@
 // Define access to the first two fields of
 //     struct multipage_ram_region
 // The fields in this struct are system-dependent,
-// but these two fields are the save in all versions.
+// but these two fields are the same in all versions.
 //
 typedef struct {
     //
@@ -25,8 +25,8 @@ typedef struct {
     //
 } Multipage_Ram_Region_Prefix;											// This type is referenced only in the following two macros.
 //
-#define  BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION(region)	(((Multipage_Ram_Region_Prefix*)(region))->base)
-#define BYTESIZE_OF_MULTIPAGE_RAM_REGION(region)	(((Multipage_Ram_Region_Prefix*)(region))->bytesize)
+#define BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION(region)	(((Multipage_Ram_Region_Prefix*)(region))->base)
+#define     BYTESIZE_OF_MULTIPAGE_RAM_REGION(region)	(((Multipage_Ram_Region_Prefix*)(region))->bytesize)
 
 typedef   struct multipage_ram_region   Multipage_Ram_Region;
 
