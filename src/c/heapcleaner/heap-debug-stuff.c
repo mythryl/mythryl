@@ -505,6 +505,20 @@ static char* chunkstate_to_string( unsigned char state ) {
     }
 }
 
+static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
+    //        ==============
+    //
+    fprintf(fd,"\nHugechunk list entry %p:\n", p);
+    fprintf(fd,"    next     p= %p\n", p->next);
+    fprintf(fd,"    prev     p= %p\n", p->prev);
+    fprintf(fd,"    chunk    p= %p   (This is the actual free chunk itself)\n", (void*)p->chunk);
+    fprintf(fd,"    bytesize x= %x\n", (unsigned int)p->bytesize);							// Punt
+    fprintf(fd,"    huge_ilk d= %d  (Currently always CODE__HUGE_ILK=%d) \n", p->huge_ilk, CODE__HUGE_ILK);		// unsigned char
+    fprintf(fd,"    state     = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_FORWARDED_HUGECHUNK/OLD_HUGECHUNK/OLD_PROMOTED_HUGECHUNK) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
+    fprintf(fd,"    age      d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char
+    fprintf(fd,"    region   p= %p  (Hugechunk_Region containing hugechunk)\n", p->region);
+}
+
 // Write to logfile contents of the Hugechunk datastructures.
 //
 void   dump_hugechunk_stuff   (Task* task, char* caller) {
@@ -565,15 +579,28 @@ void   dump_hugechunk_stuff   (Task* task, char* caller) {
                     p != freelist_header;
                     p  = p->next
     ){
-	fprintf(fd,"\nHugechunk freelist entry %p:\n", p);
-	fprintf(fd,"    next     p= %p\n", p->next);
-	fprintf(fd,"    prev     p= %p\n", p->prev);
-	fprintf(fd,"    chunk    p= %p   (This is the actual free chunk itself)\n", (void*)p->chunk);
-	fprintf(fd,"    bytesize x= %x\n", (unsigned int)p->bytesize);							// Punt
-	fprintf(fd,"    huge_ilk d= %d  (Currently always CODE__HUGE_ILK=%d) \n", p->huge_ilk, CODE__HUGE_ILK);		// unsigned char
-	fprintf(fd,"    state     = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_FORWARDED_HUGECHUNK/OLD_HUGECHUNK/OLD_PROMOTED_HUGECHUNK) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
-	fprintf(fd,"    age      d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char
-	fprintf(fd,"    region   p= %p  (Hugechunk_Region containing hugechunk)\n", p->region);
+	dump_hugechunk( fd, p );
+    }
+
+    for (int a = 0;
+             a < task->heap->active_agegroups;
+             a++
+    ){
+	fprintf(fd,"\n"																	);
+	fprintf(fd,"\n"																	);
+	fprintf(fd,"---------------------\n"														);
+	fprintf(fd,"Dump of hugechunks for generation %d\n", a+1);
+	fprintf(fd,"\n"																	);
+
+	Agegroup* ag  =  heap->agegroup[a];		// Get pointer to our agegroup.
+
+	
+	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_ILK ];
+			p;
+			p =  p->next
+	){
+	    dump_hugechunk( fd, p );
+	}
     }
 
     close_heapdump_logfile( fd, filename );
