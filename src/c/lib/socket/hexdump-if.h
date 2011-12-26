@@ -2,6 +2,16 @@
  *
  */
 
+// Dump 'data' as hex, with displayed addresses starting at zero:
+//
+extern void   hexdump0( void (*writefn)(void*, char*), void* writefn_arg,	// Continuation receiving our output. writefn is often dump_buf_to_fd() (below), in which case writefn_arg is the fd. 
+			char* message,						// Explanatory title string for human consumption.
+			unsigned char* data,					// Data to be hexdumped.
+			int data_len						// Length of preceding.
+		     );
+
+// Dump 'data' as hex, with displayed addresses starting at 'data':
+//
 extern void   hexdump(  void (*writefn)(void*, char*), void* writefn_arg,	// Continuation receiving our output. writefn is often dump_buf_to_fd() (below), in which case writefn_arg is the fd. 
 			char* message,						// Explanatory title string for human consumption.
 			unsigned char* data,					// Data to be hexdumped.
