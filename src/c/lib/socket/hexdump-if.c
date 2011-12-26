@@ -122,6 +122,22 @@ void   hexdump_if   (char* message, unsigned char* data, int data_len)   {
     }
 }
 
+
+
+static void   dump_buf_to_file   (void* fd_as_voidptr, char* buf) {
+    //        ================
+    //
+    FILE* fd = (FILE*) fd_as_voidptr;
+    //
+    fwrite(buf, 1, strlen(buf), fd);
+}
+
+void   hexdump_to_file  (FILE* fd, char* message, unsigned char* data, int data_len)   {
+    // ===============
+    //
+    hexdump( dump_buf_to_file, (void*)fd, message, data, data_len );
+}
+
 // COPYRIGHT (c) 2010 by Jeff Prothero,
 // released under Gnu Public Licence version 3.
 

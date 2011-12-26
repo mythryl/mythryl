@@ -12,3 +12,6 @@ extern void   hexdump_if   (char* message, unsigned char* data, int data_len);
     //
     // Version of above specialized to write to log_if_fd (if nonzero).
 
+extern void   hexdump_to_file  (FILE* fd, char* message, unsigned char* data, int data_len);
+    //
+    // Version of above specialized to write to arbitrary FILE*.
