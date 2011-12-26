@@ -39,67 +39,88 @@
 
 #include "hexdump-if.h"
 
+void   hexdump      (  void (*writefn)(void*, char*), void* writefn_arg,	// Continuation receiving our output. writefn is often dump_buf_to_fd() (below), in which case writefn_arg is the fd. 
+                       char* message,						// Explanatory title string for human consumption.
+                       unsigned char* data,					// Data to be hexdumped.
+                       int data_len						// Length of preceding.
+                    )
+{
+    char buf[ 256 ];
+    int i;
+    log_if( message );
+    if (data_len > 32) {
+	strcpy(buf,"\n        00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f");
+	writefn(writefn_arg, buf);
+    }
+    for (i = 0; i < data_len; i += 32) {
+	int  j;
+	if (data_len > 32) {
+	    sprintf (buf, "\n%06x: ", i);
+	    writefn(writefn_arg, buf);
+	}
+
+	for (j = 0; j < 32; ++j) {
+
+	    // Place puncturation between the byes
+	    // to make it easier to find the boundaries
+	    // of 16-bit, 32-bit and 64-bit aligned values:
+	    //
+	    int c;
+	    switch (j & 7) {
+	    case 0:  c = '.';	break;
+	    case 1:  c = ' ';	break;
+	    case 2:  c = '.';	break;
+	    case 3:  c = ';';	break;
+	    case 4:  c = '.';	break;
+	    case 5:  c = ' ';	break;
+	    case 6:  c = '.';	break;
+	    case 7:  c = '|';	break;
+	    }
+
+	    if (i+j < data_len) {
+		sprintf (buf, "%02x%c", data[i+j], c);
+		writefn(writefn_arg, buf);
+	    } else {
+		if (data_len > 32) {
+		    strcpy (buf, "   ");
+		    writefn(writefn_arg, buf);
+		}
+	    }
+	}
+	strcpy (buf, "    ");
+	writefn(writefn_arg, buf);
+
+	for (j = 0; j < 32 && i+j < data_len; ++j) {
+	    unsigned char c = data[i+j];
+	    if (!isprint(c)) c = '.';
+	    char buf2[2];
+	    buf2[0] = c;
+	    buf2[1] = '\0';
+	    writefn(writefn_arg, buf2);
+	}
+    }
+
+    writefn(writefn_arg, "\n");
+}
+
+
+
+static void   dump_buf_to_fd   (void* fd_as_voidptr, char* buf) {
+    //        ==============
+    //
+    int fd = (int) fd_as_voidptr;
+    //
+    write(fd, buf, strlen(buf));
+}
+
 void   hexdump_if   (char* message, unsigned char* data, int data_len)   {
     // ==========
     //
     if (log_if_fd && data_len > 0) {
-
-        char buf[ 256 ];
-	int i;
-        log_if( message );
-	if (data_len > 32) {
-            strcpy(buf,"\n        00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f");
-	    write(log_if_fd, buf, strlen(buf));
-        }
-	for (i = 0; i < data_len; i += 32) {
-	    int  j;
-	    if (data_len > 32) {
-		sprintf (buf, "\n%06x: ", i);
-		write(log_if_fd, buf, strlen(buf));
-	    }
-
-	    for (j = 0; j < 32; ++j) {
-
-		// Place puncturation between the byes
-		// to make it easier to find the boundaries
-		// of 16-bit, 32-bit and 64-bit aligned values:
-		//
-		int c;
-		switch (j & 7) {
-		case 0:  c = '.';	break;
-		case 1:  c = ' ';	break;
-		case 2:  c = '.';	break;
-		case 3:  c = ';';	break;
-		case 4:  c = '.';	break;
-		case 5:  c = ' ';	break;
-		case 6:  c = '.';	break;
-		case 7:  c = '|';	break;
-		}
-
-	        if (i+j < data_len) {
-                    sprintf (buf, "%02x%c", data[i+j], c);
-	            write(log_if_fd, buf, 3);
-		} else {
-		    if (data_len > 32) {
-			strcpy (buf, "   ");
-			write(log_if_fd, buf, strlen(buf));
-		    }
-		}
-	    }
-	    strcpy (buf, "    ");
-	    write(log_if_fd, buf, strlen(buf));
-
-	    for (j = 0; j < 32 && i+j < data_len; ++j) {
-		unsigned char c = data[i+j];
-		if (!isprint(c)) c = '.';
-		write(log_if_fd, &c, 1);
-	    }
-	}
-	write(log_if_fd, "\n", 1);
+	//
+	hexdump( dump_buf_to_fd, (void*)log_if_fd, message, data, data_len );
     }
 }
-
-
 
 // COPYRIGHT (c) 2010 by Jeff Prothero,
 // released under Gnu Public Licence version 3.
