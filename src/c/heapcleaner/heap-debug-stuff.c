@@ -589,6 +589,28 @@ void   dump_hugechunk_stuff   (Task* task, char* caller) {
 	fprintf(fd,"\n"																	);
 	fprintf(fd,"\n"																	);
 	fprintf(fd,"---------------------\n"														);
+	fprintf(fd,"Summary of hugechunks for generation %d\n", a+1);
+	fprintf(fd,"\n"																	);
+
+	Agegroup* ag  =  heap->agegroup[a];		// Get pointer to our agegroup.
+
+	
+	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_ILK ];
+			p;
+			p =  p->next
+	){
+	    dump_hugechunk( fd, p );
+	}
+    }
+
+
+    for (int a = 0;
+             a < task->heap->active_agegroups;
+             a++
+    ){
+	fprintf(fd,"\n"																	);
+	fprintf(fd,"\n"																	);
+	fprintf(fd,"---------------------\n"														);
 	fprintf(fd,"Dump of hugechunks for generation %d\n", a+1);
 	fprintf(fd,"\n"																	);
 
@@ -600,6 +622,11 @@ void   dump_hugechunk_stuff   (Task* task, char* caller) {
 			p =  p->next
 	){
 	    dump_hugechunk( fd, p );
+
+	    unsigned char* chunk     = (unsigned char*)p->chunk;
+	    int            chunk_len = (int)           p->bytesize;
+
+	    hexdump_to_file  (fd, "", chunk, chunk_len);
 	}
     }
 
