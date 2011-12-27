@@ -851,42 +851,7 @@ static Val   do_breakpoint_7   (Task* task, Val arg)   { return HEAP_VOID; }
 static Val   do_breakpoint_8   (Task* task, Val arg)   { return HEAP_VOID; }
 static Val   do_breakpoint_9   (Task* task, Val arg)   { return HEAP_VOID; }
     //
-    // These are partial support for  limited, clumsy, but useful use
-    // of gdb (the GNU debugger) in conjunction with Mythryl scripts.
-    // 
-    // This is intended mainly for debugging Mythryl library bindings which
-    // are segfaulting mysteriously. (At the moment, libmythryl-pthread. :-)
-    // 
-    // 
-    // The idea here is to:
-    // 
-    //   1) Fire up the Mythryl runtime
-    //          mythryl-runtime-intel32
-    //      from bin/ or /usr/bin/ under gdb.
-    // 
-    //   2) Place gdb breakpoints on one or more of
-    //      these breakpoint_*() fns.
-    // 
-    //   3) In the Mythryl test script in question,
-    //      insert calls to one or more of
-    //          heap_debug::breakpoint_0();
-    //          ...
-    //          heap_debug::breakpoint_9();
-    //      (These invoke the above breakpoint_*() C fns.)
-    //      These will allow us to regain control of
-    //      execution in gdb when script execution reaches
-    //      that point.
-    // 
-    //   4) Run the Mythryl compiler   mythryld
-    //      on the Mythryl test script in question.
-    // 
-    //   5) Singlestep in gdb through the problematic code, or
-    //      set more breakpoints in gdb or whatever.
-    //
-    // During major debug thrashes it may also pay to add actual C code to
-    // one or more of the above functions to interactively display stuff
-    // or to call problematic C code to allow convenient single-stepping
-    // through it or whatever.
+    // See comments in   src/lib/std/src/nj/heap-debug.api
 
 
 
