@@ -7,8 +7,10 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
+#include <libdis.h>	// x86 disasembler library from Debian packages:  libdisasm0 + libdisasm-dev
 
 #if HAVE_SYS_TIME_H
 #  include <sys/time.h>
@@ -20,7 +22,7 @@
 #include "get-multipage-ram-region-from-os.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
-
+#include "hexdump-if.h"
 
 
 void   zero_agegroup0_overrun_tripwire_buffer( Task* task ) {
@@ -519,6 +521,28 @@ static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
     fprintf(fd,"    region   p= %p  (Hugechunk_Region containing hugechunk)\n", p->region);
 }
 
+static void   expand_tabs   (char* outbuf, char* inbuf) {
+    //        ===========
+    //
+    int col = 0;
+    
+    for (int c = *inbuf++;
+             c;
+             c = *inbuf++
+    ){
+	if (c != '\t') {
+	    *outbuf++ = tolower(c);			// libdisasm0 generates upper-case hex constants and I prefer lowercase hex constants, hence the tolower() here.
+	    col++;
+	} else {
+	    do {
+		*outbuf++ = ' ';
+		col++;
+	    } while (col & 7);
+	}
+    }
+    *outbuf++ = '\0';
+}
+
 // Write to logfile contents of the Hugechunk datastructures.
 //
 void   dump_hugechunk_stuff   (Task* task, char* caller) {
@@ -627,6 +651,54 @@ void   dump_hugechunk_stuff   (Task* task, char* caller) {
 	    int            chunk_len = (int)           p->bytesize;
 
 	    hexdump_to_file  (fd, "", chunk, chunk_len);
+
+	    // Disassemble the compiled code using libdisasm.
+	    // For background see:     http://bastard.sourceforge.net/libdisasm.html
+	    // On Linux this packages  libdisasm0 libdisasm-dev
+
+	    {
+
+		#define LINE_SIZE 256
+
+		char line0[LINE_SIZE];   // Disassembled code.
+		char line1[LINE_SIZE];   // Disassembled code with tabs converted to blanks.
+
+		int pos = 0;             // Number of bytes disassembled so far.
+		int size;                // Number of bytes in this instruction.
+		x86_insn_t insn;         // This instruction, in abstract form.
+
+		x86_init(opt_none, NULL, NULL);
+
+		fprintf(fd,"\n\nAbove buffer as inte32 assembly code:\n\n");
+		while (pos < chunk_len) {
+		    //
+		    // Disassemble one instruction:
+		    //
+		    size = x86_disasm(chunk, chunk_len, (unsigned int)chunk, pos, &insn);
+		    if (size) {
+		        // Print instruction:
+		        x86_format_insn(&insn, line0, LINE_SIZE, intel_syntax);
+			expand_tabs( line1, line0 );
+			fprintf(fd,"%08x: %-40s ;", (unsigned int)(chunk + pos), line1);
+                        for (int i = 0; i < 10; ++i) {
+			    if (i < size) fprintf(fd," %02x", *(chunk + pos + i));
+			    else          fprintf(fd,"   ");
+			}
+                        for (int i = 0; i < size; ++i) {
+			    int c = *(chunk + pos + i);
+			    if (c < ' ' || c > '~')  c = '.';
+			    fprintf(fd,"%c", c);
+			}
+			fprintf(fd,"\n");
+			pos += size;
+		    } else {
+			fprintf(fd,"%08x: %-40s ; %02x\n", (unsigned int)(chunk + pos), "[Invalid instruction]", *(chunk + pos));
+			pos++;
+		    }
+		}
+
+		x86_cleanup();
+	    }
 	}
     }
 
