@@ -480,6 +480,25 @@ static Val   do_dump_task   (Task* task,  Val arg)   {
 
 
 //
+static Val   do_dump_whatever   (Task* task,  Val arg)   {
+    //       ================
+    //
+    // Mythryl type:  String -> Void
+    //
+    // This fn gets bound as   dump_whatever   in:
+    //
+    //     src/lib/std/src/nj/heap-debug.pkg
+    //
+    char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
+    //
+    dump_whatever( task, caller );							// dump_whatever	is from   src/c/heapcleaner/heap-debug-stuff.c
+    //
+    return HEAP_VOID;
+}
+
+
+
+//
 static Val   do_make_codechunk_executable   (Task* task,  Val arg)   {
     //       ============================
     //
@@ -821,38 +840,99 @@ static void   clean_all_agegroups   (
 }
 
 
+static Val   do_breakpoint_0   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_1   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_2   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_3   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_4   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_5   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_6   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_7   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_8   (Task* task, Val arg)   { return HEAP_VOID; }
+static Val   do_breakpoint_9   (Task* task, Val arg)   { return HEAP_VOID; }
+    //
+    // These are partial support for  limited, clumsy, but useful use
+    // of gdb (the GNU debugger) in conjunction with Mythryl scripts.
+    // 
+    // This is intended mainly for debugging Mythryl library bindings which
+    // are segfaulting mysteriously. (At the moment, libmythryl-pthread. :-)
+    // 
+    // 
+    // The idea here is to:
+    // 
+    //   1) Fire up the Mythryl runtime
+    //          mythryl-runtime-intel32
+    //      from bin/ or /usr/bin/ under gdb.
+    // 
+    //   2) Place gdb breakpoints on one or more of
+    //      these breakpoint_*() fns.
+    // 
+    //   3) In the Mythryl test script in question,
+    //      insert calls to one or more of
+    //          heap_debug::breakpoint_0();
+    //          ...
+    //          heap_debug::breakpoint_9();
+    //      (These invoke the above breakpoint_*() C fns.)
+    //      These will allow us to regain control of
+    //      execution in gdb when script execution reaches
+    //      that point.
+    // 
+    //   4) Run the Mythryl compiler   mythryld
+    //      on the Mythryl test script in question.
+    // 
+    //   5) Singlestep in gdb through the problematic code, or
+    //      set more breakpoints in gdb or whatever.
+    //
+    // During major debug thrashes it may also pay to add actual C code to
+    // one or more of the above functions to interactively display stuff
+    // or to call problematic C code to allow convenient single-stepping
+    // through it or whatever.
+
+
+
 #define CFUNC(NAME, NAME2, FUNC, LIB7TYPE)	CFUNC_BIND(NAME, NAME2, FUNC, LIB7TYPE)
 //
 static Mythryl_Name_With_C_Function CFunTable[] = {
-
-  {"allocate_codechunk","allocate_codechunk",								do_allocate_codechunk,						"Int -> rw_vector_of_one_byte_unts::Rw_Vector"},
-  {"check_agegroup0_overrun_tripwire_buffer","check_agegroup0_overrun_tripwire_buffer",			do_check_agegroup0_overrun_tripwire_buffer,			"String -> Void"},
-  {"cleaner_control","heapcleaner_control",								do_heapcleaner_control,						"List ((String, Ref(Int))) -> Void"},
-  {"commandline_args","commandline_args",								do_get_commandline_args,					"Void -> List String"},
-  {"concatenate_two_tuples","concatenate_two_tuples",							do_concatenate_two_tuples,					"(Chunk, Chunk) -> Chunk"},
-  {"debug","debug",											do_debug,							"String -> Void"},
-  {"dummy","dummy",											do_dummy,							"String -> Void"},
-  {"disable_debug_logging","disable_debug_logging",							do_disable_debug_logging,					"Void -> Void"},
-  {"enable_debug_logging","enable_debug_logging",							do_enable_debug_logging,					"Void -> Void"},
-  {"export_heap","export_heap",										do_export_heap,							"String -> Bool"},
-  {"get_platform_property","get_platform_property",							do_get_platform_property,					"String -> Null_Or String"},
-  {"interval_tick__unimplemented","interval_tick__unimplemented",					do_interval_tick__unimplemented,				"Void -> (Int, Int)"},	// Currently UNIMPLEMENTED
-  {"dump_gen0","dump_gen0",										do_dump_gen0,							"String -> Void"},
-  {"dump_gens","dump_gens",										do_dump_gens,							"String -> Void"},
-  {"dump_hugechunk_stuff","dump_hugechunk_stuff",							do_dump_hugechunk_stuff,					"String -> Void"},
-  {"dump_task","dump_task",										do_dump_task,							"String -> Void"},
-  {"make_codechunk_executable","make_codechunk_executable",						do_make_codechunk_executable,					"(Vector_Of_One_Byte_Unts, Int) -> Chunk -> Chunk"},
-  {"make_package_literals_via_bytecode_interpreter","make_package_literals_via_bytecode_interpreter",	do_make_package_literals_via_bytecode_interpreter,		"vector_of_one_byte_unts::Vector -> Ovec"},
-  {"make_single_slot_tuple","make_single_slot_tuple",							do_make_single_slot_tuple,					"Chunk -> Chunk"},
-  {"pickle_datastructure","pickle_datastructure",							do_pickle_datastructure,					"X -> vector_of_one_byte_unts.Vector"},
-  {"program_name_from_commandline","program_name_from_commandline",					do_get_program_name_from_commandline,				"Void -> String"},
-  {"raw_commandline_args","raw_commandline_args",							do_get_raw_commandline_args,					"Void -> List String"},
-  {"set_sigalrm_frequency","set_sigalrm_frequency",							do_set_sigalrm_frequency,					"Null_Or (Int, Int) -> Null_Or (Int, Int)"},
-  {"spawn_to_disk","spawn_to_disk",									do_spawn_to_disk,						"(String, (List(String) -> Void)) -> Void"},
-  {"unpickle_datastructure","unpickle_datastructure",							do_unpickle_datastructure,					"vector_of_one_byte_unts.Vector -> X"},
-
-	CFUNC_NULL_BIND
-    };
+    //
+    {"allocate_codechunk",				"allocate_codechunk",					do_allocate_codechunk,						"Int -> rw_vector_of_one_byte_unts::Rw_Vector"},
+    {"breakpoint_0",					"breakpoint_0",						do_breakpoint_0,						"Void -> Void"},
+    {"breakpoint_1",					"breakpoint_1",						do_breakpoint_1,						"Void -> Void"},
+    {"breakpoint_2",					"breakpoint_2",						do_breakpoint_2,						"Void -> Void"},
+    {"breakpoint_3",					"breakpoint_3",						do_breakpoint_3,						"Void -> Void"},
+    {"breakpoint_4",					"breakpoint_4",						do_breakpoint_4,						"Void -> Void"},
+    {"breakpoint_5",					"breakpoint_5",						do_breakpoint_5,						"Void -> Void"},
+    {"breakpoint_6",					"breakpoint_6",						do_breakpoint_6,						"Void -> Void"},
+    {"breakpoint_7",					"breakpoint_7",						do_breakpoint_7,						"Void -> Void"},
+    {"breakpoint_8",					"breakpoint_8",						do_breakpoint_8,						"Void -> Void"},
+    {"breakpoint_9",					"breakpoint_9",						do_breakpoint_9,						"Void -> Void"},
+    {"check_agegroup0_overrun_tripwire_buffer",		"check_agegroup0_overrun_tripwire_buffer",		do_check_agegroup0_overrun_tripwire_buffer,			"String -> Void"},
+    {"cleaner_control",					"heapcleaner_control",					do_heapcleaner_control,						"List( (String, Ref(Int)) ) -> Void"},
+    {"commandline_args",				"commandline_args",					do_get_commandline_args,					"Void -> List String"},
+    {"concatenate_two_tuples",				"concatenate_two_tuples",				do_concatenate_two_tuples,					"(Chunk, Chunk) -> Chunk"},
+    {"debug",						"debug",						do_debug,							"String -> Void"},
+    {"dummy",						"dummy",						do_dummy,							"String -> Void"},
+    {"disable_debug_logging",				"disable_debug_logging",				do_disable_debug_logging,					"Void -> Void"},
+    {"enable_debug_logging",				"enable_debug_logging",					do_enable_debug_logging,					"Void -> Void"},
+    {"export_heap",					"export_heap",						do_export_heap,							"String -> Bool"},
+    {"get_platform_property",				"get_platform_property",				do_get_platform_property,					"String -> Null_Or String"},
+    {"interval_tick__unimplemented",			"interval_tick__unimplemented",				do_interval_tick__unimplemented,				"Void -> (Int, Int)"},	// Currently UNIMPLEMENTED
+    {"dump_gen0",					"dump_gen0",						do_dump_gen0,							"String -> Void"},
+    {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
+    {"dump_hugechunk_stuff",				"dump_hugechunk_stuff",					do_dump_hugechunk_stuff,					"String -> Void"},
+    {"dump_task",					"dump_task",						do_dump_task,							"String -> Void"},
+    {"dump_whatever",					"dump_whatever",					do_dump_whatever,						"String -> Void"},
+    {"make_codechunk_executable",			"make_codechunk_executable",				do_make_codechunk_executable,					"(Vector_Of_One_Byte_Unts, Int) -> Chunk -> Chunk"},
+    {"make_package_literals_via_bytecode_interpreter",	"make_package_literals_via_bytecode_interpreter",	do_make_package_literals_via_bytecode_interpreter,		"vector_of_one_byte_unts::Vector -> Ovec"},
+    {"make_single_slot_tuple",				"make_single_slot_tuple",				do_make_single_slot_tuple,					"Chunk -> Chunk"},
+    {"pickle_datastructure",				"pickle_datastructure",					do_pickle_datastructure,					"X -> vector_of_one_byte_unts::Vector"},
+    {"program_name_from_commandline",			"program_name_from_commandline",			do_get_program_name_from_commandline,				"Void -> String"},
+    {"raw_commandline_args",				"raw_commandline_args",					do_get_raw_commandline_args,					"Void -> List String"},
+    {"set_sigalrm_frequency",				"set_sigalrm_frequency",				do_set_sigalrm_frequency,					"Null_Or (Int, Int) -> Null_Or (Int, Int)"},
+    {"spawn_to_disk",					"spawn_to_disk",					do_spawn_to_disk,						"(String, (List(String) -> Void)) -> Void"},
+    {"unpickle_datastructure",				"unpickle_datastructure",				do_unpickle_datastructure,					"vector_of_one_byte_unts::Vector -> X"},
+    //
+    CFUNC_NULL_BIND
+};
 #undef CFUNC
 
 
