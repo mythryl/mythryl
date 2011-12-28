@@ -171,9 +171,10 @@ static void   process_commandline_options   (
 
     Bool	seen_error = FALSE;
 
-    {   char* mode = getenv("MYTHRYL_MODE");
+    {   char* script = getenv("MYTHRYL_SCRIPT");			// "The getenv() function returns a pointer to the value in the environment, or NULL if there is no match."
 	//
-        if (mode && !strcmp(mode,"SCRIPT"))   running_script = TRUE;
+        if (script)   running_script = TRUE;
+	//
 	if (running_script) {
 	    if (!log_if_fd)   log_if_fd = open("script.log", O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR );
 	}
