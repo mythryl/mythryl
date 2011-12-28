@@ -109,7 +109,7 @@
 #define SCRIPT_EXIT_BOILERPLATE "\n posix_1003_1b::kill (posix_1003_1b::K_PROC (posix_1003_1b::get_process_id' () ), posix_1003_1b::signal::term );;\n"
 
 // #define SCRIPT_EXIT_BOILERPLATE "winix::process::exit winix::process::success;\n"
-
+//
 static char* our_name          = "(unknown)";
 
 // Once we have established communication with the
@@ -118,19 +118,19 @@ static char* our_name          = "(unknown)";
 //
 // The following hold that text until it is time
 // to deliver it:
-
-static char* text_for_compiler_buffer;
+//
+static char* text_for_compiler_buffer;			// Allocated below by    allocate_script_buffer().
 static char* remaining_text_for_compiler;
 
 
-
+//
 static int   child_is_dead     = FALSE;
 static int   child_exit_status = 0;
 static pid_t child_pid         = 0;
-
+//
 static int   eof_on_childs_stdout = FALSE;
 static int   eof_on_childs_stderr = FALSE;
-
+//
 static void   usage   (void)    {
     //
     fprintf( stderr, "%s should only be invoked via ''#!...'' line in a script!\n", our_name );
@@ -139,7 +139,7 @@ static void   usage   (void)    {
 }
 
 
-
+//
 static int   get_script_size   (char* filename)   {
     //
     struct stat buf;
@@ -154,14 +154,12 @@ static int   get_script_size   (char* filename)   {
 }
 
 
-
+//
 static void
 allocate_script_buffer   ( int bytesize ) {
-    
-    if (!bytesize) {
-        exit(0);
-    }
-
+    //
+    if (!bytesize)         exit(0);
+    //
     text_for_compiler_buffer
         =
         (char*) malloc( bytesize + strlen( SCRIPT_EXIT_BOILERPLATE ) + 2 );	// "+2" for a newline and nul.
@@ -178,7 +176,7 @@ allocate_script_buffer   ( int bytesize ) {
 }
 
 
-
+//
 static void   read_script_into_buffer   (char* scriptname)   {
     //
     // Read script contents into buffer:
@@ -207,7 +205,7 @@ static void   read_script_into_buffer   (char* scriptname)   {
 }
 
 
-
+//
 static void   set_up_compile   (char** argv)   {
     //
     allocate_script_buffer(
@@ -219,7 +217,7 @@ static void   set_up_compile   (char** argv)   {
 }
 
 
-
+//
 static int   is_executable   (char* filename)   {
     //
     struct stat buf;
@@ -255,7 +253,7 @@ static int   is_executable   (char* filename)   {
 }
 
 
-
+//
 static int   is_valid_script   (char* filename)   {
     //
     // Here we try to figure out whether 'filename'
@@ -277,7 +275,7 @@ static int   is_valid_script   (char* filename)   {
     }
 }
 
-
+//
 static int   args_to_skip   (int argc,  char** argv)   {
     //
     if (argc > 0)   our_name = argv[0];
@@ -359,7 +357,7 @@ static int   args_to_skip   (int argc,  char** argv)   {
 }
 
 
-
+//
 static char**   process_argv   (int argc,  char** argv )   {
     //
     // The first one or two argv[] entries
@@ -377,7 +375,7 @@ static char**   process_argv   (int argc,  char** argv )   {
 }
 
 
-
+//
 static void   close_redundant_fds   (void)   {
     //
     // We might have been exec'd by some program with dozens
@@ -402,13 +400,13 @@ static void   close_redundant_fds   (void)   {
 typedef struct { int read;
                  int write;
                } Pipe_Pair;
-
+//
 typedef struct { Pipe_Pair stdin;
                  Pipe_Pair stdout;
                  Pipe_Pair stderr;
                } Stdin_Stdout_Stderr_Pipes;
 
-
+//
 static Pipe_Pair   make_pipe_pair   (void)   {
     //
     // To communicate with our subprocess, we need
@@ -438,7 +436,7 @@ static Pipe_Pair   make_pipe_pair   (void)   {
 }
 
 
-
+//
 static Stdin_Stdout_Stderr_Pipes   open_subprocess_pipes   (void)   {
     //
     // Create the three pipes (stdin/stdout/stderr)
@@ -454,7 +452,7 @@ static Stdin_Stdout_Stderr_Pipes   open_subprocess_pipes   (void)   {
 }
 
 
-
+//
 static void   copy_pipe   (int from, int to)   {
     //
     if (dup2( from, to ) != to) {
@@ -468,7 +466,7 @@ static void   copy_pipe   (int from, int to)   {
 
 
 
-
+//
 static void   sigchld_handler   (int signal,  siginfo_t* info,  void* context)   {
     //
     // The SIGCHLD signal notifies us of a state change
@@ -538,7 +536,7 @@ static void   sigterm_handler   (int signal,  siginfo_t* info,  void* context)  
 }
 
 
-
+//
 static void   set_signal_handler   (int signum,  void (*handler)(int signum, siginfo_t* info, void* context))   {
     //
     // The classic signal() is deprecated
@@ -572,7 +570,7 @@ static void   set_signal_handler   (int signum,  void (*handler)(int signum, sig
 }
 
 
-
+//
 static void   set_signal_handlers   (void)   {
     //
     // We catch SIGCHLD so as to know when/if our
@@ -588,7 +586,7 @@ static void   set_signal_handlers   (void)   {
     set_signal_handler( SIGQUIT, sigterm_handler );
 }
 
-
+//
 static void   exec_mythryld   (char** argv) {
     //
     extern char** environ;
@@ -608,7 +606,7 @@ static void   exec_mythryld   (char** argv) {
 }
 
 
-
+//
 static void   start_subprocess (
     //
     Stdin_Stdout_Stderr_Pipes   subprocess_pipes,
@@ -662,16 +660,33 @@ static void   start_subprocess (
 	copy_pipe( subprocess_pipes.stdout.write, STDOUT_FILENO  );
 	copy_pipe( subprocess_pipes.stderr.write, STDERR_FILENO  );
 
-	// Tell mythryld that it is running a script:
+	setenv( "MYTHRYL_MODE", "SCRIPT", TRUE );				// The 'TRUE' makes it overwrite any pre-existing value for "MYTHRYL_MODE".
 	//
-	setenv( "MYTHRYL_MODE", "SCRIPT", TRUE );
+	// This tells mythryld that it is running a script.
+	// This is mainly used in
+	//
+	//     src/lib/core/internal/mythryld-app.pkg
+	//
+	// Also, if MYTHRYL_MODE is SCRIPT the global variable
+	//
+	//     running_script
+	//
+	// is set to TRUE by process_commandline_options() in
+	//
+	//     src/c/main/runtime-main.c
+	//
+	// This is intended to allow ad hoc debug logic to (say)
+	// do voluminious logging only when a script is running,
+	// not during compiles etc (when it might flood the disk).
+	// This global variable is not currently used in production code.
+	//     -- 2011-12-27 CrT 	
 
         exec_mythryld( argv );
     }
 }
 
 
-
+//
 static void   sleep_10ms   (void)   {
     //
     // Sleep for 1/100 second.
@@ -685,7 +700,7 @@ static void   sleep_10ms   (void)   {
 }
 
 
-
+//
 static int   send_byte_to   (int value,  int write_fd)   {
     //
     char buf[ 8 ];
@@ -696,7 +711,7 @@ static int   send_byte_to   (int value,  int write_fd)   {
 }
 
 
-
+//
 static int   copy_from_to   (
     //
     int read_fd,
@@ -759,7 +774,7 @@ static int   copy_from_to   (
 }
 
 
-
+//
 static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subprocess_pipes)   {
     //
     // At this point, the compiler subprocess
@@ -939,7 +954,7 @@ static void   run_subprocess_to_conclusion   (Stdin_Stdout_Stderr_Pipes  subproc
 }
 
 
-
+//
 static void   run_compiler_subprocess   (char** argv)   {
     //
     close_redundant_fds ();
@@ -953,7 +968,7 @@ static void   run_compiler_subprocess   (char** argv)   {
     run_subprocess_to_conclusion( subprocess_pipes );
 }
 
-
+//
 int   main   ( int argc, char** argv ) {
     //
     argv = process_argv( argc, argv );
@@ -1005,3 +1020,28 @@ int   main   ( int argc, char** argv ) {
 //     
 //     There seems to be no way to directly circumvent that limitation
 //     without patching the kernel.
+
+
+
+
+
+/*
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[A-Za-z]"			 		 	 #
+# End:									 #
+##########################################################################
+*/
+
+
