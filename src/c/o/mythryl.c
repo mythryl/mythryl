@@ -660,7 +660,8 @@ static void   start_subprocess (
 	copy_pipe( subprocess_pipes.stdout.write, STDOUT_FILENO  );
 	copy_pipe( subprocess_pipes.stderr.write, STDERR_FILENO  );
 
-	setenv( "MYTHRYL_MODE", "SCRIPT", TRUE );				// The 'TRUE' makes it overwrite any pre-existing value for "MYTHRYL_MODE".
+//	setenv( "MYTHRYL_MODE", "SCRIPT", TRUE );				// The 'TRUE' makes it overwrite any pre-existing value for "MYTHRYL_MODE".
+	setenv( "MYTHRYL_SCRIPT", "<stdin>", TRUE );				// The 'TRUE' makes it overwrite any pre-existing value for "MYTHRYL_SCRIPT".
 	//
 	// This tells mythryld that it is running a script.
 	// This is mainly used in
