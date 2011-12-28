@@ -195,35 +195,7 @@ static void   process_commandline_options   (
 	   if (								// Should maybe use some string lib fn here instead!
 
 
-            // This is the current logic:
-	    //
-	     (((arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-ia64   suffix, end-first.
-            && (arg0end[ -2] == '3' || arg0end[ -2] == '6')
-            &&  arg0end[ -3] == 'a' 
-            &&  arg0end[ -4] == 'i' 
-            &&  arg0end[ -5] == '-'    // Should maybe use some string lib fn here instead.
-            &&  arg0end[ -6] == 'e' 
-            &&  arg0end[ -7] == 'm' 
-            &&  arg0end[ -8] == 'i' 
-            &&  arg0end[ -9] == 't' 
-            &&  arg0end[-10] == 'n' 
-            &&  arg0end[-11] == 'u' 
-            &&  arg0end[-12] == 'r' 
-            &&  arg0end[-13] == '-' 
-            &&  arg0end[-14] == 'l' 
-            &&  arg0end[-15] == 'y' 
-            &&  arg0end[-16] == 'r' 
-            &&  arg0end[-17] == 'h' 
-            &&  arg0end[-18] == 't' 
-            &&  arg0end[-19] == 'y' 
-            &&  arg0end[-20] == 'm' 
-            &&  arg0end[-21] == '/' 
-
-            )||(
-
-            // This is future logic:
-	    //
-               (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-intel64   suffix, end-first.
+	    (( (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-intel64   suffix, end-first.
             && (arg0end[ -2] == '3' || arg0end[ -2] == '6')
             &&  arg0end[ -3] == 'l' 
             &&  arg0end[ -4] == 'e' 
@@ -247,8 +219,7 @@ static void   process_commandline_options   (
             &&  arg0end[-22] == 'y' 
             &&  arg0end[-23] == 'm' 
             &&  arg0end[-24] == '/' 
-            )
-            )
+            ))
 
             &&  argv[1][0] == '-' 
             &&  argv[1][1] == '-' 
