@@ -104,6 +104,7 @@ int   main   (int argc, char** argv) {
 
 
 static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
+    //                     =======================
     //
     Heapcleaner_Args*	heapcleaner_args;
 
@@ -139,6 +140,7 @@ static Heapcleaner_Args*   do_start_of_world_stuff  (int argc,  char** argv)   {
 }
 
 static void   do_end_of_world_stuff_and_exit   (void)  {
+    //        ==============================
     //
     pth__shut_down();
     print_stats_and_exit( 0 );												// Never returns.
@@ -146,6 +148,7 @@ static void   do_end_of_world_stuff_and_exit   (void)  {
 }
 
 static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {
+    //        ===========================
     //
     char* vebosity_string = getenv( "MYTHRYL_VERBOSITY" );
     if   (vebosity_string) {
@@ -156,6 +159,7 @@ static void   process_environment_options   (Heapcleaner_Args**  cleaner_args) {
 
 
 static void   process_commandline_options   (
+    //        ===========================
     //
     int                 argc,
     char**              argv,
@@ -190,24 +194,10 @@ static void   process_commandline_options   (
 	    char* arg0end = arg0;   do {   ++arg0len; } while (*++arg0end);
 	   if (								// Should maybe use some string lib fn here instead!
 
-	    // This is deprecated logic.  It may be
-	    // best to keep it around for awhile to
-	    // support people upgrading via older binaries...? -- 2010-12-11 CrT
-	    //
-            ((  arg0end[-1] == '7'					// Match   /runtime7   suffix, end-first.
-            &&  arg0end[-2] == 'e' 
-            &&  arg0end[-3] == 'm' 
-            &&  arg0end[-4] == 'i' 
-            &&  arg0end[-5] == 't'
-            &&  arg0end[-6] == 'n' 
-            &&  arg0end[-7] == 'u' 
-            &&  arg0end[-8] == 'r' 
-            &&  arg0end[-9] == '/' 
-            )||(
 
             // This is the current logic:
 	    //
-               (arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-ia64   suffix, end-first.
+	     (((arg0end[ -1] == '2' || arg0end[ -1] == '4')		// Match   /mythryl-runtime-intel32   or   /mythryl-runtime-ia64   suffix, end-first.
             && (arg0end[ -2] == '3' || arg0end[ -2] == '6')
             &&  arg0end[ -3] == 'a' 
             &&  arg0end[ -4] == 'i' 
