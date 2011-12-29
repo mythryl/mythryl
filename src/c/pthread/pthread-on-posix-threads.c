@@ -1,9 +1,12 @@
 // pthread-on-posix-threads.c
 //
-// For background see the docs at the bottom of
+// For background see
+//
+//     src/A.PTHREAD-SUPPORT.OVERVIEW
+//
+// and the docs at the bottom of
 // 
 //     src/c/pthread/pthread-on-posix-threads.c
-//
 //
 // This file contains our actual calls directly
 // to the <pthread.h> routines.

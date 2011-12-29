@@ -840,16 +840,16 @@ static void   clean_all_agegroups   (
 }
 
 
-static Val   do_breakpoint_0   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_1   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_2   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_3   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_4   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_5   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_6   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_7   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_8   (Task* task, Val arg)   { return HEAP_VOID; }
-static Val   do_breakpoint_9   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_0   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_1   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_2   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_3   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_4   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_5   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_6   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_7   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_8   (Task* task, Val arg)   { return HEAP_VOID; }
+Val   do_breakpoint_9   (Task* task, Val arg)   { return HEAP_VOID; }
     //
     // See comments in   src/lib/std/src/nj/heap-debug.api
 
