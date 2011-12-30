@@ -17,6 +17,7 @@
 #include "system-dependent-signal-get-set-etc.h"
 #include "runtime-base.h"
 #include "runtime-globals.h"
+#include "heap.h"
 
 // This is temporary:					XXX BUGGO FIXME
 //
@@ -66,6 +67,8 @@ void   set_up_fault_handlers   (Task* task)   {
 
 	if (! SELF_PTHREAD->executing_mythryl_code) {
   	    //
+	    dump_all( SELF_PTHREAD->task, "arithmetic_fault_handler" );				// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
+  	    //
 	    die ("Bogus fault not in Mythryl: sig = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(si, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
 	}
 
@@ -114,6 +117,8 @@ void   set_up_fault_handlers   (Task* task)   {
 	#endif
 
         if (! SELF_PTHREAD->executing_mythryl_code) {
+	    //
+	    dump_all( SELF_PTHREAD->task, "arithmetic_fault_handler" );			// dump_all	is from   src/c/heapcleaner/heap-debug-stuff.c
 	    //
 	    die ("bogus fault not in Mythryl: sig = %d, code = %#x, pc = %#x)\n", signal, GET_SIGNAL_CODE(info, scp), GET_SIGNAL_PROGRAM_COUNTER(scp));
         }

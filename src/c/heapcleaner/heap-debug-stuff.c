@@ -216,7 +216,7 @@ static void   dump_gen0_tripwire_buffers__guts   (FILE* fd, Task* task, char* ca
 	//
 	for (int i = 0;  i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;  ++i) {
 	    //
-	    fprintf(fd,"%p: %08x", p+i, p[i]);
+	    fprintf(fd,"%p: %08x", p+i, (unsigned int) p[i]);
 	    if (p[i] != 0) 	        	fprintf(fd,"   # Overrun!");
 	    fprintf(fd,"\n");
 	}
