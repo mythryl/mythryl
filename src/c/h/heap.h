@@ -377,15 +377,16 @@ extern void   heapclean_n_agegroups  (Task* task, Val** roots, int level);					/
 //
 extern void  zero_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_all(		    Task* task, char* caller );							// dump_all							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_all_but_huge(	    Task* task, char* caller );							// dump_all_but_huge						def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_task(		    Task* task, char* caller );							// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gen0(		    Task* task, char* caller );							// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gen0s(	    Task* task, char* caller );							// dump_gen0s							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_gens(		    Task* task, char* caller );							// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_hugechunk_stuff(  Task* task, char* caller );							// dump_hugechunk_stuff						def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_ramlog(           Task* task, char* caller );							// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
-extern void  dump_whatever(         Task* task, char* caller );							// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_all(				Task* task, char* caller );					// dump_all							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_all_but_hugechunks_contents(	Task* task, char* caller );					// dump_all_but_hugechunks_contents				def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_task(				Task* task, char* caller );					// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gen0(				Task* task, char* caller );					// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gen0s(			Task* task, char* caller );					// dump_gen0s							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gens(				Task* task, char* caller );					// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_hugechunks_summary(		Task* task, char* caller );					// dump_hugechunks_summary					def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_hugechunks_contents					def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c

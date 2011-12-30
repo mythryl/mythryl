@@ -455,21 +455,21 @@ static Val   do_dump_all   (Task* task,  Val arg)   {
 
 
 //
-static Val   do_dump_all_but_huge   (Task* task,  Val arg)   {
-    //       ====================
+static Val   do_dump_all_but_hugechunks_contents   (Task* task,  Val arg)   {
+    //       ===================================
     //
     // Mythryl type:  String -> Void
     //
-    // This fn gets bound as   dump_all_but_huge   in:
+    // This fn gets bound as   dump_all_but_hugechunks_contents   in:
     //
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_all_but_huge");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_all_but_hugechunks_contents");
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
-    dump_all_but_huge( task, caller );							// dump_all_but_huge		is from   src/c/heapcleaner/heap-debug-stuff.c
+    dump_all_but_hugechunks_contents( task, caller );					// dump_all_but_hugechunks_contents		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -543,21 +543,42 @@ static Val   do_dump_gens   (Task* task,  Val arg)   {
 
 
 //
-static Val   do_dump_hugechunk_stuff   (Task* task,  Val arg)   {
-    //       =======================
+static Val   do_dump_hugechunks_contents   (Task* task,  Val arg)   {
+    //       ===========================
     //
     // Mythryl type:  String -> Void
     //
-    // This fn gets bound as   dump_huge   in:
+    // This fn gets bound as   dump_hugechunks_contents   in:
     //
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_hugechunk_stuff");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_hugechunks_contents");
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
-    dump_hugechunk_stuff( task, caller );						// dump_hugechunk_stuff		is from   src/c/heapcleaner/heap-debug-stuff.c
+    dump_hugechunks_contents( task, caller );						// dump_hugechunks_contents		is from   src/c/heapcleaner/heap-debug-stuff.c
+    //
+    return HEAP_VOID;
+}
+
+
+//
+static Val   do_dump_hugechunks_summary   (Task* task,  Val arg)   {
+    //       ==========================
+    //
+    // Mythryl type:  String -> Void
+    //
+    // This fn gets bound as   dump_hugechunks_summary   in:
+    //
+    //     src/lib/std/src/nj/heap-debug.pkg
+    //
+
+									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_hugechunks_summary");
+
+    char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
+    //
+    dump_hugechunks_summary( task, caller );						// dump_hugechunks_summary		is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -916,7 +937,7 @@ static Val   do_heapcleaner_control   (Task* task,  Val arg)   {
 	else if (STREQ("AllGC", op))	    clean_all_agegroups (task, &arg);
         //
 	else if (STREQ("Messages",  op))   cleaner_messages_are_enabled__global = (TAGGED_INT_TO_C_INT(DEREF(cell)) > 0);
-	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled__global       = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
+	else if (STREQ("LimitHeap", op))   unlimited_heap_is_enabled__global    = (TAGGED_INT_TO_C_INT(DEREF(cell)) <= 0);
         //
         else if (STREQ("set_max_retained_idle_fromspace_agegroup", op))	    set_max_retained_idle_fromspace_agegroup (task, cell);
     }
@@ -1034,11 +1055,12 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"get_platform_property",				"get_platform_property",				do_get_platform_property,					"String -> Null_Or String"},
     {"interval_tick__unimplemented",			"interval_tick__unimplemented",				do_interval_tick__unimplemented,				"Void -> (Int, Int)"},	// Currently UNIMPLEMENTED
     {"dump_all",					"dump_all",						do_dump_all,							"String -> Void"},
-    {"dump_all_but_huge",				"dump_all_but_huge",					do_dump_all_but_huge,						"String -> Void"},
+    {"dump_all_but_hugechunks_contents",		"dump_all_but_huge",					do_dump_all_but_hugechunks_contents,				"String -> Void"},
     {"dump_gen0",					"dump_gen0",						do_dump_gen0,							"String -> Void"},
     {"dump_gen0s",					"dump_gen0s",						do_dump_gen0s,							"String -> Void"},
     {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
-    {"dump_hugechunk_stuff",				"dump_hugechunk_stuff",					do_dump_hugechunk_stuff,					"String -> Void"},
+    {"dump_hugechunks_contents",			"dump_hugechunks_contents",				do_dump_hugechunks_contents,					"String -> Void"},
+    {"dump_hugechunks_summary",				"dump_hugechunk_stuff",					do_dump_hugechunks_summary,					"String -> Void"},
     {"dump_ramlog",					"dump_ramlog",						do_dump_ramlog,							"String -> Void"},
     {"dump_task",					"dump_task",						do_dump_task,							"String -> Void"},
     {"dump_whatever",					"dump_whatever",					do_dump_whatever,						"String -> Void"},
