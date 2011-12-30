@@ -34,7 +34,6 @@ Pthread*   pthread_table__global[  MAX_PTHREADS  ];						// pthread_table__globa
 
 static void   set_up_pthread_state   (Pthread* pthread);
 
-
 Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //  =========
     //
@@ -42,6 +41,8 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
     //
     //     src/c/heapcleaner/import-heap.c
     //     src/c/main/load-compiledfiles.c
+
+    static int last_id_issued = 0;
 
     Task* task =  NULL;
 
@@ -104,6 +105,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
 	// Initialize the first Pthread here:
 	//
+	pthread_table__global[0]->id   =  ++last_id_issued;					// pth__get_pthread_id () returns huge numbers, this gives us small pthread ids.
 	pthread_table__global[0]->tid  =  pth__get_pthread_id ();				// pth__get_pthread_id				def in    src/c/pthread/pthread-on-posix-threads.c
 	pthread_table__global[0]->mode =  PTHREAD_IS_RUNNING;
     #endif						// NEED_PTHREAD_SUPPORT

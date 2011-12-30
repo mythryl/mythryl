@@ -381,6 +381,7 @@ extern void  dump_task(		    Task* task, char* caller );							// dump_task					
 extern void  dump_gen0(		    Task* task, char* caller );							// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gens(		    Task* task, char* caller );							// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunk_stuff(  Task* task, char* caller );							// dump_hugechunk_stuff						def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_ramlog(           Task* task, char* caller );							// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(         Task* task, char* caller );							// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
 extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c

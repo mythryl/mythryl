@@ -296,9 +296,9 @@ typedef enum {
 
 
 
-// The Pthread state vector:
+// Define our per-posix-thread state information:
 //
-struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread			def in   src/c/h/runtime-base.h
+struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread	  def above.
     //
     Heap* heap;		  					// The heap for this Mythryl task.
 								// 'Heap' is defined in	  src/c/h/runtime-base.h
@@ -333,7 +333,8 @@ struct pthread_state_struct {					// typedef struct pthread_state_struct	Pthread
     #if NEED_PTHREAD_SUPPORT
 	Pthread_Mode  mode;					// Do NOT change this unless holding   pth__mutex.  Signal pth__condvar after such changes.
 								// Valid values for 'mode' are PTHREAD_IS_RUNNING/PTHREAD_IS_BLOCKED/PTHREAD_IS_HEAPCLEANING/PTHREAD_IS_VOID -- see src/c/h/runtime-base.h
-	Tid           tid;	       				// Our pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
+	int	       id;					// Our own private small-int id for the record. We assign these sequentailly starting at 1.
+	Tid           tid;	       				// Our os-assigned pthread-identifier ("tid").	(pthread_t appears in practice to be "unsigned long int" in Linux, from a quick grep of /usr/include/*.h)
 	    //
 	    // NB; 'tid' MUST be declared Tid (i.e., pthread_t from <pthread.h>)
 	    // because in  pth__pthread_create   from   src/c/pthread/pthread-on-posix-threads.c
@@ -809,6 +810,7 @@ extern char*    pth__barrier_destroy(Task* task, Val arg, Barrier* barrierp);		/
 #define RAMLOG_MASK		(RAMLOG_ENTRIES-1)		// construct a mask to implement fast queue wrap-around.
 
 typedef struct {
+    int   id;							// task->pthread->id which made the ramlog entry.
     char* fn_name;
 } Ramlog_Entry;
 
@@ -820,16 +822,17 @@ extern int          ramlog_next_entry_to_write;			// This points to next index t
 inline int ramlog_next( int i) { return (i+1) & RAMLOG_MASK; }
 inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
 
-inline int   note_fncall_in_ramlog   (char* fn_name) {
+inline int   note_fncall_in_ramlog   (Task* task, char* fn_name) {
     //       =====================
     //
-    ramlog_circular_queue[  ramlog_next_entry_to_write  ].fn_name
-	=
-	fn_name;
+    Ramlog_Entry* r =  &ramlog_circular_queue[  ramlog_next_entry_to_write  ];
 
     ramlog_next_entry_to_write
 	=
 	ramlog_next(  ramlog_next_entry_to_write  );
+
+    r->fn_name = fn_name;
+    r->id      = task->pthread->id;
 }
 
 #endif // _ASM_ 
