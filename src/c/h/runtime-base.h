@@ -822,7 +822,7 @@ extern int          ramlog_next_entry_to_write;						// This points to next inde
 inline int ramlog_next( int i) { return (i+1) & RAMLOG_MASK; }
 inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
 
-inline int   note_fncall_in_ramlog   (Task* task, char* fn_name) {
+inline void  note_fncall_in_ramlog   (Task* task, char* fn_name) {
     //       =====================
     //
     int e = ramlog_next_entry_to_write;

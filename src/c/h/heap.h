@@ -379,6 +379,7 @@ extern void  zero_agegroup0_overrun_tripwire_buffer( Task* task );						// zero_
 extern void  check_agegroup0_overrun_tripwire_buffer( Task* task, char* caller );				// check_agegroup0_overrun_tripwire_buffer			def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_task(		    Task* task, char* caller );							// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gen0(		    Task* task, char* caller );							// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gen0s(	    Task* task, char* caller );							// dump_gen0s							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gens(		    Task* task, char* caller );							// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunk_stuff(  Task* task, char* caller );							// dump_hugechunk_stuff						def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_ramlog(           Task* task, char* caller );							// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c

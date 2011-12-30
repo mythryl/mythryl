@@ -455,6 +455,28 @@ static Val   do_dump_gen0   (Task* task,  Val arg)   {
 
 
 //
+static Val   do_dump_gen0s   (Task* task,  Val arg)   {
+    //       =============
+    //
+    // Mythryl type:  String -> Void
+    //
+    // This fn gets bound as   dump_gen0s   in:
+    //
+    //     src/lib/std/src/nj/heap-debug.pkg
+    //
+
+									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gen0s");
+
+    char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
+    //
+    dump_gen0s( task, caller );								// dump_gen0s			is from   src/c/heapcleaner/heap-debug-stuff.c
+    //
+    return HEAP_VOID;
+}
+
+
+
+//
 static Val   do_dump_gens   (Task* task,  Val arg)   {
     //       ============
     //
@@ -968,6 +990,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"get_platform_property",				"get_platform_property",				do_get_platform_property,					"String -> Null_Or String"},
     {"interval_tick__unimplemented",			"interval_tick__unimplemented",				do_interval_tick__unimplemented,				"Void -> (Int, Int)"},	// Currently UNIMPLEMENTED
     {"dump_gen0",					"dump_gen0",						do_dump_gen0,							"String -> Void"},
+    {"dump_gen0s",					"dump_gen0s",						do_dump_gen0s,							"String -> Void"},
     {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
     {"dump_hugechunk_stuff",				"dump_hugechunk_stuff",					do_dump_hugechunk_stuff,					"String -> Void"},
     {"dump_ramlog",					"dump_ramlog",						do_dump_ramlog,							"String -> Void"},
