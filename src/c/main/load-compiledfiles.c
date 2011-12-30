@@ -98,7 +98,7 @@ static Val	compiled_file_list = LIST_NIL;	// A list of .compiled files to load.
  static void  register_compiled_file_exports	(Task* task, Picklehash* picklehash, Val chunk);
  static Val   picklehash_to_exports_tree	(Picklehash* picklehash);
 
- static void  picklehash_to_hex_string		(char *buf, Picklehash* picklehash);
+ static void  picklehash_to_hex_string		(char *buf, int buflen, Picklehash* picklehash);
 
  static Val   read_in_compiled_file_list	( Task* task,
                                                   const char*    compiled_files_to_load_filename,
@@ -1256,9 +1256,9 @@ static Val   picklehash_to_exports_tree   (Picklehash* picklehash)   {
     // we've loaded every compiledfile it depends upon.
     //
     {   char	buf[ PICKLEHASH_BYTES * 4 ];
-
-	picklehash_to_hex_string( buf, picklehash );
-
+        //
+	picklehash_to_hex_string( buf, PICKLEHASH_BYTES * 4, picklehash );
+	//
 	die ("unable to find picklehash (compiledfile identifier) '%s'", buf);	// Doesn't return.
     }
     exit(1);										// Redundant -- just to suppress gcc warning.
@@ -1266,12 +1266,12 @@ static Val   picklehash_to_exports_tree   (Picklehash* picklehash)   {
 
 
 
-static void   picklehash_to_hex_string   (char* buf,  Picklehash* picklehash)   {
+static void   picklehash_to_hex_string   (char* buf,  int buflen,  Picklehash* picklehash)   {
     //        ========================
     //
     // Convert picklehash to a string like "[a10f37c690a348700382e0fe1176a109]"
     //
-    char*   cp = buf;    // XXX BUGGO FIXME no buffer overrun check
+    char*   cp = buf;    // XXX BUGGO FIXME no buffer overrun check.   Then again, it is only used when we're already going down. :-)
     
     *cp++ = '[';
 

@@ -382,6 +382,7 @@ extern void  dump_all_but_hugechunks_contents(	Task* task, char* caller );					/
 extern void  dump_task(				Task* task, char* caller );					// dump_task							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gen0(				Task* task, char* caller );					// dump_gen0							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gen0s(			Task* task, char* caller );					// dump_gen0s							def in   src/c/heapcleaner/heap-debug-stuff.c
+extern void  dump_gen0_tripwire_buffers(	Task* task, char* caller );					// dump_gen0_tripwire_buffers					def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_gens(				Task* task, char* caller );					// dump_gens							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunks_summary(		Task* task, char* caller );					// dump_hugechunks_summary					def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_hugechunks_contents					def in   src/c/heapcleaner/heap-debug-stuff.c

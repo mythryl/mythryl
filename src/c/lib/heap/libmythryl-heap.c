@@ -83,10 +83,10 @@ static Val   do_allocate_codechunk   (Task* task,  Val arg) {
     //
     //     src/lib/compiler/execution/code-segments/code-segment.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_allocate_codechunk");
+										ENTER_MYTHRYL_CALLABLE_C_FN("do_allocate_codechunk");
 
     int   nbytes =   TAGGED_INT_TO_C_INT( arg );
-    Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
+    Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk			def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
     Val	               result;
     SEQHDR_ALLOC(task, result, UNT8_RW_VECTOR_TAGWORD, code, nbytes);
@@ -104,11 +104,11 @@ static Val   do_check_agegroup0_overrun_tripwire_buffer  (Task* task,  Val arg) 
     //     src/lib/std/src/nj/heap-debug.pkg
     //
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_check_agegroup0_overrun_tripwire_buffer");
+										ENTER_MYTHRYL_CALLABLE_C_FN("do_check_agegroup0_overrun_tripwire_buffer");
 
     char* caller = HEAP_STRING_AS_C_STRING(arg);
     //
-    check_agegroup0_overrun_tripwire_buffer( task, caller );
+    check_agegroup0_overrun_tripwire_buffer( task, caller );			// check_agegroup0_overrun_tripwire_buffer	def in   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -514,6 +514,28 @@ static Val   do_dump_gen0s   (Task* task,  Val arg)   {
     char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
     //
     dump_gen0s( task, caller );								// dump_gen0s			is from   src/c/heapcleaner/heap-debug-stuff.c
+    //
+    return HEAP_VOID;
+}
+
+
+
+//
+static Val   do_dump_gen0_tripwire_buffers   (Task* task,  Val arg)   {
+    //       =============================
+    //
+    // Mythryl type:  String -> Void
+    //
+    // This fn gets bound as   dump_gen0_tripwire_buffers   in:
+    //
+    //     src/lib/std/src/nj/heap-debug.pkg
+    //
+
+									    ENTER_MYTHRYL_CALLABLE_C_FN("do_dump_gen0_tripwire_buffers");
+
+    char* caller = HEAP_STRING_AS_C_STRING(arg);					// Name of calling fn; used only for human diagnostic purposes.
+    //
+    dump_gen0_tripwire_buffers( task, caller );						// dump_gen0_tripwire_buffers	is from   src/c/heapcleaner/heap-debug-stuff.c
     //
     return HEAP_VOID;
 }
@@ -1058,6 +1080,7 @@ static Mythryl_Name_With_C_Function CFunTable[] = {
     {"dump_all_but_hugechunks_contents",		"dump_all_but_huge",					do_dump_all_but_hugechunks_contents,				"String -> Void"},
     {"dump_gen0",					"dump_gen0",						do_dump_gen0,							"String -> Void"},
     {"dump_gen0s",					"dump_gen0s",						do_dump_gen0s,							"String -> Void"},
+    {"dump_gen0_tripwire_buffers",			"dump_gen0_tripwire_buffers",				do_dump_gen0_tripwire_buffers,					"String -> Void"},
     {"dump_gens",					"dump_gens",						do_dump_gens,							"String -> Void"},
     {"dump_hugechunks_contents",			"dump_hugechunks_contents",				do_dump_hugechunks_contents,					"String -> Void"},
     {"dump_hugechunks_summary",				"dump_hugechunk_stuff",					do_dump_hugechunks_summary,					"String -> Void"},
