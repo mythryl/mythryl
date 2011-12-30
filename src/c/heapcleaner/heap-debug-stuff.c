@@ -726,7 +726,7 @@ void   dump_ramlog   (Task* task, char* caller) {
         do {
 	    Ramlog_Entry* r =  &ramlog_circular_queue[ e ];	
 
-	    fprintf(fd,"%2d  %s\n", r->id, r->fn_name);
+	    fprintf(fd,"%4d: %2d  %s\n", i, r->id, r->fn_name);
 
 	    e = ramlog_next( e );
 	    ++i;

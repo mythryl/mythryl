@@ -537,7 +537,7 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     // For background comments see Note[1]
 
 
-#define ENTER_MYTHRYL_CALLABLE_C_FN(msg)
+#define ENTER_MYTHRYL_CALLABLE_C_FN(fn_name)    do { note_fncall_in_ramlog(task, fn_name); } while(0)	// Useful for debugging heap corruption.  Should be #define'd to the empty string in production code.
     //
     // This macro is intended to provide a hook to track calls from
     // Mythryl code into the C level.  The immediate motivation is
@@ -805,17 +805,17 @@ extern char*    pth__barrier_destroy(Task* task, Val arg, Barrier* barrierp);		/
 // strings, rather than arbitrary strings created per-log-entry
 // as in the main error-reporting.c logic.
 
-#define LOG2_RAMLOG_ENTRIES	10				// 10==1024 Ramlog entries.
-#define RAMLOG_ENTRIES		(1 << LOG2_RAMLOG_ENTRIES)	// This keeps things a power of two, so that we can
-#define RAMLOG_MASK		(RAMLOG_ENTRIES-1)		// construct a mask to implement fast queue wrap-around.
+#define LOG2_RAMLOG_ENTRIES	10							// 10==1024 Ramlog entries.
+#define RAMLOG_ENTRIES		(1 << LOG2_RAMLOG_ENTRIES)				// This keeps things a power of two, so that we can
+#define RAMLOG_MASK		(RAMLOG_ENTRIES-1)					// construct a mask to implement fast queue wrap-around.
 
 typedef struct {
-    int   id;							// task->pthread->id which made the ramlog entry.
+    int   id;										// task->pthread->id which made the ramlog entry.
     char* fn_name;
 } Ramlog_Entry;
 
-extern Ramlog_Entry ramlog_circular_queue[ RAMLOG_ENTRIES ];	// This holds the last thousand or so ramlog entries made.
-extern int          ramlog_next_entry_to_write;			// This points to next index to write in ramlog_circular_queue[].
+extern Ramlog_Entry ramlog_circular_queue[ RAMLOG_ENTRIES ];				// This holds the last thousand or so ramlog entries made.
+extern int          ramlog_next_entry_to_write;						// This points to next index to write in ramlog_circular_queue[].
     //
     // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
 
@@ -825,12 +825,11 @@ inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
 inline int   note_fncall_in_ramlog   (Task* task, char* fn_name) {
     //       =====================
     //
-    Ramlog_Entry* r =  &ramlog_circular_queue[  ramlog_next_entry_to_write  ];
-
-    ramlog_next_entry_to_write
-	=
-	ramlog_next(  ramlog_next_entry_to_write  );
-
+    int e = ramlog_next_entry_to_write;
+    ramlog_next_entry_to_write =   ramlog_next( e );					// No pthread mutual exclusion here; I'm not too worried about very occasionally losing a ramlog entry.
+    //
+    Ramlog_Entry* r =  &ramlog_circular_queue[  e ];
+    //
     r->fn_name = fn_name;
     r->id      = task->pthread->id;
 }
