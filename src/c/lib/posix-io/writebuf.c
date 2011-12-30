@@ -41,6 +41,8 @@ Val   _lib7_P_IO_writebuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_writebuf");
+
     int		fd         = GET_TUPLE_SLOT_AS_INT(                                 arg, 0);
     Val		start      = GET_TUPLE_SLOT_AS_VAL(                                 arg, 1);
     size_t	nbytes     = GET_TUPLE_SLOT_AS_INT(                                 arg, 2);

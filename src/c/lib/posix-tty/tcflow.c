@@ -44,6 +44,8 @@ Val   _lib7_P_TTY_tcflow   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-tty.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_TTY_tcflow");
+
     int fd     =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int action =  GET_TUPLE_SLOT_AS_INT(arg, 1);
 

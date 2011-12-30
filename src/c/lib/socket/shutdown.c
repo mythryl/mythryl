@@ -31,6 +31,8 @@ Val   _lib7_Sock_shutdown   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_shutdown");
+
     int socket =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int how    =  GET_TUPLE_SLOT_AS_INT( arg, 1 );						// RAISE_SYSERR	def in   src/c/lib/lib7-c.h
 												// shutdown is documented by	man 2 shutdown

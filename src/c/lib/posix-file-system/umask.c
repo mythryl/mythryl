@@ -42,6 +42,8 @@ Val   _lib7_P_FileSys_umask   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_umask");
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_umask", arg );
 	//
 	mode_t omask = umask(WORD_LIB7toC(arg));

@@ -46,6 +46,8 @@ Val   _lib7_netdb_get_host_name  (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/dns-host-lookup.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_host_name");
+
     char hostname[ MAXHOSTNAMELEN ];
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "", arg );

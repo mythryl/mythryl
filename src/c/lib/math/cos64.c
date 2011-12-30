@@ -13,6 +13,8 @@
 Val   _lib7_Math_cos64   (Task* task,  Val arg)   {
     //================
     //
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Math_cos64");
+
     double d =  *(PTR_CAST(double*, arg));
     //
     Val result;

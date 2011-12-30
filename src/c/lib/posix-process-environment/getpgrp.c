@@ -24,7 +24,7 @@
 
 
 Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
-    //========================
+    //=======================
     //
     // Mythryl type:   Void -> Int
     //
@@ -33,6 +33,8 @@ Val   _lib7_P_ProcEnv_getpgrp   (Task* task,  Val arg)   {
     // This fn gets bound as   get_process_group   in:
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getpgrp");
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getpgrp", arg );
 	//

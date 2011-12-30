@@ -40,6 +40,8 @@ Val   _lib7_P_IO_readbuf   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_readbuf");
+
     int	  fd     =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
 //  Val	  buf    =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );	// We'll do this after the read().
     int	  nbytes =  GET_TUPLE_SLOT_AS_INT( arg, 2 );

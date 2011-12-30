@@ -47,6 +47,8 @@ Val   _lib7_Sock_unix_domain_socket_address_to_string   (Task* task,  Val arg)  
     //
     //     src/lib/std/src/socket/unix-domain-socket.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_unix_domain_socket_address_to_string");
+
     struct sockaddr_un*  addr
 	=
 	GET_VECTOR_DATACHUNK_AS( struct sockaddr_un*, arg );

@@ -30,6 +30,8 @@ Val   _lib7_Date_greanwich_mean_time   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_greanwich_mean_time");
+
     time_t t =  (time_t) INT1_LIB7toC(arg);
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Date_greanwich_mean_time", arg );

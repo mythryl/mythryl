@@ -26,6 +26,9 @@ void   raise_mythryl_exception   (Task* task,  Val exn)   {
     // Modify the Task so that the given exception
     // will be raised when Mythryl is resumed.
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("raise_mythryl_exception");
+
     Val	fate =  task->exception_fate;
 
     // We should have a macro defined in runtime-base.h for this.  XXX BUGGO FIXME

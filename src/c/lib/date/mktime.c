@@ -29,6 +29,8 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_make_time");
+
     struct tm	tm;
     time_t	t;
 

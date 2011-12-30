@@ -65,6 +65,8 @@ static Val   set_time_profiling_rw_vector   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-profiling-control.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("set_time_profiling_rw_vector");
+
 #ifdef OPSYS_UNIX
 
     Bool  enabled =   (time_profiling_rw_vector__global != HEAP_VOID);
@@ -121,6 +123,7 @@ static Val   set__time_profiling_is_running__to   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-profiling-control.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("set__time_profiling_is_running__to");
 
     #ifndef HAS_SETITIMER
 	//
@@ -186,6 +189,9 @@ static Val   get_sigvtalrm_interval_in_microseconds   (Task* task,  Val arg)   {
     //
     //     src/lib/compiler/debugging-and-profiling/profiling/write-time-profiling-report.pkg	
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("get_sigvtalrm_interval_in_microseconds");
+
     return TAGGED_INT_FROM_C_INT( MICROSECONDS_PER_SIGVTALRM );			// From   src/c/h/profiler-call-counts.h
 }
 

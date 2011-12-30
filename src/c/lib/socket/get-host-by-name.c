@@ -48,6 +48,8 @@ Val   _lib7_netdb_get_host_by_name   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/dns-host-lookup.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_host_by_name");
+
     char* heap_name = HEAP_STRING_AS_C_STRING( arg );
 
     struct hostent* result;

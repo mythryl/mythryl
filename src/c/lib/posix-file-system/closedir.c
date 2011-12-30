@@ -42,6 +42,8 @@ Val   _lib7_P_FileSys_closedir   (Task* task,  Val arg) {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_closedir");
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_FileSys_closedir", arg );
 	//
         int status = closedir(PTR_CAST(DIR*, arg));				// Note that closedir() arg here does not actually reference Mythryl heap (forbidden) -- check code in src/c/lib/posix-file-system/opendir.c

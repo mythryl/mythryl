@@ -60,6 +60,7 @@ Val   _lib7_P_Process_sleep   (Task* task,  Val arg)   {
     //
     // NB: select() allows sleeping to sub-second resolution.
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_sleep");
 
     int seconds = TAGGED_INT_TO_C_INT( arg );
 

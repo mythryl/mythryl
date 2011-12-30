@@ -42,6 +42,8 @@ Val   _lib7_P_FileSys_fchown   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fchown");
+
     int	    fd =  GET_TUPLE_SLOT_AS_INT (arg, 0);
     uid_t  uid =  TUPLE_GETWORD(arg, 1);
     gid_t  gid =  TUPLE_GETWORD(arg, 2);

@@ -38,6 +38,8 @@ Val   _lib7_P_IO_close   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_close");
+
     int  status;
 
     int  fd = TAGGED_INT_TO_C_INT(arg);

@@ -29,13 +29,15 @@
 
 
 Val   get_or_set_socket_keepalive_option   (Task* task,  Val arg)   {
-    //=======================
+    //==================================
     //
     // Mythryl type:  (Socket_Fd, Null_Or(Bool)) -> Bool
     //
     // This function gets bound as   ctl_keepalive   in:
     //
     //     src/lib/std/src/socket/socket-guts.pkg
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("get_or_set_socket_keepalive_option");
 
     return  get_or_set_boolean_socket_option( task, arg, SO_KEEPALIVE );			// get_or_set_boolean_socket_option		def in    src/c/lib/socket/get-or-set-boolean-socket-option.c
 	//

@@ -36,6 +36,8 @@ Val   _lib7_P_ProcEnv_setpgid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setpgid");
+
     int pid  =  GET_TUPLE_SLOT_AS_INT(arg,0);
     int pgid =  GET_TUPLE_SLOT_AS_INT(arg,1);
 

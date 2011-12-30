@@ -44,6 +44,8 @@ Val   _lib7_OS_tmpname   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix/winix-file.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_OS_tmpname");
+
     static int call_number = 0;
     static int pid         = 0;
 

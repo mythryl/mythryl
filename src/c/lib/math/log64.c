@@ -13,6 +13,9 @@
 Val   _lib7_Math_log64   (Task* task,   Val arg)   {
     //================
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Math_log64");
+
     double d =  *(PTR_CAST(double*, arg));
 
     Val result;

@@ -46,6 +46,9 @@ Val   _lib7_win32_FS_find_next_file   (Task* task,  Val arg)   {
     //
     // Mythryl type:   Unt1 -> Null_Or(String)
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_win32_FS_find_next_file");
+
     HANDLE h = (HANDLE) WORD_LIB7toC(arg);
     //
     return find_next_file(task,h);
@@ -57,6 +60,8 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
     //==============================
     //
     // Mythryl type:   String ->  (Unt1, Null_Or(String))
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_win32_FS_find_first_file");
 
     HANDLE h = FindFirstFile(HEAP_STRING_AS_C_STRING(arg),&wfd);
     Val fname_opt, fname, w, res;

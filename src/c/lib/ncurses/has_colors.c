@@ -17,6 +17,9 @@
 Val   _lib7_Ncurses_has_colors   (Task* task,  Val arg)   {	// : Void -> Bool
     //========================
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_has_colors");
+
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	return (has_colors()  ? HEAP_TRUE : HEAP_FALSE);
     #else

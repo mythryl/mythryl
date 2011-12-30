@@ -40,7 +40,6 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
     // NOTE: we should probably be passing back the value of h_errno, but this
     // will require an API change at the Lib7 level.  XXX BUGGO FIXME
 
-
     if (hentry == NULL)   return OPTION_NULL;
 
 

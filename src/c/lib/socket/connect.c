@@ -59,6 +59,8 @@ Val   _lib7_Sock_connect   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_connect");
+
     int status;
 
     int	socket = GET_TUPLE_SLOT_AS_INT( arg, 0 );

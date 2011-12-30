@@ -44,6 +44,8 @@ Val   _lib7_netdb_get_service_by_port   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-service-db.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_service_by_port");
+
     Val	ml_protocol = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 
     int port = GET_TUPLE_SLOT_AS_INT(arg, 0);

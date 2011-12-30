@@ -43,6 +43,8 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
     //
     // Check file descriptors for the readiness of I/O operations.
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_IO_select");
+
 #if ((*defined(HAS_SELECT)) && (*defined(HAS_POLL)))
     return RAISE_ERROR (task, "LIB7-io.select unsupported");
 #else

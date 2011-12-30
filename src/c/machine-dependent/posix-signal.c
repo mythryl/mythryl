@@ -268,6 +268,7 @@ static void   c_signal_handler   (
 
 
 void   set_signal_mask   (Task* task, Val arg)   {
+    // ===============
     // 
     // Set the signal mask to the list of signals given by 'arg'.
     // The signal_list has the type
@@ -280,6 +281,9 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("set_signal_mask");
+
     Signal_Set	mask;											// Signal_Set		is from   src/c/h/system-dependent-signal-get-set-etc.h
     int		i;
 
@@ -324,12 +328,15 @@ void   set_signal_mask   (Task* task, Val arg)   {
 
 
 Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/signal/getsigmask.c
+    //=============== 
     // 
     // Return the current signal mask (only those signals supported by Mythryl);
     // like set_signal_mask, the result has the following semantics:
     //	NULL	-- the empty mask
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
 
     Signal_Set	mask;
     Val	name, sig, signal_list, result;

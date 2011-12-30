@@ -31,6 +31,8 @@ Val   _lib7_P_Error_geterror   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-error.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Error_geterror");
+
     return   make_system_constant( task, &errno_table__global, TAGGED_INT_TO_C_INT(arg) );		// make_system_constant		def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 }
 

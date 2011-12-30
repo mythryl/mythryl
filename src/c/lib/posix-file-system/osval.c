@@ -95,6 +95,8 @@ Val   _lib7_P_FileSys_osval   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_osval");
+
     name_val_t* result  =  _lib7_posix_nv_lookup (HEAP_STRING_AS_C_STRING(arg), values, NUMELMS);
 
     if (result)   return TAGGED_INT_FROM_C_INT(result->val);

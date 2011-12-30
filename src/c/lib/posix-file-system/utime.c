@@ -45,6 +45,8 @@ Val   _lib7_P_FileSys_utime   (Task* task,  Val arg)   {
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
     //     src/lib/std/src/posix-1003.1b/posix-file-system-64.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_utime");
+
     int status;
 
     Val	    path    =  GET_TUPLE_SLOT_AS_VAL(     arg, 0);

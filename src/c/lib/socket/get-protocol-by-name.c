@@ -42,6 +42,8 @@ Val   _lib7_netdb_get_protocol_by_name   (Task* task,  Val arg)   {
     // 
     //     src/lib/std/src/socket/net-protocol-db.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_protocol_by_name");
+
     struct protoent*  pentry;
 
     char* heap_name = HEAP_STRING_AS_C_STRING( arg );

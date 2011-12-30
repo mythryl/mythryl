@@ -17,6 +17,9 @@
 Val   _lib7_Ncurses_addch   (Task* task,  Val arg)   {	//  : Void -> Bool
     //===================
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_addch");
+
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	int ch     = INT1_LIB7toC(arg);    
 	int result = addch( ch );

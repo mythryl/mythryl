@@ -61,6 +61,8 @@ void   call_heapcleaner   (Task* task,  int level) {
     // 0, or if agegroup0 full after cleaning, we also clean
     // one or more additional agegroups.  (A minimum of 'level' agegroups are cleaned.)
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner");
+
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS ];									// Registers and globals.
     Val** roots_ptr = roots;
     Heap* heap;
@@ -256,6 +258,8 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     // NOTE: the multicore version of this may be BROKEN, since if a processor calls this
     // but isn't the collecting process, then THE EXTRA ROOTS ARE LOST.  XXX BUGGO FIXME
 														// MAX_EXTRA_HEAPCLEANER_ROOTS	def in   src/c/h/runtime-configuration.h
+    ENTER_MYTHRYL_CALLABLE_C_FN("call_heapcleaner_with_extra_roots");
+
 														// MAX_TOTAL_CLEANING_ROOTS	def in   src/c/h/runtime-configuration.h
     Val*  roots[ MAX_TOTAL_CLEANING_ROOTS + MAX_EXTRA_HEAPCLEANER_ROOTS ];					// registers and globals
     Val** roots_ptr = roots;

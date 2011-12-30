@@ -32,6 +32,8 @@ Val   _lib7_Date_strftime   (Task* task,  Val arg) {
     //
     //     src/lib/std/src/date.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_strftime");
+
     Val	fmt = GET_TUPLE_SLOT_AS_VAL(arg, 0);
     Val	date;
     struct tm	tm;

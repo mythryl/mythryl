@@ -35,6 +35,8 @@ Val   _lib7_P_ProcEnv_setgid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_setgid");
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_setgid", arg );
 	//
 	int status =  setgid( WORD_LIB7toC( arg ));

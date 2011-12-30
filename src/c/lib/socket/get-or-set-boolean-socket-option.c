@@ -39,7 +39,6 @@ Val   get_or_set_boolean_socket_option   (Task* task,  Val arg,  int option)   {
     //
     // This utility routine gets/sets a boolean socket option.
 
-
     int	socket = GET_TUPLE_SLOT_AS_INT(arg, 0);
     Val	ctl    = GET_TUPLE_SLOT_AS_VAL(arg, 1);
 

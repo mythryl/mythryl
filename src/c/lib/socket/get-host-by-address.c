@@ -42,6 +42,8 @@ Val   _lib7_netdb_get_host_by_address   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/dns-host-lookup.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_host_by_address");
+
     ASSERT (sizeof(struct in_addr) == GET_VECTOR_LENGTH(arg));
 
     struct in_addr*  heap_arg =  (struct in_addr*) HEAP_STRING_AS_C_STRING(arg);

@@ -543,7 +543,13 @@ extern void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name       
     // to log them in a leaky circular ram buffer so as to be able
     // to dump the last N after heap corruption is detected, say by
     // check_agegroup0_overrun_tripwire_buffer() in src/c/heapcleaner/heap-debug-stuff.c
-
+    //
+    // The intention is macro be defined at the top of essentially
+    // every function with the argslist (Task* task, Val arg), which
+    // is to say the entrypoint functions from Mythryl to C.
+    //
+    // One minor exception is the do_breakpoint_0 ... do_breakpoint_9
+    // functions; tracking them would not aid debugging.
 
 #if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS \
  || !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS

@@ -17,6 +17,9 @@
 Val   _lib7_Ncurses_noecho   (Task* task,  Val arg)   {		//  : Void -> Void
     //====================
     //
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_noecho");
+
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 	noecho();
 	return HEAP_VOID;

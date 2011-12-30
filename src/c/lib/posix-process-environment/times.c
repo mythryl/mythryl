@@ -35,8 +35,11 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_times");
 
-    Val  v, e, u, s, cu, cs;
+    Val  v, e;
+    Val  u, s;
+    Val  cu, cs;
 
     struct tms   ts;
 

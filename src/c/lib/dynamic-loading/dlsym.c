@@ -26,6 +26,8 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
     //
     // Extract symbol from dynamically loaded library.
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlsym");
+
     Val lib7_handle =  GET_TUPLE_SLOT_AS_VAL (arg, 0);
     char* symname   =  HEAP_STRING_AS_C_STRING (GET_TUPLE_SLOT_AS_VAL (arg, 1));
     void* handle    =  (void*) (WORD_LIB7toC (lib7_handle));

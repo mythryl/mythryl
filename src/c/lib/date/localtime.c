@@ -18,7 +18,7 @@
 
 
 Val   _lib7_Date_local_time   (Task* task,  Val arg) {
-    //====================
+    //=====================
     //
     // Mythryl type:  one_word_int::Int -> (Int, Int, Int, Int, Int, Int, Int, Int, Int)
     //
@@ -29,6 +29,8 @@ Val   _lib7_Date_local_time   (Task* task,  Val arg) {
     // This fn gets bound to   local_time'   in:
     //
     //     src/lib/std/src/date.pkg
+
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Date_local_time");
 
     time_t t =  (time_t)  INT1_LIB7toC( arg );
 

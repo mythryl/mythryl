@@ -43,6 +43,8 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     //
     //     src/lib/std/src/posix-1003.1b/posix-io-64.pkg
     
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_l_64");
+
     int        fd =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int       cmd =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     Val flock_rep =  GET_TUPLE_SLOT_AS_VAL( arg, 2 );

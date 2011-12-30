@@ -35,6 +35,8 @@ Val   _lib7_P_ProcEnv_isatty   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_isatty");
+
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_isatty", arg );
 	//
 	int result = isatty(TAGGED_INT_TO_C_INT(arg));

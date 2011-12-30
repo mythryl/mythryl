@@ -52,6 +52,8 @@ Val   _lib7_netdb_get_network_by_address   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/net-db.pkg
 
+    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_netdb_get_network_by_address");
+
     #if defined(OPSYS_WIN32)
         // XXX BUGGO FIXME:  getnetbyaddr() does not seem to exist under Windows.	  What is the equivalent?
         return RAISE_ERROR(task, "<getnetbyaddr not implemented>");
