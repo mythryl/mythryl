@@ -183,4 +183,28 @@
     // unrelated mutexes in the same cache line can introduce
     // needless contention between cores.
 
+
+
+#ifndef HAVE_LIBDISASM
+#define HAVE_LIBDISASM 1		// Change this to   0   if you do not have libdisasm.
+#endif
+    //
+    // The heap-corruption debugging logic in
+    //
+    //     src/c/heapcleaner/heap-debug-stuff.c
+    //
+    // disassembles compiled x86 code using  libdisasm  from   
+    //
+    //     http://bastard.sourceforge.net/libdisasm.html
+    //
+    // which on Debian (+ Ubuntu etc) is packaged as
+    //
+    //     libdisasm0 libdisasm-dev
+    //
+    // Setting HAVE_LIBDISASM to FALSE is perfectly safe
+    // if your system does not have libdisasm;  it just
+    // means that if Mythryl segfaults and dumps the heap
+    // to disk, the dump will not include disassembly of
+    // the code.
+
 #endif // MYTHRYL_CONFIG_H

@@ -10,7 +10,10 @@
 #include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
+
+#if HAVE_LIBDISASM
 #include <libdis.h>	// x86 disasembler library from Debian packages:  libdisasm0 + libdisasm-dev
+#endif
 
 #if HAVE_SYS_TIME_H
 #  include <sys/time.h>
@@ -739,10 +742,11 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 
 	    hexdump_to_file  (fd, "", chunk, chunk_len);
 
-	    // Disassemble the compiled code using libdisasm.
-	    // For background see:     http://bastard.sourceforge.net/libdisasm.html
-	    // On Linux this packages  libdisasm0 libdisasm-dev
-
+#if HAVE_LIBDISASM
+	    // Disassemble the compiled code using libdisasm. (For altenatives and discussion see Note[1].)
+	    // For background see:        http://bastard.sourceforge.net/libdisasm.html
+	    // Debian packages this as:   libdisasm0 libdisasm-dev
+	    //
 	    {
 
 		#define LINE_SIZE 256
@@ -786,6 +790,9 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 
 		x86_cleanup();
 	    }
+#else
+	    fprintf(fd,"[ Unable to disassemble x86 compiled code because libdisasm not available -- see HAVE_LIBDISASM in src/c/mythryl-config.h ]\n");
+#endif
 	}
     }
 }
@@ -960,6 +967,27 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     }
 #endif
 }
+
+//////////////////////////////////////////////////////////////////////////
+// Note[1]: x86 and AMD64 disassemblers: Problems and alternatives 
+//
+// I picked   libdisasm   on the spur of the moment because it is
+// packaged on Debian and seems to do the job.  -- 2011-12-31 CrT
+//  
+// Hue White reports that it is not available on Fedora. 
+//  
+//     From: LoveLightAwareness <lovelightawareness@gmail.com> 
+//     Subject: Re: [Mythryl] Mythryl now depends upon libdisasm0 + libdisasm-dev 
+//     To: Cynbe ru Taren <cynbe@mythryl.org> 
+//     Date: Thu, 29 Dec 2011 06:39:38 -0800 
+//      
+//     Hi Cynbe, 
+//      
+//     You might also like to consider udis at?http://sourceforge.net/projects/udis86/ 
+//     for both x86 and amd64. 
+//     I am using it in my code (http://code.google.com/p/openvmtil/) and it works 
+//     well. Factor, the language, uses it also and is where i got the idea. 
+ 
 
 
 // Jeff Prothero Copyright (c) 2010-2011,
