@@ -1,7 +1,10 @@
 // error-reporting.c
 //
-// Run-time system error messages.
-
+// Run-time system error messages and logfile management.
+//
+// See also:
+//
+//     RAMLOG stuff in   src/c/h/runtime-base.h
 
 #include "../mythryl-config.h"
 

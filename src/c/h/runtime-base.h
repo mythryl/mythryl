@@ -783,7 +783,54 @@ extern char*    pth__barrier_destroy(Task* task, Val arg, Barrier* barrierp);		/
 
 
 
+//////////////////////////////////////////////////////////////////////////////////////
+//            RAMLOG
+// 
+// Our regular log facility in
+//
+//     src/c/main/error-reporting.c
+//
+// is good for many debug jobs, but some calls are
+// so frequent that logging them would spam the logfile
+// and choke the disk.
+//
+// Our idea here is to handle such cases using a circular
+// in-memory queue that perpetually overwrites old entries
+// with new, allowing us to retrieve (say) the last 1024
+// entries made in case of a segfault or so.  Sort of time
+// travel lite. :-)
+//
+// In keeping with the low-overhead theme, we log only fixed
+// strings, rather than arbitrary strings created per-log-entry
+// as in the main error-reporting.c logic.
 
+#define LOG2_RAMLOG_ENTRIES	10				// 10==1024 Ramlog entries.
+#define RAMLOG_ENTRIES		(1 << LOG2_RAMLOG_ENTRIES)	// This keeps things a power of two, so that we can
+#define RAMLOG_MASK		(RAMLOG_ENTRIES-1)		// construct a mask to implement fast queue wrap-around.
+
+typedef struct {
+    char* fn_name;
+} Ramlog_Entry;
+
+extern Ramlog_Entry ramlog_circular_queue[ RAMLOG_ENTRIES ];	// This holds the last thousand or so ramlog entries made.
+extern int          ramlog_next_entry_to_write;			// This points to next index to write in ramlog_circular_queue[].
+    //
+    // These two get actually defined in src/c/heapcleaner/heap-debug-stuff.c
+
+inline int ramlog_next( int i) { return (i+1) & RAMLOG_MASK; }
+inline int ramlog_prev( int i) { return (i-1) & RAMLOG_MASK; }
+
+inline int   note_fncall_in_ramlog   (char* fn_name) {
+    //       =====================
+    //
+    ramlog_circular_queue[  ramlog_next_entry_to_write  ].fn_name
+	=
+	fn_name;
+
+    ramlog_next_entry_to_write
+	=
+	ramlog_next(  ramlog_next_entry_to_write  );
+}
 
 #endif // _ASM_ 
 

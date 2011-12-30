@@ -732,6 +732,19 @@ void   dump_whatever   (Task* task, char* caller) {
 }
 
 
+//////////////////////////////////////////////////////////////////////////////////////
+//            RAMLOG
+//
+// The bulk of the logic for this facility is in
+//
+//     src/c/h/runtime-base.h
+//        
+// -- see the overview comments there.
+//
+Ramlog_Entry ramlog_circular_queue[  RAMLOG_ENTRIES  ];
+int          ramlog_next_entry_to_write = 0;
+
+
 
 // Jeff Prothero Copyright (c) 2010-2011,
 // released under Gnu Public Licence version 3.
