@@ -24,26 +24,20 @@
 #include "heap.h"
 #include "hexdump-if.h"
 
+
+//////////////////////////////////////////////////////////////////////////////////////
+//            RAMLOG
 //
-void   zero_agegroup0_overrun_tripwire_buffer( Task* task ) {
-    // ==========================================
-    //
-    // To detect allocation buffer overrun, we maintain
-    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
-    // Val_Sized_Ints at the end of each agegroup0 buffer.
-    // Here we zero that out:
-    //
-    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
-    //
-    for (int i = 0;
-             i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
-             i++
-    ){
-	//
-	p[i] = 0;
-    }
-//  log_if("zero_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
-}
+// The bulk of the logic for this facility is in
+//
+//     src/c/h/runtime-base.h
+//        
+// -- see the overview comments there.
+//
+Ramlog_Entry ramlog_circular_queue[  RAMLOG_ENTRIES  ];
+int          ramlog_next_entry_to_write = 0;
+
+
 //
 static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
     //        ======================
@@ -63,38 +57,6 @@ static char*  val_sized_unt_as_ascii(  char* buf,  Val_Sized_Unt u ) {
     *p++ = '\0';
 
     return buf;
-}
-//
-void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
-    // =======================================
-    //
-    // To detect allocation buffer overrun, we maintain
-    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
-    // Val_Sized_Ints at the end of each agegroup0 buffer.
-    // Here we verify that it is all zeros:
-    //
-#ifndef SOON
-    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
-    //
-    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
-	//
-	if (p[i] != 0) {
-	    //
-	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
-	    //
-	    for (int j = 0;
-                     j <= i;
-                     j++
-            ){
-		//
-		char buf[ 132 ];
-		log_if("check_agegroup0_overrun_tripwire_buffer: tripwire_buffer[%3d] x=%08x s='%s'", j, p[j], val_sized_unt_as_ascii(buf, (Val_Sized_Unt)(p[j])));
-	    }
-	    die( "check_agegroup0_overrun_tripwire_buffer:  Overran agegroup0 buffer by %d words -- see logfile for details.", i);
-	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
-	}
-    }
-#endif
 }
 
 //
@@ -953,19 +915,51 @@ void   dump_all_but_hugechunks_contents   (Task* task, char* caller) {
     log_if("dump_all_but_hugechunks_contents: Dump to '%s' now complete.", filename);
 }
 
+//
+void   zero_agegroup0_overrun_tripwire_buffer( Task* task ) {
+    // ==========================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we zero that out:
+    //
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = 0;
+             i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
+             i++
+    ){
+	//
+	p[i] = 0;
+    }
+//  log_if("zero_agegroup0_overrun_tripwire_buffer: Done zeroing %x -> %x", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1));	// Commented out because it spams the logfile with gigabytes of text.
+}
 
-//////////////////////////////////////////////////////////////////////////////////////
-//            RAMLOG
 //
-// The bulk of the logic for this facility is in
-//
-//     src/c/h/runtime-base.h
-//        
-// -- see the overview comments there.
-//
-Ramlog_Entry ramlog_circular_queue[  RAMLOG_ENTRIES  ];
-int          ramlog_next_entry_to_write = 0;
-
+void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
+    // =======================================
+    //
+    // To detect allocation buffer overrun, we maintain
+    // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS
+    // Val_Sized_Ints at the end of each agegroup0 buffer.
+    // Here we verify that it is all zeros:
+    //
+#ifndef SOON
+    Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+    //
+    for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {
+	//
+	if (p[i] != 0) {
+	    //
+	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
+	    dump_all_but_hugechunks_contents( task, caller );
+	    die( "check_agegroup0_overrun_tripwire_buffer:  Overran agegroup0 buffer by %d words so did dump_all_but_hugechunks_contents() -- see logfile for details.", i);
+	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
+	}
+    }
+#endif
+}
 
 
 // Jeff Prothero Copyright (c) 2010-2011,
