@@ -52,7 +52,7 @@ Val   _lib7_Sock_recvbuffrom   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_recvbuffrom");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_recvbuffrom");
 
     char       address_buf[  MAX_SOCK_ADDR_BYTESIZE ];
     socklen_t  address_len = MAX_SOCK_ADDR_BYTESIZE;

@@ -38,7 +38,7 @@ Val   _lib7_P_IO_lseek   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-io.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_lseek");
 
     int       fd =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     off_t offset =  GET_TUPLE_SLOT_AS_INT(arg, 1);

@@ -41,7 +41,7 @@ Val   _lib7_Sock_toinetaddr   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/internet-socket.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_toinetaddr");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_toinetaddr");
 
     Val	      inAddr =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     uint16_t  port   =  GET_TUPLE_SLOT_AS_INT( arg, 1 );	// Port in host byte order.

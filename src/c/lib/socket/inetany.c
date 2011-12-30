@@ -39,7 +39,7 @@ Val   _lib7_Sock_inetany   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/internet-socket.pkg
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_inetany");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_inetany");
 
     struct sockaddr_in	addr;
     memset(            &addr, 0, sizeof(struct sockaddr_in) );

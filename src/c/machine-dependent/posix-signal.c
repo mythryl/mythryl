@@ -282,7 +282,7 @@ void   set_signal_mask   (Task* task, Val arg)   {
     //	THE l	-- the signals in l are the mask
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("set_signal_mask");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("set_signal_mask");
 
     Signal_Set	mask;											// Signal_Set		is from   src/c/h/system-dependent-signal-get-set-etc.h
     int		i;
@@ -336,7 +336,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
     //	THE[]	-- mask all signals
     //	THE l	-- the signals in l are the mask
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
 
     Signal_Set	mask;
     Val	name, sig, signal_list, result;

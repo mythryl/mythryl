@@ -38,7 +38,7 @@ Val   _lib7_P_SysDB_getpwuid   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-etc.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_SysDB_getpwuid");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_SysDB_getpwuid");
 
     struct passwd*  info;
 

@@ -42,7 +42,7 @@ Val   _lib7_P_IO_write   (Task* task,  Val arg)   {
     //
     // but in fact it appears to be nowhere referenced. (!) Should be called or deleted. XXX BUGGO FIXME
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_write");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_write");
 
     int		fd     = GET_TUPLE_SLOT_AS_INT( arg, 0 );
     Val		data   = GET_TUPLE_SLOT_AS_VAL( arg, 1 );

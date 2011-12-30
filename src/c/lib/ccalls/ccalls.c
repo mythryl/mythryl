@@ -967,7 +967,7 @@ int   convert_mythryl_value_to_c   (Task* task,  char** t,  Val_Sized_Unt** p,  
 Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
     //===============================
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_mythryl_value_to_c");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_mythryl_value_to_c");
 
     // This is the Mythryl entry point for 'convert_mythryl_value_to_c'
 
@@ -1265,7 +1265,7 @@ Val   lib7_convert_c_value_to_mythryl   (Task* task,  Val arg) {
     // This gets exported as ccalls::convert_c_value_to_mythryl       in     src/c/lib/ccalls/cfun-list.h
     // This gets bound at the Mythryl level only        in    src/lib/c-glue-old/ccalls.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_c_value_to_mythryl");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_convert_c_value_to_mythryl");
 
     // Make copies of things that cleaning may move:
     //
@@ -1285,7 +1285,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     // We are exported as ccalls::ccall          in   src/c/lib/ccalls/cfun-list.h
     // which is bound at the Mythryl level (only) in   src/lib/c-glue-old/ccalls.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_c_call");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("lib7_c_call");
 
     #if !defined(INDIRECT_CFUNC)
 	Val_Sized_Unt (*f)() = (Val_Sized_Unt (*)())   GET_TUPLE_SLOT_AS_PTR( Val_Sized_Unt*, arg, 0 );

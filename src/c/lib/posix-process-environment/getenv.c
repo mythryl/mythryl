@@ -31,7 +31,7 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-id.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getenv");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_getenv");
 
     char* status;
 

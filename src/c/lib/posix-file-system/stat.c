@@ -115,7 +115,7 @@ Val   _lib7_P_FileSys_stat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_stat");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_stat");
 
     int status;
 
@@ -168,7 +168,7 @@ Val   _lib7_P_FileSys_fstat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fstat");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_fstat");
 
     int status;
 
@@ -206,7 +206,7 @@ Val   _lib7_P_FileSys_lstat   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-file.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_lstat");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_FileSys_lstat");
 
     int status;
 

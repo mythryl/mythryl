@@ -26,7 +26,7 @@ Val   _lib7_U_Dynload_dlclose   (Task* task, Val lib7_handle)   {	// : one_word_
     // Close dynamically loaded library.
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlclose");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlclose");
 
     void* handle = (void*) (WORD_LIB7toC (lib7_handle));
 

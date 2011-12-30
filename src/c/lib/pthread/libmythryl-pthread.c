@@ -156,7 +156,7 @@ struct barrier_struct {
 static Val   get_pthread_id         (Task* task,  Val arg)   {
     //       ==============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("get_pthread_id");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("get_pthread_id");
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -172,7 +172,7 @@ static Val   spawn_pthread   (Task* task,  Val closure)   {			// Apparently neve
     //       =============
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("spawn_pthread");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("spawn_pthread");
 
   #if NEED_PTHREAD_SUPPORT
 	//
@@ -198,7 +198,7 @@ static Val   pthread_exit_fn   (Task* task,  Val arg)   {			// Name issues: The 
     //       ===============
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("pthread_exit_fn");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("pthread_exit_fn");
 
     #if NEED_PTHREAD_SUPPORT
 	pth__pthread_exit(task);  	// Should not return.
@@ -216,7 +216,7 @@ static Val   join_pthread   (Task* task,  Val pthread_to_join)   {		// Name issu
     //       ============							// 'pthread_to_join' is a pthread_table__global[] index returned from a call to   spawn_pthread()   (above).
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("join_pthread");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("join_pthread");
 
     #if NEED_PTHREAD_SUPPORT
     {   char* err = pth__pthread_join( task, pthread_to_join );			// Used to pass TAGGED_INT_TO_C_INT( pthread_to_join ) );
@@ -236,7 +236,7 @@ static Val mutex_make   (Task* task,  Val arg)   {
     //     ==========
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_make");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_make");
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -274,7 +274,7 @@ static Val   mutex_free   (Task* task,  Val arg)   {
     //       ==========
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_free");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_free");
 
     #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
@@ -318,7 +318,7 @@ log_if("mutex_free freeing %x", mutex);
 static Val   mutex_init   (Task* task,  Val arg)   {
     //       ==========
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_init");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_init");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -353,7 +353,7 @@ static Val   mutex_init   (Task* task,  Val arg)   {
 static Val   mutex_destroy   (Task* task,  Val arg)   {
     //       =============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_destroy");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_destroy");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -387,7 +387,7 @@ static Val   mutex_destroy   (Task* task,  Val arg)   {
 static Val   mutex_lock   (Task* task,  Val arg)   {
     //       ==========
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_lock");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_lock");
 
 if (running_script) log_if("mutex_lock: TOP...");
     #if NEED_PTHREAD_SUPPORT
@@ -426,7 +426,7 @@ if (running_script) log_if("mutex_lock: YYY...");
 static Val   mutex_unlock   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_unlock");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_unlock");
 
 if (running_script) log_if("mutex_unlock: AAA...");
     #if NEED_PTHREAD_SUPPORT
@@ -465,7 +465,7 @@ if (running_script) log_if("mutex_unlock: YYY...");
 static Val   mutex_trylock   (Task* task,  Val arg)   {
     //       =============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_trylock");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("mutex_trylock");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -508,7 +508,7 @@ log_if("src/c/lib/pthread/libmythryl-pthread.c: mutex_trylock/DDD");
 static Val   barrier_make   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_make");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_make");
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -540,7 +540,7 @@ log_if("barrier_make malloc()'d barrier %x", barrier);
 static Val   barrier_free   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_free");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_free");
 
    #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
@@ -585,7 +585,7 @@ static Val   barrier_init   (Task* task,  Val arg)   {
     //       ============
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_init");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_init");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -623,7 +623,7 @@ static Val   barrier_init   (Task* task,  Val arg)   {
 static Val   barrier_destroy   (Task* task,  Val arg)   {
     //       ===============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_destroy");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_destroy");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -658,7 +658,7 @@ static Val   barrier_destroy   (Task* task,  Val arg)   {
 static Val   barrier_wait   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_wait");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("barrier_wait");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -696,7 +696,7 @@ static Val   barrier_wait   (Task* task,  Val arg)   {
 static Val   condvar_make   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_make");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_make");
 
     #if NEED_PTHREAD_SUPPORT
 	//
@@ -728,7 +728,7 @@ log_if("condvar_make: malloc()d condvar %x", condvar);
 static Val   condvar_free   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_free");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_free");
 
     #if NEED_PTHREAD_SUPPORT
 	// 'arg' should be something returned by barrier_make() above,
@@ -772,7 +772,7 @@ log_if("condvar_free: free()d condvar %x", condvar);
 static Val   condvar_init   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_init");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_init");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -807,7 +807,7 @@ static Val   condvar_init   (Task* task,  Val arg)   {
 static Val   condvar_destroy   (Task* task,  Val arg)   {
     //       ===============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_destroy");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_destroy");
 
     #if NEED_PTHREAD_SUPPORT
 
@@ -842,7 +842,7 @@ static Val   condvar_destroy   (Task* task,  Val arg)   {
 static Val   condvar_wait   (Task* task,  Val arg)   {
     //       ============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_wait");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_wait");
 
 if (running_script) log_if("condvar_wait: TOP...");
     #if NEED_PTHREAD_SUPPORT
@@ -892,7 +892,7 @@ if (running_script) log_if("condvar_wait: BBB...");
 static Val   condvar_signal   (Task* task,  Val arg)   {
     //       ==============
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_signal");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_signal");
 
 if (running_script) log_if("condvar_signal: TOP...");
     #if NEED_PTHREAD_SUPPORT
@@ -928,7 +928,7 @@ if (running_script) log_if("condvar_signal: TOP...");
 static Val   condvar_broadcast   (Task* task,  Val arg)   {
     //       =================
     //
-    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_broadcast");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("condvar_broadcast");
 
 if (running_script) log_if("condvar_broadcast: TOP...");
     #if NEED_PTHREAD_SUPPORT

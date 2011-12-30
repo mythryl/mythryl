@@ -65,7 +65,7 @@ Val   _lib7_P_Process_kill   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_kill");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_kill");
 
     int pid =  GET_TUPLE_SLOT_AS_INT(arg, 0);
     int sig =  GET_TUPLE_SLOT_AS_INT(arg, 1);

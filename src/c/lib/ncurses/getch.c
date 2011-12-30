@@ -18,7 +18,7 @@ Val   _lib7_Ncurses_getch   (Task* task,  Val arg)   {	// : Void -> Char
     //===================
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_getch");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Ncurses_getch");
 
     #if HAVE_CURSES_H && HAVE_LIBNCURSES
 

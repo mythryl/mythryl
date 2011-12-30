@@ -157,7 +157,7 @@ Val   _lib7_Sock_socket   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/plain-socket.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_socket");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_socket");
 
     int domain   =  GET_TUPLE_SLOT_AS_INT( arg, 0 );
     int type     =  GET_TUPLE_SLOT_AS_INT( arg, 1 );

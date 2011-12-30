@@ -33,7 +33,7 @@ Val   _lib7_Sig_setsigstate   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/nj/runtime-signals-guts.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sig_setsigstate");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sig_setsigstate");
 
     Val	sig = GET_TUPLE_SLOT_AS_VAL(arg, 0);
 

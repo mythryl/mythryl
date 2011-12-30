@@ -33,7 +33,7 @@ Val   _lib7_Sock_to_log   (Task* task,  Val arg)   {
     //
     //     src/c/main/error-reporting.c
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_to_log");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_to_log");
 
     char* string = HEAP_STRING_AS_C_STRING( arg );
 

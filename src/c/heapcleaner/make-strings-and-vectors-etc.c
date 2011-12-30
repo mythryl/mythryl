@@ -86,7 +86,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
     // We assume that the string is small and can be allocated in
     // the agegroup0 buffer.        XXX BUGGO FIXME
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_string_from_c_string");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_string_from_c_string");
 
 
     int len =   v == NULL  ?  0
@@ -121,7 +121,7 @@ Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   
     // NOTE: we should do something about possible GC!!! XXX BUGGO FIXME**/
 
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_ascii_strings_from_vector_of_c_strings");
 
     int		i;
     Val	p, s;
@@ -146,7 +146,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
     // This string is guaranteed to be padded to word size with 0 bytes,
     // and to be 0 terminated.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_ascii_string");
 
     int		nwords = BYTES_TO_WORDS(len+1);
 
@@ -171,7 +171,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
     // Allocate an uninitialized vector of 32-bit slots.
 
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_int1_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_int1_vector");
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
@@ -226,7 +226,7 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
     // This is used by the input routines that must pessimistically
     // pre-allocate space for more input than actually gets read.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_int1_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("shrink_fresh_int1_vector");
 
     int old_length_in_words = CHUNK_LENGTH(v);
 
@@ -256,7 +256,7 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
 Val   allocate_int2_vector   (Task* task,  int nelems)   {
     //==================== 
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_int2_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_int2_vector");
 
     int	nwords = DOUBLES_TO_WORDS(nelems);
     Val	tagword   = MAKE_TAGWORD(nwords, EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
@@ -335,7 +335,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
     // Allocate an uninitialized Mythryl code chunk.
     // Assume that len > 1.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_code_chunk");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_code_chunk");
 
     Heap*  heap = task->heap;
 
@@ -367,7 +367,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
     // 
     // Allocate an uninitialized Lib7 bytearray.  Assume that len > 0.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_one_byte_unts");
 
     int		nwords = BYTES_TO_WORDS(len);
 
@@ -390,7 +390,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
     // 
     // Allocate an uninitialized Mythryl Float64 vector.  Assume that len > 0.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_vector_of_eight_byte_floats");
 
     Val result =  allocate_int2_vector( task, len );
 
@@ -407,7 +407,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     // as the initial value for vector slots.
     // Assume that len > 0.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_rw_vector");
 
     Val	result;
 
@@ -496,7 +496,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
     // Assume that len > 0.
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_nonempty_ro_vector");
 
     Val	tagword = MAKE_TAGWORD(len, RO_VECTOR_DATA_BTAG);
     Val* p;
@@ -587,7 +587,7 @@ Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int i
     // If the constant is not present then
     // return the pair (~1, "<UNKNOWN>").
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_system_constant");
 
     Val	name;
     Val result;
@@ -614,7 +614,7 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
     // Generate a list of system constants from the given table.
     // We get called to list tables of signals, errors etc.
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("dump_table_as_system_constants_list");
 
 
     // Should check for available heap space !!! XXX BUGGO FIXME
@@ -650,7 +650,7 @@ Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)  
     //
     // Allocate a 64-bit aligned raw data chunk and initialize it to the given C data:
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("make_int2_vector_sized_in_bytes");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("make_int2_vector_sized_in_bytes");
 
     if (nbytes == 0) {
 

@@ -124,7 +124,7 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/time-guts.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Time_timeofday");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Time_timeofday");
 
     int	c_microseconds;
     Val	lib7_seconds;

@@ -39,7 +39,7 @@ Val   _lib7_Sock_listaddrfamilies   (Task* task,  Val arg)   {
     //     src/lib/std/src/socket/socket-guts.pkg
     //
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_listaddrfamilies");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_listaddrfamilies");
 
     return dump_table_as_system_constants_list (task, &_Sock_AddrFamily);
 }

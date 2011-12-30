@@ -30,7 +30,7 @@ Val   _lib7_Sock_getERROR   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/socket/socket-guts.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getERROR");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_Sock_getERROR");
 
     int	socket =  TAGGED_INT_TO_C_INT( arg );
 

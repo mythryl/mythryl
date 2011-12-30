@@ -34,7 +34,7 @@ Val   _lib7_P_Process_exece   (Task* task,  Val arg)   {
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
 
-    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_exece");
+									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_exece");
 
     Val  path   =  GET_TUPLE_SLOT_AS_VAL( arg, 0 );
     Val  arglst =  GET_TUPLE_SLOT_AS_VAL( arg, 1 );
