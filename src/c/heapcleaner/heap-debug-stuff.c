@@ -92,7 +92,7 @@ static FILE*   open_heapdump_logfile   (char* filename_buf, size_t bufsize, char
     int	c_usec = tv.tv_usec;									// Fractional current time to nominal microsecond accuracy, usually actually good to roughly millisecond resolution.
     int ptid   = (int)(pthread_self());
     //
-    snprintf(filename_buf, bufsize, "%sdump-%08x-%08x-%08d.%06d-%d.log", dumptype, pid, ptid, c_sec, c_usec, dump_number++);
+    snprintf(filename_buf, bufsize, "%s-%08x-%08x-%08d.%06d-%d.log", dumptype, pid, ptid, c_sec, c_usec, dump_number++);
 
     FILE* fd = fopen(filename_buf, "w");
     if (!fd) {
