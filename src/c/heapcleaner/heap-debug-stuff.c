@@ -959,9 +959,9 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
 	//
 	if (p[i] != 0) {
 	    //
-	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected at %s", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i, caller);
+	    log_if("check_agegroup0_overrun_tripwire_buffer:  While checking %x -> %x agegroup0 buffer overrun of %d words detected. (%s)", p, p+(AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS-1), i+1, caller);
 	    dump_all_but_hugechunks_contents( task, caller );
-	    die( "check_agegroup0_overrun_tripwire_buffer:  Overran agegroup0 buffer by %d words so did dump_all_but_hugechunks_contents() -- see logfile for details.", i);
+	    die( "check_agegroup0_overrun_tripwire_buffer:  Overran agegroup0 buffer by %d words so did dump_all_but_hugechunks_contents() -- see logfile for details.", i+1);
 	    exit(1);										// die() should never return, so this should never execute. But gcc understands it better.
 	}
     }
