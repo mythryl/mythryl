@@ -11,7 +11,7 @@
 #include <errno.h>
 #include <pthread.h>
 
-#if HAVE_LIBDISASM
+#ifdef HAVE_LIBDIS_H
 #include <libdis.h>	// x86 disasembler library from Debian packages:  libdisasm0 + libdisasm-dev
 #endif
 
@@ -742,7 +742,7 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 
 	    hexdump_to_file  (fd, "", chunk, chunk_len);
 
-#if HAVE_LIBDISASM
+#ifdef HAVE_LIBDIS_H
 	    // Disassemble the compiled code using libdisasm. (For altenatives and discussion see Note[1].)
 	    // For background see:        http://bastard.sourceforge.net/libdisasm.html
 	    // Debian packages this as:   libdisasm0 libdisasm-dev
@@ -791,7 +791,7 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 		x86_cleanup();
 	    }
 #else
-	    fprintf(fd,"[ Unable to disassemble x86 compiled code because libdisasm not available -- see HAVE_LIBDISASM in src/c/mythryl-config.h ]\n");
+	    fprintf(fd,"[ Unable to disassemble x86 compiled code because libdisasm not available -- see HAVE_LIBDIS_H in src/c/config.h ]\n");
 #endif
 	}
     }
