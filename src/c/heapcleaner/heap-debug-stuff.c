@@ -217,11 +217,21 @@ static void   dump_gen0_tripwire_buffers__guts   (FILE* fd, Task* task, char* ca
 
         fprintf(fd,"\n"																);
 	fprintf(fd,"--------------------------------------\n"											);
-	fprintf(fd,"Overrun buffer for pthread %d:\n\n", t );
+	fprintf(fd,"Hexdump of overrun buffer for pthread %d -- should be all zeros:\n\n", t );
 
 	Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
 
 	hexdump_to_file  (fd, "", p, AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS * sizeof(Val_Sized_Int));
+
+	fprintf(fd,"Same buffer listed as hex words:\n\n" );
+
+	Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+	//
+	for (int i = 0;  i < AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;  ++i) {
+	    //
+	    fprintf(fd,"%p: %08x\n", p+i, (unsigned int) p[i]);
+	}
+
     }
 }
 void   dump_gen0_tripwire_buffers   (Task* task, char* caller) {
