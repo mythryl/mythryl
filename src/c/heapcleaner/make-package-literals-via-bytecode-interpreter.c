@@ -130,6 +130,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
     //
     //     src/lib/compiler/execution/main/execute.pkg
 
+								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/AAA" );
 
     int pc = 0;
 
@@ -138,18 +139,18 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
     // Note that the cons cell has already been accounted
     // for in space_available (but not in space_needed).
     //
-    #define GC_CHECK										\
-	do {											\
-	    if (space_needed > space_available							\
-            &&  need_to_call_heapcleaner( task, space_needed + LIST_CONS_CELL_BYTESIZE)		\
-            ){											\
+    #define GC_CHECK											\
+	do {												\
+	    if (space_needed > space_available								\
+            &&  need_to_call_heapcleaner( task, space_needed + LIST_CONS_CELL_BYTESIZE)			\
+            ){												\
 		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);	\
-		space_available = 0;								\
-												\
-	    } else {										\
-												\
-		space_available -= space_needed;						\
-	    }											\
+		space_available = 0;									\
+													\
+	    } else {											\
+													\
+		space_available -= space_needed;							\
+	    }												\
 	} while (0)
 
     #ifdef DEBUG_LITERALS
@@ -464,6 +465,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	        debug_say("[%2d]: RETURN(%#x)\n", pc-5, LIST_HEAD(stk));
 	    #endif
 
+								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/ZZZ" );
 	    return  LIST_HEAD( stk );
 	    break;
 
