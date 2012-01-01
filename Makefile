@@ -295,7 +295,7 @@ summary:
 		src/lib/x-kit/tut/widget/widgets.lib.frozen \
 		src/lib/x-kit/tut/show-graph/show-graph-app.lib.frozen
 
-	@ls -l dump*log
+	@find . -type f -maxdepth 1 -name 'dump*log' -ls
 
 
 
