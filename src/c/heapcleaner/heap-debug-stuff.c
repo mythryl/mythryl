@@ -827,7 +827,7 @@ static void   dump_ramlog__guts   (FILE*fd, Task* task, char* caller) {
     fprintf(fd,  "(most recent first) with task->pthread->id listed at the left:\n\n");
 
     {   int e = ramlog_next_entry_to_write;
-	int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS - 1;
+	int i = RAMLOG_ENTRIES - 1;
         do {
 	    e = ramlog_prev( e );
 
