@@ -987,7 +987,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 // detailed mechanisms and policies:
 //
 //
-//   X  To distinguish pthread modes we introduce a type
+//   o  To distinguish pthread modes we introduce a type
 //
 //         Pthread_Mode = PTHREAD_IS_RUNNING		// Pthread is running Mythryl code -- will respond quickly to 
 //                      | PTHREAD_IS_BLOCKED
@@ -997,7 +997,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      in   src/c/h/runtime-base.h
 //
 //
-//   X  To record our per-thread state we introduce a field
+//   o  To record our per-thread state we introduce a field
 //
 //	    pthread->mode
 //
@@ -1005,7 +1005,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      pthread_state_struct def in   src/c/h/runtime-base.h
 //      
 //
-//   X  To signal RUNNING pthreads to enter HEAPCLEANING
+//   o  To signal RUNNING pthreads to enter HEAPCLEANING
 //      mode we introduce a Heapcleaner_State enum
 //
 //          pth__heapcleaner_state;
@@ -1029,7 +1029,7 @@ void recover_mythryl_heap(  Pthread* pthread,  const char* fn_name  ) {
 //      Heapcleaning cannot begin until this count reaches zero, 
 //
 //
-//   X  We introduce a Mutex
+//   o  We introduce a Mutex
 //
 //          pth__mutex
 //
