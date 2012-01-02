@@ -163,7 +163,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	=
 	GET32(bytecode_vector);   pc += 4;
 
-    Val_Sized_Unt  max_depth							/* This variable is currently unused, so suppress 'unused var' compiler warning: */   __attribute__((unused))
+    Val_Sized_Unt  max_depth						/* This variable is currently unused, so suppress 'unused var' compiler warning: */   		__attribute__((unused))
 	=
 	GET32(bytecode_vector);   pc += 4;
 
@@ -171,7 +171,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	die("bogus literal magic number %#x", magic);
     }
 
-    Val	stk = HEAP_NIL;
+    Val	stack = HEAP_NIL;
 
     int space_available = 0;
 
@@ -185,7 +185,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    //
 	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
 		//
-		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);
+		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stack, NULL);
             }
 	    space_available = 64*ONE_K_BINARY;
 	}
@@ -200,7 +200,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("[%2d]: INT(%d)\n", pc-5, i);
 		#endif
 
-		LIST_CONS(task, stk, TAGGED_INT_FROM_C_INT(i), stk);
+		LIST_CONS(task, stack, TAGGED_INT_FROM_C_INT(i), stack);
 	    }
 	    break;
 
@@ -215,7 +215,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		Val               result;
 		INT1_ALLOC(task, result, i);
 
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 		space_available -= 2*WORD_BYTESIZE;
 	    }
 	    break;
@@ -244,7 +244,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
 		Val result =  LIB7_Alloc(task, n );
 
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 	    }
 	    break;
 
@@ -259,7 +259,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("[%2d]: RAW64[%f] @ %#x\n", pc-5, d, result);
 		#endif
 
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 
 		space_available -= 4*WORD_BYTESIZE;		// Extra 4 bytes for alignment padding.
 	    }
@@ -294,7 +294,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    //
 		    PTR_CAST(double*, result)[j] = get_double(&(bytecode_vector[pc]));	pc += 8;
 		}
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 	    }
 	    break;
 
@@ -311,7 +311,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 			debug_say("\n");
 		    #endif
 
-		    LIST_CONS(task, stk, ZERO_LENGTH_STRING__GLOBAL, stk);
+		    LIST_CONS(task, stack, ZERO_LENGTH_STRING__GLOBAL, stack);
 
 		    break;
 		}
@@ -342,7 +342,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
 		// Push on stack:
 		//
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 	    }
 	    break;
 
@@ -350,7 +350,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    {
 		int n = GET32(bytecode_vector);	pc += 4;
 
-		Val result = stk;
+		Val result = stack;
 
 		for (int j = 0;  j < n;  j++) {
 		    //
@@ -361,7 +361,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("[%2d]: LIT(%d) = %#x\n", pc-5, n, LIST_HEAD(result));
 		#endif
 
-		LIST_CONS(task, stk, LIST_HEAD(result), stk);
+		LIST_CONS(task, stack, LIST_HEAD(result), stack);
 	    }
 	    break;
 
@@ -377,7 +377,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    #ifdef DEBUG_LITERALS
 			debug_say("]\n");
 		    #endif
-		    LIST_CONS(task, stk, ZERO_LENGTH_VECTOR__GLOBAL, stk);
+		    LIST_CONS(task, stack, ZERO_LENGTH_VECTOR__GLOBAL, stack);
 		    break;
 		}
 
@@ -396,9 +396,9 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		//
 		for (int j = n;  j > 0;  j--) {
 		    //
-		    LIB7_AllocWrite(task, j, LIST_HEAD(stk));
+		    LIB7_AllocWrite(task, j, LIST_HEAD(stack));
 
-		    stk = LIST_TAIL(stk);
+		    stack = LIST_TAIL(stack);
 		}
 
 		Val result =  LIB7_Alloc(task, n );
@@ -411,7 +411,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("...] @ %#x\n", result);
 		#endif
 
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 	    }
 	    break;
 
@@ -428,7 +428,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 			debug_say("]\n");
 		    #endif
 
-		    LIST_CONS(task, stk, HEAP_VOID, stk);
+		    LIST_CONS(task, stack, HEAP_VOID, stack);
 		    break;
 
 		} else {
@@ -443,9 +443,9 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		//
 		for (int j = n;  j > 0;  j--) {
 		    //
-		    LIB7_AllocWrite(task, j, LIST_HEAD(stk));
+		    LIB7_AllocWrite(task, j, LIST_HEAD(stack));
 
-		    stk = LIST_TAIL(stk);
+		    stack = LIST_TAIL(stack);
 		}
 
 		Val result = LIB7_Alloc(task, n );
@@ -454,7 +454,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    debug_say("...] @ %#x\n", result);
 		#endif
 
-		LIST_CONS(task, stk, result, stk);
+		LIST_CONS(task, stack, result, stack);
 	    }
 	    break;
 
@@ -462,11 +462,11 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    ASSERT(pc == bytecode_vector_length_in_bytes);
 
 	    #ifdef DEBUG_LITERALS
-	        debug_say("[%2d]: RETURN(%#x)\n", pc-5, LIST_HEAD(stk));
+	        debug_say("[%2d]: RETURN(%#x)\n", pc-5, LIST_HEAD(stack));
 	    #endif
 
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/ZZZ" );
-	    return  LIST_HEAD( stk );
+	    return  LIST_HEAD( stack );
 	    break;
 
 	default:
