@@ -128,7 +128,9 @@ int log_if_fd = 0;	// Zero value means no logging. (We'd never log to stdin anyh
 //    time=1266769503.421967 pid=00000007 tid=00000000 name=none msg=foo.c:  The 23 zots are barred.
 ///
 void   log_if   (const char * fmt, ...) {
-
+    //
+    static int  lines_printed =  0;
+    //
     if (!log_if_fd) {
 	//
         return;
@@ -208,6 +210,13 @@ void   log_if   (const char * fmt, ...) {
 	// null, so strlen(buf) is in fact correct:
 	//
 	write( log_if_fd, buf, strlen(buf) );
+
+	// Leave every fourth line blank for readability:
+	//
+	if ((++lines_printed & 3) == 0) {
+	    //
+	    write( log_if_fd, "\n", 1 );
+	}
     }
 }
 

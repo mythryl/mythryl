@@ -289,8 +289,8 @@ static void   dump_records   (FILE* fd, Val* start, Val* stop) {
 	    case RW_VECTOR_HEADER_BTAG:
 		words_is_bogus = TRUE;				// 'words' field is abused for additional tag info in this case -- length is implicitly fixed at 2 words.
 		switch (words) {
-		case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:		tag = "FLOAT64_RW_VECTOR HEADER";		break;
-		case TYPEAGNOSTIC_VECTOR_CTAG:			tag = "TYPEAGNOSTIC_RW_VECTOR HEADER";		break;
+		case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:			tag = "FLOAT64_RW_VECTOR HEADER";		break;
+		case TYPEAGNOSTIC_VECTOR_CTAG:				tag = "TYPEAGNOSTIC_RW_VECTOR HEADER";		break;
 		case VECTOR_OF_ONE_BYTE_UNTS_CTAG:			tag = "UNT8_RW_VECTOR HEADER";			break;
 		default:	tag_is_bogus = TRUE;			tag = "???_RW_VECTOR HEADER";			break;
 		}
@@ -959,7 +959,7 @@ void   check_agegroup0_overrun_tripwire_buffer   (Task* task, char* caller)   {
     // Val_Sized_Ints at the end of each agegroup0 buffer.
     // Here we verify that it is all zeros:
     //
-#ifndef SOON
+#ifdef SOON
     Val_Sized_Int* p = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
     //
     for (int i = AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS; i --> 0; ) {

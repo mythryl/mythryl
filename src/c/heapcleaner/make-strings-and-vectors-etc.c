@@ -171,11 +171,11 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
     // Allocate an uninitialized vector of 32-bit slots.
 
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_int1_vector");
+										ENTER_MYTHRYL_CALLABLE_C_FN("allocate_nonempty_int1_vector");
 
     Val	tagword = MAKE_TAGWORD(nwords, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);
     Val	result;
-    Val_Sized_Unt	bytesize;
+    Val_Sized_Unt  bytesize;
 
     ASSERT(nwords > 0);
 

@@ -1,6 +1,6 @@
 // runtime-configuration.h
 //
-// Various limits and default settings for the Lib7 run-time system.
+// Various limits and default settings for the Mythryl run-time system.
 
 
 #ifndef RUNTIME_CONFIGURATION_H

@@ -1,5 +1,25 @@
 // make-package-literals-via-bytecode-interpreter.c
 
+//////////////////////////////////////////////////////////////////////////////////////////////
+// APPARENT SEGFAULT BUG -- 2012-01-02 CrT
+//
+// Mythryl segfaults every now and then while "linking" and this module
+// appears to be the reason.  What appears to be happening is that the
+// logic here assumes that
+//    (1) Every heapcleaner call leaves at least 64KB free in gen0.
+//    (2) Strings are never bigger than 64K.
+// From examining the logging currently enabled, it appears that heapcleaning
+// leaves more like 8KB free in gen0, and that some strings are in fact bigger
+// than 64KB.
+// To add flavor to the mix:
+//    *  In src/c/heapcleaner/make-strings-and-vectors-etc.c
+//       we seem to make a point of never allocating more than MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS
+//       words in gen0, but in this file we appear to make no such effort.
+//    *  Doing a two-generation heapcleaning should resolve the problem, but
+//       in fact segfaults us -- search for [XYZZY].
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+
 // Problem
 // =======
 //
@@ -33,10 +53,12 @@
 
 #include "../mythryl-config.h"
 
+#include <string.h>
+
+#include "runtime-configuration.h"
 #include "runtime-base.h"
 #include "make-strings-and-vectors-etc.h"
 #include "heap.h"
-#include <string.h>
 
 // Codes for literal machine instructions (version 1):
 //   INT(i)		0x01 <i>
@@ -130,7 +152,10 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
     //
     //     src/lib/compiler/execution/main/execute.pkg
 
+
+								do_debug_logging =  TRUE;
 								check_agegroup0_overrun_tripwire_buffer( task, "make_package_literals_via_bytecode_interpreter/AAA" );
+
 
     int pc = 0;
 
@@ -144,7 +169,8 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    if (space_needed > space_available								\
             &&  need_to_call_heapcleaner( task, space_needed + LIST_CONS_CELL_BYTESIZE)			\
             ){												\
-		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stk, NULL);	\
+log_if("GC_CHECK calling heapcleaner <---------------------------------");				\
+		call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, NULL);	\
 		space_available = 0;									\
 													\
 	    } else {											\
@@ -175,6 +201,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
     int space_available = 0;
 
+
+Val_Sized_Int* tripwirebuf = (Val_Sized_Int*) (((char*)(task->real_heap_allocation_limit)) + MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER);
+log_if("make_package_literals_via_bytecode_interpreter/AAA -- doing initial heapcleaner call  <===================================================");
+// log_if("make_package_literals_via_bytecode_interpreter/AAA  <===================================================");
+// call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, NULL);    [XYZZY]
+    // Uncommenting this seems to segfault us?!
+
     for (;;) {
 	//
 	ASSERT(pc < bytecode_vector_length_in_bytes);
@@ -185,27 +218,35 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    //
 	    if (need_to_call_heapcleaner(task, 64*ONE_K_BINARY)) {
 		//
-		call_heapcleaner_with_extra_roots (task, 0, (Val *)&bytecode_vector, &stack, NULL);
+log_if("luptop: CALLING HEAPCLEANER <----------------------------------");
+		call_heapcleaner_with_extra_roots (task, 1, (Val *)&bytecode_vector, &stack, NULL);
             }
+log_if("luptop: setting space_available to 64K <----------------------------------");
 	    space_available = 64*ONE_K_BINARY;
 	}
 
 
+log_if("luptop:       task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	switch (bytecode_vector[ pc++ ]) {
 	    //
 	case I_INT:
-	    {	int i = GET32(bytecode_vector);	pc += 4;
+	    {
+log_if("I_INT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+		int i = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
 		    debug_say("[%2d]: INT(%d)\n", pc-5, i);
 		#endif
 
 		LIST_CONS(task, stack, TAGGED_INT_FROM_C_INT(i), stack);
+log_if("I_INT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW32:
 	    {
+log_if("I_RAW32 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int i = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -217,11 +258,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 
 		LIST_CONS(task, stack, result, stack);
 		space_available -= 2*WORD_BYTESIZE;
+log_if("I_RAW32 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW32L:
 	    {
+log_if("I_RAW32L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -245,11 +288,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		Val result =  LIB7_Alloc(task, n );
 
 		LIST_CONS(task, stack, result, stack);
+log_if("I_RAW32L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW64:
 	    {
+log_if("I_RAW64 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		double d = get_double(&(bytecode_vector[pc]));	pc += 8;
 
 		Val	           result;
@@ -262,11 +307,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		LIST_CONS(task, stack, result, stack);
 
 		space_available -= 4*WORD_BYTESIZE;		// Extra 4 bytes for alignment padding.
+log_if("I_RAW64 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW64L:
 	    {
+log_if("I_RAW64L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -295,12 +342,15 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		    PTR_CAST(double*, result)[j] = get_double(&(bytecode_vector[pc]));	pc += 8;
 		}
 		LIST_CONS(task, stack, result, stack);
+log_if("I_RAW64L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_STR:
 	    {
+log_if("I_STR   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);		pc += 4;
+log_if("I_STR   /BBB: bytes x=%x", n);
 
 		#ifdef DEBUG_LITERALS
 		    debug_say("[%2d]: STR(%d) [...]", pc-5, n);
@@ -317,11 +367,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		}
 
 		int j = BYTES_TO_WORDS(n+1);								// '+1' to include space for '\0'.
+log_if("I_STR   /CCC: bytes to words (including terminal nul) x=%x", j);
 
 		// The space request includes space for the data-chunk header word and
 		// the sequence header chunk.
 		//
 		int space_needed = WORD_BYTESIZE*(j+1+3);
+log_if("I_STR   /DDD: space_needed (including header) x=%x", space_needed);
 		GC_CHECK;
 
 		// Allocate the data chunk:
@@ -343,11 +395,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		// Push on stack:
 		//
 		LIST_CONS(task, stack, result, stack);
+log_if("I_STR   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_LIT:
 	    {
+log_if("I_LIT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		Val result = stack;
@@ -362,11 +416,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		#endif
 
 		LIST_CONS(task, stack, LIST_HEAD(result), stack);
+log_if("I_LIT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	  case I_VECTOR:
 	    {
+log_if("I_VECTOR/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -412,11 +468,13 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		#endif
 
 		LIST_CONS(task, stack, result, stack);
+log_if("I_VECTOR/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RECORD:
 	    {
+log_if("I_RECORD/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -455,6 +513,7 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 		#endif
 
 		LIST_CONS(task, stack, result, stack);
+log_if("I_RECORD/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,task->real_heap_allocation_limit-task->heap_allocation_pointer,task->heap->agegroup0_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
@@ -473,6 +532,8 @@ Val   make_package_literals_via_bytecode_interpreter   (Task* task,   Unt8* byte
 	    die ("bogus literal opcode #%x @ %d", bytecode_vector[pc-1], pc-1);
 	}								// switch
     }									// while
+
+																do_debug_logging =  FALSE;
 }									// fun make_package_literals_via_bytecode_interpreter
 
 

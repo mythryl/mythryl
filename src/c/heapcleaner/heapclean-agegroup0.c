@@ -93,38 +93,45 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     Heap*      heap =  task->heap;
     Agegroup*  age1 =  heap->agegroup[0];
 
-    Punt	age1_tospace_top   [ MAX_PLAIN_ILKS ];
+													    Punt  age1_tospace_top   [ MAX_PLAIN_ILKS ];
+														//
+														// Heapcleaner statistics support: We use this to note the
+														// current start-of-freespace in each generation-one sib buffer.
+														// At the bottom of this fn, the difference between this and
+														// the new start-of-freespace gives us the amount of live stuff
+														// we've copied into that sib.  This is pure reportage;
+														// our algorithms do not depend in any way on this information.
 
-    long bytes_allocated = (Punt) task->heap_allocation_pointer
-                         - (Punt) heap->agegroup0_buffer;
+													    long bytes_allocated = (Punt) task->heap_allocation_pointer
+																 - (Punt) heap->agegroup0_buffer;
+													    //	
+													    INCREASE_BIGCOUNTER( &heap->total_bytes_allocated, bytes_allocated );
+														//
+														// More heapcleaner statistics reportage.
 
-    INCREASE_BIGCOUNTER( &heap->total_bytes_allocated, bytes_allocated );
-
-    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
-	//
-	age1_tospace_top[i]
-	    =
-	    (Punt)
-		//
-		age1->sib[ i ]->next_tospace_word_to_allocate;
-    }
+													    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+														//
+														age1_tospace_top[i]
+														    =
+														    (Punt)   age1->sib[ i ]->next_tospace_word_to_allocate;
+													    }
 
 
-    #ifdef VERBOSE
-	debug_say ("Agegroup 1 before cleaning agegroup0:\n");
-	//
-	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
-	    //
-	    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, next_tospace_word_to_allocate = %#x\n",
-		//
-	        sib_name__global[ i+1 ],
-		//
-                age1->sib[ i ]->tospace,
-	        age1->sib[ i ]->end_of_fromspace_oldstuff,
-                age1->sib[ i ]->next_tospace_word_to_allocate
-            );
-	}
-    #endif
+													    #ifdef VERBOSE
+														debug_say ("Agegroup 1 before cleaning agegroup0:\n");
+														//
+														for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+														    //
+														    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, next_tospace_word_to_allocate = %#x\n",
+															//
+															sib_name__global[ i+1 ],
+															//
+															age1->sib[ i ]->tospace,
+															age1->sib[ i ]->end_of_fromspace_oldstuff,
+															age1->sib[ i ]->next_tospace_word_to_allocate
+														    );
+														}
+													    #endif
 
     // Scan the standard roots:
     //
@@ -152,8 +159,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	    }
 	}
     }
-    #else // Same as }else{ clause above:
-	//
+    #else
 	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
     #endif
 
@@ -187,7 +193,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	}
 
 	total_bytes_allocated__global  +=  bytes_allocated;				// Never used otherwise.
-	total_bytes_copied__global     +=  bytes_copied;					// Never used otherwise.
+	total_bytes_copied__global     +=  bytes_copied;				// Never used otherwise.
 
 	#ifdef XXX
 	    debug_say ("Minor GC: %d/%d (%5.2f%%) bytes copied; %d updates\n",
@@ -278,7 +284,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	    if (dst_age == AGEGROUP0) {
 		//
 		*pointer =  forward_agegroup0_chunk_to_agegroup_1( age1, pointee,task, 1);	// Promote pointee to agegroup 1.
-		dst_age = 1;								// Remember pointee now has age 1, not 0.
+		dst_age = 1;									// Remember pointee now has age 1, not 0.
 		//
 	    }
 
