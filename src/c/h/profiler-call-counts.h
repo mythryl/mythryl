@@ -17,10 +17,10 @@ extern Val	time_profiling_rw_vector__global;					// This gets set in   src/c/lib
 //
 //     src/lib/std/src/nj/runtime-profiling-control.pkg
 //
-#define IN_RUNTIME__PROFILE_INDEX		TAGGED_INT_FROM_C_INT(0)		// Must match    in_runtime__profile_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define IN_MINOR_HEAPCLEANER__PROFILE_INDEX	TAGGED_INT_FROM_C_INT(1)		// Must match    in_minor_heapcleaner__profile_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define IN_MAJOR_HEAPCLEANER__PROFILE_INDEX	TAGGED_INT_FROM_C_INT(2)		// Must match    in_major_heapcleaner__profile_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
-#define IN_OTHER_CODE__PROFILE_INDEX		TAGGED_INT_FROM_C_INT(3)		// Must match    in_other_code__profile_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define IN_RUNTIME__CPU_USER_INDEX		TAGGED_INT_FROM_C_INT(0)		// Must match    in_runtime__cpu_user_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define IN_MINOR_HEAPCLEANER__CPU_USER_INDEX	TAGGED_INT_FROM_C_INT(1)		// Must match    in_minor_heapcleaner__cpu_user_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX	TAGGED_INT_FROM_C_INT(2)		// Must match    in_major_heapcleaner__cpu_user_index	from   src/lib/std/src/nj/runtime-profiling-control.pkg
+#define IN_OTHER_CODE__CPU_USER_INDEX		TAGGED_INT_FROM_C_INT(3)		// Must match    in_other_code__cpu_user_index		from   src/lib/std/src/nj/runtime-profiling-control.pkg
 
 #endif // PROFILER_CALL_COUNTS_H
 

@@ -69,7 +69,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner/top" );
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__PROFILE_INDEX );			// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that starting now CPU cycles are charged to the (minor) heapcleaner, not to the runtime or user code.
 														// THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL is #defined      in	src/c/h/runtime-globals.h
 														//  in terms of   this_fn_profiling_hook_refcell__global   from	src/c/main/construct-runtime-package.c
 
@@ -88,7 +88,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__PROFILE_INDEX );				// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -216,7 +216,7 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	*roots_ptr = NULL;
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__PROFILE_INDEX );			// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles are charged to the heapcleaner (multigeneration pass).
 
 	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups			def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
@@ -242,7 +242,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__PROFILE_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles get charged to the runtime, not the heapcleaner.
 }			 											// fun call_heapcleaner
 
 
@@ -269,7 +269,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     check_agegroup0_overrun_tripwire_buffer( task, "call_heapcleaner_with_extra_roots/top" );
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__PROFILE_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MINOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles after this get charged to the heapcleaner (generation0 pass).
 
     #if NEED_PTHREAD_SUPPORT
     {
@@ -288,7 +288,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__PROFILE_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -425,7 +425,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     if (level > 0) {
 	//
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__PROFILE_INDEX );			// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_MAJOR_HEAPCLEANER__CPU_USER_INDEX );			// Remember that CPU cycles are now being charged to the heapcleaner (multigeneration pass).
 
 	heapclean_n_agegroups( task, roots, level );								// heapclean_n_agegroups	def in   src/c/heapcleaner/heapclean-n-agegroups.c
     }
@@ -449,7 +449,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__PROFILE_INDEX );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 }														// fun call_heapcleaner_with_extra_roots
 
 
