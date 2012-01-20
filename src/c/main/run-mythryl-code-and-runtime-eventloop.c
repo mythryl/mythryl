@@ -96,7 +96,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
     Pthread* pthread  =  task->pthread;
 
-    Val	previous_profile_index =  PROF_OTHER;
+    Val	previous_profile_index =  IN_OTHER_CODE_PROFILE_INDEX;
 
     for (;;) {
 
@@ -109,7 +109,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
         //     src/c/main/construct-runtime-package.c
 
 
-	//     PROF_RUNTIME
+	//     IN_RUNTIME_PROFILE_INDEX
 	// is #defined in
 	//     src/c/h/profiler-call-counts.h
 
@@ -147,7 +147,7 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 	previous_profile_index =   DEREF( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL );
 
-	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, PROF_RUNTIME );
+	ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME_PROFILE_INDEX );			// Remember that from here CPU cycles are charged to the runtime.
 
 	if (request == REQUEST_CLEANING) {
 	    //
