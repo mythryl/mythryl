@@ -176,7 +176,7 @@ static void   process_commandline_options   (
         if (script)   running_script = TRUE;
 	//
 	if (running_script) {
-	    if (!log_if_fd)   log_if_fd = open("script.log", O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR );
+	    if (!log_if_fd)   log_if_fd = open("script.log", O_CREAT|O_WRONLY/*|O_TRUNC*/, S_IRUSR|S_IWUSR );
 	}
     }
 
