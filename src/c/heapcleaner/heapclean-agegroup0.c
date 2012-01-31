@@ -539,7 +539,11 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		debug_say (" unboxed\n");
 		#endif
 
-	        // Weak references to unboxed chunks (i.e., immediate 31-bit ints) are never nullified:
+	        // Weak references to unboxed chunks (i.e., immediate Int31)
+		// can never be nullified, since Int31 values, being stored
+		// in-pointer, take no actual heapspace and thus cannot actually
+		// ever get garbage-collected.  Consequently, we can just copy
+		// such weakrefs over and skip the rest of our usual processing:
                 //
 		*new_chunk++ = WEAK_POINTER_TAGWORD;
 		*new_chunk = v;
@@ -549,7 +553,24 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid__global, v );
 		Val*  vp    =  PTR_CAST( Val*, v );
 
-		if (sibid == AGEGROUP0_SIBID) {
+		if (sibid != AGEGROUP0_SIBID) {
+
+		    // Weakref points to a value in an older heap agegroup.
+		    // Since we are only heapcleaning agegroup0 in
+		    // this file, the referenced value cannot get
+		    // garbage-collected this pass, so we can skip
+		    // the usual work to check for that and if necessary
+		    // null out the weakref:
+		    //
+		    #ifdef DEBUG_WEAK_PTRS
+		        debug_say (" old chunk\n");
+		    #endif
+
+		    *new_chunk++ = WEAK_POINTER_TAGWORD;
+		    *new_chunk   = v;
+
+		} else {
+
 		    //
 		    if (vp[-1] == FORWARDED_CHUNK_TAGWORD) {
 		        //
@@ -558,52 +579,47 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			// copy of the chunk (i.e, v) into the to-space copy
 			// of the weak pointer, since the heapcleaner has the invariant
 			// that it never sees to-space pointers during sweeping.
-
-			#ifdef DEBUG_WEAK_PTRS
-			    debug_say (" already forwarded to %#x\n", PTR_CAST( Val, FOLLOW_FWDCHUNK(vp)));
-			#endif
+											#ifdef DEBUG_WEAK_PTRS
+											    debug_say (" already forwarded to %#x\n", PTR_CAST( Val, FOLLOW_FWDCHUNK(vp)));
+											#endif
 
 			*new_chunk++ = WEAK_POINTER_TAGWORD;
 			*new_chunk = v;
 
 		    } else {
 
-			// The forwarded copies of weak chunks are chained
-			// via their tagword fields, with the root pointer kept
+			// This is the important case: We are copying a weakref
+			// of an agegroup0 value.  That agegroup0 value might get
+			// get garbage-collected this pass; if it does, we must null
+			// out the weakref.
+			//
+			// To do this efficiently, as we copy such weakrefs from
+			// agegroup0 into agegroup1 we chain them togther via
+			// their tagword fields with the root pointer kept
                         // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
 			//
-			// This chain is used in null_out_newly_dead_weak_pointers,						// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
-			// (called at the end of each heapcleaning), which nulls
-			// out any newly dead weak pointers and then changes the
-			// weakpointer tagwords to either WEAK_POINTER_TAGWORD
-			// or NULLED_WEAK_POINTER_TAGWORD as appropriate, thus
-			// erasing our weakchunk chain and restoring sanity.
+			// At the end of heapcleaning we will consume this chain of
+			// weakrefs in null_out_newly_dead_weak_pointers() where					// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
+			// we will null out any newly dead weakrefs and then
+			// replace the chainlinks with valid tagwords -- either
+			// WEAK_POINTER_TAGWORD or NULLED_WEAK_POINTER_TAGWORD,
+			// as appropriate, thus erasing our weakref chain and
+			// restoring sanity.
 			//
                         // We mark the chunk reference field in the forwarded copy
 			// to make it look like an Tagged_Int so that the to-space
 			// sweeper does not follow the weak reference.
+											#ifdef DEBUG_WEAK_PTRS
+											    debug_say (" forward\n");
+											#endif
 
-			#ifdef DEBUG_WEAK_PTRS
-			    debug_say (" forward\n");
-			#endif
+			new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning ));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
+			new_chunk[1] =  MARK_POINTER( vp );										// MARK_POINTER		is from   src/c/h/heap-tags.h
 
-			*new_chunk = MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning ));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
-																	// MARK_POINTER		is from   src/c/h/heap-tags.h
 			ag1->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
 
-			*++new_chunk =  MARK_POINTER( vp );
+			++new_chunk;
 		    }
-
-		} else {
-
-		    // Reference to an older chunk.
-		    //
-		    #ifdef DEBUG_WEAK_PTRS
-		        debug_say (" old chunk\n");
-		    #endif
-
-		    *new_chunk++ = WEAK_POINTER_TAGWORD;
-		    *new_chunk   = v;
 		}
 	    }
 	}

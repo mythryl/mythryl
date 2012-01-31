@@ -1577,29 +1577,46 @@ static Val          forward_special_chunk   (
 			    // of the weak pointer, since the heapcleaner has the invariant
 			    // that it never sees to-space pointers during sweeping.
 
-			    #ifdef DEBUG_WEAK_PTRS
-				debug_say (" already forwarded to %#x\n", FOLLOW_FWDCHUNK(vp));
-			    #endif
+											    #ifdef DEBUG_WEAK_PTRS
+												debug_say (" already forwarded to %#x\n", FOLLOW_FWDCHUNK(vp));
+											    #endif
 			    *new_chunk++ = WEAK_POINTER_TAGWORD;
 			    *new_chunk = v;
 
 			} else {
 
-			    // The forwarded version of weak chunks are threaded
-			    // via their tagword fields.  We mark the chunk
-			    // reference field to make it look like an unboxed value,
-			    // so that the to-space sweeper does not follow the weak
-			    // reference.
+			    // This is the important case: We are copying a weakref
+			    // of an agegroup0 value.  That agegroup0 value might get
+			    // get garbage-collected this pass; if it does, we must null
+			    // out the weakref.
+			    //
+			    // To do this efficiently, as we copy such weakrefs from
+			    // agegroup0 into agegroup1 we chain them togther via
+			    // their tagword fields with the root pointer kept
+			    // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
+			    //
+			    // At the end of heapcleaning we will consume this chain of
+			    // weakrefs in null_out_newly_dead_weak_pointers() where					// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
+			    // we will null out any newly dead weakrefs and then
+			    // replace the chainlinks with valid tagwords -- either
+			    // WEAK_POINTER_TAGWORD or NULLED_WEAK_POINTER_TAGWORD,
+			    // as appropriate, thus erasing our weakref chain and
+			    // restoring sanity.
+			    //
+			    // We mark the chunk reference field in the forwarded copy
+			    // to make it look like an Tagged_Int so that the to-space
+			    // sweeper does not follow the weak reference.
 
-			    #ifdef DEBUG_WEAK_PTRS
-			        debug_say (" forward (start = %#x)\n", vp);
-			    #endif
+											    #ifdef DEBUG_WEAK_PTRS
+												debug_say (" forward (start = %#x)\n", vp);
+											    #endif
 
-			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[1] =  MARK_POINTER(vp);
 
 			    ag->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
 
-			    *++new_chunk = MARK_POINTER(vp);
+			    ++new_chunk;
 			}
 			break;
 
