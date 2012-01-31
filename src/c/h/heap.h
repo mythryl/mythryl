@@ -78,7 +78,7 @@ struct heap {
     Hugechunk_Region*   hugechunk_ramregions;					// List of hugechunk regions.
     Hugechunk*		hugechunk_freelist;					// Freelist header for hugechunks.
 
-    Val*  weak_pointers_forwarded_during_cleaning;				// List of weak pointers forwarded during cleaning.
+    Val*  weak_pointers_forwarded_during_heapcleaning;				// List of weak pointers forwarded during heapcleaning.
 
     //
     Bigcounter   total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.

@@ -388,7 +388,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     //   o Duplicating v in the appropriate agegroup 1 to-space buffer.
     //   o Setting v's tagword to FORWARDED_CHUNK_TAGWORD.
     //   o Setting v's first slot to point to the duplicate.
-    //   o Returning the duplicate.
+    //   o Returning a pointer to the duplicate.
 
     Val*           new_chunk;
     Val_Sized_Unt  len_in_words;
@@ -408,20 +408,20 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	    sib = ag1->sib[RECORD_SIB];
 	#else
 	    if (len_in_words != 2) {
-		sib = ag1->sib[ RECORD_SIB ];
+		sib = ag1->sib[ RECORD_SIB ];					// This v is not a pair, so fall through to default code.
 	    } else {
-		//
-		sib = ag1->sib[ PAIR_SIB ];
-		new_chunk = sib->next_tospace_word_to_allocate;
-		sib->next_tospace_word_to_allocate += 2;
-		new_chunk[0] = chunk[0];
-		new_chunk[1] = chunk[1];
-
+		//								// This v is a pair, so we'll use special-case code.
+		sib = ag1->sib[ PAIR_SIB ];					// We'll copy it into the dedicated pairs-only sib in agegroup1.
+		new_chunk = sib->next_tospace_word_to_allocate;			// Where to copy it in that sib.
+		sib->next_tospace_word_to_allocate += 2;			// Allocate the space for it.
+		new_chunk[0] = chunk[0];					// Copy first  word of pair.
+		new_chunk[1] = chunk[1];					// Copy second word of pair.
+										// Notice that we don't need to copy the tagword -- it is implicit in the fact that we're in the pairsib.
 		// Set up the forward pointer in the old pair:
 		//
 		chunk[-1] = FORWARDED_CHUNK_TAGWORD;
 		chunk[0] = (Val)(Punt)new_chunk;
-		return PTR_CAST( Val, new_chunk );
+		return PTR_CAST( Val, new_chunk );				// Done!
 	    }
         #endif
 	break;
@@ -433,15 +433,15 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	len_in_words =  2;
 	//
 	sib = ag1->sib[ RECORD_SIB ];
-	break;
+	break;									// Fall through to generic-case code.
 
 
     case RW_VECTOR_DATA_BTAG:
 	//
 	len_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ VECTOR_SIB ];
-	break;
+	sib = ag1->sib[ VECTOR_SIB ];						// The VECTOR_SIB allows updates, which the RECORD_SIB does not.
+	break;									// Fall through to generic-case code.
 
 
     case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
@@ -449,7 +449,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	len_in_words = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
 	sib = ag1->sib[ STRING_SIB ];
-	break;
+	break;									// Fall through to generic-case code.
 
 
     case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
@@ -468,7 +468,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 		sib->next_tospace_word_to_allocate = (Val*) (((Punt)sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
 	#  endif
 	#endif
-	break;
+	break;									// Fall through to generic-case code.
 
     case WEAK_POINTER_OR_SUSPENSION_BTAG:
 	//
@@ -476,7 +476,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 
     case FORWARDED_CHUNK_BTAG:
 	//
-	return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
+	return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));				// We've already copied this one to agegroup1, so just return pointer to copy.
 
     default:
 	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
@@ -509,8 +509,8 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
     // 
     // Forward a special chunk (suspension or weak pointer).
 
-    Sib*  sib =  ag1->sib[ VECTOR_SIB ];
-
+    Sib*  sib =  ag1->sib[ VECTOR_SIB ];						// Special chunks can be updated (modified)
+											// so they have to go in VECTOR_SIB.
     Val*  new_chunk = sib->next_tospace_word_to_allocate;
 
     sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
@@ -539,7 +539,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		debug_say (" unboxed\n");
 		#endif
 
-	        // Weak references to unboxed chunks are never nullified:
+	        // Weak references to unboxed chunks (i.e., immediate 31-bit ints) are never nullified:
                 //
 		*new_chunk++ = WEAK_POINTER_TAGWORD;
 		*new_chunk = v;
@@ -556,7 +556,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			// Reference to a chunk that has already been forwarded.
 			// Note that we have to put the pointer to the non-forwarded
 			// copy of the chunk (i.e, v) into the to-space copy
-			// of the weak pointer, since the cleaner has the invariant
+			// of the weak pointer, since the heapcleaner has the invariant
 			// that it never sees to-space pointers during sweeping.
 
 			#ifdef DEBUG_WEAK_PTRS
@@ -568,7 +568,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
 		    } else {
 
-			// The forwarded version of weak chunks are threaded
+			// The forwarded versions of weak chunks are threaded
 			// via their tagword fields.  We mark the chunk
 			// reference field to make it look like an Tagged_Int
 			// so that the to-space sweeper does not follow
@@ -578,9 +578,9 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			    debug_say (" forward\n");
 			#endif
 
-			*new_chunk = MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_cleaning));
-
-			ag1->heap->weak_pointers_forwarded_during_cleaning = new_chunk++;
+			*new_chunk = MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
+																	// MARK_POINTER		is from   src/c/h/heap-tags.h
+			ag1->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
 
 			*new_chunk = MARK_POINTER(vp);
 		    }

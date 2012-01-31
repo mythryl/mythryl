@@ -1595,9 +1595,9 @@ static Val          forward_special_chunk   (
 			        debug_say (" forward (start = %#x)\n", vp);
 			    #endif
 
-			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_cleaning));
+			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
 
-			    ag->heap->weak_pointers_forwarded_during_cleaning = new_chunk++;
+			    ag->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
 
 			    *new_chunk = MARK_POINTER(vp);
 			}
@@ -1622,9 +1622,9 @@ static Val          forward_special_chunk   (
 
 			} else {
 
-			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_cleaning));
+			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
 
-			    ag->heap->weak_pointers_forwarded_during_cleaning = new_chunk++;
+			    ag->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
 
 			    *new_chunk = MARK_POINTER(vp);
 			}

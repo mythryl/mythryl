@@ -251,7 +251,7 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
     //     src/c/heapcleaner/heapclean-agegroup0.c
     //     src/c/heapcleaner/heapclean-n-agegroups.c
 
-    if (heap->weak_pointers_forwarded_during_cleaning == NULL)   return;			// No work to do.
+    if (heap->weak_pointers_forwarded_during_heapcleaning == NULL)   return;			// No work to do.
 
     Sibid*	   b2s    =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
@@ -259,7 +259,7 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 
 												// debug_say ("scan_weak_pointers:\n");
 
-    for (Val* p = heap->weak_pointers_forwarded_during_cleaning;
+    for (Val* p = heap->weak_pointers_forwarded_during_heapcleaning;
          p != NULL;
          p = next
     ){
@@ -328,9 +328,7 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 	}
     }
 
-    heap->weak_pointers_forwarded_during_cleaning
-	=
-	NULL;
+    heap->weak_pointers_forwarded_during_heapcleaning =   NULL;
 }
 
 
