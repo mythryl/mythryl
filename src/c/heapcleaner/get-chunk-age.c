@@ -37,7 +37,7 @@ int   get_chunk_age   (Val chunk) {
 
 	    return dp->age;
 
-	} else if (aid == NEWSPACE_SIBID) {	    return  0;
+	} else if (aid == AGEGROUP0_SIBID) {	    return  0;
 	} else if (BOOK_IS_UNMAPPED(aid)) {	    return -1;
 	} else {	 		    return  GET_AGE_FROM_SIBID( aid );
 	}

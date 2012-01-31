@@ -148,7 +148,7 @@
 // (no ram) and address space containing
 // vanilla C code and data.
 //
-#define NEWSPACE_SIBID			MAKE_SIBID( AGEGROUP0, NEW_KIND, NEW_ID )						// 
+#define AGEGROUP0_SIBID			MAKE_SIBID( AGEGROUP0, NEW_KIND, NEW_ID )						// Unlike other agegroups, agegroup0 keeps everything in a single sib (buffer).
 #define UNMAPPED_BOOK_SIBID		0xffff											// 
 #define MAX_SIBID			MAKE_MAX_SIBID( MAX_AGEGROUPS )								// 
 

@@ -73,7 +73,7 @@ static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1
 	//
 	Sibid  sibid =  SIBID_FOR_POINTER( book2sibid, w );
 	//
-	if (sibid == NEWSPACE_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup1( g1, w, task, 0 );
+	if (sibid == AGEGROUP0_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup1( g1, w, task, 0 );
     }
 }
 
@@ -281,7 +281,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 
 	Sibid src_sibid =  SIBID_FOR_POINTER(b2s, pointer );				// Get the Sibid tag for the ram-book containing the refcell/vectorslot.	Sibid  def in    src/c/h/sibid.h
 
-	if (src_sibid == NEWSPACE_SIBID)    continue;					// Ignore updates to new-space      refcells and vectorslots.
+	if (src_sibid == AGEGROUP0_SIBID)    continue;					// Ignore updates to agegroup0      refcells and vectorslots.
 	if (BOOK_IS_UNMAPPED( src_sibid ))  continue;					// Ignore updates to runtime-global refcells and vectorslots, which are handled elsewhere.
 
 	Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, pointee );				// Get the Sibid tag for the ram-book containing the value referenced by the refcell/vectorslot.
@@ -549,7 +549,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		Sibid sibid =  SIBID_FOR_POINTER( book_to_sibid__global, v );
 		Val*  vp    =  PTR_CAST( Val*, v );
 
-		if (sibid == NEWSPACE_SIBID) {
+		if (sibid == AGEGROUP0_SIBID) {
 		    //
 		    if (vp[-1] == FORWARDED_CHUNK_TAGWORD) {
 		        //

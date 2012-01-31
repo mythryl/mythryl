@@ -334,7 +334,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	book_to_sibid__global,
 	(Val*) book_to_sibid__global,
 	BYTESIZE_OF_MULTIPAGE_RAM_REGION( heap->multipage_ram_region ),
-	NEWSPACE_SIBID
+	AGEGROUP0_SIBID
     );
 
     #ifdef VERBOSE
