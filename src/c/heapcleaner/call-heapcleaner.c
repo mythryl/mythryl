@@ -187,8 +187,21 @@ void   call_heapcleaner   (Task* task,  int level) {
     heap = task->heap;
 
 
-    // If any generation-1 ilk is short on freespace,
+    // If any generation-1 sib is short on freespace,
     // commit to doing a multigeneration heapcleaning.
+    //
+    // The critical consideration here is that during
+    // heapclean_agegroup0(), as we copy stuff out of
+    // agegroup0 we must not overflow any of the agegroup1
+    // sibs (buffers).
+    //    As a safe, conservative approximation, we
+    // require that each agegroup1 sib have more free
+    // space than the size of the complete agegroup0.
+    //    (Obviously, this is vast overkill most of
+    // the time, since typically agegroup0 is mostly
+    // garbage, and the non-garbage will be typically
+    // be spread over the various agegroup1 sibs.
+    // But we have to code for the worst case.)
     //
     // We can skip this check if we're anyhow already
     // committed to    a multigeneration heapcleaning:

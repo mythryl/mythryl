@@ -11,6 +11,11 @@
 // From examining the logging currently enabled, it appears that heapcleaning
 // leaves more like 8KB free in gen0, and that some strings are in fact bigger
 // than 64KB.
+//    [ Later (2012-01-31):  From a careful reading of  src/c/heapcleaner/heapclean-agegroup0.c
+//      it is clear that a minor heapclean will necessarily always leave agegroup0 completely
+//      empty, so I need to investigate why it appears to leave 8K or so sometimes.  Prosumably
+//      broken reporting.
+//    ]
 // To add flavor to the mix:
 //    *  In src/c/heapcleaner/make-strings-and-vectors-etc.c
 //       we seem to make a point of never allocating more than MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS

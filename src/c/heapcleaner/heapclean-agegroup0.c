@@ -179,6 +179,13 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 								    ++heap->agegroup0_cleanings_done;
     null_out_newly_dead_weakrefs( heap );										// null_out_newly_dead_weakrefs		def in    src/c/heapcleaner/heapcleaner-stuff.c
 
+    //////////////////////////////////////////////////////////// 
+    // At this point there is nothing left in the agegroup0
+    // buffer(s) that we care about, so we're done.  Our caller
+    // will reset the agegroup0 buffer(s) to empty and resume
+    // allocating linearly in it/them from start to end.
+    //////////////////////////////////////////////////////////// 
+
 								    #ifdef VERBOSE
 									debug_say ("Agegroup 1 after MinorGC:\n");
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
@@ -225,7 +232,7 @@ static int   get_age_of_codechunk   (Val codechunk) {
 
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-    Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );				// Get the Sibid tag for the ram-book containing the codechunk.
+    Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );					// Get the Sibid tag for the ram-book containing the codechunk.
 
     int  book;
     for (book = GET_BOOK_CONTAINING_POINTEE( codechunk );
@@ -261,32 +268,32 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
     // values referenced by a refcell/vectorslot in the heap_changelog.
 
     Val this_heap_changelog_cell =  task->heap_changelog; 
-    if (this_heap_changelog_cell == HEAP_CHANGELOG_NIL)   return;			// Abort quickly if no work to do.
+    if (this_heap_changelog_cell == HEAP_CHANGELOG_NIL)   return;				// Abort quickly if no work to do.
 
-    int updates        = 0;								// Heapcleaner statistics.
-    Agegroup* age1     =  heap->agegroup[ 0 ];						// Cache heap entry for speed.
+    int updates        = 0;									// Heapcleaner statistics.
+    Agegroup* age1     =  heap->agegroup[ 0 ];							// Cache heap entry for speed.
     Sibid* b2s         =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
-    while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {				// Over all entries in the heap_changelog.
+    while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {					// Over all entries in the heap_changelog.
 	//
-	++updates;									// Heapcleaner statistics.
+	++updates;										// Heapcleaner statistics.
 
-	Val* pointer   	         =  HEAP_CHANGELOG_HEAD( this_heap_changelog_cell );	// Get pointer to next updated refcell/vector slot to process.
-	this_heap_changelog_cell =  HEAP_CHANGELOG_TAIL( this_heap_changelog_cell );	// Step to next cell in heap_changelog list.
+	Val* pointer   	         =  HEAP_CHANGELOG_HEAD( this_heap_changelog_cell );		// Get pointer to next updated refcell/vector slot to process.
+	this_heap_changelog_cell =  HEAP_CHANGELOG_TAIL( this_heap_changelog_cell );		// Step to next cell in heap_changelog list.
 
-	Val pointee = *pointer;								// Get contents of updated refcell/vectorslot.
+	Val pointee = *pointer;									// Get contents of updated refcell/vectorslot.
 
-	if (!IS_POINTER( pointee ))   continue;						// Ignore refcells and vectorslots containing Tagged_Int values.
+	if (!IS_POINTER( pointee ))   continue;							// Ignore refcells and vectorslots containing Tagged_Int values.
 
-	Sibid src_sibid =  SIBID_FOR_POINTER(b2s, pointer );				// Get the Sibid tag for the ram-book containing the refcell/vectorslot.	Sibid  def in    src/c/h/sibid.h
+	Sibid src_sibid =  SIBID_FOR_POINTER(b2s, pointer );					// Get the Sibid tag for the ram-book containing the refcell/vectorslot.	Sibid  def in    src/c/h/sibid.h
 
-	if (src_sibid == AGEGROUP0_SIBID)    continue;					// Ignore updates to agegroup0      refcells and vectorslots.
-	if (BOOK_IS_UNMAPPED( src_sibid ))  continue;					// Ignore updates to runtime-global refcells and vectorslots, which are handled elsewhere.
+	if (src_sibid == AGEGROUP0_SIBID)    continue;						// Ignore updates to agegroup0      refcells and vectorslots.
+	if (BOOK_IS_UNMAPPED( src_sibid ))  continue;						// Ignore updates to runtime-global refcells and vectorslots, which are handled elsewhere.
 
-	Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, pointee );				// Get the Sibid tag for the ram-book containing the value referenced by the refcell/vectorslot.
+	Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, pointee );					// Get the Sibid tag for the ram-book containing the value referenced by the refcell/vectorslot.
 	//
-	int src_age =  GET_AGE_FROM_SIBID( src_sibid );					// agegroup of the updated refcell/vectorslot.
-	int dst_age =  GET_AGE_FROM_SIBID( dst_sibid );					// agegroup of the chunk that the refcell/vectorslot points to.
+	int src_age =  GET_AGE_FROM_SIBID( src_sibid );						// agegroup of the updated refcell/vectorslot.
+	int dst_age =  GET_AGE_FROM_SIBID( dst_sibid );						// agegroup of the chunk that the refcell/vectorslot points to.
 
 	if (!SIBID_KIND_IS_CODE( dst_sibid )) {
 	    //
@@ -297,7 +304,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 		//
 	    }
 
-	} else {									// Refcell/vector slot is pointing to code.	
+	} else {										// Refcell/vector slot is pointing to code.	
 
 	    if (dst_age >= src_age)   continue;
 
@@ -309,7 +316,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	//
 	if (src_age > dst_age) {
 	    //
-	    MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER(					// MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER	def in    src/c/h/coarse-inter-agegroup-pointers-map.h
+	    MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER(						// MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER	def in    src/c/h/coarse-inter-agegroup-pointers-map.h
 		//
 		heap->agegroup[ src_age-1 ]->coarse_inter_agegroup_pointers_map,
 		pointer,
@@ -346,7 +353,7 @@ static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task
 	do {
 	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {			// Check all words in buffer.
 		//
-	      forward_to_agegroup1_if_in_agegroup0(b2s, ag1, p, task);					// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
+	      forward_to_agegroup1_if_in_agegroup0(b2s, ag1, p, task);				// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
 	} while (q != sib->next_tospace_word_to_allocate);					// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
