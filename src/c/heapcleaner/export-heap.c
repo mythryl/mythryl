@@ -415,7 +415,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	//
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
-	    if (cleaner_messages_are_enabled__global) {
+	    if (heapcleaner_messages_are_enabled__global) {
 		//
 		debug_say("write %d,%d: %d bytes [%#x..%#x) @ %#x\n",
 		    age+1, ilk, p->info.o.bytesize,
@@ -443,7 +443,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		//
 		header =  (Hugechunk_Header*) MALLOC( header_bytesize );
 
-		if (cleaner_messages_are_enabled__global) {
+		if (heapcleaner_messages_are_enabled__global) {
 		    //
 		    debug_say("write %d,%d: %d big chunks (%d quanta) @ %#x\n",
 			age+1, huge_ilk, p->info.bo.hugechunk_count, p->info.bo.hugechunk_quanta_count,

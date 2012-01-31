@@ -568,21 +568,30 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
 		    } else {
 
-			// The forwarded versions of weak chunks are threaded
-			// via their tagword fields.  We mark the chunk
-			// reference field to make it look like an Tagged_Int
-			// so that the to-space sweeper does not follow
-			// the weak reference.
+			// The forwarded copies of weak chunks are chained
+			// via their tagword fields, with the root pointer kept
+                        // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
+			//
+			// This chain is used in null_out_newly_dead_weak_pointers,						// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
+			// (called at the end of each heapcleaning), which nulls
+			// out any newly dead weak pointers and then changes the
+			// weakpointer tagwords to either WEAK_POINTER_TAGWORD
+			// or NULLED_WEAK_POINTER_TAGWORD as appropriate, thus
+			// erasing our weakchunk chain and restoring sanity.
+			//
+                        // We mark the chunk reference field in the forwarded copy
+			// to make it look like an Tagged_Int so that the to-space
+			// sweeper does not follow the weak reference.
 
 			#ifdef DEBUG_WEAK_PTRS
 			    debug_say (" forward\n");
 			#endif
 
-			*new_chunk = MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
+			*new_chunk = MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning ));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
 																	// MARK_POINTER		is from   src/c/h/heap-tags.h
-			ag1->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
+			ag1->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
 
-			*new_chunk = MARK_POINTER(vp);
+			*++new_chunk =  MARK_POINTER( vp );
 		    }
 
 		} else {
@@ -594,7 +603,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		    #endif
 
 		    *new_chunk++ = WEAK_POINTER_TAGWORD;
-		    *new_chunk = v;
+		    *new_chunk   = v;
 		}
 	    }
 	}

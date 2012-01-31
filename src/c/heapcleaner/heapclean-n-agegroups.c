@@ -397,7 +397,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
     #endif
 
     #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
-	if (cleaner_messages_are_enabled__global) {
+	if (heapcleaner_messages_are_enabled__global) {
 	    long	                             cleaning_time;
 	    stop_cleaning_timer (task->pthread, &cleaning_time);
 	    debug_say (" (%d ms)\n",                 cleaning_time);
@@ -444,7 +444,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
 
 	*max_swept_agegroup = oldest_agegroup_to_clean+1;
 
-	// Cleaner statistics:
+	// Heapcleaner statistics:
 	//
 	// Remember the top of to-space for max_swept_agegroup:
 	//
@@ -462,7 +462,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do messages when collecting pause data.
 	//
-	if (cleaner_messages_are_enabled__global) {
+	if (heapcleaner_messages_are_enabled__global) {
 	    //	
 	    debug_say ("GC #");
 	    //	
@@ -490,7 +490,7 @@ void                heapclean_n_agegroups                  (Task* task,  Val** r
 
     Heap*  heap  =  task->heap;
 
-    Val*  tospace_limit[ MAX_PLAIN_SIBS ];	// Set by following call.			// Cleaner statistics:  Counts number of bytes forwarded.
+    Val*  tospace_limit[ MAX_PLAIN_SIBS ];	// Set by following call.			// Heapcleaner statistics:  Counts number of bytes forwarded.
     int	  max_swept_agegroup;			// Set by following call.
 
     int oldest_agegroup_to_clean
@@ -1574,7 +1574,7 @@ static Val          forward_special_chunk   (
 			    // Reference to an chunk that has already been forwarded.
 			    // NOTE: we have to put the pointer to the non-forwarded
 			    // copy of the chunk (i.e, v) into the to-space copy
-			    // of the weak pointer, since the cleaner has the invariant
+			    // of the weak pointer, since the heapcleaner has the invariant
 			    // that it never sees to-space pointers during sweeping.
 
 			    #ifdef DEBUG_WEAK_PTRS
@@ -1597,9 +1597,9 @@ static Val          forward_special_chunk   (
 
 			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
 
-			    ag->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
+			    ag->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
 
-			    *new_chunk = MARK_POINTER(vp);
+			    *++new_chunk = MARK_POINTER(vp);
 			}
 			break;
 
@@ -1610,7 +1610,7 @@ static Val          forward_special_chunk   (
 			    // Reference to a pair that has already been forwarded.
 			    // NOTE: we have to put the pointer to the non-forwarded
 			    // copy of the pair (i.e, v) into the to-space copy
-			    // of the weak pointer, since the cleaner has the invariant
+			    // of the weak pointer, since the heapcleaner has the invariant
 			    // that it never sees to-space pointers during sweeping.
 
 			    #ifdef DEBUG_WEAK_PTRS

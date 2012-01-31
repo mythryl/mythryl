@@ -187,7 +187,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
 	read_heap (&inbuf, &heap_header, task, externs);			// Read the Mythryl heap.
 
-	/* cleaner_messages_are_enabled__global = TRUE; */					// Cleaning messages are on by default for interactive images.
+	/* heapcleaner_messages_are_enabled__global = TRUE; */					// Cleaning messages are on by default for interactive images.
 
     } else { 								// EXPORT_FN_IMAGE
 
@@ -225,10 +225,10 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
 
 	// debug_say("arg = %#x : [%#x, %#x]\n", task->argument, GET_TUPLE_SLOT_AS_VAL(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1));
 
-        // Cleaner messages are off by
+        // Heapcleaner messages are off by
         // default for spawn_to_disk images:
         //
-	cleaner_messages_are_enabled__global =  FALSE;
+	heapcleaner_messages_are_enabled__global =  FALSE;
     }
 
     FREE( externs );

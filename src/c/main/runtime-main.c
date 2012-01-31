@@ -57,7 +57,7 @@ FILE* DebugF = NULL;	// Referenced only here and in   src/c/main/error-reporting
 //
 int    verbosity = 0;
 Bool   codechunk_comment_display_is_enabled__global = FALSE;
-Bool   cleaner_messages_are_enabled__global = FALSE;
+Bool   heapcleaner_messages_are_enabled__global = FALSE;
 Bool   unlimited_heap_is_enabled__global = FALSE;
 char** raw_args;
 char** commandline_arguments;		// Does not include the program name (argv[0]).

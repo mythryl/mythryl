@@ -231,9 +231,9 @@ void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address
 
 //
 void   null_out_newly_dead_weak_pointers   (Heap* heap) {
-    // ===========================
+    // =================================
     // 
-    // Weak pointers are not followed by the cleaner (garbage collector).
+    // Weak pointers are not followed by the heapcleaner (garbage collector).
     // The point of this is to allow us to (for example) maintain an index
     // of all existing items of some kind while still allowing them to be
     // garbage collected when no longer needed.  The index will see the weak
