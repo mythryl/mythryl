@@ -230,7 +230,7 @@ void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address
 }
 
 //
-void   null_out_newly_dead_weak_pointers   (Heap* heap) {
+void   null_out_newly_dead_weakrefs   (Heap* heap) {
     // =================================
     // 
     // Weak pointers are not followed by the heapcleaner (garbage collector).
@@ -280,13 +280,13 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 
 		if (tagword == FORWARDED_CHUNK_TAGWORD) {
 		    //
-		    p[0] = WEAK_POINTER_TAGWORD;
+		    p[0] = WEAKREF_TAGWORD;
 		    p[1] = PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
 		    // debug_say ("forwarded to %#x\n", FOLLOW_FWDCHUNK(chunk));
 
 		} else {
 
-		    p[0] = NULLED_WEAK_POINTER_TAGWORD;
+		    p[0] = NULLED_WEAKREF_TAGWORD;
 		    p[1] = HEAP_VOID;
 
 		    // debug_say ("nullified\n");
@@ -307,14 +307,14 @@ void   null_out_newly_dead_weak_pointers   (Heap* heap) {
 
 		if (IS_TAGWORD( tagword = chunk[0] )) {
 		    //
-		    p[0] = WEAK_POINTER_TAGWORD;
+		    p[0] = WEAKREF_TAGWORD;
 		    p[1] = PTR_CAST( Val,  FOLLOW_PAIRSPACE_FORWARDING_POINTER( tagword, chunk ) );
 
 		    // debug_say ("(pair) forwarded to %#x\n", FOLLOW_PAIRSPACE_FORWARDING_POINTER( tagword, chunk ));
 
 		} else {
 
-		    p[0] = NULLED_WEAK_POINTER_TAGWORD;
+		    p[0] = NULLED_WEAKREF_TAGWORD;
 		    p[1] = HEAP_VOID;
 
 		    // debug_say ("(pair) nullified\n");

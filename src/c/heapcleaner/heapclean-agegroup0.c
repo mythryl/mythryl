@@ -178,7 +178,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     sweep_agegroup1_tospace( age1, task );
     ++heap->agegroup0_cleanings_done;
 
-    null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/heapcleaner-stuff.c
+    null_out_newly_dead_weakrefs( heap );										// null_out_newly_dead_weakrefs		def in    src/c/heapcleaner/heapcleaner-stuff.c
 
     #ifdef VERBOSE
 	debug_say ("Agegroup 1 after MinorGC:\n");
@@ -528,16 +528,14 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
         {
       	    //
 	    Val	v = *chunk;
-
-	    #ifdef DEBUG_WEAK_PTRS
-		debug_say ("MinorGC: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
-	    #endif
+									    #ifdef DEBUG_WEAKREFS
+										debug_say ("MinorGC: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
+									    #endif
 
 	    if (! IS_POINTER( v )) {
-
-		#ifdef DEBUG_WEAK_PTRS
-		debug_say (" unboxed\n");
-		#endif
+										#ifdef DEBUG_WEAKREFS
+										debug_say (" unboxed\n");
+										#endif
 
 	        // Weak references to unboxed chunks (i.e., immediate Int31)
 		// can never be nullified, since Int31 values, being stored
@@ -545,8 +543,10 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		// ever get garbage-collected.  Consequently, we can just copy
 		// such weakrefs over and skip the rest of our usual processing:
                 //
-		*new_chunk++ = WEAK_POINTER_TAGWORD;
-		*new_chunk = v;
+		new_chunk[0] = WEAKREF_TAGWORD;
+		new_chunk[1] = v;
+
+		++new_chunk;
 
 	    } else {
 
@@ -562,12 +562,14 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 		    // the usual work to check for that and if necessary
 		    // null out the weakref:
 		    //
-		    #ifdef DEBUG_WEAK_PTRS
-		        debug_say (" old chunk\n");
-		    #endif
+										    #ifdef DEBUG_WEAKREFS
+											debug_say (" old chunk\n");
+										    #endif
 
-		    *new_chunk++ = WEAK_POINTER_TAGWORD;
-		    *new_chunk   = v;
+		    new_chunk[0] =  WEAKREF_TAGWORD;
+		    new_chunk[1] =  v;
+
+		    ++new_chunk;
 
 		} else {
 
@@ -579,12 +581,14 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			// copy of the chunk (i.e, v) into the to-space copy
 			// of the weak pointer, since the heapcleaner has the invariant
 			// that it never sees to-space pointers during sweeping.
-											#ifdef DEBUG_WEAK_PTRS
+											#ifdef DEBUG_WEAKREFS
 											    debug_say (" already forwarded to %#x\n", PTR_CAST( Val, FOLLOW_FWDCHUNK(vp)));
 											#endif
 
-			*new_chunk++ = WEAK_POINTER_TAGWORD;
-			*new_chunk = v;
+			new_chunk[0] =  WEAKREF_TAGWORD;
+			new_chunk[1] =  v;
+
+			++new_chunk;
 
 		    } else {
 
@@ -599,17 +603,17 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
                         // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
 			//
 			// At the end of heapcleaning we will consume this chain of
-			// weakrefs in null_out_newly_dead_weak_pointers() where					// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
+			// weakrefs in null_out_newly_dead_weakrefs() where					// null_out_newly_dead_weakrefs	is from   src/c/heapcleaner/heapcleaner-stuff.c
 			// we will null out any newly dead weakrefs and then
 			// replace the chainlinks with valid tagwords -- either
-			// WEAK_POINTER_TAGWORD or NULLED_WEAK_POINTER_TAGWORD,
+			// WEAKREF_TAGWORD or NULLED_WEAKREF_TAGWORD,
 			// as appropriate, thus erasing our weakref chain and
 			// restoring sanity.
 			//
                         // We mark the chunk reference field in the forwarded copy
 			// to make it look like an Tagged_Int so that the to-space
 			// sweeper does not follow the weak reference.
-											#ifdef DEBUG_WEAK_PTRS
+											#ifdef DEBUG_WEAKREFS
 											    debug_say (" forward\n");
 											#endif
 

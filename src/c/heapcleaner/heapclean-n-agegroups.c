@@ -520,7 +520,7 @@ void                heapclean_n_agegroups                  (Task* task,  Val** r
 
     forward_remaining_live_values( heap, oldest_agegroup_to_clean, max_swept_agegroup );
 
-    null_out_newly_dead_weak_pointers( heap );									// null_out_newly_dead_weak_pointers					def in    src/c/heapcleaner/heapcleaner-stuff.c
+    null_out_newly_dead_weakrefs( heap );									// null_out_newly_dead_weakrefs					def in    src/c/heapcleaner/heapcleaner-stuff.c
 
     reclaim_fromspace_hugechunks( heap, oldest_agegroup_to_clean );
 
@@ -1527,20 +1527,21 @@ static Val          forward_special_chunk   (
         {
 	    Val	v = *chunk;
 
-	    #ifdef DEBUG_WEAK_PTRS
-	        debug_say ("heapclean_n_agegroups: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
-	    #endif
+									    #ifdef DEBUG_WEAKREFS
+										debug_say ("heapclean_n_agegroups: weak [%#x ==> %#x] --> %#x", chunk, new_chunk+1, v);
+									    #endif
 
 	    if (! IS_POINTER(v)) {
-
-		#ifdef DEBUG_WEAK_PTRS
-		    debug_say (" unboxed\n");
-		#endif
+										#ifdef DEBUG_WEAKREFS
+										    debug_say (" unboxed\n");
+										#endif
 
 	        // Weak references to unboxed chunks are never nullified:
                 //
-		*new_chunk++ = WEAK_POINTER_TAGWORD;
-		*new_chunk = v;
+		new_chunk[0] =  WEAKREF_TAGWORD;
+		new_chunk[1] =  v;
+
+		++new_chunk;
 
 	    } else {
 
@@ -1552,11 +1553,13 @@ static Val          forward_special_chunk   (
 
 		    // Reference to an older chunk:
                     //
-		    #ifdef DEBUG_WEAK_PTRS
-		        debug_say (" old chunk\n");
-		    #endif
-		    *new_chunk++ = WEAK_POINTER_TAGWORD;
-		    *new_chunk = v;
+										    #ifdef DEBUG_WEAKREFS
+											debug_say (" old chunk\n");
+										    #endif
+		    new_chunk[0] =  WEAKREF_TAGWORD;
+		    new_chunk[1] =  v;
+
+		    ++new_chunk;
 
 		} else {
 
@@ -1577,11 +1580,13 @@ static Val          forward_special_chunk   (
 			    // of the weak pointer, since the heapcleaner has the invariant
 			    // that it never sees to-space pointers during sweeping.
 
-											    #ifdef DEBUG_WEAK_PTRS
+											    #ifdef DEBUG_WEAKREFS
 												debug_say (" already forwarded to %#x\n", FOLLOW_FWDCHUNK(vp));
 											    #endif
-			    *new_chunk++ = WEAK_POINTER_TAGWORD;
-			    *new_chunk = v;
+			    new_chunk[0] =  WEAKREF_TAGWORD;
+			    new_chunk[1] =  v;
+
+			    ++new_chunk;
 
 			} else {
 
@@ -1596,10 +1601,10 @@ static Val          forward_special_chunk   (
 			    // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
 			    //
 			    // At the end of heapcleaning we will consume this chain of
-			    // weakrefs in null_out_newly_dead_weak_pointers() where					// null_out_newly_dead_weak_pointers	is from   src/c/heapcleaner/heapcleaner-stuff.c
+			    // weakrefs in null_out_newly_dead_weakrefs() where					// null_out_newly_dead_weakrefs	is from   src/c/heapcleaner/heapcleaner-stuff.c
 			    // we will null out any newly dead weakrefs and then
 			    // replace the chainlinks with valid tagwords -- either
-			    // WEAK_POINTER_TAGWORD or NULLED_WEAK_POINTER_TAGWORD,
+			    // WEAKREF_TAGWORD or NULLED_WEAKREF_TAGWORD,
 			    // as appropriate, thus erasing our weakref chain and
 			    // restoring sanity.
 			    //
@@ -1607,7 +1612,7 @@ static Val          forward_special_chunk   (
 			    // to make it look like an Tagged_Int so that the to-space
 			    // sweeper does not follow the weak reference.
 
-											    #ifdef DEBUG_WEAK_PTRS
+											    #ifdef DEBUG_WEAKREFS
 												debug_say (" forward (start = %#x)\n", vp);
 											    #endif
 
@@ -1630,20 +1635,23 @@ static Val          forward_special_chunk   (
 			    // of the weak pointer, since the heapcleaner has the invariant
 			    // that it never sees to-space pointers during sweeping.
 
-			    #ifdef DEBUG_WEAK_PTRS
-			        debug_say (" (pair) already forwarded to %#x\n", FOLLOW_PAIRSPACE_FORWARDING_POINTER(tagword, vp));
-			    #endif
+											    #ifdef DEBUG_WEAKREFS
+												debug_say (" (pair) already forwarded to %#x\n", FOLLOW_PAIRSPACE_FORWARDING_POINTER(tagword, vp));
+											    #endif
 
-			    *new_chunk++ = WEAK_POINTER_TAGWORD;
-			    *new_chunk = v;
+			    new_chunk[0] =  WEAKREF_TAGWORD;
+			    new_chunk[1] =  v;
+
+			    ++new_chunk;
 
 			} else {
 
-			    *new_chunk = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[0] = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[1] = MARK_POINTER(vp);
 
-			    ag->heap->weak_pointers_forwarded_during_heapcleaning = new_chunk++;
+			    ag->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
 
-			    *new_chunk = MARK_POINTER(vp);
+			    ++new_chunk;
 			}
 			break;
 
