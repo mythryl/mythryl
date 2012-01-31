@@ -319,41 +319,41 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	}
     }
 
-    update_count__global += updates;							// Cleaner statistics.  Apparently never used.
+    update_count__global += updates;								// Cleaner statistics.  Apparently never used.
 
-    task->heap_changelog =  HEAP_CHANGELOG_NIL;						// We're done with heap_changelog so clear it.
+    task->heap_changelog =  HEAP_CHANGELOG_NIL;							// We're done with heap_changelog so clear it.
 
-}											// fun process_task_heap_changelog
+}												// fun process_task_heap_changelog
 
 //
-inline static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {	// Called only from sweep_agegroup1_tospace (below).
-    //               ============================					// 'task' arg is only for debugging, can be dropped in production code.
+static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {		// Called only from sweep_agegroup1_tospace (below).
+    //        ===========================							// 'task' arg is only for debugging, can be dropped in production code.
     //
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
-    Sib*   sib =  ag1->sib[ ilk ];							// Find sib to scan.
+    Sib*   sib =  ag1->sib[ ilk ];								// Find sib to scan.
 
     Bool   progress =  FALSE;
 
-    Val* p = sib->next_word_to_sweep_in_tospace;					// Pick up scanning this sib where we last left off.
+    Val* p = sib->next_word_to_sweep_in_tospace;						// Pick up scanning this sib where we last left off.
     if  (p < sib->next_tospace_word_to_allocate) {
 	//
 	progress = TRUE;
 
         Val*q;
 	do {
-	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {		// Check all words in buffer.
+	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {			// Check all words in buffer.
 		//
-	      forward_if_in_agegroup0(b2s, ag1, p, task);				// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
+	      forward_if_in_agegroup0(b2s, ag1, p, task);					// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
-	} while (q != sib->next_tospace_word_to_allocate);				// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
+	} while (q != sib->next_tospace_word_to_allocate);					// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
-	sib->next_word_to_sweep_in_tospace = q;						// Remember where we left off. (Current end of buffer.)
+	sib->next_word_to_sweep_in_tospace = q;							// Remember where we left off. (Current end of buffer.)
     }
 
     return progress;
 }
 //
-static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {		// 'task' arg is only for debugging, can be removed in production use.
+static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {				// 'task' arg is only for debugging, can be removed in production use.
     //        ========================
     //
     // Search the agegroup 1 to-space buffers for references
@@ -361,21 +361,23 @@ static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {		// 'tas
     // to agegroup1, and then search them for more such references
     // to agegroup0 values, continuing until progress ceases.
     //
-    // Note that since there are no younger chunks,
-    // we don't have to do anything special for the
-    // vector sib.
+    // Note that normally we would have to do bookkeeping to
+    // keep track of refcell and vector pointers into younger
+    // agegroups, but since we are only dealing with agegroup0
+    // here there *are* no younger agegroups to worry about,
+    // so we don't have to do anything special for the vector sib.
 
     Bool making_progress = TRUE;
 
     while (making_progress) {
 	//
 	making_progress = FALSE;
-	//
+	//										// Since STRING_SIB contains no pointers we can ignore it here.
 	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RECORD_SIB, task );
 	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   PAIR_SIB, task );
 	making_progress |=  sweep_agegroup1_sib_tospace(ag1, VECTOR_SIB, task );
     };
-}										// fun sweep_agegroup1_tospace.
+}											// fun sweep_agegroup1_tospace.
 
 
 //
@@ -486,16 +488,18 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	exit(1);									// Cannot execute -- just to quiet gcc -Wall.
     }
 
-    // Allocate and initialize a to-space copy of the chunk:
+    // Make an agegroup1 copy of the chunk
+    // in the appropriate agegroup1 sib (buffer):
     //
-    new_chunk = sib->next_tospace_word_to_allocate;
-    sib->next_tospace_word_to_allocate += (len_in_words + 1);
-    *new_chunk++ = tagword;
+    new_chunk = sib->next_tospace_word_to_allocate;				// Figure out where copy will be located.
+    sib->next_tospace_word_to_allocate += (len_in_words + 1);			// Allocate space needed by the copy.
+    *new_chunk++ = tagword;							// Install tagword at start of copy.  (Note that 'sib' cannot be PAIR_SIB, we handled that case above.)
     ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
 
-    COPYLOOP(chunk, new_chunk, len_in_words);					// COPYLOOP	def in   src/c/heapcleaner/copy-loop.h
-
-    // Set up the forward pointer, and return the new chunk:
+    COPYLOOP(chunk, new_chunk, len_in_words);					// Copy over the rest of the chunk.
+										// COPYLOOP	def in   src/c/heapcleaner/copy-loop.h
+    // Set up the forwarding pointer in the original
+    // to the copy and return the new chunk:
     //
     chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
     chunk[ 0] =  (Val) (Punt) new_chunk;

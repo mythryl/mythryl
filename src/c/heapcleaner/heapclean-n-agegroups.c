@@ -122,8 +122,9 @@ Cleaner statistics stuff:
 /* DEBUG */
 // static char *state_name[] = {"FREE", "YOUNG", "FORWARD", "OLD", "PROMOTE"};	// 2010-11-15 CrT: I commented this out because it is nowhere used.
 
- static inline Punt   max   (Punt a,  Punt b)   {
-    //                            ===
+static inline Punt   max   (Punt a,  Punt b)   {
+    //               ===
+    //
     if (a > b)   return a;
     else         return b;
 }
@@ -984,8 +985,9 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 //
 
-inline static Bool  scan_tospace_buffer   (										// Called only from forward_remaining_live_values (below).
-    //              ===================
+static Bool  scan_tospace_buffer   (										// Called only from forward_remaining_live_values (below).
+    //       ===================
+    //
     Agegroup* ag,
     Heap*     heap,
     int       ilk,		// Either RECORD_SIB or PAIR_SIB.
@@ -996,7 +998,7 @@ inline static Bool  scan_tospace_buffer   (										// Called only from forward
     //
     // Return TRUE iff we did anything.
     //
-    Sibid* b2s =  book_to_sibid__global;											// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;										// Cache global for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     //
     Bool made_progress = FALSE;
 
