@@ -164,7 +164,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"           a->last_cleaning_count_of_younger_agegroup d=%d\n",  a->last_cleaning_count_of_younger_agegroup);
 
 	for (int s = 0;
-                 s < MAX_PLAIN_ILKS;
+                 s < MAX_PLAIN_SIBS;
                  s++
         ){
 	    //
@@ -521,24 +521,24 @@ static void   dump_gens__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"                 ag->coarse_inter_agegroup_pointers_map p= %p\n",		ag->coarse_inter_agegroup_pointers_map			);
 
 
-	fprintf(fd,"                 ag->hugechunks[0] p= %p   (CODE__HUGE_ILK)\n",		ag->hugechunks[0]					);
+	fprintf(fd,"                 ag->hugechunks[0] p= %p   (CODE__HUGE_SIB)\n",		ag->hugechunks[0]					);
 
-	fprintf(fd,"                 ag->sib[%d] p= %p    (RECORD_ILK)\n",			RECORD_ILK,	ag->sib[RECORD_ILK]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (  PAIR_ILK)\n",			  PAIR_ILK,	ag->sib[  PAIR_ILK]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (STRING_ILK)\n",			STRING_ILK,	ag->sib[STRING_ILK]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (VECTOR_ILK)\n",			VECTOR_ILK,	ag->sib[VECTOR_ILK]			);
-
-
-	fprintf(fd,"\n------------------------\nRECORD_ILK sib details:\n");    dump_sib(task,fd, ag->sib[RECORD_ILK] );
-	fprintf(fd,"\n------------------------\n  PAIR_ILK sib details:\n");    dump_sib(task,fd, ag->sib[  PAIR_ILK] );
-	fprintf(fd,"\n------------------------\nSTRING_ILK sib details:\n");    dump_sib(task,fd, ag->sib[STRING_ILK] );
-	fprintf(fd,"\n------------------------\nVECTOR_ILK sib details:\n");    dump_sib(task,fd, ag->sib[VECTOR_ILK] );
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RECORD_SIB)\n",			RECORD_SIB,	ag->sib[RECORD_SIB]			);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (  PAIR_SIB)\n",			  PAIR_SIB,	ag->sib[  PAIR_SIB]			);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (STRING_SIB)\n",			STRING_SIB,	ag->sib[STRING_SIB]			);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (VECTOR_SIB)\n",			VECTOR_SIB,	ag->sib[VECTOR_SIB]			);
 
 
-	fprintf(fd,"\n------------------------\nRECORD_ILK sib contents -- immutable pointerblocks:\n");		dump_record_sib( task, fd, ag->sib[RECORD_ILK] );
-	fprintf(fd,"\n------------------------\n  PAIR_ILK sib contents -- immutable pointerpairs:\n");			  dump_pair_sib( task, fd, ag->sib[  PAIR_ILK] );
-	fprintf(fd,"\n------------------------\nSTRING_ILK sib contents -- immutable nonpointer stuff:\n");		dump_string_sib( task, fd, ag->sib[STRING_ILK] );
-	fprintf(fd,"\n------------------------\nVECTOR_ILK sib contents -- all mutable data goes in this sib:\n");	dump_vector_sib( task, fd, ag->sib[VECTOR_ILK] );
+	fprintf(fd,"\n------------------------\nRECORD_ILK sib details:\n");    dump_sib(task,fd, ag->sib[RECORD_SIB] );
+	fprintf(fd,"\n------------------------\n  PAIR_SIB sib details:\n");    dump_sib(task,fd, ag->sib[  PAIR_SIB] );
+	fprintf(fd,"\n------------------------\nSTRING_ILK sib details:\n");    dump_sib(task,fd, ag->sib[STRING_SIB] );
+	fprintf(fd,"\n------------------------\nVECTOR_ILK sib details:\n");    dump_sib(task,fd, ag->sib[VECTOR_SIB] );
+
+
+	fprintf(fd,"\n------------------------\nRECORD_ILK sib contents -- immutable pointerblocks:\n");		dump_record_sib( task, fd, ag->sib[RECORD_SIB] );
+	fprintf(fd,"\n------------------------\n  PAIR_SIB sib contents -- immutable pointerpairs:\n");			  dump_pair_sib( task, fd, ag->sib[  PAIR_SIB] );
+	fprintf(fd,"\n------------------------\nSTRING_ILK sib contents -- immutable nonpointer stuff:\n");		dump_string_sib( task, fd, ag->sib[STRING_SIB] );
+	fprintf(fd,"\n------------------------\nVECTOR_ILK sib contents -- all mutable data goes in this sib:\n");	dump_vector_sib( task, fd, ag->sib[VECTOR_SIB] );
     }
 }
 //
@@ -580,7 +580,7 @@ static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
     fprintf(fd,"    prev     p= %p\n", p->prev);
     fprintf(fd,"    chunk    p= %p   (This is the actual free chunk itself)\n", (void*)p->chunk);
     fprintf(fd,"    bytesize x= %x\n", (unsigned int)p->bytesize);							// Punt
-    fprintf(fd,"    huge_ilk d= %d  (Currently always CODE__HUGE_ILK=%d) \n", p->huge_ilk, CODE__HUGE_ILK);		// unsigned char
+    fprintf(fd,"    huge_ilk d= %d  (Currently always CODE__HUGE_SIB=%d) \n", p->huge_ilk, CODE__HUGE_SIB);		// unsigned char
     fprintf(fd,"    state     = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_FORWARDED_HUGECHUNK/OLD_HUGECHUNK/OLD_PROMOTED_HUGECHUNK) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
     fprintf(fd,"    age      d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char
     fprintf(fd,"    region   p= %p  (Hugechunk_Region containing hugechunk)\n", p->region);
@@ -680,7 +680,7 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 	Agegroup* ag  =  heap->agegroup[a];		// Get pointer to our agegroup.
 
 	
-	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_ILK ];
+	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_SIB ];
 			p;
 			p =  p->next
 	){
@@ -736,7 +736,7 @@ static void   dump_hugechunks_contents__guts  (FILE* fd, Task* task, char* calle
 	Agegroup* ag  =  heap->agegroup[a];		// Get pointer to our agegroup.
 
 	
-	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_ILK ];
+	for (Hugechunk* p =  ag->hugechunks[ CODE__HUGE_SIB ];
 			p;
 			p =  p->next
 	){

@@ -101,7 +101,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     Pickle_Header	pickle_header;
     Val*		externs;
 
-    Sib_Header*	sib_headers[ TOTAL_ILKS ];
+    Sib_Header*	sib_headers[ TOTAL_SIBS ];
     Sib_Header*	sib_headers_buffer;
 
     int sib_headers_size;
@@ -109,8 +109,8 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     Agegroup*  age1 =   task->heap->agegroup[ 0 ];
 
     if (heapio__read_block( bp, &pickle_header, sizeof(pickle_header) ) == FAILURE
-    ||  pickle_header.smallchunk_sibs_count > MAX_PLAIN_ILKS				// MAX_PLAIN_ILKS		def in    src/c/h/sibid.h
-    ||  pickle_header.hugechunk_sibs_count  > MAX_HUGE_ILKS				// MAX_HUGE_ILKS		def in    src/c/h/sibid.h
+    ||  pickle_header.smallchunk_sibs_count > MAX_PLAIN_SIBS				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
+    ||  pickle_header.hugechunk_sibs_count  > MAX_HUGE_SIBS				// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
     ){
 	return FAILURE;									// XXX BUGGO FIXME we gotta do better than this.
     }
@@ -135,7 +135,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 	return FAILURE;
     }
     //
-    for (int ilk = 0;  ilk < TOTAL_ILKS;  ilk++) {
+    for (int ilk = 0;  ilk < TOTAL_SIBS;  ilk++) {
         //
 	sib_headers[ ilk ] =  NULL;
     }
@@ -158,7 +158,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
         //
 	Bool needs_cleaning  =   FALSE;
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    Sib* sib = age1->sib[ ilk ];
 
@@ -204,9 +204,9 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 
     // Read the pickled datastructure elements:
     //
-    {   Punt  sib_base[ MAX_PLAIN_ILKS ];
+    {   Punt  sib_base[ MAX_PLAIN_SIBS ];
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    if (sib_headers[ilk] != NULL) {
 		//
@@ -223,13 +223,13 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 
         // Adjust the pointers:
         //
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    if (sib_headers[ilk] != NULL) {
 		//
 		Sib* sib = age1->sib[ ilk ];
 		//
-		if (ilk == STRING_ILK) {
+		if (ilk == STRING_SIB) {
 		    //
 		    sib->next_tospace_word_to_allocate = (Val*) ((Punt)(sib->next_tospace_word_to_allocate)
 			      + sib_headers[ilk]->info.o.bytesize);

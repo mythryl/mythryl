@@ -53,8 +53,8 @@
 
 static void         read_heap			(Inbuf* bp,  Heap_Header* header,  Task* task,  Val* externs );
 static Hugechunk*   allocate_a_hugechunk	(Hugechunk*, Hugechunk_Header*, Hugechunk_Region_Relocation_Info* );
-static void         repair_heap			(Heap*, Sibid*, Punt [MAX_AGEGROUPS][MAX_PLAIN_ILKS], Addresstable*, Val*);
-static Val          repair_word			(Val w,   Sibid* oldBOOK2SIBID,   Punt addrOffset[MAX_AGEGROUPS][MAX_PLAIN_ILKS],   Addresstable* boRegionTable,   Val* externs);
+static void         repair_heap			(Heap*, Sibid*, Punt [MAX_AGEGROUPS][MAX_PLAIN_SIBS], Addresstable*, Val*);
+static Val          repair_word			(Val w,   Sibid* oldBOOK2SIBID,   Punt addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS],   Addresstable* boRegionTable,   Val* externs);
 
 // static int   RepairBORef   (Sibid* book2sibid,  Sibid id,  Val* ref,  Val oldChunk);
 
@@ -259,9 +259,9 @@ static void   read_heap   (
     int			sib_headers_bytesize;
     int			i, j, k;
 
-    long		prevSzB[MAX_PLAIN_ILKS], size;
+    long		prevSzB[MAX_PLAIN_SIBS], size;
     Sibid*		oldBOOK2SIBID;
-    Punt		addrOffset[MAX_AGEGROUPS][MAX_PLAIN_ILKS];
+    Punt		addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS];
 
     Hugechunk_Region_Relocation_Info*	boRelocInfo;
 
@@ -324,13 +324,13 @@ static void   read_heap   (
 
     // Read the sib headers:
     //
-    sib_headers_bytesize = header->active_agegroups * TOTAL_ILKS * sizeof( Sib_Header );
+    sib_headers_bytesize = header->active_agegroups * TOTAL_SIBS * sizeof( Sib_Header );
     //
     sib_headers = (Sib_Header*) MALLOC( sib_headers_bytesize );
     //
     heapio__read_block( bp, sib_headers, sib_headers_bytesize );
 
-    for (i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+    for (i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	prevSzB[i] = heap->agegroup0_buffer_bytesize;
     }
 
@@ -343,7 +343,7 @@ static void   read_heap   (
 	// Compute the space required for this agegroup,
 	// and mark the oldBOOK2SIBID to reflect the old address space:
 	//
-	for (q = p, j = 0;  j < MAX_PLAIN_ILKS;  j++) {
+	for (q = p, j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 
 	    set_book2sibid_entries_for_range (
 		//
@@ -358,7 +358,7 @@ static void   read_heap   (
 
 	    size = q->info.o.bytesize + prevSzB[j];
 
-	    if (j == PAIR_ILK
+	    if (j == PAIR_SIB
             &&  size > 0
             ){
 		size += 2*WORD_BYTESIZE;
@@ -376,7 +376,7 @@ static void   read_heap   (
 	if (allocate_and_partition_an_agegroup(age) == FAILURE) {
 	    die ("unable to allocated space for agegroup %d\n", i+1);
         } 
-	if (sib_is_active( age->sib[ VECTOR_ILK ] )) {							// sib_is_active	def in    src/c/h/heap.h
+	if (sib_is_active( age->sib[ VECTOR_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup (age);
         }
@@ -384,7 +384,7 @@ static void   read_heap   (
 	// Read in the sib buffers for this agegroup
 	// and initialize the address offset table:
 	//
-	for (int j = 0;  j < MAX_PLAIN_ILKS;  j++) {
+	for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 	    //
 	    Sib* ap = age->sib[ j ];
 
@@ -411,7 +411,7 @@ static void   read_heap   (
 
         // Read in the hugechunk sib buffers (currently just codechunks):
         //
-	for (int ilk = 0;  ilk < MAX_HUGE_ILKS;  ilk++) {			// MAX_HUGE_ILKS		def in    src/c/h/sibid.h
+	for (int ilk = 0;  ilk < MAX_HUGE_SIBS;  ilk++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //	
 	    Punt	 totSizeB;
 
@@ -462,7 +462,7 @@ static void   read_heap   (
                 //
 		heapio__read_block( bp, (void *)(freeChunk->chunk), totSizeB );
 		//
-		if (ilk == CODE__HUGE_ILK) {					// ilk = 0 == CODE__HUGE_ILK	def in    src/c/h/sibid.h
+		if (ilk == CODE__HUGE_SIB) {					// ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 		    //
 		    flush_instruction_cache ((void *)(freeChunk->chunk), totSizeB);
 		}
@@ -495,7 +495,7 @@ static void   read_heap   (
 		    ASSERT( bdp->gen == i+1 );
 
 		    if (codechunk_comment_display_is_enabled__global
-                    &&  ilk == CODE__HUGE_ILK
+                    &&  ilk == CODE__HUGE_SIB
                     ){
 		        // Dump the comment string of the code chunk.
 
@@ -626,7 +626,7 @@ static void   read_heap   (
         //
 	Agegroup*	age =  heap->agegroup[i];
         //
-	for (int j = 0;  j < MAX_PLAIN_ILKS;  j++) {
+	for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 	    //
 	    Sib* ap =  age->sib[ j ];
 	    //
@@ -729,7 +729,7 @@ static void   repair_heap   (
     Heap*             heap,
     Sibid*         oldBOOK2SIBID,
     //
-    Punt addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ],
+    Punt addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
     //
     Addresstable*     hugechunk_region_table,
     Val*              externs
@@ -767,7 +767,7 @@ static void   repair_heap   (
 			__chunkc = GET_KIND_FROM_SIBID(__aid)-1;				\
 			*__p = PTR_CAST( Val, __chunk + addrOffset[__gg][__chunkc]);	\
 		    }									\
-		    if (((index) == VECTOR_ILK) && (__gg < i)) {			\
+		    if (((index) == VECTOR_SIB) && (__gg < i)) {			\
 			MARK(ag->coarse_inter_agegroup_pointers_map, __p, __gg+1);	/** **/				\
 		    }									\
 		}									\
@@ -778,9 +778,9 @@ static void   repair_heap   (
 	    }										\
 	}
 
-	REPAIR_SIB( RECORD_ILK );
-	REPAIR_SIB(   PAIR_ILK );
-	REPAIR_SIB( VECTOR_ILK );
+	REPAIR_SIB( RECORD_SIB );
+	REPAIR_SIB(   PAIR_SIB );
+	REPAIR_SIB( VECTOR_SIB );
 
 	#undef REPAIR_SIB
     }
@@ -794,7 +794,7 @@ static Val   repair_word   (
     Val                w,
     Sibid*          oldBOOK2SIBID,
     //
-    Punt  addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ],
+    Punt  addrOffset  [ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ],
     //
     Addresstable*      hugechunk_region_table,
     Val*               externs

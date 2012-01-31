@@ -116,7 +116,7 @@ Cleaner statistics stuff:
 
 // Symbolic names for the sib buffers:
 //
- char*   sib_name__global   [ MAX_PLAIN_ILKS+1 ] =   { "new", "record", "pair", "string", "vector" };
+ char*   sib_name__global   [ MAX_PLAIN_SIBS+1 ] =   { "new", "record", "pair", "string", "vector" };
 
 
 /* DEBUG */
@@ -211,9 +211,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
 	}
 
-	for (int ilk = 0;   ilk < MAX_HUGE_ILKS;   ++ilk) {						// MAX_HUGE_ILKS (== 1)		def in    src/c/h/sibid.h
+	for (int ilk = 0;   ilk < MAX_HUGE_SIBS;   ++ilk) {						// MAX_HUGE_SIBS (== 1)		def in    src/c/h/sibid.h
 	    //
-	    Hugechunk*  promote =  promote_agegroup->hugechunks[ ilk ];					// ilk = 0 == CODE__HUGE_ILK	def in    src/c/h/sibid.h
+	    Hugechunk*  promote =  promote_agegroup->hugechunks[ ilk ];					// ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 	    Hugechunk*  forward =  NULL;
 
 	    Hugechunk*  next;
@@ -267,9 +267,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
         //
 	Agegroup*	ag =  heap->agegroup[age];
         //
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RECORD_ILK ]->tospace, (Val_Sized_Unt*) ag->sib[ RECORD_ILK ]->next_tospace_word_to_allocate, age+1, RECORD_ILK);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[   PAIR_ILK ]->tospace, (Val_Sized_Unt*) ag->sib[   PAIR_ILK ]->next_tospace_word_to_allocate, age+1,   PAIR_ILK);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ VECTOR_ILK ]->tospace, (Val_Sized_Unt*) ag->sib[ VECTOR_ILK ]->next_tospace_word_to_allocate, age+1,  VECTOR_ILK);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RECORD_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RECORD_SIB ]->next_tospace_word_to_allocate, age+1, RECORD_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[   PAIR_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[   PAIR_SIB ]->next_tospace_word_to_allocate, age+1,   PAIR_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ VECTOR_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ VECTOR_SIB ]->next_tospace_word_to_allocate, age+1,  VECTOR_SIB);
     }
     // DEBUG
     #endif
@@ -336,7 +336,7 @@ static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int
 	    //
             // The oldest agegroup has only "young" chunks:
             //
-	    for (int ilk = 0;   ilk < MAX_PLAIN_ILKS;   ++ilk) {							// sib_is_active	def in    src/c/h/heap.h
+	    for (int ilk = 0;   ilk < MAX_PLAIN_SIBS;   ++ilk) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
 		if (sib_is_active( ag->sib[ ilk ]))  ag->sib[ ilk ]->end_of_fromspace_oldstuff =  ag->sib[ilk]->tospace;
 		else		                     ag->sib[ ilk ]->end_of_fromspace_oldstuff =  NULL;
@@ -344,7 +344,7 @@ static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int
 
 	} else {
 
-	    for (int ilk = 0;   ilk < MAX_PLAIN_ILKS;   ++ilk) {
+	    for (int ilk = 0;   ilk < MAX_PLAIN_SIBS;   ++ilk) {
 	        //
 		if (sib_is_active(ag->sib[ ilk ]))  ag->sib[ ilk ]->end_of_fromspace_oldstuff =  ag->sib[ ilk ]->next_tospace_word_to_allocate;
 		else		                    ag->sib[ ilk ]->end_of_fromspace_oldstuff =  NULL;
@@ -365,7 +365,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 	//
 	Agegroup*	ag =  heap->agegroup[ max_swept_agegroup -1 ];
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    INCREASE_BIGCOUNTER(
 		//
@@ -375,7 +375,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 	}
     }
     for (    int age = 0;  age < oldest_agegroup_to_clean;  age++) {
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    Sib* ap =  heap->agegroup[ age ]->sib[ ilk ];
 	    //
@@ -448,7 +448,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
 	//
 	// Remember the top of to-space for max_swept_agegroup:
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    tospace_limit[ ilk ]
 		=
@@ -490,7 +490,7 @@ void                heapclean_n_agegroups                  (Task* task,  Val** r
 
     Heap*  heap  =  task->heap;
 
-    Val*  tospace_limit[ MAX_PLAIN_ILKS ];	// Set by following call.			// Cleaner statistics:  Counts number of bytes forwarded.
+    Val*  tospace_limit[ MAX_PLAIN_SIBS ];	// Set by following call.			// Cleaner statistics:  Counts number of bytes forwarded.
     int	  max_swept_agegroup;			// Set by following call.
 
     int oldest_agegroup_to_clean
@@ -623,10 +623,10 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
     int cleanings;
 
     Punt  new_bytesize;
-    Punt  previous_oldstuff_bytesize[ MAX_PLAIN_ILKS ];
-    Punt  min_bytesize[               MAX_PLAIN_ILKS ];
+    Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];
+    Punt  min_bytesize[               MAX_PLAIN_SIBS ];
 
-    for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ++ilk) {
+    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ++ilk) {
         //
 	previous_oldstuff_bytesize[ ilk ]
 	    =
@@ -648,7 +648,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 															// sib_freespace_in_bytes	def in    src/c/h/heap.h
 	if (age >= youngest_agegroup_without_cleaning_request) {
 	    //
-	    for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ++ilk) {
+	    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ++ilk) {
 	        //
 		Sib* sib =  ag->sib[ ilk ];
 
@@ -677,7 +677,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 	// make the old to-space into from-space, and
 	// allocate a new to-space.
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ++ilk) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ++ilk) {
 	    //	
 	    Punt  min_bytes;
 	    Punt  this_min_bytesize;
@@ -712,7 +712,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
                       +  this_min_bytesize
                       +  sib->requested_sib_buffer_bytesize;
 
-	    if (ilk == PAIR_ILK)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
+	    if (ilk == PAIR_SIB)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
 
 	    min_bytesize[ilk] =  min_bytes;
 
@@ -788,7 +788,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 
 	    say_error( "Unable to allocate to-space for agegroup %d; trying smaller size\n", age+1 );
 
-	    for (int ilk = 0;   ilk < MAX_PLAIN_ILKS;   ++ilk) {
+	    for (int ilk = 0;   ilk < MAX_PLAIN_SIBS;   ++ilk) {
 		//
 		ag->sib[ ilk ]->tospace_bytesize
 		    =
@@ -802,7 +802,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
 	}
 
 
-        if (sib_is_active( ag->sib[ VECTOR_ILK ])) {								// sib_is_active						def in    src/c/h/heap.h
+        if (sib_is_active( ag->sib[ VECTOR_SIB ])) {								// sib_is_active						def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );					// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in    src/c/heapcleaner/heapcleaner-stuff.c
 	}
@@ -855,7 +855,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
     // which are directly referenced from the agegroups
     // we are NOT cleaning.
     //
-    // Any such references must be in the VECTOR_ILK buffer:
+    // Any such references must be in the VECTOR_SIB buffer:
     //
     //   o We clean youngest-first, so any such references
     //     must be from an older to younger agegroup.
@@ -866,11 +866,11 @@ static void         forward_all_inter_agegroup_referenced_values   (
     //  o Only refcells and rw_vectors may be modified after creation.
     //
     //  o Except in agegroup0, all refcells and rw_vectors live in
-    //    VECTOR_ILK sib buffers.  (At this level a refcell is regarded
+    //    VECTOR_SIB sib buffers.  (At this level a refcell is regarded
     //    as just a length-1 rw_vector.) 
     //
-    // Consequently we need only check VECTOR_ILK sib buffers in
-    // this function.  (This is one reason for segregating VECTOR_ILK
+    // Consequently we need only check VECTOR_SIB sib buffers in
+    // this function.  (This is one reason for segregating VECTOR_SIB
     // in a separate buffer of their own in the first place.)
 
     // Cache global in register for speed:
@@ -890,7 +890,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 	    /*CARD*/ card_count1_local[age]=card_count2_local[age]=0;
 	#endif
 
-	if (!sib_is_active( ag->sib[ VECTOR_ILK ]))   continue;							// sib_is_active			def in    src/c/h/heap.h
+	if (!sib_is_active( ag->sib[ VECTOR_SIB ]))   continue;							// sib_is_active			def in    src/c/h/heap.h
 
 	Coarse_Inter_Agegroup_Pointers_Map*	 map
 	    =
@@ -898,7 +898,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 	if (map == NULL)   continue;
 
-	Val* max_sweep =  ag->sib[ VECTOR_ILK ]->next_word_to_sweep_in_tospace;
+	Val* max_sweep =  ag->sib[ VECTOR_SIB ]->next_word_to_sweep_in_tospace;
 
 
 	// Find all cards in this agegroup which contain
@@ -988,7 +988,7 @@ inline static Bool  scan_tospace_buffer   (										// Called only from forward
     //              ===================
     Agegroup* ag,
     Heap*     heap,
-    int       ilk,		// Either RECORD_ILK or PAIR_ILK.
+    int       ilk,		// Either RECORD_SIB or PAIR_SIB.
     Sibid     max_sibid
 ){
     // Forward (copy) to to-space all live values referenced
@@ -1031,7 +1031,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
     // Return TRUE iff we did anything.
 
 
-    Sib* sib =   ag->sib[ VECTOR_ILK ];
+    Sib* sib =   ag->sib[ VECTOR_SIB ];
 
     if (!sib_is_active( sib ))   return FALSE;										// sib_is_active	def in    src/c/h/heap.h
 
@@ -1207,8 +1207,8 @@ static void         forward_remaining_live_values                      (Heap* he
             // Forward all live values referenced by unscanned parts
             // of to-space buffers for records, pairs and vectors:
 	    //
-	    making_progress |=   scan_tospace_buffer(   ag, heap, RECORD_ILK, max_sibid );
-	    making_progress |=   scan_tospace_buffer(   ag, heap, PAIR_ILK,   max_sibid );
+	    making_progress |=   scan_tospace_buffer(   ag, heap, RECORD_SIB, max_sibid );
+	    making_progress |=   scan_tospace_buffer(   ag, heap, PAIR_SIB,   max_sibid );
 	    making_progress |=   scan_vector_tospace(   ag, heap, oldest_agegroup_to_clean );
 	}
     }
@@ -1269,7 +1269,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RECORD_ILK ];
+	    sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RECORD_SIB ];
 
 	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 	}
@@ -1302,7 +1302,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 	        // Forward the pair:
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ PAIR_ILK ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ PAIR_SIB ];
 
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;
 
@@ -1344,7 +1344,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_ILK ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_SIB ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		break;
@@ -1353,7 +1353,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_ILK ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ STRING_SIB ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		#ifdef ALIGN_FLOAT64S
@@ -1409,7 +1409,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ VECTOR_ILK ];
+	    sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ VECTOR_SIB ];
 
 	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old		def in   src/c/h/heap.h
         }
@@ -1504,7 +1504,7 @@ static Val          forward_special_chunk   (
     // Forward a "special chunk" (a suspension or weak pointer).
     //
     Agegroup*	ag = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ];
-    Sib*	sib = ag->sib[ VECTOR_ILK ];
+    Sib*	sib = ag->sib[ VECTOR_SIB ];
     Val*	new_chunk;
 
     if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;							// sib_chunk_is_old		def in   src/c/h/heap.h
@@ -1668,7 +1668,7 @@ static void         trim_heap                          (Heap* heap,  int oldest_
 	//
 	Agegroup* ag = heap->agegroup[ age ];
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    Sib* sib = ag->sib[ ilk ];
 

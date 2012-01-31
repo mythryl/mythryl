@@ -155,8 +155,8 @@ static Status   write_heap_image_to_file   (
 	hh.pthread_count		= 1;
 	hh.active_agegroups		= heap->active_agegroups;
 	//
-	hh.smallchunk_sibs_count	= MAX_PLAIN_ILKS;						// MAX_PLAIN_ILKS			def in    src/c/h/sibid.h
-	hh.hugechunk_sibs_count		= MAX_HUGE_ILKS;						// MAX_HUGE_ILKS			def in    src/c/h/sibid.h
+	hh.smallchunk_sibs_count	= MAX_PLAIN_SIBS;						// MAX_PLAIN_SIBS			def in    src/c/h/sibid.h
+	hh.hugechunk_sibs_count		= MAX_HUGE_SIBS;						// MAX_HUGE_SIBS			def in    src/c/h/sibid.h
 	hh.hugechunk_ramregion_count	= heap->hugechunk_ramregion_count;
 	//
 	hh.oldest_agegroup_keeping_idle_fromspace_buffers
@@ -241,7 +241,7 @@ inline static void   patch_sib   (
     Heap*        heap,
     Heapfile_Cfun_Table* table,
     int          age,								// 0 <= age < heap->active_agegroups
-    int          ilk								// ilk will be one of PAIR_ILK, RECORD_ILK, VECTOR_ILK from   src/c/h/sibid.h
+    int          ilk								// ilk will be one of PAIR_SIB, RECORD_SIB, VECTOR_SIB from   src/c/h/sibid.h
 ){
     Sib* sib = heap->agegroup[ age ]->sib[ ilk ];
 
@@ -286,9 +286,9 @@ static Heapfile_Cfun_Table*   build_export_table   (Heap* heap) {
     //
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	patch_sib(b2s,heap,table, age,   PAIR_ILK );
-	patch_sib(b2s,heap,table, age, RECORD_ILK );
-	patch_sib(b2s,heap,table, age, VECTOR_ILK );
+	patch_sib(b2s,heap,table, age,   PAIR_SIB );
+	patch_sib(b2s,heap,table, age, RECORD_SIB );
+	patch_sib(b2s,heap,table, age, VECTOR_SIB );
     }
 
     return table;
@@ -348,7 +348,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
     // Initialize the sib headers:
     //
-    sib_headers_size =  heap->active_agegroups  *  TOTAL_ILKS  *  sizeof( Sib_Header );
+    sib_headers_size =  heap->active_agegroups  *  TOTAL_SIBS  *  sizeof( Sib_Header );
 
     sib_headers = (Sib_Header*) MALLOC( sib_headers_size );
 
@@ -359,7 +359,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
     p = sib_headers;
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++, p++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++, p++) {
 	    //
 	    Sib* ap =  heap->agegroup[ age ]->sib[ ilk ];
 	    //
@@ -374,12 +374,12 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    offset   +=  p->info.o.rounded_bytesize;
 	}
 
-	for (int ilk = 0;  ilk < MAX_HUGE_ILKS;  ilk++, p++) {			// MAX_HUGE_ILKS (== 1)			def in    src/c/h/sibid.h
+	for (int ilk = 0;  ilk < MAX_HUGE_SIBS;  ilk++, p++) {			// MAX_HUGE_SIBS (== 1)			def in    src/c/h/sibid.h
 	    //
 	    int chunks;
 	    int quanta;
 	    //
-	    bdp = heap->agegroup[age]->hugechunks[ ilk ];			// ilk = 0 == CODE__HUGE_ILK		def in    src/c/h/sibid.h
+	    bdp = heap->agegroup[age]->hugechunks[ ilk ];			// ilk = 0 == CODE__HUGE_SIB		def in    src/c/h/sibid.h
 	    //
 	    for (chunks = quanta = 0;  bdp != NULL;  bdp = bdp->next) {
 		//
@@ -413,7 +413,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
     p = sib_headers;
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    if (cleaner_messages_are_enabled__global) {
 		//
@@ -430,7 +430,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    p++;
 	}
 
-	for (int huge_ilk = 0;  huge_ilk < MAX_HUGE_ILKS;  huge_ilk++) {					// MAX_HUGE_ILKS		def in    src/c/h/sibid.h
+	for (int huge_ilk = 0;  huge_ilk < MAX_HUGE_SIBS;  huge_ilk++) {					// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //
 	    int		       header_bytesize;
 	    Hugechunk_Header*  header;
@@ -454,7 +454,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
                 //
 	        Hugechunk_Header* q =  header;
 		//
-		for (bdp  =  heap->agegroup[ age ]->hugechunks[ huge_ilk ];				// huge_ilk = 0 == CODE__HUGE_ILK	def in    src/c/h/sibid.h
+		for (bdp  =  heap->agegroup[ age ]->hugechunks[ huge_ilk ];				// huge_ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
                      bdp !=  NULL;
                      bdp  = bdp->next,  ++q
                 ){
@@ -521,9 +521,9 @@ static void   repair_heap   (
     //
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	REPAIR_SIB( RECORD_ILK );
-	REPAIR_SIB(   PAIR_ILK );
-	REPAIR_SIB( VECTOR_ILK );
+	REPAIR_SIB( RECORD_SIB );
+	REPAIR_SIB(   PAIR_SIB );
+	REPAIR_SIB( VECTOR_SIB );
     }
 
     free_heapfile_cfun_table( table );

@@ -122,7 +122,7 @@ typedef struct {
 //
 typedef struct {
     int	   age;						// Agegroup of this sib:  0 <= age < heap->active_agegroups.
-    int	   chunk_ilk;					// Sib buffer contents -- one of  RECORD_ILK, PAIR_ILK, STRING_ILK, VECTOR_ILK   from   src/c/h/sibid.h
+    int	   chunk_ilk;					// Sib buffer contents -- one of  RECORD_SIB, PAIR_SIB, STRING_SIB, VECTOR_SIB   from   src/c/h/sibid.h
     Unt1  offset;					// File position at which this sib buffer starts.
     //
     union {						// Additional info.
@@ -155,7 +155,7 @@ typedef struct {
 typedef struct {
     //
     int		age;			// The agegroup of this hugechunk.
-    int		huge_ilk;		// Ilk of this hugechunk. Currently always CODE__HUGE_ILK		def in    src/c/h/sibid.h
+    int		huge_ilk;		// Ilk of this hugechunk. Currently always CODE__HUGE_SIB		def in    src/c/h/sibid.h
     //
     Punt	base_address;		// Base address of this hugechunk in the exporting address space.
     Punt	bytesize;		// Size of this hugechunk.

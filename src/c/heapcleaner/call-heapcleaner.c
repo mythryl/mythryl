@@ -199,7 +199,7 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	Val_Sized_Unt	size =   task->heap->agegroup0_buffer_bytesize;
 
-	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
 	    Sib* sib =  age1->sib[ i ];
 
@@ -410,7 +410,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
         //
 	Val_Sized_Unt  size =  task->heap->agegroup0_buffer_bytesize;
 
-	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
 	    Sib* sib = age1->sib[ i ];
 	    //

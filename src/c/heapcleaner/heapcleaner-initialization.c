@@ -153,7 +153,7 @@ static void   clear_heapcleaner_statistics   (Heap* heap)  {
     ZERO_BIGCOUNTER( &heap->total_bytes_allocated );
     //
     for     (int age = 0;  age < MAX_AGEGROUPS;   ++age) {
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ++ilk) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ++ilk) {
 	    //
 	    ZERO_BIGCOUNTER( &heap->total_bytes_copied_to_sib[ age ][ ilk ] );
 	}
@@ -269,7 +269,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	ag->saved_fromspace_ram_region		= NULL;
 	ag->coarse_inter_agegroup_pointers_map	= NULL;
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {			// MAX_PLAIN_ILKS		def in    src/c/h/sibid.h
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {			// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 	    //
 	    ag->sib[ ilk ] = MALLOC_CHUNK( Sib );
 	    //
@@ -279,9 +279,9 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    ag->sib[ ilk ]->id =   MAKE_SIBID( age+1, ilk+1, 0);
 	}
-	for (int ilk = 0;  ilk < MAX_HUGE_ILKS;  ilk++) {			// MAX_HUGE_ILKS		def in    src/c/h/sibid.h
+	for (int ilk = 0;  ilk < MAX_HUGE_SIBS;  ilk++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //
-	    ag->hugechunks[ ilk ] = NULL;					// ilk = 0 == CODE__HUGE_ILK	def in    src/c/h/sibid.h
+	    ag->hugechunks[ ilk ] = NULL;					// ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 	}
     }
 
@@ -291,7 +291,7 @@ void   set_up_heap   (			// Create and initialize the heap.
                      ?  age
                      :  age+1;
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    heap->agegroup[ age ]->sib[ ilk ]->sib_for_promoted_chunks
                 =
@@ -379,7 +379,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	//
 	// Create agegroup 1's to-space:
 	//
-        for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+        for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    heap->agegroup[ 0 ]->sib[ ilk ]->tospace_bytesize
                 =
@@ -388,7 +388,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	if (allocate_and_partition_an_agegroup( heap->agegroup[0] ) == FAILURE)	    die ("unable to allocate initial agegroup 1 buffer\n");
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    heap->agegroup[ 0 ]->sib[ ilk ]->end_of_fromspace_oldstuff
 		=

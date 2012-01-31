@@ -27,7 +27,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //
     Punt  tot_size =  0;
     //
-    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+    for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	//
 	if (sib_is_active( ag->sib[ i ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
@@ -65,7 +65,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //
     Val* p =  (Val*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( heapchunk );
     //
-    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+    for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
         //
 	ap = ag->sib[ i ];
         //
@@ -92,7 +92,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	}
     }
 
-    ap = ag->sib[ PAIR_ILK ];
+    ap = ag->sib[ PAIR_SIB ];
 
     if (sib_is_active(ap)) {
         //
@@ -154,7 +154,7 @@ void   free_agegroup   (Heap* heap,  int g) {
     //
     ag->fromspace_ram_region = NULL;
     //	
-    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+    for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	//
 	Sib* ap =  ag->sib[ i ];
 
@@ -174,10 +174,10 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
     // ========================================================
     // 
     // Bind in a new coarse_inter_agegroup_pointers_map
-    // vector for the given agegroup VECTOR_ILK,
+    // vector for the given agegroup VECTOR_SIB,
     // reclaiming the old map.
 
-    Sib* ap =  ag->sib[ VECTOR_ILK ];												// We only need these maps for the VECTOR_ILK sibs.
+    Sib* ap =  ag->sib[ VECTOR_SIB ];												// We only need these maps for the VECTOR_SIB sibs.
 
     int  map_size_in_slots
 	=

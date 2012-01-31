@@ -20,18 +20,18 @@
 // have up to 7 regular sibs (and additionally
 // up to 7 hugechunkd sibs):
 //
-#define	RECORD_ILK		0					// Exported.
-#define   PAIR_ILK		1					// Exported.
-#define STRING_ILK		2					// Exported.
-#define VECTOR_ILK		3					// Exported.
-#define MAX_PLAIN_ILKS		4					// Exported.
+#define	RECORD_SIB		0					// Exported.
+#define   PAIR_SIB		1					// Exported.
+#define STRING_SIB		2					// Exported.
+#define VECTOR_SIB		3					// Exported.
+#define MAX_PLAIN_SIBS		4					// Exported.
 
 // Codechunks are currently the only hugechunks:
 //
-#define CODE__HUGE_ILK		0					// Exported.
-#define   MAX_HUGE_ILKS		1					// Exported.
+#define CODE__HUGE_SIB		0					// Exported.
+#define   MAX_HUGE_SIBS		1					// Exported.
 
-#define TOTAL_ILKS		(MAX_PLAIN_ILKS + MAX_HUGE_ILKS)	// Exported.	
+#define TOTAL_SIBS		(MAX_PLAIN_SIBS + MAX_HUGE_SIBS)	// Exported.	
 
 
 
@@ -95,17 +95,17 @@
 
 // The different sib kinds:
 //
-#define KIND_FROM_ILK(      ilk )	     (ilk + 1)			// Arg is one of RECORD_ILK, PAIR_ILK...
-#define KIND_FROM_HUGE_ILK( ilk )	(0x8|(ilk << 1))		// Arg is CODE__HUGE_ILK. "0x8|" distinguishes from plain ilk.
+#define KIND_FROM_ILK(      ilk )	     (ilk + 1)			// Arg is one of RECORD_SIB, PAIR_SIB...
+#define KIND_FROM_HUGE_ILK( ilk )	(0x8|(ilk << 1))		// Arg is CODE__HUGE_SIB. "0x8|" distinguishes from plain ilk.
     //
     #define NEW_KIND		0x0					// 
     //
-    #define RECORD_KIND		KIND_FROM_ILK(     RECORD_ILK )		// 
-    #define   PAIR_KIND		KIND_FROM_ILK(       PAIR_ILK )		// 
-    #define STRING_KIND		KIND_FROM_ILK(     STRING_ILK )		// 
-    #define VECTOR_KIND		KIND_FROM_ILK(     VECTOR_ILK )		// 
+    #define RECORD_KIND		KIND_FROM_ILK(     RECORD_SIB )		// 
+    #define   PAIR_KIND		KIND_FROM_ILK(       PAIR_SIB )		// 
+    #define STRING_KIND		KIND_FROM_ILK(     STRING_SIB )		// 
+    #define VECTOR_KIND		KIND_FROM_ILK(     VECTOR_SIB )		// 
     //
-    #define   CODE_KIND		KIND_FROM_HUGE_ILK( CODE__HUGE_ILK )	// 
+    #define   CODE_KIND		KIND_FROM_HUGE_ILK( CODE__HUGE_SIB )	// 
     //
 
 #define KIND_SHIFT		ID_BITS					// 

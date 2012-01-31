@@ -100,7 +100,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     Heap*      heap =  task->heap;
     Agegroup*  age1 =  heap->agegroup[0];
 
-													    Punt  age1_tospace_top   [ MAX_PLAIN_ILKS ];
+													    Punt  age1_tospace_top   [ MAX_PLAIN_SIBS ];
 														//
 														// Heapcleaner statistics support: We use this to note the
 														// current start-of-freespace in each generation-one sib buffer.
@@ -116,7 +116,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														//
 														// More heapcleaner statistics reportage.
 
-													    for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+													    for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 														//
 														age1_tospace_top[i]
 														    =
@@ -127,7 +127,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 													    #ifdef VERBOSE
 														debug_say ("Agegroup 1 before cleaning agegroup0:\n");
 														//
-														for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+														for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 														    //
 														    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, next_tospace_word_to_allocate = %#x\n",
 															//
@@ -182,7 +182,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     #ifdef VERBOSE
 	debug_say ("Agegroup 1 after MinorGC:\n");
-	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	  debug_say ("  %s: base = %#x, oldTop = %#x, next_tospace_word_to_allocate = %#x\n",
 	    sib_name__global[i+1], age1->sib[i]->tospace,
 	    age1->sib[i]->oldTop, age1->sib[i]->next_tospace_word_to_allocate);
@@ -193,7 +193,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     {
 	long bytes_copied = 0;
 
-	for (int i = 0;  i < MAX_PLAIN_ILKS;  i++) {
+	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
 	    int bytes = (Val_Sized_Unt) age1->sib[ i ]->next_tospace_word_to_allocate - age1_tospace_top[ i ];
 
@@ -371,15 +371,15 @@ static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {		// 'tas
 	//
 	making_progress = FALSE;
 	//
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RECORD_ILK, task );
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   PAIR_ILK, task );
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1, VECTOR_ILK, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RECORD_SIB, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   PAIR_SIB, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, VECTOR_SIB, task );
     };
 }										// fun sweep_agegroup1_tospace.
 
 
 //
-static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task* task, int caller)   {	// 'task' arg is only for debugging, can be removed in production use.
+static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task* task, int caller)   {		// 'task' arg is only for debugging, can be removed in production use.
     //       =====================================
     // 
     // Forward pair/record/vector/string 'v' from agegroup0 to agegroup 1.
@@ -391,25 +391,27 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     //   o Returning the duplicate.
 
     Val*           new_chunk;
-    Val_Sized_Unt  len;
+    Val_Sized_Unt  len_in_words;
     Sib*           sib;
 
     Val*  chunk =   PTR_CAST(Val*, v);
     Val tagword =   chunk[-1];
 
-    switch (GET_BTAG_FROM_TAGWORD( tagword )) {
-	//
-    case PAIRS_AND_RECORDS_BTAG:
-	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 
-	#ifdef NO_PAIR_STRIP							// Nowhere else mentioned in codebase.
-	    sib = ag1->sib[RECORD_ILK];
+    switch (GET_BTAG_FROM_TAGWORD( tagword )) {
+    //
+    case PAIRS_AND_RECORDS_BTAG:
+	//
+	len_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+
+	#ifdef NO_PAIR_STRIP							// 'NO_PAIR_STRIP' appears nowhere else in the codebase.
+	    sib = ag1->sib[RECORD_SIB];
 	#else
-	    if (len != 2) {
-		sib = ag1->sib[ RECORD_ILK ];
+	    if (len_in_words != 2) {
+		sib = ag1->sib[ RECORD_SIB ];
 	    } else {
 		//
-		sib = ag1->sib[ PAIR_ILK ];
+		sib = ag1->sib[ PAIR_SIB ];
 		new_chunk = sib->next_tospace_word_to_allocate;
 		sib->next_tospace_word_to_allocate += 2;
 		new_chunk[0] = chunk[0];
@@ -424,32 +426,37 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
         #endif
 	break;
 
+
     case RO_VECTOR_HEADER_BTAG:
     case RW_VECTOR_HEADER_BTAG:
 	//
-	len = 2;
-	sib = ag1->sib[ RECORD_ILK ];
+	len_in_words =  2;
+	//
+	sib = ag1->sib[ RECORD_SIB ];
 	break;
+
 
     case RW_VECTOR_DATA_BTAG:
 	//
-	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+	len_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ VECTOR_ILK ];
+	sib = ag1->sib[ VECTOR_SIB ];
 	break;
+
 
     case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	//
-	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+	len_in_words = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ STRING_ILK ];
+	sib = ag1->sib[ STRING_SIB ];
 	break;
+
 
     case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	//
-	len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+	len_in_words = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ STRING_ILK ];
+	sib = ag1->sib[ STRING_SIB ];
 	//
 	#ifdef ALIGN_FLOAT64S
 	#  ifdef CHECK_HEAP
@@ -482,11 +489,11 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     // Allocate and initialize a to-space copy of the chunk:
     //
     new_chunk = sib->next_tospace_word_to_allocate;
-    sib->next_tospace_word_to_allocate += (len + 1);
+    sib->next_tospace_word_to_allocate += (len_in_words + 1);
     *new_chunk++ = tagword;
     ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
 
-    COPYLOOP(chunk, new_chunk, len);
+    COPYLOOP(chunk, new_chunk, len_in_words);					// COPYLOOP	def in   src/c/heapcleaner/copy-loop.h
 
     // Set up the forward pointer, and return the new chunk:
     //
@@ -502,7 +509,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
     // 
     // Forward a special chunk (suspension or weak pointer).
 
-    Sib*  sib =  ag1->sib[ VECTOR_ILK ];
+    Sib*  sib =  ag1->sib[ VECTOR_SIB ];
 
     Val*  new_chunk = sib->next_tospace_word_to_allocate;
 

@@ -82,7 +82,7 @@ struct heap {
 
     //
     Bigcounter   total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.
-    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
+    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
 };
 
 #ifdef OLD
@@ -111,9 +111,9 @@ struct agegroup {
 
     int	    last_cleaning_count_of_younger_agegroup;	// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
 
-    Sib*    sib[ MAX_PLAIN_ILKS ];				// MAX_PLAIN_ILKS		def in    src/c/h/sibid.h
+    Sib*    sib[ MAX_PLAIN_SIBS ];				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 
-    Hugechunk*   hugechunks[ MAX_HUGE_ILKS ];			// MAX_HUGE_ILKS		def in    src/c/h/sibid.h
+    Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 
     Multipage_Ram_Region*    tospace_ram_region;		// The host-OS multipage ram regions that this agegroup is
     Multipage_Ram_Region*    fromspace_ram_region;		// using for the to-space and from-space.
@@ -288,7 +288,7 @@ struct hugechunk {
 						// is in the free list, this will be a multiple of
 						// HUGECHUNK_RAM_QUANTUM_IN_BYTES, otherwise it is the exact size.
 
-    unsigned char   huge_ilk;			// The chunk ilk.  Currently always CODE__HUGE_ILK -- def in   src/c/h/sibid.h
+    unsigned char   huge_ilk;			// The chunk ilk.  Currently always CODE__HUGE_SIB -- def in   src/c/h/sibid.h
     unsigned char   hugechunk_state;		// The state of the chunk -- see above #defines.
     unsigned char   age;			// The chunk's agegroup.
 

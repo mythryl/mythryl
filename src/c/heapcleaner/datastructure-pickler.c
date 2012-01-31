@@ -126,17 +126,17 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     Heap* heap    =  task->heap;
     int	  max_age =  result->oldest_agegroup_included_in_pickle;
 
-    Punt  total_sib_buffer_bytesize[ MAX_PLAIN_ILKS ];
+    Punt  total_sib_buffer_bytesize[ MAX_PLAIN_SIBS ];
     Punt  total_bytesize;
 
     struct {
 	Punt		    base;	// Base address of the sib buffer in the heap.
 	Punt		    offset;	// Relative position in the merged sib buffer.
 	//
-    } adjust[ MAX_AGEGROUPS ][ MAX_PLAIN_ILKS ];
+    } adjust[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];
 
     Sib_Header*  p;										// Sib_Header		def in    src/c/heapcleaner/runtime-heap-image.h
-    Sib_Header*  sib_headers[ TOTAL_ILKS ];
+    Sib_Header*  sib_headers[ TOTAL_SIBS ];
     Sib_Header*  sib_header_buffer;
 
     int  sib_header_bytesize;
@@ -147,21 +147,21 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // Compute the sib offsets in the heap image:
     //
-    for (int ilk = 0;   ilk < MAX_PLAIN_ILKS;   ilk++) {
+    for (int ilk = 0;   ilk < MAX_PLAIN_SIBS;   ilk++) {
         //
 	total_sib_buffer_bytesize[ ilk ] = 0;
     }
 
     // The embedded literals go first:
     //
-    total_sib_buffer_bytesize[ STRING_ILK ]						// pickler__relocate_embedded_literals	def in   src/c/heapcleaner/datastructure-pickler-cleaner.c
+    total_sib_buffer_bytesize[ STRING_SIB ]						// pickler__relocate_embedded_literals	def in   src/c/heapcleaner/datastructure-pickler-cleaner.c
 	=
-	pickler__relocate_embedded_literals( result, STRING_ILK, 0 );
+	pickler__relocate_embedded_literals( result, STRING_SIB, 0 );
 
-    // DEBUG debug_say("%d bytes of string literals\n", total_sib_buffer_bytesize[STRING_ILK]);
+    // DEBUG debug_say("%d bytes of string literals\n", total_sib_buffer_bytesize[STRING_SIB]);
 
     for     (int age = 0;  age < max_age;         age++) {
-	for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
 	    Sib* sib =  heap->agegroup[ age ]->sib[ ilk ];
 
@@ -186,7 +186,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 	}
     }
 
-    // DEBUG for (ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) debug_say ("sib %d: %d bytes\n", ilk+1, total_sib_buffer_bytesize[ilk]);
+    // DEBUG for (ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) debug_say ("sib %d: %d bytes\n", ilk+1, total_sib_buffer_bytesize[ilk]);
 
     // WHAT ABOUT THE BIG CHUNKS??? XXX BUGGO FIXME
 
@@ -195,7 +195,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     smallchunk_sibs_count = 0;
     total_bytesize   = 0;
     //
-    for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	//
 	if (total_sib_buffer_bytesize[ilk] > 0) {
 	    smallchunk_sibs_count++;
@@ -237,7 +237,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     //
     p = sib_header_buffer;
     //
-    for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
         //
 	if (total_sib_buffer_bytesize[ ilk ] <= 0) {
 	    //
@@ -352,9 +352,9 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // Write the pickled datastructure proper:
     //
-    for (int ilk = 0;  ilk < MAX_PLAIN_ILKS;  ilk++) {
+    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	//
-	if (ilk == STRING_ILK) {
+	if (ilk == STRING_SIB) {
 
 	    // Write into the pickle the required embedded literals:
             //

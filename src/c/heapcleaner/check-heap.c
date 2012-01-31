@@ -51,10 +51,10 @@ void   check_heap   (Heap* heap,  int max_swept_agegroup)   {
         //
 	Agegroup*	g =  heap->agegroup[i];
         //
-	check_record_sib (g->sib[ RECORD_ILK ]);
-	check_pair_sib   (g->sib[   PAIR_ILK ]);
-	check_string_sib (g->sib[ STRING_ILK ]);
-	check_vector_sib  (g->sib[ VECTOR_ILK ], g->dirty);
+	check_record_sib (g->sib[ RECORD_SIB ]);
+	check_pair_sib   (g->sib[   PAIR_SIB ]);
+	check_string_sib (g->sib[ STRING_SIB ]);
+	check_vector_sib  (g->sib[ VECTOR_SIB ], g->dirty);
     }
     debug_say ("... done\n");
 
