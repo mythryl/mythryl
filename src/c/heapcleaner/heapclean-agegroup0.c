@@ -53,7 +53,7 @@ extern long	total_bytes_copied__global;		// total_bytes_allocated__global		def i
 
 //
 static void   process_task_heap_changelog (Task* task,  Heap* heap);
-static void   sweep_agegroup1_tospace	                (Agegroup* agegroup1,         Task* task);			// 'task' arg is purely for debugging, can be deleted for production use.
+static void   copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1	                (Agegroup* agegroup1,         Task* task);			// 'task' arg is purely for debugging, can be deleted for production use.
 static  Val   forward_agegroup0_chunk_to_agegroup1	(Agegroup* agegroup1,  Val v, Task* task, int caller);		// 'task' arg is only for debugging, can be dropped in production code.
 static  Val   forward_special_chunk			(Agegroup* agegroup1,  Val* chunk,  Val tagword);
 
@@ -62,7 +62,7 @@ static  Val   forward_special_chunk			(Agegroup* agegroup1,  Val* chunk,  Val ta
     extern char* sib_name__global [];			// sib_name__global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
-static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {		// 'task' arg is only for debugging, can be dropped in production code.
+static inline void   forward_to_agegroup1_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {		// 'task' arg is only for debugging, can be dropped in production code.
     //               =======================
     //
     // Forward *p if it is in agegroup0:
@@ -149,11 +149,13 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	Val*    rp;
 	while ((rp = *roots++) != NULL) {
 	    //
-	    forward_if_in_agegroup0( b2s, age1, rp, task );
+	    forward_to_agegroup1_if_in_agegroup0( b2s, age1, rp, task );
 	}
     }
 
-    // Scan the store log:
+    // Scan the changelog -- if there are any new
+    // pointers into agegroup0 from other agegroups
+    // we need to know about them now:	
     //
     #if NEED_PTHREAD_SUPPORT
     {
@@ -173,50 +175,47 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 	process_task_heap_changelog( task, heap );									// Just one heap storelog to process.
     #endif
 
-    // Sweep the to-space for agegroup 1:
-    //
-    sweep_agegroup1_tospace( age1, task );
-    ++heap->agegroup0_cleanings_done;
-
+    copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1( age1, task );
+								    ++heap->agegroup0_cleanings_done;
     null_out_newly_dead_weakrefs( heap );										// null_out_newly_dead_weakrefs		def in    src/c/heapcleaner/heapcleaner-stuff.c
 
-    #ifdef VERBOSE
-	debug_say ("Agegroup 1 after MinorGC:\n");
-	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-	  debug_say ("  %s: base = %#x, oldTop = %#x, next_tospace_word_to_allocate = %#x\n",
-	    sib_name__global[i+1], age1->sib[i]->tospace,
-	    age1->sib[i]->oldTop, age1->sib[i]->next_tospace_word_to_allocate);
-	}
-    #endif
+								    #ifdef VERBOSE
+									debug_say ("Agegroup 1 after MinorGC:\n");
+									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
+									  debug_say ("  %s: base = %#x, oldTop = %#x, next_tospace_word_to_allocate = %#x\n",
+									    sib_name__global[i+1], age1->sib[i]->tospace,
+									    age1->sib[i]->oldTop, age1->sib[i]->next_tospace_word_to_allocate);
+									}
+								    #endif
 
-    // Cleaner statistics stuff:
-    {
-	long bytes_copied = 0;
+								    // Cleaner statistics stuff:
+								    {
+									long bytes_copied = 0;
 
-	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-	    //
-	    int bytes = (Val_Sized_Unt) age1->sib[ i ]->next_tospace_word_to_allocate - age1_tospace_top[ i ];
+									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
+									    //
+									    int bytes = (Val_Sized_Unt) age1->sib[ i ]->next_tospace_word_to_allocate - age1_tospace_top[ i ];
 
-	    bytes_copied += bytes;
+									    bytes_copied += bytes;
 
-	    INCREASE_BIGCOUNTER( &heap->total_bytes_copied_to_sib[ 0 ][ i ], bytes );
-	}
+									    INCREASE_BIGCOUNTER( &heap->total_bytes_copied_to_sib[ 0 ][ i ], bytes );
+									}
 
-	total_bytes_allocated__global  +=  bytes_allocated;				// Never used otherwise.
-	total_bytes_copied__global     +=  bytes_copied;				// Never used otherwise.
+									total_bytes_allocated__global  +=  bytes_allocated;				// Never used otherwise.
+									total_bytes_copied__global     +=  bytes_copied;				// Never used otherwise.
 
-	#ifdef XXX
-	    debug_say ("Minor GC: %d/%d (%5.2f%%) bytes copied; %d updates\n",
-	    bytes_copied, bytes_allocated,
-	    (bytes_allocated ? (double)(100*bytes_copied)/(double)bytes_allocated : 0.0),
-	    update_count__global - nUpdates);
-	#endif
-    }
+									#ifdef XXX
+									    debug_say ("Minor GC: %d/%d (%5.2f%%) bytes copied; %d updates\n",
+									    bytes_copied, bytes_allocated,
+									    (bytes_allocated ? (double)(100*bytes_copied)/(double)bytes_allocated : 0.0),
+									    update_count__global - nUpdates);
+									#endif
+								    }
 
 
-    #ifdef CHECK_HEAP
-        check_heap( heap, 1 );								// check_heap		def in    src/c/heapcleaner/check-heap.c
-    #endif
+								    #ifdef CHECK_HEAP
+									check_heap( heap, 1 );								// check_heap		def in    src/c/heapcleaner/check-heap.c
+								    #endif
 
 }											// fun heapclean_agegroup0
 
@@ -326,9 +325,13 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 }												// fun process_task_heap_changelog
 
 //
-static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {		// Called only from sweep_agegroup1_tospace (below).
+static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {		// Called only from copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1 (below).
     //        ===========================							// 'task' arg is only for debugging, can be dropped in production code.
     //
+    // This is a dedicated helper fn for the below fn
+    // copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1
+    // -- see comments there.
+
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
     Sib*   sib =  ag1->sib[ ilk ];								// Find sib to scan.
 
@@ -343,7 +346,7 @@ static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task
 	do {
 	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {			// Check all words in buffer.
 		//
-	      forward_if_in_agegroup0(b2s, ag1, p, task);					// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
+	      forward_to_agegroup1_if_in_agegroup0(b2s, ag1, p, task);					// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
 	} while (q != sib->next_tospace_word_to_allocate);					// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
@@ -352,14 +355,35 @@ static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task
 
     return progress;
 }
+
 //
-static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {				// 'task' arg is only for debugging, can be removed in production use.
-    //        ========================
+static void   copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1   (Agegroup* ag1, Task* task)   {				// 'task' arg is only for debugging, can be removed in production use.
+    //        =============================================================
     //
-    // Search the agegroup 1 to-space buffers for references
-    // to values in agegroup0.  Copy all such agegroup0 values	
-    // to agegroup1, and then search them for more such references
-    // to agegroup0 values, continuing until progress ceases.
+    // We have now copied from agegroup0 to agegroup1
+    // all values directly reachable from registers,
+    // global variables etc.
+    //
+    // The newly copied values in agegroup1 are packed
+    // contiguously in memory.
+    //
+    // We now treat those contiguously packed values
+    // as a work queue:  Any agegroup0 values referenced
+    // within this work queue must also be copied to
+    // agegroup1, and any agegroup0 values within them
+    // and so on recursively. Thus, we consume our work
+    // queue from one end while appending to it from the
+    // other end.
+    //
+    // The great advantage of this approach is that our
+    // complete recursive-copy state is encoded in two
+    // pointers to the two ends of the workqueue.
+    //
+    // Since our to-space (agegroup1) is actually divided
+    // into multiple sibs (buffers), we actually wind up
+    // with one workqueue per sib, which adds a bit of
+    // complexity, but not a whole lot.
+    //
     //
     // Note that normally we would have to do bookkeeping to
     // keep track of refcell and vector pointers into younger
@@ -377,7 +401,7 @@ static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {				// 't
 	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   PAIR_SIB, task );
 	making_progress |=  sweep_agegroup1_sib_tospace(ag1, VECTOR_SIB, task );
     };
-}											// fun sweep_agegroup1_tospace.
+}											// fun copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1.
 
 
 //
@@ -482,7 +506,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 
     default:
 	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
-	log_if("forward_agegroup0_chunk_to_agegroup1 was called by %s", caller ? "process_task_heap_changelog" : "forward_if_in_agegroup0");
+	log_if("forward_agegroup0_chunk_to_agegroup1 was called by %s", caller ? "process_task_heap_changelog" : "forward_to_agegroup1_if_in_agegroup0");
 	dump_task(task,"forward_agegroup0_chunk_to_agegroup1/default");
 	die ("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
 	exit(1);									// Cannot execute -- just to quiet gcc -Wall.
