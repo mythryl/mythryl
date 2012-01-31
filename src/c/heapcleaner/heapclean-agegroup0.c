@@ -1,13 +1,15 @@
 // heapclean-agegroup0.c
 //
 // This file contains the code for doing "minor"
-// cleanings ("garbage collections") -- those
+// heapcleanings ("garbage collections") -- those
 // which recover unused memory only in the agegroup0
 // buffer.
 //
 // For more on the Mythryl heap datastructures see
 //
 //     src/A.HEAP.OVERVIEW
+
+
 
 /*
 ###            "It goes against the grain of modern
@@ -20,6 +22,8 @@
 ###
 ###                               -- Alan Perlis
 */
+
+
 
 #include "../mythryl-config.h"
 
@@ -37,9 +41,9 @@
 
 // Cleaner statistics:
 //
-extern long	update_count__global;		// update_count__global				def in    src/c/heapcleaner/heapclean-n-agegroups.c
-extern long	total_bytes_allocated__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
-extern long	total_bytes_copied__global;	// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	update_count__global;			// update_count__global				def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_allocated__global;		// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
+extern long	total_bytes_copied__global;		// total_bytes_allocated__global		def in    src/c/heapcleaner/heapclean-n-agegroups.c
 
 // heap_changelog operations:
 //
@@ -49,40 +53,43 @@ extern long	total_bytes_copied__global;	// total_bytes_allocated__global		def in
 
 //
 static void   process_task_heap_changelog (Task* task,  Heap* heap);
-static void   sweep_agegroup_1_tospace	(Agegroup* agegroup_1, Task* task);	// 'task' arg is purely for debugging, can be deleted for production use.
-//
-static        Val    forward_agegroup0_chunk_to_agegroup_1	(Agegroup* agegroup_1,  Val v, Task* task, int caller);	// 'task' arg is only for debugging, can be dropped in production code.
-static        Val    forward_special_chunk			(Agegroup* agegroup_1,  Val* chunk,  Val tagword);
+static void   sweep_agegroup1_tospace	                (Agegroup* agegroup1,         Task* task);			// 'task' arg is purely for debugging, can be deleted for production use.
+static  Val   forward_agegroup0_chunk_to_agegroup1	(Agegroup* agegroup1,  Val v, Task* task, int caller);		// 'task' arg is only for debugging, can be dropped in production code.
+static  Val   forward_special_chunk			(Agegroup* agegroup1,  Val* chunk,  Val tagword);
 
 
 #ifdef VERBOSE
     extern char* sib_name__global [];			// sib_name__global	def in   src/c/heapcleaner/heapclean-n-agegroups.c
 #endif
 
-static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {	// 'task' arg is only for debugging, can be dropped in production code.
+static inline void   forward_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {		// 'task' arg is only for debugging, can be dropped in production code.
     //               =======================
     //
     // Forward *p if it is in agegroup0:
 
-    Val	w = *(p);
+    Val	w =  *p;
     //
     if (IS_POINTER(w)) {
 	//
 	Sibid  sibid =  SIBID_FOR_POINTER( book2sibid, w );
-
-	if (sibid == NEWSPACE_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup_1( g1, w, task, 0 );
+	//
+	if (sibid == NEWSPACE_SIBID)   *p =  forward_agegroup0_chunk_to_agegroup1( g1, w, task, 0 );
     }
 }
 
 
-// This fun is called (only) from:
-//
-//     src/c/heapcleaner/call-heapcleaner.c
-//
 void   heapclean_agegroup0   (Task* task,  Val** roots) {
     // ===================
     //
     // Do "garbage collection" on just agegroup0.
+    //
+    // 'roots' is a vector of live pointers into agegroup0,
+    // harvested from the live register set, global variables
+    // into the heap maintained by C code, etc.
+    //
+    // This fun is called (only) from:
+    //
+    //     src/c/heapcleaner/call-heapcleaner.c
     //
     // NB: If we have multiple pthreads running,
     // each has its own agegroup0, but we process
@@ -133,7 +140,10 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														}
 													    #endif
 
-    // Scan the standard roots:
+    // Scan the standard roots.  These are pointers
+    // to live data harvested from the live registers,
+    // C globals etc, so all agegroup0 records pointed
+    // to by them are definitely "live" (nongarbage):
     //
     {   Sibid*  b2s = book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 	Val*    rp;
@@ -165,7 +175,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
     // Sweep the to-space for agegroup 1:
     //
-    sweep_agegroup_1_tospace( age1, task );
+    sweep_agegroup1_tospace( age1, task );
     ++heap->agegroup0_cleanings_done;
 
     null_out_newly_dead_weak_pointers( heap );										// null_out_newly_dead_weak_pointers		def in    src/c/heapcleaner/heapcleaner-stuff.c
@@ -246,7 +256,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
     // We need this done because such stores into the heap
     // can introduce pointers from one agegroup into a
     // younger agegroup, which we need to take into account
-    // when doing partial cleanings ("garbage collections").
+    // when doing partial heapcleanings ("garbage collections").
     //
     // Our job here is to promote to agegroup 1 all agegroup0
     // values referenced by a refcell/vectorslot in the heap_changelog.
@@ -254,13 +264,13 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
     Val this_heap_changelog_cell =  task->heap_changelog; 
     if (this_heap_changelog_cell == HEAP_CHANGELOG_NIL)   return;			// Abort quickly if no work to do.
 
-    int updates        = 0;								// Cleaner statistics.
+    int updates        = 0;								// Heapcleaner statistics.
     Agegroup* age1     =  heap->agegroup[ 0 ];						// Cache heap entry for speed.
     Sibid* b2s         =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     while (this_heap_changelog_cell != HEAP_CHANGELOG_NIL) {				// Over all entries in the heap_changelog.
 	//
-	++updates;									// Cleaner statistics.
+	++updates;									// Heapcleaner statistics.
 
 	Val* pointer   	         =  HEAP_CHANGELOG_HEAD( this_heap_changelog_cell );	// Get pointer to next updated refcell/vector slot to process.
 	this_heap_changelog_cell =  HEAP_CHANGELOG_TAIL( this_heap_changelog_cell );	// Step to next cell in heap_changelog list.
@@ -283,7 +293,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 	    //
 	    if (dst_age == AGEGROUP0) {
 		//
-		*pointer =  forward_agegroup0_chunk_to_agegroup_1( age1, pointee,task, 1);	// Promote pointee to agegroup 1.
+		*pointer =  forward_agegroup0_chunk_to_agegroup1( age1, pointee,task, 1);	// Promote pointee to agegroup 1.
 		dst_age = 1;									// Remember pointee now has age 1, not 0.
 		//
 	    }
@@ -316,7 +326,7 @@ static void   process_task_heap_changelog   (Task* task, Heap* heap) {
 }											// fun process_task_heap_changelog
 
 //
-inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {	// Called only from sweep_agegroup_1_tospace (below).
+inline static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task)   {	// Called only from sweep_agegroup1_tospace (below).
     //               ============================					// 'task' arg is only for debugging, can be dropped in production code.
     //
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
@@ -343,7 +353,7 @@ inline static Bool   sweep_agegroup_1_sib_tospace   (Agegroup* ag1,  int ilk, Ta
     return progress;
 }
 //
-static void   sweep_agegroup_1_tospace   (Agegroup* ag1, Task* task)   {		// 'task' arg is only for debugging, can be removed in production use.
+static void   sweep_agegroup1_tospace   (Agegroup* ag1, Task* task)   {		// 'task' arg is only for debugging, can be removed in production use.
     //        ========================
     //
     // Search the agegroup 1 to-space buffers for references
@@ -361,15 +371,15 @@ static void   sweep_agegroup_1_tospace   (Agegroup* ag1, Task* task)   {		// 'ta
 	//
 	making_progress = FALSE;
 	//
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, RECORD_ILK, task );
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1,   PAIR_ILK, task );
-	making_progress |=  sweep_agegroup_1_sib_tospace(ag1, VECTOR_ILK, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RECORD_ILK, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   PAIR_ILK, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, VECTOR_ILK, task );
     };
-}										// fun sweep_agegroup_1_tospace.
+}										// fun sweep_agegroup1_tospace.
 
 
 //
-static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v, Task* task, int caller)   {	// 'task' arg is only for debugging, can be removed in production use.
+static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task* task, int caller)   {	// 'task' arg is only for debugging, can be removed in production use.
     //       =====================================
     // 
     // Forward pair/record/vector/string 'v' from agegroup0 to agegroup 1.
@@ -462,10 +472,10 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v, Tas
 	return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
 
     default:
-	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup_1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
-	log_if("forward_agegroup0_chunk_to_agegroup_1 was called by %s", caller ? "process_task_heap_changelog" : "forward_if_in_agegroup0");
-	dump_task(task,"forward_agegroup0_chunk_to_agegroup_1/default");
-	die ("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup_1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
+	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
+	log_if("forward_agegroup0_chunk_to_agegroup1 was called by %s", caller ? "process_task_heap_changelog" : "forward_if_in_agegroup0");
+	dump_task(task,"forward_agegroup0_chunk_to_agegroup1/default");
+	die ("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
 	exit(1);									// Cannot execute -- just to quiet gcc -Wall.
     }
 
@@ -484,7 +494,7 @@ static Val   forward_agegroup0_chunk_to_agegroup_1   (Agegroup* ag1,  Val v, Tas
     chunk[ 0] =  (Val) (Punt) new_chunk;
 
     return PTR_CAST( Val, new_chunk );
-}										// fun forward_agegroup0_chunk_to_agegroup_1
+}										// fun forward_agegroup0_chunk_to_agegroup1
 
 //
 static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)   {
