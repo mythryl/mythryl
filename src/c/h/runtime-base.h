@@ -220,6 +220,7 @@ struct task {
 									//     pthread_offtask   in   src/lib/compiler/back/low/main/intel32/machine-properties-intel32.pkg
     // Mythryl registers:
     //
+    Val*	heap_allocation_buffer;					// The agegroup0 buffer.
     Val*	heap_allocation_pointer;				// We allocate heap memory just by advancing this pointer.
     Val*	heap_allocation_limit;					// When heap_allocation_pointer reaches this point it is time to call the heapcleaner.
     //
