@@ -91,6 +91,7 @@ static int first_call = TRUE;
 													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
 
 	task->heap                       =  task0->heap;
+	task->heap_allocation_buffer     =  start_of_agegroup0_buffer_for_next_pthread;
 	task->heap_allocation_pointer    =  start_of_agegroup0_buffer_for_next_pthread;
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->hap now x=%x",pthread, task->heap_allocation_pointer);
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize x=%x",per_thread_agegroup0_buffer_bytesize );

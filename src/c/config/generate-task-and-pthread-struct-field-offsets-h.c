@@ -52,6 +52,7 @@ int   main   (void) {
     FILE* fd =   start_generating_header_file( filename, unique_string, progname );			// start_generating_header_file		is from   src/c/config/start-and-finish-generating-header-file.c
 
     PRINT_TASK_FIELD_BYTE_OFFSET( "pthread",						pthread						);
+    PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_buffer",				heap_allocation_buffer				);
     PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_pointer",				heap_allocation_pointer				);
     PRINT_TASK_FIELD_BYTE_OFFSET( "heap_allocation_limit",				heap_allocation_limit				);
     PRINT_TASK_FIELD_BYTE_OFFSET( "heap_changelog",					heap_changelog					);

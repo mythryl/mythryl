@@ -78,7 +78,7 @@ Task*   make_task   (Bool is_boot,  Heapcleaner_Args* cleaner_args)    {
 
     #if !NEED_PTHREAD_SUPPORT
 	//
-	set_up_pthread_state( pthread_table__global[ 0 ] );
+	set_up_pthread_state(  pthread_table__global[ 0 ] );
     #else
         // 'set_up_heap' has created an agegroup0 buffer;
 	//  partition it between our MAX_PTHREADS pthreads:

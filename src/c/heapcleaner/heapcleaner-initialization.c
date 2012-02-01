@@ -169,6 +169,12 @@ void   set_up_heap   (			// Create and initialize the heap.
     Bool               is_boot,
     Heapcleaner_Args*  params
 ) {
+    // We are called (only) from
+    //
+    //     make_task()
+    // in
+    //     src/c/main/runtime-state.c
+
     int		ratio;
     int		max_size = 0;		// Initialized only to suppress a gcc -Wall warning.
 
@@ -399,7 +405,8 @@ void   set_up_heap   (			// Create and initialize the heap.
     // parts of the Mythryl state:
     //
     task->heap	                  =  heap;
-    task->heap_allocation_pointer =  (Val*) task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
+    task->heap_allocation_buffer  =  task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
+    task->heap_allocation_pointer =  task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
