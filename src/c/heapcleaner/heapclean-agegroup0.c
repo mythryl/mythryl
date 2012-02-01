@@ -109,8 +109,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														// we've copied into that sib.  This is pure reportage;
 														// our algorithms do not depend in any way on this information.
 
-													    long bytes_allocated = (Punt) task->heap_allocation_pointer
-																 - (Punt) heap->agegroup0_master_buffer;// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
+													    long bytes_allocated = agegroup0_usedspace_in_words(task);
 													    //	
 													    INCREASE_BIGCOUNTER( &heap->total_bytes_allocated, bytes_allocated );
 														//
