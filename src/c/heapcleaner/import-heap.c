@@ -334,7 +334,7 @@ static void   read_heap   (
 
     for (i = 0;  i < MAX_PLAIN_SIBS;  i++) {
         //
-	prevSzB[i] = heap->agegroup0_master_buffer_bytesize;
+	prevSzB[i] = task->heap_allocation_buffer_bytesize;
     }
 
     // Allocate the sib buffers and read in the heap image:

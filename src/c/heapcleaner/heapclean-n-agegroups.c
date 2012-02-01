@@ -104,7 +104,7 @@ Cleaner statistics stuff:
  static void         forward_all_inter_agegroup_referenced_values	(Task*          task,   Heap*          heap,                                              int                                   max_cleaned_agegroup			);
  static void         forward_remaining_live_values			(Heap*          heap,   int            max_cleaned_agegroup,  int    max_swept_agegroup											);
 
- static void         trim_heap		    				(Heap*          heap,   int            max_cleaned_agegroup														);
+ static void         trim_heap		    				(Task*          task,   int            max_cleaned_agegroup														);
 //
  static Val          forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id					);
  static Val          forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                     Val tagword	);
@@ -533,7 +533,7 @@ void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
 	check_heap( heap, max_swept_agegroup );
     #endif
 
-    trim_heap( heap, oldest_agegroup_to_clean );
+    trim_heap( task, oldest_agegroup_to_clean );
 }								// fun heapclean_n_agegroups.
 
 
@@ -1684,14 +1684,17 @@ static Val          forward_special_chunk   (
 
 //
 
-static void         trim_heap                          (Heap* heap,  int oldest_agegroup_to_clean)   {
-    //              =========
+static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
+    //        =========
     // 
     // After a major collection, trim any sib buffers that are over their maximum
     // size in space-allocated, but under their maximum size in space-used.
-																// unlimited_heap_is_enabled__global defaults to FALSE in	src/c/main/runtime-main.c 
-    if (unlimited_heap_is_enabled__global)   return;										// unlimited_heap_is_enabled__global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
-																// unlimited_heap_is_enabled__global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
+
+    Heap*  heap  =  task->heap;
+
+												// unlimited_heap_is_enabled__global defaults to FALSE in	src/c/main/runtime-main.c 
+    if (unlimited_heap_is_enabled__global)   return;						// unlimited_heap_is_enabled__global can be set TRUE via --runtime-unlimited-heap commandline arg -- see   src/c/main/runtime-options.c
+												// unlimited_heap_is_enabled__global can be set via _lib7_cleaner_control -- see   src/c/lib/heap/heapcleaner-control.c
     Val_Sized_Unt   min_bytesize;
     Val_Sized_Unt   new_bytesize;
 
@@ -1708,7 +1711,7 @@ static void         trim_heap                          (Heap* heap,  int oldest_
             ){
 
 		min_bytesize = (age == 0)
-		    ? heap->agegroup0_master_buffer_bytesize		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
+		    ? task->heap_allocation_buffer_bytesize
 		    : heap->agegroup[ age-1 ]->sib[ ilk ]->tospace_bytesize;
 
 		min_bytesize +=  sib_space_used_in_bytes( sib )									// sib_space_used_in_bytes	def in    src/c/h/heap.h
