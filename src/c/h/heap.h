@@ -239,6 +239,49 @@ inline Punt   agegroup0_freespace_in_words   (Task* task)   {
           - task->heap_allocation_pointer;
 }
 
+//
+inline Punt   agegroup0_usedspace_in_bytes   (Task* task)   {
+    //        ============================
+    //
+    // Return the amount of space used (in bytes)
+    // in the agegroup0 buffer for this task:
+    //
+    return  (Punt)  task->heap_allocation_pointer
+          - (Punt)  task->heap_allocation_buffer;
+}
+
+//
+inline Punt   agegroup0_usedspace_in_words   (Task* task)   {
+    //        ============================
+    //
+    // Return the amount of space used (in words)
+    // in the agegroup0 buffer for this task:
+    //
+    return  task->heap_allocation_pointer
+          - task->heap_allocation_buffer;
+}
+
+//
+inline Punt   agegroup0_buffer_size_in_bytes   (Task* task)   {
+    //        ==============================
+    //
+    // Return the size-in-bytes of the
+    // agegroup0 buffer for this task:
+    //
+    return  (Punt)  task->real_heap_allocation_limit
+          - (Punt)  task->heap_allocation_buffer;
+}
+
+//
+inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
+    //        ==============================
+    //
+    // Return the size-in-words of the
+    // agegroup0 buffer for this task:
+    //
+    return    task->real_heap_allocation_limit
+          -   task->heap_allocation_buffer;
+}
 
 
 
