@@ -633,8 +633,10 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
         //
 	previous_oldstuff_bytesize[ s ]
 	    =
-            heap->agegroup0_master_buffer_bytesize;
-//	    agegroup0_buffer_size_in_bytes( task );	// This should be right, I'd think, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
+            heap->agegroup0_master_buffer_bytesize;			// This value doesn't seem right, but it works and my attention is elsewhere, so for the moment I'm going to accept this as Black Magic.  -- 2012-01-31 CrT
+//          heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;	// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
+//	    task->heap_allocation_buffer_bytesize;			// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
+//	    agegroup0_buffer_size_in_bytes( task );			// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
 
     }
 
