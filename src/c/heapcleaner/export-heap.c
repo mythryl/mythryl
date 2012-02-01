@@ -165,7 +165,7 @@ static Status   write_heap_image_to_file   (
 
 	hh.agegroup0_buffer_bytesize
 	    =
-	    heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;
+	    agegroup0_buffer_size_in_bytes(task); 
 
 	hh.pervasive_package_pickle_list =   write_register(export_table,  *PTR_CAST(Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL));
         hh.runtime_pseudopackage         =   write_register(export_table,  runtime_package__global );
