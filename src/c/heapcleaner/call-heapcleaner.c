@@ -540,7 +540,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	} else {
 
-	    task->heap_allocation_limit  =  heap->agegroup0_master_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
+	    task->heap_allocation_limit  =  task->heap_allocation_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 	    //
 	    task->heap_allocation_limit  =  (task->heap_allocation_limit > task->real_heap_allocation_limit)
 		? task->real_heap_allocation_limit
