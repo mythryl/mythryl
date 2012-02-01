@@ -222,7 +222,8 @@ struct task {
     //
     Val*	heap_allocation_buffer;					// The agegroup0 buffer.
     Val*	heap_allocation_pointer;				// We allocate heap memory just by advancing this pointer.
-    Val*	heap_allocation_limit;					// When heap_allocation_pointer reaches this point it is time to call the heapcleaner.
+    Val*	heap_allocation_limit;					// We heapclean when heap_allocation_pointer reaches this point.  Must be at least MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER short of true buffer end.
+    Punt	heap_allocation_buffer_bytesize;			// Phystical size.
     //
     Val		argument;						// Argument to current function/closure. Since we treat calling and returning as the same thing, this will also hold the result of the call.
     Val		fate;							// "Return address".

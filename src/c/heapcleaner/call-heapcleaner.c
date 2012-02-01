@@ -244,7 +244,9 @@ void   call_heapcleaner   (Task* task,  int level) {
 
 	#if !NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );					// Set heap limit to obvious value.
+	task->heap_allocation_limit
+	    =
+	    HEAP_ALLOCATION_LIMIT( task );
 	#else
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );				// Maybe set heap limit to artificially low value so as to regain control sooner to do software generated periodic event.
 	#endif
@@ -454,7 +456,9 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 	    //
 	    reset_heap_allocation_limit_for_software_generated_periodic_events( task );
 	#else
-	    task->heap_allocation_limit    = HEAP_ALLOCATION_LIMIT( heap );
+	    task->heap_allocation_limit
+		=
+	        HEAP_ALLOCATION_LIMIT( task );
 	#endif
     #endif
 
@@ -493,15 +497,15 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
+	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))
 	|| (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE))			// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 	//													// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
 	     return TRUE;
 	else return FALSE;
     #else
 	//
-	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task->heap ))	return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
-	else													return FALSE;
+	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT(task)) return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
+	else											  return FALSE;
     #endif
     }
 //    #endif
@@ -521,15 +525,8 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
 	Heap* heap =  task->heap;
 
-	// Assumes heap_allocation_pointer has been reset:
-	//
-	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( heap );
+	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( task );
 
-
-	// For debugging purposes we keep the last AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES
-	// bytes in the buffer always zero, and check periodically that they still are:			// NB: This code is duplicated in src/c/heapcleaner/pthread-heapcleaner-stuff.c
-	//
-	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
 	//
         zero_agegroup0_overrun_tripwire_buffer( task );
 	
@@ -542,9 +539,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	    task->heap_allocation_limit  =  task->heap_allocation_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
 	    //
-	    task->heap_allocation_limit  =  (task->heap_allocation_limit > task->real_heap_allocation_limit)
-		? task->real_heap_allocation_limit
-		: task->heap_allocation_limit;
+	    task->heap_allocation_limit  =  MIN( task->real_heap_allocation_limit, task->heap_allocation_limit );
 	}
     }
 #endif						// NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS

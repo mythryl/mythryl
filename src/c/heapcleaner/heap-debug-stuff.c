@@ -931,8 +931,8 @@ void   dump_all_but_hugechunks_contents   (Task* task, char* caller) {
 }
 
 //
-void   zero_agegroup0_overrun_tripwire_buffer( Task* task ) {
-    // ==========================================
+void   zero_agegroup0_overrun_tripwire_buffer   (Task* task) {
+    // ======================================
     //
     // To detect allocation buffer overrun, we maintain
     // an always-all-zeros buffer of AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS

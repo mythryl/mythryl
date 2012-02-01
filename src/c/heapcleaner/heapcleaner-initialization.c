@@ -196,7 +196,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
     // First we initialize the underlying memory system:
     //
-    set_up_quire_os_interface ();				// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-mach.c
+    set_up_quire_os_interface ();						// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-mach.c
 										// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-mmap.c
 										// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-win32.c
 
@@ -273,19 +273,19 @@ void   set_up_heap   (			// Create and initialize the heap.
 	ag->saved_fromspace_ram_region		= NULL;
 	ag->coarse_inter_agegroup_pointers_map	= NULL;
 
-	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {			// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 	    //
-	    ag->sib[ ilk ] = MALLOC_CHUNK( Sib );
+	    ag->sib[ s ] = MALLOC_CHUNK( Sib );
 	    //
-	    ag->sib[ ilk ]->tospace_bytesize              = 0;
-	    ag->sib[ ilk ]->requested_sib_buffer_bytesize = 0;
-	    ag->sib[ ilk ]->soft_max_bytesize             = max_size;
+	    ag->sib[ s ]->tospace_bytesize              = 0;
+	    ag->sib[ s ]->requested_sib_buffer_bytesize = 0;
+	    ag->sib[ s ]->soft_max_bytesize             = max_size;
 	    //
-	    ag->sib[ ilk ]->id =   MAKE_SIBID( age+1, ilk+1, 0);
+	    ag->sib[ s ]->id =   MAKE_SIBID( age+1, s+1, 0);
 	}
-	for (int ilk = 0;  ilk < MAX_HUGE_SIBS;  ilk++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
+	for (int s = 0;  s < MAX_HUGE_SIBS;  s++) {			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 	    //
-	    ag->hugechunks[ ilk ] = NULL;					// ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
+	    ag->hugechunks[ s ] = NULL;					// s = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 	}
     }
 
@@ -331,7 +331,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     heap->agegroup0_master_buffer_bytesize
         =
-        params->agegroup0_buffer_bytesize * MAX_PTHREADS;			// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS buffers by
+        params->agegroup0_buffer_bytesize * MAX_PTHREADS;			// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS separate buffers by
 										// partition_agegroup0_buffer_between_pthreads() in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //
     set_book2sibid_entries_for_range (
@@ -342,11 +342,6 @@ void   set_up_heap   (			// Create and initialize the heap.
 	AGEGROUP0_SIBID
     );
 
-    #ifdef VERBOSE
-	debug_say ("NewSpace = [%#x, %#x:%#x), %d bytes\n",
-	    heap->agegroup0_buffer, HEAP_ALLOCATION_LIMIT( heap ),
-	    (Val_Sized_Unt)(heap->agegroup0_buffer)+params->agegroup0_buffer_bytesize, params->agegroup0_buffer_bytesize);
-    #endif
 
     clear_heapcleaner_statistics( heap );
 
@@ -384,11 +379,11 @@ void   set_up_heap   (			// Create and initialize the heap.
 	//
 	// Create agegroup 1's to-space:
 	//
-        for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
+        for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //
-	    heap->agegroup[ 0 ]->sib[ ilk ]->tospace_bytesize
+	    heap->agegroup[ 0 ]->sib[ s ]->tospace_bytesize
                 =
-                BOOKROUNDED_BYTESIZE( 2 * heap->agegroup0_master_buffer_bytesize );		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+                BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS) );
 	}
 
 	if (allocate_and_partition_an_agegroup( heap->agegroup[0] ) == FAILURE)	    die ("unable to allocate initial agegroup 1 buffer\n");
@@ -404,15 +399,18 @@ void   set_up_heap   (			// Create and initialize the heap.
     // Initialize the cleaner-related
     // parts of the Mythryl state:
     //
-    task->heap	                  =  heap;
-    task->heap_allocation_buffer  =  task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
-    task->heap_allocation_pointer =  task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
+    task->heap	                          =  heap;
+    task->heap_allocation_buffer          =  task->heap->agegroup0_master_buffer;
+    task->heap_allocation_pointer         =  task->heap->agegroup0_master_buffer;
+    task->heap_allocation_buffer_bytesize =  heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS; 
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
 	reset_heap_allocation_limit_for_software_generated_periodic_events( task );
     #else
-	task->heap_allocation_limit = HEAP_ALLOCATION_LIMIT( heap );
+	task->heap_allocation_limit
+	    =
+	    HEAP_ALLOCATION_LIMIT( task );
     #endif
 }										// fun set_up_heap
 

@@ -90,21 +90,16 @@ static int first_call = TRUE;
 													// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
 													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
 
-	task->heap                       =  task0->heap;
-	task->heap_allocation_buffer     =  start_of_agegroup0_buffer_for_next_pthread;
-	task->heap_allocation_pointer    =  start_of_agegroup0_buffer_for_next_pthread;
+	task->heap                            =  task0->heap;
+	task->heap_allocation_buffer_bytesize =  per_thread_agegroup0_buffer_bytesize;
+	task->heap_allocation_buffer          =  start_of_agegroup0_buffer_for_next_pthread;
+	task->heap_allocation_pointer         =  start_of_agegroup0_buffer_for_next_pthread;
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->hap now x=%x",pthread, task->heap_allocation_pointer);
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize x=%x",per_thread_agegroup0_buffer_bytesize );
-	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( start_of_agegroup0_buffer_for_next_pthread, per_thread_agegroup0_buffer_bytesize );
+	task->real_heap_allocation_limit      =  HEAP_ALLOCATION_LIMIT( task );
 if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->rhal now x=%x",pthread, task->real_heap_allocation_limit);
 
-
-	// For debugging purposes we keep the last AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES
-	// bytes in the buffer always zero, and check periodically that they still are:			// This code is duplicated in src/c/heapcleaner/call-heapcleaner.c
-	//
-	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
-if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->rhal now x=%x",pthread, task->real_heap_allocation_limit);
-        zero_agegroup0_overrun_tripwire_buffer( task );
+        zero_agegroup0_overrun_tripwire_buffer( task );							// zero_agegroup0_overrun_tripwire_buffer	is from   src/c/heapcleaner/heap-debug-stuff.c
 	
 
 	#if !NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS

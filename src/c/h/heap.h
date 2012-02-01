@@ -97,10 +97,10 @@ struct heap {
 	(Val *)((Punt)((hp)->agegroup0_master_buffer) + (hp)->agegroup0_master_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
 #else
     #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
-        (Val*)((Punt)(base) + (size) - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)	// "Private" def -- this def is directly referenced only in the next one.
+        (Val*)((Punt)(base) + (size) - (MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER + AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES))
 
-    #define HEAP_ALLOCATION_LIMIT(hp)			\
-	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_master_buffer,(hp)->agegroup0_master_buffer_bytesize)		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
+    #define HEAP_ALLOCATION_LIMIT(task)			\
+	HEAP_ALLOCATION_LIMIT_SIZE((task)->heap_allocation_buffer,(task)->heap_allocation_buffer_bytesize)
 #endif
 
 
