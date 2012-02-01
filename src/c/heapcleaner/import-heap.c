@@ -66,6 +66,8 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (Sibid*,  Addre
 Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
     //  =================
     //
+    // This fn is called (only) by   load_and_run_heap_image   in   src/c/main/load-and-run-heap-image.c
+    //
     Task*		task;
     Heapfile_Header	image_header;
     Heap_Header	heap_header;
@@ -143,7 +145,7 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
         params->oldest_agegroup_keeping_idle_fromspace_buffers = heap_header.oldest_agegroup_keeping_idle_fromspace_buffers;
     } 
 
-    task = make_task( FALSE, params );						// make_task		def in   src/c/main/runtime-state.c
+    task = make_task( /*is_boot:*/FALSE, params );					// make_task		def in   src/c/main/runtime-state.c
 
     // Get the run-time pointers into the heap:
     //

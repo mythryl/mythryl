@@ -18,6 +18,13 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //   ==================================
     // 
     // Allocate and partition the space for an agegroup.
+    //
+    // This fn is called from:
+    //
+    //     src/c/heapcleaner/heapcleaner-initialization.c
+    //     src/c/heapcleaner/import-heap.c
+    //     src/c/heapcleaner/datastructure-pickler-cleaner.c
+    //     src/c/heapcleaner/heapclean-n-agegroups.c
 
     Multipage_Ram_Region*	heapchunk;
 
@@ -101,6 +108,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         //
 	*(ap->next_tospace_word_to_allocate++) = HEAP_VOID;
 	*(ap->next_tospace_word_to_allocate++) = HEAP_VOID;
+        //
 	ap->tospace = ap->next_tospace_word_to_allocate;
 	ap->tospace_bytesize -= (2*WORD_BYTESIZE);
 	ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;

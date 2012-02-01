@@ -75,25 +75,34 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	=
 	task0->heap->agegroup0_buffer;
 
+static int first_call = TRUE;
+									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_buffer_bytesize x=%x", task0->heap->agegroup0_buffer_bytesize );
+									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize   x=%x", per_thread_agegroup0_buffer_bytesize);
+									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_buffer          x=%x", task0->heap->agegroup0_buffer);
+
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //
 	task =  pthread_table[ pthread ]->task;
-													PTHREAD_LOG_IF ( "pthread_table[%d]->task-> (heap_allocation_pointer %x/heap_allocation_limit %x) changed to ",
-															 pthread, task->heap_allocation_pointer, task->heap_allocation_limit
-													       	       );
-
+									if (first_call)	log_if ( "partition_agegroup0_buffer_between_pthreads: pthread_table[%d]->task: initial  heap_allocation_pointer x=%x, heap_allocation_limit x=%x",
+													 pthread, task->heap_allocation_pointer, task->heap_allocation_limit
+											       );
+													// PTHREAD_LOG_IF		def in   src/c/mythryl-config.h
 													// HEAP_ALLOCATION_LIMIT_SIZE	def in   src/c/h/heap.h
 													// This macro basically just subtracts a MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER safety margin from the actual buffer limit.
 
 	task->heap                       =  task0->heap;
 	task->heap_allocation_pointer    =  start_of_agegroup0_buffer_for_next_pthread;
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->hap now x=%x",pthread, task->heap_allocation_pointer);
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize x=%x",per_thread_agegroup0_buffer_bytesize );
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT_SIZE( start_of_agegroup0_buffer_for_next_pthread, per_thread_agegroup0_buffer_bytesize );
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->rhal now x=%x",pthread, task->real_heap_allocation_limit);
 
 
 	// For debugging purposes we keep the last AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES
 	// bytes in the buffer always zero, and check periodically that they still are:			// This code is duplicated in src/c/heapcleaner/call-heapcleaner.c
 	//
 	task->real_heap_allocation_limit -= AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_WORDS;
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->rhal now x=%x",pthread, task->real_heap_allocation_limit);
         zero_agegroup0_overrun_tripwire_buffer( task );
 	
 
@@ -112,7 +121,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 		// the heaplimit pointer to trigger an early heapcleaner call,
 		// at which point our logic will regain control.
 		//
-												PTHREAD_LOG_IF ("(with poll_interval=%d) ", poll_interval);
+												if (first_call)	log_if ("partition_agegroup0_buffer_between_pthreads: poll_interval d=%d", poll_interval);
 		task->heap_allocation_limit
 		    =
 		    start_of_agegroup0_buffer_for_next_pthread
@@ -128,7 +137,13 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 	    }
 	#endif
 
-												PTHREAD_LOG_IF ("%x/%x\n",task->heap_allocation_pointer, task->heap_allocation_limit);
+if (first_call)	log_if  ("partition_agegroup0_buffer_between_pthreads: task%d->hap x=%x, task%d->hal x=%x, task%d->rhal x=%x, hal-hap x=%x  rhal-hap x=%x",
+pthread, task->heap_allocation_pointer,
+pthread, task->heap_allocation_limit,
+pthread, task->real_heap_allocation_limit,
+(char*)(task->     heap_allocation_limit) - (char*)(task->heap_allocation_pointer),
+(char*)(task->real_heap_allocation_limit) - (char*)(task->heap_allocation_pointer)
+);
 
 	// Step over this pthread's buffer to
 	// get start of next pthread's buffer:
@@ -140,6 +155,7 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
                      per_thread_agegroup0_buffer_bytesize
                    );
     }												// for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++)
+first_call = FALSE;
 }												// fun partition_agegroup0_buffer_between_pthreads
 
 

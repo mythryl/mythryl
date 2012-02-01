@@ -105,7 +105,7 @@
     //         log_if ("Starting to foo the %s\n", bar);
     //     #endif
     //
-    // Also, the former provides typechecking even whenf
+    // Also, the former provides typechecking even when
     // PTHREAD_LOG_IF == 0   -- much more bitrot-resistant.
 
 

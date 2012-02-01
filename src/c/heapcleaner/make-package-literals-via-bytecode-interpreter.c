@@ -16,6 +16,8 @@
 //      empty, so I need to investigate why it appears to leave 8K or so sometimes.  Prosumably
 //      broken reporting.
 //    ]
+// We have a fn   check_agegroup0_overrun_tripwire_buffer      in   src/c/heapcleaner/heap-debug-stuff.c
+// We have a fn   partition_agegroup0_buffer_between_pthreads  in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 // To add flavor to the mix:
 //    *  In src/c/heapcleaner/make-strings-and-vectors-etc.c
 //       we seem to make a point of never allocating more than MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS
@@ -545,4 +547,26 @@ log_if("I_RECORD/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 // COPYRIGHT (c) 1997 Bell Labs, Lucent Technologies.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
 // released under Gnu Public Licence version 3.
+
+
+
+
+/*
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[A-Za-z]"			 		 	 #
+# End:									 #
+##########################################################################
+*/
 

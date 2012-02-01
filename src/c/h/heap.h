@@ -124,7 +124,7 @@ struct agegroup {
 };
 
 
-// Each heap agegroup has four sib buffers, one each to hold
+// Each heap agegroup > 0 has four sib buffers, one each to hold
 //
 //     pairs
 //     records
@@ -180,6 +180,16 @@ inline Bool   sib_is_active   (Sib* sib)   {
     return  sib->tospace_bytesize  >  0;
 }
 
+// 
+inline Bool   sib_chunk_is_old   (Sib* sib,  Val* pointer)   {
+    //        ================
+    //
+    // Return TRUE iff 'pointer' is in
+    // the 'old' segment of this sib:
+    //
+    return   pointer < sib->end_of_fromspace_oldstuff;
+}
+
 //
 inline Punt   sib_freespace_in_bytes   (Sib* sib)   {
     //        ======================
@@ -203,16 +213,28 @@ inline Punt   sib_space_used_in_bytes   (Sib* sib)   {
              (Punt)   sib->tospace;
 }
 
-
-// 
-inline Bool   sib_chunk_is_old   (Sib* sib,  Val* pointer)   {
-    //        ================
+//
+inline Punt   agegroup0_freespace_in_bytes   (Task* task)   {
+    //        ============================
     //
-    // Return TRUE iff 'pointer' is in
-    // the 'old' segment of this sib:
+    // Return the amount of free space (in bytes)
+    // available in the agegroup0 buffer for this task:
     //
-    return   pointer < sib->end_of_fromspace_oldstuff;
+    return  (Punt)  task->real_heap_allocation_limit
+          - (Punt)  task->heap_allocation_pointer;
 }
+
+//
+inline Punt   agegroup0_freespace_in_words   (Task* task)   {
+    //        ============================
+    //
+    // Return the amount of free space (in words)
+    // available in the agegroup0 buffer for this task:
+    //
+    return  task->real_heap_allocation_limit
+          - task->heap_allocation_pointer;
+}
+
 
 
 
