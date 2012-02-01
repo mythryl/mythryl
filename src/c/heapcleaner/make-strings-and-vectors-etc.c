@@ -192,7 +192,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
-	    IFGC (ap, bytesize+task->heap->agegroup0_master_buffer_bytesize) {		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+	    IFGC (ap, bytesize+task->heap_allocation_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
@@ -284,7 +284,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	    //
 	    // NOTE: we use nwords+2 to allow for the alignment padding.
 
-	    IFGC (ap, bytesize+task->heap->agegroup0_master_buffer_bytesize) {		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+	    IFGC (ap, bytesize+task->heap_allocation_buffer_bytesize) {
 		//
 	        // We need to do a garbage collection:
 
@@ -434,7 +434,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 		||
 	        sib_freespace_in_bytes(ap) <= bytesize							// sib_freespace_in_bytes	def in    src/c/h/heap.h
                                               +
-                                              task->heap->agegroup0_master_buffer_bytesize		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+                                              task->heap_allocation_buffer_bytesize
             ){
 		gc_level = 1;
 	    }
@@ -524,7 +524,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 		||
 	        sib_freespace_in_bytes(ap) <= bytesize								// sib_freespace_in_bytes	def in    src/c/h/heap.h
                                               +
-                                              task->heap->agegroup0_master_buffer_bytesize			// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+                                              task->heap_allocation_buffer_bytesize
 	    ){
 		clean_level = 1;
 	    }
@@ -544,7 +544,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    #if NEED_PTHREAD_SUPPORT
 	    {   // Check again to ensure that we have sufficient space:
 		//
-		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap->agegroup0_master_buffer_bytesize)   goto clean_check;		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
+		if (sib_freespace_in_bytes(ap) <= bytesize + task->heap_allocation_buffer_bytesize)   goto clean_check;
 	    }
 	    #endif
 
