@@ -448,7 +448,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     pth__finish_heapcleaning( task );
     #else
-	task->heap_allocation_pointer	= heap->agegroup0_master_buffer;
+	task->heap_allocation_pointer = task->heap_allocation_buffer;
 
 	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
