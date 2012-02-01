@@ -50,7 +50,7 @@
 #include "system-dependent-stuff.h"
 #include "runtime-base.h"
 #include "runtime-configuration.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "make-strings-and-vectors-etc.h"
 #include "runtime-globals.h"
 #include "runtime-heap-image.h"
@@ -329,8 +329,8 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		    print_hugechunk_region_map( rp );
 		#endif
 
-		header[i].base_address      =  BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
-		header[i].bytesize	    =  BYTESIZE_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
+		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( rp->ram_region );
+		header[i].bytesize	    =  BYTESIZE_OF_QUIRE( rp->ram_region );
 		header[i].first_ram_quantum =  rp->first_ram_quantum;
 	    }
 	}

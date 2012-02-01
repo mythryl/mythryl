@@ -26,9 +26,9 @@
 #include "sibid.h"
 #include "heap-tags.h"
 
-#ifndef OBTAIN_MULTIPAGE_RAM_REGION_FROM_OS_H
-    typedef   struct multipage_ram_region
-                     Multipage_Ram_Region;
+#ifndef OBTAIN_QUIRE_FROM_OS_H
+    typedef   struct quire
+                     Quire;
 #endif
 
 #ifndef INTER_AGEGROUP_POINTERS_MAP_H
@@ -58,10 +58,10 @@ typedef   struct agegroup          Agegroup;
 
 
 
-										// Multipage_Ram_Region		def in    src/c/h/get-multipage-ram-region-from-os.h
-										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mmap.c
-										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-mach.c
-										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-win32.c
+										// Quire		def in    src/c/h/get-quire-from-os.h
+										// struct quire	def in    src/c/ram/get-quire-from-mmap.c
+										// struct quire	def in    src/c/ram/get-quire-from-mach.c
+										// struct quire	def in    src/c/ram/get-quire-from-win32.c
 
 
 // A heap consists of one agegroup0 buffer per pthread
@@ -71,7 +71,7 @@ typedef   struct agegroup          Agegroup;
 struct heap {
     Val*			agegroup0_master_buffer;			// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
     Punt			agegroup0_master_buffer_bytesize;		// Size-in-bytes of the agegroup0_buffers master buffer.
-    Multipage_Ram_Region*	multipage_ram_region;				// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
+    Quire*	quire;				// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
 
     int  active_agegroups;							// Number of active agegroups.
     int  oldest_agegroup_keeping_idle_fromspace_buffers;			// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
@@ -119,9 +119,9 @@ struct agegroup {
 
     Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 
-    Multipage_Ram_Region*    tospace_ram_region;		// The host-OS multipage ram regions that this agegroup is
-    Multipage_Ram_Region*    fromspace_ram_region;		// using for the to-space and from-space.
-    Multipage_Ram_Region*    saved_fromspace_ram_region;	// For younger agegroups, we keep the from-space ram region, instead of giving it back.
+    Quire*    tospace_ram_region;		// The host-OS multipage ram regions that this agegroup is
+    Quire*    fromspace_ram_region;		// using for the to-space and from-space.
+    Quire*    saved_fromspace_ram_region;	// For younger agegroups, we keep the from-space ram region, instead of giving it back.
     //
     Coarse_Inter_Agegroup_Pointers_Map*				// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
     coarse_inter_agegroup_pointers_map;				// The dirty cards in the vector sib for this agegroup.
@@ -264,7 +264,7 @@ struct hugechunk_region {
     int	free_pages;						// Number of free pages.
     int	age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
     //
-    Multipage_Ram_Region*  ram_region;				// Ram region from which we allocate.
+    Quire*  ram_region;				// Ram region from which we allocate.
     Hugechunk_Region*      next;				// Next region in the list of regions.
     Hugechunk*		   hugechunk_page_to_hugechunk[1];	// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
 };

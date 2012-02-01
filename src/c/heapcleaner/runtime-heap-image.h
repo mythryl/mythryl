@@ -79,7 +79,7 @@ typedef struct {
 typedef struct {
     Unt1    smallchunk_sibs_count;				// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
     Unt1    hugechunk_sibs_count;				// The number of hugechunk kinds. (Currently just 1, for codechunks.)
-    Unt1    hugechunk_ramregion_count;				// The number of hugechunk multipage-ram-regions in the exporting address space.
+    Unt1    hugechunk_ramregion_count;				// The number of hugechunk quires in the exporting address space.
     Bool     contains_code;					// TRUE iff the pickle contains code.
     Val	     root_chunk;					// The pickle's root chunk.
 } Pickle_Header;

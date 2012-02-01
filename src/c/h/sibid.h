@@ -143,7 +143,7 @@
 //
 // An address space book is marked 'unmapped'
 // iff it does not contain ram allocated via
-//     obtain_multipage_ram_region_from_os											// obtain_multipage_ram_region_from_os	def in    src/c/ram/get-multipage-ram-region-from-os-stuff.c
+//     obtain_quire_from_os											// obtain_quire_from_os	def in    src/c/ram/get-quire-from-os-stuff.c
 // This includes both empty address space 
 // (no ram) and address space containing
 // vanilla C code and data.

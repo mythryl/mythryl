@@ -9,7 +9,7 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
 
@@ -26,7 +26,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //     src/c/heapcleaner/datastructure-pickler-cleaner.c
     //     src/c/heapcleaner/heapclean-n-agegroups.c
 
-    Multipage_Ram_Region*	heapchunk;
+    Quire*	heapchunk;
 
     Sib*  ap;
 
@@ -43,13 +43,13 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     }
 
     if (ag->saved_fromspace_ram_region != NULL
-    && BYTESIZE_OF_MULTIPAGE_RAM_REGION( ag->saved_fromspace_ram_region ) >= tot_size
+    && BYTESIZE_OF_QUIRE( ag->saved_fromspace_ram_region ) >= tot_size
     ){
 	heapchunk =  ag->saved_fromspace_ram_region;
 
 	ag->saved_fromspace_ram_region =  NULL;
 
-    } else if ((heapchunk = obtain_multipage_ram_region_from_os( tot_size )) == NULL) {
+    } else if ((heapchunk = obtain_quire_from_os( tot_size )) == NULL) {
 	//
 	// Eventually we should try to allocate the agegroup
 	//as separate chunks instead of failing.			XXX BUGGO FIXME
@@ -65,12 +65,12 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         debug_say ("allocate_and_partition_an_agegroup[%d]: tot_size = %d, [%#x, %#x)\n",
             ag->age,
             tot_size,
-            BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( heapchunk ),
-            BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( heapchunk ) + BYTESIZE_OF_MULTIPAGE_RAM_REGION( heapchunk )
+            BASE_ADDRESS_OF_QUIRE( heapchunk ),
+            BASE_ADDRESS_OF_QUIRE( heapchunk ) + BYTESIZE_OF_QUIRE( heapchunk )
         );
     #endif
     //
-    Val* p =  (Val*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( heapchunk );
+    Val* p =  (Val*) BASE_ADDRESS_OF_QUIRE( heapchunk );
     //
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
         //
@@ -129,15 +129,15 @@ void   free_agegroup   (Heap* heap,  int g) {
     #ifdef VERBOSE
 	debug_say ("free_agegroup [%d]: [%#x, %#x)\n",
             g+1,
-            BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( ag->fromspace_ram_region ),
-            BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( ag->fromspace_ram_region ) + BYTESIZE_OF_MULTIPAGE_RAM_REGION( ag->fromspace_ram_region )
+            BASE_ADDRESS_OF_QUIRE( ag->fromspace_ram_region ),
+            BASE_ADDRESS_OF_QUIRE( ag->fromspace_ram_region ) + BYTESIZE_OF_QUIRE( ag->fromspace_ram_region )
         );
     #endif
 
 
     if (g >= heap->oldest_agegroup_keeping_idle_fromspace_buffers) {
         //
-	return_multipage_ram_region_to_os( ag->fromspace_ram_region );
+	return_quire_to_os( ag->fromspace_ram_region );
 	//
     } else {
         //
@@ -145,13 +145,13 @@ void   free_agegroup   (Heap* heap,  int g) {
 	    ag->saved_fromspace_ram_region =  ag->fromspace_ram_region;
 	} else {
 
-	    if (BYTESIZE_OF_MULTIPAGE_RAM_REGION( ag->saved_fromspace_ram_region )
-              > BYTESIZE_OF_MULTIPAGE_RAM_REGION( ag->fromspace_ram_region       )
+	    if (BYTESIZE_OF_QUIRE( ag->saved_fromspace_ram_region )
+              > BYTESIZE_OF_QUIRE( ag->fromspace_ram_region       )
             ){
 	        //
-		return_multipage_ram_region_to_os( ag->fromspace_ram_region );
+		return_quire_to_os( ag->fromspace_ram_region );
 	    } else {
-		return_multipage_ram_region_to_os( ag->saved_fromspace_ram_region );
+		return_quire_to_os( ag->saved_fromspace_ram_region );
 		ag->saved_fromspace_ram_region = ag->fromspace_ram_region;
 	    }
 	}

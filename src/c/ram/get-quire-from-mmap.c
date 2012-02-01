@@ -1,4 +1,4 @@
-// get-multipage-ram-region-from-mmap.c
+// get-quire-from-mmap.c
 //
 // Memory sub-system for systems that provide mmap.
 
@@ -28,7 +28,7 @@
 #endif
 
 #include "runtime-base.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "sibid.h"
 
 #if !(defined(HAS_MMAP) || defined(HAS_ANON_MMAP))
@@ -45,19 +45,19 @@
 #endif
 
 
-// struct multipage_ram_region
+// struct quire
 // The files
-//     src/c/h/get-multipage-ram-region-from-os.h
+//     src/c/h/get-quire-from-os.h
 //     src/c/h/heap.h
 // both contain
-//     typedef   struct multipage_ram_region   Multipage_Ram_Region;
+//     typedef   struct quire   Quire;
 // based on our definition here.
 //
-// WARNING:    Multipage_Ram_Region_Prefix   in   src/c/h/get-multipage-ram-region-from-os.h
+// WARNING:    Quire_Prefix   in   src/c/h/get-quire-from-os.h
 // MUST be kept
 // in-sync with the first two fields here!
 //
-struct multipage_ram_region {
+struct quire {
     //
     Val_Sized_Unt*	base;					// The base address of the region.	SEE ABOVE WARNING!
     Punt	bytesize;				// The region's size.			SEE ABOVE WARNING!
@@ -73,24 +73,24 @@ struct multipage_ram_region {
 
 extern int	errno;
 
-#define ALLOC_HEAPCHUNK()		MALLOC_CHUNK( Multipage_Ram_Region )
-#define RETURN_MULTIPAGE_RAM_REGION_TO_OS(p)		FREE(p)
+#define ALLOC_HEAPCHUNK()		MALLOC_CHUNK( Quire )
+#define RETURN_QUIRE_TO_OS(p)		FREE(p)
 
-#include "get-multipage-ram-region-from-os-stuff.c"
+#include "get-quire-from-os-stuff.c"
 
 
 
-void   set_up_multipage_ram_region_os_interface  () {					// Part of the api defined by	src/c/h/get-multipage-ram-region-from-os.h
+void   set_up_quire_os_interface  () {					// Part of the api defined by	src/c/h/get-quire-from-os.h
     // ========================================
     //
     // We are invoked (only) from   set_up_heap   in:
     //     src/c/heapcleaner/heapcleaner-initialization.c
     //
-    InitMemory();										// From src/c/ram/get-multipage-ram-region-from-os-stuff.c
+    InitMemory();										// From src/c/ram/get-quire-from-os-stuff.c
 }
 
 
-static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt bytesize) {
+static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     // 
     // Map a BOOK_BYTESIZE
     // aligned chunk of bytesize bytes of virtual memory.
@@ -99,7 +99,7 @@ static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt b
     // or NULL on failure.
     //
     // We get called (only) from
-    //     src/c/ram/get-multipage-ram-region-from-os-stuff.c
+    //     src/c/ram/get-quire-from-os-stuff.c
 
     int fd;
 
@@ -177,9 +177,9 @@ static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt b
     chunk->bytesize = bytesize;
 
     return SUCCESS;
-}									// fun map_multipage_ram_region
+}									// fun map_quire
 
-static void   unmap_multipage_ram_region   (Multipage_Ram_Region* chunk) {
+static void   unmap_quire   (Quire* chunk) {
     // 
     // Unmap a szb byte chunk of virtual memory at addr.
 

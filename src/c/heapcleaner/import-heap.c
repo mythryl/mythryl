@@ -8,7 +8,7 @@
 #include <string.h>
 #include "runtime-base.h"
 #include "architecture-and-os-names-system-dependent.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "flush-instruction-cache-system-dependent.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
@@ -445,7 +445,7 @@ static void   read_heap   (
 		    //
 		    book_to_sibid__global,
                     (Val*) free_region,
-		    BYTESIZE_OF_MULTIPAGE_RAM_REGION( free_region->ram_region ),
+		    BYTESIZE_OF_QUIRE( free_region->ram_region ),
 		    HUGECHUNK_DATA_SIBID( i )
 		);
 

@@ -43,7 +43,7 @@ Includes:
 #include "runtime-configuration.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
 #include "heap-tags.h"
@@ -309,7 +309,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		    //
 		    b2s,
 		    (Val*) rp,
-		    BYTESIZE_OF_MULTIPAGE_RAM_REGION( rp->ram_region ),
+		    BYTESIZE_OF_QUIRE( rp->ram_region ),
 		    HUGECHUNK_DATA_SIBID( min )
 		);
 

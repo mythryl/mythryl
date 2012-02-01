@@ -18,7 +18,7 @@
 #include <stdarg.h>
 #include "runtime-base.h"
 #include "runtime-configuration.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "bigcounter.h"

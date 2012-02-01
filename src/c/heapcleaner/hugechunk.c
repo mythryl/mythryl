@@ -5,7 +5,7 @@
 #include "../mythryl-config.h"
 
 #include "runtime-base.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "heap.h"
 #include <string.h>
 
@@ -63,7 +63,7 @@ Hugechunk*   allocate_hugechunk_region   (
     Punt  ram_region_bytesize;
 
     Hugechunk_Region*      region;
-    Multipage_Ram_Region*  ram_region;
+    Quire*  ram_region;
 
     // Compute the memory chunk size.
     // NOTE: there probably is a closed form for this,
@@ -93,9 +93,9 @@ Hugechunk*   allocate_hugechunk_region   (
 
     } while (npages != old_npages);
 
-    ram_region =  obtain_multipage_ram_region_from_os(  ram_region_bytesize  );		if (!ram_region) die( "Unable to allocate hugechunk region.");
+    ram_region =  obtain_quire_from_os(  ram_region_bytesize  );		if (!ram_region) die( "Unable to allocate hugechunk region.");
 
-    region = (Hugechunk_Region*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( ram_region );
+    region = (Hugechunk_Region*) BASE_ADDRESS_OF_QUIRE( ram_region );
 
 
     Hugechunk* chunk = MALLOC_CHUNK( Hugechunk );						if (!chunk)	 die( "Unable to allocate hugechunk descriptor.");
@@ -241,7 +241,7 @@ Hugechunk*   allocate_hugechunk   (
     if (region->age_of_youngest_live_chunk_in_region > age) {
 	region->age_of_youngest_live_chunk_in_region = age;
 	//
-	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)region, BYTESIZE_OF_MULTIPAGE_RAM_REGION( region->ram_region ), HUGECHUNK_DATA_SIBID(age));
+	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)region, BYTESIZE_OF_QUIRE( region->ram_region ), HUGECHUNK_DATA_SIBID(age));
 
 	book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( region ) ]
 	    =

@@ -12,7 +12,7 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
 #include "heap-tags.h"
@@ -307,7 +307,7 @@ static void   repair_heap   (Task* task,  int max_age)   {
 
         // Free the to-space memory chunk:
 
-	Multipage_Ram_Region* tmpChunk =  age->fromspace_ram_region;
+	Quire* tmpChunk =  age->fromspace_ram_region;
 
 	age->fromspace_ram_region =  age->tospace_ram_region;
 	age->tospace_ram_region   =  tmpChunk;

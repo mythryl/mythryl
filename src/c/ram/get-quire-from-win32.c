@@ -1,4 +1,4 @@
-// get-multipage-ram-region-from-win32.c
+// get-quire-from-win32.c
 //
 // A simple memory module built on top of vmem alloc/free.
 // This is currently win32 specific.
@@ -18,22 +18,22 @@
 
 #include "system-dependent-stuff.h"
 #include "runtime-base.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "sibid.h"
 
-// struct multipage_ram_region
+// struct quire
 // The files
-//     src/c/h/get-multipage-ram-region-from-os.h
+//     src/c/h/get-quire-from-os.h
 //     src/c/h/heap.h
 // both contain
-//     typedef   struct multipage_ram_region   Multipage_Ram_Region;
+//     typedef   struct quire   Quire;
 // based on our definition here:
 //
-// WARNING:    Multipage_Ram_Region_Prefix   in   src/c/h/get-multipage-ram-region-from-os.h
+// WARNING:    Quire_Prefix   in   src/c/h/get-quire-from-os.h
 // MUST be kept
 // in-sync with the first two fields here!
 //
-struct multipage_ram_region {
+struct quire {
     //
     Val_Sized_Unt*	base;			// Base address of the chunk.	SEE ABOVE WARNING!
     Val_Sized_Unt	bytesize;		// Chunk's size (in bytes).	SEE ABOVE WARNING!
@@ -44,10 +44,10 @@ struct multipage_ram_region {
 static void* alloc_vmem();
 static void  free_vmem(void *);
 
-#define ALLOC_HEAPCHUNK()	alloc_vmem( sizeof( Multipage_Ram_Region ) )
-#define RETURN_MULTIPAGE_RAM_REGION_TO_OS		free_vmem
+#define ALLOC_HEAPCHUNK()	alloc_vmem( sizeof( Quire ) )
+#define RETURN_QUIRE_TO_OS		free_vmem
 
-#include "get-multipage-ram-region-from-os-stuff.c"
+#include "get-quire-from-os-stuff.c"
 
 static void*   alloc_vmem   (int nb)   {
     // 
@@ -74,7 +74,7 @@ static void   free_vmem   (void *p)   {
     }
 }
 
-static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt szb) {
+static Status   map_quire   (Quire* chunk,  Punt szb) {
     //          ========================
     //
     Punt offset;
@@ -99,7 +99,7 @@ static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt s
 }
 
 
-static void   unmap_multipage_ram_region   (Multipage_Ram_Region* chunk) {
+static void   unmap_quire   (Quire* chunk) {
     //        ==========================
     //
     free_vmem(chunk->mapBase);
@@ -107,7 +107,7 @@ static void   unmap_multipage_ram_region   (Multipage_Ram_Region* chunk) {
     chunk->bytesize = chunk->mapSizeB = 0;
 }
 
-void   set_up_multipage_ram_region_os_interface   (void)   {				// Part of the api defined by	src/c/h/get-multipage-ram-region-from-os.h
+void   set_up_quire_os_interface   (void)   {				// Part of the api defined by	src/c/h/get-quire-from-os.h
     // ========================================
     //
     // We are invoked (only) from   set_up_heap   in:

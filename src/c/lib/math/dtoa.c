@@ -115,14 +115,14 @@
 
 #ifdef __cplusplus
     #include "malloc.h"
-    #include "get-multipage-ram-region-from-os.h"
+    #include "get-quire-from-os.h"
 #else
     #ifndef KR_headers
 	#include "stdlib.h"
 	#include "string.h"
     #else
 	#include "malloc.h"
-	#include "get-multipage-ram-region-from-os.h"
+	#include "get-quire-from-os.h"
     #endif
 #endif
 

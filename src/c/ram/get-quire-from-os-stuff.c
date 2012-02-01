@@ -1,4 +1,4 @@
-// get-multipage-ram-region-from-os-stuff.c
+// get-quire-from-os-stuff.c
 //
 // 'quire' (pronounced like choir) designates a multipage ram region
 //         allocated directly from the host operating system.
@@ -13,17 +13,17 @@
 // We do not get directly compiled;
 // rather we get included by:
 //
-//     src/c/ram/get-multipage-ram-region-from-win32.c
-//     src/c/ram/get-multipage-ram-region-from-mmap.c
-//     src/c/ram/get-multipage-ram-region-from-mach.c
+//     src/c/ram/get-quire-from-win32.c
+//     src/c/ram/get-quire-from-mmap.c
+//     src/c/ram/get-quire-from-mach.c
 //
 // Those files make available to us several definitions,
 // each of which varies between those three files:
-//     static void   unmap_multipage_ram_region   (Multipage_Ram_Region* chunk);
-//     static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt bytesize);
-//     struct multipage_ram_region { ... }
+//     static void   unmap_quire   (Quire* chunk);
+//     static Status   map_quire   (Quire* chunk,  Punt bytesize);
+//     struct quire { ... }
 //     #define ALLOC_HEAPCHUNK()	...
-//     #define RETURN_MULTIPAGE_RAM_REGION_TO_OS(p)	...
+//     #define RETURN_QUIRE_TO_OS(p)	...
 
 
 #ifndef SHARED_MEMORY_MANAGEMENT_CODE_C
@@ -33,8 +33,8 @@ static Punt	PageSize;	// The system page size.
 static Punt	PageShift;	// PageSize == (1 << PageShift)
 static Punt	VMSizeB;	// The amount of virtual memory allocated.
 
-static Status   map_multipage_ram_region   (Multipage_Ram_Region* chunk,  Punt bytesize);
-static void   unmap_multipage_ram_region   (Multipage_Ram_Region* chunk);
+static Status   map_quire   (Quire* chunk,  Punt bytesize);
+static void   unmap_quire   (Quire* chunk);
 
 
 static void   InitMemory   ()   {
@@ -53,7 +53,7 @@ static void   InitMemory   ()   {
 }
 
 
-Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt bytesize) {
+Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
     //       ====================	
     //
     // Get a new memory chunk from the OS.
@@ -67,7 +67,7 @@ Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt byt
 
     Val_Sized_Unt alloc_bytesize;
 
-    Multipage_Ram_Region*	chunk;
+    Quire*	chunk;
 
     if ((chunk = ALLOC_HEAPCHUNK()) == NULL) {
 	//
@@ -84,12 +84,12 @@ Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt byt
             :
             BOOKROUNDED_BYTESIZE( bytesize );
 
-									// map_multipage_ram_region	def in   src/c/ram/get-multipage-ram-region-from-win32.c
-									// map_multipage_ram_region	def in   src/c/ram/get-multipage-ram-region-from-mmap.c
-									// map_multipage_ram_region	def in   src/c/ram/get-multipage-ram-region-from-mach.c
-    if (map_multipage_ram_region (chunk, alloc_bytesize) == FAILURE) {
+									// map_quire	def in   src/c/ram/get-quire-from-win32.c
+									// map_quire	def in   src/c/ram/get-quire-from-mmap.c
+									// map_quire	def in   src/c/ram/get-quire-from-mach.c
+    if (map_quire (chunk, alloc_bytesize) == FAILURE) {
 	//
-	RETURN_MULTIPAGE_RAM_REGION_TO_OS( chunk );
+	RETURN_QUIRE_TO_OS( chunk );
 	return NULL;
     }
 
@@ -100,16 +100,16 @@ Multipage_Ram_Region*   obtain_multipage_ram_region_from_os   (Val_Sized_Unt byt
 
 
 
-void   return_multipage_ram_region_to_os   (Multipage_Ram_Region* chunk) {
+void   return_quire_to_os   (Quire* chunk) {
     // ============================
     //
     if (!chunk)  	return;
 
-    unmap_multipage_ram_region( chunk );
+    unmap_quire( chunk );
 
     VMSizeB -= chunk->bytesize;
 
-    RETURN_MULTIPAGE_RAM_REGION_TO_OS( chunk );
+    RETURN_QUIRE_TO_OS( chunk );
 }
 
 #endif							// SHARED_MEMORY_MANAGEMENT_CODE_C

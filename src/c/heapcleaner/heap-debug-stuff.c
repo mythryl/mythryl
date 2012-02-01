@@ -22,7 +22,7 @@
 #include "runtime-base.h"
 #include "runtime-configuration.h"
 #include "runtime-values.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "coarse-inter-agegroup-pointers-map.h"
 #include "heap.h"
 #include "hexdump-if.h"
@@ -145,7 +145,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
     fprintf(fd,"    agegroup0_master_buffer p=%p\n",  task->heap->agegroup0_master_buffer);
     fprintf(fd,"agegroup0_master_buffer_bytesize x=%x\n",  (unsigned int) task->heap->agegroup0_master_buffer_bytesize);	// Punt
     fprintf(fd,"           sum of above two p=%p\n",  (char*)(task->heap->agegroup0_master_buffer) + task->heap->agegroup0_master_buffer_bytesize);
-    fprintf(fd,"       multipage_ram_region p=%p\n",  task->heap->multipage_ram_region);
+    fprintf(fd,"       quire p=%p\n",  task->heap->quire);
     fprintf(fd,"           active_agegroups d=%d\n",  task->heap->active_agegroups);
     fprintf(fd," oldest_agegroup_keeping_idle_fromspace_buffers d=%d\n",  task->heap->oldest_agegroup_keeping_idle_fromspace_buffers);
     fprintf(fd,"  hugechunk_ramregion_count d=%d\n",  task->heap->hugechunk_ramregion_count);
@@ -639,8 +639,8 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 	fprintf(fd,"    r->page_count             x= %08x\n",		r->page_count									);
 	fprintf(fd,"    r->free_pages             x= %08x\n",		r->page_count									);
 	fprintf(fd,"    r->ram_region             p= %p\n",		r->ram_region									);
-	fprintf(fd,"    r->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION(r->ram_region)				);
-	fprintf(fd,"    r->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_MULTIPAGE_RAM_REGION(r->ram_region)					);
+	fprintf(fd,"    r->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE(r->ram_region)				);
+	fprintf(fd,"    r->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_QUIRE(r->ram_region)					);
 	fprintf(fd,"    r->ram_region->...           (remaining fields are OS-dependent and not shown)\n"						);
 	fprintf(fd,"    r->age_of_youngest_live_chunk_in_region   x= %08x\n",		r->age_of_youngest_live_chunk_in_region				);
 	

@@ -31,7 +31,7 @@
 #include "runtime-base.h"
 #include "runtime-commandline-argument-processing.h"
 #include "runtime-configuration.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 #include "runtime-values.h"
 #include "make-strings-and-vectors-etc.h"
 #include "bigcounter.h"
@@ -175,7 +175,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     Heap*	heap;
     Agegroup*	ag;
 
-    Multipage_Ram_Region*  multipage_ram_region;
+    Quire*  quire;
 
     Val* agegroup0_master_buffer;
 
@@ -190,9 +190,9 @@ void   set_up_heap   (			// Create and initialize the heap.
 
     // First we initialize the underlying memory system:
     //
-    set_up_multipage_ram_region_os_interface ();				// set_up_multipage_ram_region_os_interface	def in   src/c/ram/get-multipage-ram-region-from-mach.c
-										// set_up_multipage_ram_region_os_interface	def in   src/c/ram/get-multipage-ram-region-from-mmap.c
-										// set_up_multipage_ram_region_os_interface	def in   src/c/ram/get-multipage-ram-region-from-win32.c
+    set_up_quire_os_interface ();				// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-mach.c
+										// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-mmap.c
+										// set_up_quire_os_interface	def in   src/c/ram/get-quire-from-win32.c
 
     // Allocate a ram region to hold
     // the book_to_sibid__global and agegroup0 buffer:
@@ -205,18 +205,18 @@ void   set_up_heap   (			// Create and initialize the heap.
 		book2sibid_bytesize = BOOK2SIBID_TABLE_SIZE_IN_SLOTS * sizeof( Sibid );
 	#endif
 
-	multipage_ram_region
+	quire
 	    =
-            obtain_multipage_ram_region_from_os(
+            obtain_quire_from_os(
 		//
 		MAX_PTHREADS * params->agegroup0_buffer_bytesize
                 +
                 book2sibid_bytesize
            );
 
-	if (multipage_ram_region == NULL) 	   die ("Unable to allocate ram region for book_to_sibid__global");
+	if (quire == NULL) 	   die ("Unable to allocate ram region for book_to_sibid__global");
 
-	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( multipage_ram_region );
+	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_QUIRE( quire );
 
 	agegroup0_master_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
     }
@@ -319,7 +319,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
     // Initialize new space:
     //
-    heap->multipage_ram_region       =  multipage_ram_region;
+    heap->quire       =  quire;
     //
     heap->agegroup0_master_buffer    =  agegroup0_master_buffer;
     //
@@ -332,7 +332,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	//
 	book_to_sibid__global,
 	(Val*) book_to_sibid__global,
-	BYTESIZE_OF_MULTIPAGE_RAM_REGION( heap->multipage_ram_region ),
+	BYTESIZE_OF_QUIRE( heap->quire ),
 	AGEGROUP0_SIBID
     );
 

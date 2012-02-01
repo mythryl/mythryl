@@ -43,7 +43,7 @@
 #include "architecture-and-os-names-system-dependent.h"
 
 #include "flush-instruction-cache-system-dependent.h"
-#include "get-multipage-ram-region-from-os.h"
+#include "get-quire-from-os.h"
 
 #include "heap.h"
 #include "heapcleaner.h"
@@ -986,7 +986,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
         //
 	for (int i = age;  i < heap->oldest_agegroup_keeping_idle_fromspace_buffers;  i++) {
 	    //
-	    return_multipage_ram_region_to_os( heap->agegroup[i]->saved_fromspace_ram_region );
+	    return_quire_to_os( heap->agegroup[i]->saved_fromspace_ram_region );
 	}
     }
 
