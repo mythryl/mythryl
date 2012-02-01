@@ -64,11 +64,11 @@ struct repair {
 
  static void                   repair_heap				(Task* task,  int max_age);
  static void                   wrap_up_cleaning				(Task* task,  int max_age);
- static void                   swap_tospace_with_fromspace		(Heap* heap,  int age);
+ static void                   swap_tospace_with_fromspace		(Task* task,  int age);
 
- static Status                 sweep_tospace				(Heap* heap,  Sibid max_aid);
- static Val                    forward_chunk				(Heap *heap,  Val chunk, Sibid id);
- static Hugechunk*             forward_hugechunk			(Heap* heap,  Val* p,  Val chunk,  Sibid aid);
+ static Status                 sweep_tospace				(Task* task,  Sibid max_aid);
+ static Val                    forward_chunk				(Task* task,  Val chunk, Sibid id);
+ static Hugechunk*             forward_hugechunk			(Task* task,  Val* p,  Val chunk,  Sibid aid);
 
  static Embedded_Chunk_Info*   find_embedded_chunk			(Addresstable* table,  Punt addr,  Embedded_Chunk_Kind kind);			// Embedded_Chunk_Kind		def in   src/c/heapcleaner/datastructure-pickler.h
  static void                   record_addresses_of_extracted_literals	(Punt addr, void *_closure, void *_info);					// This is UNIMPLEMENTED!
@@ -94,17 +94,17 @@ struct extractlits_clos {
 // Check to see if we need to extend
 // the number of flipped agegroups:
 //
-#define CHECK_AGEGROUP(heap, g)	{			\
+#define CHECK_AGEGROUP(task, g)	{			\
 	int	__g = (g);				\
 	if (__g > oldest_agegroup_being_cleaned__local)	\
-	    swap_tospace_with_fromspace ((heap), __g);			\
+	    swap_tospace_with_fromspace ((task), __g);			\
     }
 
 // CHECK_WORD_FOR_EXTERNAL_REFERENCE:
 //
 // Check a Mythryl value for external references, etc.
 //
-#define CHECK_WORD_FOR_EXTERNAL_REFERENCE(heap, book2sibid, p, maxAid, seen_error) {					\
+#define CHECK_WORD_FOR_EXTERNAL_REFERENCE(task, book2sibid, p, maxAid, seen_error) {					\
 	Val	__w = *(p);										\
 	/*debug_say ("CheckWord @ %#x --> %#x: ", p, __w);*/						\
 	if (IS_POINTER(__w)) {										\
@@ -116,11 +116,11 @@ struct extractlits_clos {
 		    (seen_error) = TRUE;								\
 	    } else if (SIBID_KIND_IS_CODE(__aid))							\
 		/*{debug_say ("hugechunk\n");*/								\
-		forward_hugechunk(heap, p, __w, __aid);						\
+		forward_hugechunk(task, p, __w, __aid);						\
 	/*}*/												\
 	    else if (SIBID_IS_IN_FROMSPACE(__aid, maxAid))						\
 		/*{debug_say ("regular chunk\n");*/							\
-		*(p) = forward_chunk(heap, __w, __aid);						\
+		*(p) = forward_chunk(task, __w, __aid);						\
 	/*}*/												\
 	}												\
 	/*else debug_say ("unboxed \n");*/								\
@@ -129,13 +129,13 @@ struct extractlits_clos {
 
 
 Pickler_Result   pickler__clean_heap   (
-    //         ===================
+    //           ===================
     //
     Task* task,
     Val*  root_chunk,
     int   age		// Caller guarantees age == get_chunk_age( root_chunk )				// get_chunk_age			def in   src/c/heapcleaner/get-chunk-age.c
 ){
-    Heap* heap =  task->heap;
+//  Heap* heap =  task->heap;
 
     Sibid* b2s =  book_to_sibid__global;									// Cache global in register for speed.
 
@@ -166,17 +166,17 @@ Pickler_Result   pickler__clean_heap   (
     repair_heap__local = TRUE;
     finishing_cleaning__local = FALSE;
     oldest_agegroup_being_cleaned__local = 0;
-    swap_tospace_with_fromspace( heap, age );
+    swap_tospace_with_fromspace( task, age );
 
     // Scan root_chunk:
     //
-    CHECK_WORD_FOR_EXTERNAL_REFERENCE (heap, b2s, root_chunk, MAX_SIBID, seen_error);
+    CHECK_WORD_FOR_EXTERNAL_REFERENCE (task, b2s, root_chunk, MAX_SIBID, seen_error);
     if (seen_error) {
 	result.error = TRUE;
 	return result;
     }
 
-    if (sweep_tospace (heap, MAX_SIBID) == FAILURE) {
+    if (sweep_tospace (task, MAX_SIBID) == FAILURE) {
 	result.error = TRUE;
 	return result;
     }
@@ -349,7 +349,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
     #define CHECK_ROOT(p)	{					\
 	    Val	*__p = (p);				\
-	    CHECK_WORD_FOR_EXTERNAL_REFERENCE (heap, b2s, __p, maxAid, dummy);	\
+	    CHECK_WORD_FOR_EXTERNAL_REFERENCE (task, b2s, __p, maxAid, dummy);	\
 	}
 
     for (int i = 0;  i < c_roots_count__global;  i++) {
@@ -408,13 +408,13 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 				if (SIBID_KIND_IS_CODE(aid)) {
 
-				    Hugechunk*	dp =  forward_hugechunk (heap, p, w, aid);
+				    Hugechunk*	dp =  forward_hugechunk (task, p, w, aid);
 
 				    target_age = dp->age;
 
 				} else {
 
-				    *p = w = forward_chunk(heap, w, aid);
+				    *p = w = forward_chunk(task, w, aid);
 
 				    target_age =  GET_AGE_FROM_SIBID( SIBID_FOR_POINTER( b2s, w ));
 				}
@@ -437,7 +437,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 	}
     }
 
-    sweep_tospace( heap, maxAid );
+    sweep_tospace( task, maxAid );
 
     // Scan the vector sibs of the
     // flipped agegroups, marking dirty pages:
@@ -565,7 +565,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 }								// fun wrap_up_cleaning
 
 
-static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
+static void   swap_tospace_with_fromspace   (Task* task, int gen) {
     //        ===============================
     // 
     // Flip additional agegroups from
@@ -574,33 +574,34 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
     // We allocate a to-space that is the
     // same size as the existing from-space.
 
-    Punt	new_size;
+    Heap* heap = task->heap;
+    Punt  new_size;
 
     for (int age = oldest_agegroup_being_cleaned__local;  age < gen;  age++) {
         //
 	Agegroup* g =  heap->agegroup[ age ];
         //
-	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
+	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //
-	    Sib* sib = g->sib[ ilk ];
+	    Sib* sib = g->sib[ s ];
 	    //
 	    if (sib_is_active(sib)) {												// sib_is_active			def in    src/c/h/heap.h
 		//
 		ASSERT(
-                    ilk == STRING_SIB
+                    s == STRING_SIB
                     ||
                     sib->next_tospace_word_to_allocate == sib->next_word_to_sweep_in_tospace
                 );
 
-	        saved_top__local[age][ilk] = sib->tospace_limit;
+	        saved_top__local[age][s] = sib->tospace_limit;
 
 		make_sib_tospace_into_fromspace( sib );										// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
 		new_size = (Punt) sib->fromspace_used_end
                       - (Punt) sib->fromspace;
 
-		if (age == 0)          new_size += heap->agegroup0_master_buffer_bytesize;					// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.		// Need to guarantee space for future minor collections.
-		if (ilk == PAIR_SIB)   new_size += 2*WORD_BYTESIZE;
+		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
+		if (s == PAIR_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
 
 		sib->tospace_bytesize =  BOOKROUNDED_BYTESIZE( new_size );
 	    }
@@ -625,13 +626,15 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
     oldest_agegroup_being_cleaned__local = gen;
 }										// fun swap_tospace_with_fromspace
 
-static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
+static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
     //          =============
     // 
     // Sweep the to-space sib buffers.
     // Because there are few references forward in time, 
     // we try to completely scavenge a younger agegroup
     // before moving on to the next oldest.
+
+    Heap*	heap = task->heap;
 
     Bool	swept;
     Sibid*	b2s =  book_to_sibid__global;
@@ -646,7 +649,7 @@ static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
 		    swept = TRUE;							\
 		    do {								\
 			for (__q = __sib->next_tospace_word_to_allocate;  __p < __q;  __p++) {			\
-			    CHECK_WORD_FOR_EXTERNAL_REFERENCE(heap, b2s, __p, maxAid, seen_error);	\
+			    CHECK_WORD_FOR_EXTERNAL_REFERENCE(task, b2s, __p, maxAid, seen_error);	\
 			}								\
 		    } while (__q != __sib->next_tospace_word_to_allocate);					\
 		    __sib->next_word_to_sweep_in_tospace = __q;						\
@@ -673,11 +676,12 @@ static Status   sweep_tospace   (Heap*  heap,   Sibid  maxAid) {
 }								// fun sweep_tospace
 
 
-static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
+static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
     //       =============
     // 
     // Forward a chunk.
 
+    Heap* heap = task->heap;
     Val* chunk = PTR_CAST(Val*, v);
 
     int	 gen = GET_AGE_FROM_SIBID(id);
@@ -688,7 +692,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
     Val_Sized_Unt len   =  0;			// Initialized only to quiet "possibly unused" gcc warning.
     Sib*          sib   =  NULL;		// Initialized only to quiet "possibly unused" gcc warning.
 
-    if (! finishing_cleaning__local)   CHECK_AGEGROUP(heap, gen);
+    if (! finishing_cleaning__local)   CHECK_AGEGROUP(task, gen);
 
     switch (GET_KIND_FROM_SIBID(id)) {
 	//
@@ -846,7 +850,7 @@ static Val   forward_chunk   (Heap* heap,   Val v,  Sibid id) {
 static Hugechunk*   forward_hugechunk   (
     //              =================
     //
-    Heap*  heap,
+    Task*  task,
     Val*   p,
     Val	   chunk,
     Sibid   sibid
@@ -858,6 +862,8 @@ static Hugechunk*   forward_hugechunk   (
     // NOTE: We do not ``promote'' hugechunk here
     // because they are not reclaimed when completing
     // the cleaning.
+
+//  Heap*                 heap = task->heap;
 
     Hugechunk_Region*     region;
     Hugechunk*            dp;
@@ -873,7 +879,7 @@ static Hugechunk*   forward_hugechunk   (
 
     if (! finishing_cleaning__local) {
         //
-	CHECK_AGEGROUP(heap, dp->age);
+	CHECK_AGEGROUP(task, dp->age);
 
 	code_info = find_embedded_chunk( embedded_chunk_ref_table__local, dp->chunk, UNUSED_CODE );
 
