@@ -109,7 +109,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														// we've copied into that sib.  This is pure reportage;
 														// our algorithms do not depend in any way on this information.
 
-													    long bytes_allocated = agegroup0_usedspace_in_words(task);
+													    long bytes_allocated = agegroup0_usedspace_in_bytes( task );
 													    //	
 													    INCREASE_BIGCOUNTER( &heap->total_bytes_allocated, bytes_allocated );
 														//

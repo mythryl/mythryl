@@ -233,13 +233,13 @@ log_if("luptop: setting space_available to 64K <--------------------------------
 	}
 
 
-	log_if("luptop:       task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+	log_if("luptop:       task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 if (tripwirebuf[0] != 0) log_if("luptop TRIPWIRE BUFFER TRASHED!");
 	switch (bytecode_vector[ pc++ ]) {
 	    //
 	case I_INT:
 	    {
-log_if("I_INT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_INT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int i = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -247,13 +247,13 @@ log_if("I_INT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		#endif
 
 		LIST_CONS(task, stack, TAGGED_INT_FROM_C_INT(i), stack);
-log_if("I_INT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_INT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW32:
 	    {
-log_if("I_RAW32 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW32 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int i = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -265,13 +265,13 @@ log_if("I_RAW32 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 
 		LIST_CONS(task, stack, result, stack);
 		space_available -= 2*WORD_BYTESIZE;
-log_if("I_RAW32 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW32 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW32L:
 	    {
-log_if("I_RAW32L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW32L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -295,13 +295,13 @@ log_if("I_RAW32L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		Val result =  LIB7_Alloc(task, n );
 
 		LIST_CONS(task, stack, result, stack);
-log_if("I_RAW32L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW32L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW64:
 	    {
-log_if("I_RAW64 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW64 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		double d = get_double(&(bytecode_vector[pc]));	pc += 8;
 
 		Val	           result;
@@ -314,13 +314,13 @@ log_if("I_RAW64 /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		LIST_CONS(task, stack, result, stack);
 
 		space_available -= 4*WORD_BYTESIZE;		// Extra 4 bytes for alignment padding.
-log_if("I_RAW64 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW64 /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RAW64L:
 	    {
-log_if("I_RAW64L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW64L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -349,13 +349,13 @@ log_if("I_RAW64L/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		    PTR_CAST(double*, result)[j] = get_double(&(bytecode_vector[pc]));	pc += 8;
 		}
 		LIST_CONS(task, stack, result, stack);
-log_if("I_RAW64L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RAW64L/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_STR:
 	    {
-log_if("I_STR   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_STR   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);		pc += 4;
 log_if("I_STR   /BBB: bytes x=%x", n);
 
@@ -402,13 +402,13 @@ log_if("I_STR   /DDD: space_needed (including header) x=%x", space_needed);
 		// Push on stack:
 		//
 		LIST_CONS(task, stack, result, stack);
-log_if("I_STR   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_STR   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_LIT:
 	    {
-log_if("I_LIT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_LIT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		Val result = stack;
@@ -423,13 +423,13 @@ log_if("I_LIT   /TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		#endif
 
 		LIST_CONS(task, stack, LIST_HEAD(result), stack);
-log_if("I_LIT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_LIT   /BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	  case I_VECTOR:
 	    {
-log_if("I_VECTOR/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_VECTOR/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -475,13 +475,13 @@ log_if("I_VECTOR/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		#endif
 
 		LIST_CONS(task, stack, result, stack);
-log_if("I_VECTOR/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_VECTOR/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 
 	case I_RECORD:
 	    {
-log_if("I_RECORD/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RECORD/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		int n = GET32(bytecode_vector);	pc += 4;
 
 		#ifdef DEBUG_LITERALS
@@ -520,7 +520,7 @@ log_if("I_RECORD/TOP: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p 
 		#endif
 
 		LIST_CONS(task, stack, result, stack);
-log_if("I_RECORD/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,(char*)(task->real_heap_allocation_limit)-(char*)(task->heap_allocation_pointer),task->heap->agegroup0_master_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
+log_if("I_RECORD/BOT: task p=%p space_available x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,space_available,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 	    }
 	    break;
 

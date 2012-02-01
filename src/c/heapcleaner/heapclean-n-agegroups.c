@@ -94,7 +94,7 @@ Cleaner statistics stuff:
 
 // Forward references:
 
- static int	    set_up_empty_tospace_buffers			(Heap*          heap,   int            youngest_agegroup_without_cleaning_request											);
+ static int	    set_up_empty_tospace_buffers			(Task*          task,   int            youngest_agegroup_without_cleaning_request											);
 //
 #ifdef  BO_DEBUG
  static void         scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk									);
@@ -409,8 +409,8 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 }
 
 
-static int          prepare_for_heapcleaning               (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
-    //              ====================
+static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
+    //       ========================
     //
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
@@ -431,7 +431,7 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
     //
     int oldest_agegroup_to_clean
 	=
-	set_up_empty_tospace_buffers( heap, level );
+	set_up_empty_tospace_buffers( task, level );
 
 
     // We sweep one more agegroup than we clean,
@@ -479,8 +479,8 @@ static int          prepare_for_heapcleaning               (int* max_swept_agegr
 }
 
 
-void                heapclean_n_agegroups                  (Task* task,  Val** roots,  int level)   {
-    //              =================
+void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
+    // =====================
     // 
     // Clean (at least) the first 'level' agegroups.
     //
@@ -596,7 +596,7 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 //
 //
 
-static int          set_up_empty_tospace_buffers       (Heap* heap,   int youngest_agegroup_without_cleaning_request)   {
+static int          set_up_empty_tospace_buffers       (Task* task,   int youngest_agegroup_without_cleaning_request)   {
     //              ============================
     // 
     // Every heap agegroup to be cleaned must have an empty
@@ -613,12 +613,14 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
     //
     // In some cases we may be able to "flip buffers" -- re-use
     // a retained idle from-space buffer from a previous cleaning.
-    // Otherwise we musto malloc a new to-space buffer.
+    // Otherwise we must malloc a new to-space buffer.
     //
     // We return the number of agegroups to clean.
     //
     // We assume that agegroup 1 is always cleaned -- that is,
     // that youngest_agegroup_without_cleaning_request > 1.
+
+    Heap* heap = task->heap;
 
     int old_cleanings_done_value;
     int cleanings;
@@ -627,11 +629,13 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
     Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];
     Punt  min_bytesize[               MAX_PLAIN_SIBS ];
 
-    for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ++ilk) {
+    for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
         //
-	previous_oldstuff_bytesize[ ilk ]
+	previous_oldstuff_bytesize[ s ]
 	    =
-	    heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
+            heap->agegroup0_master_buffer_bytesize;
+//	    agegroup0_buffer_size_in_bytes( task );	// This should be right, I'd think, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
+
     }
 
     old_cleanings_done_value
