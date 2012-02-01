@@ -69,13 +69,13 @@ typedef   struct agegroup          Agegroup;
 // between all pthreads.
 //
 struct heap {
-    Val*			agegroup0_master_buffer;			// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
-    Punt			agegroup0_master_buffer_bytesize;		// Size-in-bytes of the agegroup0_buffers master buffer.
-    Quire*	quire;				// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
+    Val*		agegroup0_master_buffer;				// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
+    Punt		agegroup0_master_buffer_bytesize;			// Size-in-bytes of the agegroup0_buffers master buffer.
+    Quire*		quire;							// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
 
-    int  active_agegroups;							// Number of active agegroups.
-    int  oldest_agegroup_keeping_idle_fromspace_buffers;			// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
-    int  agegroup0_cleanings_done;						// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int			active_agegroups;					// Number of active agegroups.
+    int			oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
+    int			agegroup0_cleanings_done;				// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];				// Age-group #i is in agegroup[i-1]
     int		        hugechunk_ramregion_count;				// Number of active hugechunk regions.

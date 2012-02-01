@@ -210,14 +210,14 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt	size =   task->heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
+	Val_Sized_Unt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
 	    Sib* sib =  age1->sib[ i ];
 
 	    if (sib_is_active( sib )										// sib_is_active		def in    src/c/h/heap.h
-            &&  sib_freespace_in_bytes( sib ) < size								// sib_freespace_in_bytes	def in    src/c/h/heap.h
+            &&  sib_freespace_in_bytes( sib ) < agegroup0_bytesize						// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
 		level = 1;											// Commit to multigeneration heapcleaning.
 		break;
@@ -421,14 +421,14 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt  size =  task->heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
+	Val_Sized_Unt	agegroup0_bytesize =   agegroup0_buffer_size_in_bytes( task );
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
 	    Sib* sib = age1->sib[ i ];
 	    //
 	    if (sib_is_active( sib )										// sib_is_active		def in    src/c/h/heap.h
-            && (sib_freespace_in_bytes( sib ) < size)								// sib_freespace_in_bytes	def in    src/c/h/heap.h
+            && (sib_freespace_in_bytes( sib ) < agegroup0_bytesize)						// sib_freespace_in_bytes	def in    src/c/h/heap.h
             ){
 		level = 1;
 		break;
