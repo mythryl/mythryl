@@ -165,7 +165,7 @@ static Status   write_heap_image_to_file   (
 
 	hh.agegroup0_buffer_bytesize
 	    =
-	    heap->agegroup0_buffer_bytesize / MAX_PTHREADS;
+	    heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;
 
 	hh.pervasive_package_pickle_list =   write_register(export_table,  *PTR_CAST(Val*, PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL));
         hh.runtime_pseudopackage         =   write_register(export_table,  runtime_package__global );
@@ -329,8 +329,8 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		    print_hugechunk_region_map( rp );
 		#endif
 
-		header[i].base_address      =   BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
-		header[i].bytesize     =  BYTESIZE_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
+		header[i].base_address      =  BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
+		header[i].bytesize	    =  BYTESIZE_OF_MULTIPAGE_RAM_REGION( rp->ram_region );
 		header[i].first_ram_quantum =  rp->first_ram_quantum;
 	    }
 	}

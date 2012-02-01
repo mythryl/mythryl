@@ -7,6 +7,12 @@
 //
 //     src/c/h/sibid.h
 
+// 'quire' (pronounced like choir) designates a multipage ram region
+//         allocated directly from the host operating system.
+//
+//     quire: 2. A collection of leaves of parchment or paper,
+//               folded one within the other, in a manuscript or book.
+//                     -- http://www.thefreedictionary.com/quire
 
 #ifndef OBTAIN_MULTIPAGE_RAM_REGION_FROM_OS_H
 #define OBTAIN_MULTIPAGE_RAM_REGION_FROM_OS_H

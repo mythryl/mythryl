@@ -2,6 +2,13 @@
 //
 // Memory sub-system for systems that provide mmap.
 
+// 'quire' (pronounced like choir) designates a multipage ram region
+//         allocated directly from the host operating system.
+//
+//     quire: 2. A collection of leaves of parchment or paper,
+//               folded one within the other, in a manuscript or book.
+//                     -- http://www.thefreedictionary.com/quire
+
 /*
 ###              "Do we walk in legends
 ###               or on the green earth

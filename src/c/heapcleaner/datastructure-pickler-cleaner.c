@@ -599,7 +599,7 @@ static void   swap_tospace_with_fromspace   (Heap* heap, int gen) {
 		new_size = (Punt) sib->fromspace_used_end
                       - (Punt) sib->fromspace;
 
-		if (age == 0)          new_size += heap->agegroup0_buffer_bytesize;					// Need to guarantee space for future minor collections.
+		if (age == 0)          new_size += heap->agegroup0_master_buffer_bytesize;					// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.		// Need to guarantee space for future minor collections.
 		if (ilk == PAIR_SIB)   new_size += 2*WORD_BYTESIZE;
 
 		sib->tospace_bytesize =  BOOKROUNDED_BYTESIZE( new_size );

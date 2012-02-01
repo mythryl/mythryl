@@ -1,5 +1,12 @@
 // get-multipage-ram-region-from-os-stuff.c
 //
+// 'quire' (pronounced like choir) designates a multipage ram region
+//         allocated directly from the host operating system.
+//
+//     quire: 2. A collection of leaves of parchment or paper,
+//               folded one within the other, in a manuscript or book.
+//                     -- http://www.thefreedictionary.com/quire
+//
 // Code common to all three implementations
 // of the  memory management library.
 //

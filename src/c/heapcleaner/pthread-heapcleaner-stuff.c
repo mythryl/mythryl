@@ -67,18 +67,18 @@ void   partition_agegroup0_buffer_between_pthreads   (Pthread *pthread_table[]) 
 
     int per_thread_agegroup0_buffer_bytesize
 	=
-	task0->heap->agegroup0_buffer_bytesize
+	task0->heap->agegroup0_master_buffer_bytesize
         /
         MAX_PTHREADS;
 
     Val* start_of_agegroup0_buffer_for_next_pthread
 	=
-	task0->heap->agegroup0_buffer;
+	task0->heap->agegroup0_master_buffer;
 
 static int first_call = TRUE;
-									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_buffer_bytesize x=%x", task0->heap->agegroup0_buffer_bytesize );
-									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize   x=%x", per_thread_agegroup0_buffer_bytesize);
-									if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_buffer          x=%x", task0->heap->agegroup0_buffer);
+								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_master_buffer_bytesize x=%x", task0->heap->agegroup0_master_buffer_bytesize );
+								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: per_thread_agegroup0_buffer_bytesize   x=%x", per_thread_agegroup0_buffer_bytesize);
+								if (first_call)	log_if( "partition_agegroup0_buffer_between_pthreads: task0->heap->agegroup0_master_buffer   x=%x", task0->heap->agegroup0_master_buffer);
 
     for (int pthread = 0;   pthread < MAX_PTHREADS;   pthread++) {
         //

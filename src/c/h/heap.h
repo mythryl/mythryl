@@ -11,10 +11,12 @@
 */
 
 
-// NB: If we need a better name for 'multipage ram region',
-// 'quire' (pronounced like choir) deserves consideration:
-//     2. A collection of leaves of parchment or paper, folded one within the other, in a manuscript or book.
-//      -- http://www.thefreedictionary.com/quire
+// 'quire' (pronounced like choir) designates a multipage ram region
+//         allocated directly from the host operating system.
+//
+//     quire: 2. A collection of leaves of parchment or paper,
+//               folded one within the other, in a manuscript or book.
+//                     -- http://www.thefreedictionary.com/quire
 
 #ifndef HEAP_H
 #define HEAP_H
@@ -62,11 +64,13 @@ typedef   struct agegroup          Agegroup;
 										// struct multipage_ram_region	def in    src/c/ram/get-multipage-ram-region-from-win32.c
 
 
-// A heap consists of an agegroup0 and one or more older agegroups.
+// A heap consists of one agegroup0 buffer per pthread
+// plus one or more older agegroups, which are shared
+// between all pthreads.
 //
 struct heap {
-    Val*			agegroup0_buffer;				// Base address of agegroup0 buffer.
-    Punt			agegroup0_buffer_bytesize;			// Size-in-bytes of the agegroup0 buffer.
+    Val*			agegroup0_master_buffer;			// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
+    Punt			agegroup0_master_buffer_bytesize;		// Size-in-bytes of the agegroup0_buffers master buffer.
     Multipage_Ram_Region*	multipage_ram_region;				// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
 
     int  active_agegroups;							// Number of active agegroups.
@@ -90,13 +94,13 @@ struct heap {
     // we should be able to go back to the old version of this.		XXX BUGGO FIXME
     //
     #define HEAP_ALLOCATION_LIMIT(hp)			\
-	(Val *)((Punt)((hp)->agegroup0_buffer) + (hp)->agegroup0_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
+	(Val *)((Punt)((hp)->agegroup0_master_buffer) + (hp)->agegroup0_master_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
 #else
     #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
         (Val*)((Punt)(base) + (size) - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)	// "Private" def -- this def is directly referenced only in the next one.
 
     #define HEAP_ALLOCATION_LIMIT(hp)			\
-	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_buffer,(hp)->agegroup0_buffer_bytesize)
+	HEAP_ALLOCATION_LIMIT_SIZE((hp)->agegroup0_master_buffer,(hp)->agegroup0_master_buffer_bytesize)		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
 #endif
 
 

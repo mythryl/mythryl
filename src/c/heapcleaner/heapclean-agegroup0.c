@@ -110,7 +110,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														// our algorithms do not depend in any way on this information.
 
 													    long bytes_allocated = (Punt) task->heap_allocation_pointer
-																 - (Punt) heap->agegroup0_buffer;
+																 - (Punt) heap->agegroup0_master_buffer;// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
 													    //	
 													    INCREASE_BIGCOUNTER( &heap->total_bytes_allocated, bytes_allocated );
 														//

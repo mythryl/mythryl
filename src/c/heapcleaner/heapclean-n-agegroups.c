@@ -631,7 +631,7 @@ static int          set_up_empty_tospace_buffers       (Heap* heap,   int younge
         //
 	previous_oldstuff_bytesize[ ilk ]
 	    =
-	    heap->agegroup0_buffer_bytesize;
+	    heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
     }
 
     old_cleanings_done_value
@@ -1704,7 +1704,7 @@ static void         trim_heap                          (Heap* heap,  int oldest_
             ){
 
 		min_bytesize = (age == 0)
-		    ? heap->agegroup0_buffer_bytesize
+		    ? heap->agegroup0_master_buffer_bytesize		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
 		    : heap->agegroup[ age-1 ]->sib[ ilk ]->tospace_bytesize;
 
 		min_bytesize +=  sib_space_used_in_bytes( sib )									// sib_space_used_in_bytes	def in    src/c/h/heap.h

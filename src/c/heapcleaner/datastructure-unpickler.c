@@ -154,7 +154,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     // Check the heap to see if there is
     // enough free space in agegroup 1:
     //
-    {   Punt	agegroup0_buffer_bytesize =   task->heap->agegroup0_buffer_bytesize;
+    {   Punt	agegroup0_buffer_bytesize =   task->heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
         //
 	Bool needs_cleaning  =   FALSE;
 

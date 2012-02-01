@@ -210,7 +210,7 @@ void   call_heapcleaner   (Task* task,  int level) {
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt	size =   task->heap->agegroup0_buffer_bytesize;
+	Val_Sized_Unt	size =   task->heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
@@ -421,7 +421,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
         //
 	Agegroup*	age1 =  heap->agegroup[0];
         //
-	Val_Sized_Unt  size =  task->heap->agegroup0_buffer_bytesize;
+	Val_Sized_Unt  size =  task->heap->agegroup0_master_buffer_bytesize;		// BUGGO, task->heap->agegroup0_buffer_bytesize is for all tasks combined.
 
 	for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	    //
@@ -448,7 +448,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
     #if NEED_PTHREAD_SUPPORT
     pth__finish_heapcleaning( task );
     #else
-	task->heap_allocation_pointer	= heap->agegroup0_buffer;
+	task->heap_allocation_pointer	= heap->agegroup0_master_buffer;
 
 	#if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	    //
@@ -540,7 +540,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
 	} else {
 
-	    task->heap_allocation_limit  =  heap->agegroup0_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;
+	    task->heap_allocation_limit  =  heap->agegroup0_master_buffer + poll_frequency * PERIODIC_EVENT_TIME_GRANULARITY_IN_NEXTCODE_INSTRUCTIONS;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
 	    //
 	    task->heap_allocation_limit  =  (task->heap_allocation_limit > task->real_heap_allocation_limit)
 		? task->real_heap_allocation_limit

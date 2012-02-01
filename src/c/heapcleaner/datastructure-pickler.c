@@ -459,7 +459,7 @@ static Val   allocate_heap_ram_for_pickle   (Task*  task,  Punt  bytesize) {
 
     // We probably should allocate space in the hugechunk region for these chunks.	XXX BUGGO FIXME
     //
-    if (bytesize >= heap->agegroup0_buffer_bytesize-(8*ONE_K_BINARY))   die ("Pickling %d bytes not supported -- increase agegroup0 buffer size.", bytesize);	// XXX BUGGO FIXME
+    if (bytesize >= heap->agegroup0_master_buffer_bytesize-(8*ONE_K_BINARY))   die ("Pickling %d bytes not supported -- increase agegroup0 buffer size.", bytesize);	// XXX BUGGO FIXME
 
     LIB7_AllocWrite( task, 0, tagword );
 

@@ -3,6 +3,12 @@
 // A simple memory module built on top of vmem alloc/free.
 // This is currently win32 specific.
 
+// 'quire' (pronounced like choir) designates a multipage ram region
+//         allocated directly from the host operating system.
+//
+//     quire: 2. A collection of leaves of parchment or paper,
+//               folded one within the other, in a manuscript or book.
+//                     -- http://www.thefreedictionary.com/quire
 
 #include "../mythryl-config.h"
 

@@ -177,7 +177,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
     Multipage_Ram_Region*  multipage_ram_region;
 
-    Val* agegroup0_buffer;
+    Val* agegroup0_master_buffer;
 
     // Default any parameters unspecified by user:
     //
@@ -218,9 +218,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	book_to_sibid__global = (Sibid*) BASE_ADDRESS_OF_MULTIPAGE_RAM_REGION( multipage_ram_region );
 
-	agegroup0_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
-
-//	agegroup0_overrun_tripwire_buffer = (char*)agegroup0_buffer + params->agegroup0_buffer_bytesize;
+	agegroup0_master_buffer = (Val*) (((Punt)book_to_sibid__global) + book2sibid_bytesize);
     }
 
     // Initialize the book_to_sibid__global:
@@ -323,10 +321,11 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     heap->multipage_ram_region       =  multipage_ram_region;
     //
-    heap->agegroup0_buffer           =  agegroup0_buffer;
+    heap->agegroup0_master_buffer    =  agegroup0_master_buffer;
     //
-    heap->agegroup0_buffer_bytesize  =  params->agegroup0_buffer_bytesize
-				      * MAX_PTHREADS;				// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS buffers by
+    heap->agegroup0_master_buffer_bytesize
+        =
+        params->agegroup0_buffer_bytesize * MAX_PTHREADS;			// "* MAX_PTHREADS" because it gets partitioned into MAX_PTHREADS buffers by
 										// partition_agegroup0_buffer_between_pthreads() in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
     //
     set_book2sibid_entries_for_range (
@@ -383,7 +382,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    heap->agegroup[ 0 ]->sib[ ilk ]->tospace_bytesize
                 =
-                BOOKROUNDED_BYTESIZE( 2 * heap->agegroup0_buffer_bytesize );
+                BOOKROUNDED_BYTESIZE( 2 * heap->agegroup0_master_buffer_bytesize );		// BUGGO, task->heap->agegroup0_master_buffer_bytesize is for all tasks combined.
 	}
 
 	if (allocate_and_partition_an_agegroup( heap->agegroup[0] ) == FAILURE)	    die ("unable to allocate initial agegroup 1 buffer\n");
@@ -400,7 +399,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     // parts of the Mythryl state:
     //
     task->heap	                  =  heap;
-    task->heap_allocation_pointer =  (Val*) task->heap->agegroup0_buffer;
+    task->heap_allocation_pointer =  (Val*) task->heap->agegroup0_master_buffer;		// BUGGO, task->heap->agegroup0_master_buffer is for all tasks combined.
 
     #if NEED_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//

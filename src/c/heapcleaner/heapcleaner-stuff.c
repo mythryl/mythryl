@@ -191,15 +191,15 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 	=
 	ap->tospace_bytesize / CARD_BYTESIZE;
 
-    int  agegroup0_buffer_bytesize = CARDMAP_BYTESIZE( map_size_in_slots );
+    int  map_bytesize = CARDMAP_BYTESIZE( map_size_in_slots );
 
     if (ag->coarse_inter_agegroup_pointers_map != NULL) {
         //
 	FREE( ag->coarse_inter_agegroup_pointers_map );
     }
-    ag->coarse_inter_agegroup_pointers_map =   (Coarse_Inter_Agegroup_Pointers_Map*)   MALLOC( agegroup0_buffer_bytesize );
+    ag->coarse_inter_agegroup_pointers_map =   (Coarse_Inter_Agegroup_Pointers_Map*)   MALLOC( map_bytesize );
 
-    ag->coarse_inter_agegroup_pointers_map->map_bytesize =   agegroup0_buffer_bytesize;
+    ag->coarse_inter_agegroup_pointers_map->map_bytesize =   map_bytesize;
 
     if (ag->coarse_inter_agegroup_pointers_map == NULL) 	die ("unable to malloc coarse_inter_agegroup_pointers_map vector");
 
@@ -209,7 +209,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
     memset(
         ag->coarse_inter_agegroup_pointers_map->min_age,
         CLEAN_CARD,
-        agegroup0_buffer_bytesize -  (sizeof( Coarse_Inter_Agegroup_Pointers_Map ) - WORD_BYTESIZE)
+        map_bytesize -  (sizeof( Coarse_Inter_Agegroup_Pointers_Map ) - WORD_BYTESIZE)
     );
 }
 

@@ -333,7 +333,8 @@ static void   read_heap   (
     heapio__read_block( bp, sib_headers, sib_headers_bytesize );
 
     for (i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-	prevSzB[i] = heap->agegroup0_buffer_bytesize;
+        //
+	prevSzB[i] = heap->agegroup0_master_buffer_bytesize;
     }
 
     // Allocate the sib buffers and read in the heap image:
