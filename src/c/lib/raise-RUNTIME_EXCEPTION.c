@@ -98,14 +98,15 @@ Val   RaiseSysError (
             =
             make_ascii_string_from_c_string (task, at);
 
-	LIST_CONS(task, at_list, at_cstring, LIST_NIL);
+	at_list = LIST_CONS(task, at_cstring, LIST_NIL);
 
     } else {
 
 	at_list = LIST_NIL;
     }
 
-    REC_ALLOC2 (task, arg, errno_string, null_or_errno);
+    arg = make_two_slot_record( task,  errno_string, null_or_errno);
+
     EXN_ALLOC  (task, syserr_exception, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
 
     // Modify the Lib7 state so that 'syserr_exception'

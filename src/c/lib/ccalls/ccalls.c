@@ -258,7 +258,7 @@ static Val   Pointerlisto_LIB7list   (Task* task)
 #endif
 	pointerlist = p->next;
 	v = MK_CADDR(task,p->ptr);
-	LIST_CONS(task, lp, v, lp);
+	lp = LIST_CONS(task, v, lp);
 	FREE(p);
 	p = pointerlist;
     }
@@ -1006,9 +1006,7 @@ Val   lib7_convert_mythryl_value_to_c   (Task* task,  Val arg) {
 
     Val result =  MK_CADDR(task,(Val_Sized_Unt *)p);
     //
-    REC_ALLOC2(task, result, result, lp);
-    //
-    return result;
+    return make_two_slot_record( task, result, lp);
 }
 
 static Val   word_CtoLib7   (Task* task,  char** t,  Val_Sized_Unt** p,  Val* root)   {
@@ -1137,11 +1135,11 @@ handle_int:
 
 	    while (**t != LIB7CLOSESTRUCT_CODE) {
 		//
-		LIST_CONS(task,local_root,mlval,*root);
+		local_root = LIST_CONS(task, mlval, *root);
 		result = word_CtoLib7(task,t,p,&local_root);
 		mlval = LIST_HEAD(local_root);
 		*root = LIST_TAIL(local_root);
-		LIST_CONS(task,mlval,result,mlval);
+		mlval = LIST_CONS(task, result, mlval);
 		IF_PAD_DO_PAD(p,t);
 	    }
 	    (*t)++;					// Advance past LIB7CLOSESTRUCT_CODE.
@@ -1191,7 +1189,7 @@ handle_int:
 		*t = saved_t;
 
 	        Val                                    local_root;
-		LIST_CONS(task,                        local_root, mlval, *root );
+		local_root = LIST_CONS(task,           mlval, *root );
 		Val result = word_CtoLib7(task, t, p, &local_root );
 		mlval = LIST_HEAD(                     local_root );
 		*root = LIST_TAIL(                     local_root );
@@ -1209,9 +1207,7 @@ handle_int:
 	die("word_CtoLib7: Cannot yet handle type\n");
     }
 
-    REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(tag),mlval);
-
-    return result;
+    return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(tag), mlval);
 }
 
 
@@ -1235,12 +1231,12 @@ Val   convert_c_value_to_mythryl   (Task* task,   char* type,   Val_Sized_Unt p,
 	//
     case LIB7DOUBLE_CODE:
 	result = double_CtoLib7(task, *(double *)p);
-	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG),result);
+	result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG), result);
 	break;
 
     case LIB7FLOAT_CODE:
 	result = double_CtoLib7(task, (double) (*(float *)p));
-	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG),result);
+	result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG), result);
 	break;
 
     default:
@@ -1364,13 +1360,13 @@ Val   lib7_c_call   (Task* task,   Val arg) {
     case LIB7DOUBLE_CODE:
 	result = double_CtoLib7(task,call_double_g((double (*)())f,n_cargs,vals));
 	//
-	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG),result);
+	result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(LIB7DOUBLE_TAG), result);
 	break;
 
     case LIB7FLOAT_CODE:
 	result = double_CtoLib7(task,  (double) call_float_g((float(*)())f,n_cargs,vals));
 	//
-	REC_ALLOC2(task,result,TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG),result);
+	result = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(LIB7FLOAT_TAG), result );
 	break;
 
     case LIB7CHAR_CODE:
@@ -1423,7 +1419,7 @@ Val   lib7_c_call   (Task* task,   Val arg) {
 
 	    lp = Pointerlisto_LIB7list(task);		// This frees the pointer descriptors.
 	}
-	REC_ALLOC2(task, result, result, lp);
+	result = make_two_slot_record(task, result, lp);
     }
 
     restore_pointerlist( saved_pointerlist );		// Restore the previous pointerlist.

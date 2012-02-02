@@ -29,118 +29,124 @@
 
 #define LIB7_AllocWrite(task, i, x)	((((task)->heap_allocation_pointer))[i] = (x))
 
-#define LIB7_Alloc(task, n)	(			\
-    ((task)->heap_allocation_pointer += ((n)+1)),			\
+#define LIB7_Alloc(task, n)	(						\
+    ((task)->heap_allocation_pointer += ((n)+1)),				\
     PTR_CAST( Val, (task)->heap_allocation_pointer - (n)))
 
-#define REF_ALLOC(task, r, a)	{			\
-	Task	*__task = (task);			\
-	Val	*__p = __task->heap_allocation_pointer;		\
-	*__p++ = REFCELL_TAGWORD;			\
-	*__p++ = (a);					\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);	\
-	__task->heap_allocation_pointer = __p;			\
+
+
+#define REF_ALLOC(task, r, a)	{						\
+	Task*	__task = (task);						\
+	Va*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = REFCELL_TAGWORD;						\
+	*__p++ = (a);								\
+	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC1(task, r, a)	{				\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);	\
-	*__p++ = (a);						\
+
+#define REC_ALLOC1(task, r, a)	{						\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = (a);								\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC2(task, r, a, b)	{			\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = PAIR_TAGWORD;					\
-	*__p++ = (a);						\
-	*__p++ = (b);						\
+inline Val make_two_slot_record( Task* task, Val a, Val b ) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = PAIR_TAGWORD;      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+#define REC_ALLOC3(task, r, a, b, c)	{					\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = (a);								\
+	*__p++ = (b);								\
+	*__p++ = (c);								\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC3(task, r, a, b, c)	{			\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);		\
-	*__p++ = (a);						\
-	*__p++ = (b);						\
-	*__p++ = (c);						\
+#define REC_ALLOC4(task, r, a, b, c, d)	{					\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = (a);								\
+	*__p++ = (b);								\
+	*__p++ = (c);								\
+	*__p++ = (d);								\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC4(task, r, a, b, c, d)	{			\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);	\
-	*__p++ = (a);						\
-	*__p++ = (b);						\
-	*__p++ = (c);						\
-	*__p++ = (d);						\
+#define REC_ALLOC5(task, r, a, b, c, d, e)	{				\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = (a);								\
+	*__p++ = (b);								\
+	*__p++ = (c);								\
+	*__p++ = (d);								\
+	*__p++ = (e);								\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC5(task, r, a, b, c, d, e)	{		\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);	\
-	*__p++ = (a);						\
-	*__p++ = (b);						\
-	*__p++ = (c);						\
-	*__p++ = (d);						\
-	*__p++ = (e);						\
+#define REC_ALLOC6(task, r, a, b, c, d, e, f)	{				\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = (a);								\
+	*__p++ = (b);								\
+	*__p++ = (c);								\
+	*__p++ = (d);								\
+	*__p++ = (e);								\
+	*__p++ = (f);								\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
-#define REC_ALLOC6(task, r, a, b, c, d, e, f)	{		\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);	\
-	*__p++ = (a);						\
-	*__p++ = (b);						\
-	*__p++ = (c);						\
-	*__p++ = (d);						\
-	*__p++ = (e);						\
-	*__p++ = (f);						\
+#define SEQHDR_ALLOC(task, r, desc, data, len)	{				\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = (desc);							\
+	*__p++ = (data);							\
+	*__p++ = TAGGED_INT_FROM_C_INT(len);					\
 	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
-    }
-
-#define SEQHDR_ALLOC(task, r, desc, data, len)	{		\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = (desc);					\
-	*__p++ = (data);					\
-	*__p++ = TAGGED_INT_FROM_C_INT(len);				\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
 
 #ifdef ALIGN_FLOAT64S
-#define REAL64_ALLOC(task, r, d) {				\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	__p = (Val *)((Punt)__p | WORD_BYTESIZE);		\
-	*__p++ = FLOAT64_TAGWORD;				\
-	(r) = PTR_CAST( Val, __p);				\
-	*(double *)__p = (d);					\
-	__p += FLOAT64_SIZE_IN_WORDS;				\
-	__task->heap_allocation_pointer = __p;				\
+#define REAL64_ALLOC(task, r, d) {						\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	__p = (Val *)((Punt)__p | WORD_BYTESIZE);				\
+	*__p++ = FLOAT64_TAGWORD;						\
+	(r) = PTR_CAST( Val, __p);						\
+	*(double *)__p = (d);							\
+	__p += FLOAT64_SIZE_IN_WORDS;						\
+	__task->heap_allocation_pointer = __p;					\
     }
 #else
-#define REAL64_ALLOC(task, r, d) {				\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	__p = (Val *)((Punt)__p | WORD_BYTESIZE);		\
-	(r) = PTR_CAST( Val, __p);				\
-	*(double *)__p = (d);					\
-	__p += FLOAT64_SIZE_IN_WORDS;				\
-	__task->heap_allocation_pointer = __p;				\
+#define REAL64_ALLOC(task, r, d) {						\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	__p = (Val *)((Punt)__p | WORD_BYTESIZE);				\
+	(r) = PTR_CAST( Val, __p);						\
+	*(double *)__p = (d);							\
+	__p += FLOAT64_SIZE_IN_WORDS;						\
+	__task->heap_allocation_pointer = __p;					\
     }
 #endif
 
@@ -150,14 +156,15 @@
 // Boxed word values
 //
 #define WORD_LIB7toC(w)		(*PTR_CAST(Val_Sized_Unt*, w))
-#define WORD_ALLOC(task, p, w)	{				\
-	Task	*__task = (task);				\
-	Val	*__p = __task->heap_allocation_pointer;			\
-	*__p++ = MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);			\
-	*__p++ = (Val)(w);					\
+#define WORD_ALLOC(task, p, w)	{						\
+	Task*	__task = (task);						\
+	Val*	__p = __task->heap_allocation_pointer;				\
+	*__p++ = MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);	\
+	*__p++ = (Val)(w);							\
 	(p) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;				\
+	__task->heap_allocation_pointer = __p;					\
     }
+
 #define TUPLE_GETWORD(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Val_Sized_Unt*, p, i))
 #define INT1_LIB7toC(i)		(*PTR_CAST(Int1*, i))
 #define INT1_ALLOC(task, p, i)	WORD_ALLOC(task, p, i)
@@ -169,7 +176,7 @@
 //
 #define LIST_HEAD(p)			GET_TUPLE_SLOT_AS_VAL(p, 0)
 #define LIST_TAIL(p)			GET_TUPLE_SLOT_AS_VAL(p, 1)
-#define LIST_CONS(task, r, a, b)	REC_ALLOC2(task, r, a, b)
+#define LIST_CONS(task,a,b)		make_two_slot_record(task,a,b)
 //
 #define LIST_NIL			TAGGED_INT_FROM_C_INT(0)
 #define LIST_IS_NULL(p)			((p) == LIST_NIL)

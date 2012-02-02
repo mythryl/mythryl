@@ -61,9 +61,7 @@ Val   _lib7_P_IO_fcntl_gfl   (Task* task,  Val arg)   {
     WORD_ALLOC (task, flags, (flag & (~O_ACCMODE)));
     WORD_ALLOC (task, mode, (flag & O_ACCMODE));
 
-    Val              result;
-    REC_ALLOC2(task, result, flags, mode);
-    return           result;
+    return make_two_slot_record( task, flags, mode);
 }
 
 

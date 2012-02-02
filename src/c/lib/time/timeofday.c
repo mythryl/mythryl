@@ -137,9 +137,7 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
 
     INT1_ALLOC(task, lib7_seconds, c_seconds);
 
-    Val		      result;
-    REC_ALLOC2( task, result, lib7_seconds, TAGGED_INT_FROM_C_INT(c_microseconds) );
-    return            result;
+    return  make_two_slot_record(task,  lib7_seconds, TAGGED_INT_FROM_C_INT(c_microseconds) );
 }
 
 

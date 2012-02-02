@@ -41,10 +41,11 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	atStk = LIST_NIL;
     } else {
 	Val atMsg = make_ascii_string_from_c_string (task, at);
-	LIST_CONS(task, atStk, atMsg, LIST_NIL);
+	atStk = LIST_CONS(task, atMsg, LIST_NIL);
     }
 
-    REC_ALLOC2 (task, arg, s, syserror);
+    arg = make_two_slot_record( task, s, syserror);
+
     EXN_ALLOC (task, exn, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, atStk);
 
     raise_mythryl_exception( task, exn );

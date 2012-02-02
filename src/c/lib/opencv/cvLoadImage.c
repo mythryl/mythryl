@@ -41,7 +41,6 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 	Val header;	Val header_data;
 	Val image;	Val  image_data;
 
-	Val result;
 
         header_data  =  make_int2_vector_sized_in_bytes(  task, ipl_image, sizeof(IplImage));
         SEQHDR_ALLOC(task, header, UNT8_RO_VECTOR_TAGWORD, header_data, sizeof(IplImage));
@@ -54,8 +53,7 @@ _lib7_OpenCV_cvLoadImage (Task *task, Val arg)
 	--c_roots_count__global;
 	cvReleaseImage( &ipl_image );
 
-	REC_ALLOC2(task, result, header, image);
-	return           result;
+	return  make_two_slot_record( task, header, image );
     }
 
 #else

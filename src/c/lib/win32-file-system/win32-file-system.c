@@ -64,8 +64,8 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_win32_FS_find_first_file");
 
     HANDLE h = FindFirstFile(HEAP_STRING_AS_C_STRING(arg),&wfd);
-    Val fname_opt, fname, w, res;
-
+    Val fname_opt, fname, w;
+    Val result;
     if (h != INVALID_HANDLE_VALUE) {
       if (IS_DOTDIR(wfd.cFileName))
 	fname_opt = find_next_file(task,h);
@@ -76,8 +76,8 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
     } else
       fname_opt = OPTION_NULL;
     WORD_ALLOC(task, w, (Val_Sized_Unt)h);
-    REC_ALLOC2(task,res,w,fname_opt);
-    return res;
+
+    return  make_two_slot_record(task, w, fname_opt);
 }
 
 /* _lib7_win32_FS_find_close: one_word_unt -> Bool
@@ -181,13 +181,13 @@ Val _lib7_win32_FS_get_full_path_name(Task *task, Val arg)
 Val _lib7_win32_FS_get_file_size(Task *task, Val arg)
 {
   DWORD lo,hi;
-  Val ml_lo, ml_hi, res;
+  Val ml_lo, ml_hi, result;
 
   lo = GetFileSize((HANDLE)WORD_LIB7toC(arg),&hi);
   WORD_ALLOC(task,ml_lo,lo);
   WORD_ALLOC(task,ml_hi,hi);
-  REC_ALLOC2(task,res,ml_hi,ml_lo);
-  return res;
+
+  return  make_two_slot_record(task, ml_hi, ml_lo);
 }
 
 /* _lib7_win32_FS_get_low_file_size: one_word_unt -> (one_word_unt option)

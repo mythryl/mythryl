@@ -124,9 +124,8 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 
     Val	                addr;
     SEQHDR_ALLOC( task, addr, UNT8_RO_VECTOR_TAGWORD, data, address_len);
-    REC_ALLOC2(   task, result, result, addr);
 
-    return result;
+    return  make_two_slot_record(task,  result, addr);
 }
 
 

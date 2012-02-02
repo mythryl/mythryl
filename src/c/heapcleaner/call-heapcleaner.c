@@ -466,15 +466,15 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, ...)   {
 
     note_when_heapcleaning_ended();										// note_when_heapcleaning_ended	def in    src/c/heapcleaner/heapcleaner-statistics.h
 
-    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );					// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 }														// fun call_heapcleaner_with_extra_roots
 
 
 
-Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
+Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt bytes_needed)   {
     // ========================
     //
-    // This fun is called various places to guarantee that there are 'nbytes'
+    // This fun is called various places to guarantee that there are 'bytes_needed'
     // free in the generation-zero buffer.  The canonical calls are those in
     //
     //     src/c/main/run-mythryl-code-and-runtime-eventloop.c
@@ -486,7 +486,7 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
     //
     // Check to see if a heapcleaning is required,
     // or if there is enough heap space
-    // for nbytes worth of allocation.
+    // for bytes_needed worth of allocation.
     //	
     // Return TRUE, if the heapcleaner should be called,
     // FALSE otherwise.
@@ -497,15 +497,12 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 
     #if NEED_PTHREAD_SUPPORT_FOR_SOFTWARE_GENERATED_PERIODIC_EVENTS
 	//
-	if ((((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))
-	|| (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE))			// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
-	//													// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
-	     return TRUE;
-	else return FALSE;
+	return (((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT( task ))
+	    || (DEREF( SOFTWARE_GENERATED_PERIODIC_EVENTS_SWITCH_REFCELL__GLOBAL) == HEAP_TRUE);		// This appears to be set mainly (only?) in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+														// although it is also exported to the Mythryl level via   src/lib/std/src/unsafe/software-generated-periodic-events.api
     #else
 	//
-	if (((Punt)(task->heap_allocation_pointer)+nbytes) >= (Punt) HEAP_ALLOCATION_LIMIT(task)) return TRUE;	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
-	else											  return FALSE;
+	return   ((Punt)(task->heap_allocation_pointer)+bytes_needed) >= (Punt) HEAP_ALLOCATION_LIMIT(task);	// HEAP_ALLOCATION_LIMIT	is #defined in   src/c/h/heap.h
     #endif
     }
 //    #endif
@@ -523,8 +520,6 @@ Bool   need_to_call_heapcleaner   (Task* task,  Val_Sized_Unt nbytes)   {
 	    = 
 	    TAGGED_INT_TO_C_INT(DEREF(SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL));	// SOFTWARE_GENERATED_PERIODIC_EVENT_INTERVAL_REFCELL__GLOBAL is #defined in src/c/h/runtime-globals.h
 													// in terms of software_generated_periodic_event_interval_refcell__global from src/c/main/construct-runtime-package.c
-	Heap* heap =  task->heap;
-
 	task->real_heap_allocation_limit =  HEAP_ALLOCATION_LIMIT( task );
 
 	//

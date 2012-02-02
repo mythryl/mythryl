@@ -223,7 +223,8 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
         //
 	program_name = make_ascii_string_from_c_string(task, mythryl_program_name__global);
 	args = make_ascii_strings_from_vector_of_c_strings (task, commandline_arguments);
-	REC_ALLOC2(task, task->argument, program_name, args);
+
+	task->argument = make_two_slot_record( task, program_name, args );
 
 	// debug_say("arg = %#x : [%#x, %#x]\n", task->argument, GET_TUPLE_SLOT_AS_VAL(task->argument, 0), GET_TUPLE_SLOT_AS_VAL(task->argument, 1));
 

@@ -77,9 +77,7 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
     Val               poslo;
     WORD_ALLOC (task, poslo, (Unt1) pos);
 
-    Val               chunk; 
-    REC_ALLOC2 (task, chunk, poshi, poslo);			// What fools these mortals be.
-    return            chunk;
+    return  make_two_slot_record( task, poshi, poslo);			// What fools these mortals be.
 }
 
 

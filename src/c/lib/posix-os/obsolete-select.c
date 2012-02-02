@@ -158,7 +158,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 	while ((status > 0) && (n > 0)) {				\
 	    if (fds[i].revents != 0) {				\
 		status--;						\
-		LIST_CONS(task, l, TAGGED_INT_FROM_C_INT(fds[i].fd), l);	\
+		l = LIST_CONS(task, TAGGED_INT_FROM_C_INT(fds[i].fd), l);	\
 	    }							\
 	    n--;  i++;						\
 	}							\
@@ -228,7 +228,7 @@ static Val   FDSetToList   (Task* task,  fd_set* fds,  int width)   {
 	//
 	if (FD_ISSET(i, fds)) {
 	    //
-	    LIST_CONS (task, p, TAGGED_INT_FROM_C_INT(i), p);
+	    p = LIST_CONS (task, TAGGED_INT_FROM_C_INT(i), p);
         }
     }
 

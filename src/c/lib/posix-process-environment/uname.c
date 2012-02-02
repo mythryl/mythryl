@@ -56,28 +56,28 @@ Val   _lib7_P_ProcEnv_uname   (Task* task,  Val arg)   {
 
     field = make_ascii_string_from_c_string(task, "machine");
     s = make_ascii_string_from_c_string(task, name.machine);
-    REC_ALLOC2(task, p, field, s);
-    LIST_CONS(task, l, p, l);
+    p = make_two_slot_record(task, field, s); 
+    l = LIST_CONS(task, p, l);
 
     field = make_ascii_string_from_c_string(task, "version");
     s = make_ascii_string_from_c_string(task, name.version);
-    REC_ALLOC2(task, p, field, s);
-    LIST_CONS(task, l, p, l);
+    p = make_two_slot_record(task, field, s); 
+    l = LIST_CONS(task, p, l);
 
     field = make_ascii_string_from_c_string(task, "release");
     s = make_ascii_string_from_c_string(task, name.release);
-    REC_ALLOC2(task, p, field, s);
-    LIST_CONS(task, l, p, l);
+    p = make_two_slot_record(task, field, s); 
+    l = LIST_CONS(task, p, l);
 
     field = make_ascii_string_from_c_string(task, "nodename");
     s = make_ascii_string_from_c_string(task, name.nodename);
-    REC_ALLOC2(task, p, field, s);
-    LIST_CONS(task, l, p, l);
+    p = make_two_slot_record(task, field, s); 
+    l = LIST_CONS(task, p, l);
 
     field = make_ascii_string_from_c_string(task, "sysname");
     s = make_ascii_string_from_c_string(task, name.sysname);
-    REC_ALLOC2(task, p, field, s);
-    LIST_CONS(task, l, p, l);
+    p = make_two_slot_record(task, field, s); 
+    l = LIST_CONS(task, p, l);
 
     return l;
 }

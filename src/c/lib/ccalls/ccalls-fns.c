@@ -66,7 +66,7 @@ static void   register_fn_as_cleaning_root   (
     Task*  task,
     Val*   rp
 ){
-    LIST_CONS(task,mythryl_functions_referenced_from_c_code__global,(Val) rp,mythryl_functions_referenced_from_c_code__global);
+    mythryl_functions_referenced_from_c_code__global = LIST_CONS(task, (Val)rp, mythryl_functions_referenced_from_c_code__global);
     //
     #ifdef DEBUG_C_CALLS
 	printf("register_fn_as_cleaning_root: added %x\n", rp);
@@ -323,7 +323,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
     printf("arg 0: %x\n",first);
 #endif
     result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[0],first,&lp);
-    LIST_CONS(visible_task__local,lp,result,lp);
+    lp = LIST_CONS(visible_task__local, result, lp);
     va_start(ap,first);
     for (i = 1; i < last_code_header_used__local->nargs; i++) {
 	next = va_arg(ap,Val_Sized_Unt);
@@ -331,7 +331,7 @@ int   some_args_entry   (Val_Sized_Unt first, ... )   {
 	printf("arg %d: %x\n",i,next);
 #endif
 	result = convert_c_value_to_mythryl(visible_task__local,last_code_header_used__local->argtypes[i],next,&lp);
-	LIST_CONS(visible_task__local,lp,result,lp);
+	lp = LIST_CONS(visible_task__local, result, lp);
     }
     va_end(ap);
 

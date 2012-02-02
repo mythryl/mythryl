@@ -64,7 +64,7 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 
 	memcpy (GET_VECTOR_DATACHUNK_AS(void*, addr), hentry->h_addr_list[i], hentry->h_length);
 
-	LIST_CONS( task, addresses, addr, addresses );
+	addresses = LIST_CONS( task, addr, addresses );
     }
 
     REC_ALLOC4 (task, result, name, aliases, af, addresses);

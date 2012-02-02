@@ -433,7 +433,7 @@ static Val   read_in_compiled_file_list   (
     //
     {   Val   fileList = LIST_NIL;
 	for (i = numFiles;  --i >= 0; ) {
-	    LIST_CONS(task, fileList, file_names[i], fileList);
+	    fileList = LIST_CONS(task, file_names[i], fileList);
 	}
 
 	if (file_names)  FREE( file_names );

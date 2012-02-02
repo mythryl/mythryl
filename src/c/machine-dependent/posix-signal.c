@@ -369,9 +369,9 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 	        //
 		name = make_ascii_string_from_c_string (task, SigInfo[i].name);
 
-		REC_ALLOC2(task, sig, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
+		sig = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(SigInfo[i].id), name);
 
-		LIST_CONS(task, signal_list, sig, signal_list);
+		signal_list = LIST_CONS(task, sig, signal_list);
 	    }
 	}
     }
