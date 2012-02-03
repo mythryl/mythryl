@@ -119,11 +119,10 @@ Val   _lib7_Sock_recvfrom   (Task* task,  Val arg)   {
 	if (n < nbytes) {
 	    shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );		// Shrink the vector.
 	}
-	SEQHDR_ALLOC (task, result, STRING_TAGWORD, vec, n);
+	result = make_vector_header(task,  STRING_TAGWORD, vec, n);
     }
 
-    Val	                addr;
-    SEQHDR_ALLOC( task, addr, UNT8_RO_VECTOR_TAGWORD, data, address_len);
+    Val addr =  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len);
 
     return  make_two_slot_record(task,  result, addr);
 }

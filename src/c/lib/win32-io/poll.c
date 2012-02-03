@@ -64,7 +64,7 @@ Val _lib7_win32_OS_poll (Task *task, Val arg)
     handle = hArray[index-1];
     result = WaitForSingleObject (handle,0);
     if (result==WAIT_FAILED || result==WAIT_TIMEOUT) continue;
-    WORD_ALLOC(task,item,(Val_Sized_Unt)handle);
+    item = make_one_word_unt(task,  (Val_Sized_Unt) handle  );
     resList = LIST_CONS (task,item,resList);
   }
 

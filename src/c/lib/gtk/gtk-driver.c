@@ -711,8 +711,7 @@ Val   _lib7_Gtk_get_queued_float_callback   (Task* task, Val arg)  {
 
     double d =  e.entry.float_value;
 
-    Val	               boxed_double;
-    REAL64_ALLOC(task, boxed_double, d);	// Defined in src/c/h/make-strings-and-vectors-etc.h
+    Val boxed_double =   make_float64(task, d );					// make_float64		is from   src/c/h/make-strings-and-vectors-etc.h
 
     LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 2));
     LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number ));
@@ -734,16 +733,10 @@ Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
         moan_and_die();
     }
 
-    double x = e.entry.button_press.x;
-    double y = e.entry.button_press.y;
+    Val boxed_x =  make_float64(task, e.entry.button_press.x );
+    Val boxed_y =  make_float64(task, e.entry.button_press.y );
 
-    Val	         boxed_x;
-    Val	         boxed_y;
-
-    REAL64_ALLOC(task, boxed_x, x);
-    REAL64_ALLOC(task, boxed_y, y);
-
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                    );
+    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                );
     LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number              ));
     LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.button_press.widget_id ));
     LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.button_press.button    ));
@@ -751,8 +744,8 @@ Val   _lib7_Gtk_get_queued_button_press_callback   (Task *task, Val arg)   {
     LIB7_AllocWrite(  task, 5, boxed_y                                      );
     LIB7_AllocWrite(  task, 6, TAGGED_INT_FROM_C_INT( e.entry.button_press.time      ));
     LIB7_AllocWrite(  task, 7, TAGGED_INT_FROM_C_INT( e.entry.button_press.modifiers ));
+    //
     return LIB7_Alloc(task, 7);
-
 }
 
 
@@ -797,16 +790,10 @@ Val   _lib7_Gtk_get_queued_motion_notify_callback   (Task *task,  Val arg)   {
         moan_and_die();
     }
 
-    double x = e.entry.motion_notify.x;
-    double y = e.entry.motion_notify.y;
+    Val boxed_x =  make_float64(task, e.entry.motion_notify.x );
+    Val boxed_y =  make_float64(task, e.entry.motion_notify.y );
 
-    Val	         boxed_x;
-    Val	         boxed_y;
-
-    REAL64_ALLOC(task, boxed_x, x);
-    REAL64_ALLOC(task, boxed_y, y);
-
-    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                     );
+    LIB7_AllocWrite(  task, 0, MAKE_TAGWORD(PAIRS_AND_RECORDS_BTAG, 7)                 );
     LIB7_AllocWrite(  task, 1, TAGGED_INT_FROM_C_INT( e.callback_number               ));
     LIB7_AllocWrite(  task, 2, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.widget_id ));
     LIB7_AllocWrite(  task, 3, TAGGED_INT_FROM_C_INT( e.entry.motion_notify.time      ));
@@ -3455,9 +3442,7 @@ Val   _lib7_Gtk_get_adjustment_value   (Task* task, Val arg)
 
     double d = gtk_adjustment_get_value( GTK_ADJUSTMENT(/*adjustment*/w0) );
 
-    Val                      result;
-    REAL64_ALLOC(task, result, d);
-    return                   result;
+    return  make_float64(task, d );
 #else
     extern char* no_gtk_support_in_runtime;
     return RAISE_ERROR(task, no_gtk_support_in_runtime);

@@ -41,9 +41,7 @@ Val   _lib7_P_ProcEnv_time   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_time" );
 
-    Val	             result;
-    INT1_ALLOC(task, result, t);
-    return           result;
+    return  make_one_word_int(task,  t  );
 }
 
 

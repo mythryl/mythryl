@@ -114,9 +114,7 @@ static Val   pickle_unboxed_value   (Task* task,  Val root_chunk) {
 
     WR_FREE(wr);
 
-    SEQHDR_ALLOC( task, pickle, STRING_TAGWORD, pickle, bytesize );
-
-    return pickle;
+    return make_vector_header( task, STRING_TAGWORD, pickle, bytesize );
 }
 
 
@@ -442,9 +440,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     if (WR_ERROR(wr))	return PICKLER_ERROR;
 
-    SEQHDR_ALLOC (task, pickle, STRING_TAGWORD, pickle, total_bytesize);
-
-    return  pickle;
+    return  make_vector_header(task, STRING_TAGWORD, pickle, total_bytesize);
 }											// fun pickle_heap_datastructure
 
 

@@ -40,9 +40,7 @@ Val   _lib7_P_ProcEnv_getegid   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_ProcEnv_getegid" );
 
-    Val	              result;
-    WORD_ALLOC (task, result, (Val_Sized_Unt)egid);
-    return            result;
+    return  make_one_word_unt(task,  (Val_Sized_Unt)egid  );
 }
 
 

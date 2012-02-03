@@ -262,8 +262,7 @@ log_if("I_RAW32 /TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 		    debug_say("[%2d]: RAW32[%d]\n", pc-5, i);
 		#endif
 
-		Val               result;
-		INT1_ALLOC(task, result, i);
+		Val result =  make_one_word_int(task, i );
 
 		stack = LIST_CONS(task, result, stack);
 		free_bytes_in_agegroup0_buffer -= 2*WORD_BYTESIZE;
@@ -306,8 +305,7 @@ log_if("I_RAW32L/BOT: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 log_if("I_RAW64 /TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=%05x  hab p=%p hap p=%p hal p=%p",task,free_bytes_in_agegroup0_buffer,agegroup0_freespace_in_bytes(task),task->heap_allocation_buffer,task->heap_allocation_pointer,task->real_heap_allocation_limit);
 		double d = get_double(&(bytecode_vector[pc]));	pc += 8;
 
-		Val	           result;
-		REAL64_ALLOC(task, result, d);
+		Val result = make_float64(task, d );
 
 		#ifdef DEBUG_LITERALS
 		    debug_say("[%2d]: RAW64[%f] @ %#x\n", pc-5, d, result);
@@ -399,7 +397,7 @@ log_if("I_STR   /DDD: need_bytes_in_agegroup0_buffer (including header) x=%x", n
 
 		// Allocate the header chunk:
 		//
-		SEQHDR_ALLOC(task, result, STRING_TAGWORD, result, n);
+		result = make_vector_header(task, STRING_TAGWORD, result, n);
 
 		// Push on stack:
 		//
@@ -468,9 +466,7 @@ log_if("I_VECTOR/TOP: task p=%p free_bytes_in_agegroup0_buffer x=%05x hal-hap x=
 
 		Val result =  LIB7_Alloc(task, n );
 
-		// Allocate the header chunk:
-		//
-		SEQHDR_ALLOC(task, result, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, n);
+		result =  make_vector_header(task, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, n);
 
 		#ifdef DEBUG_LITERALS
 		    debug_say("...] @ %#x\n", result);

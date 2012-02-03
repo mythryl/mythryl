@@ -61,9 +61,7 @@ Val   _lib7_P_ProcEnv_getenv   (Task* task,  Val arg)   {
 
     Val s = make_ascii_string_from_c_string( task, status);			// make_ascii_string_from_c_string	def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-    Val               result;
-    OPTION_THE(task, result, s);
-    return            result;
+    return  OPTION_THE( task, s );
 }
 
 

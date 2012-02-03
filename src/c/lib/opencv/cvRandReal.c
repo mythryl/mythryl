@@ -32,9 +32,7 @@ _lib7_OpenCV_cvRandReal (Task *task, Val arg)
         =
         cvRandReal( rng );
 
-    Val	result;    REAL64_ALLOC(task, result, random_float64 );
-
-    return result;
+    return  make_float64(task, random_float64 );
 
 #else
 

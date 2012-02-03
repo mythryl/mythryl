@@ -33,7 +33,7 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
         errno = (int) GetLastError();
 	sprintf(buf, "<win32 error code %d>", errno);
 	msg = buf;
-	OPTION_THE(task, syserror, TAGGED_INT_FROM_C_INT(errno));
+	syserror =  OPTION_THE(  task,  TAGGED_INT_FROM_C_INT(errno)  );
     }
 
     s = make_ascii_string_from_c_string (task, msg);
@@ -44,9 +44,9 @@ Val   RaiseSysError   (Task* task,  const char* altMsg,  char* at)   {
 	atStk = LIST_CONS(task, atMsg, LIST_NIL);
     }
 
-    arg = make_two_slot_record( task, s, syserror);
+    arg =  make_two_slot_record( task, s, syserror);
 
-    EXN_ALLOC (task, exn, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, atStk);
+    exn =  MAKE_EXCEPTION (task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, atStk);
 
     raise_mythryl_exception( task, exn );
 

@@ -261,9 +261,8 @@ log_if("mutex_make malloc'd mutex %x", mutex);
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        Val               result;
-        WORD_ALLOC (task, result, mutex);
-        return            result;
+        return  make_one_word_unt(task,  mutex  );
+
     #else
 	die ("mutex_make: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -528,9 +527,8 @@ log_if("barrier_make malloc()'d barrier %x", barrier);
 	// We return the address of the barrier_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        Val               result;
-        WORD_ALLOC (task, result, barrier);
-        return            result;
+        return  make_one_word_unt(task, barrier );
+
     #else
 	die ("barrier_make: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.
@@ -716,9 +714,8 @@ log_if("condvar_make: malloc()d condvar %x", condvar);
 	// We return the address of the condvar_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        Val               result;
-        WORD_ALLOC (task, result, condvar);
-        return            result;
+        return  make_one_word_unt(task,  condvar  );
+
     #else
 	die ("condvar_make: unimplemented\n");
         return HEAP_VOID;							// Cannot execute; only present to quiet gcc.

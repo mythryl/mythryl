@@ -300,8 +300,10 @@ void   system_run_mythryl_task_and_runtime_eventloop   (Task *task)   {				// ca
 
 			loc = make_ascii_string_from_c_string( task, "<unknown file>" );
 		    }
-		    traceStk = LIST_CONS( task, loc, LIST_NIL );
-		    EXN_ALLOC( task, exn, task->fault_exception, HEAP_VOID, traceStk );
+
+		    traceStk =  LIST_CONS( task, loc, LIST_NIL );
+		    exn      =  MAKE_EXCEPTION( task, task->fault_exception, HEAP_VOID, traceStk );
+
 		    raise_mythryl_exception( task, exn );
 		}
                 break;

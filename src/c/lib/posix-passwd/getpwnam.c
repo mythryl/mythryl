@@ -69,20 +69,13 @@ Val   _lib7_P_SysDB_getpwnam   (Task* task,  Val arg)   {
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   
-    Val pw_name =  make_ascii_string_from_c_string( task, info->pw_name );
+    Val pw_name  =  make_ascii_string_from_c_string( task,                  info->pw_name );
+    Val pw_uid   =  make_one_word_unt(               task, (Val_Sized_Unt) (info->pw_uid) );
+    Val pw_gid   =  make_one_word_unt(               task, (Val_Sized_Unt) (info->pw_gid) );
+    Val pw_dir   =  make_ascii_string_from_c_string( task,                  info->pw_dir   );
+    Val pw_shell =  make_ascii_string_from_c_string( task,                  info->pw_shell );
 
-    Val               pw_uid;
-    WORD_ALLOC (task, pw_uid, (Val_Sized_Unt)(info->pw_uid));
-
-    Val               pw_gid;
-    WORD_ALLOC (task, pw_gid, (Val_Sized_Unt)(info->pw_gid));
-
-    Val pw_dir   =  make_ascii_string_from_c_string( task, info->pw_dir   );
-    Val pw_shell =  make_ascii_string_from_c_string( task, info->pw_shell );
-
-    Val              result;
-    REC_ALLOC5(task, result, pw_name, pw_uid, pw_gid, pw_dir, pw_shell);
-    return           result;
+    return  make_five_slot_record(task,  pw_name, pw_uid, pw_gid, pw_dir, pw_shell  );
 }
 
 

@@ -66,15 +66,15 @@ static Val   mkStatRep   (Task* task,  struct stat* buf)   {
 	ftype = buf->st_mode & 0xF000;
     #endif
 
-    WORD_ALLOC (task, mode, (Val_Sized_Unt)((buf->st_mode) & MODE_BITS));
-    WORD_ALLOC (task, ino, (Val_Sized_Unt)(buf->st_ino));
-    WORD_ALLOC (task, dev, (Val_Sized_Unt)(buf->st_dev));
-    WORD_ALLOC (task, nlink, (Val_Sized_Unt)(buf->st_nlink));
-    WORD_ALLOC (task, uid, (Val_Sized_Unt)(buf->st_uid));
-    WORD_ALLOC (task, gid, (Val_Sized_Unt)(buf->st_gid));
-    INT1_ALLOC (task, atime, buf->st_atime);
-    INT1_ALLOC (task, mtime, buf->st_mtime);
-    INT1_ALLOC (task, ctime, buf->st_ctime);
+    mode  =  make_one_word_unt(task,  (Val_Sized_Unt)((buf->st_mode) & MODE_BITS)  );
+    ino   =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_ino)                 );
+    dev   =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_dev)                 );
+    nlink =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_nlink)               );
+    uid   =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_uid)                 );
+    gid   =  make_one_word_unt(task,  (Val_Sized_Unt)(buf->st_gid)                 );
+    atime =  make_one_word_int(task,                  buf->st_atime		   );
+    mtime =  make_one_word_int(task,                  buf->st_mtime		   );
+    ctime =  make_one_word_int(task,                  buf->st_ctime		   );
 
     // Allocate the stat record:
     //

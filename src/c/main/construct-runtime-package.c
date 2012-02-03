@@ -342,14 +342,14 @@ void   construct_runtime_package__global   (Task* task) {
 	runtime = LIB7_Alloc(task, RUNTIME_SIZE);
     #undef RUNTIME_SIZE
 
-    // Make 1-slot SRECORD containing the runtime
-    // and publish it in
-    //
-    //     runtime_package__global
-    //
-    // for eventual use by   src/c/main/load-compiledfiles.c
-    //
-    REC_ALLOC1(task, runtime_package__global, runtime);
+    runtime_package__global =  make_one_slot_record( task, runtime );
+	//
+	// Make 1-slot SRECORD containing the runtime
+	// and publish it in
+	//
+	//     runtime_package__global
+	//
+	// for eventual use by   src/c/main/load-compiledfiles.c
 
     #ifdef ASM_MATH
         #define MATHVEC_SZ	8

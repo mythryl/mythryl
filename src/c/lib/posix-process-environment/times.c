@@ -37,7 +37,7 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_ProcEnv_times");
 
-    Val  v, e;
+    Val  e;
     Val  u, s;
     Val  cu, cs;
 
@@ -51,14 +51,13 @@ Val   _lib7_P_ProcEnv_times   (Task* task,  Val arg)   {
 
     if (t == -1)   return RAISE_SYSERR(task, -1);
 
-    INT1_ALLOC(task, e, t);
-    INT1_ALLOC(task, u, ts.tms_utime);
-    INT1_ALLOC(task, s, ts.tms_stime);
-    INT1_ALLOC(task, cu, ts.tms_cutime);
-    INT1_ALLOC(task, cs, ts.tms_cstime);
-    REC_ALLOC5(task, v, e, u, s, cu, cs);
+    e  =  make_one_word_int(task,  t            );
+    u  =  make_one_word_int(task,  ts.tms_utime );
+    s  =  make_one_word_int(task,  ts.tms_stime );
+    cu =  make_one_word_int(task,  ts.tms_cutime);
+    cs =  make_one_word_int(task,  ts.tms_cstime);
 
-    return v;
+    return  make_five_slot_record(task,  e, u, s, cu, cs  );
 }
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.

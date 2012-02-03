@@ -135,9 +135,9 @@ Val   _lib7_Time_timeofday   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Time_timeofday" );
 
-    INT1_ALLOC(task, lib7_seconds, c_seconds);
+    lib7_seconds =  make_one_word_int(task,  c_seconds  );
 
-    return  make_two_slot_record(task,  lib7_seconds, TAGGED_INT_FROM_C_INT(c_microseconds) );
+    return  make_two_slot_record(task,  lib7_seconds, TAGGED_INT_FROM_C_INT( c_microseconds ) );
 }
 
 

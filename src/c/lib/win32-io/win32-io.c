@@ -27,13 +27,11 @@ Val _lib7_win32_IO_get_std_handle(Task *task, Val arg)
 {
   Val_Sized_Unt w = WORD_LIB7toC(arg);
   HANDLE h = GetStdHandle(w);
-  Val res;
 
 #ifdef WIN32_DEBUG
   debug_say("getting std handle for %x as %x\n", w, (unsigned int) h);
 #endif
-  WORD_ALLOC(task, res, (Val_Sized_Unt)h);
-  return res;
+  return  make_one_word_unt(task, (Val_Sized_Unt) h );
 }
 
 /* _lib7_win32_IO_close: one_word_unt -> Void
@@ -64,11 +62,9 @@ Val _lib7_win32_IO_set_file_pointer(Task *task, Val arg)
   LONG dist = (LONG) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,1));
   DWORD how = (DWORD) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,2));
   Val_Sized_Unt w;
-  Val res;
 
   w = SetFilePointer(h,dist,NULL,how);
-  WORD_ALLOC(task, res, w);
-  return res;
+  return make_one_word_unt(task,  w  );
 }
 
 /* remove CRs ('\r') from buf of size *np; sets *np to be the new buf size 
@@ -147,11 +143,7 @@ Val _lib7_win32_IO_read_vec(Task *task, Val arg)
             shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );
         }
 
-        /* Allocate header: */
-        {   Val result;
-            SEQHDR_ALLOC (task, result, STRING_TAGWORD, vec, n);
-            return result;
-        }
+        return make_vector_header(task,  STRING_TAGWORD, vec, n);
 
     } else {
 #ifdef WIN32_DEBUG
@@ -194,7 +186,7 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
 {
   HANDLE h = (HANDLE) WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg, 0));
   DWORD nbytes = (DWORD) GET_TUPLE_SLOT_AS_INT(arg, 1);
-  Val vec, res;
+  Val vec;
   DWORD	n;
   BOOL flag = FALSE;
 
@@ -228,12 +220,8 @@ Val _lib7_win32_IO_read_vec_txt(Task *task, Val arg)
     if (n < nbytes) {
         shrink_fresh_int1_vector( task, vec, BYTES_TO_WORDS(n) );
     }
-    // Allocate header:
-    SEQHDR_ALLOC (task, res, STRING_TAGWORD, vec, n);
-#ifdef WIN32_DEBUG
-    debug_say("_lib7_win32_IO_read_vec_txt: read %d\n",n);
-#endif
-    return res;
+
+    return  make_vector_header(task,  STRING_TAGWORD, vec, n);
   }
   else if ((h == win32_stdin_handle) &&             /* input from stdin */
 	   (GetFileType(h) == FILE_TYPE_PIPE) &&    /* but not console */
@@ -346,14 +334,12 @@ Val _lib7_win32_IO_create_file(Task *task, Val arg)
   DWORD create = WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,3));
   DWORD attribute = WORD_LIB7toC(GET_TUPLE_SLOT_AS_VAL(arg,4));
   HANDLE h =  CreateFile(name,access,share,NULL,create,attribute,INVALID_HANDLE_VALUE);
-  Val res;
 
 #ifdef WIN32_DEBUG
   if (h == INVALID_HANDLE_VALUE)
     debug_say("_lib7_win32_IO_create_file: failing\n");
 #endif
-  WORD_ALLOC(task, res, (Val_Sized_Unt)h);
-  return res;
+  return  make_one_word_unt(task,  (Val_Sized_Unt) h  );
 }
 
 /* _lib7_win32_IO_write_buf : (one_word_unt*word8vector.Vector*int*int) -> int

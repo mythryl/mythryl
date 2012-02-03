@@ -83,7 +83,7 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
     #endif
    
 
-/*  do { */								// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
+/*  do { */									// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
 	RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l_64", arg );
 	    //
@@ -91,29 +91,29 @@ Val   _lib7_P_IO_fcntl_l_64   (Task* task,  Val arg)   {	// Handle record lockin
 	    //
 	RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_P_IO_fcntl_l_64" );
 
-/*  } while (status < 0 && errno == EINTR);	*/			// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
+/*  } while (status < 0 && errno == EINTR);	*/				// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
 
-    #if (SIZEOF_STRUCT_FLOCK_L_START > 4)				// As above.
+    #if (SIZEOF_STRUCT_FLOCK_L_START > 4)					// As above.
 	//
-        WORD_ALLOC (task, starthi, (Unt1) (flock.l_start >> 32));
+        starthi =  make_one_word_unt(task, (Unt1) (flock.l_start >> 32));	// 64-bit issue.
     #else
-        WORD_ALLOC (task, starthi, (Unt1) 0);
+        starthi =  make_one_word_unt(task, (Unt1) 0);
     #endif
-    WORD_ALLOC (task, startlo, (Unt1) flock.l_start);
+    startlo     =  make_one_word_unt(task, (Unt1) flock.l_start);
 
 
-    #if (SIZEOF_STRUCT_FLOCK_L_LEN > 4)					// As above.
+    #if (SIZEOF_STRUCT_FLOCK_L_LEN > 4)						// As above.
 	//
-        WORD_ALLOC (task, lenhi, (Unt1) (flock.l_len >> 32));
+        lenhi   =  make_one_word_unt(task, (Unt1) (flock.l_len >> 32) );	// 64-bit issue.
     #else
-        WORD_ALLOC (task, lenhi, (Unt1) 0);
+        lenhi   =  make_one_word_unt(task, (Unt1) 0);
     #endif
 
-    WORD_ALLOC (task, lenlo, (Unt1) flock.l_len);
+    lenlo       =  make_one_word_unt(task, (Unt1) flock.l_len);
 
 
     LIB7_AllocWrite   (task, 0, MAKE_TAGWORD (PAIRS_AND_RECORDS_BTAG, 7));

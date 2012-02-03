@@ -45,9 +45,10 @@ static Val   mkList   (Task* task,  int ngrps,  gid gidset[])   {
 
     Val p = LIST_NIL;
 
-    while (ngrps-- > 0) {
+    while (ngrps --> 0) {
 	//
-        WORD_ALLOC (task, w, (Val_Sized_Unt)(gidset[ngrps]));
+        w = make_one_word_unt(task,  (Val_Sized_Unt)(gidset[ngrps])  );
+	//
 	p = LIST_CONS(task, w, p);
     }
 

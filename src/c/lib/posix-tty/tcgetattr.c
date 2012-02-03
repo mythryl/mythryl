@@ -59,12 +59,13 @@ Val   _lib7_P_TTY_tcgetattr   (Task* task,  Val arg)   {
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    WORD_ALLOC (task, iflag, data.c_iflag);
-    WORD_ALLOC (task, oflag, data.c_oflag);
-    WORD_ALLOC (task, cflag, data.c_cflag);
-    WORD_ALLOC (task, lflag, data.c_lflag);
-    WORD_ALLOC (task, ispeed, cfgetispeed (&data));
-    WORD_ALLOC (task, ospeed, cfgetospeed (&data));
+    iflag  =  make_one_word_unt(task, data.c_iflag  );
+    oflag  =  make_one_word_unt(task, data.c_oflag  );
+    cflag  =  make_one_word_unt(task, data.c_cflag  );
+    lflag  =  make_one_word_unt(task, data.c_lflag  );
+
+    ispeed =  make_one_word_unt(task, cfgetispeed (&data) );
+    ospeed =  make_one_word_unt(task, cfgetospeed (&data) );
     
     // Allocate the vector.
     // Note that this might trigger a cleaning:

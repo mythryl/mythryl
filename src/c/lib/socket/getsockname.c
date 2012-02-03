@@ -63,9 +63,7 @@ Val   _lib7_Sock_getsockname   (Task* task,  Val arg)   {
 	    address_len
 	);
 
-    Val	                address;
-    SEQHDR_ALLOC( task, address, UNT8_RO_VECTOR_TAGWORD, data, address_len );
-    return              address;
+    return  make_vector_header( task,  UNT8_RO_VECTOR_TAGWORD, data, address_len );
 }
 
 

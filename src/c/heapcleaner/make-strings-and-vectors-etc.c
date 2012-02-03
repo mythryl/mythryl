@@ -106,9 +106,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
 	PTR_CAST( Val_Sized_Unt*, result) [n-1] = 0;
 	strcpy (PTR_CAST(char*, result), v);
 
-	SEQHDR_ALLOC (task, result, STRING_TAGWORD, result, len);
-
-	return result;
+	return  make_vector_header(task, STRING_TAGWORD, result, len);
     }
 }
 
@@ -159,9 +157,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
     //
     PTR_CAST(Val_Sized_Unt*, result)[nwords-1] = 0;
 
-    SEQHDR_ALLOC (task, result/*=*/, STRING_TAGWORD, result, len);
-
-    return result;
+    return  make_vector_header(task,  STRING_TAGWORD, result, len);
 }
 
 
@@ -305,7 +301,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 	        #ifdef CHECK_HEAP
 		    if (((Punt)ap->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
 			*(ap->next_tospace_word_to_allocate) = (Val)0;
-			ap->next_tospace_word_to_allocate++;
+			++ap->next_tospace_word_to_allocate;
 		    }
 	        #else
 		    ap->next_tospace_word_to_allocate = (Val *)(((Punt)ap->next_tospace_word_to_allocate) | WORD_BYTESIZE);
@@ -379,9 +375,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
     //
     PTR_CAST(Val_Sized_Unt*, result)[nwords-1] = 0;
 
-    SEQHDR_ALLOC (task, result, UNT8_RW_VECTOR_TAGWORD, result, len);
-
-    return result;
+    return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, result, len);
 }
 
 
@@ -394,9 +388,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
 
     Val result =  allocate_int2_vector( task, len );
 
-    SEQHDR_ALLOC( task, result, FLOAT64_RW_VECTOR_TAGWORD, result, len );
-
-    return result;
+    return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
 
 
@@ -482,10 +474,8 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 	*p++ = init_val;
     }
 
-    SEQHDR_ALLOC (task, result, TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
-
-    return result;
-}							// fun make_nonempty_rw_vector
+    return  make_vector_header(task,  TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
+}											// fun make_nonempty_rw_vector
 
 
 Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
@@ -572,9 +562,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	*p++ = LIST_HEAD( initializers );
     }
 
-    SEQHDR_ALLOC( task, result, TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
-
-    return result;
+    return  make_vector_header( task,  TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
 }						 // fun make_nonempty_ro_vector
 
 

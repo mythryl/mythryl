@@ -67,11 +67,9 @@ Val   _util_NetDB_mkhostent   (Task* task,  struct hostent* hentry)   {
 	addresses = LIST_CONS( task, addr, addresses );
     }
 
-    REC_ALLOC4 (task, result, name, aliases, af, addresses);
+    result =  make_four_slot_record(task,  name, aliases, af, addresses);
 
-    OPTION_THE (task, result, result);
-
-    return result;
+    return   OPTION_THE( task, result );
 }
 
 

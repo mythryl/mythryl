@@ -92,9 +92,7 @@ Val   _lib7_P_ProcEnv_sysconf   (Task* task,  Val arg)   {
 
     if (val >= 0) {
 	//
-        Val               result;
-        WORD_ALLOC (task, result, val);
-        return            result;
+        return  make_one_word_unt(task, val );
     }
 
     if (errno == 0)   return RAISE_ERROR(task, "unsupported POSIX feature");

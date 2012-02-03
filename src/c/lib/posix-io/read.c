@@ -103,9 +103,7 @@ Val   _lib7_P_IO_read   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &vec_buf );
     }
 
-    Val                 result;
-    SEQHDR_ALLOC (task, result, STRING_TAGWORD, vec, n);
-    return              result;
+    return  make_vector_header(task,  STRING_TAGWORD, vec, n);
 }
 
 

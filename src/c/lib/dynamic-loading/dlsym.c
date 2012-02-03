@@ -55,9 +55,7 @@ Val   _lib7_U_Dynload_dlsym   (Task* task, Val arg)   {		// : (one_word_unt::Unt
 	unbuffer_mythryl_heap_value( &symname_buf );
     }
 
-    Val               result;
-    WORD_ALLOC (task, result, (Val_Sized_Unt) address);
-    return            result;
+    return  make_one_word_unt(task,  (Val_Sized_Unt) address  );
 }
 
 

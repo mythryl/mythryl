@@ -74,13 +74,13 @@ Val   RaiseSysError (
 
     } else if ((msg = strerror(error_number)) != NULL) {
 
-	OPTION_THE (task, null_or_errno, TAGGED_INT_FROM_C_INT(error_number))
+        null_or_errno =  OPTION_THE( task, TAGGED_INT_FROM_C_INT(error_number) );
 
     } else {
 
 	sprintf(buf, "<unknown error %d>", error_number);
 	msg = buf;
-	OPTION_THE(task, null_or_errno, TAGGED_INT_FROM_C_INT(error_number));
+	null_or_errno =  OPTION_THE(  task,  TAGGED_INT_FROM_C_INT(error_number)  );
     }
 
     #if (defined(DEBUG_OS_INTERFACE) || defined(DEBUG_TRACE_CCALL))
@@ -107,7 +107,7 @@ Val   RaiseSysError (
 
     arg = make_two_slot_record( task,  errno_string, null_or_errno);
 
-    EXN_ALLOC  (task, syserr_exception, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
+    syserr_exception =   MAKE_EXCEPTION(task, PTR_CAST( Val, RUNTIME_EXCEPTION__GLOBAL), arg, at_list);
 
     // Modify the Lib7 state so that 'syserr_exception'
     // will be raised when Mythryl execution resumes:

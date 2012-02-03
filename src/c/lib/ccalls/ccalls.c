@@ -31,7 +31,7 @@ static Val   dummy_root__local =   HEAP_VOID;			// Empty root for garbage collec
 #define LIST_CONS_CELL_BYTESIZE (3*WORD_BYTESIZE)	// desc + car + cdr
 #define CPOINTER_BYTESIZE (2*WORD_BYTESIZE)	// string desc + ptr
 
-#define MK_SOME(task,v) recAlloc1(task,v)
+// #define MK_SOME(task,v) make_one_slot_record(task,v)
 
 #define NULLARY_VALCON  TAGGED_INT_FROM_C_INT(0)
 
@@ -142,15 +142,6 @@ Val_Sized_Unt*   checked_memalign   (int n, int align)   {
     ASSERT(((Val_Sized_Unt)p & (Val_Sized_Unt)(align-1)) != 0);
 
     return p;
-}
-
-static Val  recAlloc1  (Task* task, Val v)   {
-    //
-    Val ret;
-    //
-    REC_ALLOC1(task,ret,v);
-    //
-    return ret;
 }
 
 static Val   mkWord32   (Task* task, Val_Sized_Unt p)   {

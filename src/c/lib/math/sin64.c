@@ -18,11 +18,7 @@ Val   _lib7_Math_sin64   (Task* task,  Val arg)   {
 
     double d =  *(PTR_CAST(double*, arg));
 
-    Val result;
-    //
-    REAL64_ALLOC(task, result, sin(d));
-    //
-    return result;
+    return  make_float64(task, sin(d) );
 }
 
 

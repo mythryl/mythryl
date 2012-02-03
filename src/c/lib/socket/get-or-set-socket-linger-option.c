@@ -88,9 +88,7 @@ Val   get_or_set_socket_linger_option   (Task* task,  Val arg)   {
     if (status < 0)  		return RAISE_SYSERR(task, status);
     if (optVal.l_onoff == 0)    return OPTION_NULL;
 
-    Val	             result;
-    OPTION_THE(task, result, TAGGED_INT_FROM_C_INT( optVal.l_linger ));
-    return           result;
+    return   OPTION_THE(  task,  TAGGED_INT_FROM_C_INT( optVal.l_linger )  );
 }
 
 

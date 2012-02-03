@@ -46,8 +46,6 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
     int cmd       =  GET_TUPLE_SLOT_AS_INT( arg, 1 );
     Val flock_rep =  GET_TUPLE_SLOT_AS_VAL( arg, 2 );
 
-    Val chunk;
-
     struct flock     flock;
     int              status;
     
@@ -68,14 +66,14 @@ Val   _lib7_P_IO_fcntl_l   (Task* task,  Val arg)   {
 
     if (status < 0)   return RAISE_SYSERR(task, status);
 
-    REC_ALLOC5(task, chunk,
-	TAGGED_INT_FROM_C_INT(flock.l_type),
-	TAGGED_INT_FROM_C_INT(flock.l_whence), 
-	TAGGED_INT_FROM_C_INT(flock.l_start),
-	TAGGED_INT_FROM_C_INT(flock.l_len),
-	TAGGED_INT_FROM_C_INT(flock.l_pid));
-
-    return chunk;
+    return  make_five_slot_record( task,
+		//
+		TAGGED_INT_FROM_C_INT( flock.l_type ),
+		TAGGED_INT_FROM_C_INT( flock.l_whence ), 
+		TAGGED_INT_FROM_C_INT( flock.l_start ),
+		TAGGED_INT_FROM_C_INT( flock.l_len ),
+		TAGGED_INT_FROM_C_INT( flock.l_pid )
+	    );
 }
 
 

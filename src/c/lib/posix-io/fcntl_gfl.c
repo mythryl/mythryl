@@ -56,12 +56,12 @@ Val   _lib7_P_IO_fcntl_gfl   (Task* task,  Val arg)   {
 
 /*  } while (flag < 0 && errno == EINTR);	*/	// Restart if interrupted by a SIGALRM or SIGCHLD or whatever.
 
-    if (flag < 0)   return RAISE_SYSERR(task, flag);
+    if (flag < 0)   return  RAISE_SYSERR(task, flag );
 
-    WORD_ALLOC (task, flags, (flag & (~O_ACCMODE)));
-    WORD_ALLOC (task, mode, (flag & O_ACCMODE));
+    flags =  make_one_word_unt(task,  (flag & (~O_ACCMODE)) );
+    mode  =  make_one_word_unt(task,  (flag &   O_ACCMODE)  );
 
-    return make_two_slot_record( task, flags, mode);
+    return  make_two_slot_record(task,  flags, mode  );
 }
 
 

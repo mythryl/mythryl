@@ -45,16 +45,19 @@
     }
 
 
-#define REC_ALLOC1(task, r, a)	{						\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);			\
-	*__p++ = (a);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
+inline Val   make_one_slot_record   (Task* task, Val a) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(1, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
 
-inline Val make_two_slot_record( Task* task, Val a, Val b ) {
+inline Val   make_two_slot_record   (Task* task, Val a, Val b) {
     //
     Val* p = task->heap_allocation_pointer;
     //
@@ -67,107 +70,194 @@ inline Val make_two_slot_record( Task* task, Val a, Val b ) {
     return result;
 }
 
-#define REC_ALLOC3(task, r, a, b, c)	{					\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);			\
-	*__p++ = (a);								\
-	*__p++ = (b);								\
-	*__p++ = (c);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
+inline Val   make_three_slot_record   (Task* task, Val a, Val b, Val c) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(3, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_four_slot_record   (Task* task,  Val a, Val b, Val c, Val d) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    *p++ = d;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_five_slot_record   (Task* task,  Val a, Val b, Val c, Val d, Val e) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    *p++ = d;
+    *p++ = e;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_six_slot_record   (Task* task,  Val a, Val b, Val c, Val d, Val e, Val f) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    *p++ = d;
+    *p++ = e;
+    *p++ = f;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_seven_slot_record   (Task* task,  Val a, Val b, Val c, Val d, Val e, Val f, Val g) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(7, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    *p++ = d;
+    *p++ = e;
+    *p++ = f;
+    *p++ = g;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_eight_slot_record   (Task* task,  Val a, Val b, Val c, Val d, Val e, Val f, Val g, Val h) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = MAKE_TAGWORD(8, PAIRS_AND_RECORDS_BTAG);      Val result = (Val) p;
+    *p++ = a;
+    *p++ = b;
+    *p++ = c;
+    *p++ = d;
+    *p++ = e;
+    *p++ = f;
+    *p++ = g;
+    *p++ = h;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+inline Val   make_vector_header   (Task* task,  Val tagword, Val vectordata, int vectorlen) {
+    //
+    Val* p = task->heap_allocation_pointer;
+    //
+    *p++ = tagword;      Val result = (Val) p;
+    *p++ = vectordata;
+    *p++ = TAGGED_INT_FROM_C_INT( vectorlen );
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return result;
+}
+
+
+
+#ifdef ALIGN_FLOAT64S									// The normal case for our current 32-bit implementation.
+
+    inline Val   make_float64   (Task* task,  double d) {
+	//
+	Val* p =  task->heap_allocation_pointer;
+	//
+	p      =  (Val*)((Punt)p | WORD_BYTESIZE);					// After this we are guaranteed that p is NOT  8-byte-aligned.
+	//
+	*p++   =  FLOAT64_TAGWORD;		      Val result = (Val) p;		// After this we are guaranteed that p IS     8-byte-aligned.
+
+	*(double*)p =  d;								// Store the eight-byte-float eight-byte-aligned.
+
+	p     +=  FLOAT64_SIZE_IN_WORDS;
+
+	task->heap_allocation_pointer = p;   
+
+	return result;
     }
 
-#define REC_ALLOC4(task, r, a, b, c, d)	{					\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(4, PAIRS_AND_RECORDS_BTAG);			\
-	*__p++ = (a);								\
-	*__p++ = (b);								\
-	*__p++ = (c);								\
-	*__p++ = (d);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
-
-#define REC_ALLOC5(task, r, a, b, c, d, e)	{				\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(5, PAIRS_AND_RECORDS_BTAG);			\
-	*__p++ = (a);								\
-	*__p++ = (b);								\
-	*__p++ = (c);								\
-	*__p++ = (d);								\
-	*__p++ = (e);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
-
-#define REC_ALLOC6(task, r, a, b, c, d, e, f)	{				\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(6, PAIRS_AND_RECORDS_BTAG);			\
-	*__p++ = (a);								\
-	*__p++ = (b);								\
-	*__p++ = (c);								\
-	*__p++ = (d);								\
-	*__p++ = (e);								\
-	*__p++ = (f);								\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
-
-#define SEQHDR_ALLOC(task, r, desc, data, len)	{				\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = (desc);							\
-	*__p++ = (data);							\
-	*__p++ = TAGGED_INT_FROM_C_INT(len);					\
-	(r) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
-
-#ifdef ALIGN_FLOAT64S
-#define REAL64_ALLOC(task, r, d) {						\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	__p = (Val *)((Punt)__p | WORD_BYTESIZE);				\
-	*__p++ = FLOAT64_TAGWORD;						\
-	(r) = PTR_CAST( Val, __p);						\
-	*(double *)__p = (d);							\
-	__p += FLOAT64_SIZE_IN_WORDS;						\
-	__task->heap_allocation_pointer = __p;					\
-    }
 #else
-#define REAL64_ALLOC(task, r, d) {						\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	__p = (Val *)((Punt)__p | WORD_BYTESIZE);				\
-	(r) = PTR_CAST( Val, __p);						\
-	*(double *)__p = (d);							\
-	__p += FLOAT64_SIZE_IN_WORDS;						\
-	__task->heap_allocation_pointer = __p;					\
+
+    inline Val   make_float64   (Task* task,  double d) {
+	//
+	Val* p =  task->heap_allocation_pointer;
+	//
+	*p++   =  FLOAT64_TAGWORD;		      Val result = (Val) p;
+
+	*(double*)p =  d;								// Store the eight-byte-float eight-byte-aligned.
+
+	p     +=  FLOAT64_SIZE_IN_WORDS;
+
+	task->heap_allocation_pointer = p;   
+
+	return result;
     }
+
 #endif
 
-#define EXN_ALLOC(task, ex, id, val, where) \
-	REC_ALLOC3(task, ex, id, val, where)
+
+
+#define MAKE_EXCEPTION(task, id, val, where) \
+	make_three_slot_record(task, id, val, where)
 
 // Boxed word values
 //
 #define WORD_LIB7toC(w)		(*PTR_CAST(Val_Sized_Unt*, w))
-#define WORD_ALLOC(task, p, w)	{						\
-	Task*	__task = (task);						\
-	Val*	__p = __task->heap_allocation_pointer;				\
-	*__p++ = MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);	\
-	*__p++ = (Val)(w);							\
-	(p) = PTR_CAST( Val, __task->heap_allocation_pointer + 1);		\
-	__task->heap_allocation_pointer = __p;					\
-    }
+
+inline Val   make_one_word_unt   (Task* task, Val_Sized_Unt u) {
+    //
+    Val* p =  task->heap_allocation_pointer;
+    //
+    *p++   = MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);		      Val result = (Val) p;
+    *p++   = (Val) u;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return  result;
+}
+
+inline Val   make_one_word_int   (Task* task, Val_Sized_Int i) {
+    //
+    Val* p =  task->heap_allocation_pointer;
+    //
+    *p++   = MAKE_TAGWORD(1, FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG);		      Val result = (Val) p;
+    *p++   = (Val) i;
+    //
+    task->heap_allocation_pointer = p;   
+    //
+    return  result;
+}
+
 
 #define TUPLE_GETWORD(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Val_Sized_Unt*, p, i))
 #define INT1_LIB7toC(i)		(*PTR_CAST(Int1*, i))
-#define INT1_ALLOC(task, p, i)	WORD_ALLOC(task, p, i)
 #define TUPLE_GET_INT1(p, i)	(*GET_TUPLE_SLOT_AS_PTR(Int1*, p, i))
 
 
@@ -193,7 +283,7 @@ inline Val make_two_slot_record( Task* task, Val a, Val b ) {
 // Mythryl options (Null_Or):
 //
 #define OPTION_NULL			TAGGED_INT_FROM_C_INT(0)
-#define OPTION_THE(task, r, a)		REC_ALLOC1(task, r, a)
+#define OPTION_THE(task, a)		make_one_slot_record(task, a)
 #define OPTION_GET(r)			GET_TUPLE_SLOT_AS_VAL(r, 0)
     //
     // XXX BUGGO FIXME.  Let's find a way to make OPTION_THE and OPTION_GET into no-ops!

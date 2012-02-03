@@ -29,7 +29,6 @@ Val _lib7_win32_PS_create_process(Task *task, Val arg)
   char *str = HEAP_STRING_AS_C_STRING(arg);
   PROCESS_INFORMATION pi;
   STARTUPINFO si;
-  Val res;
   BOOL fSuccess;
   ZeroMemory (&si,sizeof(si));
   si.cb = sizeof(si);
@@ -37,11 +36,9 @@ Val _lib7_win32_PS_create_process(Task *task, Val arg)
   if (fSuccess) {
     HANDLE hProcess = pi.hProcess;
     CloseHandle (pi.hThread);
-    WORD_ALLOC (task,res,(Val_Sized_Unt)hProcess);
-    return res;
+    return  make_one_word_unt(task,  (Val_Sized_Unt) hProcess  );
   }
-  WORD_ALLOC (task,res,(Val_Sized_Unt)0);
-  return res;
+  return  make_one_word_unt(task,  (Val_Sized_Unt) 0  );
 }
 
 Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
@@ -49,21 +46,19 @@ Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
   HANDLE hProcess = (HANDLE) WORD_LIB7toC (arg);
   DWORD exit_code;
   int res;
-  Val p,chunk;
+  Val p;
   res = WaitForSingleChunkect (hProcess,0);
   if (res==WAIT_TIMEOUT || res==WAIT_FAILED) {
-    /* information is not ready, or error */
-    chunk = OPTION_NULL;
+      /* information is not ready, or error */
+      return OPTION_NULL;
+  } else { 
+      /* WAIT_CHUNKECT_0 ... done, finished */
+      /* get info and return THE(exit_status) */
+      GetExitCodeProcess (hProcess,&exit_code);
+      CloseHandle (hProcess);						/* decrease ref count */
+      p =  make_one_word_unt(task,  (Val_Sized_Unt) exit_code  );
+      return OPTION_THE( task, p );
   }
-  else { 
-    /* WAIT_CHUNKECT_0 ... done, finished */
-    /* get info and return THE(exit_status) */
-    GetExitCodeProcess (hProcess,&exit_code);
-    CloseHandle (hProcess);   /* decrease ref count */
-    WORD_ALLOC (task,p,(Val_Sized_Unt)exit_code);
-    OPTION_THE(task,chunk,p);
-  }
-  return chunk;
 }  
     
 
@@ -74,10 +69,8 @@ Val _lib7_win32_PS_wait_for_single_chunk(Task *task, Val arg)
 Val _lib7_win32_PS_system(Task *task, Val arg)
 {
   int ret = system(HEAP_STRING_AS_C_STRING(arg));
-  Val res;
-
-  WORD_ALLOC(task, res, (Val_Sized_Unt)ret);
-  return res;
+  //
+  return make_one_word_unt(task,  (Val_Sized_Unt) ret  );
 }
 
 /* _lib7_win32_PS_exit_process : one_word_unt -> 'a
@@ -96,18 +89,18 @@ void _lib7_win32_PS_exit_process(Task *task, Val arg)
 Val _lib7_win32_PS_get_environment_variable(Task *task, Val arg)
 {
 #define GEV_BUF_SZ 4096
-  char buf[GEV_BUF_SZ];
-  int ret = GetEnvironmentVariable(HEAP_STRING_AS_C_STRING(arg),buf,GEV_BUF_SZ);
-  Val ml_s,res = OPTION_NULL;
+    char buf[GEV_BUF_SZ];
+    int ret = GetEnvironmentVariable(HEAP_STRING_AS_C_STRING(arg),buf,GEV_BUF_SZ);
+    Val ml_s;
 
-  if (ret > GEV_BUF_SZ) {
-    return RAISE_SYSERR(task,-1);
-  }
-  if (ret > 0) {
-    ml_s = make_ascii_string_from_c_string(task,buf);
-    OPTION_THE(task,res,ml_s);
-  }
-  return res;
+    if (ret > GEV_BUF_SZ) {
+	return RAISE_SYSERR(task,-1);
+    }
+    if (ret > 0) {
+	ml_s = make_ascii_string_from_c_string(task,buf);
+	return OPTION_THE( task, ml_s );
+    }
+    return OPTION_NULL;
 #undef GEV_BUF_SZ
 }
 

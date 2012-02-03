@@ -16,11 +16,8 @@
 Val _lib7_win32_get_last_error(Task *task, Val arg)
 {
     Val_Sized_Unt	err = (Val_Sized_Unt)GetLastError();
-    Val	res;
 
-    WORD_ALLOC(task, res, err);
-
-    return res;
+    return make_one_word_unt(task,  err  );
 }
 
 /* end of win32-errors.c */

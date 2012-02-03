@@ -41,7 +41,6 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_IO_fcntl_gfd");
 
     int flag;
-    Val v;
 
 /*  do { */						// Backed out 2010-02-26 CrT: See discussion at bottom of src/c/lib/socket/connect.c
 
@@ -56,8 +55,7 @@ Val   _lib7_P_IO_fcntl_gfd   (Task* task,  Val arg)   {
     if (flag == -1) {
         return RAISE_SYSERR(task, flag);
     } else {
-        WORD_ALLOC (task, v, flag);
-        return v;
+        return  make_one_word_unt(task, flag);
     }
 }
 

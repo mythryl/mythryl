@@ -66,18 +66,15 @@ Val   _lib7_P_IO_lseek_64   (Task* task,  Val arg)   {		// Move read/write file 
 
     if (pos < 0)    RAISE_SYSERR (task, (int)pos);
 
-    #if (SIZEOF_OFF_T > 4)					// As above.
-        Val               poshi;
-        WORD_ALLOC (task, poshi, (Unt1) (pos >> 32));
+    #if (SIZEOF_OFF_T > 4)						// As above.
+        Val poshi =  make_one_word_unt(task,   (Unt1) (pos >> 32));	// 64-bit issue.
     #else
-        Val               poshi;
-        WORD_ALLOC (task, poshi, (Unt1) 0);
+        Val poshi =  make_one_word_unt(task,   (Unt1) 0);
     #endif
 
-    Val               poslo;
-    WORD_ALLOC (task, poslo, (Unt1) pos);
+    Val     poslo =  make_one_word_unt(task,   (Unt1) pos);
 
-    return  make_two_slot_record( task, poshi, poslo);			// What fools these mortals be.
+    return  make_two_slot_record(task,  poshi, poslo  );		// What fools these mortals be.
 }
 
 

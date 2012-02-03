@@ -176,10 +176,9 @@ Val   make_mythryl_signal_handler_arg   (
 
     // Allocate the Mythryl signal handler's argument record:
     //
-    Val	              arg;
-    REC_ALLOC3( task, arg,
+    Val arg = make_three_slot_record( task, 
 	//
-	TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_id		),
+	TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_id	),
         TAGGED_INT_FROM_C_INT( pthread->next_posix_signal_count	),
 	resume_fate
     );

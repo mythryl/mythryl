@@ -55,11 +55,7 @@ Val   _lib7_Date_make_time   (Task* task,  Val arg) {
         return RAISE_ERROR(task, "Invalid date");
     } else {
 
-	Val result;
-
-	INT1_ALLOC(task, result, t);
-
-	return result;
+	return  make_one_word_int(task,  t  );
     }
 }
 

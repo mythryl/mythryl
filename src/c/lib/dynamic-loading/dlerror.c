@@ -58,19 +58,10 @@ Val   _lib7_U_Dynload_dlerror   (Task* task, Val lib7_handle)   { 	// : Void -> 
     // Extract error after unsuccessful dlopen/dlsym/dlclose.
 
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_U_Dynload_dlerror");
+    const char* e =  dlerror ();
 
-    const char* e = dlerror ();
-
-    Val r, s;
-
-    if (e == NULL) {
-        r = OPTION_NULL;
-    } else {
-	s = make_ascii_string_from_c_string (task, e);
-	OPTION_THE (task, r, s);
-    }
-
-    return r;
+    if (e == NULL)    return  OPTION_NULL;
+    else 	      return  OPTION_THE(  task,  make_ascii_string_from_c_string(task, e)  );
 }
 
 

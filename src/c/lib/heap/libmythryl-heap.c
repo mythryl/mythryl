@@ -88,9 +88,7 @@ static Val   do_allocate_codechunk   (Task* task,  Val arg) {
     int   nbytes =   TAGGED_INT_TO_C_INT( arg );
     Val	  code   =   allocate_nonempty_code_chunk( task, nbytes );		// allocate_nonempty_code_chunk			def in    src/c/heapcleaner/make-strings-and-vectors-etc.c
 
-    Val	               result;
-    SEQHDR_ALLOC(task, result, UNT8_RW_VECTOR_TAGWORD, code, nbytes);
-    return             result;
+    return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, code, nbytes);
 }
 
 //
@@ -410,9 +408,7 @@ static Val   do_get_platform_property   (Task* task,  Val arg)   {
     else
 	return OPTION_NULL;
 
-    OPTION_THE(task, result, result);
-
-    return result;
+    return OPTION_THE(task, result);
 }
 
 //
@@ -699,9 +695,7 @@ static Val   do_make_codechunk_executable   (Task* task,  Val arg)   {
 
     flush_instruction_cache( code, nbytes );					// flush_instruction_cache is a no-op on intel32
 										// flush_instruction_cache	def in    src/c/h/flush-instruction-cache-system-dependent.h 
-    Val	             result;
-    REC_ALLOC1(task, result, PTR_CAST( Val, code + entrypoint));
-    return           result;
+    return  make_one_slot_record(  task,  PTR_CAST( Val, code + entrypoint)  );
 }
 
 
@@ -747,11 +741,9 @@ static Val   do_make_single_slot_tuple   (Task* task,   Val arg)   {
     //
     //     src/lib/std/src/unsafe/unsafe-chunk.pkg
 
-									    ENTER_MYTHRYL_CALLABLE_C_FN("do_make_single_slot_tuple");
+									ENTER_MYTHRYL_CALLABLE_C_FN("do_make_single_slot_tuple");
 
-    Val               result;
-    REC_ALLOC1( task, result, arg );						// REC_ALLOC1		def in    src/c/h/make-strings-and-vectors-etc.h
-    return            result;
+    return  make_one_slot_record( task, arg );								// make_one_slot_record		def in    src/c/h/make-strings-and-vectors-etc.h
 }
 
 

@@ -45,16 +45,11 @@ Val   _lib7_P_SysDB_getgrgid   (Task* task,  Val arg)   {
 
     if (info == NULL)   return RAISE_SYSERR(task, -1);
   
-    Val gr_name =  make_ascii_string_from_c_string (task, info->gr_name);
+    Val gr_name =  make_ascii_string_from_c_string(            task,                  info->gr_name );
+    Val gr_gid  =  make_one_word_unt(                          task,  (Val_Sized_Unt)(info->gr_gid) );
+    Val gr_mem  =  make_ascii_strings_from_vector_of_c_strings(task,                  info->gr_mem  );
 
-    Val               gr_gid;
-    WORD_ALLOC (task, gr_gid, (Val_Sized_Unt)(info->gr_gid));
-
-    Val gr_mem =  make_ascii_strings_from_vector_of_c_strings( task, info->gr_mem );
-
-    Val              result;
-    REC_ALLOC3(task, result, gr_name, gr_gid, gr_mem);
-    return           result;
+    return   make_three_slot_record(task,  gr_name, gr_gid, gr_mem  );
 }
 
 // COPYRIGHT (c) 1995 by AT&T Bell Laboratories.

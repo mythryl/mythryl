@@ -65,11 +65,9 @@ Val   _lib7_NetDB_getrpcbynum   (Task* task,  Val arg)   {
 
     Val name    =  make_ascii_string_from_c_string(     task, rentry->r_name   );
     Val aliases =  make_ascii_strings_from_vector_of_c_strings( task, rentry->r_aliases);
+    Val result  =  make_three_slot_record( task,  name,  aliases,  TAGGED_INT_FROM_C_INT(rentry->r_number)  );
 
-    Val                result;
-    REC_ALLOC3(  task, result, name, aliases, TAGGED_INT_FROM_C_INT(rentry->r_number));
-    OPTION_THE( task, result, result);
-    return             result;
+    return   OPTION_THE( task, result );
 }
 
 

@@ -1119,7 +1119,7 @@ static void   load_compiled_file   (
       
         // Create closure, taking entry point into account:
 	//
-	REC_ALLOC1 (task, closure, PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes));
+	closure = make_one_slot_record(  task,  PTR_CAST( Val, PTR_CAST (char*, code_chunk) + entrypoint_offset_in_bytes)  );
 
         // Apply the closure to the import picklehash vector.
         //
@@ -1191,13 +1191,14 @@ static void   register_compiled_file_exports   (
 
     // Allocate the list record and thread it onto the exports list:
     //
-    REC_ALLOC3(
-        task,
-        PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL,		// Where to save the pointer to the new record.
-        lib7_picklehash,				// Key naming compiledfile -- first slot in new record.
-        exports_tree,					// Tree of values exported from compiledfile -- second slot in new record.
-        PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL		// Pointer to next record in list -- third slot in new record.
-    );
+    PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL
+	=
+        make_three_slot_record( task,
+	    //
+	    lib7_picklehash,					// Key naming compiledfile -- first slot in new record.
+	    exports_tree,					// Tree of values exported from compiledfile -- second slot in new record.
+	    PERVASIVE_PACKAGE_PICKLE_LIST__GLOBAL		// Pointer to next record in list -- third slot in new record.
+	);
 }
 
 

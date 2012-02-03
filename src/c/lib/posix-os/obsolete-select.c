@@ -169,7 +169,7 @@ Val   _lib7_IO_select   (Task* task,  Val arg)   {
 	    BUILD_RESULT(efdl, ne);
 #endif
 	}
-	REC_ALLOC3 (task, res, rfdl, wfdl, efdl);
+	res =  make_three_slot_record( task, rfdl, wfdl, efdl );
 
 #ifdef HAS_POLL
 	FREE (fds);

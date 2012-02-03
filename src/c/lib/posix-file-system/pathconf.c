@@ -55,23 +55,21 @@ static Val   mkValue   (Task* task,  int val)   {
     // Convert return value from (f)pathconf to Mythryl value.
     //
     Val p;
-    Val chunk;
 
     if (val >= 0) {
 	//
-	WORD_ALLOC (task, p, val);
-	OPTION_THE(task, chunk, p);
+	p =  make_one_word_unt(task, val );
+	//
+	return OPTION_THE( task, p );
 
     } else if (errno == 0) {
 	
-	chunk = OPTION_NULL;
+	return OPTION_NULL;
 
     } else {
 
-        chunk = RAISE_SYSERR(task, val);
+	return RAISE_SYSERR(task, val);
     }
-
-    return chunk;
 }
 
 

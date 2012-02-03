@@ -32,9 +32,7 @@ _lib7_OpenCV_cvRNG (Task *task, Val arg)
 
     Val data   =  make_int2_vector_sized_in_bytes( task, &rng, sizeof(rng) );
 
-    Val result;    SEQHDR_ALLOC(task, result, UNT8_RO_VECTOR_TAGWORD, data, sizeof(rng));
-
-    return result;
+    return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(rng));
 
 #else
 

@@ -339,7 +339,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 									    ENTER_MYTHRYL_CALLABLE_C_FN("get_signal_mask");
 
     Signal_Set	mask;
-    Val	name, sig, signal_list, result;
+    Val	name, sig, signal_list;
     int		i, n;
 
     RELEASE_MYTHRYL_HEAP( task->pthread, "_lib7_Sig_getsigmask", arg );
@@ -376,9 +376,7 @@ Val   get_signal_mask   (Task* task, Val arg)   {		// Called from src/c/lib/sign
 	}
     }
 
-    OPTION_THE(task, result, signal_list);
-
-    return result;
+    return  OPTION_THE( task, signal_list );
 }
 
 

@@ -131,8 +131,7 @@ Val _lib7_win32_get_const(Task *task, Val arg)
     index = ptab->data;
     ASSERT(index < TAB_SZ(table));
     if (res = nv_lookup(s2, table[index].ptab, table[index].size)) {
-      WORD_ALLOC(task,v,res->data);
-      return v;
+      return  make_one_word_unt(task, res->data );
     }
     return RAISE_ERROR(task,"win32_cconst: unknown constant");
   }

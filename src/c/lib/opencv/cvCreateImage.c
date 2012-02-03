@@ -34,9 +34,7 @@ _lib7_OpenCV_cvCreateImage (Task *task, Val arg)
 
     Val data   =  make_int2_vector_sized_in_bytes(  task, &img, sizeof(img));
 
-    Val result;    SEQHDR_ALLOC(task, result, UNT8_RO_VECTOR_TAGWORD, data, sizeof(img));
-
-    return result;
+    return  make_vector_header(task,  UNT8_RO_VECTOR_TAGWORD, data, sizeof(img));
 
 #else
 

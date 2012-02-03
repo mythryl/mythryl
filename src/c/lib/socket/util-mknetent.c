@@ -32,17 +32,15 @@ Val   _util_NetDB_mknetent   (Task *task, struct netent* nentry)   {
     // Build the return result:
 
 
-    Val name    =  make_ascii_string_from_c_string(                     task,                    nentry->n_name		);
+    Val name    =  make_ascii_string_from_c_string(             task,                    nentry->n_name		);
     Val aliases =  make_ascii_strings_from_vector_of_c_strings( task,                    nentry->n_aliases	);
-    Val af      =  make_system_constant(                                task, &_Sock_AddrFamily, nentry->n_addrtype	);
+    Val af      =  make_system_constant(                        task, &_Sock_AddrFamily, nentry->n_addrtype	);
 
-    Val	             net;
-    WORD_ALLOC(task, net, (Val_Sized_Unt)(nentry->n_net));
+    Val net     =  make_one_word_unt(                           task,  (Val_Sized_Unt) (nentry->n_net)  );
 
-    Val	               result;
-    REC_ALLOC4(  task, result, name, aliases, af, net);
-    OPTION_THE( task, result, result);
-    return             result;
+    Val	result  =  make_four_slot_record(task,  name, aliases, af, net  );
+
+    return   OPTION_THE( task, result );
 }
 
 

@@ -94,9 +94,7 @@ Val   _lib7_Sock_recv   (Task* task,  Val arg)   {
 	unbuffer_mythryl_heap_value( &read_buf );
     }
 
-    Val	                result;
-    SEQHDR_ALLOC( task, result, STRING_TAGWORD, vec, n );
-    return              result;
+    return make_vector_header( task,  STRING_TAGWORD, vec, n );
 }
 
 

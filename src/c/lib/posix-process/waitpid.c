@@ -100,9 +100,7 @@ Val   _lib7_P_Process_waitpid   (Task* task,  Val arg)   {
         return RAISE_ERROR(task, "unknown child status");
     }
 
-    Val              retval;
-    REC_ALLOC3(task, retval, TAGGED_INT_FROM_C_INT(result), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val));
-    return           retval;
+    return   make_three_slot_record(task,  TAGGED_INT_FROM_C_INT(result), TAGGED_INT_FROM_C_INT(how), TAGGED_INT_FROM_C_INT(val) );
 }
 
 

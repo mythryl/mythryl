@@ -20,7 +20,6 @@ static WIN32_FIND_DATA wfd;
 static Val   find_next_file   (Task* task, HANDLE h)   {
     //       ==============
     //
-    Val fname_opt;
     Val fname;
 
 loop:
@@ -30,13 +29,12 @@ loop:
 	//
 	fname = make_ascii_string_from_c_string(task,wfd.cFileName);
 	//
-	OPTION_THE(task,fname_opt,fname);
+	return OPTION_THE( task, fname );
 	//
     } else {
 	//
-        fname_opt = OPTION_NULL;
+        return OPTION_NULL;
     }
-    return fname_opt;
 }
     
 
@@ -71,13 +69,15 @@ Val   _lib7_win32_FS_find_first_file   (Task* task,  Val arg)   {
 	fname_opt = find_next_file(task,h);
       else {
 	fname = make_ascii_string_from_c_string(task,wfd.cFileName);
-	OPTION_THE(task,fname_opt,fname);
+	fname_opt = OPTION_THE( task, fname );
       }
-    } else
+    } else {
       fname_opt = OPTION_NULL;
-    WORD_ALLOC(task, w, (Val_Sized_Unt)h);
+    }
 
-    return  make_two_slot_record(task, w, fname_opt);
+    w =  make_one_word_unt(task,  (Val_Sized_Unt) h  );
+
+    return  make_two_slot_record(task,  w, fname_opt  );
 }
 
 /* _lib7_win32_FS_find_close: one_word_unt -> Bool
@@ -127,37 +127,36 @@ Val _lib7_win32_FS_remove_directory(Task *task, Val arg)
 Val _lib7_win32_FS_get_file_attributes(Task *task, Val arg)
 {
   DWORD w = GetFileAttributes(HEAP_STRING_AS_C_STRING(arg));
-  Val res, ml_w;
+  Val ml_w;
 
   if (w != 0xffffffff) {
 #ifdef DEBUG_WIN32
     printf("_lib7_win32_FS_get_file_attributes: returning file attributes for <%s> as THE %x\n",HEAP_STRING_AS_C_STRING(arg),w);
 #endif
-    WORD_ALLOC(task,ml_w,w);
-    OPTION_THE(task,res,ml_w);
+    ml_w =  make_one_word_unt(task, w );
+    return OPTION_THE(task,ml_w);
   } else {
 #ifdef DEBUG_WIN32
     printf("returning NULL as attributes for <%s>\n",HEAP_STRING_AS_C_STRING(arg));
 #endif
-    res = OPTION_NULL;
+    return OPTION_NULL;
   }
-  return res;
 }
 
 /* _lib7_win32_FS_get_file_attributes_by_handle: one_word_unt -> (one_word_unt option)
  */
 Val _lib7_win32_FS_get_file_attributes_by_handle(Task *task, Val arg)
 {
-  BY_HANDLE_FILE_INFORMATION bhfi;
-  Val ml_w, res;
+    BY_HANDLE_FILE_INFORMATION bhfi;
+    Val ml_w;
 
-  if (GetFileInformationByHandle((HANDLE)WORD_LIB7toC(arg),&bhfi)) {
-    WORD_ALLOC(task,ml_w,bhfi.dwFileAttributes);
-    OPTION_THE(task,res,ml_w);
-  } else {
-    res = OPTION_NULL;
-  }
-  return res;
+    if (GetFileInformationByHandle((HANDLE)WORD_LIB7toC(arg),&bhfi)) {
+	//
+	ml_w =  make_one_word_unt(task,  bhfi.dwFileAttributes  );
+	return OPTION_THE( task, ml_w );
+    } else {
+	return  OPTION_NULL;
+    }
 }
 
 /* _lib7_win32_FS_get_full_path_name: String -> String
@@ -180,60 +179,59 @@ Val _lib7_win32_FS_get_full_path_name(Task *task, Val arg)
  */
 Val _lib7_win32_FS_get_file_size(Task *task, Val arg)
 {
-  DWORD lo,hi;
-  Val ml_lo, ml_hi, result;
+    DWORD lo,hi;
+    Val ml_lo, ml_hi, result;
 
-  lo = GetFileSize((HANDLE)WORD_LIB7toC(arg),&hi);
-  WORD_ALLOC(task,ml_lo,lo);
-  WORD_ALLOC(task,ml_hi,hi);
+    lo = GetFileSize((HANDLE)WORD_LIB7toC(arg),&hi);
 
-  return  make_two_slot_record(task, ml_hi, ml_lo);
+    ml_lo =  make_one_word_unt(task,  lo  );
+    ml_hi =  make_one_word_unt(task,  hi  );
+
+    return  make_two_slot_record(task,  ml_hi, ml_lo  );
 }
 
 /* _lib7_win32_FS_get_low_file_size: one_word_unt -> (one_word_unt option)
  */
 Val _lib7_win32_FS_get_low_file_size(Task *task, Val arg)
 {
-  DWORD lo;
-  Val ml_lo, res;
-
-  lo = GetFileSize((HANDLE)WORD_LIB7toC(arg),NULL);
-  if (lo != 0xffffffff) {
-    WORD_ALLOC(task,ml_lo,lo);
-    OPTION_THE(task,res,ml_lo);
-  } else {
-    res = OPTION_NULL;
-  }
-  return res;
-}
-
-/* _lib7_win32_FS_get_low_file_size_by_name: String -> (one_word_unt option)
- */
-Val _lib7_win32_FS_get_low_file_size_by_name(Task *task, Val arg)
-{
-  HANDLE h;
-  Val res = OPTION_NULL;
-
-  h = CreateFile(HEAP_STRING_AS_C_STRING(arg),0,0,NULL,
-		 OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,INVALID_HANDLE_VALUE);
-  if (h != INVALID_HANDLE_VALUE) {
     DWORD lo;
     Val ml_lo;
 
-    lo = GetFileSize(h,NULL);
-    CloseHandle(h);
+    lo = GetFileSize((HANDLE)WORD_LIB7toC(arg),NULL);
     if (lo != 0xffffffff) {
-      WORD_ALLOC(task,ml_lo,lo);
-      OPTION_THE(task,res,ml_lo);
+	ml_lo =  make_one_word_unt(task,  lo  );
+	return OPTION_THE( task, ml_lo );
+    } else {
+	return OPTION_NULL;
     }
-  }
-  return res;
+}
+
+// _lib7_win32_FS_get_low_file_size_by_name: String -> (one_word_unt option)
+//
+Val _lib7_win32_FS_get_low_file_size_by_name(Task *task, Val arg)
+{
+    HANDLE h = CreateFile(HEAP_STRING_AS_C_STRING(arg),0,0,NULL,
+		   OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,INVALID_HANDLE_VALUE);
+
+    if (h != INVALID_HANDLE_VALUE) {
+        //
+	DWORD lo;
+	Val ml_lo;
+
+	lo = GetFileSize(h,NULL);
+	CloseHandle(h);
+	if (lo != 0xffffffff) {
+	    ml_lo =  make_one_word_unt(task,  lo  );
+	    return  OPTION_THE( task, ml_lo );
+	}
+    }
+    return OPTION_NULL;
 }
 
 #define REC_ALLOC8(task, r, a, b, c, d, e, f, g, h)	{	\
 	Task	*__task = (task);				\
 	Val	*__p = __task->heap_allocation_pointer;		\
-	*__p++ = MAKE_TAGWORD(8, PAIRS_AND_RECORDS_BTAG);			\
+	*__p++ = MAKE_TAGWORD(8, PAIRS_AND_RECORDS_BTAG);	\
 	*__p++ = (a);						\
 	*__p++ = (b);						\
 	*__p++ = (c);						\
@@ -252,35 +250,38 @@ Val _lib7_win32_FS_get_low_file_size_by_name(Task *task, Val arg)
  */
 Val _lib7_win32_FS_get_file_time(Task *task, Val arg)
 {
-  HANDLE h;
-  Val res = OPTION_NULL;
+    HANDLE h =  CreateFile(HEAP_STRING_AS_C_STRING(arg),0,0,NULL,
+		   OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,INVALID_HANDLE_VALUE);
 
-  h = CreateFile(HEAP_STRING_AS_C_STRING(arg),0,0,NULL,
-		 OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,INVALID_HANDLE_VALUE);
-  if (h != INVALID_HANDLE_VALUE) {
-    FILETIME ft;
+    if (h != INVALID_HANDLE_VALUE) {
+	//
+	FILETIME ft;
 
-    if (GetFileTime(h,NULL,NULL,&ft)) {  /* request time of "last write" */
-      SYSTEMTIME st;
-    
-      CloseHandle(h);
-      if (FileTimeToSystemTime(&ft,&st)) {
-	Val rec;
+	if (GetFileTime(h,NULL,NULL,&ft)) {  /* request time of "last write" */
+	    //
+	    SYSTEMTIME st;
 
-	REC_ALLOC8(task,rec,
-		   TAGGED_INT_FROM_C_INT((int)st.wYear),
-		   TAGGED_INT_FROM_C_INT((int)st.wMonth),
-		   TAGGED_INT_FROM_C_INT((int)st.wDayOfWeek),
-		   TAGGED_INT_FROM_C_INT((int)st.wDay),
-		   TAGGED_INT_FROM_C_INT((int)st.wHour),
-		   TAGGED_INT_FROM_C_INT((int)st.wMinute),
-		   TAGGED_INT_FROM_C_INT((int)st.wSecond),
-		   TAGGED_INT_FROM_C_INT((int)st.wMilliseconds));
-	OPTION_THE(task,res,rec);
-      }
+	    CloseHandle(h);
+
+	    if (FileTimeToSystemTime(&ft,&st)) {
+
+	      Val rec = make_eight_slot_rectord(task,
+			    //
+			    TAGGED_INT_FROM_C_INT((int)st.wYear),
+			    TAGGED_INT_FROM_C_INT((int)st.wMonth),
+			    TAGGED_INT_FROM_C_INT((int)st.wDayOfWeek),
+			    TAGGED_INT_FROM_C_INT((int)st.wDay),
+			    TAGGED_INT_FROM_C_INT((int)st.wHour),
+			    TAGGED_INT_FROM_C_INT((int)st.wMinute),
+			    TAGGED_INT_FROM_C_INT((int)st.wSecond),
+			    TAGGED_INT_FROM_C_INT((int)st.wMilliseconds)
+                        );
+
+	      return OPTION_THE( task, rec );
+	    }
+	}
     }
-  }
-  return res;
+    return OPTION_NULL;
 }
 
 /* _lib7_win32_FS_set_file_time: 
@@ -344,26 +345,26 @@ Val _lib7_win32_FS_move_file(Task *task, Val arg)
  */
 Val _lib7_win32_FS_get_temp_file_name(Task *task, Val arg)
 {
-  Val res = OPTION_NULL;
-  char name_buf[MAX_PATH];
-  char path_buf[MAX_PATH];
-  DWORD pblen;
+    char name_buf[MAX_PATH];
+    char path_buf[MAX_PATH];
+    DWORD pblen;
 
-  pblen = GetTempPath(MAX_PATH,path_buf);
-  if ((pblen <= MAX_PATH) && 
-      (GetTempFileName(path_buf,TMP_PREFIX,0,name_buf) != 0)) {
-    Val tfn = make_ascii_string_from_c_string(task,name_buf);
-    
-    OPTION_THE(task,res,tfn);
-  }
-  return res;
+    pblen = GetTempPath(MAX_PATH,path_buf);
+    if ((pblen <= MAX_PATH) && 
+	(GetTempFileName(path_buf,TMP_PREFIX,0,name_buf) != 0)) {
+
+	Val tfn = make_ascii_string_from_c_string(task,name_buf);
+
+	return   OPTION_THE( task, tfn );
+    }
+
+    return   OPTION_NULL;
 }
 
 /* end of win32-file-system.c */
 
 
-/* COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
- * Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
- * released under Gnu Public Licence version 3.
- */
+// COPYRIGHT (c) 1996 Bell Laboratories, Lucent Technologies
+// Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
+// released under Gnu Public Licence version 3.
 

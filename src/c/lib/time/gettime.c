@@ -39,8 +39,6 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
     Val		sys_seconds;
     Val		gc_seconds;
 
-    Val		result;						// For result 6-vector.
-
     Pthread*	pthread = task->pthread;
 
 								// On posix: get_cpu_time()	def in   src/c/main/posix-timers.c
@@ -51,17 +49,16 @@ Val   _lib7_Time_gettime   (Task* task,  Val arg)   {
 	//
     RECOVER_MYTHRYL_HEAP( task->pthread, "_lib7_Time_gettime" );
 
-    INT1_ALLOC (task, usr_seconds, usr.seconds            );
-    INT1_ALLOC (task, sys_seconds, sys.seconds            );
-    INT1_ALLOC (task, gc_seconds,  pthread->cumulative_cleaning_cpu_time->seconds);
+    usr_seconds =  make_one_word_int(task, usr.seconds            );
+    sys_seconds =  make_one_word_int(task, sys.seconds            );
+    gc_seconds  =  make_one_word_int(task, pthread->cumulative_cleaning_cpu_time->seconds );
 
-    REC_ALLOC6 (task, result,
-	usr_seconds, TAGGED_INT_FROM_C_INT(usr.uSeconds),
-	sys_seconds, TAGGED_INT_FROM_C_INT(sys.uSeconds),
-	gc_seconds,  TAGGED_INT_FROM_C_INT(pthread->cumulative_cleaning_cpu_time->uSeconds)
-    );
-
-    return result;
+    return  make_six_slot_record(task,
+		//
+		usr_seconds, TAGGED_INT_FROM_C_INT( usr.uSeconds ),
+		sys_seconds, TAGGED_INT_FROM_C_INT( sys.uSeconds ),
+		gc_seconds,  TAGGED_INT_FROM_C_INT( pthread->cumulative_cleaning_cpu_time->uSeconds )
+	    );
 }
 
 
