@@ -176,7 +176,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 	Agegroup*  ag = heap->agegroup[ age -1 ];
         //
 	int forward_state;
-	int promote_state = YOUNG_HUGECHUNK;							// This initial value is never used; we initialize this variable only to suppress a gcc warning.
+	int promote_state;
 
 	free_agegroup( heap, age-1 );								// free_agegroup				def in    src/c/heapcleaner/heapcleaner-stuff.c
 
@@ -191,6 +191,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 	    promote_agegroup = heap->agegroup[ age-1 ];
 
 	    forward_state = YOUNG_HUGECHUNK;							// Oldest gen has only YOUNG chunks.
+
+	    promote_state = YOUNG_HUGECHUNK;
+// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning.
 
 	} else {
 	    //

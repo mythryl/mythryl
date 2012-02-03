@@ -261,7 +261,7 @@ log_if("mutex_make malloc'd mutex %x", mutex);
 	// We return the address of the mutex_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        return  make_one_word_unt(task,  mutex  );
+        return  make_one_word_unt(task,  (Val_Sized_Unt)mutex  );
 
     #else
 	die ("mutex_make: unimplemented\n");
@@ -527,7 +527,7 @@ log_if("barrier_make malloc()'d barrier %x", barrier);
 	// We return the address of the barrier_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        return  make_one_word_unt(task, barrier );
+        return  make_one_word_unt(task, (Val_Sized_Unt)barrier );
 
     #else
 	die ("barrier_make: unimplemented\n");
@@ -714,7 +714,7 @@ log_if("condvar_make: malloc()d condvar %x", condvar);
 	// We return the address of the condvar_struct
 	// to the Mythryl level encoded as a word value:
 	//
-        return  make_one_word_unt(task,  condvar  );
+        return  make_one_word_unt(task,  (Val_Sized_Unt)condvar  );
 
     #else
 	die ("condvar_make: unimplemented\n");
