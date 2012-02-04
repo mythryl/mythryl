@@ -17,13 +17,13 @@
 // contents of the different sib buffers.
 //
 // These go in a four-bit field, so we can
-// have up to 7 regular sibs (and additionally
-// up to 7 hugechunkd sibs):
+// have up to 16 regular sibs (and additionally
+// up to 16 hugechunkd sibs):
 //
-#define	RECORD_SIB		0					// Exported.
-#define   PAIR_SIB		1					// Exported.
-#define STRING_SIB		2					// Exported.
-#define VECTOR_SIB		3					// Exported.
+#define	   RO_POINTER_SIB		0					// Exported.
+#define      RO_PTRPAIR_SIB		1					// Exported.
+#define NONPOINTER_SIB		2					// Exported.
+#define RW_POINTER_SIB		3					// Exported.
 #define MAX_PLAIN_SIBS		4					// Exported.
 
 // Codechunks are currently the only hugechunks:
@@ -95,17 +95,17 @@
 
 // The different sib kinds:
 //
-#define KIND_FROM_ILK(      ilk )	     (ilk + 1)			// Arg is one of RECORD_SIB, PAIR_SIB...
-#define KIND_FROM_HUGE_ILK( ilk )	(0x8|(ilk << 1))		// Arg is CODE__HUGE_SIB. "0x8|" distinguishes from plain ilk.
+#define KIND_FROM_SIB(     sib )	     (sib + 1)			// Arg is one of RO_POINTER_SIB, RO_PTRPAIR_SIB...
+#define KIND_FROM_HUGESIB( sib )	(0x8|(sib << 1))		// Arg is CODE__HUGE_SIB. "0x8|" distinguishes from plain ilk.
     //
     #define NEW_KIND		0x0					// 
     //
-    #define RECORD_KIND		KIND_FROM_ILK(     RECORD_SIB )		// 
-    #define   PAIR_KIND		KIND_FROM_ILK(       PAIR_SIB )		// 
-    #define STRING_KIND		KIND_FROM_ILK(     STRING_SIB )		// 
-    #define VECTOR_KIND		KIND_FROM_ILK(     VECTOR_SIB )		// 
+    #define RO_POINTER_KIND	KIND_FROM_SIB( RO_POINTER_SIB )		// Vanilla Mythryl records:  A block containing one or more immutable pointers.  (Except two-word blocks go in RO_PTRPAIR_SIB.)
+    #define RO_PTRPAIR_KIND	KIND_FROM_SIB( RO_PTRPAIR_SIB )		// RO_POINTER_KIND specialized to two-word records.  Intended mainly for List cells, but any length-two record is allowed here.
+    #define NONPOINTER_KIND	KIND_FROM_SIB( NONPOINTER_SIB )		// Nonpointer data, may be mutable or immutable:  Strings, vectors of int32s, vectors of doubles etc.
+    #define RW_POINTER_KIND	KIND_FROM_SIB( RW_POINTER_SIB )		// Refcells and rw_vectors:  A block containing one or more mutable pointers.
     //
-    #define   CODE_KIND		KIND_FROM_HUGE_ILK( CODE__HUGE_SIB )	// 
+    #define   CODE_KIND		KIND_FROM_HUGESIB( CODE__HUGE_SIB )	// 
     //
 
 #define KIND_SHIFT		ID_BITS					// 

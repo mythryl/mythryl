@@ -229,7 +229,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		//
 		Sib* sib = age1->sib[ ilk ];
 		//
-		if (ilk == STRING_SIB) {
+		if (ilk == NONPOINTER_SIB) {
 		    //
 		    sib->next_tospace_word_to_allocate = (Val*) ((Punt)(sib->next_tospace_word_to_allocate)
 			      + sib_headers[ilk]->info.o.bytesize);

@@ -263,7 +263,7 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		    __stop = (Repair*)(__sib->tospace_limit);				\
 		    for (__rp = __sib->repairlist;  __rp < __stop;  __rp++) {	\
 			Val	*__p = __rp->loc;				\
-			if (index != PAIR_SIB)				\
+			if (index != RO_PTRPAIR_SIB)				\
 			    __p[-1] = FOLLOW_FWDCHUNK(__p)[-1];			\
 			__p[0] = __rp->val;					\
 		    }								\
@@ -272,10 +272,10 @@ static void   repair_heap   (Task* task,  int max_age)   {
 
 	// Repair the sib buffers:
         //
-	REPAIR( RECORD_SIB	);
-	REPAIR( PAIR_SIB	);
-	REPAIR( STRING_SIB	);
-	REPAIR( VECTOR_SIB	);
+	REPAIR( RO_POINTER_SIB	);
+	REPAIR( RO_PTRPAIR_SIB	);
+	REPAIR( NONPOINTER_SIB	);
+	REPAIR( RW_POINTER_SIB	);
 
 	// Free the to-space chunk and reset the BOOK2SIBID marks:
         //
@@ -339,7 +339,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
         //
 	Agegroup* ag =  heap->agegroup[ i ];
 
-	if (sib_is_active( ag->sib[ VECTOR_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
+	if (sib_is_active( ag->sib[ RW_POINTER_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );
 	}
@@ -374,13 +374,13 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
         //
 	Agegroup* ag =  heap->agegroup[ i ];
 
-	if (sib_is_active( ag->sib[ VECTOR_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
+	if (sib_is_active( ag->sib[ RW_POINTER_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
 	    Coarse_Inter_Agegroup_Pointers_Map*	map = ag->coarse_inter_agegroup_pointers_map;
 
 	    if (map != NULL) {
 		//
-		Val* maxSweep =  ag->sib[ VECTOR_SIB ]->next_word_to_sweep_in_tospace;
+		Val* maxSweep =  ag->sib[ RW_POINTER_SIB ]->next_word_to_sweep_in_tospace;
 
 		int  card;
 
@@ -446,7 +446,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
         //
 	Agegroup* ag =  heap->agegroup[ i ];
         //
-	Sib* sib =  ag->sib[ VECTOR_SIB ];
+	Sib* sib =  ag->sib[ RW_POINTER_SIB ];
         //
 	if (sib_is_active(sib)) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
@@ -588,7 +588,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 	    if (sib_is_active(sib)) {												// sib_is_active			def in    src/c/h/heap.h
 		//
 		ASSERT(
-                    s == STRING_SIB
+                    s == NONPOINTER_SIB
                     ||
                     sib->next_tospace_word_to_allocate == sib->next_word_to_sweep_in_tospace
                 );
@@ -601,7 +601,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
                       - (Punt) sib->fromspace;
 
 		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
-		if (s == PAIR_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
+		if (s == RO_PTRPAIR_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
 
 		sib->tospace_bytesize =  BOOKROUNDED_BYTESIZE( new_size );
 	    }
@@ -666,9 +666,9 @@ static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
 
 	    // Sweep the record and pair sib buffers:
             //
-	    SWEEP_SIB_TOSPACE_BUFFER( ag, RECORD_SIB );
-	    SWEEP_SIB_TOSPACE_BUFFER( ag, PAIR_SIB   );
-	    SWEEP_SIB_TOSPACE_BUFFER( ag, VECTOR_SIB  );
+	    SWEEP_SIB_TOSPACE_BUFFER( ag, RO_POINTER_SIB );
+	    SWEEP_SIB_TOSPACE_BUFFER( ag, RO_PTRPAIR_SIB );
+	    SWEEP_SIB_TOSPACE_BUFFER( ag, RW_POINTER_SIB );
 	}
     } while (swept && !seen_error);
 
@@ -696,7 +696,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
     switch (GET_KIND_FROM_SIBID(id)) {
 	//
-    case RECORD_KIND:
+    case RO_POINTER_KIND:
         {
 	    tagword = chunk[-1];
 
@@ -713,11 +713,11 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    default:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 	    }
-	    sib =  heap->agegroup[ gen-1 ]->sib[ RECORD_SIB ];
+	    sib =  heap->agegroup[ gen-1 ]->sib[ RO_POINTER_SIB ];
 	}
         break;
 
-    case PAIR_KIND:
+    case RO_PTRPAIR_KIND:
 	{
 	    Val	w;
 
@@ -726,7 +726,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
 	    // Forward the pair:
 	    //
-	    sib =  heap->agegroup[ gen-1 ]->sib[ PAIR_SIB ];
+	    sib =  heap->agegroup[ gen-1 ]->sib[ RO_PTRPAIR_SIB ];
 
 	    new_chunk =  sib->next_tospace_word_to_allocate;
 
@@ -745,9 +745,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	}
 	break;
 
-    case STRING_KIND:
+    case NONPOINTER_KIND:
 	{
-	    sib =  heap->agegroup[ gen-1 ]->sib[ STRING_SIB ];
+	    sib =  heap->agegroup[ gen-1 ]->sib[ NONPOINTER_SIB ];
 	    tagword = chunk[-1];
 
 	    switch (GET_BTAG_FROM_TAGWORD(tagword)) {
@@ -781,7 +781,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	}
 	break;
 
-    case VECTOR_KIND:
+    case RW_POINTER_KIND:
 	{
 	    tagword = chunk[-1];
 
@@ -813,7 +813,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib =  heap->agegroup[ gen-1 ]->sib[ VECTOR_SIB ];
+	    sib =  heap->agegroup[ gen-1 ]->sib[ RW_POINTER_SIB ];
 	}
 	break;
 

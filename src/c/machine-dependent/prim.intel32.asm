@@ -544,7 +544,7 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	MOV_L(temp1,REGIND(heap_allocation_pointer))				// Store tagword
 	ADD_L(CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
 	MOV_L(heap_allocation_pointer, temp1)					// temp1 := data chunk
-	SHL_L(CONST(2),temp)					// temp := length in bytes
+	SHL_L(CONST(2),temp)							// temp := length in bytes
 	ADD_L(temp, heap_allocation_pointer)					// heap_allocation_pointer += length
 
 	// Allocate the header chunk:
@@ -556,10 +556,10 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 	MOV_L(heap_allocation_pointer, stdarg)					// stdarg := header chunk
 	ADD_L(CONST(8), heap_allocation_pointer)				// heap_allocation_pointer += 2
 
-	POP_L(misc0)						// Restore temp1.
+	POP_L(misc0)								// Restore temp1.
 	CONTINUE
 2:
-	POP_L(misc0)						// Restore temp1.
+	POP_L(misc0)								// Restore temp1.
 	MOV_L(CONST(REQUEST_ALLOCATE_VECTOR_OF_EIGHT_BYTE_FLOATS), request_w)
 	MOVE	(stdlink, temp, program_counter)
 	JMP(CSYM(set_request))
@@ -570,32 +570,32 @@ LIB7_CODE_HDR(make_float64_rw_vector_asm)
 //
 LIB7_CODE_HDR(make_unt8_rw_vector_asm)
 	CHECKLIMIT
-	MOV_L(stdarg,temp)					// temp := length(tagged int)
-	SAR_L(CONST(1),temp)					// temp := length(untagged)
+	MOV_L(stdarg,temp)							// temp := length(tagged int)
+	SAR_L(CONST(1),temp)							// temp := length(untagged)
 	ADD_L(CONST(3),temp)
-	SAR_L(CONST(2),temp)					// temp := length(words)
-	CMP_L(CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS),temp)	// small chunk?
+	SAR_L(CONST(2),temp)							// temp := length(words)
+	CMP_L(CONST(MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS),temp)		// small chunk?
 	JMP(2f)
-	JGE(2f)							// XXXXX
+	JGE(2f)									// XXXXX
 
 #define	temp1	misc0
 	PUSH_L(misc0)
 
 	// Allocate the data chunk:
 	//
-	MOV_L(temp, temp1)					// temp1 :=  tagword.
+	MOV_L(temp, temp1)							// temp1 :=  tagword.
 	SHL_L(CONST(TAGWORD_LENGTH_FIELD_SHIFT),temp1)
 	OR_L(CONST(MAKE_BTAG(FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG)),temp1)
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// Store tagword.
 	ADD_L(CONST(4), heap_allocation_pointer)				// heap_allocation_pointer++
 	MOV_L(heap_allocation_pointer, temp1)					// temp1 := data chunk
-	SHL_L(CONST(2), temp)					// temp := length in bytes
+	SHL_L(CONST(2), temp)							// temp := length in bytes
 	ADD_L(temp, heap_allocation_pointer)					// heap_allocation_pointer += length
 
 	// Allocate the header chunk:
 	//
-	MOV_L(CONST(UNT8_RW_VECTOR_TAGWORD), REGIND(heap_allocation_pointer))		// Header tagword.
-	ADD_L(CONST(4),heap_allocation_pointer)				// heap_allocation_pointer++
+	MOV_L(CONST(UNT8_RW_VECTOR_TAGWORD), REGIND(heap_allocation_pointer))	// Header tagword.
+	ADD_L(CONST(4),heap_allocation_pointer)					// heap_allocation_pointer++
 	MOV_L(temp1, REGIND(heap_allocation_pointer))				// header data field
 	MOV_L(stdarg, REGOFF(4,heap_allocation_pointer))			// header length field
 	MOV_L(heap_allocation_pointer, stdarg)					// stdarg := header chunk

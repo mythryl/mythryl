@@ -78,7 +78,7 @@
 	INCREASE_BIGCOUNTER(&(__h->total_bytes_allocated), (nbytes));	\
     }
 
-
+//
 Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
     //===============================
     // 
@@ -110,7 +110,7 @@ Val   make_ascii_string_from_c_string   (Task* task,  const char* v)   {
     }
 }
 
-
+//
 Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   {
     //===================================================
     // 
@@ -136,7 +136,7 @@ Val   make_ascii_strings_from_vector_of_c_strings   (Task *task, char **strs)   
     return p;
 }
 
-
+//
 Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
     //==============================
     // 
@@ -160,7 +160,7 @@ Val   allocate_nonempty_ascii_string   (Task* task,  int len)   {
     return  make_vector_header(task,  STRING_TAGWORD, result, len);
 }
 
-
+//
 Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
     //=============================
     // 
@@ -182,7 +182,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
     } else {
 
-	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ STRING_SIB ];
+	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
@@ -214,7 +214,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
     return result;
 }
-
+//
 void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)   {
     // ========================
     // 
@@ -232,7 +232,7 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
 
     if (old_length_in_words > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
-	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ STRING_SIB ];
+	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
 
 	ASSERT(ap->next_tospace_word_to_allocate - old_length_in_words == PTR_CAST(Val*, v)); 
 
@@ -272,7 +272,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
     } else {
 
-	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ STRING_SIB ];
+	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
@@ -324,7 +324,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
     return result;
 }
 
-
+//
 Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
     //============================
     //
@@ -357,7 +357,7 @@ Val   allocate_nonempty_code_chunk   (Task* task,  int len)   {
     return PTR_CAST( Val, dp->chunk);
 }
 
-
+//
 Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
     //=========================================
     // 
@@ -378,7 +378,7 @@ Val   allocate_nonempty_vector_of_one_byte_unts   (Task* task,  int len)   {
     return  make_vector_header(task,  UNT8_RW_VECTOR_TAGWORD, result, len);
 }
 
-
+//
 Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
     //=============================================
     // 
@@ -391,7 +391,7 @@ Val   allocate_nonempty_vector_of_eight_byte_floats   (Task* task,  int len)   {
     return make_vector_header( task,  FLOAT64_RW_VECTOR_TAGWORD, result, len );
 }
 
-
+//
 Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     //=======================
     // 
@@ -410,7 +410,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 
     if (len > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
-	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ VECTOR_SIB ];
+	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ RW_POINTER_SIB ];
 
 	int	gc_level = (IS_POINTER(init_val) ? 0 : -1);
 
@@ -477,7 +477,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
     return  make_vector_header(task,  TYPEAGNOSTIC_RW_VECTOR_TAGWORD, result, len);
 }											// fun make_nonempty_rw_vector
 
-
+//
 Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
     //======================= 
     // 
@@ -499,7 +499,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	// we need to do a cleaning (while perserving our
 	// initializer list).
 
-	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RECORD_SIB ];
+	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTER_SIB ];
 
 	Val	root = initializers;
 	int	clean_level = 0;
@@ -565,7 +565,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
     return  make_vector_header( task,  TYPEAGNOSTIC_RO_VECTOR_TAGWORD, result, len );
 }						 // fun make_nonempty_ro_vector
 
-
+//
 Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int id)   {
     //====================
     // 
@@ -592,7 +592,7 @@ Val   make_system_constant   (Task* task,  System_Constants_Table* table,  int i
     return make_two_slot_record( task, TAGGED_INT_FROM_C_INT(-1), name);
 }
 
-
+//
 Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table* table)   {
     //===================================
     //
@@ -617,7 +617,7 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
     return result_list;
 }
 
-
+//
 Val   allocate_int2_vector_sized_in_bytes   (Task* task,  int nbytes)   {
     //===================================
     //
@@ -629,7 +629,7 @@ Val   allocate_int2_vector_sized_in_bytes   (Task* task,  int nbytes)   {
 }
 
 
-
+//
 Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)   {
     //===============================
     //
@@ -655,5 +655,28 @@ Val   make_int2_vector_sized_in_bytes   (Task* task,  void* data,  int nbytes)  
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
 // released under Gnu Public Licence version 3.
+
+
+
+
+/*
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[A-Za-z]"			 		 	 #
+# End:									 #
+##########################################################################
+*/
+
 
 

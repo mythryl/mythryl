@@ -122,7 +122,7 @@ typedef struct {
 //
 typedef struct {
     int	   age;						// Agegroup of this sib:  0 <= age < heap->active_agegroups.
-    int	   chunk_ilk;					// Sib buffer contents -- one of  RECORD_SIB, PAIR_SIB, STRING_SIB, VECTOR_SIB   from   src/c/h/sibid.h
+    int	   chunk_ilk;					// Sib buffer contents -- one of  RO_POINTER_SIB, RO_PTRPAIR_SIB, NONPOINTER_SIB, RW_POINTER_SIB   from   src/c/h/sibid.h
     Unt1  offset;					// File position at which this sib buffer starts.
     //
     union {						// Additional info.
@@ -177,7 +177,7 @@ typedef struct {
 // we pack a pointer's kind and its address together
 // in one word, where 'kind' is one of
 //
-//     NEW_KIND / RECORD_KIND / PAIR_KIND / STRING_KIND	/ VECTOR_KIND / CODE_KIND
+//     NEW_KIND / RO_POINTER_KIND / RO_PTRPAIR_KIND / RO_VECTOR_KIND	/ RW_POINTER_KIND / CODE_KIND
 //
 // from    src/c/h/sibid.h
 //

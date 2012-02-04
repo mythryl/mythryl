@@ -71,7 +71,7 @@ typedef   struct agegroup          Agegroup;
 struct heap {
     Val*		agegroup0_master_buffer;				// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
     Punt		agegroup0_master_buffer_bytesize;			// Size-in-bytes of the agegroup0_buffers master buffer.
-    Quire*		quire;							// The memory region we got from the host OS to contain the book_to_sibid__global and agegroup0 buffer.
+    Quire*		quire;							// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
 
     int			active_agegroups;					// Number of active agegroups.
     int			oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
@@ -89,19 +89,21 @@ struct heap {
     Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
 };
 
-#ifdef OLD
-    // Once we figure out multiple arenas for the multicore version
-    // we should be able to go back to the old version of this.		XXX BUGGO FIXME
-    //
-    #define HEAP_ALLOCATION_LIMIT(hp)			\
-	(Val *)((Punt)((hp)->agegroup0_master_buffer) + (hp)->agegroup0_master_buffer_bytesize - MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER)
-#else
-    #define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
-        (Val*)((Punt)(base) + (size) - (MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER + AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES))
 
-    #define HEAP_ALLOCATION_LIMIT(task)			\
-	HEAP_ALLOCATION_LIMIT_SIZE((task)->heap_allocation_buffer,(task)->heap_allocation_buffer_bytesize)
-#endif
+
+
+// This macro answers the question:
+// wWhat value should we set the heap_allocation_limit
+// to for a given heap allocation buffer?
+//
+#define HEAP_ALLOCATION_LIMIT(task)			\
+    HEAP_ALLOCATION_LIMIT_SIZE((task)->heap_allocation_buffer,(task)->heap_allocation_buffer_bytesize)
+
+// This macro is mostly private support for the above macro,
+// although it is occasionally used by client code:
+//
+#define HEAP_ALLOCATION_LIMIT_SIZE(base,size)	\
+    (Val*)((Punt)(base) + (size) - (MIN_FREE_BYTES_IN_AGEGROUP0_BUFFER + AGEGROUP0_OVERRUN_TRIPWIRE_BUFFER_SIZE_IN_BYTES))
 
 
 // An age-group:
@@ -345,7 +347,7 @@ inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Region* region,  
 #define             OLD_HUGECHUNK	3	// An old hugechunk.
 #define    OLD_PROMOTED_HUGECHUNK	4	// A promoted old hugechunk.
 
-#define HUGECHUNK_IS_IN_FROMSPACE(dp)	(((dp)->hugechunk_state & 0x1) != 0)		// Ickytricky.
+#define HUGECHUNK_IS_IN_FROMSPACE(dp)	(((dp)->hugechunk_state & 0x1) != 0)		// Ickytricky.	Used only once, in   src/c/heapcleaner/heapclean-n-agegroups.c
 #define HUGECHUNK_IS_FREE(dp)		((dp)->hugechunk_state == FREE_HUGECHUNK)
 
 //

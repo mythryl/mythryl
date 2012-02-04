@@ -241,7 +241,7 @@ inline static void   patch_sib   (
     Heap*        heap,
     Heapfile_Cfun_Table* table,
     int          age,								// 0 <= age < heap->active_agegroups
-    int          ilk								// ilk will be one of PAIR_SIB, RECORD_SIB, VECTOR_SIB from   src/c/h/sibid.h
+    int          ilk								// ilk will be one of RO_PTRPAIR_SIB, RO_POINTER_SIB, RW_POINTER_SIB from   src/c/h/sibid.h
 ){
     Sib* sib = heap->agegroup[ age ]->sib[ ilk ];
 
@@ -286,9 +286,9 @@ static Heapfile_Cfun_Table*   build_export_table   (Heap* heap) {
     //
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	patch_sib(b2s,heap,table, age,   PAIR_SIB );
-	patch_sib(b2s,heap,table, age, RECORD_SIB );
-	patch_sib(b2s,heap,table, age, VECTOR_SIB );
+	patch_sib(b2s,heap,table, age, RO_PTRPAIR_SIB );
+	patch_sib(b2s,heap,table, age, RO_POINTER_SIB );
+	patch_sib(b2s,heap,table, age, RW_POINTER_SIB );
     }
 
     return table;
@@ -521,9 +521,9 @@ static void   repair_heap   (
     //
     for (int age = 0;  age < heap->active_agegroups;  age++) {
 	//
-	REPAIR_SIB( RECORD_SIB );
-	REPAIR_SIB(   PAIR_SIB );
-	REPAIR_SIB( VECTOR_SIB );
+	REPAIR_SIB( RO_POINTER_SIB );
+	REPAIR_SIB( RO_PTRPAIR_SIB );
+	REPAIR_SIB( RW_POINTER_SIB );
     }
 
     free_heapfile_cfun_table( table );

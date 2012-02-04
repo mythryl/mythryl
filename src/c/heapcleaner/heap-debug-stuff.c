@@ -438,13 +438,13 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
 
 
 //
-static void   dump_record_sib   (Task* task, FILE* fd, Sib* sib) {
+static void   dump_ro_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
     dump_records   (fd, sib->tospace, sib->next_tospace_word_to_allocate);
 }
 //
-static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
+static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
     //        =============
     for (Val* p = sib->tospace;
 	      p < sib->next_tospace_word_to_allocate;
@@ -456,7 +456,7 @@ static void   dump_pair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in
     }    
 }
 //
-static void   dump_string_sib   (Task* task, FILE* fd, Sib* sib) {
+static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
     for (Val* p = sib->tospace;
@@ -469,7 +469,7 @@ static void   dump_string_sib   (Task* task, FILE* fd, Sib* sib) {
     }    
 }
 //
-static void   dump_vector_sib   (Task* task, FILE* fd, Sib* sib) {
+static void   dump_rw_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
     dump_records   (fd, sib->tospace, sib->next_tospace_word_to_allocate);
@@ -524,22 +524,22 @@ static void   dump_gens__guts   (FILE* fd, Task* task, char* caller) {
 
 	fprintf(fd,"                 ag->hugechunks[0] p= %p   (CODE__HUGE_SIB)\n",		ag->hugechunks[0]					);
 
-	fprintf(fd,"                 ag->sib[%d] p= %p    (RECORD_SIB)\n",			RECORD_SIB,	ag->sib[RECORD_SIB]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (  PAIR_SIB)\n",			  PAIR_SIB,	ag->sib[  PAIR_SIB]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (STRING_SIB)\n",			STRING_SIB,	ag->sib[STRING_SIB]			);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (VECTOR_SIB)\n",			VECTOR_SIB,	ag->sib[VECTOR_SIB]			);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_POINTER_SIB)\n",			RO_POINTER_SIB,	ag->sib[ RO_POINTER_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_PTRPAIR_SIB)\n",			RO_PTRPAIR_SIB,	ag->sib[ RO_PTRPAIR_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (NONPOINTER_SIB)\n",			NONPOINTER_SIB,	ag->sib[ NONPOINTER_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RW_POINTER_SIB)\n",			RW_POINTER_SIB,	ag->sib[ RW_POINTER_SIB ]		);
 
 
-	fprintf(fd,"\n------------------------\nRECORD_ILK sib details:\n");    dump_sib(task,fd, ag->sib[RECORD_SIB] );
-	fprintf(fd,"\n------------------------\n  PAIR_SIB sib details:\n");    dump_sib(task,fd, ag->sib[  PAIR_SIB] );
-	fprintf(fd,"\n------------------------\nSTRING_ILK sib details:\n");    dump_sib(task,fd, ag->sib[STRING_SIB] );
-	fprintf(fd,"\n------------------------\nVECTOR_ILK sib details:\n");    dump_sib(task,fd, ag->sib[VECTOR_SIB] );
+	fprintf(fd,"\n------------------------\n RO_POINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_POINTER_SIB] );
+	fprintf(fd,"\n------------------------\n RO_PTRPAIR_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_PTRPAIR_SIB] );
+	fprintf(fd,"\n------------------------\n NONPOINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ NONPOINTER_SIB] );
+	fprintf(fd,"\n------------------------\n RW_POINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ RW_POINTER_SIB] );
 
 
-	fprintf(fd,"\n------------------------\nRECORD_ILK sib contents -- immutable pointerblocks:\n");		dump_record_sib( task, fd, ag->sib[RECORD_SIB] );
-	fprintf(fd,"\n------------------------\n  PAIR_SIB sib contents -- immutable pointerpairs:\n");			  dump_pair_sib( task, fd, ag->sib[  PAIR_SIB] );
-	fprintf(fd,"\n------------------------\nSTRING_ILK sib contents -- immutable nonpointer stuff:\n");		dump_string_sib( task, fd, ag->sib[STRING_SIB] );
-	fprintf(fd,"\n------------------------\nVECTOR_ILK sib contents -- all mutable data goes in this sib:\n");	dump_vector_sib( task, fd, ag->sib[VECTOR_SIB] );
+	fprintf(fd,"\n------------------------\n RO_POINTER_SIB contents --  immutable pointerblocks:\n");		dump_ro_pointer_sib( task, fd, ag->sib[ RO_POINTER_SIB ] );
+	fprintf(fd,"\n------------------------\n RO_PTRPAIR_SIB contents --  immutable pointerpairs:\n");		dump_ro_ptrpair_sib( task, fd, ag->sib[ RO_PTRPAIR_SIB ] );
+	fprintf(fd,"\n------------------------\n NONPOINTER_SIB contents -- im/mutable nonpointer stuff:\n");		dump_nonpointer_sib( task, fd, ag->sib[ NONPOINTER_SIB ] );
+	fprintf(fd,"\n------------------------\n RW_POINTER_SIB contents --    mutable    pointer stuff:\n");		dump_rw_pointer_sib( task, fd, ag->sib[ RW_POINTER_SIB ] );
     }
 }
 //
