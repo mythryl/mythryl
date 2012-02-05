@@ -515,7 +515,7 @@ static int   kernel_thinks_child_is_dead   (void) {
 
 	switch (i) {
 	//
-	case 0:	return TRUE;
+	case 0:	return FALSE;
 			//
 			// "If waitpid() was invoked with WNOHANG set in options,
 			//  and there are children specified by pid for which
@@ -525,7 +525,7 @@ static int   kernel_thinks_child_is_dead   (void) {
 	case -1:
 	    switch (errno) {
 	    case EINTR:		continue;	// waitpid() was interrupted -- retry it.	
-	    case ECHILD:	return FALSE;	// Child is dead:
+	    case ECHILD:	return TRUE;	// Child is dead:
 						//     "The process or process group specified by pid does not exist
 						//      or is not a child of the calling process."
 						//         -- http://www.mkssoftware.com/docs/man3/waitpid.3.asp 
@@ -591,13 +591,6 @@ static void   sigterm_handler   (int signal,  siginfo_t* info,  void* context)  
     if (kernel_thinks_child_is_dead())   exit(1);
 
     fprintf(stderr,"%s: Unable to kill child in response to SIGTERM(?!), exit(1)ing\n",our_name);
-	//
-	// 2012-02-05 CrT:  Hue White reports erratically encountering the above.
-	// I'm guessing this could be due to the child process already being dead
-	// when sigterm_handler() is entered.
-	// If so, a fix might be to call waitpid(child_pid, &child_stats, WNOHANG)
-        // and check for   WIFEXITED(childstatus) || WIFSIGNALED(childstatus)
-    	// -- if either is TRUE then the child is dead
 
     exit(1);
 }
