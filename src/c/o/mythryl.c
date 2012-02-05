@@ -97,18 +97,14 @@
 #endif
 
 
-// The thematic way to exit from a script should be to do 
-//
-//     winix::process::exit winix::process::success;
-//
-// but unfortunately the interactive compiler currently barfs on
-// this because 'exit' has a type with a free type variable.			// Later: Can we use a type coercion to fix this? E.g.,  'exit(0): Type_Whatever;' ?
-// So instead we send ourself the TERM signal, whose handler
-// consists of the above code:
 
 #define SCRIPT_EXIT_BOILERPLATE "\n posix_1003_1b::kill (posix_1003_1b::K_PROC (posix_1003_1b::get_process_id' () ), posix_1003_1b::signal::term );;\n"
+    //
+    // #define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
+    // #define SCRIPT_EXIT_BOILERPLATE "\n (winix::process::exit winix::process::success): Void;\n"
+    //
+    // See Note[2] at bottom of file.
 
-// #define SCRIPT_EXIT_BOILERPLATE "winix::process::exit winix::process::success;\n"
 //
 static char* our_name          = "(unknown)";
 
@@ -542,6 +538,7 @@ static int   kernel_thinks_child_is_dead   (void) {
 
 	default:
 	    if (i == child_pid) {
+		//
 		if (WIFEXITED(   child_status))   return TRUE;				// "Evaluates to a non-zero value if status was returned for a child process that exited normally." 
 		if (WIFSIGNALED( child_status))	  return TRUE;				// "Evaluates to a non-zero value if status was returned for a child process that terminated due to receipt of a signal that was not caught."
 		if (WIFSTOPPED(  child_status))	  return FALSE;				// "Evaluates to a non-zero value if status was returned for a child process that is currently stopped."
@@ -1045,10 +1042,10 @@ int   main   ( int argc, char** argv ) {
 
 
 
-// Notes
-// =====
+// ============================================================
+// Note[1]:
 //
-// [1] http://home.gna.org/pysfst/tests/pipe-limit.html
+// http://home.gna.org/pysfst/tests/pipe-limit.html
 //
 //     The 64K pipe buffer limit
 //     
@@ -1080,7 +1077,42 @@ int   main   ( int argc, char** argv ) {
 //     
 //     There seems to be no way to directly circumvent that limitation
 //     without patching the kernel.
-
+//
+//
+//
+//
+// ============================================================
+// Note[2]:
+//
+// Cynbe, circa 2008:
+//
+//     The thematic way to exit from a script should be to do 
+//
+//         winix::process::exit  winix::process::success;
+//
+//     but unfortunately the interactive compiler currently barfs on
+//     this because 'exit' has a type with a free type variable.
+//     So instead we send ourself the TERM signal, whose handler
+//     consists of the above code.     -- CrT, circa 2008
+//
+// Cynbe, 2012-02-05:
+//
+//     But shouldn't casting to Void resolve this?
+//     Changing to either of
+//
+//         #define SCRIPT_EXIT_BOILERPLATE "\n  winix::process::exit winix::process::success;\n"
+//         #define SCRIPT_EXIT_BOILERPLATE "\n (winix::process::exit winix::process::success): Void;\n"
+//
+//     results in the script
+//
+//         #!/usr/bin/mythryl
+//         print "Hello, world!\n";
+//
+//     just hanging.  But entering
+//
+//         winix::process::exit  winix::process::success;
+//
+//     at the Mythryl   eval:   prompt works fine.
 
 
 
