@@ -505,13 +505,67 @@ static void   sigchld_handler   (int signal,  siginfo_t* info,  void* context)  
 }
 
 
+static int   kernel_thinks_child_is_dead   (void) {
+    //       ===========================
+    //
+    for (;;) {
+	//
+	int                          child_status;
+	int i = waitpid( child_pid, &child_status, WNOHANG );
+
+	switch (i) {
+	//
+	case 0:	return TRUE;
+			//
+			// "If waitpid() was invoked with WNOHANG set in options,
+			//  and there are children specified by pid for which
+			// status is not available, waitpid() returns 0."
+			//    -- http://www.mkssoftware.com/docs/man3/waitpid.3.asp  
+	    
+	case -1:
+	    switch (errno) {
+	    case EINTR:		continue;	// waitpid() was interrupted -- retry it.	
+	    case ECHILD:	return FALSE;	// Child is dead:
+						//     "The process or process group specified by pid does not exist
+						//      or is not a child of the calling process."
+						//         -- http://www.mkssoftware.com/docs/man3/waitpid.3.asp 
+
+	    // These cases should not be possible:	
+	    //
+	    case EFAULT: fprintf(stderr,"%s: Received EFAULT   in waitpid(?!), exit(1)ing\n",our_name      );	exit(1);	// "stat_loc is not a writable address."
+	    case EINVAL: fprintf(stderr,"%s: Received EINVAL   in waitpid(?!), exit(1)ing\n",our_name      );	exit(1);	// "The options argument is not valid."
+	    case ENOSYS: fprintf(stderr,"%s: Received ENOSYS   in waitpid(?!), exit(1)ing\n",our_name      );	exit(1);	// "pid specifies a process group (0 or less than -1), which is not currently supported."
+	    default:     fprintf(stderr,"%s: Received errno %d in waitpid(?!), exit(1)ing\n",our_name,errno);	exit(1);	// "pid specifies a process group (0 or less than -1), which is not currently supported."
+	    };
+	    break;
+
+
+	default:
+	    if (i == child_pid) {
+		if (WIFEXITED(   child_status))   return TRUE;				// "Evaluates to a non-zero value if status was returned for a child process that exited normally." 
+		if (WIFSIGNALED( child_status))	  return TRUE;				// "Evaluates to a non-zero value if status was returned for a child process that terminated due to receipt of a signal that was not caught."
+		if (WIFSTOPPED(  child_status))	  return FALSE;				// "Evaluates to a non-zero value if status was returned for a child process that is currently stopped."
+		return FALSE;								// I do not think we are supposed to be able to get here; I think the above three tests are intended to be exhaustive.
+											// Returning FALSE here will make sigterm_handler() attempt to kill child, which seems the safest default action.
+	    } else {
+		fprintf(stderr,"%s: Received unexpected return value %d from waitpid(?!), exit(1)ing\n", our_name, i);	exit(1);
+	    }
+	}
+    }
+}
 
 // Handle ^C:
 // 
 static void   sigterm_handler   (int signal,  siginfo_t* info,  void* context)   {
+    //        ===============
     //
     // We want to shut our child process down cleanly too,
     // preferably as though it had gotten a ^C:
+
+    // Don't try to kill our child if it is already dead:
+    //
+    if (child_is_dead)                   exit(1);
+    if (kernel_thinks_child_is_dead())   exit(1);
 
     // Ask child nicely to shut down:
     //
@@ -530,7 +584,20 @@ static void   sigterm_handler   (int signal,  siginfo_t* info,  void* context)  
     kill( child_pid, SIGKILL );
     sleep( 30 );
 
+    // There may be some possible race condition which allows
+    // us to arrive here with child dead, so recheck before
+    // complaining to user:
+    //
+    if (kernel_thinks_child_is_dead())   exit(1);
+
     fprintf(stderr,"%s: Unable to kill child in response to SIGTERM(?!), exit(1)ing\n",our_name);
+	//
+	// 2012-02-05 CrT:  Hue White reports erratically encountering the above.
+	// I'm guessing this could be due to the child process already being dead
+	// when sigterm_handler() is entered.
+	// If so, a fix might be to call waitpid(child_pid, &child_stats, WNOHANG)
+        // and check for   WIFEXITED(childstatus) || WIFSIGNALED(childstatus)
+    	// -- if either is TRUE then the child is dead
 
     exit(1);
 }
