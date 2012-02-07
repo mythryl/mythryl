@@ -1240,11 +1240,11 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // the pre-existing	to-space copy.)
 
 
-    Val*  new_chunk;		// Newly-created to-space copy of 'v'.
-    Val	  tagword;		// Tagword of 'v'.
+    Val		   tagword;		// Tagword of 'v'.
+    Val_Sized_Unt  size_in_words;	// Number of words in 'v', not counting tagword.
 
-    Val_Sized_Unt  len;
-    Sib*	   to_sib;	// We'll copy 'v' into to_sib's to-space.
+    Sib*	   to_sib;		// We'll copy 'v' into to_sib's to-space.
+    Val*  	   new_chunk;		// Newly-created to-space copy of 'v'.
 
     Val*  chunk =   PTR_CAST(Val*, v);
 
@@ -1259,7 +1259,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 	    case RO_VECTOR_HEADER_BTAG:
 	    case RW_VECTOR_HEADER_BTAG:												// NB: the vector *header* is read-only even when the *vector* is read-write.
-		len = 2;
+		size_in_words = 2;
 		break;
 
 	    case FORWARDED_CHUNK_BTAG:
@@ -1270,7 +1270,8 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));							// FOLLOW_FORWARDING_POINTER				def in   src/c/h/heap.h
 
 	    case PAIRS_AND_RECORDS_BTAG:
-		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+		//
+		size_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		break;
 
 	    default:
@@ -1351,7 +1352,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	        //
-		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+		size_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
@@ -1361,7 +1362,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case EIGHT_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 		//
-		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+		size_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
@@ -1401,7 +1402,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    case RW_VECTOR_DATA_BTAG:
 		//
-		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
+		size_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		break;
 
 	    case WEAK_POINTER_OR_SUSPENSION_BTAG:
@@ -1440,13 +1441,13 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     //
     new_chunk =  to_sib->next_tospace_word_to_allocate;
 
-    to_sib->next_tospace_word_to_allocate +=  len + 1;										// + 1 for tagword.
+    to_sib->next_tospace_word_to_allocate +=   size_in_words + 1;								// + 1 for tagword.
 
     *new_chunk++ = tagword;
 
     ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
 
-    COPYLOOP( chunk, new_chunk, len );												// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
+    COPYLOOP( chunk, new_chunk, size_in_words );										// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
 
     // Set up the forward pointer
     // and return the new chunk:
