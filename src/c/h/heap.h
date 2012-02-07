@@ -75,7 +75,7 @@ struct heap {
 
     int			active_agegroups;					// Number of active agegroups.
     int			oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
-    int			agegroup0_cleanings_done;				// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int			agegroup0_heapcleanings_count;				// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];				// Age-group #i is in agegroup[i-1]
     int		        hugechunk_ramregion_count;				// Number of active hugechunk regions.

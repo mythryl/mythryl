@@ -307,21 +307,22 @@ void   set_up_heap   (			// Create and initialize the heap.
 	=
 	params->oldest_agegroup_keeping_idle_fromspace_buffers;
 
-    heap->active_agegroups                    = params->active_agegroups;
+    heap->active_agegroups			= params->active_agegroups;
     //
-    heap->agegroup0_cleanings_done            = 0;
-    heap->hugechunk_ramregion_count	      = 0;
-    heap->hugechunk_ramregions		      = NULL;
+    heap->agegroup0_heapcleanings_count		= 0;
+    heap->hugechunk_ramregion_count		= 0;
+    heap->hugechunk_ramregions			= NULL;
     //
-    heap->hugechunk_freelist		      = MALLOC_CHUNK( Hugechunk );
-    heap->hugechunk_freelist->chunk	      = (Punt)0;
+    heap->hugechunk_freelist			= MALLOC_CHUNK( Hugechunk );
+    heap->hugechunk_freelist->chunk		= (Punt)0;
     //
-    heap->hugechunk_freelist->bytesize   = 0;
-    heap->hugechunk_freelist->hugechunk_state = FREE_HUGECHUNK;
-    heap->hugechunk_freelist->prev	      = heap->hugechunk_freelist;
+    heap->hugechunk_freelist->bytesize		= 0;
+    heap->hugechunk_freelist->hugechunk_state	= FREE_HUGECHUNK;
+    heap->hugechunk_freelist->prev		= heap->hugechunk_freelist;
     //
-    heap->hugechunk_freelist->next	      = heap->hugechunk_freelist;
-    heap->weak_pointers_forwarded_during_heapcleaning		    = NULL;
+    heap->hugechunk_freelist->next		= heap->hugechunk_freelist;
+    //
+    heap->weak_pointers_forwarded_during_heapcleaning		= NULL;
 
     // Initialize new space:
     //

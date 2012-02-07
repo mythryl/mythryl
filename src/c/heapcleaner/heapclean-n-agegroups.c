@@ -610,7 +610,7 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 //
 //
 //
-static int          set_up_empty_tospace_buffers       (Task* task,   int youngest_agegroup_without_cleaning_request)   {
+static int          set_up_empty_tospace_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
     //              ============================
     // 
     // Every heap agegroup to be cleaned must have an empty
@@ -632,7 +632,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
     // We return the number of agegroups to clean.
     //
     // We assume that agegroup 1 is always cleaned -- that is,
-    // that youngest_agegroup_without_cleaning_request > 1.
+    // that youngest_agegroup_without_heapcleaning_request > 1.
 
     Heap* heap = task->heap;
 
@@ -667,7 +667,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
         // should be flipped:
 															// sib_is_active		def in    src/c/h/heap.h
 															// sib_freespace_in_bytes	def in    src/c/h/heap.h
-	if (age >= youngest_agegroup_without_cleaning_request) {
+	if (age >= youngest_agegroup_without_heapcleaning_request) {
 	    //
 	    for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	        //

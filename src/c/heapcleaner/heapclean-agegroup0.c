@@ -175,7 +175,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
     #endif
 
     copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1( age1, task );
-								    ++heap->agegroup0_cleanings_done;
+								    ++heap->agegroup0_heapcleanings_count;
     null_out_newly_dead_weakrefs( heap );										// null_out_newly_dead_weakrefs		def in    src/c/heapcleaner/heapcleaner-stuff.c
 
     //////////////////////////////////////////////////////////// 
