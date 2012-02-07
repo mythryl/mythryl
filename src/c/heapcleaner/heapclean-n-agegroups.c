@@ -636,7 +636,6 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     Heap* heap = task->heap;
 
-    int old_cleanings_done_value;
     int cleanings;
 
     Punt  new_bytesize;
@@ -654,7 +653,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     }
 
-    old_cleanings_done_value
+    int old_agegroup0_heapcleanings_count
 	=
 	heap->agegroup0_heapcleanings_count;
 
@@ -690,9 +689,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     flip: ; 			// Here we need to flip agegroup[ age ].
 
-	cleanings = old_cleanings_done_value
+	cleanings = old_agegroup0_heapcleanings_count
 		    -
-		    ag->last_cleaning_count_of_younger_agegroup;
+		    ag->last_heapcleanings_count_of_younger_agegroup;
 
 	// Compute the space requirements for this agegroup,
 	// make the old to-space into from-space, and
@@ -795,14 +794,14 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	    else 		               previous_oldstuff_bytesize[ s ] =   0;
 	}
 
-	ag->last_cleaning_count_of_younger_agegroup
+	ag->last_heapcleanings_count_of_younger_agegroup
 	    =
-            old_cleanings_done_value;
+            old_agegroup0_heapcleanings_count;
 
 	++ ag->heapcleanings_count;
 
-	old_cleanings_done_value = ag->heapcleanings_count;
-	ag->fromspace_ram_region = ag->tospace_ram_region;
+	old_agegroup0_heapcleanings_count = ag->heapcleanings_count;
+	ag->fromspace_ram_region          = ag->tospace_ram_region;
 
 	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
