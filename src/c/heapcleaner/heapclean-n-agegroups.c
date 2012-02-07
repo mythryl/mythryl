@@ -1240,11 +1240,11 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // the pre-existing	to-space copy.)
 
 
-    Val*  new_chunk;
-    Val	  tagword;
+    Val*  new_chunk;		// Newly-created to-space copy of 'v'.
+    Val	  tagword;		// Tagword of 'v'.
 
     Val_Sized_Unt  len;
-    Sib*	   sib;
+    Sib*	   to_sib;	// We'll copy 'v' into to_sib's to-space.
 
     Val*  chunk =   PTR_CAST(Val*, v);
 
@@ -1267,7 +1267,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		// This chunk has already been forwarded,
 		// so return pre-existing to-space copy:
 		//
-		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));									// FOLLOW_FORWARDING_POINTER				def in   src/c/h/heap.h
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));							// FOLLOW_FORWARDING_POINTER				def in   src/c/h/heap.h
 
 	    case PAIRS_AND_RECORDS_BTAG:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
@@ -1278,9 +1278,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_POINTERS_SIB ];
+	    to_sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_POINTERS_SIB ];
 
-	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
+	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib = to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
 	}
 	break;
 
@@ -1312,13 +1312,13 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 	        // Forward the pair:
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_CONSCELL_SIB ];
+		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_CONSCELL_SIB ];
 
-		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;
+		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;
 
-		new_chunk = sib->next_tospace_word_to_allocate;
+		new_chunk =  to_sib->next_tospace_word_to_allocate;
 
-		sib->next_tospace_word_to_allocate
+		to_sib->next_tospace_word_to_allocate
 		    +=
 		    PAIR_SIZE_IN_WORDS;												// 2.	PAIR_SIZE_IN_WORDS			def in    src/c/h/runtime-base.h
 
@@ -1353,9 +1353,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
+		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
-		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
+		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		break;
 
@@ -1363,18 +1363,18 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
+		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
-		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
+		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
-				*sib->next_tospace_word_to_allocate = (Val)0;
-				sib->next_tospace_word_to_allocate++;
+			    if (((Punt) to_sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
+				*to_sib->next_tospace_word_to_allocate = (Val)0;
+				 to_sib->next_tospace_word_to_allocate++;
 			    }
 		#  else
-			    sib->next_tospace_word_to_allocate = (Val*) (((Punt) sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
+			    to_sib->next_tospace_word_to_allocate = (Val*) (((Punt) to_sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -1420,9 +1420,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTERS_SIB ];
+	    to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTERS_SIB ];
 
-	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old		def in   src/c/h/heap.h
+	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old		def in   src/c/h/heap.h
         }
 	break;
 
@@ -1438,9 +1438,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // Allocate and initialize a
     // to-space copy of the chunk:
     //
-    new_chunk = sib->next_tospace_word_to_allocate;
+    new_chunk =  to_sib->next_tospace_word_to_allocate;
 
-    sib->next_tospace_word_to_allocate +=  len + 1;										// + 1 for tagword.
+    to_sib->next_tospace_word_to_allocate +=  len + 1;										// + 1 for tagword.
 
     *new_chunk++ = tagword;
 
