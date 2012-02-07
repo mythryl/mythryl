@@ -1004,7 +1004,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 //
 //
-static Bool  scan_tospace_buffer   (										// Called only from forward_remaining_live_values (below).
+static Bool  scan_tospace_buffer   (											// Called only from forward_remaining_live_values (below).
     //       ===================
     //
     Agegroup* ag,
@@ -1043,7 +1043,7 @@ static Bool  scan_tospace_buffer   (										// Called only from forward_remain
     return   made_progress;
 }
 //
-static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {			// Called only from forward_remaining_live_values (below).
+static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_remaining_live_values (below).
     //              ===================
     // 
     // Forward (copy) to to-space all live values referenced

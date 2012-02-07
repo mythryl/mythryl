@@ -154,7 +154,14 @@ struct sib {
     Punt		tospace_bytesize;
     Val*	        tospace_limit;				// The top of the to-space (tospace+tospace_bytesize).
     //
-    Val*		next_word_to_sweep_in_tospace;		// The next word to sweep in the to-space buffer.
+    Val*		next_word_to_sweep_in_tospace;		// State variable used (only) during heapcleaning.  During heapcleaning
+								// we treat to-space as a work queue, with this pointer marking the
+								// the start of the queue and the end-of-fromspace pointer the end
+								// -- see src/c/heapcleaner/heapclean-n-agegroups.c.
+								//
+								// The critical invariant is that chunks before this pointer (i.e.,
+								// fully processed chunks) contain only pointers into to-space, while
+								// chunks after this pointer contain only pointers into from-space.
 
     Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
 								// The repair list grows  down in to-space.
