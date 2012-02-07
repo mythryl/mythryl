@@ -20,10 +20,10 @@
 // have up to 16 regular sibs (and additionally
 // up to 16 hugechunkd sibs):
 //
-#define	   RO_POINTER_SIB		0					// Exported.
-#define      RO_PTRPAIR_SIB		1					// Exported.
-#define NONPOINTER_SIB		2					// Exported.
-#define RW_POINTER_SIB		3					// Exported.
+#define RO_POINTERS_SIB		0					// Exported.
+#define RO_CONSCELL_SIB		1					// Exported.
+#define NONPTR_DATA_SIB		2					// Exported.
+#define RW_POINTERS_SIB		3					// Exported.
 #define MAX_PLAIN_SIBS		4					// Exported.
 
 // Codechunks are currently the only hugechunks:
@@ -95,15 +95,15 @@
 
 // The different sib kinds:
 //
-#define KIND_FROM_SIB(     sib )	     (sib + 1)			// Arg is one of RO_POINTER_SIB, RO_PTRPAIR_SIB...
+#define KIND_FROM_SIB(     sib )	     (sib + 1)			// Arg is one of RO_POINTERS_SIB, RO_CONSCELL_SIB...
 #define KIND_FROM_HUGESIB( sib )	(0x8|(sib << 1))		// Arg is CODE__HUGE_SIB. "0x8|" distinguishes from plain ilk.
     //
     #define NEW_KIND		0x0					// 
     //
-    #define RO_POINTER_KIND	KIND_FROM_SIB( RO_POINTER_SIB )		// Vanilla Mythryl records:  A block containing one or more immutable pointers.  (Except two-word blocks go in RO_PTRPAIR_SIB.)
-    #define RO_PTRPAIR_KIND	KIND_FROM_SIB( RO_PTRPAIR_SIB )		// RO_POINTER_KIND specialized to two-word records.  Intended mainly for List cells, but any length-two record is allowed here.
-    #define NONPOINTER_KIND	KIND_FROM_SIB( NONPOINTER_SIB )		// Nonpointer data, may be mutable or immutable:  Strings, vectors of int32s, vectors of doubles etc.
-    #define RW_POINTER_KIND	KIND_FROM_SIB( RW_POINTER_SIB )		// Refcells and rw_vectors:  A block containing one or more mutable pointers.
+    #define RO_POINTERS_KIND	KIND_FROM_SIB( RO_POINTERS_SIB )	// Vanilla Mythryl records:  A block containing one or more immutable pointers.  (Except two-word blocks go in RO_CONSCELL_SIB.)
+    #define RO_CONSCELL_KIND	KIND_FROM_SIB( RO_CONSCELL_SIB )	// RO_POINTERS_KIND specialized to two-word records.  Intended mainly for List cells, but any length-two record is allowed here.
+    #define NONPTR_DATA_KIND	KIND_FROM_SIB( NONPTR_DATA_SIB )	// Nonpointer data, may be mutable or immutable:  Strings, vectors of int32s, vectors of doubles etc.
+    #define RW_POINTERS_KIND	KIND_FROM_SIB( RW_POINTERS_SIB )	// Refcells and rw_vectors:  A block containing one or more mutable pointers.
     //
     #define   CODE_KIND		KIND_FROM_HUGESIB( CODE__HUGE_SIB )	// 
     //

@@ -99,7 +99,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	}
     }
 
-    ap = ag->sib[ RO_PTRPAIR_SIB ];
+    ap = ag->sib[ RO_CONSCELL_SIB ];
 
     if (sib_is_active(ap)) {
         //
@@ -182,10 +182,10 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
     // ========================================================
     // 
     // Bind in a new coarse_inter_agegroup_pointers_map
-    // vector for the given agegroup RW_POINTER_SIB,
+    // vector for the given agegroup RW_POINTERS_SIB,
     // reclaiming the old map.
 
-    Sib* ap =  ag->sib[ RW_POINTER_SIB ];												// We only need these maps for the RW_POINTER_SIB sibs.
+    Sib* ap =  ag->sib[ RW_POINTERS_SIB ];												// We only need these maps for the RW_POINTERS_SIB sibs.
 
     int  map_size_in_slots
 	=
@@ -280,9 +280,9 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
 	switch (GET_KIND_FROM_SIBID( SIBID_FOR_POINTER(b2s, chunk ))) {
 	    //
 	case NEW_KIND:
-	case RO_POINTER_KIND:
-	case NONPOINTER_KIND:
-	case RW_POINTER_KIND:
+	case RO_POINTERS_KIND:
+	case NONPTR_DATA_KIND:
+	case RW_POINTERS_KIND:
 	    {
 		Val tagword = chunk[-1];
 
@@ -302,7 +302,7 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
 	    }
 	    break;
 
-	case RO_PTRPAIR_KIND:
+	case RO_CONSCELL_KIND:
 	    //
 	    // Pairs are special because they don't have a tagword.
 	    // (To save space.)

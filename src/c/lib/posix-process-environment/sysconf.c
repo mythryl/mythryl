@@ -36,7 +36,7 @@
 //
 // The full POSIX list is given in section 4.8.1 of Std 1003.1b-1993.
 //
-// The Lib7 string used to look up these values has the same
+// The Mythryl string used to look up these values has the same
 // form but without the prefix, e.g., to lookup _SC_ARG_MAX,
 // use sysconf "ARG_MAX"
 //

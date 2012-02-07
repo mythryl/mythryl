@@ -402,10 +402,10 @@ static void   copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1   (A
     while (making_progress) {
 	//
 	making_progress = FALSE;
-	//										// Since NONPOINTER_SIB contains no pointers we can ignore it here.
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RO_POINTER_SIB, task );
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   RO_PTRPAIR_SIB, task );
-	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RW_POINTER_SIB, task );
+	//										// Since NONPTR_DATA_SIB contains no pointers we can ignore it here.
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RO_POINTERS_SIB, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1,   RO_CONSCELL_SIB, task );
+	making_progress |=  sweep_agegroup1_sib_tospace(ag1, RW_POINTERS_SIB, task );
     };
 }											// fun copy_all_remaining_reachable_values_in_agegroup0_to_agegroup1.
 
@@ -437,13 +437,13 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	len_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 
 	#ifdef NO_PAIR_STRIP							// 'NO_PAIR_STRIP' appears nowhere else in the codebase.
-	    sib = ag1->sib[RO_POINTER_SIB];
+	    sib = ag1->sib[RO_POINTERS_SIB];
 	#else
 	    if (len_in_words != 2) {
-		sib = ag1->sib[ RO_POINTER_SIB ];					// This v is not a pair, so fall through to default code.
+		sib = ag1->sib[ RO_POINTERS_SIB ];					// This v is not a pair, so fall through to default code.
 	    } else {
 		//								// This v is a pair, so we'll use special-case code.
-		sib = ag1->sib[ RO_PTRPAIR_SIB ];					// We'll copy it into the dedicated pairs-only sib in agegroup1.
+		sib = ag1->sib[ RO_CONSCELL_SIB ];					// We'll copy it into the dedicated pairs-only sib in agegroup1.
 		new_chunk = sib->next_tospace_word_to_allocate;			// Where to copy it in that sib.
 		sib->next_tospace_word_to_allocate += 2;			// Allocate the space for it.
 		new_chunk[0] = chunk[0];					// Copy first  word of pair.
@@ -464,7 +464,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	len_in_words =  2;
 	//
-	sib = ag1->sib[ RO_POINTER_SIB ];
+	sib = ag1->sib[ RO_POINTERS_SIB ];
 	break;									// Fall through to generic-case code.
 
 
@@ -472,7 +472,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	len_in_words =  GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ RW_POINTER_SIB ];					// The RW_POINTER_SIB allows updates, which the RO_POINTER_SIB does not.
+	sib = ag1->sib[ RW_POINTERS_SIB ];					// The RW_POINTERS_SIB allows updates, which the RO_POINTERS_SIB does not.
 	break;									// Fall through to generic-case code.
 
 
@@ -480,7 +480,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	len_in_words = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ NONPOINTER_SIB ];
+	sib = ag1->sib[ NONPTR_DATA_SIB ];
 	break;									// Fall through to generic-case code.
 
 
@@ -488,7 +488,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	len_in_words = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 	//
-	sib = ag1->sib[ NONPOINTER_SIB ];
+	sib = ag1->sib[ NONPTR_DATA_SIB ];
 	//
 	#ifdef ALIGN_FLOAT64S
 	#  ifdef CHECK_HEAP
@@ -523,7 +523,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     //
     new_chunk = sib->next_tospace_word_to_allocate;				// Figure out where copy will be located.
     sib->next_tospace_word_to_allocate += (len_in_words + 1);			// Allocate space needed by the copy.
-    *new_chunk++ = tagword;							// Install tagword at start of copy.  (Note that 'sib' cannot be RO_PTRPAIR_SIB, we handled that case above.)
+    *new_chunk++ = tagword;							// Install tagword at start of copy.  (Note that 'sib' cannot be RO_CONSCELL_SIB, we handled that case above.)
     ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
 
     COPYLOOP(chunk, new_chunk, len_in_words);					// Copy over the rest of the chunk.
@@ -543,8 +543,8 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
     // 
     // Forward a special chunk (suspension or weak pointer).
 
-    Sib*  sib =  ag1->sib[ RW_POINTER_SIB ];						// Special chunks can be updated (modified)
-											// so they have to go in RW_POINTER_SIB.
+    Sib*  sib =  ag1->sib[ RW_POINTERS_SIB ];						// Special chunks can be updated (modified)
+											// so they have to go in RW_POINTERS_SIB.
     Val*  new_chunk = sib->next_tospace_word_to_allocate;
 
     sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.

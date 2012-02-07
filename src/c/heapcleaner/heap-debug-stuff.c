@@ -524,22 +524,22 @@ static void   dump_gens__guts   (FILE* fd, Task* task, char* caller) {
 
 	fprintf(fd,"                 ag->hugechunks[0] p= %p   (CODE__HUGE_SIB)\n",		ag->hugechunks[0]					);
 
-	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_POINTER_SIB)\n",			RO_POINTER_SIB,	ag->sib[ RO_POINTER_SIB ]		);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_PTRPAIR_SIB)\n",			RO_PTRPAIR_SIB,	ag->sib[ RO_PTRPAIR_SIB ]		);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (NONPOINTER_SIB)\n",			NONPOINTER_SIB,	ag->sib[ NONPOINTER_SIB ]		);
-	fprintf(fd,"                 ag->sib[%d] p= %p    (RW_POINTER_SIB)\n",			RW_POINTER_SIB,	ag->sib[ RW_POINTER_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_POINTERS_SIB)\n",			RO_POINTERS_SIB,	ag->sib[ RO_POINTERS_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RO_CONSCELL_SIB)\n",			RO_CONSCELL_SIB,	ag->sib[ RO_CONSCELL_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (NONPTR_DATA_SIB)\n",			NONPTR_DATA_SIB,	ag->sib[ NONPTR_DATA_SIB ]		);
+	fprintf(fd,"                 ag->sib[%d] p= %p    (RW_POINTERS_SIB)\n",			RW_POINTERS_SIB,	ag->sib[ RW_POINTERS_SIB ]		);
 
 
-	fprintf(fd,"\n------------------------\n RO_POINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_POINTER_SIB] );
-	fprintf(fd,"\n------------------------\n RO_PTRPAIR_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_PTRPAIR_SIB] );
-	fprintf(fd,"\n------------------------\n NONPOINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ NONPOINTER_SIB] );
-	fprintf(fd,"\n------------------------\n RW_POINTER_SIB details:\n");    dump_sib(task,fd, ag->sib[ RW_POINTER_SIB] );
+	fprintf(fd,"\n------------------------\n RO_POINTERS_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_POINTERS_SIB] );
+	fprintf(fd,"\n------------------------\n RO_CONSCELL_SIB details:\n");    dump_sib(task,fd, ag->sib[ RO_CONSCELL_SIB] );
+	fprintf(fd,"\n------------------------\n NONPTR_DATA_SIB details:\n");    dump_sib(task,fd, ag->sib[ NONPTR_DATA_SIB] );
+	fprintf(fd,"\n------------------------\n RW_POINTERS_SIB details:\n");    dump_sib(task,fd, ag->sib[ RW_POINTERS_SIB] );
 
 
-	fprintf(fd,"\n------------------------\n RO_POINTER_SIB contents --  immutable pointerblocks:\n");		dump_ro_pointer_sib( task, fd, ag->sib[ RO_POINTER_SIB ] );
-	fprintf(fd,"\n------------------------\n RO_PTRPAIR_SIB contents --  immutable pointerpairs:\n");		dump_ro_ptrpair_sib( task, fd, ag->sib[ RO_PTRPAIR_SIB ] );
-	fprintf(fd,"\n------------------------\n NONPOINTER_SIB contents -- im/mutable nonpointer stuff:\n");		dump_nonpointer_sib( task, fd, ag->sib[ NONPOINTER_SIB ] );
-	fprintf(fd,"\n------------------------\n RW_POINTER_SIB contents --    mutable    pointer stuff:\n");		dump_rw_pointer_sib( task, fd, ag->sib[ RW_POINTER_SIB ] );
+	fprintf(fd,"\n------------------------\n RO_POINTERS_SIB contents --  immutable pointerblocks:\n");		dump_ro_pointer_sib( task, fd, ag->sib[ RO_POINTERS_SIB ] );
+	fprintf(fd,"\n------------------------\n RO_CONSCELL_SIB contents --  immutable pointerpairs:\n");		dump_ro_ptrpair_sib( task, fd, ag->sib[ RO_CONSCELL_SIB ] );
+	fprintf(fd,"\n------------------------\n NONPTR_DATA_SIB contents -- im/mutable nonpointer stuff:\n");		dump_nonpointer_sib( task, fd, ag->sib[ NONPTR_DATA_SIB ] );
+	fprintf(fd,"\n------------------------\n RW_POINTERS_SIB contents --    mutable    pointer stuff:\n");		dump_rw_pointer_sib( task, fd, ag->sib[ RW_POINTERS_SIB ] );
     }
 }
 //

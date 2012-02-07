@@ -362,7 +362,7 @@ static void   read_heap   (
 
 	    size = q->info.o.bytesize + prevSzB[j];
 
-	    if (j == RO_PTRPAIR_SIB
+	    if (j == RO_CONSCELL_SIB
             &&  size > 0
             ){
 		size += 2*WORD_BYTESIZE;
@@ -380,7 +380,7 @@ static void   read_heap   (
 	if (allocate_and_partition_an_agegroup(age) == FAILURE) {
 	    die ("unable to allocated space for agegroup %d\n", i+1);
         } 
-	if (sib_is_active( age->sib[ RW_POINTER_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
+	if (sib_is_active( age->sib[ RW_POINTERS_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup (age);
         }
@@ -771,7 +771,7 @@ static void   repair_heap   (
 			__chunkc = GET_KIND_FROM_SIBID(__aid)-1;				\
 			*__p = PTR_CAST( Val, __chunk + addrOffset[__gg][__chunkc]);	\
 		    }									\
-		    if (((index) == RW_POINTER_SIB) && (__gg < i)) {			\
+		    if (((index) == RW_POINTERS_SIB) && (__gg < i)) {			\
 			MARK(ag->coarse_inter_agegroup_pointers_map, __p, __gg+1);	/** **/				\
 		    }									\
 		}									\
@@ -782,9 +782,9 @@ static void   repair_heap   (
 	    }										\
 	}
 
-	REPAIR_SIB( RO_POINTER_SIB );
-	REPAIR_SIB(   RO_PTRPAIR_SIB );
-	REPAIR_SIB( RW_POINTER_SIB );
+	REPAIR_SIB( RO_POINTERS_SIB );
+	REPAIR_SIB(   RO_CONSCELL_SIB );
+	REPAIR_SIB( RW_POINTERS_SIB );
 
 	#undef REPAIR_SIB
     }

@@ -33,7 +33,14 @@ Val   _lib7_P_Process_exit   (Task* task,  Val arg)   {		//  : Int -> X
     // This fn gets bound as   exit   in:
     //
     //     src/lib/std/src/posix-1003.1b/posix-process.pkg
-
+    //
+    // which ultimately gets bound as  terminate  in
+    //
+    //     src/lib/std/src/posix/winix-process.pkg
+    //
+    // (The 'exit' fn there differs only in that it runs
+    // at::run_functions_scheduled_to_run  at::SHUTDOWN;
+    // before calling 'terminate'.)
 									    ENTER_MYTHRYL_CALLABLE_C_FN("_lib7_P_Process_exit");
 
     print_stats_and_exit( TAGGED_INT_TO_C_INT( arg ) );				// Doesn't return.	def in   src/c/main/runtime-main.c

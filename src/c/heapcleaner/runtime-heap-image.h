@@ -122,18 +122,18 @@ typedef struct {
 //
 typedef struct {
     int	   age;						// Agegroup of this sib:  0 <= age < heap->active_agegroups.
-    int	   chunk_ilk;					// Sib buffer contents -- one of  RO_POINTER_SIB, RO_PTRPAIR_SIB, NONPOINTER_SIB, RW_POINTER_SIB   from   src/c/h/sibid.h
+    int	   chunk_ilk;					// Sib buffer contents -- one of  RO_POINTERS_SIB, RO_CONSCELL_SIB, NONPTR_DATA_SIB, RW_POINTERS_SIB   from   src/c/h/sibid.h
     Unt1  offset;					// File position at which this sib buffer starts.
     //
     union {						// Additional info.
 	struct {					// Info for regular sibs.
 	    Punt  base_address;				// Base address of this sib buffer in the exporting address space.
-	    Punt  bytesize;			// Size of the live data in this sib buffer.
-	    Punt  rounded_bytesize;		// Padded size of this sib buffer in the image file.
+	    Punt  bytesize;				// Size of the live data in this sib buffer.
+	    Punt  rounded_bytesize;			// Padded size of this sib buffer in the image file.
 	}  o;
 	struct {					// Info for the hugechunk sib buffer.
 	    int   hugechunk_count;			// Number of hugechunks in this agegroup.
-	    int	  hugechunk_quanta_count;			// Number of hugechunk pages required.
+	    int	  hugechunk_quanta_count;		// Number of hugechunk pages required.
 	}  bo;						// "bo" == "big object" (old name for hugechunk -- should rename, maybe to "hc". XXX BUGGO FIXME)
     }		info;
 } Sib_Header;
@@ -177,7 +177,7 @@ typedef struct {
 // we pack a pointer's kind and its address together
 // in one word, where 'kind' is one of
 //
-//     NEW_KIND / RO_POINTER_KIND / RO_PTRPAIR_KIND / RO_VECTOR_KIND	/ RW_POINTER_KIND / CODE_KIND
+//     NEW_KIND / RO_POINTERS_KIND / RO_CONSCELL_KIND / NONPTR_DATA_KIND	/ RW_POINTERS_KIND / CODE_KIND
 //
 // from    src/c/h/sibid.h
 //

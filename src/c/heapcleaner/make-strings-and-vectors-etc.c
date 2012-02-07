@@ -182,7 +182,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
     } else {
 
-	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
+	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
@@ -232,7 +232,7 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
 
     if (old_length_in_words > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
-	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
+	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
 	ASSERT(ap->next_tospace_word_to_allocate - old_length_in_words == PTR_CAST(Val*, v)); 
 
@@ -272,7 +272,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 
     } else {
 
-	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPOINTER_SIB ];
+	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
 	bytesize =  WORD_BYTESIZE*(nwords + 2);
 
@@ -410,7 +410,7 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 
     if (len > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
-	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ RW_POINTER_SIB ];
+	Sib*	ap = task->heap->agegroup[ 0 ]->sib[ RW_POINTERS_SIB ];
 
 	int	gc_level = (IS_POINTER(init_val) ? 0 : -1);
 
@@ -499,7 +499,7 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	// we need to do a cleaning (while perserving our
 	// initializer list).
 
-	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTER_SIB ];
+	Sib* 	ap = task->heap->agegroup[ 0 ]->sib[ RO_POINTERS_SIB ];
 
 	Val	root = initializers;
 	int	clean_level = 0;

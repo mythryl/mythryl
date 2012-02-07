@@ -23,14 +23,14 @@ static int		ErrCount = 0;
 
 // check_pointer dstKind values:
 //
-#define CHUNKC_NEWFLG	        (1 << NEW_KIND)
-#define CHUNKC__IS_RO_POINTER	(1 << RO_POINTER_KIND)		// Block of one or more immutable pointers.
-#define CHUNKC__IS_RO_PTRPAIR	(1 << RO_PTRPAIR_KIND)		// Pair of immutable pointers.
-#define CHUNKC__IS_NONPOINTER	(1 << NONPOINTER_KIND)		// Mutable or immutable nonpointer data.
-#define CHUNKC__IS_RW_POINTER	(1 << RW_POINTER_KIND)		// Refcell or mutable vector.
+#define CHUNKC__IS_NEW	        (1 << NEW_KIND)
+#define CHUNKC__IS_RO_POINTERS	(1 << RO_POINTERS_KIND)		// Block of one or more immutable pointers.
+#define CHUNKC__IS_RO_CONSCELL	(1 << RO_CONSCELL_KIND)		// Pair of immutable pointers.
+#define CHUNKC__IS_NONPTR_DATA	(1 << NONPTR_DATA_KIND)		// Mutable or immutable nonpointer data.
+#define CHUNKC__IS_RW_POINTERS	(1 << RW_POINTERS_KIND)		// Refcell or mutable vector.
 
 #define CHUNKC_any	\
-	(CHUNKC_NEWFLG|CHUNKC__IS_RO_POINTER|CHUNKC__IS_RO_PTRPAIR|CHUNKC__IS_NONPOINTER|CHUNKC__IS_RW_POINTER)
+	(CHUNKC__IS_NEW|CHUNKC__IS_RO_POINTERS|CHUNKC__IS_RO_CONSCELL|CHUNKC__IS_NONPTR_DATA|CHUNKC__IS_RW_POINTERS)
 
 #define ERROR	{					\
 	if (++ErrCount > 100) {				\
@@ -51,10 +51,10 @@ void   check_heap   (Heap* heap,  int max_swept_agegroup)   {
         //
 	Agegroup*	g =  heap->agegroup[i];
         //
-	check_ro_pointer_sib (g->sib[ RO_POINTER_SIB ]);
-	check_ro_ptrpair_sib (g->sib[ RO_PTRPAIR_SIB ]);
-	check_nonpointer_sib (g->sib[ NONPOINTER_SIB ]);
-	check_rw_pointer_sib (g->sib[ RW_POINTER_SIB ], g->dirty);
+	check_ro_pointer_sib (g->sib[ RO_POINTERS_SIB ]);
+	check_ro_ptrpair_sib (g->sib[ RO_CONSCELL_SIB ]);
+	check_nonpointer_sib (g->sib[ NONPTR_DATA_SIB ]);
+	check_rw_pointer_sib (g->sib[ RW_POINTERS_SIB ], g->dirty);
     }
     debug_say ("... done\n");
 
@@ -113,7 +113,7 @@ static void   check_ro_pointer_sib   (Sib* ap) {
 		    return;
 		}
 		else if (IS_POINTER(w)) {
-		    check_pointer(p, w, gen, RO_POINTER_KIND, CHUNKC_any);
+		    check_pointer(p, w, gen, RO_POINTERS_KIND, CHUNKC_any);
 		}
 	    }
 	    break;
@@ -124,8 +124,8 @@ static void   check_ro_pointer_sib   (Sib* ap) {
 	    switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {
 		//
 	    case TYPEAGNOSTIC_VECTOR_CTAG:
-		if (GET_BTAG_FROM_TAGWORD(tagword) == RW_VECTOR_HEADER_BTAG)	check_pointer (p, *p, gen, RO_POINTER_KIND, CHUNKC__IS_RW_POINTER);
-		else					    			check_pointer (p, *p, gen, RO_POINTER_KIND, CHUNKC__IS_RO_POINTER|CHUNKC__IS_RO_PTRPAIR);
+		if (GET_BTAG_FROM_TAGWORD(tagword) == RW_VECTOR_HEADER_BTAG)	check_pointer (p, *p, gen, RO_POINTERS_KIND, CHUNKC__IS_RW_POINTERS);
+		else					    			check_pointer (p, *p, gen, RO_POINTERS_KIND, CHUNKC__IS_RO_POINTERS|CHUNKC__IS_RO_CONSCELL);
 		break;
 
 	    case VECTOR_OF_ONE_BYTE_UNTS_CTAG:
@@ -134,7 +134,7 @@ static void   check_ro_pointer_sib   (Sib* ap) {
 	    case INT1_VECTOR_CTAG:
 	    case VECTOR_OF_FOUR_BYTE_FLOATS_CTAG:
 	    case VECTOR_OF_EIGHT_BYTE_FLOATS_CTAG:
-		check_pointer (p, *p, gen, RO_POINTER_KIND, CHUNKC__IS_NONPOINTER);
+		check_pointer (p, *p, gen, RO_POINTERS_KIND, CHUNKC__IS_NONPTR_DATA);
 		break;
 
 	    default:
@@ -188,7 +188,7 @@ static void   check_ro_ptrpair_sib   (Sib* ap) {
 	    return;
 	}
 	else if (IS_POINTER(w)) {
-	    check_pointer(p, w, gen, RO_PTRPAIR_KIND, CHUNKC_any);
+	    check_pointer(p, w, gen, RO_CONSCELL_KIND, CHUNKC_any);
 	}
     }
 }
@@ -326,7 +326,7 @@ static void   check_rw_pointer_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_M
 		}
 		return;
 	    } else if (IS_POINTER(w)) {
-		check_pointer(p, w, gen, RW_POINTER_KIND, CHUNKC_any);
+		check_pointer(p, w, gen, RW_POINTERS_KIND, CHUNKC_any);
 	    }
 	}
     }
@@ -343,10 +343,10 @@ static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int d
 
     switch (chunkc) {
         //
-    case RO_POINTER_KIND:
-    case RO_PTRPAIR_KIND:
-    case NONPOINTER_KIND:
-    case RW_POINTER_KIND:
+    case RO_POINTERS_KIND:
+    case RO_CONSCELL_KIND:
+    case NONPTR_DATA_KIND:
+    case RW_POINTERS_KIND:
 	if (!(dstKind & (1 << chunkc))) {
 	    ERROR;
 	    debug_say (
@@ -355,7 +355,7 @@ static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int d
 	}
 
 	if (dstGen < src_age) {
-	    if (srcKind != RW_POINTER_KIND) {
+	    if (srcKind != RW_POINTERS_KIND) {
 		ERROR;
 	        debug_say (
 		    "** @%#x: reference to younger chunk @%#x (gen = %d)\n",
@@ -363,7 +363,7 @@ static int   check_pointer   (Val* p,  Val w,  int src_age,  int srcKind,  int d
 	    }
 	}
 
-	if ((chunkc != RO_PTRPAIR_KIND) && (*IS_TAGWORD(((Val *)w)[-1]))) {
+	if ((chunkc != RO_CONSCELL_KIND) && (*IS_TAGWORD(((Val *)w)[-1]))) {
 	    ERROR;
 	    debug_say ("** @%#x: reference into chunk middle @#x\n", p, w);
 	}

@@ -36,10 +36,10 @@ static int   GetLen   (Val r)   {
 	if (t == PAIRS_AND_RECORDS_BTAG)   return GET_LENGTH_IN_WORDS_FROM_TAGWORD( d );
 	else	 			   return -1;
 
-    case RO_PTRPAIR_KIND:
+    case RO_CONSCELL_KIND:
 	return 2;
 
-    case RO_POINTER_KIND:
+    case RO_POINTERS_KIND:
 	d = CHUNK_TAGWORD(r);
 	t = GET_BTAG_FROM_TAGWORD(d);
 	if (t == PAIRS_AND_RECORDS_BTAG)  return GET_LENGTH_IN_WORDS_FROM_TAGWORD(d);

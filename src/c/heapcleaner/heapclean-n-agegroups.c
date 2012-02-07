@@ -269,9 +269,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
         //
 	Agegroup*	ag =  heap->agegroup[age];
         //
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTER_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTER_SIB ]->next_tospace_word_to_allocate, age+1, RO_POINTER_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[   RO_PTRPAIR_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[   RO_PTRPAIR_SIB ]->next_tospace_word_to_allocate, age+1,   RO_PTRPAIR_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTER_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTER_SIB ]->next_tospace_word_to_allocate, age+1,  RW_POINTER_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->next_tospace_word_to_allocate, age+1, RO_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[   RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[   RO_CONSCELL_SIB ]->next_tospace_word_to_allocate, age+1,   RO_CONSCELL_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->next_tospace_word_to_allocate, age+1,  RW_POINTERS_SIB);
     }
     // DEBUG
     #endif
@@ -578,10 +578,10 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 		}
 		break;
 
-	    case RO_POINTER_KIND:
-	    case RO_PTRPAIR_KIND:
-	    case NONPOINTER_KIND:
-	    case RW_POINTER_KIND:
+	    case RO_POINTERS_KIND:
+	    case RO_CONSCELL_KIND:
+	    case NONPTR_DATA_KIND:
+	    case RW_POINTERS_KIND:
 		break;
 
 	    default:
@@ -720,7 +720,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
                       +  this_min_bytesize
                       +  sib->requested_sib_buffer_bytesize;
 
-	    if (s == RO_PTRPAIR_SIB)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
+	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
 
 	    min_bytesize[ s ] =  min_bytes;
 
@@ -810,7 +810,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	}
 
 
-        if (sib_is_active( ag->sib[ RW_POINTER_SIB ])) {								// sib_is_active						def in    src/c/h/heap.h
+        if (sib_is_active( ag->sib[ RW_POINTERS_SIB ])) {								// sib_is_active						def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );					// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in    src/c/heapcleaner/heapcleaner-stuff.c
 	}
@@ -862,7 +862,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
     // which are directly referenced from the agegroups
     // we are NOT cleaning.
     //
-    // Any such references must be in the RW_POINTER_SIB buffer:
+    // Any such references must be in the RW_POINTERS_SIB buffer:
     //
     //   o We clean youngest-first, so any such references
     //     must be from an older to younger agegroup.
@@ -873,11 +873,11 @@ static void         forward_all_inter_agegroup_referenced_values   (
     //  o Only refcells and rw_vectors may be modified after creation.
     //
     //  o Except in agegroup0, all refcells and rw_vectors live in
-    //    RW_POINTER_SIB sib buffers.  (At this level a refcell is regarded
+    //    RW_POINTERS_SIB sib buffers.  (At this level a refcell is regarded
     //    as just a length-1 rw_vector.) 
     //
-    // Consequently we need only check RW_POINTER_SIB sib buffers in
-    // this function.  (This is one reason for segregating RW_POINTER_SIB
+    // Consequently we need only check RW_POINTERS_SIB sib buffers in
+    // this function.  (This is one reason for segregating RW_POINTERS_SIB
     // in a separate buffer of their own in the first place.)
 
     // Cache global in register for speed:
@@ -897,7 +897,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 	    /*CARD*/ card_count1_local[age]=card_count2_local[age]=0;
 	#endif
 
-	if (!sib_is_active( ag->sib[ RW_POINTER_SIB ]))   continue;							// sib_is_active			def in    src/c/h/heap.h
+	if (!sib_is_active( ag->sib[ RW_POINTERS_SIB ]))   continue;							// sib_is_active			def in    src/c/h/heap.h
 
 	Coarse_Inter_Agegroup_Pointers_Map*	 map
 	    =
@@ -905,7 +905,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 	if (map == NULL)   continue;
 
-	Val* max_sweep =  ag->sib[ RW_POINTER_SIB ]->next_word_to_sweep_in_tospace;
+	Val* max_sweep =  ag->sib[ RW_POINTERS_SIB ]->next_word_to_sweep_in_tospace;
 
 
 	// Find all cards in this agegroup which contain
@@ -996,7 +996,7 @@ static Bool  scan_tospace_buffer   (										// Called only from forward_remain
     //
     Agegroup* ag,
     Heap*     heap,
-    int       ilk,		// Either RO_POINTER_SIB or RO_PTRPAIR_SIB.
+    int       ilk,		// Either RO_POINTERS_SIB or RO_CONSCELL_SIB.
     Sibid     max_sibid
 ){
     // Forward (copy) to to-space all live values referenced
@@ -1039,7 +1039,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
     // Return TRUE iff we did anything.
 
 
-    Sib* sib =   ag->sib[ RW_POINTER_SIB ];
+    Sib* sib =   ag->sib[ RW_POINTERS_SIB ];
 
     if (!sib_is_active( sib ))   return FALSE;										// sib_is_active	def in    src/c/h/heap.h
 
@@ -1165,19 +1165,19 @@ static void         forward_remaining_live_values                      (Heap* he
     //   o Each from-space (except agegroup0, which we do not
     //     deal with in this file) is split into subbuffers for
     //
-    //        RO_POINTER_KIND
-    //        RO_PTRPAIR_KIND
-    //        NONPOINTER_KIND
-    //        RW_POINTER_KIND
+    //        RO_POINTERS_KIND
+    //        RO_CONSCELL_KIND
+    //        NONPTR_DATA_KIND
+    //        RW_POINTERS_KIND
     //              CODE_KIND
     //
     //     Each of these subbuffers requires special handling --
     //     we divide data between them precisely to take
     //     advantage of their various special properties:
     //
-    //         * NONPOINTER_KIND values (e.g., strings) contain no pointers,
+    //         * NONPTR_DATA_KIND values (e.g., strings) contain no pointers,
     //           so we don't have to scan them at all.  This is why
-    //           there is no NONPOINTER_KIND loop here.
+    //           there is no NONPTR_DATA_KIND loop here.
     //
     //         * Pairs are always length 2, so we can avoid spending a
     //           tagword on each one, but cannot use our usual trick of
@@ -1216,8 +1216,8 @@ static void         forward_remaining_live_values                      (Heap* he
             // Forward all live values referenced by unscanned parts
             // of to-space buffers for records, pairs and vectors:
 	    //
-	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_POINTER_SIB, max_sibid );
-	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_PTRPAIR_SIB,   max_sibid );
+	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_POINTERS_SIB, max_sibid );
+	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_CONSCELL_SIB,   max_sibid );
 	    making_progress |=   scan_vector_tospace(   ag, heap, oldest_agegroup_to_clean );
 	}
     }
@@ -1251,14 +1251,14 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
     switch (GET_KIND_FROM_SIBID( sibid )) {
 	//
-    case RO_POINTER_KIND:
+    case RO_POINTERS_KIND:
 	{
 	    tagword = chunk[ -1 ];
 
 	    switch (GET_BTAG_FROM_TAGWORD( tagword )) {
 		//
 	    case RO_VECTOR_HEADER_BTAG:
-	    case RW_VECTOR_HEADER_BTAG:
+	    case RW_VECTOR_HEADER_BTAG:												// NB: the vector *header* is read-only even when the *vector* is read-write.
 		len = 2;
 		break;
 
@@ -1278,13 +1278,13 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_POINTER_SIB ];
+	    sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_POINTERS_SIB ];
 
 	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 	}
 	break;
 
-    case RO_PTRPAIR_KIND:
+    case RO_CONSCELL_KIND:
 	// We store pairs in the pair-sibs without tagwords:
 	// That way they cost only two words of ram each,
 	// instead of three.  (These are only only heap values
@@ -1311,7 +1311,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 	        // Forward the pair:
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_PTRPAIR_SIB ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_CONSCELL_SIB ];
 
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;
 
@@ -1335,7 +1335,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	}
 	break;
 
-    case NONPOINTER_KIND:
+    case NONPTR_DATA_KIND:
 	{
 
 	    tagword = chunk[ -1 ];
@@ -1353,7 +1353,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	        //
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPOINTER_SIB ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		break;
@@ -1362,7 +1362,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
-		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPOINTER_SIB ];
+		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		#ifdef ALIGN_FLOAT64S
@@ -1384,7 +1384,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
         }
         break;
 
-    case RW_POINTER_KIND:
+    case RW_POINTERS_KIND:
 	{
 	    tagword = chunk[-1];
 
@@ -1418,7 +1418,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
                 exit(1);													// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
-	    sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTER_SIB ];
+	    sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTERS_SIB ];
 
 	    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old		def in   src/c/h/heap.h
         }
@@ -1520,7 +1520,7 @@ static Val          forward_special_chunk   (
     // to be nulled out.
     //
     Agegroup*	ag = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ];
-    Sib*	sib = ag->sib[ RW_POINTER_SIB ];
+    Sib*	sib = ag->sib[ RW_POINTERS_SIB ];
     Val*	new_chunk;
 
     if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;							// sib_chunk_is_old		def in   src/c/h/heap.h
@@ -1582,9 +1582,9 @@ static Val          forward_special_chunk   (
 		    //
 		    switch (GET_KIND_FROM_SIBID( sibid )) {
 		        //
-		    case RO_POINTER_KIND:
-		    case NONPOINTER_KIND:
-		    case RW_POINTER_KIND:
+		    case RO_POINTERS_KIND:
+		    case NONPTR_DATA_KIND:
+		    case RW_POINTERS_KIND:
 		        //
 			tagword = vp[-1];
 		        //
@@ -1641,7 +1641,7 @@ static Val          forward_special_chunk   (
 			}
 			break;
 
-		    case RO_PTRPAIR_KIND:
+		    case RO_CONSCELL_KIND:
 		        //
 			if (IS_TAGWORD(tagword = vp[0])) {
 			    //

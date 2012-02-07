@@ -152,11 +152,11 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // The embedded literals go first:
     //
-    total_sib_buffer_bytesize[ NONPOINTER_SIB ]						// pickler__relocate_embedded_literals	def in   src/c/heapcleaner/datastructure-pickler-cleaner.c
+    total_sib_buffer_bytesize[ NONPTR_DATA_SIB ]						// pickler__relocate_embedded_literals	def in   src/c/heapcleaner/datastructure-pickler-cleaner.c
 	=
-	pickler__relocate_embedded_literals( result, NONPOINTER_SIB, 0 );
+	pickler__relocate_embedded_literals( result, NONPTR_DATA_SIB, 0 );
 
-    // DEBUG debug_say("%d bytes of string literals\n", total_sib_buffer_bytesize[NONPOINTER_SIB]);
+    // DEBUG debug_say("%d bytes of string literals\n", total_sib_buffer_bytesize[NONPTR_DATA_SIB]);
 
     for     (int age = 0;  age < max_age;         age++) {
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
@@ -352,7 +352,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
     //
     for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	//
-	if (ilk == NONPOINTER_SIB) {
+	if (ilk == NONPTR_DATA_SIB) {
 
 	    // Write into the pickle the required embedded literals:
             //

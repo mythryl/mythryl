@@ -1,2 +1,3 @@
 #!/usr/bin/mythryl
-print "Hello, world!\n";
+winix::process::exit(13);
+
