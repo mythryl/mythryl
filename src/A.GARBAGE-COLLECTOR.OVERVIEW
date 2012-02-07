@@ -12,7 +12,7 @@ understood
 
 The Mythryl heapcleaner is written in C because it must be able to
 function when there is insufficient free ram left for normal Mythryl
-code to run, and also because cleaning involves freely casting
+code to run, and also because heapcleaning involves freely casting
 bits of ram to various different types, which is much easier in C
 than in Mythryl.
 
@@ -40,27 +40,6 @@ and calls to the heapcleaner are inserted into compiled code by
     src/lib/compiler/back/low/main/nextcode/pick-nextcode-fns-for-heaplimit-checks.pkg
     src/lib/compiler/back/low/main/nextcode/emit-treecode-heapcleaner-calls-g.pkg
     src/lib/compiler/back/low/main/main/translate-nextcode-to-treecode-g.pkg
-
-Appel &al state two critical data, probably in one of
-
-     Space-Efficient Closure Reprentations
-     Zhong Shao, Andrew W Appel
-     1994, 12p
-     http://flint.cs.yale.edu/flint/publications/closure.ps.gz
-
-     Efficient and Safe-for-Space Closure Conversion
-     Zhong Shao, Andrew Appel
-     2000, 33p
-     http://flint.cs.yale.edu/flint/publications/escc.html 
-
-viz:
-     1) The compiler never updates a closure after creating it.
-        (This is something Cheng's parallel garbage collection paper
-        assumes happens; it means things will be simpler in Mythryl.)
-
-     2) Garbage collector calls happen at function body boundaries,
-        never within a function body.
-
 
 The C-level Mythryl heapcleaner code depends critically on support from
 the Mythryl compiler.  Specific sourcefiles involved include:
@@ -117,8 +96,8 @@ to implement minor and major heapcleanings:
     src/c/heapcleaner/heapclean-agegroup0.c
     src/c/heapcleaner/heapclean-n-agegroups.c
 
-Some important properties of the heapcleaner and
-associated code:
+Some important properties and design goals of the
+heapcleaner and associated code and datastructures:
 
   o The heapcleaner is always invoked at the start
     of a Mythryl function.  This means that there
@@ -134,9 +113,6 @@ associated code:
     roughly like 1/8 to 1/16 of total CPU time used.
     (This depends heavily on the user code mix.)
 
-  o We typically do minor heapcleanings at the rate
-    of about 200 per second.
-
   o We always heapclean agegroups 0->n for some 'n';
     we never clean an agegroup without also cleaning
     all younger agegroups.
@@ -148,22 +124,35 @@ associated code:
     from 256KB to 1MB.)
 
   o The design intention is that each agegroup be		// See  DEFAULT_AGEGROUP_SIZE_RATIO*		in   src/c/h/runtime-configuration.h
-    about 10X larger than the next-younger agegroup.
-        agegroup1:  About  10MB
-        agegroup2:  About 100MB
+    about 10X larger than the next-younger agegroup:
+
+        agegroup0:  About    1MB
+        agegroup1:  About   10MB
+        agegroup2:  About  100MB
+        agegroup3:  About 1000MB
+                 ...
 
   o Correspondingly, we expect to heapclean each
     agegroup only about 1/10 as many times as the
-    next-youngest agegroup:  We should heapclean
-    agegroup1 only about 10% as often as agegroup0,
-    agegroup2 only about  1% as often as agegroup0,
-    etc.
+    next-youngest agegroup.  We expect to heapclean:
+
+        agegroup0:  About 100 times per second.
+        agegroup1:  About  10 times per second.
+        agegroup2:  About   1 time  per second.
+                 ...
+
+  o According to actual timings we typically do minor
+    heapcleanings at the rate of about 200 per second.
+    (2011, 800MHz AMD Phenom(tm) II X6 1090T Processor
+    according to /proc/cpuinfo, during compile of the
+    Mythryl compiler.)
 
   o At the end of a minor heapcleaning agegroup0 is
     always completely empty.  At that point we reset
         task.heap_allocation_pointer				// See src/c/h/runtime-base.h
-    and again allocate ram linearly from one end
-    to the other of agegroup0.
+    to  task.heap_allocation_buffer
+    and again allocate ram linearly until we reach 
+        task.heap_allocation_limit.
 
   o For the other agegroups, we promote each heapchunk
     from one agegroup to the next after it has survived
@@ -174,8 +163,8 @@ associated code:
     (survived one heapcleaning) and "young" chunks
     within that sib.
         As a special case, chunks in the oldest active
-    agegroup are always "young" (since they are not
-    eligible to be promoted to an older agegroup).
+    agegroup are always "young", since they are not
+    eligible to be promoted to an older agegroup.
 
   o When running multicore, there is one agegroup0
     per core (i.e., per posix thread -- "pthread").
@@ -190,7 +179,7 @@ associated code:
 
   o When heapcleaning a given agegroup, we require
     that the next agegroup have enough space to
-    guarantee that there will be no overflow problems.
+    guarantee that there will be no overflow problems.		// See set_up_empty_tospace_buffers()	in   src/c/heapcleaner/heapclean-n-agegroups.c
         In particular, agegroup0 is about 256KB,
     almost all of which may wind up in any of the four
     agegroup1 sibs, so we require that each agegroup1
@@ -205,10 +194,35 @@ associated code:
     occupied by all "old" chunks in S.
 
 
-========================================================
-Notes
 
+========================================================
 Note [1]:
 
 Favoring creation of new values over modification of existing ones is
-one of the ways Mythryl programs minimize use of side-effects.
+one of the ways Mythryl programs minimize use of side-effects, which
+in turn minimizes opportunity for race-condition bugs in concurrent
+and parallel code.
+
+
+========================================================
+Two relevant papers out of many in the literature:
+
+     Space-Efficient Closure Reprentations
+     Zhong Shao, Andrew W Appel
+     1994, 12p
+     http://flint.cs.yale.edu/flint/publications/closure.ps.gz
+
+     Efficient and Safe-for-Space Closure Conversion
+     Zhong Shao, Andrew Appel
+     2000, 33p
+     http://flint.cs.yale.edu/flint/publications/escc.html 
+
+In general, google-scholar searching for papers by
+Andrew W Appel since 1990 is a good start on finding
+relevant papers.  (Appel was the original SML/NJ
+compiler designer/implementation expert, working with
+David MacQueen as SML language design/semantics expert.)
+
+Usually the code has evolved considerably relative to
+the description in the papers, so they are of limited
+use except as cultural/historical background.
