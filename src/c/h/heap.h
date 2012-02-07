@@ -110,20 +110,20 @@ struct heap {
 //
 struct agegroup {
     //
-    Heap*   heap;		// A back pointer to the heap record.
-    int	    age;		// Which agegroup this is (1..active_agegroups).
-    int	    cleanings;		// Number of times this agegroup has been cleaned.
-    int	    ratio;		// Desired number of collections of the previous agegroup for one collection of this agegroup.
+    Heap*   heap;						// A back pointer to the heap record.
+    int	    age;						// Which agegroup this is (1..active_agegroups).
+    int	    cleanings;						// Number of times this agegroup has been cleaned.
+    int	    ratio;						// Desired number of collections of the previous agegroup for one collection of this agegroup.
 
-    int	    last_cleaning_count_of_younger_agegroup;	// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
+    int	    last_cleaning_count_of_younger_agegroup;		// Number cleanings of the previous (younger) agegroup last time this agegroup was cleaned.
 
     Sib*    sib[ MAX_PLAIN_SIBS ];				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
 
     Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 
-    Quire*    tospace_ram_region;		// The host-OS multipage ram regions that this agegroup is
-    Quire*    fromspace_ram_region;		// using for the to-space and from-space.
-    Quire*    saved_fromspace_ram_region;	// For younger agegroups, we keep the from-space ram region, instead of giving it back.
+    Quire*    tospace_ram_region;				// The host-OS multipage ram regions that this agegroup is
+    Quire*    fromspace_ram_region;				// using for the to-space and from-space.
+    Quire*    saved_fromspace_ram_region;			// For younger agegroups, we keep the from-space ram region, instead of giving it back.
     //
     Coarse_Inter_Agegroup_Pointers_Map*				// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
     coarse_inter_agegroup_pointers_map;				// The dirty cards in the vector sib for this agegroup.

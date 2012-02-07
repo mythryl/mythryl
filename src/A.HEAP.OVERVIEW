@@ -308,26 +308,31 @@ Nomenclature:
 //     gives us the most memory recovered per unit work, making
 //     our cleaner very efficient.
 //
-//   o The youngest agegroup is engineered for time efficiency -- speed
-//     of allocation -- with new values being allocated simply by
-//     advancing a pointer, and every value having a tagword
-//     identifying its type. (Record vs string vs vector vs ... )
-//     The tagwords waste space, but the youngest agegroup
-//     is the smallest agegroup, so not much spaces is wasted.
+//   o The youngest agegroup is engineered for maximum allocation
+//     speed, with new values being allocated simply by advancing
+//     a pointer, and every value having a tagword identifying its
+//     type. (Record vs string vs vector vs ... )
+//     The youngest agegroup is the smallest agegroup, so space
+//     efficiency and garbage-collector-traversal efficiency are
+//     not as important as in the later agegroups.
 //
-//   o Older generations are engineered for space efficiency.
-//     Rather than give each individual value a tagword, we
-//     group values of the same type together into 64K blocks
-//     of ram -- "books" -- and then assign just one tagword
-//     per book instead of one per value.
-//     by agegroup and within an agegroup it
-//     divides them up by kinds into records,
-//     pairs, strings and vectors, storing
-//     each kind separately.  We refer to
-//     these separate buffers as sibs.
+//   o Older agegroups are engineered for space efficiency.
+//     and heapcleaner efficiency.  We segregate the chunks
+//     within each of these agegroups into four "sibs":						// See src/c/h/sibid.h
 //
-
-
+//         RO_CONSCELL_SIB		// Blocks of exactly two immutable pointers.
+//         RO_POINTERS_SIB		// Blocks of one or more immutable pointers.
+//         NONPTR_DATA_SIB		// Blocks of mutable or  immutable nonpointer values.
+//         RW_POINTERS_SIB		// Blocks of one or more   mutable pointers.
+//
+//   o Large objects are stored in a special "HUGECHUNK" pseudo-sib.
+//     Currently this is done only for compiled code.  (It should
+//     also be done for things like large pixel images.)
+//        For speed (and in the case of compiled code to avoid
+//     instruction-cache problems etc) these values are not actually
+//     copied during heapcleaning;  instead we do bookkeeping to
+//     track which agegroup they belong to, and whether they are
+//     "young" or "old" within that agegroup.
 
 // =====================================================================
 // Overview
@@ -352,10 +357,77 @@ Nomenclature:
 // Except for agegroup0, each agegroup partitions values into four
 // classes, for space and time efficiency:
 //
-//     ro_pointer		// Blocks of one or more immutable pointers.
-//     ro_ptrpair		// Blocks of exactly two immutable pointers.
-//     nonpointer		// Blocks of mutable or  immutable nonpointer values.
-//     rw_pointer		// Blocks of one or more   mutable pointers.
+//     RO_CONSCELL_SIB		// Blocks of exactly two immutable pointers.
+//     RO_POINTERS_SIB		// Blocks of one or more immutable pointers.
+//     NONPTR_DATA_SIB		// Blocks of mutable or  immutable nonpointer values.
+//     RW_POINTERS_SIB		// Blocks of one or more   mutable pointers.
+//
+// Each of these sib kinds offers us a specific efficiency win:
+//
+//     RO_CONSCELL_SIB:
+//	 These sibs hold records consisting of exactly two immutable pointers.
+//	 Because the List(Foo) type is heavily used in Mythryl programming,
+//	 List cells ("Cons cells") are an important special case.  We store
+//	 them in their own sib without the overhead of a tagword, reducing
+//	 the space cost of a cons cell from three words to two.  (These are
+//	 the *only* heap chunks stored without benefit of a tagword.)
+//
+//     RO_POINTERS_SIB:
+//	 These sibs hold records consisting only of immutable pointers.
+//	 (Since Int31 values can be stored in any pointer slot, these
+//	 records can also hold Int31 values.)  In Mythryl this is probably
+//	 the most vanilla sib;  it could almost have been called
+//	 OTHER_STUFF_SIB.
+//	     The win here is that a record containing only immutable
+//	 pointers cannot contain a pointer to a value younger than itself,
+//	 only pointers to values older than itself, so we do not need to
+//	 worry about tracking inter-agegroup pointers from agegroups into
+//	 younger agegroups (which complicate partial heapcleanings).
+//	     Partial heapcleanings are a crucial efficiency trick,
+//	 because most "garbage" (dead values occupying ram which can be
+//	 reclaimed for re-use by the program) is in agegroup0, and
+//	 most of the remaining garbage is in agegroup1, and so forth.
+//	 We take advantage of this by usually heapcleaning only agegroup0,
+//	 and in the remaining cases only heapcleaning agegroup0 and agegroup1,
+//	 and so forth.
+//
+//     NONPTR_DATA_SIB:
+//	 These sibs hold records consisting only of nonpointer data.
+//	 Ascii strings are perhaps the common example, but also
+//	 vectors of floats, vectors of ints, vectors of unts etc.
+//	     The win here is that we do not have to worry about
+//	 about these containing pointers into younger agegroups,
+//	 or indeed pointers to anything at all.  Any time we copy
+//	 a record during heapcleaning we need to adjust all pointers
+//	 in it -- but these records contain no pointers, so we can
+//	 just blast them over memcpy() style.
+//	     Note that values in this sib can be mutable or immutable;
+//	 it holds both rw_vectors and ro_vectors of floats and ints.
+//
+//     RW_POINTERS_SIB:
+//	 These sibs hold refcells and rw_vectors containing pointers.
+//	     These require special handling because every update of
+//	 (i.e., store into) one of these can potentially introduce
+//	 a pointer from one agegroup into a younger agegroup. During
+//	 partial heapcleanings it is essential that we know of every
+//	 such cross-agegroup pointer.
+//	     Doing this requires special machinery:
+//
+//	      o Every time the compiler generates code which
+//		updates a refcell or rw_vector containings pointers,
+//		it also generates code to prepend an entry to 
+//		    task->heap_changelog					// See src/c/h/runtime-base.h
+//		code in heapclean-agegroup0.c processes this list.
+//
+//	      o We maintain
+//		      coarse_inter_agegroup_pointers_map			// See src/c/h/heap.h 
+//		which is essentially a bitmap of blocks of memory
+//		which  contain pointers into younger agegroups.
+//		We use this in
+//		      forward_all_inter_agegroup_referenced_values()		// See src/c/heapcleaner/heapclean-n-agegroups.c
+//		  to make sure they are not mistaken for dead values
+//		during partial heapcleanings.
+//
 //
 // Values of the same kind are called
 //

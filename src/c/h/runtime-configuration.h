@@ -28,9 +28,15 @@
 												// 256KB still seems a good choice.
 												//                         -- 2011-11-01 CrT
 
-#define DEFAULT_RATIO1	20									// agegroup-one sib buffers are small.
-#define DEFAULT_RATIO2	10
-#define DEFAULT_RATIO	5
+// How much bigger should one heap agegroup be
+// relative to the next-youngest agegroup?
+// Agegroup0 is usually 256KB, in general
+// we intend that each agegroup be about
+// 10X bigger than the preceding one:								// These values are(only) used in   src/c/heapcleaner/heapcleaner-initialization.c
+//
+#define DEFAULT_AGEGROUP_SIZE_RATIO1	20							// agegroup-one sib buffers are small -- typically 256KB, to fit in secondary cache -- so we use a larger ratio for agegroup1.
+#define DEFAULT_AGEGROUP_SIZE_RATIO2	10
+#define DEFAULT_AGEGROUP_SIZE_RATIO	5
 #define MAX_SZ1(NSZ)	(6*(NSZ))								// What is '6' here??   -- 2011-12-19 CrT  This is used (only) in   src/c/heapcleaner/heapcleaner-initialization.c
 
 

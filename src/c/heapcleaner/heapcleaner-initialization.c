@@ -40,15 +40,15 @@
 #include "runtime-timer.h"
 #include "heapcleaner-statistics.h"
 
-static int  DfltRatios[ MAX_AGEGROUPS ]
+static int  default_agegroup_size_ratio__local[ MAX_AGEGROUPS ]
     =
-    {   DEFAULT_RATIO1,
-	DEFAULT_RATIO2,
-	DEFAULT_RATIO,
-	DEFAULT_RATIO,
-	DEFAULT_RATIO,
-	DEFAULT_RATIO,
-	DEFAULT_RATIO
+  {     DEFAULT_AGEGROUP_SIZE_RATIO1,					// These values are defined in   src/c/h/runtime-configuration.h
+	DEFAULT_AGEGROUP_SIZE_RATIO2,
+	DEFAULT_AGEGROUP_SIZE_RATIO,
+	DEFAULT_AGEGROUP_SIZE_RATIO,
+	DEFAULT_AGEGROUP_SIZE_RATIO,
+	DEFAULT_AGEGROUP_SIZE_RATIO,
+	DEFAULT_AGEGROUP_SIZE_RATIO
     };
 
 #ifdef TWO_LEVEL_MAP
@@ -246,7 +246,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     for (int age = 0;  age < MAX_AGEGROUPS;  age++) {
 	//
-	ratio = DfltRatios[age];
+	ratio = default_agegroup_size_ratio__local[ age ];
 
 	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );	// MAX_SZ1 just multiplies by 6 (why??) -- def in  src/c/h/runtime-configuration.h
 	} else {          max_size = (5 * max_size)/2;

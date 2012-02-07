@@ -88,7 +88,7 @@ void   call_heapcleaner   (Task* task,  int level) {
 	    // and our return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code:
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that starting now CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}

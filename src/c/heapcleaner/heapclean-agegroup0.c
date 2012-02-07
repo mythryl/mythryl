@@ -63,7 +63,7 @@ static  Val   forward_special_chunk			(Agegroup* agegroup1,  Val* chunk,  Val ta
 #endif
 
 static inline void   forward_to_agegroup1_if_in_agegroup0   (Sibid* book2sibid,  Agegroup* g1,  Val *p, Task* task) {		// 'task' arg is only for debugging, can be dropped in production code.
-    //               =======================
+    //               ====================================
     //
     // Forward *p if it is in agegroup0:
 

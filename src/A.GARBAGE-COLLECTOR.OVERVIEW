@@ -102,7 +102,100 @@ heapcleaner info with every codetemp:
 				   src/lib/compiler/back/low/main/nextcode/per-codetemp-heapcleaner-info.pkg
 
 
+We distinguish two types of heapcleanings:
 
+  o "Minor" heapcleanings, which clean only agegroup0.
+
+  o "Major" heapcleanings, which clean also agegroup1
+    and perhaps additional agegroups -- in the limit,
+    all agegroups.
+
+Because agegroup0 has a totally different structure
+(no sibs) from later agegroups, we use different code
+to implement minor and major heapcleanings:
+
+    src/c/heapcleaner/heapclean-agegroup0.c
+    src/c/heapcleaner/heapclean-n-agegroups.c
+
+Some important properties of the heapcleaner and
+associated code:
+
+  o The heapcleaner is always invoked at the start
+    of a Mythryl function.  This means that there
+    are no partially-initialized records on the
+    Mythryl heap that we need to worry about.
+    (This avoids some potential heapcleaner headaches.)
+
+  o Mythryl closures ("stackframes") are never modified
+    after being created. (This avoids more potential
+    heapcleaner headaches.)
+
+  o Heapcleaning will normally constitute something
+    roughly like 1/8 to 1/16 of total CPU time used.
+    (This depends heavily on the user code mix.)
+
+  o We typically do minor heapcleanings at the rate
+    of about 200 per second.
+
+  o We always heapclean agegroups 0->n for some 'n';
+    we never clean an agegroup without also cleaning
+    all younger agegroups.
+
+  o Each agegroup0 buffer is about 256KB long.			// See   DEFAULT_AGEGROUP0_BUFFER_BYTESIZE	in   src/c/h/runtime-configuration.h
+    (The main design consideration here is that the
+    buffer should fit within level-two cache.  
+    Contemporary Intel level-two cache sizes range
+    from 256KB to 1MB.)
+
+  o The design intention is that each agegroup be		// See  DEFAULT_AGEGROUP_SIZE_RATIO*		in   src/c/h/runtime-configuration.h
+    about 10X larger than the next-younger agegroup.
+        agegroup1:  About  10MB
+        agegroup2:  About 100MB
+
+  o At the end of a minor heapcleaning agegroup0 is
+    always completely empty.  At that point we reset
+        task.heap_allocation_pointer				// See src/c/h/runtime-base.h
+    and again allocate ram linearly from one end
+    to the other of agegroup0.
+
+  o For the other agegroups, we promote each heapchunk
+    from one agegroup to the next after it has survived
+    two heapcleanings in its current agegroup.
+    To implement this we have in each sib a pointer 
+        end_of_fromspace_oldstuff				// See struct sib in   src/c/h/heap.h
+    which tracks the boundary between the "old"
+    (survived one heapcleaning) and "young" chunks
+    within that sib.
+        As a special case, chunks in the oldest active
+    agegroup are always "young" (since they are not
+    eligible to be promoted to an older agegroup).
+
+  o When running multicore, there is one agegroup0
+    per core (i.e., per posix thread -- "pthread").
+    Each core can allocate ram at full speed within
+    its private agegroup0 without need to synchronize
+    with other cores.
+
+  o All other heap agegroups are shared, which
+    means that all modifications to them must be
+    appropriately synchronized with other cores by
+    use of mutexes etc.
+
+  o When heapcleaning a given agegroup, we require
+    that the next agegroup have enough space to
+    guarantee that there will be no overflow problems.
+        In particular, agegroup0 is about 256KB,
+    almost all of which may wind up in any of the four
+    agegroup1 sibs, so we require that each agegroup1
+    sib have at least 256KB free space at the start
+    of a minor heapcleaning.
+        (This is almost always vast overkill in practice,
+    because agegroup0 is usually almost all garbage, but
+    it is much better to be safe than sorry here!)
+        More generally, when cleaning a given sib S,
+    we require that the older sib S' (to which chunks may
+    get promoted) have at least as much space as as that
+    occupied by all "old" chunks in S.
 
 
 ========================================================
