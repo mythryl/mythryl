@@ -485,7 +485,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 		//
 		debug_say ("%d.", heap->agegroup[age]->heapcleanings_count);
 	    }
-	    debug_say ("%d:  ", heap->agegroup0_cleanings_done);
+	    debug_say ("%d:  ", heap->agegroup0_heapcleanings_count);
 	}
     #endif
 
@@ -656,7 +656,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     old_cleanings_done_value
 	=
-	heap->agegroup0_cleanings_done;
+	heap->agegroup0_heapcleanings_count;
 
 
     for (int age = 0;  age < heap->active_agegroups;  ++age) {
