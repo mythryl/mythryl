@@ -289,8 +289,8 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
 		if (tagword == FORWARDED_CHUNK_TAGWORD) {
 		    //
 		    p[0] = WEAKREF_TAGWORD;
-		    p[1] = PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
-		    // debug_say ("forwarded to %#x\n", FOLLOW_FWDCHUNK(chunk));
+		    p[1] = PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));
+		    // debug_say ("forwarded to %#x\n", FOLLOW_FORWARDING_POINTER(chunk));
 
 		} else {
 

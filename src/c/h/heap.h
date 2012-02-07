@@ -428,7 +428,7 @@ inline void   insert_hugechunk_in_doubly_linked_list   (Hugechunk* header,  Huge
 // P is the pointer to the chunk.
 // NOTE: We need the double type-casts for 32/64 bit systems.
 //
-#define FOLLOW_FWDCHUNK(chunkheader)		((Val*) (((Val*)(chunkheader))[0]))
+#define FOLLOW_FORWARDING_POINTER(chunkheader)		((Val*) (((Val*)(chunkheader))[0]))
 
 // Follow a pair-space forward pointer.
 // This is tagged as a descriptor:

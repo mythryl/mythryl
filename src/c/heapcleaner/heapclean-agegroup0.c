@@ -508,7 +508,7 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 
     case FORWARDED_CHUNK_BTAG:
 	//
-	return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));				// We've already copied this one to agegroup1, so just return pointer to copy.
+	return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));				// We've already copied this one to agegroup1, so just return pointer to copy.
 
     default:
 	log_if("bad chunk tag %d, chunk = %#x, tagword = %#x   -- forward_agegroup0_chunk_to_agegroup1() in src/c/heapcleaner/heapclean-agegroup0.c", GET_BTAG_FROM_TAGWORD(tagword), chunk, tagword);
@@ -616,7 +616,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			// of the weak pointer, since the heapcleaner has the invariant
 			// that it never sees to-space pointers during sweeping.
 											#ifdef DEBUG_WEAKREFS
-											    debug_say (" already forwarded to %#x\n", PTR_CAST( Val, FOLLOW_FWDCHUNK(vp)));
+											    debug_say (" already forwarded to %#x\n", PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(vp)));
 											#endif
 
 			new_chunk[0] =  WEAKREF_TAGWORD;

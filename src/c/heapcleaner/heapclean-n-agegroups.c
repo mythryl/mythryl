@@ -1267,7 +1267,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		// This chunk has already been forwarded,
 		// so return pre-existing to-space copy:
 		//
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));									// FOLLOW_FWDCHUNK				def in   src/c/h/heap.h
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));									// FOLLOW_FORWARDING_POINTER				def in   src/c/h/heap.h
 
 	    case PAIRS_AND_RECORDS_BTAG:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
@@ -1285,7 +1285,8 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	break;
 
     case RO_CONSCELL_KIND:
-	// We store pairs in the pair-sibs without tagwords:
+	// We store cons-cells (two-pointer records)
+        // in the pair-sibs without tagwords:
 	// That way they cost only two words of ram each,
 	// instead of three.  (These are only only heap values
 	// stored without tagwords.)
@@ -1298,14 +1299,14 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	    // Check first word of pair to see if it
 	    // has already been forwarded:
 	    //
-	    Val	w = chunk[0];
+	    Val	chunk_0 = chunk[0];
 	    //
-	    if (IS_TAGWORD(w)) {
+	    if (IS_TAGWORD(chunk_0)) {
 	        //
 	        // Chunk has already been forwarded,
 		// so return pre-existing to-space copy:
 	        //
-		return PTR_CAST( Val, FOLLOW_PAIRSPACE_FORWARDING_POINTER(w, chunk));						// FOLLOW_PAIRSPACE_FORWARDING_POINTER		def in    src/c/h/heap.h
+		return PTR_CAST( Val, FOLLOW_PAIRSPACE_FORWARDING_POINTER(chunk_0, chunk));					// FOLLOW_PAIRSPACE_FORWARDING_POINTER		def in    src/c/h/heap.h
 	        //
 	    } else {
 	        //
@@ -1321,7 +1322,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		    +=
 		    PAIR_SIZE_IN_WORDS;												// 2.	PAIR_SIZE_IN_WORDS			def in    src/c/h/runtime-base.h
 
-		new_chunk[0] = w;
+		new_chunk[0] = chunk_0 ;
 		new_chunk[1] = chunk[1];
 
 		// Set up the forward pointer in the old pair,
@@ -1337,23 +1338,23 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
     case NONPTR_DATA_KIND:
 	{
-
 	    tagword = chunk[ -1 ];
 	    //
 	    switch (GET_BTAG_FROM_TAGWORD( tagword )) {
 		//
 	    case FORWARDED_CHUNK_BTAG:
 		//
-		// String has already been forwarded;
+		// Data block has already been forwarded;
 		// return pre-existing to-space copy:
 		//
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));
 
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 	        //
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
+		//
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		break;
@@ -1363,6 +1364,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword );
 		//
 		sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
+		//
 		if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_old				def in   src/c/h/heap.h
 		//
 		#ifdef ALIGN_FLOAT64S
@@ -1378,8 +1380,8 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		break;
 
 	    default:
-		die ("Bad string b-tag %#x, chunk = %#x, tagword = %#x",  GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
-                exit(1);													// Cannot execute -- just to quiet gcc -Wall.
+		die ("Bad nonpointer-data record b-tag %#x, chunk = %#x, tagword = %#x",  GET_BTAG_FROM_TAGWORD( tagword ), chunk, tagword);
+                exit(1);														// Cannot execute -- just to quiet gcc -Wall.
 	    }
         }
         break;
@@ -1392,10 +1394,10 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 	    case FORWARDED_CHUNK_BTAG:
 		//
-		// Vector has already been forwarded;
+		// Refcell/rw_vector has already been forwarded;
 		// return pre-existing to-space copy:
 		//
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));	      // This chunk has already been forwarded.
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));	      // This chunk has already been forwarded.
 
 	    case RW_VECTOR_DATA_BTAG:
 		//
@@ -1449,8 +1451,8 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // Set up the forward pointer
     // and return the new chunk:
     //
-    chunk[-1] = FORWARDED_CHUNK_TAGWORD;
-    chunk[0] = (Val)(Punt)new_chunk;
+    chunk[-1] =  FORWARDED_CHUNK_TAGWORD;
+    chunk[ 0] =  (Val)(Punt) new_chunk;
 
     return PTR_CAST( Val, new_chunk);
 }						// forward_chunk
@@ -1597,7 +1599,7 @@ static Val          forward_special_chunk   (
 			    // that it never sees to-space pointers during sweeping.
 
 											    #ifdef DEBUG_WEAKREFS
-												debug_say (" already forwarded to %#x\n", FOLLOW_FWDCHUNK(vp));
+												debug_say (" already forwarded to %#x\n", FOLLOW_FORWARDING_POINTER(vp));
 											    #endif
 			    new_chunk[0] =  WEAKREF_TAGWORD;
 			    new_chunk[1] =  v;

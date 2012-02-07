@@ -264,7 +264,7 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		    for (__rp = __sib->repairlist;  __rp < __stop;  __rp++) {	\
 			Val	*__p = __rp->loc;				\
 			if (index != RO_CONSCELL_SIB)				\
-			    __p[-1] = FOLLOW_FWDCHUNK(__p)[-1];			\
+			    __p[-1] = FOLLOW_FORWARDING_POINTER(__p)[-1];			\
 			__p[0] = __rp->val;					\
 		    }								\
 		}								\
@@ -708,7 +708,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 		break;
 
 	    case FORWARDED_CHUNK_BTAG:
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));	        // This chunk has already been forwarded.
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));	        // This chunk has already been forwarded.
 
 	    default:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
@@ -753,7 +753,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    switch (GET_BTAG_FROM_TAGWORD(tagword)) {
 		//
 	    case FORWARDED_CHUNK_BTAG:
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));
 
 	    case FOUR_BYTE_ALIGNED_NONPOINTER_DATA_BTAG:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
@@ -788,7 +788,7 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    switch (GET_BTAG_FROM_TAGWORD(tagword)) {
 		//
 	    case FORWARDED_CHUNK_BTAG:
-		return PTR_CAST( Val, FOLLOW_FWDCHUNK(chunk));		// This chunk has already been forwarded.
+		return PTR_CAST( Val, FOLLOW_FORWARDING_POINTER(chunk));		// This chunk has already been forwarded.
 
 	    case RW_VECTOR_DATA_BTAG:
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
