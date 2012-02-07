@@ -132,13 +132,19 @@ struct agegroup {
 
 // Each heap agegroup > 0 has four sib buffers, one each to hold
 //
-//     pairs
-//     records
-//     strings
-//     vectors 
+//     rw_conscells   (Blocks of immutable pointers of     length     two.)
+//     ro_pointers    (Blocks of immutable pointers of any length but two.)
+//     nonptr_data    (Strings, int32 vector etc. Mutable and immutable both.)
+//     rw_pointers    (Refcells and rw_vectors of pointers.)
 //
-// During garbage collection we will actually have
-// two buffers per sib: one from-space, one to-space.
+// While the heapclean-n-agegroups.c code is running
+// will actually have two buffers per sib:
+//   one for from-space,
+//   one for to-space.
+// Otherwise, we sometimes retain the (unused) to-space
+// buffer between heapcleanings, and sometimes free()
+// it, to be malloc()'d again on the next heapclean:
+//
 //
 struct sib {
     Sibid		id;					// The to-space version of this sib's identifier.
@@ -149,13 +155,23 @@ struct sib {
     Val*	        tospace_limit;				// The top of the to-space (tospace+tospace_bytesize).
     //
     Val*		next_word_to_sweep_in_tospace;		// The next word to sweep in the to-space buffer.
-    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).  The repair list grows  down in to-space.
+
+    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
+								// The repair list grows  down in to-space.
 
     Val*		fromspace;				// Base address and size of from-space.
     Val_Sized_Unt	fromspace_bytesize;
     Val*		fromspace_used_end;			// The top of the used portion of from-space.
 
-    Val*		end_of_fromspace_oldstuff;		// The top of the "older" from-space region. Chunks below this get promoted, those above don't.
+    Val*		end_of_fromspace_oldstuff;		// We require that a chunk survive two heapcleans in a
+								// given agegroup before being promoted to the next agegroup.
+								// To this end we divide the chunks in a given agegroup sib into
+								// "young" (have not yet survived a heapclean) and
+								// "old" (have survived one heapclean).  This pointer tracks the
+								// boundary between old and young;  Chunks before this get promoted
+								// if they survive the next heapcleaning; those beyond it do not.
+								// Special case: chunks in the oldest active agegroup are forever young.
+								
     Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
 
     Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had

@@ -327,8 +327,21 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
     //              =========================================
     //
-    // Remember the top of to-space
-    // in the cleaned agegroups:
+    // Background:  We require that a chunk survive two heapcleans in
+    // a given agegroup before being promoted to the next agegroup.
+    //
+    // To this end, we divide the chunks in a given agegroup sib into
+    // "young" (have not yet survived a heapclean) and
+    // "old" (have survived one heapclean).  This pointer tracks the
+    // boundary between old and new;  Chunks before this get promoted
+    // if they survive the next heapcleaning; those beyond it do not.
+    //
+    // Special case: chunks in the oldest active agegroup are forever young.
+    //
+    // We are called at the end of a heapcleaning;  Our job is to
+    // appropriately update the 'end_of_fromspace_oldstuff' pointers
+    // marking the boundary between 'old' and 'young' chunks in
+    // each sib in each agegroup.
     //
     for (int a = 0;  a < oldest_agegroup_to_clean;  a++) {
         //
