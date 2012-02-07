@@ -749,11 +749,12 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		    new_bytesize = min_bytes+sib->requested_sib_buffer_bytesize;
 	    #endif
 
-	    // The desired size is one that will allow "ratio" cleanings of the
-	    // previous agegroup before this has to be cleaned again.
-	    // We approximate this as ((f*ratio) / n), where
-	    //   f == # of bytes forwarded                    since the last cleaning of this agegroup.
-	    //   n == # of cleanings of the previous agegroup since the last cleaning of this agegroup.
+	    // The desired size is one that will allow "target_heapcleaning_frequency_ratio"
+	    // heapcleanings of the/ previous agegroup before this has to be cleaned again.
+	    // We approximate this as ((f*r) / n), where
+	    //   r == target_heapcleaning_frequency_ratio
+	    //   f == # of bytes forwarded                    since the last heapcleaning of this agegroup.
+	    //   n == # of cleanings of the previous agegroup since the last heapcleaning of this agegroup.
 	    // We also need to allow space for young chunks in this agegroup,
 	    // but the new size shouldn't exceed the maximum size for the
 	    // sib buffer (unless min_bytes > soft_max_bytesize).
@@ -762,7 +763,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 				  +
 				  sib->requested_sib_buffer_bytesize
 				  +
-				  ag->ratio  *  (this_min_bytesize / cleanings);
+				  ag->target_heapcleaning_frequency_ratio  *  (this_min_bytesize / cleanings);
 
 	    // Clamp new_bytesize to sane range:
 	    //

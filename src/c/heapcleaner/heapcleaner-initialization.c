@@ -175,7 +175,6 @@ void   set_up_heap   (			// Create and initialize the heap.
     // in
     //     src/c/main/runtime-state.c
 
-    int		ratio;
     int		max_size = 0;		// Initialized only to suppress a gcc -Wall warning.
 
     Heap*	heap;
@@ -246,8 +245,6 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     for (int age = 0;  age < MAX_AGEGROUPS;  age++) {
 	//
-	ratio = default_agegroup_size_ratio__local[ age ];
-
 	if (age == 0) {   max_size = MAX_SZ1( params->agegroup0_buffer_bytesize * MAX_PTHREADS );	// MAX_SZ1 just multiplies by 6 (why??) -- def in  src/c/h/runtime-configuration.h
 	} else {          max_size = (5 * max_size)/2;
 	    //
@@ -256,14 +253,17 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    }
 	}
 
-	ag		      =
-	heap->agegroup[age]   =  MALLOC_CHUNK( Agegroup );
+	ag			=
+	heap->agegroup[ age ]	=  MALLOC_CHUNK( Agegroup );
 
-	ag->heap		= heap;
-	ag->age			= age+1;
-	ag->heapcleanings_count	= 0;
-	ag->ratio		= ratio;
-	//
+	ag->heap		=  heap;
+	ag->age			=  age + 1;
+	ag->heapcleanings_count	=  0;
+
+	ag->target_heapcleaning_frequency_ratio
+	    =
+	    default_agegroup_size_ratio__local[ age ];
+
 	ag->last_cleaning_count_of_younger_agegroup
 	    =
 	    0;
