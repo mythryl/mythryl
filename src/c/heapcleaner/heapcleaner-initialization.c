@@ -259,10 +259,10 @@ void   set_up_heap   (			// Create and initialize the heap.
 	ag		      =
 	heap->agegroup[age]   =  MALLOC_CHUNK( Agegroup );
 
-	ag->heap	= heap;
-	ag->age	        = age+1;
-	ag->cleanings	= 0;
-	ag->ratio	= ratio;
+	ag->heap		= heap;
+	ag->age			= age+1;
+	ag->heapcleanings_count	= 0;
+	ag->ratio		= ratio;
 	//
 	ag->last_cleaning_count_of_younger_agegroup
 	    =

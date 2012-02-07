@@ -483,7 +483,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 	    //	
 	    for (int age = heap->active_agegroups-1;  age >= 0;   age--) {
 		//
-		debug_say ("%d.", heap->agegroup[age]->cleanings);
+		debug_say ("%d.", heap->agegroup[age]->heapcleanings_count);
 	    }
 	    debug_say ("%d:  ", heap->agegroup0_cleanings_done);
 	}
@@ -798,9 +798,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	    =
             old_cleanings_done_value;
 
-	++ ag->cleanings;
+	++ ag->heapcleanings_count;
 
-	old_cleanings_done_value = ag->cleanings;
+	old_cleanings_done_value = ag->heapcleanings_count;
 	ag->fromspace_ram_region = ag->tospace_ram_region;
 
 	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
