@@ -432,7 +432,7 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->heap_needs_repair b= %s\n",			sib->heap_needs_repair ? "TRUE" : "FALSE"		);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->requested_sib_buffer_bytesize x= %08x\n",	(unsigned int) sib->requested_sib_buffer_bytesize	);
+    fprintf(fd,"                     sib->requested_extra_free_bytes x= %08x\n",	(unsigned int) sib->requested_extra_free_bytes	);
     fprintf(fd,"                     sib->soft_max_bytesize             x= %08x\n",	(unsigned int) sib->soft_max_bytesize			);
 }
 

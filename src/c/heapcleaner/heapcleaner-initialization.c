@@ -278,7 +278,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    ag->sib[ s ] = MALLOC_CHUNK( Sib );
 	    //
 	    ag->sib[ s ]->tospace.bytesize              = 0;
-	    ag->sib[ s ]->requested_sib_buffer_bytesize = 0;
+	    ag->sib[ s ]->requested_extra_free_bytes = 0;
 	    ag->sib[ s ]->soft_max_bytesize             = max_size;
 	    //
 	    ag->sib[ s ]->id =   MAKE_SIBID( age+1, s+1, 0);

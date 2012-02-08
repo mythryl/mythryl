@@ -707,7 +707,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	}
 
 	/////////////////////////////////////
-	// We need to flip agegroup[ age ].
+	// We need heapclean agegroup[ age ].
 	/////////////////////////////////////
 
 	younger_agegroup_heapcleanings_since_last_heapcleaning
@@ -729,8 +729,8 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    if (sib_is_active( sib )) {									// sib_is_active			def in    src/c/h/heap.h
 		//
-		make_sib_tospace_into_fromspace( sib );							// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
-
+		make_sib_tospace_into_fromspace( sib );							// Sets fromspace.start, fromspace.bytesize and fromspace.used_end.
+													// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 		bytes_of_youngstuff_in_sib
 		    =
 		    (Punt)  sib->fromspace.used_end
@@ -741,7 +741,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 		sib->fromspace.bytesize = 0;  								// To ensure accurate stats.
 
-		if (sib->requested_sib_buffer_bytesize == 0
+		if (sib->requested_extra_free_bytes == 0
 		    &&
 		    previous_oldstuff_bytesize[ s ] == 0
 		){
@@ -753,7 +753,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    min_bytes =  previous_oldstuff_bytesize[ s ]
                       +  bytes_of_youngstuff_in_sib
-                      +  sib->requested_sib_buffer_bytesize;
+                      +  sib->requested_extra_free_bytes;
 
 	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;						// First slot isn't used, but may need the space for poly =
 
@@ -771,7 +771,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	    //
 	    new_bytesize =   previous_oldstuff_bytesize[ s ]
 				  +
-				  sib->requested_sib_buffer_bytesize
+				  sib->requested_extra_free_bytes
 				  +
 				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning);
 
@@ -1758,7 +1758,7 @@ static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 
 		min_bytesize +=  sib_space_used_in_bytes( sib )									// sib_space_used_in_bytes	def in    src/c/h/heap.h
                                  +
-			         sib->requested_sib_buffer_bytesize;
+			         sib->requested_extra_free_bytes;
 
 		if (min_bytesize < sib->soft_max_bytesize) {
 		    new_bytesize = sib->soft_max_bytesize;

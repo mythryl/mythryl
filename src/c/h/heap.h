@@ -186,7 +186,11 @@ struct sib {
 
     // Heap sizing parameters:
     //
-    Val_Sized_Unt	requested_sib_buffer_bytesize;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
+    Val_Sized_Unt	requested_extra_free_bytes;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
+								// Normally zero.  This is used to reserve sufficient extra space for vectors (etc) being created by fns in
+								//     src/c/heapcleaner/make-strings-and-vectors-etc.c
+								// This is essentially a hidden extra parameter to call_heapcleaner() from these fns.
+
     Val_Sized_Unt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
 
 

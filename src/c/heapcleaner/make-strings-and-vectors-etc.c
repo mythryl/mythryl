@@ -4,7 +4,7 @@
 // strings and vectors on the Mythryl heap.
 //
 // MP Note: when invoking the garbage collector, we add the
-// requested size to requested_sib_buffer_bytesize, so that multiple processors
+// requested size to requested_extra_free_bytes, so that multiple processors
 // can request space at the same time.
 
 
@@ -192,7 +192,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
 	        // We need to do a garbage collection:
                 //
-		ap->requested_sib_buffer_bytesize += bytesize;
+		ap->requested_extra_free_bytes += bytesize;
                 //
 		pthread_mutex_unlock( &pth__mutex );
 		    //
@@ -200,7 +200,7 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 		    //
 		pthread_mutex_lock( &pth__mutex );
                 //
-		ap->requested_sib_buffer_bytesize = 0;
+		ap->requested_extra_free_bytes = 0;
 	    }
 	    *(ap->tospace.used_end++) = tagword;
 	    result = PTR_CAST( Val, ap->tospace.used_end);
@@ -284,7 +284,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 		//
 	        // We need to do a garbage collection:
 
-		ap->requested_sib_buffer_bytesize += bytesize;
+		ap->requested_extra_free_bytes += bytesize;
 		//
 		pthread_mutex_unlock( &pth__mutex );
 		    //
@@ -292,7 +292,7 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 		    //
 		pthread_mutex_lock( &pth__mutex );
 		//
-		ap->requested_sib_buffer_bytesize = 0;
+		ap->requested_extra_free_bytes = 0;
 	    }
 	    #ifdef ALIGN_FLOAT64S
 		//
@@ -436,12 +436,12 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 	        // Clean heap -- but preserve init_val:
                 //
 		Val	root = init_val;
-		ap->requested_sib_buffer_bytesize += bytesize;
+		ap->requested_extra_free_bytes += bytesize;
 		pthread_mutex_unlock( &pth__mutex );
 		    call_heapcleaner_with_extra_roots (task, gc_level, &root, NULL);
 		    init_val = root;
 		pthread_mutex_lock( &pth__mutex );
-		ap->requested_sib_buffer_bytesize = 0;
+		ap->requested_extra_free_bytes = 0;
 
 		#if NEED_PTHREAD_SUPPORT
 		{
@@ -523,13 +523,13 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	        clean_check: ;			// The pthread version jumps to here to redo the garbage collection.
 	    #endif
 
-	    ap->requested_sib_buffer_bytesize += bytesize;
+	    ap->requested_extra_free_bytes += bytesize;
 	    pthread_mutex_unlock( &pth__mutex );
 	        call_heapcleaner_with_extra_roots (task, clean_level, &root, NULL);
 	        initializers = root;
 	    pthread_mutex_lock( &pth__mutex );
 
-	    ap->requested_sib_buffer_bytesize = 0;
+	    ap->requested_extra_free_bytes = 0;
 
 	    #if NEED_PTHREAD_SUPPORT
 	    {   // Check again to ensure that we have sufficient space:

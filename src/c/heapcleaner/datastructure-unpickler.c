@@ -171,7 +171,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
                )
             ){
 		needs_cleaning = TRUE;
-		sib->requested_sib_buffer_bytesize = sib_headers[ ilk ]->info.o.bytesize;
+		sib->requested_extra_free_bytes = sib_headers[ ilk ]->info.o.bytesize;
 	    }
 	}
 
