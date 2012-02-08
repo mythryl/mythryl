@@ -641,7 +641,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     Heap* heap = task->heap;
 
-    int cleanings;
+    int younger_agegroup_heapcleanings_since_last_checked;
 
     Punt  new_bytesize;
     Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];			// This vector will be re-used for each successive agegroup.
@@ -658,10 +658,10 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     }
 
-    int old_heapcleanings_count						// This will be re-used for each agegroup we process.
-	=
-	heap->agegroup0_heapcleanings_count;
-
+    int younger_agegroup_heapcleanings_count				// In general this holds  ag->heapcleanings_count
+	=								// for the agegroup one younger than the one we're
+	heap->agegroup0_heapcleanings_count;				// currently processing in the loop, but agegroup0
+									// is a special case. 
 
     // Over all agegroups we are required to heapclean,
     // plus any agegroups we choose to heapclean in addition:
@@ -707,7 +707,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	// We need to flip agegroup[ age ].
 	/////////////////////////////////////
 
-	cleanings = old_heapcleanings_count
+	younger_agegroup_heapcleanings_since_last_checked = younger_agegroup_heapcleanings_count
 		    -
 		    ag->last_heapcleanings_count_of_younger_agegroup;
 
@@ -768,7 +768,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 				  +
 				  sib->requested_sib_buffer_bytesize
 				  +
-				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / cleanings);
+				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_checked);
 
 	    // Clamp new_bytesize to sane range:
 	    //
@@ -802,12 +802,15 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	ag->last_heapcleanings_count_of_younger_agegroup
 	    =
-            old_heapcleanings_count;
+            younger_agegroup_heapcleanings_count;
 
 	++ ag->heapcleanings_count;
 
-	old_heapcleanings_count =  ag->heapcleanings_count;
-	ag->fromspace_quire     =  ag->tospace_quire;
+	younger_agegroup_heapcleanings_count
+	    =
+	    ag->heapcleanings_count;
+
+	ag->fromspace_quire =  ag->tospace_quire;
 
 	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
