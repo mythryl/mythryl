@@ -500,13 +500,13 @@ extern void  dump_hugechunks_contents(		Task* task, char* caller );					// dump_
 extern void  dump_ramlog(			Task* task, char* caller );					// dump_ramlog							def in   src/c/heapcleaner/heap-debug-stuff.c
 extern void  dump_whatever(			Task* task, char* caller );					// dump_whatever						def in   src/c/heapcleaner/heap-debug-stuff.c
 //
-extern Status  allocate_and_partition_an_agegroup  (Agegroup* age);						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
+extern Status  set_up_tospace_sib_buffers_for_agegroup  (Agegroup* age);					// set_up_tospace_sib_buffers_for_agegroup			def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    make_new_coarse_inter_agegroup_pointers_map_for_agegroup  (Agegroup* age);			// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern void    free_agegroup			(Heap* heap, int g);						// free_agegroup						def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    set_book2sibid_entries_for_range
 	           (Sibid* book2sibid,  Val* base,  Val_Sized_Unt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
-extern void    null_out_newly_dead_weakrefs	(Heap* heap);						// null_out_newly_dead_weakrefs				def in   src/c/heapcleaner/heapcleaner-stuff.c
+extern void    null_out_newly_dead_weakrefs	(Heap* heap);							// null_out_newly_dead_weakrefs					def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
 extern Hugechunk*   allocate_hugechunk_region (Heap* heap,  Punt bytesize);					// allocate_hugechunk_region					def in   src/c/heapcleaner/hugechunk.c
 extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Punt chunk_bytesize);			// allocate_hugechunk						def in   src/c/heapcleaner/hugechunk.c

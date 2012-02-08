@@ -387,7 +387,7 @@ void   set_up_heap   (			// Create and initialize the heap.
                 BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS) );
 	}
 
-	if (allocate_and_partition_an_agegroup( heap->agegroup[0] ) == FAILURE)	    die ("unable to allocate initial agegroup 1 buffer\n");
+	if (set_up_tospace_sib_buffers_for_agegroup( heap->agegroup[0] ) == FAILURE)	    die ("unable to allocate initial agegroup 1 buffer\n");
 
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //

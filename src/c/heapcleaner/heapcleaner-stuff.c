@@ -14,7 +14,7 @@
 #include "heap.h"
 
 //
-Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
+Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
     //   ==================================
     // 
     // Allocate and partition the space for an agegroup.
@@ -26,51 +26,51 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     //     src/c/heapcleaner/datastructure-pickler-cleaner.c
     //     src/c/heapcleaner/heapclean-n-agegroups.c
 
-    Quire*	heapchunk;
+    Quire*	quire;
 
     Sib*  ap;
 
     // Compute the total size:
     //
-    Punt  tot_size =  0;
+    Punt  total_bytes =  0;
     //
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	//
 	if (sib_is_active( ag->sib[ i ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
-	    tot_size +=  ag->sib[ i ]->tospace.bytesize;
+	    total_bytes +=  ag->sib[ i ]->tospace.bytesize;
 	}
     }
 
     if (ag->retained_fromspace_quire != NULL
-    && BYTESIZE_OF_QUIRE( ag->retained_fromspace_quire ) >= tot_size
+    && BYTESIZE_OF_QUIRE( ag->retained_fromspace_quire ) >= total_bytes
     ){
-	heapchunk =  ag->retained_fromspace_quire;
+	quire =  ag->retained_fromspace_quire;
 
 	ag->retained_fromspace_quire =  NULL;
 
-    } else if ((heapchunk = obtain_quire_from_os( tot_size )) == NULL) {
+    } else if ((quire = obtain_quire_from_os( total_bytes )) == NULL) {
 	//
 	// Eventually we should try to allocate the agegroup
-	//as separate chunks instead of failing.			XXX BUGGO FIXME
+	//as separate chunks instead of failing.			XXX SUCKO FIXME
 	//
 	return FAILURE;
     }
 
-    // Initialize the chunks:
+    // Initialize the individual sib buffers:
     //
-    ag->tospace_quire = heapchunk;
+    ag->tospace_quire = quire;
     //
     #ifdef VERBOSE
-        debug_say ("allocate_and_partition_an_agegroup[%d]: tot_size = %d, [%#x, %#x)\n",
+        debug_say ("set_up_tospace_sib_buffers_for_agegroup[%d]: total_bytes = %d, [%#x, %#x)\n",
             ag->age,
-            tot_size,
-            BASE_ADDRESS_OF_QUIRE( heapchunk ),
-            BASE_ADDRESS_OF_QUIRE( heapchunk ) + BYTESIZE_OF_QUIRE( heapchunk )
+            total_bytes,
+            BASE_ADDRESS_OF_QUIRE( quire ),						// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
+            BASE_ADDRESS_OF_QUIRE( quire ) + BYTESIZE_OF_QUIRE( quire )
         );
     #endif
     //
-    Val* p =  (Val*) BASE_ADDRESS_OF_QUIRE( heapchunk );
+    Val* p =  (Val*) BASE_ADDRESS_OF_QUIRE( quire );
     //
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
         //
@@ -115,7 +115,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
     }   
 
     return SUCCESS;
-}								// fun allocate_and_partition_an_agegroup
+}								// fun set_up_tospace_sib_buffers_for_agegroup
 
 
 //

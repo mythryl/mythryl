@@ -611,7 +611,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 	}
 	g->fromspace_quire = g->tospace_quire;
 
-	if (allocate_and_partition_an_agegroup(g) == FAILURE) {
+	if (set_up_tospace_sib_buffers_for_agegroup(g) == FAILURE) {
 	    //
 	    die ("unable to allocate to-space for agegroup %d\n", age+1);
 	}
