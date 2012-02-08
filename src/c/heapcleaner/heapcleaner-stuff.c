@@ -15,7 +15,7 @@
 
 //
 Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
-    //   ==================================
+    //   =======================================
     // 
     // Allocate and partition the space for an agegroup.
     //
@@ -26,9 +26,8 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
     //     src/c/heapcleaner/datastructure-pickler-cleaner.c
     //     src/c/heapcleaner/heapclean-n-agegroups.c
 
-    Quire*	quire;
-
-    Sib*  ap;
+    Quire* quire;
+    Sib*   sib;
 
     // Compute the total size:
     //
@@ -74,44 +73,44 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
     //
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
         //
-	ap = ag->sib[ i ];
+	sib = ag->sib[ i ];
         //
-	if (!sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
+	if (!sib_is_active(sib)) {							// sib_is_active	def in    src/c/h/heap.h
             //
-	    ap->tospace.start		= NULL;
-	    ap->tospace.used_end	= NULL;
-	    ap->tospace.swept_end	= NULL;
-	    ap->tospace.limit		= NULL;
+	    sib->tospace.start		= NULL;
+	    sib->tospace.used_end	= NULL;
+	    sib->tospace.swept_end	= NULL;
+	    sib->tospace.limit		= NULL;
             //
 	} else {
             //
-	    ap->tospace.start		= p;
-	    ap->tospace.used_end	= p;
-	    ap->tospace.swept_end	= p;
+	    sib->tospace.start		= p;
+	    sib->tospace.used_end	= p;
+	    sib->tospace.swept_end	= p;
             //
-	    p = (Val*)((Punt)p + ap->tospace.bytesize);
-	    ap->tospace.limit	= p;
-	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace.start, ap->tospace.bytesize, ap->id );
+	    p = (Val*)((Punt)p + sib->tospace.bytesize);
+	    sib->tospace.limit	= p;
+	    set_book2sibid_entries_for_range( book_to_sibid__global, sib->tospace.start, sib->tospace.bytesize, sib->id );
 
 	    #ifdef VERBOSE
-	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->tospace.used_end, p);
+	        debug_say ("  %#x:  [%#x, %#x)\n", sib->id, sib->tospace.used_end, p);
 	    #endif
 	}
     }
 
-    ap = ag->sib[ RO_CONSCELL_SIB ];
+    sib = ag->sib[ RO_CONSCELL_SIB ];
 
-    if (sib_is_active(ap)) {
+    if (sib_is_active(sib)) {
         //
         // The first slot of pair-space must not be used,
         // else poly-equal might fault:
         //
-	*(ap->tospace.used_end++) = HEAP_VOID;
-	*(ap->tospace.used_end++) = HEAP_VOID;
+	*(sib->tospace.used_end++) = HEAP_VOID;
+	*(sib->tospace.used_end++) = HEAP_VOID;
         //
-	ap->tospace.start	 = ap->tospace.used_end;
-	ap->tospace.bytesize	-= (2*WORD_BYTESIZE);
-	ap->tospace.swept_end	 = ap->tospace.used_end;
+	sib->tospace.start	 = sib->tospace.used_end;
+	sib->tospace.bytesize	-= (2*WORD_BYTESIZE);
+	sib->tospace.swept_end	 = sib->tospace.used_end;
     }   
 
     return SUCCESS;
