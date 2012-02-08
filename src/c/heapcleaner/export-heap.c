@@ -136,11 +136,12 @@ static Status   write_heap_image_to_file   (
     FILE* file
 ){
     Heap*  heap   =  task->heap;
-    Status status =  SUCCESS;
+    //
+    Status status =  TRUE;
 
     Writer*   wr;
 
-    if (!(wr = WR_OpenFile( file )))    return FAILURE;
+    if (!(wr = WR_OpenFile( file )))    return FALSE;
 
     // Shed any and all garbage:
     //
@@ -180,7 +181,7 @@ static Status   write_heap_image_to_file   (
 	WR_WRITE(wr, &hh, sizeof(hh));
 	if (WR_ERROR(wr)) {
 	    WR_FREE(wr);
-	    return FAILURE;
+	    return FALSE;
 	}
     }
 
@@ -210,7 +211,7 @@ static Status   write_heap_image_to_file   (
 	    if (bytes_written == -1) {
 		if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );
 		WR_FREE( wr );
-		return FAILURE;
+		return FALSE;
 	    }
 	}
 
@@ -219,13 +220,13 @@ static Status   write_heap_image_to_file   (
 	if (WR_ERROR(wr)) {
 	    if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );
 	    WR_FREE(wr);
-	    return FAILURE;
+	    return FALSE;
 	}
     }
 
     // Write out the heap image:
     //
-    if (write_heap(wr, heap) == FAILURE)   status = FAILURE;
+    if (write_heap(wr, heap) == FALSE)   status = FALSE;
 
     if (kind != EXPORT_FN_IMAGE)   repair_heap( export_table, heap );
 
@@ -340,7 +341,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	if (WR_ERROR( wr )) {
 	    //
 	    FREE( header );
-	    return FAILURE;
+	    return FALSE;
 	}
 
 	FREE( header );
@@ -406,7 +407,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
     // Write out the sib headers:
     //
-    WR_WRITE(wr, sib_headers, sib_headers_size);      if (WR_ERROR(wr)) {  FREE (sib_headers);  return FAILURE;  }
+    WR_WRITE(wr, sib_headers, sib_headers_size);      if (WR_ERROR(wr)) {  FREE (sib_headers);  return FALSE;  }
 
     // Write the sibs:
     //
@@ -425,7 +426,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    if (p->info.o.bytesize > 0) {
 		//
 		WR_SEEK(wr, p->offset);
-		WR_WRITE(wr, (void*)(p->info.o.base_address), p->info.o.bytesize);		if (WR_ERROR(wr)) {  FREE(sib_headers); return FAILURE; }
+		WR_WRITE(wr, (void*)(p->info.o.base_address), p->info.o.bytesize);		if (WR_ERROR(wr)) {  FREE(sib_headers); return FALSE; }
 	    }
 	    p++;
 	}
@@ -468,7 +469,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
 	        // Write the hugechunk headers:
                 //
-		WR_WRITE( wr, header, header_bytesize );					if (WR_ERROR(wr)) { FREE(header); FREE(sib_headers); return FAILURE; }
+		WR_WRITE( wr, header, header_bytesize );					if (WR_ERROR(wr)) { FREE(header); FREE(sib_headers); return FALSE; }
 
 	        // Write the hugechunk:
                 //
@@ -478,7 +479,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
                 ){
 		    WR_WRITE(wr, (char*)(bdp->chunk), uprounded_hugechunk_bytesize(bdp));						// uprounded_hugechunk_bytesize	def in    src/c/h/heap.h
 		    //
-		    if (WR_ERROR(wr)) {  FREE (header);  FREE (sib_headers);  return FAILURE;  }
+		    if (WR_ERROR(wr)) {  FREE (header);  FREE (sib_headers);  return FALSE;  }
 		}
 		FREE( header );
 	    }
@@ -488,7 +489,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
     FREE( sib_headers );
 
-    return SUCCESS;
+    return TRUE;
 }
 
 

@@ -176,7 +176,7 @@ Pickler_Result   pickler__clean_heap   (
 	return result;
     }
 
-    if (sweep_tospace (task, MAX_SIBID) == FAILURE) {
+    if (sweep_tospace (task, MAX_SIBID) == FALSE) {
 	result.error = TRUE;
 	return result;
     }
@@ -611,7 +611,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 	}
 	g->fromspace_quire = g->tospace_quire;
 
-	if (set_up_tospace_sib_buffers_for_agegroup(g) == FAILURE) {
+	if (set_up_tospace_sib_buffers_for_agegroup(g) == FALSE) {
 	    //
 	    die ("unable to allocate to-space for agegroup %d\n", age+1);
 	}
@@ -675,7 +675,7 @@ static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
 	}
     } while (swept && !seen_error);
 
-    return  (seen_error ? FAILURE : SUCCESS);
+    return  !seen_error;
 }								// fun sweep_tospace
 
 

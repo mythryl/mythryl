@@ -817,7 +817,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	ag->fromspace_quire =  ag->tospace_quire;
 
-	if (set_up_tospace_sib_buffers_for_agegroup( ag ) == FAILURE) {						// set_up_tospace_sib_buffers_for_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
+	if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {							// set_up_tospace_sib_buffers_for_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
             // Try to allocate the minimum size:
 
@@ -830,9 +830,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		    BOOKROUNDED_BYTESIZE( min_bytesize[ s ] );
 	    }
 
-	    if (set_up_tospace_sib_buffers_for_agegroup( ag ) == FAILURE) {
+	    if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {
 		//
-		die("Unable to allocate minimum size\n");							// Let's be more specific here! XXX BUGGO FIXME.
+		die("Unable to allocate minimum size sib buffers for agegroup\n");				// Let's be more specific here! XXX BUGGO FIXME.
 	    }
 	}
 

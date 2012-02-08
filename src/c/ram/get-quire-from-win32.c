@@ -81,7 +81,7 @@ static Status   map_quire   (Quire* chunk,  Punt szb) {
     Punt addr;
 
     if ((addr = (Punt) alloc_vmem(szb+BOOK_BYTESIZE)) == NULL) {
-        return FAILURE;
+        return FALSE;
     }
 
     chunk->mapBase  =  (Punt *) addr;
@@ -95,7 +95,7 @@ static Status   map_quire   (Quire* chunk,  Punt szb) {
 
     chunk->base = (Punt *) addr;
 
-    return SUCCESS;
+    return TRUE;
 }
 
 

@@ -87,7 +87,7 @@ Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
 									// map_quire	def in   src/c/ram/get-quire-from-win32.c
 									// map_quire	def in   src/c/ram/get-quire-from-mmap.c
 									// map_quire	def in   src/c/ram/get-quire-from-mach.c
-    if (map_quire (chunk, alloc_bytesize) == FAILURE) {
+    if (!map_quire (chunk, alloc_bytesize)) {
 	//
 	RETURN_QUIRE_TO_OS( chunk );
 	return NULL;

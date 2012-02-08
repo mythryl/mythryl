@@ -81,13 +81,13 @@ Status   heapio__seek   (Inbuf* bp,  long offset) {
         //
 	Unt8	*newPos = bp->base + offset;
 
-	if (bp->buf + bp->nbytes <= newPos)   return FAILURE;
+	if (bp->buf + bp->nbytes <= newPos)   return FALSE;
 
 	bp->nbytes -= (newPos - bp->buf);
 
 	bp->buf = newPos;
 
-	return SUCCESS;
+	return TRUE;
 
     } else {
 
@@ -95,7 +95,7 @@ Status   heapio__seek   (Inbuf* bp,  long offset) {
 
         bp->nbytes = 0;					// Just in case?
 
-	return SUCCESS;
+	return TRUE;
     }
 }							// fun heapio__seek
 
@@ -103,7 +103,7 @@ Status   heapio__seek   (Inbuf* bp,  long offset) {
 Status   heapio__read_block   (Inbuf* bp,  void* blk,  long len) {
     //   ==================
     //
-    Status  status =  SUCCESS;
+    Status  status =  TRUE;
 
     if (bp->nbytes == 0) {
         //
@@ -111,7 +111,7 @@ Status   heapio__read_block   (Inbuf* bp,  void* blk,  long len) {
 	    status = read_block (bp->file, blk, len);
 	} else {
 	    say_error( "missing data in pickle bytevector" );
-	    return FAILURE;
+	    return FALSE;
 	}
 
     } else if (bp->nbytes >= len) {
@@ -148,11 +148,11 @@ static Status   read_block   (FILE* file,  void* blk,  long len) {
 	if ((status < len) && (ferror(file) || feof(file))) {
 	    //
 	    say_error( "Unable to read %d bytes from image.\n", len );
-	    return FAILURE;
+	    return FALSE;
 	}
     }
 
-    return SUCCESS;
+    return TRUE;
 }
 
 

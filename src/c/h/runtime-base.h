@@ -73,9 +73,6 @@ typedef  Int1  Bool;
 
 typedef Int1 Status;
 
-#define SUCCESS 1
-#define FAILURE 0
-
 // Assertions for debugging:
 //
 #ifdef ASSERT_ON

@@ -53,7 +53,7 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 	// Eventually we should try to allocate the agegroup
 	//as separate chunks instead of failing.			XXX SUCKO FIXME
 	//
-	return FAILURE;
+	return FALSE;
     }
 
     // Initialize the individual sib buffers:
@@ -113,7 +113,7 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 	sib->tospace.swept_end	 = sib->tospace.used_end;
     }   
 
-    return SUCCESS;
+    return TRUE;
 }								// fun set_up_tospace_sib_buffers_for_agegroup
 
 

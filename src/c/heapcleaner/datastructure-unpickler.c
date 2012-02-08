@@ -44,7 +44,7 @@ Val   unpickle_datastructure   (Task* task,  Unt8* buf,  long len,  Bool* seen_e
 
     // Read the chunk header:
     //
-    if (heapio__read_block( &inbuf, &header, sizeof(header) ) == FAILURE) {	// heapio__read_block	def in    src/c/heapcleaner/import-heap-stuff.c
+    if (heapio__read_block( &inbuf, &header, sizeof(header) ) == FALSE) {	// heapio__read_block	def in    src/c/heapcleaner/import-heap-stuff.c
         //
 	*seen_error = TRUE;
 	return HEAP_VOID;
@@ -67,7 +67,7 @@ Val   unpickle_datastructure   (Task* task,  Unt8* buf,  long len,  Bool* seen_e
     switch (header.kind) {
         //
     case NORMAL_DATASTRUCTURE_PICKLE:
-	if (read_image( task, &inbuf, &chunk ) == FAILURE) {			// Defined below
+	if (read_image( task, &inbuf, &chunk ) == FALSE) {			// Defined below
 	    *seen_error = TRUE;
 	    return HEAP_VOID;
 	}
@@ -77,7 +77,7 @@ Val   unpickle_datastructure   (Task* task,  Unt8* buf,  long len,  Bool* seen_e
 	{
 	    Pickle_Header	bhdr;
 
-	    if (heapio__read_block( &inbuf, &bhdr, sizeof(bhdr) ) != FAILURE) {
+	    if (heapio__read_block( &inbuf, &bhdr, sizeof(bhdr) ) != FALSE) {
 		chunk = bhdr.root_chunk;
 	    } else {
 	        *seen_error = TRUE;
@@ -108,11 +108,11 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 
     Agegroup*  age1 =   task->heap->agegroup[ 0 ];
 
-    if (heapio__read_block( bp, &pickle_header, sizeof(pickle_header) ) == FAILURE
+    if (heapio__read_block( bp, &pickle_header, sizeof(pickle_header) ) == FALSE
     ||  pickle_header.smallchunk_sibs_count > MAX_PLAIN_SIBS				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h
     ||  pickle_header.hugechunk_sibs_count  > MAX_HUGE_SIBS				// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
     ){
-	return FAILURE;									// XXX BUGGO FIXME we gotta do better than this.
+	return FALSE;									// XXX BUGGO FIXME we gotta do better than this.
     }
 
     // Read the externals table:
@@ -129,10 +129,10 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     //
     sib_headers_buffer =  (Sib_Header*) MALLOC (sib_headers_size);
     //
-    if (heapio__read_block( bp, sib_headers_buffer, sib_headers_size ) == FAILURE) {
+    if (heapio__read_block( bp, sib_headers_buffer, sib_headers_size ) == FALSE) {
 	//
 	FREE( sib_headers_buffer );
-	return FAILURE;
+	return FALSE;
     }
     //
     for (int ilk = 0;  ilk < TOTAL_SIBS;  ilk++) {
@@ -291,7 +291,7 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
     FREE( sib_headers_buffer );
     FREE( externs );
 
-    return SUCCESS;
+    return TRUE;
 }							 // fun read_image
 
 

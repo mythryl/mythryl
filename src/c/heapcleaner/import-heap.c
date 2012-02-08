@@ -377,7 +377,7 @@ static void   read_heap   (
 	    q++;
 	}
 
-	if (set_up_tospace_sib_buffers_for_agegroup(age) == FAILURE) {
+	if (set_up_tospace_sib_buffers_for_agegroup(age) == FALSE) {
 	    die ("unable to allocated space for agegroup %d\n", i+1);
         } 
 	if (sib_is_active( age->sib[ RW_POINTERS_SIB ] )) {							// sib_is_active	def in    src/c/h/heap.h

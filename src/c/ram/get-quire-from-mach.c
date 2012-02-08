@@ -70,7 +70,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 
     if (status) {
 	errno = status;
-	return FAILURE;
+	return FALSE;
     }
 
     // Ensure BOOK_BYTESIZE alignment
@@ -92,7 +92,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     chunk->base = (Val_Sized_Unt *)addr;
     chunk->bytesize = bytesize;
 
-    return SUCCESS;
+    return TRUE;
 }								// fun map_quire
 
 

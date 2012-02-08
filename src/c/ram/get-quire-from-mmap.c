@@ -118,7 +118,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 	    //
 	    say_error( "Unable to open /dev/zero, errno = %d\n", errno );	// strerror would be nice here and elsewhere XXX BUGGO FIXME
 	    //
-	    return FAILURE;
+	    return FALSE;
 	}
     #endif
 
@@ -143,7 +143,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
 	    close (fd);				// This call clobbers errno.
 	#endif
 
-	return FAILURE;
+	return FALSE;
     }
     #ifndef HAS_ANON_MMAP
 	close (fd);
@@ -176,7 +176,7 @@ static Status   map_quire   (Quire* chunk,  Punt bytesize) {
     chunk->base = (Val_Sized_Unt *)addr;
     chunk->bytesize = bytesize;
 
-    return SUCCESS;
+    return TRUE;
 }									// fun map_quire
 
 static void   unmap_quire   (Quire* chunk) {

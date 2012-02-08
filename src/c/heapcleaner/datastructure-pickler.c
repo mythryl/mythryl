@@ -260,7 +260,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
     // Write the pickle image header:
     //
-    if (heapio__write_image_header (wr, NORMAL_DATASTRUCTURE_PICKLE) == FAILURE) {								// heapio__write_image_header		def in    src/c/heapcleaner/export-heap-stuff.c
+    if (heapio__write_image_header (wr, NORMAL_DATASTRUCTURE_PICKLE) == FALSE) {								// heapio__write_image_header		def in    src/c/heapcleaner/export-heap-stuff.c
 	//
 	FREE( sib_header_buffer );
 

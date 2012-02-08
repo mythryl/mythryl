@@ -279,8 +279,8 @@ static Val   do_spawn_to_disk   (Task* task,  Val arg)   {    // :
 
     fclose (file);
 
-    if (status == SUCCESS) 	print_stats_and_exit( 0 );
-    else	                die( "Export-fn call failed" );
+    if (status) 	print_stats_and_exit( 0 );
+    else	        die( "Export-fn call failed" );
 
     // NB: It would be nice to raise a RUNTIME_EXCEPTION exception here,
     // but the Mythryl state has been trashed as a side-effect of the
@@ -326,8 +326,8 @@ static Val   do_export_heap   (Task* task,  Val arg)   {
 
     fclose (file);
 
-    if (status == SUCCESS)   return HEAP_FALSE;
-    else                     return RAISE_ERROR( task, "export failed");
+    if (status)   return HEAP_FALSE;
+    else          return RAISE_ERROR( task, "export failed");
 }
 
 //

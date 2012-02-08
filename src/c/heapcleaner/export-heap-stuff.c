@@ -47,8 +47,7 @@ Status   heapio__write_image_header   (Writer* wr,  int kind) {
 
     WR_WRITE(wr, &header, sizeof(header));
 
-    if (WR_ERROR(wr))	return FAILURE;
-    else	        return SUCCESS;
+    return !WR_ERROR(wr);
 }
 
 
