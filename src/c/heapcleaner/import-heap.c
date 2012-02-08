@@ -400,12 +400,12 @@ static void   read_heap   (
 
 		heapio__read_block( bp, (ap->tospace), p->info.o.bytesize );
 
-		ap->next_tospace_word_to_allocate  = (Val *)((Punt)(ap->tospace) + p->info.o.bytesize);
-		ap->end_of_fromspace_oldstuff = ap->tospace;
+		ap->tospace_used_end  = (Val *)((Punt)(ap->tospace) + p->info.o.bytesize);
+		ap->fromspace_oldstuff_end = ap->tospace;
 
 	    } else if (sib_is_active(ap)) {
 
-		ap->end_of_fromspace_oldstuff =  ap->tospace;
+		ap->fromspace_oldstuff_end =  ap->tospace;
 	    }
 
 	    if (verbosity > 0)   say(".");
@@ -624,7 +624,7 @@ static void   read_heap   (
     FREE( sib_headers  );
     FREE( oldBOOK2SIBID       );
 
-    // Reset the next_word_to_sweep_in_tospace pointers:
+    // Reset the tospace_swept_end pointers:
     //
     for (int i = 0;  i < heap->active_agegroups;  i++) {
         //
@@ -636,9 +636,9 @@ static void   read_heap   (
 	    //
 	    if (sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
 		//
-		ap->next_word_to_sweep_in_tospace
+		ap->tospace_swept_end
 		    =
-		    ap->next_tospace_word_to_allocate;
+		    ap->tospace_used_end;
 	    }
 	}
     }
@@ -751,7 +751,7 @@ static void   repair_heap   (
 	    Sib*  __ap = ag->sib[ index ];						\
 	    Val	*__p, *__q;								\
 	    __p = __ap->tospace;							\
-	    __q = __ap->next_tospace_word_to_allocate;					\
+	    __q = __ap->tospace_used_end;					\
 	    while (__p < __q) {								\
 		Val	__w = *__p;							\
 		int		__gg, __chunkc;						\

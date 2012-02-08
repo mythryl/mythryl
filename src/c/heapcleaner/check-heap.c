@@ -78,12 +78,12 @@ static void   check_ro_pointer_sib   (Sib* ap) {
 	//
         gen,
         ap->tospace,
-	ap->next_tospace_word_to_allocate,
+	ap->tospace_used_end,
 	ap->tospace_limit
     );
 
     p = ap->tospace;
-    stop = ap->next_tospace_word_to_allocate;
+    stop = ap->tospace_used_end;
 
     while (p < stop) {
 	//
@@ -174,10 +174,10 @@ static void   check_ro_ptrpair_sib   (Sib* ap) {
     if (*sib_is_active(ap))   return;							// sib_is_active	def in    src/c/h/heap.h
 
     debug_say ("  pairs [%d]: [%#x..%#x:%#x)\n",
-	gen, ap->tospace, ap->next_tospace_word_to_allocate, ap->tospace_limit);
+	gen, ap->tospace, ap->tospace_used_end, ap->tospace_limit);
 
     p = ap->tospace + 2;
-    stop = ap->next_tospace_word_to_allocate;
+    stop = ap->tospace_used_end;
     while (p < stop) {
 	w = *p++;
 	if (IS_TAGWORD(w)) {
@@ -213,12 +213,12 @@ static void   check_nonpointer_sib   (Sib* ap)   {
 	//
 	gen,
 	ap->tospace,
-	ap->next_tospace_word_to_allocate,
+	ap->tospace_used_end,
 	ap->tospace_limit
     );
 
     p = ap->tospace;
-    stop = ap->next_tospace_word_to_allocate;
+    stop = ap->tospace_used_end;
     prevTagword = NULL;
     while (p < stop) {
 	tagword = *p++;
@@ -279,12 +279,12 @@ static void   check_rw_pointer_sib   (Sib* ap,  Coarse_Inter_Agegroup_Pointers_M
 	//
 	gen,
 	ap->tospace,
-	ap->next_tospace_word_to_allocate,
+	ap->tospace_used_end,
 	ap->tospace_limit
     );
 
     p = ap->tospace;
-    stop = ap->next_tospace_word_to_allocate;
+    stop = ap->tospace_used_end;
 
     while (p < stop) {
 	tagword = *p++;

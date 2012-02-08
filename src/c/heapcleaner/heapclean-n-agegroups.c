@@ -269,9 +269,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
         //
 	Agegroup*	ag =  heap->agegroup[age];
         //
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->next_tospace_word_to_allocate, age+1, RO_POINTERS_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[   RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[   RO_CONSCELL_SIB ]->next_tospace_word_to_allocate, age+1,   RO_CONSCELL_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->next_tospace_word_to_allocate, age+1,  RW_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace_used_end, age+1, RO_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace_used_end, age+1, RO_CONSCELL_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace_used_end, age+1,  RW_POINTERS_SIB);
     }
     // DEBUG
     #endif
@@ -324,7 +324,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 }
 
 //
-static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
+static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
     //              =========================================
     //
     // Background:  We require that a chunk survive two heapcleans in
@@ -339,7 +339,7 @@ static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int
     // Special case: chunks in the oldest active agegroup are forever young.
     //
     // We are called at the end of a heapcleaning;  Our job is to
-    // appropriately update the 'end_of_fromspace_oldstuff' pointers
+    // appropriately update the 'fromspace_oldstuff_end' pointers
     // marking the boundary between 'old' and 'young' chunks in
     // each sib in each agegroup.
     //
@@ -353,16 +353,16 @@ static void         update_end_of_fromspace_oldstuff_pointers   (Heap* heap, int
             //
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
-		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->end_of_fromspace_oldstuff =  age->sib[ s ]->tospace;
-		else		                    age->sib[ s ]->end_of_fromspace_oldstuff =  NULL;
+		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace;
+		else		                    age->sib[ s ]->fromspace_oldstuff_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {
 	        //
-		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->end_of_fromspace_oldstuff =  age->sib[ s ]->next_tospace_word_to_allocate;
-		else		                     age->sib[ s ]->end_of_fromspace_oldstuff =  NULL;
+		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace_used_end;
+		else		                     age->sib[ s ]->fromspace_oldstuff_end =  NULL;
 	    }
 	}
     }
@@ -385,7 +385,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 	    INCREASE_BIGCOUNTER(
 		//
 		&heap->total_bytes_copied_to_sib[ max_swept_agegroup-1 ][ s ],
-		ag->sib[ s ]->next_tospace_word_to_allocate - tospace_limit[ s ]
+		ag->sib[ s ]->tospace_used_end - tospace_limit[ s ]
 	    );
 	}
     }
@@ -399,7 +399,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ a ][ s ],
-		    ap->next_tospace_word_to_allocate - tospace_limit[ s ]
+		    ap->tospace_used_end - tospace_limit[ s ]
 		);
 	    }
 	}
@@ -467,7 +467,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 	    //
 	    tospace_limit[ ilk ]
 		=
-		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ ilk ]->next_tospace_word_to_allocate;
+		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ ilk ]->tospace_used_end;
 	}
     }
 
@@ -539,7 +539,7 @@ void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
 
     reclaim_fromspace_hugechunks( heap, oldest_agegroup_to_clean );
 
-    update_end_of_fromspace_oldstuff_pointers( heap, oldest_agegroup_to_clean);
+    update_fromspace_oldstuff_end_pointers( heap, oldest_agegroup_to_clean);
 
     do_end_of_cleaning_statistics_stuff( task,  heap,  max_swept_agegroup,  oldest_agegroup_to_clean,  tospace_limit);
 
@@ -644,7 +644,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
     int cleanings;
 
     Punt  new_bytesize;
-    Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];
+    Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];			// This vector will be re-used for each successive agegroup.
     Punt  min_bytesize[               MAX_PLAIN_SIBS ];
 
     for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
@@ -658,7 +658,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     }
 
-    int old_agegroup0_heapcleanings_count
+    int old_heapcleanings_count						// This will be re-used for each agegroup we process.
 	=
 	heap->agegroup0_heapcleanings_count;
 
@@ -694,7 +694,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     flip: ; 			// Here we need to flip agegroup[ age ].
 
-	cleanings = old_agegroup0_heapcleanings_count
+	cleanings = old_heapcleanings_count
 		    -
 		    ag->last_heapcleanings_count_of_younger_agegroup;
 
@@ -705,19 +705,19 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	    //	
 	    Punt  min_bytes;
-	    Punt  bytes_of_youngstuff;
+	    Punt  bytes_of_youngstuff_in_sib;
 
 	    Sib* sib =  ag->sib[ s ];
 
-	    if (sib_is_active(sib)) {									// sib_is_active			def in    src/c/h/heap.h
+	    if (sib_is_active( sib )) {									// sib_is_active			def in    src/c/h/heap.h
 		//
 		make_sib_tospace_into_fromspace( sib );							// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
-		bytes_of_youngstuff
+		bytes_of_youngstuff_in_sib
 		    =
 		    (Punt)  sib->fromspace_used_end
                     -
-                    (Punt)  sib->end_of_fromspace_oldstuff;
+                    (Punt)  sib->fromspace_oldstuff_end;
 
 	    } else {
 
@@ -730,11 +730,11 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		    continue;
 		}
 
-		bytes_of_youngstuff = 0;
+		bytes_of_youngstuff_in_sib = 0;
 	    }
 
 	    min_bytes =  previous_oldstuff_bytesize[ s ]
-                      +  bytes_of_youngstuff
+                      +  bytes_of_youngstuff_in_sib
                       +  sib->requested_sib_buffer_bytesize;
 
 	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
@@ -755,7 +755,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 				  +
 				  sib->requested_sib_buffer_bytesize
 				  +
-				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff / cleanings);
+				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / cleanings);
 
 	    // Clamp new_bytesize to sane range:
 	    //
@@ -768,9 +768,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    if (new_bytesize == 0) {
 		//
-		sib->next_tospace_word_to_allocate =  NULL;
-		sib->tospace_limit                 =  NULL;
-		sib->tospace_bytesize              =  0;
+		sib->tospace_used_end	=  NULL;
+		sib->tospace_limit	=  NULL;
+		sib->tospace_bytesize	=  0;
 
 	    } else {
 
@@ -779,22 +779,22 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		    BOOKROUNDED_BYTESIZE( new_bytesize );				// Round up to a multiple of 64KB.
 	    }
 
-	    // Note: any data between sib->end_of_fromspace_oldstuff
-	    // and sib->next_tospace_word_to_allocate is "young",
+	    // Note: any data between sib->fromspace_oldstuff_end
+	    // and sib->tospace_used_end is "young",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace_bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->end_of_fromspace_oldstuff - (Punt) sib->fromspace;
+	    if (sib->fromspace_bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace_oldstuff_end - (Punt) sib->fromspace;
 	    else 		               previous_oldstuff_bytesize[ s ] =   0;
 	}
 
 	ag->last_heapcleanings_count_of_younger_agegroup
 	    =
-            old_agegroup0_heapcleanings_count;
+            old_heapcleanings_count;
 
 	++ ag->heapcleanings_count;
 
-	old_agegroup0_heapcleanings_count = ag->heapcleanings_count;
-	ag->fromspace_quire          = ag->tospace_quire;
+	old_heapcleanings_count =  ag->heapcleanings_count;
+	ag->fromspace_quire     =  ag->tospace_quire;
 
 	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
@@ -816,7 +816,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	}
 
 
-        if (sib_is_active( ag->sib[ RW_POINTERS_SIB ])) {								// sib_is_active						def in    src/c/h/heap.h
+        if (sib_is_active( ag->sib[ RW_POINTERS_SIB ])) {							// sib_is_active						def in    src/c/h/heap.h
 	    //
 	    make_new_coarse_inter_agegroup_pointers_map_for_agegroup( ag );					// make_new_coarse_inter_agegroup_pointers_map_for_agegroup	def in    src/c/heapcleaner/heapcleaner-stuff.c
 	}
@@ -911,7 +911,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 	if (map == NULL)   continue;
 
-	Val* max_sweep =  ag->sib[ RW_POINTERS_SIB ]->next_word_to_sweep_in_tospace;
+	Val* max_sweep =  ag->sib[ RW_POINTERS_SIB ]->tospace_swept_end;
 
 
 	// Find all cards in this agegroup which contain
@@ -1018,20 +1018,20 @@ static Bool  scan_tospace_buffer   (											// Called only from forward_remai
 
     if (!sib_is_active( sib ))                      return FALSE;							// sib_is_active	def in    src/c/h/heap.h
 
-    Val* p =  sib->next_word_to_sweep_in_tospace;
-    if  (p == sib->next_tospace_word_to_allocate)   return FALSE;
+    Val* p =  sib->tospace_swept_end;
+    if  (p == sib->tospace_used_end)   return FALSE;
 
     Val* q;
 
     made_progress = TRUE;												// Do we really need this?  Won't it work to return TRUE only if we actually forwarded something? XXX BUGGO FIXME
     do {
-	q = sib->next_tospace_word_to_allocate;
+	q = sib->tospace_used_end;
 
 	for (;  p < q;  p++)   forward_pointee_if_in_fromspace(heap,b2s,max_sibid, p );
 
-    } while (q != sib->next_tospace_word_to_allocate);
+    } while (q != sib->tospace_used_end);
 
-    sib->next_word_to_sweep_in_tospace = q;										// Remember where to pick up next time we're called.
+    sib->tospace_swept_end = q;										// Remember where to pick up next time we're called.
 
     return   made_progress;
 }
@@ -1070,16 +1070,16 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 
     int this_age = GET_AGE_FROM_SIBID( sib->id );
 
-    Val* p =  sib->next_word_to_sweep_in_tospace;
+    Val* p =  sib->tospace_swept_end;
 
-    if (p == sib->next_tospace_word_to_allocate)   return FALSE;
+    if (p == sib->tospace_used_end)   return FALSE;
 
-    while (p < sib->next_tospace_word_to_allocate) {
+    while (p < sib->tospace_used_end) {
         //
 	Val* stop = (Val*) (((Punt)p + CARD_BYTESIZE) & cardmask);
 
-	if (stop > sib->next_tospace_word_to_allocate) {
-	    stop = sib->next_tospace_word_to_allocate;
+	if (stop > sib->tospace_used_end) {
+	    stop = sib->tospace_used_end;
         }
         // Sweep the next page until we see
         // a reference to a younger agegroup:
@@ -1125,9 +1125,9 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 	    //
 	    MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER( map, card_start, card_mark );
 	}
-    }									// while (p < sib->next_tospace_word_to_allocate)
+    }									// while (p < sib->tospace_used_end)
 
-    sib->next_word_to_sweep_in_tospace = p;
+    sib->tospace_swept_end = p;
 
     return TRUE;
 }									// fun scan_vector_tospace
@@ -1323,9 +1323,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;
 
-		new_chunk =  to_sib->next_tospace_word_to_allocate;
+		new_chunk =  to_sib->tospace_used_end;
 
-		to_sib->next_tospace_word_to_allocate
+		to_sib->tospace_used_end
 		    +=
 		    PAIR_SIZE_IN_WORDS;												// 2.	PAIR_SIZE_IN_WORDS			def in    src/c/h/runtime-base.h
 
@@ -1376,12 +1376,12 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) to_sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
-				*to_sib->next_tospace_word_to_allocate = (Val)0;
-				 to_sib->next_tospace_word_to_allocate++;
+			    if (((Punt) to_sib->tospace_used_end & WORD_BYTESIZE) == 0) {
+				*to_sib->tospace_used_end = (Val)0;
+				 to_sib->tospace_used_end++;
 			    }
 		#  else
-			    to_sib->next_tospace_word_to_allocate = (Val*) (((Punt) to_sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
+			    to_sib->tospace_used_end = (Val*) (((Punt) to_sib->tospace_used_end) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -1445,13 +1445,13 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // Allocate and initialize a
     // to-space copy of the chunk:
     //
-    new_chunk =  to_sib->next_tospace_word_to_allocate;
+    new_chunk =  to_sib->tospace_used_end;
 
-    to_sib->next_tospace_word_to_allocate +=   size_in_words + 1;								// + 1 for tagword.
+    to_sib->tospace_used_end +=   size_in_words + 1;								// + 1 for tagword.
 
     *new_chunk++ = tagword;
 
-    ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
+    ASSERT( sib->tospace_used_end <= sib->tospace_limit );
 
     COPYLOOP( chunk, new_chunk, size_in_words );										// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
 
@@ -1536,8 +1536,8 @@ static Val          forward_special_chunk   (
 
     // Allocate the new chunk:
     //
-    new_chunk = sib->next_tospace_word_to_allocate;
-    sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
+    new_chunk = sib->tospace_used_end;
+    sib->tospace_used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {									// We abuse the 'length' field in specials to carry extra type information.
         //															// Since all specials are two words long, this causes no problem.

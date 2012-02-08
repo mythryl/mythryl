@@ -119,7 +119,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														//
 														age1_tospace_top[i]
 														    =
-														    (Punt)   age1->sib[ i ]->next_tospace_word_to_allocate;
+														    (Punt)   age1->sib[ i ]->tospace_used_end;
 													    }
 
 
@@ -128,13 +128,13 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 														//
 														for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 														    //
-														    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, next_tospace_word_to_allocate = %#x\n",
+														    debug_say ("  %s: to-space bottom = %#x, end of fromspace oldstuff = %#x, tospace_used_end = %#x\n",
 															//
 															sib_name__global[ i+1 ],
 															//
 															age1->sib[ i ]->tospace,
-															age1->sib[ i ]->end_of_fromspace_oldstuff,
-															age1->sib[ i ]->next_tospace_word_to_allocate
+															age1->sib[ i ]->fromspace_oldstuff_end,
+															age1->sib[ i ]->tospace_used_end
 														    );
 														}
 													    #endif
@@ -188,9 +188,9 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 								    #ifdef VERBOSE
 									debug_say ("Agegroup 1 after MinorGC:\n");
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
-									  debug_say ("  %s: base = %#x, oldTop = %#x, next_tospace_word_to_allocate = %#x\n",
+									  debug_say ("  %s: base = %#x, oldTop = %#x, tospace_used_end = %#x\n",
 									    sib_name__global[i+1], age1->sib[i]->tospace,
-									    age1->sib[i]->oldTop, age1->sib[i]->next_tospace_word_to_allocate);
+									    age1->sib[i]->oldTop, age1->sib[i]->tospace_used_end);
 									}
 								    #endif
 
@@ -200,7 +200,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 
 									for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 									    //
-									    int bytes = (Val_Sized_Unt) age1->sib[ i ]->next_tospace_word_to_allocate - age1_tospace_top[ i ];
+									    int bytes = (Val_Sized_Unt) age1->sib[ i ]->tospace_used_end - age1_tospace_top[ i ];
 
 									    bytes_copied += bytes;
 
@@ -343,20 +343,20 @@ static Bool   sweep_agegroup1_sib_tospace   (Agegroup* ag1,  int ilk, Task* task
 
     Bool   progress =  FALSE;
 
-    Val* p = sib->next_word_to_sweep_in_tospace;						// Pick up scanning this sib where we last left off.
-    if  (p < sib->next_tospace_word_to_allocate) {
+    Val* p = sib->tospace_swept_end;								// Pick up scanning this sib where we last left off.
+    if  (p < sib->tospace_used_end) {
 	//
 	progress = TRUE;
 
         Val*q;
 	do {
-	    for (q = sib->next_tospace_word_to_allocate;  p < q;  p++) {			// Check all words in buffer.
+	    for (q = sib->tospace_used_end;  p < q;  p++) {					// Check all words in buffer.
 		//
 	      forward_to_agegroup1_if_in_agegroup0(b2s, ag1, p, task);				// If current agegroup 1 word points to an agegroup0 value, copy that value into agegroup 1.
 	    }
-	} while (q != sib->next_tospace_word_to_allocate);					// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
+	} while (q != sib->tospace_used_end);							// If the above loop has added stuff to our agegroup 1 buffer, process that stuff too.
 
-	sib->next_word_to_sweep_in_tospace = q;							// Remember where we left off. (Current end of buffer.)
+	sib->tospace_swept_end = q;								// Remember where we left off. (Current end of buffer.)
     }
 
     return progress;
@@ -444,8 +444,8 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	    } else {
 		//								// This v is a pair, so we'll use special-case code.
 		sib = ag1->sib[ RO_CONSCELL_SIB ];					// We'll copy it into the dedicated pairs-only sib in agegroup1.
-		new_chunk = sib->next_tospace_word_to_allocate;			// Where to copy it in that sib.
-		sib->next_tospace_word_to_allocate += 2;			// Allocate the space for it.
+		new_chunk = sib->tospace_used_end;			// Where to copy it in that sib.
+		sib->tospace_used_end += 2;			// Allocate the space for it.
 		new_chunk[0] = chunk[0];					// Copy first  word of pair.
 		new_chunk[1] = chunk[1];					// Copy second word of pair.
 										// Notice that we don't need to copy the tagword -- it is implicit in the fact that we're in the pairsib.
@@ -492,12 +492,12 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
 	//
 	#ifdef ALIGN_FLOAT64S
 	#  ifdef CHECK_HEAP
-		if (((Punt)sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
+		if (((Punt)sib->tospace_used_end & WORD_BYTESIZE) == 0) {
 		    //
-		    *sib->next_tospace_word_to_allocate++ = (Val) 0;
+		    *sib->tospace_used_end++ = (Val) 0;
 		}
 	#  else
-		sib->next_tospace_word_to_allocate = (Val*) (((Punt)sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
+		sib->tospace_used_end = (Val*) (((Punt)sib->tospace_used_end) | WORD_BYTESIZE);
 	#  endif
 	#endif
 	break;									// Fall through to generic-case code.
@@ -521,10 +521,10 @@ static Val   forward_agegroup0_chunk_to_agegroup1   (Agegroup* ag1,  Val v, Task
     // Make an agegroup1 copy of the chunk
     // in the appropriate agegroup1 sib (buffer):
     //
-    new_chunk = sib->next_tospace_word_to_allocate;				// Figure out where copy will be located.
-    sib->next_tospace_word_to_allocate += (len_in_words + 1);			// Allocate space needed by the copy.
+    new_chunk = sib->tospace_used_end;				// Figure out where copy will be located.
+    sib->tospace_used_end += (len_in_words + 1);			// Allocate space needed by the copy.
     *new_chunk++ = tagword;							// Install tagword at start of copy.  (Note that 'sib' cannot be RO_CONSCELL_SIB, we handled that case above.)
-    ASSERT( sib->next_tospace_word_to_allocate <= sib->tospace_limit );
+    ASSERT( sib->tospace_used_end <= sib->tospace_limit );
 
     COPYLOOP(chunk, new_chunk, len_in_words);					// Copy over the rest of the chunk.
 										// COPYLOOP	def in   src/c/heapcleaner/copy-loop.h
@@ -545,9 +545,9 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 
     Sib*  sib =  ag1->sib[ RW_POINTERS_SIB ];						// Special chunks can be updated (modified)
 											// so they have to go in RW_POINTERS_SIB.
-    Val*  new_chunk = sib->next_tospace_word_to_allocate;
+    Val*  new_chunk = sib->tospace_used_end;
 
-    sib->next_tospace_word_to_allocate += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
+    sib->tospace_used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;			// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD( tagword )) {
         //

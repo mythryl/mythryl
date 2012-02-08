@@ -175,7 +175,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		//
 		total_sib_buffer_bytesize[ ilk ]
 		   +=
-		    (Punt)  sib->next_tospace_word_to_allocate
+		    (Punt)  sib->tospace_used_end
 		    -
 		    (Punt)  sib->tospace;
 
@@ -367,7 +367,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		if (sib_is_active(sib)) {											// sib_is_active				def in    src/c/h/heap.h
 		    //
 		    WR_WRITE(wr, sib->tospace,
-			(Punt) sib->next_tospace_word_to_allocate
+			(Punt) sib->tospace_used_end
                        -(Punt) sib->tospace
                     );
 		}
@@ -381,7 +381,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 		if (sib_is_active( sib )) {
 		    //
-		    Val*  top =  sib->next_tospace_word_to_allocate;
+		    Val*  top =  sib->tospace_used_end;
 		    //
 		    for (Val*
 			p =  sib->tospace;

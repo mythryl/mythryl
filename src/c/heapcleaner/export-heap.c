@@ -247,7 +247,7 @@ inline static void   patch_sib   (
 
     Bool heap_needs_repair = FALSE;
 
-    Val* limit = sib->next_tospace_word_to_allocate;				// Cache in register.
+    Val* limit = sib->tospace_used_end;				// Cache in register.
 
     for (Val*
         p = sib->tospace;
@@ -367,7 +367,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    p->chunk_ilk =  ilk;
 	    //
 	    p->info.o.base_address	    = (Punt)(ap->tospace);
-	    p->info.o.bytesize	    = (Punt)(ap->next_tospace_word_to_allocate) - p->info.o.base_address;
+	    p->info.o.bytesize	    = (Punt)(ap->tospace_used_end) - p->info.o.base_address;
 	    p->info.o.rounded_bytesize = ROUND_UP_TO_POWER_OF_TWO(p->info.o.bytesize, pagesize);
 	    //
 	    p->offset =  (Unt1) offset;
@@ -504,7 +504,7 @@ static void   repair_heap   (
 	    if (__ap->heap_needs_repair) {				\
 		Val	*__p, *__q;					\
 		__p = __ap->tospace;					\
-		__q = __ap->next_tospace_word_to_allocate;		\
+		__q = __ap->tospace_used_end;		\
 		while (__p < __q) {					\
 		    Val	__w = *__p;					\
 		    if (IS_EXTERNAL_TAG(__w)) {				\

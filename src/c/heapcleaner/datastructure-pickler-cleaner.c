@@ -51,7 +51,7 @@ struct repair {
 	Sib* __sib = (sib);				\
 	if (repair_heap__local) {				\
 	    Repair	*__rp = __sib->repairlist - 1;	\
-	    if ((Val *)__rp > __sib->next_tospace_word_to_allocate) {		\
+	    if ((Val *)__rp > __sib->tospace_used_end) {		\
 		__rp->loc = (location);			\
 		__rp->val = (value);			\
 		__sib->repairlist = __rp;		\
@@ -292,8 +292,8 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		Val*	tmpBase = sib->tospace;
 		Punt		tmpSizeB = sib->tospace_bytesize;
 		Val*	tmpTop = sib->tospace_limit;
-		sib->next_tospace_word_to_allocate	=
-		sib->next_word_to_sweep_in_tospace = sib->fromspace_used_end;
+		sib->tospace_used_end	=
+		sib->tospace_swept_end = sib->fromspace_used_end;
 		sib->tospace	= sib->fromspace;
 		sib->fromspace	= tmpBase;
 		sib->tospace_bytesize	= sib->fromspace_bytesize;
@@ -380,7 +380,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    if (map != NULL) {
 		//
-		Val* maxSweep =  ag->sib[ RW_POINTERS_SIB ]->next_word_to_sweep_in_tospace;
+		Val* maxSweep =  ag->sib[ RW_POINTERS_SIB ]->tospace_swept_end;
 
 		int  card;
 
@@ -459,14 +459,14 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    int card = 0;
 	    Val* p = sib->tospace;
-	    while (p < sib->next_tospace_word_to_allocate) {
+	    while (p < sib->tospace_used_end) {
 
 		int	mark = i+1;
 
 		stop = (Val*) (( (Punt)p + CARD_BYTESIZE) & ~(CARD_BYTESIZE - 1));
 
-		if (stop > sib->next_tospace_word_to_allocate) {
-		    stop = sib->next_tospace_word_to_allocate;
+		if (stop > sib->tospace_used_end) {
+		    stop = sib->tospace_used_end;
                 }
 
 		while (p < stop) {
@@ -530,16 +530,16 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 																	// sib_is_active	def in    src/c/h/heap.h
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->end_of_fromspace_oldstuff =  g->sib[ j ]->tospace;
-		else			           g->sib[ j ]->end_of_fromspace_oldstuff =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace;
+		else			           g->sib[ j ]->fromspace_oldstuff_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->end_of_fromspace_oldstuff =  g->sib[ j ]->next_tospace_word_to_allocate;
-		else			           g->sib[ j ]->end_of_fromspace_oldstuff =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace_used_end;
+		else			           g->sib[ j ]->fromspace_oldstuff_end =  NULL;
 	    }
 	}
     }
@@ -557,7 +557,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ g ][ a ],
-		    sib->next_tospace_word_to_allocate - sib->tospace
+		    sib->tospace_used_end - sib->tospace
 		);
 	    }
 	}
@@ -590,7 +590,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 		ASSERT(
                     s == NONPTR_DATA_SIB
                     ||
-                    sib->next_tospace_word_to_allocate == sib->next_word_to_sweep_in_tospace
+                    sib->tospace_used_end == sib->tospace_swept_end
                 );
 
 	        saved_top__local[age][s] = sib->tospace_limit;
@@ -644,15 +644,15 @@ static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
 	    Sib* __sib = (ag)->sib[ index ];					\
 	    if (sib_is_active(__sib)) {							\
 		Val    *__p, *__q;							\
-		__p = __sib->next_word_to_sweep_in_tospace;						\
-		if (__p < __sib->next_tospace_word_to_allocate) {						\
+		__p = __sib->tospace_swept_end;						\
+		if (__p < __sib->tospace_used_end) {						\
 		    swept = TRUE;							\
 		    do {								\
-			for (__q = __sib->next_tospace_word_to_allocate;  __p < __q;  __p++) {			\
+			for (__q = __sib->tospace_used_end;  __p < __q;  __p++) {			\
 			    CHECK_WORD_FOR_EXTERNAL_REFERENCE(task, b2s, __p, maxAid, seen_error);	\
 			}								\
-		    } while (__q != __sib->next_tospace_word_to_allocate);					\
-		    __sib->next_word_to_sweep_in_tospace = __q;						\
+		    } while (__q != __sib->tospace_used_end);					\
+		    __sib->tospace_swept_end = __q;						\
 		}									\
 	    }										\
 	}
@@ -728,9 +728,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    //
 	    sib =  heap->agegroup[ gen-1 ]->sib[ RO_CONSCELL_SIB ];
 
-	    new_chunk =  sib->next_tospace_word_to_allocate;
+	    new_chunk =  sib->tospace_used_end;
 
-	    sib->next_tospace_word_to_allocate += 2;
+	    sib->tospace_used_end += 2;
 
 	    new_chunk[0] = w;
 	    new_chunk[1] = chunk[1];
@@ -763,13 +763,13 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) sib->next_tospace_word_to_allocate & WORD_BYTESIZE) == 0) {
+			    if (((Punt) sib->tospace_used_end & WORD_BYTESIZE) == 0) {
 				//
-				*sib->next_tospace_word_to_allocate = (Val)0;
-				sib->next_tospace_word_to_allocate++;
+				*sib->tospace_used_end = (Val)0;
+				sib->tospace_used_end++;
 			    }
 		#  else
-			    sib->next_tospace_word_to_allocate = (Val *)(((Punt) sib->next_tospace_word_to_allocate) | WORD_BYTESIZE);
+			    sib->tospace_used_end = (Val *)(((Punt) sib->tospace_used_end) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -824,9 +824,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
     // Allocate and initialize a to-space copy of the chunk:
     //
-    new_chunk =  sib->next_tospace_word_to_allocate;
+    new_chunk =  sib->tospace_used_end;
 
-    sib->next_tospace_word_to_allocate
+    sib->tospace_used_end
 	+=
 	len + 1;
 

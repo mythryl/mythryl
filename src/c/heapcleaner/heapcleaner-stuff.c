@@ -79,22 +79,22 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	if (!sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
             //
 	    ap->tospace	= NULL;
-	    ap->next_tospace_word_to_allocate		= NULL;
-	    ap->next_word_to_sweep_in_tospace	= NULL;
+	    ap->tospace_used_end	= NULL;
+	    ap->tospace_swept_end	= NULL;
 	    ap->tospace_limit		= NULL;
             //
 	} else {
             //
 	    ap->tospace	= p;
-	    ap->next_tospace_word_to_allocate		= p;
-	    ap->next_word_to_sweep_in_tospace	= p;
+	    ap->tospace_used_end	= p;
+	    ap->tospace_swept_end	= p;
             //
 	    p = (Val*)((Punt)p + ap->tospace_bytesize);
 	    ap->tospace_limit	= p;
 	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace, ap->tospace_bytesize, ap->id );
 
 	    #ifdef VERBOSE
-	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->next_tospace_word_to_allocate, p);
+	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->tospace_used_end, p);
 	    #endif
 	}
     }
@@ -106,12 +106,12 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         // The first slot of pair-space must not be used,
         // else poly-equal might fault:
         //
-	*(ap->next_tospace_word_to_allocate++) = HEAP_VOID;
-	*(ap->next_tospace_word_to_allocate++) = HEAP_VOID;
+	*(ap->tospace_used_end++) = HEAP_VOID;
+	*(ap->tospace_used_end++) = HEAP_VOID;
         //
-	ap->tospace = ap->next_tospace_word_to_allocate;
+	ap->tospace = ap->tospace_used_end;
 	ap->tospace_bytesize -= (2*WORD_BYTESIZE);
-	ap->next_word_to_sweep_in_tospace = ap->next_tospace_word_to_allocate;
+	ap->tospace_swept_end = ap->tospace_used_end;
     }   
 
     return SUCCESS;
