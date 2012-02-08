@@ -150,8 +150,8 @@ struct sib {
     Sibid		id;					// The to-space version of this sib's identifier.
     Val*		tospace_used_end;			// The next word to allocate in this sib's to-space.
     //
-    Val*	        tospace;				// Base address and size of to-space.
-    Punt		tospace_bytesize;
+    Val*	        tospace_start;				// Base address of to-space.
+    Punt		tospace_bytesize;			// Size of to-space.
     Val*	        tospace_limit;				// The top of the to-space (tospace+tospace_bytesize).
     //
     Val*		tospace_swept_end;			// State variable used (only) during heapcleaning.  During heapcleaning
@@ -163,12 +163,9 @@ struct sib {
 								// fully processed chunks) contain only pointers into to-space, while
 								// chunks after this pointer contain only pointers into from-space.
 
-    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
-								// The repair list grows  down in to-space.
-
-    Val*		fromspace;				// Base address and size of from-space.
-    Val_Sized_Unt	fromspace_bytesize;
-    Val*		fromspace_used_end;			// The top of the used portion of from-space.
+    Val*		fromspace_start;			// Base address of from-space.
+    Val_Sized_Unt	fromspace_bytesize;			// Size of from-space.
+    Val*		fromspace_used_end;			// The end of the used portion of from-space.
 
     Val*		fromspace_oldstuff_end;			// We require that a chunk survive two heapcleans in a
 								// given agegroup before being promoted to the next agegroup.
@@ -179,6 +176,9 @@ struct sib {
 								// if they survive the next heapcleaning; those beyond it do not.
 								// Special case: chunks in the oldest active agegroup are forever young.
 								
+    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
+								// The repair list grows  down in to-space.
+
     Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
 
     Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had
@@ -195,7 +195,7 @@ inline void   make_sib_tospace_into_fromspace   (Sib* sib)   {
     //
     // Make to-space into from-space:
     //
-    sib->fromspace		=  sib->tospace;
+    sib->fromspace_start	=  sib->tospace_start;
     sib->fromspace_bytesize	=  sib->tospace_bytesize;
     sib->fromspace_used_end	=  sib->tospace_used_end;
 }
@@ -239,7 +239,7 @@ inline Punt   sib_space_used_in_bytes   (Sib* sib)   {
     //
     return   (Punt)   sib->tospace_used_end
              -
-             (Punt)   sib->tospace;
+             (Punt)   sib->tospace_start;
 }
 
 //

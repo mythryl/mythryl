@@ -250,7 +250,7 @@ inline static void   patch_sib   (
     Val* limit = sib->tospace_used_end;				// Cache in register.
 
     for (Val*
-        p = sib->tospace;
+        p = sib->tospace_start;
         p < limit;
 	++p
     ){
@@ -366,7 +366,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    p->age       =  age;
 	    p->chunk_ilk =  ilk;
 	    //
-	    p->info.o.base_address	    = (Punt)(ap->tospace);
+	    p->info.o.base_address  = (Punt)(ap->tospace_start);
 	    p->info.o.bytesize	    = (Punt)(ap->tospace_used_end) - p->info.o.base_address;
 	    p->info.o.rounded_bytesize = ROUND_UP_TO_POWER_OF_TWO(p->info.o.bytesize, pagesize);
 	    //
@@ -503,8 +503,8 @@ static void   repair_heap   (
 	    Sib* __ap = heap->agegroup[ age ]->sib[ index ];		\
 	    if (__ap->heap_needs_repair) {				\
 		Val	*__p, *__q;					\
-		__p = __ap->tospace;					\
-		__q = __ap->tospace_used_end;		\
+		__p = __ap->tospace_start;				\
+		__q = __ap->tospace_used_end;				\
 		while (__p < __q) {					\
 		    Val	__w = *__p;					\
 		    if (IS_EXTERNAL_TAG(__w)) {				\

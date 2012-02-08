@@ -353,7 +353,7 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
             //
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
-		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace;
+		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace_start;
 		else		                    age->sib[ s ]->fromspace_oldstuff_end =  NULL;
 	    }
 
@@ -801,7 +801,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	    // and sib->tospace_used_end is "young",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace_bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace_oldstuff_end - (Punt) sib->fromspace;
+	    if (sib->fromspace_bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace_oldstuff_end - (Punt) sib->fromspace_start;
 	    else 		               previous_oldstuff_bytesize[ s ] =   0;
 	}
 
@@ -1775,7 +1775,7 @@ static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 		}
 		sib->tospace_bytesize = new_bytesize;
 
-		sib->tospace_limit =  (Val*) ((Punt)sib->tospace + sib->tospace_bytesize);
+		sib->tospace_limit =  (Val*) ((Punt)sib->tospace_start + sib->tospace_bytesize);
 	    }
 	}
     }

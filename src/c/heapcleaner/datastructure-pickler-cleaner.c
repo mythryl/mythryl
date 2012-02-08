@@ -289,17 +289,18 @@ static void   repair_heap   (Task* task,  int max_age)   {
                 // Note that free_agegroup
 		// needs the from-space information.
 
-		Val*	tmpBase = sib->tospace;
-		Punt		tmpSizeB = sib->tospace_bytesize;
-		Val*	tmpTop = sib->tospace_limit;
+		Val*	tmpBase  =  sib->tospace_start;
+		Punt	tmpSizeB =  sib->tospace_bytesize;
+		Val*	tmpTop   =  sib->tospace_limit;
+
 		sib->tospace_used_end	=
-		sib->tospace_swept_end = sib->fromspace_used_end;
-		sib->tospace	= sib->fromspace;
-		sib->fromspace	= tmpBase;
-		sib->tospace_bytesize	= sib->fromspace_bytesize;
-		sib->fromspace_bytesize	= tmpSizeB;
-		sib->tospace_limit	= saved_top__local[i][j];
-		sib->fromspace_used_end	= tmpTop;
+		sib->tospace_swept_end	=  sib->fromspace_used_end;
+		sib->tospace_start	=  sib->fromspace_start;
+		sib->fromspace_start	=  tmpBase;
+		sib->tospace_bytesize	=  sib->fromspace_bytesize;
+		sib->fromspace_bytesize	=  tmpSizeB;
+		sib->tospace_limit	=  saved_top__local[i][j];
+		sib->fromspace_used_end	=  tmpTop;
 	    }
 	}
 
@@ -458,7 +459,9 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 	    Val  w;
 
 	    int card = 0;
-	    Val* p = sib->tospace;
+
+	    Val* p =  sib->tospace_start;
+
 	    while (p < sib->tospace_used_end) {
 
 		int	mark = i+1;
@@ -530,7 +533,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 																	// sib_is_active	def in    src/c/h/heap.h
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace_start;
 		else			           g->sib[ j ]->fromspace_oldstuff_end =  NULL;
 	    }
 
@@ -557,7 +560,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ g ][ a ],
-		    sib->tospace_used_end - sib->tospace
+		    sib->tospace_used_end - sib->tospace_start
 		);
 	    }
 	}
@@ -598,7 +601,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 		make_sib_tospace_into_fromspace( sib );										// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
 		new_size = (Punt) sib->fromspace_used_end
-                      - (Punt) sib->fromspace;
+                         - (Punt) sib->fromspace_start;
 
 		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
 		if (s == RO_CONSCELL_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.

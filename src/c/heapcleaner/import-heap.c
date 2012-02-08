@@ -394,18 +394,19 @@ static void   read_heap   (
 
 	    if (p->info.o.bytesize > 0) {
 
-		addrOffset[i][j] = (Punt)(ap->tospace) - (Punt)(p->info.o.base_address);
+		addrOffset[i][j] = (Punt)(ap->tospace_start) - (Punt)(p->info.o.base_address);
 
 		heapio__seek( bp, (long) p->offset );
 
-		heapio__read_block( bp, (ap->tospace), p->info.o.bytesize );
+		heapio__read_block( bp, (ap->tospace_start), p->info.o.bytesize );
 
-		ap->tospace_used_end  = (Val *)((Punt)(ap->tospace) + p->info.o.bytesize);
-		ap->fromspace_oldstuff_end = ap->tospace;
+		ap->tospace_used_end  = (Val *)((Punt)(ap->tospace_start) + p->info.o.bytesize);
+
+		ap->fromspace_oldstuff_end =  ap->tospace_start;
 
 	    } else if (sib_is_active(ap)) {
 
-		ap->fromspace_oldstuff_end =  ap->tospace;
+		ap->fromspace_oldstuff_end =  ap->tospace_start;
 	    }
 
 	    if (verbosity > 0)   say(".");
@@ -750,25 +751,25 @@ static void   repair_heap   (
 	#define REPAIR_SIB(index)	{						\
 	    Sib*  __ap = ag->sib[ index ];						\
 	    Val	*__p, *__q;								\
-	    __p = __ap->tospace;							\
-	    __q = __ap->tospace_used_end;					\
+	    __p = __ap->tospace_start;							\
+	    __q = __ap->tospace_used_end;						\
 	    while (__p < __q) {								\
 		Val	__w = *__p;							\
 		int		__gg, __chunkc;						\
 		if (IS_POINTER(__w)) {							\
-		    Punt	__chunk = HEAP_POINTER_AS_UNT(__w);		\
-		    Sibid __aid = SIBID_FOR_POINTER(oldBOOK2SIBID, __chunk);			\
+		    Punt	__chunk = HEAP_POINTER_AS_UNT(__w);			\
+		    Sibid __aid = SIBID_FOR_POINTER(oldBOOK2SIBID, __chunk);		\
 		    if (SIBID_KIND_IS_CODE(__aid)) {					\
 			Hugechunk_Relocation_Info*	__dp;				\
-			__dp = address_to_relocation_info (oldBOOK2SIBID, 			\
-				hugechunk_region_table, __aid, __chunk);			\
+			__dp = address_to_relocation_info (oldBOOK2SIBID, 		\
+				hugechunk_region_table, __aid, __chunk);		\
 			*__p = PTR_CAST( Val, (__chunk - __dp->old_address) 		\
 				+ __dp->new_chunk->chunk);				\
 			__gg = __dp->new_chunk->age-1;					\
 		    }									\
 		    else {								\
-			__gg = GET_AGE_FROM_SIBID(__aid)-1;					\
-			__chunkc = GET_KIND_FROM_SIBID(__aid)-1;				\
+			__gg = GET_AGE_FROM_SIBID(__aid)-1;				\
+			__chunkc = GET_KIND_FROM_SIBID(__aid)-1;			\
 			*__p = PTR_CAST( Val, __chunk + addrOffset[__gg][__chunkc]);	\
 		    }									\
 		    if (((index) == RW_POINTERS_SIB) && (__gg < i)) {			\
@@ -783,7 +784,7 @@ static void   repair_heap   (
 	}
 
 	REPAIR_SIB( RO_POINTERS_SIB );
-	REPAIR_SIB(   RO_CONSCELL_SIB );
+	REPAIR_SIB( RO_CONSCELL_SIB );
 	REPAIR_SIB( RW_POINTERS_SIB );
 
 	#undef REPAIR_SIB

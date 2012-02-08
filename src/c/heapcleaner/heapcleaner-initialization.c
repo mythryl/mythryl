@@ -393,7 +393,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace_oldstuff_end
 		=
-		heap->agegroup[ 0 ]->sib[ ilk ]->tospace;
+		heap->agegroup[ 0 ]->sib[ ilk ]->tospace_start;
 	}
     }
 

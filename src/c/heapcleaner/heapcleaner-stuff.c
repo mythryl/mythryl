@@ -78,20 +78,20 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         //
 	if (!sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
             //
-	    ap->tospace	= NULL;
+	    ap->tospace_start		= NULL;
 	    ap->tospace_used_end	= NULL;
 	    ap->tospace_swept_end	= NULL;
 	    ap->tospace_limit		= NULL;
             //
 	} else {
             //
-	    ap->tospace	= p;
+	    ap->tospace_start		= p;
 	    ap->tospace_used_end	= p;
 	    ap->tospace_swept_end	= p;
             //
 	    p = (Val*)((Punt)p + ap->tospace_bytesize);
 	    ap->tospace_limit	= p;
-	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace, ap->tospace_bytesize, ap->id );
+	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace_start, ap->tospace_bytesize, ap->id );
 
 	    #ifdef VERBOSE
 	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->tospace_used_end, p);
@@ -109,9 +109,9 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	*(ap->tospace_used_end++) = HEAP_VOID;
 	*(ap->tospace_used_end++) = HEAP_VOID;
         //
-	ap->tospace = ap->tospace_used_end;
-	ap->tospace_bytesize -= (2*WORD_BYTESIZE);
-	ap->tospace_swept_end = ap->tospace_used_end;
+	ap->tospace_start	 = ap->tospace_used_end;
+	ap->tospace_bytesize	-= (2*WORD_BYTESIZE);
+	ap->tospace_swept_end	 = ap->tospace_used_end;
     }   
 
     return SUCCESS;
@@ -166,13 +166,13 @@ void   free_agegroup   (Heap* heap,  int g) {
 	//
 	Sib* ap =  ag->sib[ i ];
 
-	if (ap->fromspace != NULL) {
+	if (ap->fromspace_start != NULL) {
 	    //
-	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace, ap->fromspace_bytesize, UNMAPPED_BOOK_SIBID);
-
-	    ap->fromspace = NULL;
-	    ap->fromspace_bytesize = 0;
-	    ap->fromspace_used_end = NULL;
+	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace_start, ap->fromspace_bytesize, UNMAPPED_BOOK_SIBID);
+	    //
+	    ap->fromspace_start	    = NULL;
+	    ap->fromspace_bytesize  = 0;
+	    ap->fromspace_used_end  = NULL;
 	}
     }
 }								// fun free_agegroup
@@ -203,7 +203,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 
     if (ag->coarse_inter_agegroup_pointers_map == NULL) 	die ("unable to malloc coarse_inter_agegroup_pointers_map vector");
 
-    ag->coarse_inter_agegroup_pointers_map->base_address =  ap->tospace;
+    ag->coarse_inter_agegroup_pointers_map->base_address =  ap->tospace_start;
     ag->coarse_inter_agegroup_pointers_map->card_count   =  map_size_in_slots;
 
     memset(
