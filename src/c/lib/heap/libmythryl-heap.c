@@ -978,7 +978,7 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
         //
 	for (int i = age;  i < heap->oldest_agegroup_keeping_idle_fromspace_buffers;  i++) {
 	    //
-	    return_quire_to_os( heap->agegroup[i]->saved_fromspace_ram_region );
+	    return_quire_to_os( heap->agegroup[i]->retained_fromspace_quire );
 	}
     }
 

@@ -741,21 +741,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    min_bytesize[ s ] =  min_bytes;
 
-	    #ifdef OLD_POLICY
-	        // The desired size is the minimum size times
-                //  the ratio for the sib buffer,
-	        // but it shouldn't exceed the maximum size
-                // for the sib buffer (unless
-	        // min_bytes > soft_max_bytesize).
-	        //
-		new_bytesize = (sib->ratio * min_bytes) / RATIO_UNIT;
-		if (new_bytesize < min_bytes+sib->requested_sib_buffer_bytesize)
-		    new_bytesize = min_bytes+sib->requested_sib_buffer_bytesize;
-	    #endif
-
 	    // The desired size is one that will allow "target_heapcleaning_frequency_ratio"
-	    // heapcleanings of the/ previous agegroup before this has to be cleaned again.
-	    // We approximate this as ((f*r) / n), where
+	    // heapcleanings of the previous agegroup before this has to be cleaned again.
+	    // We approximate this as f*(r/n), where
 	    //   r == target_heapcleaning_frequency_ratio
 	    //   f == # of bytes forwarded                    since the last heapcleaning of this agegroup.
 	    //   n == # of cleanings of the previous agegroup since the last heapcleaning of this agegroup.
@@ -782,7 +770,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		//
 		sib->next_tospace_word_to_allocate =  NULL;
 		sib->tospace_limit                 =  NULL;
-		sib->tospace_bytesize         =  0;
+		sib->tospace_bytesize              =  0;
 
 	    } else {
 
@@ -806,7 +794,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	++ ag->heapcleanings_count;
 
 	old_agegroup0_heapcleanings_count = ag->heapcleanings_count;
-	ag->fromspace_ram_region          = ag->tospace_ram_region;
+	ag->fromspace_quire          = ag->tospace_quire;
 
 	if (allocate_and_partition_an_agegroup( ag ) == FAILURE) {						// allocate_and_partition_an_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //

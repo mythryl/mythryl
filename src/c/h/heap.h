@@ -121,9 +121,9 @@ struct agegroup {
 
     Hugechunk*   hugechunks[ MAX_HUGE_SIBS ];			// MAX_HUGE_SIBS		def in    src/c/h/sibid.h
 
-    Quire*    tospace_ram_region;				// The host-OS multipage ram regions that this agegroup is
-    Quire*    fromspace_ram_region;				// using for the to-space and from-space.
-    Quire*    saved_fromspace_ram_region;			// For younger agegroups, we keep the from-space ram region, instead of giving it back.
+    Quire*    tospace_quire;					// The host-OS multipage ram regions that this agegroup is
+    Quire*    fromspace_quire;					// using for the to-space and from-space.
+    Quire*    retained_fromspace_quire;				// For younger (== smaller) agegroups, we keep the from-space ram region, instead of giving it back.
     //
     Coarse_Inter_Agegroup_Pointers_Map*				// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
     coarse_inter_agegroup_pointers_map;				// The dirty cards in the vector sib for this agegroup.

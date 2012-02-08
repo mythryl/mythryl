@@ -42,12 +42,12 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	}
     }
 
-    if (ag->saved_fromspace_ram_region != NULL
-    && BYTESIZE_OF_QUIRE( ag->saved_fromspace_ram_region ) >= tot_size
+    if (ag->retained_fromspace_quire != NULL
+    && BYTESIZE_OF_QUIRE( ag->retained_fromspace_quire ) >= tot_size
     ){
-	heapchunk =  ag->saved_fromspace_ram_region;
+	heapchunk =  ag->retained_fromspace_quire;
 
-	ag->saved_fromspace_ram_region =  NULL;
+	ag->retained_fromspace_quire =  NULL;
 
     } else if ((heapchunk = obtain_quire_from_os( tot_size )) == NULL) {
 	//
@@ -59,7 +59,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 
     // Initialize the chunks:
     //
-    ag->tospace_ram_region = heapchunk;
+    ag->tospace_quire = heapchunk;
     //
     #ifdef VERBOSE
         debug_say ("allocate_and_partition_an_agegroup[%d]: tot_size = %d, [%#x, %#x)\n",
@@ -124,35 +124,35 @@ void   free_agegroup   (Heap* heap,  int g) {
     //
     Agegroup*  ag = heap->agegroup[ g ];
 
-    if (ag->fromspace_ram_region == NULL)   return;
+    if (ag->fromspace_quire == NULL)   return;
 
     #ifdef VERBOSE
 	debug_say ("free_agegroup [%d]: [%#x, %#x)\n",
             g+1,
-            BASE_ADDRESS_OF_QUIRE( ag->fromspace_ram_region ),
-            BASE_ADDRESS_OF_QUIRE( ag->fromspace_ram_region ) + BYTESIZE_OF_QUIRE( ag->fromspace_ram_region )
+            BASE_ADDRESS_OF_QUIRE( ag->fromspace_quire ),
+            BASE_ADDRESS_OF_QUIRE( ag->fromspace_quire ) + BYTESIZE_OF_QUIRE( ag->fromspace_quire )
         );
     #endif
 
 
     if (g >= heap->oldest_agegroup_keeping_idle_fromspace_buffers) {
         //
-	return_quire_to_os( ag->fromspace_ram_region );
+	return_quire_to_os( ag->fromspace_quire );
 	//
     } else {
         //
-	if (ag->saved_fromspace_ram_region == NULL) {
-	    ag->saved_fromspace_ram_region =  ag->fromspace_ram_region;
+	if (ag->retained_fromspace_quire == NULL) {
+	    ag->retained_fromspace_quire =  ag->fromspace_quire;
 	} else {
 
-	    if (BYTESIZE_OF_QUIRE( ag->saved_fromspace_ram_region )
-              > BYTESIZE_OF_QUIRE( ag->fromspace_ram_region       )
+	    if (BYTESIZE_OF_QUIRE( ag->retained_fromspace_quire )
+              > BYTESIZE_OF_QUIRE( ag->fromspace_quire       )
             ){
 	        //
-		return_quire_to_os( ag->fromspace_ram_region );
+		return_quire_to_os( ag->fromspace_quire );
 	    } else {
-		return_quire_to_os( ag->saved_fromspace_ram_region );
-		ag->saved_fromspace_ram_region = ag->fromspace_ram_region;
+		return_quire_to_os( ag->retained_fromspace_quire );
+		ag->retained_fromspace_quire = ag->fromspace_quire;
 	    }
 	}
     }
@@ -160,7 +160,7 @@ void   free_agegroup   (Heap* heap,  int g) {
     // NOTE: Since the sib buffers are contiguous,
     // we could do this in one call:
     //
-    ag->fromspace_ram_region = NULL;
+    ag->fromspace_quire = NULL;
     //	
     for (int i = 0;  i < MAX_PLAIN_SIBS;  i++) {
 	//

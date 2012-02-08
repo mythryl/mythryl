@@ -516,9 +516,9 @@ static void   dump_gens__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"                 ag->heapcleanings_count d= %d\n",				ag->heapcleanings_count					);
 	fprintf(fd,"                 ag->target_heapcleaning_frequency_ratio     d= %d\n",	ag->target_heapcleaning_frequency_ratio			);
 	fprintf(fd,"                 ag->last_heapcleanings_count_of_younger_agegroup d= %d\n",	ag->last_heapcleanings_count_of_younger_agegroup		);
-	fprintf(fd,"                 ag->tospace_ram_region p= %p\n",				ag->tospace_ram_region					);
-	fprintf(fd,"                 ag->fromspace_ram_region p= %p\n",				ag->fromspace_ram_region				);
-	fprintf(fd,"                 ag->saved_fromspace_ram_region p= %p\n",			ag->saved_fromspace_ram_region				);
+	fprintf(fd,"                 ag->tospace_quire p= %p\n",				ag->tospace_quire					);
+	fprintf(fd,"                 ag->fromspace_quire p= %p\n",				ag->fromspace_quire				);
+	fprintf(fd,"                 ag->retained_fromspace_quire p= %p\n",			ag->retained_fromspace_quire				);
 	fprintf(fd,"                 ag->coarse_inter_agegroup_pointers_map p= %p\n",		ag->coarse_inter_agegroup_pointers_map			);
 
 

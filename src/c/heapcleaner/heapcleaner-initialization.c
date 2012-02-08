@@ -268,9 +268,9 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    =
 	    0;
 	//
-	ag->tospace_ram_region			= NULL;
-	ag->fromspace_ram_region		= NULL;
-	ag->saved_fromspace_ram_region		= NULL;
+	ag->tospace_quire			= NULL;
+	ag->fromspace_quire		= NULL;
+	ag->retained_fromspace_quire		= NULL;
 	ag->coarse_inter_agegroup_pointers_map	= NULL;
 
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {				// MAX_PLAIN_SIBS		def in    src/c/h/sibid.h

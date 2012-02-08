@@ -45,12 +45,12 @@
 #define SHEBANG_SIZE 256
 typedef struct {				// The magic number and other version info.
     //
-    char     shebang[ SHEBANG_SIZE ];		//
-    Unt1    byte_order;			// ORDER tag.
+    char    shebang[ SHEBANG_SIZE ];		//
+    Unt1    byte_order;				// ORDER tag.
     Unt1    magic;				// Magic number.
     Unt1    kind;				// EXPORT_HEAP_IMAGE, etc.
-    char     arch[  12 ];			// Exporting machine's architecture.
-    char     opsys[ 12 ];			// Exporting machine's operating system.
+    char    arch[  12 ];			// Exporting machine's architecture.
+    char    opsys[ 12 ];			// Exporting machine's operating system.
     //
 } Heapfile_Header;
 

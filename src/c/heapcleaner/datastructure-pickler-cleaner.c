@@ -307,10 +307,10 @@ static void   repair_heap   (Task* task,  int max_age)   {
 
         // Free the to-space memory chunk:
 
-	Quire* tmpChunk =  age->fromspace_ram_region;
+	Quire* tmpChunk =  age->fromspace_quire;
 
-	age->fromspace_ram_region =  age->tospace_ram_region;
-	age->tospace_ram_region   =  tmpChunk;
+	age->fromspace_quire =  age->tospace_quire;
+	age->tospace_quire   =  tmpChunk;
 
 	free_agegroup( heap, i );
     }
@@ -606,7 +606,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 		sib->tospace_bytesize =  BOOKROUNDED_BYTESIZE( new_size );
 	    }
 	}
-	g->fromspace_ram_region = g->tospace_ram_region;
+	g->fromspace_quire = g->tospace_quire;
 
 	if (allocate_and_partition_an_agegroup(g) == FAILURE) {
 	    //
