@@ -269,9 +269,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
         //
 	Agegroup*	ag =  heap->agegroup[age];
         //
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace_used_end, age+1, RO_POINTERS_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace_used_end, age+1, RO_CONSCELL_SIB);
-	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace_used_end, age+1,  RW_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_POINTERS_SIB ]->tospace.used_end, age+1, RO_POINTERS_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RO_CONSCELL_SIB ]->tospace.used_end, age+1, RO_CONSCELL_SIB);
+	scan_memory_for_bogus_pointers( (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace, (Val_Sized_Unt*) ag->sib[ RW_POINTERS_SIB ]->tospace.used_end, age+1,  RW_POINTERS_SIB);
     }
     // DEBUG
     #endif
@@ -339,7 +339,7 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
     // Special case: chunks in the oldest active agegroup are forever young.
     //
     // We are called at the end of a heapcleaning;  Our job is to
-    // appropriately update the 'fromspace_oldstuff_end' pointers
+    // appropriately update the 'fromspace.oldstuff_end' pointers
     // marking the boundary between 'old' and 'young' chunks in
     // each sib in each agegroup.
     //
@@ -353,16 +353,16 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
             //
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
-		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace_start;
-		else		                    age->sib[ s ]->fromspace_oldstuff_end =  NULL;
+		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace.oldstuff_end =  age->sib[ s ]->tospace.start;
+		else		                    age->sib[ s ]->fromspace.oldstuff_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {
 	        //
-		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->fromspace_oldstuff_end =  age->sib[ s ]->tospace_used_end;
-		else		                     age->sib[ s ]->fromspace_oldstuff_end =  NULL;
+		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->fromspace.oldstuff_end =  age->sib[ s ]->tospace.used_end;
+		else		                     age->sib[ s ]->fromspace.oldstuff_end =  NULL;
 	    }
 	}
     }
@@ -385,7 +385,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 	    INCREASE_BIGCOUNTER(
 		//
 		&heap->total_bytes_copied_to_sib[ max_swept_agegroup-1 ][ s ],
-		ag->sib[ s ]->tospace_used_end - tospace_limit[ s ]
+		ag->sib[ s ]->tospace.used_end - tospace_limit[ s ]
 	    );
 	}
     }
@@ -399,7 +399,7 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ a ][ s ],
-		    ap->tospace_used_end - tospace_limit[ s ]
+		    ap->tospace.used_end - tospace_limit[ s ]
 		);
 	    }
 	}
@@ -467,7 +467,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 	    //
 	    tospace_limit[ ilk ]
 		=
-		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ ilk ]->tospace_used_end;
+		heap->agegroup[ *max_swept_agegroup-1 ]->sib[ ilk ]->tospace.used_end;
 	}
     }
 
@@ -733,13 +733,13 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 		bytes_of_youngstuff_in_sib
 		    =
-		    (Punt)  sib->fromspace_used_end
+		    (Punt)  sib->fromspace.used_end
                     -
-                    (Punt)  sib->fromspace_oldstuff_end;
+                    (Punt)  sib->fromspace.oldstuff_end;
 
 	    } else {
 
-		sib->fromspace_bytesize = 0;  								// To ensure accurate stats.
+		sib->fromspace.bytesize = 0;  								// To ensure accurate stats.
 
 		if (sib->requested_sib_buffer_bytesize == 0
 		    &&
@@ -786,22 +786,22 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    if (new_bytesize == 0) {
 		//
-		sib->tospace_used_end	=  NULL;
-		sib->tospace_limit	=  NULL;
-		sib->tospace_bytesize	=  0;
+		sib->tospace.used_end	=  NULL;
+		sib->tospace.limit	=  NULL;
+		sib->tospace.bytesize	=  0;
 
 	    } else {
 
-		sib->tospace_bytesize
+		sib->tospace.bytesize
 		    =
 		    BOOKROUNDED_BYTESIZE( new_bytesize );							// Round up to a multiple of 64KB.
 	    }
 
-	    // Note: any data between sib->fromspace_oldstuff_end
-	    // and sib->tospace_used_end is "young",
+	    // Note: any data between sib->fromspace.oldstuff_end
+	    // and sib->tospace.used_end is "young",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace_bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace_oldstuff_end - (Punt) sib->fromspace_start;
+	    if (sib->fromspace.bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace.oldstuff_end - (Punt) sib->fromspace.start;
 	    else 		               previous_oldstuff_bytesize[ s ] =   0;
 	}
 
@@ -825,7 +825,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {
 		//
-		ag->sib[ s ]->tospace_bytesize
+		ag->sib[ s ]->tospace.bytesize
 		    =
 		    BOOKROUNDED_BYTESIZE( min_bytesize[ s ] );
 	    }
@@ -932,7 +932,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 	if (map == NULL)   continue;
 
-	Val* max_sweep =  ag->sib[ RW_POINTERS_SIB ]->tospace_swept_end;
+	Val* max_sweep =  ag->sib[ RW_POINTERS_SIB ]->tospace.swept_end;
 
 
 	// Find all cards in this agegroup which contain
@@ -1039,20 +1039,20 @@ static Bool  scan_tospace_buffer   (											// Called only from forward_remai
 
     if (!sib_is_active( sib ))                      return FALSE;							// sib_is_active	def in    src/c/h/heap.h
 
-    Val* p =  sib->tospace_swept_end;
-    if  (p == sib->tospace_used_end)   return FALSE;
+    Val* p =  sib->tospace.swept_end;
+    if  (p == sib->tospace.used_end)   return FALSE;
 
     Val* q;
 
     made_progress = TRUE;												// Do we really need this?  Won't it work to return TRUE only if we actually forwarded something? XXX BUGGO FIXME
     do {
-	q = sib->tospace_used_end;
+	q = sib->tospace.used_end;
 
 	for (;  p < q;  p++)   forward_pointee_if_in_fromspace(heap,b2s,max_sibid, p );
 
-    } while (q != sib->tospace_used_end);
+    } while (q != sib->tospace.used_end);
 
-    sib->tospace_swept_end = q;										// Remember where to pick up next time we're called.
+    sib->tospace.swept_end = q;										// Remember where to pick up next time we're called.
 
     return   made_progress;
 }
@@ -1091,16 +1091,16 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 
     int this_age = GET_AGE_FROM_SIBID( sib->id );
 
-    Val* p =  sib->tospace_swept_end;
+    Val* p =  sib->tospace.swept_end;
 
-    if (p == sib->tospace_used_end)   return FALSE;
+    if (p == sib->tospace.used_end)   return FALSE;
 
-    while (p < sib->tospace_used_end) {
+    while (p < sib->tospace.used_end) {
         //
 	Val* stop = (Val*) (((Punt)p + CARD_BYTESIZE) & cardmask);
 
-	if (stop > sib->tospace_used_end) {
-	    stop = sib->tospace_used_end;
+	if (stop > sib->tospace.used_end) {
+	    stop = sib->tospace.used_end;
         }
         // Sweep the next page until we see
         // a reference to a younger agegroup:
@@ -1146,9 +1146,9 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 	    //
 	    MAYBE_UPDATE_CARD_MIN_AGE_PER_POINTER( map, card_start, card_mark );
 	}
-    }									// while (p < sib->tospace_used_end)
+    }									// while (p < sib->tospace.used_end)
 
-    sib->tospace_swept_end = p;
+    sib->tospace.swept_end = p;
 
     return TRUE;
 }									// fun scan_vector_tospace
@@ -1344,9 +1344,9 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;
 
-		new_chunk =  to_sib->tospace_used_end;
+		new_chunk =  to_sib->tospace.used_end;
 
-		to_sib->tospace_used_end
+		to_sib->tospace.used_end
 		    +=
 		    PAIR_SIZE_IN_WORDS;												// 2.	PAIR_SIZE_IN_WORDS			def in    src/c/h/runtime-base.h
 
@@ -1397,12 +1397,12 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) to_sib->tospace_used_end & WORD_BYTESIZE) == 0) {
-				*to_sib->tospace_used_end = (Val)0;
-				 to_sib->tospace_used_end++;
+			    if (((Punt) to_sib->tospace.used_end & WORD_BYTESIZE) == 0) {
+				*to_sib->tospace.used_end = (Val)0;
+				 to_sib->tospace.used_end++;
 			    }
 		#  else
-			    to_sib->tospace_used_end = (Val*) (((Punt) to_sib->tospace_used_end) | WORD_BYTESIZE);
+			    to_sib->tospace.used_end = (Val*) (((Punt) to_sib->tospace.used_end) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -1466,13 +1466,13 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
     // Allocate and initialize a
     // to-space copy of the chunk:
     //
-    new_chunk =  to_sib->tospace_used_end;
+    new_chunk =  to_sib->tospace.used_end;
 
-    to_sib->tospace_used_end +=   size_in_words + 1;								// + 1 for tagword.
+    to_sib->tospace.used_end +=   size_in_words + 1;								// + 1 for tagword.
 
     *new_chunk++ = tagword;
 
-    ASSERT( sib->tospace_used_end <= sib->tospace_limit );
+    ASSERT( sib->tospace.used_end <= sib->tospace.limit );
 
     COPYLOOP( chunk, new_chunk, size_in_words );										// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
 
@@ -1557,8 +1557,8 @@ static Val          forward_special_chunk   (
 
     // Allocate the new chunk:
     //
-    new_chunk = sib->tospace_used_end;
-    sib->tospace_used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
+    new_chunk = sib->tospace.used_end;
+    sib->tospace.used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {									// We abuse the 'length' field in specials to carry extra type information.
         //															// Since all specials are two words long, this causes no problem.
@@ -1747,14 +1747,14 @@ static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 	    Sib* sib = age->sib[ s ];
 
 	    if (sib_is_active(sib)												// sib_is_active		def in    src/c/h/heap.h
-            &&  sib->tospace_bytesize > sib->soft_max_bytesize
+            &&  sib->tospace.bytesize > sib->soft_max_bytesize
             ){
 
 		min_bytesize
 		    =
 		    (a == 0)
 		    ? task->heap_allocation_buffer_bytesize
-		    : heap->agegroup[ a-1 ]->sib[ s ]->tospace_bytesize;
+		    : heap->agegroup[ a-1 ]->sib[ s ]->tospace.bytesize;
 
 		min_bytesize +=  sib_space_used_in_bytes( sib )									// sib_space_used_in_bytes	def in    src/c/h/heap.h
                                  +
@@ -1762,20 +1762,22 @@ static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 
 		if (min_bytesize < sib->soft_max_bytesize) {
 		    new_bytesize = sib->soft_max_bytesize;
+
 		} else {
-		    new_bytesize = BOOKROUNDED_BYTESIZE(min_bytesize);
+
+		    new_bytesize = BOOKROUNDED_BYTESIZE( min_bytesize );
 
 		    // The calculation of minSz here may
                     // return something bigger than
 		    // what set_up_empty_tospace_buffers computed!
 		    //
-		    if (new_bytesize > sib->tospace_bytesize) {
-			new_bytesize = sib->tospace_bytesize;
+		    if (new_bytesize > sib->tospace.bytesize) {
+			new_bytesize = sib->tospace.bytesize;
 		    }
 		}
-		sib->tospace_bytesize = new_bytesize;
+		sib->tospace.bytesize = new_bytesize;
 
-		sib->tospace_limit =  (Val*) ((Punt)sib->tospace_start + sib->tospace_bytesize);
+		sib->tospace.limit =  (Val*) ((Punt)sib->tospace.start + sib->tospace.bytesize);
 	    }
 	}
     }

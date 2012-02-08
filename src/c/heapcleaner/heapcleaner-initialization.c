@@ -277,7 +277,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    //
 	    ag->sib[ s ] = MALLOC_CHUNK( Sib );
 	    //
-	    ag->sib[ s ]->tospace_bytesize              = 0;
+	    ag->sib[ s ]->tospace.bytesize              = 0;
 	    ag->sib[ s ]->requested_sib_buffer_bytesize = 0;
 	    ag->sib[ s ]->soft_max_bytesize             = max_size;
 	    //
@@ -382,7 +382,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	//
         for (int s = 0;  s < MAX_PLAIN_SIBS;  s++) {
 	    //
-	    heap->agegroup[ 0 ]->sib[ s ]->tospace_bytesize
+	    heap->agegroup[ 0 ]->sib[ s ]->tospace.bytesize
                 =
                 BOOKROUNDED_BYTESIZE( 2 * (heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS) );
 	}
@@ -391,9 +391,9 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
-	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace_oldstuff_end
+	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace.oldstuff_end
 		=
-		heap->agegroup[ 0 ]->sib[ ilk ]->tospace_start;
+		heap->agegroup[ 0 ]->sib[ ilk ]->tospace.start;
 	}
     }
 

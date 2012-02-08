@@ -38,7 +38,7 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
 	//
 	if (sib_is_active( ag->sib[ i ] )) {							// sib_is_active	def in    src/c/h/heap.h
 	    //
-	    tot_size +=  ag->sib[ i ]->tospace_bytesize;
+	    tot_size +=  ag->sib[ i ]->tospace.bytesize;
 	}
     }
 
@@ -78,23 +78,23 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         //
 	if (!sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
             //
-	    ap->tospace_start		= NULL;
-	    ap->tospace_used_end	= NULL;
-	    ap->tospace_swept_end	= NULL;
-	    ap->tospace_limit		= NULL;
+	    ap->tospace.start		= NULL;
+	    ap->tospace.used_end	= NULL;
+	    ap->tospace.swept_end	= NULL;
+	    ap->tospace.limit		= NULL;
             //
 	} else {
             //
-	    ap->tospace_start		= p;
-	    ap->tospace_used_end	= p;
-	    ap->tospace_swept_end	= p;
+	    ap->tospace.start		= p;
+	    ap->tospace.used_end	= p;
+	    ap->tospace.swept_end	= p;
             //
-	    p = (Val*)((Punt)p + ap->tospace_bytesize);
-	    ap->tospace_limit	= p;
-	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace_start, ap->tospace_bytesize, ap->id );
+	    p = (Val*)((Punt)p + ap->tospace.bytesize);
+	    ap->tospace.limit	= p;
+	    set_book2sibid_entries_for_range( book_to_sibid__global, ap->tospace.start, ap->tospace.bytesize, ap->id );
 
 	    #ifdef VERBOSE
-	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->tospace_used_end, p);
+	        debug_say ("  %#x:  [%#x, %#x)\n", ap->id, ap->tospace.used_end, p);
 	    #endif
 	}
     }
@@ -106,12 +106,12 @@ Status   allocate_and_partition_an_agegroup   (Agegroup* ag) {
         // The first slot of pair-space must not be used,
         // else poly-equal might fault:
         //
-	*(ap->tospace_used_end++) = HEAP_VOID;
-	*(ap->tospace_used_end++) = HEAP_VOID;
+	*(ap->tospace.used_end++) = HEAP_VOID;
+	*(ap->tospace.used_end++) = HEAP_VOID;
         //
-	ap->tospace_start	 = ap->tospace_used_end;
-	ap->tospace_bytesize	-= (2*WORD_BYTESIZE);
-	ap->tospace_swept_end	 = ap->tospace_used_end;
+	ap->tospace.start	 = ap->tospace.used_end;
+	ap->tospace.bytesize	-= (2*WORD_BYTESIZE);
+	ap->tospace.swept_end	 = ap->tospace.used_end;
     }   
 
     return SUCCESS;
@@ -166,13 +166,13 @@ void   free_agegroup   (Heap* heap,  int g) {
 	//
 	Sib* ap =  ag->sib[ i ];
 
-	if (ap->fromspace_start != NULL) {
+	if (ap->fromspace.start != NULL) {
 	    //
-	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace_start, ap->fromspace_bytesize, UNMAPPED_BOOK_SIBID);
+	    set_book2sibid_entries_for_range (book_to_sibid__global, ap->fromspace.start, ap->fromspace.bytesize, UNMAPPED_BOOK_SIBID);
 	    //
-	    ap->fromspace_start	    = NULL;
-	    ap->fromspace_bytesize  = 0;
-	    ap->fromspace_used_end  = NULL;
+	    ap->fromspace.start	    = NULL;
+	    ap->fromspace.bytesize  = 0;
+	    ap->fromspace.used_end  = NULL;
 	}
     }
 }								// fun free_agegroup
@@ -189,7 +189,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 
     int  map_size_in_slots
 	=
-	ap->tospace_bytesize / CARD_BYTESIZE;
+	ap->tospace.bytesize / CARD_BYTESIZE;
 
     int  map_bytesize = CARDMAP_BYTESIZE( map_size_in_slots );
 
@@ -203,7 +203,7 @@ void   make_new_coarse_inter_agegroup_pointers_map_for_agegroup   (Agegroup* ag)
 
     if (ag->coarse_inter_agegroup_pointers_map == NULL) 	die ("unable to malloc coarse_inter_agegroup_pointers_map vector");
 
-    ag->coarse_inter_agegroup_pointers_map->base_address =  ap->tospace_start;
+    ag->coarse_inter_agegroup_pointers_map->base_address =  ap->tospace.start;
     ag->coarse_inter_agegroup_pointers_map->card_count   =  map_size_in_slots;
 
     memset(

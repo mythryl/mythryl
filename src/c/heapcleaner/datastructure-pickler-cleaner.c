@@ -51,7 +51,7 @@ struct repair {
 	Sib* __sib = (sib);				\
 	if (repair_heap__local) {				\
 	    Repair	*__rp = __sib->repairlist - 1;	\
-	    if ((Val *)__rp > __sib->tospace_used_end) {		\
+	    if ((Val *)__rp > __sib->tospace.used_end) {		\
 		__rp->loc = (location);			\
 		__rp->val = (value);			\
 		__sib->repairlist = __rp;		\
@@ -260,7 +260,7 @@ static void   repair_heap   (Task* task,  int max_age)   {
 		Sib* __sib = age->sib[ index ];				\
 		if (sib_is_active(__sib)) {						\
 		    Repair	*__stop, *__rp;					\
-		    __stop = (Repair*)(__sib->tospace_limit);				\
+		    __stop = (Repair*)(__sib->tospace.limit);				\
 		    for (__rp = __sib->repairlist;  __rp < __stop;  __rp++) {	\
 			Val	*__p = __rp->loc;				\
 			if (index != RO_CONSCELL_SIB)				\
@@ -289,18 +289,18 @@ static void   repair_heap   (Task* task,  int max_age)   {
                 // Note that free_agegroup
 		// needs the from-space information.
 
-		Val*	tmpBase  =  sib->tospace_start;
-		Punt	tmpSizeB =  sib->tospace_bytesize;
-		Val*	tmpTop   =  sib->tospace_limit;
+		Val*	tmpBase  =  sib->tospace.start;
+		Punt	tmpSizeB =  sib->tospace.bytesize;
+		Val*	tmpTop   =  sib->tospace.limit;
 
-		sib->tospace_used_end	=
-		sib->tospace_swept_end	=  sib->fromspace_used_end;
-		sib->tospace_start	=  sib->fromspace_start;
-		sib->fromspace_start	=  tmpBase;
-		sib->tospace_bytesize	=  sib->fromspace_bytesize;
-		sib->fromspace_bytesize	=  tmpSizeB;
-		sib->tospace_limit	=  saved_top__local[i][j];
-		sib->fromspace_used_end	=  tmpTop;
+		sib->tospace.used_end	=
+		sib->tospace.swept_end	=  sib->fromspace.used_end;
+		sib->tospace.start	=  sib->fromspace.start;
+		sib->fromspace.start	=  tmpBase;
+		sib->tospace.bytesize	=  sib->fromspace.bytesize;
+		sib->fromspace.bytesize	=  tmpSizeB;
+		sib->tospace.limit	=  saved_top__local[i][j];
+		sib->fromspace.used_end	=  tmpTop;
 	    }
 	}
 
@@ -381,7 +381,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    if (map != NULL) {
 		//
-		Val* maxSweep =  ag->sib[ RW_POINTERS_SIB ]->tospace_swept_end;
+		Val* maxSweep =  ag->sib[ RW_POINTERS_SIB ]->tospace.swept_end;
 
 		int  card;
 
@@ -460,16 +460,16 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 
 	    int card = 0;
 
-	    Val* p =  sib->tospace_start;
+	    Val* p =  sib->tospace.start;
 
-	    while (p < sib->tospace_used_end) {
+	    while (p < sib->tospace.used_end) {
 
 		int	mark = i+1;
 
 		stop = (Val*) (( (Punt)p + CARD_BYTESIZE) & ~(CARD_BYTESIZE - 1));
 
-		if (stop > sib->tospace_used_end) {
-		    stop = sib->tospace_used_end;
+		if (stop > sib->tospace.used_end) {
+		    stop = sib->tospace.used_end;
                 }
 
 		while (p < stop) {
@@ -533,16 +533,16 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 																	// sib_is_active	def in    src/c/h/heap.h
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace_start;
-		else			           g->sib[ j ]->fromspace_oldstuff_end =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.oldstuff_end =  g->sib[ j ]->tospace.start;
+		else			           g->sib[ j ]->fromspace.oldstuff_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace_oldstuff_end =  g->sib[ j ]->tospace_used_end;
-		else			           g->sib[ j ]->fromspace_oldstuff_end =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.oldstuff_end =  g->sib[ j ]->tospace.used_end;
+		else			           g->sib[ j ]->fromspace.oldstuff_end =  NULL;
 	    }
 	}
     }
@@ -560,7 +560,7 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 		INCREASE_BIGCOUNTER(
 		    //
 		    &heap->total_bytes_copied_to_sib[ g ][ a ],
-		    sib->tospace_used_end - sib->tospace_start
+		    sib->tospace.used_end - sib->tospace.start
 		);
 	    }
 	}
@@ -593,20 +593,20 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 		ASSERT(
                     s == NONPTR_DATA_SIB
                     ||
-                    sib->tospace_used_end == sib->tospace_swept_end
+                    sib->tospace.used_end == sib->tospace.swept_end
                 );
 
-	        saved_top__local[age][s] = sib->tospace_limit;
+	        saved_top__local[age][s] = sib->tospace.limit;
 
 		make_sib_tospace_into_fromspace( sib );										// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
 
-		new_size = (Punt) sib->fromspace_used_end
-                         - (Punt) sib->fromspace_start;
+		new_size = (Punt) sib->fromspace.used_end
+                         - (Punt) sib->fromspace.start;
 
 		if (age == 0)        new_size +=  agegroup0_buffer_size_in_bytes( task );					// Need to guarantee space for future minor collections.
 		if (s == RO_CONSCELL_SIB)   new_size +=  2*WORD_BYTESIZE;								// We reserve (do not use) first slot in pairsib, so allocate extra space for it.
 
-		sib->tospace_bytesize =  BOOKROUNDED_BYTESIZE( new_size );
+		sib->tospace.bytesize =  BOOKROUNDED_BYTESIZE( new_size );
 	    }
 	}
 	g->fromspace_quire = g->tospace_quire;
@@ -622,7 +622,7 @@ static void   swap_tospace_with_fromspace   (Task* task, int gen) {
 	    //
 	    Sib* sib =  g->sib[ ilk ];
 
-	    if (sib_is_active(sib))   sib->repairlist = (Repair*)(sib->tospace_limit);						// sib_is_active			def in    src/c/h/heap.h
+	    if (sib_is_active(sib))   sib->repairlist = (Repair*)(sib->tospace.limit);						// sib_is_active			def in    src/c/h/heap.h
 	}
     }
 
@@ -647,15 +647,15 @@ static Status   sweep_tospace   (Task*  task,   Sibid  maxAid) {
 	    Sib* __sib = (ag)->sib[ index ];					\
 	    if (sib_is_active(__sib)) {							\
 		Val    *__p, *__q;							\
-		__p = __sib->tospace_swept_end;						\
-		if (__p < __sib->tospace_used_end) {						\
+		__p = __sib->tospace.swept_end;						\
+		if (__p < __sib->tospace.used_end) {						\
 		    swept = TRUE;							\
 		    do {								\
-			for (__q = __sib->tospace_used_end;  __p < __q;  __p++) {			\
+			for (__q = __sib->tospace.used_end;  __p < __q;  __p++) {			\
 			    CHECK_WORD_FOR_EXTERNAL_REFERENCE(task, b2s, __p, maxAid, seen_error);	\
 			}								\
-		    } while (__q != __sib->tospace_used_end);					\
-		    __sib->tospace_swept_end = __q;						\
+		    } while (__q != __sib->tospace.used_end);					\
+		    __sib->tospace.swept_end = __q;						\
 		}									\
 	    }										\
 	}
@@ -731,9 +731,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 	    //
 	    sib =  heap->agegroup[ gen-1 ]->sib[ RO_CONSCELL_SIB ];
 
-	    new_chunk =  sib->tospace_used_end;
+	    new_chunk =  sib->tospace.used_end;
 
-	    sib->tospace_used_end += 2;
+	    sib->tospace.used_end += 2;
 
 	    new_chunk[0] = w;
 	    new_chunk[1] = chunk[1];
@@ -766,13 +766,13 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 		len = GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword);
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
-			    if (((Punt) sib->tospace_used_end & WORD_BYTESIZE) == 0) {
+			    if (((Punt) sib->tospace.used_end & WORD_BYTESIZE) == 0) {
 				//
-				*sib->tospace_used_end = (Val)0;
-				sib->tospace_used_end++;
+				*sib->tospace.used_end = (Val)0;
+				sib->tospace.used_end++;
 			    }
 		#  else
-			    sib->tospace_used_end = (Val *)(((Punt) sib->tospace_used_end) | WORD_BYTESIZE);
+			    sib->tospace.used_end = (Val *)(((Punt) sib->tospace.used_end) | WORD_BYTESIZE);
 		#  endif
 		#endif
 		break;
@@ -827,9 +827,9 @@ static Val   forward_chunk   (Task* task,   Val v,  Sibid id) {
 
     // Allocate and initialize a to-space copy of the chunk:
     //
-    new_chunk =  sib->tospace_used_end;
+    new_chunk =  sib->tospace.used_end;
 
-    sib->tospace_used_end
+    sib->tospace.used_end
 	+=
 	len + 1;
 

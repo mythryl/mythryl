@@ -212,12 +212,12 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		//
 	        Sib* sib = age1->sib[ ilk ];
 
-	        sib_base[ilk] =  (Punt) sib->tospace_used_end;
+	        sib_base[ilk] =  (Punt) sib->tospace.used_end;
 
-	        heapio__read_block( bp, (sib->tospace_used_end), sib_headers[ilk]->info.o.bytesize );
+	        heapio__read_block( bp, (sib->tospace.used_end), sib_headers[ilk]->info.o.bytesize );
 
-		// debug_say ("[%2d] Read [%#x..%#x)\n", ilk+1, sib->tospace_used_end,
-		// (Punt)(sib->tospace_used_end)+sib_headers[ilk]->info.o.bytesize);
+		// debug_say ("[%2d] Read [%#x..%#x)\n", ilk+1, sib->tospace.used_end,
+		// (Punt)(sib->tospace.used_end)+sib_headers[ilk]->info.o.bytesize);
 	    }
 	}
 
@@ -231,11 +231,11 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		//
 		if (ilk == NONPTR_DATA_SIB) {
 		    //
-		    sib->tospace_used_end = (Val*) ((Punt)(sib->tospace_used_end)
+		    sib->tospace.used_end = (Val*) ((Punt)(sib->tospace.used_end)
 			      + sib_headers[ilk]->info.o.bytesize);
 		} else {
 
-		    Val* p = sib->tospace_used_end;
+		    Val* p = sib->tospace.used_end;
 
 		    Val* stop = (Val*) ((Punt)p + sib_headers[ilk]->info.o.bytesize);
 
@@ -261,8 +261,8 @@ static Status   read_image  (Task* task,  Inbuf* bp,  Val* chunk_ref) {
 		        }
 		        p++;
 		    }
-		    sib->tospace_used_end	=
-		    sib->tospace_swept_end	= stop;
+		    sib->tospace.used_end	=
+		    sib->tospace.swept_end	= stop;
 	        }
 	    }
 	}

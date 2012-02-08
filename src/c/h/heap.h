@@ -147,14 +147,17 @@ struct agegroup {
 //
 //
 struct sib {
+    //
     Sibid		id;					// The to-space version of this sib's identifier.
-    Val*		tospace_used_end;			// The next word to allocate in this sib's to-space.
-    //
-    Val*	        tospace_start;				// Base address of to-space.
-    Punt		tospace_bytesize;			// Size of to-space.
-    Val*	        tospace_limit;				// The top of the to-space (tospace+tospace_bytesize).
-    //
-    Val*		tospace_swept_end;			// State variable used (only) during heapcleaning.  During heapcleaning
+
+    struct tospace {
+	Val*		used_end;				// The next word to allocate in this sib's to-space.
+	//
+	Val*	        start;					// Base address of to-space.
+	Punt		bytesize;				// Size of to-space.
+	Val*	        limit;					// The end of to-space (tospace.start+tospace.bytesize).
+	//
+	Val*		swept_end;				// State variable used (only) during heapcleaning.  During heapcleaning
 								// we treat to-space as a work queue, with this pointer marking the
 								// the start of the queue and the end-of-tospace pointer the end
 								// -- see src/c/heapcleaner/heapclean-n-agegroups.c.
@@ -162,12 +165,14 @@ struct sib {
 								// The critical invariant is that chunks before this pointer (i.e.,
 								// fully processed chunks) contain only pointers into to-space, while
 								// chunks after this pointer contain only pointers into from-space.
+    } tospace;
 
-    Val*		fromspace_start;			// Base address of from-space.
-    Val_Sized_Unt	fromspace_bytesize;			// Size of from-space.
-    Val*		fromspace_used_end;			// The end of the used portion of from-space.
+    struct fromspace {
+	Val*		start;					// Base address of from-space.
+	Val_Sized_Unt	bytesize;				// Size of from-space.
+	Val*		used_end;				// The end of the used portion of from-space.
 
-    Val*		fromspace_oldstuff_end;			// We require that a chunk survive two heapcleans in a
+	Val*		oldstuff_end;				// We require that a chunk survive two heapcleans in a
 								// given agegroup before being promoted to the next agegroup.
 								// To this end we divide the chunks in a given agegroup sib into
 								// "young" (have not yet survived a heapclean) and
@@ -175,7 +180,8 @@ struct sib {
 								// boundary between old and young;  Chunks before this get promoted
 								// if they survive the next heapcleaning; those beyond it do not.
 								// Special case: chunks in the oldest active agegroup are forever young.
-								
+    } fromspace;
+
     Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
 								// The repair list grows  down in to-space.
 
@@ -195,9 +201,9 @@ inline void   make_sib_tospace_into_fromspace   (Sib* sib)   {
     //
     // Make to-space into from-space:
     //
-    sib->fromspace_start	=  sib->tospace_start;
-    sib->fromspace_bytesize	=  sib->tospace_bytesize;
-    sib->fromspace_used_end	=  sib->tospace_used_end;
+    sib->fromspace.start	=  sib->tospace.start;
+    sib->fromspace.bytesize	=  sib->tospace.bytesize;
+    sib->fromspace.used_end	=  sib->tospace.used_end;
 }
 
 //
@@ -206,7 +212,7 @@ inline Bool   sib_is_active   (Sib* sib)   {
     //
     // Return TRUE iff this sib has an allocated to-space:
     //
-    return  sib->tospace_bytesize  >  0;
+    return  sib->tospace.bytesize  >  0;
 }
 
 // 
@@ -216,7 +222,7 @@ inline Bool   sib_chunk_is_old   (Sib* sib,  Val* pointer)   {
     // Return TRUE iff 'pointer' is in
     // the 'old' segment of this sib:
     //
-    return   pointer < sib->fromspace_oldstuff_end;
+    return   pointer < sib->fromspace.oldstuff_end;
 }
 
 //
@@ -226,8 +232,8 @@ inline Punt   sib_freespace_in_bytes   (Sib* sib)   {
     // Return the amount of free space
     // (in bytes) available in a sib buffer:
     //
-    return  (Punt)  sib->tospace_limit
-          - (Punt)  sib->tospace_used_end;
+    return  (Punt)  sib->tospace.limit
+          - (Punt)  sib->tospace.used_end;
 }
 
 //
@@ -237,9 +243,9 @@ inline Punt   sib_space_used_in_bytes   (Sib* sib)   {
     // Return the amount of allocated space
     // (in bytes) in a sib buffer:
     //
-    return   (Punt)   sib->tospace_used_end
+    return   (Punt)   sib->tospace.used_end
              -
-             (Punt)   sib->tospace_start;
+             (Punt)   sib->tospace.start;
 }
 
 //

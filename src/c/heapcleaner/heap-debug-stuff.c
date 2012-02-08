@@ -173,18 +173,18 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
 	    fprintf(fd,"          a->sib[%d]    p=%p\n",  s, a->sib[s]);
 	    fprintf(fd,"          a->sib[%d].id d=%d\n",  s, a->sib[s]->id);
 	    fprintf(fd,"\n");
-	    fprintf(fd,"          a->sib[%d].tospace_start      p=%p\n",  s, a->sib[s]->tospace_start);
-	    fprintf(fd,"          a->sib[%d].tospace_bytesize   p=%p\n",  s, (void*)a->sib[s]->tospace_bytesize);		// Punt
-	    fprintf(fd,"          a->sib[%d].tospace_limit      p=%p\n",  s, a->sib[s]->tospace_limit);
+	    fprintf(fd,"          a->sib[%d].tospace.start      p=%p\n",  s, a->sib[s]->tospace.start);
+	    fprintf(fd,"          a->sib[%d].tospace.bytesize   p=%p\n",  s, (void*)a->sib[s]->tospace.bytesize);		// Punt
+	    fprintf(fd,"          a->sib[%d].tospace.limit      p=%p\n",  s, a->sib[s]->tospace.limit);
 	    fprintf(fd,"\n");
-	    fprintf(fd,"          a->sib[%d].fromspace_start    p=%p\n",  s, a->sib[s]->fromspace_start);
-	    fprintf(fd,"          a->sib[%d].fromspace_bytesize x=%x\n",  s, (unsigned int) a->sib[s]->fromspace_bytesize);	// Val_Sized_Unt
-	    fprintf(fd,"          a->sib[%d].fromspace_used_end p=%p\n",  s, a->sib[s]->fromspace_used_end);
+	    fprintf(fd,"          a->sib[%d].fromspace.start    p=%p\n",  s, a->sib[s]->fromspace.start);
+	    fprintf(fd,"          a->sib[%d].fromspace.bytesize x=%x\n",  s, (unsigned int) a->sib[s]->fromspace.bytesize);	// Val_Sized_Unt
+	    fprintf(fd,"          a->sib[%d].fromspace.used_end p=%p\n",  s, a->sib[s]->fromspace.used_end);
 	    fprintf(fd,"\n");
-	    fprintf(fd,"          a->sib[%d].tospace_used_end p=%p\n",  s, a->sib[s]->tospace_used_end);
-	    fprintf(fd,"          a->sib[%d].tospace_swept_end p=%p\n",  s, a->sib[s]->tospace_swept_end);
+	    fprintf(fd,"          a->sib[%d].tospace.used_end p=%p\n",  s, a->sib[s]->tospace.used_end);
+	    fprintf(fd,"          a->sib[%d].tospace.swept_end p=%p\n",  s, a->sib[s]->tospace.swept_end);
 	    fprintf(fd,"          a->sib[%d].repairlist p=%p\n",  s, a->sib[s]->repairlist);
-	    fprintf(fd,"          a->sib[%d].end_of_fromespace_oldstuff p=%p\n",  s, a->sib[s]->fromspace_oldstuff_end);
+	    fprintf(fd,"          a->sib[%d].end_of_fromespace_oldstuff p=%p\n",  s, a->sib[s]->fromspace.oldstuff_end);
 	}
     }
 }
@@ -414,20 +414,20 @@ void   dump_gen0s   (Task* task, char* caller) {
 static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ========
     fprintf(fd,"                     sib->id x= %04x  = id%01x/kind%02x/age%01x\n",	sib->id, GET_ID_FROM_SIBID(sib->id), GET_KIND_FROM_SIBID(sib->id), GET_AGE_FROM_SIBID(sib->id)	);
-    fprintf(fd,"                     sib->tospace_used_end p= %p\n",	sib->tospace_used_end			);
+    fprintf(fd,"                     sib->tospace.used_end p= %p\n",	sib->tospace.used_end			);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->tospace_start    p= %p\n",				sib->tospace_start				);
-    fprintf(fd,"                     sib->tospace_bytesize x= 0x%08x\n",	(unsigned int)  sib->tospace_bytesize				);
-    fprintf(fd,"                     sib->tospace_limit    p= %p\n",				sib->tospace_limit				);
+    fprintf(fd,"                     sib->tospace.start    p= %p\n",				sib->tospace.start				);
+    fprintf(fd,"                     sib->tospace.bytesize x= 0x%08x\n",	(unsigned int)  sib->tospace.bytesize				);
+    fprintf(fd,"                     sib->tospace.limit    p= %p\n",				sib->tospace.limit				);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->tospace_swept_end p= %p\n",				sib->tospace_swept_end				);
+    fprintf(fd,"                     sib->tospace.swept_end p= %p\n",				sib->tospace.swept_end				);
     fprintf(fd,"                     sib->repairlist p= %p\n",					sib->repairlist					);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->fromspace_start    p= %p\n",				sib->fromspace_start				);
-    fprintf(fd,"                     sib->fromspace_bytesize x= 0x%08x\n",(unsigned int)	sib->fromspace_bytesize				);
-    fprintf(fd,"                     sib->fromspace_used_end p= %p\n",				sib->fromspace_used_end				);
+    fprintf(fd,"                     sib->fromspace.start    p= %p\n",				sib->fromspace.start				);
+    fprintf(fd,"                     sib->fromspace.bytesize x= 0x%08x\n",(unsigned int)	sib->fromspace.bytesize				);
+    fprintf(fd,"                     sib->fromspace.used_end p= %p\n",				sib->fromspace.used_end				);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->fromspace_oldstuff_end p= %p\n",		sib->fromspace_oldstuff_end				);
+    fprintf(fd,"                     sib->fromspace.oldstuff_end p= %p\n",		sib->fromspace.oldstuff_end				);
     fprintf(fd,"                     sib->sib_for_promoted_chunks   p= %p\n",		sib->sib_for_promoted_chunks				);
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->heap_needs_repair b= %s\n",			sib->heap_needs_repair ? "TRUE" : "FALSE"		);
@@ -441,13 +441,13 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
 static void   dump_ro_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
-    dump_records   (fd, sib->tospace_start, sib->tospace_used_end);
+    dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
 }
 //
 static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pairs in the pair sib have no tag/length word -- avoiding that overhead is the main point of having a separate sib for pairs.
     //        =============
-    for (Val* p = sib->tospace_start;
-	      p < sib->tospace_used_end;
+    for (Val* p = sib->tospace.start;
+	      p < sib->tospace.used_end;
 	      p += 2
     ){
 	fprintf(fd,"\n");
@@ -459,8 +459,8 @@ static void   dump_ro_ptrpair_sib   (Task* task, FILE* fd, Sib* sib) {	// The pa
 static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
-    for (Val* p = sib->tospace_start;
-	      p < sib->tospace_used_end;
+    for (Val* p = sib->tospace.start;
+	      p < sib->tospace.used_end;
 	      p++
     ){
 	char buf[ 132 ];
@@ -472,10 +472,10 @@ static void   dump_nonpointer_sib   (Task* task, FILE* fd, Sib* sib) {
 static void   dump_rw_pointer_sib   (Task* task, FILE* fd, Sib* sib) {
     //        ===============
     //
-    dump_records   (fd, sib->tospace_start, sib->tospace_used_end);
+    dump_records   (fd, sib->tospace.start, sib->tospace.used_end);
 
 //    for (Val* p = sib->tospace;
-//	      p < sib->tospace_used_end;
+//	      p < sib->tospace.used_end;
 //	      p++
 //    ){
 //	fprintf(fd," %8p: %08x\n",  p, v2u(*p));

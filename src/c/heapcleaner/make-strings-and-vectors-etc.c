@@ -202,9 +202,9 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
                 //
 		ap->requested_sib_buffer_bytesize = 0;
 	    }
-	    *(ap->tospace_used_end++) = tagword;
-	    result = PTR_CAST( Val, ap->tospace_used_end);
-	    ap->tospace_used_end += nwords;
+	    *(ap->tospace.used_end++) = tagword;
+	    result = PTR_CAST( Val, ap->tospace.used_end);
+	    ap->tospace.used_end += nwords;
 
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -234,9 +234,9 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
         //
 	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
-	ASSERT(ap->tospace_used_end - old_length_in_words == PTR_CAST(Val*, v)); 
+	ASSERT(ap->tospace.used_end - old_length_in_words == PTR_CAST(Val*, v)); 
 
-	ap->tospace_used_end -= (old_length_in_words - new_length_in_words);
+	ap->tospace.used_end -= (old_length_in_words - new_length_in_words);
 
     } else {
 
@@ -299,22 +299,22 @@ Val   allocate_int2_vector   (Task* task,  int nelems)   {
 		// Force FLOAT64_BYTESIZE alignment (tagword is off by one word)
 
 	        #ifdef CHECK_HEAP
-		    if (((Punt)ap->tospace_used_end & WORD_BYTESIZE) == 0) {
-			*(ap->tospace_used_end) = (Val)0;
-			++ap->tospace_used_end;
+		    if (((Punt)ap->tospace.used_end & WORD_BYTESIZE) == 0) {
+			*(ap->tospace.used_end) = (Val)0;
+			++ap->tospace.used_end;
 		    }
 	        #else
-		    ap->tospace_used_end = (Val *)(((Punt)ap->tospace_used_end) | WORD_BYTESIZE);
+		    ap->tospace.used_end = (Val *)(((Punt)ap->tospace.used_end) | WORD_BYTESIZE);
 	        #endif
 	    #endif
 
-	    *ap->tospace_used_end ++
+	    *ap->tospace.used_end ++
 		=
 		tagword;
 
-	    result = PTR_CAST( Val, ap->tospace_used_end );
+	    result = PTR_CAST( Val, ap->tospace.used_end );
 
-	    ap->tospace_used_end += nwords;
+	    ap->tospace.used_end += nwords;
 
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -451,11 +451,11 @@ Val   make_nonempty_rw_vector   (Task* task,  int len,  Val init_val)   {
 		}
 		#endif
 	    }
-	    ASSERT(ap->tospace_used_end == ap->tospace_swept_end);
-	    *(ap->tospace_used_end++) = tagword;
-	    result = PTR_CAST( Val, ap->tospace_used_end);
-	    ap->tospace_used_end += len;
-	    ap->tospace_swept_end = ap->tospace_used_end;
+	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
+	    *(ap->tospace.used_end++) = tagword;
+	    result = PTR_CAST( Val, ap->tospace.used_end);
+	    ap->tospace.used_end += len;
+	    ap->tospace.swept_end = ap->tospace.used_end;
 	    //
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -538,11 +538,11 @@ Val   make_nonempty_ro_vector   (Task* task,  int len,  Val initializers)   {
 	    }
 	    #endif
 
-	    ASSERT(ap->tospace_used_end == ap->tospace_swept_end);
-	    *(ap->tospace_used_end++) = tagword;
-	    result = PTR_CAST( Val,  ap->tospace_used_end );
-	    ap->tospace_used_end += len;
-	    ap->tospace_swept_end = ap->tospace_used_end;
+	    ASSERT(ap->tospace.used_end == ap->tospace.swept_end);
+	    *(ap->tospace.used_end++) = tagword;
+	    result = PTR_CAST( Val,  ap->tospace.used_end );
+	    ap->tospace.used_end += len;
+	    ap->tospace.swept_end = ap->tospace.used_end;
 	    //
 	pthread_mutex_unlock( &pth__mutex );
 

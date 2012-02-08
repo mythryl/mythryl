@@ -368,7 +368,7 @@ static void   read_heap   (
 		size += 2*WORD_BYTESIZE;
 	    }
 
-	    age->sib[ j ]->tospace_bytesize
+	    age->sib[ j ]->tospace.bytesize
 		=
 		BOOKROUNDED_BYTESIZE( size );
 
@@ -394,19 +394,19 @@ static void   read_heap   (
 
 	    if (p->info.o.bytesize > 0) {
 
-		addrOffset[i][j] = (Punt)(ap->tospace_start) - (Punt)(p->info.o.base_address);
+		addrOffset[i][j] = (Punt)(ap->tospace.start) - (Punt)(p->info.o.base_address);
 
 		heapio__seek( bp, (long) p->offset );
 
-		heapio__read_block( bp, (ap->tospace_start), p->info.o.bytesize );
+		heapio__read_block( bp, (ap->tospace.start), p->info.o.bytesize );
 
-		ap->tospace_used_end  = (Val *)((Punt)(ap->tospace_start) + p->info.o.bytesize);
+		ap->tospace.used_end  = (Val *)((Punt)(ap->tospace.start) + p->info.o.bytesize);
 
-		ap->fromspace_oldstuff_end =  ap->tospace_start;
+		ap->fromspace.oldstuff_end =  ap->tospace.start;
 
 	    } else if (sib_is_active(ap)) {
 
-		ap->fromspace_oldstuff_end =  ap->tospace_start;
+		ap->fromspace.oldstuff_end =  ap->tospace.start;
 	    }
 
 	    if (verbosity > 0)   say(".");
@@ -625,7 +625,7 @@ static void   read_heap   (
     FREE( sib_headers  );
     FREE( oldBOOK2SIBID       );
 
-    // Reset the tospace_swept_end pointers:
+    // Reset the tospace.swept_end pointers:
     //
     for (int i = 0;  i < heap->active_agegroups;  i++) {
         //
@@ -637,9 +637,9 @@ static void   read_heap   (
 	    //
 	    if (sib_is_active(ap)) {							// sib_is_active	def in    src/c/h/heap.h
 		//
-		ap->tospace_swept_end
+		ap->tospace.swept_end
 		    =
-		    ap->tospace_used_end;
+		    ap->tospace.used_end;
 	    }
 	}
     }
@@ -751,8 +751,8 @@ static void   repair_heap   (
 	#define REPAIR_SIB(index)	{						\
 	    Sib*  __ap = ag->sib[ index ];						\
 	    Val	*__p, *__q;								\
-	    __p = __ap->tospace_start;							\
-	    __q = __ap->tospace_used_end;						\
+	    __p = __ap->tospace.start;							\
+	    __q = __ap->tospace.used_end;						\
 	    while (__p < __q) {								\
 		Val	__w = *__p;							\
 		int		__gg, __chunkc;						\

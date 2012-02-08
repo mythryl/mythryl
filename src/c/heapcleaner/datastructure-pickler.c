@@ -175,11 +175,11 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		//
 		total_sib_buffer_bytesize[ ilk ]
 		   +=
-		    (Punt)  sib->tospace_used_end
+		    (Punt)  sib->tospace.used_end
 		    -
-		    (Punt)  sib->tospace_start;
+		    (Punt)  sib->tospace.start;
 
-		adjust[ age ][ ilk ].base =  (Punt) sib->tospace_start;
+		adjust[ age ][ ilk ].base =  (Punt) sib->tospace.start;
 	    }
 	}
     }
@@ -368,9 +368,9 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 		    //
 		    WR_WRITE(
                         wr,
-                        sib->tospace_start,
-			(Punt) sib->tospace_used_end
-                       -(Punt) sib->tospace_start
+                        sib->tospace.start,
+			(Punt) sib->tospace.used_end
+                       -(Punt) sib->tospace.start
                     );
 		}
 	    }
@@ -383,10 +383,10 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 		if (sib_is_active( sib )) {
 		    //
-		    Val*  top =  sib->tospace_used_end;
+		    Val*  top =  sib->tospace.used_end;
 		    //
 		    for (Val*
-			p =  sib->tospace_start;
+			p =  sib->tospace.start;
                         p <  top;
                         p++
 		    ){
