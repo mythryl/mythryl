@@ -646,13 +646,30 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 									// We want each agegroup to do about 1/10 as many heapcleanings
 									// as the next-youngest one;  We'll us this variable to compute
 									// how close we came this time around for this agegroup.
-    Punt  new_bytesize;
-    Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];			// This vector will be re-used for each successive agegroup.
-    Punt  min_bytesize[               MAX_PLAIN_SIBS ];
 
+    Punt  bytes_of_oldstuff_in_next_younger_agegroup[ MAX_PLAIN_SIBS ];	// This tracks, for each agegroup.sib, the total bytes of
+									// "old" stuff in the corresponding next-younger sib.
+									// The significance of this is that during the about-to-happen
+									// heapcleaning potentially all of this "old" stuff might get
+									// promoted (copied) into our sib, so we *must* arrange to
+									// have enough free space to accept that many bytes from it.
+
+    Punt  min_bytesize_for_sib[       MAX_PLAIN_SIBS ];			// Minimum bytesize for each sib buffer:  If we cannot get this much we will groan and die.
+									// Usually we will allocate more than this;  this is our emergency fallback position if we
+									// Cannot get as much ram from the host OS as we really want.
+
+    // Initialize bytes_of_oldstuff_in_next_younger_agegroup[].
+    // Since agegroup0 is a special case -- it does not have
+    // separate sib buffers -- we conservatively assume that,
+    // during the about-to-happen heapcleaning, each agegroup1
+    // sib buffer may have to accept the entire contents of
+    // the agegroup0 buffer (which we assume to be full -- it
+    // will normally be within a few KB of totally full before
+    // heapcleaning is initiated):
+    //
     for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
         //
-	previous_oldstuff_bytesize[ s ]
+	bytes_of_oldstuff_in_next_younger_agegroup[ s ]
 	    =
             heap->agegroup0_master_buffer_bytesize;			// This value doesn't seem right, but it works and my attention is elsewhere, so for the moment I'm going to accept this as Black Magic.  -- 2012-01-31 CrT
 //          heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;	// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
@@ -677,28 +694,39 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
         // should be flipped:
 															// sib_is_active		def in    src/c/h/heap.h
 															// sib_freespace_in_bytes	def in    src/c/h/heap.h
-	// Decide whether to heapclean this agegroup:
+	// Decide whether to heapclean this agegroup.
+	// We heapclean it in either of two cases:
+	//
+	//  o Caller ordered us to do so.
+	//
+	//  o Heapcleaning the next-younger generation
+	//    might promote more "old" stuff into our
+	//    buffer than we current have room for.
 	//
 	if (age >= youngest_agegroup_without_heapcleaning_request) {
 	    //
-	    // We are not required to heapclean this agegroup.
-	    // Do we want to do so anyhow?
+	    // We are not required to heapclean this agegroup,
+	    // so we can skip heapcleaning it, provided that
+	    // all of our sib buffers have enough free space
+	    // to accept the maximum amount of oldstuff which
+	    // could possibly be promoted from the next-younger
+	    // agegroup during its own heapcleaning:
 	    //
-	    int want_to_heapclean_this_agegroup = FALSE;					// Initial assumption.
+	    int want_to_heapclean_this_agegroup = FALSE;								// Initial assumption.
 	    //
 	    for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	        //
 		Sib* sib =  ag->sib[ s ];
 
-		Punt free_bytes_in_sib
+		Punt free_bytes_in_sib											// Compute free bytes in this sib buffer.
 		    =
 		    sib_is_active( sib )
                       ? sib_freespace_in_bytes( sib )
 		      : 0;
 
-		if (free_bytes_in_sib < previous_oldstuff_bytesize[ s ]) {			// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
+		if (free_bytes_in_sib < bytes_of_oldstuff_in_next_younger_agegroup[ s ]) {				// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
 		    //
-		    want_to_heapclean_this_agegroup = TRUE;
+		    want_to_heapclean_this_agegroup = TRUE;								// Insufficient free space in sib buffer, must create more.
 		    break;
 		}
 	    }
@@ -722,7 +750,6 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	//
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	    //	
-	    Punt  min_bytes;
 	    Punt  bytes_of_youngstuff_in_sib;
 
 	    Sib* sib =  ag->sib[ s ];
@@ -743,48 +770,57 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 		if (sib->requested_extra_free_bytes == 0
 		    &&
-		    previous_oldstuff_bytesize[ s ] == 0
+		    bytes_of_oldstuff_in_next_younger_agegroup[ s ] == 0
 		){
-		    continue;
+		    continue;										// We don't actually need *any* freespace in this sib buffer(!) so quit worrying about it.
 		}
 
 		bytes_of_youngstuff_in_sib = 0;
 	    }
 
-	    min_bytes =  previous_oldstuff_bytesize[ s ]
-                      +  bytes_of_youngstuff_in_sib
-                      +  sib->requested_extra_free_bytes;
+	    Punt min_bytes_for_sib									// Absolute minimum bytesize for sib's tospace buffer; We can't keep running without this much.
+		=
+		sib->requested_extra_free_bytes								// Caller wants this many free bytes in this sib for some new chunk it is creating.
+		+
+		bytes_of_oldstuff_in_next_younger_agegroup[ s ]						// This many bytes of oldstuff might get promoted from next-younger agegroup's sib into this one.
+		+
+		bytes_of_youngstuff_in_sib;								// Our youngstuff will be copied into the tospace buffer. (Our oldstuff will be promoted to next agegroup -- not our problem.)
 
-	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;						// First slot isn't used, but may need the space for poly =
+	    if (s == RO_CONSCELL_SIB)   min_bytes_for_sib += 2*WORD_BYTESIZE;				// First slot isn't used, but may need the space for poly-equal.
 
-	    min_bytesize[ s ] =  min_bytes;
+	    min_bytesize_for_sib[ s ] =  min_bytes_for_sib;
 
+	    // 'min_bytes_for_sib' is the least we can live with, but in general we would like
+	    // to have more space than that.  Here we compute just how much more.
+	    //	
 	    // The desired size is one that will allow "target_heapcleaning_frequency_ratio"
 	    // heapcleanings of the previous agegroup before this has to be cleaned again.
-	    // We approximate this as f*(r/n), where
+	    // We approximate this as (f/n)*r, where
 	    //   r == target_heapcleaning_frequency_ratio
-	    //   f == # of bytes forwarded                    since the last heapcleaning of this agegroup.
+	    //   f == # of bytes of youngstuff in this sib.
 	    //   n == # of cleanings of the previous agegroup since the last heapcleaning of this agegroup.
 	    // We also need to allow space for young chunks in this agegroup,
 	    // but the new size shouldn't exceed the maximum size for the
-	    // sib buffer (unless min_bytes > soft_max_bytesize).
+	    // sib buffer (unless min_bytes_for_sib > soft_max_bytesize).
 	    //
-	    new_bytesize =   previous_oldstuff_bytesize[ s ]
-				  +
-				  sib->requested_extra_free_bytes
-				  +
-				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning);
+	    Punt  preferred_bytesize_for_sib
+	        =
+		sib->requested_extra_free_bytes								// Caller wants this many free bytes in this sib for some new chunk it is creating.
+		+
+                bytes_of_oldstuff_in_next_younger_agegroup[ s ]						// This many bytes of oldstuff might get promoted from next-younger agegroup's sib into this one.
+		+
+		(bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning) * ag->target_heapcleaning_frequency_ratio;
 
-	    // Clamp new_bytesize to sane range:
+	    // Clamp preferred_bytesize_for_sib to sane range:
 	    //
-	    if (new_bytesize < min_bytes) {
-		new_bytesize = min_bytes;
+	    if (preferred_bytesize_for_sib < min_bytes_for_sib) {
+		preferred_bytesize_for_sib = min_bytes_for_sib;
 	    }
-	    if (new_bytesize >      sib->soft_max_bytesize) {
-		new_bytesize = max( sib->soft_max_bytesize, min_bytes);
+	    if (preferred_bytesize_for_sib >      sib->soft_max_bytesize) {
+		preferred_bytesize_for_sib = max( sib->soft_max_bytesize, min_bytes_for_sib);
 	    }
 
-	    if (new_bytesize == 0) {
+	    if (preferred_bytesize_for_sib == 0) {
 		//
 		sib->tospace.used_end	=  NULL;
 		sib->tospace.limit	=  NULL;
@@ -794,15 +830,15 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 		sib->tospace.bytesize
 		    =
-		    BOOKROUNDED_BYTESIZE( new_bytesize );							// Round up to a multiple of 64KB.
+		    BOOKROUNDED_BYTESIZE( preferred_bytesize_for_sib );							// Round up to a multiple of 64KB.
 	    }
 
 	    // Note: any data between sib->fromspace.oldstuff_end
 	    // and sib->tospace.used_end is "young",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace.bytesize > 0)   previous_oldstuff_bytesize[ s ] =   (Punt) sib->fromspace.oldstuff_end - (Punt) sib->fromspace.start;
-	    else 		               previous_oldstuff_bytesize[ s ] =   0;
+	    if (sib->fromspace.bytesize > 0)   bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   (Punt) sib->fromspace.oldstuff_end - (Punt) sib->fromspace.start;
+	    else 		               bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   0;
 	}
 
 	ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning
@@ -819,6 +855,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 	if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {							// set_up_tospace_sib_buffers_for_agegroup				def in   src/c/heapcleaner/heapcleaner-stuff.c
 	    //
+	    // We were unable to allocate sufficient RAM from the OS. (?!)
             // Try to allocate the minimum size:
 
 	    say_error( "Unable to allocate to-space for agegroup %d; trying smaller size\n", age+1 );
@@ -827,7 +864,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 		//
 		ag->sib[ s ]->tospace.bytesize
 		    =
-		    BOOKROUNDED_BYTESIZE( min_bytesize[ s ] );
+		    BOOKROUNDED_BYTESIZE( min_bytesize_for_sib[ s ] );
 	    }
 
 	    if (!set_up_tospace_sib_buffers_for_agegroup( ag )) {

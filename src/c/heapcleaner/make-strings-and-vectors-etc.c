@@ -182,17 +182,17 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 
     } else {
 
-	Sib* ap =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
+	Sib* sib =   task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
 	bytesize = WORD_BYTESIZE*(nwords + 1);
 
 	pthread_mutex_lock( &pth__mutex );
 	    //
-	    IFGC (ap, bytesize+task->heap_allocation_buffer_bytesize) {
+	    IFGC (sib, bytesize+task->heap_allocation_buffer_bytesize) {
 
 	        // We need to do a garbage collection:
                 //
-		ap->requested_extra_free_bytes += bytesize;
+		sib->requested_extra_free_bytes += bytesize;
                 //
 		pthread_mutex_unlock( &pth__mutex );
 		    //
@@ -200,11 +200,11 @@ Val   allocate_nonempty_int1_vector   (Task* task,  int nwords)   {
 		    //
 		pthread_mutex_lock( &pth__mutex );
                 //
-		ap->requested_extra_free_bytes = 0;
+		sib->requested_extra_free_bytes = 0;
 	    }
-	    *(ap->tospace.used_end++) = tagword;
-	    result = PTR_CAST( Val, ap->tospace.used_end);
-	    ap->tospace.used_end += nwords;
+	    *(sib->tospace.used_end++) = tagword;
+	    result = PTR_CAST( Val, sib->tospace.used_end);
+	    sib->tospace.used_end += nwords;
 
 	pthread_mutex_unlock( &pth__mutex );
 
@@ -232,11 +232,11 @@ void   shrink_fresh_int1_vector   (Task* task,  Val v,  int new_length_in_words)
 
     if (old_length_in_words > MAX_AGEGROUP0_ALLOCATION_SIZE_IN_WORDS) {
         //
-	Sib*  ap = task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
+	Sib*  sib = task->heap->agegroup[ 0 ]->sib[ NONPTR_DATA_SIB ];
 
-	ASSERT(ap->tospace.used_end - old_length_in_words == PTR_CAST(Val*, v)); 
+	ASSERT(sib->tospace.used_end - old_length_in_words == PTR_CAST(Val*, v)); 
 
-	ap->tospace.used_end -= (old_length_in_words - new_length_in_words);
+	sib->tospace.used_end -= (old_length_in_words - new_length_in_words);
 
     } else {
 
