@@ -663,6 +663,9 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	heap->agegroup0_heapcleanings_count;
 
 
+    // Over all agegroups we are required to heapclean,
+    // plus any agegroups we choose to heapclean in addition:
+    //
     for (int age = 0;  age < heap->active_agegroups;  ++age) {
         //
 	Agegroup* ag =  heap->agegroup[ age ];
@@ -671,28 +674,38 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
         // should be flipped:
 															// sib_is_active		def in    src/c/h/heap.h
 															// sib_freespace_in_bytes	def in    src/c/h/heap.h
+	// Decide whether to heapclean this agegroup:
+	//
 	if (age >= youngest_agegroup_without_heapcleaning_request) {
+	    //
+	    // We are not required to heapclean this agegroup.
+	    // Do we want to do so anyhow?
+	    //
+	    int want_to_heapclean_this_agegroup = FALSE;					// Initial assumption.
 	    //
 	    for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	        //
 		Sib* sib =  ag->sib[ s ];
 
-		Punt sib_freespace
+		Punt free_bytes_in_sib
 		    =
 		    sib_is_active( sib )
                       ? sib_freespace_in_bytes( sib )
 		      : 0;
 
-		if (sib_freespace < previous_oldstuff_bytesize[ s ]) {			// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
+		if (free_bytes_in_sib < previous_oldstuff_bytesize[ s ]) {			// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
 		    //
-		    goto flip;
+		    want_to_heapclean_this_agegroup = TRUE;
+		    break;
 		}
 	    }
 
-	    return age;	    	// Here we don't need to flip agegroup[age].
+	    if (!want_to_heapclean_this_agegroup)   return age;
 	}
 
-    flip: ; 			// Here we need to flip agegroup[ age ].
+	/////////////////////////////////////
+	// We need to flip agegroup[ age ].
+	/////////////////////////////////////
 
 	cleanings = old_heapcleanings_count
 		    -
@@ -737,7 +750,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
                       +  bytes_of_youngstuff_in_sib
                       +  sib->requested_sib_buffer_bytesize;
 
-	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;					// First slot isn't used, but may need the space for poly =
+	    if (s == RO_CONSCELL_SIB)   min_bytes += 2*WORD_BYTESIZE;						// First slot isn't used, but may need the space for poly =
 
 	    min_bytesize[ s ] =  min_bytes;
 
@@ -776,7 +789,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
 		sib->tospace_bytesize
 		    =
-		    BOOKROUNDED_BYTESIZE( new_bytesize );				// Round up to a multiple of 64KB.
+		    BOOKROUNDED_BYTESIZE( new_bytesize );							// Round up to a multiple of 64KB.
 	    }
 
 	    // Note: any data between sib->fromspace_oldstuff_end
