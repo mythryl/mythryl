@@ -1018,12 +1018,12 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 //
 //
-static Bool  scan_tospace_buffer   (											// Called only from forward_remaining_live_values (below).
-    //       ===================
+static Bool  forward_rest_of_ro_pointers_sib   (											// Called only from forward_remaining_live_values (below).
+    //       ===============================
     //
     Agegroup* ag,
     Heap*     heap,
-    int       ilk,		// Either RO_POINTERS_SIB or RO_CONSCELL_SIB.
+    int       s,		// Either RO_POINTERS_SIB or RO_CONSCELL_SIB.
     Sibid     max_sibid
 ){
     // Forward (copy) to to-space all live values referenced
@@ -1035,7 +1035,7 @@ static Bool  scan_tospace_buffer   (											// Called only from forward_remai
     //
     Bool made_progress = FALSE;
 
-    Sib* sib = (ag)->sib[ ilk ];
+    Sib* sib = (ag)->sib[ s ];
 
     if (!sib_is_active( sib ))                      return FALSE;							// sib_is_active	def in    src/c/h/heap.h
 
@@ -1057,11 +1057,11 @@ static Bool  scan_tospace_buffer   (											// Called only from forward_remai
     return   made_progress;
 }
 //
-static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_remaining_live_values (below).
-    //              ===================
+static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_remaining_live_values (below).
+    //              ===============================
     // 
     // Forward (copy) to to-space all live values referenced
-    // by the unscanned part of our vector tospace buffer.
+    // by the unscanned part of our RW_POINTERS_SIB.
     //
     // Return TRUE iff we did anything.
 
@@ -1074,7 +1074,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
 	= 
         ag->coarse_inter_agegroup_pointers_map;
 
-    Sibid*	   b2s    =  book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid*	   b2s    =  book_to_sibid__global;									// Cache locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid	   max_sibid   =  MAKE_MAX_SIBID(oldest_agegroup_to_clean);
 
@@ -1151,7 +1151,7 @@ static Bool         scan_vector_tospace              (Agegroup* ag,  Heap* heap,
     sib->tospace.swept_end = p;
 
     return TRUE;
-}									// fun scan_vector_tospace
+}									// fun forward_rest_of_rw_pointers_sib
 
 //
 //
@@ -1243,9 +1243,9 @@ static void         forward_remaining_live_values                      (Heap* he
             // Forward all live values referenced by unscanned parts
             // of to-space buffers for records, pairs and vectors:
 	    //
-	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_POINTERS_SIB, max_sibid );
-	    making_progress |=   scan_tospace_buffer(   ag, heap, RO_CONSCELL_SIB,   max_sibid );
-	    making_progress |=   scan_vector_tospace(   ag, heap, oldest_agegroup_to_clean );
+	    making_progress |=   forward_rest_of_ro_pointers_sib(   ag, heap, RO_POINTERS_SIB, max_sibid );
+	    making_progress |=   forward_rest_of_ro_pointers_sib(   ag, heap, RO_CONSCELL_SIB, max_sibid );
+	    making_progress |=   forward_rest_of_rw_pointers_sib(   ag, heap, oldest_agegroup_to_clean );
 	}
     }
 }
