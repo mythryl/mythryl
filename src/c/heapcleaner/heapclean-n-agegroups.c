@@ -641,8 +641,10 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 
     Heap* heap = task->heap;
 
-    int younger_agegroup_heapcleanings_since_last_checked;		// We want each agegroup to do about 1/10 as many heapcleanings
-									// as the next-youngest one.  We'll us this variable to compute
+    int younger_agegroup_heapcleanings_since_last_heapcleaning;		// How many heapcleanings has the next-youngest agegroup had
+									// since we last heapcleaned the current agegroup?
+									// We want each agegroup to do about 1/10 as many heapcleanings
+									// as the next-youngest one;  We'll us this variable to compute
 									// how close we came this time around for this agegroup.
     Punt  new_bytesize;
     Punt  previous_oldstuff_bytesize[ MAX_PLAIN_SIBS ];			// This vector will be re-used for each successive agegroup.
@@ -708,9 +710,11 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	// We need to flip agegroup[ age ].
 	/////////////////////////////////////
 
-	younger_agegroup_heapcleanings_since_last_checked = younger_agegroup_heapcleanings_count
-		    -
-		    ag->last_heapcleanings_count_of_younger_agegroup;
+	younger_agegroup_heapcleanings_since_last_heapcleaning
+	    =
+	    younger_agegroup_heapcleanings_count
+	    -
+	    ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning;
 
 	// Compute the space requirements for this agegroup,
 	// make the old to-space into from-space, and
@@ -769,7 +773,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 				  +
 				  sib->requested_sib_buffer_bytesize
 				  +
-				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_checked);
+				  ag->target_heapcleaning_frequency_ratio  *  (bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning);
 
 	    // Clamp new_bytesize to sane range:
 	    //
@@ -801,7 +805,7 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
 	    else 		               previous_oldstuff_bytesize[ s ] =   0;
 	}
 
-	ag->last_heapcleanings_count_of_younger_agegroup
+	ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning
 	    =
             younger_agegroup_heapcleanings_count;
 

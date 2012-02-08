@@ -264,7 +264,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 	    =
 	    default_agegroup_size_ratio__local[ age ];
 
-	ag->last_heapcleanings_count_of_younger_agegroup
+	ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning
 	    =
 	    0;
 	//

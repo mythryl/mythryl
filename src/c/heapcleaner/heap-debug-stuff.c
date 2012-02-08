@@ -162,7 +162,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"           a->age                 d=%d\n",  a->age);
 	fprintf(fd,"           a->heapcleanings_count d=%d\n",  a->heapcleanings_count);
 	fprintf(fd,"           a->target_heapcleaning_frequency_ratio     x=%x (Desired number of collections of the previous agegroup for one collection of this agegroup)\n",  a->target_heapcleaning_frequency_ratio);
-	fprintf(fd,"           a->last_heapcleanings_count_of_younger_agegroup d=%d\n",  a->last_heapcleanings_count_of_younger_agegroup);
+	fprintf(fd,"           a->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning d=%d\n",  a->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning);
 
 	for (int s = 0;
                  s < MAX_PLAIN_SIBS;
@@ -515,7 +515,7 @@ static void   dump_gens__guts   (FILE* fd, Task* task, char* caller) {
 	fprintf(fd,"                 ag->age d= %d\n",						ag->age							);
 	fprintf(fd,"                 ag->heapcleanings_count d= %d\n",				ag->heapcleanings_count					);
 	fprintf(fd,"                 ag->target_heapcleaning_frequency_ratio     d= %d\n",	ag->target_heapcleaning_frequency_ratio			);
-	fprintf(fd,"                 ag->last_heapcleanings_count_of_younger_agegroup d= %d\n",	ag->last_heapcleanings_count_of_younger_agegroup		);
+	fprintf(fd,"                 ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning d= %d\n",	ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning		);
 	fprintf(fd,"                 ag->tospace_quire p= %p\n",				ag->tospace_quire					);
 	fprintf(fd,"                 ag->fromspace_quire p= %p\n",				ag->fromspace_quire				);
 	fprintf(fd,"                 ag->retained_fromspace_quire p= %p\n",			ag->retained_fromspace_quire				);
