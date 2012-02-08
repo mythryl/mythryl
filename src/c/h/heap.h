@@ -182,17 +182,24 @@ struct sib {
 								// Special case: chunks in the oldest active agegroup are forever young.
     } fromspace;
 
-    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
-								// The repair list grows  down in to-space.
-
     Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
 
-    Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had
-								// external references that require repair.
     // Heap sizing parameters:
     //
     Val_Sized_Unt	requested_sib_buffer_bytesize;		// Requested minimum size for this sib buffer. (This is in addition to the required minimum size.)
     Val_Sized_Unt	soft_max_bytesize;			// A soft maximum size for this sib buffer.
+
+
+
+    // ======================================================== //
+    Bool		heap_needs_repair;			// Set to TRUE when exporting if the sib had external references that require repair.
+								// This is basically local state for src/c/heapcleaner/export-heap.c + src/c/heapcleaner/datastructure-pickler-cleaner.c
+								// -- it SHOULD NOT BE HERE.  XXX SUCKO FIXME.
+    Repair*		repairlist;				// Points to the top of the repair list (for pickling datastructures).
+								// The repair list grows  down in to-space.
+								// This is basically local state for src/c/heapcleaner/datastructure-pickler-cleaner.c
+								// -- it SHOULD NOT BE HERE.  XXX SUCKO FIXME.
+    // ======================================================== //
 };
 
 //
