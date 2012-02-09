@@ -1,31 +1,30 @@
 // heapclean-n-agegroups.c
 //
-// This is the regular cleaner, for cleaning all agegroups.
-// (Versus
+// This is the regular heapcleaner ("garbage collector"),
+// for cleaning all agegroups *except* agegroup0.
+//
+// Agegroup0 is cleaned by a separate module
 //     src/c/heapcleaner/heapclean-agegroup0.c
-// which cleans only agegroup0.)
+// because it has a totally different structure.)
 //
 // For a background discussion see:
 //
-//     src/A.CLEANER.OVERVIEW
+//     src/A.GARBAGE-COLLECTOR.OVERVIEW
 //
-/*
-Wisdom:
-*/
 
 /*
-###                         "Youth had been a habit of hers for so long,
-###                          that she could not part with it."
+###                        "Youth had been a habit of hers for so long,
+###                         that she could not part with it."
 ###
 ###                                             -- Rudyard Kipling
 */
 
 /*
-###                "It is best to do things systematically,
-###                 since we are only humans, and disorder
-###                 is our worst enemy."
+###                        "It is best to do things systematically,
+###                         since we are only humans, and disorder
+###                         is our worst enemy."
 ###
-###                             -- Hesiod (c 800 - 720 BCE)
+###                                             -- Hesiod (c 800 - 720 BCE)
 */
 
 /*
@@ -94,22 +93,22 @@ Cleaner statistics stuff:
 
 // Forward references:
 
- static int	    set_up_empty_tospace_buffers			(Task*          task,   int            youngest_agegroup_without_heapcleaning_request											);
+ static int	   establish_all_necessary_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request										);
 //
 #ifdef  BO_DEBUG
- static void         scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk									);
+ static void       scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk								);
 #endif
 //
- static void         forward_all_roots					(Task*          task,   Heap*          heap,                  Val**  roots,               int                                   max_cleaned_agegroup			);
- static void         forward_all_inter_agegroup_referenced_values	(Task*          task,   Heap*          heap,                                              int                                   max_cleaned_agegroup			);
- static void         forward_remaining_live_values			(Heap*          heap,   int            max_cleaned_agegroup,  int    max_swept_agegroup											);
+ static void       forward_all_root_chunks				(Task*          task,   Heap*          heap,                  Val**  roots,               int                                   max_cleaned_agegroup		);
+ static void       forward_all_chunks_referenced_by_uncleaned_agegroups	(Task*          task,   Heap*          heap,                                              int                                   max_cleaned_agegroup		);
+ static void       forward_all_remaining_live_chunks			(Heap*          heap,   int            max_cleaned_agegroup,  int    max_swept_agegroup										);
 
- static void         trim_heap		    				(Task*          task,   int            max_cleaned_agegroup														);
+ static void       trim_heap		    				(Task*          task,   int            max_cleaned_agegroup													);
 //
- static Val          forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id					);
- static Val          forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                     Val tagword	);
+ static Val        forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id				);
+ static Val        forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                 Val tagword	);
 //
- static Hugechunk*   forward_hugechunk					(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id					);
+ static Hugechunk* forward_hugechunk					(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
 
 //
 
@@ -154,18 +153,20 @@ static inline void  forward_pointee_if_in_fromspace   (Heap* heap,  Sibid* b2s, 
 static void         reclaim_fromspace_hugechunks                  (Heap* heap,  int oldest_agegroup_to_clean)   {
     //              ============================
     //
-    // Garbage records, pairs, strings and vectors are never explicitly
+    // Dead records, pairs, strings and vectors are never explicitly
     // reclaimed;  they simply get left behind after we have copied all
     // live values from from-space to to-space, and get reclaimed en masse
-    // when we release or re-use the from-space buffer.  However, to save
-    // time and space we avoid copying Hugechunks (i.e., Codechunks) because
-    // they are large and static; instead of copying them we just change
-    // their hugechunk_state field.  Consquently when hugechunks -do- become
-    // garbage we must in fact explicitly free them.  That is our task here.
+    // when we release or re-use the from-space buffer.
     //
-    // We reclaim hugechunk agegroup by agegroup from oldest to youngest
-    // so that we can promote them.
+    // However, to save time and space we avoid copying Hugechunks
+    // (i.e., Codechunks) because they are large and static; instead
+    // of copying them we just change their hugechunk_state field.
     //
+    // Consquently when hugechunks -do- become garbage we must in fact
+    // explicitly free them.  That is our task here.
+    //
+    // We reclaim hugechunks agegroup by agegroup from oldest to
+    // youngest so that we can promote them.
 
     Sibid*  b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
@@ -207,8 +208,8 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		 promote_state =  YOUNG_HUGECHUNK;
 	    else promote_state =    OLD_HUGECHUNK;
 		//
-		// The chunks promoted from agegroup age to agegroup age+1, when
-		// agegroup age+1 is also being cleaned, are "OLD", thus we need
+		// The chunks promoted from agegroup 'age' to agegroup 'age'+1, when
+		// agegroup 'age'+1 is also being cleaned, are "OLD", thus we need
 		// to mark the corresponding big chunks as old so that they do not
 		// get out of sync.  Since the oldest agegroup has only YOUNG
 		// chunks, we have to check for that case too.
@@ -221,8 +222,11 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
 	    Hugechunk*  next;
 
-	    for (Hugechunk* p = ag->hugechunks[ s ];  p != NULL;  p = next) {
-		//
+	    for (Hugechunk*
+                p  = ag->hugechunks[ s ];
+                p != NULL;
+                p  = next
+	    ){
 		next = p->next;
 
 		ASSERT( p->agegroup == age );
@@ -427,7 +431,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
     //       ========================
     //
     //
-    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
+    #if !NEED_HEAPCLEANER_PAUSE_STATISTICS								// Don't do timing when collecting pause data.
 	//
 	start_heapcleaning_timer( task->pthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
     #endif
@@ -441,11 +445,13 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 
     // Decide how many agegroups to clean
     // (always at least as many as requested)
-    // and set up to-space buffers for them:
+    // and ensure that all necessary to-space
+    // sib buffers have enough free space to
+    // handle worst-case space requirements:
     //
     int oldest_agegroup_to_clean
 	=
-	set_up_empty_tospace_buffers( task, level );
+	establish_all_necessary_empty_tospace_sib_buffers( task, level );
 
 
     // We sweep one more agegroup than we clean,
@@ -520,20 +526,20 @@ void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
             level
         );
 
-    // Start the cleaning by forwarding (copying) all
-    // heap values (in the agegroups we are cleaning) which
-    // are directly referenced by Mythryl-task registers,
-    // or by global registers in the C runtime:
+    // Start the cleaning by forwarding (copying from from-space
+    // to to-space) all heap values (in the agegroups we are cleaning)
+    // which are directly referenced by Mythryl-task registers, or
+    // by global registers in the C runtime:
     //
-    forward_all_roots( task, heap, roots, oldest_agegroup_to_clean );
+    forward_all_root_chunks( task, heap, roots, oldest_agegroup_to_clean );
 
     // Now forward all heap values in the agegroups we are cleaning
     // which are directly referenced from the agegroups we are NOT
     // cleaning:
     //
-    forward_all_inter_agegroup_referenced_values( task, heap, oldest_agegroup_to_clean );
+    forward_all_chunks_referenced_by_uncleaned_agegroups( task, heap, oldest_agegroup_to_clean );
 
-    forward_remaining_live_values( heap, oldest_agegroup_to_clean, max_swept_agegroup );
+    forward_all_remaining_live_chunks( heap, oldest_agegroup_to_clean, max_swept_agegroup );
 
     null_out_newly_dead_weakrefs( heap );									// null_out_newly_dead_weakrefs					def in    src/c/heapcleaner/heapcleaner-stuff.c
 
@@ -610,8 +616,8 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 //
 //
 //
-static int          set_up_empty_tospace_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
-    //              ============================
+static int          establish_all_necessary_empty_tospace_sib_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
+    //              =================================================
     // 
     // Make sure that every to-space sib buffer in every age group
     // has sufficient space to guarantee that the heapcleaning
@@ -901,28 +907,27 @@ static int          set_up_empty_tospace_buffers       (Task* task,   int younge
     }														// for (int age = 0;   age < heap->active_agegroups;   ++age) 
 
     return heap->active_agegroups;
-}														// fun set_up_empty_tospace_buffers
+}														// fun establish_all_necessary_empty_tospace_sib_buffers
 
 //
 //
-static void         forward_all_roots (
-    //              =================
+static void         forward_all_root_chunks (
+    //              =======================
     //
     Task*  task,
     Heap*  heap,
     Val**  roots,
     int	   oldest_agegroup_to_clean
 ){
-    // Our job here is to forward (copy) from from-space
-    // into to-space all heap values (of appropriate age)
-    // which are directly accessible to user code.
+    // Our job here is to forward all "roots" -- all heap
+    // chunks (of appropriate age) which are directly
+    // accessible to user code.
     //
-    // These values consist of saved Mythryl-task registers
+    // Our roots consist of saved Mythryl-task registers
     // and C global variables pointing into the Mythryl heap.
     // They are enumerated for us by code in    clean_heap().							// clean_heap							def in    src/c/heapcleaner/call-heapcleaner.c 
-
-    // Cache global in register for speed:
     //
+
     Sibid* b2s =  book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );						// MAKE_MAX_SIBID						is from   src/c/h/sibid.h
@@ -932,19 +937,19 @@ static void         forward_all_roots (
 	//
 	forward_pointee_if_in_fromspace( heap, b2s, max_sibid, rp );
     }
-}														// fun forward_all_roots
+}														// fun forward_all_root_chunks
 
     
-static void         forward_all_inter_agegroup_referenced_values   (
+static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
     //              ============================================
     Task*  task,
     Heap*  heap,
     int	   oldest_agegroup_to_clean
 ){
-    // Our job here is to forward (copy) from from-space
-    // all heap values in the agegroups we are cleaning
-    // which are directly referenced from the agegroups
-    // we are NOT cleaning.
+    // Our job here is to forward (copy from from-space
+    // to to-space) all heap values in the agegroups we
+    // are cleaning which are directly referenced from
+    // the agegroups we are NOT cleaning.
     //
     // Any such references must be in the RW_POINTERS_SIB buffer:
     //
@@ -961,12 +966,12 @@ static void         forward_all_inter_agegroup_referenced_values   (
     //    as just a length-1 rw_vector.) 
     //
     // Consequently we need only check RW_POINTERS_SIB sib buffers in
-    // this function.  (This is one reason for segregating RW_POINTERS_SIB
-    // in a separate buffer of their own in the first place.)
+    // this function.  (This is the main reason for having a separate
+    // RW_POINTERS_SIB.)
 
     // Cache global in register for speed:
     //
-    Sibid* b2s =  book_to_sibid__global;										// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
+    Sibid* b2s =  book_to_sibid__global;									// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );
 
@@ -981,11 +986,11 @@ static void         forward_all_inter_agegroup_referenced_values   (
 	    /*CARD*/ card_count1_local[age]=card_count2_local[age]=0;
 	#endif
 
-	if (!sib_is_active( ag->sib[ RW_POINTERS_SIB ]))   continue;							// sib_is_active			def in    src/c/h/heap.h
+	if (!sib_is_active( ag->sib[ RW_POINTERS_SIB ]))   continue;						// sib_is_active			def in    src/c/h/heap.h
 
-	Coarse_Inter_Agegroup_Pointers_Map*	 map
-	    =
-	    ag->coarse_inter_agegroup_pointers_map;
+	Coarse_Inter_Agegroup_Pointers_Map*
+	    //
+	    map =  ag->coarse_inter_agegroup_pointers_map;
 
 	if (map == NULL)   continue;
 
@@ -1001,7 +1006,7 @@ static void         forward_all_inter_agegroup_referenced_values   (
 	    Val*  p =  (map->base_address + (dirty_card * CARD_SIZE_IN_WORDS));					// Get pointer to start of dirty card.
 	    Val*  q =  p + CARD_SIZE_IN_WORDS;									// Get pointer to end   of dirty card.
 
-	    int mark = age+1;
+	    int min_age = age+1;
 
 	    COUNT_CARD1( age );											// Statistics.   COUNT_CARD1 def at top of file.
 
@@ -1017,21 +1022,17 @@ static void         forward_all_inter_agegroup_referenced_values   (
 		//
 		Val word = *p;
 
-		// We're only interested in pointers --
-		// specifically pointers into agegroups
-		// we're cleaning -- so:
-		//
-		if (!IS_POINTER( word ))   continue;
+		if (!IS_POINTER( word ))   continue;								// We're only interested in pointers -- specifically pointers into agegroups we're heapcleaning.
 
-		Sibid  sibid =  SIBID_FOR_POINTER(b2s, word );
-
-		int target_age;
+		Sibid  sibid =  SIBID_FOR_POINTER(b2s, word );							// Start figuring out what 'word' points to.
 
 		COUNT_CODECHUNKS( sibid );									// Statistics.   COUNT_CODECHUNKS def at top of file.
 
-		if (SIBID_IS_IN_FROMSPACE(sibid, max_sibid)) {							// This is a from-space chunk.
+		if (SIBID_IS_IN_FROMSPACE(sibid, max_sibid)) {							// If this is a from-space chunk.  SIBID_IS_IN_FROMSPACE  def in   src/c/h/sibid.h
 		    //
 		    COUNT_CARD2( age );										// Statistics.   COUNT_CARD1 def at top of file.
+
+		    int target_age;
 
 		    if (SIBID_KIND_IS_CODE( sibid )) {
 			//
@@ -1041,22 +1042,22 @@ static void         forward_all_inter_agegroup_referenced_values   (
 
 		    } else {
 			//
-			*p = word = forward_chunk( heap, max_sibid, word, sibid );
+			*p = word = forward_chunk( heap, max_sibid, word, sibid );				// The beef in our burger.
 
 			target_age = GET_AGE_FROM_SIBID( SIBID_FOR_POINTER(b2s, word ) );
 		    }
 
-		    if (mark > target_age) {
-			mark = target_age;
+		    if (min_age > target_age) {
+			min_age = target_age;
 		    }
 		}
 	    }
 														// CLEAN_CARD	def in    src/c/h/coarse-inter-agegroup-pointers-map.h
 	    // Re-mark the card:
 	    //
-	    ASSERT( map->min_age[ dirty_card ] <= mark );
+	    ASSERT( map->min_age[ dirty_card ] <= min_age );
 	    //
-	    if (mark <= age)			            map->min_age[ dirty_card ] =  mark;
+	    if      (age >= min_age)		            map->min_age[ dirty_card ] =  min_age;
 	    else if (age == oldest_agegroup_to_clean)	    map->min_age[ dirty_card ] =  CLEAN_CARD;
 	});
     }														// for (int age = oldest_agegroup_to_clean;  age < heap->active_agegroups;  age++) 
@@ -1071,11 +1072,11 @@ static void         forward_all_inter_agegroup_referenced_values   (
 	/*CARD*/debug_say ("\n");
     #endif
 
-}															// fun forward_all_inter_agegroup_referenced_values
+}														// fun forward_all_chunks_referenced_by_uncleaned_agegroups
 
 //
 //
-static Bool  forward_rest_of_ro_pointers_sib   (											// Called only from forward_remaining_live_values (below).
+static Bool  forward_rest_of_ro_pointers_sib   (								// Called only from forward_all_remaining_live_chunks (below).
     //       ===============================
     //
     Agegroup* ag,
@@ -1114,7 +1115,7 @@ static Bool  forward_rest_of_ro_pointers_sib   (											// Called only from f
     return   made_progress;
 }
 //
-static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_remaining_live_values (below).
+static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag,  Heap* heap,  int oldest_agegroup_to_clean)   {	// Called only from forward_all_remaining_live_chunks (below).
     //              ===============================
     // 
     // Forward (copy) to to-space all live values referenced
@@ -1212,8 +1213,8 @@ static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag, 
 
 //
 //
-static void         forward_remaining_live_values                      (Heap* heap,  int oldest_agegroup_to_clean,  int max_swept_agegroup)   {
-    //              =============================
+static void         forward_all_remaining_live_chunks                      (Heap* heap,  int oldest_agegroup_to_clean,  int max_swept_agegroup)   {
+    //              =================================
     //
     // At this point we have forwarded (copied) into to-space
     // all the values referenced  from outside the from-spaces
@@ -1314,10 +1315,15 @@ static void         forward_remaining_live_values                      (Heap* he
 static Val          forward_chunk                      (Heap* heap,  Sibid max_sibid,  Val v,  Sibid sibid)   {
     //              =============
     //
-    // Copy Val 'v' with Sibid 'sibid' to to-space if
-    // this has not already been done, and install a
-    // forwarding pointer in the original copy pointing
-    // to the copy.
+    // Forwarding a chunk involves
+    //
+    //  1) Copying the chunk's tagword and contents from
+    //     the from-space sib buffer it is in into the
+    //     appropriate to-space sib buffer.
+    //
+    //  2) Installing a forwarding pointer in the original
+    //     chunk pointing to the new copy of it, and changing
+    //     the original's tagword to flag it as forwarded.
     //
     // Return a pointer to the to-space copy.  (If 'v'
     // has already been forwarded, we simply return
@@ -1555,13 +1561,15 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
 
     Hugechunk_Region *region;													// Hugechunk_Region			def in    src/c/h/heap.h
     {
-        int  book;
-	for (book = GET_BOOK_CONTAINING_POINTEE( codechunk );
+	int  book;
+	for (book =  GET_BOOK_CONTAINING_POINTEE( codechunk );
+	    //
             !SIBID_ID_IS_BIGCHUNK_RECORD( sibid );
-            sibid = book_to_sibid__global[ --book ]
+	    //
+            sibid =  book_to_sibid__global[ --book ]
         );
 
-	region = (Hugechunk_Region*) ADDRESS_OF_BOOK( book );
+	region =  (Hugechunk_Region*) ADDRESS_OF_BOOK( book );
     }
  
     Hugechunk* p														// Hugechunk				def in    src/c/h/heap.h
@@ -1577,10 +1585,10 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
 
 	// Forward the hugechunk.
         // Note that chunks in the oldest agegroup
-	// will always be YOUNG, thus will never be promoted:
+	// will always be YOUNG, thus will never be promoted:									// YOUNG_FORWARDED_HUGECHUNK		def in    src/c/h/heap.h
 	//
-	if (p->hugechunk_state == YOUNG_HUGECHUNK)  p->hugechunk_state = YOUNG_FORWARDED_HUGECHUNK;				// YOUNG_FORWARDED_HUGECHUNK		def in    src/c/h/heap.h
-	else			                    p->hugechunk_state =    OLD_PROMOTED_HUGECHUNK;
+	if (p->hugechunk_state == YOUNG_HUGECHUNK)  p->hugechunk_state = YOUNG_FORWARDED_HUGECHUNK;				// This is the only place we set state to YOUNG_FORWARDED_HUGECHUNK
+	else			                    p->hugechunk_state =    OLD_PROMOTED_HUGECHUNK;				// This is the only place we set state to   OLD_PROMOTED_HUGECHUNK
     }
 
     return p;
@@ -1826,7 +1834,7 @@ static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 
 		    // The calculation of minSz here may
                     // return something bigger than
-		    // what set_up_empty_tospace_buffers computed!
+		    // what establish_all_necessary_empty_tospace_sib_buffers computed!
 		    //
 		    if (new_bytesize > sib->tospace.bytesize) {
 			new_bytesize = sib->tospace.bytesize;
