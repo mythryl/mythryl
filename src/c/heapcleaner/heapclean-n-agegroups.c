@@ -613,31 +613,51 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 static int          set_up_empty_tospace_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
     //              ============================
     // 
-    // We are called in exactly one place -- near the top of
-    //     prepare_for_heapcleaning
-    // which in turn is called (only) at the top of
-    //     heapclean_n_agegroups
+    // Make sure that every to-space sib buffer in every age group
+    // has sufficient space to guarantee that the heapcleaning
+    // we are about to do cannot possibly overflow any of them.
     //
-    // Every heap agegroup to be cleaned must have an empty
-    // to-space buffer into which to copy its live data, and
-    // that buffer must be large enough to hold the maximum
-    // logically possible amount of data it might receive,
-    // to save us from having to constantly make overflow
-    // checks during cleaning.
+    // We return the number of agegroups to heapclean.
+    //
+    // We are called in exactly one place -- near the top of
+    //     prepare_for_heapcleaning()
+    // in this file which in turn is called (only) at the top of
+    //     heapclean_n_agegroups
+    // in this file.
+    //
+    // The to-space buffer for each sib must be large enough
+    // to hold all possible incoming data from three different
+    // sources:
+    //
+    //  1) Live "young" chunks in the fromspace of the sib will
+    //     be copied into the tospace buffer.  (We don't have
+    //     to worry about "old" chunks in our fromspace;  if
+    //     they are live they will be promoted to another agegroup.)
+    //
+    //  2) Live "old" chunks from the corresponding sib in the
+    //     next-youngest agegroup -- these will be promoted into
+    //     our tospace buffer.
+    //
+    //  3) User code may be in the process of creating one or more
+    //     new chunks in the sib;  if so, the tospace buffer must
+    //     reserve enough additional space to contain them.
     //
     // We will at minimum clean all agegroups which client
     // code has requested us to clean;  we may also clean
     // additional agegroups in order to rebalance the size
     // distribution of the agegroup buffers per policy.
     //
-    // In some cases we may be able to "flip" buffers --
-    // re-use a saved buffer from a previous heapcleaning.
-    // Otherwise we must malloc a new to-space buffer.
+    // In some cases we may be able to re-use a saved buffer
+    // from a previous heapcleaning; otherwise we must allocate
+    // new ram to hold the to-space buffers.   We're usually
+    // allocating megabytes of space, so we do not use malloc(),
+    // but rather obtain_quire_from_os() -- see
+    //     set_up_tospace_sib_buffers_for_agegroup()
+    // in
+    //     src/c/heapcleaner/heapcleaner-stuff.c
     //
-    // We return the number of agegroups to heapclean.
-    //
-    // We assume that agegroup 1 is always heapcleaned -- that is,
-    // that youngest_agegroup_without_heapcleaning_request > 1.
+    // We are not called unless at least agegroup 1 is being heapcleaned,
+    // so we know that youngest_agegroup_without_heapcleaning_request > 1.
 
     Heap* heap = task->heap;
 
