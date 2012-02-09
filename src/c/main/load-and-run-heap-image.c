@@ -23,9 +23,9 @@ void   load_and_run_heap_image (
     //
     //     agegroup0_buffer_bytesize
     //     active_agegroups
-    //     oldest_agegroup_keeping_idle_fromspace_buffers
+    //     oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
     //
-    // possible command-line overrides of the heap parameters
+    // are possible command-line overrides of the heap parameters
     // specified in the image being imported.
     //
     // (Non-negative values signify override.)

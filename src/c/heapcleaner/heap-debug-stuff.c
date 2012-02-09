@@ -150,7 +150,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
     fprintf(fd,"                active_agegroups d=%d\n",  task->heap->active_agegroups);
     fprintf(fd,"       hugechunk_ramregion_count d=%d\n",  task->heap->hugechunk_ramregion_count);
     fprintf(fd,"           total_bytes_allocated x=(%x,%x) (millions, 1s)\n",  (unsigned int)task->heap->total_bytes_allocated.millions, (unsigned int)task->heap->total_bytes_allocated.ones );
-    fprintf(fd,"oldest_agegroup_keeping_idle_fromspace_buffers d=%d\n",  task->heap->oldest_agegroup_keeping_idle_fromspace_buffers);
+    fprintf(fd,"oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings d=%d\n",  task->heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings);
 
     for (int i = 0;
              i < task->heap->active_agegroups;

@@ -52,9 +52,8 @@ static void   InitMemory   ()   {
     PageShift = j;
 }
 
-
 Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
-    //       ====================	
+    //   ====================	
     //
     // Get a new memory chunk from the OS.
     // Return a pointer to the chunk descriptor,
@@ -101,7 +100,7 @@ Quire*   obtain_quire_from_os   (Val_Sized_Unt bytesize) {
 
 
 void   return_quire_to_os   (Quire* chunk) {
-    // ============================
+    // ==================
     //
     if (!chunk)  	return;
 

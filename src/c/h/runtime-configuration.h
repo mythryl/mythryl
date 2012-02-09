@@ -19,7 +19,44 @@
 
 #define MAX_ACTIVE_AGEGROUPS	14								// Should agree with MAX_AGEGROUPS in  sibid.h.
 
-#define DEFAULT_OLDEST_AGEGROUP_KEEPING_IDLE_FROMSPACE_BUFFERS	2				// Keep idle fromspace regions for ages 1 & 2
+#define DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS	2		// Keep idle fromspace quires for ages 1 & 2
+    //
+    // By design each successive agegroup contains buffers ten
+    // times larger, heapcleaned ("garbage collected") one-tenth
+    // as often:
+    //
+    //    The agegroup0 buffer  is   about  1MB and heapcleaned about 100 times/sec;
+    //    The agegroup1 buffers run about  10MB and heapcleaned about  10 times/sec;
+    //    The agegroup2 buffers run about 100MB and heapcleaned about   1 times/sec;
+    //
+    // During heapcleaning each agegroup requires twice as much ram:
+    // A from-space to copy from, and a to-space to copy into.
+    // Between heapcleanings, these extra copies are just waste space.
+    // The policy question here is:  Is it better to retain these unused
+    // buffers between heapcleanings, or to return them to the OS?
+    // The considerations are:
+    //
+    //   o Allocating and returning them are system calls, hence by
+    //     rule of thumb take a millisecond or so each.
+    //
+    //   o In the modern virtual memory environment, "ram" which goes
+    //     unused long enough will page out to disk.  Paging it out
+    //     to disk takes time -- tens of milliseconds or more -- and
+    //     paging it back in when next needed will take just as much
+    //     time.  Paging a 100MB buffer out might take seconds.  So
+    //     So for a large buffer, returning it to the OS and then
+    //     allocating it again when next needed can be MUCH faster
+    //     than letting it page to and from disk.
+    //
+    // Clearly, for very small buffers it is better to just retain them.
+    // Equally, for very large buffers it is better to return and re-allocate them.
+    // So the question is just at what buffer size we should change policies.
+    // The DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS value here
+    // controls this policy; setting it to '2' will result in buffers of 100MB
+    // and below being retained and buffers of 1GB and above being returned
+    // and re-allocated.
+    //
+    // This gets used
 
 #define DEFAULT_AGEGROUP0_BUFFER_BYTESIZE	(256 * ONE_K_BINARY)				// Size-in-bytes for the per-core (well, per-pthread)
 												// generation-zero heap buffer.  The 256KB value is

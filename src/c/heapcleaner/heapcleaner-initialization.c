@@ -87,7 +87,7 @@ Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char **argv) {
     //
     params->agegroup0_buffer_bytesize = 0;
     params->active_agegroups = -1;
-    params->oldest_agegroup_keeping_idle_fromspace_buffers = -1;
+    params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings = -1;
 
     #define MATCH(opt)	(strcmp(opt, option) == 0)
     #define CHECK(opt)	{						\
@@ -128,11 +128,15 @@ Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char **argv) {
 	    } else if (MATCH("vmcache")) {
 
 		CHECK("vmcache");
-		params->oldest_agegroup_keeping_idle_fromspace_buffers = atoi(option_arg);
-		if (params->oldest_agegroup_keeping_idle_fromspace_buffers < 0) {
-		    params->oldest_agegroup_keeping_idle_fromspace_buffers = 0;
-		} else if (params->oldest_agegroup_keeping_idle_fromspace_buffers > MAX_ACTIVE_AGEGROUPS) {
-		    params->oldest_agegroup_keeping_idle_fromspace_buffers = MAX_ACTIVE_AGEGROUPS;
+		params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings = atoi(option_arg);
+
+		// Impose minimal sanity on user-specified value:
+		//
+		if (params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings < 0) {
+		    params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings = 0;
+		} else if (
+                    params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings > MAX_ACTIVE_AGEGROUPS) {
+		    params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings = MAX_ACTIVE_AGEGROUPS;
 		}
 	    } else if (MATCH("unlimited-heap")) {
 
@@ -189,8 +193,8 @@ void   set_up_heap   (			// Create and initialize the heap.
     if (params->agegroup0_buffer_bytesize == 0)  params->agegroup0_buffer_bytesize  = DEFAULT_AGEGROUP0_BUFFER_BYTESIZE;		// From   src/c/h/runtime-configuration.h
     if (params->active_agegroups           < 0)  params->active_agegroups           = DEFAULT_ACTIVE_AGEGROUPS;				// From   src/c/h/runtime-configuration.h
 
-    if (params->oldest_agegroup_keeping_idle_fromspace_buffers < 0) {
-        params->oldest_agegroup_keeping_idle_fromspace_buffers =  DEFAULT_OLDEST_AGEGROUP_KEEPING_IDLE_FROMSPACE_BUFFERS;		// From   src/c/h/runtime-configuration.h
+    if (params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings < 0) {
+        params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings =  DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS;		// From   src/c/h/runtime-configuration.h
     }
 
     // First we initialize the underlying memory system:
@@ -303,9 +307,9 @@ void   set_up_heap   (			// Create and initialize the heap.
 	}
     }
 
-    heap->oldest_agegroup_keeping_idle_fromspace_buffers
+    heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	=
-	params->oldest_agegroup_keeping_idle_fromspace_buffers;
+	params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;
 
     heap->active_agegroups			= params->active_agegroups;
     //

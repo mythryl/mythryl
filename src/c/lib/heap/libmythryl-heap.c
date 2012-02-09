@@ -972,19 +972,19 @@ static void   set_max_retained_idle_fromspace_agegroup   (Task* task, Val arg) {
     if      (age < 0)			age = 0;
     else if (age > MAX_AGEGROUPS)	age = MAX_AGEGROUPS;
 
-    if (age < heap->oldest_agegroup_keeping_idle_fromspace_buffers) {
+    if (age < heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings) {
 	//
         // Free any retained memory regions:
         //
-	for (int i = age;  i < heap->oldest_agegroup_keeping_idle_fromspace_buffers;  i++) {
+	for (int i = age;  i < heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;  i++) {
 	    //
 	    return_quire_to_os( heap->agegroup[i]->retained_fromspace_quire );
 	}
     }
 
-    ASSIGN( arg, TAGGED_INT_FROM_C_INT(heap->oldest_agegroup_keeping_idle_fromspace_buffers) );
+    ASSIGN( arg, TAGGED_INT_FROM_C_INT(heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings) );
 
-    heap->oldest_agegroup_keeping_idle_fromspace_buffers
+    heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	=
         age;
 }

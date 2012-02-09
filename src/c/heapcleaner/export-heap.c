@@ -160,9 +160,9 @@ static Status   write_heap_image_to_file   (
 	hh.hugechunk_sibs_count		= MAX_HUGE_SIBS;						// MAX_HUGE_SIBS			def in    src/c/h/sibid.h
 	hh.hugechunk_ramregion_count	= heap->hugechunk_ramregion_count;
 	//
-	hh.oldest_agegroup_keeping_idle_fromspace_buffers
+	hh.oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	    =
-	    heap->oldest_agegroup_keeping_idle_fromspace_buffers;
+	    heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;
 
 	hh.agegroup0_buffer_bytesize
 	    =

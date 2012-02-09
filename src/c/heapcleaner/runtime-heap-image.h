@@ -59,36 +59,36 @@ typedef struct {				// The magic number and other version info.
 //
 typedef struct {
     //
-    int pthread_count;						// The number of Pthreads.
-    int active_agegroups;					// The number of heap generations.
-    int smallchunk_sibs_count;					// The number of small-chunk sibs (one each for pairs, records, strings, vectors).
-    int hugechunk_sibs_count;					// The number of hugechunk kinds (currently 1 -- codechunks).
-    int hugechunk_ramregion_count;				// The number of hugechunk regions in the exporting address space.
-    int oldest_agegroup_keeping_idle_fromspace_buffers;		// The oldest agegroup retaining fromspace buffer, instead of freeing it after cleaning.
+    int pthread_count;							// The number of Pthreads.
+    int active_agegroups;						// The number of heap generations.
+    int smallchunk_sibs_count;						// The number of small-chunk sibs (one each for pairs, records, strings, vectors).
+    int hugechunk_sibs_count;						// The number of hugechunk kinds (currently 1 -- codechunks).
+    int hugechunk_ramregion_count;					// The number of hugechunk regions in the exporting address space.
+    int oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;	// The oldest agegroup retaining fromspace buffer, instead of returning it to host OS after heapcleaning is complete.
     //
-    Punt agegroup0_buffer_bytesize;			// The size of the agegroup0 allocation buffers used by the runtime.
+    Punt agegroup0_buffer_bytesize;					// The size of the agegroup0 allocation buffers used by the runtime.
     //
-    Val	pervasive_package_pickle_list;				// Contents of PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL.
-    Val	runtime_pseudopackage;					// The run-time system compilation unit root.
-    Val	math_package;						// The asmcoded Math package root (if defined).
+    Val	pervasive_package_pickle_list;					// Contents of PERVASIVE_PACKAGE_PICKLE_LIST_REFCELL__GLOBAL.
+    Val	runtime_pseudopackage;						// The run-time system compilation unit root.
+    Val	math_package;							// The asmcoded Math package root (if defined).
     //
 } Heap_Header;
 
 // Header for a pickled-datastructure image:
 //
 typedef struct {
-    Unt1    smallchunk_sibs_count;				// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
-    Unt1    hugechunk_sibs_count;				// The number of hugechunk kinds. (Currently just 1, for codechunks.)
-    Unt1    hugechunk_ramregion_count;				// The number of hugechunk quires in the exporting address space.
-    Bool     contains_code;					// TRUE iff the pickle contains code.
-    Val	     root_chunk;					// The pickle's root chunk.
+    Unt1    smallchunk_sibs_count;					// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
+    Unt1    hugechunk_sibs_count;					// The number of hugechunk kinds. (Currently just 1, for codechunks.)
+    Unt1    hugechunk_ramregion_count;					// The number of hugechunk quires in the exporting address space.
+    Bool     contains_code;						// TRUE iff the pickle contains code.
+    Val	     root_chunk;						// The pickle's root chunk.
 } Pickle_Header;
 
 // Header for the extern table:
 //
 typedef struct {
-    int		externs_count;					// The number of external symbols.
-    int		externs_bytesize;				// The size (in bytes) of the string table area.
+    int		externs_count;						// The number of external symbols.
+    int		externs_bytesize;					// The size (in bytes) of the string table area.
 } Externs_Header;
 
 

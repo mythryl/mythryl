@@ -43,7 +43,7 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
     //
     Punt agegroup0_buffer_bytesize;
     int	 active_agegroups;
-    int  oldest_agegroup_keeping_idle_fromspace_buffers;			// We keep (instead of freeing) idle fromspaces for this and all younger agegroups.
+    int  oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;			// We keep (instead of freeing) idle fromspaces for this and all younger agegroups.
 };
 
 // Forward declarations to enable mutual recursion:
@@ -54,14 +54,14 @@ typedef   struct hugechunk_region  Hugechunk_Region;
 typedef   struct hugechunk  	   Hugechunk;
 typedef   struct agegroup          Agegroup;
 
-/* typedef   struct heap   Heap; */						// From  src/c/h/runtime-base.h
+/* typedef   struct heap   Heap; */							// From  src/c/h/runtime-base.h
 
 
 
-										// Quire		def in    src/c/h/get-quire-from-os.h
-										// struct quire	def in    src/c/ram/get-quire-from-mmap.c
-										// struct quire	def in    src/c/ram/get-quire-from-mach.c
-										// struct quire	def in    src/c/ram/get-quire-from-win32.c
+											// Quire		def in    src/c/h/get-quire-from-os.h
+											// struct quire	def in    src/c/ram/get-quire-from-mmap.c
+											// struct quire	def in    src/c/ram/get-quire-from-mach.c
+											// struct quire	def in    src/c/ram/get-quire-from-win32.c
 
 
 // A heap consists of one agegroup0 buffer per pthread
@@ -69,24 +69,25 @@ typedef   struct agegroup          Agegroup;
 // between all pthreads.
 //
 struct heap {
-    Val*		agegroup0_master_buffer;				// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
-    Punt		agegroup0_master_buffer_bytesize;			// Size-in-bytes of the agegroup0_buffers master buffer.
-    Quire*		quire;							// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
+    Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
+    Punt		agegroup0_master_buffer_bytesize;				// Size-in-bytes of the agegroup0_buffers master buffer.
+    Quire*		quire;								// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
 
-    int			active_agegroups;					// Number of active agegroups.
-    int			oldest_agegroup_keeping_idle_fromspace_buffers;		// Save the from-space for agegroups 1..oldest_agegroup_keeping_idle_fromspace_buffers.
-    int			agegroup0_heapcleanings_count;				// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int			active_agegroups;						// Number of active agegroups.
+    int			agegroup0_heapcleanings_count;					// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int			oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;	// Between heapcleanings retain the from-space buffer (only) for agegroups 1..oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings.
+											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
 
-    Agegroup*	        agegroup[ MAX_AGEGROUPS ];				// Age-group #i is in agegroup[i-1]
-    int		        hugechunk_ramregion_count;				// Number of active hugechunk regions.
-    Hugechunk_Region*   hugechunk_ramregions;					// List of hugechunk regions.
-    Hugechunk*		hugechunk_freelist;					// Freelist header for hugechunks.
+    Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
+    int		        hugechunk_ramregion_count;					// Number of active hugechunk regions.
+    Hugechunk_Region*   hugechunk_ramregions;						// List of hugechunk regions.
+    Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
 
-    Val*  weak_pointers_forwarded_during_heapcleaning;				// List of weak pointers forwarded during heapcleaning.
-
+    Val*  weak_pointers_forwarded_during_heapcleaning;					// List of weak pointers forwarded during heapcleaning.
+											// This is really local state for the heapcleaner -- it doesn't belong here.  XXX SUCKO FIXME.
     //
-    Bigcounter   total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.
-    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
+    Bigcounter   total_bytes_allocated;							// Cleaner statistics -- tracks number of bytes  allocated.
+    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];		// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
 };
 
 

@@ -119,7 +119,7 @@ Status   set_up_tospace_sib_buffers_for_agegroup   (Agegroup* ag) {
 
 //
 void   free_agegroup   (Heap* heap,  int g) {
-    // ====================
+    // =============
     //
     Agegroup*  ag = heap->agegroup[ g ];
 
@@ -134,7 +134,7 @@ void   free_agegroup   (Heap* heap,  int g) {
     #endif
 
 
-    if (g >= heap->oldest_agegroup_keeping_idle_fromspace_buffers) {
+    if (g >= heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings) {
         //
 	return_quire_to_os( ag->fromspace_quire );
 	//

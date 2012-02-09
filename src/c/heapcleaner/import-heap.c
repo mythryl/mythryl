@@ -141,8 +141,8 @@ Task*   import_heap_image   (const char* fname, Heapcleaner_Args* params) {
     if (params->active_agegroups < heap_header.active_agegroups) {
         params->active_agegroups = heap_header.active_agegroups;
     }
-    if (params->oldest_agegroup_keeping_idle_fromspace_buffers < 0) {
-        params->oldest_agegroup_keeping_idle_fromspace_buffers = heap_header.oldest_agegroup_keeping_idle_fromspace_buffers;
+    if (params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings < 0) {
+        params->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings = heap_header.oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;
     } 
 
     task = make_task( /*is_boot:*/FALSE, params );					// make_task		def in   src/c/main/runtime-state.c
