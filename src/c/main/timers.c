@@ -22,13 +22,13 @@ void   reset_timers   (Pthread* pthread)   {
 }
 
 
-void   start_cleaning_timer   (Pthread* pthread)   {
+void   start_heapcleaning_timer   (Pthread* pthread)   {
     //
     get_cpu_time( pthread->cpu_time_at_start_of_last_heapclean,  NULL );
 }
 
 
-void   stop_cleaning_timer   (Pthread* pthread,  long* time) {
+void   stop_heapcleaning_timer   (Pthread* pthread,  long* time) {
     //
     // Stop the cleaning timer and update
     // the cumulative cleaning time.

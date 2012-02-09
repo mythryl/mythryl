@@ -94,7 +94,7 @@ Cleaner statistics stuff:
 
 // Forward references:
 
- static int	    set_up_empty_tospace_buffers			(Task*          task,   int            youngest_agegroup_without_cleaning_request											);
+ static int	    set_up_empty_tospace_buffers			(Task*          task,   int            youngest_agegroup_without_heapcleaning_request											);
 //
 #ifdef  BO_DEBUG
  static void         scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk									);
@@ -369,7 +369,7 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
 }
 
 //
-static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* heap,  int max_swept_agegroup,  int oldest_agegroup_to_clean,  Val** tospace_limit)   {
+static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap* heap,  int max_swept_agegroup,  int oldest_agegroup_to_clean,  Val** tospace_limit)   {
     //              ===================================
     //
     // Cleaner statistics:
@@ -414,10 +414,10 @@ static void         do_end_of_cleaning_statistics_stuff   (Task* task,  Heap* he
     #if NEED_HEAPCLEANER_PAUSE_STATISTICS	// Don't do timing when collecting pause data.
 	if (heapcleaner_messages_are_enabled__global) {
 	    long	                         cleaning_time;
-	    stop_cleaning_timer (task->pthread, &cleaning_time);
+	    stop_heapcleaning_timer (task->pthread, &cleaning_time);				// stop_heapcleaning_timer	is from   src/c/main/timers.c
 	    debug_say (" (%d ms)\n",             cleaning_time);
 	} else {
-	    stop_cleaning_timer (task->pthread, NULL);
+	    stop_heapcleaning_timer (task->pthread, NULL);
 	}
     #endif
 }
@@ -429,7 +429,7 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS							// Don't do timing when collecting pause data.
 	//
-	start_cleaning_timer( task->pthread );							// start_cleaning_timer	def in    src/c/main/timers.c
+	start_heapcleaning_timer( task->pthread );							// start_heapcleaning_timer	def in    src/c/main/timers.c
     #endif
 
     #if NEED_HUGECHUNK_REFERENCE_STATISTICS
@@ -541,7 +541,7 @@ void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
 
     update_fromspace_oldstuff_end_pointers( heap, oldest_agegroup_to_clean);
 
-    do_end_of_cleaning_statistics_stuff( task,  heap,  max_swept_agegroup,  oldest_agegroup_to_clean,  tospace_limit);
+    do_end_of_heapcleaning_statistics_stuff( task,  heap,  max_swept_agegroup,  oldest_agegroup_to_clean,  tospace_limit);
 
     #ifdef CHECK_HEAP
 	check_heap( heap, max_swept_agegroup );
