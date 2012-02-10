@@ -195,7 +195,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 
 
         // NOTE: There should never be any hugechunk
-        // with the OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED tag in the oldest agegroup.
+        // with the SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED tag in the oldest agegroup.
         //
 	if (age == heap->active_agegroups) {
 
@@ -203,21 +203,21 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
             //
 	    promote_agegroup = heap->agegroup[ age-1 ];
 
-	    forward_state = YOUNG_HUGECHUNK;							// Oldest active agegroup holds only YOUNG hugechunks.
+	    forward_state = JUNIOR_HUGECHUNK;							// Oldest active agegroup holds only YOUNG hugechunks.
 
-	    promote_state = YOUNG_HUGECHUNK;		// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning. XXX QUERO FIXME
+	    promote_state = JUNIOR_HUGECHUNK;		// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning. XXX QUERO FIXME
 
 	} else {
 	    //
 	    promote_agegroup = heap->agegroup[ age ];
 
-	    forward_state = OLD_HUGECHUNK;
+	    forward_state = SENIOR_HUGECHUNK;
 
 	    if (age == oldest_agegroup_to_clean
             ||  age == heap->active_agegroups-1
 	    )
-		 promote_state =  YOUNG_HUGECHUNK;
-	    else promote_state =    OLD_HUGECHUNK;
+		 promote_state =  JUNIOR_HUGECHUNK;
+	    else promote_state =  SENIOR_HUGECHUNK;
 		//
 		// The chunks promoted from agegroup 'age' to agegroup 'age'+1, when
 		// agegroup 'age'+1 is also being cleaned, are "OLD", thus we need
@@ -244,12 +244,12 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 
 		switch (p->hugechunk_state) {
 		    //
-		case YOUNG_HUGECHUNK:
-		case OLD_HUGECHUNK:
+		case JUNIOR_HUGECHUNK:
+		case SENIOR_HUGECHUNK:
 		    free_hugechunk( heap, p );								// free_hugechunk		def in    src/c/heapcleaner/hugechunk.c
 		    break;
 
-		case YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED:
+		case JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED:
 		    //
 		    p->hugechunk_state = forward_state;
 		    //
@@ -257,7 +257,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 		    forward   = p;
 		    break;
 
-		case OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED:
+		case SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED:
 		    //
 		    p->hugechunk_state = promote_state;
 		    //
@@ -1618,10 +1618,10 @@ static Hugechunk*   mark_hugechunk_as_live                  (Heap* heap,   int o
 
 	// Forward the hugechunk.
         // Note that chunks in the oldest agegroup
-	// will always be YOUNG, thus will never be promoted:									// YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED		def in    src/c/h/heap.h
+	// will always be YOUNG, thus will never be promoted:									// JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED		def in    src/c/h/heap.h
 	//
-	if (hc->hugechunk_state == YOUNG_HUGECHUNK)  hc->hugechunk_state = YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED;		// This is the only place we set state to YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED
-	else			                     hc->hugechunk_state = OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED;		// This is the only place we set state to   OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED
+	if (hc->hugechunk_state == JUNIOR_HUGECHUNK)  hc->hugechunk_state = JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED;		// This is the only place we set state to JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED
+	else			                      hc->hugechunk_state = SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED;		// This is the only place we set state to SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED
     }
 
     return  hc;

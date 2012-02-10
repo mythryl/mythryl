@@ -701,7 +701,7 @@ static Hugechunk*   allocate_a_hugechunk   (
     }
 
     new_chunk->bytesize   =  header->bytesize;
-    new_chunk->hugechunk_state =  YOUNG_HUGECHUNK;
+    new_chunk->hugechunk_state =  JUNIOR_HUGECHUNK;
 
     new_chunk->age	       =  header->age;
     new_chunk->huge_ilk        =  header->huge_ilk;
