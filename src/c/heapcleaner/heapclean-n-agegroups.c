@@ -283,20 +283,20 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
     // Re-label book_to_sibid__global entries for hugechunk regions to reflect promotions:
     //
-    for (Hugechunk_Region* rp = heap->hugechunk_ramregions;  rp != NULL;  rp = rp->next) {
+    for (Hugechunk_Quire* q = heap->hugechunk_ramregions;  q != NULL;  q = q->next) {
 	//
 	// If the minimum age of the live chunks in
 	// the region is less than or equal to oldest_agegroup_to_clean
 	// then it is possible that it has increased
 	// as a result of promotions or freeing of chunks.
 
-	if (rp->age_of_youngest_live_chunk_in_region <= oldest_agegroup_to_clean) {
+	if (q->age_of_youngest_live_chunk_in_region <= oldest_agegroup_to_clean) {
 	    //
 	    int min = MAX_AGEGROUPS;
 
-	    for (int i = 0;  i < rp->page_count;  ) {
+	    for (int i = 0;  i < q->page_count;  ) {
 		//
-		Hugechunk* p  = rp->hugechunk_page_to_hugechunk[ i ];
+		Hugechunk* p  = q->hugechunk_page_to_hugechunk[ i ];
 
 		if (!HUGECHUNK_IS_FREE( p )									// HUGECHUNK_IS_FREE				def in    src/c/h/heap.h
 		&&  p->age < min
@@ -307,18 +307,18 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		i += hugechunk_size_in_hugechunk_ram_quanta( p );							// hugechunk_size_in_hugechunk_ram_quanta	def in   src/c/h/heap.h
 	    }
 
-	    if (rp->age_of_youngest_live_chunk_in_region != min) {
-		rp->age_of_youngest_live_chunk_in_region  = min;
+	    if (q->age_of_youngest_live_chunk_in_region != min) {
+		q->age_of_youngest_live_chunk_in_region  = min;
 
 		set_book2sibid_entries_for_range (
 		    //
 		    b2s,
-		    (Val*) rp,
-		    BYTESIZE_OF_QUIRE( rp->ram_region ),
+		    (Val*) q,
+		    BYTESIZE_OF_QUIRE( q->ram_region ),
 		    HUGECHUNK_DATA_SIBID( min )
 		);
 
-		b2s[ GET_BOOK_CONTAINING_POINTEE( rp ) ]
+		b2s[ GET_BOOK_CONTAINING_POINTEE( q ) ]
 		    =
 		    HUGECHUNK_RECORD_SIBID( min );
 	    }
@@ -932,10 +932,10 @@ static void         forward_all_root_chunks (
 
     Sibid  max_sibid =  MAKE_MAX_SIBID( oldest_agegroup_to_clean );						// MAKE_MAX_SIBID						is from   src/c/h/sibid.h
 
-    Val*    rp;
-    while ((rp = *roots++) != NULL) {
+    Val*    root;
+    while ((root = *roots++) != NULL) {
 	//
-	forward_pointee_if_in_fromspace( heap, b2s, max_sibid, rp );
+	forward_pointee_if_in_fromspace( heap, b2s, max_sibid, root );
     }
 }														// fun forward_all_root_chunks
 
@@ -1559,7 +1559,7 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
 
     INCREMENT_HUGECHUNK2_COUNT;													// INCREMENT_HUGECHUNK2_COUNT		def at top of file.
 
-    Hugechunk_Region *region;													// Hugechunk_Region			def in    src/c/h/heap.h
+    Hugechunk_Quire* q;														// Hugechunk_Quire			def in    src/c/h/heap.h
     {
 	int  book;
 	for (book =  GET_BOOK_CONTAINING_POINTEE( codechunk );
@@ -1569,16 +1569,16 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
             sibid =  book_to_sibid__global[ --book ]
         );
 
-	region =  (Hugechunk_Region*) ADDRESS_OF_BOOK( book );
+	q =  (Hugechunk_Quire*) ADDRESS_OF_BOOK( book );
     }
  
-    Hugechunk* p														// Hugechunk				def in    src/c/h/heap.h
-	=
-	get_hugechunk_holding_pointee( region, codechunk );									// get_hugechunk_holding_pointee	def in    src/c/h/heap.h
+    Hugechunk*															// Hugechunk				def in    src/c/h/heap.h
+        //
+	hc = get_hugechunk_holding_pointee( q, codechunk );									// get_hugechunk_holding_pointee	def in    src/c/h/heap.h
 
-    if (p->age <= oldest_agegroup_to_clean
+    if (hc->age <= oldest_agegroup_to_clean
         &&
-        HUGECHUNK_IS_IN_FROMSPACE( p )
+        HUGECHUNK_IS_IN_FROMSPACE( hc )
     ){
 	//
         INCREMENT_HUGECHUNK3_COUNT;												// INCREMENT_HUGECHUNK2_COUNT		def at top of file.
@@ -1587,11 +1587,11 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
         // Note that chunks in the oldest agegroup
 	// will always be YOUNG, thus will never be promoted:									// YOUNG_FORWARDED_HUGECHUNK		def in    src/c/h/heap.h
 	//
-	if (p->hugechunk_state == YOUNG_HUGECHUNK)  p->hugechunk_state = YOUNG_FORWARDED_HUGECHUNK;				// This is the only place we set state to YOUNG_FORWARDED_HUGECHUNK
-	else			                    p->hugechunk_state =    OLD_PROMOTED_HUGECHUNK;				// This is the only place we set state to   OLD_PROMOTED_HUGECHUNK
+	if (hc->hugechunk_state == YOUNG_HUGECHUNK)  hc->hugechunk_state = YOUNG_FORWARDED_HUGECHUNK;				// This is the only place we set state to YOUNG_FORWARDED_HUGECHUNK
+	else			                     hc->hugechunk_state =    OLD_PROMOTED_HUGECHUNK;				// This is the only place we set state to   OLD_PROMOTED_HUGECHUNK
     }
 
-    return p;
+    return  hc;
 }
 
 //

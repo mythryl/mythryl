@@ -868,17 +868,17 @@ static Hugechunk*   forward_hugechunk   (
 
 //  Heap*                 heap = task->heap;
 
-    Hugechunk_Region*     region;
+    Hugechunk_Quire*     hq;
     Hugechunk*            dp;
     Embedded_Chunk_Info*  code_info;
 
     {	int  i;
 	for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(sibid);  sibid = book_to_sibid__global[ --i ]);
 	//
-	region = (Hugechunk_Region*) ADDRESS_OF_BOOK( i );
+	hq = (Hugechunk_Quire*) ADDRESS_OF_BOOK( i );
     }
 
-    dp     = get_hugechunk_holding_pointee(region, chunk);
+    dp     = get_hugechunk_holding_pointee(hq, chunk);
 
     if (! finishing_cleaning__local) {
         //

@@ -420,10 +420,10 @@ static void   read_heap   (
 	    //	
 	    Punt	 totSizeB;
 
-	    Hugechunk* freeChunk;
+	    Hugechunk* free_chunk;
 	    Hugechunk* bdp = NULL;		// Without this initialization, gcc -Wall gives a 'possible uninitialized use' warning.
 
-	    Hugechunk_Region*	 free_region;
+	    Hugechunk_Quire*	 free_quire;
 	    Hugechunk_Header*	 boHdrs;
 
 	    int			 boHdrSizeB;
@@ -435,23 +435,23 @@ static void   read_heap   (
 		//
 		totSizeB = p->info.bo.hugechunk_quanta_count << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 
-		freeChunk = allocate_hugechunk_region( heap, totSizeB );
+		free_chunk = allocate_hugechunk_quire( heap, totSizeB );
 
-		free_region = freeChunk->region;
+		free_quire = free_chunk->region;
 
-		free_region->age_of_youngest_live_chunk_in_region
+		free_quire->age_of_youngest_live_chunk_in_region
 		    =
                     i;
 
 		set_book2sibid_entries_for_range (
 		    //
 		    book_to_sibid__global,
-                    (Val*) free_region,
-		    BYTESIZE_OF_QUIRE( free_region->ram_region ),
+                    (Val*) free_quire,
+		    BYTESIZE_OF_QUIRE( free_quire->ram_region ),
 		    HUGECHUNK_DATA_SIBID( i )
 		);
 
-		book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( free_region ) ]
+		book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( free_quire ) ]
 		    =
 		    HUGECHUNK_RECORD_SIBID( i );
 
@@ -465,11 +465,11 @@ static void   read_heap   (
 
 	        // Read in the hugechunks:
                 //
-		heapio__read_block( bp, (void *)(freeChunk->chunk), totSizeB );
+		heapio__read_block( bp, (void *)(free_chunk->chunk), totSizeB );
 		//
 		if (ilk == CODE__HUGE_SIB) {					// ilk = 0 == CODE__HUGE_SIB	def in    src/c/h/sibid.h
 		    //
-		    flush_instruction_cache ((void *)(freeChunk->chunk), totSizeB);
+		    flush_instruction_cache ((void *)(free_chunk->chunk), totSizeB);
 		}
 
 	        // Set up the hugechunk descriptors 
@@ -491,7 +491,7 @@ static void   read_heap   (
 		    // the chunk and link it into the list
                     // of hugechunks for its agegroup.
 		    //
-		    bdp = allocate_a_hugechunk( freeChunk, &(boHdrs[k]), region );
+		    bdp = allocate_a_hugechunk( free_chunk, &(boHdrs[k]), region );
 
 		    bdp->next = age->hugechunks[ ilk ];
 
@@ -512,11 +512,11 @@ static void   read_heap   (
 		    }
 		}
 
-		if (freeChunk != bdp) {					// if p->info.bo.hugechunk_count can be zero, 'bdp' value here may be bogus. XXX BUGGO FIXME.
+		if (free_chunk != bdp) {					// if p->info.bo.hugechunk_count can be zero, 'bdp' value here may be bogus. XXX BUGGO FIXME.
 		    //
 		    // There was some extra space left in the region:
 		    //
-		    insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, freeChunk);						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
+		    insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, free_chunk);						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
 		}
 
 		FREE (boHdrs);
@@ -670,7 +670,7 @@ static Hugechunk*   allocate_a_hugechunk   (
 
     int npages =   total_bytesize >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 
-    Hugechunk_Region* region =  free->region;
+    Hugechunk_Quire* hq =  free->region;
 
     if (free->bytesize == total_bytesize) {
 
@@ -685,16 +685,16 @@ static Hugechunk*   allocate_a_hugechunk   (
         //
 	new_chunk	  =  MALLOC_CHUNK( Hugechunk );
 	new_chunk->chunk  =  free->chunk;
-	new_chunk->region =  region;
+	new_chunk->region =  hq;
 	//
 	free->chunk	     = (Punt)(free->chunk) + total_bytesize;
 	free->bytesize -= total_bytesize;
         //
-	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE( region, new_chunk->chunk );
+	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE( hq, new_chunk->chunk );
 
 	for (int i = 0;  i < npages;  i++) {
 	    //
-	    region->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
+	    hq->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
 		=
 		new_chunk;
         }
@@ -706,7 +706,7 @@ static Hugechunk*   allocate_a_hugechunk   (
     new_chunk->age	       =  header->age;
     new_chunk->huge_ilk        =  header->huge_ilk;
 
-    region->free_pages -=  npages;
+    hq->free_pages -=  npages;
 
     // Set up the relocation info:
     //

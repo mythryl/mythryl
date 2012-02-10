@@ -40,7 +40,7 @@ void   print_hugechunk_region_map   (Hugechunk_Region* r)   {
 #endif
 
 
-Hugechunk*   allocate_hugechunk_region   (
+Hugechunk*   allocate_hugechunk_quire   (
     //       =========================
     // 
     Heap* heap,
@@ -62,7 +62,6 @@ Hugechunk*   allocate_hugechunk_region   (
     Punt  record_bytesize;
     Punt  quire_bytesize;
 
-    Hugechunk_Region*      region;
     Quire*  quire;
 
     // Compute the memory chunk size.
@@ -94,9 +93,11 @@ Hugechunk*   allocate_hugechunk_region   (
 
     } while (npages != old_npages);
 
-    quire =  obtain_quire_from_os(  quire_bytesize  );				if (!quire) die( "Unable to allocate hugechunk region.");
+    quire =  obtain_quire_from_os(  quire_bytesize  );						if (!quire) die( "Unable to allocate hugechunk quire.");
 
-    region = (Hugechunk_Region*) BASE_ADDRESS_OF_QUIRE( quire );				// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
+    Hugechunk_Quire*
+	//
+        hq = (Hugechunk_Quire*) BASE_ADDRESS_OF_QUIRE( quire );					// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
 
 
     Hugechunk* chunk = MALLOC_CHUNK( Hugechunk );						if (!chunk)	 die( "Unable to allocate hugechunk descriptor.");
@@ -104,37 +105,37 @@ Hugechunk*   allocate_hugechunk_region   (
 
     // Initialize the hugechunk record:
     //
-    region->first_ram_quantum	=  (Punt) region + record_bytesize;
+    hq->first_ram_quantum	=  (Punt) hq + record_bytesize;
     //
-    region->page_count	= npages;
-    region->free_pages	= npages;
+    hq->page_count	= npages;
+    hq->free_pages	= npages;
     //
-    region->age_of_youngest_live_chunk_in_region
+    hq->age_of_youngest_live_chunk_in_region
 	=
 	MAX_AGEGROUPS;
 
-    region->ram_region		= quire;
+    hq->ram_region		= quire;
     //
-    region->next		= heap->hugechunk_ramregions;
-    heap->hugechunk_ramregions	= region;
+    hq->next			= heap->hugechunk_ramregions;
+    heap->hugechunk_ramregions	= hq;
 
     heap->hugechunk_ramregion_count++;
 
     for (int i = 0;  i < npages;  i++) {
         //
-	region->hugechunk_page_to_hugechunk[i] = chunk;
+	hq->hugechunk_page_to_hugechunk[i] = chunk;
     }
 
-    // Initialize the descriptor for the region's memory:
+    // Initialize the descriptor for the hugechunk_quire's memory:
     //
-    chunk->chunk	 	=  region->first_ram_quantum;
-    chunk->bytesize 	=  bytesize;
+    chunk->chunk	 	=  hq->first_ram_quantum;
+    chunk->bytesize 		=  bytesize;
     //
     chunk->hugechunk_state	=  FREE_HUGECHUNK;
-    chunk->region	 	=  region;
+    chunk->region	 	=  hq;
 
     #ifdef BO_DEBUG
-	debug_say ("allocate_hugechunk_region: %d pages @ %#x\n", npages, region->first_ram_quantum);
+	debug_say ("allocate_hugechunk_quire: %d pages @ %#x\n", npages, hq->first_ram_quantum);
     #endif
 
     return chunk;
@@ -156,7 +157,7 @@ Hugechunk*   allocate_hugechunk   (
     Hugechunk*   dp;
     Hugechunk*   new_chunk;
 
-    Hugechunk_Region* region;
+    Hugechunk_Quire* hq;
 
     int npages;
     int first_ram_quantum;
@@ -175,15 +176,15 @@ Hugechunk*   allocate_hugechunk   (
 
     if (dp == header) {
 	//
-        // No free chunk fits, so allocate a new region:
+        // No free chunk fits, so allocate a new quire:
 	//
-	dp = allocate_hugechunk_region( heap, total_bytesize );
+	dp = allocate_hugechunk_quire( heap, total_bytesize );
 
-	region = dp->region;
+	hq = dp->region;
 
 	if (dp->bytesize == total_bytesize) {
 	    //
-	    // Allocate the whole region to the chunk:
+	    // Allocate the whole quire to the chunk:
 	    //
 	    new_chunk = dp;
 
@@ -193,15 +194,15 @@ Hugechunk*   allocate_hugechunk   (
 	    //
 	    new_chunk		= MALLOC_CHUNK(Hugechunk);
 	    new_chunk->chunk	= dp->chunk;
-	    new_chunk->region	= region;
+	    new_chunk->region	= hq;
 	    dp->chunk		= (Punt)(dp->chunk) + total_bytesize;
 	    dp->bytesize  -= total_bytesize;
 	    insert_hugechunk_in_doubly_linked_list(heap->hugechunk_freelist, dp);						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
-	    first_ram_quantum	= GET_HUGECHUNK_FOR_POINTER_PAGE(region, new_chunk->chunk);
+	    first_ram_quantum	= GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
 
 	    for (int i = 0;  i < npages;  i++) {
 		//
-		region->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
+		hq->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
 		    =
 		    new_chunk;
             }
@@ -211,19 +212,19 @@ Hugechunk*   allocate_hugechunk   (
 
 	remove_hugechunk_from_doubly_linked_list(dp);						// remove_hugechunk_from_doubly_linked_list	def in   src/c/h/heap.h
 	new_chunk = dp;
-	region = dp->region;
+	hq = dp->region;
 
     } else {
 
         // Split the free chunk, leaving dp in the free list:
         //
-	region		   = dp->region;
+	hq		   = dp->region;
 	new_chunk	   = MALLOC_CHUNK(Hugechunk);
 	new_chunk->chunk   = dp->chunk;
-	new_chunk->region  = region;
+	new_chunk->region  = hq;
 	dp->chunk	   = (Punt)(dp->chunk) + total_bytesize;
 	dp->bytesize -= total_bytesize;
-	first_ram_quantum  = GET_HUGECHUNK_FOR_POINTER_PAGE(region, new_chunk->chunk);
+	first_ram_quantum  = GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
 
 	for (int i = 0;  i < npages;  i++) {
 	    //
@@ -237,21 +238,21 @@ Hugechunk*   allocate_hugechunk   (
     new_chunk->hugechunk_state =  YOUNG_HUGECHUNK;
     new_chunk->age	       =  age;
 
-    region->free_pages  -=  npages;
+    hq->free_pages  -=  npages;
 
-    if (region->age_of_youngest_live_chunk_in_region > age) {
-	region->age_of_youngest_live_chunk_in_region = age;
+    if (hq->age_of_youngest_live_chunk_in_region > age) {
+	hq->age_of_youngest_live_chunk_in_region = age;
 	//
-	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)region, BYTESIZE_OF_QUIRE( region->ram_region ), HUGECHUNK_DATA_SIBID(age));
+	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)hq, BYTESIZE_OF_QUIRE( hq->ram_region ), HUGECHUNK_DATA_SIBID(age));
 
-	book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( region ) ]
+	book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( hq ) ]
 	    =
 	    HUGECHUNK_RECORD_SIBID( age );
     }
 
     #ifdef BO_DEBUG
         debug_say ("allocate_hugechunk: %d bytes @ %#x\n", hugechunk_bytesize, new_chunk->chunk);
-        print_hugechunk_region_map(region);
+        print_hugechunk_region_map(hq);
     #endif
 
     return new_chunk;
@@ -266,7 +267,7 @@ void   free_hugechunk   (
 ){
     // Mark a big chunk as free and add it to the free list.
 
-    Hugechunk_Region* region =  chunk->region;
+    Hugechunk_Quire* hq =  chunk->region;
 
     Hugechunk* dp;
 
@@ -274,7 +275,7 @@ void   free_hugechunk   (
 	=
 	ROUND_UP_TO_POWER_OF_TWO( chunk->bytesize, HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 
-    int first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE(region, chunk->chunk);
+    int first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE(hq, chunk->chunk);
     int last_ram_quantum         =  first_ram_quantum + (total_bytesize >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 
     #ifdef BO_DEBUG
@@ -287,21 +288,21 @@ void   free_hugechunk   (
             last_ram_quantum
         );
 	//
-	print_hugechunk_region_map(region);
+	print_hugechunk_region_map(hq);
     #endif
 
     if (first_ram_quantum > 0
-    &&  HUGECHUNK_IS_FREE( region->hugechunk_page_to_hugechunk[ first_ram_quantum -1 ])
+    &&  HUGECHUNK_IS_FREE( hq->hugechunk_page_to_hugechunk[ first_ram_quantum -1 ])
     ){
         // Coalesce with adjacent free chunk:
         //
-	dp = region->hugechunk_page_to_hugechunk[ first_ram_quantum -1 ];
+	dp = hq->hugechunk_page_to_hugechunk[ first_ram_quantum -1 ];
 	//
 	remove_hugechunk_from_doubly_linked_list( dp );						// remove_hugechunk_from_doubly_linked_list	def in   src/c/h/heap.h
 
-	for (int i = GET_HUGECHUNK_FOR_POINTER_PAGE(region, dp->chunk);   i < first_ram_quantum;   i++) {
+	for (int i = GET_HUGECHUNK_FOR_POINTER_PAGE(hq, dp->chunk);   i < first_ram_quantum;   i++) {
 	    //
-	    region->hugechunk_page_to_hugechunk[i] = chunk;
+	    hq->hugechunk_page_to_hugechunk[i] = chunk;
         }
 
 	chunk->chunk = dp->chunk;
@@ -311,13 +312,13 @@ void   free_hugechunk   (
 	FREE( dp );
     }
 
-    if (last_ram_quantum < region->page_count
-    &&  HUGECHUNK_IS_FREE( region->hugechunk_page_to_hugechunk[ last_ram_quantum ])
+    if (last_ram_quantum < hq->page_count
+    &&  HUGECHUNK_IS_FREE( hq->hugechunk_page_to_hugechunk[ last_ram_quantum ])
     ){
 	//
         // Coalesce with adjacent free chunk:
 
-	dp = region->hugechunk_page_to_hugechunk[ last_ram_quantum ];
+	dp = hq->hugechunk_page_to_hugechunk[ last_ram_quantum ];
 
 	remove_hugechunk_from_doubly_linked_list( dp );
 
@@ -326,7 +327,7 @@ void   free_hugechunk   (
              i++
         ){
 	    //
-	    region->hugechunk_page_to_hugechunk[ i ]
+	    hq->hugechunk_page_to_hugechunk[ i ]
 		=
 		chunk;
         }
@@ -338,9 +339,9 @@ void   free_hugechunk   (
     chunk->bytesize   =  total_bytesize;
     chunk->hugechunk_state =  FREE_HUGECHUNK;
 
-    region->free_pages +=   (last_ram_quantum - first_ram_quantum);
+    hq->free_pages +=   (last_ram_quantum - first_ram_quantum);
 
-    // What if (region->free_pages == region->page_count) ??? XXX BUGGO FIXME
+    // What if (hq->free_pages == hq->page_count) ??? XXX BUGGO FIXME
 
     // Add chunk to freelist:
     //
@@ -356,15 +357,15 @@ Hugechunk*   address_to_hugechunk   (Val addr) {
 
     Sibid*    book2sibid = book_to_sibid__global;
     Sibid    sibid;
-    Hugechunk_Region* rp;
 
-    {   int  i;
-	for (i = GET_BOOK_CONTAINING_POINTEE(addr);  !SIBID_ID_IS_BIGCHUNK_RECORD( sibid = book2sibid[ i ]);  i--);
+    int  i;
+    for (i = GET_BOOK_CONTAINING_POINTEE(addr);  !SIBID_ID_IS_BIGCHUNK_RECORD( sibid = book2sibid[ i ]);  i--);
 
-	rp =  (Hugechunk_Region*) ADDRESS_OF_BOOK( i );
-    }
+    Hugechunk_Quire*
+	//
+	hq =  (Hugechunk_Quire*) ADDRESS_OF_BOOK( i );
 
-    return get_hugechunk_holding_pointee( rp, addr );
+    return get_hugechunk_holding_pointee( hq, addr );
 }
 
 
@@ -392,9 +393,11 @@ Unt8*   codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_c
 	sib_id =  book_to_sibid__global[ --index ];
     }
 
-    Hugechunk_Region* region =  (Hugechunk_Region*)  ADDRESS_OF_BOOK( index );
+    Hugechunk_Quire*
+	//
+	hq =  (Hugechunk_Quire*)  ADDRESS_OF_BOOK( index );
 
-    return get_codechunk_comment_string_else_null( get_hugechunk_holding_pointee( region, (Val)program_counter ) );
+    return get_codechunk_comment_string_else_null( get_hugechunk_holding_pointee( hq, (Val)program_counter ) );
 }
 
 

@@ -24,22 +24,25 @@ int   get_chunk_age   (Val chunk) {
         //
 	if (SIBID_KIND_IS_CODE( aid )) {
 	    //	
-	    Hugechunk_Region*	   region;
-	    Hugechunk* dp;
 
 	    int  i;
 	    for (i = GET_BOOK_CONTAINING_POINTEE(chunk);  !SIBID_ID_IS_BIGCHUNK_RECORD(aid);  aid = book_to_sibid__global[--i]) {
 		continue;
 	    }
 
-	    region = (Hugechunk_Region *)ADDRESS_OF_BOOK(i);
-	    dp = get_hugechunk_holding_pointee(region, chunk);
+	    Hugechunk_Quire*
+		//
+	        hq = (Hugechunk_Quire*) ADDRESS_OF_BOOK( i );
+
+	    Hugechunk*
+		//
+	        dp =  get_hugechunk_holding_pointee( hq, chunk );
 
 	    return dp->age;
 
 	} else if (aid == AGEGROUP0_SIBID) {	    return  0;
 	} else if (BOOK_IS_UNMAPPED(aid)) {	    return -1;
-	} else {	 		    return  GET_AGE_FROM_SIBID( aid );
+	} else {	 		    	    return  GET_AGE_FROM_SIBID( aid );
 	}
     }
 

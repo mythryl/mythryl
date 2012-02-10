@@ -321,18 +321,18 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
         {   int i = 0;
 	    //
-	    for (Hugechunk_Region*
-		rp = heap->hugechunk_ramregions;
-		rp != NULL;
-		rp = rp->next,   i++
+	    for (Hugechunk_Quire*
+		hq = heap->hugechunk_ramregions;
+		hq != NULL;
+		hq = hq->next,   i++
 	    ){
 		#ifdef BO_DEBUG
-		    print_hugechunk_region_map( rp );
+		    print_hugechunk_region_map( hq );
 		#endif
 
-		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( rp->ram_region );
-		header[i].bytesize	    =  BYTESIZE_OF_QUIRE( rp->ram_region );
-		header[i].first_ram_quantum =  rp->first_ram_quantum;
+		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( hq->ram_region );
+		header[i].bytesize	    =  BYTESIZE_OF_QUIRE( hq->ram_region );
+		header[i].first_ram_quantum =  hq->first_ram_quantum;
 	    }
 	}
 

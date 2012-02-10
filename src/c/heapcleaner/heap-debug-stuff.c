@@ -629,21 +629,21 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 
 
     fprintf(fd,"\n\n--------------------------------------\nHugechunk region list contains %d regions:\n", heap->hugechunk_ramregion_count		);
-    for (Hugechunk_Region* r = heap->hugechunk_ramregions;
-			   r;
-			   r = r->next
+    for (Hugechunk_Quire* q = heap->hugechunk_ramregions;
+			  q;
+			  q = q->next
     ){
         fprintf(fd,"\n"																	);
-	fprintf(fd,"    hugechunk_region header r p= %p\n",	 	r										);
-	fprintf(fd,"    r->next                   p= %p\n",		r->next										);
-	fprintf(fd,"    r->first_ram_quantum      x= %p\n", (void*)	r->first_ram_quantum								);
-	fprintf(fd,"    r->page_count             x= %08x\n",		r->page_count									);
-	fprintf(fd,"    r->free_pages             x= %08x\n",		r->page_count									);
-	fprintf(fd,"    r->ram_region             p= %p\n",		r->ram_region									);
-	fprintf(fd,"    r->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE(r->ram_region)				);
-	fprintf(fd,"    r->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_QUIRE(r->ram_region)					);
-	fprintf(fd,"    r->ram_region->...           (remaining fields are OS-dependent and not shown)\n"						);
-	fprintf(fd,"    r->age_of_youngest_live_chunk_in_region   x= %08x\n",		r->age_of_youngest_live_chunk_in_region				);
+	fprintf(fd,"    hugechunk_region header q p= %p\n",	 	q										);
+	fprintf(fd,"    q->next                   p= %p\n",		q->next										);
+	fprintf(fd,"    q->first_ram_quantum      x= %p\n", (void*)	q->first_ram_quantum								);
+	fprintf(fd,"    q->page_count             x= %08x\n",		q->page_count									);
+	fprintf(fd,"    q->free_pages             x= %08x\n",		q->page_count									);
+	fprintf(fd,"    q->ram_region             p= %p\n",		q->ram_region									);
+	fprintf(fd,"    q->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE( q->ram_region )						);
+	fprintf(fd,"    q->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_QUIRE(     q->ram_region )						);
+	fprintf(fd,"    q->ram_region->...           (remaining fields are OS-dependent and not shown)\n"						);
+	fprintf(fd,"    q->age_of_youngest_live_chunk_in_region   x= %08x\n",		q->age_of_youngest_live_chunk_in_region				);
 	
     }
 

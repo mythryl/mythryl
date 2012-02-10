@@ -223,12 +223,12 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 									check_heap( heap, 1 );								// check_heap		def in    src/c/heapcleaner/check-heap.c
 								    #endif
 
-}											// fun heapclean_agegroup0
+}												// fun heapclean_agegroup0
 
 
 static int   get_age_of_codechunk   (Val codechunk) {
     //       ====================
-
+    //
     Sibid* b2s =  book_to_sibid__global;							// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
     Sibid dst_sibid =  SIBID_FOR_POINTER(b2s, codechunk );					// Get the Sibid tag for the ram-book containing the codechunk.
@@ -241,12 +241,13 @@ static int   get_age_of_codechunk   (Val codechunk) {
 	dst_sibid = b2s[ --book ]
     );
 
-    Hugechunk_Region*  hugechunk_region
-	=
-	(Hugechunk_Region*)   ADDRESS_OF_BOOK( book );
+    Hugechunk_Quire*  
+        //
+	q =  (Hugechunk_Quire*)   ADDRESS_OF_BOOK( book );
 
-    Hugechunk* dp =  get_hugechunk_holding_pointee( hugechunk_region, codechunk );		// get_hugechunk_holding_pointee		def in    src/c/h/heap.h
-    return     dp->age;
+    Hugechunk* hc =  get_hugechunk_holding_pointee( q, codechunk );				// get_hugechunk_holding_pointee		def in    src/c/h/heap.h
+
+    return     hc->age;
 }
 
 

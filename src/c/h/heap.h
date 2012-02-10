@@ -43,16 +43,17 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
     //
     Punt agegroup0_buffer_bytesize;
     int	 active_agegroups;
-    int  oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;			// We keep (instead of freeing) idle fromspaces for this and all younger agegroups.
+    int  oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;		// Between garbage collections we keep (instead of freeing) idle fromspaces for this and all younger agegroups.
 };
+
 
 // Forward declarations to enable mutual recursion:
 //
-typedef   struct repair            Repair;
-typedef   struct sib               Sib;
-typedef   struct hugechunk_region  Hugechunk_Region;
-typedef   struct hugechunk  	   Hugechunk;
-typedef   struct agegroup          Agegroup;
+typedef   struct repair            Repair;						// Defined below.
+typedef   struct sib               Sib;							// Defined below.
+typedef   struct hugechunk_region  Hugechunk_Quire;					// Defined below.
+typedef   struct hugechunk  	   Hugechunk;						// Defined below.
+typedef   struct agegroup          Agegroup;						// Defined below.
 
 /* typedef   struct heap   Heap; */							// From  src/c/h/runtime-base.h
 
@@ -80,7 +81,7 @@ struct heap {
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
     int		        hugechunk_ramregion_count;					// Number of active hugechunk regions.
-    Hugechunk_Region*   hugechunk_ramregions;						// List of hugechunk regions.
+    Hugechunk_Quire*   hugechunk_ramregions;						// List of hugechunk regions.
     Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
 
     Val*		weakrefs_forwarded_during_heapcleaning;				// List of weakrefs forwarded during heapcleaning.
@@ -351,7 +352,7 @@ struct hugechunk_region {
     int	age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
     //
     Quire*  ram_region;						// Quire (multipage ram region) from which we allocate.
-    Hugechunk_Region*      next;				// Next region in the list of regions.
+    Hugechunk_Quire*      next;				// Next region in the list of regions.
     Hugechunk*		   hugechunk_page_to_hugechunk[1];	// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
 };
 
@@ -359,7 +360,7 @@ struct hugechunk_region {
 // a region containing a given number
 // of hugechunk pages:
 //
-#define HUGECHUNK_REGION_RECORD_BYTESIZE(NPAGES)    (sizeof(Hugechunk_Region) + ((NPAGES-1)*sizeof(Hugechunk*)))					// "-1" because struct declaration has   hugechunk_page_to_hugechunk[1]
+#define HUGECHUNK_REGION_RECORD_BYTESIZE(NPAGES)    (sizeof(Hugechunk_Quire) + ((NPAGES-1)*sizeof(Hugechunk*)))					// "-1" because struct declaration has   hugechunk_page_to_hugechunk[1]
 
 
 // Map an address to a hugechunk page index:
@@ -367,7 +368,7 @@ struct hugechunk_region {
 #define GET_HUGECHUNK_FOR_POINTER_PAGE(region, address)    (((Punt)(address) - (region)->first_ram_quantum) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
 
 
-inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Region* region,  Val pointer)   {
+inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* region,  Val pointer)   {
     //              =============================
     //
     // Map an address to the corresponding Hugechunk*
@@ -400,11 +401,11 @@ struct hugechunk {
 						// is in the free list, this will be a multiple of
 						// HUGECHUNK_RAM_QUANTUM_IN_BYTES, otherwise it is the exact size.
 
-    unsigned char   huge_ilk;			// The chunk ilk.  Currently always CODE__HUGE_SIB -- def in   src/c/h/sibid.h
+    unsigned char   huge_ilk;			// The hugechunk sib.  Currently always CODE__HUGE_SIB -- def in   src/c/h/sibid.h
     unsigned char   hugechunk_state;		// The state of the chunk -- see above #defines.
     unsigned char   age;			// The chunk's agegroup.
 
-    Hugechunk_Region* region;			// The region this big chunk is in.
+    Hugechunk_Quire* region;			// The region this big chunk is in.
 
     Hugechunk* prev;				// The prev and next links.  The hugechunk freelist
     Hugechunk* next;				// is a doubly linked list; the other lists are singly linked.
@@ -509,7 +510,7 @@ extern void    set_book2sibid_entries_for_range
 	           (Sibid* book2sibid,  Val* base,  Val_Sized_Unt bytesize,  Sibid id);				// set_book2sibid_entries_for_range				def in   src/c/heapcleaner/heapcleaner-stuff.c
 extern void    null_out_newly_dead_weakrefs	(Heap* heap);							// null_out_newly_dead_weakrefs					def in   src/c/heapcleaner/heapcleaner-stuff.c
 //
-extern Hugechunk*   allocate_hugechunk_region (Heap* heap,  Punt bytesize);					// allocate_hugechunk_region					def in   src/c/heapcleaner/hugechunk.c
+extern Hugechunk*   allocate_hugechunk_quire (Heap* heap,  Punt bytesize);					// allocate_hugechunk_quire					def in   src/c/heapcleaner/hugechunk.c
 extern Hugechunk*   allocate_hugechunk        (Heap* heap,  int gen, Punt chunk_bytesize);			// allocate_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 extern void	    free_hugechunk            (Heap* heap,  Hugechunk* chunk);					// free_hugechunk						def in   src/c/heapcleaner/hugechunk.c
 extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hugechunk						def in   src/c/heapcleaner/hugechunk.c
@@ -517,7 +518,7 @@ extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hu
 extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);					// get_codechunk_comment_string_else_null			def in   src/c/heapcleaner/hugechunk.c
 
 #ifdef BO_DEBUG
-    extern void print_hugechunk_region_map (Hugechunk_Region *r);						// print_hugechunk_region_map					def in   src/c/heapcleaner/hugechunk.c
+    extern void print_hugechunk_region_map (Hugechunk_Quire *r);						// print_hugechunk_region_map					def in   src/c/heapcleaner/hugechunk.c
 #endif
 
 #ifdef CHECK_GC
