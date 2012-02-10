@@ -108,7 +108,7 @@ Cleaner statistics stuff:
  static Val        forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id				);
  static Val        forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                 Val tagword	);
 //
- static Hugechunk* mark_hugechunk_to_be_forwarded_or_promoted					(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
+ static Hugechunk* mark_hugechunk_as_live				(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
 
 //
 
@@ -155,7 +155,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
     //
     // Cycle over all hugechunks, forwarding, promoting or reclaiming
     // each one as appropriate.  Hugechunks are marked for promotion
-    // or forwarding by mark_hugechunk_to_be_forwarded_or_promoted().
+    // or forwarding by mark_hugechunk_as_live().
     //
     // Dead records, pairs, strings and vectors are never explicitly
     // reclaimed;  they simply get left behind after we have copied all
@@ -172,7 +172,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
     // Hugechunks which need to be forwarded or promoted have been
     // so marked by
     //
-    //     mark_hugechunk_to_be_forwarded_or_promoted ()
+    //     mark_hugechunk_as_live ()
     //
     // At this point the remaining hugechunks not so marked are
     // garbage and can be reclaimed.
@@ -1051,7 +1051,7 @@ static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
 
 		    if (SIBID_KIND_IS_CODE( sibid )) {
 			//
-			Hugechunk* p =  mark_hugechunk_to_be_forwarded_or_promoted( heap, oldest_agegroup_to_clean, word, sibid );
+			Hugechunk* p =  mark_hugechunk_as_live( heap, oldest_agegroup_to_clean, word, sibid );	// Actual forwarding/promotion (as appropriate) is done in a postpass -- see forward_promote_or_reclaim_all_hugechunks()
 
 			target_age = p->age;
 
@@ -1197,7 +1197,7 @@ static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag, 
 
 		    if (SIBID_KIND_IS_CODE( sibid )) {
 		        //
-			Hugechunk*  p =   mark_hugechunk_to_be_forwarded_or_promoted( heap, oldest_agegroup_to_clean, w, sibid );
+			Hugechunk*  p =   mark_hugechunk_as_live( heap, oldest_agegroup_to_clean, w, sibid );	// Actual forwarding/promotion (as appropriate) is done in a postpass -- see forward_promote_or_reclaim_all_hugechunks()
 			target_age = p->age;
 
 		    } else {
@@ -1523,22 +1523,22 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		      WEAK_POINTER_OR_SUSPENSION_BTAG
 		    );
 
-                exit(1);													// Cannot execute -- just to quiet gcc -Wall.
+                exit(1);											// Cannot execute -- just to quiet gcc -Wall.
 	    }
 
 	    to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTERS_SIB ];
 
-	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old		def in   src/c/h/heap.h
+	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;			// sib_chunk_is_old		def in   src/c/h/heap.h
         }
 	break;
 
     case CODE_KIND:
-	mark_hugechunk_to_be_forwarded_or_promoted( heap, GET_AGE_FROM_SIBID(max_sibid), v, sibid );
+	mark_hugechunk_as_live( heap, GET_AGE_FROM_SIBID(max_sibid), v, sibid );				// Actual forwarding/promotion (as appropriate) is done in a postpass -- see forward_promote_or_reclaim_all_hugechunks()
 	return v;
 
     default:
 	die("unknown chunk ilk %d @ %#x", GET_KIND_FROM_SIBID(sibid), chunk);
-        exit(1);														// Cannot execute -- just to quiet gcc -Wall.
+        exit(1);												// Cannot execute -- just to quiet gcc -Wall.
     }
 
     // Allocate and initialize a
@@ -1552,7 +1552,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
     ASSERT( sib->tospace.used_end <= sib->tospace.limit );
 
-    COPYLOOP( chunk, new_chunk, size_in_words );										// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
+    COPYLOOP( chunk, new_chunk, size_in_words );								// COPYLOOP			def in   src/c/heapcleaner/copy-loop.h
 
     // Set up the forward pointer
     // and return the new chunk:
@@ -1565,8 +1565,8 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 //
 //
-static Hugechunk*   mark_hugechunk_to_be_forwarded_or_promoted                  (Heap* heap,   int oldest_agegroup_to_clean,   Val codechunk,   Sibid sibid)   {
-    //              ==========================================
+static Hugechunk*   mark_hugechunk_as_live                  (Heap* heap,   int oldest_agegroup_to_clean,   Val codechunk,   Sibid sibid)   {
+    //              ======================
     //
     // 'sibid' is the book_to_sibid__global entry for codechunk.
     //
