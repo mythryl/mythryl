@@ -587,9 +587,13 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 		    sibid = b2s[ --index ];
 		}
 
-		Hugechunk_Region* region =  (Hugechunk_Region *)  ADDRESS_OF_BOOK( index );					// ADDRESS_OF_BOOK	def in    src/c/h/sibid.h
+		Hugechunk_Quire*
+		    //
+		    hq =  (Hugechunk_Quire*)  ADDRESS_OF_BOOK( index );					// ADDRESS_OF_BOOK	def in    src/c/h/sibid.h
 
-		Hugechunk* p =  get_hugechunk_holding_pointee( region, w );
+		Hugechunk*
+		    //
+		    p =  get_hugechunk_holding_pointee( hq, w );
 
 		if (p->state == FREE_HUGECHUNK) {
 		    //

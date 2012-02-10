@@ -13,18 +13,18 @@
 
 
 
-void   print_hugechunk_region_map   (Hugechunk_Region* r)   {
+void   print_hugechunk_region_map   (Hugechunk_Quire* hq)   {
     // =========================
     //
     Hugechunk*	dp;
     Hugechunk*	dq;
-    int			i;
+    int		i;
 
-    debug_say ("[%d] %d/%d, @%#x: ", r->minGen, r->nFree, r->page_count, r->first_ram_quantum);
+    debug_say ("[%d] %d/%d, @%#x: ", hq->minGen, hq->nFree, hq->page_count, hq->first_ram_quantum);
 
-    for (i = 0, dq = NULL;  i < r->page_count;  i++) {
+    for (i = 0, dq = NULL;  i < hq->page_count;  i++) {
 
-	dp = r->hugechunk_page_to_hugechunk[i];
+	dp = hq->hugechunk_page_to_hugechunk[i];
 
 	if (dp != dq) {
 	    debug_say ("|");

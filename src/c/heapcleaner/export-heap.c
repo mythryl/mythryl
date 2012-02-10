@@ -315,9 +315,9 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 	    debug_say("%d hugechunk regions\n", heap->hugechunk_ramregion_count);
 	#endif
 
-	int size =  heap->hugechunk_ramregion_count * sizeof( Hugechunk_Region_Header );
+	int size =  heap->hugechunk_ramregion_count * sizeof( Hugechunk_Quire_Header );
 
-	Hugechunk_Region_Header* header =  (Hugechunk_Region_Header*) MALLOC (size);
+	Hugechunk_Quire_Header* header =  (Hugechunk_Quire_Header*) MALLOC (size);
 
         {   int i = 0;
 	    //

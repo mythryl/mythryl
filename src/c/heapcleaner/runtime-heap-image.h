@@ -113,7 +113,7 @@ typedef struct {
 
 // The heap header consists of 'active_agegroups' agegroup descriptions,
 // each of which consists of (smallchunk_sibs_count+hugechunk_sibs_count) Sib_Header records.
-// After the agegroup descriptors, there are hugechunk_ramregion_count Hugechunk_Region_Header
+// After the agegroup descriptors, there are hugechunk_ramregion_count Hugechunk_Quire_Header
 // records.  The page aligned heap image follows the heap header.
 //
 
@@ -148,7 +148,7 @@ typedef struct {
     Punt	first_ram_quantum;	// Address of the first ram quantum of the region in the exporting address space.
     Punt	bytesize;		// Total size of this hugechunk region, including the header.
     //
-} Hugechunk_Region_Header;
+} Hugechunk_Quire_Header;
 
 // hugechunk header:
 //

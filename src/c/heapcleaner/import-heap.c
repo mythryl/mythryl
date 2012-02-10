@@ -26,7 +26,7 @@
 #endif
 
 #ifdef DEBUG
-    static void   print_region_map   (Hugechunk_Region_Relocation_Info* r)   {
+    static void   print_region_map   (Hugechunk_Quire_Relocation_Info* r)   {
         //
 	Hugechunk_Relocation_Info* dp;
 	Hugechunk_Relocation_Info* dq;
@@ -52,7 +52,7 @@
 
 
 static void         read_heap			(Inbuf* bp,  Heap_Header* header,  Task* task,  Val* externs );
-static Hugechunk*   allocate_a_hugechunk	(Hugechunk*, Hugechunk_Header*, Hugechunk_Region_Relocation_Info* );
+static Hugechunk*   allocate_a_hugechunk	(Hugechunk*, Hugechunk_Header*, Hugechunk_Quire_Relocation_Info* );
 static void         repair_heap			(Heap*, Sibid*, Punt [MAX_AGEGROUPS][MAX_PLAIN_SIBS], Addresstable*, Val*);
 static Val          repair_word			(Val w,   Sibid* oldBOOK2SIBID,   Punt addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS],   Addresstable* boRegionTable,   Val* externs);
 
@@ -266,7 +266,7 @@ static void   read_heap   (
     Sibid*		oldBOOK2SIBID;
     Punt		addrOffset[MAX_AGEGROUPS][MAX_PLAIN_SIBS];
 
-    Hugechunk_Region_Relocation_Info*	boRelocInfo;
+    Hugechunk_Quire_Relocation_Info*	boRelocInfo;
 
     Addresstable*	boRegionTable;
 
@@ -284,17 +284,17 @@ static void   read_heap   (
     //
     {
 	int		  size;
-	Hugechunk_Region_Header* boRgnHdr;
+	Hugechunk_Quire_Header* boRgnHdr;
 
 	boRegionTable = make_address_hashtable(LOG2_BOOK_BYTESIZE+1, header->hugechunk_ramregion_count);
 
-	size = header->hugechunk_ramregion_count * sizeof(Hugechunk_Region_Header);
+	size = header->hugechunk_ramregion_count * sizeof(Hugechunk_Quire_Header);
 
-	boRgnHdr = (Hugechunk_Region_Header*) MALLOC (size);
+	boRgnHdr = (Hugechunk_Quire_Header*) MALLOC (size);
 
 	heapio__read_block( bp, boRgnHdr, size );
 
-	boRelocInfo = MALLOC_VEC(Hugechunk_Region_Relocation_Info, header->hugechunk_ramregion_count);
+	boRelocInfo = MALLOC_VEC(Hugechunk_Quire_Relocation_Info, header->hugechunk_ramregion_count);
 
 	for (i = 0;  i < header->hugechunk_ramregion_count;  i++) {
 
@@ -429,7 +429,7 @@ static void   read_heap   (
 	    int			 boHdrSizeB;
 	    int			 index;
 
-	    Hugechunk_Region_Relocation_Info*  region;
+	    Hugechunk_Quire_Relocation_Info*  region;
 
 	    if (p->info.bo.hugechunk_quanta_count > 0) {
 		//
@@ -652,7 +652,7 @@ static Hugechunk*   allocate_a_hugechunk   (
     //
     Hugechunk*                          free,
     Hugechunk_Header*                   header,
-    Hugechunk_Region_Relocation_Info*   old_region
+    Hugechunk_Quire_Relocation_Info*   old_region
 ) {
     Hugechunk*  new_chunk;
 
@@ -849,7 +849,7 @@ static Hugechunk_Relocation_Info*   address_to_relocation_info   (
         id = oldBOOK2SIBID[--index]
     );
 
-    Hugechunk_Region_Relocation_Info* region
+    Hugechunk_Quire_Relocation_Info* region
 	=
 	LOOK_UP_HUGECHUNK_REGION( hugechunk_region_table, index );		// Find the old region descriptor.
 

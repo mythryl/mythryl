@@ -584,7 +584,7 @@ static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
     fprintf(fd,"    huge_ilk d= %d  (Currently always CODE__HUGE_SIB=%d) \n", p->huge_ilk, CODE__HUGE_SIB);		// unsigned char
     fprintf(fd,"    state     = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_FORWARDED_HUGECHUNK/OLD_HUGECHUNK/OLD_PROMOTED_HUGECHUNK) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
     fprintf(fd,"    age      d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char
-    fprintf(fd,"    region   p= %p  (Hugechunk_Region containing hugechunk)\n", p->region);
+    fprintf(fd,"    region   p= %p  (Hugechunk_Quire containing hugechunk)\n", p->region);
 }
 //
 static void   expand_tabs   (char* outbuf, char* inbuf) {

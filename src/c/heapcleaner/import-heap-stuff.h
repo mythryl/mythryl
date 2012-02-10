@@ -51,10 +51,10 @@ typedef struct {
     //
     Hugechunk_Relocation_Info**  hugechunk_page_to_hugechunk;	// The map from pages to hugechunk relocation info.
     //
-} Hugechunk_Region_Relocation_Info;
+} Hugechunk_Quire_Relocation_Info;
 
 
-inline Hugechunk_Relocation_Info*   get_hugechunk_holding_pointee_via_reloc_info   (Hugechunk_Region_Relocation_Info* region,  Val pointer)   {
+inline Hugechunk_Relocation_Info*   get_hugechunk_holding_pointee_via_reloc_info   (Hugechunk_Quire_Relocation_Info* region,  Val pointer)   {
     //                              ============================================
     //
     // Map an address to the corresponding Hugechunk*
@@ -73,7 +73,7 @@ inline Hugechunk_Relocation_Info*   get_hugechunk_holding_pointee_via_reloc_info
 ///////////////////////////////////////////
 // Big-chunk region hashtable interface:
 //
-#define LOOK_UP_HUGECHUNK_REGION(table, book2sibid_index)    ((Hugechunk_Region_Relocation_Info*) addresstable_look_up( table, ADDRESS_OF_BOOK( book2sibid_index )))
+#define LOOK_UP_HUGECHUNK_REGION(table, book2sibid_index)    ((Hugechunk_Quire_Relocation_Info*) addresstable_look_up( table, ADDRESS_OF_BOOK( book2sibid_index )))
 
 // Utility routines:
 //

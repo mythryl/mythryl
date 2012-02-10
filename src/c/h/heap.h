@@ -44,6 +44,7 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
     Punt agegroup0_buffer_bytesize;
     int	 active_agegroups;
     int  oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;		// Between garbage collections we keep (instead of freeing) idle fromspaces for this and all younger agegroups.
+											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
 };
 
 
