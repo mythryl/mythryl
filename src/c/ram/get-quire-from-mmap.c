@@ -60,14 +60,14 @@
 struct quire {
     //
     Val_Sized_Unt*	base;					// The base address of the region.	SEE ABOVE WARNING!
-    Punt	bytesize;				// The region's size.			SEE ABOVE WARNING!
+    Punt	bytesize;					// The region's size.			SEE ABOVE WARNING!
 
     #ifdef HAS_PARTIAL_MUNMAP
         #define	mapBase		base
         #define	mapSizeB	bytesize
     #else
 	Val_Sized_Unt*		mapBase;			// Base address of the mapped region containing the chunk.
-	Punt	mapSizeB;			// The size of the mapped region containing     the chunk.
+	Punt	mapSizeB;					// The size of the mapped region containing     the chunk.
     #endif
 };
 

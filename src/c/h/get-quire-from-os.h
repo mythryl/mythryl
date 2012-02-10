@@ -3,7 +3,7 @@
 // An OS-independent view of memory.
 //
 // This supports allocation of memory chunks aligned
-// to BOOK_BYTESIZE byte boundaries -- see
+// to BOOK_BYTESIZE byte boundaries -- see								// BOOK_BYTESIZE is typically 64KB.
 //
 //     src/c/h/sibid.h
 
@@ -34,8 +34,10 @@ typedef struct {
 #define BASE_ADDRESS_OF_QUIRE(region)	(((Quire_Prefix*)(region))->base)
 #define     BYTESIZE_OF_QUIRE(region)	(((Quire_Prefix*)(region))->bytesize)
 
-typedef   struct quire   Quire;
-
+typedef   struct quire   Quire;										// Depending on host OS, struct quire def actually in use will be one of:
+													// struct quire				def in   src/c/ram/get-quire-from-mmap.c
+													// struct quire				def in   src/c/ram/get-quire-from-win32.c
+													// struct quire				def in   src/c/ram/get-quire-from-mach.c
 
 // This API defines three client-accessible functions:
 //

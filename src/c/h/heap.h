@@ -338,7 +338,7 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 
 #define LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES		10   	// 1KB
 #define HUGECHUNK_RAM_QUANTUM_IN_BYTES			(1 << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
-#define MINIMUM_HUGECHUNK_RAM_REGION_BYTESIZE	(128*ONE_K_BINARY)
+#define MINIMUM_HUGECHUNK_QUIRE_BYTESIZE		(128*ONE_K_BINARY)
 
 // A hugechunk region:
 //
@@ -350,7 +350,7 @@ struct hugechunk_region {
     int	free_pages;						// Number of free pages.
     int	age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
     //
-    Quire*  ram_region;				// Ram region from which we allocate.
+    Quire*  ram_region;						// Quire (multipage ram region) from which we allocate.
     Hugechunk_Region*      next;				// Next region in the list of regions.
     Hugechunk*		   hugechunk_page_to_hugechunk[1];	// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
 };

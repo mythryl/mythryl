@@ -46,38 +46,36 @@ Hugechunk*   allocate_hugechunk_region   (
     Heap* heap,
     Punt  bytesize
 ){
-    // Allocate a big chunk region that is
+    // Allocate a hugechunk region that is
     // large enough to hold an chunk of at
     // least bytesize bytes.
     //
     // It returns the descriptor for the
     // free hugechunk that is the region.
     //
-    // NOTE: It does not mark the book_to_sibid__global entries for the region;
+    // NOTE: We do not mark the book_to_sibid__global entries for the region;
     //       this must be done by the caller.
 
     int npages;
     int old_npages;
 
     Punt  record_bytesize;
-    Punt  ram_region_bytesize;
+    Punt  quire_bytesize;
 
     Hugechunk_Region*      region;
-    Quire*  ram_region;
+    Quire*  quire;
 
     // Compute the memory chunk size.
     // NOTE: there probably is a closed form for this,
-    // but I'm too lazy to try to figure it out.        XXX BUGGO FIXME
+    // but I'm too lazy to try to figure it out.        XXX SUCKO FIXME
 
-    npages
-	=
-	ROUND_UP_TO_POWER_OF_TWO (
-	    //
-	    bytesize,
-	    HUGECHUNK_RAM_QUANTUM_IN_BYTES
-        )
-        >>
-        LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
+    npages =    ROUND_UP_TO_POWER_OF_TWO (
+		    //
+		    bytesize,
+		    HUGECHUNK_RAM_QUANTUM_IN_BYTES
+		)
+		>>
+		LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 
     do {
 	old_npages = npages;
@@ -86,16 +84,19 @@ Hugechunk*   allocate_hugechunk_region   (
 
 	bytesize = (npages << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 
-	ram_region_bytesize = BOOKROUNDED_BYTESIZE(record_bytesize+bytesize);
-	ram_region_bytesize = (ram_region_bytesize < MINIMUM_HUGECHUNK_RAM_REGION_BYTESIZE) ? MINIMUM_HUGECHUNK_RAM_REGION_BYTESIZE : ram_region_bytesize;
+	quire_bytesize = BOOKROUNDED_BYTESIZE( record_bytesize + bytesize );
 
-	npages = (ram_region_bytesize - record_bytesize) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
+	quire_bytesize =  (quire_bytesize < MINIMUM_HUGECHUNK_QUIRE_BYTESIZE)			// MINIMUM_HUGECHUNK_QUIRE_BYTESIZE	is from   src/c/h/heap.h
+                       ?  MINIMUM_HUGECHUNK_QUIRE_BYTESIZE					// MINIMUM_HUGECHUNK_QUIRE_BYTESIZE was 128KB at last check.
+                       :  quire_bytesize;
+
+	npages = (quire_bytesize - record_bytesize) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 
     } while (npages != old_npages);
 
-    ram_region =  obtain_quire_from_os(  ram_region_bytesize  );		if (!ram_region) die( "Unable to allocate hugechunk region.");
+    quire =  obtain_quire_from_os(  quire_bytesize  );				if (!quire) die( "Unable to allocate hugechunk region.");
 
-    region = (Hugechunk_Region*) BASE_ADDRESS_OF_QUIRE( ram_region );
+    region = (Hugechunk_Region*) BASE_ADDRESS_OF_QUIRE( quire );				// BASE_ADDRESS_OF_QUIRE	is from   src/c/h/get-quire-from-os.h
 
 
     Hugechunk* chunk = MALLOC_CHUNK( Hugechunk );						if (!chunk)	 die( "Unable to allocate hugechunk descriptor.");
@@ -112,7 +113,7 @@ Hugechunk*   allocate_hugechunk_region   (
 	=
 	MAX_AGEGROUPS;
 
-    region->ram_region		= ram_region;
+    region->ram_region		= quire;
     //
     region->next		= heap->hugechunk_ramregions;
     heap->hugechunk_ramregions	= region;
