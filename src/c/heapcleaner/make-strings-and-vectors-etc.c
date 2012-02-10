@@ -608,9 +608,10 @@ Val   dump_table_as_system_constants_list   (Task* task,  System_Constants_Table
 
     for (int i = table->constants_count;  --i >= 0;  ) {
 	//
-	Val name = make_ascii_string_from_c_string (task, table->consts[i].name);
-        Val                            system_constant;
-	system_constant = make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
+	Val name            =  make_ascii_string_from_c_string (task, table->consts[i].name);
+	//
+        Val system_constant =  make_two_slot_record( task, TAGGED_INT_FROM_C_INT(table->consts[i].id), name);
+	//
 	result_list = LIST_CONS(  task, system_constant, result_list );
     }
 

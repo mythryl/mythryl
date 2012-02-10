@@ -849,7 +849,7 @@ static int          establish_all_required_empty_tospace_sib_buffers       (Task
 	    //   r == target_heapcleaning_frequency_ratio
 	    //   j == # of bytes of juniorchunks in this sib.
 	    //   n == # of cleanings of the previous agegroup since the last heapcleaning of this agegroup.
-	    // We also need to allow space for young chunks in this agegroup,
+	    // We also need to allow space for junior chunks in this agegroup,
 	    // but the new size shouldn't exceed the maximum size for the
 	    // sib buffer (unless min_bytes_for_sib > soft_max_bytesize).
 	    //
@@ -1670,7 +1670,7 @@ static Val          forward_special_chunk   (
     sib->tospace.used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;									// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {									// We abuse the 'length' field in specials to carry extra type information.
-        //															// Since all specials are two words long, this causes no problem.
+        //															// We can get away with this hack because all specials are two words long.
     case EVALUATED_LAZY_SUSPENSION_CTAG:
     case UNEVALUATED_LAZY_SUSPENSION_CTAG:
     case NULLED_WEAK_POINTER_CTAG:
