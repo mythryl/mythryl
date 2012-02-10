@@ -93,7 +93,7 @@ Cleaner statistics stuff:
 
 // Forward references:
 
- static int	   establish_all_necessary_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request										);
+ static int	   establish_all_required_empty_tospace_sib_buffers	(Task*          task,   int            youngest_agegroup_without_heapcleaning_request										);
 //
 #ifdef  BO_DEBUG
  static void       scan_memory_for_bogus_pointers			(Val_Sized_Unt* start,  Val_Sized_Unt* stop,                  int    age,                 int chunk_ilk								);
@@ -153,9 +153,11 @@ static inline void  forward_pointee_if_in_fromspace   (Heap* heap,  Sibid* b2s, 
 static void         forward_promote_or_reclaim_all_hugechunks                  (Heap* heap,  int oldest_agegroup_to_clean)   {
     //              =========================================
     //
-    // Cycle over all hugechunks, forwarding, promoting or reclaiming
-    // each one as appropriate.  Hugechunks are marked for promotion
-    // or forwarding by mark_hugechunk_as_live().
+    // Cycle over all hugechunks in the agegroups being heapcleaned,
+    // forwarding, promoting or reclaiming each one as appropriate.
+    // Hugechunks are marked for promotion or forwarding by
+    //
+    //     mark_hugechunk_as_live().
     //
     // Dead records, pairs, strings and vectors are never explicitly
     // reclaimed;  they simply get left behind after we have copied all
@@ -166,8 +168,10 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
     // (i.e., Codechunks) because they are large and static; instead
     // of copying them we just change their hugechunk_state field.
     //
-    // Consquently when hugechunks -do- become garbage we must in fact
-    // explicitly free them.  That is our task here.
+    // Consquently when hugechunks -do- become garbage we must in
+    // fact explicitly free them.  That is our main task here; we
+    // also promote hugechunks from junior to senior status and
+    // from one agegroup to another, as appropriate.
     //
     // Hugechunks which need to be forwarded or promoted have been
     // so marked by
@@ -204,8 +208,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 	    promote_agegroup = heap->agegroup[ age-1 ];
 
 	    forward_state = JUNIOR_HUGECHUNK;							// Oldest active agegroup holds only YOUNG hugechunks.
-
-	    promote_state = JUNIOR_HUGECHUNK;		// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning. XXX QUERO FIXME
+	    promote_state = JUNIOR_HUGECHUNK;
 
 	} else {
 	    //
@@ -220,9 +223,9 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 	    else promote_state =  SENIOR_HUGECHUNK;
 		//
 		// The chunks promoted from agegroup 'age' to agegroup 'age'+1, when
-		// agegroup 'age'+1 is also being cleaned, are "OLD", thus we need
-		// to mark the corresponding big chunks as old so that they do not
-		// get out of sync.  Since the oldest agegroup has only YOUNG
+		// agegroup 'age'+1 is also being cleaned, are "SENIOR", thus we need
+		// to mark the corresponding hugechunks as senior so that they do not
+		// get out of sync.  Since the oldest agegroup has only JUNIOR
 		// chunks, we have to check for that case too.
 	}
 
@@ -246,6 +249,9 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 		    //
 		case JUNIOR_HUGECHUNK:
 		case SENIOR_HUGECHUNK:
+		    // Any hugechunk not marked for forwarding or promotion
+		    // by this point is nowhere referenced, hence garbage:
+		    //
 		    free_hugechunk( heap, p );								// free_hugechunk		def in    src/c/heapcleaner/hugechunk.c
 		    break;
 
@@ -254,7 +260,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 		    p->hugechunk_state = forward_state;
 		    //
 		    p->next  = forward;
-		    forward   = p;
+		    forward  = p;
 		    break;
 
 		case SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED:
@@ -292,10 +298,14 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
     #endif
 
 
-    // Re-label book_to_sibid__global entries for hugechunk regions to reflect promotions:
+    // Re-label  book_to_sibid__global[]  entries
+    // for hugechunk quires to reflect promotions:
     //
-    for (Hugechunk_Quire* hq = heap->hugechunk_quires;  hq != NULL;  hq = hq->next) {
-	//
+    for (Hugechunk_Quire*
+	hq  = heap->hugechunk_quires;
+	hq != NULL;
+	hq  = hq->next
+    ){
 	// If the minimum age of the live chunks in
 	// the region is less than or equal to oldest_agegroup_to_clean
 	// then it is possible that it has increased
@@ -315,7 +325,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 		    min = p->age;
 		}
 
-		i += hugechunk_size_in_hugechunk_ram_quanta( p );							// hugechunk_size_in_hugechunk_ram_quanta	def in   src/c/h/heap.h
+		i += hugechunk_size_in_hugechunk_ram_quanta( p );						// hugechunk_size_in_hugechunk_ram_quanta	def in   src/c/h/heap.h
 	    }
 
 	    if (hq->age_of_youngest_live_chunk_in_quire != min) {
@@ -335,27 +345,26 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 	    }
 	}
     }
-
-}
+}														// forward_promote_or_reclaim_all_hugechunks
 
 //
 static void         update_fromspace_seniorchunks_end_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
-    //              ======================================
+    //              ==========================================
     //
     // Background:  We require that a chunk survive two heapcleans in
     // a given agegroup before being promoted to the next agegroup.
     //
     // To this end, we divide the chunks in a given agegroup sib into
-    // "young" (have not yet survived a heapclean) and
-    // "old" (have survived one heapclean).  This pointer tracks the
-    // boundary between old and new;  Chunks before this get promoted
+    // "junior" (have not yet survived a heapclean) and
+    // "senior" (have survived one heapclean).  This pointer tracks the
+    // boundary between senior and junior;  Chunks before this get promoted
     // if they survive the next heapcleaning; those beyond it do not.
     //
-    // Special case: chunks in the oldest active agegroup are forever young.
+    // Special case: chunks in the oldest active agegroup are forever junior.
     //
     // We are called at the end of a heapcleaning;  Our job is to
     // appropriately update the 'fromspace.seniorchunks_end' pointers
-    // marking the boundary between 'old' and 'young' chunks in
+    // marking the boundary between 'senior' and 'junior' chunks in
     // each sib in each agegroup.
     //
     for (int a = 0;  a < oldest_agegroup_to_clean;  a++) {
@@ -364,7 +373,7 @@ static void         update_fromspace_seniorchunks_end_pointers   (Heap* heap, in
         //
 	if (a == heap->active_agegroups - 1) {
 	    //
-            // The oldest agegroup has only "young" chunks:
+            // The oldest agegroup has only "junior" chunks:
             //
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
@@ -462,7 +471,7 @@ static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val**
     //
     int oldest_agegroup_to_clean
 	=
-	establish_all_necessary_empty_tospace_sib_buffers( task, level );
+	establish_all_required_empty_tospace_sib_buffers( task, level );
 
 
     // We sweep one more agegroup than we clean,
@@ -631,8 +640,8 @@ static void         scan_memory_for_bogus_pointers                        (Val_S
 //
 //
 //
-static int          establish_all_necessary_empty_tospace_sib_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
-    //              =================================================
+static int          establish_all_required_empty_tospace_sib_buffers       (Task* task,   int youngest_agegroup_without_heapcleaning_request)   {
+    //              ================================================
     // 
     // Make sure that every to-space sib buffer in every age group
     // has sufficient space to guarantee that the heapcleaning
@@ -650,12 +659,12 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
     // to hold all possible incoming data from three different
     // sources:
     //
-    //  1) Live "young" chunks in the fromspace of the sib will
+    //  1) Live "junior" chunks in the fromspace of the sib will
     //     be copied into the tospace buffer.  (We don't have
-    //     to worry about "old" chunks in our fromspace;  if
+    //     to worry about "senior" chunks in our fromspace;  if
     //     they are live they will be promoted to another agegroup.)
     //
-    //  2) Live "old" chunks from the corresponding sib in the
+    //  2) Live "senior" chunks from the corresponding sib in the
     //     next-youngest agegroup -- these will be promoted into
     //     our tospace buffer.
     //
@@ -682,24 +691,24 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 
     Heap* heap = task->heap;
 
-    int younger_agegroup_heapcleanings_since_last_heapcleaning;		// How many heapcleanings has the next-youngest agegroup had
-									// since we last heapcleaned the current agegroup?
-									// We want each agegroup to do about 1/10 as many heapcleanings
-									// as the next-youngest one;  We'll us this variable to compute
-									// how close we came this time around for this agegroup.
+    int younger_agegroup_heapcleanings_since_last_heapcleaning;			// How many heapcleanings has the next-youngest agegroup had
+										// since we last heapcleaned the current agegroup?
+										// We want each agegroup to do about 1/10 as many heapcleanings
+										// as the next-youngest one;  We'll us this variable to compute
+										// how close we came this time around for this agegroup.
 
-    Punt  bytes_of_oldstuff_in_next_younger_agegroup[ MAX_PLAIN_SIBS ];	// This tracks, for each agegroup.sib, the total bytes of
-									// "old" stuff in the corresponding next-younger sib.
-									// The significance of this is that during the about-to-happen
-									// heapcleaning potentially all of this "old" stuff might get
-									// promoted (copied) into our sib, so we *must* arrange to
-									// have enough free space to accept that many bytes from it.
+    Punt  bytes_of_seniorchunks_in_next_younger_agegroup[ MAX_PLAIN_SIBS ];	// This tracks, for each agegroup.sib, the total bytes of
+										// "senior" chunks in the corresponding next-younger sib.
+										// The significance of this is that during the about-to-happen
+										// heapcleaning potentially all of this "old" stuff might get
+										// promoted (copied) into our sib, so we *must* arrange to
+										// have enough free space to accept that many bytes from it.
 
-    Punt  min_bytesize_for_sib[       MAX_PLAIN_SIBS ];			// Minimum bytesize for each sib buffer:  If we cannot get this much we will groan and die.
-									// Usually we will allocate more than this;  this is our emergency fallback position if we
-									// Cannot get as much ram from the host OS as we really want.
+    Punt  min_bytesize_for_sib[       MAX_PLAIN_SIBS ];				// Minimum bytesize for each sib buffer:  If we cannot get this much we will groan and die.
+										// Usually we will allocate more than this;  this is our emergency fallback position if we
+										// Cannot get as much ram from the host OS as we really want.
 
-    // Initialize bytes_of_oldstuff_in_next_younger_agegroup[].
+    // Initialize bytes_of_seniorchunks_in_next_younger_agegroup[].
     // Since agegroup0 is a special case -- it does not have
     // separate sib buffers -- we conservatively assume that,
     // during the about-to-happen heapcleaning, each agegroup1
@@ -710,7 +719,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
     //
     for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
         //
-	bytes_of_oldstuff_in_next_younger_agegroup[ s ]
+	bytes_of_seniorchunks_in_next_younger_agegroup[ s ]
 	    =
             heap->agegroup0_master_buffer_bytesize;			// This value doesn't seem right, but it works and my attention is elsewhere, so for the moment I'm going to accept this as Black Magic.  -- 2012-01-31 CrT
 //          heap->agegroup0_master_buffer_bytesize / MAX_PTHREADS;	// This seems more appropriate, but plugging it in hangs the compiler.  -- 2012-01-31 CrT
@@ -749,7 +758,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 	    // We are not required to heapclean this agegroup,
 	    // so we can skip heapcleaning it, provided that
 	    // all of our sib buffers have enough free space
-	    // to accept the maximum amount of oldstuff which
+	    // to accept the maximum amount of seniorchunks which
 	    // could possibly be promoted from the next-younger
 	    // agegroup during its own heapcleaning:
 	    //
@@ -765,7 +774,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
                       ? sib_freespace_in_bytes( sib )
 		      : 0;
 
-		if (free_bytes_in_sib < bytes_of_oldstuff_in_next_younger_agegroup[ s ]) {				// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
+		if (free_bytes_in_sib < bytes_of_seniorchunks_in_next_younger_agegroup[ s ]) {				// Is this to ensure that we have enough room to promote the entire younger generation into this buffer?
 		    //
 		    want_to_heapclean_this_agegroup = TRUE;								// Insufficient free space in sib buffer, must create more.
 		    break;
@@ -791,7 +800,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 	//
 	for (int s = 0;  s < MAX_PLAIN_SIBS;  ++s) {
 	    //	
-	    Punt  bytes_of_youngstuff_in_sib;
+	    Punt  bytes_of_juniorchunks_in_sib;
 
 	    Sib* sib =  ag->sib[ s ];
 
@@ -799,7 +808,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 		//
 		make_sib_tospace_into_fromspace( sib );							// Sets fromspace.start, fromspace.bytesize and fromspace.used_end.
 													// make_sib_tospace_into_fromspace	def in    src/c/h/heap.h
-		bytes_of_youngstuff_in_sib
+		bytes_of_juniorchunks_in_sib
 		    =
 		    (Punt)  sib->fromspace.used_end
                     -
@@ -811,21 +820,21 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 
 		if (sib->requested_extra_free_bytes == 0
 		    &&
-		    bytes_of_oldstuff_in_next_younger_agegroup[ s ] == 0
+		    bytes_of_seniorchunks_in_next_younger_agegroup[ s ] == 0
 		){
 		    continue;										// We don't actually need *any* freespace in this sib buffer(!) so quit worrying about it.
 		}
 
-		bytes_of_youngstuff_in_sib = 0;
+		bytes_of_juniorchunks_in_sib = 0;
 	    }
 
 	    Punt min_bytes_for_sib									// Absolute minimum bytesize for sib's tospace buffer; We can't keep running without this much.
 		=
 		sib->requested_extra_free_bytes								// Caller wants this many free bytes in this sib for some new chunk it is creating.
 		+
-		bytes_of_oldstuff_in_next_younger_agegroup[ s ]						// This many bytes of oldstuff might get promoted from next-younger agegroup's sib into this one.
+		bytes_of_seniorchunks_in_next_younger_agegroup[ s ]					// This many bytes of seniorchunks might get promoted from next-younger agegroup's sib into this one.
 		+
-		bytes_of_youngstuff_in_sib;								// Our youngstuff will be copied into the tospace buffer. (Our oldstuff will be promoted to next agegroup -- not our problem.)
+		bytes_of_juniorchunks_in_sib;								// Our juniorchunks will be copied into the tospace buffer. (Our seniorchunks will be promoted to next agegroup -- not our problem.)
 
 	    if (s == RO_CONSCELL_SIB)   min_bytes_for_sib += 2*WORD_BYTESIZE;				// First slot isn't used, but may need the space for poly-equal.
 
@@ -836,9 +845,9 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 	    //	
 	    // The desired size is one that will allow "target_heapcleaning_frequency_ratio"
 	    // heapcleanings of the previous agegroup before this has to be cleaned again.
-	    // We approximate this as (f/n)*r, where
+	    // We approximate this as (j/n)*r, where
 	    //   r == target_heapcleaning_frequency_ratio
-	    //   f == # of bytes of youngstuff in this sib.
+	    //   j == # of bytes of juniorchunks in this sib.
 	    //   n == # of cleanings of the previous agegroup since the last heapcleaning of this agegroup.
 	    // We also need to allow space for young chunks in this agegroup,
 	    // but the new size shouldn't exceed the maximum size for the
@@ -848,9 +857,9 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 	        =
 		sib->requested_extra_free_bytes								// Caller wants this many free bytes in this sib for some new chunk it is creating.
 		+
-                bytes_of_oldstuff_in_next_younger_agegroup[ s ]						// This many bytes of oldstuff might get promoted from next-younger agegroup's sib into this one.
+                bytes_of_seniorchunks_in_next_younger_agegroup[ s ]						// This many bytes of seniorchunks might get promoted from next-younger agegroup's sib into this one.
 		+
-		(bytes_of_youngstuff_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning) * ag->target_heapcleaning_frequency_ratio;
+		(bytes_of_juniorchunks_in_sib / younger_agegroup_heapcleanings_since_last_heapcleaning) * ag->target_heapcleaning_frequency_ratio;
 
 	    // Clamp preferred_bytesize_for_sib to sane range:
 	    //
@@ -874,12 +883,12 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 		    BOOKROUNDED_BYTESIZE( preferred_bytesize_for_sib );							// Round up to a multiple of 64KB.
 	    }
 
-	    // Note: any data between sib->fromspace.seniorchunks_end
-	    // and sib->tospace.used_end is "young",
+	    // Note: any chunks between sib->fromspace.seniorchunks_end
+	    // and sib->tospace.used_end are "junior",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace.bytesize > 0)   bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   (Punt) sib->fromspace.seniorchunks_end - (Punt) sib->fromspace.start;
-	    else 		               bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   0;
+	    if (sib->fromspace.bytesize > 0)   bytes_of_seniorchunks_in_next_younger_agegroup[ s ] =   (Punt) sib->fromspace.seniorchunks_end - (Punt) sib->fromspace.start;
+	    else 		               bytes_of_seniorchunks_in_next_younger_agegroup[ s ] =   0;
 	}
 
 	ag->heapcleanings_count_of_younger_agegroup_during_last_heapcleaning
@@ -922,7 +931,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
     }														// for (int age = 0;   age < heap->active_agegroups;   ++age) 
 
     return heap->active_agegroups;
-}														// fun establish_all_necessary_empty_tospace_sib_buffers
+}														// fun establish_all_required_empty_tospace_sib_buffers
 
 //
 //
@@ -1618,7 +1627,7 @@ static Hugechunk*   mark_hugechunk_as_live                  (Heap* heap,   int o
 
 	// Forward the hugechunk.
         // Note that chunks in the oldest agegroup
-	// will always be YOUNG, thus will never be promoted:									// JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED		def in    src/c/h/heap.h
+	// will always be JUNIOR, thus will never be promoted:									// JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED		def in    src/c/h/heap.h
 	//
 	if (hc->hugechunk_state == JUNIOR_HUGECHUNK)  hc->hugechunk_state = JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED;		// This is the only place we set state to JUNIOR_HUGECHUNK_WAITING_TO_BE_FORWARDED
 	else			                      hc->hugechunk_state = SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED;		// This is the only place we set state to SENIOR_HUGECHUNK_WAITING_TO_BE_PROMOTED
@@ -1869,7 +1878,7 @@ static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
 
 		    // The calculation of minSz here may
                     // return something bigger than
-		    // what establish_all_necessary_empty_tospace_sib_buffers computed!
+		    // what establish_all_required_empty_tospace_sib_buffers computed!
 		    //
 		    if (new_bytesize > sib->tospace.bytesize) {
 			new_bytesize = sib->tospace.bytesize;
