@@ -82,7 +82,7 @@ struct heap {
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
     int		        hugechunk_quire_count;						// Number of active hugechunk quires.
-    Hugechunk_Quire*	hugechunk_quires;						// List of hugechunk regions.
+    Hugechunk_Quire*	hugechunk_quires;						// List of hugechunk quires.
     Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
 
     Val*		weakrefs_forwarded_during_heapcleaning;				// List of weakrefs forwarded during heapcleaning.
@@ -126,7 +126,7 @@ struct agegroup {
 
     Quire*    tospace_quire;					// The host-OS multipage ram regions that this agegroup is
     Quire*    fromspace_quire;					// using for the to-space and from-space.
-    Quire*    retained_fromspace_quire;				// For younger (== smaller) agegroups, we keep the from-space ram region, instead of giving it back.
+    Quire*    retained_fromspace_quire;				// For younger (== smaller) agegroups, we retain the from-space quire between heapcleanings, instead of giving it back to the host OS.
     //
     Coarse_Inter_Agegroup_Pointers_Map*				// Coarse_Inter_Agegroup_Pointers_Map	def in   src/c/h/coarse-inter-agegroup-pointers-map.h
     coarse_inter_agegroup_pointers_map;				// The dirty cards in the vector sib for this agegroup.
@@ -331,7 +331,7 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 
 
 //////////////////////////////////////////////////////////////
-// Hugechunk regions
+// Hugechunk quires
 //
 // The hugechunk facility is for values so big that
 // it is unreasonable to copy them when cleaning.
@@ -342,23 +342,24 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 #define HUGECHUNK_RAM_QUANTUM_IN_BYTES			(1 << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
 #define MINIMUM_HUGECHUNK_QUIRE_BYTESIZE		(128*ONE_K_BINARY)
 
-// A hugechunk region:
+// A hugechunk multipage ram region allocated directly
+// from the host OS (i.e., not through malloc()):
 //
 struct hugechunk_quire {
     //
     Punt first_ram_quantum;					// Address of the first ram quantum of the region.
     //
-    int	page_count;						// Number of hugechunk pages in this region.
-    int	free_pages;						// Number of free pages.
-    int	age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
+    int	 page_count;						// Number of hugechunk pages in this region.
+    int	 free_pages;						// Number of free pages.
+    int	 age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
     //
-    Quire*  ram_region;						// Quire (multipage ram region) from which we allocate.
-    Hugechunk_Quire*      next;				// Next region in the list of regions.
-    Hugechunk*		   hugechunk_page_to_hugechunk[1];	// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
+    Quire*		quire;					// Quire (multipage ram region) from which we allocate.
+    Hugechunk_Quire*	next;					// Next heapchunk_quire in linklist.
+    Hugechunk*		hugechunk_page_to_hugechunk[1];		// MUST BE LAST!  Map from hugechunk pages to hugechunks. ('1' is a phony dimension.)
 };
 
-// Size of a hugechunk region record for
-// a region containing a given number
+// Size of a hugechunk_quire record for
+// a quire containing a given number
 // of hugechunk pages:
 //
 #define HUGECHUNK_REGION_RECORD_BYTESIZE(NPAGES)    (sizeof(Hugechunk_Quire) + ((NPAGES-1)*sizeof(Hugechunk*)))					// "-1" because struct declaration has   hugechunk_page_to_hugechunk[1]

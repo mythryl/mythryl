@@ -114,7 +114,7 @@ Hugechunk*   allocate_hugechunk_quire   (
 	=
 	MAX_AGEGROUPS;
 
-    hq->ram_region		= quire;
+    hq->quire			= quire;
     //
     hq->next			= heap->hugechunk_quires;
     heap->hugechunk_quires	= hq;
@@ -243,7 +243,7 @@ Hugechunk*   allocate_hugechunk   (
     if (hq->age_of_youngest_live_chunk_in_region > age) {
 	hq->age_of_youngest_live_chunk_in_region = age;
 	//
-	set_book2sibid_entries_for_range (book_to_sibid__global, (Val*)hq, BYTESIZE_OF_QUIRE( hq->ram_region ), HUGECHUNK_DATA_SIBID(age));
+	set_book2sibid_entries_for_range (book_to_sibid__global,  (Val*)hq,  BYTESIZE_OF_QUIRE( hq->quire ),  HUGECHUNK_DATA_SIBID( age ));
 
 	book_to_sibid__global[ GET_BOOK_CONTAINING_POINTEE( hq ) ]
 	    =

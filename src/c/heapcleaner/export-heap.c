@@ -330,8 +330,8 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		    print_hugechunk_quire_map( hq );
 		#endif
 
-		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( hq->ram_region );
-		header[i].bytesize	    =  BYTESIZE_OF_QUIRE( hq->ram_region );
+		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( hq->quire );
+		header[i].bytesize	    =  BYTESIZE_OF_QUIRE(     hq->quire );
 		header[i].first_ram_quantum =  hq->first_ram_quantum;
 	    }
 	}

@@ -447,7 +447,7 @@ static void   read_heap   (
 		    //
 		    book_to_sibid__global,
                     (Val*) free_quire,
-		    BYTESIZE_OF_QUIRE( free_quire->ram_region ),
+		    BYTESIZE_OF_QUIRE( free_quire->quire ),
 		    HUGECHUNK_DATA_SIBID( i )
 		);
 

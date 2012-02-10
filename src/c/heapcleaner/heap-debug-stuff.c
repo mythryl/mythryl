@@ -629,21 +629,21 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 
 
     fprintf(fd,"\n\n--------------------------------------\nHugechunk region list contains %d quires:\n", heap->hugechunk_quire_count		);
-    for (Hugechunk_Quire* q = heap->hugechunk_quires;
-			  q;
-			  q = q->next
+    for (Hugechunk_Quire* hq = heap->hugechunk_quires;
+			  hq;
+			  hq = hq->next
     ){
         fprintf(fd,"\n"																	);
-	fprintf(fd,"    hugechunk_region header q p= %p\n",	 	q										);
-	fprintf(fd,"    q->next                   p= %p\n",		q->next										);
-	fprintf(fd,"    q->first_ram_quantum      x= %p\n", (void*)	q->first_ram_quantum								);
-	fprintf(fd,"    q->page_count             x= %08x\n",		q->page_count									);
-	fprintf(fd,"    q->free_pages             x= %08x\n",		q->page_count									);
-	fprintf(fd,"    q->ram_region             p= %p\n",		q->ram_region									);
-	fprintf(fd,"    q->ram_region->base       p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE( q->ram_region )						);
-	fprintf(fd,"    q->ram_region->bytesize   p= %p\n",(void*)	BYTESIZE_OF_QUIRE(     q->ram_region )						);
-	fprintf(fd,"    q->ram_region->...           (remaining fields are OS-dependent and not shown)\n"						);
-	fprintf(fd,"    q->age_of_youngest_live_chunk_in_region   x= %08x\n",		q->age_of_youngest_live_chunk_in_region				);
+	fprintf(fd,"    hugechunk_region header hq p= %p\n",	 	hq										);
+	fprintf(fd,"    hq->next                   p= %p\n",		hq->next									);
+	fprintf(fd,"    hq->first_ram_quantum      x= %p\n", (void*)	hq->first_ram_quantum								);
+	fprintf(fd,"    hq->page_count             x= %08x\n",		hq->page_count									);
+	fprintf(fd,"    hq->free_pages             x= %08x\n",		hq->page_count									);
+	fprintf(fd,"    hq->quire                  p= %p\n",		hq->quire									);
+	fprintf(fd,"    hq->quire->base            p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE( hq->quire )						);
+	fprintf(fd,"    hq->quire->bytesize        p= %p\n",(void*)	BYTESIZE_OF_QUIRE(     hq->quire )						);
+	fprintf(fd,"    hq->quire->...           (remaining fields are OS-dependent and not shown)\n"							);
+	fprintf(fd,"    hq->age_of_youngest_live_chunk_in_region   x= %08x\n",		hq->age_of_youngest_live_chunk_in_region				);
 	
     }
 

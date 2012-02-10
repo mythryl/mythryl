@@ -283,20 +283,20 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
     // Re-label book_to_sibid__global entries for hugechunk regions to reflect promotions:
     //
-    for (Hugechunk_Quire* q = heap->hugechunk_quires;  q != NULL;  q = q->next) {
+    for (Hugechunk_Quire* hq = heap->hugechunk_quires;  hq != NULL;  hq = hq->next) {
 	//
 	// If the minimum age of the live chunks in
 	// the region is less than or equal to oldest_agegroup_to_clean
 	// then it is possible that it has increased
 	// as a result of promotions or freeing of chunks.
 
-	if (q->age_of_youngest_live_chunk_in_region <= oldest_agegroup_to_clean) {
+	if (hq->age_of_youngest_live_chunk_in_region <= oldest_agegroup_to_clean) {
 	    //
 	    int min = MAX_AGEGROUPS;
 
-	    for (int i = 0;  i < q->page_count;  ) {
+	    for (int i = 0;  i < hq->page_count;  ) {
 		//
-		Hugechunk* p  = q->hugechunk_page_to_hugechunk[ i ];
+		Hugechunk* p  = hq->hugechunk_page_to_hugechunk[ i ];
 
 		if (!HUGECHUNK_IS_FREE( p )									// HUGECHUNK_IS_FREE				def in    src/c/h/heap.h
 		&&  p->age < min
@@ -307,18 +307,18 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		i += hugechunk_size_in_hugechunk_ram_quanta( p );							// hugechunk_size_in_hugechunk_ram_quanta	def in   src/c/h/heap.h
 	    }
 
-	    if (q->age_of_youngest_live_chunk_in_region != min) {
-		q->age_of_youngest_live_chunk_in_region  = min;
+	    if (hq->age_of_youngest_live_chunk_in_region != min) {
+		hq->age_of_youngest_live_chunk_in_region  = min;
 
 		set_book2sibid_entries_for_range (
 		    //
 		    b2s,
-		    (Val*) q,
-		    BYTESIZE_OF_QUIRE( q->ram_region ),
+		    (Val*) hq,
+		    BYTESIZE_OF_QUIRE( hq->quire ),
 		    HUGECHUNK_DATA_SIBID( min )
 		);
 
-		b2s[ GET_BOOK_CONTAINING_POINTEE( q ) ]
+		b2s[ GET_BOOK_CONTAINING_POINTEE( hq ) ]
 		    =
 		    HUGECHUNK_RECORD_SIBID( min );
 	    }
