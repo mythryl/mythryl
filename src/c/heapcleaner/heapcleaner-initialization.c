@@ -314,8 +314,8 @@ void   set_up_heap   (			// Create and initialize the heap.
     heap->active_agegroups			= params->active_agegroups;
     //
     heap->agegroup0_heapcleanings_count		= 0;
-    heap->hugechunk_ramregion_count		= 0;
-    heap->hugechunk_ramregions			= NULL;
+    heap->hugechunk_quire_count			= 0;
+    heap->hugechunk_quires			= NULL;
     //
     heap->hugechunk_freelist			= MALLOC_CHUNK( Hugechunk );
     heap->hugechunk_freelist->chunk		= (Punt)0;

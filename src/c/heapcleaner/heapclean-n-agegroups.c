@@ -283,7 +283,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
     // Re-label book_to_sibid__global entries for hugechunk regions to reflect promotions:
     //
-    for (Hugechunk_Quire* q = heap->hugechunk_ramregions;  q != NULL;  q = q->next) {
+    for (Hugechunk_Quire* q = heap->hugechunk_quires;  q != NULL;  q = q->next) {
 	//
 	// If the minimum age of the live chunks in
 	// the region is less than or equal to oldest_agegroup_to_clean

@@ -116,10 +116,10 @@ Hugechunk*   allocate_hugechunk_quire   (
 
     hq->ram_region		= quire;
     //
-    hq->next			= heap->hugechunk_ramregions;
-    heap->hugechunk_ramregions	= hq;
+    hq->next			= heap->hugechunk_quires;
+    heap->hugechunk_quires	= hq;
 
-    heap->hugechunk_ramregion_count++;
+    heap->hugechunk_quire_count++;
 
     for (int i = 0;  i < npages;  i++) {
         //

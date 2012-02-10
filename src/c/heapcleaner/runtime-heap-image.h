@@ -63,7 +63,7 @@ typedef struct {
     int active_agegroups;						// The number of heap generations.
     int smallchunk_sibs_count;						// The number of small-chunk sibs (one each for pairs, records, strings, vectors).
     int hugechunk_sibs_count;						// The number of hugechunk kinds (currently 1 -- codechunks).
-    int hugechunk_ramregion_count;					// The number of hugechunk regions in the exporting address space.
+    int hugechunk_quire_count;						// The number of hugechunk quires in the exporting address space.
     int oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;	// The oldest agegroup retaining fromspace buffer, instead of returning it to host OS after heapcleaning is complete.
     //
     Punt agegroup0_buffer_bytesize;					// The size of the agegroup0 allocation buffers used by the runtime.
@@ -79,7 +79,7 @@ typedef struct {
 typedef struct {
     Unt1    smallchunk_sibs_count;					// The number of small-chunk sib buffers (one each for pairs, records, strings and vectors).
     Unt1    hugechunk_sibs_count;					// The number of hugechunk kinds. (Currently just 1, for codechunks.)
-    Unt1    hugechunk_ramregion_count;					// The number of hugechunk quires in the exporting address space.
+    Unt1    hugechunk_quire_count;					// The number of hugechunk quires in the exporting address space.
     Bool     contains_code;						// TRUE iff the pickle contains code.
     Val	     root_chunk;						// The pickle's root chunk.
 } Pickle_Header;
@@ -113,7 +113,7 @@ typedef struct {
 
 // The heap header consists of 'active_agegroups' agegroup descriptions,
 // each of which consists of (smallchunk_sibs_count+hugechunk_sibs_count) Sib_Header records.
-// After the agegroup descriptors, there are hugechunk_ramregion_count Hugechunk_Quire_Header
+// After the agegroup descriptors, there are hugechunk_quire_count Hugechunk_Quire_Header
 // records.  The page aligned heap image follows the heap header.
 //
 

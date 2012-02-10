@@ -81,8 +81,8 @@ struct heap {
 											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
-    int		        hugechunk_ramregion_count;					// Number of active hugechunk regions.
-    Hugechunk_Quire*   hugechunk_ramregions;						// List of hugechunk regions.
+    int		        hugechunk_quire_count;						// Number of active hugechunk regions.
+    Hugechunk_Quire*	hugechunk_quires;						// List of hugechunk regions.
     Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
 
     Val*		weakrefs_forwarded_during_heapcleaning;				// List of weakrefs forwarded during heapcleaning.

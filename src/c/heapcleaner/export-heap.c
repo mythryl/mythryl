@@ -158,7 +158,7 @@ static Status   write_heap_image_to_file   (
 	//
 	hh.smallchunk_sibs_count	= MAX_PLAIN_SIBS;						// MAX_PLAIN_SIBS			def in    src/c/h/sibid.h
 	hh.hugechunk_sibs_count		= MAX_HUGE_SIBS;						// MAX_HUGE_SIBS			def in    src/c/h/sibid.h
-	hh.hugechunk_ramregion_count	= heap->hugechunk_ramregion_count;
+	hh.hugechunk_quire_count	= heap->hugechunk_quire_count;
 	//
 	hh.oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings
 	    =
@@ -308,21 +308,21 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 
     int pagesize =  GET_HOST_HARDWARE_PAGE_BYTESIZE();			// GET_HOST_HARDWARE_PAGE_BYTESIZE		def in   src/c/h/system-dependent-stuff.h
 
-    // Write the hugechunk region descriptors:
+    // Write the hugechunk quire descriptors:
     {
 
 	#ifdef BO_DEBUG
-	    debug_say("%d hugechunk regions\n", heap->hugechunk_ramregion_count);
+	    debug_say("%d hugechunk quires\n", heap->hugechunk_quire_count);
 	#endif
 
-	int size =  heap->hugechunk_ramregion_count * sizeof( Hugechunk_Quire_Header );
+	int size =  heap->hugechunk_quire_count * sizeof( Hugechunk_Quire_Header );
 
 	Hugechunk_Quire_Header* header =  (Hugechunk_Quire_Header*) MALLOC (size);
 
         {   int i = 0;
 	    //
 	    for (Hugechunk_Quire*
-		hq = heap->hugechunk_ramregions;
+		hq = heap->hugechunk_quires;
 		hq != NULL;
 		hq = hq->next,   i++
 	    ){

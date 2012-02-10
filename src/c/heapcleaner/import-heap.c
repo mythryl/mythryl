@@ -286,17 +286,17 @@ static void   read_heap   (
 	int		  size;
 	Hugechunk_Quire_Header* boRgnHdr;
 
-	boRegionTable = make_address_hashtable(LOG2_BOOK_BYTESIZE+1, header->hugechunk_ramregion_count);
+	boRegionTable = make_address_hashtable(LOG2_BOOK_BYTESIZE+1, header->hugechunk_quire_count);
 
-	size = header->hugechunk_ramregion_count * sizeof(Hugechunk_Quire_Header);
+	size = header->hugechunk_quire_count * sizeof(Hugechunk_Quire_Header);
 
 	boRgnHdr = (Hugechunk_Quire_Header*) MALLOC (size);
 
 	heapio__read_block( bp, boRgnHdr, size );
 
-	boRelocInfo = MALLOC_VEC(Hugechunk_Quire_Relocation_Info, header->hugechunk_ramregion_count);
+	boRelocInfo = MALLOC_VEC(Hugechunk_Quire_Relocation_Info, header->hugechunk_quire_count);
 
-	for (i = 0;  i < header->hugechunk_ramregion_count;  i++) {
+	for (i = 0;  i < header->hugechunk_quire_count;  i++) {
 
 	    set_book2sibid_entries_for_range(oldBOOK2SIBID,
 		(Val*)(boRgnHdr[i].base_address),
@@ -607,7 +607,7 @@ static void   read_heap   (
 
     // Release storage:
     //
-    for (i = 0; i < header->hugechunk_ramregion_count;  i++) {
+    for (i = 0; i < header->hugechunk_quire_count;  i++) {
       //
 	Hugechunk_Relocation_Info*	p;
 	for (p = NULL, j = 0;  j < boRelocInfo[i].page_count;  j++) {

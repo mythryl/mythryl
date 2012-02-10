@@ -103,7 +103,7 @@ static Val   pickle_unboxed_value   (Task* task,  Val root_chunk) {
 
     pickle_header.smallchunk_sibs_count     =  0;
     pickle_header.hugechunk_sibs_count      =  0;
-    pickle_header.hugechunk_ramregion_count =  0;
+    pickle_header.hugechunk_quire_count =  0;
     //
     pickle_header.contains_code	           =  FALSE;
     pickle_header.root_chunk		   =  root_chunk;
@@ -273,7 +273,7 @@ static Val   pickle_heap_datastructure   (Task *task,  Val root_chunk,  Pickler_
 
 	header.smallchunk_sibs_count     =  smallchunk_sibs_count;
 	header.hugechunk_sibs_count      =  0;			// FIX THIS   XXX BUGGO FIXME
-	header.hugechunk_ramregion_count =  0;			// FIX THIS   XXX BUGGO FIXME
+	header.hugechunk_quire_count =  0;			// FIX THIS   XXX BUGGO FIXME
 
 	if (!IS_EXTERNAL_TAG( root_chunk )) {
 

@@ -148,7 +148,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
     fprintf(fd,"                sum of above two p=%p\n",  (char*)(task->heap->agegroup0_master_buffer) + task->heap->agegroup0_master_buffer_bytesize);
     fprintf(fd,"                           quire p=%p\n",  task->heap->quire);
     fprintf(fd,"                active_agegroups d=%d\n",  task->heap->active_agegroups);
-    fprintf(fd,"       hugechunk_ramregion_count d=%d\n",  task->heap->hugechunk_ramregion_count);
+    fprintf(fd,"           hugechunk_quire_count d=%d\n",  task->heap->hugechunk_quire_count);
     fprintf(fd,"           total_bytes_allocated x=(%x,%x) (millions, 1s)\n",  (unsigned int)task->heap->total_bytes_allocated.millions, (unsigned int)task->heap->total_bytes_allocated.ones );
     fprintf(fd,"oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings d=%d\n",  task->heap->oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings);
 
@@ -628,8 +628,8 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 
 
 
-    fprintf(fd,"\n\n--------------------------------------\nHugechunk region list contains %d regions:\n", heap->hugechunk_ramregion_count		);
-    for (Hugechunk_Quire* q = heap->hugechunk_ramregions;
+    fprintf(fd,"\n\n--------------------------------------\nHugechunk region list contains %d quires:\n", heap->hugechunk_quire_count		);
+    for (Hugechunk_Quire* q = heap->hugechunk_quires;
 			  q;
 			  q = q->next
     ){
