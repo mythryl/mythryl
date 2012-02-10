@@ -133,7 +133,7 @@ void   heapclean_agegroup0   (Task* task,  Val** roots) {
 															sib_name__global[ i+1 ],
 															//
 															age1->sib[ i ]->tospace,
-															age1->sib[ i ]->fromspace.oldstuff_end,
+															age1->sib[ i ]->fromspace.seniorchunks_end,
 															age1->sib[ i ]->tospace.used_end
 														    );
 														}

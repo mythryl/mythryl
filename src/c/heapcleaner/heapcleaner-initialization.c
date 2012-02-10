@@ -397,7 +397,7 @@ void   set_up_heap   (			// Create and initialize the heap.
 
 	for (int ilk = 0;  ilk < MAX_PLAIN_SIBS;  ilk++) {
 	    //
-	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace.oldstuff_end
+	    heap->agegroup[ 0 ]->sib[ ilk ]->fromspace.seniorchunks_end
 		=
 		heap->agegroup[ 0 ]->sib[ ilk ]->tospace.start;
 	}

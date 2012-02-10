@@ -533,16 +533,16 @@ static void   wrap_up_cleaning   (Task* task,  int max_age)   {
 																	// sib_is_active	def in    src/c/h/heap.h
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.oldstuff_end =  g->sib[ j ]->tospace.start;
-		else			           g->sib[ j ]->fromspace.oldstuff_end =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.seniorchunks_end =  g->sib[ j ]->tospace.start;
+		else			           g->sib[ j ]->fromspace.seniorchunks_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int j = 0;  j < MAX_PLAIN_SIBS;  j++) {
 		//
-		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.oldstuff_end =  g->sib[ j ]->tospace.used_end;
-		else			           g->sib[ j ]->fromspace.oldstuff_end =  NULL;
+		if (sib_is_active( g->sib[ j ] ))  g->sib[ j ]->fromspace.seniorchunks_end =  g->sib[ j ]->tospace.used_end;
+		else			           g->sib[ j ]->fromspace.seniorchunks_end =  NULL;
 	    }
 	}
     }

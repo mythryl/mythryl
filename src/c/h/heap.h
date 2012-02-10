@@ -180,14 +180,14 @@ struct sib {
 	Val_Sized_Unt	bytesize;				// Size of from-space.
 	Val*		used_end;				// The end of the used portion of from-space.
 
-	Val*		oldstuff_end;				// We require that a chunk survive two heapcleans in a
+	Val*		seniorchunks_end;				// We require that a chunk survive two heapcleans in a
 								// given agegroup before being promoted to the next agegroup.
 								// To this end we divide the chunks in a given agegroup sib into
-								// "young" (have not yet survived a heapclean) and
-								// "old" (have survived one heapclean).  This pointer tracks the
-								// boundary between old and young;  Chunks before this get promoted
+								// "junior" (have not yet survived a heapclean) and
+								// "senior" (have survived one heapclean).  This pointer tracks the
+								// boundary between senior and junior;  Chunks before this get promoted
 								// if they survive the next heapcleaning; those beyond it do not.
-								// Special case: chunks in the oldest active agegroup are forever young.
+								// Special case: chunks in the oldest active agegroup are forever junior.
     } fromspace;
 
     Sib*		sib_for_promoted_chunks;		// Next older sib, except for oldest sib, which points to itself.
@@ -235,13 +235,13 @@ inline Bool   sib_is_active   (Sib* sib)   {
 }
 
 // 
-inline Bool   sib_chunk_is_old   (Sib* sib,  Val* pointer)   {
-    //        ================
+inline Bool   sib_chunk_is_senior   (Sib* sib,  Val* pointer)   {
+    //        ===================
     //
     // Return TRUE iff 'pointer' is in
-    // the 'old' segment of this sib:
+    // the 'senior chunks' segment of this sib:
     //
-    return   pointer < sib->fromspace.oldstuff_end;
+    return   pointer < sib->fromspace.seniorchunks_end;
 }
 
 //

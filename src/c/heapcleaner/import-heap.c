@@ -402,11 +402,11 @@ static void   read_heap   (
 
 		ap->tospace.used_end  = (Val *)((Punt)(ap->tospace.start) + p->info.o.bytesize);
 
-		ap->fromspace.oldstuff_end =  ap->tospace.start;
+		ap->fromspace.seniorchunks_end =  ap->tospace.start;
 
 	    } else if (sib_is_active(ap)) {
 
-		ap->fromspace.oldstuff_end =  ap->tospace.start;
+		ap->fromspace.seniorchunks_end =  ap->tospace.start;
 	    }
 
 	    if (verbosity > 0)   say(".");

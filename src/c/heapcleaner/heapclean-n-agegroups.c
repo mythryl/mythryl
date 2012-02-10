@@ -339,7 +339,7 @@ static void         forward_promote_or_reclaim_all_hugechunks                  (
 }
 
 //
-static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
+static void         update_fromspace_seniorchunks_end_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
     //              ======================================
     //
     // Background:  We require that a chunk survive two heapcleans in
@@ -354,7 +354,7 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
     // Special case: chunks in the oldest active agegroup are forever young.
     //
     // We are called at the end of a heapcleaning;  Our job is to
-    // appropriately update the 'fromspace.oldstuff_end' pointers
+    // appropriately update the 'fromspace.seniorchunks_end' pointers
     // marking the boundary between 'old' and 'young' chunks in
     // each sib in each agegroup.
     //
@@ -368,16 +368,16 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
             //
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {							// sib_is_active	def in    src/c/h/heap.h
 	        //
-		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace.oldstuff_end =  age->sib[ s ]->tospace.start;
-		else		                    age->sib[ s ]->fromspace.oldstuff_end =  NULL;
+		if (sib_is_active( age->sib[ s ]))  age->sib[ s ]->fromspace.seniorchunks_end =  age->sib[ s ]->tospace.start;
+		else		                    age->sib[ s ]->fromspace.seniorchunks_end =  NULL;
 	    }
 
 	} else {
 
 	    for (int s = 0;   s < MAX_PLAIN_SIBS;   ++s) {
 	        //
-		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->fromspace.oldstuff_end =  age->sib[ s ]->tospace.used_end;
-		else		                     age->sib[ s ]->fromspace.oldstuff_end =  NULL;
+		if (sib_is_active( age->sib[ s ] ))  age->sib[ s ]->fromspace.seniorchunks_end =  age->sib[ s ]->tospace.used_end;
+		else		                     age->sib[ s ]->fromspace.seniorchunks_end =  NULL;
 	    }
 	}
     }
@@ -556,7 +556,7 @@ void                heapclean_n_agegroups   (Task* task,  Val** roots,  int leve
 
     forward_promote_or_reclaim_all_hugechunks( heap, oldest_agegroup_to_clean );
 
-    update_fromspace_oldstuff_end_pointers( heap, oldest_agegroup_to_clean);
+    update_fromspace_seniorchunks_end_pointers( heap, oldest_agegroup_to_clean);
 
     do_end_of_heapcleaning_statistics_stuff( task,  heap,  max_swept_agegroup,  oldest_agegroup_to_clean,  tospace_limit);
 
@@ -803,7 +803,7 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 		    =
 		    (Punt)  sib->fromspace.used_end
                     -
-                    (Punt)  sib->fromspace.oldstuff_end;
+                    (Punt)  sib->fromspace.seniorchunks_end;
 
 	    } else {
 
@@ -874,11 +874,11 @@ static int          establish_all_necessary_empty_tospace_sib_buffers       (Tas
 		    BOOKROUNDED_BYTESIZE( preferred_bytesize_for_sib );							// Round up to a multiple of 64KB.
 	    }
 
-	    // Note: any data between sib->fromspace.oldstuff_end
+	    // Note: any data between sib->fromspace.seniorchunks_end
 	    // and sib->tospace.used_end is "young",
 	    // and should stay in this agegroup.
 	    //
-	    if (sib->fromspace.bytesize > 0)   bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   (Punt) sib->fromspace.oldstuff_end - (Punt) sib->fromspace.start;
+	    if (sib->fromspace.bytesize > 0)   bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   (Punt) sib->fromspace.seniorchunks_end - (Punt) sib->fromspace.start;
 	    else 		               bytes_of_oldstuff_in_next_younger_agegroup[ s ] =   0;
 	}
 
@@ -1386,7 +1386,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    to_sib =  heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_POINTERS_SIB ];
 
-	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib = to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
+	    if (sib_chunk_is_senior( to_sib, chunk ))   to_sib = to_sib->sib_for_promoted_chunks;				// sib_chunk_is_senior				def in   src/c/h/heap.h
 	}
 	break;
 
@@ -1420,7 +1420,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RO_CONSCELL_SIB ];
 
-		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;
+		if (sib_chunk_is_senior( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;
 
 		new_chunk =  to_sib->tospace.used_end;
 
@@ -1461,7 +1461,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
-		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
+		if (sib_chunk_is_senior( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;				// sib_chunk_is_senior				def in   src/c/h/heap.h
 		//
 		break;
 
@@ -1471,7 +1471,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 		//
 		to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ NONPTR_DATA_SIB ];
 		//
-		if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;					// sib_chunk_is_old				def in   src/c/h/heap.h
+		if (sib_chunk_is_senior( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;				// sib_chunk_is_senior				def in   src/c/h/heap.h
 		//
 		#ifdef ALIGN_FLOAT64S
 		#  ifdef CHECK_HEAP
@@ -1528,7 +1528,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 	    to_sib = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ]->sib[ RW_POINTERS_SIB ];
 
-	    if (sib_chunk_is_old( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;			// sib_chunk_is_old		def in   src/c/h/heap.h
+	    if (sib_chunk_is_senior( to_sib, chunk ))   to_sib =  to_sib->sib_for_promoted_chunks;		// sib_chunk_is_senior		def in   src/c/h/heap.h
         }
 	break;
 
@@ -1653,12 +1653,12 @@ static Val          forward_special_chunk   (
     Sib*	sib = ag->sib[ RW_POINTERS_SIB ];
     Val*	new_chunk;
 
-    if (sib_chunk_is_old( sib, chunk ))   sib = sib->sib_for_promoted_chunks;							// sib_chunk_is_old		def in   src/c/h/heap.h
+    if (sib_chunk_is_senior( sib, chunk ))   sib = sib->sib_for_promoted_chunks;						// sib_chunk_is_senior		def in   src/c/h/heap.h
 
     // Allocate the new chunk:
     //
     new_chunk = sib->tospace.used_end;
-    sib->tospace.used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;								// All specials are two words.
+    sib->tospace.used_end += SPECIAL_CHUNK_SIZE_IN_WORDS;									// All specials are two words.
 
     switch (GET_LENGTH_IN_WORDS_FROM_TAGWORD(tagword)) {									// We abuse the 'length' field in specials to carry extra type information.
         //															// Since all specials are two words long, this causes no problem.

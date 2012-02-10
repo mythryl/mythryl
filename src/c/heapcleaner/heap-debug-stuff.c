@@ -184,7 +184,7 @@ static void   dump_task__guts   (FILE* fd, Task* task, char* caller) {
 	    fprintf(fd,"          a->sib[%d].tospace.used_end p=%p\n",  s, a->sib[s]->tospace.used_end);
 	    fprintf(fd,"          a->sib[%d].tospace.swept_end p=%p\n",  s, a->sib[s]->tospace.swept_end);
 	    fprintf(fd,"          a->sib[%d].repairlist p=%p\n",  s, a->sib[s]->repairlist);
-	    fprintf(fd,"          a->sib[%d].end_of_fromespace_oldstuff p=%p\n",  s, a->sib[s]->fromspace.oldstuff_end);
+	    fprintf(fd,"          a->sib[%d].end_of_fromespace_oldstuff p=%p\n",  s, a->sib[s]->fromspace.seniorchunks_end);
 	}
     }
 }
@@ -427,7 +427,7 @@ static void   dump_sib   (Task* task, FILE* fd, Sib* sib) {
     fprintf(fd,"                     sib->fromspace.bytesize x= 0x%08x\n",(unsigned int)	sib->fromspace.bytesize				);
     fprintf(fd,"                     sib->fromspace.used_end p= %p\n",				sib->fromspace.used_end				);
     fprintf(fd,"\n"																);
-    fprintf(fd,"                     sib->fromspace.oldstuff_end p= %p\n",		sib->fromspace.oldstuff_end				);
+    fprintf(fd,"                     sib->fromspace.seniorchunks_end p= %p\n",		sib->fromspace.seniorchunks_end				);
     fprintf(fd,"                     sib->sib_for_promoted_chunks   p= %p\n",		sib->sib_for_promoted_chunks				);
     fprintf(fd,"\n"																);
     fprintf(fd,"                     sib->heap_needs_repair b= %s\n",			sib->heap_needs_repair ? "TRUE" : "FALSE"		);
