@@ -52,7 +52,7 @@ struct cleaner_args {		// "typedef   struct cleaner_args_rec   Heapcleaner_Args;
 //
 typedef   struct repair            Repair;						// Defined below.
 typedef   struct sib               Sib;							// Defined below.
-typedef   struct hugechunk_region  Hugechunk_Quire;					// Defined below.
+typedef   struct hugechunk_quire  Hugechunk_Quire;					// Defined below.
 typedef   struct hugechunk  	   Hugechunk;						// Defined below.
 typedef   struct agegroup          Agegroup;						// Defined below.
 
@@ -81,7 +81,7 @@ struct heap {
 											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
-    int		        hugechunk_quire_count;						// Number of active hugechunk regions.
+    int		        hugechunk_quire_count;						// Number of active hugechunk quires.
     Hugechunk_Quire*	hugechunk_quires;						// List of hugechunk regions.
     Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
 
@@ -344,7 +344,7 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 
 // A hugechunk region:
 //
-struct hugechunk_region {
+struct hugechunk_quire {
     //
     Punt first_ram_quantum;					// Address of the first ram quantum of the region.
     //
@@ -519,7 +519,7 @@ extern Hugechunk*   address_to_hugechunk      (Val addr);							// address_to_hu
 extern Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp);					// get_codechunk_comment_string_else_null			def in   src/c/heapcleaner/hugechunk.c
 
 #ifdef BO_DEBUG
-    extern void print_hugechunk_region_map (Hugechunk_Quire *r);						// print_hugechunk_region_map					def in   src/c/heapcleaner/hugechunk.c
+    extern void print_hugechunk_quire_map (Hugechunk_Quire *r);						// print_hugechunk_quire_map					def in   src/c/heapcleaner/hugechunk.c
 #endif
 
 #ifdef CHECK_GC

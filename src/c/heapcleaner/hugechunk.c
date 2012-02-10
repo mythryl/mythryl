@@ -13,7 +13,7 @@
 
 
 
-void   print_hugechunk_region_map   (Hugechunk_Quire* hq)   {
+void   print_hugechunk_quire_map   (Hugechunk_Quire* hq)   {
     // =========================
     //
     Hugechunk*	dp;
@@ -252,7 +252,7 @@ Hugechunk*   allocate_hugechunk   (
 
     #ifdef BO_DEBUG
         debug_say ("allocate_hugechunk: %d bytes @ %#x\n", hugechunk_bytesize, new_chunk->chunk);
-        print_hugechunk_region_map(hq);
+        print_hugechunk_quire_map(hq);
     #endif
 
     return new_chunk;
@@ -288,7 +288,7 @@ void   free_hugechunk   (
             last_ram_quantum
         );
 	//
-	print_hugechunk_region_map(hq);
+	print_hugechunk_quire_map(hq);
     #endif
 
     if (first_ram_quantum > 0

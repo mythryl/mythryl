@@ -327,7 +327,7 @@ static Status   write_heap   (Writer* wr,  Heap* heap)   {
 		hq = hq->next,   i++
 	    ){
 		#ifdef BO_DEBUG
-		    print_hugechunk_region_map( hq );
+		    print_hugechunk_quire_map( hq );
 		#endif
 
 		header[i].base_address      =  BASE_ADDRESS_OF_QUIRE( hq->ram_region );
