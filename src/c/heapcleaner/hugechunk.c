@@ -12,9 +12,9 @@
 #ifdef BO_DEBUG
 
 
-
-void   print_hugechunk_quire_map   (Hugechunk_Quire* hq)   {
-    // =========================
+//
+void         print_hugechunk_quire_map   (Hugechunk_Quire* hq)   {
+    //       =========================
     //
     Hugechunk*	dp;
     Hugechunk*	dq;
@@ -39,7 +39,7 @@ void   print_hugechunk_quire_map   (Hugechunk_Quire* hq)   {
 
 #endif
 
-
+//
 Hugechunk*   allocate_hugechunk_quire   (
     //       =========================
     // 
@@ -142,7 +142,7 @@ Hugechunk*   allocate_hugechunk_quire   (
 }
 
 
-
+//
 Hugechunk*   allocate_hugechunk   (
     //       ==================
     //
@@ -153,26 +153,31 @@ Hugechunk*   allocate_hugechunk   (
 ) {
     // Allocate a hugechunk of the given size.
 
-    Hugechunk*   header;
     Hugechunk*   dp;
     Hugechunk*   new_chunk;
 
     Hugechunk_Quire* hq;
 
-    int npages;
     int first_ram_quantum;
 
     Punt total_bytesize
 	=
 	ROUND_UP_TO_POWER_OF_TWO( hugechunk_bytesize, HUGECHUNK_RAM_QUANTUM_IN_BYTES );
 
-    npages = (total_bytesize >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES);
+    int npages =  total_bytesize >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
+
+    Hugechunk*
+        //
+        header = heap->hugechunk_freelist;
 
     // Search for a free chunk that is big enough (first-fit):
     //
-    header = heap->hugechunk_freelist;
-    //
-    for (dp = header->next;  (dp != header) && (dp->bytesize < total_bytesize);  dp = dp->next);
+    for (dp = header->next;
+	 //
+	 dp != header  &&  dp->bytesize < total_bytesize;
+	 //
+	 dp = dp->next
+    );
 
     if (dp == header) {
 	//
@@ -195,9 +200,9 @@ Hugechunk*   allocate_hugechunk   (
 	    new_chunk			= MALLOC_CHUNK(Hugechunk);
 	    new_chunk->chunk		= dp->chunk;
 	    new_chunk->hugechunk_quire	= hq;
-	    dp->chunk			= (Punt)(dp->chunk) + total_bytesize;
 
-	    dp->bytesize  -= total_bytesize;
+	    dp->chunk      =  (Punt)(dp->chunk) + total_bytesize;
+	    dp->bytesize  -=  total_bytesize;
 
 	    insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, dp );						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
 
@@ -221,12 +226,13 @@ Hugechunk*   allocate_hugechunk   (
 
         // Split the free chunk, leaving dp in the free list:
         //
-	hq			    = dp->hugechunk_quire;
+	hq =  dp->hugechunk_quire;
+
 	new_chunk		    = MALLOC_CHUNK( Hugechunk );
 	new_chunk->chunk	    = dp->chunk;
 	new_chunk->hugechunk_quire  = hq;
-	dp->chunk		    = (Punt)(dp->chunk) + total_bytesize;
 
+	dp->chunk     = (Punt)(dp->chunk) + total_bytesize;
 	dp->bytesize -= total_bytesize;
 
 	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
@@ -263,9 +269,9 @@ Hugechunk*   allocate_hugechunk   (
     return new_chunk;
 }
 
-
-void   free_hugechunk   (
-    // ==============
+//
+void         free_hugechunk   (
+    //       ==============
     //
     Heap*     heap,
     Hugechunk* chunk
@@ -353,7 +359,7 @@ void   free_hugechunk   (
     insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, chunk );						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
 }
 
-
+//
 Hugechunk*   address_to_hugechunk   (Val addr) {
     //       ====================
     //
@@ -374,9 +380,9 @@ Hugechunk*   address_to_hugechunk   (Val addr) {
 }
 
 
-
-Unt8*   codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_counter)   {
-    //  ============================================
+//
+Unt8*        codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_counter)   {
+    //       ============================================
     //
     // Return the comment string of the codechunk
     // containing the given program counter, or else NULL.
@@ -406,9 +412,9 @@ Unt8*   codechunk_comment_string_for_program_counter   (Val_Sized_Unt  program_c
 }
 
 
-
-Unt8*   get_codechunk_comment_string_else_null   (Hugechunk* bdp) {
-    //  ==================
+//
+Unt8*        get_codechunk_comment_string_else_null   (Hugechunk* bdp) {
+    //       ======================================
     //
     // Return the tag of the given code chunk.
 
@@ -422,3 +428,26 @@ Unt8*   get_codechunk_comment_string_else_null   (Hugechunk* bdp) {
 // COPYRIGHT (c) 1993 by AT&T Bell Laboratories.
 // Subsequent changes by Jeff Prothero Copyright (c) 2010-2011,
 // released under Gnu Public Licence version 3.
+
+
+
+
+
+/*
+##########################################################################
+#   The following is support for outline-minor-mode in emacs.		 #
+#  ^C @ ^T hides all Text. (Leaves all headings.)			 #
+#  ^C @ ^A shows All of file.						 #
+#  ^C @ ^Q Quickfolds entire file. (Leaves only top-level headings.)	 #
+#  ^C @ ^I shows Immediate children of node.				 #
+#  ^C @ ^S Shows all of a node.						 #
+#  ^C @ ^D hiDes all of a node.						 #
+#  ^HFoutline-mode gives more details.					 #
+#  (Or do ^HI and read emacs:outline mode.)				 #
+#									 #
+# Local variables:							 #
+# mode: outline-minor							 #
+# outline-regexp: "[A-Za-z]"			 		 	 #
+# End:									 #
+##########################################################################
+*/

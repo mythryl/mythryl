@@ -191,10 +191,9 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
             //
 	    promote_agegroup = heap->agegroup[ age-1 ];
 
-	    forward_state = YOUNG_HUGECHUNK;							// Oldest gen has only YOUNG chunks.
+	    forward_state = YOUNG_HUGECHUNK;							// Oldest active agegroup has only YOUNG chunks.
 
-	    promote_state = YOUNG_HUGECHUNK;
-// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning.
+	    promote_state = YOUNG_HUGECHUNK;		// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning. XXX QUERO FIXME
 
 	} else {
 	    //
@@ -329,7 +328,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
 //
 static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int oldest_agegroup_to_clean) {
-    //              =========================================
+    //              ======================================
     //
     // Background:  We require that a chunk survive two heapcleans in
     // a given agegroup before being promoted to the next agegroup.
@@ -374,7 +373,7 @@ static void         update_fromspace_oldstuff_end_pointers   (Heap* heap, int ol
 
 //
 static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap* heap,  int max_swept_agegroup,  int oldest_agegroup_to_clean,  Val** tospace_limit)   {
-    //              ===================================
+    //              =======================================
     //
     // Cleaner statistics:
 
@@ -428,7 +427,7 @@ static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap
 
 //
 static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
-    //       ========================
+    //              ========================
     //
     //
     #if !NEED_HEAPCLEANER_PAUSE_STATISTICS								// Don't do timing when collecting pause data.
@@ -1081,7 +1080,7 @@ static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
 //
 //
 static Bool         forward_rest_of_ro_pointers_sib   (								// Called only from forward_all_remaining_live_chunks (below).
-    //       ===============================
+    //              ===============================
     //
     Agegroup* ag,
     Heap*     heap,
@@ -1563,7 +1562,7 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
 
     INCREMENT_HUGECHUNK2_COUNT;													// INCREMENT_HUGECHUNK2_COUNT		def at top of file.
 
-    Hugechunk_Quire* q;														// Hugechunk_Quire			def in    src/c/h/heap.h
+    Hugechunk_Quire* hq;													// Hugechunk_Quire			def in    src/c/h/heap.h
     {
 	int  book;
 	for (book =  GET_BOOK_CONTAINING_POINTEE( codechunk );
@@ -1573,12 +1572,12 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
             sibid =  book_to_sibid__global[ --book ]
         );
 
-	q =  (Hugechunk_Quire*) ADDRESS_OF_BOOK( book );
+	hq =  (Hugechunk_Quire*) ADDRESS_OF_BOOK( book );
     }
  
     Hugechunk*															// Hugechunk				def in    src/c/h/heap.h
         //
-	hc = get_hugechunk_holding_pointee( q, codechunk );									// get_hugechunk_holding_pointee	def in    src/c/h/heap.h
+	hc = get_hugechunk_holding_pointee( hq, codechunk );									// get_hugechunk_holding_pointee	def in    src/c/h/heap.h
 
     if (hc->age <= oldest_agegroup_to_clean
         &&
@@ -1796,7 +1795,7 @@ static Val          forward_special_chunk   (
 //
 //
 static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
-    //        =========
+    //              =========
     // 
     // After a major collection, trim any sib buffers that are over their maximum
     // size in space-allocated, but under their maximum size in space-used.

@@ -119,10 +119,12 @@ Heapcleaner_Args*   handle_heapcleaner_commandline_arguments   (char **argv) {
 	    } else if (MATCH("gc-generations")) {
 
 		CHECK("gc-generations");
-		params->active_agegroups = atoi(option_arg);
+
+		params->active_agegroups =  atoi( option_arg );
+
 		if (params->active_agegroups < 1)
 		    params->active_agegroups = 1;
-		else if (params->active_agegroups > MAX_ACTIVE_AGEGROUPS)
+                if (params->active_agegroups > MAX_ACTIVE_AGEGROUPS)
 		    params->active_agegroups = MAX_ACTIVE_AGEGROUPS;
 
 	    } else if (MATCH("vmcache")) {

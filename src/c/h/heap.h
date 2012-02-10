@@ -73,14 +73,19 @@ typedef   struct agegroup          Agegroup;						// Defined below.
 struct heap {
     Val*		agegroup0_master_buffer;					// Base address of the master buffer from which we allocate the individual per-task agegroup0 buffers.
     Punt		agegroup0_master_buffer_bytesize;				// Size-in-bytes of the agegroup0_buffers master buffer.
+
     Quire*		quire;								// The memory region we got from the host OS to contain the book_to_sibid map and agegroup0 buffer(s).
 
-    int			active_agegroups;						// Number of active agegroups.
-    int			agegroup0_heapcleanings_count;					// Count how many times we've cleaned (garbage-collected) heap agegroup zero.
+    int			active_agegroups;						// Number of active agegroups. (Not including agegroup0.)  Typically 5 -- see DEFAULT_ACTIVE_AGEGROUPS in src/c/h/runtime-configuration.h
+											// This value is never changed once set in src/c/heapcleaner/heapcleaner-initialization.c
+
+    int			agegroup0_heapcleanings_count;					// Count of how many times we've heapcleaned ("garbage-collected") heap agegroup zero.
+
     int			oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings;	// Between heapcleanings retain the from-space buffer (only) for agegroups 1..oldest_agegroup_retaining_fromspace_sibs_between_heapcleanings.
 											// For more background, see comments on DEFAULT_OLDEST_AGEGROUP_RETAINING_FROMSPACE_SIBS_BETWEEN_HEAPCLEANINGS in src/c/h/runtime-configuration.h
 
     Agegroup*	        agegroup[ MAX_AGEGROUPS ];					// Age-group #i is in agegroup[i-1]
+
     int		        hugechunk_quire_count;						// Number of active hugechunk quires.
     Hugechunk_Quire*	hugechunk_quires;						// List of hugechunk quires.
     Hugechunk*		hugechunk_freelist;						// Freelist header for hugechunks.
@@ -88,8 +93,8 @@ struct heap {
     Val*		weakrefs_forwarded_during_heapcleaning;				// List of weakrefs forwarded during heapcleaning.
 											// This is really local state for the heapcleaner -- it doesn't belong here.  XXX SUCKO FIXME.
     //
-    Bigcounter   total_bytes_allocated;							// Cleaner statistics -- tracks number of bytes  allocated.
-    Bigcounter   total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];		// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
+    Bigcounter		total_bytes_allocated;						// Cleaner statistics -- tracks number of bytes  allocated.
+    Bigcounter		total_bytes_copied_to_sib[ MAX_AGEGROUPS ][ MAX_PLAIN_SIBS ];	// Cleaner statistics -- tracks number of bytes copied into each sib buffer.
 };
 
 
