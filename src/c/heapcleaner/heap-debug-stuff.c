@@ -562,11 +562,11 @@ static char* chunkstate_to_string( unsigned char state ) {
     //
     switch (state) {
     //
-    case FREE_HUGECHUNK:			return "FREE_HUGECHUNK";
-    case YOUNG_HUGECHUNK:			return "YOUNG_HUGECHUNK";
-    case YOUNG_FORWARDED_HUGECHUNK:		return "YOUNG_FORWARDED_HUGECHUNK";
-    case OLD_HUGECHUNK:				return "OLD_HUGECHUNK";
-    case OLD_PROMOTED_HUGECHUNK:		return "OLD_PROMOTED_HUGECHUNK";
+    case FREE_HUGECHUNK:				return "FREE_HUGECHUNK";
+    case YOUNG_HUGECHUNK:				return "YOUNG_HUGECHUNK";
+    case YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED:	return "YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED";
+    case OLD_HUGECHUNK:					return "OLD_HUGECHUNK";
+    case OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED:		return "OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED";
     //
     default:
 	return "???";
@@ -582,7 +582,7 @@ static void   dump_hugechunk   (FILE* fd, Hugechunk* p) {
     fprintf(fd,"    chunk           p= %p   (This is the actual free chunk itself)\n", (void*)p->chunk);
     fprintf(fd,"    bytesize        x= %x\n", (unsigned int)p->bytesize);							// Punt
     fprintf(fd,"    huge_ilk        d= %d  (Currently always CODE__HUGE_SIB=%d) \n", p->huge_ilk, CODE__HUGE_SIB);		// unsigned char
-    fprintf(fd,"    state            = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_FORWARDED_HUGECHUNK/OLD_HUGECHUNK/OLD_PROMOTED_HUGECHUNK) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
+    fprintf(fd,"    state            = %s  (One of FREE_HUGECHUNK/YOUNG_HUGECHUNK/YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED/OLD_HUGECHUNK/OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED) \n", chunkstate_to_string(p->hugechunk_state));	// unsigned char
     fprintf(fd,"    age             d= %d  (Chunk's agegroup)\n", (int)p->age);						// unsigned char
     fprintf(fd,"    hugechunk_quire p= %p  (Hugechunk_Quire containing hugechunk)\n", p->hugechunk_quire);
 }

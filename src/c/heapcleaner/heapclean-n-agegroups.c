@@ -108,7 +108,7 @@ Cleaner statistics stuff:
  static Val        forward_chunk					(Heap*          heap,   Sibid          max_sibid,             Val    chunk,               Sibid                                 id				);
  static Val        forward_special_chunk				(Heap*          heap,   Sibid          max_sibid,             Val*   chunk,               Sibid                                 id,                 Val tagword	);
 //
- static Hugechunk* forward_hugechunk					(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
+ static Hugechunk* mark_hugechunk_to_be_forwarded_or_promoted					(Heap*          heap,   int            max_agegroup,          Val    chunk,               Sibid                                 id				);
 
 //
 
@@ -150,8 +150,12 @@ static inline void  forward_pointee_if_in_fromspace   (Heap* heap,  Sibid* b2s, 
     }
 }
 //
-static void         reclaim_fromspace_hugechunks                  (Heap* heap,  int oldest_agegroup_to_clean)   {
-    //              ============================
+static void         forward_promote_or_reclaim_all_hugechunks                  (Heap* heap,  int oldest_agegroup_to_clean)   {
+    //              =========================================
+    //
+    // Cycle over all hugechunks, forwarding, promoting or reclaiming
+    // each one as appropriate.  Hugechunks are marked for promotion
+    // or forwarding by mark_hugechunk_to_be_forwarded_or_promoted().
     //
     // Dead records, pairs, strings and vectors are never explicitly
     // reclaimed;  they simply get left behind after we have copied all
@@ -164,6 +168,14 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
     //
     // Consquently when hugechunks -do- become garbage we must in fact
     // explicitly free them.  That is our task here.
+    //
+    // Hugechunks which need to be forwarded or promoted have been
+    // so marked by
+    //
+    //     mark_hugechunk_to_be_forwarded_or_promoted ()
+    //
+    // At this point the remaining hugechunks not so marked are
+    // garbage and can be reclaimed.
     //
     // We reclaim hugechunks agegroup by agegroup from oldest to
     // youngest so that we can promote them.
@@ -183,7 +195,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 
 
         // NOTE: There should never be any hugechunk
-        // with the OLD_PROMOTED_HUGECHUNK tag in the oldest agegroup.
+        // with the OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED tag in the oldest agegroup.
         //
 	if (age == heap->active_agegroups) {
 
@@ -191,7 +203,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
             //
 	    promote_agegroup = heap->agegroup[ age-1 ];
 
-	    forward_state = YOUNG_HUGECHUNK;							// Oldest active agegroup has only YOUNG chunks.
+	    forward_state = YOUNG_HUGECHUNK;							// Oldest active agegroup holds only YOUNG hugechunks.
 
 	    promote_state = YOUNG_HUGECHUNK;		// Is this value correct?  Added arbitrarily to resolve a gcc compiler warning. XXX QUERO FIXME
 
@@ -237,7 +249,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		    free_hugechunk( heap, p );								// free_hugechunk		def in    src/c/heapcleaner/hugechunk.c
 		    break;
 
-		case YOUNG_FORWARDED_HUGECHUNK:
+		case YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED:
 		    //
 		    p->hugechunk_state = forward_state;
 		    //
@@ -245,7 +257,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		    forward   = p;
 		    break;
 
-		case OLD_PROMOTED_HUGECHUNK:
+		case OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED:
 		    //
 		    p->hugechunk_state = promote_state;
 		    //
@@ -542,7 +554,7 @@ void                heapclean_n_agegroups   (Task* task,  Val** roots,  int leve
 
     null_out_newly_dead_weakrefs( heap );									// null_out_newly_dead_weakrefs					def in    src/c/heapcleaner/heapcleaner-stuff.c
 
-    reclaim_fromspace_hugechunks( heap, oldest_agegroup_to_clean );
+    forward_promote_or_reclaim_all_hugechunks( heap, oldest_agegroup_to_clean );
 
     update_fromspace_oldstuff_end_pointers( heap, oldest_agegroup_to_clean);
 
@@ -1039,7 +1051,7 @@ static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
 
 		    if (SIBID_KIND_IS_CODE( sibid )) {
 			//
-			Hugechunk* p =  forward_hugechunk( heap, oldest_agegroup_to_clean, word, sibid );
+			Hugechunk* p =  mark_hugechunk_to_be_forwarded_or_promoted( heap, oldest_agegroup_to_clean, word, sibid );
 
 			target_age = p->age;
 
@@ -1185,7 +1197,7 @@ static Bool         forward_rest_of_rw_pointers_sib              (Agegroup* ag, 
 
 		    if (SIBID_KIND_IS_CODE( sibid )) {
 		        //
-			Hugechunk*  p =   forward_hugechunk( heap, oldest_agegroup_to_clean, w, sibid );
+			Hugechunk*  p =   mark_hugechunk_to_be_forwarded_or_promoted( heap, oldest_agegroup_to_clean, w, sibid );
 			target_age = p->age;
 
 		    } else {
@@ -1521,7 +1533,7 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 	break;
 
     case CODE_KIND:
-	forward_hugechunk( heap, GET_AGE_FROM_SIBID(max_sibid), v, sibid );
+	mark_hugechunk_to_be_forwarded_or_promoted( heap, GET_AGE_FROM_SIBID(max_sibid), v, sibid );
 	return v;
 
     default:
@@ -1553,10 +1565,28 @@ static Val          forward_chunk                      (Heap* heap,  Sibid max_s
 
 //
 //
-static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest_agegroup_to_clean,   Val codechunk,   Sibid sibid)   {
-    //              =================
+static Hugechunk*   mark_hugechunk_to_be_forwarded_or_promoted                  (Heap* heap,   int oldest_agegroup_to_clean,   Val codechunk,   Sibid sibid)   {
+    //              ==========================================
     //
     // 'sibid' is the book_to_sibid__global entry for codechunk.
+    //
+    // Plain chunks are forwarded by copying them from a
+    // sib buffer for one agegroup to the corresponding
+    // sib buffer in the next-oldest agegroup.
+    //
+    // Hugechunks are (by definition) too large to copy
+    // during heapcleaning, so promoting them is a matter
+    // of bookkeeping rather than copying.
+    //  
+    // We do the actual work of promoting and forwarding
+    // hugechunks in a separate postpass, implemented in
+    //  
+    //     forward_promote_or_reclaim_all_hugechunks ()
+    //
+    // Here we merely set the hugechunk's state to record
+    // whether it should be forwarded or promoted.  (Any
+    // hugechunk not forwarded or promoted will be reclaimed.)
+    //
     // Return the Hugechunk record for 'codechunk'.
 
 
@@ -1588,10 +1618,10 @@ static Hugechunk*   forward_hugechunk                  (Heap* heap,   int oldest
 
 	// Forward the hugechunk.
         // Note that chunks in the oldest agegroup
-	// will always be YOUNG, thus will never be promoted:									// YOUNG_FORWARDED_HUGECHUNK		def in    src/c/h/heap.h
+	// will always be YOUNG, thus will never be promoted:									// YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED		def in    src/c/h/heap.h
 	//
-	if (hc->hugechunk_state == YOUNG_HUGECHUNK)  hc->hugechunk_state = YOUNG_FORWARDED_HUGECHUNK;				// This is the only place we set state to YOUNG_FORWARDED_HUGECHUNK
-	else			                     hc->hugechunk_state =    OLD_PROMOTED_HUGECHUNK;				// This is the only place we set state to   OLD_PROMOTED_HUGECHUNK
+	if (hc->hugechunk_state == YOUNG_HUGECHUNK)  hc->hugechunk_state = YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED;		// This is the only place we set state to YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED
+	else			                     hc->hugechunk_state = OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED;		// This is the only place we set state to   OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED
     }
 
     return  hc;

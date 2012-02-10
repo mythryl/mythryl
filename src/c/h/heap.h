@@ -390,11 +390,11 @@ inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* hq,  Val p
 //    matter to HUGECHUNK_IS_IN_FROMSPACE
 //    (below). 
 //
-#define            FREE_HUGECHUNK	0	// A free hugechunk.
-#define           YOUNG_HUGECHUNK	1	// A young hugechunk, i.e., one that has never been forwarded in its agegroup.
-#define YOUNG_FORWARDED_HUGECHUNK	2	// A forwarded young hugechunk.
-#define             OLD_HUGECHUNK	3	// An old hugechunk.
-#define    OLD_PROMOTED_HUGECHUNK	4	// A promoted old hugechunk.
+#define  FREE_HUGECHUNK				0	// A free hugechunk.
+#define YOUNG_HUGECHUNK				1	// A young hugechunk, i.e., one that has never been forwarded in its agegroup.
+#define YOUNG_HUGECHUNK_WAITING_TO_BE_FORWARDED	2	// Temporary state during an ongoing heapcleaning: A YOUNG_HUGECHUNK due to become an OLD_HUGECHUNK in the same        agegroup.
+#define   OLD_HUGECHUNK				3	// An old hugechunk.
+#define   OLD_HUGECHUNK_WAITING_TO_BE_PROMOTED	4	// Temporary state during an ongoing heapcleaning: An OLD_HUGECHUNK due to become a YOUNG_HUGECHUNK in the next-oldest agegroup.
 
 #define HUGECHUNK_IS_IN_FROMSPACE(dp)	(((dp)->hugechunk_state & 0x1) != 0)		// Ickytricky.	Used only once, in   src/c/heapcleaner/heapclean-n-agegroups.c
 #define HUGECHUNK_IS_FREE(dp)		((dp)->hugechunk_state == FREE_HUGECHUNK)
