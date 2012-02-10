@@ -643,7 +643,7 @@ static void   dump_hugechunks_summary__guts   (FILE* fd, Task* task, char* calle
 	fprintf(fd,"    hq->quire->base            p= %p\n",(void*)	BASE_ADDRESS_OF_QUIRE( hq->quire )						);
 	fprintf(fd,"    hq->quire->bytesize        p= %p\n",(void*)	BYTESIZE_OF_QUIRE(     hq->quire )						);
 	fprintf(fd,"    hq->quire->...           (remaining fields are OS-dependent and not shown)\n"							);
-	fprintf(fd,"    hq->age_of_youngest_live_chunk_in_region   x= %08x\n",		hq->age_of_youngest_live_chunk_in_region				);
+	fprintf(fd,"    hq->age_of_youngest_live_chunk_in_quire   x= %08x\n",		hq->age_of_youngest_live_chunk_in_quire				);
 	
     }
 

@@ -1,6 +1,6 @@
 // hugechunk.c
 //
-// Code for managing hugechunk regions.
+// Code for managing hugechunk quires.
 
 #include "../mythryl-config.h"
 
@@ -46,14 +46,14 @@ Hugechunk*   allocate_hugechunk_quire   (
     Heap* heap,
     Punt  bytesize
 ){
-    // Allocate a hugechunk region that is
+    // Allocate a hugechunk quire that is
     // large enough to hold an chunk of at
-    // least bytesize bytes.
+    // least 'bytesize' bytes.
     //
     // It returns the descriptor for the
-    // free hugechunk that is the region.
+    // free hugechunk that is the quire.
     //
-    // NOTE: We do not mark the book_to_sibid__global entries for the region;
+    // NOTE: We do not mark the book_to_sibid__global entries for the quire;
     //       this must be done by the caller.
 
     int npages;
@@ -110,7 +110,7 @@ Hugechunk*   allocate_hugechunk_quire   (
     hq->page_count	= npages;
     hq->free_pages	= npages;
     //
-    hq->age_of_youngest_live_chunk_in_region
+    hq->age_of_youngest_live_chunk_in_quire
 	=
 	MAX_AGEGROUPS;
 
@@ -245,8 +245,8 @@ Hugechunk*   allocate_hugechunk   (
 
     hq->free_pages  -=  npages;
 
-    if (hq->age_of_youngest_live_chunk_in_region > age) {
-	hq->age_of_youngest_live_chunk_in_region = age;
+    if (hq->age_of_youngest_live_chunk_in_quire > age) {
+	hq->age_of_youngest_live_chunk_in_quire = age;
 	//
 	set_book2sibid_entries_for_range (book_to_sibid__global,  (Val*)hq,  BYTESIZE_OF_QUIRE( hq->quire ),  HUGECHUNK_DATA_SIBID( age ));
 

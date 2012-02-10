@@ -290,7 +290,7 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 	// then it is possible that it has increased
 	// as a result of promotions or freeing of chunks.
 
-	if (hq->age_of_youngest_live_chunk_in_region <= oldest_agegroup_to_clean) {
+	if (hq->age_of_youngest_live_chunk_in_quire <= oldest_agegroup_to_clean) {
 	    //
 	    int min = MAX_AGEGROUPS;
 
@@ -307,8 +307,8 @@ static void         reclaim_fromspace_hugechunks                  (Heap* heap,  
 		i += hugechunk_size_in_hugechunk_ram_quanta( p );							// hugechunk_size_in_hugechunk_ram_quanta	def in   src/c/h/heap.h
 	    }
 
-	    if (hq->age_of_youngest_live_chunk_in_region != min) {
-		hq->age_of_youngest_live_chunk_in_region  = min;
+	    if (hq->age_of_youngest_live_chunk_in_quire != min) {
+		hq->age_of_youngest_live_chunk_in_quire  = min;
 
 		set_book2sibid_entries_for_range (
 		    //

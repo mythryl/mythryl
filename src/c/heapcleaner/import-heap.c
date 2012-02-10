@@ -439,7 +439,7 @@ static void   read_heap   (
 
 		free_quire = free_chunk->hugechunk_quire;
 
-		free_quire->age_of_youngest_live_chunk_in_region
+		free_quire->age_of_youngest_live_chunk_in_quire
 		    =
                     i;
 

@@ -342,8 +342,8 @@ inline Punt   agegroup0_buffer_size_in_words   (Task* task)   {
 #define HUGECHUNK_RAM_QUANTUM_IN_BYTES			(1 << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
 #define MINIMUM_HUGECHUNK_QUIRE_BYTESIZE		(128*ONE_K_BINARY)
 
-// A hugechunk multipage ram region allocated directly
-// from the host OS (i.e., not through malloc()):
+// A hugechunk "quire" -- a multipage ram region allocated
+// directly from the host OS (i.e., not through malloc()):
 //
 struct hugechunk_quire {
     //
@@ -351,7 +351,7 @@ struct hugechunk_quire {
     //
     int	 page_count;						// Number of hugechunk pages in this region.
     int	 free_pages;						// Number of free pages.
-    int	 age_of_youngest_live_chunk_in_region;			// Minimum age over all live hugechunks in region.
+    int	 age_of_youngest_live_chunk_in_quire;			// Minimum age over all live hugechunks in region.
     //
     Quire*		quire;					// Quire (multipage ram region) from which we allocate.
     Hugechunk_Quire*	next;					// Next heapchunk_quire in linklist.
