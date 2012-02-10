@@ -79,7 +79,7 @@ Hugechunk*   allocate_hugechunk_quire   (
     do {
 	old_npages = npages;
 
-	record_bytesize = ROUND_UP_TO_POWER_OF_TWO(HUGECHUNK_REGION_RECORD_BYTESIZE(npages), HUGECHUNK_RAM_QUANTUM_IN_BYTES);
+	record_bytesize = ROUND_UP_TO_POWER_OF_TWO(HUGECHUNK_QUIRE_RECORD_BYTESIZE(npages), HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 
 	bytesize = (npages << LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES);
 
@@ -132,7 +132,7 @@ Hugechunk*   allocate_hugechunk_quire   (
     chunk->bytesize 		=  bytesize;
     //
     chunk->hugechunk_state	=  FREE_HUGECHUNK;
-    chunk->region	 	=  hq;
+    chunk->hugechunk_quire 	=  hq;
 
     #ifdef BO_DEBUG
 	debug_say ("allocate_hugechunk_quire: %d pages @ %#x\n", npages, hq->first_ram_quantum);
@@ -180,7 +180,7 @@ Hugechunk*   allocate_hugechunk   (
 	//
 	dp = allocate_hugechunk_quire( heap, total_bytesize );
 
-	hq = dp->region;
+	hq = dp->hugechunk_quire;
 
 	if (dp->bytesize == total_bytesize) {
 	    //
@@ -192,12 +192,15 @@ Hugechunk*   allocate_hugechunk   (
 
 	    // Split the free chunk:
 	    //
-	    new_chunk		= MALLOC_CHUNK(Hugechunk);
-	    new_chunk->chunk	= dp->chunk;
-	    new_chunk->region	= hq;
-	    dp->chunk		= (Punt)(dp->chunk) + total_bytesize;
+	    new_chunk			= MALLOC_CHUNK(Hugechunk);
+	    new_chunk->chunk		= dp->chunk;
+	    new_chunk->hugechunk_quire	= hq;
+	    dp->chunk			= (Punt)(dp->chunk) + total_bytesize;
+
 	    dp->bytesize  -= total_bytesize;
-	    insert_hugechunk_in_doubly_linked_list(heap->hugechunk_freelist, dp);						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
+
+	    insert_hugechunk_in_doubly_linked_list( heap->hugechunk_freelist, dp );						// insert_hugechunk_in_doubly_linked_list	def in   src/c/h/heap.h
+
 	    first_ram_quantum	= GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
 
 	    for (int i = 0;  i < npages;  i++) {
@@ -212,23 +215,25 @@ Hugechunk*   allocate_hugechunk   (
 
 	remove_hugechunk_from_doubly_linked_list(dp);						// remove_hugechunk_from_doubly_linked_list	def in   src/c/h/heap.h
 	new_chunk = dp;
-	hq = dp->region;
+	hq = dp->hugechunk_quire;
 
     } else {
 
         // Split the free chunk, leaving dp in the free list:
         //
-	hq		   = dp->region;
-	new_chunk	   = MALLOC_CHUNK(Hugechunk);
-	new_chunk->chunk   = dp->chunk;
-	new_chunk->region  = hq;
-	dp->chunk	   = (Punt)(dp->chunk) + total_bytesize;
+	hq			    = dp->hugechunk_quire;
+	new_chunk		    = MALLOC_CHUNK( Hugechunk );
+	new_chunk->chunk	    = dp->chunk;
+	new_chunk->hugechunk_quire  = hq;
+	dp->chunk		    = (Punt)(dp->chunk) + total_bytesize;
+
 	dp->bytesize -= total_bytesize;
-	first_ram_quantum  = GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
+
+	first_ram_quantum =  GET_HUGECHUNK_FOR_POINTER_PAGE(hq, new_chunk->chunk);
 
 	for (int i = 0;  i < npages;  i++) {
 	    //
-	    dp->region->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
+	    dp->hugechunk_quire->hugechunk_page_to_hugechunk[ first_ram_quantum + i ]
 		=
 		new_chunk;
         }
@@ -267,7 +272,7 @@ void   free_hugechunk   (
 ){
     // Mark a big chunk as free and add it to the free list.
 
-    Hugechunk_Quire* hq =  chunk->region;
+    Hugechunk_Quire* hq =  chunk->hugechunk_quire;
 
     Hugechunk* dp;
 

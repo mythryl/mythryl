@@ -362,20 +362,20 @@ struct hugechunk_quire {
 // a quire containing a given number
 // of hugechunk pages:
 //
-#define HUGECHUNK_REGION_RECORD_BYTESIZE(NPAGES)    (sizeof(Hugechunk_Quire) + ((NPAGES-1)*sizeof(Hugechunk*)))					// "-1" because struct declaration has   hugechunk_page_to_hugechunk[1]
+#define HUGECHUNK_QUIRE_RECORD_BYTESIZE( NPAGES )    (sizeof(Hugechunk_Quire) + ((NPAGES-1)*sizeof(Hugechunk*)))					// "-1" because struct declaration has   hugechunk_page_to_hugechunk[1]
 
 
 // Map an address to a hugechunk page index:
 //
-#define GET_HUGECHUNK_FOR_POINTER_PAGE(region, address)    (((Punt)(address) - (region)->first_ram_quantum) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
+#define GET_HUGECHUNK_FOR_POINTER_PAGE(hugechunk_quire, address)    (((Punt)(address) - (hugechunk_quire)->first_ram_quantum) >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES)
 
 
-inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* region,  Val pointer)   {
+inline Hugechunk*   get_hugechunk_holding_pointee   (Hugechunk_Quire* hq,  Val pointer)   {
     //              =============================
     //
     // Map an address to the corresponding Hugechunk*
     //
-    return   region->hugechunk_page_to_hugechunk[   GET_HUGECHUNK_FOR_POINTER_PAGE( region, pointer )   ];
+    return   hq->hugechunk_page_to_hugechunk[   GET_HUGECHUNK_FOR_POINTER_PAGE( hq, pointer )   ];
 }
 
 
@@ -407,7 +407,7 @@ struct hugechunk {
     unsigned char   hugechunk_state;		// The state of the chunk -- see above #defines.
     unsigned char   age;			// The chunk's agegroup.
 
-    Hugechunk_Quire* region;			// The region this big chunk is in.
+    Hugechunk_Quire* hugechunk_quire;		// The Hugechunk_Quire holding this hugechunk.
 
     Hugechunk* prev;				// The prev and next links.  The hugechunk freelist
     Hugechunk* next;				// is a doubly linked list; the other lists are singly linked.

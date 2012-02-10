@@ -437,7 +437,7 @@ static void   read_heap   (
 
 		free_chunk = allocate_hugechunk_quire( heap, totSizeB );
 
-		free_quire = free_chunk->region;
+		free_quire = free_chunk->hugechunk_quire;
 
 		free_quire->age_of_youngest_live_chunk_in_region
 		    =
@@ -670,7 +670,7 @@ static Hugechunk*   allocate_a_hugechunk   (
 
     int npages =   total_bytesize >> LOG2_HUGECHUNK_RAM_QUANTUM_IN_BYTES;
 
-    Hugechunk_Quire* hq =  free->region;
+    Hugechunk_Quire* hq =  free->hugechunk_quire;
 
     if (free->bytesize == total_bytesize) {
 
@@ -683,9 +683,9 @@ static Hugechunk*   allocate_a_hugechunk   (
 
         // Split the free chunk:
         //
-	new_chunk	  =  MALLOC_CHUNK( Hugechunk );
-	new_chunk->chunk  =  free->chunk;
-	new_chunk->region =  hq;
+	new_chunk		    =  MALLOC_CHUNK( Hugechunk );
+	new_chunk->chunk	    =  free->chunk;
+	new_chunk->hugechunk_quire  =  hq;
 	//
 	free->chunk	     = (Punt)(free->chunk) + total_bytesize;
 	free->bytesize -= total_bytesize;
