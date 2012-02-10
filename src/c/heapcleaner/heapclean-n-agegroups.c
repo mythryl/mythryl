@@ -124,7 +124,7 @@ Cleaner statistics stuff:
 /* DEBUG */
 // static char *state_name[] = {"FREE", "YOUNG", "FORWARD", "OLD", "PROMOTE"};	// 2010-11-15 CrT: I commented this out because it is nowhere used.
 //
-static inline Punt   max   (Punt a,  Punt b)   {
+static inline Punt  max   (Punt a,  Punt b)   {
     //               ===
     //
     if (a > b)   return a;
@@ -427,7 +427,7 @@ static void         do_end_of_heapcleaning_statistics_stuff   (Task* task,  Heap
 }
 
 //
-static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
+static int          prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospace_limit, Task* task,  Heap* heap,  int level)   {
     //       ========================
     //
     //
@@ -499,8 +499,8 @@ static int   prepare_for_heapcleaning    (int* max_swept_agegroup,  Val** tospac
 }
 
 //
-void   heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
-    // =====================
+void                heapclean_n_agegroups   (Task* task,  Val** roots,  int level)   {
+    //              =====================
     // 
     // Clean (at least) the first 'level' agegroups.
     //
@@ -941,7 +941,7 @@ static void         forward_all_root_chunks (
 
     
 static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
-    //              ============================================
+    //              ====================================================
     Task*  task,
     Heap*  heap,
     int	   oldest_agegroup_to_clean
@@ -1076,7 +1076,7 @@ static void         forward_all_chunks_referenced_by_uncleaned_agegroups   (
 
 //
 //
-static Bool  forward_rest_of_ro_pointers_sib   (								// Called only from forward_all_remaining_live_chunks (below).
+static Bool         forward_rest_of_ro_pointers_sib   (								// Called only from forward_all_remaining_live_chunks (below).
     //       ===============================
     //
     Agegroup* ag,
@@ -1606,13 +1606,15 @@ static Val          forward_special_chunk   (
     Val		tagword
 ) {
     // Forward a "special chunk". (A suspension or weakref.)
+    //
     // This is trivial except in the case of weakrefs to
     // live data, where we must null out the weakref if
     // the referenced value gets garbage-collected this run.
+    //
     // We do this by making a list of all weakrefs processed
-    // and then after heapcleaning is complete, checking all
-    // weakrefs on the list;  any which point to garbage need
-    // to be nulled out.
+    // and then after heapcleaning is complete checking all
+    // weakrefs on the list.  Any which point to garbage need
+    // to be nulled out by null_out_newly_dead_weakrefs ().									// null_out_newly_dead_weakrefs		def in   src/c/heapcleaner/heapcleaner-stuff.c
     //
     Agegroup*	ag = heap->agegroup[ GET_AGE_FROM_SIBID(sibid)-1 ];
     Sib*	sib = ag->sib[ RW_POINTERS_SIB ];
@@ -1709,7 +1711,7 @@ static Val          forward_special_chunk   (
 			    // To do this efficiently, as we copy such weakrefs from
 			    // agegroup0 into agegroup1 we chain them togther via
 			    // their tagword fields with the root pointer kept
-			    // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
+			    // in ag1->heap->weakrefs_forwarded_during_heapcleaning.
 			    //
 			    // At the end of heapcleaning we will consume this chain of
 			    // weakrefs in null_out_newly_dead_weakrefs() where					// null_out_newly_dead_weakrefs	is from   src/c/heapcleaner/heapcleaner-stuff.c
@@ -1727,10 +1729,10 @@ static Val          forward_special_chunk   (
 												debug_say (" forward (start = %#x)\n", vp);
 											    #endif
 
-			    new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag->heap->weakrefs_forwarded_during_heapcleaning));
 			    new_chunk[1] =  MARK_POINTER(vp);
 
-			    ag->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
+			    ag->heap->weakrefs_forwarded_during_heapcleaning =  new_chunk;
 
 			    ++new_chunk;
 			}
@@ -1757,10 +1759,10 @@ static Val          forward_special_chunk   (
 
 			} else {
 
-			    new_chunk[0] = MARK_POINTER(PTR_CAST( Val, ag->heap->weak_pointers_forwarded_during_heapcleaning));
+			    new_chunk[0] = MARK_POINTER(PTR_CAST( Val, ag->heap->weakrefs_forwarded_during_heapcleaning));
 			    new_chunk[1] = MARK_POINTER(vp);
 
-			    ag->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
+			    ag->heap->weakrefs_forwarded_during_heapcleaning =  new_chunk;
 
 			    ++new_chunk;
 			}
@@ -1789,7 +1791,7 @@ static Val          forward_special_chunk   (
 
 //
 //
-static void   trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
+static void         trim_heap   (Task* task,  int oldest_agegroup_to_clean)   {
     //        =========
     // 
     // After a major collection, trim any sib buffers that are over their maximum

@@ -634,7 +634,7 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 			// To do this efficiently, as we copy such weakrefs from
 			// agegroup0 into agegroup1 we chain them togther via
 			// their tagword fields with the root pointer kept
-                        // in ag1->heap->weak_pointers_forwarded_during_heapcleaning.
+                        // in ag1->heap->weakrefs_forwarded_during_heapcleaning.
 			//
 			// At the end of heapcleaning we will consume this chain of
 			// weakrefs in null_out_newly_dead_weakrefs() where					// null_out_newly_dead_weakrefs	is from   src/c/heapcleaner/heapcleaner-stuff.c
@@ -651,10 +651,10 @@ static Val   forward_special_chunk   (Agegroup* ag1,  Val* chunk,   Val tagword)
 											    debug_say (" forward\n");
 											#endif
 
-			new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag1->heap->weak_pointers_forwarded_during_heapcleaning ));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
+			new_chunk[0] =  MARK_POINTER(PTR_CAST( Val, ag1->heap->weakrefs_forwarded_during_heapcleaning ));		// MARK_POINTER just sets the low bit to 1, making it look like an Int31 value
 			new_chunk[1] =  MARK_POINTER( vp );										// MARK_POINTER		is from   src/c/h/heap-tags.h
 
-			ag1->heap->weak_pointers_forwarded_during_heapcleaning =  new_chunk;
+			ag1->heap->weakrefs_forwarded_during_heapcleaning =  new_chunk;
 
 			++new_chunk;
 		    }

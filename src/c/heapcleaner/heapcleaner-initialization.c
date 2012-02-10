@@ -326,7 +326,7 @@ void   set_up_heap   (			// Create and initialize the heap.
     //
     heap->hugechunk_freelist->next		= heap->hugechunk_freelist;
     //
-    heap->weak_pointers_forwarded_during_heapcleaning		= NULL;
+    heap->weakrefs_forwarded_during_heapcleaning		= NULL;
 
     // Initialize new space:
     //

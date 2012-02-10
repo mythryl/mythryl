@@ -238,27 +238,28 @@ void   set_book2sibid_entries_for_range   (Sibid* book2sibid,  Val* base_address
 
 //
 void   null_out_newly_dead_weakrefs   (Heap* heap) {
-    // =================================
+    // ============================
     // 
-    // Weak pointers are not followed by the heapcleaner (garbage collector).
-    // The point of this is to allow us to (for example) maintain an index
-    // of all existing items of some kind while still allowing them to be
-    // garbage collected when no longer needed.  The index will see the weak
-    // pointers to recycled values turn Void at that point.  Implementing
-    // that is our job here.
+    // Weakrefs are special refcells not followed by the heapcleaner
+    // (garbage collector). The point of this is to allow us to
+    // (for example) maintain an index of all existing items of
+    // some kind while still allowing them to be garbage collected
+    // when no longer needed.  The index will see the weakrefs to
+    // recycled values turn Void at that point.  Implementing that
+    // is our job here.
     // 
-    // Scan the list of weak pointers,
-    // nullifying those that refer to
-    // dead (i.e., from-space) chunks.
-
+    // Our input is a list of forwarded weakrefs.
     // This list gets constructed in the functions
     // 
     //     forward_special_chunk()
     // in
     //     src/c/heapcleaner/heapclean-agegroup0.c
     //     src/c/heapcleaner/heapclean-n-agegroups.c
+    // 
+    // We the list of weakrefs nulling out those that
+    // refer to dead (i.e., from-space) chunks.
 
-    if (heap->weak_pointers_forwarded_during_heapcleaning == NULL)   return;			// No work to do.
+    if (heap->weakrefs_forwarded_during_heapcleaning == NULL)   return;			// No work to do.
 
     Sibid*	   b2s    =  book_to_sibid__global;						// Cache global locally for speed.   book_to_sibid__global	def in    src/c/heapcleaner/heapcleaner-initialization.c
 
@@ -266,7 +267,7 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
 
 												// debug_say ("scan_weak_pointers:\n");
 
-    for (Val* p = heap->weak_pointers_forwarded_during_heapcleaning;
+    for (Val* p = heap->weakrefs_forwarded_during_heapcleaning;
          p != NULL;
          p = next
     ){
@@ -335,7 +336,7 @@ void   null_out_newly_dead_weakrefs   (Heap* heap) {
 	}
     }
 
-    heap->weak_pointers_forwarded_during_heapcleaning =   NULL;
+    heap->weakrefs_forwarded_during_heapcleaning =   NULL;
 }
 
 
