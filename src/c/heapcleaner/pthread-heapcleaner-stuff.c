@@ -309,8 +309,8 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, va_list ap) {
 
 	extra_heapcleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
 	{   Val* p;
-	    while ((p = va_arg(ap, Val*)) != NULL)  *extra_heapcleaner_roots__local++ = p;		// Append our args to the extra-roots buffer.
-	    *extra_heapcleaner_roots__local = p;							// Terminate buffer with a NULL entry.
+	    while ((p = va_arg(ap, Val*)) != NULL)  *extra_heapcleaner_roots__local++ = p;	// Append our args to the extra-roots buffer.
+	    *extra_heapcleaner_roots__local = p;						// Terminate buffer with a NULL entry.
 	}
 
 	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
@@ -344,15 +344,14 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots
     pthread_mutex_lock(   &pth__mutex  );							// 
 	//
 	if (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {
+
 	    ////////////////////////////////////////////////////////////
 	    // We're a secondary heapcleaner -- we'll just wait() while
 	    // the primary heapcleaner pthread does all the actual work:
 	    ////////////////////////////////////////////////////////////
-	    for (Root*
-                x = extra_roots;
-		x;
-		x = x->next
-	    ){
+
+	    for (Root* x = extra_roots;  x;  x = x->next ) {
+		//
 		*extra_heapcleaner_roots__local++ = x->root;					// Append our args to the  extra-roots buffer.
 		*extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
 	    }
@@ -361,12 +360,17 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
 	    while (pth__heapcleaner_state != HEAPCLEANER_IS_OFF) {				// Wait for heapcleaning to complete.
+		//
 		pthread_cond_wait(&pth__condvar,&pth__mutex);
 	    }
 	    pthread->mode = PTHREAD_IS_RUNNING;							// Return to RUNNING mode from SECONDARY_HEAPCLEANER mode.
+
 	    ++pth__running_pthreads_count;
+
 	    pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
+
 	    pthread_mutex_unlock(  &pth__mutex  );
+
 // log_if("pth__start_heapcleaning_with_extra_roots: return FALSE.");
 	    return FALSE;									// Resume running user code.
 	}
@@ -380,16 +384,15 @@ int   pth__start_heapcleaning_with_extra_roots   (Task *task, Roots* extra_roots
 	pthread_cond_broadcast( &pth__condvar );						// Let other pthreads know state has changed.
 
 	extra_heapcleaner_roots__local = pth__extra_heapcleaner_roots__global;			// Clear extra-roots buffer.
-	for (Root*
-	    x = extra_roots;
-	    x;
-	    x = x->next
-	){
+
+	for (Root* x = extra_roots;  x;  x = x->next){
+	    //
 	    *extra_heapcleaner_roots__local++ = x->root;					// Append our args to the  extra-roots buffer.
 	    *extra_heapcleaner_roots__local = NULL;						// Terminate extra-roots buffer with a NULL pointer.
 	}
 
 	while (pth__running_pthreads_count > 0) {						// Wait until all PTHREAD_IS_RUNNING pthreads have entered PTHREAD_IS_SECONDARY_HEAPCLEANER mode.
+	    //
 	    pthread_cond_wait( &pth__condvar, &pth__mutex);
 	}
 

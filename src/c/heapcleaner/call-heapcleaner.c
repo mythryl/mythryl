@@ -500,7 +500,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, Roots* extra
 
 	int we_are_the_primary_heapcleaner_pthread
 	    =
-	    pth__start_heapcleaning_with_extra_roots (task, ap);						// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
+	    pth__start_heapcleaning_with_extra_roots (task, extra_roots);					// pth__start_heapcleaning_with_extra_roots	def in   src/c/heapcleaner/pthread-heapcleaner-stuff.c
 
 
 	if (!we_are_the_primary_heapcleaner_pthread)	{
@@ -509,7 +509,7 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, Roots* extra
 	    // return from pth__start_heapcleaning means that the heapcleaning
 	    // is already complete, so we can now resume execution of user code.
 	    //
-	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );				// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
+	    ASSIGN( THIS_FN_PROFILING_HOOK_REFCELL__GLOBAL, IN_RUNTIME__CPU_USER_INDEX );			// Remember that from here CPU cycles are charged to the runtime, not the heapcleaner.
 	    //
 	    return;
 	}
@@ -547,15 +547,12 @@ void   call_heapcleaner_with_extra_roots   (Task* task,  int level, Roots* extra
     }
     #else
     {
-        // Note extra roots from argument list:
+        // Note extra_roots from argument list:
 	//
-	va_start (ap, level);
-	//
-	while ((Val* p = va_arg(ap, Val *)) != NULL) {
+	for (Roots* x = extra_roots;  x;  x = x->next) {
 	    //
-	    *roots_ptr++ = p;
+	    *roots_ptr++ =  x->root;
 	}
-	va_end(ap);
     }
     #endif													// NEED_PTHREAD_SUPPORT
 
